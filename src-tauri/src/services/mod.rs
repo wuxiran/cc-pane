@@ -1,0 +1,23 @@
+mod project_service;
+mod terminal_service;
+mod history_service;
+mod hooks_service;
+mod journal_service;
+mod worktree_service;
+mod workspace_service;
+mod settings_service;
+mod provider_service;
+mod notification_service;
+mod launch_history_service;
+
+pub use project_service::ProjectService;
+pub use terminal_service::{TerminalService, SessionStatusInfo};
+pub use history_service::HistoryService;
+pub use hooks_service::HooksService;
+pub use journal_service::{JournalService, SessionSummary, JournalIndex};
+pub use worktree_service::{WorktreeService, WorktreeInfo};
+pub use workspace_service::WorkspaceService;
+pub use settings_service::SettingsService;
+pub use provider_service::ProviderService;
+pub use notification_service::NotificationService;
+pub use launch_history_service::LaunchHistoryService;

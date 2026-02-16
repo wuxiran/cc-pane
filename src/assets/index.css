@@ -1,0 +1,264 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ===== Light 主题（默认） ===== */
+:root {
+  --radius: 0.625rem;
+
+  /* shadcn 语义变量 — zinc 浅色系 */
+  --background: #eef2f6;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: #09090b;
+  --primary: #0a84ff;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --destructive: #ef4444;
+  --border: rgba(0, 0, 0, 0.12);
+  --input: rgba(0, 0, 0, 0.12);
+  --ring: #0a84ff;
+
+  --chart-1: #0a84ff;
+  --chart-2: #30d158;
+  --chart-3: #ffd60a;
+  --chart-4: #bf5af2;
+  --chart-5: #ff453a;
+
+  --sidebar: #f0f0f0;
+  --sidebar-foreground: #09090b;
+  --sidebar-primary: #0a84ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f4f4f5;
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-border: rgba(0, 0, 0, 0.12);
+  --sidebar-ring: #0a84ff;
+
+  /* 自定义应用层级变量 */
+  --app-menubar: rgba(248, 248, 248, 0.60);
+  --app-sidebar: rgba(240, 240, 240, 0.01);
+  --app-tabbar: rgba(240, 240, 240, 0.50);
+  --app-content: rgba(255, 255, 255, 0.30);
+  --app-overlay: #ffffff;
+  --app-accent: #0a84ff;
+  --app-text-primary: #1a1a1a;
+  --app-text-secondary: #6e6e73;
+  --app-text-tertiary: #a1a1a6;
+  --app-border: rgba(0, 0, 0, 0.12);
+  --app-hover: rgba(0, 0, 0, 0.04);
+  --app-active-bg: rgba(10, 132, 255, 0.1);
+
+  /* Glass 变量 */
+  --app-glass-bg: rgba(255, 255, 255, 0.40);
+  --app-glass-bg-heavy: rgba(255, 255, 255, 0.50);
+  --app-glass-bg-light: rgba(255, 255, 255, 0.18);
+  --app-glass-border: rgba(255, 255, 255, 0.55);
+  --app-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  --app-glass-shadow-sidebar: 5px 0 40px rgba(0, 0, 0, 0.08);
+  --app-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --app-glass-blur: 40px;
+  --app-glass-blur-sm: 24px;
+  --app-orb-1: rgba(59, 130, 246, 0.30);
+  --app-orb-2: rgba(168, 85, 247, 0.25);
+  --app-orb-3: rgba(236, 72, 153, 0.20);
+  --app-active-gradient-from: rgba(59, 130, 246, 0.20);
+  --app-active-gradient-to: rgba(59, 130, 246, 0.05);
+  --app-tab-highlight: rgba(255, 255, 255, 0.80);
+}
+
+/* ===== Dark 主题 ===== */
+.dark {
+  /* shadcn 语义变量 — 纯正深灰，无蓝紫色调 */
+  --background: #050505;
+  --foreground: #f5f5f7;
+  --card: #252525;
+  --card-foreground: #f5f5f7;
+  --popover: #383838;
+  --popover-foreground: #f5f5f7;
+  --primary: #0a84ff;
+  --primary-foreground: #ffffff;
+  --secondary: #2d2d2d;
+  --secondary-foreground: #f5f5f7;
+  --muted: #252525;
+  --muted-foreground: #a1a1a6;
+  --accent: #383838;
+  --accent-foreground: #f5f5f7;
+  --destructive: #ff453a;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.15);
+  --ring: #0a84ff;
+
+  --chart-1: #0a84ff;
+  --chart-2: #30d158;
+  --chart-3: #ffd60a;
+  --chart-4: #bf5af2;
+  --chart-5: #ff453a;
+
+  --sidebar: #252525;
+  --sidebar-foreground: #f5f5f7;
+  --sidebar-primary: #0a84ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #383838;
+  --sidebar-accent-foreground: #f5f5f7;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #0a84ff;
+
+  /* 自定义应用层级变量 */
+  --app-menubar: rgba(45, 45, 45, 0.40);
+  --app-sidebar: rgba(37, 37, 37, 0.01);
+  --app-tabbar: rgba(37, 37, 37, 0.40);
+  --app-content: rgba(26, 26, 26, 0.30);
+  --app-overlay: #383838;
+  --app-accent: #0a84ff;
+  --app-text-primary: #f5f5f7;
+  --app-text-secondary: #a1a1a6;
+  --app-text-tertiary: #6e6e73;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-hover: rgba(255, 255, 255, 0.06);
+  --app-active-bg: rgba(10, 132, 255, 0.15);
+
+  /* Glass 变量 */
+  --app-glass-bg: rgba(15, 23, 42, 0.25);
+  --app-glass-bg-heavy: rgba(15, 23, 42, 0.40);
+  --app-glass-bg-light: rgba(15, 23, 42, 0.12);
+  --app-glass-border: rgba(255, 255, 255, 0.15);
+  --app-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  --app-glass-shadow-sidebar: 5px 0 40px rgba(0, 0, 0, 0.20);
+  --app-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --app-glass-blur: 40px;
+  --app-glass-blur-sm: 24px;
+  --app-orb-1: rgba(59, 130, 246, 0.25);
+  --app-orb-2: rgba(139, 92, 246, 0.20);
+  --app-orb-3: rgba(6, 182, 212, 0.15);
+  --app-active-gradient-from: rgba(59, 130, 246, 0.20);
+  --app-active-gradient-to: rgba(59, 130, 246, 0.05);
+  --app-tab-highlight: rgba(255, 255, 255, 0.15);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* 全局滚动条 — Light */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* 全局滚动条 — Dark */
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* 空状态脉冲动画 */
+@keyframes pulse-glow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.15;
+  }
+}
+
+/* allotment 分隔条样式 */
+.split-container .sash-container .sash {
+  background: var(--app-glass-border);
+  transition: background 0.2s;
+}
+
+.split-container .sash-container .sash:hover {
+  background: var(--app-accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--app-accent) 40%, transparent);
+}
+
+.split-container .sash-container .sash.vertical {
+  width: 1px !important;
+  cursor: col-resize;
+}
+
+.split-container .sash-container .sash.vertical:hover {
+  width: 3px !important;
+}
+
+.split-container .sash-container .sash.horizontal {
+  height: 1px !important;
+  cursor: row-resize;
+}
+
+.split-container .sash-container .sash.horizontal:hover {
+  height: 3px !important;
+}

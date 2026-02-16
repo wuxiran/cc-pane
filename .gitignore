@@ -1,0 +1,52 @@
+# Rust 构建产物
+**/target/
+
+# Node.js
+node_modules/
+
+# 前端构建产物
+dist/
+.vite/
+
+# 环境与本地配置
+*.local
+.env
+.env.*
+
+# SQLite 数据库
+*.db
+*.sqlite
+*.sqlite-journal
+
+# IDE
+.vscode/
+.idea/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# Tauri 生成文件
+src-tauri/gen/
+
+# 参考项目与归档（不纳入版本控制）
+_reference/
+_archived_v1/
+
+# 工具目录
+.playwright-mcp/
+.ccpanes/
+.spec-workflow/
+.serena/
+
+# Claude 本地设置（不提交个人权限配置）
+.claude/settings.local.json
+
+# Windows null 文件
+nul
+
+# 系统脚本（不属于项目）
+__*.ps1
+
+# 测试工作空间数据
+test-workspace/

@@ -1,0 +1,7 @@
+target/
+node_modules/
+_reference/
+_archived_v1/
+.playwright-mcp/
+.ccpanes/
+.spec-workflow/
