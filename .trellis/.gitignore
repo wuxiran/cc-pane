@@ -1,0 +1,10 @@
+# Developer-specific files
+.developer
+.current-task
+
+# Task workspace (generated)
+workspace/*/
+
+# Keep directory structure
+!tasks/.gitkeep
+!workspace/.gitkeep
