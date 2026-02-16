@@ -126,7 +126,7 @@ impl HistoryFileRepository {
 
         let entries: Vec<_> = fs::read_dir(&history_dir)?
             .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map_or(false, |ft| ft.is_dir()))
+            .filter(|e| e.file_type().is_ok_and(|ft| ft.is_dir()))
             .filter(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
                 name != CONTENT_DIR && name != "." && name != ".."
@@ -759,12 +759,10 @@ impl HistoryFileRepository {
             let mut hunk_old_count = 0;
             let mut hunk_new_count = 0;
 
-            for j in hunk_start..hunk_end {
-                let (tag, old_no, new_no, ref value) = all_changes[j];
-
-                if j == hunk_start {
-                    hunk_old_start = if old_no > 0 { old_no } else { 1 };
-                    hunk_new_start = if new_no > 0 { new_no } else { 1 };
+            for (idx, (tag, old_no, new_no, value)) in all_changes[hunk_start..hunk_end].iter().enumerate() {
+                if idx == 0 {
+                    hunk_old_start = if *old_no > 0 { *old_no } else { 1 };
+                    hunk_new_start = if *new_no > 0 { *new_no } else { 1 };
                 }
 
                 let content = value.trim_end_matches('\n').to_string();
@@ -774,8 +772,8 @@ impl HistoryFileRepository {
                         lines.push(DiffLine {
                             change_type: DiffChangeType::Equal,
                             content,
-                            old_line_no: Some(old_no),
-                            new_line_no: Some(new_no),
+                            old_line_no: Some(*old_no),
+                            new_line_no: Some(*new_no),
                             inline_changes: None,
                         });
                         hunk_old_count += 1;
@@ -786,7 +784,7 @@ impl HistoryFileRepository {
                         lines.push(DiffLine {
                             change_type: DiffChangeType::Delete,
                             content,
-                            old_line_no: Some(old_no),
+                            old_line_no: Some(*old_no),
                             new_line_no: None,
                             inline_changes: None,
                         });
@@ -798,7 +796,7 @@ impl HistoryFileRepository {
                             change_type: DiffChangeType::Insert,
                             content,
                             old_line_no: None,
-                            new_line_no: Some(new_no),
+                            new_line_no: Some(*new_no),
                             inline_changes: None,
                         });
                         hunk_new_count += 1;
@@ -978,6 +976,8 @@ impl HistoryFileRepository {
 
     /// 列出所有标签（单次 JOIN 查询，避免 N+1）
     pub fn list_labels(&self) -> Result<Vec<HistoryLabel>> {
+        type LabelRow = (String, String, String, String, String, String, Option<String>, Option<String>);
+
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
             "SELECT l.id, l.name, l.label_type, l.source, l.timestamp, l.branch,
@@ -987,7 +987,7 @@ impl HistoryFileRepository {
              ORDER BY l.timestamp DESC, l.id",
         )?;
 
-        let rows: Vec<(String, String, String, String, String, String, Option<String>, Option<String>)> =
+        let rows: Vec<LabelRow> =
             stmt.query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -1053,12 +1053,7 @@ impl HistoryFileRepository {
         since: Option<&str>,
     ) -> Result<Vec<FileVersion>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        // 转义 LIKE 通配符，防止 dir_path 中的 % 和 _ 被误解析
-        let escaped_dir = dir_path
-            .trim_end_matches('/')
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
+        let escaped_dir = escape_like_pattern(dir_path.trim_end_matches('/'));
         let pattern = if dir_path.is_empty() {
             "%".to_string()
         } else {
@@ -1272,4 +1267,52 @@ impl HistoryFileRepository {
         })
     }
 
+}
+
+/// 转义 SQLite LIKE 模式中的特殊字符（`\`、`%`、`_`）
+/// 必须先转义 `\`，再转义 `%` 和 `_`，否则会产生二次转义。
+fn escape_like_pattern(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_like_plain_string() {
+        assert_eq!(escape_like_pattern("src/main.rs"), "src/main.rs");
+    }
+
+    #[test]
+    fn test_escape_like_percent() {
+        assert_eq!(escape_like_pattern("100%done"), "100\\%done");
+    }
+
+    #[test]
+    fn test_escape_like_underscore() {
+        assert_eq!(escape_like_pattern("file_name"), "file\\_name");
+    }
+
+    #[test]
+    fn test_escape_like_backslash() {
+        assert_eq!(escape_like_pattern("path\\to\\file"), "path\\\\to\\\\file");
+    }
+
+    #[test]
+    fn test_escape_like_all_special() {
+        // 含全部三种特殊字符
+        assert_eq!(
+            escape_like_pattern("a\\b%c_d"),
+            "a\\\\b\\%c\\_d"
+        );
+    }
+
+    #[test]
+    fn test_escape_like_empty() {
+        assert_eq!(escape_like_pattern(""), "");
+    }
 }
