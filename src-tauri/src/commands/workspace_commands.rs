@@ -15,9 +15,13 @@ pub fn list_workspaces(
 #[tauri::command]
 pub fn create_workspace(
     name: String,
+    path: Option<String>,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<Workspace> {
-    Ok(service.create_workspace(&name)?)
+    if let Some(ref p) = path {
+        validate_path(p)?;
+    }
+    Ok(service.create_workspace(&name, path.as_deref())?)
 }
 
 #[tauri::command]
@@ -89,6 +93,18 @@ pub fn update_workspace_provider(
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
     Ok(service.update_workspace_provider(&workspace_name, provider_id.as_deref())?)
+}
+
+#[tauri::command]
+pub fn update_workspace_path(
+    workspace_name: String,
+    path: Option<String>,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<()> {
+    if let Some(ref p) = path {
+        validate_path(p)?;
+    }
+    Ok(service.update_workspace_path(&workspace_name, path.as_deref())?)
 }
 
 #[tauri::command]

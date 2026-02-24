@@ -269,3 +269,31 @@
   min-height: 3px;
   margin: -1px 0;
 }
+
+/* 侧边栏 sash：更明显的分割线 */
+
+/* 侧边栏与主面板之间的垂直分割线 */
+.sidebar > .splitview-sash.vertical {
+  width: 2px;
+  min-width: 2px;
+}
+
+.sidebar > .splitview-sash.vertical:hover {
+  width: 4px;
+  min-width: 4px;
+  margin: 0 -1px;
+}
+
+/* 侧边栏内部区域之间的水平分割线 */
+.sidebar .splitview-sash.horizontal {
+  height: 2px;
+  min-height: 2px;
+  margin: 2px 12px;
+  border-radius: 1px;
+}
+
+.sidebar .splitview-sash.horizontal:hover {
+  height: 4px;
+  min-height: 4px;
+  margin: 1px 8px;
+}

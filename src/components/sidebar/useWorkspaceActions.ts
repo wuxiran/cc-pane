@@ -34,6 +34,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   // Dialog 状态
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [newWorkspacePath, setNewWorkspacePath] = useState("");
   const [renameWorkspaceOpen, setRenameWorkspaceOpen] = useState(false);
   const [renameWorkspaceOldName, setRenameWorkspaceOldName] = useState("");
   const [renameWorkspaceNewName, setRenameWorkspaceNewName] = useState("");
@@ -125,13 +126,25 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
 
   function handleCreateWorkspace() {
     setNewWorkspaceName("");
+    setNewWorkspacePath("");
     setNewWorkspaceOpen(true);
   }
 
-  async function confirmCreateWorkspace() {
-    if (!newWorkspaceName.trim()) return;
+  async function handleSelectNewWorkspacePath() {
     try {
-      await createWorkspace(newWorkspaceName.trim());
+      const selected = await open({ directory: true, multiple: false, title: "选择工作空间根目录" });
+      if (selected) {
+        setNewWorkspacePath(selected);
+      }
+    } catch (e) {
+      toast.error(tNotify("createFailed", { error: String(e) }));
+    }
+  }
+
+  async function confirmCreateWorkspace() {
+    if (!newWorkspaceName.trim() || !newWorkspacePath.trim()) return;
+    try {
+      await createWorkspace(newWorkspaceName.trim(), newWorkspacePath.trim());
       setNewWorkspaceOpen(false);
     } catch (e) {
       toast.error(tNotify("createFailed", { error: String(e) }));
@@ -357,6 +370,9 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
         setOpen: setNewWorkspaceOpen,
         name: newWorkspaceName,
         setName: setNewWorkspaceName,
+        path: newWorkspacePath,
+        setPath: setNewWorkspacePath,
+        onSelectPath: handleSelectNewWorkspacePath,
         onConfirm: confirmCreateWorkspace,
       },
       renameWorkspace: {

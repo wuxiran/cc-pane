@@ -63,7 +63,7 @@ impl WorkspaceService {
     }
 
     /// 创建新工作空间
-    pub fn create_workspace(&self, name: &str) -> Result<Workspace, String> {
+    pub fn create_workspace(&self, name: &str, path: Option<&str>) -> Result<Workspace, String> {
         let ws_dir = self.workspace_dir(name);
 
         if ws_dir.exists() {
@@ -80,8 +80,13 @@ impl WorkspaceService {
             .map_err(|e| format!("Failed to create .ccpanes directory: {}", e))?;
 
         // 创建 workspace.json
-        let workspace = Workspace::new(name.to_string());
+        let workspace = Workspace::new(name.to_string(), path.map(|s| s.to_string()));
         self.write_workspace_json(name, &workspace)?;
+
+        // 若指定了 path，在工作空间路径下生成引导文件
+        if path.is_some() {
+            self.init_workspace_files(&workspace)?;
+        }
 
         Ok(workspace)
     }
@@ -149,6 +154,9 @@ impl WorkspaceService {
         workspace.projects.push(project.clone());
         self.write_workspace_json(workspace_name, &workspace)?;
 
+        // 同步 projects.csv
+        self.sync_projects_csv(&workspace);
+
         Ok(project)
     }
 
@@ -164,6 +172,10 @@ impl WorkspaceService {
         }
 
         self.write_workspace_json(workspace_name, &workspace)?;
+
+        // 同步 projects.csv
+        self.sync_projects_csv(&workspace);
+
         Ok(())
     }
 
@@ -200,6 +212,18 @@ impl WorkspaceService {
         Ok(())
     }
 
+    /// 更新工作空间根目录路径
+    pub fn update_workspace_path(
+        &self,
+        workspace_name: &str,
+        path: Option<&str>,
+    ) -> Result<(), String> {
+        let mut workspace = self.get_workspace(workspace_name)?;
+        workspace.path = path.map(|s| s.to_string());
+        self.write_workspace_json(workspace_name, &workspace)?;
+        Ok(())
+    }
+
     /// 更新工作空间关联的 Provider
     pub fn update_workspace_provider(
         &self,
@@ -231,6 +255,110 @@ impl WorkspaceService {
             .map_err(|e| format!("Failed to write file: {}", e))?;
 
         Ok(())
+    }
+
+    /// 在工作空间 path 下生成引导文件（CLAUDE.md + .ccpanes/projects.csv）
+    fn init_workspace_files(&self, ws: &Workspace) -> Result<(), String> {
+        let ws_path = match &ws.path {
+            Some(p) => PathBuf::from(p),
+            None => return Ok(()),
+        };
+
+        // 创建 .ccpanes/ 目录
+        let ccpanes_dir = ws_path.join(".ccpanes");
+        fs::create_dir_all(&ccpanes_dir)
+            .map_err(|e| format!("Failed to create .ccpanes directory in workspace path: {}", e))?;
+
+        // 生成 CLAUDE.md（仅当不存在时）
+        let claude_md_path = ws_path.join("CLAUDE.md");
+        if !claude_md_path.exists() {
+            let content = format!(
+                "# {}\n\n> CC-Panes 管理的工作空间\n\n## 子项目\n\n项目列表见 `.ccpanes/projects.csv`。\n",
+                ws.name
+            );
+            fs::write(&claude_md_path, content)
+                .map_err(|e| format!("Failed to write CLAUDE.md: {}", e))?;
+        }
+
+        // 生成初始 projects.csv
+        self.sync_projects_csv(ws);
+
+        Ok(())
+    }
+
+    /// 同步 projects.csv 到工作空间 path 下的 .ccpanes/ 目录
+    fn sync_projects_csv(&self, ws: &Workspace) {
+        let ws_path = match &ws.path {
+            Some(p) => PathBuf::from(p),
+            None => return,
+        };
+
+        let ccpanes_dir = ws_path.join(".ccpanes");
+        if fs::create_dir_all(&ccpanes_dir).is_err() {
+            return;
+        }
+
+        let csv_path = ccpanes_dir.join("projects.csv");
+        let mut lines = Vec::with_capacity(ws.projects.len() + 1);
+        lines.push("path,alias,branch,status".to_string());
+
+        for project in &ws.projects {
+            let alias = project.alias.as_deref().unwrap_or("");
+            let branch = Self::get_git_branch_for_csv(&project.path);
+            let status = Self::get_git_status_for_csv(&project.path);
+            // CSV 转义：如果字段包含逗号或引号，用双引号包裹
+            let escaped_path = Self::csv_escape(&project.path);
+            let escaped_alias = Self::csv_escape(alias);
+            lines.push(format!("{},{},{},{}", escaped_path, escaped_alias, branch, status));
+        }
+
+        let content = lines.join("\n") + "\n";
+        let _ = fs::write(&csv_path, content);
+    }
+
+    /// 获取 git 当前分支名（用于 CSV）
+    fn get_git_branch_for_csv(path: &str) -> String {
+        let output = output_with_timeout(
+            Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(path),
+            GIT_LOCAL_TIMEOUT,
+        );
+        match output {
+            Ok(o) if o.status.success() => {
+                String::from_utf8_lossy(&o.stdout).trim().to_string()
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// 获取 git 工作区状态（用于 CSV）
+    fn get_git_status_for_csv(path: &str) -> &'static str {
+        let output = output_with_timeout(
+            Command::new("git")
+                .args(["status", "--porcelain"])
+                .current_dir(path),
+            GIT_LOCAL_TIMEOUT,
+        );
+        match output {
+            Ok(o) if o.status.success() => {
+                if String::from_utf8_lossy(&o.stdout).trim().is_empty() {
+                    "clean"
+                } else {
+                    "dirty"
+                }
+            }
+            _ => "unknown",
+        }
+    }
+
+    /// CSV 字段转义
+    fn csv_escape(field: &str) -> String {
+        if field.contains(',') || field.contains('"') || field.contains('\n') {
+            format!("\"{}\"", field.replace('"', "\"\""))
+        } else {
+            field.to_string()
+        }
     }
 
     // ============ 目录扫描 ============

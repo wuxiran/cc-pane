@@ -366,6 +366,8 @@ impl TerminalService {
         rows: u16,
         workspace_name: Option<&str>,
         provider_id: Option<&str>,
+        workspace_path: Option<&str>,
+        launch_claude: bool,
     ) -> Result<String> {
         let mut env_vars = self.settings_service.get_proxy_env_vars();
         let provider_vars = self.provider_service.get_env_vars(provider_id);
@@ -388,10 +390,28 @@ impl TerminalService {
             .shell
             .clone();
 
-        // GUI 模式下始终启动 shell（TUI 路径已归档，不再使用）
-        let _ = workspace_name; // 保留参数签名兼容性
-        let (command, args) = resolve_shell(shell_id.as_deref());
-        let cwd = PathBuf::from(project_path);
+        let _ = workspace_name;
+
+        // 1. cwd：workspace_path 优先，否则 project_path
+        let cwd = match workspace_path {
+            Some(ws_path) => PathBuf::from(ws_path),
+            None => PathBuf::from(project_path),
+        };
+
+        // 2. 命令：launch_claude 明确控制
+        let (command, args) = if launch_claude {
+            if which::which("claude").is_ok() {
+                if workspace_path.is_some() {
+                    ("claude".to_string(), vec!["--add-dir".to_string(), project_path.to_string()])
+                } else {
+                    ("claude".to_string(), vec![])
+                }
+            } else {
+                return Err(anyhow!("claude CLI not found in PATH"));
+            }
+        } else {
+            resolve_shell(shell_id.as_deref())
+        };
 
         // 创建 PTY
         let config = PtyConfig {

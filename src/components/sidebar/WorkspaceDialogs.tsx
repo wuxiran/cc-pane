@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { FolderOpen } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -82,6 +83,9 @@ export interface WorkspaceDialogsProps {
     setOpen: (v: boolean) => void;
     name: string;
     setName: (v: string) => void;
+    path: string;
+    setPath: (v: string) => void;
+    onSelectPath: () => void;
     onConfirm: () => void;
   };
   renameWorkspace: {
@@ -135,15 +139,34 @@ export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
         variant={confirm.variant}
       />
 
-      <TextInputDialog
-        open={newWorkspace.open}
-        setOpen={newWorkspace.setOpen}
-        title={t("newWorkspace")}
-        placeholder={t("workspaceNamePlaceholder")}
-        value={newWorkspace.name}
-        setValue={newWorkspace.setName}
-        onConfirm={newWorkspace.onConfirm}
-      />
+      <Dialog open={newWorkspace.open} onOpenChange={newWorkspace.setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>{t("newWorkspace")}</DialogTitle></DialogHeader>
+          <div className="py-4 flex flex-col gap-3">
+            <Input
+              value={newWorkspace.name}
+              onChange={(e) => newWorkspace.setName(e.target.value)}
+              placeholder={t("workspaceNamePlaceholder")}
+              onKeyDown={(e) => e.key === "Enter" && newWorkspace.onConfirm()}
+            />
+            <div className="flex gap-2">
+              <Input
+                value={newWorkspace.path}
+                readOnly
+                placeholder={t("selectWorkspacePath", { defaultValue: "选择工作空间根目录" })}
+                className="flex-1"
+              />
+              <Button variant="secondary" onClick={newWorkspace.onSelectPath}>
+                <FolderOpen size={14} className="mr-1" /> {t("browse", { ns: "common", defaultValue: "浏览" })}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => newWorkspace.setOpen(false)}>{t("cancel", { ns: "common" })}</Button>
+            <Button onClick={newWorkspace.onConfirm} disabled={!newWorkspace.name.trim() || !newWorkspace.path.trim()}>{t("create", { ns: "common", defaultValue: "创建" })}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <TextInputDialog
         open={renameWorkspace.open}

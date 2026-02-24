@@ -45,14 +45,22 @@ export const resources = {
   },
 } as const;
 
+const LANG_STORAGE_KEY = "cc-panes-lang";
+const savedLang = localStorage.getItem(LANG_STORAGE_KEY);
+
 i18n.use(initReactI18next).init({
   resources,
   defaultNS,
   fallbackLng: "zh-CN",
-  lng: "zh-CN",
+  lng: savedLang || "zh-CN",
   interpolation: {
     escapeValue: false, // React 已自动处理 XSS
   },
+});
+
+// 语言切换时自动持久化
+i18n.on("languageChanged", (lng) => {
+  localStorage.setItem(LANG_STORAGE_KEY, lng);
 });
 
 export default i18n;

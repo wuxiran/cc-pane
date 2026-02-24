@@ -14,6 +14,9 @@ pub fn create_terminal_session(
     request: CreateSessionRequest,
 ) -> AppResult<String> {
     validate_path(&request.project_path)?;
+    if let Some(ref ws_path) = request.workspace_path {
+        validate_path(ws_path)?;
+    }
     Ok(service.create_session(
         app_handle,
         &request.project_path,
@@ -21,6 +24,8 @@ pub fn create_terminal_session(
         request.rows,
         request.workspace_name.as_deref(),
         request.provider_id.as_deref(),
+        request.workspace_path.as_deref(),
+        request.launch_claude,
     )?)
 }
 

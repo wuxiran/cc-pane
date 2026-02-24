@@ -85,7 +85,7 @@ describe("useWorkspacesStore", () => {
       const newWs = createTestWorkspace({ name: "new-workspace" });
       vi.mocked(workspaceService.createWorkspace).mockResolvedValue(newWs);
 
-      const result = await useWorkspacesStore.getState().create("new-workspace");
+      const result = await useWorkspacesStore.getState().create("new-workspace", "/test/path");
 
       expect(result).toEqual(newWs);
       const state = useWorkspacesStore.getState();

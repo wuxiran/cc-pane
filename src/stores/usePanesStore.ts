@@ -38,11 +38,15 @@ function createTab(
   projectPath: string,
   resumeId?: string,
   workspaceName?: string,
-  providerId?: string
+  providerId?: string,
+  workspacePath?: string,
+  launchClaude?: boolean
 ): Tab {
   const name = projectPath.split(/[/\\]/).pop() || "Terminal";
   let title = name;
-  if (resumeId === "new") {
+  if (launchClaude) {
+    title = `${name} (Claude)`;
+  } else if (resumeId === "new") {
     title = `${name} (Claude)`;
   } else if (resumeId) {
     title = `${name} (resume)`;
@@ -57,6 +61,8 @@ function createTab(
     resumeId,
     workspaceName,
     providerId,
+    workspacePath,
+    launchClaude,
   };
 }
 
@@ -113,17 +119,18 @@ interface PanesState {
   resizePanes: (paneId: string, sizes: number[]) => void;
 
   // 标签
-  addTab: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string) => void;
+  addTab: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean) => void;
   closeTab: (paneId: string, tabId: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;
   renameTab: (paneId: string, tabId: string, newTitle: string) => void;
   reorderTabs: (paneId: string, fromIndex: number, toIndex: number) => void;
   moveTab: (fromPaneId: string, toPaneId: string, tabId: string, toIndex?: number) => void;
+  splitAndMoveTab: (paneId: string, tabId: string, direction: SplitDirection) => void;
   selectTab: (paneId: string, tabId: string) => void;
   setActivePane: (paneId: string) => void;
   updateTabSession: (paneId: string, tabId: string, sessionId: string) => void;
-  openProject: (projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string) => void;
-  openProjectInPane: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string) => void;
+  openProject: (projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean) => void;
+  openProjectInPane: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean) => void;
   nextTab: (paneId: string) => void;
   prevTab: (paneId: string) => void;
   switchToTab: (paneId: string, index: number) => void;
@@ -228,6 +235,45 @@ export const usePanesStore = create<PanesState>()(
             state.activePaneId = panels[0].id;
           }
         }
+
+        // 清理空 split 节点链（0 个子节点时从树中移除）
+        // 注意：1 个子节点的 split 保留不折叠，避免 React remount 终端
+        let emptyNodeId: string | null =
+          parent.children.length === 0 ? parent.id : null;
+        while (emptyNodeId) {
+          const gpResult = findParent(state.rootPane, emptyNodeId);
+          if (!gpResult) break;
+
+          if (gpResult.parent === null) {
+            // 空 split 是根节点 → 替换为新空面板
+            const newPane = createPanel();
+            state.rootPane = newPane;
+            state.activePaneId = newPane.id;
+            break;
+          }
+
+          const gp = gpResult.parent;
+          const gpIdx = gpResult.index;
+          gp.children.splice(gpIdx, 1);
+          gp.sizes.splice(gpIdx, 1);
+
+          const gpTotal = gp.sizes.reduce((a, b) => a + b, 0);
+          gp.sizes = gpTotal > 0
+            ? gp.sizes.map((s) => (s / gpTotal) * 100)
+            : gp.sizes.map(() => 100 / gp.sizes.length);
+
+          if (gp.children.length > 0) {
+            const nextIdx = Math.min(gpIdx, gp.children.length - 1);
+            const panels = collectPanels(gp.children[nextIdx]);
+            if (panels.length > 0) {
+              state.activePaneId = panels[0].id;
+            }
+            emptyNodeId = null;
+          } else {
+            // grandparent 也变空了，继续向上清理
+            emptyNodeId = gp.id;
+          }
+        }
       });
     },
 
@@ -240,12 +286,12 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    addTab: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?) => {
+    addTab: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, launchClaude?) => {
       set((state) => {
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
 
-        const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId);
+        const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude);
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -312,6 +358,73 @@ export const usePanesStore = create<PanesState>()(
       }
     },
 
+    splitAndMoveTab: (paneId, tabId, direction) => {
+      const directionMap: Record<SplitDirection, "horizontal" | "vertical"> = {
+        right: "horizontal",
+        down: "vertical",
+      };
+      const splitDirection = directionMap[direction];
+
+      set((state) => {
+        const sourcePane = findPane(state.rootPane, paneId);
+        if (sourcePane?.type !== "panel") return;
+        if (sourcePane.tabs.length <= 1) return; // 不允许移走唯一标签
+
+        const tabIndex = sourcePane.tabs.findIndex((t) => t.id === tabId);
+        if (tabIndex === -1) return;
+
+        // 取出 tab，创建 plain copy 避免 Immer orphaned draft proxy 问题
+        const [draftTab] = sourcePane.tabs.splice(tabIndex, 1);
+        const tab: Tab = { ...draftTab };
+
+        // 更新源面板 activeTabId
+        if (sourcePane.activeTabId === tabId) {
+          const newIdx = Math.min(tabIndex, sourcePane.tabs.length - 1);
+          sourcePane.activeTabId = sourcePane.tabs[newIdx].id;
+        }
+
+        // 创建新面板（包含移过来的 tab）
+        const newPane: Panel = {
+          type: "panel",
+          id: generateId("pane"),
+          tabs: [tab],
+          activeTabId: tab.id,
+        };
+
+        // 树结构插入
+        const parentResult = findParent(state.rootPane, paneId);
+        if (!parentResult) return;
+
+        if (parentResult.parent === null) {
+          state.rootPane = {
+            type: "split",
+            id: generateId("split"),
+            direction: splitDirection,
+            children: [sourcePane, newPane],
+            sizes: [50, 50],
+          };
+        } else {
+          const parent = parentResult.parent;
+          const index = parentResult.index;
+          if (parent.direction === splitDirection) {
+            parent.children.splice(index + 1, 0, newPane);
+            const newSize = 100 / parent.children.length;
+            parent.sizes = parent.children.map(() => newSize);
+          } else {
+            parent.children[index] = {
+              type: "split",
+              id: generateId("split"),
+              direction: splitDirection,
+              children: [sourcePane, newPane],
+              sizes: [50, 50],
+            };
+          }
+        }
+
+        state.activePaneId = newPane.id;
+      });
+    },
+
     closeTab: (paneId, tabId) => {
       const snapshot = get();
       const snapPane = findPane(snapshot.rootPane, paneId);
@@ -361,13 +474,13 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    openProjectInPane: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?) => {
+    openProjectInPane: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, launchClaude?) => {
       set((state) => {
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
 
-        if (resumeId) {
-          const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId);
+        if (resumeId || launchClaude) {
+          const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude);
           pane.tabs.push(newTab);
           pane.activeTabId = newTab.id;
           state.activePaneId = paneId;
@@ -375,7 +488,7 @@ export const usePanesStore = create<PanesState>()(
         }
 
         const existingTab = pane.tabs.find(
-          (t) => t.projectId === projectId && !t.resumeId
+          (t) => t.projectId === projectId && !t.resumeId && !t.launchClaude
         );
         if (existingTab) {
           pane.activeTabId = existingTab.id;
@@ -383,11 +496,11 @@ export const usePanesStore = create<PanesState>()(
           const activeTab = pane.tabs.find((t) => t.id === pane.activeTabId);
           if (activeTab && !activeTab.projectPath) {
             const tabIndex = pane.tabs.indexOf(activeTab);
-            const newTab = createTab(projectId, projectPath, undefined, workspaceName, providerId);
+            const newTab = createTab(projectId, projectPath, undefined, workspaceName, providerId, workspacePath);
             pane.tabs.splice(tabIndex, 1, newTab);
             pane.activeTabId = newTab.id;
           } else {
-            const newTab = createTab(projectId, projectPath, undefined, workspaceName, providerId);
+            const newTab = createTab(projectId, projectPath, undefined, workspaceName, providerId, workspacePath);
             pane.tabs.push(newTab);
             pane.activeTabId = newTab.id;
           }
@@ -396,12 +509,12 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    openProject: (projectId, projectPath, resumeId?, workspaceName?, providerId?) => {
+    openProject: (projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, launchClaude?) => {
       const active = get().activePane();
       if (active) {
-        get().openProjectInPane(active.id, projectId, projectPath, resumeId, workspaceName, providerId);
+        get().openProjectInPane(active.id, projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude);
       } else if (get().rootPane.type === "panel") {
-        get().openProjectInPane(get().rootPane.id, projectId, projectPath, resumeId, workspaceName, providerId);
+        get().openProjectInPane(get().rootPane.id, projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude);
       }
     },
 

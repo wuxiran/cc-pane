@@ -10,7 +10,7 @@ interface WorkspacesState {
   selectedWorkspace: () => Workspace | undefined;
   selectedProject: () => WorkspaceProject | null;
   load: () => Promise<void>;
-  create: (name: string) => Promise<Workspace>;
+  create: (name: string, path: string) => Promise<Workspace>;
   rename: (oldName: string, newName: string) => Promise<void>;
   remove: (name: string) => Promise<void>;
   addProject: (workspaceName: string, path: string) => Promise<WorkspaceProject>;
@@ -18,6 +18,7 @@ interface WorkspacesState {
   updateProjectAlias: (workspaceName: string, projectId: string, alias: string | null) => Promise<void>;
   updateWorkspaceAlias: (workspaceName: string, alias: string | null) => Promise<void>;
   updateWorkspaceProvider: (workspaceName: string, providerId: string | null) => Promise<void>;
+  updateWorkspacePath: (workspaceName: string, path: string | null) => Promise<void>;
   expandWorkspace: (id: string | null) => void;
   expandProject: (id: string | null) => void;
 }
@@ -50,8 +51,8 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     }
   },
 
-  create: async (name) => {
-    const ws = await workspaceService.createWorkspace(name);
+  create: async (name, path) => {
+    const ws = await workspaceService.createWorkspace(name, path);
     set((state) => ({ workspaces: [...state.workspaces, ws] }));
     return ws;
   },
@@ -132,6 +133,15 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         ws.name === workspaceName
           ? { ...ws, provider_id: providerId ?? undefined }
           : ws
+      ),
+    }));
+  },
+
+  updateWorkspacePath: async (workspaceName, path) => {
+    await workspaceService.updateWorkspacePath(workspaceName, path);
+    set((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.name === workspaceName ? { ...ws, path: path ?? undefined } : ws
       ),
     }));
   },

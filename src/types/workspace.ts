@@ -11,4 +11,5 @@ export interface Workspace {
   createdAt: string;
   projects: WorkspaceProject[];
   providerId?: string;
+  path?: string;
 }

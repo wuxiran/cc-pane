@@ -1,9 +1,19 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export function useWindowControl() {
   const [isPinned, setIsPinned] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    win.isMaximized().then(setIsMaximized).catch(console.error);
+    const unlisten = win.onResized(() => {
+      win.isMaximized().then(setIsMaximized).catch(console.error);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   const togglePin = useCallback(async () => {
     try {
@@ -42,5 +52,5 @@ export function useWindowControl() {
     getCurrentWindow().startDragging();
   }, []);
 
-  return { isPinned, togglePin, closeWindow, minimizeWindow, maximizeWindow, startDrag };
+  return { isPinned, isMaximized, togglePin, closeWindow, minimizeWindow, maximizeWindow, startDrag };
 }

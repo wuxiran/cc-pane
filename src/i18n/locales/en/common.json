@@ -29,5 +29,11 @@
   "restore": "Restore",
   "minimize": "Minimize",
   "maximize": "Maximize",
-  "restoreWindow": "Restore"
+  "restoreWindow": "Restore",
+  "importProject": "Import Project",
+  "newProject": "New Project",
+  "splitRight": "Split Right",
+  "splitDown": "Split Down",
+  "exitBorderless": "Exit Borderless",
+  "switchLanguage": "Switch Language"
 }

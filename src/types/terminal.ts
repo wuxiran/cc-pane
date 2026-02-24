@@ -14,6 +14,8 @@ export interface Tab {
   resumeId?: string; // Claude resume 会话 ID
   workspaceName?: string; // 所属工作空间名称（用于启动 TUI）
   providerId?: string; // 关联的 Provider ID
+  workspacePath?: string; // 工作空间根目录路径（用于 claude --add-dir 模式）
+  launchClaude?: boolean; // 是否启动 Claude Code CLI
 }
 
 /** 终端会话状态 */
@@ -32,6 +34,8 @@ export interface CreateSessionRequest {
   rows: number;
   workspaceName?: string;
   providerId?: string;
+  workspacePath?: string;
+  launchClaude?: boolean;
 }
 
 /** 终端输出事件 */

@@ -29,5 +29,11 @@
   "restore": "恢复",
   "minimize": "最小化",
   "maximize": "最大化",
-  "restoreWindow": "还原"
+  "restoreWindow": "还原",
+  "importProject": "导入项目",
+  "newProject": "新建项目",
+  "splitRight": "向右分屏",
+  "splitDown": "向下分屏",
+  "exitBorderless": "退出无边框模式",
+  "switchLanguage": "切换语言"
 }

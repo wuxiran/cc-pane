@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import {
   Folder, ChevronRight, Trash2, Plus, Pencil, FileText, Clock,
   FolderOpen, FolderSearch, ShieldCheck, Terminal, Cloud, Check, GitBranch,
+  FolderRoot, X, Copy,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -25,7 +27,7 @@ import { getProjectName } from "@/utils";
 import type { Workspace, WorkspaceProject } from "@/types";
 
 interface WorkspaceTreeProps {
-  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string) => void;
+  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean) => void;
 }
 
 export default function WorkspaceTree({
@@ -48,6 +50,7 @@ export default function WorkspaceTree({
   const updateProjectAlias = useWorkspacesStore((s) => s.updateProjectAlias);
   const updateWorkspaceAlias = useWorkspacesStore((s) => s.updateWorkspaceAlias);
   const updateWorkspaceProvider = useWorkspacesStore((s) => s.updateWorkspaceProvider);
+  const updateWorkspacePath = useWorkspacesStore((s) => s.updateWorkspacePath);
   const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
   const expandProject = useWorkspacesStore((s) => s.expandProject);
 
@@ -60,6 +63,7 @@ export default function WorkspaceTree({
   // Dialog 状态
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [newWorkspacePath, setNewWorkspacePath] = useState("");
   const [renameWorkspaceOpen, setRenameWorkspaceOpen] = useState(false);
   const [renameWorkspaceOldName, setRenameWorkspaceOldName] = useState("");
   const [renameWorkspaceNewName, setRenameWorkspaceNewName] = useState("");
@@ -70,6 +74,11 @@ export default function WorkspaceTree({
   const [wsAliasDialogOpen, setWsAliasDialogOpen] = useState(false);
   const [wsAliasTargetName, setWsAliasTargetName] = useState("");
   const [wsAliasValue, setWsAliasValue] = useState("");
+
+  // 确认对话框
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState("");
+  const [confirmCallback, setConfirmCallback] = useState<(() => void) | null>(null);
 
   // 扫描导入
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
@@ -135,13 +144,25 @@ export default function WorkspaceTree({
 
   function handleCreateWorkspace() {
     setNewWorkspaceName("");
+    setNewWorkspacePath("");
     setNewWorkspaceOpen(true);
   }
 
-  async function confirmCreateWorkspace() {
-    if (!newWorkspaceName.trim()) return;
+  async function handleSelectNewWorkspacePath() {
     try {
-      await createWorkspace(newWorkspaceName.trim());
+      const selected = await open({ directory: true, multiple: false, title: "选择工作空间根目录" });
+      if (selected) {
+        setNewWorkspacePath(selected);
+      }
+    } catch (e) {
+      toast.error(`选择路径失败: ${e}`);
+    }
+  }
+
+  async function confirmCreateWorkspace() {
+    if (!newWorkspaceName.trim() || !newWorkspacePath.trim()) return;
+    try {
+      await createWorkspace(newWorkspaceName.trim(), newWorkspacePath.trim());
       setNewWorkspaceOpen(false);
     } catch (e) {
       toast.error(`创建失败: ${e}`);
@@ -164,13 +185,16 @@ export default function WorkspaceTree({
     }
   }
 
-  async function handleDeleteWorkspace(ws: Workspace) {
-    if (!confirm(`确定要删除工作空间 "${ws.name}" 吗？`)) return;
-    try {
-      await removeWorkspace(ws.name);
-    } catch (e) {
-      toast.error(`删除失败: ${e}`);
-    }
+  function handleDeleteWorkspace(ws: Workspace) {
+    setConfirmMessage(`确定要删除工作空间 "${ws.name}" 吗？`);
+    setConfirmCallback(() => async () => {
+      try {
+        await removeWorkspace(ws.name);
+      } catch (e) {
+        toast.error(`删除失败: ${e}`);
+      }
+    });
+    setConfirmOpen(true);
   }
 
   // ============ 项目操作 ============
@@ -186,13 +210,16 @@ export default function WorkspaceTree({
     }
   }
 
-  async function handleRemoveProject(ws: Workspace, project: WorkspaceProject) {
-    if (!confirm(`确定要从工作空间移除项目 "${project.alias || getProjectName(project.path)}" 吗？`)) return;
-    try {
-      await removeProject(ws.name, project.id);
-    } catch (e) {
-      toast.error(`移除失败: ${e}`);
-    }
+  function handleRemoveProject(ws: Workspace, project: WorkspaceProject) {
+    setConfirmMessage(`确定要从工作空间移除项目 "${project.alias || getProjectName(project.path)}" 吗？`);
+    setConfirmCallback(() => async () => {
+      try {
+        await removeProject(ws.name, project.id);
+      } catch (e) {
+        toast.error(`移除失败: ${e}`);
+      }
+    });
+    setConfirmOpen(true);
   }
 
   function handleSetAlias(ws: Workspace, project: WorkspaceProject) {
@@ -291,6 +318,36 @@ export default function WorkspaceTree({
     onOpenTerminal(project.path, ws?.name, ws?.providerId);
   }
 
+  function handleOpenClaudeWorkspace(ws: Workspace) {
+    if (ws.projects.length === 0) return;
+    onOpenTerminal(ws.projects[0].path, ws.name, ws.providerId, ws.path, true);
+  }
+
+  function handleOpenClaudeProject(project: WorkspaceProject, ws?: Workspace) {
+    onOpenTerminal(project.path, ws?.name, ws?.providerId, ws?.path, true);
+  }
+
+  async function handleSetWorkspacePath(ws: Workspace) {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: "选择工作空间根目录" });
+      if (selected) {
+        await updateWorkspacePath(ws.name, selected);
+        toast.success("工作空间路径已设置");
+      }
+    } catch (e) {
+      toast.error(`设置路径失败: ${e}`);
+    }
+  }
+
+  async function handleClearWorkspacePath(ws: Workspace) {
+    try {
+      await updateWorkspacePath(ws.name, null);
+      toast.success("工作空间路径已清除");
+    } catch (e) {
+      toast.error(`清除路径失败: ${e}`);
+    }
+  }
+
   async function handleSetWorkspaceProvider(ws: Workspace, providerId: string | null) {
     try {
       await updateWorkspaceProvider(ws.name, providerId);
@@ -301,6 +358,36 @@ export default function WorkspaceTree({
 
   function handleOpenWorktree(path: string) {
     onOpenTerminal(path);
+  }
+
+  async function handleRevealFolder(path: string) {
+    try {
+      await openPath(path);
+    } catch (e) {
+      toast.error(`打开文件夹失败: ${e}`);
+    }
+  }
+
+  async function handleCopyPath(path: string) {
+    try {
+      await navigator.clipboard.writeText(path);
+      toast.success("已复制到剪贴板");
+    } catch (e) {
+      toast.error(`复制失败: ${e}`);
+    }
+  }
+
+  function getRelativePath(projectPath: string, wsPath?: string | null): string {
+    const normalize = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (wsPath) {
+      const normBase = normalize(wsPath);
+      const normFull = normalize(projectPath);
+      if (normFull.startsWith(normBase + "/")) {
+        return normFull.slice(normBase.length + 1);
+      }
+    }
+    const parts = projectPath.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts.pop() || projectPath;
   }
 
   return (
@@ -330,6 +417,13 @@ export default function WorkspaceTree({
                   <div className="flex items-center gap-3">
                     <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedWorkspaceId === ws.id ? 'rotate-90' : ''}`} />
                     <span className="text-sm font-medium tracking-wide">{getWorkspaceName(ws)}</span>
+                    {ws.path && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                        isDark ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                      }`}>
+                        Claude
+                      </span>
+                    )}
                   </div>
                   <span className={`text-xs px-2 py-0.5 rounded-full backdrop-blur-sm ${
                     expandedWorkspaceId === ws.id
@@ -344,6 +438,28 @@ export default function WorkspaceTree({
                 <ContextMenuItem disabled={ws.projects.length === 0} onClick={() => handleOpenWorkspace(ws)}>
                   <Terminal size={14} className="mr-2" /> 打开终端
                 </ContextMenuItem>
+                <ContextMenuItem disabled={ws.projects.length === 0} onClick={() => handleOpenClaudeWorkspace(ws)}>
+                  <Terminal size={14} className="mr-2" /> 打开 Claude Code
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={!ws.path && ws.projects.length === 0}
+                  onClick={() => handleRevealFolder(ws.path || ws.projects[0]?.path)}
+                >
+                  <FolderOpen size={14} className="mr-2" /> 打开文件夹
+                </ContextMenuItem>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger disabled={!ws.path && ws.projects.length === 0}>
+                    <Copy size={14} className="mr-2" /> 复制路径
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent>
+                    <ContextMenuItem onClick={() => handleCopyPath(ws.path || ws.projects[0]?.path)}>
+                      绝对路径
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => handleCopyPath(getRelativePath(ws.path || ws.projects[0]?.path))}>
+                      相对路径
+                    </ContextMenuItem>
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => onOpenJournal(ws.name)}>
                   <FileText size={14} className="mr-2" /> 会话日志
@@ -369,6 +485,15 @@ export default function WorkspaceTree({
                     ))}
                   </ContextMenuSubContent>
                 </ContextMenuSub>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => handleSetWorkspacePath(ws)}>
+                  <FolderRoot size={14} className="mr-2" /> 设置工作空间路径
+                </ContextMenuItem>
+                {ws.path && (
+                  <ContextMenuItem onClick={() => handleClearWorkspacePath(ws)}>
+                    <X size={14} className="mr-2" /> 清除工作空间路径
+                  </ContextMenuItem>
+                )}
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => handleScanImport(ws)}>
                   <FolderSearch size={14} className="mr-2" /> 从目录导入
@@ -424,6 +549,25 @@ export default function WorkspaceTree({
                         <ContextMenuItem onClick={() => handleOpenProject(project, ws)}>
                           <Terminal size={14} className="mr-2" /> 打开终端
                         </ContextMenuItem>
+                        <ContextMenuItem onClick={() => handleOpenClaudeProject(project, ws)}>
+                          <Terminal size={14} className="mr-2" /> 打开 Claude Code
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={() => handleRevealFolder(project.path)}>
+                          <FolderOpen size={14} className="mr-2" /> 打开文件夹
+                        </ContextMenuItem>
+                        <ContextMenuSub>
+                          <ContextMenuSubTrigger>
+                            <Copy size={14} className="mr-2" /> 复制路径
+                          </ContextMenuSubTrigger>
+                          <ContextMenuSubContent>
+                            <ContextMenuItem onClick={() => handleCopyPath(project.path)}>
+                              绝对路径
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleCopyPath(getRelativePath(project.path, ws.path))}>
+                              相对路径
+                            </ContextMenuItem>
+                          </ContextMenuSubContent>
+                        </ContextMenuSub>
                         <ContextMenuSeparator />
                         <ContextMenuItem onClick={() => handleSetAlias(ws, project)}>
                           <Pencil size={14} className="mr-2" /> 设置别名
@@ -527,19 +671,30 @@ export default function WorkspaceTree({
 
       {/* Dialogs */}
       <Dialog open={newWorkspaceOpen} onOpenChange={setNewWorkspaceOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>新建工作空间</DialogTitle></DialogHeader>
-          <div className="py-4">
+          <div className="py-4 flex flex-col gap-3">
             <Input
               value={newWorkspaceName}
               onChange={(e) => setNewWorkspaceName(e.target.value)}
               placeholder="工作空间名称"
               onKeyDown={(e) => e.key === "Enter" && confirmCreateWorkspace()}
             />
+            <div className="flex gap-2">
+              <Input
+                value={newWorkspacePath}
+                readOnly
+                placeholder="选择工作空间根目录"
+                className="flex-1"
+              />
+              <Button variant="secondary" onClick={handleSelectNewWorkspacePath}>
+                <FolderOpen size={14} className="mr-1" /> 浏览
+              </Button>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setNewWorkspaceOpen(false)}>取消</Button>
-            <Button onClick={confirmCreateWorkspace}>创建</Button>
+            <Button onClick={confirmCreateWorkspace} disabled={!newWorkspaceName.trim() || !newWorkspacePath.trim()}>创建</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -611,6 +766,25 @@ export default function WorkspaceTree({
         workspaceName={gitCloneTargetWorkspace}
         onCloned={handleGitCloned}
       />
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>确认操作</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">{confirmMessage}</p>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setConfirmOpen(false)}>取消</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirmOpen(false);
+                confirmCallback?.();
+              }}
+            >
+              确定
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

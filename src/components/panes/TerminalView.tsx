@@ -30,6 +30,8 @@ interface TerminalViewProps {
   isActive: boolean;
   workspaceName?: string;
   providerId?: string;
+  workspacePath?: string;
+  launchClaude?: boolean;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
 }
@@ -235,6 +237,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 rows: term.rows,
                 workspaceName: props.workspaceName,
                 providerId: props.providerId,
+                workspacePath: props.workspacePath,
+                launchClaude: props.launchClaude,
               });
             }
 
@@ -273,9 +277,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           } catch (error) {
             if (!isMounted) return;
             console.error("Failed to init terminal session:", error);
-            term.writeln(
-              `\x1b[31mFailed to initialize terminal session: ${error}\x1b[0m`
-            );
+            const errorMsg = String(error);
+            if (errorMsg.includes("claude CLI not found")) {
+              term.writeln(
+                `\x1b[31mclaude CLI 未安装或不在 PATH 中。\x1b[0m`
+              );
+              term.writeln(
+                `\x1b[33m请安装：npm install -g @anthropic-ai/claude-code\x1b[0m`
+              );
+            } else {
+              term.writeln(
+                `\x1b[31mFailed to initialize terminal session: ${error}\x1b[0m`
+              );
+            }
           }
         }
       };

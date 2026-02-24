@@ -22,7 +22,7 @@ fn test_crud_full_lifecycle() {
     assert!(list.is_empty());
 
     // 2. 创建工作空间
-    let ws = service.create_workspace("my-workspace").unwrap();
+    let ws = service.create_workspace("my-workspace", None).unwrap();
     assert_eq!(ws.name, "my-workspace");
     assert!(!ws.id.is_empty());
     assert!(ws.projects.is_empty());
@@ -61,7 +61,7 @@ fn test_project_association_flow() {
     let (_dir, service) = setup();
 
     // 创建工作空间
-    service.create_workspace("ws-projects").unwrap();
+    service.create_workspace("ws-projects", None).unwrap();
 
     // 添加项目
     let p1 = service
@@ -100,7 +100,7 @@ fn test_project_association_flow() {
 fn test_provider_binding() {
     let (_dir, service) = setup();
 
-    service.create_workspace("ws-provider").unwrap();
+    service.create_workspace("ws-provider", None).unwrap();
 
     // 初始无 Provider
     let ws = service.get_workspace("ws-provider").unwrap();
@@ -130,7 +130,7 @@ fn test_persistence_across_service_instances() {
     // 第一个 service 实例：创建数据
     {
         let service = WorkspaceService::new(dir.path().to_path_buf());
-        service.create_workspace("persist-test").unwrap();
+        service.create_workspace("persist-test", None).unwrap();
         service
             .add_project("persist-test", "/path/project")
             .unwrap();
@@ -165,9 +165,9 @@ fn test_multiple_workspaces_sort_order() {
     let (_dir, service) = setup();
 
     // 创建 3 个工作空间
-    service.create_workspace("ws-alpha").unwrap();
-    service.create_workspace("ws-beta").unwrap();
-    service.create_workspace("ws-gamma").unwrap();
+    service.create_workspace("ws-alpha", None).unwrap();
+    service.create_workspace("ws-beta", None).unwrap();
+    service.create_workspace("ws-gamma", None).unwrap();
 
     // 自定义排序：gamma=0, alpha=1, beta=2
     service
@@ -200,7 +200,7 @@ fn test_reorder_validation() {
     assert!(result.is_err());
 
     // 重复名称不允许
-    service.create_workspace("ws1").unwrap();
+    service.create_workspace("ws1", None).unwrap();
     let result = service.reorder_workspaces(vec!["ws1".to_string(), "ws1".to_string()]);
     assert!(result.is_err());
 
@@ -215,7 +215,7 @@ fn test_reorder_validation() {
 fn test_workspace_alias() {
     let (_dir, service) = setup();
 
-    service.create_workspace("ws-alias-test").unwrap();
+    service.create_workspace("ws-alias-test", None).unwrap();
 
     // 初始无别名
     let ws = service.get_workspace("ws-alias-test").unwrap();
@@ -247,7 +247,7 @@ fn test_workspace_alias() {
 fn test_project_alias_in_workspace() {
     let (_dir, service) = setup();
 
-    service.create_workspace("ws-proj-alias").unwrap();
+    service.create_workspace("ws-proj-alias", None).unwrap();
     let project = service
         .add_project("ws-proj-alias", "/path/proj")
         .unwrap();
@@ -273,7 +273,7 @@ fn test_project_alias_in_workspace() {
 fn test_workspace_hidden() {
     let (_dir, service) = setup();
 
-    service.create_workspace("ws-hidden").unwrap();
+    service.create_workspace("ws-hidden", None).unwrap();
 
     // 默认不隐藏
     let ws = service.get_workspace("ws-hidden").unwrap();
@@ -308,11 +308,11 @@ fn test_error_handling() {
     assert!(service.rename_workspace("nonexistent", "new").is_err());
 
     // 创建重复名称
-    service.create_workspace("dup-ws").unwrap();
-    assert!(service.create_workspace("dup-ws").is_err());
+    service.create_workspace("dup-ws", None).unwrap();
+    assert!(service.create_workspace("dup-ws", None).is_err());
 
     // 重命名到已存在的名称
-    service.create_workspace("target-ws").unwrap();
+    service.create_workspace("target-ws", None).unwrap();
     let result = service.rename_workspace("dup-ws", "target-ws");
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("WORKSPACE_NAME_DUPLICATE"));

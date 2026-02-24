@@ -9,6 +9,9 @@ pub struct CreateSessionRequest {
     pub rows: u16,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    pub workspace_path: Option<String>,
+    #[serde(default)]
+    pub launch_claude: bool,
 }
 
 /// 调整终端大小请求

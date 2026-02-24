@@ -59,9 +59,9 @@ describe("workspaceService", () => {
       const workspace = createTestWorkspace({ name: "ws-1" });
       mockTauriInvoke({ create_workspace: workspace });
 
-      const result = await createWorkspace("ws-1");
+      const result = await createWorkspace("ws-1", "/test/path");
 
-      expect(invoke).toHaveBeenCalledWith("create_workspace", { name: "ws-1" });
+      expect(invoke).toHaveBeenCalledWith("create_workspace", { name: "ws-1", path: "/test/path" });
       expect(result).toEqual(workspace);
     });
   });

@@ -5,8 +5,8 @@ export async function listWorkspaces(): Promise<Workspace[]> {
   return invoke<Workspace[]>("list_workspaces");
 }
 
-export async function createWorkspace(name: string): Promise<Workspace> {
-  return invoke<Workspace>("create_workspace", { name });
+export async function createWorkspace(name: string, path: string): Promise<Workspace> {
+  return invoke<Workspace>("create_workspace", { name, path });
 }
 
 export async function getWorkspace(name: string): Promise<Workspace> {
@@ -68,6 +68,13 @@ export async function updateWorkspaceProvider(
     workspaceName,
     providerId,
   });
+}
+
+export async function updateWorkspacePath(
+  workspaceName: string,
+  path: string | null
+): Promise<void> {
+  return invoke("update_workspace_path", { workspaceName, path });
 }
 
 // ============ Git Clone ============

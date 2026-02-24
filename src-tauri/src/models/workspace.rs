@@ -21,10 +21,12 @@ pub struct Workspace {
     pub projects: Vec<WorkspaceProject>,
     #[serde(default)]
     pub provider_id: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 impl Workspace {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: String, path: Option<String>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name,
@@ -32,6 +34,7 @@ impl Workspace {
             created_at: chrono::Utc::now().to_rfc3339(),
             projects: Vec::new(),
             provider_id: None,
+            path,
         }
     }
 }
