@@ -2,5 +2,4 @@
 resolver = "2"
 members = [
     "src-tauri",
-    "cc-panes-tui",
 ]

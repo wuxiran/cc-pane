@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   Folder, ChevronRight, Trash2, Plus, Pencil, FileText, Clock, ListTodo,
   FolderOpen, FolderSearch, ShieldCheck, Terminal, Cloud, Check, GitBranch,
-  FolderRoot, X, Copy,
+  FolderRoot, X, Copy, FileStack, Plug,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,7 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useWorkspacesStore, useProvidersStore, useThemeStore, useDialogStore } from "@/stores";
-import { worktreeService, type WorktreeInfo } from "@/services";
+import { worktreeService, hooksService, type WorktreeInfo, type HookStatus } from "@/services";
 import { scanDirectory, type ScannedRepo } from "@/services/workspaceService";
 import ScanImportDialog from "@/components/ScanImportDialog";
 import GitCloneDialog from "@/components/GitCloneDialog";
@@ -40,6 +40,7 @@ export default function WorkspaceTree({
   const onOpenHistory = useDialogStore((s) => s.openLocalHistory);
   const onOpenSessionCleaner = useDialogStore((s) => s.openSessionCleaner);
   const onOpenTodo = useDialogStore((s) => s.openTodo);
+  const onOpenPlans = useDialogStore((s) => s.openPlans);
   const isDark = useThemeStore((s) => s.isDark);
 
   // Workspace 状态
@@ -63,6 +64,7 @@ export default function WorkspaceTree({
   // 本地状态
   const [gitBranches, setGitBranches] = useState<Record<string, string | null>>({});
   const [worktreeCache, setWorktreeCache] = useState<Record<string, WorktreeInfo[]>>({});
+  const [hookStatuses, setHookStatuses] = useState<Record<string, HookStatus[]>>({});
 
   // Dialog 状态
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -392,6 +394,38 @@ export default function WorkspaceTree({
     }
   }
 
+  // ============ Hooks 操作 ============
+
+  async function fetchHookStatuses(projectPath: string) {
+    try {
+      const statuses = await hooksService.getStatus(projectPath);
+      setHookStatuses((prev) => ({ ...prev, [projectPath]: statuses }));
+    } catch {
+      setHookStatuses((prev) => ({ ...prev, [projectPath]: [] }));
+    }
+  }
+
+  async function handleToggleHook(projectPath: string, hook: HookStatus) {
+    try {
+      if (hook.enabled) {
+        await hooksService.disableHook(projectPath, hook.name);
+      } else {
+        await hooksService.enableHook(projectPath, hook.name);
+      }
+      await fetchHookStatuses(projectPath);
+    } catch (e) {
+      toast.error(`Hook 操作失败: ${e}`);
+    }
+  }
+
+  function getHookLabel(hook: HookStatus): string {
+    const labelMap: Record<string, string> = {
+      "session-inject": t("hookSessionInject"),
+      "plan-archive": t("hookPlanArchive"),
+    };
+    return labelMap[hook.name] || hook.label;
+  }
+
   function getRelativePath(projectPath: string, wsPath?: string | null): string {
     const normalize = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
     if (wsPath) {
@@ -485,6 +519,25 @@ export default function WorkspaceTree({
                 <ContextMenuItem onClick={() => onOpenTodo("workspace", ws.name)}>
                   <ListTodo size={14} className="mr-2" /> {t("todoList")}
                 </ContextMenuItem>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger
+                    disabled={!ws.path && ws.projects.length === 0}
+                    onPointerEnter={() => fetchHookStatuses(ws.path || ws.projects[0]?.path)}
+                  >
+                    <Plug size={14} className="mr-2" /> {t("hooks")}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent>
+                    {(hookStatuses[ws.path || ws.projects[0]?.path] || []).map((hook) => (
+                      <ContextMenuItem key={hook.name} onClick={() => handleToggleHook(ws.path || ws.projects[0]?.path, hook)}>
+                        {hook.enabled ? <Check size={14} className="mr-2" /> : <span className="w-[14px] mr-2" />}
+                        {getHookLabel(hook)}
+                      </ContextMenuItem>
+                    ))}
+                    {(!hookStatuses[ws.path || ws.projects[0]?.path] || hookStatuses[ws.path || ws.projects[0]?.path].length === 0) && (
+                      <ContextMenuItem disabled>Loading...</ContextMenuItem>
+                    )}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
                 <ContextMenuSub>
                   <ContextMenuSubTrigger>
                     <Cloud size={14} className="mr-2" /> Provider
@@ -592,6 +645,9 @@ export default function WorkspaceTree({
                         </ContextMenuItem>
                         <ContextMenuItem onClick={() => onOpenHistory(project.path)}>
                           <Clock size={14} className="mr-2" /> {t("fileHistory")}
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={() => onOpenPlans(project.path)}>
+                          <FileStack size={14} className="mr-2" /> {t("planArchive")}
                         </ContextMenuItem>
                         <ContextMenuItem onClick={() => handleOpenWorktreeManager(project, ws)}>
                           <GitBranch size={14} className="mr-2" /> {t("worktreeManager")}

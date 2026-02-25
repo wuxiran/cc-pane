@@ -24,7 +24,6 @@ CC-Panes 是一个基于 Tauri 2 的跨平台桌面应用，用于管理多个 C
 | 数据存储 | SQLite (rusqlite) | 本地持久化 |
 | 图标 | Lucide React | SVG 图标 |
 | 构建 | Vite 6 | 前端构建 |
-| TUI（归档） | Ratatui + crossterm | 命令行版本 |
 
 ## 架构与数据流
 
@@ -108,7 +107,6 @@ cc-panes/
 │       ├── models/                # 数据模型
 │       └── utils/                 # 工具（AppPaths, AppError）
 │
-├── cc-panes-tui/                  # TUI 版本（已归档）
 ├── docs/                          # 设计文档（13 个阶段）
 ├── _reference/                    # 参考实现（gitignored）
 └── _archived_v1/                  # 旧版本存档（gitignored）
