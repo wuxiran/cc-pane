@@ -10,7 +10,7 @@
 [English](README.md)
 
 <p align="center">
-  <img src="docs/images/screenshot-main.png" alt="CC-Panes 主界面" width="800" />
+  <img src="images/screenshot-main.png" alt="CC-Panes 主界面" width="800" />
 </p>
 
 ## 什么是 CC-Panes？
@@ -159,7 +159,7 @@ cc-panes/
 │       ├── models/          # 数据模型
 │       └── utils/           # 工具（AppPaths, AppError）
 │
-└── docs/                   # 文档 & 截图
+└── images/                 # 截图
 ```
 
 ## 截图
@@ -169,11 +169,11 @@ cc-panes/
 
 | 分屏布局 | 面板视图 |
 |:-:|:-:|
-| ![分屏](docs/images/screenshot-no-layout.png) | ![面板](docs/images/screenshot-panel.png) |
+| ![分屏](images/screenshot-no-layout.png) | ![面板](images/screenshot-panel.png) |
 
 | 待办列表 | 新 UI |
 |:-:|:-:|
-| ![待办](docs/images/screenshot-todolist.png) | ![新 UI](docs/images/screenshot-new-ui.png) |
+| ![待办](images/screenshot-todolist.png) | ![新 UI](images/screenshot-new-ui.png) |
 
 </details>
 

@@ -10,7 +10,7 @@
 [中文文档](README.zh-CN.md)
 
 <p align="center">
-  <img src="docs/images/screenshot-main.png" alt="CC-Panes Main Interface" width="800" />
+  <img src="images/screenshot-main.png" alt="CC-Panes Main Interface" width="800" />
 </p>
 
 ## What is CC-Panes?
@@ -159,7 +159,7 @@ cc-panes/
 │       ├── models/          # Data models
 │       └── utils/           # Utilities (AppPaths, AppError)
 │
-└── docs/                   # Documentation & screenshots
+└── images/                 # Screenshots
 ```
 
 ## Screenshots
@@ -169,11 +169,11 @@ cc-panes/
 
 | Split Pane Layout | Panel View |
 |:-:|:-:|
-| ![Split Pane](docs/images/screenshot-no-layout.png) | ![Panel](docs/images/screenshot-panel.png) |
+| ![Split Pane](images/screenshot-no-layout.png) | ![Panel](images/screenshot-panel.png) |
 
 | Todo List | New UI |
 |:-:|:-:|
-| ![Todo](docs/images/screenshot-todolist.png) | ![New UI](docs/images/screenshot-new-ui.png) |
+| ![Todo](images/screenshot-todolist.png) | ![New UI](images/screenshot-new-ui.png) |
 
 </details>
 
