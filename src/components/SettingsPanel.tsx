@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Settings, Globe, Terminal, Keyboard, Info, Cloud, Bell } from "lucide-react";
+import { Settings, Globe, Terminal, Keyboard, Info, Cloud, Bell, Camera } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,7 @@ import ProxySection from "./settings/ProxySection";
 import TerminalSection from "./settings/TerminalSection";
 import ShortcutsSection from "./settings/ShortcutsSection";
 import AboutSection from "./settings/AboutSection";
+import ScreenshotSection from "./settings/ScreenshotSection";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -40,6 +41,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     { id: "proxy", label: t("proxy"), icon: Globe },
     { id: "terminal", label: t("terminal"), icon: Terminal },
     { id: "shortcuts", label: t("shortcuts"), icon: Keyboard },
+    { id: "screenshot", label: t("screenshot"), icon: Camera },
     { id: "about", label: t("about"), icon: Info },
   ];
 
@@ -112,6 +114,9 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             )}
             {activeSection === "shortcuts" && (
               <ShortcutsSection value={draft.shortcuts} onChange={(v) => setDraft({ ...draft, shortcuts: v })} />
+            )}
+            {activeSection === "screenshot" && (
+              <ScreenshotSection value={draft.screenshot} onChange={(v) => setDraft({ ...draft, screenshot: v })} />
             )}
             {activeSection === "about" && <AboutSection />}
           </div>

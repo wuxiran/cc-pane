@@ -8,7 +8,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useTerminalStatusStore, useThemeStore } from "@/stores";
+import { useTerminalStatusStore } from "@/stores";
 import StatusIndicator from "@/components/StatusIndicator";
 import type { Tab } from "@/types";
 
@@ -53,7 +53,6 @@ export default memo(function TabBar({
 }: TabBarProps) {
   const { t } = useTranslation("panes");
   const getStatus = useTerminalStatusStore((s) => s.getStatus);
-  const isDark = useThemeStore((s) => s.isDark);
 
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -134,11 +133,8 @@ export default memo(function TabBar({
 
   return (
     <div
-      className={`flex items-center ${d.bar} shrink-0 border-b backdrop-blur-xl transition-colors ${
-        isDark
-          ? 'bg-[#0F1117]/30 border-white/5'
-          : 'bg-white/30 border-white/30'
-      }`}
+      className={`flex items-center ${d.bar} shrink-0 border-b transition-colors`}
+      style={{ background: "var(--app-tabbar)", borderColor: "var(--app-border)" }}
     >
       <div
         className={`flex items-center ${d.tabList} overflow-x-auto flex-1 h-full`}
@@ -147,18 +143,16 @@ export default memo(function TabBar({
           <ContextMenu key={tab.id}>
             <ContextMenuTrigger asChild>
               <div
-                className={`relative group flex items-center ${d.tab} font-medium transition-all cursor-pointer border-t border-x backdrop-blur-lg ${
-                  tab.id === activeId
-                    ? isDark
-                      ? 'bg-[#0F1117]/60 border-white/5 text-blue-300'
-                      : 'bg-white/60 border-white/50 text-slate-800 shadow-sm'
-                    : isDark
-                      ? 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/5'
-                      : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-white/30'
-                }
+                className={`relative group flex items-center ${d.tab} font-medium transition-all cursor-pointer
                   ${dragIndex === index ? "opacity-50" : ""}
                   ${dropIndex === index && dragIndex !== index ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]" : ""}
+                  ${tab.id !== activeId ? "hover:bg-[var(--app-hover)]" : ""}
                 `}
+                style={{
+                  background: tab.id === activeId ? "var(--editor-tab-active-bg)" : "transparent",
+                  color: tab.id === activeId ? "var(--editor-tab-active-fg)" : "var(--editor-tab-inactive-fg)",
+                  borderTop: tab.id === activeId ? "2px solid var(--app-tab-active-border)" : "2px solid transparent",
+                }}
                 draggable
                 onClick={() => onSelect(tab.id)}
                 onDoubleClick={() => onFullscreen(tab.id)}
@@ -168,10 +162,6 @@ export default memo(function TabBar({
                 onDrop={(e) => handleDrop(e, index)}
                 onDragEnd={handleDragEnd}
               >
-                {/* 顶部高亮线 */}
-                {tab.id === activeId && (
-                  <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-60" />
-                )}
                 <StatusIndicator status={getStatus(tab.sessionId)} size={d.statusSize} />
                 {tab.pinned && (
                   <Pin size={d.pinSize} className="shrink-0 opacity-60 rotate-45" style={{ color: "var(--app-accent)" }} onDoubleClick={(e) => e.stopPropagation()} />
@@ -207,7 +197,7 @@ export default memo(function TabBar({
                 )}
                 {!tab.pinned && (
                   <button
-                    className={`opacity-0 group-hover:opacity-100 p-0.5 rounded-full transition-all ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded-full transition-all hover:bg-[var(--app-hover)]"
                     onClick={(e) => {
                       e.stopPropagation();
                       onClose(tab.id);
@@ -288,11 +278,7 @@ export default memo(function TabBar({
           </ContextMenu>
         ))}
         <button
-          className={`${d.addBtn} mb-1 rounded-lg transition-colors ${
-            isDark
-              ? 'text-slate-400 hover:bg-white/10 hover:text-slate-200'
-              : 'text-slate-500 hover:bg-white/40 hover:text-slate-800'
-          }`}
+          className={`${d.addBtn} mb-1 rounded-lg transition-colors text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]`}
           onClick={onAdd}
         >
           <Plus className={d.addIcon} />

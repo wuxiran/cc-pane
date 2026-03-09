@@ -1,5 +1,5 @@
 import {
-  Command, FolderTree, Search, History, Bot, ListTodo, Settings,
+  Command, FolderTree, Search, History, Bot, ListTodo, Settings, Files,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useActivityBarStore, type ActivityView } from "@/stores/useActivityBarStore";
-import { useDialogStore, useThemeStore } from "@/stores";
+import { useDialogStore } from "@/stores";
 
 interface ActivityBarIconProps {
   icon: React.ReactNode;
@@ -18,16 +18,14 @@ interface ActivityBarIconProps {
 }
 
 function ActivityBarIcon({ icon, label, active, onClick }: ActivityBarIconProps) {
-  const isDark = useThemeStore((s) => s.isDark);
-
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           className={`relative w-full h-[40px] flex items-center justify-center transition-colors duration-150 ${
             active
-              ? (isDark ? "text-white" : "text-[var(--app-text-primary)]")
-              : (isDark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600")
+              ? "text-[var(--app-icon-active)]"
+              : "text-[var(--app-icon-inactive)] hover:text-[var(--app-icon-hover)]"
           }`}
           style={{
             background: active ? "var(--app-hover)" : undefined,
@@ -37,7 +35,7 @@ function ActivityBarIcon({ icon, label, active, onClick }: ActivityBarIconProps)
           {/* 左侧高亮条 */}
           {active && (
             <div
-              className="absolute left-0 top-[25%] bottom-[25%] w-[2px] rounded-r"
+              className="absolute left-0 top-[25%] bottom-[25%] w-[3px] rounded-r"
               style={{ background: "var(--app-accent)" }}
             />
           )}
@@ -53,7 +51,6 @@ function ActivityBarIcon({ icon, label, active, onClick }: ActivityBarIconProps)
 
 export default function ActivityBar() {
   const { t } = useTranslation("sidebar");
-  const isDark = useThemeStore((s) => s.isDark);
   const activeView = useActivityBarStore((s) => s.activeView);
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const toggleView = useActivityBarStore((s) => s.toggleView);
@@ -62,13 +59,16 @@ export default function ActivityBar() {
   const toggleSelfChatMode = useActivityBarStore((s) => s.toggleSelfChatMode);
   const openSettings = useDialogStore((s) => s.openSettings);
 
-  const isViewActive = (view: ActivityView) =>
-    activeView === view && sidebarVisible;
+  const isViewActive = (view: ActivityView) => {
+    if (view === "files") return appViewMode === "files";
+    return activeView === view && sidebarVisible && appViewMode !== "files";
+  };
 
   const viewItems: { view: ActivityView; icon: React.ReactNode; label: string }[] = [
-    { view: "explorer", icon: <FolderTree className="w-[20px] h-[20px]" />, label: t("workspaces") },
-    { view: "search", icon: <Search className="w-[20px] h-[20px]" />, label: t("search", { ns: "common", defaultValue: "Search" }) },
-    { view: "sessions", icon: <History className="w-[20px] h-[20px]" />, label: t("recentLaunches") },
+    { view: "explorer", icon: <FolderTree className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("workspaces") },
+    { view: "files", icon: <Files className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("fileBrowser", { defaultValue: "Files" }) },
+    { view: "search", icon: <Search className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("search", { ns: "common", defaultValue: "Search" }) },
+    { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches") },
   ];
 
   return (
@@ -77,9 +77,7 @@ export default function ActivityBar() {
       style={{
         width: 48,
         height: "100%",
-        background: isDark
-          ? "rgba(15, 23, 42, 0.30)"
-          : "rgba(255, 255, 255, 0.35)",
+        background: "var(--app-activity-bar-bg)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
       }}
@@ -89,18 +87,14 @@ export default function ActivityBar() {
         <div
           className="w-[28px] h-[28px] rounded-[7px] flex items-center justify-center transition-transform hover:scale-105"
           style={{
-            background: isDark
-              ? "linear-gradient(135deg, rgba(59,130,246,0.8), rgba(99,102,241,0.8))"
-              : "linear-gradient(135deg, rgba(255,255,255,0.85), rgba(255,255,255,0.5))",
-            border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.7)"}`,
-            boxShadow: isDark
-              ? "0 2px 8px rgba(59,130,246,0.25), inset 0 1px 0 rgba(255,255,255,0.1)"
-              : "0 2px 8px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5)",
+            background: "var(--app-activity-bar-bg)",
+            border: "1px solid var(--app-border)",
+            boxShadow: "var(--app-glass-shadow)",
           }}
         >
           <Command
             className="w-[14px] h-[14px]"
-            style={{ color: isDark ? "#fff" : "var(--app-accent)" }}
+            style={{ color: "var(--app-accent)" }}
           />
         </div>
       </div>
@@ -125,7 +119,7 @@ export default function ActivityBar() {
 
         {/* Todo (切换全屏 todo 视图模式) */}
         <ActivityBarIcon
-          icon={<ListTodo className="w-[20px] h-[20px]" />}
+          icon={<ListTodo className="w-[22px] h-[22px]" strokeWidth={1.5} />}
           label={t("todoList")}
           active={appViewMode === "todo"}
           onClick={toggleTodoMode}
@@ -133,7 +127,7 @@ export default function ActivityBar() {
 
         {/* Self-Chat (项目规划助手) */}
         <ActivityBarIcon
-          icon={<Bot className="w-[20px] h-[20px]" />}
+          icon={<Bot className="w-[22px] h-[22px]" strokeWidth={1.5} />}
           label={t("selfChat", { ns: "common", defaultValue: "Self Chat" })}
           active={appViewMode === "selfchat"}
           onClick={toggleSelfChatMode}
@@ -143,7 +137,7 @@ export default function ActivityBar() {
       {/* 底部设置 */}
       <div className="mt-auto pb-3 w-full">
         <ActivityBarIcon
-          icon={<Settings className="w-[20px] h-[20px]" />}
+          icon={<Settings className="w-[22px] h-[22px]" strokeWidth={1.5} />}
           label={t("settings", { ns: "common", defaultValue: "Settings" })}
           active={false}
           onClick={openSettings}

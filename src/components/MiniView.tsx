@@ -6,6 +6,7 @@ import { usePanesStore, useTerminalStatusStore, useMiniModeStore } from "@/store
 import StatusIndicator from "@/components/StatusIndicator";
 import type { Tab } from "@/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauriReady } from "@/utils";
 
 export default function MiniView() {
   const { t } = useTranslation("common");
@@ -42,6 +43,7 @@ export default function MiniView() {
   }
 
   function startDrag() {
+    if (!isTauriReady()) return;
     getCurrentWindow().startDragging();
   }
 

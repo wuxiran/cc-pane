@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Sidebar from "@/components/Sidebar";
@@ -7,6 +7,7 @@ import ActivityBar from "@/components/ActivityBar";
 import StatusBar from "@/components/StatusBar";
 import MiniView from "@/components/MiniView";
 import { PaneContainer } from "@/components/panes";
+import { FileEditorPanel } from "@/components/editor";
 import SettingsPanel from "@/components/SettingsPanel";
 import JournalPanel from "@/components/JournalPanel";
 import LocalHistoryPanel from "@/components/LocalHistoryPanel";
@@ -17,6 +18,8 @@ import TodoManager from "@/components/todo/TodoManager";
 import SelfChatPanel from "@/components/SelfChatPanel";
 import { SelfChatManager } from "@/components/selfchat";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import QuickSearch from "@/components/QuickSearch";
 import {
   usePanesStore,
   useFullscreenStore,
@@ -35,7 +38,8 @@ import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { historyService, terminalService, localHistoryService, hooksService } from "@/services";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
-import { waitForTauri } from "@/utils";
+import { isTauriReady, waitForTauri } from "@/utils";
+import { registerGlobalApi } from "@/utils/globalApi";
 import i18n from "@/i18n";
 
 import type { PaneNode, Panel as PanelType } from "@/types";
@@ -53,6 +57,14 @@ function getAllPanels(pane: PaneNode): PanelType[] {
 }
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
+  );
+}
+
+function MainApp() {
   const isDark = useThemeStore((s) => s.isDark);
   const isMiniMode = useMiniModeStore((s) => s.isMiniMode);
 
@@ -64,6 +76,11 @@ export default function App() {
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
 
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
+
+  // QuickSearch 状态
+  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
+  const openQuickSearch = useCallback(() => setQuickSearchOpen(true), []);
+  const closeQuickSearch = useCallback(() => setQuickSearchOpen(false), []);
 
   // Session tracking map: ptySessionId -> { recordId, projectPath, claudeSessionId }
   const sessionMapRef = useRef<Map<string, SessionTrackInfo>>(new Map());
@@ -95,6 +112,11 @@ export default function App() {
   // 监听外部工作空间变更（文件系统 watcher）
   useWorkspaceWatcher();
 
+  // 注册全局 API（Skill 用）
+  useEffect(() => {
+    registerGlobalApi();
+  }, []);
+
   // 初始化设置 + TerminalStatusStore（等待 Tauri IPC 就绪）
   useEffect(() => {
     let cancelled = false;
@@ -115,8 +137,21 @@ export default function App() {
     };
   }, []);
 
+  // Ctrl+P 全局快捷键：打开 QuickSearch
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+        e.preventDefault();
+        setQuickSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // 监听 terminal-exit 事件，提取 last prompt
   useEffect(() => {
+    if (!isTauriReady()) return;
     let unlisten: (() => void) | null = null;
     getCurrentWebview().listen<{ sessionId: string }>("terminal-exit", async (e) => {
       const info = sessionMapRef.current.get(e.payload.sessionId);
@@ -231,6 +266,11 @@ export default function App() {
       id: "show-sessions",
       label: "Sessions",
       handler: () => useActivityBarStore.getState().toggleView("sessions"),
+    });
+    register({
+      id: "show-files",
+      label: "Files",
+      handler: () => useActivityBarStore.getState().toggleFilesMode(),
     });
     for (let i = 1; i <= 9; i++) {
       register({
@@ -370,42 +410,44 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="app h-full flex flex-col relative z-[1]">
-        {/* 渐变球体背景 */}
-        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-          <div
-            className="absolute rounded-full mix-blend-screen opacity-60"
-            style={{
-              width: 600,
-              height: 600,
-              top: -200,
-              left: -100,
-              background: "var(--app-orb-1)",
-              filter: "blur(120px)",
-            }}
-          />
-          <div
-            className="absolute rounded-full mix-blend-screen opacity-60"
-            style={{
-              width: 500,
-              height: 500,
-              top: "30%",
-              right: -150,
-              background: "var(--app-orb-2)",
-              filter: "blur(150px)",
-            }}
-          />
-          <div
-            className="absolute rounded-full mix-blend-screen opacity-60"
-            style={{
-              width: 400,
-              height: 400,
-              bottom: -100,
-              left: "40%",
-              background: "var(--app-orb-3)",
-              filter: "blur(130px)",
-            }}
-          />
-        </div>
+        {/* 渐变球体背景（仅 Dark 模式） */}
+        {isDark && (
+          <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+            <div
+              className="absolute rounded-full mix-blend-screen opacity-60"
+              style={{
+                width: 600,
+                height: 600,
+                top: -200,
+                left: -100,
+                background: "var(--app-orb-1)",
+                filter: "blur(120px)",
+              }}
+            />
+            <div
+              className="absolute rounded-full mix-blend-screen opacity-60"
+              style={{
+                width: 500,
+                height: 500,
+                top: "30%",
+                right: -150,
+                background: "var(--app-orb-2)",
+                filter: "blur(150px)",
+              }}
+            />
+            <div
+              className="absolute rounded-full mix-blend-screen opacity-60"
+              style={{
+                width: 400,
+                height: 400,
+                bottom: -100,
+                left: "40%",
+                background: "var(--app-orb-3)",
+                filter: "blur(130px)",
+              }}
+            />
+          </div>
+        )}
 
         {/* Sonner Toast */}
         <Toaster position="top-center" theme={isDark ? "dark" : "light"} richColors />
@@ -414,7 +456,10 @@ export default function App() {
           <MiniView />
         ) : (
           <>
-            <TitleBar workspaceName={selectedWorkspace()?.alias || selectedWorkspace()?.name} />
+            <TitleBar
+              workspaceName={selectedWorkspace()?.alias || selectedWorkspace()?.name}
+              onOpenQuickSearch={openQuickSearch}
+            />
             {/* 主区域：ActivityBar | Sidebar/Todo | 主内容区 */}
             <div className="flex-1 flex overflow-hidden relative z-[1]">
               <ActivityBar />
@@ -428,6 +473,19 @@ export default function App() {
                 <div className="flex-1 overflow-hidden">
                   <SelfChatManager />
                 </div>
+              ) : appViewMode === "files" ? (
+                /* Files 模式：侧边栏（文件浏览器）+ 文件编辑面板 */
+                <>
+                  {sidebarVisible && (
+                    <Sidebar
+                      activeView={activeView}
+                      onOpenTerminal={handleOpenTerminal}
+                    />
+                  )}
+                  <div className="flex-1 overflow-hidden bg-transparent p-1.5">
+                    <FileEditorPanel />
+                  </div>
+                </>
               ) : (
                 <>
                   {/* 侧边栏 */}
@@ -487,6 +545,9 @@ export default function App() {
           open={selfChatOpen}
           onOpenChange={(open) => open ? useDialogStore.getState().openSelfChat() : useDialogStore.getState().closeSelfChat()}
         />
+
+        {/* 全局快速搜索 */}
+        <QuickSearch open={quickSearchOpen} onClose={closeQuickSearch} />
       </div>
     </TooltipProvider>
   );

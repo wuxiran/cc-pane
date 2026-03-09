@@ -41,8 +41,8 @@ export default function StatusBar() {
     <div
       className="flex items-center h-[24px] px-2 shrink-0 select-none z-10 text-[11px]"
       style={{
-        background: isDark ? "rgba(15, 23, 42, 0.40)" : "rgba(255, 255, 255, 0.45)",
-        borderTop: "1px solid var(--app-glass-border)",
+        background: "var(--app-activity-bar-bg)",
+        borderTop: "1px solid var(--app-border)",
         backdropFilter: `blur(var(--app-glass-blur-sm))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur-sm))`,
         color: "var(--app-text-secondary)",

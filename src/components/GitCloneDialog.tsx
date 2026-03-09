@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { toast } from "sonner";
+import { isTauriReady } from "@/utils";
 import { FolderOpen } from "lucide-react";
 import {
   Dialog,
@@ -102,9 +103,12 @@ export default function GitCloneDialog({
     setCloning(true);
     setProgress(null);
 
-    const unlisten = await getCurrentWebview().listen<GitCloneProgress>("git-clone-progress", (e) => {
-      setProgress(e.payload);
-    });
+    let unlisten: (() => void) | undefined;
+    if (isTauriReady()) {
+      unlisten = await getCurrentWebview().listen<GitCloneProgress>("git-clone-progress", (e) => {
+        setProgress(e.payload);
+      });
+    }
 
     try {
       const clonedPath = await gitClone({
@@ -121,7 +125,7 @@ export default function GitCloneDialog({
     } catch (e) {
       toast.error(t("cloneFailed", { error: e }));
     } finally {
-      unlisten();
+      unlisten?.();
       setCloning(false);
     }
   }

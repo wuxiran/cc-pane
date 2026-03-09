@@ -16,6 +16,10 @@ export default defineConfig(async () => ({
   },
   build: {
     rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        screenshot: resolve(__dirname, "screenshot.html"),
+      },
       output: {
         manualChunks: {
           "xterm": ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-search"],

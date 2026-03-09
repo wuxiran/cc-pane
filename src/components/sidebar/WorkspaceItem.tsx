@@ -12,7 +12,7 @@ import {
   ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
   ContextMenuCheckboxItem, ContextMenuRadioGroup, ContextMenuRadioItem,
 } from "@/components/ui/context-menu";
-import { useProvidersStore, useThemeStore, useDialogStore } from "@/stores";
+import { useProvidersStore, useDialogStore } from "@/stores";
 import { hooksService, type HookStatus } from "@/services";
 import type { Workspace } from "@/types";
 import { useState } from "react";
@@ -40,7 +40,6 @@ export default function WorkspaceItem({
   onImportProject, onScanImport, onGitClone, onSetPath, onClearPath, onSetProvider,
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
-  const isDark = useThemeStore((s) => s.isDark);
   const providerList = useProvidersStore((s) => s.providers);
   const onOpenJournal = useDialogStore((s) => s.openJournal);
   const onOpenSessionCleaner = useDialogStore((s) => s.openSessionCleaner);
@@ -95,33 +94,27 @@ export default function WorkspaceItem({
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button
-            className={`w-full group flex items-center justify-between px-3 py-2.5 mb-1 rounded-xl transition-all duration-300 border border-transparent ${
+            className={`w-full group flex items-center justify-between px-3 py-2.5 mb-1 rounded-xl transition-all duration-300 ${
               expanded
-                ? isDark
-                  ? 'bg-gradient-to-r from-blue-500/20 to-blue-500/5 text-blue-200 border-white/10 shadow-[0_4px_20px_rgba(59,130,246,0.15)] backdrop-blur-md'
-                  : 'bg-white/50 text-blue-600 shadow-lg shadow-blue-500/5 ring-1 ring-white/80 backdrop-blur-md'
-                : isDark
-                  ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200 hover:shadow-[0_0_15px_rgba(255,255,255,0.05)]'
-                  : 'text-slate-500 hover:bg-white/40 hover:text-slate-900 hover:shadow-sm'
+                ? 'border border-[var(--app-border)] text-[var(--app-accent)]'
+                : 'border border-transparent text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]'
             }`}
+            style={expanded ? { background: "var(--app-hover)" } : undefined}
             onClick={() => onExpand(ws.id)}
           >
             <div className="flex items-center gap-3">
               <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
               <span className="text-sm font-medium tracking-wide">{displayName}</span>
               {ws.path && (
-                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                  isDark ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                }`}>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30">
                   Claude
                 </span>
               )}
             </div>
-            <span className={`text-xs px-2 py-0.5 rounded-full backdrop-blur-sm ${
-              expanded
-                ? isDark ? 'bg-blue-400/20 text-blue-100 border border-blue-400/20' : 'bg-blue-100/60 text-blue-700 shadow-sm'
-                : isDark ? 'bg-slate-800/40 text-slate-500 border border-white/5' : 'bg-white/50 text-slate-500 shadow-sm'
-            }`}>
+            <span
+              className="text-xs px-2 py-0.5 rounded-full text-[var(--app-text-secondary)]"
+              style={{ background: "var(--app-hover)" }}
+            >
               {ws.projects.length}
             </span>
           </button>

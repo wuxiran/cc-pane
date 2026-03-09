@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { FileTree } from "@/components/filetree";
 import { useFileTreeStore } from "@/stores";
@@ -18,7 +18,6 @@ interface FileExplorerViewProps {
 }
 
 export default function FileExplorerView({ projectPath }: FileExplorerViewProps) {
-  const [showSearch, setShowSearch] = useState(false);
   const [dialogType, setDialogType] = useState<"newFile" | "newDir" | null>(null);
   const [inputValue, setInputValue] = useState("");
 
@@ -63,11 +62,9 @@ export default function FileExplorerView({ projectPath }: FileExplorerViewProps)
     <div className="flex flex-col h-full overflow-hidden">
       <FileExplorerToolbar
         showHidden={showHidden}
-        showSearch={showSearch}
         onRefresh={handleRefresh}
         onNewFile={handleNewFile}
         onNewFolder={handleNewFolder}
-        onToggleSearch={() => setShowSearch((v) => !v)}
         onToggleHidden={toggleShowHidden}
       />
 
@@ -75,7 +72,6 @@ export default function FileExplorerView({ projectPath }: FileExplorerViewProps)
         <FileTree
           rootPath={projectPath}
           compact={false}
-          showSearch={showSearch}
           onOpenTerminal={undefined}
         />
       </div>

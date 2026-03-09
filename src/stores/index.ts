@@ -26,3 +26,5 @@ export type { ShortcutAction } from "./useShortcutsStore";
 export { useFileTreeStore } from "./useFileTreeStore";
 export { useActivityBarStore, type ActivityView } from "./useActivityBarStore";
 export { useSelfChatStore } from "./useSelfChatStore";
+export { useFileBrowserStore } from "./useFileBrowserStore";
+export { useEditorTabsStore, type EditorTab } from "./useEditorTabsStore";

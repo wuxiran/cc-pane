@@ -1,7 +1,6 @@
 import { Copy, Play, FolderOpen, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { useThemeStore } from "@/stores";
 import { formatFullTime } from "@/utils";
 import type { LaunchRecord } from "@/services";
 import { invoke } from "@tauri-apps/api/core";
@@ -16,7 +15,6 @@ interface ResumeDetailPopoverProps {
 
 export default function ResumeDetailPopover({ record, onResume, onDelete, children }: ResumeDetailPopoverProps) {
   const { t } = useTranslation("sidebar");
-  const isDark = useThemeStore((s) => s.isDark);
 
   const sessionId = record.claudeSessionId ?? "";
   const truncatedId = sessionId.length > 16 ? `${sessionId.slice(0, 8)}...${sessionId.slice(-8)}` : sessionId;
@@ -61,25 +59,25 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
         <div className="space-y-2.5">
           {/* 项目名称 */}
           <div>
-            <span className={`text-xs font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+            <span className="text-xs font-semibold text-[var(--app-text-primary)]">
               {record.projectName}
             </span>
-            <p className={`text-[10px] truncate ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+            <p className="text-[10px] truncate text-[var(--app-text-tertiary)]">
               {record.projectPath}
             </p>
           </div>
 
           {/* Session ID */}
           <div className="flex items-center gap-1.5">
-            <span className={`text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+            <span className="text-[10px] text-[var(--app-text-tertiary)]">
               {t("sessionId")}:
             </span>
-            <code className={`text-[10px] font-mono px-1 py-0.5 rounded ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+            <code className="text-[10px] font-mono px-1 py-0.5 rounded" style={{ background: "var(--app-input-bg)", color: "var(--app-text-secondary)" }}>
               {truncatedId}
             </code>
             <button
               onClick={handleCopy}
-              className={`p-0.5 rounded transition-colors ${isDark ? 'hover:bg-white/10 text-slate-500' : 'hover:bg-slate-200 text-slate-400'}`}
+              className="p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] text-[var(--app-text-tertiary)]"
             >
               <Copy className="w-3 h-3" />
             </button>
@@ -87,10 +85,10 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
 
           {/* 启动时间 */}
           <div className="flex items-center gap-1.5">
-            <span className={`text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+            <span className="text-[10px] text-[var(--app-text-tertiary)]">
               {t("launchTime")}:
             </span>
-            <span className={`text-[10px] ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+            <span className="text-[10px] text-[var(--app-text-secondary)]">
               {formatFullTime(record.launchedAt)}
             </span>
           </div>
@@ -98,10 +96,10 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
           {/* Last Prompt */}
           {record.lastPrompt && (
             <div>
-              <span className={`text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+              <span className="text-[10px] text-[var(--app-text-tertiary)]">
                 {t("lastPromptLabel")}:
               </span>
-              <p className={`text-[10px] mt-0.5 leading-relaxed line-clamp-3 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+              <p className="text-[10px] mt-0.5 leading-relaxed line-clamp-3 text-[var(--app-text-secondary)]">
                 {record.lastPrompt}
               </p>
             </div>
@@ -118,11 +116,8 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
             </button>
             <button
               onClick={handleOpenFolder}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
-                isDark
-                  ? 'bg-white/10 text-slate-300 hover:bg-white/20'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors text-[var(--app-text-secondary)]"
+              style={{ background: "var(--app-hover)" }}
             >
               <FolderOpen className="w-3 h-3" />
               {t("openInFolder")}

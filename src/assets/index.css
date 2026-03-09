@@ -41,129 +41,164 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* ===== Light 主题（默认） ===== */
+/* ===== Light 主题（默认）— GitHub Light 扁平风格 ===== */
 :root {
   --radius: 0.625rem;
 
-  /* shadcn 语义变量 — zinc 浅色系 */
-  --background: #eef2f6;
-  --foreground: #09090b;
+  /* shadcn 语义变量 — GitHub Light 色板 */
+  --background: #F8F9FA;
+  --foreground: #24292F;
   --card: #ffffff;
-  --card-foreground: #09090b;
+  --card-foreground: #24292F;
   --popover: #ffffff;
-  --popover-foreground: #09090b;
-  --primary: #0a84ff;
+  --popover-foreground: #24292F;
+  --primary: #0969DA;
   --primary-foreground: #ffffff;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #18181b;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
-  --destructive: #ef4444;
-  --border: rgba(0, 0, 0, 0.12);
-  --input: rgba(0, 0, 0, 0.12);
-  --ring: #0a84ff;
+  --secondary: #F3F4F6;
+  --secondary-foreground: #24292F;
+  --muted: #F3F4F6;
+  --muted-foreground: #57606A;
+  --accent: #F3F4F6;
+  --accent-foreground: #24292F;
+  --destructive: #CF222E;
+  --border: #E5E7EB;
+  --input: #E5E7EB;
+  --ring: #0969DA;
 
-  --chart-1: #0a84ff;
-  --chart-2: #30d158;
-  --chart-3: #ffd60a;
-  --chart-4: #bf5af2;
-  --chart-5: #ff453a;
+  --chart-1: #0969DA;
+  --chart-2: #1a7f37;
+  --chart-3: #bf8700;
+  --chart-4: #8250df;
+  --chart-5: #CF222E;
 
-  --sidebar: #f0f0f0;
-  --sidebar-foreground: #09090b;
-  --sidebar-primary: #0a84ff;
+  --sidebar: #F8F9FA;
+  --sidebar-foreground: #24292F;
+  --sidebar-primary: #0969DA;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f4f4f5;
-  --sidebar-accent-foreground: #18181b;
-  --sidebar-border: rgba(0, 0, 0, 0.12);
-  --sidebar-ring: #0a84ff;
+  --sidebar-accent: #EAECEF;
+  --sidebar-accent-foreground: #24292F;
+  --sidebar-border: #E5E7EB;
+  --sidebar-ring: #0969DA;
 
-  /* 自定义应用层级变量 */
-  --app-menubar: rgba(248, 248, 248, 0.60);
-  --app-sidebar: rgba(240, 240, 240, 0.01);
-  --app-tabbar: rgba(240, 240, 240, 0.50);
-  --app-content: rgba(255, 255, 255, 0.30);
+  /* 自定义应用层级变量 — 全部实色 */
+  --app-menubar: #F3F4F6;
+  --app-sidebar: #F8F9FA;
+  --app-tabbar: #F3F4F6;
+  --app-content: #FFFFFF;
   --app-overlay: #ffffff;
-  --app-accent: #0a84ff;
-  --app-text-primary: #1a1a1a;
-  --app-text-secondary: #6e6e73;
-  --app-text-tertiary: #a1a1a6;
-  --app-border: rgba(0, 0, 0, 0.12);
-  --app-hover: rgba(0, 0, 0, 0.04);
-  --app-active-bg: rgba(10, 132, 255, 0.1);
+  --app-accent: #0969DA;
+  --app-text-primary: #24292F;
+  --app-text-secondary: #57606A;
+  --app-text-tertiary: #8C959F;
+  --app-border: #E5E7EB;
+  --app-hover: #EAECEF;
+  --app-active-bg: #DBEAFE;
 
-  /* Glass 变量 */
-  --app-glass-bg: rgba(255, 255, 255, 0.40);
-  --app-glass-bg-heavy: rgba(255, 255, 255, 0.50);
-  --app-glass-bg-light: rgba(255, 255, 255, 0.18);
-  --app-glass-border: rgba(255, 255, 255, 0.55);
-  --app-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  --app-glass-shadow-sidebar: 5px 0 40px rgba(0, 0, 0, 0.08);
-  --app-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  --app-glass-blur: 40px;
-  --app-glass-blur-sm: 24px;
-  --app-orb-1: rgba(59, 130, 246, 0.30);
-  --app-orb-2: rgba(168, 85, 247, 0.25);
-  --app-orb-3: rgba(236, 72, 153, 0.20);
-  --app-active-gradient-from: rgba(59, 130, 246, 0.20);
-  --app-active-gradient-to: rgba(59, 130, 246, 0.05);
-  --app-tab-highlight: rgba(255, 255, 255, 0.80);
+  /* Glass 变量 — Light 模式消灭 glass 效果 */
+  --app-glass-bg: #F8F9FA;
+  --app-glass-bg-heavy: #F3F4F6;
+  --app-glass-bg-light: #FFFFFF;
+  --app-glass-border: #E5E7EB;
+  --app-glass-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --app-glass-shadow-sidebar: none;
+  --app-glass-highlight: none;
+  --app-glass-blur: 0px;
+  --app-glass-blur-sm: 0px;
+  --app-orb-1: transparent;
+  --app-orb-2: transparent;
+  --app-orb-3: transparent;
+  --app-active-gradient-from: #DBEAFE;
+  --app-active-gradient-to: #EFF6FF;
+  --app-tab-highlight: #FFFFFF;
+
+  /* Editor 专用变量 — GitHub Light */
+  --editor-bg: #ffffff;
+  --editor-tab-bar-bg: #F3F4F6;
+  --editor-tab-active-bg: #ffffff;
+  --editor-tab-inactive-bg: #F3F4F6;
+  --editor-tab-active-fg: #24292F;
+  --editor-tab-inactive-fg: #8C959F;
+  --editor-tab-border: #E5E7EB;
+  --editor-breadcrumb-bg: #F8F9FA;
+  --editor-breadcrumb-fg: #57606A;
+  --editor-breadcrumb-fg-active: #24292F;
+  --editor-selection-bg: #DBEAFE;
+  --editor-line-highlight: #F6F8FA;
+  --checkerboard-color: #e0e0e0;
+  --checkerboard-bg: #ffffff;
+
+  /* Warning / Input 变量 */
+  --app-warning: #d97706;
+  --app-warning-bg: rgba(245, 158, 11, 0.05);
+  --app-input-bg: #F3F4F6;
+
+  /* TitleBar 高光线 */
+  --app-titlebar-highlight: none;
+
+  /* 新增：组件级变量 */
+  --app-activity-bar-bg: #F3F4F6;
+  --app-sidebar-bg: #F8F9FA;
+  --app-panel-bg: #FFFFFF;
+  --app-icon-active: #24292F;
+  --app-icon-inactive: #8C959F;
+  --app-icon-hover: #57606A;
+  --app-close-btn-hover-bg: #CF222E;
+  --app-close-btn-hover-fg: #FFFFFF;
+  --app-tab-active-border: #0969DA;
 }
 
-/* ===== Dark 主题 ===== */
+/* ===== Dark 主题 — GitHub Dark 补色 ===== */
 .dark {
-  /* shadcn 语义变量 — 纯正深灰，无蓝紫色调 */
-  --background: #050505;
-  --foreground: #f5f5f7;
-  --card: #252525;
-  --card-foreground: #f5f5f7;
-  --popover: #383838;
-  --popover-foreground: #f5f5f7;
-  --primary: #0a84ff;
+  /* shadcn 语义变量 — GitHub Dark 色调 */
+  --background: #0D1117;
+  --foreground: #E6EDF3;
+  --card: #161B22;
+  --card-foreground: #E6EDF3;
+  --popover: #1C2128;
+  --popover-foreground: #E6EDF3;
+  --primary: #2F81F7;
   --primary-foreground: #ffffff;
-  --secondary: #2d2d2d;
-  --secondary-foreground: #f5f5f7;
-  --muted: #252525;
-  --muted-foreground: #a1a1a6;
-  --accent: #383838;
-  --accent-foreground: #f5f5f7;
-  --destructive: #ff453a;
+  --secondary: #21262D;
+  --secondary-foreground: #E6EDF3;
+  --muted: #161B22;
+  --muted-foreground: #8B949E;
+  --accent: #1C2128;
+  --accent-foreground: #E6EDF3;
+  --destructive: #F85149;
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.15);
-  --ring: #0a84ff;
+  --ring: #2F81F7;
 
-  --chart-1: #0a84ff;
-  --chart-2: #30d158;
-  --chart-3: #ffd60a;
-  --chart-4: #bf5af2;
-  --chart-5: #ff453a;
+  --chart-1: #2F81F7;
+  --chart-2: #3FB950;
+  --chart-3: #D29922;
+  --chart-4: #A371F7;
+  --chart-5: #F85149;
 
-  --sidebar: #252525;
-  --sidebar-foreground: #f5f5f7;
-  --sidebar-primary: #0a84ff;
+  --sidebar: #161B22;
+  --sidebar-foreground: #E6EDF3;
+  --sidebar-primary: #2F81F7;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #383838;
-  --sidebar-accent-foreground: #f5f5f7;
+  --sidebar-accent: #1C2128;
+  --sidebar-accent-foreground: #E6EDF3;
   --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #0a84ff;
+  --sidebar-ring: #2F81F7;
 
   /* 自定义应用层级变量 */
   --app-menubar: rgba(45, 45, 45, 0.40);
-  --app-sidebar: rgba(37, 37, 37, 0.01);
+  --app-sidebar: rgba(22, 27, 34, 0.40);
   --app-tabbar: rgba(37, 37, 37, 0.40);
   --app-content: rgba(26, 26, 26, 0.30);
-  --app-overlay: #383838;
-  --app-accent: #0a84ff;
-  --app-text-primary: #f5f5f7;
-  --app-text-secondary: #a1a1a6;
-  --app-text-tertiary: #6e6e73;
+  --app-overlay: #1C2128;
+  --app-accent: #2F81F7;
+  --app-text-primary: #E6EDF3;
+  --app-text-secondary: #8B949E;
+  --app-text-tertiary: #6E7681;
   --app-border: rgba(255, 255, 255, 0.08);
   --app-hover: rgba(255, 255, 255, 0.06);
-  --app-active-bg: rgba(10, 132, 255, 0.15);
+  --app-active-bg: rgba(47, 129, 247, 0.15);
 
-  /* Glass 变量 */
+  /* Glass 变量 — Dark 保留 glass 效果 */
   --app-glass-bg: rgba(15, 23, 42, 0.25);
   --app-glass-bg-heavy: rgba(15, 23, 42, 0.40);
   --app-glass-bg-light: rgba(15, 23, 42, 0.12);
@@ -176,14 +211,49 @@
   --app-orb-1: rgba(59, 130, 246, 0.25);
   --app-orb-2: rgba(139, 92, 246, 0.20);
   --app-orb-3: rgba(6, 182, 212, 0.15);
-  --app-active-gradient-from: rgba(59, 130, 246, 0.20);
-  --app-active-gradient-to: rgba(59, 130, 246, 0.05);
+  --app-active-gradient-from: rgba(47, 129, 247, 0.20);
+  --app-active-gradient-to: rgba(47, 129, 247, 0.05);
   --app-tab-highlight: rgba(255, 255, 255, 0.15);
+
+  /* Editor 专用变量 — GitHub Dark */
+  --editor-bg: #0D1117;
+  --editor-tab-bar-bg: #161B22;
+  --editor-tab-active-bg: #0D1117;
+  --editor-tab-inactive-bg: #21262D;
+  --editor-tab-active-fg: #E6EDF3;
+  --editor-tab-inactive-fg: #6E7681;
+  --editor-tab-border: #21262D;
+  --editor-breadcrumb-bg: #0D1117;
+  --editor-breadcrumb-fg: #8B949E;
+  --editor-breadcrumb-fg-active: #E6EDF3;
+  --editor-selection-bg: rgba(47, 129, 247, 0.2);
+  --editor-line-highlight: rgba(255, 255, 255, 0.04);
+  --checkerboard-color: #2a2a2a;
+  --checkerboard-bg: #1a1a1a;
+
+  /* Warning / Input 变量 */
+  --app-warning: #D29922;
+  --app-warning-bg: rgba(210, 153, 34, 0.1);
+  --app-input-bg: rgba(255, 255, 255, 0.05);
+
+  /* TitleBar 高光线 */
+  --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.08) 20%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.08) 80%, transparent);
+
+  /* 新增：组件级变量 */
+  --app-activity-bar-bg: rgba(15, 23, 42, 0.30);
+  --app-sidebar-bg: rgba(22, 27, 34, 0.40);
+  --app-panel-bg: #0D1117;
+  --app-icon-active: #E6EDF3;
+  --app-icon-inactive: #6E7681;
+  --app-icon-hover: #8B949E;
+  --app-close-btn-hover-bg: #F85149;
+  --app-close-btn-hover-fg: #FFFFFF;
+  --app-tab-active-border: #2F81F7;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -207,11 +277,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: #D1D5DB;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: #9CA3AF;
 }
 
 /* 全局滚动条 — Dark */
@@ -307,3 +377,14 @@
   min-height: 4px;
   margin: 1px 8px;
 }
+
+/* no-scrollbar 隐藏滚动条 */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* QuickSearch 入场动画 */
+@keyframes quicksearch-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+.quicksearch-enter { animation: quicksearch-in 0.12s ease-out; }

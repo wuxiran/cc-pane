@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
-import { useWorkspacesStore, useThemeStore } from "@/stores";
+import { useWorkspacesStore } from "@/stores";
+import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { worktreeService } from "@/services";
 import WorktreeManager from "@/components/WorktreeManager";
 import { useWorkspaceActions } from "./useWorkspaceActions";
@@ -18,13 +19,9 @@ interface WorkspaceTreeProps {
 
 export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
   const { t } = useTranslation(["sidebar", "common"]);
-  const isDark = useThemeStore((s) => s.isDark);
-
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
-  const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
   const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
-  const expandProject = useWorkspacesStore((s) => s.expandProject);
   const updateWorkspacePath = useWorkspacesStore((s) => s.updateWorkspacePath);
 
   // useWorkspaceActions 处理 dialog 状态 + 工作空间/项目 CRUD
@@ -41,6 +38,13 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
     setWorktreeManagerProjectPath(project.path);
     setWorktreeManagerWs(ws);
     setWorktreeManagerOpen(true);
+  }, []);
+
+  const handleOpenInFileBrowser = useCallback((path: string) => {
+    import("@/stores/useFileBrowserStore").then(({ useFileBrowserStore }) => {
+      useFileBrowserStore.getState().navigateTo(path);
+    });
+    useActivityBarStore.getState().toggleFilesMode();
   }, []);
 
   // 工作空间路径管理
@@ -69,7 +73,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
     <>
       {/* Section: 工作空间 */}
       <div className="flex items-center justify-between px-3 py-3 mt-1 mb-1">
-        <span className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
           {t("workspaces")}
         </span>
       </div>
@@ -95,20 +99,19 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
             <ProjectListView
               projects={ws.projects}
               ws={ws}
-              expandedProjectId={expandedProjectId}
               gitBranches={actions.gitBranches}
-              onExpandProject={expandProject}
               onOpenTerminal={onOpenTerminal}
               onRemoveProject={actions.handleRemoveProject}
               onSetProjectAlias={actions.handleSetAlias}
               onImportProject={actions.handleImportProject}
               onOpenWorktreeManager={handleOpenWorktreeManager}
+              onOpenInFileBrowser={handleOpenInFileBrowser}
             />
           </WorkspaceItem>
         ))}
 
         {workspaces.length === 0 && (
-          <div className={`text-xs text-center py-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+          <div className="text-xs text-center py-4 text-[var(--app-text-tertiary)]">
             {t("noWorkspaces")}
           </div>
         )}
@@ -116,11 +119,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
 
       {/* 新建工作空间按钮 */}
       <button
-        className={`w-full mt-2 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed text-xs font-medium transition-all group backdrop-blur-sm ${
-          isDark
-            ? 'border-white/10 text-slate-400 hover:border-blue-500/50 hover:text-blue-300 hover:bg-blue-500/10'
-            : 'border-slate-400/30 text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50'
-        }`}
+        className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed text-xs font-medium transition-all group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[var(--app-active-bg)]"
         onClick={actions.handleCreateWorkspace}
       >
         <Plus className="w-3.5 h-3.5 transition-transform group-hover:rotate-90" />

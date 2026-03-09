@@ -86,12 +86,17 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       autoStart: false,
       language: "zh-CN",
       dataDir: null,
+      searchScope: "Workspace",
     },
     notification: {
       enabled: true,
       onExit: true,
       onWaitingInput: true,
       onlyWhenUnfocused: true,
+    },
+    screenshot: {
+      shortcut: "Ctrl+Shift+S",
+      retentionDays: 7,
     },
   }),
 }));

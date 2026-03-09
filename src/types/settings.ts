@@ -6,6 +6,7 @@ export interface AppSettings {
   shortcuts: ShortcutSettings;
   general: GeneralSettings;
   notification: NotificationSettings;
+  screenshot: ScreenshotSettings;
 }
 
 /** 代理设置 */
@@ -57,12 +58,22 @@ export interface NotificationSettings {
   onlyWhenUnfocused: boolean;
 }
 
+/** 搜索范围 */
+export type SearchScope = "Workspace" | "FullDisk";
+
 /** 通用设置 */
 export interface GeneralSettings {
   closeToTray: boolean;
   autoStart: boolean;
   language: string;
   dataDir: string | null;
+  searchScope: SearchScope;
+}
+
+/** 截图设置 */
+export interface ScreenshotSettings {
+  shortcut: string;
+  retentionDays: number;
 }
 
 /** 数据目录信息 */

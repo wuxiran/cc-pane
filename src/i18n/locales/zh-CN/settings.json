@@ -138,5 +138,23 @@
   "directory": "目录",
   "file": "文件",
   "openDir": "打开目录",
-  "editSettings": "编辑 settings"
+  "editSettings": "编辑 settings",
+
+  "searchScope": "搜索范围",
+  "searchScopeDesc": "控制文件搜索的索引范围",
+  "searchScopeWorkspace": "仅工作空间",
+  "searchScopeFullDisk": "全盘",
+  "searchScopeFullDiskHint": "全盘搜索需要更多内存，首次索引可能需要几分钟",
+
+  "screenshot": "截图",
+  "screenshotTitle": "截图设置",
+  "screenshotDesc": "截取屏幕区域并复制文件路径到剪贴板，供 Claude Code 引用图片。",
+  "screenshotShortcut": "快捷键",
+  "screenshotRetention": "保留天数",
+  "screenshotRetentionHint": "设为 0 则永久保留",
+  "screenshotShortcutUpdated": "截图快捷键已更新",
+  "screenshotShortcutConflict": "快捷键冲突: {{error}}",
+  "screenshotSaved": "截图已保存，路径已复制到剪贴板",
+  "screenshotFailed": "截图失败: {{error}}",
+  "screenshotCancelled": "截图已取消"
 }

@@ -1,9 +1,11 @@
 use crate::models::filesystem::{DirListing, FileContent, FsEntry, SearchResult};
+use crate::services::file_search_index::FileSearchIndex;
 use crate::utils::AppResult;
 use encoding_rs::Encoding;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use walkdir::WalkDir;
 
 /// 最大可读文件大小 (10MB)
@@ -32,11 +34,13 @@ const SEARCH_IGNORED_DIRS: &[&str] = &[
 /// 只读目录前缀（这些目录下的文件不允许编辑）
 const READONLY_PREFIXES: &[&str] = &["node_modules", ".git"];
 
-pub struct FileSystemService;
+pub struct FileSystemService {
+    search_index: Arc<FileSearchIndex>,
+}
 
 impl FileSystemService {
-    pub fn new() -> Self {
-        Self
+    pub fn new(search_index: Arc<FileSearchIndex>) -> Self {
+        Self { search_index }
     }
 
     /// 校验路径安全性（路径沙箱）
@@ -526,8 +530,38 @@ impl FileSystemService {
         Ok(())
     }
 
-    /// 搜索文件名
+    /// 搜索文件名（内存索引 + nucleo 模糊匹配）
     pub fn search_files(
+        &self,
+        root: &str,
+        query: &str,
+        max_results: usize,
+    ) -> AppResult<Vec<SearchResult>> {
+        let root_path = Self::validate_path(root)?;
+        if !root_path.is_dir() {
+            return Err(format!("'{}' is not a directory", root).into());
+        }
+
+        // 构建/复用内存索引
+        self.search_index.ensure_index(&root_path);
+
+        let hits = self.search_index.search(&root_path, query, max_results);
+        let results = hits
+            .into_iter()
+            .map(|h| SearchResult {
+                path: h.path,
+                name: h.name,
+                is_dir: h.is_dir,
+                rel_path: h.rel_path,
+                score: Some(h.score),
+            })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// 搜索文件名（WalkDir fallback，用于非项目路径）
+    pub fn search_files_walkdir(
         &self,
         root: &str,
         query: &str,
@@ -557,7 +591,6 @@ impl FileSystemService {
                 Ok(e) => e,
                 Err(_) => continue,
             };
-            // 跳过根目录本身
             if entry.path() == root_path {
                 continue;
             }
@@ -572,6 +605,7 @@ impl FileSystemService {
                     name,
                     is_dir: entry.file_type().is_dir(),
                     rel_path: rel,
+                    score: None,
                 });
             }
         }

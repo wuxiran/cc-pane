@@ -1,0 +1,222 @@
+import React, { useState } from 'react';
+import {
+Files,
+Search,
+GitBranch,
+Play,
+Settings,
+ChevronRight,
+ChevronDown,
+Folder,
+File,
+X,
+LayoutTemplate
+} from 'lucide-react';
+
+const ModernEditor = () => {
+const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+const [expandedFolders, setExpandedFolders] = useState({ 'vms': true });
+
+const toggleFolder = (folder) => {
+setExpandedFolders(prev => ({ ...prev, [folder]: !prev[folder] }));
+};
+
+return (
+<div className="flex h-screen w-full bg-[#F8F9FA] text-[#24292F] font-sans overflow-hidden">
+
+    {/* 1. Activity Bar (最左側工具列) - 極簡風格 */}
+    <div className="w-12 bg-[#F3F4F6] border-r border-[#E5E7EB] flex flex-col items-center py-4 justify-between z-10">
+        <div className="flex flex-col gap-6">
+            <button className="text-[#0969DA] hover:text-[#0969DA] transition-colors relative">
+                <Files size={22} strokeWidth={1.5} />
+                <div className="absolute left-[-16px] top-[2px] w-[3px] h-5 bg-[#0969DA] rounded-r-md"></div>
+            </button>
+            <button className="text-[#57606A] hover:text-[#24292F] transition-colors"><Search size={22} strokeWidth={1.5} /></button>
+            <button className="text-[#57606A] hover:text-[#24292F] transition-colors"><GitBranch size={22} strokeWidth={1.5} /></button>
+            <button className="text-[#57606A] hover:text-[#24292F] transition-colors"><Play size={22} strokeWidth={1.5} /></button>
+            <button className="text-[#57606A] hover:text-[#24292F] transition-colors"><LayoutTemplate size={22} strokeWidth={1.5} /></button>
+        </div>
+        <div className="flex flex-col gap-6">
+            <button className="text-[#57606A] hover:text-[#24292F] transition-colors"><Settings size={22} strokeWidth={1.5} /></button>
+        </div>
+    </div>
+
+    {/* 2. Sidebar (檔案總管) - 增加留白，弱化邊框 */}
+    {isSidebarOpen && (
+    <div className="w-64 bg-[#F8F9FA] border-r border-[#E5E7EB] flex flex-col">
+        <div className="px-4 py-3 text-xs font-semibold text-[#57606A] uppercase tracking-wider flex justify-between items-center">
+            檔案總管
+        </div>
+        <div className="flex-1 overflow-y-auto py-2">
+
+            {/* Folder Item */}
+            <div className="px-2">
+                <div
+                        className="flex items-center gap-1.5 px-2 py-1.5 text-sm text-[#24292F] hover:bg-[#EAECEF] rounded-md cursor-pointer transition-colors"
+                        onClick={() => toggleFolder('vms')}
+                >
+                {expandedFolders['vms'] ? <ChevronDown size={14} className="text-[#57606A]" /> : <ChevronRight size={14} className="text-[#57606A]" />}
+                <Folder size={14} className="text-[#0969DA] fill-[#0969DA]/20" />
+                <span className="truncate">vms</span>
+            </div>
+
+            {/* Nested Files */}
+            {expandedFolders['vms'] && (
+            <div className="pl-6 pr-2 py-1">
+                <div className="flex items-center gap-2 px-2 py-1.5 text-sm text-[#24292F] hover:bg-[#EAECEF] rounded-md cursor-pointer transition-colors text-opacity-80">
+                    <File size={14} className="text-[#57606A]" />
+                    <span className="truncate">build_yunzhu.py</span>
+                </div>
+                <div className="flex items-center gap-2 px-2 py-1.5 text-sm bg-[#EAECEF] text-[#24292F] font-medium rounded-md cursor-pointer transition-colors">
+                    <div className="w-3.5 h-3.5 flex items-center justify-center text-[10px] font-bold text-[#0969DA]">PY</div>
+                    <span className="truncate">tmp_build_yunzhu...</span>
+                </div>
+                <div className="flex items-center gap-2 px-2 py-1.5 text-sm text-[#24292F] hover:bg-[#EAECEF] rounded-md cursor-pointer transition-colors text-opacity-80">
+                    <File size={14} className="text-[#57606A]" />
+                    <span className="truncate">README.md</span>
+                </div>
+            </div>
+            )}
+        </div>
+
+        {/* Other Folders (Mock) */}
+        <div className="px-2 mt-1">
+            {['reference', 'cc-book', 'rust-workspace'].map(folder => (
+            <div key={folder} className="flex items-center gap-1.5 px-2 py-1.5 text-sm text-[#57606A] hover:bg-[#EAECEF] rounded-md cursor-pointer transition-colors">
+                <ChevronRight size={14} />
+                <Folder size={14} className="text-[#57606A]" />
+                <span className="truncate">{folder}</span>
+            </div>
+            ))}
+        </div>
+
+    </div>
+</div>
+)}
+
+{/* 3. Main Editor Area */}
+<div className="flex-1 flex flex-col min-w-0 bg-[#FFFFFF]">
+
+    {/* Tabs - 現代化，無多餘邊框 */}
+    <div className="flex h-10 bg-[#F3F4F6] border-b border-[#E5E7EB] overflow-x-auto hide-scrollbar">
+        <div className="flex items-center px-4 py-2 text-sm text-[#57606A] border-r border-[#E5E7EB] hover:bg-[#EAECEF] cursor-pointer max-w-[200px] gap-2">
+            <span className="truncate">tmp_alarm_18973.jpg</span>
+        </div>
+        <div className="flex items-center px-4 py-2 text-sm text-[#57606A] border-r border-[#E5E7EB] hover:bg-[#EAECEF] cursor-pointer max-w-[200px] gap-2">
+            <span className="truncate">tmp_boot_backup.img</span>
+        </div>
+        {/* Active Tab */}
+        <div className="flex items-center px-4 py-2 text-sm text-[#24292F] bg-[#FFFFFF] border-t-2 border-t-[#0969DA] border-r border-[#E5E7EB] cursor-pointer min-w-[200px] gap-2 group">
+            <div className="w-3.5 h-3.5 flex items-center justify-center text-[10px] font-bold text-[#0969DA]">PY</div>
+            <span className="truncate flex-1">tmp_build_yunzhu.py</span>
+            <X size={14} className="text-[#57606A] opacity-0 group-hover:opacity-100 hover:bg-[#EAECEF] rounded-sm transition-all" />
+        </div>
+    </div>
+
+    {/* Breadcrumbs (路徑麵包屑) */}
+    <div className="flex items-center px-6 py-1.5 text-xs text-[#57606A] border-b border-[#F3F4F6]">
+        <span>D:</span>
+        <ChevronRight size={12} className="mx-1" />
+        <span>04_workspace_rust</span>
+        <ChevronRight size={12} className="mx-1" />
+        <span>vms</span>
+        <ChevronRight size={12} className="mx-1" />
+        <span className="text-[#24292F]">tmp_build_yunzhu.py</span>
+    </div>
+
+    {/* 4. Code Area - 柔和的語法高亮與舒適的行高 */}
+    <div className="flex-1 overflow-auto bg-[#FFFFFF] p-4 text-[14px] leading-relaxed font-mono">
+        <table className="w-full">
+            <tbody>
+            {/* Line 1 */}
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">1</td>
+                <td className="whitespace-pre"><span className="text-[#57606A] italic">#!/usr/bin/env python3</span></td>
+            </tr>
+            {/* Line 2-9 Comments */}
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">2</td>
+                <td className="whitespace-pre"><span className="text-[#0A3069]">"""</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">3</td>
+                <td className="whitespace-pre"><span className="text-[#0A3069]">Build Yunzhu v1.0.0 installation package for RK3588 devices.</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">4</td>
+                <td className="whitespace-pre"><span className="text-[#0A3069]">Based on vms-0.9.0 structure, with:</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">5</td>
+                <td className="whitespace-pre"><span className="text-[#0A3069]">  - Latest backend binary (v1.0.0, compiled 2026-02-06)</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">8</td>
+                <td className="whitespace-pre"><span className="text-[#0A3069]">  - 11 RK3588 model files</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">9</td>
+                <td className="whitespace-pre"><span className="text-[#0A3069]">"""</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]"><td className="w-12 text-right pr-4 text-[#8C959F] select-none">10</td><td></td></tr>
+
+            {/* Line 10-12 Imports */}
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">11</td>
+                <td className="whitespace-pre"><span className="text-[#CF222E]">import</span> <span className="text-[#24292F]">shutil</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">12</td>
+                <td className="whitespace-pre"><span className="text-[#CF222E]">import</span> <span className="text-[#24292F]">os</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">13</td>
+                <td className="whitespace-pre"><span className="text-[#CF222E]">from</span> <span className="text-[#24292F]">pathlib</span> <span className="text-[#CF222E]">import</span> <span className="text-[#24292F]">Path</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]"><td className="w-12 text-right pr-4 text-[#8C959F] select-none">14</td><td></td></tr>
+
+            {/* Variables */}
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">15</td>
+                <td className="whitespace-pre"><span className="text-[#24292F]">BASE</span> <span className="text-[#0969DA]">=</span> <span className="text-[#8250DF]">Path</span>(<span className="text-[#0A3069]">r"D:\04_workspace_rust\vms"</span>)</td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">16</td>
+                <td className="whitespace-pre"><span className="text-[#24292F]">SRC_PKG</span> <span className="text-[#0969DA]">=</span> <span className="text-[#24292F]">BASE</span> <span className="text-[#0969DA]">/</span> <span className="text-[#0A3069]">"deployments"</span> <span className="text-[#0969DA]">/</span> <span className="text-[#0A3069]">"vms-0.9.0"</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">17</td>
+                <td className="whitespace-pre"><span className="text-[#24292F]">OUT_DIR</span> <span className="text-[#0969DA]">=</span> <span className="text-[#24292F]">BASE</span> <span className="text-[#0969DA]">/</span> <span className="text-[#0A3069]">"deployments"</span> <span className="text-[#0969DA]">/</span> <span className="text-[#0A3069]">"yunzhu-1.0.0"</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]"><td className="w-12 text-right pr-4 text-[#8C959F] select-none">18</td><td></td></tr>
+
+            {/* More logic */}
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">19</td>
+                <td className="whitespace-pre"><span className="text-[#57606A] italic"># Step 1: Create package directory structure</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">20</td>
+                <td className="whitespace-pre"><span className="text-[#24292F]">pkg</span> <span className="text-[#0969DA]">=</span> <span className="text-[#24292F]">OUT_DIR</span> <span className="text-[#0969DA]">/</span> <span className="text-[#24292F]">PKG_NAME</span></td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">21</td>
+                <td className="whitespace-pre"><span className="text-[#CF222E]">if</span> <span className="text-[#24292F]">pkg</span>.<span className="text-[#8250DF]">exists</span>():</td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">22</td>
+                <td className="whitespace-pre">    <span className="text-[#8250DF]">print</span>(<span className="text-[#0A3069]">f"Removing existing </span><span className="text-[#24292F]">{"{pkg}"}</span><span className="text-[#0A3069]">..."</span>)</td>
+            </tr>
+            <tr className="hover:bg-[#F8F9FA]">
+                <td className="w-12 text-right pr-4 text-[#8C959F] select-none">23</td>
+                <td className="whitespace-pre">    <span className="text-[#24292F]">shutil</span>.<span className="text-[#8250DF]">rmtree</span>(<span className="text-[#24292F]">pkg</span>)</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+</div>
+);
+};
+
+export default ModernEditor;

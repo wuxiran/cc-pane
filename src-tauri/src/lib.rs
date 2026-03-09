@@ -71,9 +71,11 @@ use commands::{
     fs_list_directory, fs_read_file, fs_write_file, fs_create_file,
     fs_create_directory, fs_delete_entry, fs_rename_entry, fs_copy_entry,
     fs_move_entry, fs_search_files, fs_get_entry_info,
+    // Screenshot 命令
+    screenshot_capture, screenshot_crop_and_save, screenshot_update_shortcut,
 };
 use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository};
-use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, McpConfigService, SkillService, PlanService, FileSystemService};
+use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService};
 use utils::AppPaths;
 use std::sync::Arc;
 
@@ -82,6 +84,68 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+
+/// 触发截图流程：隐藏主窗口 → 创建全屏截图窗口 → 前端 JS mount 后 invoke 截图
+pub fn trigger_screenshot(app: &tauri::AppHandle) {
+    use tauri::PhysicalPosition;
+
+    // 防重入：如果截图窗口已存在，不重复触发
+    if app.get_webview_window("screenshot").is_some() {
+        return;
+    }
+
+    // 隐藏主窗口
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.hide();
+    }
+
+    // 快速查询显示器信息（<1ms，不截图）
+    let monitor_info = match ScreenshotService::get_monitor_info() {
+        Ok(info) => info,
+        Err(e) => {
+            eprintln!("[screenshot] get_monitor_info failed: {}", e);
+            if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.show();
+                let _ = main_win.set_focus();
+            }
+            return;
+        }
+    };
+
+    // 创建截图窗口（WebView 初始化 ~500ms，自然替代 sleep 30ms）
+    // 前端 JS mount 后再 invoke screenshot_capture 发起截图
+    let screenshot_win = tauri::WebviewWindowBuilder::new(
+        app,
+        "screenshot",
+        tauri::WebviewUrl::App("screenshot.html".into()),
+    )
+    .title("Screenshot")
+    .fullscreen(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(true)
+    .visible(false)
+    .inner_size(monitor_info.width as f64, monitor_info.height as f64)
+    .build();
+
+    match screenshot_win {
+        Ok(win) => {
+            // 定位到目标显示器
+            let _ = win.set_position(PhysicalPosition::new(monitor_info.x, monitor_info.y));
+            // OS 级全屏，保证覆盖任务栏
+            let _ = win.set_fullscreen(true);
+            // 前端加载完截图后调用 window.show()
+        }
+        Err(e) => {
+            eprintln!("[screenshot] failed to create window: {}", e);
+            if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.show();
+                let _ = main_win.set_focus();
+            }
+        }
+    }
+}
 
 // ============ 应用入口 ============
 
@@ -120,7 +184,8 @@ pub fn run() {
     let mcp_config_service = Arc::new(McpConfigService::new());
     let skill_service = Arc::new(SkillService::new());
     let plan_service = Arc::new(PlanService::new());
-    let filesystem_service = Arc::new(FileSystemService::new());
+    let search_index = Arc::new(FileSearchIndex::new());
+    let filesystem_service = Arc::new(FileSystemService::new(search_index.clone()));
     let terminal_service = Arc::new(TerminalService::new(
         settings_service.clone(),
         provider_service.clone(),
@@ -132,11 +197,14 @@ pub fn run() {
     let terminal_cleanup = terminal_service.clone();
     let history_cleanup = history_service.clone();
     let workspace_cleanup = workspace_service.clone();
+    let search_index_cleanup = search_index.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(app_paths)
         .manage(project_service)
         .manage(terminal_service)
@@ -158,6 +226,28 @@ pub fn run() {
             // ---- 启动 workspace 目录监控 ----
             let ws_svc = app.state::<Arc<WorkspaceService>>();
             ws_svc.start_watcher(app.handle().clone());
+
+            // ---- 注册截图全局快捷键 ----
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let settings_svc = app.state::<Arc<SettingsService>>();
+                let settings = settings_svc.get_settings();
+                let shortcut_str = settings.screenshot.shortcut.clone();
+                if !shortcut_str.is_empty() {
+                    if let Ok(shortcut) = shortcut_str.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                        let app_handle = app.handle().clone();
+                        if let Err(e) = app.global_shortcut().on_shortcut(shortcut, move |_app, _sc, event| {
+                            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                                trigger_screenshot(&app_handle);
+                            }
+                        }) {
+                            eprintln!("[screenshot] Failed to register shortcut '{}': {}", shortcut_str, e);
+                        }
+                    } else {
+                        eprintln!("[screenshot] Invalid shortcut format: {}", shortcut_str);
+                    }
+                }
+            }
 
             // ---- 系统托盘 ----
             let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
@@ -206,10 +296,30 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 点击关闭按钮 → 隐藏到托盘（不退出）
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    if window.label() == "screenshot" {
+                        // 截图窗口关闭 → 恢复主窗口
+                        if let Some(main_win) = window.app_handle().get_webview_window("main") {
+                            let _ = main_win.show();
+                            let _ = main_win.set_focus();
+                        }
+                    } else {
+                        // 主窗口关闭 → 隐藏到托盘（不退出）
+                        let _ = window.hide();
+                        api.prevent_close();
+                    }
+                }
+                WindowEvent::Destroyed => {
+                    if window.label() == "screenshot" {
+                        // 截图窗口销毁 → 确保恢复主窗口
+                        if let Some(main_win) = window.app_handle().get_webview_window("main") {
+                            let _ = main_win.show();
+                            let _ = main_win.set_focus();
+                        }
+                    }
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -391,7 +501,11 @@ pub fn run() {
             fs_copy_entry,
             fs_move_entry,
             fs_search_files,
-            fs_get_entry_info
+            fs_get_entry_info,
+            // Screenshot 命令
+            screenshot_capture,
+            screenshot_crop_and_save,
+            screenshot_update_shortcut
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -401,6 +515,7 @@ pub fn run() {
                 terminal_cleanup.cleanup_all();
                 history_cleanup.stop_all_watching();
                 workspace_cleanup.stop_watcher();
+                search_index_cleanup.stop_all_watching();
             }
         });
 }

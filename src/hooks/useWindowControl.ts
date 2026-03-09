@@ -1,12 +1,14 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauriReady } from "@/utils";
 
 export function useWindowControl() {
   const [isPinned, setIsPinned] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
+    if (!isTauriReady()) return;
     const win = getCurrentWindow();
     win.isMaximized().then(setIsMaximized).catch(console.error);
     const unlisten = win.onResized(() => {
@@ -49,6 +51,7 @@ export function useWindowControl() {
   }, []);
 
   const startDrag = useCallback(() => {
+    if (!isTauriReady()) return;
     getCurrentWindow().startDragging();
   }, []);
 

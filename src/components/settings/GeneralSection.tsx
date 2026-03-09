@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { settingsService } from "@/services";
 import { useSettingsStore } from "@/stores";
-import type { GeneralSettings, DataDirInfo } from "@/types";
+import type { GeneralSettings, DataDirInfo, SearchScope } from "@/types";
 import { formatSize } from "@/utils";
 
 interface GeneralSectionProps {
@@ -128,6 +128,32 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
           <option value="zh-CN">{t("zhCN")}</option>
           <option value="en">{t("en")}</option>
         </select>
+      </div>
+
+      {/* 搜索范围 */}
+      <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
+        <Label>{t("searchScope")}</Label>
+        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+          {t("searchScopeDesc")}
+        </p>
+        <select
+          value={value.searchScope}
+          onChange={(e) => update("searchScope", e.target.value as SearchScope)}
+          className="h-9 px-2 rounded-md text-[13px] outline-none w-40"
+          style={{
+            border: "1px solid var(--app-border)",
+            background: "var(--app-content)",
+            color: "var(--app-text-primary)",
+          }}
+        >
+          <option value="Workspace">{t("searchScopeWorkspace")}</option>
+          <option value="FullDisk">{t("searchScopeFullDisk")}</option>
+        </select>
+        {value.searchScope === "FullDisk" && (
+          <p className="text-xs m-0" style={{ color: "var(--app-accent)" }}>
+            {t("searchScopeFullDiskHint")}
+          </p>
+        )}
       </div>
 
       {/* 数据目录 */}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Terminal } from "lucide-react";
-import { useThemeStore, useTerminalStatusStore, usePanesStore } from "@/stores";
+import { useTerminalStatusStore, usePanesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
 
@@ -17,7 +17,6 @@ interface SessionsViewProps {
 }
 
 export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
-  const isDark = useThemeStore((s) => s.isDark);
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
   const rootPane = usePanesStore((s) => s.rootPane);
 
@@ -87,18 +86,14 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
         {/* 活跃会话 */}
         {activeSessions.length > 0 && (
           <div className="px-3 mb-3">
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1 text-[var(--app-text-tertiary)]">
               Active ({activeSessions.length})
             </span>
             <div className="mt-1 space-y-0.5">
               {activeSessions.map((s) => (
                 <button
                   key={s.tabId}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors text-left ${
-                    isDark
-                      ? 'hover:bg-white/5 text-slate-300'
-                      : 'hover:bg-white/40 text-slate-600'
-                  }`}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors text-left hover:bg-[var(--app-hover)] text-[var(--app-text-secondary)]"
                   onClick={() => {
                     usePanesStore.getState().setActivePane(s.paneId);
                     usePanesStore.getState().selectTab(s.paneId, s.tabId);

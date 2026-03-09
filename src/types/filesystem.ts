@@ -32,6 +32,7 @@ export interface SearchResult {
   name: string;
   isDir: boolean;
   relPath: string;
+  score?: number;
 }
 
 /** 文件树节点（用于前端树结构） */

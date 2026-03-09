@@ -138,5 +138,23 @@
   "directory": "Directory",
   "file": "File",
   "openDir": "Open Directory",
-  "editSettings": "Edit settings"
+  "editSettings": "Edit settings",
+
+  "searchScope": "Search Scope",
+  "searchScopeDesc": "Controls the range of file search indexing",
+  "searchScopeWorkspace": "Workspace Only",
+  "searchScopeFullDisk": "Full Disk",
+  "searchScopeFullDiskHint": "Full disk search requires more memory, initial indexing may take a few minutes",
+
+  "screenshot": "Screenshot",
+  "screenshotTitle": "Screenshot Settings",
+  "screenshotDesc": "Capture a screen region and copy the file path to clipboard for Claude Code to reference.",
+  "screenshotShortcut": "Shortcut",
+  "screenshotRetention": "Retention Days",
+  "screenshotRetentionHint": "Set to 0 to keep forever",
+  "screenshotShortcutUpdated": "Screenshot shortcut updated",
+  "screenshotShortcutConflict": "Shortcut conflict: {{error}}",
+  "screenshotSaved": "Screenshot saved, path copied to clipboard",
+  "screenshotFailed": "Screenshot failed: {{error}}",
+  "screenshotCancelled": "Screenshot cancelled"
 }

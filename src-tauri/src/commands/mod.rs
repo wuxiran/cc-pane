@@ -16,6 +16,7 @@ mod mcp_config_commands;
 mod skill_commands;
 mod plan_commands;
 mod filesystem_commands;
+mod screenshot_commands;
 
 pub use claude_commands::*;
 pub use git_commands::*;
@@ -35,3 +36,4 @@ pub use mcp_config_commands::*;
 pub use skill_commands::*;
 pub use plan_commands::*;
 pub use filesystem_commands::*;
+pub use screenshot_commands::*;

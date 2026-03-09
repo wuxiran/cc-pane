@@ -95,5 +95,14 @@
   "openFolderFailed": "Failed to open folder: {{error}}",
   "copiedToClipboard": "Copied to clipboard",
   "copyFailed": "Copy failed: {{error}}",
-  "hookOperationFailed": "Hook operation failed: {{error}}"
+  "hookOperationFailed": "Hook operation failed: {{error}}",
+  "fileBrowser": "Files",
+  "goBack": "Back",
+  "goForward": "Forward",
+  "goUp": "Up",
+  "refresh": "Refresh",
+  "noPath": "Select a directory to browse",
+  "openInFileBrowser": "Open in File Browser",
+  "noOpenFiles": "No open files",
+  "openFileHint": "Click a file in the explorer to open it"
 }

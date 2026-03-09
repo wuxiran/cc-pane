@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type ActivityView = "explorer" | "search" | "sessions";
-export type AppViewMode = "panes" | "todo" | "selfchat";
+export type ActivityView = "explorer" | "search" | "sessions" | "files";
+export type AppViewMode = "panes" | "todo" | "selfchat" | "files";
 
 interface ActivityBarState {
   activeView: ActivityView;
@@ -15,6 +15,7 @@ interface ActivityBarState {
   setAppViewMode: (mode: AppViewMode) => void;
   toggleTodoMode: () => void;
   toggleSelfChatMode: () => void;
+  toggleFilesMode: () => void;
 }
 
 export const useActivityBarStore = create<ActivityBarState>()(
@@ -26,8 +27,23 @@ export const useActivityBarStore = create<ActivityBarState>()(
 
       toggleView: (view: ActivityView) => {
         const state = get();
-        // 如果当前在非 panes 模式（todo/selfchat）→ 退回 panes 并切到该 view
-        if (state.appViewMode !== "panes") {
+        // 如果当前在非 panes/files 模式（todo/selfchat）→ 退回 panes 并切到该 view
+        if (state.appViewMode !== "panes" && state.appViewMode !== "files") {
+          set({ appViewMode: "panes", activeView: view, sidebarVisible: true });
+          return;
+        }
+        // 如果切到 files 视图 → 进入 files appViewMode
+        if (view === "files") {
+          if (state.appViewMode === "files" && state.activeView === "files") {
+            // 再次点击 → 退回 panes
+            set({ appViewMode: "panes", activeView: "explorer", sidebarVisible: true });
+          } else {
+            set({ appViewMode: "files", activeView: "files", sidebarVisible: true });
+          }
+          return;
+        }
+        // 如果从 files 模式切到其他视图 → 退回 panes
+        if (state.appViewMode === "files") {
           set({ appViewMode: "panes", activeView: view, sidebarVisible: true });
           return;
         }
@@ -55,6 +71,14 @@ export const useActivityBarStore = create<ActivityBarState>()(
         set((s) => ({
           appViewMode: s.appViewMode === "selfchat" ? "panes" : "selfchat",
         })),
+
+      toggleFilesMode: () =>
+        set((s) => {
+          if (s.appViewMode === "files") {
+            return { appViewMode: "panes", activeView: "explorer", sidebarVisible: true };
+          }
+          return { appViewMode: "files", activeView: "files" as ActivityView, sidebarVisible: true };
+        }),
     }),
     {
       name: "cc-panes-activity-bar",

@@ -6,7 +6,19 @@ import { filesystemService } from "@/services/filesystemService";
 import { usePanesStore } from "@/stores";
 import { useThemeStore } from "@/stores/useThemeStore";
 import EditorToolbar from "./EditorToolbar";
+import EditorBreadcrumb from "./EditorBreadcrumb";
 import MarkdownPreview from "./MarkdownPreview";
+import ImagePreview from "./ImagePreview";
+
+/** 支持预览的图片扩展名（SVG 不纳入，保持 Monaco XML 编辑） */
+const IMAGE_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
+]);
+
+function isImageFile(filePath: string): boolean {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  return IMAGE_EXTENSIONS.has(ext);
+}
 
 /** 文件扩展名 → Monaco 语言 ID */
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
@@ -77,8 +89,10 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 interface EditorViewProps {
   filePath: string;
   projectPath: string;
-  tabId: string;
-  paneId: string;
+  tabId?: string;
+  paneId?: string;
+  /** 独立面板模式下的 dirty 状态回调（替代 paneId/tabId） */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export default function EditorView({
@@ -86,6 +100,7 @@ export default function EditorView({
   projectPath: _projectPath,
   tabId,
   paneId,
+  onDirtyChange,
 }: EditorViewProps) {
   void _projectPath; // 保留 prop 供未来使用（如路径沙箱验证）
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
@@ -107,8 +122,12 @@ export default function EditorView({
 
   // 同步 dirty 状态到 tab
   useEffect(() => {
-    setTabDirty(paneId, tabId, dirty);
-  }, [dirty, paneId, tabId, setTabDirty]);
+    if (onDirtyChange) {
+      onDirtyChange(dirty);
+    } else if (paneId && tabId) {
+      setTabDirty(paneId, tabId, dirty);
+    }
+  }, [dirty, paneId, tabId, setTabDirty, onDirtyChange]);
 
   // 检测只读路径
   const isReadOnlyPath = useCallback((p: string) => {
@@ -128,6 +147,12 @@ export default function EditorView({
 
     (async () => {
       try {
+        // 图片文件由 ImagePreview 组件处理，跳过文本加载
+        if (isImageFile(filePath)) {
+          setLoading(false);
+          return;
+        }
+
         // 先检查文件大小
         const info = await filesystemService.getEntryInfo(filePath);
         if (info.size > MAX_FILE_SIZE) {
@@ -238,6 +263,11 @@ export default function EditorView({
     editorRef.current?.trigger("toolbar", "redo", null);
   }, []);
 
+  // 图片文件 → 渲染 ImagePreview 组件
+  if (isImageFile(filePath)) {
+    return <ImagePreview filePath={filePath} projectPath={_projectPath} />;
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -270,6 +300,7 @@ export default function EditorView({
         onRedo={handleRedo}
         onPreviewModeChange={setPreviewMode}
       />
+      <EditorBreadcrumb filePath={filePath} />
 
       <div className="flex-1 flex overflow-hidden">
         {showEditor && (
@@ -305,7 +336,7 @@ export default function EditorView({
       </div>
 
       {readOnly && (
-        <div className="px-2 py-0.5 text-[10px] text-amber-500 bg-amber-500/5 border-t">
+        <div className="px-2 py-0.5 text-[10px] border-t" style={{ color: "var(--app-warning)", background: "var(--app-warning-bg)" }}>
           {readOnlyReason === "encoding"
             ? "Read-only (non UTF-8 encoding)"
             : "Read-only (protected path)"}

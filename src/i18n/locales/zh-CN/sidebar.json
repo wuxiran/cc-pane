@@ -95,5 +95,14 @@
   "openFolderFailed": "打开文件夹失败: {{error}}",
   "copiedToClipboard": "已复制到剪贴板",
   "copyFailed": "复制失败: {{error}}",
-  "hookOperationFailed": "Hook 操作失败: {{error}}"
+  "hookOperationFailed": "Hook 操作失败: {{error}}",
+  "fileBrowser": "文件",
+  "goBack": "后退",
+  "goForward": "前进",
+  "goUp": "上一级",
+  "refresh": "刷新",
+  "noPath": "选择一个目录开始浏览",
+  "openInFileBrowser": "在资源管理器中打开",
+  "noOpenFiles": "没有打开的文件",
+  "openFileHint": "在资源管理器中点击文件以打开"
 }

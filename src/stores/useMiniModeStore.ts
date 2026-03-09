@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauriReady } from "@/utils";
 
 interface MiniModeState {
   isMiniMode: boolean;
@@ -18,6 +19,7 @@ export const useMiniModeStore = create<MiniModeState>((set, get) => ({
 
   enterMiniMode: async () => {
     try {
+      if (!isTauriReady()) return;
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       const physicalSize = await win.innerSize();

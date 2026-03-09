@@ -1,11 +1,12 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { useWorkspacesStore, useProvidersStore, useThemeStore } from "@/stores";
+import { useWorkspacesStore, useProvidersStore } from "@/stores";
 import type { ActivityView } from "@/stores/useActivityBarStore";
 import { historyService, localHistoryService } from "@/services";
 import { waitForTauri } from "@/utils";
 import ExplorerView from "@/components/sidebar/ExplorerView";
 import SessionsView from "@/components/sidebar/SessionsView";
 import SearchView from "@/components/sidebar/SearchView";
+import FileBrowserView from "@/components/sidebar/FileBrowserView";
 import { setDragging } from "@/stores/splitDragState";
 
 const SIDEBAR_WIDTH_KEY = "cc-panes-sidebar-width";
@@ -33,7 +34,6 @@ export default function Sidebar({
   activeView,
   onOpenTerminal,
 }: SidebarProps) {
-  const isDark = useThemeStore((s) => s.isDark);
   const loadWorkspaces = useWorkspacesStore((s) => s.load);
   const loadProviders = useProvidersStore((s) => s.loadProviders);
 
@@ -97,17 +97,14 @@ export default function Sidebar({
   return (
     <div
       ref={sidebarRef}
-      className={`sidebar relative z-10 flex flex-row overflow-hidden backdrop-blur-2xl shadow-[5px_0_40px_rgba(0,0,0,0.05)] ${
-        isDark
-          ? 'bg-slate-900/40 border-white/10'
-          : 'bg-white/60 border-white/40'
-      }`}
+      className="sidebar relative z-10 flex flex-row overflow-hidden"
       style={{
         width: sidebarWidth,
         height: "100%",
-        backgroundImage: isDark
-          ? 'linear-gradient(to bottom, rgba(255,255,255,0.05), transparent)'
-          : 'linear-gradient(to bottom, rgba(255,255,255,0.70), rgba(255,255,255,0.40), rgba(255,255,255,0.20))',
+        background: "var(--app-sidebar-bg)",
+        borderRight: "1px solid var(--app-border)",
+        backdropFilter: `blur(var(--app-glass-blur))`,
+        WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
       }}
     >
       {/* 侧边栏主体内容 */}
@@ -121,6 +118,9 @@ export default function Sidebar({
         )}
         {activeView === "search" && (
           <SearchView />
+        )}
+        {activeView === "files" && (
+          <FileBrowserView />
         )}
       </div>
 

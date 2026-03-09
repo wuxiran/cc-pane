@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { useEditorTabsStore } from "./useEditorTabsStore";
+import { useActivityBarStore } from "./useActivityBarStore";
 import type {
   PaneNode,
   Panel,
@@ -870,38 +872,12 @@ export const usePanesStore = create<PanesState>()(
     },
 
     openEditor: (projectPath, filePath, title) => {
-      // 跨所有 pane 查找已打开的同文件 tab
-      const allPanels = get().allPanels();
-      for (const panel of allPanels) {
-        const existing = panel.tabs.find(
-          (t) => t.contentType === "editor" && t.filePath === filePath
-        );
-        if (existing) {
-          get().selectTab(panel.id, existing.id);
-          return;
-        }
+      // 代理到 EditorTabsStore + 切换到 files 模式
+      useEditorTabsStore.getState().openFile(projectPath, filePath, title);
+      const activityState = useActivityBarStore.getState();
+      if (activityState.appViewMode !== "files") {
+        activityState.toggleFilesMode();
       }
-
-      // 在活动 pane 中打开新 tab
-      const active = get().activePane();
-      if (!active) return;
-
-      set((state) => {
-        const pane = findPane(state.rootPane, state.activePaneId);
-        if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
-          title,
-          contentType: "editor",
-          projectId: "",
-          projectPath,
-          sessionId: null,
-          filePath,
-          dirty: false,
-        };
-        pane.tabs.push(newTab);
-        pane.activeTabId = newTab.id;
-      });
     },
 
     setTabDirty: (paneId, tabId, dirty) => {

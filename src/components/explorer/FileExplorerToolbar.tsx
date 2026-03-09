@@ -1,4 +1,4 @@
-import { RefreshCw, FilePlus, FolderPlus, Search, EyeOff, Eye } from "lucide-react";
+import { RefreshCw, FilePlus, FolderPlus, EyeOff, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -9,21 +9,17 @@ import {
 
 interface FileExplorerToolbarProps {
   showHidden: boolean;
-  showSearch: boolean;
   onRefresh: () => void;
   onNewFile: () => void;
   onNewFolder: () => void;
-  onToggleSearch: () => void;
   onToggleHidden: () => void;
 }
 
 export default function FileExplorerToolbar({
   showHidden,
-  showSearch,
   onRefresh,
   onNewFile,
   onNewFolder,
-  onToggleSearch,
   onToggleHidden,
 }: FileExplorerToolbarProps) {
   return (
@@ -54,20 +50,6 @@ export default function FileExplorerToolbar({
             </Button>
           </TooltipTrigger>
           <TooltipContent>New Folder</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={showSearch ? "secondary" : "ghost"}
-              size="icon"
-              className="h-6 w-6"
-              onClick={onToggleSearch}
-            >
-              <Search size={14} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Toggle Search</TooltipContent>
         </Tooltip>
 
         <div className="flex-1" />

@@ -42,4 +42,6 @@ pub struct SearchResult {
     pub name: String,
     pub is_dir: bool,
     pub rel_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<u32>,
 }

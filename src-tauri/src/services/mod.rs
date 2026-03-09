@@ -14,6 +14,8 @@ pub mod mcp_config_service;
 pub mod skill_service;
 pub mod plan_service;
 mod filesystem_service;
+pub mod file_search_index;
+mod screenshot_service;
 
 pub use project_service::ProjectService;
 pub use terminal_service::{TerminalService, SessionStatusInfo, ShellInfo};
@@ -31,3 +33,5 @@ pub use mcp_config_service::McpConfigService;
 pub use skill_service::SkillService;
 pub use plan_service::PlanService;
 pub use filesystem_service::FileSystemService;
+pub use file_search_index::FileSearchIndex;
+pub use screenshot_service::ScreenshotService;

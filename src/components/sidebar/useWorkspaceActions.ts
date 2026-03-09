@@ -25,7 +25,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   const updateProjectAlias = useWorkspacesStore((s) => s.updateProjectAlias);
   const updateWorkspaceAlias = useWorkspacesStore((s) => s.updateWorkspaceAlias);
   const updateWorkspaceProvider = useWorkspacesStore((s) => s.updateWorkspaceProvider);
-  const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
+  const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
 
   // Git 分支 & Worktree 缓存
   const [gitBranches, setGitBranches] = useState<Record<string, string | null>>({});
@@ -100,27 +100,25 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   }, []);
 
   useEffect(() => {
-    if (!expandedProjectId) return;
+    if (!expandedWorkspaceId) return;
     const currentWorkspaces = useWorkspacesStore.getState().workspaces;
-    for (const ws of currentWorkspaces) {
-      const project = ws.projects.find((p) => p.id === expandedProjectId);
-      if (project) {
-        setGitBranches((prev) => {
-          if (project.path in prev) return prev;
-          fetchGitBranch(project.path).then((branch) => {
-            setGitBranches((p) => ({ ...p, [project.path]: branch }));
-          });
-          return prev;
+    const ws = currentWorkspaces.find((w) => w.id === expandedWorkspaceId);
+    if (!ws) return;
+    for (const project of ws.projects) {
+      setGitBranches((prev) => {
+        if (project.path in prev) return prev;
+        fetchGitBranch(project.path).then((branch) => {
+          setGitBranches((p) => ({ ...p, [project.path]: branch }));
         });
-        setWorktreeCache((prev) => {
-          if (project.path in prev) return prev;
-          fetchWorktrees(project.path);
-          return prev;
-        });
-        break;
-      }
+        return prev;
+      });
+      setWorktreeCache((prev) => {
+        if (project.path in prev) return prev;
+        fetchWorktrees(project.path);
+        return prev;
+      });
     }
-  }, [expandedProjectId, fetchGitBranch, fetchWorktrees]);
+  }, [expandedWorkspaceId, fetchGitBranch, fetchWorktrees]);
 
   // ============ 工作空间操作 ============
 

@@ -3,29 +3,27 @@ import { useTranslation } from "react-i18next";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import {
-  Folder, ChevronRight, Trash2, Plus, Pencil, Clock,
-  FolderOpen, Terminal, GitBranch, Copy,
+  Folder, Trash2, Plus, Pencil, Clock,
+  FolderOpen, Terminal, GitBranch, Copy, Files,
 } from "lucide-react";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
   ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu";
-import { useProvidersStore, useThemeStore, useDialogStore } from "@/stores";
-import { FileTree } from "@/components/filetree";
+import { useProvidersStore, useDialogStore } from "@/stores";
 import { getProjectName } from "@/utils";
 import type { Workspace, WorkspaceProject } from "@/types";
 
 interface ProjectListViewProps {
   projects: WorkspaceProject[];
   ws: Workspace;
-  expandedProjectId: string | null;
   gitBranches: Record<string, string | null>;
-  onExpandProject: (projectId: string) => void;
   onOpenTerminal: (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean) => void;
   onRemoveProject: (ws: Workspace, project: WorkspaceProject) => void;
   onSetProjectAlias: (ws: Workspace, project: WorkspaceProject) => void;
   onImportProject: (ws: Workspace) => void;
   onOpenWorktreeManager: (project: WorkspaceProject, ws: Workspace) => void;
+  onOpenInFileBrowser?: (path: string) => void;
 }
 
 function getRelativePath(projectPath: string, wsPath?: string | null): string {
@@ -42,12 +40,11 @@ function getRelativePath(projectPath: string, wsPath?: string | null): string {
 }
 
 export default function ProjectListView({
-  projects, ws, expandedProjectId, gitBranches,
-  onExpandProject, onOpenTerminal, onRemoveProject, onSetProjectAlias,
-  onImportProject, onOpenWorktreeManager,
+  projects, ws, gitBranches,
+  onOpenTerminal, onRemoveProject, onSetProjectAlias,
+  onImportProject, onOpenWorktreeManager, onOpenInFileBrowser,
 }: ProjectListViewProps) {
   const { t } = useTranslation(["sidebar", "common"]);
-  const isDark = useThemeStore((s) => s.isDark);
   const providerList = useProvidersStore((s) => s.providers);
   const onOpenHistory = useDialogStore((s) => s.openLocalHistory);
 
@@ -75,19 +72,9 @@ export default function ProjectListView({
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
-                className={`flex items-center gap-1.5 px-2 py-1.5 cursor-pointer rounded-lg transition-all ${
-                  expandedProjectId === project.id
-                    ? isDark
-                      ? 'bg-white/5 text-slate-200'
-                      : 'bg-white/40 text-slate-800 shadow-sm'
-                    : isDark
-                      ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-                      : 'text-slate-500 hover:bg-white/30 hover:text-slate-800'
-                }`}
-                onClick={() => onExpandProject(project.id)}
-                onDoubleClick={() => onOpenTerminal(project.path, ws.name, ws.providerId)}
+                className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer rounded-lg transition-all text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                onDoubleClick={() => onOpenInFileBrowser?.(project.path)}
               >
-                <ChevronRight className={`w-3 h-3 shrink-0 transition-transform ${expandedProjectId === project.id ? 'rotate-90' : ''}`} />
                 <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
                 <span className="flex-1 text-xs truncate">{project.alias || getProjectName(project.path)}</span>
                 {gitBranches[project.path] && (
@@ -155,30 +142,22 @@ export default function ProjectListView({
               <ContextMenuItem variant="destructive" onClick={() => onRemoveProject(ws, project)}>
                 <Trash2 /> {t("removeProject")}
               </ContextMenuItem>
+              {onOpenInFileBrowser && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => onOpenInFileBrowser(project.path)}>
+                    <Files /> {t("openInFileBrowser")}
+                  </ContextMenuItem>
+                </>
+              )}
             </ContextMenuContent>
           </ContextMenu>
-
-          {/* 文件树 */}
-          {expandedProjectId === project.id && (
-            <div className="ml-4 py-1 max-h-64 overflow-y-auto">
-              <FileTree
-                rootPath={project.path}
-                compact={true}
-                showSearch={true}
-                onOpenTerminal={(path) => onOpenTerminal(path, ws.name, ws.providerId)}
-              />
-            </div>
-          )}
         </div>
       ))}
 
       {/* 导入项目按钮 */}
       <div
-        className={`flex items-center justify-center gap-1 p-1.5 mt-1 text-[11px] rounded-lg cursor-pointer transition-all border border-dashed group ${
-          isDark
-            ? 'border-white/10 text-slate-400 hover:border-blue-500/50 hover:text-blue-300 hover:bg-blue-500/10'
-            : 'border-slate-400/30 text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50'
-        }`}
+        className="flex items-center justify-center gap-1 p-1.5 mt-1 text-[11px] rounded-lg cursor-pointer transition-all border border-dashed group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[var(--app-active-bg)]"
         onClick={() => onImportProject(ws)}
       >
         <Plus size={12} className="transition-transform group-hover:rotate-90" />

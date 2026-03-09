@@ -1,63 +1,119 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, File, Loader2 } from "lucide-react";
-import { useThemeStore, useWorkspacesStore } from "@/stores";
-import { invoke } from "@tauri-apps/api/core";
+import { Search, File, Folder, Loader2 } from "lucide-react";
+import { useWorkspacesStore, useActivityBarStore } from "@/stores";
+import { useFileBrowserStore } from "@/stores/useFileBrowserStore";
+import { filesystemService } from "@/services/filesystemService";
+import type { SearchResult } from "@/types/filesystem";
 
-interface SearchResult {
-  path: string;
-  name: string;
+interface GroupedResult extends SearchResult {
   projectName: string;
 }
 
 export default function SearchView() {
   const { t } = useTranslation("common");
-  const isDark = useThemeStore((s) => s.isDark);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
 
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [results, setResults] = useState<GroupedResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
 
-  const handleSearch = useCallback(async (q: string) => {
-    setQuery(q);
-    if (q.trim().length < 2) {
-      setResults([]);
-      return;
-    }
+  // 卸载时清理 debounce timer
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
-    setSearching(true);
-    try {
-      // 搜索所有项目目录下的文件
-      const allResults: SearchResult[] = [];
-      for (const ws of workspaces) {
-        for (const project of ws.projects) {
-          try {
-            const files = await invoke<string[]>("search_files", {
-              dirPath: project.path,
-              pattern: q.trim(),
-              maxResults: 10,
-            });
-            for (const f of files) {
-              const name = f.split(/[/\\]/).pop() || f;
-              allResults.push({
-                path: f,
-                name,
-                projectName: project.alias || project.path.split(/[/\\]/).pop() || project.path,
+  const handleSearch = useCallback(
+    (q: string) => {
+      setQuery(q);
+
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+
+      if (q.trim().length < 2) {
+        setResults([]);
+        setSearching(false);
+        return;
+      }
+
+      debounceRef.current = setTimeout(async () => {
+        const thisRequestId = ++requestIdRef.current;
+        setSearching(true);
+        try {
+          // 并行搜索所有项目
+          const searches: Array<{
+            promise: Promise<SearchResult[]>;
+            projectName: string;
+          }> = [];
+          for (const ws of workspaces) {
+            for (const project of ws.projects) {
+              const projectName =
+                project.alias ||
+                project.path.split(/[/\\]/).pop() ||
+                project.path;
+              searches.push({
+                promise: filesystemService.searchFiles(
+                  project.path,
+                  q.trim(),
+                  10
+                ),
+                projectName,
               });
             }
-          } catch {
-            // 忽略单个项目搜索错误
+          }
+
+          const settled = await Promise.allSettled(
+            searches.map((s) => s.promise)
+          );
+
+          // 丢弃过期请求的结果
+          if (thisRequestId !== requestIdRef.current) return;
+
+          const allResults: GroupedResult[] = [];
+          for (let i = 0; i < settled.length; i++) {
+            const result = settled[i];
+            if (result.status === "fulfilled") {
+              for (const r of result.value) {
+                allResults.push({
+                  ...r,
+                  projectName: searches[i].projectName,
+                });
+              }
+            }
+          }
+
+          // 按 score 降序排序
+          allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+          setResults(allResults.slice(0, 50));
+        } catch (e) {
+          console.error("Search error:", e);
+        } finally {
+          if (thisRequestId === requestIdRef.current) {
+            setSearching(false);
           }
         }
-      }
-      setResults(allResults.slice(0, 30));
-    } catch (e) {
-      console.error("Search error:", e);
-    } finally {
-      setSearching(false);
+      }, 150);
+    },
+    [workspaces]
+  );
+
+  const handleResultClick = useCallback((result: GroupedResult) => {
+    if (result.isDir) {
+      // 目录 → 在文件浏览器中打开
+      useFileBrowserStore.getState().navigateTo(result.path);
+      useActivityBarStore.getState().toggleFilesMode();
+    } else {
+      // 文件 → 在文件浏览器中打开其所在目录
+      const dir = result.path.replace(/\\/g, "/");
+      const lastSlash = dir.lastIndexOf("/");
+      const parentDir = lastSlash > 0 ? dir.slice(0, lastSlash) : dir;
+      useFileBrowserStore.getState().navigateTo(parentDir);
+      useActivityBarStore.getState().toggleFilesMode();
     }
-  }, [workspaces]);
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -76,11 +132,14 @@ export default function SearchView() {
         <div
           className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
           style={{
-            background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-            border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
+            background: "var(--app-input-bg)",
+            border: "1px solid var(--app-border)",
           }}
         >
-          <Search className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--app-text-tertiary)" }} />
+          <Search
+            className="w-3.5 h-3.5 shrink-0"
+            style={{ color: "var(--app-text-tertiary)" }}
+          />
           <input
             type="text"
             value={query}
@@ -89,7 +148,12 @@ export default function SearchView() {
             className="flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--app-text-tertiary)]"
             style={{ color: "var(--app-text-primary)" }}
           />
-          {searching && <Loader2 className="w-3 h-3 animate-spin" style={{ color: "var(--app-text-tertiary)" }} />}
+          {searching && (
+            <Loader2
+              className="w-3 h-3 animate-spin"
+              style={{ color: "var(--app-text-tertiary)" }}
+            />
+          )}
         </div>
       </div>
 
@@ -100,28 +164,53 @@ export default function SearchView() {
             {results.map((r, idx) => (
               <div
                 key={`${r.path}-${idx}`}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors cursor-default ${
-                  isDark
-                    ? 'hover:bg-white/5 text-slate-300'
-                    : 'hover:bg-white/40 text-slate-600'
-                }`}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors cursor-pointer hover:bg-[var(--app-hover)] text-[var(--app-text-secondary)]"
+                onClick={() => handleResultClick(r)}
               >
-                <File className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--app-text-tertiary)" }} />
+                {r.isDir ? (
+                  <Folder
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: "var(--app-accent)" }}
+                  />
+                ) : (
+                  <File
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: "var(--app-text-tertiary)" }}
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <span className="text-[12px] truncate block">{r.name}</span>
-                  <span className={`text-[10px] truncate block ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
-                    {r.projectName}
+                  <span
+                    className="text-[10px] truncate block text-[var(--app-text-tertiary)]"
+                  >
+                    {r.relPath}
+                    <span className="ml-1 opacity-60">· {r.projectName}</span>
                   </span>
                 </div>
+                {r.score != null && (
+                  <span
+                    className="text-[9px] shrink-0 px-1 rounded"
+                    style={{
+                      color: "var(--app-text-tertiary)",
+                      background: "var(--app-hover)",
+                    }}
+                  >
+                    {r.score}
+                  </span>
+                )}
               </div>
             ))}
           </div>
         ) : query.length >= 2 && !searching ? (
-          <p className={`text-xs text-center mt-8 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+          <p
+            className="text-xs text-center mt-8 text-[var(--app-text-tertiary)]"
+          >
             No results found
           </p>
         ) : (
-          <p className={`text-xs text-center mt-8 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+          <p
+            className="text-xs text-center mt-8 text-[var(--app-text-tertiary)]"
+          >
             Search across all projects
           </p>
         )}

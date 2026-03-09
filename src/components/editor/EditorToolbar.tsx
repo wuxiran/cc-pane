@@ -41,17 +41,17 @@ export default function EditorToolbar({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex items-center gap-1 px-2 py-1 border-b bg-background text-xs">
+      <div className="flex items-center gap-1 px-2 h-[26px] border-b text-xs" style={{ background: "var(--editor-bg)" }}>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6"
+              className="h-5 w-5"
               onClick={onSave}
               disabled={!dirty || readOnly}
             >
-              <Save size={14} />
+              <Save size={13} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Save (Ctrl+S)</TooltipContent>
@@ -62,10 +62,10 @@ export default function EditorToolbar({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6"
+              className="h-5 w-5"
               onClick={onUndo}
             >
-              <Undo2 size={14} />
+              <Undo2 size={13} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Undo (Ctrl+Z)</TooltipContent>
@@ -76,10 +76,10 @@ export default function EditorToolbar({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6"
+              className="h-5 w-5"
               onClick={onRedo}
             >
-              <Redo2 size={14} />
+              <Redo2 size={13} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Redo (Ctrl+Shift+Z)</TooltipContent>
@@ -93,10 +93,10 @@ export default function EditorToolbar({
                 <Button
                   variant={previewMode === "edit" ? "secondary" : "ghost"}
                   size="icon"
-                  className="h-6 w-6"
+                  className="h-5 w-5"
                   onClick={() => onPreviewModeChange("edit")}
                 >
-                  <Code2 size={14} />
+                  <Code2 size={13} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Edit</TooltipContent>
@@ -107,10 +107,10 @@ export default function EditorToolbar({
                 <Button
                   variant={previewMode === "preview" ? "secondary" : "ghost"}
                   size="icon"
-                  className="h-6 w-6"
+                  className="h-5 w-5"
                   onClick={() => onPreviewModeChange("preview")}
                 >
-                  <Eye size={14} />
+                  <Eye size={13} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Preview</TooltipContent>
@@ -121,10 +121,10 @@ export default function EditorToolbar({
                 <Button
                   variant={previewMode === "split" ? "secondary" : "ghost"}
                   size="icon"
-                  className="h-6 w-6"
+                  className="h-5 w-5"
                   onClick={cyclePreview}
                 >
-                  <SplitSquareHorizontal size={14} />
+                  <SplitSquareHorizontal size={13} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Split Preview</TooltipContent>
@@ -135,9 +135,9 @@ export default function EditorToolbar({
         <div className="flex-1" />
 
         {dirty && (
-          <span className="text-amber-500 text-[10px] mr-1">Modified</span>
+          <span className="text-[11px] mr-1" style={{ color: "var(--app-warning)" }}>Modified</span>
         )}
-        <span className="text-muted-foreground text-[10px]">{language}</span>
+        <span className="text-muted-foreground text-[11px]">{language}</span>
       </div>
     </TooltipProvider>
   );

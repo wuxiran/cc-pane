@@ -112,12 +112,17 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       autoStart: false,
       language: "en",
       dataDir: null,
+      searchScope: "Workspace",
     },
     notification: {
       enabled: true,
       onExit: true,
       onWaitingInput: true,
       onlyWhenUnfocused: true,
+    },
+    screenshot: {
+      shortcut: "Ctrl+Shift+S",
+      retentionDays: 7,
     },
     ...overrides,
   };

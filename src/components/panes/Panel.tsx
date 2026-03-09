@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { X, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Panel as PanelType, Tab } from "@/types";
-import { usePanesStore, useFullscreenStore, useThemeStore, useFileTreeStore } from "@/stores";
+import { usePanesStore, useFullscreenStore, useFileTreeStore } from "@/stores";
 import { terminalService } from "@/services";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -34,7 +34,6 @@ export default memo(function Panel({ pane }: PanelProps) {
   const setActivePane = usePanesStore((s) => s.setActivePane);
   const updateTabSession = usePanesStore((s) => s.updateTabSession);
 
-  const isDark = useThemeStore((s) => s.isDark);
   const isFullscreen = useFullscreenStore((s) => s.isFullscreen);
   const fullscreenPaneId = useFullscreenStore((s) => s.fullscreenPaneId);
   const enterFullscreen = useFullscreenStore((s) => s.enterFullscreen);
@@ -241,21 +240,14 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   return (
     <div
-      className={`flex flex-col h-full overflow-hidden transition-shadow duration-300 backdrop-blur-2xl ${
+      className={`flex flex-col h-full overflow-hidden transition-shadow duration-300 ${
         isFullscreenPanel ? "fixed inset-0 z-[9999] rounded-none" : "rounded-xl"
-      } ${
-        isDark
-          ? 'bg-[#0F1117]/80 ring-1 ring-white/10 shadow-2xl'
-          : 'bg-white/60 ring-1 ring-white/60 shadow-[0_8px_32px_rgba(31,38,135,0.1)]'
       }`}
       style={{
-        boxShadow: isActivePane
-          ? isDark
-            ? "0 0 0 1px rgba(59,130,246,0.4), 0 0 20px rgba(59,130,246,0.1)"
-            : "0 0 0 1px rgba(59,130,246,0.3), 0 8px 32px rgba(31,38,135,0.1)"
-          : isDark
-            ? "0 8px 32px rgba(0,0,0,0.25)"
-            : "0 8px 32px rgba(31,38,135,0.1)",
+        background: "var(--app-panel-bg)",
+        backdropFilter: `blur(var(--app-glass-blur))`,
+        WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
+        boxShadow: `0 0 0 1px var(--app-border), var(--app-glass-shadow)`,
       }}
       onClick={handlePanelClick}
     >
@@ -284,7 +276,7 @@ export default memo(function Panel({ pane }: PanelProps) {
       <div
         className="flex-1 relative overflow-hidden"
         style={{
-          background: isDark ? "#1a1a1a" : "#ffffff",
+          background: "var(--app-panel-bg)",
           borderRadius: isFullscreenPanel ? "0" : "0 0 12px 12px",
         }}
       >
@@ -306,34 +298,34 @@ export default memo(function Panel({ pane }: PanelProps) {
 
         {/* 空状态 */}
         {(!activeTab || !activeTab.projectPath) && (
-          <div className={`absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden ${
-            isDark ? 'bg-[#0F1117]' : 'bg-white/80'
-          }`}>
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden"
+            style={{ background: "var(--app-panel-bg)" }}
+          >
             {/* 点阵背景 */}
             <div
               className="absolute inset-0 opacity-[0.03]"
               style={{
-                backgroundImage: isDark
-                  ? 'radial-gradient(#ffffff 1px, transparent 1px)'
-                  : 'radial-gradient(#000000 1px, transparent 1px)',
+                backgroundImage: 'radial-gradient(var(--app-text-primary) 1px, transparent 1px)',
                 backgroundSize: '24px 24px',
               }}
             />
 
             {/* 图标容器 */}
-            <div className={`relative w-28 h-28 rounded-3xl flex items-center justify-center mb-8 transition-transform duration-700 backdrop-blur-sm ${
-              isDark
-                ? 'bg-slate-800/30 border border-white/5 shadow-inner'
-                : 'bg-white/40 border border-white/50 shadow-lg'
-            }`}>
-              <Terminal className="w-12 h-12 text-slate-500 opacity-80" />
-              <div className="absolute inset-0 bg-blue-500/10 blur-xl rounded-full pointer-events-none" />
+            <div
+              className="relative w-28 h-28 rounded-3xl flex items-center justify-center mb-8 transition-transform duration-700"
+              style={{
+                background: "var(--app-hover)",
+                border: "1px solid var(--app-border)",
+              }}
+            >
+              <Terminal className="w-12 h-12 opacity-80" style={{ color: "var(--app-text-tertiary)" }} />
             </div>
 
-            <h3 className={`text-xl font-medium mb-3 tracking-tight ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+            <h3 className="text-xl font-medium mb-3 tracking-tight" style={{ color: "var(--app-text-primary)" }}>
               {t("ready")}
             </h3>
-            <p className="text-slate-500 text-center max-w-sm leading-relaxed text-sm">
+            <p className="text-center max-w-sm leading-relaxed text-sm" style={{ color: "var(--app-text-secondary)" }}>
               {t("selectProject")}
             </p>
           </div>

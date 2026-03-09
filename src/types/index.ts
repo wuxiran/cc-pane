@@ -28,6 +28,8 @@ export type {
   TerminalStatusInfo,
   DataDirInfo,
   ShellInfo,
+  SearchScope,
+  ScreenshotSettings,
 } from "./settings";
 export type {
   TodoStatus,
@@ -64,3 +66,7 @@ export type {
   SelfChatStatus,
   SelfChatSession,
 } from "./selfchat";
+export type {
+  ScreenshotResult,
+  TempScreenshot,
+} from "./screenshot";

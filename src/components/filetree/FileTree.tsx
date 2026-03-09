@@ -2,27 +2,29 @@ import { useEffect, useCallback, useRef, useMemo } from "react";
 import { useFileTreeStore } from "@/stores";
 import { usePanesStore } from "@/stores";
 import FileTreeNode from "./FileTreeNode";
-import FileTreeSearch from "./FileTreeSearch";
 import FileTreeContextMenu from "./FileTreeContextMenu";
 import type { FileTreeNode as FileTreeNodeType } from "@/types/filesystem";
 
 interface FileTreeProps {
   rootPath: string;
   compact?: boolean;
-  showSearch?: boolean;
   onOpenTerminal?: (path: string) => void;
+  /** 资源管理器模式：双击目录时切换浏览根目录 */
+  onNavigateToDir?: (path: string) => void;
+  /** 自定义文件打开行为（不使用默认 openEditor） */
+  onOpenFile?: (filePath: string, fileName: string) => void;
 }
 
 export default function FileTree({
   rootPath,
   compact = false,
-  showSearch = false,
   onOpenTerminal,
+  onNavigateToDir,
+  onOpenFile,
 }: FileTreeProps) {
   const tree = useFileTreeStore((s) => s.trees[rootPath]);
   const loadDirectory = useFileTreeStore((s) => s.loadDirectory);
   const toggleExpand = useFileTreeStore((s) => s.toggleExpand);
-  const searchFiles = useFileTreeStore((s) => s.searchFiles);
   const selectedFilePath = useFileTreeStore((s) => s.selectedFilePath);
   const setSelectedFilePath = useFileTreeStore((s) => s.setSelectedFilePath);
   const rawGitStatuses = useFileTreeStore((s) => s.gitStatuses[rootPath]);
@@ -118,10 +120,14 @@ export default function FileTree({
   const handleFileClick = useCallback(
     (filePath: string) => {
       const fileName = filePath.split(/[/\\]/).pop() || "File";
-      openEditor(rootPath, filePath, fileName);
+      if (onOpenFile) {
+        onOpenFile(filePath, fileName);
+      } else {
+        openEditor(rootPath, filePath, fileName);
+      }
       setSelectedFilePath(filePath);
     },
-    [rootPath, openEditor, setSelectedFilePath]
+    [rootPath, openEditor, setSelectedFilePath, onOpenFile]
   );
 
   const handleContextMenu = useCallback(
@@ -146,33 +152,19 @@ export default function FileTree({
       onOpenTerminal={onOpenTerminal}
     >
       <div className="flex flex-col h-full overflow-hidden">
-        {showSearch && (
-          <FileTreeSearch
-            rootPath={rootPath}
-            onSearch={searchFiles}
-            onFileClick={handleFileClick}
-          />
-        )}
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
-          {tree.children?.map((child) => (
-            <FileTreeNode
-              key={child.entry.path}
-              node={child}
-              depth={0}
-              compact={compact}
-              rootPath={rootPath}
-              selectedFilePath={selectedFilePath}
-              gitStatuses={gitStatuses}
-              onToggle={handleToggle}
-              onFileClick={handleFileClick}
-              onContextMenu={handleContextMenu}
-            />
-          ))}
-          {tree.children?.length === 0 && (
-            <div className="px-4 py-2 text-xs text-muted-foreground">
-              Empty directory
-            </div>
-          )}
+          <FileTreeNode
+            node={tree}
+            depth={0}
+            compact={compact}
+            rootPath={rootPath}
+            selectedFilePath={selectedFilePath}
+            gitStatuses={gitStatuses}
+            onToggle={handleToggle}
+            onFileClick={handleFileClick}
+            onContextMenu={handleContextMenu}
+            onDirDoubleClick={onNavigateToDir}
+          />
         </div>
       </div>
     </FileTreeContextMenu>

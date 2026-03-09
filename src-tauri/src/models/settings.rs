@@ -17,6 +17,8 @@ pub struct AppSettings {
     pub general: GeneralSettings,
     #[serde(default)]
     pub notification: NotificationSettings,
+    #[serde(default)]
+    pub screenshot: ScreenshotSettings,
 }
 
 /// 代理设置
@@ -73,6 +75,19 @@ pub struct NotificationSettings {
     pub only_when_unfocused: bool,
 }
 
+/// 搜索范围
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SearchScope {
+    Workspace,
+    FullDisk,
+}
+
+impl Default for SearchScope {
+    fn default() -> Self {
+        Self::Workspace
+    }
+}
+
 /// 通用设置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,6 +97,16 @@ pub struct GeneralSettings {
     pub language: String,
     #[serde(default)]
     pub data_dir: Option<String>,
+    #[serde(default)]
+    pub search_scope: SearchScope,
+}
+
+/// 截图设置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotSettings {
+    pub shortcut: String,
+    pub retention_days: u32,
 }
 
 // ---- 默认值实现 ----
@@ -153,6 +178,15 @@ impl Default for NotificationSettings {
     }
 }
 
+impl Default for ScreenshotSettings {
+    fn default() -> Self {
+        Self {
+            shortcut: "Ctrl+Shift+S".to_string(),
+            retention_days: 7,
+        }
+    }
+}
+
 impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
@@ -160,6 +194,7 @@ impl Default for GeneralSettings {
             auto_start: false,
             language: "zh-CN".to_string(),
             data_dir: None,
+            search_scope: SearchScope::default(),
         }
     }
 }

@@ -21,12 +21,16 @@ interface FileTreeState {
   refresh: (rootPath: string, dirPath?: string) => Promise<void>;
   /** 搜索文件 */
   searchFiles: (rootPath: string, query: string) => Promise<SearchResult[]>;
+  /** 清除指定根路径的文件树缓存 */
+  clearTree: (rootPath: string) => void;
   /** 切换隐藏文件显示 */
   toggleShowHidden: () => void;
   /** 设置当前选中文件路径 */
   setSelectedFilePath: (path: string | null) => void;
   /** 在文件树中展开并高亮指定文件 */
   revealFile: (rootPath: string, filePath: string) => Promise<void>;
+  /** 折叠所有子节点（保持根节点展开） */
+  collapseAll: (rootPath: string) => void;
   /** 加载 Git 文件状态 */
   loadGitStatuses: (rootPath: string) => Promise<void>;
 
@@ -184,6 +188,13 @@ export const useFileTreeStore = create<FileTreeState>()(
       return filesystemService.searchFiles(rootPath, query, 100);
     },
 
+    clearTree: (rootPath) => {
+      set((state) => {
+        delete state.trees[rootPath];
+        delete state.gitStatuses[rootPath];
+      });
+    },
+
     toggleShowHidden: () => {
       set((state) => {
         state.showHidden = !state.showHidden;
@@ -232,6 +243,21 @@ export const useFileTreeStore = create<FileTreeState>()(
       requestAnimationFrame(() => {
         const el = document.querySelector(`[data-file-path="${CSS.escape(filePath)}"]`);
         el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    },
+
+    collapseAll: (rootPath) => {
+      set((state) => {
+        const root = state.trees[rootPath];
+        if (!root) return;
+        const collapse = (node: FileTreeNode) => {
+          node.expanded = false;
+          if (node.children) {
+            for (const child of node.children) collapse(child);
+          }
+        };
+        // 折叠整棵树（包括根节点）
+        collapse(root);
       });
     },
 
