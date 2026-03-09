@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef, useMemo } from "react";
+import { handleErrorSilent } from "@/utils";
 import { useFileTreeStore } from "@/stores";
 import { usePanesStore } from "@/stores";
 import FileTreeNode from "./FileTreeNode";
@@ -37,7 +38,7 @@ export default function FileTree({
   // 首次加载
   useEffect(() => {
     if (!tree) {
-      loadDirectory(rootPath, rootPath).catch(console.error);
+      loadDirectory(rootPath, rootPath).catch((e) => handleErrorSilent(e, "load directory"));
     }
     // 同步加载 git 状态
     loadGitStatuses(rootPath).catch(() => {});
@@ -112,7 +113,7 @@ export default function FileTree({
 
   const handleToggle = useCallback(
     (path: string) => {
-      toggleExpand(rootPath, path).catch(console.error);
+      toggleExpand(rootPath, path).catch((e) => handleErrorSilent(e, "toggle expand"));
     },
     [rootPath, toggleExpand]
   );

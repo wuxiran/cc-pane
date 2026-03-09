@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { projectService } from "@/services";
 import type { Project } from "@/types";
+import { translateError } from "@/utils";
 
 interface ProjectsState {
   projects: Project[];
@@ -37,7 +38,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
           projects.length > 0 && !selectedId ? projects[0].id : selectedId,
       });
     } catch (e) {
-      set({ error: String(e) });
+      set({ error: translateError(e) });
       throw e;
     } finally {
       set({ loading: false });

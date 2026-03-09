@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { toast } from "sonner";
+import { handleError } from "@/utils";
 import { filesystemService } from "@/services/filesystemService";
 import { usePanesStore } from "@/stores";
 import { useThemeStore } from "@/stores/useThemeStore";
@@ -219,7 +220,7 @@ export default function EditorView({
 
       toast.success("File saved");
     } catch (err) {
-      toast.error(`Save failed: ${getErrorMessage(err)}`);
+      handleError(err, "save file");
     }
   }, [filePath, content, readOnly, dirty]);
 

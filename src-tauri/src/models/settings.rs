@@ -76,16 +76,11 @@ pub struct NotificationSettings {
 }
 
 /// 搜索范围
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub enum SearchScope {
+    #[default]
     Workspace,
     FullDisk,
-}
-
-impl Default for SearchScope {
-    fn default() -> Self {
-        Self::Workspace
-    }
 }
 
 /// 通用设置
@@ -99,6 +94,13 @@ pub struct GeneralSettings {
     pub data_dir: Option<String>,
     #[serde(default)]
     pub search_scope: SearchScope,
+    /// 日志级别: "error" | "warn" | "info" | "debug" | "trace"
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
+}
+
+fn default_log_level() -> String {
+    "info".to_string()
 }
 
 /// 截图设置
@@ -140,7 +142,7 @@ impl Default for TerminalSettings {
             font_family: "Consolas, \"Courier New\", monospace".to_string(),
             cursor_style: "block".to_string(),
             cursor_blink: true,
-            scrollback: 1000,
+            scrollback: crate::constants::terminal::DEFAULT_SCROLLBACK,
             shell: None,
             disable_conpty_sanitize: None,
         }
@@ -181,7 +183,11 @@ impl Default for NotificationSettings {
 impl Default for ScreenshotSettings {
     fn default() -> Self {
         Self {
-            shortcut: "Ctrl+Shift+S".to_string(),
+            shortcut: if cfg!(debug_assertions) {
+                "Ctrl+Alt+Shift+S".to_string() // dev 用不同的默认快捷键，避免与 release 冲突
+            } else {
+                "Ctrl+Shift+S".to_string()
+            },
             retention_days: 7,
         }
     }
@@ -195,6 +201,7 @@ impl Default for GeneralSettings {
             language: "zh-CN".to_string(),
             data_dir: None,
             search_scope: SearchScope::default(),
+            log_level: default_log_level(),
         }
     }
 }

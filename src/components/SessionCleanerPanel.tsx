@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { claudeService, type BrokenSession, type CleanResult } from "@/services/claudeService";
-import { formatSize, getFileName } from "@/utils";
+import { formatSize, getFileName, handleErrorSilent } from "@/utils";
 
 interface SessionCleanerPanelProps {
   open: boolean;
@@ -44,7 +44,7 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
     try {
       setSessions(await claudeService.scanBrokenSessions(projectPath || undefined));
     } catch (e) {
-      console.error("Failed to scan broken sessions:", e);
+      handleErrorSilent(e, "scan broken sessions");
       setSessions([]);
     } finally {
       setLoading(false);
@@ -58,7 +58,7 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
       setCleanResults([result]);
       await loadSessions();
     } catch (e) {
-      console.error("Failed to clean session:", e);
+      handleErrorSilent(e, "clean session");
       setCleanResults([{ file_path: session.file_path, removed_blocks: 0, success: false, error: String(e) }]);
     } finally {
       setCleaning(false);
@@ -71,7 +71,7 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
       setCleanResults(await claudeService.cleanAllBrokenSessions(projectPath || undefined));
       await loadSessions();
     } catch (e) {
-      console.error("Failed to clean all sessions:", e);
+      handleErrorSilent(e, "clean all sessions");
       setCleanResults([]);
     } finally {
       setCleaning(false);

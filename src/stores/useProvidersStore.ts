@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { providerService } from "@/services/providerService";
 import * as workspaceService from "@/services/workspaceService";
 import type { Provider } from "@/types/provider";
+import { handleErrorSilent } from "@/utils";
 
 interface ProvidersState {
   providers: Provider[];
@@ -26,7 +27,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
       const providers = await providerService.listProviders();
       set({ providers });
     } catch (e) {
-      console.error("Failed to load providers:", e);
+      handleErrorSilent(e, "load providers");
     }
   },
 
@@ -53,7 +54,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         }
       }
     } catch (e) {
-      console.error("Failed to clean up workspace provider references:", e);
+      handleErrorSilent(e, "clean up workspace provider references");
     }
   },
 

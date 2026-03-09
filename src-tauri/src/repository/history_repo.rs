@@ -2,6 +2,7 @@ use crate::repository::Database;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +37,10 @@ impl HistoryRepository {
             "INSERT INTO launch_history (project_id, project_name, project_path, launched_at, workspace_name, workspace_path, launch_cwd) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![project_id, project_name, project_path, &now, workspace_name, workspace_path, launch_cwd],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            error!(table = "launch_history", project_id = %project_id, err = %e, "SQL insert failed");
+            e.to_string()
+        })?;
 
         Ok(conn.last_insert_rowid())
     }
@@ -46,7 +50,10 @@ impl HistoryRepository {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare("SELECT id, project_id, project_name, project_path, launched_at, claude_session_id, last_prompt, workspace_name, workspace_path, launch_cwd FROM launch_history ORDER BY launched_at DESC LIMIT ?1")
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(table = "launch_history", err = %e, "SQL prepare failed");
+                e.to_string()
+            })?;
 
         let records = stmt
             .query_map([limit], |row| {
@@ -63,7 +70,10 @@ impl HistoryRepository {
                     launch_cwd: row.get(9)?,
                 })
             })
-            .map_err(|e| e.to_string())?
+            .map_err(|e| {
+                error!(table = "launch_history", err = %e, "SQL query_map failed");
+                e.to_string()
+            })?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -77,7 +87,10 @@ impl HistoryRepository {
             "UPDATE launch_history SET claude_session_id = ?1 WHERE id = ?2",
             rusqlite::params![claude_session_id, id],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            error!(table = "launch_history", id = %id, err = %e, "SQL update_session_id failed");
+            e.to_string()
+        })?;
         Ok(())
     }
 
@@ -88,7 +101,10 @@ impl HistoryRepository {
             "UPDATE launch_history SET last_prompt = ?1 WHERE id = ?2",
             rusqlite::params![last_prompt, id],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            error!(table = "launch_history", id = %id, err = %e, "SQL update_last_prompt failed");
+            e.to_string()
+        })?;
         Ok(())
     }
 
@@ -99,7 +115,10 @@ impl HistoryRepository {
         let affected = conn.execute(
             "UPDATE launch_history SET launched_at = ?1 WHERE claude_session_id = ?2",
             rusqlite::params![&now, claude_session_id],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(|e| {
+            error!(table = "launch_history", err = %e, "SQL touch_by_session_id update failed");
+            e.to_string()
+        })?;
         if affected == 0 {
             return Ok(None);
         }
@@ -107,7 +126,10 @@ impl HistoryRepository {
             "SELECT id FROM launch_history WHERE claude_session_id = ?1 ORDER BY launched_at DESC LIMIT 1",
             rusqlite::params![claude_session_id],
             |row| row.get(0),
-        ).map_err(|e| e.to_string())?;
+        ).map_err(|e| {
+            error!(table = "launch_history", err = %e, "SQL touch_by_session_id query failed");
+            e.to_string()
+        })?;
         Ok(Some(id))
     }
 
@@ -115,7 +137,10 @@ impl HistoryRepository {
     pub fn delete_by_id(&self, id: i64) -> Result<(), String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM launch_history WHERE id = ?1", rusqlite::params![id])
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(table = "launch_history", id = %id, err = %e, "SQL delete_by_id failed");
+                e.to_string()
+            })?;
         Ok(())
     }
 
@@ -123,7 +148,10 @@ impl HistoryRepository {
     pub fn clear(&self) -> Result<(), String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM launch_history", [])
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(table = "launch_history", err = %e, "SQL clear failed");
+                e.to_string()
+            })?;
         Ok(())
     }
 }

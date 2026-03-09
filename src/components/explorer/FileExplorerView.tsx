@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { handleError } from "@/utils";
 import { FileTree } from "@/components/filetree";
 import { useFileTreeStore } from "@/stores";
 import FileExplorerToolbar from "./FileExplorerToolbar";
@@ -28,7 +29,7 @@ export default function FileExplorerView({ projectPath }: FileExplorerViewProps)
   const createDirectory = useFileTreeStore((s) => s.createDirectory);
   const handleRefresh = useCallback(() => {
     refresh(projectPath).catch((err) => {
-      toast.error(`Refresh failed: ${err}`);
+      handleError(err, "refresh file tree");
     });
   }, [projectPath, refresh]);
 
@@ -53,7 +54,7 @@ export default function FileExplorerView({ projectPath }: FileExplorerViewProps)
         toast.success(`Created: ${inputValue.trim()}`);
       }
     } catch (err) {
-      toast.error(`Operation failed: ${err}`);
+      handleError(err, "create file/directory");
     }
     setDialogType(null);
   }, [dialogType, inputValue, projectPath, createFile, createDirectory]);

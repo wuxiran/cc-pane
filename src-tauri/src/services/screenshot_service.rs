@@ -1,6 +1,7 @@
 use crate::models::ScreenshotResult;
 use crate::utils::AppResult;
 use std::path::PathBuf;
+use tracing::{error, warn};
 
 /// 内存中的截图结果（无文件 I/O）
 pub struct CaptureResult {
@@ -44,6 +45,12 @@ fn find_monitor_at_point(monitors: &[xcap::Monitor], x: i32, y: i32) -> Option<u
 
 pub struct ScreenshotService;
 
+impl Default for ScreenshotService {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl ScreenshotService {
     pub fn new() -> Self {
         Self
@@ -53,10 +60,10 @@ impl ScreenshotService {
     pub fn screenshots_dir() -> PathBuf {
         let dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".cc-panes")
+            .join(crate::utils::APP_DIR_NAME)
             .join("screenshots");
         if let Err(e) = std::fs::create_dir_all(&dir) {
-            eprintln!("Warning: failed to create screenshots dir: {}", e);
+            warn!("Failed to create screenshots dir: {}", e);
         }
         dir
     }
@@ -130,7 +137,7 @@ impl ScreenshotService {
 
         std::thread::spawn(move || {
             if let Err(e) = Self::cleanup_old_screenshots(7) {
-                eprintln!("Screenshot cleanup error: {}", e);
+                error!("Screenshot cleanup error: {}", e);
             }
         });
 

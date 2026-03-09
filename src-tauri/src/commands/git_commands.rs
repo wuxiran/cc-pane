@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, EventTarget, State};
+use tracing::{debug, info};
 
 /// 获取项目的 Git 分支名
 #[tauri::command]
@@ -108,6 +109,7 @@ pub fn git_pull(
     path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
+    debug!(path = %path, "cmd::git_pull");
     auto_label_before_git(&history_service, &path, "Pull");
     run_git_command(&path, &["pull"])
 }
@@ -117,6 +119,7 @@ pub fn git_push(
     path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
+    info!(path = %path, "cmd::git_push");
     auto_label_before_git(&history_service, &path, "Push");
     run_git_command(&path, &["push"])
 }
@@ -126,6 +129,7 @@ pub fn git_stash(
     path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
+    debug!(path = %path, "cmd::git_stash");
     auto_label_before_git(&history_service, &path, "Stash");
     run_git_command(&path, &["stash"])
 }
@@ -135,6 +139,7 @@ pub fn git_stash_pop(
     path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
+    debug!(path = %path, "cmd::git_stash_pop");
     auto_label_before_git(&history_service, &path, "Stash Pop");
     run_git_command(&path, &["stash", "pop"])
 }
@@ -144,6 +149,7 @@ pub fn git_fetch(
     path: String,
     _history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
+    debug!(path = %path, "cmd::git_fetch");
     // fetch 只拉取远程引用，不修改工作区文件，无需打标签
     run_git_command(&path, &["fetch", "--all"])
 }
@@ -174,6 +180,7 @@ pub async fn git_clone(
     app_handle: AppHandle,
     request: GitCloneRequest,
 ) -> AppResult<String> {
+    info!(url = %request.url, target_dir = %request.target_dir, "cmd::git_clone");
     validate_git_url(&request.url)?;
     validate_path(&request.target_dir)?;
     let clone_path = Path::new(&request.target_dir).join(&request.folder_name);

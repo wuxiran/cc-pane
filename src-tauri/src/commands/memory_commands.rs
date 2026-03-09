@@ -3,6 +3,7 @@ use crate::utils::AppResult;
 use cc_memory::models::*;
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 #[tauri::command]
 pub fn search_memory(
@@ -17,6 +18,7 @@ pub fn store_memory(
     service: State<'_, Arc<MemoryService>>,
     request: StoreMemoryRequest,
 ) -> AppResult<Memory> {
+    debug!("cmd::store_memory");
     Ok(service.store(request)?)
 }
 
@@ -49,11 +51,13 @@ pub fn update_memory(
     id: String,
     request: UpdateMemoryRequest,
 ) -> AppResult<bool> {
+    debug!("cmd::update_memory id={}", id);
     Ok(service.update(&id, request)?)
 }
 
 #[tauri::command]
 pub fn delete_memory(service: State<'_, Arc<MemoryService>>, id: String) -> AppResult<bool> {
+    debug!("cmd::delete_memory id={}", id);
     Ok(service.delete(&id)?)
 }
 

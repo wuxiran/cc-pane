@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { handleErrorSilent } from "@/utils";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
   const loadSettings = useSettingsStore((s) => s.loadSettings);
 
   useEffect(() => {
-    settingsService.getDataDirInfo().then(setDataDirInfo).catch(console.error);
+    settingsService.getDataDirInfo().then(setDataDirInfo).catch((e) => handleErrorSilent(e, "get data dir info"));
   }, []);
 
   function update<K extends keyof GeneralSettings>(key: K, v: GeneralSettings[K]) {

@@ -5,6 +5,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::error;
 use walkdir::WalkDir;
 
 /// 搜索时默认过滤的目录（与 filesystem_service::SEARCH_IGNORED_DIRS 保持一致）
@@ -42,11 +43,17 @@ pub struct FileSearchIndex {
     indices: RwLock<HashMap<PathBuf, ProjectIndex>>,
 }
 
-impl FileSearchIndex {
-    pub fn new() -> Self {
+impl Default for FileSearchIndex {
+    fn default() -> Self {
         Self {
             indices: RwLock::new(HashMap::new()),
         }
+    }
+}
+
+impl FileSearchIndex {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// 惰性构建索引：如果已存在且 ready 则跳过，否则 WalkDir 遍历一次
@@ -265,13 +272,13 @@ impl FileSearchIndex {
         let mut watcher = match watcher_result {
             Ok(w) => w,
             Err(e) => {
-                eprintln!("[file_search_index] Failed to create watcher for {:?}: {}", root, e);
+                error!("[file_search_index] Failed to create watcher for {:?}: {}", root, e);
                 return;
             }
         };
 
         if let Err(e) = watcher.watch(&root, RecursiveMode::Recursive) {
-            eprintln!("[file_search_index] Failed to watch {:?}: {}", root, e);
+            error!("[file_search_index] Failed to watch {:?}: {}", root, e);
             return;
         }
 

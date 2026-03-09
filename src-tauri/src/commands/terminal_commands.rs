@@ -5,6 +5,7 @@ use crate::utils::{AppResult, validate_path};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use crate::services::terminal_service;
+use tracing::debug;
 
 /// 创建终端会话
 #[tauri::command]
@@ -13,6 +14,7 @@ pub fn create_terminal_session(
     service: State<'_, Arc<TerminalService>>,
     request: CreateSessionRequest,
 ) -> AppResult<String> {
+    debug!(project_path = %request.project_path, "cmd::create_terminal_session");
     validate_path(&request.project_path)?;
     if let Some(ref ws_path) = request.workspace_path {
         validate_path(ws_path)?;
@@ -37,6 +39,7 @@ pub fn write_terminal(
     session_id: String,
     data: String,
 ) -> AppResult<()> {
+    debug!(session_id = %session_id, "cmd::write_terminal");
     Ok(service.write(&session_id, &data)?)
 }
 
@@ -46,6 +49,7 @@ pub fn resize_terminal(
     service: State<'_, Arc<TerminalService>>,
     request: ResizeRequest,
 ) -> AppResult<()> {
+    debug!(session_id = %request.session_id, "cmd::resize_terminal");
     Ok(service.resize(&request.session_id, request.cols, request.rows)?)
 }
 
@@ -55,6 +59,7 @@ pub async fn kill_terminal(
     service: State<'_, Arc<TerminalService>>,
     session_id: String,
 ) -> AppResult<()> {
+    debug!(session_id = %session_id, "cmd::kill_terminal");
     let svc = service.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || svc.kill(&session_id))
         .await

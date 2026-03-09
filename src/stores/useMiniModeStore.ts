@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isTauriReady } from "@/utils";
+import { isTauriReady, handleErrorSilent } from "@/utils";
 
 interface MiniModeState {
   isMiniMode: boolean;
@@ -31,7 +31,7 @@ export const useMiniModeStore = create<MiniModeState>((set, get) => ({
       await invoke("enter_mini_mode");
       set({ isMiniMode: true });
     } catch (e) {
-      console.error("Failed to enter mini mode:", e);
+      handleErrorSilent(e, "enter mini mode");
     }
   },
 
@@ -44,7 +44,7 @@ export const useMiniModeStore = create<MiniModeState>((set, get) => ({
       });
       set({ isMiniMode: false });
     } catch (e) {
-      console.error("Failed to exit mini mode:", e);
+      handleErrorSilent(e, "exit mini mode");
     }
   },
 

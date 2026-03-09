@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use tracing::{info, warn};
+
+use crate::constants::history::{CHECKOUT_SILENCE_SECS, DEBOUNCE_MS};
 use crate::models::{
     DiffResult, FileVersion, HistoryConfig, HistoryLabel, RecentChange, WorktreeRecentChange,
 };
@@ -44,9 +47,6 @@ pub struct HistoryService {
     silence_until: Arc<Mutex<HashMap<PathBuf, Instant>>>,
 }
 
-const DEBOUNCE_MS: u64 = 500;
-/// 分支切换后的静默窗口（秒），抑制 checkout 产生的文件事件
-const CHECKOUT_SILENCE_SECS: u64 = 3;
 
 impl Default for HistoryService {
     fn default() -> Self {
@@ -198,7 +198,7 @@ impl HistoryService {
                         if let Err(e) =
                             Self::process_file_changed(&repos, &project_path, &file_path, &branch)
                         {
-                            eprintln!("Error processing file change: {}", e);
+                            warn!("Error processing file change: {}", e);
                         }
                     }
                     HistoryEvent::FileRemoved {
@@ -215,7 +215,7 @@ impl HistoryService {
                         if let Err(e) =
                             Self::process_file_removed(&repos, &project_path, &file_path, &branch)
                         {
-                            eprintln!("Error processing file removal: {}", e);
+                            warn!("Error processing file removal: {}", e);
                         }
                     }
                     _ => {}
@@ -440,7 +440,7 @@ impl HistoryService {
         let count = watchers.len();
         watchers.clear();
         if count > 0 {
-            eprintln!("[cleanup] stopped {} file watchers", count);
+            info!("[cleanup] stopped {} file watchers", count);
         }
     }
 

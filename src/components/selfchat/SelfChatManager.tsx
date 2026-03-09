@@ -7,6 +7,8 @@ import SelfChatContextBar from "./SelfChatContextBar";
 import { useSelfChatStore, useTerminalStatusStore } from "@/stores";
 import { selfChatService, terminalService } from "@/services";
 
+const LOG_PREFIX = "[SelfChat]";
+
 export default function SelfChatManager() {
   const { t } = useTranslation("common");
 
@@ -27,13 +29,18 @@ export default function SelfChatManager() {
     if (activeSession || autoStartedRef.current) return;
     autoStartedRef.current = true;
 
+    console.info(`${LOG_PREFIX} Auto-starting: fetching app CWD...`);
     selfChatService.getAppCwd().then((cwd) => {
       // 再次检查避免竞争
-      if (useSelfChatStore.getState().activeSession) return;
+      if (useSelfChatStore.getState().activeSession) {
+        console.warn(`${LOG_PREFIX} Race condition: session already exists, skipping start`);
+        return;
+      }
+      console.info(`${LOG_PREFIX} Starting session, appCwd=${cwd}`);
       startSession(cwd);
       terminalKeyRef.current += 1;
     }).catch((err) => {
-      console.error("[SelfChat] Failed to get app CWD:", err);
+      console.error(`${LOG_PREFIX} FAILED to get app CWD:`, err);
       autoStartedRef.current = false;
     });
   }, [activeSession, startSession]);
@@ -50,6 +57,9 @@ export default function SelfChatManager() {
 
     const status = getStatus(activeSession.ptySessionId);
     if (status === "waitingInput") {
+      console.info(
+        `${LOG_PREFIX} WaitingInput detected via status poll, ptySession=${activeSession.ptySessionId}`
+      );
       injectionAttemptedRef.current = activeSession.id;
       injectContext(activeSession.id, activeSession.ptySessionId);
     }
@@ -65,6 +75,9 @@ export default function SelfChatManager() {
 
     const timer = setTimeout(() => {
       if (injectionAttemptedRef.current === activeSession.id) return;
+      console.warn(
+        `${LOG_PREFIX} 5s timeout fallback: injecting context without WaitingInput, ptySession=${activeSession.ptySessionId}`
+      );
       injectionAttemptedRef.current = activeSession.id;
       injectContext(activeSession.id, activeSession.ptySessionId!);
     }, 5000);
@@ -75,23 +88,33 @@ export default function SelfChatManager() {
   const injectContext = useCallback(
     async (sessionId: string, ptySessionId: string) => {
       const session = useSelfChatStore.getState().activeSession;
-      if (!session || session.id !== sessionId) return;
+      if (!session || session.id !== sessionId) {
+        console.warn(`${LOG_PREFIX} injectContext: session mismatch or missing, aborting`);
+        return;
+      }
 
+      console.info(`${LOG_PREFIX} Collecting app context for injection...`);
       try {
         const prompt = await selfChatService.collectAppContext();
+        console.info(`${LOG_PREFIX} Context collected (${prompt.length} chars), writing to PTY...`);
         await terminalService.write(ptySessionId, prompt + "\n");
+        console.info(`${LOG_PREFIX} Context injected successfully, ptySession=${ptySessionId}`);
         setContextInjected(sessionId);
       } catch (err) {
-        console.error("[SelfChat] Context injection failed:", err);
+        console.error(`${LOG_PREFIX} Context injection FAILED:`, err);
       }
     },
     [setContextInjected]
   );
 
   const handleRestart = useCallback(() => {
+    console.info(`${LOG_PREFIX} Restart requested`);
     if (activeSession) {
       if (activeSession.ptySessionId) {
-        terminalService.killSession(activeSession.ptySessionId).catch(console.error);
+        console.info(`${LOG_PREFIX} Killing PTY session: ${activeSession.ptySessionId}`);
+        terminalService.killSession(activeSession.ptySessionId).catch((err) => {
+          console.error(`${LOG_PREFIX} Kill session failed:`, err);
+        });
       }
       endSession(activeSession.id);
     }
@@ -102,8 +125,11 @@ export default function SelfChatManager() {
 
   const handleEndSession = useCallback(() => {
     if (!activeSession) return;
+    console.info(`${LOG_PREFIX} End session requested, id=${activeSession.id}`);
     if (activeSession.ptySessionId) {
-      terminalService.killSession(activeSession.ptySessionId).catch(console.error);
+      terminalService.killSession(activeSession.ptySessionId).catch((err) => {
+        console.error(`${LOG_PREFIX} Kill session failed:`, err);
+      });
     }
     endSession(activeSession.id);
     autoStartedRef.current = false;
@@ -113,17 +139,23 @@ export default function SelfChatManager() {
     (ptySessionId: string) => {
       const session = useSelfChatStore.getState().activeSession;
       if (session) {
+        console.info(`${LOG_PREFIX} PTY session created: ${ptySessionId}, selfChatId=${session.id}`);
         updatePtySessionId(session.id, ptySessionId);
         setStatus(session.id, "running");
+      } else {
+        console.warn(`${LOG_PREFIX} PTY session created but no active selfChat session`);
       }
     },
     [updatePtySessionId, setStatus]
   );
 
   const handleSessionExited = useCallback(
-    (_exitCode: number) => {
+    (exitCode: number) => {
       const session = useSelfChatStore.getState().activeSession;
       if (session) {
+        console.warn(
+          `${LOG_PREFIX} PTY session EXITED: exitCode=${exitCode}, ptySession=${session.ptySessionId}, contextInjected=${session.contextInjected}`
+        );
         setStatus(session.id, "exited");
       }
     },
@@ -132,6 +164,7 @@ export default function SelfChatManager() {
 
   const handleReinject = useCallback(() => {
     if (!activeSession?.ptySessionId) return;
+    console.info(`${LOG_PREFIX} Re-inject requested, ptySession=${activeSession.ptySessionId}`);
     injectionAttemptedRef.current = null;
     const session = useSelfChatStore.getState().activeSession;
     if (session) {

@@ -1,3 +1,4 @@
+pub mod constants;
 mod commands;
 pub mod models;
 pub mod pty;
@@ -73,13 +74,16 @@ use commands::{
     fs_move_entry, fs_search_files, fs_get_entry_info,
     // Screenshot 命令
     screenshot_update_shortcut,
+    // Orchestrator 命令
+    get_orchestrator_port, get_orchestrator_token,
 };
 use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository};
-use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService};
+use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService};
 use utils::AppPaths;
 use std::sync::Arc;
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::{debug, error, info};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -117,7 +121,7 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         if let Some(val) = main_hwnd {
             let hwnd = HWND(val as *mut std::ffi::c_void);
             unsafe { let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE); }
-            eprintln!("[screenshot] display affinity set to WDA_EXCLUDEFROMCAPTURE");
+            debug!("[screenshot] display affinity set to WDA_EXCLUDEFROMCAPTURE");
         }
     }
 
@@ -140,7 +144,7 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         let _guard = CapturingGuard;
 
         let t0 = Instant::now();
-        eprintln!("[screenshot] +0ms: start (display affinity set)");
+        debug!("[screenshot] +0ms: start (display affinity set)");
 
         // 非 Windows：等待一帧刷新
         #[cfg(not(target_os = "windows"))]
@@ -150,7 +154,7 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         let capture = match ScreenshotService::capture_to_memory() {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[screenshot] +{}ms: capture failed: {}", t0.elapsed().as_millis(), e);
+                error!("[screenshot] +{}ms: capture failed: {}", t0.elapsed().as_millis(), e);
                 #[cfg(target_os = "windows")]
                 restore_display_affinity(main_hwnd);
                 #[cfg(not(target_os = "windows"))]
@@ -158,7 +162,7 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
                 return; // _guard Drop 会自动重置 CAPTURING
             }
         };
-        eprintln!(
+        debug!(
             "[screenshot] +{}ms: xcap capture done ({}x{})",
             t0.elapsed().as_millis(),
             capture.image.width(),
@@ -177,11 +181,11 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         #[cfg(not(target_os = "windows"))]
         let selection: Option<services::screenshot_overlay::SelectionRect> = None;
 
-        eprintln!("[screenshot] +{}ms: user finished selection", t0.elapsed().as_millis());
+        debug!("[screenshot] +{}ms: user finished selection", t0.elapsed().as_millis());
 
         // 3. 如果有选区 → 从内存裁剪 + 保存 PNG + 复制路径到剪贴板
         if let Some(rect) = selection {
-            eprintln!("[screenshot] +{}ms: image ready in memory", t0.elapsed().as_millis());
+            debug!("[screenshot] +{}ms: image ready in memory", t0.elapsed().as_millis());
             match ScreenshotService::save_cropped(
                 &capture.image,
                 rect.x, rect.y, rect.w, rect.h,
@@ -189,18 +193,18 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
                 Ok(result) => {
                     #[cfg(target_os = "windows")]
                     copy_to_clipboard_win32(&result.file_path);
-                    eprintln!(
+                    info!(
                         "[screenshot] +{}ms: crop + save done → {}",
                         t0.elapsed().as_millis(),
                         result.file_path
                     );
                 }
                 Err(e) => {
-                    eprintln!("[screenshot] +{}ms: crop failed: {}", t0.elapsed().as_millis(), e);
+                    error!("[screenshot] +{}ms: crop failed: {}", t0.elapsed().as_millis(), e);
                 }
             }
         } else {
-            eprintln!("[screenshot] +{}ms: user cancelled", t0.elapsed().as_millis());
+            debug!("[screenshot] +{}ms: user cancelled", t0.elapsed().as_millis());
         }
 
         // 4. 恢复 DisplayAffinity / 窗口可见性
@@ -209,7 +213,7 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         #[cfg(not(target_os = "windows"))]
         restore_main_window_tauri(&app);
 
-        eprintln!("[screenshot] +{}ms: display affinity restored", t0.elapsed().as_millis());
+        debug!("[screenshot] +{}ms: display affinity restored", t0.elapsed().as_millis());
         // _guard Drop 会自动重置 CAPTURING
     });
 }
@@ -243,8 +247,8 @@ fn copy_to_clipboard_win32(text: &str) {
     use windows::Win32::System::Ole::CF_UNICODETEXT;
 
     unsafe {
-        if !OpenClipboard(None).is_ok() {
-            eprintln!("[screenshot] failed to open clipboard");
+        if OpenClipboard(None).is_err() {
+            error!("[screenshot] failed to open clipboard");
             return;
         }
         let _ = EmptyClipboard();
@@ -275,9 +279,17 @@ fn copy_to_clipboard_win32(text: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 1. 先加载设置，取得 data_dir
+    // 1. 先加载设置，取得 data_dir + log_level
     let settings_service = Arc::new(SettingsService::new());
-    let data_dir = settings_service.get_settings().general.data_dir;
+    let settings = settings_service.get_settings();
+    let data_dir = settings.general.data_dir;
+    let log_level = match settings.general.log_level.as_str() {
+        "error" => log::LevelFilter::Error,
+        "warn" => log::LevelFilter::Warn,
+        "debug" => log::LevelFilter::Debug,
+        "trace" => log::LevelFilter::Trace,
+        _ => log::LevelFilter::Info,
+    };
 
     // 2. 构造路径管理器
     let app_paths = Arc::new(AppPaths::new(data_dir));
@@ -286,7 +298,7 @@ pub fn run() {
     let db = match Database::new(app_paths.database_path()) {
         Ok(db) => Arc::new(db),
         Err(e) => {
-            eprintln!("Database initialization failed: {}, trying in-memory fallback", e);
+            error!("Database initialization failed: {}, trying in-memory fallback", e);
             Arc::new(Database::new_fallback().unwrap_or_else(|e2| {
                 panic!("Database initialization completely failed (including fallback): {}", e2);
             }))
@@ -316,6 +328,7 @@ pub fn run() {
         notification_service.clone(),
         app_paths.clone(),
     ));
+    let orchestrator_service = Arc::new(OrchestratorService::new());
 
     // 保存引用用于退出时清理
     let terminal_cleanup = terminal_service.clone();
@@ -324,6 +337,16 @@ pub fn run() {
     let search_index_cleanup = search_index.clone();
 
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                ])
+                .level(log_level)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -346,6 +369,7 @@ pub fn run() {
         .manage(skill_service)
         .manage(plan_service)
         .manage(filesystem_service)
+        .manage(orchestrator_service.clone())
         .setup(|app| {
             // ---- 启动 workspace 目录监控 ----
             let ws_svc = app.state::<Arc<WorkspaceService>>();
@@ -365,11 +389,39 @@ pub fn run() {
                                 trigger_screenshot(&app_handle);
                             }
                         }) {
-                            eprintln!("[screenshot] Failed to register shortcut '{}': {}", shortcut_str, e);
+                            error!("[screenshot] Failed to register shortcut '{}': {}", shortcut_str, e);
                         }
                     } else {
-                        eprintln!("[screenshot] Invalid shortcut format: {}", shortcut_str);
+                        error!("[screenshot] Invalid shortcut format: {}", shortcut_str);
                     }
+                }
+            }
+
+            // ---- 启动 Orchestrator HTTP 服务器 ----
+            {
+                let orch_svc = app.state::<Arc<OrchestratorService>>();
+                let term_svc = app.state::<Arc<TerminalService>>();
+                let prov_svc = app.state::<Arc<ProviderService>>();
+                let proj_svc = app.state::<Arc<ProjectService>>();
+                let ws_svc_orch = app.state::<Arc<WorkspaceService>>();
+                let todo_svc = app.state::<Arc<TodoService>>();
+                let skill_svc = app.state::<Arc<SkillService>>();
+                let paths = app.state::<Arc<AppPaths>>();
+                if let Err(e) = orch_svc.start(
+                    term_svc.inner().clone(),
+                    prov_svc.inner().clone(),
+                    proj_svc.inner().clone(),
+                    ws_svc_orch.inner().clone(),
+                    todo_svc.inner().clone(),
+                    skill_svc.inner().clone(),
+                    app.handle().clone(),
+                    paths.inner().clone(),
+                ) {
+                    error!("[orchestrator] Failed to start: {}", e);
+                }
+                // 注入 Orchestrator 连接信息到 TerminalService
+                if let Some(port) = orch_svc.port() {
+                    term_svc.set_orchestrator_info(port, orch_svc.token().to_string());
                 }
             }
 
@@ -381,9 +433,10 @@ pub fn run() {
             let icon =
                 tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
+            let tooltip = if cfg!(debug_assertions) { "CC-Panes [DEV]" } else { "CC-Panes" };
             let _tray = TrayIconBuilder::new()
                 .icon(icon)
-                .tooltip("CC-Panes")
+                .tooltip(tooltip)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -428,13 +481,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            match event {
-                WindowEvent::CloseRequested { api, .. } => {
-                    // 主窗口关闭 → 隐藏到托盘（不退出）
-                    let _ = window.hide();
-                    api.prevent_close();
-                }
-                _ => {}
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // 主窗口关闭 → 隐藏到托盘（不退出）
+                let _ = window.hide();
+                api.prevent_close();
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -618,13 +668,16 @@ pub fn run() {
             fs_search_files,
             fs_get_entry_info,
             // Screenshot 命令
-            screenshot_update_shortcut
+            screenshot_update_shortcut,
+            // Orchestrator 命令
+            get_orchestrator_port,
+            get_orchestrator_token
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |_app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                eprintln!("[cleanup] Application exiting, cleaning up resources...");
+                info!("[cleanup] Application exiting, cleaning up resources...");
                 terminal_cleanup.cleanup_all();
                 history_cleanup.stop_all_watching();
                 workspace_cleanup.stop_watcher();

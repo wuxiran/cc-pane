@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from "react";
+import { handleErrorSilent } from "@/utils";
 import { useWorkspacesStore, useProvidersStore } from "@/stores";
 import type { ActivityView } from "@/stores/useActivityBarStore";
 import { historyService, localHistoryService } from "@/services";
@@ -88,7 +89,7 @@ export default function Sidebar({
       const allWorkspaces = useWorkspacesStore.getState().workspaces;
       for (const ws of allWorkspaces) {
         for (const project of ws.projects) {
-          localHistoryService.initProjectHistory(project.path).catch(console.error);
+          localHistoryService.initProjectHistory(project.path).catch((e) => handleErrorSilent(e, "init project history"));
         }
       }
     });

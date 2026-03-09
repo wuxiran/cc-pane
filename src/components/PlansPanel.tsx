@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { planService, type PlanEntry } from "@/services";
+import { handleErrorSilent } from "@/utils";
 import { useTranslation } from "react-i18next";
 
 interface PlansPanelProps {
@@ -78,7 +79,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
         setSelectedFile(result[0].fileName);
       }
     } catch (e) {
-      console.error("Failed to load plans:", e);
+      handleErrorSilent(e, "load plans");
       setPlans([]);
     } finally {
       setLoading(false);
@@ -110,7 +111,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
       })
       .catch((e) => {
         if (!cancelled) {
-          console.error("Failed to load plan content:", e);
+          handleErrorSilent(e, "load plan content");
           setContent("");
         }
       })
@@ -129,7 +130,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
         setContent("");
       }
     } catch (e) {
-      console.error("Failed to delete plan:", e);
+      handleErrorSilent(e, "delete plan");
     }
   }
 

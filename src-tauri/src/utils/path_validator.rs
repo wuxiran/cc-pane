@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::utils::error::AppError;
+use crate::utils::error_codes as EC;
 
 /// 验证路径安全性，防止路径穿越攻击
 ///
@@ -9,7 +11,7 @@ use crate::utils::error::AppError;
 /// 2. 路径是绝对路径（或为空时跳过）
 pub fn validate_path(path: &str) -> Result<(), AppError> {
     if path.is_empty() {
-        return Err(AppError::from("Path cannot be empty"));
+        return Err(AppError::coded(EC::PATH_EMPTY, "Path cannot be empty"));
     }
 
     let p = Path::new(path);
@@ -17,16 +19,21 @@ pub fn validate_path(path: &str) -> Result<(), AppError> {
     // 检查路径穿越
     for component in p.components() {
         if let std::path::Component::ParentDir = component {
-            return Err(AppError::from(format!(
-                "Path contains illegal '..' component: {}",
-                path
-            )));
+            return Err(AppError::coded_with_params(
+                EC::PATH_TRAVERSAL,
+                format!("Path contains illegal '..' component: {}", path),
+                HashMap::from([("path".into(), path.into())]),
+            ));
         }
     }
 
     // 要求绝对路径
     if !p.is_absolute() {
-        return Err(AppError::from(format!("Path must be absolute: {}", path)));
+        return Err(AppError::coded_with_params(
+            EC::PATH_NOT_ABSOLUTE,
+            format!("Path must be absolute: {}", path),
+            HashMap::from([("path".into(), path.into())]),
+        ));
     }
 
     Ok(())
@@ -40,10 +47,11 @@ pub fn validate_relative_path(project_path: &str, file_path: &str) -> Result<(),
 
     // file_path 是相对路径，检查不包含 ..
     if file_path.contains("..") {
-        return Err(AppError::from(format!(
-            "File path contains illegal '..' component: {}",
-            file_path
-        )));
+        return Err(AppError::coded_with_params(
+            EC::FILE_TRAVERSAL,
+            format!("File path contains illegal '..' component: {}", file_path),
+            HashMap::from([("path".into(), file_path.into())]),
+        ));
     }
 
     Ok(())
@@ -54,19 +62,20 @@ pub fn validate_relative_path(project_path: &str, file_path: &str) -> Result<(),
 /// 拒绝包含路径穿越或路径分隔符的名称
 pub fn validate_worktree_name(name: &str) -> Result<(), AppError> {
     if name.is_empty() {
-        return Err(AppError::from("Worktree name cannot be empty"));
+        return Err(AppError::coded(EC::WORKTREE_NAME_EMPTY, "Worktree name cannot be empty"));
     }
 
     if name.contains("..") || name.contains('/') || name.contains('\\') {
-        return Err(AppError::from(format!(
-            "Worktree name contains illegal characters: {}",
-            name
-        )));
+        return Err(AppError::coded_with_params(
+            EC::WORKTREE_NAME_INVALID,
+            format!("Worktree name contains illegal characters: {}", name),
+            HashMap::from([("name".into(), name.into())]),
+        ));
     }
 
     // 拒绝纯空白名称
     if name.trim().is_empty() {
-        return Err(AppError::from("Worktree name cannot be blank"));
+        return Err(AppError::coded(EC::WORKTREE_NAME_BLANK, "Worktree name cannot be blank"));
     }
 
     Ok(())
@@ -77,19 +86,20 @@ pub fn validate_worktree_name(name: &str) -> Result<(), AppError> {
 /// 只允许 HTTP/HTTPS 协议，防止 file:// 等危险协议
 pub fn validate_git_url(url: &str) -> Result<(), AppError> {
     if url.is_empty() {
-        return Err(AppError::from("Git URL cannot be empty"));
+        return Err(AppError::coded(EC::GIT_URL_EMPTY, "Git URL cannot be empty"));
     }
 
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(AppError::from(format!(
-            "Only HTTP/HTTPS protocol Git URLs are supported: {}",
-            url
-        )));
+        return Err(AppError::coded_with_params(
+            EC::GIT_URL_INVALID_PROTOCOL,
+            format!("Only HTTP/HTTPS protocol Git URLs are supported: {}", url),
+            HashMap::from([("url".into(), url.into())]),
+        ));
     }
 
     // 防止命令注入字符
     if url.contains(';') || url.contains('|') || url.contains('`') || url.contains("$(") {
-        return Err(AppError::from("Git URL contains illegal characters"));
+        return Err(AppError::coded(EC::GIT_URL_INVALID_CHARS, "Git URL contains illegal characters"));
     }
 
     Ok(())
@@ -98,17 +108,19 @@ pub fn validate_git_url(url: &str) -> Result<(), AppError> {
 /// 验证 MCP Server 名称
 pub fn validate_mcp_name(name: &str) -> Result<(), AppError> {
     if name.trim().is_empty() {
-        return Err(AppError::from("MCP server name cannot be empty"));
+        return Err(AppError::coded(EC::MCP_NAME_EMPTY, "MCP server name cannot be empty"));
     }
     if name.len() > 128 {
-        return Err(AppError::from("MCP server name is too long (max 128 chars)"));
+        return Err(AppError::coded(EC::MCP_NAME_TOO_LONG, "MCP server name is too long (max 128 chars)"));
     }
     if !name
         .chars()
         .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
     {
-        return Err(AppError::from(
-            "MCP server name contains invalid characters (only alphanumeric, -, _, . allowed)",
+        return Err(AppError::coded_with_params(
+            EC::MCP_NAME_INVALID,
+            "MCP server name contains invalid characters",
+            HashMap::from([("name".into(), name.into())]),
         ));
     }
     Ok(())
@@ -117,15 +129,17 @@ pub fn validate_mcp_name(name: &str) -> Result<(), AppError> {
 /// 验证命令名安全性
 pub fn validate_command(command: &str) -> Result<(), AppError> {
     if command.trim().is_empty() {
-        return Err(AppError::from("Command cannot be empty"));
+        return Err(AppError::coded(EC::COMMAND_EMPTY, "Command cannot be empty"));
     }
     if command.contains(';')
         || command.contains('|')
         || command.contains('`')
         || command.contains("$(")
     {
-        return Err(AppError::from(
+        return Err(AppError::coded_with_params(
+            EC::COMMAND_INVALID_CHARS,
             "Command contains potentially dangerous characters",
+            HashMap::from([("command".into(), command.into())]),
         ));
     }
     Ok(())

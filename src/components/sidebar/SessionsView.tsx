@@ -3,6 +3,7 @@ import { Terminal } from "lucide-react";
 import { useTerminalStatusStore, usePanesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
+import { handleErrorSilent } from "@/utils";
 
 import type { PaneNode, Panel as PanelType } from "@/types";
 
@@ -27,7 +28,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
       const list = await historyService.list(30);
       setLaunchHistory(list);
     } catch (e) {
-      console.error("Failed to fetch history:", e);
+      handleErrorSilent(e, "fetch history");
     }
   }, []);
 
@@ -36,7 +37,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
       await historyService.clear();
       setLaunchHistory([]);
     } catch (e) {
-      console.error("Failed to clear history:", e);
+      handleErrorSilent(e, "clear history");
     }
   }
 
@@ -45,7 +46,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
       await historyService.delete(id);
       window.dispatchEvent(new Event('cc-panes:history-updated'));
     } catch (e) {
-      console.error("Failed to delete record:", e);
+      handleErrorSilent(e, "delete record");
     }
   }
 

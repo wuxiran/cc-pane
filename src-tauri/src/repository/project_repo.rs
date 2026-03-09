@@ -2,6 +2,7 @@ use crate::models::Project;
 use crate::repository::Database;
 use rusqlite::params;
 use std::sync::Arc;
+use tracing::error;
 
 /// 项目数据访问层 - 纯 CRUD 操作，不含业务逻辑
 pub struct ProjectRepository {
@@ -18,7 +19,10 @@ impl ProjectRepository {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare("SELECT id, name, path, created_at, alias FROM projects ORDER BY created_at DESC")
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(table = "projects", err = %e, "SQL prepare failed");
+                e.to_string()
+            })?;
 
         let projects = stmt
             .query_map([], |row| {
@@ -30,7 +34,10 @@ impl ProjectRepository {
                     alias: row.get(4)?,
                 })
             })
-            .map_err(|e| e.to_string())?
+            .map_err(|e| {
+                error!(table = "projects", err = %e, "SQL query_map failed");
+                e.to_string()
+            })?
             .filter_map(|r| r.ok())
             .collect();
 
@@ -57,7 +64,10 @@ impl ProjectRepository {
         match result {
             Ok(project) => Ok(Some(project)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.to_string()),
+            Err(e) => {
+                error!(table = "projects", err = %e, "SQL query failed");
+                Err(e.to_string())
+            }
         }
     }
 
@@ -70,8 +80,10 @@ impl ProjectRepository {
         )
         .map_err(|e| {
             if e.to_string().contains("UNIQUE") {
+                error!(table = "projects", path = %project.path, "Insert failed: project already exists");
                 "Project already exists".to_string()
             } else {
+                error!(table = "projects", err = %e, "SQL insert failed");
                 e.to_string()
             }
         })?;
@@ -84,7 +96,10 @@ impl ProjectRepository {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let affected = conn
             .execute("DELETE FROM projects WHERE id = ?1", params![id])
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(table = "projects", id = %id, err = %e, "SQL delete failed");
+                e.to_string()
+            })?;
 
         Ok(affected > 0)
     }
@@ -97,7 +112,10 @@ impl ProjectRepository {
                 "UPDATE projects SET name = ?1 WHERE id = ?2",
                 params![name, id],
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(table = "projects", id = %id, err = %e, "SQL update_name failed");
+                e.to_string()
+            })?;
 
         Ok(affected > 0)
     }
@@ -111,7 +129,10 @@ impl ProjectRepository {
                 params![path],
                 |row| row.get(0),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(table = "projects", err = %e, "SQL exists_by_path query failed");
+                e.to_string()
+            })?;
 
         Ok(count > 0)
     }
@@ -124,7 +145,10 @@ impl ProjectRepository {
                 "UPDATE projects SET alias = ?1 WHERE id = ?2",
                 params![alias, id],
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                error!(table = "projects", id = %id, err = %e, "SQL update_alias failed");
+                e.to_string()
+            })?;
 
         Ok(affected > 0)
     }

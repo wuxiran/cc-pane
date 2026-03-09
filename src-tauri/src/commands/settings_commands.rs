@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::State;
 use crate::utils::AppPaths;
+use tracing::{debug, info};
 
 /// 获取设置
 #[tauri::command]
@@ -24,6 +25,7 @@ pub fn update_settings(
     service: State<'_, Arc<SettingsService>>,
     settings: AppSettings,
 ) -> AppResult<()> {
+    debug!("cmd::update_settings");
     Ok(service.update_settings(settings)?)
 }
 
@@ -84,6 +86,7 @@ pub fn migrate_data_dir(
     settings_service: State<'_, Arc<SettingsService>>,
     target_dir: String,
 ) -> AppResult<()> {
+    info!(target_dir = %target_dir, "cmd::migrate_data_dir");
     let target = Path::new(&target_dir);
     let source = app_paths.data_dir();
 
@@ -289,6 +292,7 @@ fn collect_workspace_summaries(workspaces_dir: &Path) -> Vec<WorkspaceSummary> {
 pub fn generate_claude_md(
     app_paths: State<'_, Arc<AppPaths>>,
 ) -> AppResult<()> {
+    debug!("cmd::generate_claude_md");
     let data_dir = app_paths.data_dir();
     let claude_md_path = data_dir.join("CLAUDE.md");
     let data_dir_display = data_dir.to_string_lossy();

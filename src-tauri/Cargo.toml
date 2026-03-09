@@ -1,6 +1,6 @@
 [package]
 name = "cc-panes"
-version = "0.2.0"
+version = "0.3.0"
 description = "CC-Panes - Multi-instance split-pane manager for Claude Code"
 authors = ["wuxiran"]
 license = "GPL-3.0"
@@ -41,12 +41,21 @@ encoding_rs = "0.8"
 trash = "5"
 portable-pty = "0.8"
 parking_lot = "0.12"
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+rand = "0.8"
+rmcp = { version = "1", features = ["server", "macros", "transport-streamable-http-server"] }
+schemars = "1"
 nucleo-matcher = "0.3"
 xcap = "0.0.14"
 image = "0.25"
 base64 = "0.22"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-log = { version = "2", features = ["tracing"] }
+tracing = "0.1"
+log = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

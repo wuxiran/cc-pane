@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { handleErrorSilent } from "@/utils";
 
 interface FullscreenState {
   isFullscreen: boolean;
@@ -21,7 +22,7 @@ export const useFullscreenStore = create<FullscreenState>((set, get) => ({
       await invoke("enter_fullscreen");
       set({ isFullscreen: true, fullscreenPaneId: paneId, fullscreenTabId: tabId });
     } catch (error) {
-      console.error("Failed to enter fullscreen:", error);
+      handleErrorSilent(error, "enter fullscreen");
     }
   },
 
@@ -30,7 +31,7 @@ export const useFullscreenStore = create<FullscreenState>((set, get) => ({
       await invoke("exit_fullscreen");
       set({ isFullscreen: false, fullscreenPaneId: null, fullscreenTabId: null });
     } catch (error) {
-      console.error("Failed to exit fullscreen:", error);
+      handleErrorSilent(error, "exit fullscreen");
     }
   },
 

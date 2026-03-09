@@ -1,3 +1,4 @@
+use crate::constants::fs_limits::{MAX_DIR_ENTRIES, MAX_READ_SIZE, MAX_WRITE_SIZE};
 use crate::models::filesystem::{DirListing, FileContent, FsEntry, SearchResult};
 use crate::services::file_search_index::FileSearchIndex;
 use crate::utils::AppResult;
@@ -6,16 +7,8 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::debug;
 use walkdir::WalkDir;
-
-/// 最大可读文件大小 (10MB)
-const MAX_READ_SIZE: u64 = 10 * 1024 * 1024;
-
-/// 最大可写文件大小 (10MB)
-const MAX_WRITE_SIZE: usize = 10 * 1024 * 1024;
-
-/// 单层目录最大条目数
-const MAX_DIR_ENTRIES: usize = 5000;
 
 /// 搜索时默认过滤的目录
 const SEARCH_IGNORED_DIRS: &[&str] = &[
@@ -393,6 +386,7 @@ impl FileSystemService {
 
     /// 写入文件
     pub fn write_file(&self, path: &str, content: &str) -> AppResult<()> {
+        debug!("svc::write_file");
         let file_path = Self::validate_path(path)?;
         if Self::is_readonly_path(&file_path) {
             return Err("Cannot write to read-only path".into());
@@ -410,6 +404,7 @@ impl FileSystemService {
 
     /// 创建空文件
     pub fn create_file(&self, path: &str) -> AppResult<()> {
+        debug!("svc::create_file");
         let file_path = PathBuf::from(path);
         if let Some(name) = file_path.file_name().and_then(|n| n.to_str()) {
             Self::validate_filename(name)?;
@@ -429,6 +424,7 @@ impl FileSystemService {
 
     /// 创建目录
     pub fn create_directory(&self, path: &str) -> AppResult<()> {
+        debug!("svc::create_directory");
         let dir_path = PathBuf::from(path);
         if let Some(name) = dir_path.file_name().and_then(|n| n.to_str()) {
             Self::validate_filename(name)?;
@@ -448,6 +444,7 @@ impl FileSystemService {
 
     /// 删除文件/目录（移到回收站）
     pub fn delete_entry(&self, path: &str) -> AppResult<()> {
+        debug!("svc::delete_entry");
         let entry_path = Self::validate_path(path)?;
         if Self::is_readonly_path(&entry_path) {
             return Err("Cannot delete read-only path".into());
@@ -460,6 +457,7 @@ impl FileSystemService {
 
     /// 重命名文件/目录
     pub fn rename_entry(&self, old_path: &str, new_name: &str) -> AppResult<()> {
+        debug!("svc::rename_entry");
         Self::validate_filename(new_name)?;
         let source = Self::validate_path(old_path)?;
         if Self::is_readonly_path(&source) {
@@ -503,6 +501,7 @@ impl FileSystemService {
 
     /// 移动文件/目录
     pub fn move_entry(&self, src: &str, dest_dir: &str) -> AppResult<()> {
+        debug!("svc::move_entry");
         let source = Self::validate_path(src)?;
         if Self::is_readonly_path(&source) {
             return Err("Cannot move read-only path".into());
@@ -518,7 +517,7 @@ impl FileSystemService {
             return Err(format!("'{}' already exists in destination", name.to_string_lossy()).into());
         }
         // fs::rename 跨盘/跨文件系统会失败，降级为 copy + delete
-        if let Err(_) = fs::rename(&source, &dest) {
+        if fs::rename(&source, &dest).is_err() {
             if source.is_dir() {
                 Self::copy_dir_recursive(&source, &dest)?;
                 fs::remove_dir_all(&source)?;

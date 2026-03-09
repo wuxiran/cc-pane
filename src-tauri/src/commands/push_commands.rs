@@ -3,6 +3,7 @@ use crate::services::NotificationService;
 use crate::utils::AppResult;
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 /// 测试 Push 推送渠道
 ///
@@ -13,6 +14,7 @@ pub fn test_push(
     service: State<'_, Arc<NotificationService>>,
     channel_config: PushChannel,
 ) -> AppResult<bool> {
+    debug!("cmd::test_push");
     service
         .test_push_channel(&channel_config)
         .map(|()| true)

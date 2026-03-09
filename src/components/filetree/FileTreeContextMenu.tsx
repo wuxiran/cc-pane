@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
+import { handleError } from "@/utils";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
   ContextMenuTrigger, ContextMenuSeparator,
@@ -58,7 +59,7 @@ export default function FileTreeContextMenu({
     try {
       await invoke("open_path_in_explorer", { path: n.entry.path });
     } catch (err) {
-      toast.error(`Failed to open: ${err}`);
+      handleError(err, "open in explorer");
     }
   }, [nodeRef]);
 
@@ -76,7 +77,7 @@ export default function FileTreeContextMenu({
       await deleteEntry(n.entry.path, rootPath);
       toast.success(`Deleted: ${n.entry.name}`);
     } catch (err) {
-      toast.error(`Failed to delete: ${err}`);
+      handleError(err, "delete entry");
     }
   }, [rootPath, deleteEntry, nodeRef]);
 
@@ -126,7 +127,7 @@ export default function FileTreeContextMenu({
           break;
       }
     } catch (err) {
-      toast.error(`Operation failed: ${err}`);
+      handleError(err, "file tree operation");
     }
     setDialogType(null);
     dialogNodeRef.current = null;

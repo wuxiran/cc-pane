@@ -4,6 +4,7 @@
 import { create } from "zustand";
 import { skillService } from "@/services";
 import type { SkillInfo, SkillSummary } from "@/types";
+import { translateError } from "@/utils";
 
 interface SkillState {
   // ============ 状态 ============
@@ -44,7 +45,7 @@ export const useSkillStore = create<SkillState>((set, get) => ({
       const skills = await skillService.listSkills(projectPath);
       set({ skills, loading: false });
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: translateError(e), loading: false });
     }
   },
 
@@ -53,7 +54,7 @@ export const useSkillStore = create<SkillState>((set, get) => ({
       const skill = await skillService.getSkill(projectPath, name);
       set({ activeSkill: skill ?? null });
     } catch (e) {
-      set({ error: String(e) });
+      set({ error: translateError(e) });
     }
   },
 

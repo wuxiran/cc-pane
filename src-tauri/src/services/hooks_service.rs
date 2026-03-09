@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 /// Hook 名称常量
 const HOOK_SESSION_INJECT: &str = "session-inject";
@@ -204,6 +205,7 @@ impl HooksService {
 
     /// 启用单个 hook
     pub fn enable_hook(&self, project_path: &str, hook_name: &str) -> Result<(), String> {
+        debug!("svc::enable_hook");
         let def = Self::find_hook_def(hook_name)?;
         let binary_path = Self::get_hook_binary_path()?;
 
@@ -218,6 +220,7 @@ impl HooksService {
 
     /// 禁用单个 hook
     pub fn disable_hook(&self, project_path: &str, hook_name: &str) -> Result<(), String> {
+        debug!("svc::disable_hook");
         let def = Self::find_hook_def(hook_name)?;
 
         // 从 settings.local.json 移除对应条目
@@ -228,6 +231,7 @@ impl HooksService {
 
     /// 启用所有 hooks
     pub fn enable_all_hooks(&self, project_path: &str) -> Result<(), String> {
+        debug!("svc::enable_all_hooks");
         self.enable_hooks(project_path)
     }
 
@@ -253,6 +257,7 @@ impl HooksService {
 
     /// 禁用 hooks - 从 settings.local.json 移除 ccpanes 条目
     pub fn disable_hooks(&self, project_path: &str) -> Result<(), String> {
+        debug!("svc::disable_hooks");
         // 从 settings.local.json 移除 ccpanes 钩子条目
         Self::unregister_hooks_from_settings(project_path)?;
 
@@ -493,6 +498,7 @@ impl HooksService {
 
     /// 保存 workflow.md 内容
     pub fn save_workflow(&self, project_path: &str, content: &str) -> Result<(), String> {
+        debug!("svc::save_workflow");
         let ccpanes_dir = Self::get_ccpanes_dir(project_path);
 
         // 确保目录存在
@@ -507,6 +513,7 @@ impl HooksService {
 
     /// 初始化项目的 .ccpanes 目录
     pub fn init_ccpanes(&self, project_path: &str) -> Result<(), String> {
+        debug!("svc::init_ccpanes");
         let ccpanes_dir = Self::get_ccpanes_dir(project_path);
         let journal_dir = ccpanes_dir.join("journal");
 

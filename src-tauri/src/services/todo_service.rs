@@ -1,7 +1,11 @@
 use crate::models::todo::*;
 use crate::repository::TodoRepository;
+use crate::utils::error::AppError;
+use crate::utils::error::AppResult;
 use crate::utils::error_codes as EC;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::debug;
 
 /// Todo 业务逻辑层
 pub struct TodoService {
@@ -16,16 +20,17 @@ impl TodoService {
     // ============ TodoItem 操作 ============
 
     /// 创建 Todo
-    pub fn create_todo(&self, req: CreateTodoRequest) -> Result<TodoItem, String> {
+    pub fn create_todo(&self, req: CreateTodoRequest) -> AppResult<TodoItem> {
+        debug!("svc::create_todo");
         let title = req.title.trim().to_string();
         if title.is_empty() {
-            return Err(serde_json::json!({"code": EC::TODO_TITLE_EMPTY, "message": "Title cannot be empty"}).to_string());
+            return Err(AppError::coded(EC::TODO_TITLE_EMPTY, "Title cannot be empty"));
         }
 
         let scope = req.scope.unwrap_or(TodoScope::Global);
         // Validate: workspace/project scope requires scope_ref
         if matches!(scope, TodoScope::Workspace | TodoScope::Project) && req.scope_ref.is_none() {
-            return Err(serde_json::json!({"code": EC::TODO_SCOPE_REF_REQUIRED, "message": "workspace/project scope requires scopeRef"}).to_string());
+            return Err(AppError::coded(EC::TODO_SCOPE_REF_REQUIRED, "workspace/project scope requires scopeRef"));
         }
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -57,26 +62,27 @@ impl TodoService {
     }
 
     /// 获取 Todo
-    pub fn get_todo(&self, id: &str) -> Result<Option<TodoItem>, String> {
-        self.repo.get(id)
+    pub fn get_todo(&self, id: &str) -> AppResult<Option<TodoItem>> {
+        Ok(self.repo.get(id)?)
     }
 
     /// 更新 Todo
-    pub fn update_todo(&self, id: &str, req: UpdateTodoRequest) -> Result<TodoItem, String> {
+    pub fn update_todo(&self, id: &str, req: UpdateTodoRequest) -> AppResult<TodoItem> {
+        debug!("svc::update_todo");
         // Validate title is not empty (if provided)
         if let Some(ref title) = req.title {
             if title.trim().is_empty() {
-                return Err(serde_json::json!({"code": EC::TODO_TITLE_EMPTY, "message": "Title cannot be empty"}).to_string());
+                return Err(AppError::coded(EC::TODO_TITLE_EMPTY, "Title cannot be empty"));
             }
         }
 
         // 获取旧记录，用于判断是否需要触发重复任务
         let old_todo = self.repo.get(id)?
-            .ok_or_else(|| serde_json::json!({"code": EC::TODO_NOT_FOUND, "message": format!("Todo {} not found", id), "params": {"id": id}}).to_string())?;
+            .ok_or_else(|| todo_not_found(id))?;
 
         let updated = self.repo.update(id, &req)?;
         if !updated {
-            return Err(serde_json::json!({"code": EC::TODO_NOT_FOUND, "message": format!("Todo {} not found", id), "params": {"id": id}}).to_string());
+            return Err(todo_not_found(id));
         }
 
         // 重复任务：状态变为 done 且有 recurrence 时，自动创建下一个实例
@@ -92,11 +98,11 @@ impl TodoService {
 
         self.repo
             .get(id)?
-            .ok_or_else(|| serde_json::json!({"code": EC::TODO_NOT_FOUND, "message": format!("Todo {} not found", id), "params": {"id": id}}).to_string())
+            .ok_or_else(|| todo_not_found(id))
     }
 
     /// 根据重复规则创建下一个 Todo 实例
-    fn create_next_recurrence(&self, old: &TodoItem, recurrence: &str) -> Result<TodoItem, String> {
+    fn create_next_recurrence(&self, old: &TodoItem, recurrence: &str) -> AppResult<TodoItem> {
         use chrono::{NaiveDate, Duration, Months};
 
         // 计算下一个 due_date
@@ -155,22 +161,23 @@ impl TodoService {
     }
 
     /// 删除 Todo
-    pub fn delete_todo(&self, id: &str) -> Result<(), String> {
+    pub fn delete_todo(&self, id: &str) -> AppResult<()> {
+        debug!("svc::delete_todo");
         let deleted = self.repo.delete(id)?;
         if !deleted {
-            return Err(serde_json::json!({"code": EC::TODO_NOT_FOUND, "message": format!("Todo {} not found", id), "params": {"id": id}}).to_string());
+            return Err(todo_not_found(id));
         }
         Ok(())
     }
 
     /// 查询 Todo 列表
-    pub fn query_todos(&self, query: TodoQuery) -> Result<TodoQueryResult, String> {
-        self.repo.query(&query)
+    pub fn query_todos(&self, query: TodoQuery) -> AppResult<TodoQueryResult> {
+        Ok(self.repo.query(&query)?)
     }
 
     /// 重排 Todo
-    pub fn reorder_todos(&self, todo_ids: Vec<String>) -> Result<(), String> {
-        self.repo.reorder(&todo_ids)
+    pub fn reorder_todos(&self, todo_ids: Vec<String>) -> AppResult<()> {
+        Ok(self.repo.reorder(&todo_ids)?)
     }
 
     /// 批量更新状态
@@ -178,8 +185,8 @@ impl TodoService {
         &self,
         ids: Vec<String>,
         status: TodoStatus,
-    ) -> Result<u32, String> {
-        self.repo.batch_update_status(&ids, &status)
+    ) -> AppResult<u32> {
+        Ok(self.repo.batch_update_status(&ids, &status)?)
     }
 
     /// 获取统计
@@ -187,17 +194,16 @@ impl TodoService {
         &self,
         scope: Option<TodoScope>,
         scope_ref: Option<String>,
-    ) -> Result<TodoStats, String> {
-        self.repo
-            .stats(scope.as_ref(), scope_ref.as_deref())
+    ) -> AppResult<TodoStats> {
+        Ok(self.repo.stats(scope.as_ref(), scope_ref.as_deref())?)
     }
 
     /// 切换"我的一天"状态
-    pub fn toggle_my_day(&self, id: &str) -> Result<TodoItem, String> {
+    pub fn toggle_my_day(&self, id: &str) -> AppResult<TodoItem> {
         let todo = self
             .repo
             .get(id)?
-            .ok_or_else(|| serde_json::json!({"code": EC::TODO_NOT_FOUND, "message": format!("Todo {} not found", id), "params": {"id": id}}).to_string())?;
+            .ok_or_else(|| todo_not_found(id))?;
 
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let new_my_day = !todo.my_day || todo.my_day_date.as_deref() != Some(&today);
@@ -211,27 +217,26 @@ impl TodoService {
         self.repo.update(id, &req)?;
         self.repo
             .get(id)?
-            .ok_or_else(|| serde_json::json!({"code": EC::TODO_NOT_FOUND, "message": format!("Todo {} not found", id), "params": {"id": id}}).to_string())
+            .ok_or_else(|| todo_not_found(id))
     }
 
     /// 获取到期提醒的 Todo
-    pub fn get_due_reminders(&self) -> Result<Vec<TodoItem>, String> {
-        let now = chrono::Utc::now().to_rfc3339();
-        self.repo.get_due_reminders(&now)
+    pub fn get_due_reminders(&self) -> AppResult<Vec<TodoItem>> {
+        Ok(self.repo.get_due_reminders(&chrono::Utc::now().to_rfc3339())?)
     }
 
     // ============ 子任务操作 ============
 
     /// 添加子任务
-    pub fn add_subtask(&self, todo_id: &str, title: &str) -> Result<TodoSubtask, String> {
+    pub fn add_subtask(&self, todo_id: &str, title: &str) -> AppResult<TodoSubtask> {
         let title = title.trim().to_string();
         if title.is_empty() {
-            return Err(serde_json::json!({"code": EC::SUBTASK_TITLE_EMPTY, "message": "Subtask title cannot be empty"}).to_string());
+            return Err(AppError::coded(EC::SUBTASK_TITLE_EMPTY, "Subtask title cannot be empty"));
         }
 
         // Validate parent Todo exists
         if self.repo.get(todo_id)?.is_none() {
-            return Err(serde_json::json!({"code": EC::TODO_NOT_FOUND, "message": format!("Todo {} not found", todo_id), "params": {"id": todo_id}}).to_string());
+            return Err(todo_not_found(todo_id));
         }
 
         let sort_order = self.repo.max_subtask_sort_order(todo_id)? + 1;
@@ -255,26 +260,33 @@ impl TodoService {
         id: &str,
         title: Option<String>,
         completed: Option<bool>,
-    ) -> Result<bool, String> {
-        self.repo
-            .update_subtask(id, title.as_deref(), completed)
+    ) -> AppResult<bool> {
+        Ok(self.repo.update_subtask(id, title.as_deref(), completed)?)
     }
 
     /// 删除子任务
-    pub fn delete_subtask(&self, id: &str) -> Result<(), String> {
+    pub fn delete_subtask(&self, id: &str) -> AppResult<()> {
         let deleted = self.repo.delete_subtask(id)?;
         if !deleted {
-            return Err(serde_json::json!({"code": EC::SUBTASK_NOT_FOUND, "message": format!("Subtask {} not found", id), "params": {"id": id}}).to_string());
+            return Err(AppError::coded_with_params(
+                EC::SUBTASK_NOT_FOUND,
+                format!("Subtask {} not found", id),
+                HashMap::from([("id".into(), id.into())]),
+            ));
         }
         Ok(())
     }
 
     /// 切换子任务完成状态
-    pub fn toggle_subtask(&self, id: &str) -> Result<bool, String> {
+    pub fn toggle_subtask(&self, id: &str) -> AppResult<bool> {
         let subtask = self
             .repo
             .get_subtask(id)?
-            .ok_or_else(|| serde_json::json!({"code": EC::SUBTASK_NOT_FOUND, "message": format!("Subtask {} not found", id), "params": {"id": id}}).to_string())?;
+            .ok_or_else(|| AppError::coded_with_params(
+                EC::SUBTASK_NOT_FOUND,
+                format!("Subtask {} not found", id),
+                HashMap::from([("id".into(), id.into())]),
+            ))?;
 
         let new_completed = !subtask.completed;
         self.repo
@@ -283,9 +295,18 @@ impl TodoService {
     }
 
     /// 重排子任务
-    pub fn reorder_subtasks(&self, subtask_ids: Vec<String>) -> Result<(), String> {
-        self.repo.reorder_subtasks(&subtask_ids)
+    pub fn reorder_subtasks(&self, subtask_ids: Vec<String>) -> AppResult<()> {
+        Ok(self.repo.reorder_subtasks(&subtask_ids)?)
     }
+}
+
+/// 构造 TODO_NOT_FOUND 错误（高频使用，提取为辅助函数）
+fn todo_not_found(id: &str) -> AppError {
+    AppError::coded_with_params(
+        EC::TODO_NOT_FOUND,
+        format!("Todo {} not found", id),
+        HashMap::from([("id".into(), id.into())]),
+    )
 }
 
 #[cfg(test)]
@@ -320,7 +341,8 @@ mod tests {
             title: "  ".to_string(),
             ..Default::default()
         };
-        assert!(service.create_todo(req).is_err());
+        let err = service.create_todo(req).unwrap_err();
+        assert_eq!(err.code.as_deref(), Some(EC::TODO_TITLE_EMPTY));
     }
 
     #[test]
@@ -332,7 +354,8 @@ mod tests {
             scope_ref: None,
             ..Default::default()
         };
-        assert!(service.create_todo(req).is_err());
+        let err = service.create_todo(req).unwrap_err();
+        assert_eq!(err.code.as_deref(), Some(EC::TODO_SCOPE_REF_REQUIRED));
     }
 
     #[test]
@@ -420,7 +443,8 @@ mod tests {
     #[test]
     fn test_add_subtask_to_nonexistent_todo_fails() {
         let service = setup();
-        assert!(service.add_subtask("nonexistent", "子任务").is_err());
+        let err = service.add_subtask("nonexistent", "子任务").unwrap_err();
+        assert_eq!(err.code.as_deref(), Some(EC::TODO_NOT_FOUND));
     }
 
     #[test]
@@ -485,4 +509,3 @@ mod tests {
         assert!(t2.sort_order > t1.sort_order);
     }
 }
-

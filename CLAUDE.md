@@ -143,7 +143,8 @@ cc-panes/
 | `src-tauri/src/repository/project_repo.rs` | 项目 CRUD（Repository 范例） |
 | `src-tauri/src/models/project.rs` | Project 数据模型 |
 | `src-tauri/src/utils/error.rs` | `AppError` + `AppResult<T>` |
-| `src-tauri/src/utils/app_paths.rs` | 应用路径管理 |
+| `src-tauri/src/utils/app_paths.rs` | 应用路径管理 + `APP_DIR_NAME` 常量 |
+| `src-tauri/tauri.dev.conf.json` | Dev 覆盖配置（identifier + 窗口标题） |
 
 ## 开发命令
 
@@ -151,7 +152,10 @@ cc-panes/
 # 安装前端依赖
 npm install
 
-# 开发模式（前端 + Rust 同时启动）
+# 开发模式（使用 dev identifier，与 release 版隔离）
+npm run tauri:dev
+
+# 开发模式（原始，不隔离）
 npm run tauri dev
 
 # 前端类型检查
@@ -175,9 +179,26 @@ npm run test:run
 # 运行后端测试
 cargo test --workspace
 
-# 构建应用
+# 构建 release 安装包
 npm run tauri build
 ```
+
+## Dev/Release 隔离
+
+`tauri dev`（debug build）和 `tauri build`（release build）通过 `cfg!(debug_assertions)` 实现完全隔离，可同时运行互不冲突。
+
+| 项目 | Dev (`tauri:dev`) | Release (`tauri build`) |
+|------|-------------------|------------------------|
+| 数据目录 | `~/.cc-panes-dev/` | `~/.cc-panes/` |
+| App identifier | `com.ccpanes.dev` | `com.ccpanes.app` |
+| 窗口标题 | CC-Panes [DEV] | CC-Panes |
+| 托盘 tooltip | CC-Panes [DEV] | CC-Panes |
+| 截图快捷键默认值 | `Ctrl+Alt+Shift+S` | `Ctrl+Shift+S` |
+| 截图窗口类名 | `CCPanesDevScreenshotOverlay` | `CCPanesScreenshotOverlay` |
+
+核心常量定义在 `src-tauri/src/utils/app_paths.rs` 的 `APP_DIR_NAME`。
+
+`tauri:dev` 脚本通过 `--config src-tauri/tauri.dev.conf.json` 覆盖 identifier 和窗口标题。
 
 ## 新功能开发流程（7 步）
 
@@ -192,7 +213,8 @@ npm run tauri build
 ## 存储结构
 
 ```
-~/.cc-panes/                         # 全局配置目录
+~/.cc-panes/                         # Release 全局配置目录
+~/.cc-panes-dev/                     # Dev 全局配置目录（结构相同）
 ├── config.toml                      # 全局配置
 ├── workspaces/                      # 工作空间目录
 │   └── <workspace-name>/
@@ -201,8 +223,8 @@ npm run tauri build
 │           └── journal/             # 会话日志
 ├── providers/                       # Provider 配置
 │   └── providers.json
-└── data/
-    └── cc-panes.db                  # SQLite 数据库
+├── screenshots/                     # 截图存储
+└── data.db                          # SQLite 数据库
 
 <project-path>/.ccpanes/             # 项目级配置
 ├── config.toml
@@ -228,6 +250,7 @@ npm run tauri build
 - [x] SQLite 数据持久化
 - [x] Provider 管理（多 API Provider 支持）
 - [x] 目录扫描导入
+- [x] Dev/Release 隔离（并行运行互不冲突）
 
 ## 文档引用
 

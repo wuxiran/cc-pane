@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { settingsService } from "@/services";
 import type { AppSettings } from "@/types";
+import { handleErrorSilent } from "@/utils";
 
 interface SettingsState {
   settings: AppSettings | null;
@@ -20,7 +21,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       const settings = await settingsService.getSettings();
       set({ settings });
     } catch (e) {
-      console.error("Failed to load settings:", e);
+      handleErrorSilent(e, "load settings");
     } finally {
       set({ loading: false });
     }
@@ -31,7 +32,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       await settingsService.updateSettings(newSettings);
       set({ settings: newSettings });
     } catch (e) {
-      console.error("Failed to save settings:", e);
+      handleErrorSilent(e, "save settings");
       throw e;
     }
   },

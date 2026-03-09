@@ -21,6 +21,7 @@ pub struct SelectionRect {
 mod win32_impl {
     use super::SelectionRect;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use tracing::{debug, error};
 
     use windows::Win32::Foundation::*;
     use windows::Win32::Graphics::Gdi::*;
@@ -90,15 +91,19 @@ mod win32_impl {
             let img_w = screenshot.width() as i32;
             let img_h = screenshot.height() as i32;
 
-            eprintln!(
+            debug!(
                 "[screenshot-overlay] monitor={}x{} at ({},{}), image={}x{}",
                 monitor_width, monitor_height, monitor_x, monitor_y, img_w, img_h
             );
 
             let hinstance = GetModuleHandleW(None).unwrap_or_default();
 
-            // 注册窗口类
-            let class_name = windows::core::w!("CCPanesScreenshotOverlay");
+            // 注册窗口类（dev/release 使用不同类名，避免并行运行时冲突）
+            let class_name = if cfg!(debug_assertions) {
+                windows::core::w!("CCPanesDevScreenshotOverlay")
+            } else {
+                windows::core::w!("CCPanesScreenshotOverlay")
+            };
             let wc = WNDCLASSEXW {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
                 style: CS_HREDRAW | CS_VREDRAW,
@@ -110,7 +115,7 @@ mod win32_impl {
             };
             let atom = RegisterClassExW(&wc);
             if atom == 0 {
-                eprintln!("[screenshot-overlay] RegisterClassExW failed");
+                error!("[screenshot-overlay] RegisterClassExW failed");
                 return None;
             }
 

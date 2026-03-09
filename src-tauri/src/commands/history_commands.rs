@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 /// session-state.json 的结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +28,7 @@ pub fn add_launch_history(
     workspace_path: Option<String>,
     launch_cwd: Option<String>,
 ) -> AppResult<i64> {
+    debug!(project_name = %project_name, project_path = %project_path, "cmd::add_launch_history");
     Ok(service.add(&project_id, &project_name, &project_path, workspace_name.as_deref(), workspace_path.as_deref(), launch_cwd.as_deref())?)
 }
 
@@ -43,6 +45,7 @@ pub fn delete_launch_history(
     service: State<'_, Arc<LaunchHistoryService>>,
     id: i64,
 ) -> AppResult<()> {
+    debug!(id = id, "cmd::delete_launch_history");
     Ok(service.delete(id)?)
 }
 
@@ -50,6 +53,7 @@ pub fn delete_launch_history(
 pub fn clear_launch_history(
     service: State<'_, Arc<LaunchHistoryService>>,
 ) -> AppResult<()> {
+    debug!("cmd::clear_launch_history");
     Ok(service.clear()?)
 }
 
@@ -80,6 +84,7 @@ pub fn update_launch_session_id(
     id: i64,
     claude_session_id: String,
 ) -> AppResult<()> {
+    debug!(id = id, claude_session_id = %claude_session_id, "cmd::update_launch_session_id");
     Ok(service.update_session_id(id, &claude_session_id)?)
 }
 
@@ -89,6 +94,7 @@ pub fn touch_launch_by_session(
     service: State<'_, Arc<LaunchHistoryService>>,
     claude_session_id: String,
 ) -> AppResult<Option<i64>> {
+    debug!(claude_session_id = %claude_session_id, "cmd::touch_launch_by_session");
     Ok(service.touch_by_session_id(&claude_session_id)?)
 }
 
@@ -99,6 +105,7 @@ pub fn update_launch_last_prompt(
     id: i64,
     last_prompt: String,
 ) -> AppResult<()> {
+    debug!(id = id, "cmd::update_launch_last_prompt");
     Ok(service.update_last_prompt(id, &last_prompt)?)
 }
 
@@ -126,7 +133,7 @@ pub fn detect_claude_session(
     for path in paths_to_try {
         let encoded = encode_claude_project_path(path);
         let sessions_dir = home.join(".claude").join("projects").join(&encoded);
-        eprintln!("[session-detect] path={} encoded={} dir={} exists={}", path, encoded, sessions_dir.display(), sessions_dir.is_dir());
+        debug!("[session-detect] path={} encoded={} dir={} exists={}", path, encoded, sessions_dir.display(), sessions_dir.is_dir());
         if !sessions_dir.is_dir() {
             continue;
         }
@@ -160,12 +167,12 @@ pub fn detect_claude_session(
             }
         }
         if let Some((id, _)) = latest {
-            eprintln!("[session-detect] found session_id={} for path={}", id, path);
+            debug!("[session-detect] found session_id={} for path={}", id, path);
             return Ok(Some(id));
         }
     }
 
-    eprintln!("[session-detect] no session found for project_path={}", project_path);
+    debug!("[session-detect] no session found for project_path={}", project_path);
     Ok(None)
 }
 

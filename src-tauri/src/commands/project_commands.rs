@@ -3,6 +3,7 @@ use crate::services::ProjectService;
 use crate::utils::{AppResult, validate_path};
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 /// Tauri 命令层 - 薄层，只做参数转换和错误转换
 
@@ -13,12 +14,14 @@ pub fn list_projects(service: State<'_, Arc<ProjectService>>) -> AppResult<Vec<P
 
 #[tauri::command]
 pub fn add_project(path: String, service: State<'_, Arc<ProjectService>>) -> AppResult<Project> {
+    debug!(path = %path, "cmd::add_project");
     validate_path(&path)?;
     Ok(service.add_project(&path)?)
 }
 
 #[tauri::command]
 pub fn remove_project(id: String, service: State<'_, Arc<ProjectService>>) -> AppResult<()> {
+    debug!(id = %id, "cmd::remove_project");
     Ok(service.remove_project(&id)?)
 }
 
@@ -33,6 +36,7 @@ pub fn update_project_name(
     name: String,
     service: State<'_, Arc<ProjectService>>,
 ) -> AppResult<()> {
+    debug!(id = %id, name = %name, "cmd::update_project_name");
     Ok(service.update_project_name(&id, &name)?)
 }
 
@@ -42,5 +46,6 @@ pub fn update_project_alias(
     alias: Option<String>,
     service: State<'_, Arc<ProjectService>>,
 ) -> AppResult<()> {
+    debug!(id = %id, "cmd::update_project_alias");
     Ok(service.update_project_alias(&id, alias.as_deref())?)
 }

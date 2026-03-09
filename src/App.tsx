@@ -35,6 +35,7 @@ import {
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
+import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
 import { historyService, terminalService, localHistoryService, hooksService } from "@/services";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
@@ -111,6 +112,9 @@ function MainApp() {
 
   // 监听外部工作空间变更（文件系统 watcher）
   useWorkspaceWatcher();
+
+  // 监听 Orchestrator 编排事件（自我对话 Claude 启动新任务）
+  useOrchestratorListener();
 
   // 注册全局 API（Skill 用）
   useEffect(() => {

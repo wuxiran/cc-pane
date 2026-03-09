@@ -207,6 +207,29 @@ branch 和 status 通过 `git branch --show-current` 和 `git status --porcelain
 
 ---
 
+## MCP 工具调用（推荐）
+
+如果你拥有 `ccpanes` MCP 工具，**优先使用 MCP 而非文件系统操作**。MCP 工具更安全且保证数据一致性。
+
+### 从路径批量导入项目
+
+1. 调用 `ccpanes.scan_directory`（参数: `{ path: "目录路径" }`）→ 获取所有 Git 仓库列表
+2. 调用 `ccpanes.create_workspace`（参数: `{ name: "工作空间名", path: "根目录路径" }`）
+3. 对扫描结果中的每个仓库，调用 `ccpanes.add_project_to_workspace`（参数: `{ workspaceName: "工作空间名", projectPath: "仓库路径" }`）
+4. 可选：调用 `ccpanes.launch_task` 在各项目中启动任务
+
+### 查看工作空间
+
+- 列表：`ccpanes.list_workspaces`
+- 详情：`ccpanes.get_workspace`（参数: `{ workspaceName: "名称" }`）
+
+### 注意
+
+- 破坏性操作（删除工作空间/项目）不暴露为 MCP，需在 UI 中手动操作
+- MCP 调用会自动同步 UI（通过文件系统监控）
+
+---
+
 ## 执行
 
 解析 `$ARGUMENTS`，执行对应子命令。若参数为空或无法识别，展示帮助信息（列出所有子命令及用法）。

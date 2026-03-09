@@ -8,6 +8,7 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
+use tracing::{error, info, warn};
 
 /// Debounce 间隔（毫秒）
 const WATCHER_DEBOUNCE_MS: u64 = 500;
@@ -23,7 +24,7 @@ impl WorkspaceService {
         // 确保目录存在
         if !base_dir.exists() {
             if let Err(e) = fs::create_dir_all(&base_dir) {
-                eprintln!("Warning: failed to create workspaces directory {}: {}", base_dir.display(), e);
+                warn!("Failed to create workspaces directory {}: {}", base_dir.display(), e);
             }
         }
 
@@ -48,7 +49,7 @@ impl WorkspaceService {
                     let is_workspace_json = event
                         .paths
                         .iter()
-                        .any(|p| p.file_name().map_or(false, |n| n == "workspace.json"));
+                        .any(|p| p.file_name() == Some(std::ffi::OsStr::new("workspace.json")));
                     if !is_workspace_json {
                         return;
                     }
@@ -68,22 +69,15 @@ impl WorkspaceService {
         match watcher {
             Ok(mut w) => {
                 if let Err(e) = w.watch(&self.base_dir, RecursiveMode::Recursive) {
-                    eprintln!(
-                        "[workspace-watcher] Failed to watch {}: {}",
-                        self.base_dir.display(),
-                        e
-                    );
+                    error!("[workspace-watcher] Failed to watch {}: {}", self.base_dir.display(), e);
                     return;
                 }
-                eprintln!(
-                    "[workspace-watcher] Watching {}",
-                    self.base_dir.display()
-                );
+                info!("[workspace-watcher] Watching {}", self.base_dir.display());
                 let mut guard = self._watcher.lock().unwrap_or_else(|e| e.into_inner());
                 *guard = Some(w);
             }
             Err(e) => {
-                eprintln!("[workspace-watcher] Failed to create watcher: {}", e);
+                error!("[workspace-watcher] Failed to create watcher: {}", e);
             }
         }
     }
@@ -92,7 +86,7 @@ impl WorkspaceService {
     pub fn stop_watcher(&self) {
         let mut guard = self._watcher.lock().unwrap_or_else(|e| e.into_inner());
         if guard.take().is_some() {
-            eprintln!("[workspace-watcher] Stopped");
+            info!("[workspace-watcher] Stopped");
         }
     }
 
@@ -126,7 +120,7 @@ impl WorkspaceService {
                 if json_path.exists() {
                     match self.read_workspace_json(&json_path) {
                         Ok(ws) => workspaces.push(ws),
-                        Err(e) => eprintln!("Failed to read workspace.json: {}", e),
+                        Err(e) => warn!("Failed to read workspace.json: {}", e),
                     }
                 }
             }

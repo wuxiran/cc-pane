@@ -2,6 +2,7 @@ use crate::services::{JournalService, SessionSummary, JournalIndex};
 use crate::utils::AppResult;
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 /// Journal 命令层 - 管理会话日志
 
@@ -13,6 +14,7 @@ pub fn add_journal_session(
     commits: Vec<String>,
     service: State<'_, Arc<JournalService>>,
 ) -> AppResult<u32> {
+    debug!("cmd::add_journal_session workspace={}", workspace_name);
     let session = SessionSummary {
         title,
         summary,

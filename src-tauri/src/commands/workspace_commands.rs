@@ -4,6 +4,7 @@ use crate::utils::{AppResult, validate_path};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 #[tauri::command]
 pub fn list_workspaces(
@@ -18,6 +19,7 @@ pub fn create_workspace(
     path: Option<String>,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<Workspace> {
+    debug!(name = %name, "cmd::create_workspace");
     if let Some(ref p) = path {
         validate_path(p)?;
     }
@@ -38,6 +40,7 @@ pub fn rename_workspace(
     new_name: String,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!(old_name = %old_name, new_name = %new_name, "cmd::rename_workspace");
     Ok(service.rename_workspace(&old_name, &new_name)?)
 }
 
@@ -46,6 +49,7 @@ pub fn delete_workspace(
     name: String,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!(name = %name, "cmd::delete_workspace");
     Ok(service.delete_workspace(&name)?)
 }
 
@@ -55,6 +59,7 @@ pub fn add_workspace_project(
     path: String,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<WorkspaceProject> {
+    debug!(workspace_name = %workspace_name, path = %path, "cmd::add_workspace_project");
     Ok(service.add_project(&workspace_name, &path)?)
 }
 
@@ -64,6 +69,7 @@ pub fn remove_workspace_project(
     project_id: String,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!(workspace_name = %workspace_name, project_id = %project_id, "cmd::remove_workspace_project");
     Ok(service.remove_project(&workspace_name, &project_id)?)
 }
 
@@ -73,6 +79,7 @@ pub fn update_workspace_alias(
     alias: Option<String>,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!(workspace_name = %workspace_name, "cmd::update_workspace_alias");
     Ok(service.update_workspace_alias(&workspace_name, alias.as_deref())?)
 }
 
@@ -83,6 +90,7 @@ pub fn update_workspace_project_alias(
     alias: Option<String>,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!(workspace_name = %workspace_name, project_id = %project_id, "cmd::update_workspace_project_alias");
     Ok(service.update_project_alias(&workspace_name, &project_id, alias.as_deref())?)
 }
 
@@ -92,6 +100,7 @@ pub fn update_workspace_provider(
     provider_id: Option<String>,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!(workspace_name = %workspace_name, "cmd::update_workspace_provider");
     Ok(service.update_workspace_provider(&workspace_name, provider_id.as_deref())?)
 }
 
@@ -101,6 +110,7 @@ pub fn update_workspace_path(
     path: Option<String>,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!(workspace_name = %workspace_name, "cmd::update_workspace_path");
     if let Some(ref p) = path {
         validate_path(p)?;
     }
@@ -113,6 +123,7 @@ pub fn update_workspace(
     workspace: Workspace,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!(name = %name, "cmd::update_workspace");
     Ok(service.write_workspace_json(&name, &workspace)?)
 }
 
@@ -121,6 +132,7 @@ pub fn reorder_workspaces(
     ordered_names: Vec<String>,
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<()> {
+    debug!("cmd::reorder_workspaces");
     Ok(service.reorder_workspaces(ordered_names)?)
 }
 

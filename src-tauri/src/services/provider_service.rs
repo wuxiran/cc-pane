@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use tracing::warn;
 
 /// Provider 服务 - 管理 AI Provider 配置
 pub struct ProviderService {
@@ -173,12 +174,12 @@ impl ProviderService {
             match Self::parse_env_config_file(path) {
                 Ok(vars) => vars,
                 Err(e) => {
-                    eprintln!("[ProviderService] 解析配置文件失败 {}: {}", config_path, e);
+                    warn!("[ProviderService] Failed to parse config file {}: {}", config_path, e);
                     HashMap::new()
                 }
             }
         } else {
-            eprintln!("[ProviderService] 配置路径不存在: {}", config_path);
+            warn!("[ProviderService] Config path does not exist: {}", config_path);
             HashMap::new()
         }
     }
@@ -195,7 +196,7 @@ impl ProviderService {
         let env_obj = match json.get("env").and_then(|v| v.as_object()) {
             Some(obj) => obj,
             None => {
-                eprintln!("[ProviderService] 配置文件缺少 env 字段: {}", path.display());
+                warn!("[ProviderService] Config file missing 'env' field: {}", path.display());
                 return Ok(HashMap::new());
             }
         };

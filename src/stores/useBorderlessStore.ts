@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { handleErrorSilent } from "@/utils";
 
 interface BorderlessState {
   isBorderless: boolean;
@@ -16,7 +17,7 @@ export const useBorderlessStore = create<BorderlessState>((set, get) => ({
       await invoke("set_decorations", { decorations: !next });
       set({ isBorderless: next });
     } catch (e) {
-      console.error("Failed to toggle borderless:", e);
+      handleErrorSilent(e, "toggle borderless");
     }
   },
 
@@ -26,7 +27,7 @@ export const useBorderlessStore = create<BorderlessState>((set, get) => ({
       await invoke("set_decorations", { decorations: true });
       set({ isBorderless: false });
     } catch (e) {
-      console.error("Failed to exit borderless:", e);
+      handleErrorSilent(e, "exit borderless");
     }
   },
 }));

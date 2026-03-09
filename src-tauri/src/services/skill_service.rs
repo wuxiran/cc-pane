@@ -1,6 +1,8 @@
+use crate::utils::error::{AppError, AppResult};
 use crate::utils::error_codes as EC;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 /// Skill 信息（对应 `.claude/commands/` 下的 `.md` 文件）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,18 +41,20 @@ impl SkillService {
     }
 
     /// 列出项目的所有 Skill（摘要）
-    pub fn list_skills(&self, project_path: &str) -> Result<Vec<SkillSummary>, String> {
+    pub fn list_skills(&self, project_path: &str) -> AppResult<Vec<SkillSummary>> {
+        debug!(project = %project_path, "svc::list_skills");
         let dir = Self::commands_dir(project_path);
         if !dir.exists() {
             return Ok(Vec::new());
         }
 
         let mut skills = Vec::new();
-        let entries =
-            std::fs::read_dir(&dir).map_err(|e| format!("Failed to read commands directory: {}", e))?;
+        let entries = std::fs::read_dir(&dir)
+            .map_err(|e| AppError::from(format!("Failed to read commands directory: {}", e)))?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let entry = entry
+                .map_err(|e| AppError::from(format!("Failed to read directory entry: {}", e)))?;
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("md") {
                 let name = path
@@ -59,7 +63,7 @@ impl SkillService {
                     .unwrap_or("")
                     .to_string();
                 let content = std::fs::read_to_string(&path)
-                    .map_err(|e| format!("Failed to read skill file: {}", e))?;
+                    .map_err(|e| AppError::from(format!("Failed to read skill file: {}", e)))?;
                 let preview = if content.len() > 200 {
                     format!("{}...", &content[..200])
                 } else {
@@ -78,13 +82,14 @@ impl SkillService {
     }
 
     /// 获取单个 Skill 的完整内容
-    pub fn get_skill(&self, project_path: &str, name: &str) -> Result<Option<SkillInfo>, String> {
+    pub fn get_skill(&self, project_path: &str, name: &str) -> AppResult<Option<SkillInfo>> {
+        debug!(project = %project_path, name = %name, "svc::get_skill");
         let path = Self::commands_dir(project_path).join(format!("{}.md", name));
         if !path.exists() {
             return Ok(None);
         }
-        let content =
-            std::fs::read_to_string(&path).map_err(|e| format!("Failed to read skill file: {}", e))?;
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| AppError::from(format!("Failed to read skill file: {}", e)))?;
         Ok(Some(SkillInfo {
             name: name.to_string(),
             content,
@@ -98,25 +103,28 @@ impl SkillService {
         project_path: &str,
         name: &str,
         content: &str,
-    ) -> Result<SkillInfo, String> {
+    ) -> AppResult<SkillInfo> {
+        debug!(project = %project_path, name = %name, "svc::save_skill");
         // Validate name
         if name.trim().is_empty() {
-            return Err(serde_json::json!({"code": EC::SKILL_NAME_EMPTY, "message": "Skill name cannot be empty"}).to_string());
+            return Err(AppError::coded(EC::SKILL_NAME_EMPTY, "Skill name cannot be empty"));
         }
         // Validate name does not contain path separators
         if name.contains('/') || name.contains('\\') || name.contains("..") {
-            return Err(serde_json::json!({"code": EC::SKILL_NAME_PATH_SEPARATOR, "message": "Skill name cannot contain path separators"}).to_string());
+            return Err(AppError::coded(EC::SKILL_NAME_PATH_SEPARATOR, "Skill name cannot contain path separators"));
         }
         // Reject hidden file names starting with '.'
         if name.starts_with('.') {
-            return Err(serde_json::json!({"code": EC::SKILL_NAME_DOT_PREFIX, "message": "Skill name cannot start with '.'"}).to_string());
+            return Err(AppError::coded(EC::SKILL_NAME_DOT_PREFIX, "Skill name cannot start with '.'"));
         }
 
         let dir = Self::commands_dir(project_path);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create commands directory: {}", e))?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| AppError::from(format!("Failed to create commands directory: {}", e)))?;
 
         let path = dir.join(format!("{}.md", name));
-        std::fs::write(&path, content).map_err(|e| format!("Failed to write skill file: {}", e))?;
+        std::fs::write(&path, content)
+            .map_err(|e| AppError::from(format!("Failed to write skill file: {}", e)))?;
 
         Ok(SkillInfo {
             name: name.to_string(),
@@ -126,12 +134,14 @@ impl SkillService {
     }
 
     /// 删除 Skill
-    pub fn delete_skill(&self, project_path: &str, name: &str) -> Result<bool, String> {
+    pub fn delete_skill(&self, project_path: &str, name: &str) -> AppResult<bool> {
+        debug!(project = %project_path, name = %name, "svc::delete_skill");
         let path = Self::commands_dir(project_path).join(format!("{}.md", name));
         if !path.exists() {
             return Ok(false);
         }
-        std::fs::remove_file(&path).map_err(|e| format!("Failed to delete skill file: {}", e))?;
+        std::fs::remove_file(&path)
+            .map_err(|e| AppError::from(format!("Failed to delete skill file: {}", e)))?;
         Ok(true)
     }
 
@@ -141,10 +151,11 @@ impl SkillService {
         source_project: &str,
         target_project: &str,
         name: &str,
-    ) -> Result<SkillInfo, String> {
+    ) -> AppResult<SkillInfo> {
+        debug!(source = %source_project, target = %target_project, name = %name, "svc::copy_skill");
         let skill = self
             .get_skill(source_project, name)?
-            .ok_or_else(|| format!("Skill not found in source project: {}", name))?;
+            .ok_or_else(|| AppError::from(format!("Skill not found in source project: {}", name)))?;
         self.save_skill(target_project, name, &skill.content)
     }
 }

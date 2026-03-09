@@ -253,9 +253,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
             if (props.sessionId) {
               // 重连模式：session 已存在于后端
+              console.info(`[TerminalView] Reconnecting to existing session: ${props.sessionId}`);
               sessionId = props.sessionId;
             } else {
               // 新建模式
+              console.info(
+                `[TerminalView] Creating new session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, resumeId=${props.resumeId ?? "none"}`
+              );
               sessionId = await terminalService.createSession({
                 projectPath: props.projectPath,
                 cols: term.cols,
@@ -266,10 +270,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 launchClaude: props.launchClaude,
                 resumeId: props.resumeId,
               });
+              console.info(`[TerminalView] Session created: ${sessionId}`);
             }
 
             if (!isMounted) {
               if (!props.sessionId) {
+                console.warn(`[TerminalView] Component unmounted during init, killing session: ${sessionId}`);
                 terminalService.killSession(sessionId).catch(console.error);
               }
               return;
@@ -289,6 +295,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
             // 注册退出回调
             await terminalService.registerExit(sessionId, (exitCode) => {
+              console.warn(`[TerminalView] Session exited: ${sessionId}, exitCode=${exitCode}, launchClaude=${props.launchClaude ?? false}`);
               terminalInstanceRef.current?.writeln(
                 `\r\n\x1b[33mProcess exited with code ${exitCode}\x1b[0m`
               );
@@ -302,9 +309,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
           } catch (error) {
             if (!isMounted) return;
-            console.error("Failed to init terminal session:", error);
+            console.error(
+              `[TerminalView] FAILED to init session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, error=`,
+              error
+            );
             const errorMsg = String(error);
             if (errorMsg.includes("claude CLI not found")) {
+              console.error("[TerminalView] Claude CLI not found in PATH");
               term.writeln(
                 `\x1b[31mclaude CLI is not installed or not in PATH.\x1b[0m`
               );

@@ -11,13 +11,13 @@ use crate::models::{
     HistoryLabel, InlineChange, LabelFileSnapshot, ProjectConfig, RecentChange, VersionsMetadata,
 };
 
+use crate::constants::history::{CONTEXT_LINES, MAX_DIFF_LINES};
+
 const CCPANES_DIR: &str = ".ccpanes";
 const HISTORY_DIR: &str = "history";
 const CONTENT_DIR: &str = "blobs";
 const CONFIG_FILE: &str = "config.toml";
 const DB_FILE: &str = "history.db";
-const MAX_DIFF_LINES: usize = 10000;
-const CONTEXT_LINES: usize = 3;
 
 pub struct HistoryFileRepository {
     db: Mutex<Connection>,

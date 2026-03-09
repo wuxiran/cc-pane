@@ -3,6 +3,7 @@ use crate::services::SkillService;
 use crate::utils::{validate_path, AppResult};
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 #[tauri::command]
 pub fn list_skills(
@@ -10,7 +11,7 @@ pub fn list_skills(
     service: State<'_, Arc<SkillService>>,
 ) -> AppResult<Vec<SkillSummary>> {
     validate_path(&project_path)?;
-    Ok(service.list_skills(&project_path)?)
+    service.list_skills(&project_path)
 }
 
 #[tauri::command]
@@ -20,7 +21,7 @@ pub fn get_skill(
     service: State<'_, Arc<SkillService>>,
 ) -> AppResult<Option<SkillInfo>> {
     validate_path(&project_path)?;
-    Ok(service.get_skill(&project_path, &name)?)
+    service.get_skill(&project_path, &name)
 }
 
 #[tauri::command]
@@ -30,8 +31,9 @@ pub fn save_skill(
     content: String,
     service: State<'_, Arc<SkillService>>,
 ) -> AppResult<SkillInfo> {
+    debug!(project_path = %project_path, name = %name, "cmd::save_skill");
     validate_path(&project_path)?;
-    Ok(service.save_skill(&project_path, &name, &content)?)
+    service.save_skill(&project_path, &name, &content)
 }
 
 #[tauri::command]
@@ -40,8 +42,9 @@ pub fn delete_skill(
     name: String,
     service: State<'_, Arc<SkillService>>,
 ) -> AppResult<bool> {
+    debug!(project_path = %project_path, name = %name, "cmd::delete_skill");
     validate_path(&project_path)?;
-    Ok(service.delete_skill(&project_path, &name)?)
+    service.delete_skill(&project_path, &name)
 }
 
 #[tauri::command]
@@ -51,7 +54,8 @@ pub fn copy_skill(
     name: String,
     service: State<'_, Arc<SkillService>>,
 ) -> AppResult<SkillInfo> {
+    debug!(name = %name, source_project = %source_project, target_project = %target_project, "cmd::copy_skill");
     validate_path(&source_project)?;
     validate_path(&target_project)?;
-    Ok(service.copy_skill(&source_project, &target_project, &name)?)
+    service.copy_skill(&source_project, &target_project, &name)
 }

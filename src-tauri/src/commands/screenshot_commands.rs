@@ -1,4 +1,5 @@
 use crate::utils::AppResult;
+use tracing::debug;
 
 /// 更新截图快捷键
 #[tauri::command]
@@ -7,6 +8,7 @@ pub fn screenshot_update_shortcut(
     old_shortcut: String,
     new_shortcut: String,
 ) -> AppResult<()> {
+    debug!("cmd::screenshot_update_shortcut new_shortcut={}", new_shortcut);
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     let new_sc: tauri_plugin_global_shortcut::Shortcut = new_shortcut

@@ -4,6 +4,7 @@
 import { create } from "zustand";
 import { mcpService } from "@/services";
 import type { McpServerConfig } from "@/types";
+import { translateError } from "@/utils";
 
 interface McpState {
   // ============ 状态 ============
@@ -37,7 +38,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       const servers = await mcpService.listServers(projectPath);
       set({ servers, loading: false });
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: translateError(e), loading: false });
     }
   },
 

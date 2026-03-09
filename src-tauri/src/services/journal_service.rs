@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 
-const MAX_LINES: usize = 2000;
+use crate::constants::journal::MAX_LINES;
 
 /// 会话摘要
 #[derive(Debug, Clone, Serialize, Deserialize)]

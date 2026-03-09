@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Search, File, Folder, Loader2 } from "lucide-react";
+import { handleErrorSilent } from "@/utils";
 import { useWorkspacesStore, useActivityBarStore } from "@/stores";
 import { useFileBrowserStore } from "@/stores/useFileBrowserStore";
 import { filesystemService } from "@/services/filesystemService";
@@ -89,7 +90,7 @@ export default function SearchView() {
           allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
           setResults(allResults.slice(0, 50));
         } catch (e) {
-          console.error("Search error:", e);
+          handleErrorSilent(e, "search files");
         } finally {
           if (thisRequestId === requestIdRef.current) {
             setSearching(false);

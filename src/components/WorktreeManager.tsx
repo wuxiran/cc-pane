@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/sidebar/WorkspaceDialogs";
 import { worktreeService, type WorktreeInfo } from "@/services";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { getErrorMessage } from "@/utils";
+import { handleError, handleErrorSilent } from "@/utils";
 
 interface WorktreeManagerProps {
   open: boolean;
@@ -43,7 +43,7 @@ export default function WorktreeManager({ open, onOpenChange, projectPath, onOpe
     try {
       setWorktrees(await worktreeService.list(projectPath));
     } catch (e) {
-      console.error("Failed to load worktrees:", e);
+      handleErrorSilent(e, "load worktrees");
       setWorktrees([]);
     } finally {
       setLoading(false);
@@ -60,8 +60,7 @@ export default function WorktreeManager({ open, onOpenChange, projectPath, onOpe
       setNewName("");
       setNewBranch("");
     } catch (e) {
-      console.error("Failed to add worktree:", e);
-      toast.error(t("createWorktreeFailed", { error: getErrorMessage(e) }));
+      handleError(e, "add worktree");
     } finally {
       setAdding(false);
     }
@@ -80,8 +79,7 @@ export default function WorktreeManager({ open, onOpenChange, projectPath, onOpe
       await worktreeService.remove(projectPath, pendingRemove.path);
       await loadWorktrees();
     } catch (e) {
-      console.error("Failed to remove worktree:", e);
-      toast.error(t("deleteWorktreeFailed", { error: getErrorMessage(e) }));
+      handleError(e, "remove worktree");
     } finally {
       setPendingRemove(null);
     }
@@ -148,7 +146,7 @@ export default function WorktreeManager({ open, onOpenChange, projectPath, onOpe
                       <Button variant="ghost" size="sm" onClick={() => onOpenWorktree(wt.path)} title={t("sidebar:openHere")}>
                         <Terminal size={14} />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => openPath(wt.path).catch(console.error)} title={t("sidebar:openFolder")}>
+                      <Button variant="ghost" size="sm" onClick={() => openPath(wt.path).catch((e) => handleErrorSilent(e, "open path"))} title={t("sidebar:openFolder")}>
                         <FolderOpen size={14} />
                       </Button>
                       {!wt.isMain && (

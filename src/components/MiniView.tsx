@@ -6,7 +6,7 @@ import { usePanesStore, useTerminalStatusStore, useMiniModeStore } from "@/store
 import StatusIndicator from "@/components/StatusIndicator";
 import type { Tab } from "@/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isTauriReady } from "@/utils";
+import { isTauriReady, handleErrorSilent } from "@/utils";
 
 export default function MiniView() {
   const { t } = useTranslation("common");
@@ -34,7 +34,7 @@ export default function MiniView() {
       const result = await invoke<boolean>("toggle_always_on_top");
       setIsPinned(result);
     } catch (e) {
-      console.error("Failed to toggle pin:", e);
+      handleErrorSilent(e, "toggle pin");
     }
   }
 

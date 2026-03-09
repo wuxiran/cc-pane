@@ -5,6 +5,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::time::SystemTime;
+use tracing::debug;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ClaudeSession {
@@ -347,6 +348,7 @@ pub fn scan_broken_sessions(project_path: Option<String>) -> AppResult<Vec<Broke
 /// 清理单个会话文件中的 thinking/redacted_thinking 块
 #[tauri::command]
 pub fn clean_session_file(file_path: String) -> CleanResult {
+    debug!(file_path = %file_path, "cmd::clean_session_file");
     let path = PathBuf::from(&file_path);
 
     // 路径安全校验：必须在 ~/.claude 目录范围内
@@ -492,6 +494,7 @@ pub fn clean_session_file(file_path: String) -> CleanResult {
 /// 批量清理所有损坏的会话文件
 #[tauri::command]
 pub fn clean_all_broken_sessions(project_path: Option<String>) -> AppResult<Vec<CleanResult>> {
+    debug!(project_path = ?project_path, "cmd::clean_all_broken_sessions");
     let broken = scan_broken_sessions(project_path)?;
     Ok(broken
         .into_iter()

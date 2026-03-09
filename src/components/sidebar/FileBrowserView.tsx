@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { handleError, handleErrorSilent } from "@/utils";
 import {
   FilePlus, FolderPlus, RefreshCw, ChevronsDownUp, Crosshair,
 } from "lucide-react";
@@ -50,7 +51,7 @@ export default function FileBrowserView() {
     } else {
       homeDir().then((home) => {
         if (home) navigateTo(home.replace(/\\/g, "/").replace(/\/+$/, ""));
-      }).catch(console.error);
+      }).catch((e) => handleErrorSilent(e, "get home dir"));
     }
   }, [currentPath, navigateTo]);
 
@@ -64,7 +65,7 @@ export default function FileBrowserView() {
   const handleRefresh = useCallback(() => {
     if (!currentPath) return;
     refresh(currentPath).catch((err) => {
-      toast.error(`Refresh failed: ${err}`);
+      handleError(err, "refresh file tree");
     });
     loadGitStatuses(currentPath).catch(() => {});
   }, [currentPath, refresh, loadGitStatuses]);
@@ -76,7 +77,7 @@ export default function FileBrowserView() {
 
   const handleRevealFile = useCallback(() => {
     if (!currentPath || !selectedFilePath) return;
-    revealFile(currentPath, selectedFilePath).catch(console.error);
+    revealFile(currentPath, selectedFilePath).catch((e) => handleErrorSilent(e, "reveal file"));
   }, [currentPath, selectedFilePath, revealFile]);
 
   const handleNewFile = useCallback(() => {
@@ -100,7 +101,7 @@ export default function FileBrowserView() {
         toast.success(`Created: ${inputValue.trim()}`);
       }
     } catch (err) {
-      toast.error(`Operation failed: ${err}`);
+      handleError(err, "create file/directory");
     }
     setDialogType(null);
   }, [dialogType, inputValue, currentPath, createFile, createDirectory]);

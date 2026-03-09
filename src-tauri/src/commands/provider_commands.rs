@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
+use tracing::debug;
 
 #[tauri::command]
 pub fn list_providers(
@@ -33,6 +34,7 @@ pub fn add_provider(
     provider: Provider,
     service: State<'_, Arc<ProviderService>>,
 ) -> AppResult<()> {
+    debug!(id = %provider.id, name = %provider.name, "cmd::add_provider");
     Ok(service.add_provider(provider)?)
 }
 
@@ -41,6 +43,7 @@ pub fn update_provider(
     provider: Provider,
     service: State<'_, Arc<ProviderService>>,
 ) -> AppResult<()> {
+    debug!(id = %provider.id, "cmd::update_provider");
     Ok(service.update_provider(provider)?)
 }
 
@@ -49,6 +52,7 @@ pub fn remove_provider(
     id: String,
     service: State<'_, Arc<ProviderService>>,
 ) -> AppResult<()> {
+    debug!(id = %id, "cmd::remove_provider");
     Ok(service.remove_provider(&id)?)
 }
 
@@ -57,6 +61,7 @@ pub fn set_default_provider(
     id: String,
     service: State<'_, Arc<ProviderService>>,
 ) -> AppResult<()> {
+    debug!(id = %id, "cmd::set_default_provider");
     Ok(service.set_default(&id)?)
 }
 
@@ -167,6 +172,7 @@ fn read_config_file_info(file_path: &Path, path: String) -> AppResult<ConfigDirI
 /// 在系统文件管理器中打开路径
 #[tauri::command]
 pub fn open_path_in_explorer(app: AppHandle, path: String) -> AppResult<()> {
+    debug!(path = %path, "cmd::open_path_in_explorer");
     use tauri_plugin_opener::OpenerExt;
     app.opener()
         .open_path(&path, None::<&str>)

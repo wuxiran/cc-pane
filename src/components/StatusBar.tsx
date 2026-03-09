@@ -5,6 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { handleErrorSilent } from "@/utils";
 import {
   useThemeStore,
   useMiniModeStore,
@@ -33,7 +34,7 @@ export default function StatusBar() {
     const store = useSettingsStore.getState();
     if (store.settings) {
       const updated = { ...store.settings, general: { ...store.settings.general, language: nextLang } };
-      store.saveSettings(updated).catch(console.error);
+      store.saveSettings(updated).catch((e) => handleErrorSilent(e, "save settings"));
     }
   }
 

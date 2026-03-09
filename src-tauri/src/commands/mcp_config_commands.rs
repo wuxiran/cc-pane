@@ -4,6 +4,7 @@ use crate::utils::{validate_command, validate_mcp_name, validate_path, AppResult
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 #[tauri::command]
 pub fn list_mcp_servers(
@@ -33,6 +34,7 @@ pub fn upsert_mcp_server(
     env: HashMap<String, String>,
     service: State<'_, Arc<McpConfigService>>,
 ) -> AppResult<()> {
+    debug!("cmd::upsert_mcp_server name={}", name);
     validate_path(&project_path)?;
     validate_mcp_name(&name)?;
     validate_command(&command)?;
@@ -46,6 +48,7 @@ pub fn remove_mcp_server(
     name: String,
     service: State<'_, Arc<McpConfigService>>,
 ) -> AppResult<bool> {
+    debug!("cmd::remove_mcp_server name={}", name);
     validate_path(&project_path)?;
     Ok(service.remove_mcp_server(&project_path, &name)?)
 }

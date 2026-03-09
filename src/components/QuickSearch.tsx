@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Search, Folder, Loader2 } from "lucide-react";
+import { handleErrorSilent } from "@/utils";
 import { useWorkspacesStore, useActivityBarStore } from "@/stores";
 import { useFileBrowserStore } from "@/stores/useFileBrowserStore";
 import { useEditorTabsStore } from "@/stores/useEditorTabsStore";
@@ -101,7 +102,7 @@ export default function QuickSearch({ open, onClose }: QuickSearchProps) {
           allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
           setResults(allResults.slice(0, 30));
         } catch (e) {
-          console.error("QuickSearch error:", e);
+          handleErrorSilent(e, "QuickSearch");
         } finally {
           if (thisRequestId === requestIdRef.current) {
             setSearching(false);

@@ -2,6 +2,7 @@ use crate::services::{WorktreeService, WorktreeInfo};
 use crate::utils::{AppResult, validate_path};
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 /// Worktree 命令层 - 管理 Git Worktree
 
@@ -30,6 +31,7 @@ pub fn add_worktree(
     branch: Option<String>,
     service: State<'_, Arc<WorktreeService>>,
 ) -> AppResult<String> {
+    debug!("cmd::add_worktree name={}", name);
     validate_path(&project_path)?;
     Ok(service.add_worktree(&project_path, &name, branch.as_deref())?)
 }
@@ -40,6 +42,7 @@ pub fn remove_worktree(
     worktree_path: String,
     service: State<'_, Arc<WorktreeService>>,
 ) -> AppResult<()> {
+    debug!("cmd::remove_worktree worktree_path={}", worktree_path);
     validate_path(&project_path)?;
     validate_path(&worktree_path)?;
     Ok(service.remove_worktree(&project_path, &worktree_path)?)

@@ -17,9 +17,10 @@ mod filesystem_service;
 pub mod file_search_index;
 mod screenshot_service;
 pub mod screenshot_overlay;
+pub mod orchestrator_service;
 
 pub use project_service::ProjectService;
-pub use terminal_service::{TerminalService, SessionStatusInfo, ShellInfo};
+pub use terminal_service::{TerminalService, SessionStatusInfo, ShellInfo, OrchestratorInfo};
 pub use history_service::HistoryService;
 pub use hooks_service::{HooksService, HookStatus};
 pub use journal_service::{JournalService, SessionSummary, JournalIndex};
@@ -36,3 +37,4 @@ pub use plan_service::PlanService;
 pub use filesystem_service::FileSystemService;
 pub use file_search_index::FileSearchIndex;
 pub use screenshot_service::{ScreenshotService, CaptureResult};
+pub use orchestrator_service::OrchestratorService;

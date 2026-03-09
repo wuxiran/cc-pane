@@ -22,6 +22,7 @@
     "core:window:allow-close",
     "core:window:allow-hide",
     "core:window:allow-show",
-    "core:event:default"
+    "core:event:default",
+    "log:default"
   ]
 }

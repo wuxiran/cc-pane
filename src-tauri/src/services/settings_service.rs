@@ -2,6 +2,7 @@ use crate::models::settings::AppSettings;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use tracing::info;
 
 /// 设置服务 - 管理应用配置
 pub struct SettingsService {
@@ -13,10 +14,12 @@ impl SettingsService {
     pub fn new() -> Self {
         let config_path = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".cc-panes")
+            .join(crate::utils::APP_DIR_NAME)
             .join("config.toml");
 
         let settings = Self::load_from_file(&config_path).unwrap_or_default();
+
+        info!(config_path = %config_path.display(), "Settings loaded");
 
         Self {
             config_path,
@@ -54,6 +57,7 @@ impl SettingsService {
     /// 更新设置
     pub fn update_settings(&self, new_settings: AppSettings) -> Result<()> {
         self.save_to_file(&new_settings)?;
+        info!("Settings updated and saved");
         let mut current = self.settings.lock().unwrap_or_else(|e| e.into_inner());
         *current = new_settings;
         Ok(())

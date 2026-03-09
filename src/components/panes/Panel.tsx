@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { X, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { handleErrorSilent } from "@/utils";
 import type { Panel as PanelType, Tab } from "@/types";
 import { usePanesStore, useFullscreenStore, useFileTreeStore } from "@/stores";
 import { terminalService } from "@/services";
@@ -78,7 +79,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     (tabId: string) => {
       const tab = pane.tabs.find((t) => t.id === tabId);
       if (tab?.sessionId) {
-        terminalService.killSession(tab.sessionId).catch(console.error);
+        terminalService.killSession(tab.sessionId).catch((e) => handleErrorSilent(e, "kill session"));
       }
       closeTab(pane.id, tabId);
     },
@@ -116,7 +117,7 @@ export default memo(function Panel({ pane }: PanelProps) {
           tabIds: dirtyTabs.map((t) => t.id),
           action: () => {
             tabsToClose.filter((t) => !t.pinned).forEach((t) => {
-              if (t.sessionId) terminalService.killSession(t.sessionId).catch(console.error);
+              if (t.sessionId) terminalService.killSession(t.sessionId).catch((e) => handleErrorSilent(e, "kill session"));
             });
             action();
           },
@@ -124,7 +125,7 @@ export default memo(function Panel({ pane }: PanelProps) {
         return;
       }
       tabsToClose.filter((t) => !t.pinned).forEach((t) => {
-        if (t.sessionId) terminalService.killSession(t.sessionId).catch(console.error);
+        if (t.sessionId) terminalService.killSession(t.sessionId).catch((e) => handleErrorSilent(e, "kill session"));
       });
       action();
     },

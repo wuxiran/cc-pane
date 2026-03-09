@@ -1,9 +1,13 @@
 use std::path::PathBuf;
+use tracing::warn;
+
+/// dev/release 使用不同的应用目录，避免数据冲突
+pub const APP_DIR_NAME: &str = if cfg!(debug_assertions) { ".cc-panes-dev" } else { ".cc-panes" };
 
 /// 统一路径管理
 ///
-/// - `config_dir` 固定在 `~/.cc-panes/`，存放引导配置 config.toml
-/// - `data_dir` 可配置，默认也是 `~/.cc-panes/`，存放数据库、providers、workspaces
+/// - `config_dir` 固定在 `~/.cc-panes/`（release）或 `~/.cc-panes-dev/`（dev）
+/// - `data_dir` 可配置，默认与 config_dir 相同
 pub struct AppPaths {
     config_dir: PathBuf,
     data_dir: PathBuf,
@@ -13,7 +17,7 @@ impl AppPaths {
     pub fn new(data_dir: Option<String>) -> Self {
         let config_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".cc-panes");
+            .join(APP_DIR_NAME);
 
         let data_dir = match data_dir {
             Some(ref dir) if !dir.is_empty() => PathBuf::from(dir),
@@ -22,10 +26,10 @@ impl AppPaths {
 
         // 确保目录存在
         if let Err(e) = std::fs::create_dir_all(&config_dir) {
-            eprintln!("Warning: failed to create config directory {}: {}", config_dir.display(), e);
+            warn!("Failed to create config directory {}: {}", config_dir.display(), e);
         }
         if let Err(e) = std::fs::create_dir_all(&data_dir) {
-            eprintln!("Warning: failed to create data directory {}: {}", data_dir.display(), e);
+            warn!("Failed to create data directory {}: {}", data_dir.display(), e);
         }
 
         Self {

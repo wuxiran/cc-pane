@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
+use tracing::debug;
 
 use crate::models::{DiffResult, FileVersion, HistoryConfig, HistoryLabel, RecentChange, WorktreeRecentChange};
 use crate::services::HistoryService;
@@ -11,6 +12,7 @@ pub async fn init_project_history(
     project_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
+    debug!(project_path = %project_path, "cmd::init_project_history");
     history_service
         .init_project_history(Path::new(&project_path))?;
     Ok(())
@@ -56,6 +58,7 @@ pub async fn restore_file_version(
     version_id: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
+    debug!(file_path = %file_path, version_id = %version_id, "cmd::restore_file_version");
     history_service
         .restore_version(Path::new(&project_path), &file_path, &version_id)?;
     Ok(())
@@ -77,6 +80,7 @@ pub async fn update_history_config(
     config: HistoryConfig,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
+    debug!(project_path = %project_path, "cmd::update_history_config");
     history_service
         .update_config(Path::new(&project_path), config)?;
     Ok(())
@@ -87,6 +91,7 @@ pub async fn stop_project_history(
     project_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
+    debug!(project_path = %project_path, "cmd::stop_project_history");
     history_service
         .stop_watching(Path::new(&project_path))?;
     Ok(())
@@ -97,6 +102,7 @@ pub async fn cleanup_project_history(
     project_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
+    debug!(project_path = %project_path, "cmd::cleanup_project_history");
     history_service
         .cleanup(Path::new(&project_path))?;
     Ok(())
@@ -142,6 +148,7 @@ pub async fn put_label(
     label: HistoryLabel,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
+    debug!(project_path = %project_path, label_id = %label.id, "cmd::put_label");
     history_service
         .put_label(Path::new(&project_path), &label)?;
     Ok(())
@@ -163,6 +170,7 @@ pub async fn delete_label(
     label_id: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
+    debug!(project_path = %project_path, label_id = %label_id, "cmd::delete_label");
     history_service
         .delete_label(Path::new(&project_path), &label_id)?;
     Ok(())
@@ -174,6 +182,7 @@ pub async fn restore_to_label(
     label_id: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<String>> {
+    debug!(project_path = %project_path, label_id = %label_id, "cmd::restore_to_label");
     let restored = history_service
         .restore_to_label(Path::new(&project_path), &label_id)?;
     Ok(restored)
@@ -186,6 +195,7 @@ pub async fn create_auto_label(
     source: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
+    debug!(project_path = %project_path, name = %name, source = %source, "cmd::create_auto_label");
     let label_id = history_service
         .create_auto_label(Path::new(&project_path), &name, &source)?;
     Ok(label_id)
@@ -239,6 +249,7 @@ pub async fn compress_history(
     project_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<usize> {
+    debug!(project_path = %project_path, "cmd::compress_history");
     let count = history_service
         .compress_blobs(Path::new(&project_path))?;
     Ok(count)

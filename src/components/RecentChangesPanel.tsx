@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { localHistoryService, type RecentChange, type WorktreeRecentChange } from "@/services";
-import { formatRelativeTime, formatFullTime, formatSize, getFileName, getDirName } from "@/utils";
+import { formatRelativeTime, formatFullTime, formatSize, getFileName, getDirName, handleErrorSilent } from "@/utils";
 
 interface RecentChangesPanelProps {
   open: boolean;
@@ -64,7 +64,7 @@ export default function RecentChangesPanel({ open, onOpenChange, projectPath, on
         setChanges(await localHistoryService.getRecentChanges(projectPath, 100));
       }
     } catch (e) {
-      console.error("Failed to load recent changes:", e);
+      handleErrorSilent(e, "load recent changes");
       setChanges([]);
       setWorktreeChanges([]);
     } finally {

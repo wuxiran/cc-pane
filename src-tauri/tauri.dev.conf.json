@@ -1,0 +1,6 @@
+{
+  "identifier": "com.ccpanes.dev",
+  "app": {
+    "windows": [{ "title": "CC-Panes [DEV]" }]
+  }
+}

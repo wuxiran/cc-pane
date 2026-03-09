@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// 解析默认 Shell
@@ -149,14 +150,22 @@ struct TerminalSession {
     cancelled: Arc<AtomicBool>,
 }
 
+/// Orchestrator 连接信息（port + token），启动后注入
+#[derive(Debug, Clone)]
+pub struct OrchestratorInfo {
+    pub port: u16,
+    pub token: String,
+}
+
 /// 终端服务 - 管理多个 PTY 会话
 pub struct TerminalService {
     sessions: Arc<Mutex<HashMap<String, TerminalSession>>>,
     settings_service: Arc<SettingsService>,
     provider_service: Arc<ProviderService>,
     notification_service: Arc<NotificationService>,
-    #[allow(dead_code)]
     app_paths: Arc<AppPaths>,
+    /// Orchestrator 连接信息，setup 阶段设置
+    orchestrator_info: Mutex<Option<OrchestratorInfo>>,
 }
 
 /// ConPTY style-only 空闲帧：\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l  (25 字节)
@@ -354,6 +363,7 @@ impl TerminalService {
             provider_service,
             notification_service,
             app_paths,
+            orchestrator_info: Mutex::new(None),
         }
     }
 
@@ -394,6 +404,14 @@ impl TerminalService {
 
         let _ = workspace_name;
 
+        // 注入 Orchestrator API 信息到所有 PTY 会话
+        if let Ok(info_guard) = self.orchestrator_info.lock() {
+            if let Some(info) = info_guard.as_ref() {
+                env_vars.insert("CC_PANES_API_PORT".to_string(), info.port.to_string());
+                env_vars.insert("CC_PANES_API_TOKEN".to_string(), info.token.clone());
+            }
+        }
+
         // 1. cwd：workspace_path 优先，否则 project_path
         let cwd = match workspace_path {
             Some(ws_path) => PathBuf::from(ws_path),
@@ -402,18 +420,37 @@ impl TerminalService {
 
         // 2. 命令：launch_claude 明确控制
         let (command, args) = if launch_claude {
+            debug!(
+                session_id = %session_id,
+                project = %project_path,
+                resume_id = ?resume_id,
+                "create_session: launch_claude=true, resolving claude CLI"
+            );
             if which::which("claude").is_ok() {
                 let mut claude_args = Vec::new();
                 if let Some(rid) = resume_id {
                     claude_args.push("--resume".to_string());
                     claude_args.push(rid.to_string());
+                    debug!(session_id = %session_id, resume_id = rid, "create_session: resume mode");
                 }
                 if workspace_path.is_some() {
                     claude_args.push("--add-dir".to_string());
                     claude_args.push(project_path.to_string());
                 }
+
+                // 生成 MCP 配置文件并注入 --mcp-config 参数
+                if let Some(mcp_config_path) = self.generate_mcp_config() {
+                    debug!(session_id = %session_id, mcp_config = %mcp_config_path, "create_session: MCP config injected");
+                    claude_args.push("--mcp-config".to_string());
+                    claude_args.push(mcp_config_path);
+                } else {
+                    warn!(session_id = %session_id, "create_session: no MCP config generated (orchestrator not running?)");
+                }
+
+                debug!(session_id = %session_id, args = ?claude_args, "create_session: claude CLI resolved");
                 ("claude".to_string(), claude_args)
             } else {
+                error!(session_id = %session_id, project = %project_path, "create_session: claude CLI NOT FOUND in PATH");
                 return Err(anyhow!("claude CLI not found in PATH"));
             }
         } else {
@@ -421,6 +458,16 @@ impl TerminalService {
         };
 
         // 创建 PTY
+        debug!(
+            session_id = %session_id,
+            command = %command,
+            cwd = %cwd.display(),
+            launch_claude,
+            "create_session: spawning PTY"
+        );
+        let command_for_log = command.clone();
+        let cwd_for_log = cwd.display().to_string();
+
         let config = PtyConfig {
             cols,
             rows,
@@ -430,7 +477,27 @@ impl TerminalService {
             env: env_vars,
         };
 
-        let spawn_result = spawn_pty(config)?;
+        let spawn_result = match spawn_pty(config) {
+            Ok(result) => {
+                info!(
+                    session_id = %session_id,
+                    command = %command_for_log,
+                    launch_claude,
+                    "create_session: PTY spawned successfully"
+                );
+                result
+            }
+            Err(e) => {
+                error!(
+                    session_id = %session_id,
+                    command = %command_for_log,
+                    cwd = %cwd_for_log,
+                    err = %e,
+                    "create_session: PTY spawn FAILED"
+                );
+                return Err(e);
+            }
+        };
         let mut reader = spawn_result.reader;
         let writer = spawn_result.writer;
         let process = spawn_result.process;
@@ -495,8 +562,7 @@ impl TerminalService {
                     Ok(n) => {
                         // 首次输出诊断日志，用于排查前端事件注册竞态
                         if first_output {
-                            println!("[pty-read] session={} first output: {} bytes", sid, n);
-                            let _ = std::io::stdout().flush();
+                            debug!("[pty-read] session={} first output: {} bytes", sid, n);
                             first_output = false;
                         }
                         #[cfg(windows)]
@@ -526,7 +592,7 @@ impl TerminalService {
                         // 更新状态
                         {
                             let mut ts = read_last_output.lock().unwrap_or_else(|e| {
-                                eprintln!("last_output_at lock poisoned, using fallback value");
+                                warn!("last_output_at lock poisoned, using fallback value");
                                 e.into_inner()
                             });
                             *ts = Instant::now();
@@ -536,7 +602,7 @@ impl TerminalService {
                         let new_status = infer_status(&data);
                         {
                             let mut s = read_status.lock().unwrap_or_else(|e| {
-                                eprintln!("read_status lock poisoned, using fallback value");
+                                warn!("read_status lock poisoned, using fallback value");
                                 e.into_inner()
                             });
                             *s = new_status;
@@ -545,7 +611,7 @@ impl TerminalService {
                         // 检测状态变更并触发通知
                         {
                             let mut prev = prev_status.lock().unwrap_or_else(|e| {
-                                eprintln!("prev_status lock poisoned, using fallback value");
+                                warn!("prev_status lock poisoned, using fallback value");
                                 e.into_inner()
                             });
                             if *prev != SessionStatus::WaitingInput
@@ -587,7 +653,7 @@ impl TerminalService {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Terminal read error: {}", e);
+                        warn!("Terminal read error: {}", e);
                         break;
                     }
                 }
@@ -616,7 +682,7 @@ impl TerminalService {
             // 标记为已退出
             {
                 let mut s = exit_status.lock().unwrap_or_else(|e| {
-                    eprintln!("exit_status lock poisoned, using fallback value");
+                    warn!("exit_status lock poisoned, using fallback value");
                     e.into_inner()
                 });
                 *s = SessionStatus::Exited;
@@ -655,6 +721,7 @@ impl TerminalService {
             }
         });
 
+        info!(session_id = %session_id, project = %project_path, launch_claude, "Terminal session created");
         Ok(session_id)
     }
 
@@ -724,6 +791,7 @@ impl TerminalService {
 
     /// 关闭终端会话
     pub fn kill(&self, session_id: &str) -> Result<()> {
+        debug!(session_id = %session_id, "Terminal kill requested");
         // 在 sessions lock 外 drop session，避免 ConPTY writer 关闭时阻塞锁
         let session = {
             let mut sessions = self
@@ -757,7 +825,7 @@ impl TerminalService {
                 let _ = session.process.kill();
             }
             if count > 0 {
-                eprintln!("[cleanup] cleaned up {} terminal sessions", count);
+                info!("[cleanup] cleaned up {} terminal sessions", count);
             }
         }
     }
@@ -765,6 +833,61 @@ impl TerminalService {
     /// 获取可用 Shell 列表
     pub fn get_available_shells(&self) -> Vec<ShellInfo> {
         detect_shells()
+    }
+
+    /// 设置 Orchestrator 连接信息（setup 阶段调用）
+    pub fn set_orchestrator_info(&self, port: u16, token: String) {
+        if let Ok(mut info) = self.orchestrator_info.lock() {
+            *info = Some(OrchestratorInfo { port, token });
+            info!("[terminal] Orchestrator info set: port={}", port);
+        }
+    }
+
+    /// 生成 MCP 配置文件，返回路径
+    /// 配置 CC-Panes 的 Streamable HTTP MCP 端点
+    fn generate_mcp_config(&self) -> Option<String> {
+        let info = self.orchestrator_info.lock().ok()?.as_ref()?.clone();
+
+        // 健康检查：验证 Orchestrator 端口是否真正在监听
+        let check_addr = format!("127.0.0.1:{}", info.port);
+        if std::net::TcpStream::connect_timeout(
+            &check_addr.parse().ok()?,
+            std::time::Duration::from_millis(200),
+        )
+        .is_err()
+        {
+            warn!(
+                "[terminal] Orchestrator not reachable at {}, skipping MCP config",
+                check_addr
+            );
+            return None;
+        }
+
+        let config_dir = self.app_paths.data_dir();
+        let config_path = config_dir.join("mcp-orchestrator.json");
+
+        let config = serde_json::json!({
+            "mcpServers": {
+                "ccpanes": {
+                    "type": "url",
+                    "url": format!("http://127.0.0.1:{}/mcp", info.port),
+                    "headers": {
+                        "Authorization": format!("Bearer {}", info.token)
+                    }
+                }
+            }
+        });
+
+        match std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default()) {
+            Ok(_) => {
+                debug!("[terminal] MCP config written to {}", config_path.display());
+                Some(config_path.to_string_lossy().to_string())
+            }
+            Err(e) => {
+                error!("[terminal] Failed to write MCP config: {}", e);
+                None
+            }
+        }
     }
 }
 
