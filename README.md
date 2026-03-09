@@ -26,6 +26,10 @@ CC-Panes lets you run **multiple Claude Code CLI instances** side by side in a s
 - **Git Integration** — Branch status, pull/push/fetch/stash, worktree management, and git clone
 - **Session Management** — Track launch history with recent launches panel, clean broken sessions, and resume previous work
 - **Local History** — File version tracking with diff view, labels, branch-aware snapshots, and restore
+- **File Browser** — Project file tree with search, create, rename, delete, copy, and move operations
+- **Code Editor** — Monaco-based editor with 60+ language support, Markdown preview, and image preview
+- **Quick Search** — Global file search (Ctrl+K) across all workspace projects
+- **Screenshot** — Region capture with global shortcut, multi-monitor support, and clipboard copy
 - **Session Journal** — Workspace-level session logging
 - **Todo & Plans** — Task management with priorities, subtasks, and plan archiving
 - **Memory & Skills** — Manage Claude memories and custom skills per project
@@ -97,7 +101,7 @@ cd cc-panes
 npm install
 
 # Run in development mode (frontend + Rust backend)
-npm run tauri dev
+npm run tauri:dev
 ```
 
 ## Build
@@ -130,6 +134,16 @@ cargo fmt --all -- --check
 # Run Rust tests
 cargo test --workspace
 ```
+
+### Dev/Release Isolation
+
+Dev and release builds are fully isolated via `cfg!(debug_assertions)` and can run simultaneously:
+
+| | Dev (`npm run tauri:dev`) | Release (`npm run tauri build`) |
+|---|---|---|
+| Data directory | `~/.cc-panes-dev/` | `~/.cc-panes/` |
+| Identifier | `com.ccpanes.dev` | `com.ccpanes.app` |
+| Window title | CC-Panes [DEV] | CC-Panes |
 
 ## Project Structure
 
