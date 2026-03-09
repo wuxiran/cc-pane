@@ -1,6 +1,15 @@
-use crate::models::{MonitorInfo, ScreenshotResult, TempScreenshot};
+use crate::models::{ScreenshotResult, TempScreenshot};
 use crate::utils::AppResult;
 use std::path::PathBuf;
+
+/// 内存中的截图结果（无文件 I/O）
+pub struct CaptureResult {
+    pub image: image::RgbaImage,
+    pub monitor_x: i32,
+    pub monitor_y: i32,
+    pub monitor_width: u32,
+    pub monitor_height: u32,
+}
 
 /// 获取鼠标当前物理坐标（Windows API: GetCursorPos）
 #[cfg(target_os = "windows")]
@@ -64,8 +73,8 @@ impl ScreenshotService {
         dir
     }
 
-    /// 获取鼠标所在显示器的位置和尺寸（极快 <1ms，不截图）
-    pub fn get_monitor_info() -> AppResult<MonitorInfo> {
+    /// 截取鼠标所在的单个显示器，直接返回内存中的 RgbaImage（无文件 I/O）
+    pub fn capture_to_memory() -> AppResult<CaptureResult> {
         use xcap::Monitor;
 
         let monitors = Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
@@ -78,16 +87,71 @@ impl ScreenshotService {
             .unwrap_or(0);
 
         let monitor = &monitors[monitor_idx];
-        Ok(MonitorInfo {
-            x: monitor.x(),
-            y: monitor.y(),
-            width: monitor.width(),
-            height: monitor.height(),
+        let img = monitor
+            .capture_image()
+            .map_err(|e| format!("Failed to capture monitor '{}': {}", monitor.name(), e))?;
+
+        Ok(CaptureResult {
+            image: img,
+            monitor_x: monitor.x(),
+            monitor_y: monitor.y(),
+            monitor_width: monitor.width(),
+            monitor_height: monitor.height(),
         })
     }
 
-    /// 截取鼠标所在的单个显示器，保存为临时 BMP 文件（无压缩，编码极快）
-    pub fn capture_current_monitor() -> AppResult<TempScreenshot> {
+    /// 从内存中的 RgbaImage 裁剪区域并保存为 PNG
+    pub fn save_cropped(
+        img: &image::RgbaImage,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+    ) -> AppResult<ScreenshotResult> {
+        if w == 0 || h == 0 {
+            return Err("Crop region has zero width or height".into());
+        }
+
+        let img_width = img.width();
+        let img_height = img.height();
+
+        if x + w > img_width || y + h > img_height {
+            return Err(format!(
+                "Crop region ({},{},{},{}) exceeds image bounds ({}x{})",
+                x, y, w, h, img_width, img_height
+            )
+            .into());
+        }
+
+        let cropped = image::imageops::crop_imm(img, x, y, w, h).to_image();
+
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+        let filename = format!("screenshot_{}.png", timestamp);
+        let save_dir = Self::screenshots_dir();
+        let file_path = save_dir.join(&filename);
+
+        cropped
+            .save(&file_path)
+            .map_err(|e| format!("Failed to save screenshot: {}", e))?;
+
+        let result = ScreenshotResult {
+            file_path: file_path.to_string_lossy().to_string(),
+            width: w,
+            height: h,
+        };
+
+        std::thread::spawn(move || {
+            if let Err(e) = Self::cleanup_old_screenshots(7) {
+                eprintln!("Screenshot cleanup error: {}", e);
+            }
+        });
+
+        Ok(result)
+    }
+
+    /// 截取鼠标所在的单个显示器，保存为临时 BMP 文件（旧版，保留兼容）
+    #[allow(dead_code)]
+    pub fn capture_current_monitor() -> AppResult<crate::models::TempScreenshot> {
         use xcap::Monitor;
 
         let monitors = Monitor::all().map_err(|e| format!("Failed to list monitors: {}", e))?;
@@ -127,7 +191,8 @@ impl ScreenshotService {
         })
     }
 
-    /// 从临时 BMP 文件裁剪区域并保存为最终截图
+    /// 从临时 BMP 文件裁剪区域并保存为最终截图（旧版，保留兼容）
+    #[allow(dead_code)]
     pub fn crop_and_save_from_file(
         temp_path: &str,
         x: u32,

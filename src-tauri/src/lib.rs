@@ -72,12 +72,14 @@ use commands::{
     fs_create_directory, fs_delete_entry, fs_rename_entry, fs_copy_entry,
     fs_move_entry, fs_search_files, fs_get_entry_info,
     // Screenshot 命令
-    screenshot_capture, screenshot_crop_and_save, screenshot_update_shortcut,
+    screenshot_update_shortcut,
 };
 use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository};
 use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService};
 use utils::AppPaths;
 use std::sync::Arc;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -85,65 +87,173 @@ use tauri::{
     Manager, WindowEvent,
 };
 
-/// 触发截图流程：隐藏主窗口 → 创建全屏截图窗口 → 前端 JS mount 后 invoke 截图
-pub fn trigger_screenshot(app: &tauri::AppHandle) {
-    use tauri::PhysicalPosition;
+/// 截图进行中标志（模块级），托盘/菜单 show 守卫会检查此标志
+static CAPTURING: AtomicBool = AtomicBool::new(false);
 
-    // 防重入：如果截图窗口已存在，不重复触发
-    if app.get_webview_window("screenshot").is_some() {
+/// 触发截图流程：SetWindowDisplayAffinity 方案
+/// Windows: 设置 WDA_EXCLUDEFROMCAPTURE → xcap 截屏 → 选区 → 裁剪保存 → 恢复 WDA_NONE
+/// 非 Windows: Tauri hide → 截屏 → 选区 → 裁剪保存 → Tauri show
+pub fn trigger_screenshot(app: &tauri::AppHandle) {
+    use std::time::Instant;
+
+    if CAPTURING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         return;
     }
 
-    // 隐藏主窗口
+    // 获取主窗口 HWND（isize 可安全跨线程传递）
+    #[cfg(target_os = "windows")]
+    let main_hwnd: Option<isize> = app.get_webview_window("main").and_then(|w| {
+        w.hwnd().ok().map(|h| h.0 as isize)
+    });
+
+    // ★ Windows: 在主线程设置 DisplayAffinity，DWM 层面排除窗口（立即生效）
+    // 窗口保持可见，Tauri 状态不变，不会出现 re-show 问题
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+        };
+        if let Some(val) = main_hwnd {
+            let hwnd = HWND(val as *mut std::ffi::c_void);
+            unsafe { let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE); }
+            eprintln!("[screenshot] display affinity set to WDA_EXCLUDEFROMCAPTURE");
+        }
+    }
+
+    // 非 Windows：仍用 Tauri hide
+    #[cfg(not(target_os = "windows"))]
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.hide();
     }
 
-    // 快速查询显示器信息（<1ms，不截图）
-    let monitor_info = match ScreenshotService::get_monitor_info() {
-        Ok(info) => info,
-        Err(e) => {
-            eprintln!("[screenshot] get_monitor_info failed: {}", e);
-            if let Some(main_win) = app.get_webview_window("main") {
-                let _ = main_win.show();
-                let _ = main_win.set_focus();
+    #[allow(unused_variables)]
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let t0 = Instant::now();
+        eprintln!("[screenshot] +0ms: start (display affinity set)");
+
+        // 非 Windows：等待一帧刷新
+        #[cfg(not(target_os = "windows"))]
+        std::thread::sleep(std::time::Duration::from_millis(80));
+
+        // 1. xcap 截屏到内存（Windows 上主窗口已被 DWM 排除）
+        let capture = match ScreenshotService::capture_to_memory() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[screenshot] +{}ms: capture failed: {}", t0.elapsed().as_millis(), e);
+                #[cfg(target_os = "windows")]
+                restore_display_affinity(main_hwnd);
+                #[cfg(not(target_os = "windows"))]
+                restore_main_window_tauri(&app);
+                CAPTURING.store(false, Ordering::SeqCst);
+                return;
             }
+        };
+        eprintln!(
+            "[screenshot] +{}ms: xcap capture done ({}x{})",
+            t0.elapsed().as_millis(),
+            capture.image.width(),
+            capture.image.height()
+        );
+
+        // 2. 显示原生选区窗口（阻塞直到用户选完或取消）
+        #[cfg(target_os = "windows")]
+        let selection = services::screenshot_overlay::show_selection_overlay(
+            &capture.image,
+            capture.monitor_x,
+            capture.monitor_y,
+            capture.monitor_width,
+            capture.monitor_height,
+        );
+        #[cfg(not(target_os = "windows"))]
+        let selection: Option<services::screenshot_overlay::SelectionRect> = None;
+
+        eprintln!("[screenshot] +{}ms: user finished selection", t0.elapsed().as_millis());
+
+        // 3. 如果有选区 → 从内存裁剪 + 保存 PNG + 复制路径到剪贴板
+        if let Some(rect) = selection {
+            eprintln!("[screenshot] +{}ms: image ready in memory", t0.elapsed().as_millis());
+            match ScreenshotService::save_cropped(
+                &capture.image,
+                rect.x, rect.y, rect.w, rect.h,
+            ) {
+                Ok(result) => {
+                    #[cfg(target_os = "windows")]
+                    copy_to_clipboard_win32(&result.file_path);
+                    eprintln!(
+                        "[screenshot] +{}ms: crop + save done → {}",
+                        t0.elapsed().as_millis(),
+                        result.file_path
+                    );
+                }
+                Err(e) => {
+                    eprintln!("[screenshot] +{}ms: crop failed: {}", t0.elapsed().as_millis(), e);
+                }
+            }
+        } else {
+            eprintln!("[screenshot] +{}ms: user cancelled", t0.elapsed().as_millis());
+        }
+
+        // 4. 恢复 DisplayAffinity / 窗口可见性
+        #[cfg(target_os = "windows")]
+        restore_display_affinity(main_hwnd);
+        #[cfg(not(target_os = "windows"))]
+        restore_main_window_tauri(&app);
+
+        eprintln!("[screenshot] +{}ms: display affinity restored", t0.elapsed().as_millis());
+        CAPTURING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// Windows: 恢复 DisplayAffinity 为 WDA_NONE（截图完成后）
+#[cfg(target_os = "windows")]
+fn restore_display_affinity(hwnd_val: Option<isize>) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_NONE};
+    if let Some(val) = hwnd_val {
+        let hwnd = HWND(val as *mut std::ffi::c_void);
+        unsafe { let _ = SetWindowDisplayAffinity(hwnd, WDA_NONE); }
+    }
+}
+
+/// 非 Windows 平台：通过 Tauri API 恢复主窗口
+#[cfg(not(target_os = "windows"))]
+fn restore_main_window_tauri(app: &tauri::AppHandle) {
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.show();
+        let _ = main_win.set_focus();
+    }
+}
+
+/// Win32 API 直接复制文本到剪贴板
+#[cfg(target_os = "windows")]
+fn copy_to_clipboard_win32(text: &str) {
+    use windows::Win32::Foundation::*;
+    use windows::Win32::System::DataExchange::*;
+    use windows::Win32::System::Memory::*;
+    use windows::Win32::System::Ole::CF_UNICODETEXT;
+
+    unsafe {
+        if !OpenClipboard(None).is_ok() {
+            eprintln!("[screenshot] failed to open clipboard");
             return;
         }
-    };
+        let _ = EmptyClipboard();
 
-    // 创建截图窗口（WebView 初始化 ~500ms，自然替代 sleep 30ms）
-    // 前端 JS mount 后再 invoke screenshot_capture 发起截图
-    let screenshot_win = tauri::WebviewWindowBuilder::new(
-        app,
-        "screenshot",
-        tauri::WebviewUrl::App("screenshot.html".into()),
-    )
-    .title("Screenshot")
-    .fullscreen(false)
-    .decorations(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .focused(true)
-    .visible(false)
-    .inner_size(monitor_info.width as f64, monitor_info.height as f64)
-    .build();
+        let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let size = wide.len() * 2;
 
-    match screenshot_win {
-        Ok(win) => {
-            // 定位到目标显示器
-            let _ = win.set_position(PhysicalPosition::new(monitor_info.x, monitor_info.y));
-            // OS 级全屏，保证覆盖任务栏
-            let _ = win.set_fullscreen(true);
-            // 前端加载完截图后调用 window.show()
-        }
-        Err(e) => {
-            eprintln!("[screenshot] failed to create window: {}", e);
-            if let Some(main_win) = app.get_webview_window("main") {
-                let _ = main_win.show();
-                let _ = main_win.set_focus();
+        let hmem = GlobalAlloc(GMEM_MOVEABLE, size);
+        if let Ok(hmem) = hmem {
+            let ptr = GlobalLock(hmem);
+            if !ptr.is_null() {
+                std::ptr::copy_nonoverlapping(wide.as_ptr() as *const u8, ptr as *mut u8, size);
+                let _ = GlobalUnlock(hmem);
+                let _ = SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(hmem.0)));
             }
         }
+        let _ = CloseClipboard();
     }
 }
 
@@ -264,6 +374,10 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
+                        // 截图期间不恢复窗口，避免窗口重新出现在截图中
+                        if CAPTURING.load(Ordering::SeqCst) {
+                            return;
+                        }
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.unminimize();
@@ -283,6 +397,10 @@ pub fn run() {
                         ..
                     } = event
                     {
+                        // 截图期间不恢复窗口
+                        if CAPTURING.load(Ordering::SeqCst) {
+                            return;
+                        }
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
@@ -298,26 +416,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             match event {
                 WindowEvent::CloseRequested { api, .. } => {
-                    if window.label() == "screenshot" {
-                        // 截图窗口关闭 → 恢复主窗口
-                        if let Some(main_win) = window.app_handle().get_webview_window("main") {
-                            let _ = main_win.show();
-                            let _ = main_win.set_focus();
-                        }
-                    } else {
-                        // 主窗口关闭 → 隐藏到托盘（不退出）
-                        let _ = window.hide();
-                        api.prevent_close();
-                    }
-                }
-                WindowEvent::Destroyed => {
-                    if window.label() == "screenshot" {
-                        // 截图窗口销毁 → 确保恢复主窗口
-                        if let Some(main_win) = window.app_handle().get_webview_window("main") {
-                            let _ = main_win.show();
-                            let _ = main_win.set_focus();
-                        }
-                    }
+                    // 主窗口关闭 → 隐藏到托盘（不退出）
+                    let _ = window.hide();
+                    api.prevent_close();
                 }
                 _ => {}
             }
@@ -503,8 +604,6 @@ pub fn run() {
             fs_search_files,
             fs_get_entry_info,
             // Screenshot 命令
-            screenshot_capture,
-            screenshot_crop_and_save,
             screenshot_update_shortcut
         ])
         .build(tauri::generate_context!())

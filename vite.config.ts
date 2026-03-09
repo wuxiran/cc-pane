@@ -18,7 +18,6 @@ export default defineConfig(async () => ({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
-        screenshot: resolve(__dirname, "screenshot.html"),
       },
       output: {
         manualChunks: {

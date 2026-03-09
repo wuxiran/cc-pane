@@ -29,12 +29,3 @@ pub struct TempScreenshot {
     pub monitor_height: u32,
 }
 
-/// 显示器信息（仅位置和尺寸，不含截图数据）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MonitorInfo {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-}

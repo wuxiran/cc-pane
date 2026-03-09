@@ -1,27 +1,4 @@
-use crate::models::{ScreenshotResult, TempScreenshot};
-use crate::services::ScreenshotService;
 use crate::utils::AppResult;
-
-/// 由前端 JS mount 后调用，执行截图并直接返回结果（替代旧的 pull 模型）
-#[tauri::command]
-pub fn screenshot_capture() -> AppResult<TempScreenshot> {
-    ScreenshotService::capture_current_monitor()
-}
-
-/// 裁剪区域并保存为 PNG（前端传入 temp_file_path，不再从全局 Mutex 取）
-#[tauri::command]
-pub fn screenshot_crop_and_save(
-    temp_file_path: String,
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
-) -> AppResult<ScreenshotResult> {
-    ScreenshotService::crop_and_save_from_file(
-        &temp_file_path,
-        x, y, w, h,
-    )
-}
 
 /// 更新截图快捷键
 #[tauri::command]

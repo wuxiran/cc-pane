@@ -20,4 +20,4 @@ pub use history::{
     RecentChange, WorktreeRecentChange,
 };
 pub use workspace::{Workspace, WorkspaceProject, ScannedRepo, ScannedWorktree};
-pub use screenshot::{MonitorInfo, ScreenshotResult, TempScreenshot};
+pub use screenshot::{ScreenshotResult, TempScreenshot};

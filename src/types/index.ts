@@ -66,7 +66,3 @@ export type {
   SelfChatStatus,
   SelfChatSession,
 } from "./selfchat";
-export type {
-  ScreenshotResult,
-  TempScreenshot,
-} from "./screenshot";
