@@ -27,6 +27,7 @@ interface OrchestratorLaunchPayload {
   workspaceName?: string;
   providerId?: string;
   workspacePath?: string;
+  title?: string;
 }
 
 export function useOrchestratorListener() {
@@ -47,6 +48,7 @@ export function useOrchestratorListener() {
             workspaceName,
             providerId,
             workspacePath,
+            title,
           } = event.payload;
 
           console.info(
@@ -71,7 +73,8 @@ export function useOrchestratorListener() {
             workspaceName,
             providerId,
             workspacePath,
-            true
+            true,
+            title
           );
 
           const updatedState = usePanesStore.getState();

@@ -43,16 +43,22 @@ function createTab(
   workspaceName?: string,
   providerId?: string,
   workspacePath?: string,
-  launchClaude?: boolean
+  launchClaude?: boolean,
+  customTitle?: string
 ): Tab {
-  const name = projectPath.split(/[/\\]/).pop() || "Terminal";
-  let title = name;
-  if (launchClaude) {
-    title = `${name} (Claude)`;
-  } else if (resumeId === "new") {
-    title = `${name} (Claude)`;
-  } else if (resumeId) {
-    title = `${name} (resume)`;
+  let title: string;
+  if (customTitle) {
+    title = customTitle;
+  } else {
+    const name = projectPath.split(/[/\\]/).pop() || "Terminal";
+    title = name;
+    if (launchClaude) {
+      title = `${name} (Claude)`;
+    } else if (resumeId === "new") {
+      title = `${name} (Claude)`;
+    } else if (resumeId) {
+      title = `${name} (resume)`;
+    }
   }
   return {
     id: generateId("tab"),
@@ -135,7 +141,7 @@ interface PanesState {
   resizePanes: (paneId: string, sizes: number[]) => void;
 
   // 标签
-  addTab: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean) => void;
+  addTab: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean, title?: string) => void;
   closeTab: (paneId: string, tabId: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;
   renameTab: (paneId: string, tabId: string, newTitle: string) => void;
@@ -354,12 +360,12 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    addTab: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, launchClaude?) => {
+    addTab: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, launchClaude?, title?) => {
       set((state) => {
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
 
-        const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude);
+        const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude, title);
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });

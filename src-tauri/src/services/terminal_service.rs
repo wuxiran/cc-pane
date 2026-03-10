@@ -887,11 +887,13 @@ impl TerminalService {
         let config_dir = self.app_paths.data_dir();
         let config_path = config_dir.join("mcp-orchestrator.json");
 
+        // token 同时通过 headers 和 URL query 传递（后者为后备方案，
+        // 因为 Claude Code 某些版本可能忽略 headers 配置 — Issue #7290）
         let config = serde_json::json!({
             "mcpServers": {
                 "ccpanes": {
-                    "type": "url",
-                    "url": format!("http://127.0.0.1:{}/mcp", info.port),
+                    "type": "http",
+                    "url": format!("http://127.0.0.1:{}/mcp?token={}", info.port, info.token),
                     "headers": {
                         "Authorization": format!("Bearer {}", info.token)
                     }

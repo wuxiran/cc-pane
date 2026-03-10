@@ -45,6 +45,7 @@ pub struct LaunchTaskRequest {
     pub provider_id: Option<String>,
     pub workspace_name: Option<String>,
     pub workspace_path: Option<String>,
+    pub title: Option<String>,
 }
 
 /// 启动任务响应
@@ -97,6 +98,7 @@ pub struct OrchestratorLaunchEvent {
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
     pub workspace_path: Option<String>,
+    pub title: Option<String>,
 }
 
 /// 文件浏览器导航事件
@@ -203,6 +205,7 @@ impl OrchestratorService {
         app_handle: AppHandle,
         app_paths: Arc<AppPaths>,
     ) -> Result<()> {
+        let app_paths_for_config = app_paths.clone();
         let state = AppState {
             token: self.token.clone(),
             terminal_service,
@@ -274,6 +277,25 @@ impl OrchestratorService {
                 if let Some(port) = *p {
                     let mut self_port = self.port.lock().unwrap_or_else(|e| e.into_inner());
                     *self_port = Some(port);
+
+                    // 启动时立即写入 mcp-orchestrator.json，确保 token 与端口同步
+                    let config = serde_json::json!({
+                        "mcpServers": {
+                            "ccpanes": {
+                                "type": "http",
+                                "url": format!("http://127.0.0.1:{}/mcp?token={}", port, self.token),
+                                "headers": {
+                                    "Authorization": format!("Bearer {}", self.token)
+                                }
+                            }
+                        }
+                    });
+                    let config_path = app_paths_for_config.data_dir().join("mcp-orchestrator.json");
+                    match std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default()) {
+                        Ok(_) => info!("[orchestrator] MCP config written to {}", config_path.display()),
+                        Err(e) => error!("[orchestrator] Failed to write MCP config: {}", e),
+                    }
+
                     break;
                 }
             }
@@ -318,6 +340,11 @@ fn build_router(state: AppState) -> Router {
         .route("/api/launch-task", post(handle_launch_task))
         .route("/api/projects", get(handle_list_projects))
         .route("/api/task-status/{task_id}", get(handle_task_status))
+        .route("/api/sessions", get(handle_list_sessions))
+        .route("/api/session-status/{session_id}", get(handle_session_status))
+        .route("/api/write-to-session", post(handle_write_to_session))
+        .route("/api/submit-to-session", post(handle_submit_to_session))
+        .route("/api/kill-session", post(handle_kill_session))
         .route("/api/health", get(handle_health))
         .nest_service("/mcp", mcp_service)
         .layer(middleware::from_fn_with_state(state.clone(), mcp_auth_middleware))
@@ -334,13 +361,21 @@ async fn mcp_auth_middleware(
     // 仅对 /mcp 路由校验 token（REST handlers 各自校验；OPTIONS 预检由 CORS 层处理）
     if request.uri().path().starts_with("/mcp")
         && request.method() != Method::OPTIONS
-        && !verify_token(request.headers(), &state.token)
     {
-        warn!("[orchestrator] MCP request rejected: invalid or missing Bearer token");
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "Invalid or missing Bearer token"})),
-        ).into_response();
+        let header_ok = verify_token(request.headers(), &state.token);
+        // 后备：从 URL query ?token=xxx 读取（Claude Code 某些版本忽略 headers — Issue #7290）
+        let query_ok = request.uri().query()
+            .and_then(|q| q.split('&').find(|p| p.starts_with("token=")))
+            .map(|p| p[6..] == *state.token)
+            .unwrap_or(false);
+
+        if !header_ok && !query_ok {
+            warn!("[orchestrator] MCP request rejected: invalid or missing Bearer token");
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "Invalid or missing Bearer token"})),
+            ).into_response();
+        }
     }
     next.run(request).await
 }
@@ -359,6 +394,11 @@ struct McpLaunchTaskParams {
     /// 可选的 Provider ID
     #[serde(rename = "providerId")]
     provider_id: Option<String>,
+    /// 自定义标签名（不指定则使用默认 "${目录名} (Claude)"）
+    title: Option<String>,
+    /// 工作空间名称（自动解析 workspace_path 和 provider）
+    #[serde(rename = "workspaceName")]
+    workspace_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -485,6 +525,40 @@ struct McpCloseFileParams {
     file_path: String,
 }
 
+// ---- PTY Control MCP 参数 ----
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpWriteToSessionParams {
+    /// 终端会话 ID（由 launch_task 返回）
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    /// 要写入的原始字节（不做任何处理）。如需提交命令给 Claude Code，请改用 submit_to_session。Ctrl+C 用 "\x03"。
+    text: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpSubmitToSessionParams {
+    /// 终端会话 ID（由 launch_task 返回）
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    /// 要提交的文本（不含换行符）。工具会自动拆分为"写文本 → 延迟 → 发 Enter"，确保 Claude Code (ink) 正确识别提交。
+    text: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpGetSessionStatusParams {
+    /// 终端会话 ID
+    #[serde(rename = "sessionId")]
+    session_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpKillSessionParams {
+    /// 要终止的终端会话 ID
+    #[serde(rename = "sessionId")]
+    session_id: String,
+}
+
 /// MCP 工具处理器
 #[derive(Clone)]
 struct McpToolHandler {
@@ -508,13 +582,30 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpLaunchTaskParams>,
     ) -> String {
         info!(project = %params.project_path, prompt_len = params.prompt.len(), "mcp::launch_task");
-        // 白名单校验
-        let is_registered = self.state.project_service.list_projects()
-            .map(|projects| projects.iter().any(|p| p.path == params.project_path))
-            .unwrap_or(false);
-
-        if !is_registered {
+        // 白名单校验（DB 项目 + 工作空间项目）
+        if !is_project_registered(&self.state, &params.project_path) {
             return format!("错误: 项目路径 '{}' 未注册", params.project_path);
+        }
+
+        // 工作空间解析：workspace_name → workspace_path + provider_id
+        let mut ws_name: Option<String> = params.workspace_name.clone();
+        let mut ws_path: Option<String> = None;
+        let mut provider_id = params.provider_id.clone();
+
+        if let Some(ref name) = ws_name {
+            match self.state.workspace_service.get_workspace(name) {
+                Ok(ws) => {
+                    ws_path = ws.path.clone();
+                    if provider_id.is_none() {
+                        provider_id = ws.provider_id.clone();
+                    }
+                    debug!(workspace = %name, path = ?ws_path, provider = ?provider_id, "mcp::launch_task resolved workspace");
+                }
+                Err(e) => {
+                    warn!(workspace = %name, err = %e, "mcp::launch_task workspace not found, ignoring");
+                    ws_name = None;
+                }
+            }
         }
 
         let task_id = uuid::Uuid::new_v4().to_string();
@@ -525,9 +616,9 @@ impl McpToolHandler {
             self.state.app_handle.clone(),
             &params.project_path,
             120, 30,
-            None,
-            params.provider_id.as_deref(),
-            None,
+            ws_name.as_deref(),
+            provider_id.as_deref(),
+            ws_path.as_deref(),
             true,
             None,
             false,
@@ -559,9 +650,10 @@ impl McpToolHandler {
             session_id: session_id.clone(),
             project_path: params.project_path.clone(),
             project_id,
-            workspace_name: None,
-            provider_id: params.provider_id.clone(),
-            workspace_path: None,
+            workspace_name: ws_name,
+            provider_id,
+            workspace_path: ws_path,
+            title: params.title.clone(),
         };
         let _ = self.state.app_handle.emit("orchestrator-launch-task", &event);
 
@@ -582,19 +674,42 @@ impl McpToolHandler {
         }).to_string()
     }
 
-    /// 列出所有已注册的项目
+    /// 列出所有已注册的项目（DB 项目 + 工作空间项目）
     #[tool]
     async fn list_projects(&self) -> String {
         debug!("mcp::list_projects");
-        let projects = self.state.project_service.list_projects().unwrap_or_default();
-        let infos: Vec<serde_json::Value> = projects
-            .into_iter()
-            .map(|p| serde_json::json!({
+        let mut infos: Vec<serde_json::Value> = Vec::new();
+
+        // DB 项目
+        for p in self.state.project_service.list_projects().unwrap_or_default() {
+            infos.push(serde_json::json!({
                 "id": p.id.to_string(),
                 "name": p.name,
                 "path": p.path,
-            }))
-            .collect();
+                "source": "db",
+            }));
+        }
+
+        // 工作空间项目（去重：与 DB 路径重复则跳过）
+        for ws in self.state.workspace_service.list_workspaces().unwrap_or_default() {
+            for p in &ws.projects {
+                let norm = normalize_path(&p.path);
+                let already_listed = infos.iter().any(|i| {
+                    i["path"].as_str().map(normalize_path) == Some(norm.clone())
+                });
+                if already_listed {
+                    continue;
+                }
+                infos.push(serde_json::json!({
+                    "id": p.id,
+                    "name": p.path.split(['/', '\\']).next_back().unwrap_or(&p.path),
+                    "path": p.path,
+                    "alias": p.alias,
+                    "workspace": ws.name,
+                    "source": "workspace",
+                }));
+            }
+        }
 
         serde_json::json!({ "projects": infos }).to_string()
     }
@@ -939,6 +1054,116 @@ impl McpToolHandler {
             }
         }
     }
+
+    // ============ PTY Control Tools ============
+
+    /// 向指定 PTY 会话写入原始字节（不做时序处理）。适合发送控制字符（如 Ctrl+C: "\x03"）。如果需要向 Claude Code 提交命令或 prompt，请改用 submit_to_session，它会自动处理 Enter 键时序。
+    #[tool]
+    async fn write_to_session(
+        &self,
+        Parameters(params): Parameters<McpWriteToSessionParams>,
+    ) -> String {
+        info!(session_id = %params.session_id, text_len = params.text.len(), "mcp::write_to_session");
+        match self.state.terminal_service.write(&params.session_id, &params.text) {
+            Ok(()) => {
+                serde_json::json!({
+                    "success": true,
+                    "sessionId": params.session_id,
+                }).to_string()
+            }
+            Err(e) => {
+                error!(session_id = %params.session_id, err = %e, "mcp::write_to_session failed");
+                format!("错误: 写入会话 '{}' 失败: {}", params.session_id, e)
+            }
+        }
+    }
+
+    /// 向 PTY 会话提交文本（自动处理 Enter 键时序）。内部先写入文本，等待 150ms，再单独发送 Enter，确保 Claude Code (ink) 正确识别为提交。适用于发送 slash command（如 "/plan"）或输入 prompt。
+    #[tool]
+    async fn submit_to_session(
+        &self,
+        Parameters(params): Parameters<McpSubmitToSessionParams>,
+    ) -> String {
+        info!(session_id = %params.session_id, text_len = params.text.len(), "mcp::submit_to_session");
+        // 去除文本中的换行符，防止意外提交
+        let clean_text = params.text.replace(['\r', '\n'], "");
+        match submit_text_to_session(&self.state.terminal_service, &params.session_id, &clean_text).await {
+            Ok(()) => {
+                serde_json::json!({
+                    "success": true,
+                    "sessionId": params.session_id,
+                }).to_string()
+            }
+            Err(e) => {
+                error!(session_id = %params.session_id, err = %e, "mcp::submit_to_session failed");
+                format!("错误: 提交到会话 '{}' 失败: {}", params.session_id, e)
+            }
+        }
+    }
+
+    /// 查询指定终端会话的当前状态（Active/Idle/WaitingInput/Exited）及最近输出时间。
+    #[tool]
+    async fn get_session_status(
+        &self,
+        Parameters(params): Parameters<McpGetSessionStatusParams>,
+    ) -> String {
+        debug!(session_id = %params.session_id, "mcp::get_session_status");
+        match self.state.terminal_service.get_all_status() {
+            Ok(statuses) => {
+                match statuses.iter().find(|s| s.session_id == params.session_id) {
+                    Some(status) => {
+                        serde_json::json!({
+                            "sessionId": status.session_id,
+                            "status": status.status,
+                            "lastOutputAt": status.last_output_at,
+                        }).to_string()
+                    }
+                    None => format!("错误: 会话 '{}' 不存在", params.session_id),
+                }
+            }
+            Err(e) => format!("错误: 获取会话状态失败: {}", e),
+        }
+    }
+
+    /// 列出所有活跃的终端会话及其状态，返回 sessionId、status、lastOutputAt。
+    #[tool]
+    async fn list_sessions(&self) -> String {
+        debug!("mcp::list_sessions");
+        match self.state.terminal_service.get_all_status() {
+            Ok(statuses) => {
+                let sessions: Vec<serde_json::Value> = statuses.iter().map(|s| {
+                    serde_json::json!({
+                        "sessionId": s.session_id,
+                        "status": s.status,
+                        "lastOutputAt": s.last_output_at,
+                    })
+                }).collect();
+                serde_json::json!({ "sessions": sessions }).to_string()
+            }
+            Err(e) => format!("错误: 获取会话列表失败: {}", e),
+        }
+    }
+
+    /// 终止指定的终端会话。会话将被立即关闭，PTY 进程被终止。
+    #[tool]
+    async fn kill_session(
+        &self,
+        Parameters(params): Parameters<McpKillSessionParams>,
+    ) -> String {
+        info!(session_id = %params.session_id, "mcp::kill_session");
+        match self.state.terminal_service.kill(&params.session_id) {
+            Ok(()) => {
+                serde_json::json!({
+                    "success": true,
+                    "sessionId": params.session_id,
+                }).to_string()
+            }
+            Err(e) => {
+                error!(session_id = %params.session_id, err = %e, "mcp::kill_session failed");
+                format!("错误: 终止会话 '{}' 失败: {}", params.session_id, e)
+            }
+        }
+    }
 }
 
 #[tool_handler]
@@ -948,13 +1173,45 @@ impl ServerHandler for McpToolHandler {
             .with_instructions(concat!(
                 "CC-Panes Orchestrator: 管理 Claude Code 多实例编排与工作空间。\n",
                 "编排: launch_task（启动 Claude 实例）、list_projects（已注册项目）、get_task_status（任务状态）\n",
+                "PTY 控制: write_to_session（向会话写入文本/命令）、get_session_status（查询会话状态）、list_sessions（列出所有会话）、kill_session（终止会话）\n",
                 "工作空间: list_workspaces、get_workspace、create_workspace、add_project_to_workspace、scan_directory\n",
                 "待办: query_todos、create_todo、update_todo\n",
                 "Skill: list_skills（查看项目可用命令模板）\n",
                 "文件: open_folder（导航文件浏览器）、open_file（编辑器打开文件）、close_file（关闭标签）、list_open_files（查询打开的文件）\n",
-                "典型流程: scan_directory 发现项目 → create_workspace → add_project_to_workspace → launch_task",
+                "典型编排流程: launch_task → get_session_status（等 WaitingInput）→ write_to_session（注入命令）→ 监控 → kill_session\n",
+                "典型项目流程: scan_directory 发现项目 → create_workspace → add_project_to_workspace → launch_task",
             ))
     }
+}
+
+// ============ 路径白名单 ============
+
+/// 规范化路径（统一正斜杠、去尾部分隔符）用于白名单比较
+fn normalize_path(p: &str) -> String {
+    p.replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+/// 检查项目路径是否在已注册列表中（DB 项目 + 工作空间项目）
+fn is_project_registered(state: &AppState, path: &str) -> bool {
+    let normalized = normalize_path(path);
+
+    // 1. 查 DB projects 表
+    if let Ok(projects) = state.project_service.list_projects() {
+        if projects.iter().any(|p| normalize_path(&p.path) == normalized) {
+            return true;
+        }
+    }
+
+    // 2. 查工作空间项目
+    if let Ok(workspaces) = state.workspace_service.list_workspaces() {
+        for ws in &workspaces {
+            if ws.projects.iter().any(|p| normalize_path(&p.path) == normalized) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 // ============ 认证中间件 ============
@@ -1015,11 +1272,8 @@ async fn handle_launch_task(
         );
     }
 
-    let is_registered = state.project_service.list_projects()
-        .map(|projects| projects.iter().any(|p| p.path == req.project_path))
-        .unwrap_or(false);
-
-    if !is_registered {
+    // 白名单校验（DB 项目 + 工作空间项目）
+    if !is_project_registered(&state, &req.project_path) {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!(ApiError {
@@ -1076,6 +1330,7 @@ async fn handle_launch_task(
         workspace_name: req.workspace_name.clone(),
         provider_id: req.provider_id.clone(),
         workspace_path: req.workspace_path.clone(),
+        title: req.title.clone(),
     };
     let _ = state.app_handle.emit("orchestrator-launch-task", &event);
 
@@ -1109,16 +1364,36 @@ async fn handle_list_projects(
         );
     }
 
-    let projects = state.project_service.list_projects().unwrap_or_default();
-    let project_infos: Vec<ProjectInfo> = projects
-        .into_iter()
-        .map(|p| ProjectInfo {
+    let mut project_infos: Vec<ProjectInfo> = Vec::new();
+
+    // DB 项目
+    for p in state.project_service.list_projects().unwrap_or_default() {
+        project_infos.push(ProjectInfo {
             id: p.id.to_string(),
             name: p.name.clone(),
             path: p.path.clone(),
             workspace_name: None,
-        })
-        .collect();
+        });
+    }
+
+    // 工作空间项目（去重）
+    for ws in state.workspace_service.list_workspaces().unwrap_or_default() {
+        for p in &ws.projects {
+            let norm = normalize_path(&p.path);
+            let already_listed = project_infos.iter().any(|i| normalize_path(&i.path) == norm);
+            if already_listed {
+                continue;
+            }
+            project_infos.push(ProjectInfo {
+                id: p.id.clone(),
+                name: p.alias.clone().unwrap_or_else(|| {
+                    p.path.split(['/', '\\']).next_back().unwrap_or(&p.path).to_string()
+                }),
+                path: p.path.clone(),
+                workspace_name: Some(ws.name.clone()),
+            });
+        }
+    }
 
     (
         StatusCode::OK,
@@ -1146,6 +1421,214 @@ async fn handle_task_status(
             StatusCode::NOT_FOUND,
             Json(serde_json::json!(ApiError { error: format!("Task '{}' not found", task_id) })),
         ),
+    }
+}
+
+// ---- PTY Control REST 请求 ----
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WriteToSessionRequest {
+    session_id: String,
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitToSessionRequest {
+    session_id: String,
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KillSessionRequest {
+    session_id: String,
+}
+
+// ---- PTY Control REST Handlers ----
+
+async fn handle_list_sessions(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    debug!("REST::list_sessions");
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+        );
+    }
+
+    match state.terminal_service.get_all_status() {
+        Ok(statuses) => {
+            let sessions: Vec<serde_json::Value> = statuses.iter().map(|s| {
+                serde_json::json!({
+                    "sessionId": s.session_id,
+                    "status": s.status,
+                    "lastOutputAt": s.last_output_at,
+                })
+            }).collect();
+            (StatusCode::OK, Json(serde_json::json!({ "sessions": sessions })))
+        }
+        Err(e) => {
+            error!(err = %e, "REST::list_sessions failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!(ApiError { error: format!("Failed to list sessions: {}", e) })),
+            )
+        }
+    }
+}
+
+async fn handle_session_status(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    AxumPath(session_id): AxumPath<String>,
+) -> impl IntoResponse {
+    debug!(session_id = %session_id, "REST::session_status");
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+        );
+    }
+
+    match state.terminal_service.get_all_status() {
+        Ok(statuses) => {
+            match statuses.iter().find(|s| s.session_id == session_id) {
+                Some(status) => (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "sessionId": status.session_id,
+                        "status": status.status,
+                        "lastOutputAt": status.last_output_at,
+                    })),
+                ),
+                None => (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!(ApiError { error: format!("Session '{}' not found", session_id) })),
+                ),
+            }
+        }
+        Err(e) => {
+            error!(session_id = %session_id, err = %e, "REST::session_status failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!(ApiError { error: format!("Failed to get session status: {}", e) })),
+            )
+        }
+    }
+}
+
+async fn handle_write_to_session(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<WriteToSessionRequest>,
+) -> impl IntoResponse {
+    info!(session_id = %req.session_id, text_len = req.text.len(), "REST::write_to_session");
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+        );
+    }
+
+    if !check_rate_limit(&state.last_request_times) {
+        warn!("REST::write_to_session rate limit exceeded");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!(ApiError { error: "Rate limit exceeded".to_string() })),
+        );
+    }
+
+    match state.terminal_service.write(&req.session_id, &req.text) {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "success": true, "sessionId": req.session_id })),
+        ),
+        Err(e) => {
+            error!(session_id = %req.session_id, err = %e, "REST::write_to_session failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!(ApiError { error: format!("Failed to write to session: {}", e) })),
+            )
+        }
+    }
+}
+
+async fn handle_submit_to_session(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<SubmitToSessionRequest>,
+) -> impl IntoResponse {
+    info!(session_id = %req.session_id, text_len = req.text.len(), "REST::submit_to_session");
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+        );
+    }
+
+    if !check_rate_limit(&state.last_request_times) {
+        warn!("REST::submit_to_session rate limit exceeded");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!(ApiError { error: "Rate limit exceeded".to_string() })),
+        );
+    }
+
+    // 去除文本中的换行符，防止意外提交
+    let clean_text = req.text.replace(['\r', '\n'], "");
+
+    match submit_text_to_session(&state.terminal_service, &req.session_id, &clean_text).await {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "success": true, "sessionId": req.session_id })),
+        ),
+        Err(e) => {
+            error!(session_id = %req.session_id, err = %e, "REST::submit_to_session failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!(ApiError { error: format!("Failed to submit to session: {}", e) })),
+            )
+        }
+    }
+}
+
+async fn handle_kill_session(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<KillSessionRequest>,
+) -> impl IntoResponse {
+    info!(session_id = %req.session_id, "REST::kill_session");
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+        );
+    }
+
+    if !check_rate_limit(&state.last_request_times) {
+        warn!("REST::kill_session rate limit exceeded");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!(ApiError { error: "Rate limit exceeded".to_string() })),
+        );
+    }
+
+    match state.terminal_service.kill(&req.session_id) {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "success": true, "sessionId": req.session_id })),
+        ),
+        Err(e) => {
+            error!(session_id = %req.session_id, err = %e, "REST::kill_session failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!(ApiError { error: format!("Failed to kill session: {}", e) })),
+            )
+        }
     }
 }
 
@@ -1181,6 +1664,22 @@ fn cleanup_stale_tasks(tasks: &mut HashMap<String, TaskStatus>) {
         let is_terminal = matches!(t.status.as_str(), "completed" | "error" | "timeout");
         !(is_terminal && t.created_at.elapsed() > ttl)
     });
+}
+
+/// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交
+/// 参考: https://github.com/anthropics/claude-code/issues/15553
+async fn submit_text_to_session(
+    terminal_svc: &TerminalService,
+    session_id: &str,
+    text: &str,
+) -> std::result::Result<(), anyhow::Error> {
+    // Step 1: 写入文本（不含换行符）
+    terminal_svc.write(session_id, text)?;
+    // Step 2: 等待 ink 处理完文本
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    // Step 3: 单独发送 Enter
+    terminal_svc.write(session_id, "\r")?;
+    Ok(())
 }
 
 /// 后台线程：等待 Claude 就绪后注入 prompt
@@ -1232,26 +1731,44 @@ fn spawn_prompt_injector(
                                     "prompt_injector: WaitingInput detected, injecting prompt"
                                 );
                                 std::thread::sleep(std::time::Duration::from_millis(300));
-                                match terminal_svc.write(&session_id, &format!("{}\n", prompt)) {
+                                // 分两步写入：先文本，再单独发 Enter
+                                // ink-text-input 仅在 \r 作为独立 stdin read 时识别为提交
+                                // 参考: https://github.com/anthropics/claude-code/issues/15553
+                                match terminal_svc.write(&session_id, &prompt) {
                                     Ok(_) => {
-                                        info!(
-                                            task_id = %task_id,
-                                            session_id = %session_id,
-                                            prompt_len = prompt.len(),
-                                            "prompt_injector: prompt written successfully"
-                                        );
-                                        update_task_status(&tasks, &task_id, "running", None);
-                                        let _ = app_handle.emit("orchestrator-task-update", serde_json::json!({
-                                            "taskId": task_id,
-                                            "status": "running",
-                                        }));
+                                        // 等待 ink 处理完文本后再发 Enter
+                                        std::thread::sleep(std::time::Duration::from_millis(150));
+                                        match terminal_svc.write(&session_id, "\r") {
+                                            Ok(_) => {
+                                                info!(
+                                                    task_id = %task_id,
+                                                    session_id = %session_id,
+                                                    prompt_len = prompt.len(),
+                                                    "prompt_injector: prompt written successfully (split text+enter)"
+                                                );
+                                                update_task_status(&tasks, &task_id, "running", None);
+                                                let _ = app_handle.emit("orchestrator-task-update", serde_json::json!({
+                                                    "taskId": task_id,
+                                                    "status": "running",
+                                                }));
+                                            }
+                                            Err(e) => {
+                                                error!(
+                                                    task_id = %task_id,
+                                                    session_id = %session_id,
+                                                    err = %e,
+                                                    "prompt_injector: FAILED to send Enter"
+                                                );
+                                                update_task_status(&tasks, &task_id, "error", Some(&format!("Failed to send Enter: {}", e)));
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         error!(
                                             task_id = %task_id,
                                             session_id = %session_id,
                                             err = %e,
-                                            "prompt_injector: FAILED to write prompt"
+                                            "prompt_injector: FAILED to write prompt text"
                                         );
                                         update_task_status(&tasks, &task_id, "error", Some(&format!("Failed to write prompt: {}", e)));
                                     }
