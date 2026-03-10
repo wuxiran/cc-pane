@@ -81,7 +81,7 @@ async function collectAppContext(): Promise<string> {
     ? `${sections.join("\n\n")}\n\n${systemHint}`
     : systemHint;
 
-  return contextBlock + "\n\n请确认你已理解上述应用上下文，然后等待用户的具体问题。";
+  return contextBlock;
 }
 
 export const selfChatService = {

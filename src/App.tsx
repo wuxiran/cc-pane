@@ -20,6 +20,7 @@ import { SelfChatManager } from "@/components/selfchat";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import QuickSearch from "@/components/QuickSearch";
+import RecentFilesPicker from "@/components/RecentFilesPicker";
 import {
   usePanesStore,
   useFullscreenStore,
@@ -83,6 +84,10 @@ function MainApp() {
   const openQuickSearch = useCallback(() => setQuickSearchOpen(true), []);
   const closeQuickSearch = useCallback(() => setQuickSearchOpen(false), []);
 
+  // RecentFilesPicker 状态
+  const [recentFilesOpen, setRecentFilesOpen] = useState(false);
+  const closeRecentFiles = useCallback(() => setRecentFilesOpen(false), []);
+
   // Session tracking map: ptySessionId -> { recordId, projectPath, claudeSessionId }
   const sessionMapRef = useRef<Map<string, SessionTrackInfo>>(new Map());
 
@@ -141,12 +146,16 @@ function MainApp() {
     };
   }, []);
 
-  // Ctrl+P 全局快捷键：打开 QuickSearch
+  // Ctrl+P / Ctrl+E 全局快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "p") {
         e.preventDefault();
         setQuickSearchOpen((prev) => !prev);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "e") {
+        e.preventDefault();
+        setRecentFilesOpen((prev) => !prev);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -552,6 +561,9 @@ function MainApp() {
 
         {/* 全局快速搜索 */}
         <QuickSearch open={quickSearchOpen} onClose={closeQuickSearch} />
+
+        {/* 最近文件选择器 */}
+        <RecentFilesPicker open={recentFilesOpen} onClose={closeRecentFiles} />
       </div>
     </TooltipProvider>
   );

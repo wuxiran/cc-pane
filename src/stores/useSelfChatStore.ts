@@ -7,24 +7,23 @@ import type { SelfChatSession, SelfChatStatus } from "@/types";
 interface SelfChatState {
   activeSession: SelfChatSession | null;
 
-  startSession: (appCwd: string) => string;
+  startSession: (appCwd: string, systemPrompt: string | null) => string;
   updatePtySessionId: (id: string, ptySessionId: string) => void;
   setStatus: (id: string, status: SelfChatStatus) => void;
-  setContextInjected: (id: string) => void;
   endSession: (id: string) => void;
 }
 
 export const useSelfChatStore = create<SelfChatState>((set, get) => ({
   activeSession: null,
 
-  startSession: (appCwd) => {
+  startSession: (appCwd, systemPrompt) => {
     const id = crypto.randomUUID();
     const session: SelfChatSession = {
       id,
       appCwd,
       ptySessionId: null,
       status: "initializing",
-      contextInjected: false,
+      systemPrompt,
     };
     set({ activeSession: session });
     return id;
@@ -41,13 +40,6 @@ export const useSelfChatStore = create<SelfChatState>((set, get) => ({
     const s = get().activeSession;
     if (s?.id === id) {
       set({ activeSession: { ...s, status } });
-    }
-  },
-
-  setContextInjected: (id) => {
-    const s = get().activeSession;
-    if (s?.id === id) {
-      set({ activeSession: { ...s, contextInjected: true } });
     }
   },
 

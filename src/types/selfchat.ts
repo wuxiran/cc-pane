@@ -13,5 +13,5 @@ export interface SelfChatSession {
   appCwd: string;              // CC-Panes 项目根目录
   ptySessionId: string | null;
   status: SelfChatStatus;
-  contextInjected: boolean;
+  systemPrompt: string | null;
 }

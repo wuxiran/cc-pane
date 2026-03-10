@@ -19,6 +19,8 @@ pub struct PtyConfig {
     pub command: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
+    /// 需要从继承环境中移除的变量名列表
+    pub env_remove: Vec<String>,
 }
 
 /// PTY 创建后返回的三件套（所有权一次性转移）
@@ -149,6 +151,9 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     };
 
     cmd.cwd(&config.cwd);
+    for key in &config.env_remove {
+        cmd.env_remove(key);
+    }
     for (key, value) in &config.env {
         cmd.env(key, value);
     }

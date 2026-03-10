@@ -43,9 +43,14 @@ interface FileTreeState {
   moveEntry: (src: string, destDir: string, rootPath: string) => Promise<void>;
 }
 
-/** 递归查找节点 */
+/** 规范化路径分隔符，统一为正斜杠 */
+function normPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+/** 递归查找节点（路径比较兼容 Windows 正反斜杠混合） */
 function findNode(node: FileTreeNode, dirPath: string): FileTreeNode | null {
-  if (node.entry.path === dirPath) return node;
+  if (normPath(node.entry.path) === normPath(dirPath)) return node;
   if (node.children) {
     for (const child of node.children) {
       const found = findNode(child, dirPath);

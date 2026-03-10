@@ -33,6 +33,8 @@ interface TerminalViewProps {
   workspacePath?: string;
   launchClaude?: boolean;
   resumeId?: string;
+  skipMcp?: boolean;
+  appendSystemPrompt?: string;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
 }
@@ -269,6 +271,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 workspacePath: props.workspacePath,
                 launchClaude: props.launchClaude,
                 resumeId: props.resumeId,
+                skipMcp: props.skipMcp,
+                appendSystemPrompt: props.appendSystemPrompt,
               });
               console.info(`[TerminalView] Session created: ${sessionId}`);
             }

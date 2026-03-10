@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { handleError, handleErrorSilent } from "@/utils";
 import {
-  FilePlus, FolderPlus, RefreshCw, ChevronsDownUp, Crosshair,
+  FilePlus, FolderPlus, RefreshCw, ChevronsDownUp, Crosshair, Home,
+  ArrowLeft, ArrowRight, ArrowUp,
 } from "lucide-react";
 import { useFileBrowserStore, useWorkspacesStore } from "@/stores";
+import { selfChatService, settingsService } from "@/services";
 import { useFileTreeStore } from "@/stores/useFileTreeStore";
 import { FileTree } from "@/components/filetree";
 import { homeDir } from "@tauri-apps/api/path";
@@ -29,6 +31,11 @@ export default function FileBrowserView() {
 
   const currentPath = useFileBrowserStore((s) => s.currentPath);
   const navigateTo = useFileBrowserStore((s) => s.navigateTo);
+  const goBack = useFileBrowserStore((s) => s.goBack);
+  const goForward = useFileBrowserStore((s) => s.goForward);
+  const goUp = useFileBrowserStore((s) => s.goUp);
+  const canGoBack = useFileBrowserStore((s) => s.canGoBack);
+  const canGoForward = useFileBrowserStore((s) => s.canGoForward);
   const refreshKey = useFileBrowserStore((s) => s.refreshKey);
   const clearTree = useFileTreeStore((s) => s.clearTree);
   const refresh = useFileTreeStore((s) => s.refresh);
@@ -42,17 +49,21 @@ export default function FileBrowserView() {
   const [dialogType, setDialogType] = useState<"newFile" | "newDir" | null>(null);
   const [inputValue, setInputValue] = useState("");
 
-  // 初始路径：如果没有保存的路径，使用工作空间路径或 home 目录
+  // 初始路径：持久化路径 → 应用工作目录（与自我对话一致）→ 工作空间路径 → home 目录
   useEffect(() => {
     if (currentPath) return;
-    const ws = useWorkspacesStore.getState().selectedWorkspace();
-    if (ws?.path) {
-      navigateTo(ws.path);
-    } else {
-      homeDir().then((home) => {
-        if (home) navigateTo(home.replace(/\\/g, "/").replace(/\/+$/, ""));
-      }).catch((e) => handleErrorSilent(e, "get home dir"));
-    }
+    selfChatService.getAppCwd().then((cwd) => {
+      navigateTo(cwd);
+    }).catch(() => {
+      const ws = useWorkspacesStore.getState().selectedWorkspace();
+      if (ws?.path) {
+        navigateTo(ws.path);
+      } else {
+        homeDir().then((home) => {
+          if (home) navigateTo(home.replace(/\\/g, "/").replace(/\/+$/, ""));
+        }).catch((e) => handleErrorSilent(e, "get home dir"));
+      }
+    });
   }, [currentPath, navigateTo]);
 
   // 刷新时清除 FileTree 缓存
@@ -74,6 +85,12 @@ export default function FileBrowserView() {
     if (!currentPath) return;
     collapseAll(currentPath);
   }, [currentPath, collapseAll]);
+
+  const handleGoHome = useCallback(() => {
+    settingsService.getDataDirInfo().then((info) => {
+      navigateTo(info.currentPath);
+    }).catch((err) => handleErrorSilent(err, "get app data dir"));
+  }, [navigateTo]);
 
   const handleRevealFile = useCallback(() => {
     if (!currentPath || !selectedFilePath) return;
@@ -117,6 +134,71 @@ export default function FileBrowserView() {
         {/* 工具栏按钮 - hover 时显示 */}
         {currentPath && (
           <div className="flex items-center gap-0.5 opacity-0 group-hover/toolbar:opacity-100 transition-opacity">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="p-1 rounded-md transition-colors hover:bg-[var(--app-hover)] focus:outline-none disabled:opacity-30"
+                  style={{ color: "var(--app-text-secondary)" }}
+                  onClick={goBack}
+                  disabled={!canGoBack()}
+                >
+                  <ArrowLeft size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}>
+                <p>Back</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="p-1 rounded-md transition-colors hover:bg-[var(--app-hover)] focus:outline-none disabled:opacity-30"
+                  style={{ color: "var(--app-text-secondary)" }}
+                  onClick={goForward}
+                  disabled={!canGoForward()}
+                >
+                  <ArrowRight size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}>
+                <p>Forward</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="p-1 rounded-md transition-colors hover:bg-[var(--app-hover)] focus:outline-none disabled:opacity-30"
+                  style={{ color: "var(--app-text-secondary)" }}
+                  onClick={goUp}
+                  disabled={!currentPath || currentPath === "/" || /^[A-Z]:[\\/]?$/i.test(currentPath)}
+                >
+                  <ArrowUp size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}>
+                <p>Up</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <div className="w-px h-3 bg-[var(--app-border)] mx-0.5" />
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="p-1 rounded-md transition-colors hover:bg-[var(--app-hover)] focus:outline-none"
+                  style={{ color: "var(--app-text-secondary)" }}
+                  onClick={handleGoHome}
+                >
+                  <Home size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}>
+                <p>Go to Project Root</p>
+              </TooltipContent>
+            </Tooltip>
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <button

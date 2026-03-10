@@ -1,26 +1,24 @@
 import { useTranslation } from "react-i18next";
-import { Bot, RefreshCw, RotateCcw, Square } from "lucide-react";
+import { Bot, RotateCcw, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { SelfChatSession } from "@/types";
 
 interface SelfChatContextBarProps {
   session: SelfChatSession;
-  onReinject: () => void;
   onRestart: () => void;
   onEndSession: () => void;
 }
 
 export default function SelfChatContextBar({
   session,
-  onReinject,
   onRestart,
   onEndSession,
 }: SelfChatContextBarProps) {
   const { t } = useTranslation("common");
 
   const statusBadge = (() => {
-    if (session.contextInjected) {
+    if (session.systemPrompt !== null) {
       return (
         <Badge variant="outline" className="text-xs text-emerald-500 border-emerald-500/30">
           {t("selfChat.contextInjected")}
@@ -51,16 +49,6 @@ export default function SelfChatContextBar({
       {statusBadge}
 
       <div className="ml-auto flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-xs"
-          onClick={onReinject}
-          disabled={session.status === "initializing"}
-        >
-          <RefreshCw className="w-3 h-3 mr-1" />
-          {t("selfChat.reinject")}
-        </Button>
         <Button
           variant="ghost"
           size="sm"

@@ -99,6 +99,36 @@ pub struct OrchestratorLaunchEvent {
     pub workspace_path: Option<String>,
 }
 
+/// 文件浏览器导航事件
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorOpenFolderEvent {
+    pub path: String,
+}
+
+/// 编辑器打开文件事件
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorOpenFileEvent {
+    pub file_path: String,
+    pub project_path: String,
+    pub title: String,
+}
+
+/// 编辑器关闭文件事件
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorCloseFileEvent {
+    pub file_path: String,
+}
+
+/// 前端查询请求事件（携带 request_id 用于匹配响应）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorQueryEvent {
+    pub request_id: String,
+}
+
 /// API 错误响应
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -122,6 +152,8 @@ pub struct AppState {
     pub tasks: Arc<Mutex<HashMap<String, TaskStatus>>>,
     /// 简易频率限制：最近请求时间戳
     pub last_request_times: Arc<Mutex<Vec<std::time::Instant>>>,
+    /// 前端查询的 pending 请求（request_id → oneshot 发送端）
+    pub pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
 }
 
 // ============ OrchestratorService ============
@@ -129,6 +161,7 @@ pub struct AppState {
 pub struct OrchestratorService {
     port: Mutex<Option<u16>>,
     token: String,
+    pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
 }
 
 impl OrchestratorService {
@@ -138,6 +171,7 @@ impl OrchestratorService {
         Self {
             port: Mutex::new(None),
             token,
+            pending_queries: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -149,6 +183,11 @@ impl OrchestratorService {
     /// 获取认证 token
     pub fn token(&self) -> &str {
         &self.token
+    }
+
+    /// 获取 pending_queries 引用（用于 respond command）
+    pub fn pending_queries(&self) -> Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>> {
+        self.pending_queries.clone()
     }
 
     /// 启动 HTTP + MCP 服务器（在 tokio runtime 中运行）
@@ -176,6 +215,7 @@ impl OrchestratorService {
             app_paths,
             tasks: Arc::new(Mutex::new(HashMap::new())),
             last_request_times: Arc::new(Mutex::new(Vec::new())),
+            pending_queries: self.pending_queries.clone(),
         };
 
         let port_holder = *self.port.lock().unwrap_or_else(|e| e.into_inner());
@@ -420,6 +460,31 @@ struct McpListSkillsParams {
     project_path: String,
 }
 
+// ---- File MCP 参数 ----
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpOpenFolderParams {
+    /// 要在文件浏览器中打开的目录路径
+    path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpOpenFileParams {
+    /// 文件完整路径
+    #[serde(rename = "filePath")]
+    file_path: String,
+    /// 文件所属项目路径（可选，自动推断）
+    #[serde(rename = "projectPath")]
+    project_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpCloseFileParams {
+    /// 要关闭的文件路径
+    #[serde(rename = "filePath")]
+    file_path: String,
+}
+
 /// MCP 工具处理器
 #[derive(Clone)]
 struct McpToolHandler {
@@ -464,6 +529,8 @@ impl McpToolHandler {
             params.provider_id.as_deref(),
             None,
             true,
+            None,
+            false,
             None,
         ) {
             Ok(sid) => sid,
@@ -733,6 +800,145 @@ impl McpToolHandler {
             Err(e) => format!("错误: {}", e),
         }
     }
+
+    // ============ File Tools ============
+
+    /// 在 CC-Panes 文件浏览器中导航到指定目录，自动切换到 Files 视图模式
+    #[tool]
+    async fn open_folder(
+        &self,
+        Parameters(params): Parameters<McpOpenFolderParams>,
+    ) -> String {
+        info!(path = %params.path, "mcp::open_folder");
+        let path = std::path::Path::new(&params.path);
+        if !path.exists() {
+            return format!("错误: 路径 '{}' 不存在", params.path);
+        }
+        if !path.is_dir() {
+            return format!("错误: '{}' 不是目录", params.path);
+        }
+        let canonical = match path.canonicalize() {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(e) => return format!("错误: 路径规范化失败: {}", e),
+        };
+        let event = OrchestratorOpenFolderEvent {
+            path: canonical.clone(),
+        };
+        let _ = self.state.app_handle.emit("orchestrator-open-folder", &event);
+        serde_json::json!({ "success": true, "path": canonical }).to_string()
+    }
+
+    /// 在 CC-Panes 编辑器中打开文件标签页，自动切换到 Files 视图模式。projectPath 可选，不传则自动推断
+    #[tool]
+    async fn open_file(
+        &self,
+        Parameters(params): Parameters<McpOpenFileParams>,
+    ) -> String {
+        info!(file = %params.file_path, "mcp::open_file");
+        let file_path = std::path::Path::new(&params.file_path);
+        if !file_path.exists() {
+            return format!("错误: 文件 '{}' 不存在", params.file_path);
+        }
+        if !file_path.is_file() {
+            return format!("错误: '{}' 不是文件", params.file_path);
+        }
+        let canonical_file = match file_path.canonicalize() {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(e) => return format!("错误: 路径规范化失败: {}", e),
+        };
+
+        // 推断 projectPath：优先用参数，否则从已注册项目做最长前缀匹配
+        let project_path = if let Some(ref pp) = params.project_path {
+            pp.clone()
+        } else {
+            let projects = self.state.project_service.list_projects().unwrap_or_default();
+            let normalized_file = canonical_file.replace('\\', "/");
+            projects.iter()
+                .filter_map(|p| {
+                    let normalized_proj = p.path.replace('\\', "/");
+                    if normalized_file.starts_with(&normalized_proj) {
+                        Some((p.path.clone(), normalized_proj.len()))
+                    } else {
+                        None
+                    }
+                })
+                .max_by_key(|(_, len)| *len)
+                .map(|(path, _)| path)
+                .unwrap_or_else(|| {
+                    // fallback: 文件的父目录
+                    file_path.parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                })
+        };
+
+        let title = file_path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "File".to_string());
+
+        let event = OrchestratorOpenFileEvent {
+            file_path: canonical_file.clone(),
+            project_path: project_path.clone(),
+            title,
+        };
+        let _ = self.state.app_handle.emit("orchestrator-open-file", &event);
+        serde_json::json!({
+            "success": true,
+            "filePath": canonical_file,
+            "projectPath": project_path,
+        }).to_string()
+    }
+
+    /// 关闭 CC-Panes 编辑器中匹配的文件标签页
+    #[tool]
+    async fn close_file(
+        &self,
+        Parameters(params): Parameters<McpCloseFileParams>,
+    ) -> String {
+        info!(file = %params.file_path, "mcp::close_file");
+        let event = OrchestratorCloseFileEvent {
+            file_path: params.file_path.clone(),
+        };
+        let _ = self.state.app_handle.emit("orchestrator-close-file", &event);
+        serde_json::json!({
+            "success": true,
+            "filePath": params.file_path,
+        }).to_string()
+    }
+
+    /// 查询 CC-Panes 编辑器中当前打开的所有文件标签页信息
+    #[tool]
+    async fn list_open_files(&self) -> String {
+        debug!("mcp::list_open_files");
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+
+        // 注册 pending query
+        {
+            let mut queries = self.state.pending_queries.lock().unwrap_or_else(|e| e.into_inner());
+            queries.insert(request_id.clone(), tx);
+        }
+
+        // 发射查询事件给前端
+        let event = OrchestratorQueryEvent {
+            request_id: request_id.clone(),
+        };
+        let _ = self.state.app_handle.emit("orchestrator-query-open-files", &event);
+
+        // 等待前端响应（超时 5 秒）
+        match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
+            Ok(Ok(data)) => data,
+            Ok(Err(_)) => {
+                "错误: 前端响应通道已关闭".to_string()
+            }
+            Err(_) => {
+                // 超时，清理 pending query
+                let mut queries = self.state.pending_queries.lock().unwrap_or_else(|e| e.into_inner());
+                queries.remove(&request_id);
+                "错误: 查询超时（5秒），前端未响应".to_string()
+            }
+        }
+    }
 }
 
 #[tool_handler]
@@ -745,6 +951,7 @@ impl ServerHandler for McpToolHandler {
                 "工作空间: list_workspaces、get_workspace、create_workspace、add_project_to_workspace、scan_directory\n",
                 "待办: query_todos、create_todo、update_todo\n",
                 "Skill: list_skills（查看项目可用命令模板）\n",
+                "文件: open_folder（导航文件浏览器）、open_file（编辑器打开文件）、close_file（关闭标签）、list_open_files（查询打开的文件）\n",
                 "典型流程: scan_directory 发现项目 → create_workspace → add_project_to_workspace → launch_task",
             ))
     }
@@ -832,6 +1039,8 @@ async fn handle_launch_task(
         req.provider_id.as_deref(),
         req.workspace_path.as_deref(),
         true,
+        None,
+        false,
         None,
     ) {
         Ok(sid) => {

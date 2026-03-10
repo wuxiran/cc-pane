@@ -75,7 +75,7 @@ use commands::{
     // Screenshot 命令
     screenshot_update_shortcut,
     // Orchestrator 命令
-    get_orchestrator_port, get_orchestrator_token,
+    get_orchestrator_port, get_orchestrator_token, respond_orchestrator_query,
 };
 use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository};
 use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService};
@@ -671,7 +671,8 @@ pub fn run() {
             screenshot_update_shortcut,
             // Orchestrator 命令
             get_orchestrator_port,
-            get_orchestrator_token
+            get_orchestrator_token,
+            respond_orchestrator_query
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

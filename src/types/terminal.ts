@@ -40,6 +40,8 @@ export interface CreateSessionRequest {
   workspacePath?: string;
   launchClaude?: boolean;
   resumeId?: string;
+  skipMcp?: boolean;
+  appendSystemPrompt?: string;
 }
 
 /** 终端输出事件 */

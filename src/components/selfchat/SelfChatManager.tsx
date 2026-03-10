@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { TerminalView } from "@/components/panes";
 import type { TerminalViewHandle } from "@/components/panes";
 import SelfChatContextBar from "./SelfChatContextBar";
-import { useSelfChatStore, useTerminalStatusStore } from "@/stores";
+import { useSelfChatStore } from "@/stores";
 import { selfChatService, terminalService } from "@/services";
 
 const LOG_PREFIX = "[SelfChat]";
@@ -16,96 +16,36 @@ export default function SelfChatManager() {
   const startSession = useSelfChatStore((s) => s.startSession);
   const updatePtySessionId = useSelfChatStore((s) => s.updatePtySessionId);
   const setStatus = useSelfChatStore((s) => s.setStatus);
-  const setContextInjected = useSelfChatStore((s) => s.setContextInjected);
   const endSession = useSelfChatStore((s) => s.endSession);
 
   const terminalRef = useRef<TerminalViewHandle>(null);
-  const injectionAttemptedRef = useRef<string | null>(null);
   const autoStartedRef = useRef(false);
   const terminalKeyRef = useRef(0);
 
-  // 自动启动：进入 selfchat 模式时自动获取 appCwd 并启动会话
+  // 自动启动：进入 selfchat 模式时先收集上下文，再启动会话
   useEffect(() => {
     if (activeSession || autoStartedRef.current) return;
     autoStartedRef.current = true;
 
-    console.info(`${LOG_PREFIX} Auto-starting: fetching app CWD...`);
-    selfChatService.getAppCwd().then((cwd) => {
+    console.info(`${LOG_PREFIX} Auto-starting: collecting context + fetching app CWD...`);
+
+    Promise.all([
+      selfChatService.getAppCwd(),
+      selfChatService.collectAppContext(),
+    ]).then(([cwd, prompt]) => {
       // 再次检查避免竞争
       if (useSelfChatStore.getState().activeSession) {
         console.warn(`${LOG_PREFIX} Race condition: session already exists, skipping start`);
         return;
       }
-      console.info(`${LOG_PREFIX} Starting session, appCwd=${cwd}`);
-      startSession(cwd);
+      console.info(`${LOG_PREFIX} Starting session, appCwd=${cwd}, promptLen=${prompt.length}`);
+      startSession(cwd, prompt);
       terminalKeyRef.current += 1;
     }).catch((err) => {
-      console.error(`${LOG_PREFIX} FAILED to get app CWD:`, err);
+      console.error(`${LOG_PREFIX} FAILED to init:`, err);
       autoStartedRef.current = false;
     });
   }, [activeSession, startSession]);
-
-  // 监听终端 waitingInput 状态并注入上下文
-  const getStatus = useTerminalStatusStore((s) => s.getStatus);
-
-  useEffect(() => {
-    if (!activeSession) return;
-    if (activeSession.contextInjected) return;
-    if (activeSession.status !== "running") return;
-    if (!activeSession.ptySessionId) return;
-    if (injectionAttemptedRef.current === activeSession.id) return;
-
-    const status = getStatus(activeSession.ptySessionId);
-    if (status === "waitingInput") {
-      console.info(
-        `${LOG_PREFIX} WaitingInput detected via status poll, ptySession=${activeSession.ptySessionId}`
-      );
-      injectionAttemptedRef.current = activeSession.id;
-      injectContext(activeSession.id, activeSession.ptySessionId);
-    }
-  });
-
-  // Fallback: 5 秒超时自动注入
-  useEffect(() => {
-    if (!activeSession) return;
-    if (activeSession.contextInjected) return;
-    if (activeSession.status !== "running") return;
-    if (!activeSession.ptySessionId) return;
-    if (injectionAttemptedRef.current === activeSession.id) return;
-
-    const timer = setTimeout(() => {
-      if (injectionAttemptedRef.current === activeSession.id) return;
-      console.warn(
-        `${LOG_PREFIX} 5s timeout fallback: injecting context without WaitingInput, ptySession=${activeSession.ptySessionId}`
-      );
-      injectionAttemptedRef.current = activeSession.id;
-      injectContext(activeSession.id, activeSession.ptySessionId!);
-    }, 5000);
-
-    return () => clearTimeout(timer);
-  }, [activeSession?.id, activeSession?.status, activeSession?.ptySessionId, activeSession?.contextInjected]);
-
-  const injectContext = useCallback(
-    async (sessionId: string, ptySessionId: string) => {
-      const session = useSelfChatStore.getState().activeSession;
-      if (!session || session.id !== sessionId) {
-        console.warn(`${LOG_PREFIX} injectContext: session mismatch or missing, aborting`);
-        return;
-      }
-
-      console.info(`${LOG_PREFIX} Collecting app context for injection...`);
-      try {
-        const prompt = await selfChatService.collectAppContext();
-        console.info(`${LOG_PREFIX} Context collected (${prompt.length} chars), writing to PTY...`);
-        await terminalService.write(ptySessionId, prompt + "\n");
-        console.info(`${LOG_PREFIX} Context injected successfully, ptySession=${ptySessionId}`);
-        setContextInjected(sessionId);
-      } catch (err) {
-        console.error(`${LOG_PREFIX} Context injection FAILED:`, err);
-      }
-    },
-    [setContextInjected]
-  );
 
   const handleRestart = useCallback(() => {
     console.info(`${LOG_PREFIX} Restart requested`);
@@ -118,7 +58,6 @@ export default function SelfChatManager() {
       }
       endSession(activeSession.id);
     }
-    injectionAttemptedRef.current = null;
     autoStartedRef.current = false;
     // 重置后 useEffect 会自动重新启动
   }, [activeSession, endSession]);
@@ -154,7 +93,7 @@ export default function SelfChatManager() {
       const session = useSelfChatStore.getState().activeSession;
       if (session) {
         console.warn(
-          `${LOG_PREFIX} PTY session EXITED: exitCode=${exitCode}, ptySession=${session.ptySessionId}, contextInjected=${session.contextInjected}`
+          `${LOG_PREFIX} PTY session EXITED: exitCode=${exitCode}, ptySession=${session.ptySessionId}`
         );
         setStatus(session.id, "exited");
       }
@@ -162,26 +101,12 @@ export default function SelfChatManager() {
     [setStatus]
   );
 
-  const handleReinject = useCallback(() => {
-    if (!activeSession?.ptySessionId) return;
-    console.info(`${LOG_PREFIX} Re-inject requested, ptySession=${activeSession.ptySessionId}`);
-    injectionAttemptedRef.current = null;
-    const session = useSelfChatStore.getState().activeSession;
-    if (session) {
-      useSelfChatStore.setState({
-        activeSession: { ...session, contextInjected: false },
-      });
-      injectContext(session.id, session.ptySessionId!);
-    }
-  }, [activeSession?.ptySessionId, injectContext]);
-
   // 会话存在 → 显示终端
   if (activeSession) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <SelfChatContextBar
           session={activeSession}
-          onReinject={handleReinject}
           onRestart={handleRestart}
           onEndSession={handleEndSession}
         />
@@ -193,6 +118,8 @@ export default function SelfChatManager() {
             projectPath={activeSession.appCwd}
             isActive={true}
             launchClaude={true}
+            skipMcp={true}
+            appendSystemPrompt={activeSession.systemPrompt ?? undefined}
             onSessionCreated={handleSessionCreated}
             onSessionExited={handleSessionExited}
           />

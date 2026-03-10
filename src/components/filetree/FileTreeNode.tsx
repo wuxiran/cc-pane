@@ -249,7 +249,6 @@ export default memo(function FileTreeNode({
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
-      e.preventDefault();
       onContextMenu(e, node);
     },
     [node, onContextMenu]

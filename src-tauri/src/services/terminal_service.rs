@@ -380,6 +380,8 @@ impl TerminalService {
         workspace_path: Option<&str>,
         launch_claude: bool,
         resume_id: Option<&str>,
+        skip_mcp: bool,
+        append_system_prompt: Option<&str>,
     ) -> Result<String> {
         let mut env_vars = self.settings_service.get_proxy_env_vars();
         let provider_vars = self.provider_service.get_env_vars(provider_id);
@@ -393,6 +395,14 @@ impl TerminalService {
         {
             env_vars.insert("TERM".to_string(), "xterm-256color".to_string());
         }
+
+        // 清除 CLAUDECODE 环境变量，防止 Claude CLI 检测到嵌套会话而拒绝启动
+        // （CC-Panes 本身可能从 Claude Code 终端启动，env 会传递到子进程）
+        let env_remove = if launch_claude {
+            vec!["CLAUDECODE".to_string()]
+        } else {
+            vec![]
+        };
 
         // 解析 Shell 配置
         let shell_id = self
@@ -438,16 +448,24 @@ impl TerminalService {
                     claude_args.push(project_path.to_string());
                 }
 
-                // 生成 MCP 配置文件并注入 --mcp-config 参数
-                if let Some(mcp_config_path) = self.generate_mcp_config() {
-                    debug!(session_id = %session_id, mcp_config = %mcp_config_path, "create_session: MCP config injected");
+                // 生成 MCP 配置文件并注入 --mcp-config 参数（skip_mcp=true 时跳过）
+                if skip_mcp {
+                    info!(session_id = %session_id, "create_session: skip_mcp=true, skipping MCP config injection");
+                } else if let Some(mcp_config_path) = self.generate_mcp_config() {
+                    info!(session_id = %session_id, mcp_config = %mcp_config_path, "create_session: MCP config injected");
                     claude_args.push("--mcp-config".to_string());
                     claude_args.push(mcp_config_path);
                 } else {
                     warn!(session_id = %session_id, "create_session: no MCP config generated (orchestrator not running?)");
                 }
 
-                debug!(session_id = %session_id, args = ?claude_args, "create_session: claude CLI resolved");
+                // --append-system-prompt: 静默注入上下文到 Claude 系统提示
+                if let Some(prompt) = append_system_prompt {
+                    claude_args.push("--append-system-prompt".to_string());
+                    claude_args.push(prompt.to_string());
+                }
+
+                info!(session_id = %session_id, args = ?claude_args, "create_session: claude CLI resolved");
                 ("claude".to_string(), claude_args)
             } else {
                 error!(session_id = %session_id, project = %project_path, "create_session: claude CLI NOT FOUND in PATH");
@@ -475,6 +493,7 @@ impl TerminalService {
             command,
             args,
             env: env_vars,
+            env_remove,
         };
 
         let spawn_result = match spawn_pty(config) {
@@ -560,9 +579,10 @@ impl TerminalService {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        // 首次输出诊断日志，用于排查前端事件注册竞态
+                        // 首次输出诊断日志（含 hex），用于排查前端事件注册竞态
                         if first_output {
-                            debug!("[pty-read] session={} first output: {} bytes", sid, n);
+                            let hex: String = buf[..n].iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ");
+                            info!("[pty-read] session={} first output: {} bytes, hex=[{}]", sid, n, hex);
                             first_output = false;
                         }
                         #[cfg(windows)]
@@ -678,6 +698,7 @@ impl TerminalService {
                 }
                 Err(_) => -1,
             };
+            info!(session_id = %sid, exit_code, "PTY process exited");
 
             // 标记为已退出
             {
@@ -880,7 +901,7 @@ impl TerminalService {
 
         match std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default()) {
             Ok(_) => {
-                debug!("[terminal] MCP config written to {}", config_path.display());
+                info!("[terminal] MCP config written to {}", config_path.display());
                 Some(config_path.to_string_lossy().to_string())
             }
             Err(e) => {

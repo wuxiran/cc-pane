@@ -18,3 +18,18 @@ pub fn get_orchestrator_token(
 ) -> AppResult<String> {
     Ok(orchestrator.token().to_string())
 }
+
+/// 前端响应 MCP 查询请求
+#[tauri::command]
+pub fn respond_orchestrator_query(
+    orchestrator: State<'_, Arc<OrchestratorService>>,
+    request_id: String,
+    data: String,
+) -> AppResult<()> {
+    let pending = orchestrator.pending_queries();
+    let mut queries = pending.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(tx) = queries.remove(&request_id) {
+        let _ = tx.send(data);
+    }
+    Ok(())
+}

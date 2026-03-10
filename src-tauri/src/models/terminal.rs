@@ -13,6 +13,9 @@ pub struct CreateSessionRequest {
     #[serde(default)]
     pub launch_claude: bool,
     pub resume_id: Option<String>,
+    #[serde(default)]
+    pub skip_mcp: bool,
+    pub append_system_prompt: Option<String>,
 }
 
 /// 调整终端大小请求

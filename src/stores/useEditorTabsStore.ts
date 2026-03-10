@@ -11,9 +11,19 @@ export interface EditorTab {
   pinned?: boolean;
 }
 
+export interface RecentFile {
+  filePath: string;
+  projectPath: string;
+  title: string;
+  openedAt: number;
+}
+
+const MAX_RECENT_FILES = 30;
+
 interface EditorTabsState {
   tabs: EditorTab[];
   activeTabId: string | null;
+  recentFiles: RecentFile[];
 
   openFile: (projectPath: string, filePath: string, title: string) => void;
   closeTab: (tabId: string) => void;
@@ -25,6 +35,8 @@ interface EditorTabsState {
   setDirty: (tabId: string, dirty: boolean) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   activeTab: () => EditorTab | undefined;
+  addRecent: (file: RecentFile) => void;
+  clearRecent: () => void;
 }
 
 function generateId(): string {
@@ -36,9 +48,12 @@ export const useEditorTabsStore = create<EditorTabsState>()(
     immer((set, get) => ({
       tabs: [],
       activeTabId: null,
+      recentFiles: [],
 
       openFile: (projectPath: string, filePath: string, title: string) => {
         const state = get();
+        // 记录到最近文件历史
+        get().addRecent({ filePath, projectPath, title, openedAt: Date.now() });
         // 去重：同一 filePath 不重复打开
         const existing = state.tabs.find((t) => t.filePath === filePath);
         if (existing) {
@@ -141,6 +156,21 @@ export const useEditorTabsStore = create<EditorTabsState>()(
         const s = get();
         return s.tabs.find((t) => t.id === s.activeTabId);
       },
+
+      addRecent: (file: RecentFile) => {
+        set((s) => {
+          // 去重：移除已有的相同 filePath
+          const filtered = s.recentFiles.filter((r) => r.filePath !== file.filePath);
+          // 最新在前
+          s.recentFiles = [file, ...filtered].slice(0, MAX_RECENT_FILES);
+        });
+      },
+
+      clearRecent: () => {
+        set((s) => {
+          s.recentFiles = [];
+        });
+      },
     })),
     {
       name: "cc-panes-editor-tabs",
@@ -151,6 +181,7 @@ export const useEditorTabsStore = create<EditorTabsState>()(
           pinned: t.pinned,
         })),
         activeTabId: state.activeTabId,
+        recentFiles: state.recentFiles,
       }),
     }
   )
