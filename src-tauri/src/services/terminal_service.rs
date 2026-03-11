@@ -865,7 +865,7 @@ impl TerminalService {
     }
 
     /// 生成 MCP 配置文件，返回路径
-    /// 配置 CC-Panes 的 Streamable HTTP MCP 端点
+    /// 配置 CC-Panes 的 Streamable HTTP MCP 端点 + 用户全局 MCP 服务器
     fn generate_mcp_config(&self) -> Option<String> {
         let info = self.orchestrator_info.lock().ok()?.as_ref()?.clone();
 
@@ -889,21 +889,33 @@ impl TerminalService {
 
         // token 同时通过 headers 和 URL query 传递（后者为后备方案，
         // 因为 Claude Code 某些版本可能忽略 headers 配置 — Issue #7290）
-        let config = serde_json::json!({
-            "mcpServers": {
-                "ccpanes": {
-                    "type": "http",
-                    "url": format!("http://127.0.0.1:{}/mcp?token={}", info.port, info.token),
-                    "headers": {
-                        "Authorization": format!("Bearer {}", info.token)
-                    }
-                }
+        let ccpanes_server = serde_json::json!({
+            "type": "http",
+            "url": format!("http://127.0.0.1:{}/mcp?token={}", info.port, info.token),
+            "headers": {
+                "Authorization": format!("Bearer {}", info.token)
             }
         });
 
+        let mut mcp_servers = serde_json::Map::new();
+
+        // 合并用户全局 MCP 配置（低优先级）
+        if let Some(serde_json::Value::Object(user_servers)) = Self::read_user_global_mcp_servers() {
+            let count = user_servers.len();
+            for (name, config) in user_servers {
+                mcp_servers.insert(name, config);
+            }
+            info!("[terminal] Merged {} user global MCP servers", count);
+        }
+
+        // ccpanes 服务器（高优先级，覆盖同名）
+        mcp_servers.insert("ccpanes".to_string(), ccpanes_server);
+
+        let config = serde_json::json!({ "mcpServers": mcp_servers });
+
         match std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default()) {
             Ok(_) => {
-                info!("[terminal] MCP config written to {}", config_path.display());
+                info!("[terminal] MCP config written to {} ({} servers)", config_path.display(), mcp_servers.len());
                 Some(config_path.to_string_lossy().to_string())
             }
             Err(e) => {
@@ -911,6 +923,14 @@ impl TerminalService {
                 None
             }
         }
+    }
+
+    /// 读取 ~/.claude.json 的 mcpServers
+    fn read_user_global_mcp_servers() -> Option<serde_json::Value> {
+        let home = dirs::home_dir()?;
+        let content = std::fs::read_to_string(home.join(".claude.json")).ok()?;
+        let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+        parsed.get("mcpServers").cloned()
     }
 }
 

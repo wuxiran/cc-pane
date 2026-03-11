@@ -118,7 +118,7 @@ export default function SelfChatManager() {
             projectPath={activeSession.appCwd}
             isActive={true}
             launchClaude={true}
-            skipMcp={true}
+            skipMcp={false}
             appendSystemPrompt={activeSession.systemPrompt ?? undefined}
             onSessionCreated={handleSessionCreated}
             onSessionExited={handleSessionExited}

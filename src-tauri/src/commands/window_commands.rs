@@ -1,5 +1,6 @@
-use crate::utils::AppResult;
-use tauri::{LogicalSize, WebviewWindow};
+use crate::utils::{AppPaths, AppResult};
+use std::sync::Arc;
+use tauri::{LogicalSize, State, WebviewWindow};
 use tracing::debug;
 
 /// 关闭窗口
@@ -85,11 +86,19 @@ pub fn exit_mini_mode(
     Ok(())
 }
 
-/// 获取应用当前工作目录（tauri dev 时为项目根目录）
+/// 获取自我对话工作目录
+/// Release: 数据目录（包含提取的 .claude/ skills）
+/// Dev: 项目根目录（源码中的 .claude/ 直接可用）
 #[tauri::command]
-pub fn get_app_cwd() -> AppResult<String> {
-    Ok(std::env::current_dir()
-        .map_err(|e| format!("Failed to get CWD: {}", e))?
-        .to_string_lossy()
-        .to_string())
+pub fn get_app_cwd(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<String> {
+    if cfg!(debug_assertions) {
+        // Dev 模式：使用项目根目录（CWD）
+        Ok(std::env::current_dir()
+            .map_err(|e| format!("Failed to get CWD: {}", e))?
+            .to_string_lossy()
+            .to_string())
+    } else {
+        // Release 模式：使用数据目录（含提取的 .claude/）
+        Ok(app_paths.data_dir().to_string_lossy().to_string())
+    }
 }

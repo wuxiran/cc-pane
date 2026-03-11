@@ -32,6 +32,9 @@ src-tauri/gen/
 # Hook 二进制（构建产物）
 src-tauri/binaries/
 
+# 打包的 Claude 配置（构建产物）
+src-tauri/bundled-claude-config/
+
 # 设计文档与截图（本地使用）
 docs/
 

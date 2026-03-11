@@ -372,6 +372,14 @@ pub fn run() {
         .manage(filesystem_service)
         .manage(orchestrator_service.clone())
         .setup(|app| {
+            // ---- 提取打包的 .claude/ 配置到数据目录（Release 模式）----
+            {
+                let paths = app.state::<Arc<AppPaths>>();
+                if let Ok(resource_dir) = app.path().resource_dir() {
+                    paths.extract_bundled_claude_config(&resource_dir);
+                }
+            }
+
             // ---- 注册 updater 插件（需在 setup 中注册以访问 app handle）----
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;

@@ -1,5 +1,5 @@
-use std::path::PathBuf;
-use tracing::warn;
+use std::path::{Path, PathBuf};
+use tracing::{info, warn};
 
 /// dev/release 使用不同的应用目录，避免数据冲突
 pub const APP_DIR_NAME: &str = if cfg!(debug_assertions) { ".cc-panes-dev" } else { ".cc-panes" };
@@ -76,6 +76,71 @@ impl AppPaths {
     /// 计算数据目录总大小（字节）
     pub fn data_dir_size(&self) -> u64 {
         dir_size(&self.data_dir)
+    }
+
+    /// 将打包的 .claude/ 配置从资源目录提取到数据目录
+    /// 每次启动都覆盖，确保使用最新版本
+    pub fn extract_bundled_claude_config(&self, resource_dir: &Path) {
+        let src_base = resource_dir.join("bundled-claude-config");
+        if !src_base.exists() {
+            info!("[app_paths] No bundled-claude-config found at {}, skipping extraction", src_base.display());
+            return;
+        }
+
+        // 清空目标目录后再复制，避免旧版本残留文件
+        let dest_commands = self.data_dir.join(".claude").join("commands").join("ccbook");
+        let dest_agents = self.data_dir.join(".claude").join("agents");
+        Self::clean_and_copy(
+            &src_base.join(".claude").join("commands").join("ccbook"),
+            &dest_commands,
+        );
+        Self::clean_and_copy(
+            &src_base.join(".claude").join("agents"),
+            &dest_agents,
+        );
+
+        // 复制 CLAUDE.md
+        let src_claude_md = src_base.join("CLAUDE.md");
+        if src_claude_md.exists() {
+            let dest = self.data_dir.join("CLAUDE.md");
+            match std::fs::copy(&src_claude_md, &dest) {
+                Ok(_) => info!("[app_paths] Extracted CLAUDE.md to {}", dest.display()),
+                Err(e) => warn!("[app_paths] Failed to copy CLAUDE.md: {}", e),
+            }
+        }
+
+        info!("[app_paths] Bundled claude config extracted to {}", self.data_dir.display());
+    }
+
+    /// 清空目标目录后再递归复制，确保与源完全一致
+    fn clean_and_copy(src: &Path, dest: &Path) {
+        if !src.exists() {
+            return;
+        }
+        // 先删除目标目录（忽略不存在的情况）
+        let _ = std::fs::remove_dir_all(dest);
+        Self::copy_dir_recursive(src, dest);
+    }
+
+    /// 递归复制目录
+    fn copy_dir_recursive(src: &Path, dest: &Path) {
+        if !src.exists() {
+            return;
+        }
+        if let Err(e) = std::fs::create_dir_all(dest) {
+            warn!("[app_paths] Failed to create dir {}: {}", dest.display(), e);
+            return;
+        }
+        if let Ok(entries) = std::fs::read_dir(src) {
+            for entry in entries.flatten() {
+                let dest_path = dest.join(entry.file_name());
+                if entry.path().is_dir() {
+                    Self::copy_dir_recursive(&entry.path(), &dest_path);
+                } else {
+                    let _ = std::fs::copy(entry.path(), &dest_path);
+                }
+            }
+        }
     }
 }
 
