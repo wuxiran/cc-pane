@@ -1,7 +1,27 @@
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { getVersion } from "@tauri-apps/api/app";
+import { checkForAppUpdates } from "@/services/updaterService";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 export default function AboutSection() {
   const { t } = useTranslation("settings");
+  const [version, setVersion] = useState("...");
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    getVersion().then(setVersion);
+  }, []);
+
+  const handleCheckUpdate = async () => {
+    setChecking(true);
+    try {
+      await checkForAppUpdates(true);
+    } finally {
+      setChecking(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -12,7 +32,7 @@ export default function AboutSection() {
       <div className="flex flex-col gap-2">
         {([
           [t("appName"), "CC-Panes"],
-          [t("version"), "0.1.0"],
+          [t("version"), `v${version}`],
           [t("description"), t("appDescription")],
           [t("techStack"), "Tauri 2 + React 19 + TypeScript"],
         ] as const).map(([label, value]) => (
@@ -26,6 +46,17 @@ export default function AboutSection() {
           </div>
         ))}
       </div>
+
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-2 self-start"
+        disabled={checking}
+        onClick={handleCheckUpdate}
+      >
+        <RefreshCw className={`w-4 h-4 mr-1.5 ${checking ? "animate-spin" : ""}`} />
+        {checking ? t("checking") : t("checkUpdate")}
+      </Button>
     </div>
   );
 }

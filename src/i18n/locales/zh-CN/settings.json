@@ -91,6 +91,8 @@
   "description": "描述",
   "techStack": "技术栈",
   "appDescription": "Claude Code 多实例分屏管理",
+  "checkUpdate": "检查更新",
+  "checking": "检查中...",
 
   "mcpTitle": "MCP Server 配置",
   "mcpAdd": "添加",

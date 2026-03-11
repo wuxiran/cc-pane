@@ -91,6 +91,8 @@
   "description": "Description",
   "techStack": "Tech Stack",
   "appDescription": "Multi-instance split-pane manager for Claude Code",
+  "checkUpdate": "Check for Updates",
+  "checking": "Checking...",
 
   "mcpTitle": "MCP Server Config",
   "mcpAdd": "Add",
