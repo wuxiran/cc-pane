@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { screenshotService } from "@/services";
+import { getErrorMessage } from "@/utils";
 import type { ScreenshotSettings } from "@/types";
 
 interface ScreenshotSectionProps {
@@ -52,7 +53,7 @@ export default function ScreenshotSection({ value, onChange }: ScreenshotSection
       update("shortcut", pendingShortcut);
       toast.success(t("screenshotShortcutUpdated"));
     } catch (err) {
-      toast.error(t("screenshotShortcutConflict", { error: String(err) }));
+      toast.error(t("screenshotShortcutConflict", { error: getErrorMessage(err) }));
     }
     setEditingShortcut(false);
     setPendingShortcut("");

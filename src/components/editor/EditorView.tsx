@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { toast } from "sonner";
-import { handleError } from "@/utils";
+import { handleError, getErrorMessage } from "@/utils";
 import { filesystemService } from "@/services/filesystemService";
 import { usePanesStore } from "@/stores";
 import { useThemeStore } from "@/stores/useThemeStore";
@@ -77,13 +77,6 @@ function getLanguageFromPath(filePath: string): string {
 
 type PreviewMode = "edit" | "preview" | "split";
 
-/** 从未知 error 中提取可读消息 */
-function getErrorMessage(err: unknown): string {
-  if (typeof err === "string") return err;
-  if (err instanceof Error) return err.message;
-  if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message);
-  return String(err);
-}
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 

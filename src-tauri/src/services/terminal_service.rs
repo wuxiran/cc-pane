@@ -436,7 +436,7 @@ impl TerminalService {
                 resume_id = ?resume_id,
                 "create_session: launch_claude=true, resolving claude CLI"
             );
-            if which::which("claude").is_ok() {
+            if let Ok(claude_path) = which::which("claude") {
                 let mut claude_args = Vec::new();
                 if let Some(rid) = resume_id {
                     claude_args.push("--resume".to_string());
@@ -465,8 +465,9 @@ impl TerminalService {
                     claude_args.push(prompt.to_string());
                 }
 
-                info!(session_id = %session_id, args = ?claude_args, "create_session: claude CLI resolved");
-                ("claude".to_string(), claude_args)
+                let claude_cmd = claude_path.to_string_lossy().to_string();
+                info!(session_id = %session_id, command = %claude_cmd, args = ?claude_args, "create_session: claude CLI resolved");
+                (claude_cmd, claude_args)
             } else {
                 error!(session_id = %session_id, project = %project_path, "create_session: claude CLI NOT FOUND in PATH");
                 return Err(anyhow!("claude CLI not found in PATH"));

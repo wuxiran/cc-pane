@@ -1,6 +1,7 @@
 import { check } from "@tauri-apps/plugin-updater";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { getErrorMessage } from "@/utils";
 
 /**
  * 检查应用更新
@@ -40,7 +41,7 @@ export async function checkForAppUpdates(userInitiated: boolean): Promise<void> 
   } catch (error) {
     console.error("[updater] 检查更新失败:", error);
     if (userInitiated) {
-      await message(`检查更新失败：${error}`, { title: "检查更新", kind: "error" });
+      await message(`检查更新失败：${getErrorMessage(error)}`, { title: "检查更新", kind: "error" });
     }
   }
 }

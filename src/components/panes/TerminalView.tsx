@@ -3,6 +3,7 @@ import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { terminalService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
+import { getErrorMessage } from "@/utils";
 import { shouldTerminalHandleKey, useShortcutsStore } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
 import "@xterm/xterm/css/xterm.css";
@@ -317,7 +318,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               `[TerminalView] FAILED to init session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, error=`,
               error
             );
-            const errorMsg = String(error);
+            const errorMsg = getErrorMessage(error);
             if (errorMsg.includes("claude CLI not found")) {
               console.error("[TerminalView] Claude CLI not found in PATH");
               term.writeln(
@@ -328,7 +329,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               );
             } else {
               term.writeln(
-                `\x1b[31mFailed to initialize terminal session: ${error}\x1b[0m`
+                `\x1b[31mFailed to initialize terminal session: ${errorMsg}\x1b[0m`
               );
             }
           }
