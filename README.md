@@ -201,6 +201,12 @@ cc-panes/
 </details>
 -->
 
+## Feedback
+
+Found a bug or have a suggestion? Join the WeChat group:
+
+<img src="images/wechat-group.png" alt="WeChat Group: cc-pane" width="200" />
+
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

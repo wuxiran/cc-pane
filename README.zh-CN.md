@@ -203,6 +203,12 @@ cc-panes/
 </details>
 -->
 
+## 反馈
+
+发现 Bug 或有建议？欢迎加入微信群交流：
+
+<img src="images/wechat-group.png" alt="微信群: cc-pane" width="200" />
+
 ## 贡献
 
 欢迎贡献！请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 了解贡献指南。

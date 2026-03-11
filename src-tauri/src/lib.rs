@@ -388,7 +388,8 @@ pub fn run() {
             let ws_svc = app.state::<Arc<WorkspaceService>>();
             ws_svc.start_watcher(app.handle().clone());
 
-            // ---- 注册截图全局快捷键 ----
+            // ---- 注册截图全局快捷键（仅 Windows，macOS 截图功能暂未实现）----
+            #[cfg(target_os = "windows")]
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 let settings_svc = app.state::<Arc<SettingsService>>();

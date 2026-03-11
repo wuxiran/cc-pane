@@ -1,13 +1,26 @@
 const fs = require("fs");
 const path = require("path");
 
-// 1. 复制 hook.exe 到 src-tauri/binaries/
+// 1. 复制 hook 二进制到 src-tauri/binaries/（平台感知）
 const d = path.join("src-tauri", "binaries");
 fs.mkdirSync(d, { recursive: true });
+
+// 清理旧文件，避免通配符误匹配
+for (const f of fs.readdirSync(d).filter(f => f.startsWith("cc-panes-hook"))) {
+  fs.unlinkSync(path.join(d, f));
+}
+
+const ext = process.platform === "win32" ? ".exe" : "";
+const binaryName = `cc-panes-hook${ext}`;
 fs.copyFileSync(
-  path.join("target", "release", "cc-panes-hook.exe"),
-  path.join(d, "cc-panes-hook.exe")
+  path.join("target", "release", binaryName),
+  path.join(d, binaryName)
 );
+
+// macOS/Linux: 确保可执行权限
+if (process.platform !== "win32") {
+  fs.chmodSync(path.join(d, binaryName), 0o755);
+}
 
 // 2. 复制 .claude/ skills 和 agents 到 src-tauri/bundled-claude-config/
 const srcClaude = ".claude";

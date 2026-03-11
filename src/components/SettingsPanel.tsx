@@ -34,6 +34,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   const [draft, setDraft] = useState<AppSettings>(getDefaults());
   const [activeSection, setActiveSection] = useState("general");
 
+  const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
   const sections = [
     { id: "general", label: t("general"), icon: Settings },
     { id: "notification", label: t("notification"), icon: Bell },
@@ -41,7 +42,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     { id: "proxy", label: t("proxy"), icon: Globe },
     { id: "terminal", label: t("terminal"), icon: Terminal },
     { id: "shortcuts", label: t("shortcuts"), icon: Keyboard },
-    { id: "screenshot", label: t("screenshot"), icon: Camera },
+    ...(!isMac ? [{ id: "screenshot", label: t("screenshot"), icon: Camera }] : []),
     { id: "about", label: t("about"), icon: Info },
   ];
 

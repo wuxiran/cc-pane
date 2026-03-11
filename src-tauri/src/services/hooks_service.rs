@@ -91,17 +91,34 @@ impl HooksService {
             HOOK_BINARY_NAME.to_string()
         };
 
-        // 1. 应用安装目录（与主程序同级）
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
+                // 1. 应用安装目录（与主程序同级）
                 let candidate = exe_dir.join(&binary_name);
                 if candidate.exists() {
                     return Ok(candidate);
                 }
+
+                // 2. bundle.resources 子目录（Windows NSIS: <install_dir>/binaries/...）
+                let resources_candidate = exe_dir.join("binaries").join(&binary_name);
+                if resources_candidate.exists() {
+                    return Ok(resources_candidate);
+                }
+
+                // 3. macOS app bundle: Contents/MacOS/../Resources/binaries/...
+                #[cfg(target_os = "macos")]
+                {
+                    if let Some(contents_dir) = exe_dir.parent() {
+                        let macos_resources = contents_dir.join("Resources").join("binaries").join(&binary_name);
+                        if macos_resources.exists() {
+                            return Ok(macos_resources);
+                        }
+                    }
+                }
             }
         }
 
-        // 2. target/release/（开发模式）
+        // 4. target/release/（开发模式）
         let workspace_root = Self::find_workspace_root()?;
         let release_candidate = workspace_root
             .join("target")
@@ -111,7 +128,7 @@ impl HooksService {
             return Ok(release_candidate);
         }
 
-        // 3. target/debug/（开发模式）
+        // 5. target/debug/（开发模式）
         let debug_candidate = workspace_root
             .join("target")
             .join("debug")

@@ -43,12 +43,20 @@ jobs:
             exit 1
           fi
 
-  build-windows:
-    name: Build Windows
-    runs-on: windows-latest
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
     needs: validate-version
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: --bundles nsis
+          - platform: macos-latest
+            args: --bundles dmg
     steps:
       - uses: actions/checkout@v4
 
@@ -85,8 +93,8 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "CC-Panes v__VERSION__"
-          releaseBody: "See the [CHANGELOG](https://github.com/wuxiran/ccpane/blob/main/CHANGELOG.md) for details."
+          releaseBody: "See the [CHANGELOG](https://github.com/wuxiran/cc-pane/blob/main/CHANGELOG.md) for details."
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
-          args: --bundles nsis
+          args: ${{ matrix.args }}
