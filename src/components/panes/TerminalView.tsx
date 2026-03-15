@@ -25,6 +25,8 @@ async function getCachedBuildNumber(): Promise<number> {
   return buildNumberPromise;
 }
 
+import type { CliTool } from "@/types";
+
 interface TerminalViewProps {
   sessionId: string | null;
   projectPath: string;
@@ -33,6 +35,7 @@ interface TerminalViewProps {
   providerId?: string;
   workspacePath?: string;
   launchClaude?: boolean;
+  cliTool?: CliTool;
   resumeId?: string;
   skipMcp?: boolean;
   appendSystemPrompt?: string;
@@ -276,6 +279,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 providerId: props.providerId,
                 workspacePath: props.workspacePath,
                 launchClaude: props.launchClaude,
+                cliTool: props.cliTool,
                 resumeId: props.resumeId,
                 skipMcp: props.skipMcp,
                 appendSystemPrompt: props.appendSystemPrompt,

@@ -9,7 +9,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { CreateSessionRequest, ResizeRequest } from "@/types";
+import type { CreateSessionRequest, ResizeRequest, EnvironmentInfo } from "@/types";
 
 // ── 模块级状态：单例监听器 ──────────────────────────────────
 
@@ -182,5 +182,10 @@ export const terminalService = {
   /** 获取 Windows Build Number（用于 xterm.js windowsPty 配置） */
   async getWindowsBuildNumber(): Promise<number> {
     return invoke<number>("get_windows_build_number");
+  },
+
+  /** 检测开发环境（Node.js + Claude Code） */
+  async checkEnvironment(): Promise<EnvironmentInfo> {
+    return invoke<EnvironmentInfo>("check_environment");
   },
 };

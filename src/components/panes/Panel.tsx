@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 import { handleErrorSilent } from "@/utils";
 import type { Panel as PanelType, Tab } from "@/types";
 import { usePanesStore, useFullscreenStore, useFileTreeStore } from "@/stores";
-import { terminalService } from "@/services";
+import { terminalService, popOutTab } from "@/services";
+import type { PopupTabData } from "@/services/popupWindowService";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -33,6 +34,8 @@ export default memo(function Panel({ pane }: PanelProps) {
   const closeOtherTabs = usePanesStore((s) => s.closeOtherTabs);
   const setActivePane = usePanesStore((s) => s.setActivePane);
   const updateTabSession = usePanesStore((s) => s.updateTabSession);
+  const markTabPoppedOut = usePanesStore((s) => s.markTabPoppedOut);
+  const isTabPoppedOut = usePanesStore((s) => s.isTabPoppedOut);
 
   const isFullscreen = useFullscreenStore((s) => s.isFullscreen);
   const fullscreenPaneId = useFullscreenStore((s) => s.fullscreenPaneId);
@@ -224,6 +227,36 @@ export default memo(function Panel({ pane }: PanelProps) {
     []
   );
 
+  // 弹出标签为独立窗口
+  const handlePopOutTab = useCallback(
+    async (tabId: string) => {
+      const tab = pane.tabs.find((t) => t.id === tabId);
+      if (!tab || tab.contentType !== "terminal" || !tab.sessionId) return;
+      // 先断开主窗口 xterm 输出
+      terminalService.detachOutput(tab.sessionId);
+      terminalService.detachExit(tab.sessionId);
+      // 标记弹出状态
+      markTabPoppedOut(tabId);
+      // 创建弹出窗口
+      const data: PopupTabData = {
+        tabId,
+        paneId: pane.id,
+        sessionId: tab.sessionId,
+        projectPath: tab.projectPath,
+        title: tab.title,
+        workspaceName: tab.workspaceName,
+        providerId: tab.providerId,
+        workspacePath: tab.workspacePath,
+      };
+      try {
+        await popOutTab(data);
+      } catch (err) {
+        console.error("Failed to pop out tab:", err);
+      }
+    },
+    [pane.id, pane.tabs, markTabPoppedOut]
+  );
+
   // 保存 terminal ref
   const setTerminalRef = useCallback((tabId: string, ref: TerminalViewHandle | null) => {
     if (ref) {
@@ -275,6 +308,7 @@ export default memo(function Panel({ pane }: PanelProps) {
             onCloseTabsToRight={handleCloseTabsToRight}
             onCloseOtherTabs={handleCloseOtherTabs}
             onRevealInExplorer={handleRevealInExplorer}
+            onPopOutTab={handlePopOutTab}
           />
         </div>
 
@@ -292,6 +326,7 @@ export default memo(function Panel({ pane }: PanelProps) {
               tab={tab}
               isActive={tab.id === pane.activeTabId && isActivePane}
               paneId={pane.id}
+              isPoppedOut={isTabPoppedOut(tab.id)}
               onSessionCreated={(sid) => handleSessionCreated(tab.id, sid)}
               onTerminalRef={(ref) => setTerminalRef(tab.id, ref)}
             />

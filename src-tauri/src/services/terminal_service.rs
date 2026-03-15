@@ -1,6 +1,6 @@
-use crate::models::{TerminalExit, TerminalOutput};
+use crate::models::{CliTool, TerminalExit, TerminalOutput};
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
-use crate::services::{NotificationService, ProviderService, SettingsService};
+use crate::services::{NotificationService, ProviderService, SettingsService, SpecService};
 use crate::utils::AppPaths;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -166,6 +166,8 @@ pub struct TerminalService {
     app_paths: Arc<AppPaths>,
     /// Orchestrator 连接信息，setup 阶段设置
     orchestrator_info: Mutex<Option<OrchestratorInfo>>,
+    /// Spec 服务（终端启动时自动注入 active spec prompt）
+    spec_service: Mutex<Option<Arc<SpecService>>>,
 }
 
 /// ConPTY style-only 空闲帧：\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l  (25 字节)
@@ -364,6 +366,14 @@ impl TerminalService {
             notification_service,
             app_paths,
             orchestrator_info: Mutex::new(None),
+            spec_service: Mutex::new(None),
+        }
+    }
+
+    /// 设置 Spec 服务（用于终端启动时自动注入 active spec prompt）
+    pub fn set_spec_service(&self, spec_service: Arc<SpecService>) {
+        if let Ok(mut svc) = self.spec_service.lock() {
+            *svc = Some(spec_service);
         }
     }
 
@@ -378,7 +388,7 @@ impl TerminalService {
         workspace_name: Option<&str>,
         provider_id: Option<&str>,
         workspace_path: Option<&str>,
-        launch_claude: bool,
+        cli_tool: CliTool,
         resume_id: Option<&str>,
         skip_mcp: bool,
         append_system_prompt: Option<&str>,
@@ -396,12 +406,10 @@ impl TerminalService {
             env_vars.insert("TERM".to_string(), "xterm-256color".to_string());
         }
 
-        // 清除 CLAUDECODE 环境变量，防止 Claude CLI 检测到嵌套会话而拒绝启动
-        // （CC-Panes 本身可能从 Claude Code 终端启动，env 会传递到子进程）
-        let env_remove = if launch_claude {
-            vec!["CLAUDECODE".to_string()]
-        } else {
-            vec![]
+        // 清除嵌套检测环境变量
+        let env_remove = match cli_tool {
+            CliTool::Claude => vec!["CLAUDECODE".to_string()],
+            _ => vec![],
         };
 
         // 解析 Shell 配置
@@ -428,53 +436,28 @@ impl TerminalService {
             None => PathBuf::from(project_path),
         };
 
-        // 2. 命令：launch_claude 明确控制
-        let (command, args) = if launch_claude {
-            debug!(
-                session_id = %session_id,
-                project = %project_path,
-                resume_id = ?resume_id,
-                "create_session: launch_claude=true, resolving claude CLI"
-            );
-            if let Ok(claude_path) = which::which("claude") {
-                let mut claude_args = Vec::new();
-                if let Some(rid) = resume_id {
-                    claude_args.push("--resume".to_string());
-                    claude_args.push(rid.to_string());
-                    debug!(session_id = %session_id, resume_id = rid, "create_session: resume mode");
-                }
-                if workspace_path.is_some() {
-                    claude_args.push("--add-dir".to_string());
-                    claude_args.push(project_path.to_string());
-                }
-
-                // 生成 MCP 配置文件并注入 --mcp-config 参数（skip_mcp=true 时跳过）
-                if skip_mcp {
-                    info!(session_id = %session_id, "create_session: skip_mcp=true, skipping MCP config injection");
-                } else if let Some(mcp_config_path) = self.generate_mcp_config() {
-                    info!(session_id = %session_id, mcp_config = %mcp_config_path, "create_session: MCP config injected");
-                    claude_args.push("--mcp-config".to_string());
-                    claude_args.push(mcp_config_path);
-                } else {
-                    warn!(session_id = %session_id, "create_session: no MCP config generated (orchestrator not running?)");
-                }
-
-                // --append-system-prompt: 静默注入上下文到 Claude 系统提示
-                if let Some(prompt) = append_system_prompt {
-                    claude_args.push("--append-system-prompt".to_string());
-                    claude_args.push(prompt.to_string());
-                }
-
-                let claude_cmd = claude_path.to_string_lossy().to_string();
-                info!(session_id = %session_id, command = %claude_cmd, args = ?claude_args, "create_session: claude CLI resolved");
-                (claude_cmd, claude_args)
-            } else {
-                error!(session_id = %session_id, project = %project_path, "create_session: claude CLI NOT FOUND in PATH");
-                return Err(anyhow!("claude CLI not found in PATH"));
-            }
+        // 2. 自动注入 Spec prompt（仅 Claude/Codex，且无显式 append_system_prompt 时）
+        let spec_prompt = if cli_tool != CliTool::None && append_system_prompt.is_none() {
+            self.generate_spec_prompt(project_path)
         } else {
-            resolve_shell(shell_id.as_deref())
+            None
         };
+        let effective_prompt = append_system_prompt
+            .map(|s| s.to_string())
+            .or(spec_prompt);
+
+        // 3. 命令：根据 cli_tool 分发
+        let (command, args) = match cli_tool {
+            CliTool::Claude => self.build_claude_command(
+                &session_id, project_path, workspace_path, resume_id, skip_mcp,
+                effective_prompt.as_deref(),
+            )?,
+            CliTool::Codex => Self::build_codex_command(
+                &session_id, project_path, workspace_path, resume_id,
+            )?,
+            CliTool::None => resolve_shell(shell_id.as_deref()),
+        };
+        let launch_claude = cli_tool != CliTool::None;
 
         // 创建 PTY
         debug!(
@@ -845,6 +828,12 @@ impl TerminalService {
         if let Ok(mut sessions) = self.sessions.lock() {
             let count = sessions.len();
             for (_, session) in sessions.drain() {
+                // 先设置取消标志，通知 reader 线程停止（与 kill() 保持一致）
+                session.cancelled.store(true, Ordering::Relaxed);
+                {
+                    let mut s = session.status.lock().unwrap_or_else(|e| e.into_inner());
+                    *s = SessionStatus::Exited;
+                }
                 let _ = session.process.kill();
             }
             if count > 0 {
@@ -854,6 +843,99 @@ impl TerminalService {
     }
 
     /// 获取可用 Shell 列表
+    /// 构建 Claude CLI 命令和参数
+    fn build_claude_command(
+        &self,
+        session_id: &str,
+        project_path: &str,
+        workspace_path: Option<&str>,
+        resume_id: Option<&str>,
+        skip_mcp: bool,
+        append_system_prompt: Option<&str>,
+    ) -> Result<(String, Vec<String>)> {
+        debug!(
+            session_id = %session_id,
+            project = %project_path,
+            resume_id = ?resume_id,
+            "create_session: cli_tool=Claude, resolving claude CLI"
+        );
+        if let Ok(claude_path) = which::which("claude") {
+            let mut claude_args = Vec::new();
+            if let Some(rid) = resume_id {
+                claude_args.push("--resume".to_string());
+                claude_args.push(rid.to_string());
+                debug!(session_id = %session_id, resume_id = rid, "create_session: resume mode");
+            }
+            if workspace_path.is_some() {
+                claude_args.push("--add-dir".to_string());
+                claude_args.push(project_path.to_string());
+            }
+
+            // 生成 MCP 配置文件并注入 --mcp-config 参数（skip_mcp=true 时跳过）
+            if skip_mcp {
+                info!(session_id = %session_id, "create_session: skip_mcp=true, skipping MCP config injection");
+            } else if let Some(mcp_config_path) = self.generate_mcp_config() {
+                info!(session_id = %session_id, mcp_config = %mcp_config_path, "create_session: MCP config injected");
+                claude_args.push("--mcp-config".to_string());
+                claude_args.push(mcp_config_path);
+            } else {
+                warn!(session_id = %session_id, "create_session: no MCP config generated (orchestrator not running?)");
+            }
+
+            // --append-system-prompt: 静默注入上下文到 Claude 系统提示
+            if let Some(prompt) = append_system_prompt {
+                claude_args.push("--append-system-prompt".to_string());
+                claude_args.push(prompt.to_string());
+            }
+
+            let claude_cmd = claude_path.to_string_lossy().to_string();
+            info!(session_id = %session_id, command = %claude_cmd, args = ?claude_args, "create_session: claude CLI resolved");
+            Ok((claude_cmd, claude_args))
+        } else {
+            error!(session_id = %session_id, project = %project_path, "create_session: claude CLI NOT FOUND in PATH");
+            Err(anyhow!("claude CLI not found in PATH"))
+        }
+    }
+
+    /// 构建 Codex CLI 命令和参数
+    fn build_codex_command(
+        session_id: &str,
+        project_path: &str,
+        workspace_path: Option<&str>,
+        resume_id: Option<&str>,
+    ) -> Result<(String, Vec<String>)> {
+        debug!(
+            session_id = %session_id,
+            project = %project_path,
+            resume_id = ?resume_id,
+            "create_session: cli_tool=Codex, resolving codex CLI"
+        );
+        if let Ok(codex_path) = which::which("codex") {
+            let mut codex_args = Vec::new();
+
+            if let Some(rid) = resume_id {
+                // Codex 使用子命令形式: codex resume <id>
+                codex_args.push("resume".to_string());
+                codex_args.push(rid.to_string());
+                debug!(session_id = %session_id, resume_id = rid, "create_session: codex resume mode");
+            }
+
+            if workspace_path.is_some() {
+                codex_args.push("--add-dir".to_string());
+                codex_args.push(project_path.to_string());
+            }
+
+            // 第一版：跳过 MCP 和 system prompt（Codex 用子命令注册 MCP，用 AGENTS.md）
+
+            let codex_cmd = codex_path.to_string_lossy().to_string();
+            info!(session_id = %session_id, command = %codex_cmd, args = ?codex_args, "create_session: codex CLI resolved");
+            Ok((codex_cmd, codex_args))
+        } else {
+            error!(session_id = %session_id, project = %project_path, "create_session: codex CLI NOT FOUND in PATH");
+            Err(anyhow!("codex CLI not found in PATH"))
+        }
+    }
+
     pub fn get_available_shells(&self) -> Vec<ShellInfo> {
         detect_shells()
     }
@@ -863,6 +945,40 @@ impl TerminalService {
         if let Ok(mut info) = self.orchestrator_info.lock() {
             *info = Some(OrchestratorInfo { port, token });
             info!("[terminal] Orchestrator info set: port={}", port);
+        }
+    }
+
+    /// 生成 Spec 注入 prompt（终端启动时调用）
+    /// 成功时先 sync_tasks → 返回提示文本；失败时返回 None（不阻塞启动）
+    fn generate_spec_prompt(&self, project_path: &str) -> Option<String> {
+        let spec_svc = self.spec_service.lock().ok()?.as_ref()?.clone();
+
+        // 先同步 Tasks 段
+        if let Some(active) = spec_svc
+            .list_specs(project_path, Some(crate::models::spec::SpecStatus::Active))
+            .ok()
+            .and_then(|specs| specs.into_iter().next())
+        {
+            if let Err(e) = spec_svc.sync_tasks(project_path, &active.id) {
+                warn!("[spec] sync_tasks failed before prompt injection: {}", e);
+            }
+        }
+
+        match spec_svc.get_active_spec_summary(project_path) {
+            Ok(Some(summary)) => {
+                let prompt = format!(
+                    "This project has an active spec: \"{}\". Read the spec file at: {} ({}). \
+                     Update task checkboxes in the spec file as you complete them.",
+                    summary.title, summary.file_path, summary.tasks_summary,
+                );
+                info!("[spec] Injecting spec prompt for project: {}", project_path);
+                Some(prompt)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                warn!("[spec] get_active_spec_summary failed: {}", e);
+                None
+            }
         }
     }
 

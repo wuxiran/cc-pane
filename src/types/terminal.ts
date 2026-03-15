@@ -2,6 +2,9 @@
  * 标签与终端相关类型定义
  */
 
+/** CLI 工具类型 */
+export type CliTool = "none" | "claude" | "codex";
+
 /** 通用标签 */
 export interface Tab {
   id: string;
@@ -16,9 +19,11 @@ export interface Tab {
   workspaceName?: string; // 所属工作空间名称（用于启动 TUI）
   providerId?: string; // 关联的 Provider ID
   workspacePath?: string; // 工作空间根目录路径（用于 claude --add-dir 模式）
-  launchClaude?: boolean; // 是否启动 Claude Code CLI
+  launchClaude?: boolean; // 是否启动 Claude Code CLI（兼容旧版）
+  cliTool?: CliTool; // CLI 工具类型（优先于 launchClaude）
   filePath?: string; // 编辑器打开的文件绝对路径
   dirty?: boolean; // 是否有未保存修改
+  reclaimKey?: number; // 回收时递增，作为 React key 触发 remount
 }
 
 /** 终端会话状态 */
@@ -39,6 +44,7 @@ export interface CreateSessionRequest {
   providerId?: string;
   workspacePath?: string;
   launchClaude?: boolean;
+  cliTool?: CliTool;
   resumeId?: string;
   skipMcp?: boolean;
   appendSystemPrompt?: string;

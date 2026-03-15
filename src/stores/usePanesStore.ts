@@ -9,6 +9,7 @@ import type {
   SplitPane,
   Tab,
   SplitDirection,
+  CliTool,
 } from "@/types";
 
 // 生成唯一 ID
@@ -43,7 +44,7 @@ function createTab(
   workspaceName?: string,
   providerId?: string,
   workspacePath?: string,
-  launchClaude?: boolean,
+  cliTool?: CliTool,
   customTitle?: string
 ): Tab {
   let title: string;
@@ -52,7 +53,9 @@ function createTab(
   } else {
     const name = projectPath.split(/[/\\]/).pop() || "Terminal";
     title = name;
-    if (launchClaude) {
+    if (cliTool === "codex") {
+      title = `${name} (Codex)`;
+    } else if (cliTool === "claude") {
       title = `${name} (Claude)`;
     } else if (resumeId === "new") {
       title = `${name} (Claude)`;
@@ -71,7 +74,8 @@ function createTab(
     workspaceName,
     providerId,
     workspacePath,
-    launchClaude,
+    cliTool,
+    launchClaude: cliTool === "claude" || cliTool === "codex" || undefined,
   };
 }
 
@@ -121,12 +125,14 @@ interface ClosedTabSnapshot {
   providerId?: string;
   workspacePath?: string;
   launchClaude?: boolean;
+  cliTool?: CliTool;
 }
 
 interface PanesState {
   rootPane: PaneNode;
   activePaneId: string;
   closedTabs: ClosedTabSnapshot[];
+  poppedOutTabs: Set<string>;
 
   // 派生
   allPanels: () => Panel[];
@@ -141,7 +147,7 @@ interface PanesState {
   resizePanes: (paneId: string, sizes: number[]) => void;
 
   // 标签
-  addTab: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean, title?: string) => void;
+  addTab: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool, title?: string) => void;
   closeTab: (paneId: string, tabId: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;
   renameTab: (paneId: string, tabId: string, newTitle: string) => void;
@@ -154,8 +160,8 @@ interface PanesState {
   selectTab: (paneId: string, tabId: string) => void;
   setActivePane: (paneId: string) => void;
   updateTabSession: (paneId: string, tabId: string, sessionId: string) => void;
-  openProject: (projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean) => void;
-  openProjectInPane: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean) => void;
+  openProject: (projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool) => void;
+  openProjectInPane: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool) => void;
   nextTab: (paneId: string) => void;
   prevTab: (paneId: string) => void;
   switchToTab: (paneId: string, index: number) => void;
@@ -168,6 +174,9 @@ interface PanesState {
   openFileExplorer: (projectPath: string, title: string) => void;
   openEditor: (projectPath: string, filePath: string, title: string) => void;
   setTabDirty: (paneId: string, tabId: string, dirty: boolean) => void;
+  markTabPoppedOut: (tabId: string) => void;
+  markTabReclaimed: (tabId: string) => void;
+  isTabPoppedOut: (tabId: string) => boolean;
 }
 
 const initialPanel = createPanel();
@@ -194,6 +203,7 @@ export const usePanesStore = create<PanesState>()(
     rootPane: initialPanel,
     activePaneId: initialPanel.id,
     closedTabs: [],
+    poppedOutTabs: new Set<string>(),
 
     allPanels: () => collectPanels(get().rootPane),
 
@@ -271,6 +281,7 @@ export const usePanesStore = create<PanesState>()(
             providerId: t.providerId,
             workspacePath: t.workspacePath,
             launchClaude: t.launchClaude,
+            cliTool: t.cliTool,
           }));
         if (recoverableTabs.length > 0) {
           set((state) => {
@@ -360,12 +371,12 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    addTab: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, launchClaude?, title?) => {
+    addTab: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, cliTool?, title?) => {
       set((state) => {
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
 
-        const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude, title);
+        const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool, title);
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -518,6 +529,7 @@ export const usePanesStore = create<PanesState>()(
             providerId: snapTab.providerId,
             workspacePath: snapTab.workspacePath,
             launchClaude: snapTab.launchClaude,
+            cliTool: snapTab.cliTool,
           });
         });
       }
@@ -641,13 +653,13 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    openProjectInPane: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, launchClaude?) => {
+    openProjectInPane: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, cliTool?) => {
       set((state) => {
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
 
-        if (resumeId || launchClaude) {
-          const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude);
+        if (resumeId || (cliTool && cliTool !== "none")) {
+          const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool);
           pane.tabs.push(newTab);
           pane.activeTabId = newTab.id;
           state.activePaneId = paneId;
@@ -655,7 +667,7 @@ export const usePanesStore = create<PanesState>()(
         }
 
         const existingTab = pane.tabs.find(
-          (t) => t.projectId === projectId && !t.resumeId && !t.launchClaude
+          (t) => t.projectId === projectId && !t.resumeId && !t.cliTool
         );
         if (existingTab) {
           pane.activeTabId = existingTab.id;
@@ -676,12 +688,12 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    openProject: (projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, launchClaude?) => {
+    openProject: (projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, cliTool?) => {
       const active = get().activePane();
       if (active) {
-        get().openProjectInPane(active.id, projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude);
+        get().openProjectInPane(active.id, projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool);
       } else if (get().rootPane.type === "panel") {
-        get().openProjectInPane(get().rootPane.id, projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, launchClaude);
+        get().openProjectInPane(get().rootPane.id, projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool);
       }
     },
 
@@ -760,7 +772,7 @@ export const usePanesStore = create<PanesState>()(
         lastClosed.workspaceName,
         lastClosed.providerId,
         lastClosed.workspacePath,
-        lastClosed.launchClaude,
+        lastClosed.cliTool,
       );
     },
 
@@ -894,13 +906,60 @@ export const usePanesStore = create<PanesState>()(
         if (tab) tab.dirty = dirty;
       });
     },
+
+    markTabPoppedOut: (tabId) => {
+      set((state) => {
+        state.poppedOutTabs = new Set(state.poppedOutTabs).add(tabId);
+      });
+    },
+
+    markTabReclaimed: (tabId) => {
+      set((state) => {
+        const next = new Set(state.poppedOutTabs);
+        next.delete(tabId);
+        state.poppedOutTabs = next;
+        // 递增 reclaimKey 触发 TerminalView remount
+        const panels = collectPanels(state.rootPane);
+        for (const panel of panels) {
+          const tab = panel.tabs.find((t) => t.id === tabId);
+          if (tab) {
+            tab.reclaimKey = (tab.reclaimKey ?? 0) + 1;
+            break;
+          }
+        }
+      });
+    },
+
+    isTabPoppedOut: (tabId) => get().poppedOutTabs.has(tabId),
   })),
   {
     name: "cc-panes-layout",
-    version: 1,
+    version: 2,
+    migrate: (persistedState, version) => {
+      const state = persistedState as Record<string, unknown>;
+      if (version < 2) {
+        // v1 → v2: launchClaude: true → cliTool: "claude"
+        function migrateNode(node: PaneNode) {
+          if (node.type === "panel") {
+            for (const tab of node.tabs) {
+              if (!tab.cliTool && tab.launchClaude) {
+                tab.cliTool = "claude";
+              }
+            }
+          } else {
+            node.children.forEach(migrateNode);
+          }
+        }
+        if (state.rootPane) {
+          migrateNode(state.rootPane as PaneNode);
+        }
+      }
+      return state;
+    },
     partialize: (state) => ({
       rootPane: state.rootPane,
       activePaneId: state.activePaneId,
+      // poppedOutTabs 不持久化（重启后弹出窗口不存在）
     }),
     merge: (persistedState, currentState) => {
       const merged = {

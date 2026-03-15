@@ -11,14 +11,14 @@ use commands::{
     read_session_state, update_launch_session_id, update_launch_last_prompt, touch_launch_by_session,
     detect_claude_session, debug_encode_path,
     create_terminal_session,
-    enter_fullscreen, exit_fullscreen, get_all_terminal_status, get_available_shells, get_windows_build_number,
+    enter_fullscreen, exit_fullscreen, get_all_terminal_status, get_available_shells, get_windows_build_number, check_environment,
     get_git_branch, get_git_status, get_git_file_statuses, get_project,
     git_clone, git_fetch, git_pull, git_push, git_stash, git_stash_pop, is_fullscreen, kill_terminal,
     list_all_claude_sessions, list_claude_sessions, scan_broken_sessions,
     clean_session_file, clean_all_broken_sessions, extract_last_prompt,
     list_launch_history, list_projects,
     remove_project, resize_terminal, set_decorations, toggle_always_on_top, enter_mini_mode, exit_mini_mode,
-    close_window, minimize_window, maximize_window, get_app_cwd,
+    close_window, minimize_window, maximize_window, get_app_cwd, create_popup_terminal_window,
     update_project_alias, update_project_name, write_terminal,
     // Local History 命令
     init_project_history, list_file_versions, get_version_content,
@@ -62,6 +62,9 @@ use commands::{
     toggle_todo_my_day, check_todo_reminders,
     add_todo_subtask, update_todo_subtask, delete_todo_subtask,
     toggle_todo_subtask, reorder_todo_subtasks,
+    // Spec 命令
+    create_spec, list_specs, get_spec_content, save_spec_content,
+    update_spec, delete_spec, sync_spec_tasks, handle_terminal_exit_spec,
     // MCP 配置命令
     list_mcp_servers, get_mcp_server, upsert_mcp_server, remove_mcp_server,
     // Skill 命令
@@ -77,8 +80,8 @@ use commands::{
     // Orchestrator 命令
     get_orchestrator_port, get_orchestrator_token, respond_orchestrator_query,
 };
-use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository};
-use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService};
+use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository, SpecRepository};
+use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, SpecService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService};
 use utils::AppPaths;
 use std::sync::Arc;
 
@@ -306,9 +309,11 @@ pub fn run() {
     };
     let project_repo = Arc::new(ProjectRepository::new(db.clone()));
     let history_repo = Arc::new(HistoryRepository::new(db.clone()));
-    let todo_repo = Arc::new(TodoRepository::new(db));
+    let todo_repo = Arc::new(TodoRepository::new(db.clone()));
+    let spec_repo = Arc::new(SpecRepository::new(db));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let todo_service = Arc::new(TodoService::new(todo_repo));
+    let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let project_service = Arc::new(ProjectService::new(project_repo));
     let history_service = Arc::new(HistoryService::new());
     let hooks_service = Arc::new(HooksService::new());
@@ -328,6 +333,9 @@ pub fn run() {
         notification_service.clone(),
         app_paths.clone(),
     ));
+    // 注入 Spec 服务到 Terminal 服务（终端启动时自动注入 spec prompt）
+    terminal_service.set_spec_service(spec_service.clone());
+
     let orchestrator_service = Arc::new(OrchestratorService::new());
 
     // 保存引用用于退出时清理
@@ -366,6 +374,7 @@ pub fn run() {
         .manage(provider_service)
         .manage(notification_service)
         .manage(todo_service)
+        .manage(spec_service)
         .manage(mcp_config_service)
         .manage(skill_service)
         .manage(plan_service)
@@ -419,6 +428,7 @@ pub fn run() {
                 let proj_svc = app.state::<Arc<ProjectService>>();
                 let ws_svc_orch = app.state::<Arc<WorkspaceService>>();
                 let todo_svc = app.state::<Arc<TodoService>>();
+                let spec_svc = app.state::<Arc<SpecService>>();
                 let skill_svc = app.state::<Arc<SkillService>>();
                 let lh_svc = app.state::<Arc<LaunchHistoryService>>();
                 let paths = app.state::<Arc<AppPaths>>();
@@ -428,6 +438,7 @@ pub fn run() {
                     proj_svc.inner().clone(),
                     ws_svc_orch.inner().clone(),
                     todo_svc.inner().clone(),
+                    spec_svc.inner().clone(),
                     skill_svc.inner().clone(),
                     lh_svc.inner().clone(),
                     app.handle().clone(),
@@ -498,9 +509,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // 主窗口关闭 → 隐藏到托盘（不退出）
-                let _ = window.hide();
-                api.prevent_close();
+                if window.label() == "main" {
+                    // 主窗口关闭 → 隐藏到托盘（不退出）
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+                // 弹出窗口正常关闭，不拦截
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -519,6 +533,7 @@ pub fn run() {
             get_all_terminal_status,
             get_available_shells,
             get_windows_build_number,
+            check_environment,
             // 窗口命令
             close_window,
             minimize_window,
@@ -531,6 +546,7 @@ pub fn run() {
             enter_mini_mode,
             exit_mini_mode,
             get_app_cwd,
+            create_popup_terminal_window,
             // Git 命令
             get_git_branch,
             get_git_status,
@@ -656,6 +672,15 @@ pub fn run() {
             delete_todo_subtask,
             toggle_todo_subtask,
             reorder_todo_subtasks,
+            // Spec 命令
+            create_spec,
+            list_specs,
+            get_spec_content,
+            save_spec_content,
+            update_spec,
+            delete_spec,
+            sync_spec_tasks,
+            handle_terminal_exit_spec,
             // MCP 配置命令
             list_mcp_servers,
             get_mcp_server,

@@ -27,7 +27,7 @@ pub fn create_terminal_session(
         request.workspace_name.as_deref(),
         request.provider_id.as_deref(),
         request.workspace_path.as_deref(),
-        request.launch_claude,
+        request.effective_cli_tool(),
         request.resume_id.as_deref(),
         request.skip_mcp,
         request.append_system_prompt.as_deref(),
@@ -89,4 +89,50 @@ pub fn get_available_shells(
 #[tauri::command]
 pub fn get_windows_build_number() -> AppResult<u32> {
     Ok(terminal_service::get_windows_build_number())
+}
+
+/// 检测开发环境（Node.js + Claude Code）
+#[tauri::command]
+pub fn check_environment() -> serde_json::Value {
+    let node_installed = which::which("node").is_ok();
+    let node_version = if node_installed {
+        std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+    } else {
+        None
+    };
+
+    let claude_installed = which::which("claude").is_ok();
+    let claude_version = if claude_installed {
+        std::process::Command::new("claude")
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+    } else {
+        None
+    };
+
+    let codex_installed = which::which("codex").is_ok();
+    let codex_version = if codex_installed {
+        std::process::Command::new("codex")
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+    } else {
+        None
+    };
+
+    serde_json::json!({
+        "node": { "installed": node_installed, "version": node_version },
+        "claude": { "installed": claude_installed, "version": claude_version },
+        "codex": { "installed": codex_installed, "version": codex_version }
+    })
 }

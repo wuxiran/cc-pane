@@ -175,7 +175,10 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     })
 }
 
-/// 跨平台按 PID 终止进程
+/// 跨平台按 PID 终止进程树
+///
+/// - Windows: 使用 `taskkill /T /F /PID` 递归杀死整个进程树
+/// - Unix: 先尝试 `killpg` 杀进程组，失败则回退到杀单进程
 fn kill_process_by_pid(pid: u32) -> Result<()> {
     if pid == 0 {
         return Err(anyhow!("invalid pid 0, cannot kill"));
@@ -183,31 +186,47 @@ fn kill_process_by_pid(pid: u32) -> Result<()> {
 
     #[cfg(windows)]
     {
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{
-            OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-        };
-        unsafe {
-            let handle = OpenProcess(PROCESS_TERMINATE, false, pid)
-                .map_err(|e| anyhow!("OpenProcess failed for pid {}: {}", pid, e))?;
-            let terminate_result = TerminateProcess(handle, 1);
-            let _ = CloseHandle(handle);
-            terminate_result
-                .map_err(|e| anyhow!("TerminateProcess failed for pid {}: {}", pid, e))?;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // taskkill /T = 杀进程树, /F = 强制终止
+        let output = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        match output {
+            Ok(o) if o.status.success() => Ok(()),
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                // 进程已不存在时 taskkill 返回非零但不算错误
+                if stderr.contains("not found") || stderr.contains("找不到") {
+                    Ok(())
+                } else {
+                    Err(anyhow!("taskkill failed for pid {}: {}", pid, stderr.trim()))
+                }
+            }
+            Err(e) => Err(anyhow!("taskkill spawn failed: {}", e)),
         }
-        Ok(())
     }
 
     #[cfg(unix)]
     {
-        let ret = unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        // 先尝试杀进程组（PTY 子进程通常在同一进程组）
+        let ret = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
         if ret != 0 {
             let err = std::io::Error::last_os_error();
-            // ESRCH = 进程不存在，视为已退出，不报错
             if err.raw_os_error() == Some(libc::ESRCH) {
                 return Ok(());
             }
-            return Err(anyhow!("kill({}) failed: {}", pid, err));
+            // 进程组杀失败，回退到杀单进程
+            let ret2 = unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+            if ret2 != 0 {
+                let err2 = std::io::Error::last_os_error();
+                if err2.raw_os_error() == Some(libc::ESRCH) {
+                    return Ok(());
+                }
+                return Err(anyhow!("kill({}) failed: {}", pid, err2));
+            }
         }
         Ok(())
     }

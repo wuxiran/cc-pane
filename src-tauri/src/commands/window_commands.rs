@@ -2,6 +2,7 @@ use crate::utils::{AppPaths, AppResult};
 use std::sync::Arc;
 use tauri::{LogicalSize, State, WebviewWindow};
 use tracing::debug;
+use urlencoding;
 
 /// 关闭窗口
 #[tauri::command]
@@ -83,6 +84,27 @@ pub fn exit_mini_mode(
     debug!("cmd::exit_mini_mode");
     window.set_always_on_top(false)?;
     window.set_size(LogicalSize::new(width, height))?;
+    Ok(())
+}
+
+/// 创建弹出终端窗口
+#[tauri::command]
+pub fn create_popup_terminal_window(
+    app: tauri::AppHandle,
+    tab_data: String,
+    label: String,
+) -> AppResult<()> {
+    debug!("cmd::create_popup_terminal_window label={}", label);
+    let url = format!(
+        "index.html?mode=popup&tabData={}",
+        urlencoding::encode(&tab_data)
+    );
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
+        .title("Terminal")
+        .inner_size(800.0, 500.0)
+        .decorations(true)
+        .resizable(true)
+        .build()?;
     Ok(())
 }
 

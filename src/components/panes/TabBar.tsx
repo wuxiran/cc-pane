@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, memo } from "react";
-import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree } from "lucide-react";
+import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -69,6 +69,7 @@ interface TabBarProps {
   onCloseTabsToRight: (tabId: string) => void;
   onCloseOtherTabs: (tabId: string) => void;
   onRevealInExplorer?: (tab: Tab) => void;
+  onPopOutTab?: (tabId: string) => void;
   activeTabBg?: string;
   activeTabFg?: string;
 }
@@ -100,6 +101,7 @@ function SortableTab({
   onCloseTabsToRight,
   onCloseOtherTabs,
   onRevealInExplorer,
+  onPopOutTab,
   activeTabBg,
   activeTabFg,
   getStatus,
@@ -130,6 +132,7 @@ function SortableTab({
   onCloseTabsToRight: (tabId: string) => void;
   onCloseOtherTabs: (tabId: string) => void;
   onRevealInExplorer?: (tab: Tab) => void;
+  onPopOutTab?: (tabId: string) => void;
   activeTabBg?: string;
   activeTabFg?: string;
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
@@ -263,6 +266,14 @@ function SortableTab({
             </ContextMenuItem>
           </>
         )}
+        {tab.contentType === "terminal" && tab.sessionId && onPopOutTab && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => onPopOutTab(tab.id)}>
+              <ExternalLink /> {t("popOutWindow")}
+            </ContextMenuItem>
+          </>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onClick={onSplitRight}>
           <PanelRight /> {t("splitRight")}
@@ -337,6 +348,7 @@ export default memo(function TabBar({
   onCloseTabsToRight,
   onCloseOtherTabs,
   onRevealInExplorer,
+  onPopOutTab,
   activeTabBg,
   activeTabFg,
 }: TabBarProps) {
@@ -416,6 +428,7 @@ export default memo(function TabBar({
               onCloseTabsToRight={onCloseTabsToRight}
               onCloseOtherTabs={onCloseOtherTabs}
               onRevealInExplorer={onRevealInExplorer}
+              onPopOutTab={onPopOutTab}
               activeTabBg={activeTabBg}
               activeTabFg={activeTabFg}
               getStatus={getStatus}

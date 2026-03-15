@@ -1,5 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+/// CLI 工具类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CliTool {
+    #[default]
+    None,
+    Claude,
+    Codex,
+}
+
 /// 创建终端会话请求
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,10 +22,22 @@ pub struct CreateSessionRequest {
     pub workspace_path: Option<String>,
     #[serde(default)]
     pub launch_claude: bool,
+    #[serde(default)]
+    pub cli_tool: CliTool,
     pub resume_id: Option<String>,
     #[serde(default)]
     pub skip_mcp: bool,
     pub append_system_prompt: Option<String>,
+}
+
+impl CreateSessionRequest {
+    /// 兼容映射：优先使用 cli_tool，fallback 到 launch_claude
+    pub fn effective_cli_tool(&self) -> CliTool {
+        match self.cli_tool {
+            CliTool::None if self.launch_claude => CliTool::Claude,
+            other => other,
+        }
+    }
 }
 
 /// 调整终端大小请求
