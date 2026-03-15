@@ -55,7 +55,7 @@ _archived_v1/
 nul
 
 # 系统脚本（不属于项目）
-__*.ps1
+*.ps1
 
 # 测试工作空间数据
 test-workspace/
