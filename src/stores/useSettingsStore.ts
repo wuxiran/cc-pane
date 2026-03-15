@@ -88,6 +88,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       language: "zh-CN",
       dataDir: null,
       searchScope: "Workspace",
+      onboardingCompleted: false,
+      defaultCliTool: "claude",
     },
     notification: {
       enabled: true,

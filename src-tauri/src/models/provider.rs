@@ -11,6 +11,7 @@ pub enum ProviderType {
     Vertex,
     Proxy,
     ConfigProfile,
+    OpenAI,
 }
 
 /// Provider 配置
@@ -79,6 +80,14 @@ impl Provider {
             ProviderType::ConfigProfile => {
                 if let Some(ref dir) = self.config_dir {
                     vars.insert("CLAUDE_CONFIG_DIR".to_string(), dir.clone());
+                }
+            }
+            ProviderType::OpenAI => {
+                if let Some(ref key) = self.api_key {
+                    vars.insert("CODEX_API_KEY".to_string(), key.clone());
+                }
+                if let Some(ref url) = self.base_url {
+                    vars.insert("OPENAI_BASE_URL".to_string(), url.clone());
                 }
             }
         }

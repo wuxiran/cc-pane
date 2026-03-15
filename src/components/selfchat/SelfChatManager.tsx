@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { TerminalView } from "@/components/panes";
 import type { TerminalViewHandle } from "@/components/panes";
 import SelfChatContextBar from "./SelfChatContextBar";
-import { useSelfChatStore } from "@/stores";
+import { useSelfChatStore, useSettingsStore } from "@/stores";
 import { selfChatService, terminalService } from "@/services";
 
 const LOG_PREFIX = "[SelfChat]";
@@ -12,6 +12,7 @@ const LOG_PREFIX = "[SelfChat]";
 export default function SelfChatManager() {
   const { t } = useTranslation("common");
 
+  const defaultCliTool = useSettingsStore((s) => s.settings?.general.defaultCliTool ?? "claude");
   const activeSession = useSelfChatStore((s) => s.activeSession);
   const startSession = useSelfChatStore((s) => s.startSession);
   const updatePtySessionId = useSelfChatStore((s) => s.updatePtySessionId);
@@ -27,11 +28,20 @@ export default function SelfChatManager() {
     if (activeSession || autoStartedRef.current) return;
     autoStartedRef.current = true;
 
-    console.info(`${LOG_PREFIX} Auto-starting: collecting context + fetching app CWD...`);
+    const onboarding = useSelfChatStore.getState().isOnboarding;
+    console.info(`${LOG_PREFIX} Auto-starting: collecting context + fetching app CWD... (onboarding=${onboarding})`);
+
+    const collectPrompt = onboarding
+      ? Promise.resolve(
+          selfChatService.collectOnboardingContext(
+            useSettingsStore.getState().settings?.general.language ?? "zh-CN"
+          )
+        )
+      : selfChatService.collectAppContext();
 
     Promise.all([
       selfChatService.getAppCwd(),
-      selfChatService.collectAppContext(),
+      collectPrompt,
     ]).then(([cwd, prompt]) => {
       // 再次检查避免竞争
       if (useSelfChatStore.getState().activeSession) {
@@ -81,6 +91,20 @@ export default function SelfChatManager() {
         console.info(`${LOG_PREFIX} PTY session created: ${ptySessionId}, selfChatId=${session.id}`);
         updatePtySessionId(session.id, ptySessionId);
         setStatus(session.id, "running");
+
+        // Onboarding 模式：延时自动发送初始消息触发 Claude 引导回复
+        if (useSelfChatStore.getState().isOnboarding) {
+          console.info(`${LOG_PREFIX} Onboarding mode: will auto-send initial message in 5s`);
+          setTimeout(() => {
+            const current = useSelfChatStore.getState().activeSession;
+            if (current?.ptySessionId === ptySessionId && current.status === "running") {
+              console.info(`${LOG_PREFIX} Sending onboarding initial message`);
+              terminalService.write(ptySessionId, "你好，我是新用户\r");
+            } else {
+              console.info(`${LOG_PREFIX} Skipped onboarding message: session changed or not running`);
+            }
+          }, 5000);
+        }
       } else {
         console.warn(`${LOG_PREFIX} PTY session created but no active selfChat session`);
       }
@@ -118,6 +142,7 @@ export default function SelfChatManager() {
             projectPath={activeSession.appCwd}
             isActive={true}
             launchClaude={true}
+            cliTool={defaultCliTool}
             skipMcp={false}
             appendSystemPrompt={activeSession.systemPrompt ?? undefined}
             onSessionCreated={handleSessionCreated}

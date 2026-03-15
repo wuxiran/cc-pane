@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { settingsService } from "@/services";
 import { useSettingsStore } from "@/stores";
+import { useDialogStore } from "@/stores";
 import type { GeneralSettings, DataDirInfo, SearchScope } from "@/types";
 import { formatSize } from "@/utils";
 
@@ -131,6 +132,27 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
         </select>
       </div>
 
+      {/* 默认 CLI 工具 */}
+      <div className="flex flex-col gap-1">
+        <Label>{t("defaultCliTool")}</Label>
+        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+          {t("defaultCliToolDesc")}
+        </p>
+        <select
+          value={value.defaultCliTool ?? "claude"}
+          onChange={(e) => update("defaultCliTool", e.target.value as "claude" | "codex")}
+          className="h-9 px-2 rounded-md text-[13px] outline-none w-40"
+          style={{
+            border: "1px solid var(--app-border)",
+            background: "var(--app-content)",
+            color: "var(--app-text-primary)",
+          }}
+        >
+          <option value="claude">Claude Code</option>
+          <option value="codex">Codex CLI</option>
+        </select>
+      </div>
+
       {/* 搜索范围 */}
       <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
         <Label>{t("searchScope")}</Label>
@@ -199,6 +221,25 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
         <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
           {t("dataDirRestartHint")}
         </p>
+      </div>
+
+      {/* 新手引导 */}
+      <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
+        <Label>{t("restartOnboarding", { ns: "onboarding" })}</Label>
+        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+          {t("restartOnboardingDesc", { ns: "onboarding" })}
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="w-fit mt-1"
+          onClick={() => {
+            onChange({ ...value, onboardingCompleted: false });
+            useDialogStore.getState().openOnboarding();
+          }}
+        >
+          {t("restartOnboarding", { ns: "onboarding" })}
+        </Button>
       </div>
     </div>
   );

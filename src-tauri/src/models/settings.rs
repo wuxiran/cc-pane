@@ -97,6 +97,16 @@ pub struct GeneralSettings {
     /// 日志级别: "error" | "warn" | "info" | "debug" | "trace"
     #[serde(default = "default_log_level")]
     pub log_level: String,
+    /// 新手引导是否已完成
+    #[serde(default)]
+    pub onboarding_completed: bool,
+    /// 默认 CLI 工具（用于自我对话等场景）: "claude" | "codex"
+    #[serde(default = "default_cli_tool")]
+    pub default_cli_tool: String,
+}
+
+fn default_cli_tool() -> String {
+    "claude".to_string()
 }
 
 fn default_log_level() -> String {
@@ -202,6 +212,8 @@ impl Default for GeneralSettings {
             data_dir: None,
             search_scope: SearchScope::default(),
             log_level: default_log_level(),
+            onboarding_completed: false,
+            default_cli_tool: default_cli_tool(),
         }
     }
 }

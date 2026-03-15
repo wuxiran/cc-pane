@@ -19,9 +19,11 @@ import TodoManager from "@/components/todo/TodoManager";
 import SelfChatPanel from "@/components/SelfChatPanel";
 import { SelfChatManager } from "@/components/selfchat";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
+import OnboardingGuide from "@/components/OnboardingGuide";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import QuickSearch from "@/components/QuickSearch";
 import RecentFilesPicker from "@/components/RecentFilesPicker";
+import PopupTerminalWindow from "@/components/PopupTerminalWindow";
 import {
   usePanesStore,
   useFullscreenStore,
@@ -38,14 +40,16 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
-import { historyService, terminalService, localHistoryService, hooksService, checkUpdateSilent } from "@/services";
+import { historyService, terminalService, localHistoryService, hooksService, checkUpdateSilent, markTabReclaimed as popupMarkReclaimed } from "@/services";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { isTauriReady, waitForTauri } from "@/utils";
 import { registerGlobalApi } from "@/utils/globalApi";
 import i18n from "@/i18n";
+import type { PopupTabData } from "@/services/popupWindowService";
 
-import type { PaneNode, Panel as PanelType } from "@/types";
+import type { PaneNode, Panel as PanelType, CliTool } from "@/types";
 
 interface SessionTrackInfo {
   recordId: number;
@@ -60,6 +64,19 @@ function getAllPanels(pane: PaneNode): PanelType[] {
 }
 
 export default function App() {
+  // 弹出窗口路由：mode=popup 时渲染纯终端视图
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("mode") === "popup") {
+    try {
+      const tabData: PopupTabData = JSON.parse(
+        decodeURIComponent(params.get("tabData") || "{}")
+      );
+      return <PopupTerminalWindow tabData={tabData} />;
+    } catch {
+      return <div style={{ color: "red", padding: 20 }}>Invalid popup data</div>;
+    }
+  }
+
   return (
     <ErrorBoundary>
       <MainApp />
@@ -142,6 +159,11 @@ function MainApp() {
       useTerminalStatusStore.getState().init();
       // 应用启动后静默检查更新（仅写入 store，不弹窗）
       checkUpdateSilent().catch(console.error);
+      // 首次启动检测：弹出新手引导
+      const loadedSettings = useSettingsStore.getState().settings;
+      if (loadedSettings && !loadedSettings.general.onboardingCompleted) {
+        useDialogStore.getState().openOnboarding();
+      }
     });
     return () => {
       cancelled = true;
@@ -184,8 +206,27 @@ function MainApp() {
           console.error("Failed to extract last prompt:", err);
         }
       }
+      // Spec: 终端退出时 sync_tasks → git diff → append_log
+      if (info?.projectPath) {
+        invoke("handle_terminal_exit_spec", { projectPath: info.projectPath })
+          .catch((err: unknown) => console.warn("Spec exit handling failed:", err));
+      }
       sessionMapRef.current.delete(e.payload.sessionId);
     }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, []);
+
+  // 监听弹出窗口回收事件
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<{ tabId: string; paneId: string; sessionId: string }>(
+      "popup-terminal-reclaim",
+      (e) => {
+        const { tabId } = e.payload;
+        usePanesStore.getState().markTabReclaimed(tabId);
+        popupMarkReclaimed(tabId);
+      }
+    ).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };
   }, []);
 
@@ -303,9 +344,13 @@ function MainApp() {
 
   // 打开终端
   const handleOpenTerminal = useCallback(
-    (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, launchClaude?: boolean, resumeId?: string) => {
+    (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool, resumeId?: string) => {
+      // 兼容：如果有 resumeId 但没有指定 cliTool，跟随全局默认设置
+      const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
+      const effectiveCliTool = cliTool ?? (resumeId ? defaultTool : undefined);
+      const launchClaude = effectiveCliTool === "claude" || effectiveCliTool === "codex";
       const projectId = `proj-${crypto.randomUUID()}`;
-      openProject(projectId, path, resumeId, workspaceName, providerId, workspacePath, launchClaude ?? !!resumeId);
+      openProject(projectId, path, resumeId, workspaceName, providerId, workspacePath, effectiveCliTool);
       const name = path.split(/[/\\]/).pop() || path;
 
       // Resume 场景：更新已有记录时间戳，不创建新记录
@@ -412,12 +457,13 @@ function MainApp() {
   // 监听 pendingLaunch（从 Settings Provider 启动）
   useEffect(() => {
     if (pendingLaunch) {
+      const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
       handleOpenTerminal(
         pendingLaunch.path,
         pendingLaunch.workspaceName,
         pendingLaunch.providerId,
         pendingLaunch.workspacePath,
-        true
+        defaultTool
       );
       clearPendingLaunch();
     }
@@ -563,6 +609,9 @@ function MainApp() {
           open={selfChatOpen}
           onOpenChange={(open) => open ? useDialogStore.getState().openSelfChat() : useDialogStore.getState().closeSelfChat()}
         />
+
+        {/* 新手引导 */}
+        <OnboardingGuide />
 
         {/* 全局快速搜索 */}
         <QuickSearch open={quickSearchOpen} onClose={closeQuickSearch} />

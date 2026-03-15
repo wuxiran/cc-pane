@@ -1,4 +1,4 @@
-export type ProviderType = "anthropic" | "bedrock" | "vertex" | "proxy" | "config_profile";
+export type ProviderType = "anthropic" | "bedrock" | "vertex" | "proxy" | "config_profile" | "open_ai";
 
 export interface Provider {
   id: string;
@@ -18,14 +18,16 @@ export type ProviderTypeLabelKey =
   | "providerTypeBedrockLabel"
   | "providerTypeVertexLabel"
   | "providerTypeProxyLabel"
-  | "providerTypeConfigLabel";
+  | "providerTypeConfigLabel"
+  | "providerTypeOpenAILabel";
 
 export type ProviderTypeDescKey =
   | "providerTypeAnthropicDesc"
   | "providerTypeBedrockDesc"
   | "providerTypeVertexDesc"
   | "providerTypeProxyDesc"
-  | "providerTypeConfigDesc";
+  | "providerTypeConfigDesc"
+  | "providerTypeOpenAIDesc";
 
 export const PROVIDER_TYPE_META: Record<
   ProviderType,
@@ -55,6 +57,11 @@ export const PROVIDER_TYPE_META: Record<
     labelKey: "providerTypeConfigLabel",
     descriptionKey: "providerTypeConfigDesc",
     fields: ["configDir"],
+  },
+  open_ai: {
+    labelKey: "providerTypeOpenAILabel",
+    descriptionKey: "providerTypeOpenAIDesc",
+    fields: ["apiKey", "baseUrl"],
   },
 };
 

@@ -149,7 +149,10 @@ impl ProviderService {
 
         match provider {
             Some(p) => self.resolve_env_vars(p),
-            None => HashMap::new(),
+            None => {
+                warn!("[ProviderService] Provider '{}' not found, skipping env injection", provider_id.unwrap_or("unknown"));
+                HashMap::new()
+            }
         }
     }
 

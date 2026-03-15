@@ -68,6 +68,17 @@ export interface GeneralSettings {
   language: string;
   dataDir: string | null;
   searchScope: SearchScope;
+  /** 新手引导是否已完成 */
+  onboardingCompleted: boolean;
+  /** 默认 CLI 工具（自我对话、resume 回退等场景） */
+  defaultCliTool: "claude" | "codex";
+}
+
+/** 环境检测结果 */
+export interface EnvironmentInfo {
+  node: { installed: boolean; version: string | null };
+  claude: { installed: boolean; version: string | null };
+  codex: { installed: boolean; version: string | null };
 }
 
 /** 截图设置 */
