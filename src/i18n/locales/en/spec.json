@@ -1,0 +1,22 @@
+{
+  "newSpec": "New Spec",
+  "viewSpecs": "View Specs",
+  "specTitle": "Spec Title",
+  "specTitlePlaceholder": "Enter spec title...",
+  "specCreated": "Spec created",
+  "specUpdated": "Spec updated",
+  "specDeleted": "Spec deleted",
+  "specActivated": "Spec activated",
+  "specArchived": "Spec archived",
+  "noSpecs": "No specs yet",
+  "statusDraft": "Draft",
+  "statusActive": "Active",
+  "statusArchived": "Archived",
+  "activate": "Activate",
+  "archive": "Archive",
+  "openSpecFile": "Open Spec File",
+  "deleteSpec": "Delete Spec",
+  "deleteSpecConfirm": "Are you sure you want to delete this spec? Associated Todo tasks will also be deleted.",
+  "syncTasks": "Sync Tasks",
+  "tasksSynced": "Tasks synced"
+}

@@ -92,6 +92,25 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE todos ADD COLUMN todo_type TEXT DEFAULT '';
         ",
     },
+    Migration {
+        version: 5,
+        description: "specs: create specs table",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS specs (
+                id TEXT PRIMARY KEY,
+                project_path TEXT NOT NULL,
+                title TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
+                todo_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_specs_project_path ON specs(project_path);
+            CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(project_path, status);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -291,7 +310,7 @@ mod tests {
         let db = Database::new_in_memory().expect("should create db");
         let conn = db.connection().expect("should get connection");
 
-        let tables = ["projects", "launch_history", "todos", "todo_subtasks", "schema_migrations"];
+        let tables = ["projects", "launch_history", "todos", "todo_subtasks", "specs", "schema_migrations"];
         for table in &tables {
             let exists: bool = conn
                 .query_row(

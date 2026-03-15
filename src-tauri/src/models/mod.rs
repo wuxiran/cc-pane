@@ -5,11 +5,12 @@ mod workspace;
 pub mod settings;
 pub mod provider;
 pub mod todo;
+pub mod spec;
 pub mod filesystem;
 pub mod screenshot;
 
 pub use project::Project;
-pub use terminal::{CreateSessionRequest, ResizeRequest, TerminalExit, TerminalOutput};
+pub use terminal::{CliTool, CreateSessionRequest, ResizeRequest, TerminalExit, TerminalOutput};
 pub use history::{
     FileVersion, VersionsMetadata, HistoryConfig, ProjectConfig,
     // Diff 模型

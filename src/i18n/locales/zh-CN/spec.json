@@ -1,0 +1,22 @@
+{
+  "newSpec": "新建 Spec",
+  "viewSpecs": "查看 Specs",
+  "specTitle": "Spec 标题",
+  "specTitlePlaceholder": "输入 Spec 标题...",
+  "specCreated": "Spec 已创建",
+  "specUpdated": "Spec 已更新",
+  "specDeleted": "Spec 已删除",
+  "specActivated": "Spec 已激活",
+  "specArchived": "Spec 已归档",
+  "noSpecs": "暂无 Spec",
+  "statusDraft": "草稿",
+  "statusActive": "激活",
+  "statusArchived": "已归档",
+  "activate": "激活",
+  "archive": "归档",
+  "openSpecFile": "打开 Spec 文件",
+  "deleteSpec": "删除 Spec",
+  "deleteSpecConfirm": "确定要删除此 Spec 吗？关联的 Todo 任务也会被删除。",
+  "syncTasks": "同步任务",
+  "tasksSynced": "任务已同步"
+}

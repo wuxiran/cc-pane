@@ -7,6 +7,7 @@ export type {
   PaneContextAction,
 } from "./pane";
 export type {
+  CliTool,
   Tab,
   TerminalSession,
   CreateSessionRequest,
@@ -30,6 +31,7 @@ export type {
   ShellInfo,
   SearchScope,
   ScreenshotSettings,
+  EnvironmentInfo,
 } from "./settings";
 export type {
   TodoStatus,
@@ -53,6 +55,13 @@ export type {
   StoreMemoryRequest,
   UpdateMemoryRequest,
 } from "./memory";
+export type {
+  SpecStatus,
+  SpecEntry,
+  CreateSpecRequest,
+  UpdateSpecRequest,
+  SpecSummary,
+} from "./spec";
 export type { McpServerConfig } from "./mcp";
 export type { SkillInfo, SkillSummary } from "./skill";
 export type {
