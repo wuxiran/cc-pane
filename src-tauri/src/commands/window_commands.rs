@@ -2,7 +2,6 @@ use crate::utils::{AppPaths, AppResult};
 use std::sync::Arc;
 use tauri::{LogicalSize, State, WebviewWindow};
 use tracing::debug;
-use urlencoding;
 
 /// 关闭窗口
 #[tauri::command]

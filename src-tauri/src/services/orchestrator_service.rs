@@ -249,11 +249,17 @@ impl OrchestratorService {
 
         // 在独立线程中启动 tokio runtime + axum 服务器
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_multi_thread()
+            let rt = match tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
                 .build()
-                .expect("Failed to create tokio runtime for orchestrator");
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("[orchestrator] Failed to create tokio runtime: {}", e);
+                    return;
+                }
+            };
 
             rt.block_on(async move {
                 let app = build_router(state);
@@ -267,7 +273,13 @@ impl OrchestratorService {
                     }
                 };
 
-                let addr = listener.local_addr().unwrap();
+                let addr = match listener.local_addr() {
+                    Ok(a) => a,
+                    Err(e) => {
+                        error!("[orchestrator] Failed to get local addr: {}", e);
+                        return;
+                    }
+                };
                 let port = addr.port();
                 info!("[orchestrator] HTTP + MCP server listening on http://127.0.0.1:{}", port);
 

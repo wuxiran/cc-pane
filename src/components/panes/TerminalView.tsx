@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { terminalService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
-import { shouldTerminalHandleKey, useShortcutsStore } from "@/stores";
+import { shouldTerminalHandleKey, useShortcutsStore, useSettingsStore } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
 import "@xterm/xterm/css/xterm.css";
 
@@ -124,9 +124,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         if (!isMounted || !terminalRef.current) return;
 
+        const scrollback = useSettingsStore.getState().settings?.terminal?.scrollback ?? 1000;
+
         const term = new Terminal({
           cursorBlink: true,
           fontSize: 14,
+          scrollback,
           fontFamily: 'Consolas, "Courier New", monospace',
           ...(navigator.platform.startsWith('Win') && buildNumber && buildNumber > 0 && {
             windowsPty: {

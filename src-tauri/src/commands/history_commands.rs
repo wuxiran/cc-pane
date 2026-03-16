@@ -19,6 +19,7 @@ pub struct SessionState {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn add_launch_history(
     service: State<'_, Arc<LaunchHistoryService>>,
     project_id: String,
@@ -27,9 +28,10 @@ pub fn add_launch_history(
     workspace_name: Option<String>,
     workspace_path: Option<String>,
     launch_cwd: Option<String>,
+    provider_id: Option<String>,
 ) -> AppResult<i64> {
     debug!(project_name = %project_name, project_path = %project_path, "cmd::add_launch_history");
-    Ok(service.add(&project_id, &project_name, &project_path, workspace_name.as_deref(), workspace_path.as_deref(), launch_cwd.as_deref())?)
+    Ok(service.add(&project_id, &project_name, &project_path, workspace_name.as_deref(), workspace_path.as_deref(), launch_cwd.as_deref(), provider_id.as_deref())?)
 }
 
 #[tauri::command]

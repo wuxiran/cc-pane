@@ -17,6 +17,7 @@ pub struct LaunchRecord {
     pub workspace_name: Option<String>,
     pub workspace_path: Option<String>,
     pub launch_cwd: Option<String>,
+    pub provider_id: Option<String>,
 }
 
 pub struct HistoryRepository {
@@ -29,13 +30,14 @@ impl HistoryRepository {
     }
 
     /// 添加启动记录，返回新记录的 ID
-    pub fn add(&self, project_id: &str, project_name: &str, project_path: &str, workspace_name: Option<&str>, workspace_path: Option<&str>, launch_cwd: Option<&str>) -> Result<i64, String> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn add(&self, project_id: &str, project_name: &str, project_path: &str, workspace_name: Option<&str>, workspace_path: Option<&str>, launch_cwd: Option<&str>, provider_id: Option<&str>) -> Result<i64, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let now = Utc::now().to_rfc3339();
 
         conn.execute(
-            "INSERT INTO launch_history (project_id, project_name, project_path, launched_at, workspace_name, workspace_path, launch_cwd) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![project_id, project_name, project_path, &now, workspace_name, workspace_path, launch_cwd],
+            "INSERT INTO launch_history (project_id, project_name, project_path, launched_at, workspace_name, workspace_path, launch_cwd, provider_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![project_id, project_name, project_path, &now, workspace_name, workspace_path, launch_cwd, provider_id],
         )
         .map_err(|e| {
             error!(table = "launch_history", project_id = %project_id, err = %e, "SQL insert failed");
@@ -49,7 +51,7 @@ impl HistoryRepository {
     pub fn list(&self, limit: usize) -> Result<Vec<LaunchRecord>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
-            .prepare("SELECT id, project_id, project_name, project_path, launched_at, claude_session_id, last_prompt, workspace_name, workspace_path, launch_cwd FROM launch_history ORDER BY launched_at DESC LIMIT ?1")
+            .prepare("SELECT id, project_id, project_name, project_path, launched_at, claude_session_id, last_prompt, workspace_name, workspace_path, launch_cwd, provider_id FROM launch_history ORDER BY launched_at DESC LIMIT ?1")
             .map_err(|e| {
                 error!(table = "launch_history", err = %e, "SQL prepare failed");
                 e.to_string()
@@ -68,6 +70,7 @@ impl HistoryRepository {
                     workspace_name: row.get(7)?,
                     workspace_path: row.get(8)?,
                     launch_cwd: row.get(9)?,
+                    provider_id: row.get(10)?,
                 })
             })
             .map_err(|e| {
@@ -86,7 +89,7 @@ impl HistoryRepository {
         // 在 SQL 中用 REPLACE + LOWER 做路径规范化比较
         let mut stmt = conn
             .prepare(
-                "SELECT id, project_id, project_name, project_path, launched_at, claude_session_id, last_prompt, workspace_name, workspace_path, launch_cwd \
+                "SELECT id, project_id, project_name, project_path, launched_at, claude_session_id, last_prompt, workspace_name, workspace_path, launch_cwd, provider_id \
                  FROM launch_history \
                  WHERE LOWER(REPLACE(project_path, '\\', '/')) = LOWER(REPLACE(?1, '\\', '/')) \
                  ORDER BY launched_at DESC LIMIT ?2"
@@ -109,6 +112,7 @@ impl HistoryRepository {
                     workspace_name: row.get(7)?,
                     workspace_path: row.get(8)?,
                     launch_cwd: row.get(9)?,
+                    provider_id: row.get(10)?,
                 })
             })
             .map_err(|e| {

@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { TerminalView } from "@/components/panes";
 import type { TerminalViewHandle } from "@/components/panes";
 import SelfChatContextBar from "./SelfChatContextBar";
-import { useSelfChatStore, useSettingsStore } from "@/stores";
+import { useSelfChatStore, useSettingsStore, usePanesStore } from "@/stores";
 import { selfChatService, terminalService } from "@/services";
 
 const LOG_PREFIX = "[SelfChat]";
@@ -13,6 +13,15 @@ export default function SelfChatManager() {
   const { t } = useTranslation("common");
 
   const defaultCliTool = useSettingsStore((s) => s.settings?.general.defaultCliTool ?? "claude");
+  // 从当前活跃 Tab 继承 providerId（SelfChat 无自身 provider 配置）
+  const activeProviderId = usePanesStore((s) => {
+    const pane = s.rootPane;
+    if (pane.type === "panel") {
+      const tab = pane.tabs.find((t) => t.id === pane.activeTabId);
+      return tab?.providerId;
+    }
+    return undefined;
+  });
   const activeSession = useSelfChatStore((s) => s.activeSession);
   const startSession = useSelfChatStore((s) => s.startSession);
   const updatePtySessionId = useSelfChatStore((s) => s.updatePtySessionId);
@@ -143,6 +152,7 @@ export default function SelfChatManager() {
             isActive={true}
             launchClaude={true}
             cliTool={defaultCliTool}
+            providerId={activeProviderId}
             skipMcp={false}
             appendSystemPrompt={activeSession.systemPrompt ?? undefined}
             onSessionCreated={handleSessionCreated}

@@ -8,7 +8,7 @@ import type { LaunchRecord } from "@/services";
 
 interface RecentLaunchesProps {
   launchHistory: LaunchRecord[];
-  onOpenTerminal: (path: string, resumeId?: string, workspacePath?: string, launchCwd?: string) => void;
+  onOpenTerminal: (path: string, resumeId?: string, workspacePath?: string, launchCwd?: string, workspaceName?: string, providerId?: string) => void;
   onClearHistory: () => void;
   onDeleteRecord: (id: number) => void;
 }
@@ -34,8 +34,8 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
     });
   };
 
-  const handleResume = (path: string, resumeId: string, workspacePath?: string, launchCwd?: string) => {
-    onOpenTerminal(path, resumeId, workspacePath, launchCwd);
+  const handleResume = (path: string, resumeId: string, workspacePath?: string, launchCwd?: string, workspaceName?: string, providerId?: string) => {
+    onOpenTerminal(path, resumeId, workspacePath, launchCwd, workspaceName, providerId);
   };
 
   // 无可恢复会话
@@ -112,13 +112,13 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                 className="w-full group flex items-center justify-between px-3 pl-7 py-2 mb-0.5 rounded-xl transition-all duration-300 border border-transparent cursor-pointer text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                 onClick={() => {
                   if (!record.claudeSessionId) return;
-                  handleResume(record.projectPath, record.claudeSessionId, record.workspacePath, record.launchCwd);
+                  handleResume(record.projectPath, record.claudeSessionId, record.workspacePath, record.launchCwd, record.workspaceName, record.providerId);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     if (!record.claudeSessionId) return;
-                    handleResume(record.projectPath, record.claudeSessionId, record.workspacePath, record.launchCwd);
+                    handleResume(record.projectPath, record.claudeSessionId, record.workspacePath, record.launchCwd, record.workspaceName, record.providerId);
                   }
                 }}
               >
@@ -128,15 +128,8 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                     <span className="text-[12px] font-medium tracking-wide truncate block max-w-[120px]">
                       {record.projectName}
                     </span>
-                    {/* Session ID subtitle for diagnostics */}
-                    <span className={`text-[9px] font-mono truncate block max-w-[140px] ${
-                      record.claudeSessionId
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-red-500 dark:text-red-400'
-                    }`}>
-                      {record.claudeSessionId
-                        ? record.claudeSessionId.slice(0, 8) + '…'
-                        : '⚠ no session'}
+                    <span className="text-[9px] font-mono truncate block max-w-[140px] text-[var(--app-text-tertiary)]">
+                      {record.claudeSessionId?.slice(0, 8)}…
                     </span>
                     {record.lastPrompt && (
                       <span className="text-[10px] truncate block max-w-[120px] text-[var(--app-text-tertiary)]">

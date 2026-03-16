@@ -282,6 +282,32 @@ fn copy_to_clipboard_win32(text: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 0. Panic hook — 将 panic 信息写入 crash.log（诊断兜底）
+    {
+        use std::io::Write as _;
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            // 写入 crash.log
+            let crash_dir = dirs::home_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join(crate::utils::APP_DIR_NAME);
+            let _ = std::fs::create_dir_all(&crash_dir);
+            let crash_log = crash_dir.join("crash.log");
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&crash_log)
+            {
+                let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                let _ = writeln!(f, "[{timestamp}] PANIC: {info}");
+                let bt = std::backtrace::Backtrace::force_capture();
+                let _ = writeln!(f, "{bt}");
+            }
+            // 调用默认 hook（打印到 stderr）
+            default_hook(info);
+        }));
+    }
+
     // 1. 先加载设置，取得 data_dir + log_level
     let settings_service = Arc::new(SettingsService::new());
     let settings = settings_service.get_settings();

@@ -128,12 +128,10 @@ impl TodoService {
             ) {
                 let offset = rem_dt.signed_duration_since(due_dt);
                 next_due.as_ref().and_then(|nd| {
-                    NaiveDate::parse_from_str(nd, "%Y-%m-%d").ok().map(|d| {
-                        let base = d.and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_local_timezone(chrono::Utc)
-                            .unwrap();
-                        (base + offset).to_rfc3339()
+                    NaiveDate::parse_from_str(nd, "%Y-%m-%d").ok().and_then(|d| {
+                        d.and_hms_opt(0, 0, 0)
+                            .and_then(|dt| dt.and_local_timezone(chrono::Utc).single())
+                            .map(|base| (base + offset).to_rfc3339())
                     })
                 })
             } else {

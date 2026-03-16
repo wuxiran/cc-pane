@@ -28,12 +28,13 @@ impl SpecService {
     }
 
     /// 获取项目级锁
-    fn get_project_lock(&self, project_path: &str) -> Arc<TokioMutex<()>> {
-        let mut locks = self.project_locks.lock().unwrap();
-        locks
+    fn get_project_lock(&self, project_path: &str) -> AppResult<Arc<TokioMutex<()>>> {
+        let mut locks = self.project_locks.lock()
+            .map_err(|_| AppError::from("Project lock poisoned"))?;
+        Ok(locks
             .entry(project_path.to_string())
             .or_insert_with(|| Arc::new(TokioMutex::new(())))
-            .clone()
+            .clone())
     }
 
     // ============ CRUD ============
@@ -140,7 +141,7 @@ impl SpecService {
     ) -> AppResult<Vec<SpecEntry>> {
         self.spec_repo
             .list_by_project(project_path, status.as_ref())
-            .map_err(|e| AppError::from(e))
+            .map_err(AppError::from)
     }
 
     /// 获取 Spec 文件内容
@@ -179,7 +180,7 @@ impl SpecService {
                     // 激活时先取消其他 active
                     self.spec_repo
                         .deactivate_all(&entry.project_path)
-                        .map_err(|e| AppError::from(e))?;
+                        .map_err(AppError::from)?;
                 }
                 SpecStatus::Archived => {
                     // 归档时移动文件
@@ -206,7 +207,7 @@ impl SpecService {
                 None,
                 archived_at.as_deref(),
             )
-            .map_err(|e| AppError::from(e))?;
+            .map_err(AppError::from)?;
 
         self.get_spec_entry(spec_id)
     }
@@ -214,7 +215,7 @@ impl SpecService {
     /// 删除 Spec（级联清理：Todo 子任务 → Todo → 文件 → DB）
     pub fn delete_spec(&self, project_path: &str, spec_id: &str) -> AppResult<()> {
         debug!("svc::delete_spec");
-        let entry = self.spec_repo.get(spec_id).map_err(|e| AppError::from(e))?;
+        let entry = self.spec_repo.get(spec_id).map_err(AppError::from)?;
 
         if let Some(entry) = &entry {
             // 1. 删除关联 Todo（级联删除子任务）
@@ -236,7 +237,7 @@ impl SpecService {
         // 3. 删除 DB 记录
         self.spec_repo
             .delete(spec_id)
-            .map_err(|e| AppError::from(e))?;
+            .map_err(AppError::from)?;
         Ok(())
     }
 
@@ -244,7 +245,7 @@ impl SpecService {
 
     /// 同步 Tasks 段（持锁操作）
     pub fn sync_tasks(&self, project_path: &str, spec_id: &str) -> AppResult<()> {
-        let lock = self.get_project_lock(project_path);
+        let lock = self.get_project_lock(project_path)?;
         // 使用 blocking 方式获取 tokio mutex（因为我们在同步上下文中）
         let _guard = lock.blocking_lock();
         self.sync_tasks_inner(project_path, spec_id)
@@ -314,7 +315,7 @@ impl SpecService {
         let entry = match self
             .spec_repo
             .get_active(project_path)
-            .map_err(|e| AppError::from(e))?
+            .map_err(AppError::from)?
         {
             Some(e) => e,
             None => return Ok(None),
@@ -353,7 +354,7 @@ impl SpecService {
             return Ok(());
         }
 
-        let lock = self.get_project_lock(project_path);
+        let lock = self.get_project_lock(project_path)?;
         let _guard = lock.blocking_lock();
 
         let entry = self.get_spec_entry(spec_id)?;
@@ -376,7 +377,7 @@ impl SpecService {
     fn get_spec_entry(&self, spec_id: &str) -> AppResult<SpecEntry> {
         self.spec_repo
             .get(spec_id)
-            .map_err(|e| AppError::from(e))?
+            .map_err(AppError::from)?
             .ok_or_else(|| {
                 AppError::coded_with_params(
                     EC::SPEC_NOT_FOUND,

@@ -364,14 +364,14 @@ function MainApp() {
               return existingId;
             }
             // 回退：无已有记录时创建新记录
-            return historyService.add(projectId, name, path, workspaceName, workspacePath, launchCwd).then((newId) => {
+            return historyService.add(projectId, name, path, workspaceName, workspacePath, launchCwd, providerId).then((newId) => {
               historyService.updateSessionId(newId, resumeId).then(() => {
                 window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
               }).catch(console.error);
               return newId;
             });
           })
-        : historyService.add(projectId, name, path, workspaceName, workspacePath, launchCwd);
+        : historyService.add(projectId, name, path, workspaceName, workspacePath, launchCwd, providerId);
 
       recordPromise.then((recordId) => {
         // 获取新创建 tab 的 ptySessionId 用于 tracking（等 store 更新后）

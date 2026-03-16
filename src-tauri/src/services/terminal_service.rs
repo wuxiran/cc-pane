@@ -452,8 +452,9 @@ impl TerminalService {
                 &session_id, project_path, workspace_path, resume_id, skip_mcp,
                 effective_prompt.as_deref(),
             )?,
-            CliTool::Codex => Self::build_codex_command(
-                &session_id, project_path, workspace_path, resume_id,
+            CliTool::Codex => self.build_codex_command(
+                &session_id, project_path, workspace_path, resume_id, skip_mcp,
+                effective_prompt.as_deref(),
             )?,
             CliTool::None => resolve_shell(shell_id.as_deref()),
         };
@@ -626,13 +627,17 @@ impl TerminalService {
                             }
                             *prev = new_status;
                         }
-                        let _ = handle.emit(
-                            "terminal-output",
-                            TerminalOutput {
-                                session_id: sid.clone(),
-                                data,
-                            },
-                        );
+
+                        // 直接 emit，用 catch_unwind 保护
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let _ = handle.emit(
+                                "terminal-output",
+                                TerminalOutput {
+                                    session_id: sid.clone(),
+                                    data,
+                                },
+                            );
+                        }));
 
                         // 发送状态事件（节流：仅在 status 变化或距上次发射 ≥2s 时发射）
                         let now_instant = Instant::now();
@@ -641,18 +646,20 @@ impl TerminalService {
                             >= std::time::Duration::from_secs(2);
 
                         if status_changed || time_elapsed {
-                            let _ = handle.emit(
-                                "terminal-status",
-                                SessionStatusInfo {
-                                    session_id: sid.clone(),
-                                    status: new_status,
-                                    last_output_at: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_millis()
-                                        as u64,
-                                },
-                            );
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                let _ = handle.emit(
+                                    "terminal-status",
+                                    SessionStatusInfo {
+                                        session_id: sid.clone(),
+                                        status: new_status,
+                                        last_output_at: std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_millis()
+                                            as u64,
+                                    },
+                                );
+                            }));
                             last_emitted_status = new_status;
                             last_status_emit_time = now_instant;
                         }
@@ -698,26 +705,30 @@ impl TerminalService {
             notif_svc_exit.notify_session_exited(&handle, &settings_svc_exit, &sid, exit_code);
             notif_svc_exit.cleanup_session(&sid);
 
-            let _ = handle.emit(
-                "terminal-exit",
-                TerminalExit {
-                    session_id: sid.clone(),
-                    exit_code,
-                },
-            );
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = handle.emit(
+                    "terminal-exit",
+                    TerminalExit {
+                        session_id: sid.clone(),
+                        exit_code,
+                    },
+                );
+            }));
 
             // 发送最终状态
-            let _ = handle.emit(
-                "terminal-status",
-                SessionStatusInfo {
-                    session_id: sid.clone(),
-                    status: SessionStatus::Exited,
-                    last_output_at: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64,
-                },
-            );
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = handle.emit(
+                    "terminal-status",
+                    SessionStatusInfo {
+                        session_id: sid.clone(),
+                        status: SessionStatus::Exited,
+                        last_output_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    },
+                );
+            }));
 
             // 延迟清理会话：等待读取线程完成后移除 session，
             // 防止僵尸会话永久驻留在 HashMap 中
@@ -767,6 +778,7 @@ impl TerminalService {
     }
 
     /// 向终端写入数据
+    /// 向终端写入数据（分块写入防止 ConPTY 大缓冲丢字符）
     pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
         let mut sessions = self
             .sessions
@@ -776,8 +788,18 @@ impl TerminalService {
             .get_mut(session_id)
             .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
 
-        session.writer.write_all(data.as_bytes())?;
-        session.writer.flush()?;
+        let bytes = data.as_bytes();
+        const CHUNK_SIZE: usize = 1024;
+
+        if bytes.len() <= CHUNK_SIZE {
+            session.writer.write_all(bytes)?;
+            session.writer.flush()?;
+        } else {
+            for chunk in bytes.chunks(CHUNK_SIZE) {
+                session.writer.write_all(chunk)?;
+                session.writer.flush()?;
+            }
+        }
         Ok(())
     }
 
@@ -897,12 +919,71 @@ impl TerminalService {
         }
     }
 
+    /// 注册 CC-Panes MCP 服务器到 Codex 全局配置（幂等：已存在则覆盖）
+    fn register_codex_mcp(&self, session_id: &str, codex_cmd: &str) {
+        // 1. 获取 orchestrator info (port, token)
+        let info = match self.orchestrator_info.lock() {
+            Ok(guard) => match guard.as_ref().cloned() {
+                Some(info) => info,
+                None => {
+                    warn!(session_id = %session_id, "[codex] No orchestrator info, skipping MCP");
+                    return;
+                }
+            },
+            Err(_) => return,
+        };
+
+        // 2. 健康检查
+        let check_addr = format!("127.0.0.1:{}", info.port);
+        if let Ok(addr) = check_addr.parse() {
+            if std::net::TcpStream::connect_timeout(
+                &addr,
+                std::time::Duration::from_millis(200),
+            )
+            .is_err()
+            {
+                warn!(session_id = %session_id, "[codex] Orchestrator not reachable at {}, skipping MCP", check_addr);
+                return;
+            }
+        } else {
+            warn!(session_id = %session_id, "[codex] Invalid address: {}, skipping MCP", check_addr);
+            return;
+        }
+
+        // 3. 注册（已存在则覆盖，天然幂等）
+        let url = format!(
+            "http://127.0.0.1:{}/mcp?token={}",
+            info.port, info.token
+        );
+        match std::process::Command::new(codex_cmd)
+            .args([
+                "mcp", "add", "ccpanes", "--url", &url,
+                "--bearer-token-env-var", "CC_PANES_API_TOKEN",
+            ])
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                info!(session_id = %session_id, "[codex] Registered ccpanes MCP: port={}", info.port);
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!(session_id = %session_id, "[codex] codex mcp add failed: {}", stderr);
+            }
+            Err(e) => {
+                warn!(session_id = %session_id, "[codex] Failed to run codex mcp add: {}", e);
+            }
+        }
+    }
+
     /// 构建 Codex CLI 命令和参数
     fn build_codex_command(
+        &self,
         session_id: &str,
         project_path: &str,
         workspace_path: Option<&str>,
         resume_id: Option<&str>,
+        skip_mcp: bool,
+        append_system_prompt: Option<&str>,
     ) -> Result<(String, Vec<String>)> {
         debug!(
             session_id = %session_id,
@@ -911,6 +992,15 @@ impl TerminalService {
             "create_session: cli_tool=Codex, resolving codex CLI"
         );
         if let Ok(codex_path) = which::which("codex") {
+            let codex_cmd = codex_path.to_string_lossy().to_string();
+
+            // MCP 注入（失败不阻塞启动）
+            if skip_mcp {
+                info!(session_id = %session_id, "create_session: skip_mcp=true, skipping Codex MCP registration");
+            } else {
+                self.register_codex_mcp(session_id, &codex_cmd);
+            }
+
             let mut codex_args = Vec::new();
 
             if let Some(rid) = resume_id {
@@ -920,14 +1010,16 @@ impl TerminalService {
                 debug!(session_id = %session_id, resume_id = rid, "create_session: codex resume mode");
             }
 
-            if workspace_path.is_some() {
+            if let Some(ws_path) = workspace_path {
                 codex_args.push("--add-dir".to_string());
-                codex_args.push(project_path.to_string());
+                codex_args.push(ws_path.to_string());
             }
 
-            // 第一版：跳过 MCP 和 system prompt（Codex 用子命令注册 MCP，用 AGENTS.md）
+            // [PROMPT] 位置参数（必须在所有 --option 之后）
+            if let Some(prompt) = append_system_prompt {
+                codex_args.push(prompt.to_string());
+            }
 
-            let codex_cmd = codex_path.to_string_lossy().to_string();
             info!(session_id = %session_id, command = %codex_cmd, args = ?codex_args, "create_session: codex CLI resolved");
             Ok((codex_cmd, codex_args))
         } else {

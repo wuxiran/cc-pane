@@ -5,13 +5,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tracing::{error, info, warn};
-
-/// Debounce 间隔（毫秒）
-const WATCHER_DEBOUNCE_MS: u64 = 500;
 
 pub struct WorkspaceService {
     base_dir: PathBuf,
@@ -35,31 +33,21 @@ impl WorkspaceService {
     }
 
     /// 启动文件系统监控，检测 workspace.json 变化后通知前端刷新
+    ///
+    /// 使用 dirty flag + debounce 线程模式：notify 回调仅设标记，
+    /// 独立线程每 500ms 检查标记并 emit，避免在 notify 内部线程直接调用 IPC。
     pub fn start_watcher(&self, app_handle: AppHandle) {
-        let last_emit = std::sync::Arc::new(Mutex::new(Instant::now()));
-        let debounce_ms = WATCHER_DEBOUNCE_MS;
+        let dirty = Arc::new(AtomicBool::new(false));
+        let dirty_clone = dirty.clone();
 
-        let app_handle_clone = app_handle.clone();
-        let last_emit_clone = last_emit.clone();
-
+        // Watcher 回调：仅设标记，不直接 emit
         let watcher = RecommendedWatcher::new(
             move |res: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
-                    // 仅关注 workspace.json 文件的变更
-                    let is_workspace_json = event
-                        .paths
-                        .iter()
-                        .any(|p| p.file_name() == Some(std::ffi::OsStr::new("workspace.json")));
-                    if !is_workspace_json {
-                        return;
-                    }
-
-                    // Trailing edge debounce: 只在间隔超过阈值时发送事件
-                    let mut last = last_emit_clone.lock().unwrap_or_else(|e| e.into_inner());
-                    let now = Instant::now();
-                    if now.duration_since(*last).as_millis() >= debounce_ms as u128 {
-                        *last = now;
-                        let _ = app_handle_clone.emit("workspaces-changed", ());
+                    if event.paths.iter().any(|p| {
+                        p.file_name() == Some(std::ffi::OsStr::new("workspace.json"))
+                    }) {
+                        dirty_clone.store(true, Ordering::Relaxed);
                     }
                 }
             },
@@ -78,8 +66,22 @@ impl WorkspaceService {
             }
             Err(e) => {
                 error!("[workspace-watcher] Failed to create watcher: {}", e);
+                return;
             }
         }
+
+        // Debounce 线程：每 500ms 检查标记，在此线程中 emit
+        let dirty_poll = dirty.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                if dirty_poll.swap(false, Ordering::Relaxed) {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _ = app_handle.emit("workspaces-changed", ());
+                    }));
+                }
+            }
+        });
     }
 
     /// 停止文件系统监控

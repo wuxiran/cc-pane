@@ -111,6 +111,13 @@ const MIGRATIONS: &[Migration] = &[
             CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(project_path, status);
         ",
     },
+    Migration {
+        version: 6,
+        description: "launch_history: add provider_id",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN provider_id TEXT;
+        ",
+    },
 ];
 
 /// 数据库连接管理

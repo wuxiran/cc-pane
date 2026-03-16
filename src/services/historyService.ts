@@ -11,6 +11,7 @@ export interface LaunchRecord {
   workspaceName?: string;
   workspacePath?: string;
   launchCwd?: string;
+  providerId?: string;
 }
 
 export interface SessionState {
@@ -21,7 +22,7 @@ export interface SessionState {
 }
 
 export const historyService = {
-  async add(projectId: string, projectName: string, projectPath: string, workspaceName?: string, workspacePath?: string, launchCwd?: string): Promise<number> {
+  async add(projectId: string, projectName: string, projectPath: string, workspaceName?: string, workspacePath?: string, launchCwd?: string, providerId?: string): Promise<number> {
     return invoke("add_launch_history", {
       projectId,
       projectName,
@@ -29,6 +30,7 @@ export const historyService = {
       workspaceName: workspaceName ?? null,
       workspacePath: workspacePath ?? null,
       launchCwd: launchCwd ?? null,
+      providerId: providerId ?? null,
     });
   },
 

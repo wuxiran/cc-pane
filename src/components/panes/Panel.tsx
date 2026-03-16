@@ -179,8 +179,14 @@ export default memo(function Panel({ pane }: PanelProps) {
   );
 
   const handleAddTab = useCallback(
-    () => addTab(pane.id, "", ""),
-    [pane.id, addTab]
+    () => addTab(
+      pane.id, "", "",
+      undefined,
+      activeTab?.workspaceName,
+      activeTab?.providerId,
+      activeTab?.workspacePath,
+    ),
+    [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.workspacePath]
   );
 
   const handleSplitRight = useCallback(

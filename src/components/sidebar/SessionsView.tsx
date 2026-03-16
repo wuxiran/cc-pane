@@ -117,9 +117,9 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
         <div className="px-3 pb-4">
           <RecentLaunches
             launchHistory={launchHistory}
-            onOpenTerminal={(path: string, resumeId?: string, workspacePath?: string, launchCwd?: string) => {
+            onOpenTerminal={(path: string, resumeId?: string, workspacePath?: string, launchCwd?: string, workspaceName?: string, providerId?: string) => {
               const effectiveCwd = launchCwd ?? workspacePath;
-              onOpenTerminal(path, undefined, undefined, effectiveCwd, "claude", resumeId);
+              onOpenTerminal(path, workspaceName, providerId, effectiveCwd, "claude", resumeId);
             }}
             onClearHistory={clearHistory}
             onDeleteRecord={deleteRecord}

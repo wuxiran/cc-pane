@@ -10,8 +10,7 @@ export interface WorkspaceGroup {
  * 无 workspaceName 的归入"未分组"。
  */
 export function groupByWorkspace(records: LaunchRecord[], ungroupedLabel: string): WorkspaceGroup[] {
-  // 暂时不过滤，显示所有记录以便诊断 session ID 检测结果
-  const filtered = records;
+  const filtered = records.filter(r => !!r.claudeSessionId);
   const map = new Map<string, LaunchRecord[]>();
 
   for (const record of filtered) {

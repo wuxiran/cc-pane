@@ -84,11 +84,11 @@ async function promptAndInstallUpdate(update: Awaited<ReturnType<typeof check>>)
 
   await update.downloadAndInstall((progress) => {
     if (progress.event === "Started" && progress.data.contentLength) {
-      console.log(`[updater] 开始下载，大小: ${progress.data.contentLength} bytes`);
+      console.debug(`[updater] 开始下载，大小: ${progress.data.contentLength} bytes`);
     } else if (progress.event === "Progress") {
-      console.log(`[updater] 已下载: ${progress.data.chunkLength} bytes`);
+      console.debug(`[updater] 已下载: ${progress.data.chunkLength} bytes`);
     } else if (progress.event === "Finished") {
-      console.log("[updater] 下载完成");
+      console.debug("[updater] 下载完成");
     }
   });
 
