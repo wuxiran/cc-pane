@@ -57,7 +57,10 @@ export default function ActivityBar() {
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
   const toggleTodoMode = useActivityBarStore((s) => s.toggleTodoMode);
   const toggleSelfChatMode = useActivityBarStore((s) => s.toggleSelfChatMode);
+  const toggleHomeMode = useActivityBarStore((s) => s.toggleHomeMode);
   const openSettings = useDialogStore((s) => s.openSettings);
+
+  const isHomeActive = appViewMode === "home";
 
   const isViewActive = (view: ActivityView) => {
     if (view === "files") return appViewMode === "files";
@@ -82,22 +85,32 @@ export default function ActivityBar() {
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
       }}
     >
-      {/* Logo */}
-      <div className="pt-1 pb-1 flex items-center justify-center">
-        <div
-          className="w-[28px] h-[28px] rounded-[7px] flex items-center justify-center transition-transform hover:scale-105"
-          style={{
-            background: "var(--app-activity-bar-bg)",
-            border: "1px solid var(--app-border)",
-            boxShadow: "var(--app-glass-shadow)",
-          }}
-        >
-          <Command
-            className="w-[14px] h-[14px]"
-            style={{ color: "var(--app-accent)" }}
-          />
-        </div>
-      </div>
+      {/* Logo — 点击切换首页 */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="pt-1 pb-1 flex items-center justify-center">
+            <button
+              className="w-[28px] h-[28px] rounded-[7px] flex items-center justify-center transition-transform hover:scale-105 cursor-pointer"
+              style={{
+                background: isHomeActive ? "var(--app-accent)" : "var(--app-activity-bar-bg)",
+                border: `1px solid ${isHomeActive ? "var(--app-accent)" : "var(--app-border)"}`,
+                boxShadow: isHomeActive
+                  ? "0 2px 8px color-mix(in srgb, var(--app-accent) 40%, transparent)"
+                  : "var(--app-glass-shadow)",
+              }}
+              onClick={toggleHomeMode}
+            >
+              <Command
+                className="w-[14px] h-[14px]"
+                style={{ color: isHomeActive ? "white" : "var(--app-accent)" }}
+              />
+            </button>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>
+          <p>{t("home", { ns: "common", defaultValue: "Home" })}</p>
+        </TooltipContent>
+      </Tooltip>
 
       {/* Separator */}
       <div

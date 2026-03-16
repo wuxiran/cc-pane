@@ -12,6 +12,7 @@ import zhShortcuts from "./locales/zh-CN/shortcuts.json";
 import zhNotifications from "./locales/zh-CN/notifications.json";
 import zhOnboarding from "./locales/zh-CN/onboarding.json";
 import zhSpec from "./locales/zh-CN/spec.json";
+import zhHome from "./locales/zh-CN/home.json";
 
 // en
 import enCommon from "./locales/en/common.json";
@@ -24,6 +25,7 @@ import enShortcuts from "./locales/en/shortcuts.json";
 import enNotifications from "./locales/en/notifications.json";
 import enOnboarding from "./locales/en/onboarding.json";
 import enSpec from "./locales/en/spec.json";
+import enHome from "./locales/en/home.json";
 
 export const defaultNS = "common";
 export const resources = {
@@ -38,6 +40,7 @@ export const resources = {
     notifications: zhNotifications,
     onboarding: zhOnboarding,
     spec: zhSpec,
+    home: zhHome,
   },
   en: {
     common: enCommon,
@@ -50,6 +53,7 @@ export const resources = {
     notifications: enNotifications,
     onboarding: enOnboarding,
     spec: enSpec,
+    home: enHome,
   },
 } as const;
 

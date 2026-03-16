@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type ActivityView = "explorer" | "search" | "sessions" | "files";
-export type AppViewMode = "panes" | "todo" | "selfchat" | "files";
+export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files";
 
 interface ActivityBarState {
   activeView: ActivityView;
@@ -16,6 +16,7 @@ interface ActivityBarState {
   toggleTodoMode: () => void;
   toggleSelfChatMode: () => void;
   toggleFilesMode: () => void;
+  toggleHomeMode: () => void;
 }
 
 export const useActivityBarStore = create<ActivityBarState>()(
@@ -23,11 +24,11 @@ export const useActivityBarStore = create<ActivityBarState>()(
     (set, get) => ({
       activeView: "explorer",
       sidebarVisible: true,
-      appViewMode: "panes",
+      appViewMode: "home",
 
       toggleView: (view: ActivityView) => {
         const state = get();
-        // 如果当前在非 panes/files 模式（todo/selfchat）→ 退回 panes 并切到该 view
+        // 如果当前在非 panes/files 模式（home/todo/selfchat）→ 退回 panes 并切到该 view
         if (state.appViewMode !== "panes" && state.appViewMode !== "files") {
           set({ appViewMode: "panes", activeView: view, sidebarVisible: true });
           return;
@@ -72,6 +73,11 @@ export const useActivityBarStore = create<ActivityBarState>()(
           appViewMode: s.appViewMode === "selfchat" ? "panes" : "selfchat",
         })),
 
+      toggleHomeMode: () =>
+        set((s) => ({
+          appViewMode: s.appViewMode === "home" ? "panes" : "home",
+        })),
+
       toggleFilesMode: () =>
         set((s) => {
           if (s.appViewMode === "files") {
@@ -85,7 +91,7 @@ export const useActivityBarStore = create<ActivityBarState>()(
       partialize: (state) => ({
         activeView: state.activeView,
         sidebarVisible: state.sidebarVisible,
-        // appViewMode 不持久化（每次启动默认回到 panes 模式）
+        // appViewMode 不持久化（每次启动默认回到 home 模式）
       }),
     }
   )

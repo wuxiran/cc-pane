@@ -18,6 +18,7 @@ import PlansPanel from "@/components/PlansPanel";
 import TodoManager from "@/components/todo/TodoManager";
 import SelfChatPanel from "@/components/SelfChatPanel";
 import { SelfChatManager } from "@/components/selfchat";
+import { HomeDashboard } from "@/components/home";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
 import OnboardingGuide from "@/components/OnboardingGuide";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -525,7 +526,12 @@ function MainApp() {
             {/* 主区域：ActivityBar | Sidebar/Todo | 主内容区 */}
             <div className="flex-1 flex overflow-hidden relative z-[1]">
               <ActivityBar />
-              {appViewMode === "todo" ? (
+              {appViewMode === "home" ? (
+                /* 首页仪表盘：占满 ActivityBar 右侧所有空间 */
+                <div className="flex-1 overflow-hidden">
+                  <HomeDashboard onOpenTerminal={handleOpenTerminal} />
+                </div>
+              ) : appViewMode === "todo" ? (
                 /* Todo 全屏模式：占满 ActivityBar 右侧所有空间 */
                 <div className="flex-1 overflow-hidden">
                   <TodoManager scope="" scopeRef="" />
