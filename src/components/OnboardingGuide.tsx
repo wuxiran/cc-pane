@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, XCircle, Loader2, FolderTree, FolderOpen, Wrench, ArrowRight } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, FolderTree, FolderOpen, Wrench, ArrowRight, ArrowLeft } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,7 @@ import { useDialogStore, useSettingsStore, useActivityBarStore, useSelfChatStore
 import { terminalService } from "@/services";
 import type { EnvironmentInfo } from "@/types";
 
-type Step = "env-check" | "welcome";
+type Step = "env-check" | "cli-choice" | "welcome";
 
 export default function OnboardingGuide() {
   const { t } = useTranslation("onboarding");
@@ -27,13 +27,19 @@ export default function OnboardingGuide() {
   const [step, setStep] = useState<Step>("env-check");
   const [envInfo, setEnvInfo] = useState<EnvironmentInfo | null>(null);
   const [checking, setChecking] = useState(false);
+  const [cliChoice, setCliChoice] = useState<"claude" | "codex">("claude");
 
-  const envReady = envInfo?.node.installed && envInfo?.claude.installed;
+  const selectedCliReady = cliChoice === "codex"
+    ? envInfo?.codex.installed
+    : envInfo?.claude.installed;
+  const envReady = envInfo?.node.installed && selectedCliReady;
 
-  // 打开时自动检测环境
+  // 打开时自动检测环境 + 从设置恢复 CLI 选择
   useEffect(() => {
     if (!open) return;
     setStep("env-check");
+    const saved = useSettingsStore.getState().settings?.general.defaultCliTool;
+    if (saved === "claude" || saved === "codex") setCliChoice(saved);
     setChecking(true);
     terminalService
       .checkEnvironment()
@@ -43,7 +49,7 @@ export default function OnboardingGuide() {
   }, [open]);
 
   const handleSkip = useCallback(async () => {
-    // 标记 onboarding 已完成
+    // 仅标记 onboarding 已完成，不覆盖用户已有的 CLI 选择
     const settings = useSettingsStore.getState().settings;
     if (settings) {
       await useSettingsStore.getState().saveSettings({
@@ -55,19 +61,19 @@ export default function OnboardingGuide() {
   }, [closeOnboarding]);
 
   const handleStartAiGuide = useCallback(async () => {
-    // 标记 onboarding 已完成
+    // 标记 onboarding 已完成 + 保存 CLI 选择
     const settings = useSettingsStore.getState().settings;
     if (settings) {
       await useSettingsStore.getState().saveSettings({
         ...settings,
-        general: { ...settings.general, onboardingCompleted: true },
+        general: { ...settings.general, onboardingCompleted: true, defaultCliTool: cliChoice },
       });
     }
     closeOnboarding();
     // 切换到 SelfChat 模式 + 标记 onboarding
     useSelfChatStore.getState().setOnboarding(true);
     useActivityBarStore.getState().toggleSelfChatMode();
-  }, [closeOnboarding]);
+  }, [closeOnboarding, cliChoice]);
 
   const handleOpenChange = useCallback(
     (value: boolean) => {
@@ -121,9 +127,46 @@ export default function OnboardingGuide() {
               </Button>
               <Button
                 size="sm"
-                onClick={() => setStep("welcome")}
-                disabled={checking}
+                onClick={() => setStep("cli-choice")}
+                disabled={checking || !envInfo}
               >
+                {t("next")} <ArrowRight className="w-4 h-4 ml-1" />
+              </Button>
+            </DialogFooter>
+          </>
+        ) : step === "cli-choice" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{t("cliChoice")}</DialogTitle>
+              <DialogDescription>{t("cliChoiceDesc")}</DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-2 gap-3 py-2">
+              <CliOptionCard
+                selected={cliChoice === "claude"}
+                onClick={() => setCliChoice("claude")}
+                name={t("claudeCodeName")}
+                description={t("claudeCodeDesc")}
+                detected={envInfo?.claude.installed ?? false}
+                detectedLabel={t("cliDetected")}
+                notDetectedLabel={t("cliNotDetected")}
+              />
+              <CliOptionCard
+                selected={cliChoice === "codex"}
+                onClick={() => setCliChoice("codex")}
+                name={t("codexCliName")}
+                description={t("codexCliDesc")}
+                detected={envInfo?.codex.installed ?? false}
+                detectedLabel={t("cliDetected")}
+                notDetectedLabel={t("cliNotDetected")}
+              />
+            </div>
+
+            <DialogFooter>
+              <Button variant="ghost" size="sm" onClick={() => setStep("env-check")}>
+                <ArrowLeft className="w-4 h-4 mr-1" /> {t("back")}
+              </Button>
+              <Button size="sm" onClick={() => setStep("welcome")}>
                 {t("next")} <ArrowRight className="w-4 h-4 ml-1" />
               </Button>
             </DialogFooter>
@@ -163,8 +206,8 @@ export default function OnboardingGuide() {
             </div>
 
             <DialogFooter>
-              <Button variant="ghost" size="sm" onClick={() => setStep("env-check")}>
-                {t("back")}
+              <Button variant="ghost" size="sm" onClick={() => setStep("cli-choice")}>
+                <ArrowLeft className="w-4 h-4 mr-1" /> {t("back")}
               </Button>
               <Button variant="ghost" size="sm" onClick={handleSkip}>
                 {t("skip")}
@@ -254,5 +297,65 @@ function ConceptRow({ icon, text }: { icon: React.ReactNode; text: string }) {
         {text}
       </span>
     </div>
+  );
+}
+
+/** CLI 工具选择卡片 */
+function CliOptionCard({
+  selected,
+  onClick,
+  name,
+  description,
+  detected,
+  detectedLabel,
+  notDetectedLabel,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  name: string;
+  description: string;
+  detected: boolean;
+  detectedLabel: string;
+  notDetectedLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-center transition-colors cursor-pointer"
+      style={{
+        borderColor: selected ? "var(--app-accent)" : "var(--app-border)",
+        backgroundColor: selected ? "var(--app-accent-muted, rgba(var(--app-accent-rgb, 59,130,246), 0.08))" : "transparent",
+      }}
+    >
+      <div
+        className="w-3 h-3 rounded-full border-2 flex items-center justify-center"
+        style={{ borderColor: selected ? "var(--app-accent)" : "var(--app-text-tertiary)" }}
+      >
+        {selected && (
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ backgroundColor: "var(--app-accent)" }}
+          />
+        )}
+      </div>
+      <span className="text-sm font-medium" style={{ color: "var(--app-text-primary)" }}>
+        {name}
+      </span>
+      <span className="text-xs" style={{ color: "var(--app-text-secondary)" }}>
+        {description}
+      </span>
+      <span
+        className="text-xs flex items-center gap-1"
+        style={{ color: detected ? "var(--app-success, #22c55e)" : "var(--app-text-tertiary)" }}
+      >
+        {detected ? (
+          <CheckCircle2 className="w-3 h-3" />
+        ) : (
+          <XCircle className="w-3 h-3" />
+        )}
+        {detected ? detectedLabel : notDetectedLabel}
+      </span>
+    </button>
   );
 }
