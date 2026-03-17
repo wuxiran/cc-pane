@@ -760,7 +760,7 @@ impl TerminalService {
 
                 // 基于时间的状态修正
                 let adjusted_status = match status {
-                    SessionStatus::Active if elapsed.as_secs() > 30 => SessionStatus::Idle,
+                    SessionStatus::Active if elapsed.as_secs() > 8 => SessionStatus::Idle,
                     other => other,
                 };
 
@@ -777,27 +777,32 @@ impl TerminalService {
             .collect())
     }
 
-    /// 向终端写入数据
     /// 向终端写入数据（分块写入防止 ConPTY 大缓冲丢字符）
+    ///
+    /// 多 chunk 写入时，每个 chunk 单独获取/释放锁，并在 chunk 间添加 20ms 延迟，
+    /// 避免 Windows ConPTY 输入缓冲溢出导致丢字符。
     pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
-        let mut sessions = self
-            .sessions
-            .lock()
-            .map_err(|_| anyhow!("sessions lock poisoned"))?;
-        let session = sessions
-            .get_mut(session_id)
-            .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
         let bytes = data.as_bytes();
-        const CHUNK_SIZE: usize = 1024;
+        const CHUNK_SIZE: usize = 512;
 
-        if bytes.len() <= CHUNK_SIZE {
-            session.writer.write_all(bytes)?;
-            session.writer.flush()?;
-        } else {
-            for chunk in bytes.chunks(CHUNK_SIZE) {
+        let chunks: Vec<&[u8]> = bytes.chunks(CHUNK_SIZE).collect();
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            {
+                let mut sessions = self
+                    .sessions
+                    .lock()
+                    .map_err(|_| anyhow!("sessions lock poisoned"))?;
+                let session = sessions
+                    .get_mut(session_id)
+                    .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
                 session.writer.write_all(chunk)?;
                 session.writer.flush()?;
+            } // 锁在此释放
+
+            // 多 chunk 时，非最后一个 chunk 后添加延迟，让 ConPTY 消化输入
+            if chunks.len() > 1 && i < chunks.len() - 1 {
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
         }
         Ok(())
@@ -1003,6 +1008,9 @@ impl TerminalService {
 
             let mut codex_args = Vec::new();
 
+            // 默认使用 full-auto 模式，允许 --add-dir 写权限
+            codex_args.push("--full-auto".to_string());
+
             if let Some(rid) = resume_id {
                 // Codex 使用子命令形式: codex resume <id>
                 codex_args.push("resume".to_string());
@@ -1144,9 +1152,83 @@ impl TerminalService {
     }
 }
 
+/// 剥离 ANSI 转义序列，保留纯文本
+///
+/// 处理以下序列类型：
+/// - CSI: `ESC[` 后跟参数字节 (0x30-0x3F)、中间字节 (0x20-0x2F)、终止字节 (0x40-0x7E)
+/// - OSC: `ESC]` 后跟内容直到 ST (`ESC\`) 或 BEL (0x07)
+/// - 其他双字符 ESC 序列: `ESC` + 0x40-0x5F 范围字符
+fn strip_ansi_escapes(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut result = Vec::with_capacity(len);
+    let mut i = 0;
+
+    while i < len {
+        if bytes[i] == 0x1B {
+            // ESC
+            if i + 1 < len {
+                match bytes[i + 1] {
+                    b'[' => {
+                        // CSI sequence: ESC[ params intermediate final
+                        i += 2;
+                        // 跳过参数字节 0x30-0x3F
+                        while i < len && (0x30..=0x3F).contains(&bytes[i]) {
+                            i += 1;
+                        }
+                        // 跳过中间字节 0x20-0x2F
+                        while i < len && (0x20..=0x2F).contains(&bytes[i]) {
+                            i += 1;
+                        }
+                        // 跳过终止字节 0x40-0x7E
+                        if i < len && (0x40..=0x7E).contains(&bytes[i]) {
+                            i += 1;
+                        }
+                    }
+                    b']' => {
+                        // OSC sequence: ESC] ... (ST or BEL)
+                        i += 2;
+                        while i < len {
+                            if bytes[i] == 0x07 {
+                                // BEL terminates OSC
+                                i += 1;
+                                break;
+                            }
+                            if bytes[i] == 0x1B && i + 1 < len && bytes[i + 1] == b'\\' {
+                                // ST (ESC\) terminates OSC
+                                i += 2;
+                                break;
+                            }
+                            i += 1;
+                        }
+                    }
+                    0x40..=0x5F => {
+                        // 其他双字符 ESC 序列 (Fe sequences)
+                        i += 2;
+                    }
+                    _ => {
+                        // 未知 ESC 序列，跳过 ESC 本身
+                        i += 1;
+                    }
+                }
+            } else {
+                // 末尾孤立 ESC
+                i += 1;
+            }
+        } else {
+            result.push(bytes[i]);
+            i += 1;
+        }
+    }
+
+    String::from_utf8_lossy(&result).to_string()
+}
+
 /// 从输出内容推断终端状态
 fn infer_status(output: &str) -> SessionStatus {
-    let trimmed = output.trim();
+    // 先剥离 ANSI 转义序列，得到纯文本
+    let clean = strip_ansi_escapes(output);
+    let trimmed = clean.trim();
 
     if let Some(last_line) = trimmed.lines().last() {
         let line = last_line.trim();
@@ -1158,6 +1240,11 @@ fn infer_status(output: &str) -> SessionStatus {
 
         // Claude Code 提问：以 "?" 结尾
         if line.ends_with('?') {
+            return SessionStatus::WaitingInput;
+        }
+
+        // Claude Code ink UI 提示符（剥离 ANSI 后就是 ">"）
+        if line == ">" {
             return SessionStatus::WaitingInput;
         }
 
@@ -1204,6 +1291,71 @@ mod tests {
     #[test]
     fn test_infer_status_waiting_prompt() {
         assert_eq!(infer_status("Continue? [Y/n]"), SessionStatus::WaitingInput);
+    }
+
+    // --- strip_ansi_escapes 单元测试 ---
+
+    #[test]
+    fn test_strip_ansi_escapes_plain_text() {
+        assert_eq!(strip_ansi_escapes("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_strip_ansi_escapes_csi_color() {
+        // ESC[38;5;14m (256色前景) + ">" + ESC[0m (重置)
+        assert_eq!(strip_ansi_escapes("\x1b[38;5;14m>\x1b[0m"), ">");
+    }
+
+    #[test]
+    fn test_strip_ansi_escapes_claude_prompt() {
+        // Claude Code ink UI 实际输出的 ">" 提示符
+        let raw = "\x1b[?25l\x1b[2K\x1b[G\x1b[38;5;14m>\x1b[0m \x1b[?25h";
+        assert_eq!(strip_ansi_escapes(raw).trim(), "> ");
+    }
+
+    #[test]
+    fn test_strip_ansi_escapes_osc_sequence() {
+        // OSC 序列：ESC]0;title BEL
+        let input = "\x1b]0;window title\x07some text";
+        assert_eq!(strip_ansi_escapes(input), "some text");
+    }
+
+    #[test]
+    fn test_strip_ansi_escapes_osc_st_terminator() {
+        // OSC 序列以 ST (ESC\) 终止
+        let input = "\x1b]0;title\x1b\\text";
+        assert_eq!(strip_ansi_escapes(input), "text");
+    }
+
+    #[test]
+    fn test_strip_ansi_escapes_mixed() {
+        let input = "\x1b[1mBold\x1b[0m \x1b[32mGreen\x1b[0m Normal";
+        assert_eq!(strip_ansi_escapes(input), "Bold Green Normal");
+    }
+
+    // --- infer_status 增强测试 ---
+
+    #[test]
+    fn test_infer_status_claude_ansi_prompt() {
+        // Claude Code ink UI 渲染的 ">" 提示符（含 ANSI 转义）
+        let raw = "\x1b[?25l\x1b[2K\x1b[G\x1b[38;5;14m>\x1b[0m \x1b[?25h";
+        assert_eq!(infer_status(raw), SessionStatus::WaitingInput);
+    }
+
+    #[test]
+    fn test_infer_status_bare_angle_bracket() {
+        // 剥离 ANSI 后只剩 ">"
+        assert_eq!(infer_status(">"), SessionStatus::WaitingInput);
+    }
+
+    #[test]
+    fn test_infer_status_shell_dollar() {
+        assert_eq!(infer_status("user@host:~$ "), SessionStatus::WaitingInput);
+    }
+
+    #[test]
+    fn test_infer_status_question() {
+        assert_eq!(infer_status("Do you want to continue?"), SessionStatus::WaitingInput);
     }
 
     // --- strip_conpty_artifacts 单元测试 (不依赖 cfg(windows)) ---

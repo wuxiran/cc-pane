@@ -828,11 +828,12 @@ dependencies = [
 
 [[package]]
 name = "cc-panes"
-version = "0.9.11"
+version = "0.9.13"
 dependencies = [
  "anyhow",
  "axum",
  "base64 0.22.1",
+ "cc-memory",
  "chrono",
  "dirs",
  "encoding_rs",

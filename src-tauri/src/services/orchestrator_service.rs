@@ -1922,6 +1922,15 @@ fn cleanup_stale_tasks(tasks: &mut HashMap<String, TaskStatus>) {
     });
 }
 
+/// 根据文本长度动态计算 Enter 前的等待延迟（ms）
+///
+/// 短文本 150ms 足够，长文本需要更多时间让 ink 处理完。
+/// 范围: [150, 2000] ms
+fn compute_enter_delay_ms(text_len: usize) -> u64 {
+    let delay = std::cmp::max(150, (text_len / 100) * 10 + 150);
+    std::cmp::min(delay, 2000) as u64
+}
+
 /// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交
 /// 参考: https://github.com/anthropics/claude-code/issues/15553
 async fn submit_text_to_session(
@@ -1931,8 +1940,9 @@ async fn submit_text_to_session(
 ) -> std::result::Result<(), anyhow::Error> {
     // Step 1: 写入文本（不含换行符）
     terminal_svc.write(session_id, text)?;
-    // Step 2: 等待 ink 处理完文本
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    // Step 2: 等待 ink 处理完文本（延迟根据文本长度动态计算）
+    let delay_ms = compute_enter_delay_ms(text.len());
+    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
     // Step 3: 单独发送 Enter
     terminal_svc.write(session_id, "\r")?;
     Ok(())
@@ -1978,28 +1988,38 @@ fn spawn_prompt_injector(
                 Ok(statuses) => {
                     if let Some(status) = statuses.iter().find(|s| s.session_id == session_id) {
                         match status.status {
-                            crate::services::terminal_service::SessionStatus::WaitingInput => {
+                            // WaitingInput: infer_status 明确检测到提示符
+                            // Idle: 兜底 — 8 秒无输出，Claude 可能已就绪但 infer_status 未匹配
+                            crate::services::terminal_service::SessionStatus::WaitingInput
+                            | crate::services::terminal_service::SessionStatus::Idle => {
                                 info!(
                                     task_id = %task_id,
                                     session_id = %session_id,
                                     elapsed_ms = start.elapsed().as_millis() as u64,
                                     polls = poll_count,
-                                    "prompt_injector: WaitingInput detected, injecting prompt"
+                                    detected_status = ?status.status,
+                                    "prompt_injector: ready detected, injecting prompt"
                                 );
                                 std::thread::sleep(std::time::Duration::from_millis(300));
+
+                                // 净化 prompt：将换行替换为空格，防止多行 prompt 被 ink 误识为多次提交
+                                let sanitized_prompt = prompt.replace(['\r', '\n'], " ");
+
                                 // 分两步写入：先文本，再单独发 Enter
                                 // ink-text-input 仅在 \r 作为独立 stdin read 时识别为提交
                                 // 参考: https://github.com/anthropics/claude-code/issues/15553
-                                match terminal_svc.write(&session_id, &prompt) {
+                                match terminal_svc.write(&session_id, &sanitized_prompt) {
                                     Ok(_) => {
-                                        // 等待 ink 处理完文本后再发 Enter
-                                        std::thread::sleep(std::time::Duration::from_millis(150));
+                                        // 等待 ink 处理完文本后再发 Enter（根据长度动态延迟）
+                                        let delay_ms = compute_enter_delay_ms(sanitized_prompt.len());
+                                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
                                         match terminal_svc.write(&session_id, "\r") {
                                             Ok(_) => {
                                                 info!(
                                                     task_id = %task_id,
                                                     session_id = %session_id,
-                                                    prompt_len = prompt.len(),
+                                                    prompt_len = sanitized_prompt.len(),
+                                                    enter_delay_ms = delay_ms,
                                                     "prompt_injector: prompt written successfully (split text+enter)"
                                                 );
                                                 update_task_status(&tasks, &task_id, "running", None);

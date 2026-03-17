@@ -160,9 +160,11 @@ function MainApp() {
       useTerminalStatusStore.getState().init();
       // 应用启动后静默检查更新（仅写入 store，不弹窗）
       checkUpdateSilent().catch(console.error);
-      // 首次启动检测：弹出新手引导
+      // 首次启动检测：清理残留布局 + 弹出新手引导
       const loadedSettings = useSettingsStore.getState().settings;
       if (loadedSettings && !loadedSettings.general.onboardingCompleted) {
+        localStorage.removeItem("cc-panes-layout");
+        usePanesStore.persist.rehydrate();
         useDialogStore.getState().openOnboarding();
       }
     });

@@ -79,9 +79,13 @@ use commands::{
     screenshot_update_shortcut,
     // Orchestrator 命令
     get_orchestrator_port, get_orchestrator_token, respond_orchestrator_query,
+    // Memory 命令
+    search_memory, store_memory, list_memories, get_memory,
+    update_memory, delete_memory, get_memory_stats,
+    prepare_session_context, format_memory_for_injection,
 };
 use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository, SpecRepository};
-use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, SpecService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService};
+use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, SpecService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService, MemoryService};
 use utils::AppPaths;
 use std::sync::Arc;
 
@@ -362,6 +366,14 @@ pub fn run() {
     // 注入 Spec 服务到 Terminal 服务（终端启动时自动注入 spec prompt）
     terminal_service.set_spec_service(spec_service.clone());
 
+    let memory_service = Arc::new(
+        MemoryService::new(app_paths.data_dir().join("memory.db"))
+            .unwrap_or_else(|e| {
+                error!("MemoryService init failed: {}, using in-memory fallback", e);
+                MemoryService::new_memory().expect("MemoryService fallback failed")
+            })
+    );
+
     let orchestrator_service = Arc::new(OrchestratorService::new());
 
     // 保存引用用于退出时清理
@@ -405,6 +417,7 @@ pub fn run() {
         .manage(skill_service)
         .manage(plan_service)
         .manage(filesystem_service)
+        .manage(memory_service)
         .manage(orchestrator_service.clone())
         .setup(|app| {
             // ---- 提取打包的 .claude/ 配置到数据目录（Release 模式）----
@@ -739,7 +752,17 @@ pub fn run() {
             // Orchestrator 命令
             get_orchestrator_port,
             get_orchestrator_token,
-            respond_orchestrator_query
+            respond_orchestrator_query,
+            // Memory 命令
+            search_memory,
+            store_memory,
+            list_memories,
+            get_memory,
+            update_memory,
+            delete_memory,
+            get_memory_stats,
+            prepare_session_context,
+            format_memory_for_injection
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
