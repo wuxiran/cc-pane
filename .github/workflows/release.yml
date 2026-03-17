@@ -93,7 +93,25 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "CC-Panes v__VERSION__"
-          releaseBody: "See the [CHANGELOG](https://github.com/wuxiran/cc-pane/blob/main/CHANGELOG.md) for details."
+          releaseBody: |
+            See the [CHANGELOG](https://github.com/wuxiran/cc-pane/blob/main/CHANGELOG.md) for details.
+
+            ---
+
+            ## macOS 安装说明
+
+            由于应用未经 Apple 签名，macOS 可能提示"文件已损坏"或"无法验证开发者"。请使用以下任一方式解决：
+
+            **方式一：终端命令（推荐）**
+            ```bash
+            xattr -cr /Applications/CC-Panes.app
+            ```
+
+            **方式二：右键打开**
+            在 Finder 中按住 Control 键点击（或右键点击）应用图标，选择"打开"，在弹出的对话框中点击"打开"。
+
+            **方式三：系统设置**
+            打开"系统设置 → 隐私与安全性"，在底部找到被阻止的应用，点击"仍要打开"。
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
