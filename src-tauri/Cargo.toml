@@ -1,6 +1,6 @@
 [package]
 name = "cc-panes"
-version = "0.9.14"
+version = "0.9.15"
 description = "CC-Panes - Multi-instance split-pane manager for Claude Code"
 authors = ["wuxiran"]
 license = "GPL-3.0"
