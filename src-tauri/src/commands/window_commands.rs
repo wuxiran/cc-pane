@@ -1,7 +1,11 @@
 use crate::utils::{AppPaths, AppResult};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::{LogicalSize, State, WebviewWindow};
 use tracing::debug;
+
+/// 弹出窗口数据共享存储：label -> tabData JSON
+pub type PopupDataStore = Mutex<HashMap<String, String>>;
 
 /// 关闭窗口
 #[tauri::command]
@@ -87,24 +91,55 @@ pub fn exit_mini_mode(
 }
 
 /// 创建弹出终端窗口
+/// 使用 async fn 避免在 Windows 上同步创建 WebView2 导致主线程死锁
 #[tauri::command]
-pub fn create_popup_terminal_window(
+pub async fn create_popup_terminal_window(
     app: tauri::AppHandle,
     tab_data: String,
     label: String,
+    popup_store: State<'_, PopupDataStore>,
 ) -> AppResult<()> {
     debug!("cmd::create_popup_terminal_window label={}", label);
-    let url = format!(
-        "index.html?mode=popup&tabData={}",
-        urlencoding::encode(&tab_data)
-    );
-    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App(url.into()))
-        .title("Terminal")
-        .inner_size(800.0, 500.0)
-        .decorations(true)
-        .resizable(true)
-        .build()?;
+    // 存入共享 state，弹出窗口启动后通过 get_popup_tab_data 取回
+    popup_store
+        .lock()
+        .map_err(|e| format!("lock: {e}"))?
+        .insert(label.clone(), tab_data);
+    // 简短 URL（不再将 tabData 放入 URL）+ 居中 + 获取焦点
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App("index.html?mode=popup".into()),
+    )
+    .title("Terminal")
+    .inner_size(800.0, 500.0)
+    .decorations(true)
+    .resizable(true)
+    .center()
+    .focused(true)
+    .build()
+    .map_err(|e| {
+        // 创建失败时清理已存入的数据
+        if let Ok(mut s) = popup_store.lock() {
+            s.remove(&label);
+        }
+        format!("Failed to create popup window: {e}")
+    })?;
     Ok(())
+}
+
+/// 弹出窗口获取 tabData（one-shot：取后删除）
+#[tauri::command]
+pub fn get_popup_tab_data(
+    window: WebviewWindow,
+    popup_store: State<'_, PopupDataStore>,
+) -> AppResult<Option<String>> {
+    let label = window.label().to_string();
+    debug!("cmd::get_popup_tab_data label={}", label);
+    Ok(popup_store
+        .lock()
+        .map_err(|e| format!("lock: {e}"))?
+        .remove(&label))
 }
 
 /// 获取自我对话工作目录

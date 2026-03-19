@@ -1,6 +1,6 @@
-use crate::models::{ScannedRepo, Workspace, WorkspaceProject};
+use crate::models::{ScannedRepo, SshConnectionInfo, Workspace, WorkspaceProject};
 use crate::services::WorkspaceService;
-use crate::utils::{AppResult, validate_path};
+use crate::utils::{AppResult, validate_path, validate_ssh_info};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
@@ -61,6 +61,17 @@ pub fn add_workspace_project(
 ) -> AppResult<WorkspaceProject> {
     debug!(workspace_name = %workspace_name, path = %path, "cmd::add_workspace_project");
     Ok(service.add_project(&workspace_name, &path)?)
+}
+
+#[tauri::command]
+pub fn add_ssh_project(
+    workspace_name: String,
+    ssh_info: SshConnectionInfo,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<WorkspaceProject> {
+    debug!(workspace_name = %workspace_name, host = %ssh_info.host, "cmd::add_ssh_project");
+    validate_ssh_info(&ssh_info)?;
+    Ok(service.add_ssh_project(&workspace_name, ssh_info)?)
 }
 
 #[tauri::command]

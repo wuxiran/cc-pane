@@ -124,7 +124,7 @@ describe("usePanesStore", () => {
       // 先给当前面板添加一个有 projectPath 的终端标签
       const state = usePanesStore.getState();
       const paneId = state.rootPane.id;
-      state.addTab(paneId, "proj-1", "/tmp/project1");
+      state.addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/project1" });
 
       // 关闭面板
       usePanesStore.getState().closePane(paneId);
@@ -156,7 +156,7 @@ describe("usePanesStore", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       const tabsBefore = (usePanesStore.getState().rootPane as Panel).tabs.length;
 
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       expect(pane.tabs.length).toBe(tabsBefore + 1);
@@ -167,8 +167,8 @@ describe("usePanesStore", () => {
   describe("closeTab", () => {
     it("多 tab 面板应移除 tab 并更新 activeTabId", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
-      usePanesStore.getState().addTab(paneId, "proj-2", "/tmp/proj2");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       expect(pane.tabs).toHaveLength(3);
@@ -195,7 +195,7 @@ describe("usePanesStore", () => {
 
     it("pinned tab 不可关闭", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const tabId = pane.tabs[0].id;
@@ -211,8 +211,8 @@ describe("usePanesStore", () => {
 
     it("关闭终端标签时应保存到 closedTabs", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
-      usePanesStore.getState().addTab(paneId, "proj-2", "/tmp/proj2");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       // 关闭第二个 tab（有 projectPath 的终端标签）
@@ -255,8 +255,8 @@ describe("usePanesStore", () => {
   describe("reorderTabs", () => {
     it("应改变 tab 顺序", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
-      usePanesStore.getState().addTab(paneId, "proj-2", "/tmp/proj2");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
 
       const paneBefore = usePanesStore.getState().rootPane as Panel;
       const firstTabId = paneBefore.tabs[0].id;
@@ -276,7 +276,7 @@ describe("usePanesStore", () => {
       const firstPaneId = rootPane.id;
 
       // 在第一个面板添加额外 tab
-      usePanesStore.getState().addTab(firstPaneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(firstPaneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       splitRight(firstPaneId);
 
@@ -301,7 +301,7 @@ describe("usePanesStore", () => {
   describe("minimizeTab", () => {
     it("应将 tab 设为 minimized 并切换活动标签", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const firstTabId = pane.tabs[0].id;
@@ -322,7 +322,7 @@ describe("usePanesStore", () => {
   describe("restoreTab", () => {
     it("应恢复 minimized 状态并设为活动标签", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const firstTabId = pane.tabs[0].id;
@@ -341,7 +341,7 @@ describe("usePanesStore", () => {
   describe("selectTab", () => {
     it("应更新 activeTabId 和 activePaneId", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const firstTabId = pane.tabs[0].id;
@@ -378,12 +378,12 @@ describe("usePanesStore", () => {
   describe("openProjectInPane", () => {
     it("无 resumeId 时应复用已有同 projectId 的 tab", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const existingTabId = pane.tabs.find((t) => t.projectId === "proj-1")!.id;
 
-      usePanesStore.getState().openProjectInPane(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const paneAfter = usePanesStore.getState().rootPane as Panel;
       // 不应创建新 tab
@@ -393,11 +393,11 @@ describe("usePanesStore", () => {
 
     it("有 resumeId 时应总是新建 tab", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const tabCountBefore = (usePanesStore.getState().rootPane as Panel).tabs.length;
 
-      usePanesStore.getState().openProjectInPane(paneId, "proj-1", "/tmp/proj1", "resume-1");
+      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1", resumeId: "resume-1" });
 
       const paneAfter = usePanesStore.getState().rootPane as Panel;
       expect(paneAfter.tabs.length).toBe(tabCountBefore + 1);
@@ -409,7 +409,7 @@ describe("usePanesStore", () => {
       const pane = usePanesStore.getState().rootPane as Panel;
       const originalTabCount = pane.tabs.length;
 
-      usePanesStore.getState().openProjectInPane(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const paneAfter = usePanesStore.getState().rootPane as Panel;
       // tab 数量不变（替换了空标签）
@@ -422,7 +422,7 @@ describe("usePanesStore", () => {
     it("应委托给 openProjectInPane 使用活动面板", () => {
       const activePaneId = usePanesStore.getState().activePaneId;
 
-      usePanesStore.getState().openProject("proj-1", "/tmp/proj1");
+      usePanesStore.getState().openProject({ projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().findPaneById(activePaneId) as Panel;
       expect(pane.tabs.some((t) => t.projectId === "proj-1")).toBe(true);
@@ -500,8 +500,8 @@ describe("usePanesStore", () => {
   describe("reopenClosedTab", () => {
     it("应从 closedTabs 恢复标签", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
-      usePanesStore.getState().addTab(paneId, "proj-2", "/tmp/proj2");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
 
       // 关闭一个 tab
       const pane = usePanesStore.getState().rootPane as Panel;
@@ -533,8 +533,8 @@ describe("usePanesStore", () => {
   describe("nextTab", () => {
     it("应循环切换到下一个标签", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
-      usePanesStore.getState().addTab(paneId, "proj-2", "/tmp/proj2");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const firstTabId = pane.tabs[0].id;
@@ -550,7 +550,7 @@ describe("usePanesStore", () => {
 
     it("最后一个标签时应循环到第一个", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const lastTabId = pane.tabs[pane.tabs.length - 1].id;
@@ -567,8 +567,8 @@ describe("usePanesStore", () => {
   describe("prevTab", () => {
     it("应反向循环切换到上一个标签", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
-      usePanesStore.getState().addTab(paneId, "proj-2", "/tmp/proj2");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const secondTabId = pane.tabs[1].id;
@@ -583,7 +583,7 @@ describe("usePanesStore", () => {
 
     it("第一个标签时应循环到最后一个", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const firstTabId = pane.tabs[0].id;
@@ -600,8 +600,8 @@ describe("usePanesStore", () => {
   describe("switchToTab", () => {
     it("应切换到指定索引的标签", () => {
       const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, "proj-1", "/tmp/proj1");
-      usePanesStore.getState().addTab(paneId, "proj-2", "/tmp/proj2");
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
 
       const pane = usePanesStore.getState().rootPane as Panel;
       const targetTabId = pane.tabs[1].id;

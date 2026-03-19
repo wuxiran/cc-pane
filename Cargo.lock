@@ -797,6 +797,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-cli-adapters"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "serde",
+ "serde_json",
+ "tracing",
+ "which",
+]
+
+[[package]]
 name = "cc-memory"
 version = "0.94.0"
 dependencies = [
@@ -828,11 +840,12 @@ dependencies = [
 
 [[package]]
 name = "cc-panes"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "anyhow",
  "axum",
  "base64 0.22.1",
+ "cc-cli-adapters",
  "cc-memory",
  "chrono",
  "dirs",
@@ -853,6 +866,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "similar",
+ "strip-ansi-escapes",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -1446,7 +1460,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
- "libloading 0.7.4",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -5846,6 +5860,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "strip-ansi-escapes"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a8f8038e7e7969abb3f1b7c2a811225e9296da208539e0f79c5251d6cac0025"
+dependencies = [
+ "vte",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7118,6 +7141,15 @@ checksum = "fb067e4cbd1ff067d1df46c9194b5de0e98efd2810bbc95c5d5e5f25a3231150"
 dependencies = [
  "cc",
  "libc",
+]
+
+[[package]]
+name = "vte"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "231fdcd7ef3037e8330d8e17e61011a2c244126acc0a982f4040ac3f9f0bc077"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

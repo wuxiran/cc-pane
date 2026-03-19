@@ -2,18 +2,11 @@ import { useTranslation } from "react-i18next";
 import { FolderOpen, Play, RotateCcw, ChevronRight, Clock } from "lucide-react";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import type { LaunchRecord } from "@/services";
-import type { CliTool } from "@/types";
+import type { OpenTerminalOptions } from "@/types";
 
 interface HomeRecentProjectsProps {
   records: LaunchRecord[];
-  onOpenTerminal: (
-    path: string,
-    workspaceName?: string,
-    providerId?: string,
-    workspacePath?: string,
-    cliTool?: CliTool,
-    resumeId?: string,
-  ) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
 function useFormatRelativeTime() {
@@ -176,12 +169,12 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
                 style={{ color: "var(--app-text-secondary)" }}
                 title={t("open")}
                 onClick={() =>
-                  onOpenTerminal(
-                    record.projectPath,
-                    record.workspaceName,
-                    record.providerId,
-                    record.workspacePath,
-                  )
+                  onOpenTerminal({
+                    path: record.projectPath,
+                    workspaceName: record.workspaceName,
+                    providerId: record.providerId,
+                    workspacePath: record.workspacePath,
+                  })
                 }
               >
                 <Play className="w-3.5 h-3.5" />
@@ -192,14 +185,14 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
                   style={{ color: "var(--app-accent)" }}
                   title={t("resume")}
                   onClick={() =>
-                    onOpenTerminal(
-                      record.projectPath,
-                      record.workspaceName,
-                      record.providerId,
-                      record.workspacePath,
-                      "claude",
-                      record.claudeSessionId,
-                    )
+                    onOpenTerminal({
+                      path: record.projectPath,
+                      workspaceName: record.workspaceName,
+                      providerId: record.providerId,
+                      workspacePath: record.workspacePath,
+                      cliTool: "claude",
+                      resumeId: record.claudeSessionId,
+                    })
                   }
                 >
                   <RotateCcw className="w-3.5 h-3.5" />

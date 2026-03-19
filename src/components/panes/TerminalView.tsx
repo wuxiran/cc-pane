@@ -25,7 +25,7 @@ async function getCachedBuildNumber(): Promise<number> {
   return buildNumberPromise;
 }
 
-import type { CliTool } from "@/types";
+import type { CliTool, SshConnectionInfo } from "@/types";
 
 interface TerminalViewProps {
   sessionId: string | null;
@@ -39,6 +39,7 @@ interface TerminalViewProps {
   resumeId?: string;
   skipMcp?: boolean;
   appendSystemPrompt?: string;
+  ssh?: SshConnectionInfo;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
 }
@@ -286,6 +287,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 resumeId: props.resumeId,
                 skipMcp: props.skipMcp,
                 appendSystemPrompt: props.appendSystemPrompt,
+                ssh: props.ssh,
               });
               console.info(`[TerminalView] Session created: ${sessionId}`);
             }
@@ -331,13 +333,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               error
             );
             const errorMsg = getErrorMessage(error);
-            if (errorMsg.includes("claude CLI not found")) {
-              console.error("[TerminalView] Claude CLI not found in PATH");
+            const cliNotFoundMatch = errorMsg.match(/(\w+) CLI not found/);
+            if (cliNotFoundMatch) {
+              const toolName = cliNotFoundMatch[1];
+              console.error(`[TerminalView] ${toolName} CLI not found in PATH`);
               term.writeln(
-                `\x1b[31mclaude CLI is not installed or not in PATH.\x1b[0m`
+                `\x1b[31m${toolName} CLI is not installed or not in PATH.\x1b[0m`
               );
               term.writeln(
-                `\x1b[33mPlease install: npm install -g @anthropic-ai/claude-code\x1b[0m`
+                `\x1b[33mPlease install the ${toolName} CLI and make sure it's available in your PATH.\x1b[0m`
               );
             } else {
               term.writeln(

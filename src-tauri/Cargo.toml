@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 cc-memory = { path = "../cc-memory" }
+cc-cli-adapters = { path = "../cc-cli-adapters" }
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -39,6 +40,7 @@ urlencoding = "2"
 similar = "2"
 flate2 = "1"
 encoding_rs = "0.8"
+strip-ansi-escapes = "0.2"
 trash = "5"
 portable-pty = "0.8"
 parking_lot = "0.12"

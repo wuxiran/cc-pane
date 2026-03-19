@@ -67,6 +67,7 @@ export default memo(function TabContentRenderer({
           launchClaude={tab.launchClaude}
           cliTool={tab.cliTool}
           resumeId={tab.resumeId}
+          ssh={tab.ssh}
           onSessionCreated={onSessionCreated}
         />
       );

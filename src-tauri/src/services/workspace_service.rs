@@ -1,4 +1,4 @@
-use crate::models::{ScannedRepo, ScannedWorktree, Workspace, WorkspaceProject};
+use crate::models::{ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace, WorkspaceProject};
 use crate::utils::{output_with_timeout, GIT_LOCAL_TIMEOUT};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
@@ -252,6 +252,64 @@ impl WorkspaceService {
 
         // 同步 projects.csv
         self.sync_projects_csv(&workspace);
+
+        Ok(project)
+    }
+
+    /// 添加 SSH 远程项目到工作空间
+    ///
+    /// 与 `add_project` 不同，SSH 项目：
+    /// - path 为 `ssh://[user@]host[:port]/remote_path` 格式的显示路径
+    /// - 携带 `SshConnectionInfo` 结构
+    /// - 不初始化 Local History
+    /// - 不同步 projects.csv（远程路径无法本地 git 操作）
+    pub fn add_ssh_project(
+        &self,
+        workspace_name: &str,
+        ssh_info: SshConnectionInfo,
+    ) -> Result<WorkspaceProject, String> {
+        let mut workspace = self.get_workspace(workspace_name)?;
+
+        // 构建显示路径：ssh://[user@]host[:port]/remote_path
+        let user_part = match &ssh_info.user {
+            Some(u) => format!("{}@", u),
+            None => String::new(),
+        };
+        let port_part = if ssh_info.port != 22 {
+            format!(":{}", ssh_info.port)
+        } else {
+            String::new()
+        };
+        let display_path = format!(
+            "ssh://{}{}{}{}",
+            user_part, ssh_info.host, port_part, ssh_info.remote_path
+        );
+
+        // 去重检查（基于 display_path）
+        let norm_input = Self::normalize_project_path(&display_path);
+        if workspace
+            .projects
+            .iter()
+            .any(|p| Self::normalize_project_path(&p.path) == norm_input)
+        {
+            return Err(format!(
+                "PROJECT_ALREADY_EXISTS: SSH project '{}' already exists in workspace",
+                display_path
+            ));
+        }
+
+        // 创建 WorkspaceProject，path 为 display_path，ssh 字段填充连接信息
+        let project = WorkspaceProject {
+            id: uuid::Uuid::new_v4().to_string(),
+            path: display_path,
+            alias: None,
+            ssh: Some(ssh_info),
+        };
+
+        workspace.projects.push(project.clone());
+        self.write_workspace_json(workspace_name, &workspace)?;
+
+        // 注意：不初始化 Local History，不同步 projects.csv
 
         Ok(project)
     }

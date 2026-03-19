@@ -8,11 +8,11 @@ import type { EnvironmentInfo } from "@/types";
 /** 模块级缓存，跨组件挂载周期复用 */
 let cachedEnvInfo: EnvironmentInfo | null = null;
 
-/** 各工具的主题色 */
+/** 各工具的主题色（按工具 ID 或名称匹配） */
 const TOOL_COLORS: Record<string, string> = {
   "Node.js": "#22c55e",
-  "Claude CLI": "var(--app-accent)",
-  "Codex CLI": "#a855f7",
+  "claude": "var(--app-accent)",
+  "codex": "#a855f7",
 };
 
 export default function HomeEnvironment() {
@@ -42,9 +42,13 @@ export default function HomeEnvironment() {
 
   const tools = envInfo
     ? [
-        { name: "Node.js", ...envInfo.node },
-        { name: "Claude CLI", ...envInfo.claude },
-        { name: "Codex CLI", ...envInfo.codex },
+        { id: "node", name: "Node.js", ...envInfo.node },
+        ...envInfo.cliTools.map((t) => ({
+          id: t.id,
+          name: t.displayName,
+          installed: t.installed,
+          version: t.version,
+        })),
       ]
     : [];
 
@@ -91,7 +95,7 @@ export default function HomeEnvironment() {
           </div>
         ) : (
           tools.map((tool, i) => {
-            const color = TOOL_COLORS[tool.name] ?? "var(--app-text-tertiary)";
+            const color = TOOL_COLORS[tool.id] ?? TOOL_COLORS[tool.name] ?? "var(--app-text-tertiary)";
             return (
               <div
                 key={tool.name}

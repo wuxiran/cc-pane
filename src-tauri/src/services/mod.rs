@@ -21,6 +21,7 @@ mod screenshot_service;
 pub mod screenshot_overlay;
 pub mod orchestrator_service;
 mod memory_service;
+mod ssh_machine_service;
 
 pub use project_service::ProjectService;
 pub use terminal_service::{TerminalService, SessionStatusInfo, ShellInfo, OrchestratorInfo};
@@ -43,3 +44,4 @@ pub use file_search_index::FileSearchIndex;
 pub use screenshot_service::{ScreenshotService, CaptureResult};
 pub use orchestrator_service::OrchestratorService;
 pub use memory_service::MemoryService;
+pub use ssh_machine_service::SshMachineService;

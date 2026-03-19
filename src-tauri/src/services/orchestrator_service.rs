@@ -15,7 +15,7 @@ use crate::models::todo::{TodoQuery, CreateTodoRequest, UpdateTodoRequest, TodoS
 use crate::utils::AppPaths;
 use anyhow::Result;
 use axum::{
-    extract::{Json, Path as AxumPath, Request, State},
+    extract::{DefaultBodyLimit, Json, Path as AxumPath, Request, State},
     http::{HeaderMap, Method, StatusCode},
     middleware,
     response::IntoResponse,
@@ -378,6 +378,7 @@ fn build_router(state: AppState) -> Router {
         .nest_service("/mcp", mcp_service)
         .layer(middleware::from_fn_with_state(state.clone(), mcp_auth_middleware))
         .layer(cors)
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB — 最后加 = 最外层最先执行
         .with_state(state)
 }
 
@@ -597,6 +598,15 @@ struct McpKillSessionParams {
     session_id: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpGetSessionOutputParams {
+    /// 终端会话 ID（由 launch_task 返回）
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    /// 返回最近 N 行（0 或不传 = 全部缓冲，建议 100-500）
+    lines: Option<usize>,
+}
+
 // ---- Launch History / Claude Sessions MCP 参数 ----
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -721,6 +731,7 @@ impl McpToolHandler {
             cli_tool,
             params.resume_id.as_deref(),
             false,
+            None,
             None,
         ) {
             Ok(sid) => sid,
@@ -1209,16 +1220,23 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpWriteToSessionParams>,
     ) -> String {
         info!(session_id = %params.session_id, text_len = params.text.len(), "mcp::write_to_session");
-        match self.state.terminal_service.write(&params.session_id, &params.text) {
-            Ok(()) => {
+        let svc = self.state.terminal_service.clone();
+        let sid = params.session_id.clone();
+        let txt = params.text;
+        match tokio::task::spawn_blocking(move || svc.write(&sid, &txt)).await {
+            Ok(Ok(())) => {
                 serde_json::json!({
                     "success": true,
                     "sessionId": params.session_id,
                 }).to_string()
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 error!(session_id = %params.session_id, err = %e, "mcp::write_to_session failed");
                 format!("错误: 写入会话 '{}' 失败: {}", params.session_id, e)
+            }
+            Err(e) => {
+                error!(session_id = %params.session_id, err = %e, "mcp::write_to_session spawn_blocking failed");
+                format!("错误: 写入任务失败: {}", e)
             }
         }
     }
@@ -1310,6 +1328,32 @@ impl McpToolHandler {
         }
     }
 
+    /// 读取终端会话的最近输出内容（纯文本，ANSI 已剥离）。
+    /// 用途：监控其他 Claude 实例进度、提取错误信息、判断任务完成状态。
+    /// 已退出的会话在 5 分钟内仍可读取。
+    #[tool]
+    async fn get_session_output(
+        &self,
+        Parameters(params): Parameters<McpGetSessionOutputParams>,
+    ) -> String {
+        let lines_param = params.lines.unwrap_or(0);
+        debug!(session_id = %params.session_id, lines = lines_param, "mcp::get_session_output");
+        match self.state.terminal_service.get_session_output(&params.session_id, lines_param) {
+            Ok(output) => {
+                let content = output.lines.join("\n");
+                serde_json::json!({
+                    "sessionId": output.session_id,
+                    "lines": output.lines,
+                    "content": content,
+                    "lineCount": output.lines.len(),
+                }).to_string()
+            }
+            Err(e) => {
+                format!("错误: 会话 '{}' 不存在或已退出超过 5 分钟: {}", params.session_id, e)
+            }
+        }
+    }
+
     // ============ Launch History / Claude Sessions Tools ============
 
     /// 查询 CC-Panes 启动历史记录。返回 claudeSessionId（可用作 launch_task 的 resumeId）、
@@ -1395,14 +1439,14 @@ impl ServerHandler for McpToolHandler {
             .with_instructions(concat!(
                 "CC-Panes Orchestrator: 管理 Claude Code 多实例编排与工作空间。\n",
                 "编排: launch_task（启动 Claude 实例）、list_projects（已注册项目）、get_task_status（任务状态）\n",
-                "PTY 控制: write_to_session（向会话写入文本/命令）、get_session_status（查询会话状态）、list_sessions（列出所有会话）、kill_session（终止会话）\n",
+                "PTY 控制: write_to_session（向会话写入文本/命令）、get_session_status（查询会话状态）、list_sessions（列出所有会话）、kill_session（终止会话）、get_session_output（读取输出内容）\n",
                 "工作空间: list_workspaces、get_workspace、create_workspace、add_project_to_workspace、scan_directory\n",
                 "待办: query_todos、create_todo、update_todo\n",
                 "Skill: list_skills（查看项目可用命令模板）\n",
                 "文件: open_folder（导航文件浏览器）、open_file（编辑器打开文件）、close_file（关闭标签）、list_open_files（查询打开的文件）\n",
                 "面板: list_panes（查询当前面板布局和标签信息，返回 paneId 可用于 launch_task）\n",
                 "历史: list_launch_history（查询启动历史，含 claudeSessionId）、list_claude_sessions（查询 Claude 会话列表）\n",
-                "典型编排流程: launch_task → get_session_status（等 WaitingInput）→ write_to_session（注入命令）→ 监控 → kill_session\n",
+                "典型编排流程: launch_task → get_session_status（等完成）→ get_session_output（读结果）\n",
                 "典型项目流程: scan_directory 发现项目 → create_workspace → add_project_to_workspace → launch_task\n",
                 "典型 resume 流程: list_launch_history(projectPath) → 找到 claudeSessionId → launch_task(projectPath, resumeId=claudeSessionId)",
             ))
@@ -1543,6 +1587,7 @@ async fn handle_launch_task(
         cli_tool,
         req.resume_id.as_deref(),
         false,
+        None,
         None,
     ) {
         Ok(sid) => {
@@ -1798,13 +1843,23 @@ async fn handle_write_to_session(
         );
     }
 
-    match state.terminal_service.write(&req.session_id, &req.text) {
-        Ok(()) => (
+    let svc = state.terminal_service.clone();
+    let sid = req.session_id.clone();
+    let txt = req.text;
+    match tokio::task::spawn_blocking(move || svc.write(&sid, &txt)).await {
+        Ok(Ok(())) => (
             StatusCode::OK,
             Json(serde_json::json!({ "success": true, "sessionId": req.session_id })),
         ),
-        Err(e) => {
+        Ok(Err(e)) => {
             error!(session_id = %req.session_id, err = %e, "REST::write_to_session failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!(ApiError { error: format!("Failed to write to session: {}", e) })),
+            )
+        }
+        Err(e) => {
+            error!(session_id = %req.session_id, err = %e, "REST::write_to_session spawn_blocking failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!(ApiError { error: format!("Failed to write to session: {}", e) })),
@@ -1924,26 +1979,33 @@ fn cleanup_stale_tasks(tasks: &mut HashMap<String, TaskStatus>) {
 
 /// 根据文本长度动态计算 Enter 前的等待延迟（ms）
 ///
-/// 短文本 150ms 足够，长文本需要更多时间让 ink 处理完。
-/// 范围: [150, 2000] ms
+/// write() 同步阻塞完成后调用，只需覆盖 ink 渲染处理时间。
+/// 基础 150ms + 每 1KB 额外 20ms（ink 渲染时间）。
+/// 范围: [150, 5000] ms
 fn compute_enter_delay_ms(text_len: usize) -> u64 {
-    let delay = std::cmp::max(150, (text_len / 100) * 10 + 150);
-    std::cmp::min(delay, 2000) as u64
+    let extra_ms = (text_len as u64 / 1024) * 20;
+    std::cmp::min(150 + extra_ms, 5000)
 }
 
 /// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交
 /// 参考: https://github.com/anthropics/claude-code/issues/15553
 async fn submit_text_to_session(
-    terminal_svc: &TerminalService,
+    terminal_svc: &Arc<TerminalService>,
     session_id: &str,
     text: &str,
 ) -> std::result::Result<(), anyhow::Error> {
-    // Step 1: 写入文本（不含换行符）
-    terminal_svc.write(session_id, text)?;
-    // Step 2: 等待 ink 处理完文本（延迟根据文本长度动态计算）
-    let delay_ms = compute_enter_delay_ms(text.len());
+    // Step 1: 写入文本（spawn_blocking 避免阻塞 tokio worker）
+    let svc = terminal_svc.clone();
+    let sid = session_id.to_string();
+    let txt = text.to_string();
+    let txt_len = text.len();
+    tokio::task::spawn_blocking(move || svc.write(&sid, &txt)).await??;
+
+    // Step 2: 等待 ink 处理完文本
+    let delay_ms = compute_enter_delay_ms(txt_len);
     tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-    // Step 3: 单独发送 Enter
+
+    // Step 3: 发送 Enter（短写入不需要 spawn_blocking）
     terminal_svc.write(session_id, "\r")?;
     Ok(())
 }

@@ -48,9 +48,7 @@ import { listen } from "@tauri-apps/api/event";
 import { isTauriReady, waitForTauri } from "@/utils";
 import { registerGlobalApi } from "@/utils/globalApi";
 import i18n from "@/i18n";
-import type { PopupTabData } from "@/services/popupWindowService";
-
-import type { PaneNode, Panel as PanelType, CliTool } from "@/types";
+import type { PaneNode, Panel as PanelType, OpenTerminalOptions } from "@/types";
 
 interface SessionTrackInfo {
   recordId: number;
@@ -65,17 +63,10 @@ function getAllPanels(pane: PaneNode): PanelType[] {
 }
 
 export default function App() {
-  // 弹出窗口路由：mode=popup 时渲染纯终端视图
+  // 弹出窗口路由：mode=popup 时渲染纯终端视图（tabData 通过 IPC 获取）
   const params = new URLSearchParams(window.location.search);
   if (params.get("mode") === "popup") {
-    try {
-      const tabData: PopupTabData = JSON.parse(
-        decodeURIComponent(params.get("tabData") || "{}")
-      );
-      return <PopupTerminalWindow tabData={tabData} />;
-    } catch {
-      return <div style={{ color: "red", padding: 20 }}>Invalid popup data</div>;
-    }
+    return <PopupTerminalWindow />;
   }
 
   return (
@@ -251,7 +242,7 @@ function MainApp() {
       label: i18n.t("new-tab", { ns: "shortcuts" }),
       handler: () => {
         const s = usePanesStore.getState();
-        if (s.activePaneId) s.addTab(s.activePaneId, "", "");
+        if (s.activePaneId) s.addTab(s.activePaneId, { projectId: "", projectPath: "" });
       },
     });
     register({
@@ -347,18 +338,20 @@ function MainApp() {
 
   // 打开终端
   const handleOpenTerminal = useCallback(
-    (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool, resumeId?: string) => {
+    (opts: OpenTerminalOptions) => {
+      const { path, workspaceName, providerId, workspacePath, resumeId, ssh } = opts;
       // 兼容：如果有 resumeId 但没有指定 cliTool，跟随全局默认设置
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
-      const effectiveCliTool = cliTool ?? (resumeId ? defaultTool : undefined);
-      const launchClaude = effectiveCliTool === "claude" || effectiveCliTool === "codex";
+      const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);
+      const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
-      openProject(projectId, path, resumeId, workspaceName, providerId, workspacePath, effectiveCliTool);
+      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, workspacePath, cliTool: effectiveCliTool, ssh });
       const name = path.split(/[/\\]/).pop() || path;
 
-      // Resume 场景：更新已有记录时间戳，不创建新记录
-      // launchCwd: Claude CLI 实际启动目录，决定 session 文件存储位置
-      const launchCwd = workspacePath ?? path;
+      // SSH 项目：launchCwd 用 display path
+      const launchCwd = ssh
+        ? path  // SSH 项目的 path 已是 ssh:// display path
+        : (workspacePath ?? path);
 
       const recordPromise = resumeId
         ? historyService.touchBySessionId(resumeId).then((existingId) => {
@@ -461,13 +454,13 @@ function MainApp() {
   useEffect(() => {
     if (pendingLaunch) {
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
-      handleOpenTerminal(
-        pendingLaunch.path,
-        pendingLaunch.workspaceName,
-        pendingLaunch.providerId,
-        pendingLaunch.workspacePath,
-        defaultTool
-      );
+      handleOpenTerminal({
+        path: pendingLaunch.path,
+        workspaceName: pendingLaunch.workspaceName,
+        providerId: pendingLaunch.providerId,
+        workspacePath: pendingLaunch.workspacePath,
+        cliTool: defaultTool,
+      });
       clearPendingLaunch();
     }
   }, [pendingLaunch, clearPendingLaunch, handleOpenTerminal]);

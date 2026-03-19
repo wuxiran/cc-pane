@@ -10,6 +10,7 @@ import type {
   Tab,
   SplitDirection,
   CliTool,
+  SshConnectionInfo,
 } from "@/types";
 
 // 生成唯一 ID
@@ -36,31 +37,37 @@ function createPanel(tab?: Tab): Panel {
   };
 }
 
-// 创建新标签
-function createTab(
-  projectId: string,
-  projectPath: string,
-  resumeId?: string,
-  workspaceName?: string,
-  providerId?: string,
-  workspacePath?: string,
-  cliTool?: CliTool,
-  customTitle?: string
-): Tab {
+// 创建新标签（对象参数）
+interface CreateTabOptions {
+  projectId: string;
+  projectPath: string;
+  resumeId?: string;
+  workspaceName?: string;
+  providerId?: string;
+  workspacePath?: string;
+  cliTool?: CliTool;
+  customTitle?: string;
+  ssh?: SshConnectionInfo;
+}
+
+function createTab(opts: CreateTabOptions): Tab {
+  const { projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool, customTitle, ssh } = opts;
   let title: string;
   if (customTitle) {
     title = customTitle;
   } else {
     const name = projectPath.split(/[/\\]/).pop() || "Terminal";
-    title = name;
-    if (cliTool === "codex") {
-      title = `${name} (Codex)`;
-    } else if (cliTool === "claude") {
-      title = `${name} (Claude)`;
+    if (ssh) {
+      title = `[SSH] ${name}`;
+    } else if (cliTool && cliTool !== "none") {
+      const toolLabel = cliTool.charAt(0).toUpperCase() + cliTool.slice(1);
+      title = `${name} (${toolLabel})`;
     } else if (resumeId === "new") {
       title = `${name} (Claude)`;
     } else if (resumeId) {
       title = `${name} (resume)`;
+    } else {
+      title = name;
     }
   }
   return {
@@ -75,7 +82,8 @@ function createTab(
     providerId,
     workspacePath,
     cliTool,
-    launchClaude: cliTool === "claude" || cliTool === "codex" || undefined,
+    launchClaude: (cliTool && cliTool !== "none") || undefined,
+    ssh,
   };
 }
 
@@ -126,6 +134,7 @@ interface ClosedTabSnapshot {
   workspacePath?: string;
   launchClaude?: boolean;
   cliTool?: CliTool;
+  ssh?: SshConnectionInfo;
 }
 
 interface PanesState {
@@ -147,7 +156,7 @@ interface PanesState {
   resizePanes: (paneId: string, sizes: number[]) => void;
 
   // 标签
-  addTab: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool, title?: string) => void;
+  addTab: (paneId: string, opts: CreateTabOptions) => void;
   closeTab: (paneId: string, tabId: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;
   renameTab: (paneId: string, tabId: string, newTitle: string) => void;
@@ -160,8 +169,8 @@ interface PanesState {
   selectTab: (paneId: string, tabId: string) => void;
   setActivePane: (paneId: string) => void;
   updateTabSession: (paneId: string, tabId: string, sessionId: string) => void;
-  openProject: (projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool) => void;
-  openProjectInPane: (paneId: string, projectId: string, projectPath: string, resumeId?: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool) => void;
+  openProject: (opts: CreateTabOptions) => void;
+  openProjectInPane: (paneId: string, opts: CreateTabOptions) => void;
   nextTab: (paneId: string) => void;
   prevTab: (paneId: string) => void;
   switchToTab: (paneId: string, index: number) => void;
@@ -282,6 +291,7 @@ export const usePanesStore = create<PanesState>()(
             workspacePath: t.workspacePath,
             launchClaude: t.launchClaude,
             cliTool: t.cliTool,
+            ssh: t.ssh,
           }));
         if (recoverableTabs.length > 0) {
           set((state) => {
@@ -371,12 +381,12 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    addTab: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, cliTool?, title?) => {
+    addTab: (paneId, opts) => {
       set((state) => {
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
 
-        const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool, title);
+        const newTab = createTab(opts);
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -530,6 +540,7 @@ export const usePanesStore = create<PanesState>()(
             workspacePath: snapTab.workspacePath,
             launchClaude: snapTab.launchClaude,
             cliTool: snapTab.cliTool,
+            ssh: snapTab.ssh,
           });
         });
       }
@@ -653,13 +664,14 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    openProjectInPane: (paneId, projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, cliTool?) => {
+    openProjectInPane: (paneId, opts) => {
+      const { projectId, resumeId, cliTool } = opts;
       set((state) => {
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
 
         if (resumeId || (cliTool && cliTool !== "none")) {
-          const newTab = createTab(projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool);
+          const newTab = createTab(opts);
           pane.tabs.push(newTab);
           pane.activeTabId = newTab.id;
           state.activePaneId = paneId;
@@ -675,11 +687,11 @@ export const usePanesStore = create<PanesState>()(
           const activeTab = pane.tabs.find((t) => t.id === pane.activeTabId);
           if (activeTab && !activeTab.projectPath) {
             const tabIndex = pane.tabs.indexOf(activeTab);
-            const newTab = createTab(projectId, projectPath, undefined, workspaceName, providerId, workspacePath);
+            const newTab = createTab({ ...opts, resumeId: undefined });
             pane.tabs.splice(tabIndex, 1, newTab);
             pane.activeTabId = newTab.id;
           } else {
-            const newTab = createTab(projectId, projectPath, undefined, workspaceName, providerId, workspacePath);
+            const newTab = createTab({ ...opts, resumeId: undefined });
             pane.tabs.push(newTab);
             pane.activeTabId = newTab.id;
           }
@@ -688,12 +700,12 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    openProject: (projectId, projectPath, resumeId?, workspaceName?, providerId?, workspacePath?, cliTool?) => {
+    openProject: (opts) => {
       const active = get().activePane();
       if (active) {
-        get().openProjectInPane(active.id, projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool);
+        get().openProjectInPane(active.id, opts);
       } else if (get().rootPane.type === "panel") {
-        get().openProjectInPane(get().rootPane.id, projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool);
+        get().openProjectInPane(get().rootPane.id, opts);
       }
     },
 
@@ -764,16 +776,16 @@ export const usePanesStore = create<PanesState>()(
         state.closedTabs.pop();
       });
 
-      get().addTab(
-        paneId,
-        lastClosed.projectId,
-        lastClosed.projectPath,
-        lastClosed.resumeId,
-        lastClosed.workspaceName,
-        lastClosed.providerId,
-        lastClosed.workspacePath,
-        lastClosed.cliTool,
-      );
+      get().addTab(paneId, {
+        projectId: lastClosed.projectId,
+        projectPath: lastClosed.projectPath,
+        resumeId: lastClosed.resumeId,
+        workspaceName: lastClosed.workspaceName,
+        providerId: lastClosed.providerId,
+        workspacePath: lastClosed.workspacePath,
+        cliTool: lastClosed.cliTool,
+        ssh: lastClosed.ssh,
+      });
     },
 
     openMcpConfig: (projectPath, title) => {

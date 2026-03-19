@@ -1,9 +1,10 @@
-use crate::models::{CliTool, TerminalExit, TerminalOutput};
+use crate::models::{CliTool, SshConnectionInfo, TerminalExit, TerminalOutput};
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{NotificationService, ProviderService, SettingsService, SpecService};
 use crate::utils::AppPaths;
 use anyhow::{anyhow, Result};
-use std::collections::HashMap;
+use cc_cli_adapters::{CliAdapterContext, CliToolRegistry};
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -140,6 +141,110 @@ pub struct SessionStatusInfo {
     pub last_output_at: u64, // 毫秒时间戳
 }
 
+// ============ 输出缓冲区 ============
+
+/// 剥离 ANSI 转义序列，返回纯文本
+fn strip_ansi(data: &str) -> String {
+    let bytes = strip_ansi_escapes::strip(data.as_bytes());
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+/// 终端会话的输出环形缓冲区（存储 ANSI 已剥离的纯文本行）
+struct OutputBuffer {
+    lines: VecDeque<String>,
+    /// 当前未完成行（未遇到换行符的尾部数据）
+    partial: String,
+    max_lines: usize,
+    /// 当前 lines 中所有行的总字节数
+    total_bytes: usize,
+    max_bytes: usize,
+}
+
+/// 读取终端输出的返回类型
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOutput {
+    pub session_id: String,
+    pub lines: Vec<String>,
+}
+
+impl OutputBuffer {
+    fn new(max_lines: usize, max_bytes: usize) -> Self {
+        Self {
+            lines: VecDeque::new(),
+            partial: String::new(),
+            max_lines,
+            total_bytes: 0,
+            max_bytes,
+        }
+    }
+
+    /// 追加终端输出文本到缓冲区
+    fn push(&mut self, text: &str) {
+        // 1. 剥离 ANSI 转义
+        let clean = strip_ansi(text);
+        if clean.is_empty() {
+            return;
+        }
+
+        // 2. 归一化换行：\r\n → \n，单独 \r → \n
+        let normalized = clean.replace("\r\n", "\n").replace('\r', "\n");
+
+        // 3. 拼接 partial 后按 \n 分行
+        let combined = if self.partial.is_empty() {
+            normalized
+        } else {
+            let mut p = std::mem::take(&mut self.partial);
+            p.push_str(&normalized);
+            p
+        };
+
+        let mut parts = combined.split('\n').peekable();
+        while let Some(part) = parts.next() {
+            if parts.peek().is_some() {
+                // 完整行（后面还有 \n）
+                self.push_line(part.to_string());
+            } else {
+                // 最后一段 → partial
+                self.partial = part.to_string();
+            }
+        }
+
+        // 4. partial 超 4KB 时强制 flush 成一行（防进度条等输出持续追加导致内存增长）
+        if self.partial.len() > 4096 {
+            let line = std::mem::take(&mut self.partial);
+            self.push_line(line);
+        }
+
+        // 5. 淘汰直到满足限制
+        self.evict();
+    }
+
+    fn push_line(&mut self, line: String) {
+        self.total_bytes += line.len();
+        self.lines.push_back(line);
+    }
+
+    fn evict(&mut self) {
+        while self.lines.len() > self.max_lines || self.total_bytes > self.max_bytes {
+            if let Some(removed) = self.lines.pop_front() {
+                self.total_bytes = self.total_bytes.saturating_sub(removed.len());
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// 获取最近 N 行（0 = 全部）
+    fn get_recent(&self, n: usize) -> Vec<String> {
+        if n == 0 || n >= self.lines.len() {
+            self.lines.iter().cloned().collect()
+        } else {
+            self.lines.iter().skip(self.lines.len() - n).cloned().collect()
+        }
+    }
+}
+
 /// 终端会话
 struct TerminalSession {
     process: Arc<dyn PtyProcess>,
@@ -148,6 +253,8 @@ struct TerminalSession {
     last_output_at: Arc<Mutex<Instant>>,
     /// reader 线程取消标志：kill() 设置为 true，reader 线程检查后退出
     cancelled: Arc<AtomicBool>,
+    /// 输出缓冲区（ANSI 已剥离的纯文本行）
+    output_buffer: Arc<Mutex<OutputBuffer>>,
 }
 
 /// Orchestrator 连接信息（port + token），启动后注入
@@ -157,9 +264,14 @@ pub struct OrchestratorInfo {
     pub token: String,
 }
 
+/// 已退出会话的缓冲区条目：(缓冲区, 退出时间)
+type DeadBufferEntry = (Arc<Mutex<OutputBuffer>>, Instant);
+
 /// 终端服务 - 管理多个 PTY 会话
 pub struct TerminalService {
     sessions: Arc<Mutex<HashMap<String, TerminalSession>>>,
+    /// 已退出会话的缓冲区，保留 5 分钟供事后读取
+    dead_buffers: Arc<Mutex<HashMap<String, DeadBufferEntry>>>,
     settings_service: Arc<SettingsService>,
     provider_service: Arc<ProviderService>,
     notification_service: Arc<NotificationService>,
@@ -168,6 +280,8 @@ pub struct TerminalService {
     orchestrator_info: Mutex<Option<OrchestratorInfo>>,
     /// Spec 服务（终端启动时自动注入 active spec prompt）
     spec_service: Mutex<Option<Arc<SpecService>>>,
+    /// CLI 工具适配器注册表
+    cli_registry: Arc<CliToolRegistry>,
 }
 
 /// ConPTY style-only 空闲帧：\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l  (25 字节)
@@ -358,15 +472,18 @@ impl TerminalService {
         provider_service: Arc<ProviderService>,
         notification_service: Arc<NotificationService>,
         app_paths: Arc<AppPaths>,
+        cli_registry: Arc<CliToolRegistry>,
     ) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            dead_buffers: Arc::new(Mutex::new(HashMap::new())),
             settings_service,
             provider_service,
             notification_service,
             app_paths,
             orchestrator_info: Mutex::new(None),
             spec_service: Mutex::new(None),
+            cli_registry,
         }
     }
 
@@ -392,10 +509,12 @@ impl TerminalService {
         resume_id: Option<&str>,
         skip_mcp: bool,
         append_system_prompt: Option<&str>,
+        ssh: Option<&SshConnectionInfo>,
     ) -> Result<String> {
+        let is_ssh = ssh.is_some();
         let mut env_vars = self.settings_service.get_proxy_env_vars();
         let provider_vars = self.provider_service.get_env_vars(provider_id);
-        env_vars.extend(provider_vars);
+        env_vars.extend(provider_vars.clone());
         let notification_service = self.notification_service.clone();
         let settings_service = self.settings_service.clone();
         let session_id = Uuid::new_v4().to_string();
@@ -405,12 +524,6 @@ impl TerminalService {
         {
             env_vars.insert("TERM".to_string(), "xterm-256color".to_string());
         }
-
-        // 清除嵌套检测环境变量
-        let env_remove = match cli_tool {
-            CliTool::Claude => vec!["CLAUDECODE".to_string()],
-            _ => vec![],
-        };
 
         // 解析 Shell 配置
         let shell_id = self
@@ -422,41 +535,76 @@ impl TerminalService {
 
         let _ = workspace_name;
 
-        // 注入 Orchestrator API 信息到所有 PTY 会话
-        if let Ok(info_guard) = self.orchestrator_info.lock() {
-            if let Some(info) = info_guard.as_ref() {
-                env_vars.insert("CC_PANES_API_PORT".to_string(), info.port.to_string());
-                env_vars.insert("CC_PANES_API_TOKEN".to_string(), info.token.clone());
+        // 注入 Orchestrator API 信息到所有 PTY 会话（仅本地模式）
+        if !is_ssh {
+            if let Ok(info_guard) = self.orchestrator_info.lock() {
+                if let Some(info) = info_guard.as_ref() {
+                    env_vars.insert("CC_PANES_API_PORT".to_string(), info.port.to_string());
+                    env_vars.insert("CC_PANES_API_TOKEN".to_string(), info.token.clone());
+                }
             }
         }
 
-        // 1. cwd：workspace_path 优先，否则 project_path
-        let cwd = match workspace_path {
-            Some(ws_path) => PathBuf::from(ws_path),
-            None => PathBuf::from(project_path),
-        };
-
-        // 2. 自动注入 Spec prompt（仅 Claude/Codex，且无显式 append_system_prompt 时）
-        let spec_prompt = if cli_tool != CliTool::None && append_system_prompt.is_none() {
-            self.generate_spec_prompt(project_path)
+        // SSH 模式 vs 本地模式分支
+        let (cwd, command, args, env_remove) = if let Some(ssh_info) = ssh {
+            // SSH 模式：cwd 用本机 home dir，命令通过 ssh 连接远程
+            // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
+            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+            let (cmd, cmd_args) = self.build_ssh_command(ssh_info, cli_tool, &provider_vars)?;
+            info!(
+                session_id = %session_id,
+                host = %ssh_info.host,
+                remote_path = %ssh_info.remote_path,
+                cli_tool = ?cli_tool,
+                "create_session: SSH mode"
+            );
+            (home, cmd, cmd_args, vec![])
         } else {
-            None
-        };
-        let effective_prompt = append_system_prompt
-            .map(|s| s.to_string())
-            .or(spec_prompt);
+            // 本地模式：原有逻辑
+            let cwd = match workspace_path {
+                Some(ws_path) => PathBuf::from(ws_path),
+                None => PathBuf::from(project_path),
+            };
 
-        // 3. 命令：根据 cli_tool 分发
-        let (command, args) = match cli_tool {
-            CliTool::Claude => self.build_claude_command(
-                &session_id, project_path, workspace_path, resume_id, skip_mcp,
-                effective_prompt.as_deref(),
-            )?,
-            CliTool::Codex => self.build_codex_command(
-                &session_id, project_path, workspace_path, resume_id, skip_mcp,
-                effective_prompt.as_deref(),
-            )?,
-            CliTool::None => resolve_shell(shell_id.as_deref()),
+            let cli_tool_id = cli_tool.as_id();
+
+            // 命令：根据 cli_tool 分发（通过 Registry 适配器层）
+            let (cmd, cmd_args, cmd_env_remove) = if cli_tool_id == "none" {
+                let (c, shell_args) = resolve_shell(shell_id.as_deref());
+                (c, shell_args, vec![])
+            } else {
+                let adapter = self.cli_registry.get(cli_tool_id).ok_or_else(|| {
+                    anyhow!("Unknown CLI tool: {}", cli_tool_id)
+                })?;
+
+                // 自动注入 Spec prompt（仅 CLI 工具模式，且无显式 append_system_prompt 时）
+                let spec_prompt = if append_system_prompt.is_none() {
+                    self.generate_spec_prompt(project_path)
+                } else {
+                    None
+                };
+                let effective_prompt = append_system_prompt
+                    .map(|s| s.to_string())
+                    .or(spec_prompt);
+
+                let orch_info = self.orchestrator_info.lock().ok().and_then(|g| g.clone());
+                let ctx = CliAdapterContext {
+                    session_id: session_id.clone(),
+                    project_path: project_path.to_string(),
+                    workspace_path: workspace_path.map(|s| s.to_string()),
+                    resume_id: resume_id.map(|s| s.to_string()),
+                    skip_mcp,
+                    append_system_prompt: effective_prompt,
+                    orchestrator_port: orch_info.as_ref().map(|i| i.port),
+                    orchestrator_token: orch_info.as_ref().map(|i| i.token.clone()),
+                    data_dir: self.app_paths.data_dir().to_path_buf(),
+                };
+
+                let result = adapter.build_command(&ctx)?;
+                env_vars.extend(result.env_inject);
+                (result.command, result.args, result.env_remove)
+            };
+            (cwd, cmd, cmd_args, cmd_env_remove)
         };
         let launch_claude = cli_tool != CliTool::None;
 
@@ -510,6 +658,8 @@ impl TerminalService {
         let status = Arc::new(Mutex::new(SessionStatus::Active));
         let last_output_at = Arc::new(Mutex::new(Instant::now()));
         let cancelled = Arc::new(AtomicBool::new(false));
+        // 输出缓冲区：2000 行 / 512KB 上限
+        let output_buffer = Arc::new(Mutex::new(OutputBuffer::new(2000, 512 * 1024)));
 
         // sanitize 可开关兜底（默认关闭 — dwFlags=0 应该解决了根本问题）
         #[cfg(windows)]
@@ -537,6 +687,7 @@ impl TerminalService {
                     status: status.clone(),
                     last_output_at: last_output_at.clone(),
                     cancelled: cancelled.clone(),
+                    output_buffer: output_buffer.clone(),
                 },
             );
         }
@@ -549,6 +700,7 @@ impl TerminalService {
         let read_cancelled = cancelled.clone();
         let notif_svc = notification_service.clone();
         let settings_svc = settings_service.clone();
+        let read_output_buffer = output_buffer.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             let prev_status = Mutex::new(SessionStatus::Active);
@@ -628,6 +780,11 @@ impl TerminalService {
                             *prev = new_status;
                         }
 
+                        // 追加到输出缓冲区（在 emit 之前，避免 data 被 move）
+                        if let Ok(mut buf) = read_output_buffer.lock() {
+                            buf.push(&data);
+                        }
+
                         // 直接 emit，用 catch_unwind 保护
                         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             let _ = handle.emit(
@@ -679,6 +836,7 @@ impl TerminalService {
         let notif_svc_exit = notification_service;
         let settings_svc_exit = settings_service;
         let sessions_for_wait = Arc::clone(&self.sessions);
+        let dead_buffers_for_wait = Arc::clone(&self.dead_buffers);
         thread::spawn(move || {
             let exit_code = match process_for_wait.wait() {
                 Ok(status) => {
@@ -734,7 +892,12 @@ impl TerminalService {
             // 防止僵尸会话永久驻留在 HashMap 中
             thread::sleep(std::time::Duration::from_millis(500));
             if let Ok(mut sessions) = sessions_for_wait.lock() {
-                sessions.remove(&sid);
+                // 移除前保存 output_buffer 到 dead_buffers，供事后读取
+                if let Some(session) = sessions.remove(&sid) {
+                    if let Ok(mut dead) = dead_buffers_for_wait.lock() {
+                        dead.insert(sid.clone(), (session.output_buffer, Instant::now()));
+                    }
+                }
             }
         });
 
@@ -779,11 +942,12 @@ impl TerminalService {
 
     /// 向终端写入数据（分块写入防止 ConPTY 大缓冲丢字符）
     ///
-    /// 多 chunk 写入时，每个 chunk 单独获取/释放锁，并在 chunk 间添加 20ms 延迟，
+    /// 多 chunk 写入时，每个 chunk 单独获取/释放锁，并在 chunk 间添加延迟，
     /// 避免 Windows ConPTY 输入缓冲溢出导致丢字符。
     pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
         let bytes = data.as_bytes();
-        const CHUNK_SIZE: usize = 512;
+        const CHUNK_SIZE: usize = 2048;
+        const INTER_CHUNK_DELAY_MS: u64 = 10;
 
         let chunks: Vec<&[u8]> = bytes.chunks(CHUNK_SIZE).collect();
 
@@ -802,7 +966,7 @@ impl TerminalService {
 
             // 多 chunk 时，非最后一个 chunk 后添加延迟，让 ConPTY 消化输入
             if chunks.len() > 1 && i < chunks.len() - 1 {
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                std::thread::sleep(std::time::Duration::from_millis(INTER_CHUNK_DELAY_MS));
             }
         }
         Ok(())
@@ -835,6 +999,10 @@ impl TerminalService {
         }; // sessions lock 在此释放
 
         if let Some(session) = session {
+            // 保存 output_buffer 到 dead_buffers，供事后读取
+            if let Ok(mut dead) = self.dead_buffers.lock() {
+                dead.insert(session_id.to_string(), (Arc::clone(&session.output_buffer), Instant::now()));
+            }
             // 设置取消标志，通知 reader 线程停止 emit 事件
             session.cancelled.store(true, Ordering::Relaxed);
             // 标记为已退出，防止等待线程在 kill 后重复发送事件
@@ -869,175 +1037,129 @@ impl TerminalService {
         }
     }
 
-    /// 获取可用 Shell 列表
-    /// 构建 Claude CLI 命令和参数
-    fn build_claude_command(
-        &self,
-        session_id: &str,
-        project_path: &str,
-        workspace_path: Option<&str>,
-        resume_id: Option<&str>,
-        skip_mcp: bool,
-        append_system_prompt: Option<&str>,
-    ) -> Result<(String, Vec<String>)> {
-        debug!(
-            session_id = %session_id,
-            project = %project_path,
-            resume_id = ?resume_id,
-            "create_session: cli_tool=Claude, resolving claude CLI"
-        );
-        if let Ok(claude_path) = which::which("claude") {
-            let mut claude_args = Vec::new();
-            if let Some(rid) = resume_id {
-                claude_args.push("--resume".to_string());
-                claude_args.push(rid.to_string());
-                debug!(session_id = %session_id, resume_id = rid, "create_session: resume mode");
-            }
-            if workspace_path.is_some() {
-                claude_args.push("--add-dir".to_string());
-                claude_args.push(project_path.to_string());
-            }
-
-            // 生成 MCP 配置文件并注入 --mcp-config 参数（skip_mcp=true 时跳过）
-            if skip_mcp {
-                info!(session_id = %session_id, "create_session: skip_mcp=true, skipping MCP config injection");
-            } else if let Some(mcp_config_path) = self.generate_mcp_config() {
-                info!(session_id = %session_id, mcp_config = %mcp_config_path, "create_session: MCP config injected");
-                claude_args.push("--mcp-config".to_string());
-                claude_args.push(mcp_config_path);
-            } else {
-                warn!(session_id = %session_id, "create_session: no MCP config generated (orchestrator not running?)");
-            }
-
-            // --append-system-prompt: 静默注入上下文到 Claude 系统提示
-            if let Some(prompt) = append_system_prompt {
-                claude_args.push("--append-system-prompt".to_string());
-                claude_args.push(prompt.to_string());
-            }
-
-            let claude_cmd = claude_path.to_string_lossy().to_string();
-            info!(session_id = %session_id, command = %claude_cmd, args = ?claude_args, "create_session: claude CLI resolved");
-            Ok((claude_cmd, claude_args))
-        } else {
-            error!(session_id = %session_id, project = %project_path, "create_session: claude CLI NOT FOUND in PATH");
-            Err(anyhow!("claude CLI not found in PATH"))
-        }
-    }
-
-    /// 注册 CC-Panes MCP 服务器到 Codex 全局配置（幂等：已存在则覆盖）
-    fn register_codex_mcp(&self, session_id: &str, codex_cmd: &str) {
-        // 1. 获取 orchestrator info (port, token)
-        let info = match self.orchestrator_info.lock() {
-            Ok(guard) => match guard.as_ref().cloned() {
-                Some(info) => info,
-                None => {
-                    warn!(session_id = %session_id, "[codex] No orchestrator info, skipping MCP");
-                    return;
-                }
-            },
-            Err(_) => return,
+    /// 读取终端会话的最近输出（纯文本，ANSI 已剥离）
+    ///
+    /// 先查活跃会话，未找到则查 dead_buffers（已退出会话保留 5 分钟）。
+    /// `lines` 为 0 时返回缓冲区全部内容。
+    pub fn get_session_output(&self, session_id: &str, lines: usize) -> Result<SessionOutput> {
+        // 1. 从活跃会话中查找（clone Arc 后立即释放 sessions 锁）
+        let buf_arc = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| anyhow!("sessions lock poisoned"))?;
+            sessions.get(session_id).map(|s| Arc::clone(&s.output_buffer))
         };
 
-        // 2. 健康检查
-        let check_addr = format!("127.0.0.1:{}", info.port);
-        if let Ok(addr) = check_addr.parse() {
-            if std::net::TcpStream::connect_timeout(
-                &addr,
-                std::time::Duration::from_millis(200),
-            )
-            .is_err()
-            {
-                warn!(session_id = %session_id, "[codex] Orchestrator not reachable at {}, skipping MCP", check_addr);
-                return;
+        // 2. 未找到则查 dead_buffers（懒清理过期条目）
+        let buf_arc = match buf_arc {
+            Some(arc) => arc,
+            None => {
+                let mut dead = self
+                    .dead_buffers
+                    .lock()
+                    .map_err(|_| anyhow!("dead_buffers lock poisoned"))?;
+                // 懒清理：移除超过 5 分钟的条目
+                dead.retain(|_, (_, created_at)| created_at.elapsed().as_secs() < 300);
+                dead.get(session_id)
+                    .map(|(arc, _)| Arc::clone(arc))
+                    .ok_or_else(|| anyhow!("Session not found: {}", session_id))?
             }
-        } else {
-            warn!(session_id = %session_id, "[codex] Invalid address: {}, skipping MCP", check_addr);
-            return;
-        }
+        };
 
-        // 3. 注册（已存在则覆盖，天然幂等）
-        let url = format!(
-            "http://127.0.0.1:{}/mcp?token={}",
-            info.port, info.token
-        );
-        match std::process::Command::new(codex_cmd)
-            .args([
-                "mcp", "add", "ccpanes", "--url", &url,
-                "--bearer-token-env-var", "CC_PANES_API_TOKEN",
-            ])
-            .output()
-        {
-            Ok(output) if output.status.success() => {
-                info!(session_id = %session_id, "[codex] Registered ccpanes MCP: port={}", info.port);
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!(session_id = %session_id, "[codex] codex mcp add failed: {}", stderr);
-            }
-            Err(e) => {
-                warn!(session_id = %session_id, "[codex] Failed to run codex mcp add: {}", e);
-            }
-        }
-    }
-
-    /// 构建 Codex CLI 命令和参数
-    fn build_codex_command(
-        &self,
-        session_id: &str,
-        project_path: &str,
-        workspace_path: Option<&str>,
-        resume_id: Option<&str>,
-        skip_mcp: bool,
-        append_system_prompt: Option<&str>,
-    ) -> Result<(String, Vec<String>)> {
-        debug!(
-            session_id = %session_id,
-            project = %project_path,
-            resume_id = ?resume_id,
-            "create_session: cli_tool=Codex, resolving codex CLI"
-        );
-        if let Ok(codex_path) = which::which("codex") {
-            let codex_cmd = codex_path.to_string_lossy().to_string();
-
-            // MCP 注入（失败不阻塞启动）
-            if skip_mcp {
-                info!(session_id = %session_id, "create_session: skip_mcp=true, skipping Codex MCP registration");
-            } else {
-                self.register_codex_mcp(session_id, &codex_cmd);
-            }
-
-            let mut codex_args = Vec::new();
-
-            // 默认使用 full-auto 模式，允许 --add-dir 写权限
-            codex_args.push("--full-auto".to_string());
-
-            if let Some(rid) = resume_id {
-                // Codex 使用子命令形式: codex resume <id>
-                codex_args.push("resume".to_string());
-                codex_args.push(rid.to_string());
-                debug!(session_id = %session_id, resume_id = rid, "create_session: codex resume mode");
-            }
-
-            if let Some(ws_path) = workspace_path {
-                codex_args.push("--add-dir".to_string());
-                codex_args.push(ws_path.to_string());
-            }
-
-            // [PROMPT] 位置参数（必须在所有 --option 之后）
-            if let Some(prompt) = append_system_prompt {
-                codex_args.push(prompt.to_string());
-            }
-
-            info!(session_id = %session_id, command = %codex_cmd, args = ?codex_args, "create_session: codex CLI resolved");
-            Ok((codex_cmd, codex_args))
-        } else {
-            error!(session_id = %session_id, project = %project_path, "create_session: codex CLI NOT FOUND in PATH");
-            Err(anyhow!("codex CLI not found in PATH"))
-        }
+        // 3. 单独锁 buffer 读取
+        let buf = buf_arc
+            .lock()
+            .map_err(|_| anyhow!("output_buffer lock poisoned"))?;
+        Ok(SessionOutput {
+            session_id: session_id.to_string(),
+            lines: buf.get_recent(lines),
+        })
     }
 
     pub fn get_available_shells(&self) -> Vec<ShellInfo> {
         detect_shells()
+    }
+
+    /// POSIX shell 安全转义：单引号包裹，内部单引号用 '\'' 处理
+    fn shell_escape(s: &str) -> String {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+
+    /// 检查环境变量 key 是否符合 `^[A-Z_][A-Z0-9_]*$` 格式（白名单）
+    fn is_valid_env_key(key: &str) -> bool {
+        if key.is_empty() {
+            return false;
+        }
+        let mut chars = key.chars();
+        // 首字符必须是 A-Z 或 _
+        match chars.next() {
+            Some(c) if c.is_ascii_uppercase() || c == '_' => {}
+            _ => return false,
+        }
+        // 后续字符必须是 A-Z, 0-9 或 _
+        chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    }
+
+    /// 构建 SSH 命令
+    ///
+    /// 生成 `ssh -t [-p port] [-i identity_file] [user@]host 'export K=V && ... && cd path && cli_tool'`
+    fn build_ssh_command(
+        &self,
+        ssh: &SshConnectionInfo,
+        cli_tool: CliTool,
+        provider_env: &HashMap<String, String>,
+    ) -> Result<(String, Vec<String>)> {
+        let ssh_path = which::which("ssh")
+            .map_err(|_| anyhow!("ssh not found in PATH"))?;
+
+        let mut args = vec!["-t".to_string()]; // 强制伪终端
+        if ssh.port != 22 {
+            args.extend(["-p".to_string(), ssh.port.to_string()]);
+        }
+        if let Some(ref id) = ssh.identity_file {
+            args.extend(["-i".to_string(), id.clone()]);
+        }
+
+        // user@host 或仅 host
+        let target = match &ssh.user {
+            Some(u) => format!("{}@{}", u, ssh.host),
+            None => ssh.host.clone(),
+        };
+        args.push(target);
+
+        // 构建远程命令
+        let mut remote_parts: Vec<String> = Vec::new();
+
+        // Provider 环境变量注入（白名单 key 格式 + value 转义）
+        if cli_tool != CliTool::None {
+            for (k, v) in provider_env {
+                if Self::is_valid_env_key(k) {
+                    remote_parts.push(format!("export {}={}", k, Self::shell_escape(v)));
+                } else {
+                    warn!("Skipping env var with invalid key: {}", k);
+                }
+            }
+        }
+
+        // ~ 或 ~/ 表示 home 目录，SSH 登录默认就在 home，跳过 cd
+        if ssh.remote_path != "~" && ssh.remote_path != "~/" {
+            let escaped_path = Self::shell_escape(&ssh.remote_path);
+            remote_parts.push(format!("cd {}", escaped_path));
+        }
+        match cli_tool {
+            CliTool::None   => remote_parts.push("exec $SHELL -l".into()),
+            CliTool::Claude => remote_parts.push("claude".into()),
+            CliTool::Codex  => remote_parts.push("codex --full-auto".into()),
+        }
+        args.push(remote_parts.join(" && "));
+
+        Ok((ssh_path.to_string_lossy().into_owned(), args))
+    }
+
+    /// 获取 CLI 工具注册表
+    pub fn cli_registry(&self) -> &Arc<CliToolRegistry> {
+        &self.cli_registry
     }
 
     /// 设置 Orchestrator 连接信息（setup 阶段调用）
@@ -1080,75 +1202,6 @@ impl TerminalService {
                 None
             }
         }
-    }
-
-    /// 生成 MCP 配置文件，返回路径
-    /// 配置 CC-Panes 的 Streamable HTTP MCP 端点 + 用户全局 MCP 服务器
-    fn generate_mcp_config(&self) -> Option<String> {
-        let info = self.orchestrator_info.lock().ok()?.as_ref()?.clone();
-
-        // 健康检查：验证 Orchestrator 端口是否真正在监听
-        let check_addr = format!("127.0.0.1:{}", info.port);
-        if std::net::TcpStream::connect_timeout(
-            &check_addr.parse().ok()?,
-            std::time::Duration::from_millis(200),
-        )
-        .is_err()
-        {
-            warn!(
-                "[terminal] Orchestrator not reachable at {}, skipping MCP config",
-                check_addr
-            );
-            return None;
-        }
-
-        let config_dir = self.app_paths.data_dir();
-        let config_path = config_dir.join("mcp-orchestrator.json");
-
-        // token 同时通过 headers 和 URL query 传递（后者为后备方案，
-        // 因为 Claude Code 某些版本可能忽略 headers 配置 — Issue #7290）
-        let ccpanes_server = serde_json::json!({
-            "type": "http",
-            "url": format!("http://127.0.0.1:{}/mcp?token={}", info.port, info.token),
-            "headers": {
-                "Authorization": format!("Bearer {}", info.token)
-            }
-        });
-
-        let mut mcp_servers = serde_json::Map::new();
-
-        // 合并用户全局 MCP 配置（低优先级）
-        if let Some(serde_json::Value::Object(user_servers)) = Self::read_user_global_mcp_servers() {
-            let count = user_servers.len();
-            for (name, config) in user_servers {
-                mcp_servers.insert(name, config);
-            }
-            info!("[terminal] Merged {} user global MCP servers", count);
-        }
-
-        // ccpanes 服务器（高优先级，覆盖同名）
-        mcp_servers.insert("ccpanes".to_string(), ccpanes_server);
-
-        let config = serde_json::json!({ "mcpServers": mcp_servers });
-
-        match std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default()) {
-            Ok(_) => {
-                info!("[terminal] MCP config written to {} ({} servers)", config_path.display(), mcp_servers.len());
-                Some(config_path.to_string_lossy().to_string())
-            }
-            Err(e) => {
-                error!("[terminal] Failed to write MCP config: {}", e);
-                None
-            }
-        }
-    }
-
-    /// 读取 ~/.claude.json 的 mcpServers
-    fn read_user_global_mcp_servers() -> Option<serde_json::Value> {
-        let home = dirs::home_dir()?;
-        let content = std::fs::read_to_string(home.join(".claude.json")).ok()?;
-        let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
-        parsed.get("mcpServers").cloned()
     }
 }
 
@@ -1310,7 +1363,7 @@ mod tests {
     fn test_strip_ansi_escapes_claude_prompt() {
         // Claude Code ink UI 实际输出的 ">" 提示符
         let raw = "\x1b[?25l\x1b[2K\x1b[G\x1b[38;5;14m>\x1b[0m \x1b[?25h";
-        assert_eq!(strip_ansi_escapes(raw).trim(), "> ");
+        assert_eq!(strip_ansi_escapes(raw), "> ");
     }
 
     #[test]

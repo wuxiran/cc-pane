@@ -10,6 +10,17 @@ pub enum CliTool {
     Codex,
 }
 
+impl CliTool {
+    /// 转换为 CLI 适配器注册表的 id 字符串
+    pub fn as_id(&self) -> &str {
+        match self {
+            CliTool::None => "none",
+            CliTool::Claude => "claude",
+            CliTool::Codex => "codex",
+        }
+    }
+}
+
 /// 创建终端会话请求
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +39,8 @@ pub struct CreateSessionRequest {
     #[serde(default)]
     pub skip_mcp: bool,
     pub append_system_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<crate::models::workspace::SshConnectionInfo>,
 }
 
 impl CreateSessionRequest {

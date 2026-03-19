@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Workspace, WorkspaceProject } from "@/types";
+import type { Workspace, WorkspaceProject, SshConnectionInfo } from "@/types";
 
 export async function listWorkspaces(): Promise<Workspace[]> {
   return invoke<Workspace[]>("list_workspaces");
@@ -82,6 +82,18 @@ export async function updateWorkspacePath(
   path: string | null
 ): Promise<void> {
   return invoke("update_workspace_path", { workspaceName, path });
+}
+
+// ============ SSH Project ============
+
+export async function addSshProject(
+  workspaceName: string,
+  sshInfo: SshConnectionInfo
+): Promise<WorkspaceProject> {
+  return invoke<WorkspaceProject>("add_ssh_project", {
+    workspaceName,
+    sshInfo,
+  });
 }
 
 // ============ Git Clone ============

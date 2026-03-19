@@ -1,8 +1,8 @@
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
-import type { CliTool } from "@/types";
+import type { OpenTerminalOptions } from "@/types";
 
 interface ExplorerViewProps {
-  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool, resumeId?: string) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
 export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {

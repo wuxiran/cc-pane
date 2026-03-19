@@ -10,6 +10,24 @@ import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { CreateSessionRequest, ResizeRequest, EnvironmentInfo } from "@/types";
+import type { EnvironmentInfoRaw } from "@/types/settings";
+
+/** 将 Rust 返回的 cliTools 数组规范化为含向后兼容字段的 EnvironmentInfo */
+function normalizeEnvironmentInfo(raw: EnvironmentInfoRaw): EnvironmentInfo {
+  const findTool = (id: string) => {
+    const tool = raw.cliTools?.find((t) => t.id === id);
+    return {
+      installed: tool?.installed ?? false,
+      version: tool?.version ?? null,
+    };
+  };
+  return {
+    ...raw,
+    cliTools: raw.cliTools ?? [],
+    claude: findTool("claude"),
+    codex: findTool("codex"),
+  };
+}
 
 // ── 模块级状态：单例监听器 ──────────────────────────────────
 
@@ -184,8 +202,9 @@ export const terminalService = {
     return invoke<number>("get_windows_build_number");
   },
 
-  /** 检测开发环境（Node.js + Claude Code） */
+  /** 检测开发环境（Node.js + CLI 工具） */
   async checkEnvironment(): Promise<EnvironmentInfo> {
-    return invoke<EnvironmentInfo>("check_environment");
+    const raw = await invoke<EnvironmentInfoRaw>("check_environment");
+    return normalizeEnvironmentInfo(raw);
   },
 };

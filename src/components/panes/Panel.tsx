@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { X, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { handleErrorSilent } from "@/utils";
 import type { Panel as PanelType, Tab } from "@/types";
 import { usePanesStore, useFullscreenStore, useFileTreeStore } from "@/stores";
@@ -179,13 +180,13 @@ export default memo(function Panel({ pane }: PanelProps) {
   );
 
   const handleAddTab = useCallback(
-    () => addTab(
-      pane.id, "", "",
-      undefined,
-      activeTab?.workspaceName,
-      activeTab?.providerId,
-      activeTab?.workspacePath,
-    ),
+    () => addTab(pane.id, {
+      projectId: "",
+      projectPath: "",
+      workspaceName: activeTab?.workspaceName,
+      providerId: activeTab?.providerId,
+      workspacePath: activeTab?.workspacePath,
+    }),
     [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.workspacePath]
   );
 
@@ -238,12 +239,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     async (tabId: string) => {
       const tab = pane.tabs.find((t) => t.id === tabId);
       if (!tab || tab.contentType !== "terminal" || !tab.sessionId) return;
-      // 先断开主窗口 xterm 输出
-      terminalService.detachOutput(tab.sessionId);
-      terminalService.detachExit(tab.sessionId);
-      // 标记弹出状态
-      markTabPoppedOut(tabId);
-      // 创建弹出窗口
+      if (isTabPoppedOut(tabId)) return;
       const data: PopupTabData = {
         tabId,
         paneId: pane.id,
@@ -255,9 +251,14 @@ export default memo(function Panel({ pane }: PanelProps) {
         workspacePath: tab.workspacePath,
       };
       try {
+        // 先创建弹出窗口，成功后再断开主窗口 + 标记弹出
         await popOutTab(data);
+        terminalService.detachOutput(tab.sessionId);
+        terminalService.detachExit(tab.sessionId);
+        markTabPoppedOut(tabId);
       } catch (err) {
         console.error("Failed to pop out tab:", err);
+        toast.error(`弹出窗口失败: ${String(err)}`);
       }
     },
     [pane.id, pane.tabs, markTabPoppedOut]

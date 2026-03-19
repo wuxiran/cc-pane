@@ -5,7 +5,7 @@ import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
 import { handleErrorSilent } from "@/utils";
 
-import type { PaneNode, Panel as PanelType, CliTool } from "@/types";
+import type { PaneNode, Panel as PanelType, OpenTerminalOptions } from "@/types";
 
 /** 递归收集所有 Panel 节点 */
 function getAllPanels(pane: PaneNode): PanelType[] {
@@ -14,7 +14,7 @@ function getAllPanels(pane: PaneNode): PanelType[] {
 }
 
 interface SessionsViewProps {
-  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool, resumeId?: string) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
 export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
@@ -119,7 +119,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
             launchHistory={launchHistory}
             onOpenTerminal={(path: string, resumeId?: string, workspacePath?: string, launchCwd?: string, workspaceName?: string, providerId?: string) => {
               const effectiveCwd = launchCwd ?? workspacePath;
-              onOpenTerminal(path, workspaceName, providerId, effectiveCwd, "claude", resumeId);
+              onOpenTerminal({ path, workspaceName, providerId, workspacePath: effectiveCwd, cliTool: "claude", resumeId });
             }}
             onClearHistory={clearHistory}
             onDeleteRecord={deleteRecord}

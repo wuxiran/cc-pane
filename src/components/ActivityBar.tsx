@@ -1,5 +1,5 @@
 import {
-  Command, FolderTree, Search, History, Bot, ListTodo, Settings, Files,
+  Command, FolderTree, Search, History, Bot, ListTodo, Settings, Files, Server,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -72,6 +72,7 @@ export default function ActivityBar() {
     { view: "files", icon: <Files className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("fileBrowser", { defaultValue: "Files" }) },
     { view: "search", icon: <Search className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("search", { ns: "common", defaultValue: "Search" }) },
     { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches") },
+    { view: "ssh", icon: <Server className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("sshMachines", { defaultValue: "SSH Machines" }) },
   ];
 
   return (

@@ -12,17 +12,10 @@ import HomeRecentProjects from "./HomeRecentProjects";
 import HomeActiveSessions from "./HomeActiveSessions";
 import HomeEnvironment from "./HomeEnvironment";
 import HomeShortcuts from "./HomeShortcuts";
-import type { CliTool } from "@/types";
+import type { OpenTerminalOptions } from "@/types";
 
 interface HomeDashboardProps {
-  onOpenTerminal: (
-    path: string,
-    workspaceName?: string,
-    providerId?: string,
-    workspacePath?: string,
-    cliTool?: CliTool,
-    resumeId?: string,
-  ) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
 export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {

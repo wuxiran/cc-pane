@@ -20,6 +20,7 @@ mod filesystem_commands;
 mod screenshot_commands;
 mod orchestrator_commands;
 mod memory_commands;
+mod ssh_machine_commands;
 
 pub use claude_commands::*;
 pub use git_commands::*;
@@ -43,3 +44,4 @@ pub use filesystem_commands::*;
 pub use screenshot_commands::*;
 pub use orchestrator_commands::*;
 pub use memory_commands::*;
+pub use ssh_machine_commands::*;

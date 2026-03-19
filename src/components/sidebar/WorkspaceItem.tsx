@@ -1,11 +1,11 @@
-import { useCallback } from "react";
+import { useCallback, useState as useStateReact } from "react";
 import { useTranslation } from "react-i18next";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import {
   Folder, ChevronRight, Trash2,
   FolderOpen, FolderSearch, ShieldCheck, Terminal, GitBranch,
-  FileText, Settings2,
+  FileText, Settings2, Globe,
 } from "lucide-react";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
@@ -15,15 +15,16 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useProvidersStore, useDialogStore } from "@/stores";
 import { hooksService, type HookStatus } from "@/services";
-import type { Workspace, CliTool } from "@/types";
-import { useState } from "react";
+import { useCliTools } from "@/hooks/useCliTools";
+import type { Workspace, OpenTerminalOptions } from "@/types";
+import AddSshProjectDialog from "./AddSshProjectDialog";
 
 interface WorkspaceItemProps {
   ws: Workspace;
   expanded: boolean;
   children: React.ReactNode;
   onExpand: (wsId: string) => void;
-  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
   onRename: (ws: Workspace) => void;
   onDelete: (ws: Workspace) => void;
   onSetAlias: (ws: Workspace) => void;
@@ -42,9 +43,11 @@ export default function WorkspaceItem({
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const providerList = useProvidersStore((s) => s.providers);
+  const { tools: cliTools } = useCliTools();
   const onOpenJournal = useDialogStore((s) => s.openJournal);
   const onOpenSessionCleaner = useDialogStore((s) => s.openSessionCleaner);
-  const [hookStatuses, setHookStatuses] = useState<HookStatus[]>([]);
+  const [hookStatuses, setHookStatuses] = useStateReact<HookStatus[]>([]);
+  const [sshDialogOpen, setSshDialogOpen] = useStateReact(false);
 
   const displayName = ws.alias || ws.name;
   const rootPath = ws.path || ws.projects[0]?.path;
@@ -144,45 +147,49 @@ export default function WorkspaceItem({
         <ContextMenuContent className="w-48">
           {/* Open Terminal */}
           <ContextMenuItem disabled={ws.projects.length === 0} onClick={() => {
-            if (ws.projects.length > 0) onOpenTerminal(ws.projects[0].path, ws.name, ws.providerId);
+            if (ws.projects.length > 0) onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId });
           }}>
             <Terminal /> {t("openTerminal")}
           </ContextMenuItem>
-          {/* Launch Claude Code (with Provider sub-menu) */}
-          <ContextMenuSub>
-            <ContextMenuSubTrigger disabled={ws.projects.length === 0}>
-              <Terminal /> {t("openClaudeCode")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-48">
-              <ContextMenuItem onClick={() => {
-                if (ws.projects.length > 0) onOpenTerminal(ws.projects[0].path, ws.name, ws.providerId, ws.path, "claude");
+          {/* CLI 工具（动态渲染） */}
+          {cliTools.map((tool) =>
+            tool.id === "claude" ? (
+              <ContextMenuSub key={tool.id}>
+                <ContextMenuSubTrigger disabled={ws.projects.length === 0}>
+                  <Terminal /> {tool.displayName}
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-48">
+                  <ContextMenuItem onClick={() => {
+                    if (ws.projects.length > 0) onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId, workspacePath: ws.path, cliTool: tool.id });
+                  }}>
+                    {t("useWorkspaceProvider")}
+                    {ws.providerId && providerList.find(p => p.id === ws.providerId) && (
+                      <span className="ml-auto text-[10px] opacity-60">
+                        {providerList.find(p => p.id === ws.providerId)?.name}
+                      </span>
+                    )}
+                  </ContextMenuItem>
+                  {providerList.length > 0 && <ContextMenuSeparator />}
+                  {providerList.map((p) => (
+                    <ContextMenuItem
+                      key={p.id}
+                      onClick={() => {
+                        if (ws.projects.length > 0) onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: p.id, workspacePath: ws.path, cliTool: tool.id });
+                      }}
+                    >
+                      {p.name}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            ) : (
+              <ContextMenuItem key={tool.id} disabled={ws.projects.length === 0} onClick={() => {
+                if (ws.projects.length > 0) onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId, workspacePath: ws.path, cliTool: tool.id });
               }}>
-                {t("useWorkspaceProvider")}
-                {ws.providerId && providerList.find(p => p.id === ws.providerId) && (
-                  <span className="ml-auto text-[10px] opacity-60">
-                    {providerList.find(p => p.id === ws.providerId)?.name}
-                  </span>
-                )}
+                <Terminal /> {tool.displayName}
               </ContextMenuItem>
-              {providerList.length > 0 && <ContextMenuSeparator />}
-              {providerList.map((p) => (
-                <ContextMenuItem
-                  key={p.id}
-                  onClick={() => {
-                    if (ws.projects.length > 0) onOpenTerminal(ws.projects[0].path, ws.name, p.id, ws.path, "claude");
-                  }}
-                >
-                  {p.name}
-                </ContextMenuItem>
-              ))}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          {/* Launch Codex CLI */}
-          <ContextMenuItem disabled={ws.projects.length === 0} onClick={() => {
-            if (ws.projects.length > 0) onOpenTerminal(ws.projects[0].path, ws.name, ws.providerId, ws.path, "codex");
-          }}>
-            <Terminal /> {t("openCodexCli")}
-          </ContextMenuItem>
+            )
+          )}
           {/* Open in Explorer */}
           <ContextMenuItem disabled={!rootPath} onClick={handleRevealFolder}>
             <FolderOpen /> {t("openFolder")}
@@ -211,6 +218,10 @@ export default function WorkspaceItem({
               </ContextMenuItem>
               <ContextMenuItem onClick={() => onGitClone(ws)}>
                 <GitBranch /> {t("cloneFromGit")}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={() => setSshDialogOpen(true)}>
+                <Globe /> {t("addSshProject")}
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
@@ -288,6 +299,12 @@ export default function WorkspaceItem({
       </ContextMenu>
 
       {expanded && children}
+
+      <AddSshProjectDialog
+        open={sshDialogOpen}
+        onOpenChange={setSshDialogOpen}
+        workspaceName={ws.name}
+      />
     </div>
   );
 }

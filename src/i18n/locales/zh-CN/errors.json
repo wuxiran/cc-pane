@@ -88,5 +88,8 @@
   "TERMINAL_NOT_FOUND": "终端会话不存在",
 
   "FILE_TRAVERSAL": "文件路径包含非法的 '..' 分量: {{path}}",
-  "DIR_ALREADY_EXISTS": "目标目录已存在"
+  "DIR_ALREADY_EXISTS": "目标目录已存在",
+
+  "SSH_IDENTITY_FILE_INVALID": "SSH 密钥文件路径无效",
+  "SSH_PORT_INVALID": "SSH 端口号必须大于 0"
 }

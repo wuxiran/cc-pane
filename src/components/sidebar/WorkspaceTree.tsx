@@ -11,10 +11,10 @@ import { useWorkspaceActions } from "./useWorkspaceActions";
 import WorkspaceDialogs from "./WorkspaceDialogs";
 import WorkspaceItem from "./WorkspaceItem";
 import ProjectListView from "./ProjectListView";
-import type { Workspace, WorkspaceProject, CliTool } from "@/types";
+import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
 
 interface WorkspaceTreeProps {
-  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
 export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
@@ -26,7 +26,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
 
   // useWorkspaceActions 处理 dialog 状态 + 工作空间/项目 CRUD
   const actions = useWorkspaceActions({
-    onOpenTerminal: (path, wsName, providerId) => onOpenTerminal(path, wsName, providerId),
+    onOpenTerminal: (opts) => onOpenTerminal(opts),
   });
 
   // Worktree Manager 本地状态
@@ -138,7 +138,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
           }
         }}
         projectPath={worktreeManagerProjectPath}
-        onOpenWorktree={(path) => onOpenTerminal(path, worktreeManagerWs?.name, worktreeManagerWs?.providerId, worktreeManagerWs?.path)}
+        onOpenWorktree={(path) => onOpenTerminal({ path, workspaceName: worktreeManagerWs?.name, providerId: worktreeManagerWs?.providerId, workspacePath: worktreeManagerWs?.path })}
       />
     </>
   );

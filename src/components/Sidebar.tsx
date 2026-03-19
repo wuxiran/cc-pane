@@ -8,6 +8,7 @@ import ExplorerView from "@/components/sidebar/ExplorerView";
 import SessionsView from "@/components/sidebar/SessionsView";
 import SearchView from "@/components/sidebar/SearchView";
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
+import SshMachinesView from "@/components/sidebar/SshMachinesView";
 import { setDragging } from "@/stores/splitDragState";
 
 const SIDEBAR_WIDTH_KEY = "cc-panes-sidebar-width";
@@ -26,11 +27,11 @@ function loadSidebarWidth(): number {
   return DEFAULT_WIDTH;
 }
 
-import type { CliTool } from "@/types";
+import type { OpenTerminalOptions } from "@/types";
 
 interface SidebarProps {
   activeView: ActivityView;
-  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool, resumeId?: string) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
 export default function Sidebar({
@@ -124,6 +125,9 @@ export default function Sidebar({
         )}
         {activeView === "files" && (
           <FileBrowserView />
+        )}
+        {activeView === "ssh" && (
+          <SshMachinesView onOpenTerminal={onOpenTerminal} />
         )}
       </div>
 

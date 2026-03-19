@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import {
-  Folder, Trash2, Plus, Pencil, Clock,
+  Folder, Trash2, Plus, Pencil, Clock, Globe,
   FolderOpen, Terminal, GitBranch, Copy, Files, FileText,
 } from "lucide-react";
 import {
@@ -12,19 +12,25 @@ import {
 } from "@/components/ui/context-menu";
 import { useProvidersStore, useDialogStore } from "@/stores";
 import { specService } from "@/services/specService";
+import { useCliTools } from "@/hooks/useCliTools";
 import { getProjectName } from "@/utils";
-import type { Workspace, WorkspaceProject, CliTool, SpecEntry } from "@/types";
+import type { Workspace, WorkspaceProject, OpenTerminalOptions, SpecEntry, SshConnectionInfo } from "@/types";
 
 interface ProjectListViewProps {
   projects: WorkspaceProject[];
   ws: Workspace;
   gitBranches: Record<string, string | null>;
-  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string, workspacePath?: string, cliTool?: CliTool) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
   onRemoveProject: (ws: Workspace, project: WorkspaceProject) => void;
   onSetProjectAlias: (ws: Workspace, project: WorkspaceProject) => void;
   onImportProject: (ws: Workspace) => void;
   onOpenWorktreeManager: (project: WorkspaceProject, ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
+}
+
+function getSshDisplayName(ssh: SshConnectionInfo): string {
+  const host = ssh.user ? `${ssh.user}@${ssh.host}` : ssh.host;
+  return `${host}:${ssh.remotePath}`;
 }
 
 function getRelativePath(projectPath: string, wsPath?: string | null): string {
@@ -47,6 +53,7 @@ export default function ProjectListView({
 }: ProjectListViewProps) {
   const { t } = useTranslation(["sidebar", "common", "spec"]);
   const providerList = useProvidersStore((s) => s.providers);
+  const { tools: cliTools } = useCliTools();
   const onOpenHistory = useDialogStore((s) => s.openLocalHistory);
   const onOpenTodo = useDialogStore((s) => s.openTodo);
   const [projectSpecs, setProjectSpecs] = useState<Record<string, SpecEntry[]>>({});
@@ -101,108 +108,130 @@ export default function ProjectListView({
 
   return (
     <div className="pl-4 pr-1 pb-2 flex flex-col gap-0.5">
-      {projects.map((project) => (
+      {projects.map((project) => {
+        const isSsh = !!project.ssh;
+        const displayName = project.alias || (isSsh ? getSshDisplayName(project.ssh!) : getProjectName(project.path));
+        const terminalOpts = { path: project.path, workspaceName: ws.name, providerId: ws.providerId, ssh: project.ssh };
+        return (
         <div key={project.id}>
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
                 className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer rounded-lg transition-all text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-                onDoubleClick={() => onOpenInFileBrowser?.(project.path)}
+                onDoubleClick={() => isSsh ? onOpenTerminal(terminalOpts) : onOpenInFileBrowser?.(project.path)}
               >
-                <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
-                <span className="flex-1 text-xs truncate">{project.alias || getProjectName(project.path)}</span>
-                {gitBranches[project.path] && (
+                {isSsh
+                  ? <Globe size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
+                  : <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
+                }
+                <span className="flex-1 text-xs truncate">{displayName}</span>
+                {!isSsh && gitBranches[project.path] && (
                   <span className="text-[10px] px-1 rounded shrink-0" style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}>
                     {gitBranches[project.path]}
+                  </span>
+                )}
+                {isSsh && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/30">
+                    SSH
                   </span>
                 )}
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-48">
-              <ContextMenuItem onClick={() => onOpenTerminal(project.path, ws.name, ws.providerId)}>
+              <ContextMenuItem onClick={() => onOpenTerminal(terminalOpts)}>
                 <Terminal /> {t("openTerminal")}
               </ContextMenuItem>
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <Terminal /> {t("openClaudeCode")}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-48">
-                  <ContextMenuItem onClick={() => onOpenTerminal(project.path, ws.name, ws.providerId, ws.path, "claude")}>
-                    {t("useWorkspaceProvider")}
-                    {ws.providerId && providerList.find(p => p.id === ws.providerId) && (
-                      <span className="ml-auto text-[10px] opacity-60">
-                        {providerList.find(p => p.id === ws.providerId)?.name}
-                      </span>
-                    )}
-                  </ContextMenuItem>
-                  {providerList.length > 0 && <ContextMenuSeparator />}
-                  {providerList.map((p) => (
-                    <ContextMenuItem
-                      key={p.id}
-                      onClick={() => onOpenTerminal(project.path, ws.name, p.id, ws.path, "claude")}
-                    >
-                      {p.name}
-                    </ContextMenuItem>
-                  ))}
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-              {/* Launch Codex CLI */}
-              <ContextMenuItem onClick={() => onOpenTerminal(project.path, ws.name, ws.providerId, ws.path, "codex")}>
-                <Terminal /> {t("openCodexCli")}
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => handleRevealFolder(project.path)}>
-                <FolderOpen /> {t("openFolder")}
-              </ContextMenuItem>
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <Copy /> {t("copyPath")}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent>
-                  <ContextMenuItem onClick={() => handleCopyPath(project.path)}>
-                    {t("absolutePath")}
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => handleCopyPath(getRelativePath(project.path, ws.path))}>
-                    {t("relativePath")}
-                  </ContextMenuItem>
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-              <ContextMenuSeparator />
-              <ContextMenuItem onClick={() => onOpenHistory(project.path)}>
-                <Clock /> {t("fileHistory")}
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => onOpenWorktreeManager(project, ws)}>
-                <GitBranch /> {t("worktreeManager")}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              {/* Spec */}
-              <ContextMenuItem onClick={() => handleNewSpec(project.path)}>
-                <FileText /> {t("newSpec")}
-              </ContextMenuItem>
-              <ContextMenuSub>
-                <ContextMenuSubTrigger onPointerEnter={() => handleLoadSpecs(project.path)}>
-                  <FileText /> {t("viewSpecs")}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-52">
-                  {(projectSpecs[project.path] || []).length === 0 ? (
-                    <ContextMenuItem disabled>{t("noSpecs")}</ContextMenuItem>
-                  ) : (
-                    (projectSpecs[project.path] || []).map((spec) => (
-                      <ContextMenuItem key={spec.id} onClick={() => handleOpenSpec(project.path, spec)}>
-                        <span className="flex-1 truncate">{spec.title}</span>
-                        <span className={`text-[9px] ml-2 px-1 py-0.5 rounded ${
-                          spec.status === "active"
-                            ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300"
-                            : spec.status === "archived"
-                            ? "bg-gray-100 text-gray-500 dark:bg-gray-500/20 dark:text-gray-400"
-                            : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
-                        }`}>
-                          {spec.status}
-                        </span>
+              {/* CLI 工具（动态渲染） */}
+              {cliTools.map((tool) =>
+                tool.id === "claude" ? (
+                  <ContextMenuSub key={tool.id}>
+                    <ContextMenuSubTrigger>
+                      <Terminal /> {tool.displayName}
+                    </ContextMenuSubTrigger>
+                    <ContextMenuSubContent className="w-48">
+                      <ContextMenuItem onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
+                        {t("useWorkspaceProvider")}
+                        {ws.providerId && providerList.find(p => p.id === ws.providerId) && (
+                          <span className="ml-auto text-[10px] opacity-60">
+                            {providerList.find(p => p.id === ws.providerId)?.name}
+                          </span>
+                        )}
                       </ContextMenuItem>
-                    ))
-                  )}
-                </ContextMenuSubContent>
-              </ContextMenuSub>
+                      {providerList.length > 0 && <ContextMenuSeparator />}
+                      {providerList.map((p) => (
+                        <ContextMenuItem
+                          key={p.id}
+                          onClick={() => onOpenTerminal({ ...terminalOpts, providerId: p.id, workspacePath: ws.path, cliTool: tool.id })}
+                        >
+                          {p.name}
+                        </ContextMenuItem>
+                      ))}
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                ) : (
+                  <ContextMenuItem key={tool.id} onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
+                    <Terminal /> {tool.displayName}
+                  </ContextMenuItem>
+                )
+              )}
+              {/* 本地项目专有菜单项 */}
+              {!isSsh && (
+                <>
+                  <ContextMenuItem onClick={() => handleRevealFolder(project.path)}>
+                    <FolderOpen /> {t("openFolder")}
+                  </ContextMenuItem>
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger>
+                      <Copy /> {t("copyPath")}
+                    </ContextMenuSubTrigger>
+                    <ContextMenuSubContent>
+                      <ContextMenuItem onClick={() => handleCopyPath(project.path)}>
+                        {t("absolutePath")}
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleCopyPath(getRelativePath(project.path, ws.path))}>
+                        {t("relativePath")}
+                      </ContextMenuItem>
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => onOpenHistory(project.path)}>
+                    <Clock /> {t("fileHistory")}
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => onOpenWorktreeManager(project, ws)}>
+                    <GitBranch /> {t("worktreeManager")}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  {/* Spec */}
+                  <ContextMenuItem onClick={() => handleNewSpec(project.path)}>
+                    <FileText /> {t("newSpec")}
+                  </ContextMenuItem>
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger onPointerEnter={() => handleLoadSpecs(project.path)}>
+                      <FileText /> {t("viewSpecs")}
+                    </ContextMenuSubTrigger>
+                    <ContextMenuSubContent className="w-52">
+                      {(projectSpecs[project.path] || []).length === 0 ? (
+                        <ContextMenuItem disabled>{t("noSpecs")}</ContextMenuItem>
+                      ) : (
+                        (projectSpecs[project.path] || []).map((spec) => (
+                          <ContextMenuItem key={spec.id} onClick={() => handleOpenSpec(project.path, spec)}>
+                            <span className="flex-1 truncate">{spec.title}</span>
+                            <span className={`text-[9px] ml-2 px-1 py-0.5 rounded ${
+                              spec.status === "active"
+                                ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300"
+                                : spec.status === "archived"
+                                ? "bg-gray-100 text-gray-500 dark:bg-gray-500/20 dark:text-gray-400"
+                                : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+                            }`}>
+                              {spec.status}
+                            </span>
+                          </ContextMenuItem>
+                        ))
+                      )}
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                </>
+              )}
               <ContextMenuSeparator />
               <ContextMenuItem onClick={() => onSetProjectAlias(ws, project)}>
                 <Pencil /> {t("setAlias")}
@@ -210,7 +239,7 @@ export default function ProjectListView({
               <ContextMenuItem variant="destructive" onClick={() => onRemoveProject(ws, project)}>
                 <Trash2 /> {t("removeProject")}
               </ContextMenuItem>
-              {onOpenInFileBrowser && (
+              {!isSsh && onOpenInFileBrowser && (
                 <>
                   <ContextMenuSeparator />
                   <ContextMenuItem onClick={() => onOpenInFileBrowser(project.path)}>
@@ -221,7 +250,8 @@ export default function ProjectListView({
             </ContextMenuContent>
           </ContextMenu>
         </div>
-      ))}
+        );
+      })}
 
       {/* 导入项目按钮 */}
       <div

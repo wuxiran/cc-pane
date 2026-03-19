@@ -2,8 +2,29 @@
  * 标签与终端相关类型定义
  */
 
-/** CLI 工具类型 */
-export type CliTool = "none" | "claude" | "codex";
+/** CLI 工具类型（已知值自动补全 + 允许任意字符串） */
+export type KnownCliTool = "none" | "claude" | "codex";
+export type CliTool = KnownCliTool | (string & {});
+
+/** CLI 工具元信息（来自 Rust cc-cli-adapters crate） */
+export interface CliToolInfo {
+  id: string;
+  displayName: string;
+  executable: string;
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+}
+
+/** CLI 工具能力声明 */
+export interface CliToolCapabilities {
+  supportsProvider: boolean;
+  supportsResume: boolean;
+  supportsMcp: boolean;
+  supportsSystemPrompt: boolean;
+  supportsWorkspace: boolean;
+  compatibleProviderTypes: string[];
+}
 
 /** 通用标签 */
 export interface Tab {
@@ -24,6 +45,7 @@ export interface Tab {
   filePath?: string; // 编辑器打开的文件绝对路径
   dirty?: boolean; // 是否有未保存修改
   reclaimKey?: number; // 回收时递增，作为 React key 触发 remount
+  ssh?: import("./workspace").SshConnectionInfo; // SSH 远程连接信息
 }
 
 /** 终端会话状态 */
@@ -48,6 +70,18 @@ export interface CreateSessionRequest {
   resumeId?: string;
   skipMcp?: boolean;
   appendSystemPrompt?: string;
+  ssh?: import("./workspace").SshConnectionInfo;
+}
+
+/** 打开终端的选项（Commit A 对象参数 + Commit B SSH 扩展） */
+export interface OpenTerminalOptions {
+  path: string;
+  workspaceName?: string;
+  providerId?: string;
+  workspacePath?: string;
+  cliTool?: CliTool;
+  resumeId?: string;
+  ssh?: import("./workspace").SshConnectionInfo;
 }
 
 /** 终端输出事件 */

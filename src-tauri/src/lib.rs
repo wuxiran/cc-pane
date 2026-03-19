@@ -11,14 +11,14 @@ use commands::{
     read_session_state, update_launch_session_id, update_launch_last_prompt, touch_launch_by_session,
     detect_claude_session, debug_encode_path,
     create_terminal_session,
-    enter_fullscreen, exit_fullscreen, get_all_terminal_status, get_available_shells, get_windows_build_number, check_environment,
+    enter_fullscreen, exit_fullscreen, get_all_terminal_status, get_available_shells, get_windows_build_number, check_environment, list_cli_tools, get_terminal_output,
     get_git_branch, get_git_status, get_git_file_statuses, get_project,
     git_clone, git_fetch, git_pull, git_push, git_stash, git_stash_pop, is_fullscreen, kill_terminal,
     list_all_claude_sessions, list_claude_sessions, scan_broken_sessions,
     clean_session_file, clean_all_broken_sessions, extract_last_prompt,
     list_launch_history, list_projects,
     remove_project, resize_terminal, set_decorations, toggle_always_on_top, enter_mini_mode, exit_mini_mode,
-    close_window, minimize_window, maximize_window, get_app_cwd, create_popup_terminal_window,
+    close_window, minimize_window, maximize_window, get_app_cwd, create_popup_terminal_window, get_popup_tab_data,
     update_project_alias, update_project_name, write_terminal,
     // Local History 命令
     init_project_history, list_file_versions, get_version_content,
@@ -45,7 +45,7 @@ use commands::{
     is_git_repo, list_worktrees, add_worktree, remove_worktree,
     // Workspace 命令
     list_workspaces, create_workspace, get_workspace, rename_workspace,
-    delete_workspace, add_workspace_project, remove_workspace_project,
+    delete_workspace, add_workspace_project, add_ssh_project, remove_workspace_project,
     update_workspace_alias, update_workspace_project_alias,
     update_workspace_provider, update_workspace_path, update_workspace, reorder_workspaces,
     scan_workspace_directory,
@@ -83,9 +83,12 @@ use commands::{
     search_memory, store_memory, list_memories, get_memory,
     update_memory, delete_memory, get_memory_stats,
     prepare_session_context, format_memory_for_injection,
+    // SSH Machine 命令
+    list_ssh_machines, get_ssh_machine, add_ssh_machine,
+    update_ssh_machine, remove_ssh_machine,
 };
 use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository, SpecRepository};
-use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, SpecService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService, MemoryService};
+use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, SpecService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService, MemoryService, SshMachineService};
 use utils::AppPaths;
 use std::sync::Arc;
 
@@ -357,11 +360,18 @@ pub fn run() {
     let plan_service = Arc::new(PlanService::new());
     let search_index = Arc::new(FileSearchIndex::new());
     let filesystem_service = Arc::new(FileSystemService::new(search_index.clone()));
+    let cli_registry = {
+        let mut reg = cc_cli_adapters::CliToolRegistry::new();
+        reg.register(Arc::new(cc_cli_adapters::ClaudeAdapter::new()));
+        reg.register(Arc::new(cc_cli_adapters::CodexAdapter::new()));
+        Arc::new(reg)
+    };
     let terminal_service = Arc::new(TerminalService::new(
         settings_service.clone(),
         provider_service.clone(),
         notification_service.clone(),
         app_paths.clone(),
+        cli_registry.clone(),
     ));
     // 注入 Spec 服务到 Terminal 服务（终端启动时自动注入 spec prompt）
     terminal_service.set_spec_service(spec_service.clone());
@@ -374,6 +384,11 @@ pub fn run() {
             })
     );
 
+    let ssh_machine_service = Arc::new(SshMachineService::new(
+        app_paths.data_dir().join("ssh-machines.json"),
+    ));
+
+    let popup_data_store = commands::PopupDataStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new());
 
     // 保存引用用于退出时清理
@@ -418,7 +433,10 @@ pub fn run() {
         .manage(plan_service)
         .manage(filesystem_service)
         .manage(memory_service)
+        .manage(ssh_machine_service)
+        .manage(popup_data_store)
         .manage(orchestrator_service.clone())
+        .manage(cli_registry)
         .setup(|app| {
             // ---- 提取打包的 .claude/ 配置到数据目录（Release 模式）----
             {
@@ -573,6 +591,8 @@ pub fn run() {
             get_available_shells,
             get_windows_build_number,
             check_environment,
+            list_cli_tools,
+            get_terminal_output,
             // 窗口命令
             close_window,
             minimize_window,
@@ -586,6 +606,7 @@ pub fn run() {
             exit_mini_mode,
             get_app_cwd,
             create_popup_terminal_window,
+            get_popup_tab_data,
             // Git 命令
             get_git_branch,
             get_git_status,
@@ -670,6 +691,7 @@ pub fn run() {
             rename_workspace,
             delete_workspace,
             add_workspace_project,
+            add_ssh_project,
             remove_workspace_project,
             update_workspace_alias,
             update_workspace_project_alias,
@@ -762,7 +784,13 @@ pub fn run() {
             delete_memory,
             get_memory_stats,
             prepare_session_context,
-            format_memory_for_injection
+            format_memory_for_injection,
+            // SSH Machine 命令
+            list_ssh_machines,
+            get_ssh_machine,
+            add_ssh_machine,
+            update_ssh_machine,
+            remove_ssh_machine
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

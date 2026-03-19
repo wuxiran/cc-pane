@@ -7,10 +7,10 @@ import { useWorkspacesStore, usePanesStore, useDialogStore } from "@/stores";
 import { worktreeService, type WorktreeInfo } from "@/services";
 import { scanDirectory, type ScannedRepo } from "@/services/workspaceService";
 import { getProjectName } from "@/utils";
-import type { Workspace, WorkspaceProject } from "@/types";
+import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
 
 interface UseWorkspaceActionsParams {
-  onOpenTerminal: (path: string, workspaceName?: string, providerId?: string) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
 export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParams) {
@@ -298,11 +298,11 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
 
   function handleOpenWorkspace(ws: Workspace) {
     if (ws.projects.length === 0) return;
-    onOpenTerminal(ws.projects[0].path, ws.name, ws.providerId);
+    onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId });
   }
 
   function handleOpenProject(project: WorkspaceProject, ws?: Workspace) {
-    onOpenTerminal(project.path, ws?.name, ws?.providerId);
+    onOpenTerminal({ path: project.path, workspaceName: ws?.name, providerId: ws?.providerId });
   }
 
   async function handleSetWorkspaceProvider(ws: Workspace, providerId: string | null) {
@@ -314,7 +314,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   }
 
   function handleOpenWorktree(path: string) {
-    onOpenTerminal(path);
+    onOpenTerminal({ path });
   }
 
   function handleOpenMcpConfig(project: WorkspaceProject) {

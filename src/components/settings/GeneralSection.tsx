@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { settingsService } from "@/services";
 import { useSettingsStore } from "@/stores";
 import { useDialogStore } from "@/stores";
+import { useCliTools } from "@/hooks/useCliTools";
 import type { GeneralSettings, DataDirInfo, SearchScope } from "@/types";
 import { formatSize } from "@/utils";
 
@@ -21,6 +22,7 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
   const [dataDirInfo, setDataDirInfo] = useState<DataDirInfo | null>(null);
   const [migrating, setMigrating] = useState(false);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
+  const { tools: cliTools } = useCliTools();
 
   useEffect(() => {
     settingsService.getDataDirInfo().then(setDataDirInfo).catch((e) => handleErrorSilent(e, "get data dir info"));
@@ -140,7 +142,7 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
         </p>
         <select
           value={value.defaultCliTool ?? "claude"}
-          onChange={(e) => update("defaultCliTool", e.target.value as "claude" | "codex")}
+          onChange={(e) => update("defaultCliTool", e.target.value)}
           className="h-9 px-2 rounded-md text-[13px] outline-none w-40"
           style={{
             border: "1px solid var(--app-border)",
@@ -148,8 +150,9 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
             color: "var(--app-text-primary)",
           }}
         >
-          <option value="claude">Claude Code</option>
-          <option value="codex">Codex CLI</option>
+          {cliTools.map((tool) => (
+            <option key={tool.id} value={tool.id}>{tool.displayName}</option>
+          ))}
         </select>
       </div>
 

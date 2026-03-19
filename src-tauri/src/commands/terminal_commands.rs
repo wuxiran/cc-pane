@@ -1,7 +1,9 @@
 use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::{TerminalService, SessionStatusInfo, ShellInfo};
+use crate::services::terminal_service::SessionOutput;
 use crate::utils::error::AppError;
-use crate::utils::{AppResult, validate_path};
+use crate::utils::{AppResult, validate_path, validate_ssh_info};
+use cc_cli_adapters::{CliToolInfo, CliToolRegistry};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use crate::services::terminal_service;
@@ -14,11 +16,19 @@ pub fn create_terminal_session(
     service: State<'_, Arc<TerminalService>>,
     request: CreateSessionRequest,
 ) -> AppResult<String> {
-    debug!(project_path = %request.project_path, "cmd::create_terminal_session");
-    validate_path(&request.project_path)?;
-    if let Some(ref ws_path) = request.workspace_path {
-        validate_path(ws_path)?;
+    debug!(project_path = %request.project_path, ssh = ?request.ssh.is_some(), "cmd::create_terminal_session");
+
+    // SSH 模式：验证 SSH 连接信息（跳过本地路径验证）
+    // 本地模式：验证项目路径和工作空间路径
+    if let Some(ref ssh_info) = request.ssh {
+        validate_ssh_info(ssh_info)?;
+    } else {
+        validate_path(&request.project_path)?;
+        if let Some(ref ws_path) = request.workspace_path {
+            validate_path(ws_path)?;
+        }
     }
+
     Ok(service.create_session(
         app_handle,
         &request.project_path,
@@ -31,6 +41,7 @@ pub fn create_terminal_session(
         request.resume_id.as_deref(),
         request.skip_mcp,
         request.append_system_prompt.as_deref(),
+        request.ssh.as_ref(),
     )?)
 }
 
@@ -91,48 +102,44 @@ pub fn get_windows_build_number() -> AppResult<u32> {
     Ok(terminal_service::get_windows_build_number())
 }
 
-/// 检测开发环境（Node.js + Claude Code）
+/// 检测开发环境（Node.js + CLI 工具，所有子进程调用均带 5s 超时）
 #[tauri::command]
-pub fn check_environment() -> serde_json::Value {
-    let node_installed = which::which("node").is_ok();
-    let node_version = if node_installed {
-        std::process::Command::new("node")
-            .arg("--version")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-    } else {
-        None
-    };
+pub fn check_environment(
+    registry: State<'_, Arc<CliToolRegistry>>,
+) -> serde_json::Value {
+    let node_path = which::which("node").ok();
+    let node_installed = node_path.is_some();
+    let node_version = node_path.and_then(|path| {
+        cc_cli_adapters::run_with_timeout(
+            &path,
+            &["--version".to_string()],
+            std::time::Duration::from_secs(5),
+        )
+    });
 
-    let claude_installed = which::which("claude").is_ok();
-    let claude_version = if claude_installed {
-        std::process::Command::new("claude")
-            .arg("--version")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-    } else {
-        None
-    };
-
-    let codex_installed = which::which("codex").is_ok();
-    let codex_version = if codex_installed {
-        std::process::Command::new("codex")
-            .arg("--version")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-    } else {
-        None
-    };
+    let cli_tools = registry.detect_all();
 
     serde_json::json!({
         "node": { "installed": node_installed, "version": node_version },
-        "claude": { "installed": claude_installed, "version": claude_version },
-        "codex": { "installed": codex_installed, "version": codex_version }
+        "cliTools": cli_tools
     })
+}
+
+/// 列出所有已注册的 CLI 工具（含实时检测状态）
+#[tauri::command]
+pub fn list_cli_tools(
+    registry: State<'_, Arc<CliToolRegistry>>,
+) -> Vec<CliToolInfo> {
+    registry.detect_all()
+}
+
+/// 读取终端会话的最近输出（纯文本，ANSI 已剥离）
+#[tauri::command]
+pub fn get_terminal_output(
+    service: State<'_, Arc<TerminalService>>,
+    session_id: String,
+    lines: Option<usize>,
+) -> AppResult<SessionOutput> {
+    debug!(session_id = %session_id, "cmd::get_terminal_output");
+    Ok(service.get_session_output(&session_id, lines.unwrap_or(0))?)
 }

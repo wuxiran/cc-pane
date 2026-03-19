@@ -88,5 +88,8 @@
   "TERMINAL_NOT_FOUND": "Terminal session not found",
 
   "FILE_TRAVERSAL": "File path contains illegal '..' component: {{path}}",
-  "DIR_ALREADY_EXISTS": "Target directory already exists"
+  "DIR_ALREADY_EXISTS": "Target directory already exists",
+
+  "SSH_IDENTITY_FILE_INVALID": "SSH identity file path is invalid",
+  "SSH_PORT_INVALID": "SSH port must be greater than 0"
 }

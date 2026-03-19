@@ -7,14 +7,18 @@ export type {
   PaneContextAction,
 } from "./pane";
 export type {
+  KnownCliTool,
   CliTool,
+  CliToolInfo,
+  CliToolCapabilities,
+  OpenTerminalOptions,
   Tab,
   TerminalSession,
   CreateSessionRequest,
   TerminalOutput,
   ResizeRequest,
 } from "./terminal";
-export type { Workspace, WorkspaceProject } from "./workspace";
+export type { Workspace, WorkspaceProject, SshConnectionInfo } from "./workspace";
 export type { Provider, ProviderType } from "./provider";
 export { PROVIDER_TYPE_META } from "./provider";
 export type {
@@ -75,3 +79,4 @@ export type {
   SelfChatStatus,
   SelfChatSession,
 } from "./selfchat";
+export type { SshMachine, AuthMethod } from "./ssh-machine";

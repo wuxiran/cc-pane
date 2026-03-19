@@ -71,13 +71,21 @@ export interface GeneralSettings {
   /** 新手引导是否已完成 */
   onboardingCompleted: boolean;
   /** 默认 CLI 工具（自我对话、resume 回退等场景） */
-  defaultCliTool: "claude" | "codex";
+  defaultCliTool: string;
 }
 
-/** 环境检测结果 */
-export interface EnvironmentInfo {
+/** 环境检测原始结果（来自 Rust check_environment 命令） */
+export interface EnvironmentInfoRaw {
   node: { installed: boolean; version: string | null };
+  /** 动态 CLI 工具检测结果 */
+  cliTools: import("./terminal").CliToolInfo[];
+}
+
+/** 环境检测结果（含向后兼容字段） */
+export interface EnvironmentInfo extends EnvironmentInfoRaw {
+  /** @deprecated 由 normalizeEnvironmentInfo 填充 */
   claude: { installed: boolean; version: string | null };
+  /** @deprecated 由 normalizeEnvironmentInfo 填充 */
   codex: { installed: boolean; version: string | null };
 }
 

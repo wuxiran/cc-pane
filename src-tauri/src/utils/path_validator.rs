@@ -145,6 +145,147 @@ pub fn validate_command(command: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 验证 SSH 连接信息安全性
+pub fn validate_ssh_info(info: &crate::models::SshConnectionInfo) -> Result<(), AppError> {
+    // 危险字符集（命令注入防护）
+    const DANGEROUS_CHARS: &[char] = &[';', '|', '`', '$', '&', '\n', '\r', '\'', '"', '\\'];
+
+    // host 非空
+    if info.host.trim().is_empty() {
+        return Err(AppError::coded(EC::SSH_HOST_EMPTY, "SSH host cannot be empty"));
+    }
+
+    // host 无危险字符
+    if info.host.chars().any(|c| DANGEROUS_CHARS.contains(&c)) {
+        return Err(AppError::coded_with_params(
+            EC::SSH_INVALID_CHARS,
+            format!("SSH host contains illegal characters: {}", info.host),
+            HashMap::from([("field".into(), "host".into())]),
+        ));
+    }
+
+    // remote_path 非空
+    if info.remote_path.trim().is_empty() {
+        return Err(AppError::coded(EC::SSH_REMOTE_PATH_EMPTY, "SSH remote path cannot be empty"));
+    }
+
+    // remote_path 必须以 / 或 ~ 开头（绝对路径或 home 目录）
+    if !info.remote_path.starts_with('/') && !info.remote_path.starts_with('~') {
+        return Err(AppError::coded_with_params(
+            EC::SSH_REMOTE_PATH_NOT_ABSOLUTE,
+            format!("SSH remote path must be absolute (start with /): {}", info.remote_path),
+            HashMap::from([("path".into(), info.remote_path.clone())]),
+        ));
+    }
+
+    // remote_path 无危险字符（允许单引号在 shell_escape 中处理，但其他字符拒绝）
+    const PATH_DANGEROUS: &[char] = &[';', '|', '`', '$', '&', '\n', '\r', '"', '(', ')'];
+    if info.remote_path.chars().any(|c| PATH_DANGEROUS.contains(&c)) {
+        return Err(AppError::coded_with_params(
+            EC::SSH_INVALID_CHARS,
+            format!("SSH remote path contains illegal characters: {}", info.remote_path),
+            HashMap::from([("field".into(), "remotePath".into())]),
+        ));
+    }
+
+    // user（可选）验证
+    if let Some(ref user) = info.user {
+        if user.chars().any(|c| DANGEROUS_CHARS.contains(&c)) {
+            return Err(AppError::coded_with_params(
+                EC::SSH_INVALID_CHARS,
+                format!("SSH user contains illegal characters: {}", user),
+                HashMap::from([("field".into(), "user".into())]),
+            ));
+        }
+    }
+
+    // port > 0（u16 已保证 >= 0，检查非零）
+    if info.port == 0 {
+        return Err(AppError::coded(EC::SSH_PORT_INVALID, "SSH port must be > 0"));
+    }
+
+    // identity_file（可选）验证
+    if let Some(ref identity_file) = info.identity_file {
+        let trimmed = identity_file.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::coded(
+                EC::SSH_IDENTITY_FILE_INVALID,
+                "SSH identity file path cannot be empty",
+            ));
+        }
+        if trimmed.chars().any(|c| DANGEROUS_CHARS.contains(&c)) {
+            return Err(AppError::coded_with_params(
+                EC::SSH_IDENTITY_FILE_INVALID,
+                format!("SSH identity file contains illegal characters: {}", trimmed),
+                HashMap::from([("field".into(), "identityFile".into())]),
+            ));
+        }
+        if trimmed.contains("..") {
+            return Err(AppError::coded_with_params(
+                EC::SSH_IDENTITY_FILE_INVALID,
+                format!("SSH identity file contains path traversal: {}", trimmed),
+                HashMap::from([("field".into(), "identityFile".into())]),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// 验证 SSH Machine 输入安全性（add/update 命令前置校验）
+pub fn validate_ssh_machine(machine: &crate::models::ssh_machine::SshMachine) -> Result<(), AppError> {
+    const DANGEROUS_CHARS: &[char] = &[';', '|', '&', '`', '\n', '\r'];
+
+    // name 非空
+    if machine.name.trim().is_empty() {
+        return Err(AppError::coded(EC::SSH_NAME_EMPTY, "SSH machine name cannot be empty"));
+    }
+
+    // host 非空
+    if machine.host.trim().is_empty() {
+        return Err(AppError::coded(EC::SSH_HOST_EMPTY, "SSH machine host cannot be empty"));
+    }
+
+    // host 无危险字符
+    if machine.host.chars().any(|c| DANGEROUS_CHARS.contains(&c)) || machine.host.contains("$(") {
+        return Err(AppError::coded_with_params(
+            EC::SSH_INVALID_CHARS,
+            format!("SSH host contains illegal characters: {}", machine.host),
+            HashMap::from([("field".into(), "host".into())]),
+        ));
+    }
+
+    // port 范围 1-65535（u16 已保证 <= 65535，只需检查非零）
+    if machine.port == 0 {
+        return Err(AppError::coded(EC::SSH_PORT_INVALID, "SSH port must be between 1 and 65535"));
+    }
+
+    // user（可选）无危险字符
+    if let Some(ref user) = machine.user {
+        if user.chars().any(|c| DANGEROUS_CHARS.contains(&c)) || user.contains("$(") {
+            return Err(AppError::coded_with_params(
+                EC::SSH_INVALID_CHARS,
+                format!("SSH user contains illegal characters: {}", user),
+                HashMap::from([("field".into(), "user".into())]),
+            ));
+        }
+    }
+
+    // identity_file（可选）无危险字符
+    if let Some(ref identity_file) = machine.identity_file {
+        let trimmed = identity_file.trim();
+        if !trimmed.is_empty() && (trimmed.chars().any(|c| DANGEROUS_CHARS.contains(&c)) || trimmed.contains("$(")) {
+            return Err(AppError::coded_with_params(
+                EC::SSH_IDENTITY_FILE_INVALID,
+                format!("SSH identity file contains illegal characters: {}", trimmed),
+                HashMap::from([("field".into(), "identityFile".into())]),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 /// 脱敏路径，仅保留文件名用于错误消息展示
 ///
 /// 避免在面向用户的错误消息中暴露完整的文件系统路径。
@@ -276,5 +417,122 @@ mod tests {
     fn test_sanitize_path_display_filename_only() {
         let path = Path::new("data.db");
         assert_eq!(sanitize_path_display(path), "data.db");
+    }
+
+    #[test]
+    fn test_valid_ssh_info() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "my-server".to_string(),
+            port: 22,
+            user: Some("deploy".to_string()),
+            remote_path: "/home/deploy/project".to_string(),
+            identity_file: None,
+        };
+        assert!(validate_ssh_info(&info).is_ok());
+    }
+
+    #[test]
+    fn test_ssh_rejects_empty_host() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "".to_string(),
+            port: 22,
+            user: None,
+            remote_path: "/tmp".to_string(),
+            identity_file: None,
+        };
+        assert!(validate_ssh_info(&info).is_err());
+    }
+
+    #[test]
+    fn test_ssh_rejects_relative_path() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "server".to_string(),
+            port: 22,
+            user: None,
+            remote_path: "relative/path".to_string(),
+            identity_file: None,
+        };
+        assert!(validate_ssh_info(&info).is_err());
+    }
+
+    #[test]
+    fn test_ssh_rejects_injection_chars() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "server;rm -rf /".to_string(),
+            port: 22,
+            user: None,
+            remote_path: "/tmp".to_string(),
+            identity_file: None,
+        };
+        assert!(validate_ssh_info(&info).is_err());
+    }
+
+    #[test]
+    fn test_ssh_rejects_identity_file_with_dangerous_chars() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "server".to_string(),
+            port: 22,
+            user: None,
+            remote_path: "/tmp".to_string(),
+            identity_file: Some("/home/user/.ssh/id;rm -rf /".to_string()),
+        };
+        assert!(validate_ssh_info(&info).is_err());
+    }
+
+    #[test]
+    fn test_ssh_rejects_identity_file_traversal() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "server".to_string(),
+            port: 22,
+            user: None,
+            remote_path: "/tmp".to_string(),
+            identity_file: Some("/home/user/../../../etc/shadow".to_string()),
+        };
+        assert!(validate_ssh_info(&info).is_err());
+    }
+
+    #[test]
+    fn test_ssh_accepts_valid_identity_file() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "server".to_string(),
+            port: 22,
+            user: None,
+            remote_path: "/tmp".to_string(),
+            identity_file: Some("~/.ssh/id_rsa".to_string()),
+        };
+        assert!(validate_ssh_info(&info).is_ok());
+    }
+
+    #[test]
+    fn test_ssh_rejects_remote_path_with_parentheses() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "server".to_string(),
+            port: 22,
+            user: None,
+            remote_path: "/tmp/$(whoami)".to_string(),
+            identity_file: None,
+        };
+        assert!(validate_ssh_info(&info).is_err());
+    }
+
+    #[test]
+    fn test_ssh_rejects_zero_port() {
+        use crate::models::SshConnectionInfo;
+        let info = SshConnectionInfo {
+            host: "server".to_string(),
+            port: 0,
+            user: None,
+            remote_path: "/tmp".to_string(),
+            identity_file: None,
+        };
+        assert!(validate_ssh_info(&info).is_err());
     }
 }

@@ -38,3 +38,21 @@ export function isTabPoppedOut(tabId: string): boolean {
 export function markTabReclaimed(tabId: string): void {
   poppedTabs.delete(tabId);
 }
+
+/** 弹出窗口启动后从 Rust PopupDataStore 获取 tabData（one-shot，带重试） */
+export async function getPopupTabData(): Promise<PopupTabData | null> {
+  // 重试机制：WebView JS 可能在 Rust 写入数据之前就执行
+  for (let i = 0; i < 5; i++) {
+    const raw = await invoke<string | null>("get_popup_tab_data");
+    if (raw) {
+      try {
+        return JSON.parse(raw) as PopupTabData;
+      } catch {
+        console.error("[popupWindowService] Failed to parse tab data:", raw);
+        return null;
+      }
+    }
+    if (i < 4) await new Promise((r) => setTimeout(r, 200));
+  }
+  return null;
+}

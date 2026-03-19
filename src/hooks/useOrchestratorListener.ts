@@ -82,18 +82,16 @@ export function useOrchestratorListener() {
             paneId = activePane?.id ?? panesStore.rootPane.id;
           }
 
-          const resolvedCliTool = (rawCliTool === "codex" ? "codex" : "claude") as CliTool;
-          panesStore.addTab(
-            paneId,
+          const resolvedCliTool = (rawCliTool || "claude") as CliTool;
+          panesStore.addTab(paneId, {
             projectId,
             projectPath,
-            undefined,
             workspaceName,
             providerId,
             workspacePath,
-            resolvedCliTool,
-            title
-          );
+            cliTool: resolvedCliTool,
+            customTitle: title,
+          });
 
           const updatedState = usePanesStore.getState();
           const pane = updatedState.findPaneById(paneId);

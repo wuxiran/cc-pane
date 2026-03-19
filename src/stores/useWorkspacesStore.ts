@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Workspace, WorkspaceProject } from "@/types";
+import type { Workspace, WorkspaceProject, SshConnectionInfo } from "@/types";
 import * as workspaceService from "@/services/workspaceService";
 
 interface WorkspacesState {
@@ -17,6 +17,7 @@ interface WorkspacesState {
   rename: (oldName: string, newName: string) => Promise<void>;
   remove: (name: string) => Promise<void>;
   addProject: (workspaceName: string, path: string) => Promise<WorkspaceProject>;
+  addSshProject: (workspaceName: string, sshInfo: SshConnectionInfo) => Promise<WorkspaceProject>;
   removeProject: (workspaceName: string, projectId: string) => Promise<void>;
   updateProjectAlias: (workspaceName: string, projectId: string, alias: string | null) => Promise<void>;
   updateWorkspaceAlias: (workspaceName: string, alias: string | null) => Promise<void>;
@@ -96,6 +97,18 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
 
   addProject: async (workspaceName, path) => {
     const project = await workspaceService.addWorkspaceProject(workspaceName, path);
+    set((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.name === workspaceName
+          ? { ...ws, projects: [...ws.projects, project] }
+          : ws
+      ),
+    }));
+    return project;
+  },
+
+  addSshProject: async (workspaceName, sshInfo) => {
+    const project = await workspaceService.addSshProject(workspaceName, sshInfo);
     set((state) => ({
       workspaces: state.workspaces.map((ws) =>
         ws.name === workspaceName

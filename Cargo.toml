@@ -6,4 +6,5 @@ members = [
     "cc-memory",
     "cc-memory-mcp",
     "cc-notify",
+    "cc-cli-adapters",
 ]

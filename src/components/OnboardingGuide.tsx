@@ -27,11 +27,9 @@ export default function OnboardingGuide() {
   const [step, setStep] = useState<Step>("env-check");
   const [envInfo, setEnvInfo] = useState<EnvironmentInfo | null>(null);
   const [checking, setChecking] = useState(false);
-  const [cliChoice, setCliChoice] = useState<"claude" | "codex">("claude");
+  const [cliChoice, setCliChoice] = useState<string>("claude");
 
-  const selectedCliReady = cliChoice === "codex"
-    ? envInfo?.codex.installed
-    : envInfo?.claude.installed;
+  const selectedCliReady = envInfo?.cliTools.find((t) => t.id === cliChoice)?.installed ?? false;
   const envReady = envInfo?.node.installed && selectedCliReady;
 
   // 打开时自动检测环境 + 从设置恢复 CLI 选择
@@ -39,7 +37,7 @@ export default function OnboardingGuide() {
     if (!open) return;
     setStep("env-check");
     const saved = useSettingsStore.getState().settings?.general.defaultCliTool;
-    if (saved === "claude" || saved === "codex") setCliChoice(saved);
+    if (saved && saved !== "none") setCliChoice(saved);
     setChecking(true);
     terminalService
       .checkEnvironment()
@@ -101,14 +99,17 @@ export default function OnboardingGuide() {
                 hint={t("installNodeHint")}
                 checking={checking}
               />
-              {/* Claude Code */}
-              <EnvItem
-                label={t("claudeCode")}
-                installed={envInfo?.claude.installed ?? null}
-                version={envInfo?.claude.version ?? null}
-                hint={t("installClaudeHint")}
-                checking={checking}
-              />
+              {/* CLI 工具（动态渲染） */}
+              {(envInfo?.cliTools ?? []).map((tool) => (
+                <EnvItem
+                  key={tool.id}
+                  label={tool.displayName}
+                  installed={tool.installed}
+                  version={tool.version}
+                  hint={t("installClaudeHint")}
+                  checking={checking}
+                />
+              ))}
 
               {/* 状态提示 */}
               {!checking && envInfo && (
@@ -141,25 +142,19 @@ export default function OnboardingGuide() {
               <DialogDescription>{t("cliChoiceDesc")}</DialogDescription>
             </DialogHeader>
 
-            <div className="grid grid-cols-2 gap-3 py-2">
-              <CliOptionCard
-                selected={cliChoice === "claude"}
-                onClick={() => setCliChoice("claude")}
-                name={t("claudeCodeName")}
-                description={t("claudeCodeDesc")}
-                detected={envInfo?.claude.installed ?? false}
-                detectedLabel={t("cliDetected")}
-                notDetectedLabel={t("cliNotDetected")}
-              />
-              <CliOptionCard
-                selected={cliChoice === "codex"}
-                onClick={() => setCliChoice("codex")}
-                name={t("codexCliName")}
-                description={t("codexCliDesc")}
-                detected={envInfo?.codex.installed ?? false}
-                detectedLabel={t("cliDetected")}
-                notDetectedLabel={t("cliNotDetected")}
-              />
+            <div className={`grid gap-3 py-2 ${(envInfo?.cliTools.length ?? 0) > 2 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              {(envInfo?.cliTools ?? []).map((tool) => (
+                <CliOptionCard
+                  key={tool.id}
+                  selected={cliChoice === tool.id}
+                  onClick={() => setCliChoice(tool.id)}
+                  name={tool.displayName}
+                  description={t(`${tool.id}CliDesc`, { defaultValue: tool.displayName })}
+                  detected={tool.installed}
+                  detectedLabel={t("cliDetected")}
+                  notDetectedLabel={t("cliNotDetected")}
+                />
+              ))}
             </div>
 
             <DialogFooter>
