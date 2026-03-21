@@ -1,6 +1,6 @@
 [package]
 name = "cc-panes-core"
-version = "0.9.16"
+version = "0.9.17"
 description = "CC-Panes core business logic - framework-independent"
 authors = ["wuxiran"]
 license = "GPL-3.0"

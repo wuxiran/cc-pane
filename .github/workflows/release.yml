@@ -44,7 +44,7 @@ jobs:
           fi
 
   build:
-    name: Build (${{ matrix.platform }})
+    name: Build (${{ matrix.label }})
     runs-on: ${{ matrix.platform }}
     needs: validate-version
     permissions:
@@ -54,9 +54,15 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
+            label: windows-latest
             args: --bundles nsis
           - platform: macos-latest
+            label: macos-arm64
             args: --bundles dmg
+          - platform: macos-latest
+            label: macos-x86_64
+            args: --bundles dmg --target x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4
 
@@ -68,6 +74,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -78,8 +86,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ matrix.platform }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ matrix.platform }}-cargo-release-
+          key: ${{ matrix.label }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ matrix.label }}-cargo-release-
 
       - name: Install dependencies
         run: npm ci
