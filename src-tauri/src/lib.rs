@@ -481,6 +481,26 @@ pub fn run() {
         }));
     }
 
+    // 0.5 macOS/Linux: 从用户 login shell 获取完整 PATH
+    //     GUI 应用从 Finder 启动时 PATH 只有 /usr/bin:/bin，需要补全
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(output) = std::process::Command::new("/bin/sh")
+            .args(["-l", "-c", "echo $PATH"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            if output.status.success() {
+                let shell_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !shell_path.is_empty() {
+                    // SAFETY: 在 main 线程启动阶段调用，此时无其他线程读取 PATH
+                    unsafe { std::env::set_var("PATH", &shell_path); }
+                }
+            }
+        }
+    }
+
     // 1. 先加载设置，取得 data_dir + log_level
     let settings_service = Arc::new(SettingsService::new());
     let settings = settings_service.get_settings();
