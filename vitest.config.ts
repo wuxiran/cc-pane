@@ -6,24 +6,24 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": resolve(__dirname, "src"),
+      "@": resolve(__dirname, "web"),
     },
   },
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"],
+    setupFiles: ["./web/test/setup.ts"],
+    include: ["web/**/*.test.{ts,tsx}"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],
-      include: ["src/**/*.{ts,tsx}"],
+      include: ["web/**/*.{ts,tsx}"],
       exclude: [
-        "src/test/**",
-        "src/**/*.test.{ts,tsx}",
-        "src/vite-env.d.ts",
-        "src/main.tsx",
-        "src/components/ui/**",
+        "web/test/**",
+        "web/**/*.test.{ts,tsx}",
+        "web/vite-env.d.ts",
+        "web/main.tsx",
+        "web/components/ui/**",
       ],
       thresholds: {
         statements: 80,

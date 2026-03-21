@@ -1,6 +1,8 @@
+use crate::constants::events as EV;
+use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::{CliTool, SshConnectionInfo, TerminalExit, TerminalOutput};
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
-use crate::services::{NotificationService, ProviderService, SettingsService, SpecService};
+use crate::services::{ProviderService, SettingsService, SpecService};
 use crate::utils::AppPaths;
 use anyhow::{anyhow, Result};
 use cc_cli_adapters::{CliAdapterContext, CliToolRegistry};
@@ -11,7 +13,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
-use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -274,7 +275,8 @@ pub struct TerminalService {
     dead_buffers: Arc<Mutex<HashMap<String, DeadBufferEntry>>>,
     settings_service: Arc<SettingsService>,
     provider_service: Arc<ProviderService>,
-    notification_service: Arc<NotificationService>,
+    notifier: parking_lot::RwLock<Option<Arc<dyn SessionNotifier>>>,
+    emitter: parking_lot::RwLock<Option<Arc<dyn EventEmitter>>>,
     app_paths: Arc<AppPaths>,
     /// Orchestrator 连接信息，setup 阶段设置
     orchestrator_info: Mutex<Option<OrchestratorInfo>>,
@@ -470,7 +472,6 @@ impl TerminalService {
     pub fn new(
         settings_service: Arc<SettingsService>,
         provider_service: Arc<ProviderService>,
-        notification_service: Arc<NotificationService>,
         app_paths: Arc<AppPaths>,
         cli_registry: Arc<CliToolRegistry>,
     ) -> Self {
@@ -479,12 +480,23 @@ impl TerminalService {
             dead_buffers: Arc::new(Mutex::new(HashMap::new())),
             settings_service,
             provider_service,
-            notification_service,
+            notifier: parking_lot::RwLock::new(None),
+            emitter: parking_lot::RwLock::new(None),
             app_paths,
             orchestrator_info: Mutex::new(None),
             spec_service: Mutex::new(None),
             cli_registry,
         }
+    }
+
+    /// Set event emitter (called during setup when AppHandle is available)
+    pub fn set_emitter(&self, emitter: Arc<dyn EventEmitter>) {
+        *self.emitter.write() = Some(emitter);
+    }
+
+    /// Set session notifier (called during setup when AppHandle is available)
+    pub fn set_notifier(&self, notifier: Arc<dyn SessionNotifier>) {
+        *self.notifier.write() = Some(notifier);
     }
 
     /// 设置 Spec 服务（用于终端启动时自动注入 active spec prompt）
@@ -498,7 +510,6 @@ impl TerminalService {
     #[allow(clippy::too_many_arguments)]
     pub fn create_session(
         &self,
-        app_handle: AppHandle,
         project_path: &str,
         cols: u16,
         rows: u16,
@@ -515,7 +526,10 @@ impl TerminalService {
         let mut env_vars = self.settings_service.get_proxy_env_vars();
         let provider_vars = self.provider_service.get_env_vars(provider_id);
         env_vars.extend(provider_vars.clone());
-        let notification_service = self.notification_service.clone();
+        let emitter = self.emitter.read().clone()
+            .ok_or_else(|| anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)"))?;
+        let notifier = self.notifier.read().clone()
+            .ok_or_else(|| anyhow!("TerminalService not initialized: notifier not set (call set_notifier first)"))?;
         let settings_service = self.settings_service.clone();
         let session_id = Uuid::new_v4().to_string();
 
@@ -694,12 +708,12 @@ impl TerminalService {
 
         // 启动读取线程（含状态检测 + UTF-8 安全）
         let sid = session_id.clone();
-        let handle = app_handle.clone();
+        let read_emitter = emitter.clone();
         let read_status = status.clone();
         let read_last_output = last_output_at.clone();
         let read_cancelled = cancelled.clone();
-        let notif_svc = notification_service.clone();
-        let settings_svc = settings_service.clone();
+        let read_notifier = notifier.clone();
+        let _settings_svc = settings_service.clone();
         let read_output_buffer = output_buffer.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -775,7 +789,7 @@ impl TerminalService {
                             if *prev != SessionStatus::WaitingInput
                                 && new_status == SessionStatus::WaitingInput
                             {
-                                notif_svc.notify_waiting_input(&handle, &settings_svc, &sid);
+                                read_notifier.notify_waiting_input(&sid);
                             }
                             *prev = new_status;
                         }
@@ -787,12 +801,12 @@ impl TerminalService {
 
                         // 直接 emit，用 catch_unwind 保护
                         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let _ = handle.emit(
-                                "terminal-output",
-                                TerminalOutput {
+                            let _ = read_emitter.emit(
+                                EV::TERMINAL_OUTPUT,
+                                serde_json::to_value(&TerminalOutput {
                                     session_id: sid.clone(),
                                     data,
-                                },
+                                }).unwrap_or_default(),
                             );
                         }));
 
@@ -804,9 +818,9 @@ impl TerminalService {
 
                         if status_changed || time_elapsed {
                             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                let _ = handle.emit(
-                                    "terminal-status",
-                                    SessionStatusInfo {
+                                let _ = read_emitter.emit(
+                                    EV::TERMINAL_STATUS,
+                                    serde_json::to_value(&SessionStatusInfo {
                                         session_id: sid.clone(),
                                         status: new_status,
                                         last_output_at: std::time::SystemTime::now()
@@ -814,7 +828,7 @@ impl TerminalService {
                                             .unwrap_or_default()
                                             .as_millis()
                                             as u64,
-                                    },
+                                    }).unwrap_or_default(),
                                 );
                             }));
                             last_emitted_status = new_status;
@@ -831,10 +845,9 @@ impl TerminalService {
 
         // 启动等待线程
         let sid = session_id.clone();
-        let handle = app_handle;
+        let wait_emitter = emitter;
         let exit_status = status;
-        let notif_svc_exit = notification_service;
-        let settings_svc_exit = settings_service;
+        let wait_notifier = notifier;
         let sessions_for_wait = Arc::clone(&self.sessions);
         let dead_buffers_for_wait = Arc::clone(&self.dead_buffers);
         thread::spawn(move || {
@@ -860,31 +873,31 @@ impl TerminalService {
             }
 
             // 发送退出通知
-            notif_svc_exit.notify_session_exited(&handle, &settings_svc_exit, &sid, exit_code);
-            notif_svc_exit.cleanup_session(&sid);
+            wait_notifier.notify_session_exited(&sid, exit_code);
+            wait_notifier.cleanup_session(&sid);
 
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _ = handle.emit(
-                    "terminal-exit",
-                    TerminalExit {
+                let _ = wait_emitter.emit(
+                    EV::TERMINAL_EXIT,
+                    serde_json::to_value(&TerminalExit {
                         session_id: sid.clone(),
                         exit_code,
-                    },
+                    }).unwrap_or_default(),
                 );
             }));
 
             // 发送最终状态
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _ = handle.emit(
-                    "terminal-status",
-                    SessionStatusInfo {
+                let _ = wait_emitter.emit(
+                    EV::TERMINAL_STATUS,
+                    serde_json::to_value(&SessionStatusInfo {
                         session_id: sid.clone(),
                         status: SessionStatus::Exited,
                         last_output_at: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as u64,
-                    },
+                    }).unwrap_or_default(),
                 );
             }));
 

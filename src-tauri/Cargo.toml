@@ -1,6 +1,6 @@
 [package]
 name = "cc-panes"
-version = "0.9.15"
+version = "0.9.16"
 description = "CC-Panes - Multi-instance split-pane manager for Claude Code"
 authors = ["wuxiran"]
 license = "GPL-3.0"
@@ -18,6 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+cc-panes-core = { path = "../cc-panes-core" }
 cc-memory = { path = "../cc-memory" }
 cc-cli-adapters = { path = "../cc-cli-adapters" }
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }

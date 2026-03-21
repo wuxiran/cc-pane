@@ -61,7 +61,7 @@ React Component → Zustand Store → Service (invoke) → Tauri IPC → Command
 - **函数组件 + Hooks**，不使用 class 组件
 - **Zustand + Immer** 进行不可变状态更新（`set((state) => { state.x = y })` 风格）
 - **Service 层** 封装所有 `invoke()` 调用，组件不直接调用 Tauri API
-- **路径别名** `@/` 映射到 `src/`
+- **路径别名** `@/` 映射到 `web/`
 - **co-located 测试**：测试文件与实现文件同目录（`*.test.ts`）
 
 ### Rust (后端)
@@ -82,7 +82,7 @@ React Component → Zustand Store → Service (invoke) → Tauri IPC → Command
 
 ```
 cc-panes/
-├── src/                           # React 前端
+├── web/                           # React 前端
 │   ├── main.tsx                   # 应用入口
 │   ├── App.tsx                    # 根组件
 │   ├── components/                # React 组件
@@ -97,7 +97,24 @@ cc-panes/
 │   ├── lib/                       # 工具库
 │   └── utils/                     # 工具函数
 │
-├── src-tauri/                     # Tauri Rust 后端
+├── cc-panes-core/                 # 领域核心（零框架依赖）
+│   └── src/
+│       ├── lib.rs
+│       ├── events.rs              # EventEmitter trait
+│       ├── models/                # 数据模型
+│       ├── repository/            # 数据访问层
+│       ├── services/              # 业务逻辑
+│       ├── pty/                   # PTY 抽象
+│       └── utils/                 # AppPaths, AppError
+│
+├── cc-panes-api/                  # HTTP API 适配器
+│   └── src/
+│       ├── lib.rs
+│       ├── routes/                # REST 路由
+│       ├── ws/                    # WebSocket
+│       └── error.rs               # HTTP 错误转换
+│
+├── src-tauri/                     # Tauri Rust 后端（薄包装层）
 │   └── src/
 │       ├── main.rs                # 应用入口
 │       ├── lib.rs                 # 命令注册入口
@@ -118,16 +135,16 @@ cc-panes/
 
 | 文件 | 说明 |
 |------|------|
-| `src/App.tsx` | React 根组件，布局 + Dialog 挂载 |
-| `src/stores/usePanesStore.ts` | 分屏状态管理（Zustand + Immer 范例） |
-| `src/stores/useProjectsStore.ts` | 项目状态管理 |
-| `src/stores/useWorkspacesStore.ts` | 工作空间状态管理 |
-| `src/services/workspaceService.ts` | 工作空间服务（invoke 封装范例） |
-| `src/services/projectService.ts` | 项目服务 |
-| `src/services/terminalService.ts` | 终端服务 |
-| `src/types/index.ts` | 类型定义汇总导出 |
-| `src/components/panes/TerminalView.tsx` | 终端视图（xterm.js） |
-| `src/components/Sidebar.tsx` | 左侧工作空间树 |
+| `web/App.tsx` | React 根组件，布局 + Dialog 挂载 |
+| `web/stores/usePanesStore.ts` | 分屏状态管理（Zustand + Immer 范例） |
+| `web/stores/useProjectsStore.ts` | 项目状态管理 |
+| `web/stores/useWorkspacesStore.ts` | 工作空间状态管理 |
+| `web/services/workspaceService.ts` | 工作空间服务（invoke 封装范例） |
+| `web/services/projectService.ts` | 项目服务 |
+| `web/services/terminalService.ts` | 终端服务 |
+| `web/types/index.ts` | 类型定义汇总导出 |
+| `web/components/panes/TerminalView.tsx` | 终端视图（xterm.js） |
+| `web/components/Sidebar.tsx` | 左侧工作空间树 |
 
 ### 后端
 
@@ -202,13 +219,13 @@ npm run tauri build
 
 ## 新功能开发流程（7 步）
 
-1. **Model**: 在 `src-tauri/src/models/` 定义 Rust 数据模型，在 `src/types/` 定义 TS 类型
+1. **Model**: 在 `src-tauri/src/models/` 定义 Rust 数据模型，在 `web/types/` 定义 TS 类型
 2. **Repository**: 在 `src-tauri/src/repository/` 实现数据访问
 3. **Service (Rust)**: 在 `src-tauri/src/services/` 实现业务逻辑
 4. **Command**: 在 `src-tauri/src/commands/` 注册 Tauri 命令，在 `lib.rs` 添加到 `invoke_handler`
-5. **Service (TS)**: 在 `src/services/` 封装 `invoke()` 调用
-6. **Store**: 在 `src/stores/` 创建或更新 Zustand store
-7. **Component**: 在 `src/components/` 实现 UI 组件
+5. **Service (TS)**: 在 `web/services/` 封装 `invoke()` 调用
+6. **Store**: 在 `web/stores/` 创建或更新 Zustand store
+7. **Component**: 在 `web/components/` 实现 UI 组件
 
 ## 存储结构
 

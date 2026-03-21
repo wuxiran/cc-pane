@@ -1,5 +1,6 @@
 pub mod constants;
 mod commands;
+pub mod emitter;
 pub mod models;
 pub mod pty;
 pub mod repository;
@@ -86,9 +87,11 @@ use commands::{
     // SSH Machine 命令
     list_ssh_machines, get_ssh_machine, add_ssh_machine,
     update_ssh_machine, remove_ssh_machine,
+    // Process Monitor 命令
+    scan_claude_processes, kill_claude_process, kill_claude_processes,
 };
 use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository, SpecRepository};
-use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, SpecService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService, MemoryService, SshMachineService};
+use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, SpecService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService, MemoryService, SshMachineService, ProcessMonitorService};
 use utils::AppPaths;
 use std::sync::Arc;
 
@@ -369,7 +372,6 @@ pub fn run() {
     let terminal_service = Arc::new(TerminalService::new(
         settings_service.clone(),
         provider_service.clone(),
-        notification_service.clone(),
         app_paths.clone(),
         cli_registry.clone(),
     ));
@@ -387,6 +389,8 @@ pub fn run() {
     let ssh_machine_service = Arc::new(SshMachineService::new(
         app_paths.data_dir().join("ssh-machines.json"),
     ));
+
+    let process_monitor_service = Arc::new(ProcessMonitorService::new());
 
     let popup_data_store = commands::PopupDataStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new());
@@ -434,6 +438,7 @@ pub fn run() {
         .manage(filesystem_service)
         .manage(memory_service)
         .manage(ssh_machine_service)
+        .manage(process_monitor_service)
         .manage(popup_data_store)
         .manage(orchestrator_service.clone())
         .manage(cli_registry)
@@ -450,9 +455,28 @@ pub fn run() {
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
 
-            // ---- 启动 workspace 目录监控 ----
-            let ws_svc = app.state::<Arc<WorkspaceService>>();
-            ws_svc.start_watcher(app.handle().clone());
+            // ---- 注入 EventEmitter 和 SessionNotifier（setup 中才有 AppHandle）----
+            {
+                use emitter::{TauriEmitter, TauriSessionNotifier};
+                let app_handle = app.handle().clone();
+                let tauri_emitter: std::sync::Arc<dyn cc_panes_core::events::EventEmitter> =
+                    Arc::new(TauriEmitter::new(app_handle.clone()));
+
+                // 注入到 TerminalService
+                let term_svc = app.state::<Arc<TerminalService>>();
+                term_svc.set_emitter(tauri_emitter.clone());
+                let notif_svc = app.state::<Arc<NotificationService>>();
+                let settings_svc = app.state::<Arc<SettingsService>>();
+                term_svc.set_notifier(Arc::new(TauriSessionNotifier::new(
+                    app_handle.clone(),
+                    notif_svc.inner().clone(),
+                    settings_svc.inner().clone(),
+                )));
+
+                // ---- 启动 workspace 目录监控 ----
+                let ws_svc = app.state::<Arc<WorkspaceService>>();
+                ws_svc.start_watcher(tauri_emitter);
+            }
 
             // ---- 注册截图全局快捷键（仅 Windows，macOS 截图功能暂未实现）----
             #[cfg(target_os = "windows")]
@@ -790,7 +814,11 @@ pub fn run() {
             get_ssh_machine,
             add_ssh_machine,
             update_ssh_machine,
-            remove_ssh_machine
+            remove_ssh_machine,
+            // Process Monitor 命令
+            scan_claude_processes,
+            kill_claude_process,
+            kill_claude_processes
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -47,8 +47,14 @@ export default function TitleBar({ workspaceName, onOpenQuickSearch }: TitleBarP
       {/* 中间：搜索入口 + 拖拽区 */}
       <div
         className="flex-1 h-full flex items-center justify-center cursor-grab"
-        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-        onMouseDown={(e) => { e.preventDefault(); startDrag(); }}
+        data-tauri-drag-region=""
+        onMouseDown={(e) => {
+          // 仅在直接点击拖拽区时触发（排除子元素如搜索按钮）
+          if (e.target === e.currentTarget && e.button === 0) {
+            e.preventDefault();
+            startDrag();
+          }
+        }}
       >
         <button
           className="flex items-center gap-2 w-[420px] max-w-[50vw] h-[22px] px-2.5 rounded-md border text-[12px] transition-colors hover:opacity-90"
@@ -56,8 +62,7 @@ export default function TitleBar({ workspaceName, onOpenQuickSearch }: TitleBarP
             background: "var(--app-hover)",
             borderColor: "var(--app-border)",
             color: "var(--app-text-tertiary)",
-            WebkitAppRegion: "no-drag",
-          } as React.CSSProperties}
+          }}
           onClick={onOpenQuickSearch}
         >
           <Search size={12} className="shrink-0" />

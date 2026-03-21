@@ -722,7 +722,6 @@ impl McpToolHandler {
 
         // 创建 PTY 会话（resume 时传 resume_id）
         let session_id = match self.state.terminal_service.create_session(
-            self.state.app_handle.clone(),
             &params.project_path,
             120, 30,
             ws_name.as_deref(),
@@ -1578,7 +1577,6 @@ async fn handle_launch_task(
     };
 
     let session_id = match state.terminal_service.create_session(
-        state.app_handle.clone(),
         &req.project_path,
         120, 30,
         req.workspace_name.as_deref(),

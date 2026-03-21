@@ -12,7 +12,7 @@ use tracing::debug;
 /// 创建终端会话
 #[tauri::command]
 pub fn create_terminal_session(
-    app_handle: AppHandle,
+    _app_handle: AppHandle,
     service: State<'_, Arc<TerminalService>>,
     request: CreateSessionRequest,
 ) -> AppResult<String> {
@@ -30,7 +30,6 @@ pub fn create_terminal_session(
     }
 
     Ok(service.create_session(
-        app_handle,
         &request.project_path,
         request.cols,
         request.rows,

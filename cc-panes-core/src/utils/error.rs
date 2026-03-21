@@ -107,15 +107,5 @@ impl From<rusqlite::Error> for AppError {
     }
 }
 
-impl From<tauri::Error> for AppError {
-    fn from(err: tauri::Error) -> Self {
-        Self {
-            code: None,
-            message: err.to_string(),
-            params: None,
-        }
-    }
-}
-
 /// 统一结果类型
 pub type AppResult<T> = Result<T, AppError>;

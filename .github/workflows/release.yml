@@ -57,6 +57,8 @@ jobs:
             args: --bundles nsis
           - platform: macos-latest
             args: --bundles dmg
+          - platform: macos-13
+            args: --bundles dmg
     steps:
       - uses: actions/checkout@v4
 
@@ -78,8 +80,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-release-
+          key: ${{ matrix.platform }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ matrix.platform }}-cargo-release-
 
       - name: Install dependencies
         run: npm ci

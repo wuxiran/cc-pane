@@ -31,3 +31,4 @@ export { useFileBrowserStore } from "./useFileBrowserStore";
 export { useEditorTabsStore, type EditorTab } from "./useEditorTabsStore";
 export { useUpdateStore } from "./useUpdateStore";
 export { useSshMachinesStore } from "./useSshMachinesStore";
+export { useProcessMonitorStore } from "./useProcessMonitorStore";

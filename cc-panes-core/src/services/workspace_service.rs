@@ -8,13 +8,16 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use crate::constants::events as EV;
+use crate::events::EventEmitter;
 use tracing::{error, info, warn};
 
 pub struct WorkspaceService {
     base_dir: PathBuf,
     /// 保存 watcher 引用，防止被 drop
     _watcher: Mutex<Option<RecommendedWatcher>>,
+    /// debounce 线程停止标志
+    watcher_stop: Arc<AtomicBool>,
 }
 
 impl WorkspaceService {
@@ -29,6 +32,7 @@ impl WorkspaceService {
         Self {
             base_dir,
             _watcher: Mutex::new(None),
+            watcher_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -36,7 +40,7 @@ impl WorkspaceService {
     ///
     /// 使用 dirty flag + debounce 线程模式：notify 回调仅设标记，
     /// 独立线程每 500ms 检查标记并 emit，避免在 notify 内部线程直接调用 IPC。
-    pub fn start_watcher(&self, app_handle: AppHandle) {
+    pub fn start_watcher(&self, emitter: Arc<dyn EventEmitter>) {
         let dirty = Arc::new(AtomicBool::new(false));
         let dirty_clone = dirty.clone();
 
@@ -72,20 +76,24 @@ impl WorkspaceService {
 
         // Debounce 线程：每 500ms 检查标记，在此线程中 emit
         let dirty_poll = dirty.clone();
+        let stop_flag = self.watcher_stop.clone();
+        stop_flag.store(false, Ordering::Relaxed); // 重置，支持 restart
         std::thread::spawn(move || {
-            loop {
+            while !stop_flag.load(Ordering::Relaxed) {
                 std::thread::sleep(Duration::from_millis(500));
                 if dirty_poll.swap(false, Ordering::Relaxed) {
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let _ = app_handle.emit("workspaces-changed", ());
+                        let _ = emitter.emit(EV::WORKSPACES_CHANGED, serde_json::Value::Null);
                     }));
                 }
             }
+            info!("[workspace-watcher] Debounce thread stopped");
         });
     }
 
     /// 停止文件系统监控
     pub fn stop_watcher(&self) {
+        self.watcher_stop.store(true, Ordering::Relaxed);
         let mut guard = self._watcher.lock().unwrap_or_else(|e| e.into_inner());
         if guard.take().is_some() {
             info!("[workspace-watcher] Stopped");

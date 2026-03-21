@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "src-tauri",
+    "cc-panes-core",
+    "cc-panes-api",
     "cc-panes-hook",
     "cc-memory",
     "cc-memory-mcp",

@@ -42,3 +42,4 @@ export { checkForAppUpdates, checkUpdateSilent, triggerUpdate } from "./updaterS
 export { popOutTab, isTabPoppedOut, markTabReclaimed } from "./popupWindowService";
 export type { PopupTabData } from "./popupWindowService";
 export * as sshMachineService from "./sshMachineService";
+export { processService } from "./processService";

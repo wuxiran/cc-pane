@@ -8,16 +8,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useActivityBarStore, type ActivityView } from "@/stores/useActivityBarStore";
-import { useDialogStore } from "@/stores";
+import { useDialogStore, useProcessMonitorStore } from "@/stores";
 
 interface ActivityBarIconProps {
   icon: React.ReactNode;
   label: string;
   active: boolean;
   onClick: () => void;
+  badge?: number;
 }
 
-function ActivityBarIcon({ icon, label, active, onClick }: ActivityBarIconProps) {
+function ActivityBarIcon({ icon, label, active, onClick, badge }: ActivityBarIconProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -40,6 +41,16 @@ function ActivityBarIcon({ icon, label, active, onClick }: ActivityBarIconProps)
             />
           )}
           {icon}
+          {/* Badge */}
+          {badge != null && badge > 0 && (
+            <span
+              className={`absolute top-[4px] right-[4px] min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
+                badge > 50 ? "bg-red-500" : "bg-[var(--app-accent)]"
+              }`}
+            >
+              {badge > 999 ? "999+" : badge}
+            </span>
+          )}
         </button>
       </TooltipTrigger>
       <TooltipContent side="right" sideOffset={8}>
@@ -60,6 +71,8 @@ export default function ActivityBar() {
   const toggleHomeMode = useActivityBarStore((s) => s.toggleHomeMode);
   const openSettings = useDialogStore((s) => s.openSettings);
 
+  const processCount = useProcessMonitorStore((s) => s.scanResult?.totalCount ?? 0);
+
   const isHomeActive = appViewMode === "home";
 
   const isViewActive = (view: ActivityView) => {
@@ -67,11 +80,11 @@ export default function ActivityBar() {
     return activeView === view && sidebarVisible && appViewMode !== "files";
   };
 
-  const viewItems: { view: ActivityView; icon: React.ReactNode; label: string }[] = [
+  const viewItems: { view: ActivityView; icon: React.ReactNode; label: string; badge?: number }[] = [
     { view: "explorer", icon: <FolderTree className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("workspaces") },
     { view: "files", icon: <Files className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("fileBrowser", { defaultValue: "Files" }) },
     { view: "search", icon: <Search className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("search", { ns: "common", defaultValue: "Search" }) },
-    { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches") },
+    { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches"), badge: processCount },
     { view: "ssh", icon: <Server className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("sshMachines", { defaultValue: "SSH Machines" }) },
   ];
 
@@ -136,6 +149,7 @@ export default function ActivityBar() {
             label={item.label}
             active={isViewActive(item.view)}
             onClick={() => toggleView(item.view)}
+            badge={item.badge}
           />
         ))}
 

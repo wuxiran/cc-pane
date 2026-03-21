@@ -11,23 +11,23 @@ pub type PopupDataStore = Mutex<HashMap<String, String>>;
 #[tauri::command]
 pub fn close_window(window: WebviewWindow) -> AppResult<()> {
     debug!("cmd::close_window");
-    Ok(window.close()?)
+    Ok(window.close().map_err(|e| e.to_string())?)
 }
 
 /// 最小化窗口
 #[tauri::command]
 pub fn minimize_window(window: WebviewWindow) -> AppResult<()> {
-    Ok(window.minimize()?)
+    Ok(window.minimize().map_err(|e| e.to_string())?)
 }
 
 /// 最大化/还原窗口
 #[tauri::command]
 pub fn maximize_window(window: WebviewWindow) -> AppResult<()> {
-    let is_maximized = window.is_maximized()?;
+    let is_maximized = window.is_maximized().map_err(|e| e.to_string())?;
     if is_maximized {
-        Ok(window.unmaximize()?)
+        Ok(window.unmaximize().map_err(|e| e.to_string())?)
     } else {
-        Ok(window.maximize()?)
+        Ok(window.maximize().map_err(|e| e.to_string())?)
     }
 }
 
@@ -35,8 +35,8 @@ pub fn maximize_window(window: WebviewWindow) -> AppResult<()> {
 #[tauri::command]
 pub fn toggle_always_on_top(window: WebviewWindow) -> AppResult<bool> {
     debug!("cmd::toggle_always_on_top");
-    let is_on_top = window.is_always_on_top()?;
-    window.set_always_on_top(!is_on_top)?;
+    let is_on_top = window.is_always_on_top().map_err(|e| e.to_string())?;
+    window.set_always_on_top(!is_on_top).map_err(|e| e.to_string())?;
     Ok(!is_on_top)
 }
 
@@ -44,36 +44,36 @@ pub fn toggle_always_on_top(window: WebviewWindow) -> AppResult<bool> {
 #[tauri::command]
 pub fn enter_fullscreen(window: WebviewWindow) -> AppResult<()> {
     debug!("cmd::enter_fullscreen");
-    Ok(window.set_fullscreen(true)?)
+    Ok(window.set_fullscreen(true).map_err(|e| e.to_string())?)
 }
 
 /// 退出全屏模式
 #[tauri::command]
 pub fn exit_fullscreen(window: WebviewWindow) -> AppResult<()> {
     debug!("cmd::exit_fullscreen");
-    Ok(window.set_fullscreen(false)?)
+    Ok(window.set_fullscreen(false).map_err(|e| e.to_string())?)
 }
 
 /// 检查是否处于全屏模式
 #[tauri::command]
 pub fn is_fullscreen(window: WebviewWindow) -> AppResult<bool> {
-    Ok(window.is_fullscreen()?)
+    Ok(window.is_fullscreen().map_err(|e| e.to_string())?)
 }
 
 /// 设置窗口边框（标题栏）
 #[tauri::command]
 pub fn set_decorations(window: WebviewWindow, decorations: bool) -> AppResult<()> {
     debug!("cmd::set_decorations decorations={}", decorations);
-    Ok(window.set_decorations(decorations)?)
+    Ok(window.set_decorations(decorations).map_err(|e| e.to_string())?)
 }
 
 /// 进入迷你模式
 #[tauri::command]
 pub fn enter_mini_mode(window: WebviewWindow) -> AppResult<()> {
     debug!("cmd::enter_mini_mode");
-    window.set_size(LogicalSize::new(320.0, 200.0))?;
-    window.set_always_on_top(true)?;
-    window.set_decorations(false)?;
+    window.set_size(LogicalSize::new(320.0, 200.0)).map_err(|e| e.to_string())?;
+    window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    window.set_decorations(false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -85,8 +85,8 @@ pub fn exit_mini_mode(
     height: f64,
 ) -> AppResult<()> {
     debug!("cmd::exit_mini_mode");
-    window.set_always_on_top(false)?;
-    window.set_size(LogicalSize::new(width, height))?;
+    window.set_always_on_top(false).map_err(|e| e.to_string())?;
+    window.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
     Ok(())
 }
 

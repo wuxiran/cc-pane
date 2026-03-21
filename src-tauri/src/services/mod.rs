@@ -1,47 +1,12 @@
-mod project_service;
-pub mod terminal_service;
-mod history_service;
-mod hooks_service;
-mod journal_service;
-mod worktree_service;
-mod workspace_service;
-mod settings_service;
-mod provider_service;
+// Re-export core services from cc-panes-core
+pub use cc_panes_core::services::*;
+
+// Tauri-specific services (kept in src-tauri)
 mod notification_service;
-mod launch_history_service;
-pub mod claude_session_service;
-mod todo_service;
-mod spec_service;
-pub mod mcp_config_service;
-pub mod skill_service;
-pub mod plan_service;
-mod filesystem_service;
-pub mod file_search_index;
 mod screenshot_service;
 pub mod screenshot_overlay;
 pub mod orchestrator_service;
-mod memory_service;
-mod ssh_machine_service;
 
-pub use project_service::ProjectService;
-pub use terminal_service::{TerminalService, SessionStatusInfo, ShellInfo, OrchestratorInfo};
-pub use history_service::HistoryService;
-pub use hooks_service::{HooksService, HookStatus};
-pub use journal_service::{JournalService, SessionSummary, JournalIndex};
-pub use worktree_service::{WorktreeService, WorktreeInfo};
-pub use workspace_service::WorkspaceService;
-pub use settings_service::SettingsService;
-pub use provider_service::ProviderService;
 pub use notification_service::NotificationService;
-pub use launch_history_service::LaunchHistoryService;
-pub use todo_service::TodoService;
-pub use spec_service::SpecService;
-pub use mcp_config_service::McpConfigService;
-pub use skill_service::SkillService;
-pub use plan_service::PlanService;
-pub use filesystem_service::FileSystemService;
-pub use file_search_index::FileSearchIndex;
 pub use screenshot_service::{ScreenshotService, CaptureResult};
 pub use orchestrator_service::OrchestratorService;
-pub use memory_service::MemoryService;
-pub use ssh_machine_service::SshMachineService;

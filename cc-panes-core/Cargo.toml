@@ -1,0 +1,48 @@
+[package]
+name = "cc-panes-core"
+version = "0.9.16"
+description = "CC-Panes core business logic - framework-independent"
+authors = ["wuxiran"]
+license = "GPL-3.0"
+edition = "2021"
+
+[dependencies]
+cc-memory = { path = "../cc-memory" }
+cc-cli-adapters = { path = "../cc-cli-adapters" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+which = "7"
+notify = "7"
+sha2 = "0.10"
+walkdir = "2"
+toml = "0.8"
+urlencoding = "2"
+similar = "2"
+flate2 = "1"
+encoding_rs = "0.8"
+strip-ansi-escapes = "0.2"
+trash = "5"
+portable-pty = "0.8"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+rand = "0.8"
+nucleo-matcher = "0.3"
+sysinfo = "0.33"
+tracing = "0.1"
+log = "0.4"
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
