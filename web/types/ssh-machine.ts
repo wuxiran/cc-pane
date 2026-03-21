@@ -10,6 +10,8 @@ export interface SshMachine {
   user?: string;
   authMethod: AuthMethod;
   identityFile?: string;
+  /** 默认远端工作目录（连接时自动 cd，为空则用 ~） */
+  defaultPath?: string;
   tags: string[];
   createdAt: string;
   updatedAt: string;

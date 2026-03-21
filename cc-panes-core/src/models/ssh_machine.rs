@@ -25,6 +25,9 @@ pub struct SshMachine {
     pub auth_method: AuthMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identity_file: Option<String>,
+    /// 默认远端工作目录（连接时自动 cd，为空则用 ~）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_path: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     pub created_at: String,

@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "cc-panes"
-version = "0.9.18"
+version = "0.9.19"
 dependencies = [
  "anyhow",
  "axum",

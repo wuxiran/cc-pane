@@ -35,6 +35,7 @@ export default function SshMachineDialog({
   const [user, setUser] = useState("");
   const [authMethod, setAuthMethod] = useState<AuthMethod>("key");
   const [identityFile, setIdentityFile] = useState("");
+  const [defaultPath, setDefaultPath] = useState("");
   const [tagsStr, setTagsStr] = useState("");
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -47,6 +48,7 @@ export default function SshMachineDialog({
     setUser("");
     setAuthMethod("key");
     setIdentityFile("");
+    setDefaultPath("");
     setTagsStr("");
     setTestResult(null);
   }, []);
@@ -60,6 +62,7 @@ export default function SshMachineDialog({
       setUser(machine.user || "");
       setAuthMethod(machine.authMethod);
       setIdentityFile(machine.identityFile || "");
+      setDefaultPath(machine.defaultPath || "");
       setTagsStr(machine.tags.join(", "));
     } else if (!open) {
       resetForm();
@@ -104,6 +107,7 @@ export default function SshMachineDialog({
     user !== (machine.user || "") ||
     authMethod !== machine.authMethod ||
     identityFile !== (machine.identityFile || "") ||
+    defaultPath !== (machine.defaultPath || "") ||
     tagsStr !== machine.tags.join(", ")
   ) : false;
 
@@ -162,6 +166,7 @@ export default function SshMachineDialog({
       user: user.trim() || undefined,
       authMethod,
       identityFile: authMethod === "key" && identityFile.trim() ? identityFile.trim() : undefined,
+      defaultPath: defaultPath.trim() || undefined,
       tags,
       createdAt: machine?.createdAt || now,
       updatedAt: now,
@@ -183,7 +188,7 @@ export default function SshMachineDialog({
     } finally {
       setLoading(false);
     }
-  }, [name, host, port, user, authMethod, identityFile, tagsStr, machine, isEdit, addMachine, updateMachine, t, resetForm, onOpenChange]);
+  }, [name, host, port, user, authMethod, identityFile, defaultPath, tagsStr, machine, isEdit, addMachine, updateMachine, t, resetForm, onOpenChange]);
 
   const authOptions: { value: AuthMethod; label: string }[] = [
     { value: "key", label: t("ssh.authKey", { defaultValue: "Key" }) },
@@ -312,6 +317,18 @@ export default function SshMachineDialog({
               />
             </div>
           )}
+
+          {/* Default Path */}
+          <div>
+            <label className="text-xs font-medium text-[var(--app-text-secondary)] mb-1 block">
+              {t("ssh.labelDefaultPath", { defaultValue: "Default Path" })}
+            </label>
+            <Input
+              value={defaultPath}
+              onChange={(e) => setDefaultPath(e.target.value)}
+              placeholder={t("ssh.defaultPathPlaceholder", { defaultValue: "~/projects (default: ~)" })}
+            />
+          </div>
 
           {/* Tags */}
           <div>

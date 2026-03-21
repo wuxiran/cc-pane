@@ -33,18 +33,19 @@ function formatConnection(m: SshMachine): string {
   return m.port === 22 ? `${userPart}${m.host}` : `${userPart}${m.host}:${m.port}`;
 }
 
-/** 从 SshMachine 构造 OpenTerminalOptions（快速连接到 home 目录） */
+/** 从 SshMachine 构造 OpenTerminalOptions */
 function buildTerminalOpts(m: SshMachine): OpenTerminalOptions {
+  const remotePath = m.defaultPath || "~";
   const ssh: SshConnectionInfo = {
     host: m.host,
     port: m.port,
     user: m.user,
-    remotePath: "~",
+    remotePath,
     identityFile: m.identityFile,
   };
   const userPart = m.user ? `${m.user}@` : "";
   const portPart = m.port !== 22 ? `:${m.port}` : "";
-  const path = `ssh://${userPart}${m.host}${portPart}/~`;
+  const path = `ssh://${userPart}${m.host}${portPart}/${remotePath}`;
   return { path, ssh, machineName: m.name };
 }
 
@@ -68,6 +69,7 @@ export default function SshMachinesView({ onOpenTerminal }: SshMachinesViewProps
   const abortRef = useRef(false);
   // generation 计数：组件卸载时递增，防止 stale 请求回写 state
   const generationRef = useRef(0);
+  const autoCheckedRef = useRef(false);
 
   useEffect(() => {
     waitForTauri().then((ready) => {
@@ -103,6 +105,15 @@ export default function SshMachinesView({ onOpenTerminal }: SshMachinesViewProps
     }
     if (!abortRef.current) setCheckingAll(false);
   }, [checkingAll, machines, checkOne]);
+
+  // 机器列表加载后自动检测一次在线状态
+  useEffect(() => {
+    if (machines.length > 0 && !autoCheckedRef.current && !checkingAll) {
+      autoCheckedRef.current = true;
+      const timer = setTimeout(() => checkAll(), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [machines.length, checkingAll, checkAll]);
 
   // 组件卸载时中止 + 递增 generation
   useEffect(() => () => {
