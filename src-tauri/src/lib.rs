@@ -1,5 +1,5 @@
-pub mod constants;
 mod commands;
+pub mod constants;
 pub mod emitter;
 pub mod models;
 pub mod pty;
@@ -8,92 +8,231 @@ pub mod services;
 pub mod utils;
 
 use commands::{
-    add_launch_history, add_project, clear_launch_history, delete_launch_history,
-    read_session_state, update_launch_session_id, update_launch_last_prompt, touch_launch_by_session,
-    detect_claude_session, debug_encode_path,
-    create_terminal_session,
-    enter_fullscreen, exit_fullscreen, get_all_terminal_status, get_available_shells, get_windows_build_number, check_environment, list_cli_tools, get_terminal_output,
-    get_git_branch, get_git_status, get_git_file_statuses, get_project,
-    git_clone, git_fetch, git_pull, git_push, git_stash, git_stash_pop, is_fullscreen, kill_terminal,
-    list_all_claude_sessions, list_claude_sessions, scan_broken_sessions,
-    clean_session_file, clean_all_broken_sessions, extract_last_prompt,
-    list_launch_history, list_projects,
-    remove_project, resize_terminal, set_decorations, toggle_always_on_top, enter_mini_mode, exit_mini_mode,
-    close_window, minimize_window, maximize_window, get_app_cwd, create_popup_terminal_window, get_popup_tab_data,
-    update_project_alias, update_project_name, write_terminal,
-    // Local History 命令
-    init_project_history, list_file_versions, get_version_content,
-    restore_file_version, get_history_config, update_history_config,
-    stop_project_history, cleanup_project_history,
-    // Local History - Diff
-    get_version_diff, get_versions_diff,
-    // Local History - 标签
-    put_label, list_labels, delete_label, restore_to_label, create_auto_label,
-    // Local History - 目录级历史 + 最近更改
-    list_directory_changes, get_recent_changes,
-    // Local History - 删除文件 + 压缩
-    list_deleted_files, compress_history,
-    // Local History - 分支感知 + Worktree
-    get_current_branch, get_file_branches, list_file_versions_by_branch,
-    list_worktree_recent_changes,
-    // Hooks 命令
-    is_hooks_enabled, enable_hooks, disable_hooks,
-    get_hooks_status, enable_hook, disable_hook, enable_all_hooks,
-    get_workflow, save_workflow, init_ccpanes,
     // Journal 命令
-    add_journal_session, get_journal_index, get_recent_journal,
-    // Worktree 命令
-    is_git_repo, list_worktrees, add_worktree, remove_worktree,
-    // Workspace 命令
-    list_workspaces, create_workspace, get_workspace, rename_workspace,
-    delete_workspace, add_workspace_project, add_ssh_project, remove_workspace_project,
-    update_workspace_alias, update_workspace_project_alias,
-    update_workspace_provider, update_workspace_path, update_workspace, reorder_workspaces,
-    scan_workspace_directory,
-    // Settings 命令
-    get_settings, update_settings, test_proxy,
-    get_data_dir_info, migrate_data_dir, generate_claude_md,
-    // Provider 命令
-    list_providers, get_provider, get_default_provider,
-    add_provider, update_provider, remove_provider, set_default_provider,
-    read_config_dir_info, open_path_in_explorer,
-    // Todo 命令
-    create_todo, get_todo, update_todo, delete_todo, query_todos,
-    reorder_todos, batch_update_todo_status, get_todo_stats,
-    toggle_todo_my_day, check_todo_reminders,
-    add_todo_subtask, update_todo_subtask, delete_todo_subtask,
-    toggle_todo_subtask, reorder_todo_subtasks,
+    add_journal_session,
+    add_launch_history,
+    add_project,
+    add_provider,
+    add_ssh_machine,
+    add_ssh_project,
+    add_todo_subtask,
+    add_workspace_project,
+    add_worktree,
+    batch_update_todo_status,
+    check_environment,
+    check_todo_reminders,
+    clean_all_broken_sessions,
+    clean_session_file,
+    cleanup_project_history,
+    clear_launch_history,
+    close_window,
+    compress_history,
+    copy_skill,
+    create_auto_label,
+    create_popup_terminal_window,
     // Spec 命令
-    create_spec, list_specs, get_spec_content, save_spec_content,
-    update_spec, delete_spec, sync_spec_tasks, handle_terminal_exit_spec,
-    // MCP 配置命令
-    list_mcp_servers, get_mcp_server, upsert_mcp_server, remove_mcp_server,
-    // Skill 命令
-    list_skills, get_skill, save_skill, delete_skill, copy_skill,
-    // Plan 命令
-    list_plans, get_plan_content, delete_plan,
+    create_spec,
+    create_terminal_session,
+    // Todo 命令
+    create_todo,
+    create_workspace,
+    debug_encode_path,
+    delete_label,
+    delete_launch_history,
+    delete_memory,
+    delete_plan,
+    delete_skill,
+    delete_spec,
+    delete_todo,
+    delete_todo_subtask,
+    delete_workspace,
+    detect_claude_session,
+    disable_hook,
+    disable_hooks,
+    enable_all_hooks,
+    enable_hook,
+    enable_hooks,
+    enter_fullscreen,
+    enter_mini_mode,
+    exit_fullscreen,
+    exit_mini_mode,
+    extract_last_prompt,
+    format_memory_for_injection,
+    fs_copy_entry,
+    fs_create_directory,
+    fs_create_file,
+    fs_delete_entry,
+    fs_get_entry_info,
     // FileSystem 命令
-    fs_list_directory, fs_read_file, fs_write_file, fs_create_file,
-    fs_create_directory, fs_delete_entry, fs_rename_entry, fs_copy_entry,
-    fs_move_entry, fs_search_files, fs_get_entry_info,
+    fs_list_directory,
+    fs_move_entry,
+    fs_read_file,
+    fs_rename_entry,
+    fs_search_files,
+    fs_write_file,
+    generate_claude_md,
+    get_all_terminal_status,
+    get_app_cwd,
+    get_available_shells,
+    // Local History - 分支感知 + Worktree
+    get_current_branch,
+    get_data_dir_info,
+    get_default_provider,
+    get_file_branches,
+    get_git_branch,
+    get_git_file_statuses,
+    get_git_status,
+    get_history_config,
+    get_hooks_status,
+    get_journal_index,
+    get_mcp_server,
+    get_memory,
+    get_memory_stats,
+    // Orchestrator 命令
+    get_orchestrator_port,
+    get_orchestrator_token,
+    get_plan_content,
+    get_popup_tab_data,
+    get_project,
+    get_provider,
+    get_recent_changes,
+    get_recent_journal,
+    // Settings 命令
+    get_settings,
+    get_skill,
+    get_spec_content,
+    get_ssh_machine,
+    get_terminal_output,
+    get_todo,
+    get_todo_stats,
+    get_version_content,
+    // Local History - Diff
+    get_version_diff,
+    get_versions_diff,
+    get_windows_build_number,
+    get_workflow,
+    get_workspace,
+    git_clone,
+    git_fetch,
+    git_pull,
+    git_push,
+    git_stash,
+    git_stash_pop,
+    handle_terminal_exit_spec,
+    init_ccpanes,
+    // Local History 命令
+    init_project_history,
+    is_fullscreen,
+    // Worktree 命令
+    is_git_repo,
+    // Hooks 命令
+    is_hooks_enabled,
+    kill_claude_process,
+    kill_claude_processes,
+    kill_terminal,
+    list_all_claude_sessions,
+    list_claude_sessions,
+    list_cli_tools,
+    // Local History - 删除文件 + 压缩
+    list_deleted_files,
+    // Local History - 目录级历史 + 最近更改
+    list_directory_changes,
+    list_file_versions,
+    list_file_versions_by_branch,
+    list_labels,
+    list_launch_history,
+    // MCP 配置命令
+    list_mcp_servers,
+    list_memories,
+    // Plan 命令
+    list_plans,
+    list_projects,
+    // Provider 命令
+    list_providers,
+    // Skill 命令
+    list_skills,
+    list_specs,
+    // SSH Machine 命令
+    list_ssh_machines,
+    // Workspace 命令
+    list_workspaces,
+    list_worktree_recent_changes,
+    list_worktrees,
+    maximize_window,
+    migrate_data_dir,
+    minimize_window,
+    open_path_in_explorer,
+    prepare_session_context,
+    // Local History - 标签
+    put_label,
+    query_todos,
+    read_config_dir_info,
+    read_session_state,
+    remove_mcp_server,
+    remove_project,
+    remove_provider,
+    remove_ssh_machine,
+    remove_workspace_project,
+    remove_worktree,
+    rename_workspace,
+    reorder_todo_subtasks,
+    reorder_todos,
+    reorder_workspaces,
+    resize_terminal,
+    respond_orchestrator_query,
+    restore_file_version,
+    restore_to_label,
+    save_skill,
+    save_spec_content,
+    save_workflow,
+    scan_broken_sessions,
+    // Process Monitor 命令
+    scan_claude_processes,
+    scan_workspace_directory,
     // Screenshot 命令
     screenshot_update_shortcut,
-    // Orchestrator 命令
-    get_orchestrator_port, get_orchestrator_token, respond_orchestrator_query,
     // Memory 命令
-    search_memory, store_memory, list_memories, get_memory,
-    update_memory, delete_memory, get_memory_stats,
-    prepare_session_context, format_memory_for_injection,
-    // SSH Machine 命令
-    list_ssh_machines, get_ssh_machine, add_ssh_machine,
-    update_ssh_machine, remove_ssh_machine,
-    // Process Monitor 命令
-    scan_claude_processes, kill_claude_process, kill_claude_processes,
+    search_memory,
+    set_decorations,
+    set_default_provider,
+    stop_project_history,
+    store_memory,
+    sync_spec_tasks,
+    test_proxy,
+    toggle_always_on_top,
+    toggle_todo_my_day,
+    toggle_todo_subtask,
+    touch_launch_by_session,
+    update_history_config,
+    update_launch_last_prompt,
+    update_launch_session_id,
+    update_memory,
+    update_project_alias,
+    update_project_name,
+    update_provider,
+    update_settings,
+    update_spec,
+    update_ssh_machine,
+    update_todo,
+    update_todo_subtask,
+    update_workspace,
+    update_workspace_alias,
+    update_workspace_path,
+    update_workspace_project_alias,
+    update_workspace_provider,
+    upsert_mcp_server,
+    write_terminal,
 };
-use repository::{Database, ProjectRepository, HistoryRepository, TodoRepository, SpecRepository};
-use services::{ProjectService, TerminalService, HistoryService, HooksService, JournalService, WorktreeService, WorkspaceService, SettingsService, ProviderService, NotificationService, LaunchHistoryService, TodoService, SpecService, McpConfigService, SkillService, PlanService, FileSystemService, FileSearchIndex, ScreenshotService, OrchestratorService, MemoryService, SshMachineService, ProcessMonitorService};
-use utils::AppPaths;
+use repository::{Database, HistoryRepository, ProjectRepository, SpecRepository, TodoRepository};
+use services::{
+    FileSearchIndex, FileSystemService, HistoryService, HooksService, JournalService,
+    LaunchHistoryService, McpConfigService, MemoryService, NotificationService,
+    OrchestratorService, PlanService, ProcessMonitorService, ProjectService, ProviderService,
+    ScreenshotService, SettingsService, SkillService, SpecService, SshMachineService,
+    TerminalService, TodoService, WorkspaceService, WorktreeService,
+};
 use std::sync::Arc;
+use utils::AppPaths;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{debug, error, info};
@@ -113,15 +252,18 @@ static CAPTURING: AtomicBool = AtomicBool::new(false);
 pub fn trigger_screenshot(app: &tauri::AppHandle) {
     use std::time::Instant;
 
-    if CAPTURING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+    if CAPTURING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
         return;
     }
 
     // 获取主窗口 HWND（isize 可安全跨线程传递）
     #[cfg(target_os = "windows")]
-    let main_hwnd: Option<isize> = app.get_webview_window("main").and_then(|w| {
-        w.hwnd().ok().map(|h| h.0 as isize)
-    });
+    let main_hwnd: Option<isize> = app
+        .get_webview_window("main")
+        .and_then(|w| w.hwnd().ok().map(|h| h.0 as isize));
 
     // ★ Windows: 在主线程设置 DisplayAffinity，DWM 层面排除窗口（立即生效）
     // 窗口保持可见，Tauri 状态不变，不会出现 re-show 问题
@@ -133,7 +275,9 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         };
         if let Some(val) = main_hwnd {
             let hwnd = HWND(val as *mut std::ffi::c_void);
-            unsafe { let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE); }
+            unsafe {
+                let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+            }
             debug!("[screenshot] display affinity set to WDA_EXCLUDEFROMCAPTURE");
         }
     }
@@ -167,7 +311,11 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         let capture = match ScreenshotService::capture_to_memory() {
             Ok(r) => r,
             Err(e) => {
-                error!("[screenshot] +{}ms: capture failed: {}", t0.elapsed().as_millis(), e);
+                error!(
+                    "[screenshot] +{}ms: capture failed: {}",
+                    t0.elapsed().as_millis(),
+                    e
+                );
                 #[cfg(target_os = "windows")]
                 restore_display_affinity(main_hwnd);
                 #[cfg(not(target_os = "windows"))]
@@ -194,15 +342,18 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         #[cfg(not(target_os = "windows"))]
         let selection: Option<services::screenshot_overlay::SelectionRect> = None;
 
-        debug!("[screenshot] +{}ms: user finished selection", t0.elapsed().as_millis());
+        debug!(
+            "[screenshot] +{}ms: user finished selection",
+            t0.elapsed().as_millis()
+        );
 
         // 3. 如果有选区 → 从内存裁剪 + 保存 PNG + 复制路径到剪贴板
         if let Some(rect) = selection {
-            debug!("[screenshot] +{}ms: image ready in memory", t0.elapsed().as_millis());
-            match ScreenshotService::save_cropped(
-                &capture.image,
-                rect.x, rect.y, rect.w, rect.h,
-            ) {
+            debug!(
+                "[screenshot] +{}ms: image ready in memory",
+                t0.elapsed().as_millis()
+            );
+            match ScreenshotService::save_cropped(&capture.image, rect.x, rect.y, rect.w, rect.h) {
                 Ok(result) => {
                     #[cfg(target_os = "windows")]
                     copy_to_clipboard_win32(&result.file_path);
@@ -213,11 +364,18 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
                     );
                 }
                 Err(e) => {
-                    error!("[screenshot] +{}ms: crop failed: {}", t0.elapsed().as_millis(), e);
+                    error!(
+                        "[screenshot] +{}ms: crop failed: {}",
+                        t0.elapsed().as_millis(),
+                        e
+                    );
                 }
             }
         } else {
-            debug!("[screenshot] +{}ms: user cancelled", t0.elapsed().as_millis());
+            debug!(
+                "[screenshot] +{}ms: user cancelled",
+                t0.elapsed().as_millis()
+            );
         }
 
         // 4. 恢复 DisplayAffinity / 窗口可见性
@@ -226,7 +384,10 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
         #[cfg(not(target_os = "windows"))]
         restore_main_window_tauri(&app);
 
-        debug!("[screenshot] +{}ms: display affinity restored", t0.elapsed().as_millis());
+        debug!(
+            "[screenshot] +{}ms: display affinity restored",
+            t0.elapsed().as_millis()
+        );
         // _guard Drop 会自动重置 CAPTURING
     });
 }
@@ -238,7 +399,9 @@ fn restore_display_affinity(hwnd_val: Option<isize>) {
     use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_NONE};
     if let Some(val) = hwnd_val {
         let hwnd = HWND(val as *mut std::ffi::c_void);
-        unsafe { let _ = SetWindowDisplayAffinity(hwnd, WDA_NONE); }
+        unsafe {
+            let _ = SetWindowDisplayAffinity(hwnd, WDA_NONE);
+        }
     }
 }
 
@@ -299,8 +462,8 @@ pub fn run() {
         std::panic::set_hook(Box::new(move |info| {
             // 写入 crash.log
             let crash_dir = dirs::home_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join(crate::utils::APP_DIR_NAME);
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(crate::utils::APP_DIR_NAME);
             let _ = std::fs::create_dir_all(&crash_dir);
             let crash_log = crash_dir.join("crash.log");
             if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -337,9 +500,15 @@ pub fn run() {
     let db = match Database::new(app_paths.database_path()) {
         Ok(db) => Arc::new(db),
         Err(e) => {
-            error!("Database initialization failed: {}, trying in-memory fallback", e);
+            error!(
+                "Database initialization failed: {}, trying in-memory fallback",
+                e
+            );
             Arc::new(Database::new_fallback().unwrap_or_else(|e2| {
-                panic!("Database initialization completely failed (including fallback): {}", e2);
+                panic!(
+                    "Database initialization completely failed (including fallback): {}",
+                    e2
+                );
             }))
         }
     };
@@ -379,11 +548,10 @@ pub fn run() {
     terminal_service.set_spec_service(spec_service.clone());
 
     let memory_service = Arc::new(
-        MemoryService::new(app_paths.data_dir().join("memory.db"))
-            .unwrap_or_else(|e| {
-                error!("MemoryService init failed: {}, using in-memory fallback", e);
-                MemoryService::new_memory().expect("MemoryService fallback failed")
-            })
+        MemoryService::new(app_paths.data_dir().join("memory.db")).unwrap_or_else(|e| {
+            error!("MemoryService init failed: {}, using in-memory fallback", e);
+            MemoryService::new_memory().expect("MemoryService fallback failed")
+        }),
     );
 
     let ssh_machine_service = Arc::new(SshMachineService::new(
@@ -406,7 +574,9 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .targets([
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
                 .level(log_level)
@@ -453,7 +623,8 @@ pub fn run() {
 
             // ---- 注册 updater 插件（需在 setup 中注册以访问 app handle）----
             #[cfg(desktop)]
-            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
 
             // ---- 注入 EventEmitter 和 SessionNotifier（setup 中才有 AppHandle）----
             {
@@ -486,14 +657,24 @@ pub fn run() {
                 let settings = settings_svc.get_settings();
                 let shortcut_str = settings.screenshot.shortcut.clone();
                 if !shortcut_str.is_empty() {
-                    if let Ok(shortcut) = shortcut_str.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                    if let Ok(shortcut) =
+                        shortcut_str.parse::<tauri_plugin_global_shortcut::Shortcut>()
+                    {
                         let app_handle = app.handle().clone();
-                        if let Err(e) = app.global_shortcut().on_shortcut(shortcut, move |_app, _sc, event| {
-                            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                                trigger_screenshot(&app_handle);
-                            }
-                        }) {
-                            error!("[screenshot] Failed to register shortcut '{}': {}", shortcut_str, e);
+                        if let Err(e) =
+                            app.global_shortcut()
+                                .on_shortcut(shortcut, move |_app, _sc, event| {
+                                    if event.state
+                                        == tauri_plugin_global_shortcut::ShortcutState::Pressed
+                                    {
+                                        trigger_screenshot(&app_handle);
+                                    }
+                                })
+                        {
+                            error!(
+                                "[screenshot] Failed to register shortcut '{}': {}",
+                                shortcut_str, e
+                            );
                         }
                     } else {
                         error!("[screenshot] Invalid shortcut format: {}", shortcut_str);
@@ -538,10 +719,13 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
-            let icon =
-                tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
-            let tooltip = if cfg!(debug_assertions) { "CC-Panes [DEV]" } else { "CC-Panes" };
+            let tooltip = if cfg!(debug_assertions) {
+                "CC-Panes [DEV]"
+            } else {
+                "CC-Panes"
+            };
             let _tray = TrayIconBuilder::new()
                 .icon(icon)
                 .tooltip(tooltip)

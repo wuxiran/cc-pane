@@ -45,20 +45,24 @@ impl McpConfigService {
         if !path.exists() {
             return Ok(ClaudeLocalSettings::default());
         }
-        let content =
-            std::fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {}", e))?;
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read config file: {}", e))?;
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse config file: {}", e))
     }
 
     /// 写入项目的完整 Claude 本地设置
-    pub fn write_settings(project_path: &str, settings: &ClaudeLocalSettings) -> Result<(), String> {
+    pub fn write_settings(
+        project_path: &str,
+        settings: &ClaudeLocalSettings,
+    ) -> Result<(), String> {
         let path = Self::settings_path(project_path);
         // 确保 .claude 目录存在
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create .claude directory: {}", e))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create .claude directory: {}", e))?;
         }
-        let content =
-            serde_json::to_string_pretty(settings).map_err(|e| format!("Failed to serialize config: {}", e))?;
+        let content = serde_json::to_string_pretty(settings)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
         std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {}", e))
     }
 

@@ -1,7 +1,7 @@
 use crate::utils::{output_with_timeout, GIT_CHECKOUT_TIMEOUT, GIT_LOCAL_TIMEOUT};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
-use serde::{Deserialize, Serialize};
 
 /// Worktree 信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +51,11 @@ impl WorktreeService {
     }
 
     /// 解析 worktree 列表输出
-    fn parse_worktree_list(&self, output: &str, main_path: &str) -> Result<Vec<WorktreeInfo>, String> {
+    fn parse_worktree_list(
+        &self,
+        output: &str,
+        main_path: &str,
+    ) -> Result<Vec<WorktreeInfo>, String> {
         let mut worktrees = Vec::new();
         let mut current_path = String::new();
         let mut current_commit = String::new();
@@ -63,7 +67,8 @@ impl WorktreeService {
             } else if line.starts_with("HEAD ") {
                 current_commit = line.strip_prefix("HEAD ").unwrap_or("").to_string();
             } else if line.starts_with("branch ") {
-                current_branch = line.strip_prefix("branch refs/heads/")
+                current_branch = line
+                    .strip_prefix("branch refs/heads/")
                     .unwrap_or(line.strip_prefix("branch ").unwrap_or(""))
                     .to_string();
             } else if line.is_empty() && !current_path.is_empty() {
@@ -101,18 +106,19 @@ impl WorktreeService {
         branch: Option<&str>,
     ) -> Result<String, String> {
         // 验证 worktree 名称安全性
-        crate::utils::validate_worktree_name(name)
-            .map_err(|e| e.to_string())?;
+        crate::utils::validate_worktree_name(name).map_err(|e| e.to_string())?;
 
         if !self.is_git_repo(project_path) {
             return Err("Not a Git repository".to_string());
         }
 
         let project_dir = PathBuf::from(project_path);
-        let parent_dir = project_dir.parent()
+        let parent_dir = project_dir
+            .parent()
             .ok_or("Failed to get parent directory")?;
 
-        let project_name = project_dir.file_name()
+        let project_name = project_dir
+            .file_name()
             .and_then(|n| n.to_str())
             .ok_or("Failed to get project name")?;
 
@@ -126,10 +132,7 @@ impl WorktreeService {
 
         let worktree_path_str = worktree_path.to_string_lossy().to_string();
 
-        let mut args = vec![
-            "worktree".to_string(),
-            "add".to_string(),
-        ];
+        let mut args = vec!["worktree".to_string(), "add".to_string()];
 
         if let Some(b) = branch {
             args.push("-b".to_string());
@@ -156,11 +159,7 @@ impl WorktreeService {
     }
 
     /// 删除 worktree
-    pub fn remove_worktree(
-        &self,
-        project_path: &str,
-        worktree_path: &str,
-    ) -> Result<(), String> {
+    pub fn remove_worktree(&self, project_path: &str, worktree_path: &str) -> Result<(), String> {
         if !self.is_git_repo(project_path) {
             return Err("Not a Git repository".to_string());
         }

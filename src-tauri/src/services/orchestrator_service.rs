@@ -9,9 +9,14 @@
 //! - 项目路径白名单校验
 //! - 请求频率限制
 
-use crate::services::{ProjectService, ProviderService, TerminalService, WorkspaceService, TodoService, SpecService, SkillService, LaunchHistoryService};
+use crate::models::todo::{
+    CreateTodoRequest, TodoPriority, TodoQuery, TodoScope, TodoStatus, UpdateTodoRequest,
+};
 use crate::models::CliTool;
-use crate::models::todo::{TodoQuery, CreateTodoRequest, UpdateTodoRequest, TodoStatus, TodoPriority, TodoScope};
+use crate::services::{
+    LaunchHistoryService, ProjectService, ProviderService, SkillService, SpecService,
+    TerminalService, TodoService, WorkspaceService,
+};
 use crate::utils::AppPaths;
 use anyhow::Result;
 use axum::{
@@ -23,11 +28,10 @@ use axum::{
     Router,
 };
 use rmcp::{
-    ServerHandler,
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
     model::{ServerCapabilities, ServerInfo},
-    tool, tool_router, tool_handler,
+    tool, tool_handler, tool_router, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -201,7 +205,9 @@ impl OrchestratorService {
     }
 
     /// 获取 pending_queries 引用（用于 respond command）
-    pub fn pending_queries(&self) -> Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>> {
+    pub fn pending_queries(
+        &self,
+    ) -> Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>> {
         self.pending_queries.clone()
     }
 
@@ -281,7 +287,10 @@ impl OrchestratorService {
                     }
                 };
                 let port = addr.port();
-                info!("[orchestrator] HTTP + MCP server listening on http://127.0.0.1:{}", port);
+                info!(
+                    "[orchestrator] HTTP + MCP server listening on http://127.0.0.1:{}",
+                    port
+                );
 
                 // 通知主线程端口号
                 if let Ok(mut p) = port_mutex_clone.lock() {
@@ -319,9 +328,17 @@ impl OrchestratorService {
                             }
                         }
                     });
-                    let config_path = app_paths_for_config.data_dir().join("mcp-orchestrator.json");
-                    match std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default()) {
-                        Ok(_) => info!("[orchestrator] MCP config written to {}", config_path.display()),
+                    let config_path = app_paths_for_config
+                        .data_dir()
+                        .join("mcp-orchestrator.json");
+                    match std::fs::write(
+                        &config_path,
+                        serde_json::to_string_pretty(&config).unwrap_or_default(),
+                    ) {
+                        Ok(_) => info!(
+                            "[orchestrator] MCP config written to {}",
+                            config_path.display()
+                        ),
                         Err(e) => error!("[orchestrator] Failed to write MCP config: {}", e),
                     }
 
@@ -339,8 +356,7 @@ impl OrchestratorService {
 
 fn build_router(state: AppState) -> Router {
     use rmcp::transport::streamable_http_server::{
-        StreamableHttpService,
-        session::local::LocalSessionManager,
+        session::local::LocalSessionManager, StreamableHttpService,
     };
 
     // M1: 收紧 CORS — 仅允许本地 Origin
@@ -370,13 +386,19 @@ fn build_router(state: AppState) -> Router {
         .route("/api/projects", get(handle_list_projects))
         .route("/api/task-status/{task_id}", get(handle_task_status))
         .route("/api/sessions", get(handle_list_sessions))
-        .route("/api/session-status/{session_id}", get(handle_session_status))
+        .route(
+            "/api/session-status/{session_id}",
+            get(handle_session_status),
+        )
         .route("/api/write-to-session", post(handle_write_to_session))
         .route("/api/submit-to-session", post(handle_submit_to_session))
         .route("/api/kill-session", post(handle_kill_session))
         .route("/api/health", get(handle_health))
         .nest_service("/mcp", mcp_service)
-        .layer(middleware::from_fn_with_state(state.clone(), mcp_auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            mcp_auth_middleware,
+        ))
         .layer(cors)
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB — 最后加 = 最外层最先执行
         .with_state(state)
@@ -389,12 +411,12 @@ async fn mcp_auth_middleware(
     next: middleware::Next,
 ) -> axum::response::Response {
     // 仅对 /mcp 路由校验 token（REST handlers 各自校验；OPTIONS 预检由 CORS 层处理）
-    if request.uri().path().starts_with("/mcp")
-        && request.method() != Method::OPTIONS
-    {
+    if request.uri().path().starts_with("/mcp") && request.method() != Method::OPTIONS {
         let header_ok = verify_token(request.headers(), &state.token);
         // 后备：从 URL query ?token=xxx 读取（Claude Code 某些版本忽略 headers — Issue #7290）
-        let query_ok = request.uri().query()
+        let query_ok = request
+            .uri()
+            .query()
             .and_then(|q| q.split('&').find(|p| p.starts_with("token=")))
             .map(|p| p[6..] == *state.token)
             .unwrap_or(false);
@@ -404,7 +426,8 @@ async fn mcp_auth_middleware(
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({"error": "Invalid or missing Bearer token"})),
-            ).into_response();
+            )
+                .into_response();
         }
     }
     next.run(request).await
@@ -669,10 +692,7 @@ impl McpToolHandler {
     /// 新任务：传 prompt（必需），会在 CC-Panes 中创建新标签页并注入 prompt。
     /// 恢复会话：传 resumeId（必需），会以 `claude --resume <id>` 启动，不注入 prompt。
     #[tool]
-    async fn launch_task(
-        &self,
-        Parameters(params): Parameters<McpLaunchTaskParams>,
-    ) -> String {
+    async fn launch_task(&self, Parameters(params): Parameters<McpLaunchTaskParams>) -> String {
         let is_resume = params.resume_id.is_some();
         let prompt_len = params.prompt.as_ref().map(|p| p.len()).unwrap_or(0);
         info!(project = %params.project_path, prompt_len, is_resume, "mcp::launch_task");
@@ -723,7 +743,8 @@ impl McpToolHandler {
         // 创建 PTY 会话（resume 时传 resume_id）
         let session_id = match self.state.terminal_service.create_session(
             &params.project_path,
-            120, 30,
+            120,
+            30,
             ws_name.as_deref(),
             provider_id.as_deref(),
             ws_path.as_deref(),
@@ -744,13 +765,16 @@ impl McpToolHandler {
         {
             let mut tasks = self.state.tasks.lock().unwrap_or_else(|e| e.into_inner());
             cleanup_stale_tasks(&mut tasks);
-            tasks.insert(task_id.clone(), TaskStatus {
-                task_id: task_id.clone(),
-                session_id: session_id.clone(),
-                status: "launching".to_string(),
-                error: None,
-                created_at: std::time::Instant::now(),
-            });
+            tasks.insert(
+                task_id.clone(),
+                TaskStatus {
+                    task_id: task_id.clone(),
+                    session_id: session_id.clone(),
+                    status: "launching".to_string(),
+                    error: None,
+                    created_at: std::time::Instant::now(),
+                },
+            );
         }
 
         // 通知前端
@@ -767,7 +791,10 @@ impl McpToolHandler {
             pane_id: params.pane_id.clone(),
             cli_tool: params.cli_tool.clone(),
         };
-        let _ = self.state.app_handle.emit("orchestrator-launch-task", &event);
+        let _ = self
+            .state
+            .app_handle
+            .emit("orchestrator-launch-task", &event);
 
         // resume 时不注入 prompt（Claude --resume 自动恢复上下文）
         // 新任务时后台注入 prompt
@@ -788,7 +815,8 @@ impl McpToolHandler {
             "taskId": task_id,
             "sessionId": session_id,
             "status": "launching"
-        }).to_string()
+        })
+        .to_string()
     }
 
     /// 列出所有已注册的项目（DB 项目 + 工作空间项目）
@@ -798,7 +826,12 @@ impl McpToolHandler {
         let mut infos: Vec<serde_json::Value> = Vec::new();
 
         // DB 项目
-        for p in self.state.project_service.list_projects().unwrap_or_default() {
+        for p in self
+            .state
+            .project_service
+            .list_projects()
+            .unwrap_or_default()
+        {
             infos.push(serde_json::json!({
                 "id": p.id.to_string(),
                 "name": p.name,
@@ -808,12 +841,17 @@ impl McpToolHandler {
         }
 
         // 工作空间项目（去重：与 DB 路径重复则跳过）
-        for ws in self.state.workspace_service.list_workspaces().unwrap_or_default() {
+        for ws in self
+            .state
+            .workspace_service
+            .list_workspaces()
+            .unwrap_or_default()
+        {
             for p in &ws.projects {
                 let norm = normalize_path(&p.path);
-                let already_listed = infos.iter().any(|i| {
-                    i["path"].as_str().map(normalize_path) == Some(norm.clone())
-                });
+                let already_listed = infos
+                    .iter()
+                    .any(|i| i["path"].as_str().map(normalize_path) == Some(norm.clone()));
                 if already_listed {
                     continue;
                 }
@@ -840,14 +878,13 @@ impl McpToolHandler {
         debug!(task_id = %params.task_id, "mcp::get_task_status");
         let tasks = self.state.tasks.lock().unwrap_or_else(|e| e.into_inner());
         match tasks.get(&params.task_id) {
-            Some(status) => {
-                serde_json::json!({
-                    "taskId": status.task_id,
-                    "sessionId": status.session_id,
-                    "status": status.status,
-                    "error": status.error,
-                }).to_string()
-            }
+            Some(status) => serde_json::json!({
+                "taskId": status.task_id,
+                "sessionId": status.session_id,
+                "status": status.status,
+                "error": status.error,
+            })
+            .to_string(),
             None => {
                 format!("错误: 任务 '{}' 不存在", params.task_id)
             }
@@ -862,16 +899,19 @@ impl McpToolHandler {
         debug!("mcp::list_workspaces");
         match self.state.workspace_service.list_workspaces() {
             Ok(workspaces) => {
-                let items: Vec<serde_json::Value> = workspaces.iter().map(|ws| {
-                    serde_json::json!({
-                        "name": ws.name,
-                        "alias": ws.alias,
-                        "projectCount": ws.projects.len(),
-                        "providerId": ws.provider_id,
-                        "path": ws.path,
-                        "pinned": ws.pinned,
+                let items: Vec<serde_json::Value> = workspaces
+                    .iter()
+                    .map(|ws| {
+                        serde_json::json!({
+                            "name": ws.name,
+                            "alias": ws.alias,
+                            "projectCount": ws.projects.len(),
+                            "providerId": ws.provider_id,
+                            "path": ws.path,
+                            "pinned": ws.pinned,
+                        })
                     })
-                }).collect();
+                    .collect();
                 serde_json::json!({ "workspaces": items }).to_string()
             }
             Err(e) => format!("错误: {}", e),
@@ -880,20 +920,25 @@ impl McpToolHandler {
 
     /// 获取指定工作空间的详细信息，包括项目列表
     #[tool]
-    async fn get_workspace(
-        &self,
-        Parameters(params): Parameters<McpGetWorkspaceParams>,
-    ) -> String {
+    async fn get_workspace(&self, Parameters(params): Parameters<McpGetWorkspaceParams>) -> String {
         debug!(name = %params.workspace_name, "mcp::get_workspace");
-        match self.state.workspace_service.get_workspace(&params.workspace_name) {
+        match self
+            .state
+            .workspace_service
+            .get_workspace(&params.workspace_name)
+        {
             Ok(ws) => {
-                let projects: Vec<serde_json::Value> = ws.projects.iter().map(|p| {
-                    serde_json::json!({
-                        "id": p.id,
-                        "path": p.path,
-                        "alias": p.alias,
+                let projects: Vec<serde_json::Value> = ws
+                    .projects
+                    .iter()
+                    .map(|p| {
+                        serde_json::json!({
+                            "id": p.id,
+                            "path": p.path,
+                            "alias": p.alias,
+                        })
                     })
-                }).collect();
+                    .collect();
                 serde_json::json!({
                     "name": ws.name,
                     "alias": ws.alias,
@@ -901,7 +946,8 @@ impl McpToolHandler {
                     "providerId": ws.provider_id,
                     "path": ws.path,
                     "pinned": ws.pinned,
-                }).to_string()
+                })
+                .to_string()
             }
             Err(e) => format!("错误: {}", e),
         }
@@ -914,11 +960,14 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpCreateWorkspaceParams>,
     ) -> String {
         info!(name = %params.name, "mcp::create_workspace");
-        match self.state.workspace_service.create_workspace(
-            &params.name,
-            params.path.as_deref(),
-        ) {
-            Ok(ws) => serde_json::to_string(&ws).unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
+        match self
+            .state
+            .workspace_service
+            .create_workspace(&params.name, params.path.as_deref())
+        {
+            Ok(ws) => {
+                serde_json::to_string(&ws).unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
+            }
             Err(e) => format!("错误: {}", e),
         }
     }
@@ -930,11 +979,13 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpAddProjectToWorkspaceParams>,
     ) -> String {
         info!(ws = %params.workspace_name, path = %params.project_path, "mcp::add_project_to_workspace");
-        match self.state.workspace_service.add_project(
-            &params.workspace_name,
-            &params.project_path,
-        ) {
-            Ok(project) => serde_json::to_string(&project).unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
+        match self
+            .state
+            .workspace_service
+            .add_project(&params.workspace_name, &params.project_path)
+        {
+            Ok(project) => serde_json::to_string(&project)
+                .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
             Err(e) => format!("错误: {}", e),
         }
     }
@@ -956,10 +1007,7 @@ impl McpToolHandler {
 
     /// 查询待办任务列表，支持按状态、优先级、范围等条件筛选
     #[tool]
-    async fn query_todos(
-        &self,
-        Parameters(params): Parameters<McpQueryTodosParams>,
-    ) -> String {
+    async fn query_todos(&self, Parameters(params): Parameters<McpQueryTodosParams>) -> String {
         debug!("mcp::query_todos");
         let query = TodoQuery {
             status: params.status.and_then(|s| s.parse::<TodoStatus>().ok()),
@@ -971,17 +1019,15 @@ impl McpToolHandler {
             ..Default::default()
         };
         match self.state.todo_service.query_todos(query) {
-            Ok(result) => serde_json::to_string(&result).unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
+            Ok(result) => serde_json::to_string(&result)
+                .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
             Err(e) => format!("错误: {}", e),
         }
     }
 
     /// 创建新的待办任务
     #[tool]
-    async fn create_todo(
-        &self,
-        Parameters(params): Parameters<McpCreateTodoParams>,
-    ) -> String {
+    async fn create_todo(&self, Parameters(params): Parameters<McpCreateTodoParams>) -> String {
         info!(title = %params.title, "mcp::create_todo");
         let req = CreateTodoRequest {
             title: params.title,
@@ -993,17 +1039,16 @@ impl McpToolHandler {
             ..Default::default()
         };
         match self.state.todo_service.create_todo(req) {
-            Ok(todo) => serde_json::to_string(&todo).unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
+            Ok(todo) => {
+                serde_json::to_string(&todo).unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
+            }
             Err(e) => format!("错误: {}", e),
         }
     }
 
     /// 更新待办任务的标题、状态、优先级或描述
     #[tool]
-    async fn update_todo(
-        &self,
-        Parameters(params): Parameters<McpUpdateTodoParams>,
-    ) -> String {
+    async fn update_todo(&self, Parameters(params): Parameters<McpUpdateTodoParams>) -> String {
         info!(id = %params.id, "mcp::update_todo");
         let req = UpdateTodoRequest {
             title: params.title,
@@ -1026,10 +1071,7 @@ impl McpToolHandler {
 
     /// 列出项目的可用 Skill（命令模板），返回名称和预览
     #[tool]
-    async fn list_skills(
-        &self,
-        Parameters(params): Parameters<McpListSkillsParams>,
-    ) -> String {
+    async fn list_skills(&self, Parameters(params): Parameters<McpListSkillsParams>) -> String {
         debug!(project = %params.project_path, "mcp::list_skills");
         match self.state.skill_service.list_skills(&params.project_path) {
             Ok(skills) => serde_json::json!({ "skills": skills }).to_string(),
@@ -1041,10 +1083,7 @@ impl McpToolHandler {
 
     /// 在 CC-Panes 文件浏览器中导航到指定目录，自动切换到 Files 视图模式
     #[tool]
-    async fn open_folder(
-        &self,
-        Parameters(params): Parameters<McpOpenFolderParams>,
-    ) -> String {
+    async fn open_folder(&self, Parameters(params): Parameters<McpOpenFolderParams>) -> String {
         info!(path = %params.path, "mcp::open_folder");
         let path = std::path::Path::new(&params.path);
         if !path.exists() {
@@ -1060,16 +1099,16 @@ impl McpToolHandler {
         let event = OrchestratorOpenFolderEvent {
             path: canonical.clone(),
         };
-        let _ = self.state.app_handle.emit("orchestrator-open-folder", &event);
+        let _ = self
+            .state
+            .app_handle
+            .emit("orchestrator-open-folder", &event);
         serde_json::json!({ "success": true, "path": canonical }).to_string()
     }
 
     /// 在 CC-Panes 编辑器中打开文件标签页，自动切换到 Files 视图模式。projectPath 可选，不传则自动推断
     #[tool]
-    async fn open_file(
-        &self,
-        Parameters(params): Parameters<McpOpenFileParams>,
-    ) -> String {
+    async fn open_file(&self, Parameters(params): Parameters<McpOpenFileParams>) -> String {
         info!(file = %params.file_path, "mcp::open_file");
         let file_path = std::path::Path::new(&params.file_path);
         if !file_path.exists() {
@@ -1087,9 +1126,14 @@ impl McpToolHandler {
         let project_path = if let Some(ref pp) = params.project_path {
             pp.clone()
         } else {
-            let projects = self.state.project_service.list_projects().unwrap_or_default();
+            let projects = self
+                .state
+                .project_service
+                .list_projects()
+                .unwrap_or_default();
             let normalized_file = canonical_file.replace('\\', "/");
-            projects.iter()
+            projects
+                .iter()
                 .filter_map(|p| {
                     let normalized_proj = p.path.replace('\\', "/");
                     if normalized_file.starts_with(&normalized_proj) {
@@ -1102,13 +1146,15 @@ impl McpToolHandler {
                 .map(|(path, _)| path)
                 .unwrap_or_else(|| {
                     // fallback: 文件的父目录
-                    file_path.parent()
+                    file_path
+                        .parent()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_default()
                 })
         };
 
-        let title = file_path.file_name()
+        let title = file_path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "File".to_string());
 
@@ -1122,24 +1168,26 @@ impl McpToolHandler {
             "success": true,
             "filePath": canonical_file,
             "projectPath": project_path,
-        }).to_string()
+        })
+        .to_string()
     }
 
     /// 关闭 CC-Panes 编辑器中匹配的文件标签页
     #[tool]
-    async fn close_file(
-        &self,
-        Parameters(params): Parameters<McpCloseFileParams>,
-    ) -> String {
+    async fn close_file(&self, Parameters(params): Parameters<McpCloseFileParams>) -> String {
         info!(file = %params.file_path, "mcp::close_file");
         let event = OrchestratorCloseFileEvent {
             file_path: params.file_path.clone(),
         };
-        let _ = self.state.app_handle.emit("orchestrator-close-file", &event);
+        let _ = self
+            .state
+            .app_handle
+            .emit("orchestrator-close-file", &event);
         serde_json::json!({
             "success": true,
             "filePath": params.file_path,
-        }).to_string()
+        })
+        .to_string()
     }
 
     /// 查询 CC-Panes 编辑器中当前打开的所有文件标签页信息
@@ -1151,7 +1199,11 @@ impl McpToolHandler {
 
         // 注册 pending query
         {
-            let mut queries = self.state.pending_queries.lock().unwrap_or_else(|e| e.into_inner());
+            let mut queries = self
+                .state
+                .pending_queries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             queries.insert(request_id.clone(), tx);
         }
 
@@ -1159,17 +1211,22 @@ impl McpToolHandler {
         let event = OrchestratorQueryEvent {
             request_id: request_id.clone(),
         };
-        let _ = self.state.app_handle.emit("orchestrator-query-open-files", &event);
+        let _ = self
+            .state
+            .app_handle
+            .emit("orchestrator-query-open-files", &event);
 
         // 等待前端响应（超时 5 秒）
         match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
             Ok(Ok(data)) => data,
-            Ok(Err(_)) => {
-                "错误: 前端响应通道已关闭".to_string()
-            }
+            Ok(Err(_)) => "错误: 前端响应通道已关闭".to_string(),
             Err(_) => {
                 // 超时，清理 pending query
-                let mut queries = self.state.pending_queries.lock().unwrap_or_else(|e| e.into_inner());
+                let mut queries = self
+                    .state
+                    .pending_queries
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 queries.remove(&request_id);
                 "错误: 查询超时（5秒），前端未响应".to_string()
             }
@@ -1185,7 +1242,11 @@ impl McpToolHandler {
 
         // 注册 pending query
         {
-            let mut queries = self.state.pending_queries.lock().unwrap_or_else(|e| e.into_inner());
+            let mut queries = self
+                .state
+                .pending_queries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             queries.insert(request_id.clone(), tx);
         }
 
@@ -1193,17 +1254,22 @@ impl McpToolHandler {
         let event = OrchestratorQueryEvent {
             request_id: request_id.clone(),
         };
-        let _ = self.state.app_handle.emit("orchestrator-query-panes", &event);
+        let _ = self
+            .state
+            .app_handle
+            .emit("orchestrator-query-panes", &event);
 
         // 等待前端响应（超时 5 秒）
         match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
             Ok(Ok(data)) => data,
-            Ok(Err(_)) => {
-                "错误: 前端响应通道已关闭".to_string()
-            }
+            Ok(Err(_)) => "错误: 前端响应通道已关闭".to_string(),
             Err(_) => {
                 // 超时，清理 pending query
-                let mut queries = self.state.pending_queries.lock().unwrap_or_else(|e| e.into_inner());
+                let mut queries = self
+                    .state
+                    .pending_queries
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 queries.remove(&request_id);
                 "错误: 查询超时（5秒），前端未响应".to_string()
             }
@@ -1223,12 +1289,11 @@ impl McpToolHandler {
         let sid = params.session_id.clone();
         let txt = params.text;
         match tokio::task::spawn_blocking(move || svc.write(&sid, &txt)).await {
-            Ok(Ok(())) => {
-                serde_json::json!({
-                    "success": true,
-                    "sessionId": params.session_id,
-                }).to_string()
-            }
+            Ok(Ok(())) => serde_json::json!({
+                "success": true,
+                "sessionId": params.session_id,
+            })
+            .to_string(),
             Ok(Err(e)) => {
                 error!(session_id = %params.session_id, err = %e, "mcp::write_to_session failed");
                 format!("错误: 写入会话 '{}' 失败: {}", params.session_id, e)
@@ -1249,13 +1314,18 @@ impl McpToolHandler {
         info!(session_id = %params.session_id, text_len = params.text.len(), "mcp::submit_to_session");
         // 去除文本中的换行符，防止意外提交
         let clean_text = params.text.replace(['\r', '\n'], "");
-        match submit_text_to_session(&self.state.terminal_service, &params.session_id, &clean_text).await {
-            Ok(()) => {
-                serde_json::json!({
-                    "success": true,
-                    "sessionId": params.session_id,
-                }).to_string()
-            }
+        match submit_text_to_session(
+            &self.state.terminal_service,
+            &params.session_id,
+            &clean_text,
+        )
+        .await
+        {
+            Ok(()) => serde_json::json!({
+                "success": true,
+                "sessionId": params.session_id,
+            })
+            .to_string(),
             Err(e) => {
                 error!(session_id = %params.session_id, err = %e, "mcp::submit_to_session failed");
                 format!("错误: 提交到会话 '{}' 失败: {}", params.session_id, e)
@@ -1271,18 +1341,15 @@ impl McpToolHandler {
     ) -> String {
         debug!(session_id = %params.session_id, "mcp::get_session_status");
         match self.state.terminal_service.get_all_status() {
-            Ok(statuses) => {
-                match statuses.iter().find(|s| s.session_id == params.session_id) {
-                    Some(status) => {
-                        serde_json::json!({
-                            "sessionId": status.session_id,
-                            "status": status.status,
-                            "lastOutputAt": status.last_output_at,
-                        }).to_string()
-                    }
-                    None => format!("错误: 会话 '{}' 不存在", params.session_id),
-                }
-            }
+            Ok(statuses) => match statuses.iter().find(|s| s.session_id == params.session_id) {
+                Some(status) => serde_json::json!({
+                    "sessionId": status.session_id,
+                    "status": status.status,
+                    "lastOutputAt": status.last_output_at,
+                })
+                .to_string(),
+                None => format!("错误: 会话 '{}' 不存在", params.session_id),
+            },
             Err(e) => format!("错误: 获取会话状态失败: {}", e),
         }
     }
@@ -1293,13 +1360,16 @@ impl McpToolHandler {
         debug!("mcp::list_sessions");
         match self.state.terminal_service.get_all_status() {
             Ok(statuses) => {
-                let sessions: Vec<serde_json::Value> = statuses.iter().map(|s| {
-                    serde_json::json!({
-                        "sessionId": s.session_id,
-                        "status": s.status,
-                        "lastOutputAt": s.last_output_at,
+                let sessions: Vec<serde_json::Value> = statuses
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "sessionId": s.session_id,
+                            "status": s.status,
+                            "lastOutputAt": s.last_output_at,
+                        })
                     })
-                }).collect();
+                    .collect();
                 serde_json::json!({ "sessions": sessions }).to_string()
             }
             Err(e) => format!("错误: 获取会话列表失败: {}", e),
@@ -1308,18 +1378,14 @@ impl McpToolHandler {
 
     /// 终止指定的终端会话。会话将被立即关闭，PTY 进程被终止。
     #[tool]
-    async fn kill_session(
-        &self,
-        Parameters(params): Parameters<McpKillSessionParams>,
-    ) -> String {
+    async fn kill_session(&self, Parameters(params): Parameters<McpKillSessionParams>) -> String {
         info!(session_id = %params.session_id, "mcp::kill_session");
         match self.state.terminal_service.kill(&params.session_id) {
-            Ok(()) => {
-                serde_json::json!({
-                    "success": true,
-                    "sessionId": params.session_id,
-                }).to_string()
-            }
+            Ok(()) => serde_json::json!({
+                "success": true,
+                "sessionId": params.session_id,
+            })
+            .to_string(),
             Err(e) => {
                 error!(session_id = %params.session_id, err = %e, "mcp::kill_session failed");
                 format!("错误: 终止会话 '{}' 失败: {}", params.session_id, e)
@@ -1337,7 +1403,11 @@ impl McpToolHandler {
     ) -> String {
         let lines_param = params.lines.unwrap_or(0);
         debug!(session_id = %params.session_id, lines = lines_param, "mcp::get_session_output");
-        match self.state.terminal_service.get_session_output(&params.session_id, lines_param) {
+        match self
+            .state
+            .terminal_service
+            .get_session_output(&params.session_id, lines_param)
+        {
             Ok(output) => {
                 let content = output.lines.join("\n");
                 serde_json::json!({
@@ -1345,10 +1415,14 @@ impl McpToolHandler {
                     "lines": output.lines,
                     "content": content,
                     "lineCount": output.lines.len(),
-                }).to_string()
+                })
+                .to_string()
             }
             Err(e) => {
-                format!("错误: 会话 '{}' 不存在或已退出超过 5 分钟: {}", params.session_id, e)
+                format!(
+                    "错误: 会话 '{}' 不存在或已退出超过 5 分钟: {}",
+                    params.session_id, e
+                )
             }
         }
     }
@@ -1367,7 +1441,9 @@ impl McpToolHandler {
         debug!(limit, project_path = ?params.project_path, "mcp::list_launch_history");
 
         let result = if let Some(ref project_path) = params.project_path {
-            self.state.launch_history_service.list_by_project(project_path, limit)
+            self.state
+                .launch_history_service
+                .list_by_project(project_path, limit)
         } else {
             self.state.launch_history_service.list(limit)
         };
@@ -1465,7 +1541,10 @@ fn is_project_registered(state: &AppState, path: &str) -> bool {
 
     // 1. 查 DB projects 表
     if let Ok(projects) = state.project_service.list_projects() {
-        if projects.iter().any(|p| normalize_path(&p.path) == normalized) {
+        if projects
+            .iter()
+            .any(|p| normalize_path(&p.path) == normalized)
+        {
             return true;
         }
     }
@@ -1473,7 +1552,11 @@ fn is_project_registered(state: &AppState, path: &str) -> bool {
     // 2. 查工作空间项目
     if let Ok(workspaces) = state.workspace_service.list_workspaces() {
         for ws in &workspaces {
-            if ws.projects.iter().any(|p| normalize_path(&p.path) == normalized) {
+            if ws
+                .projects
+                .iter()
+                .any(|p| normalize_path(&p.path) == normalized)
+            {
                 return true;
             }
         }
@@ -1531,7 +1614,9 @@ async fn handle_launch_task(
         warn!("REST::launch_task unauthorized");
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
         );
     }
 
@@ -1539,7 +1624,9 @@ async fn handle_launch_task(
         warn!("REST::launch_task rate limit exceeded");
         return (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(serde_json::json!(ApiError { error: "Rate limit exceeded".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Rate limit exceeded".to_string()
+            })),
         );
     }
 
@@ -1547,13 +1634,17 @@ async fn handle_launch_task(
     if req.prompt.is_some() && req.resume_id.is_some() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!(ApiError { error: "Cannot provide both 'prompt' and 'resumeId'".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Cannot provide both 'prompt' and 'resumeId'".to_string()
+            })),
         );
     }
     if req.prompt.is_none() && req.resume_id.is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!(ApiError { error: "Must provide either 'prompt' or 'resumeId'".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Must provide either 'prompt' or 'resumeId'".to_string()
+            })),
         );
     }
 
@@ -1578,7 +1669,8 @@ async fn handle_launch_task(
 
     let session_id = match state.terminal_service.create_session(
         &req.project_path,
-        120, 30,
+        120,
+        30,
         req.workspace_name.as_deref(),
         req.provider_id.as_deref(),
         req.workspace_path.as_deref(),
@@ -1596,7 +1688,9 @@ async fn handle_launch_task(
             error!(project = %req.project_path, err = %e, "REST::launch_task failed to create session");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!(ApiError { error: format!("Failed to create session: {}", e) })),
+                Json(serde_json::json!(ApiError {
+                    error: format!("Failed to create session: {}", e)
+                })),
             );
         }
     };
@@ -1604,13 +1698,16 @@ async fn handle_launch_task(
     {
         let mut tasks = state.tasks.lock().unwrap_or_else(|e| e.into_inner());
         cleanup_stale_tasks(&mut tasks);
-        tasks.insert(task_id.clone(), TaskStatus {
-            task_id: task_id.clone(),
-            session_id: session_id.clone(),
-            status: "launching".to_string(),
-            error: None,
-            created_at: std::time::Instant::now(),
-        });
+        tasks.insert(
+            task_id.clone(),
+            TaskStatus {
+                task_id: task_id.clone(),
+                session_id: session_id.clone(),
+                status: "launching".to_string(),
+                error: None,
+                created_at: std::time::Instant::now(),
+            },
+        );
     }
 
     let event = OrchestratorLaunchEvent {
@@ -1659,7 +1756,9 @@ async fn handle_list_projects(
     if !verify_token(&headers, &state.token) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
         );
     }
 
@@ -1676,17 +1775,27 @@ async fn handle_list_projects(
     }
 
     // 工作空间项目（去重）
-    for ws in state.workspace_service.list_workspaces().unwrap_or_default() {
+    for ws in state
+        .workspace_service
+        .list_workspaces()
+        .unwrap_or_default()
+    {
         for p in &ws.projects {
             let norm = normalize_path(&p.path);
-            let already_listed = project_infos.iter().any(|i| normalize_path(&i.path) == norm);
+            let already_listed = project_infos
+                .iter()
+                .any(|i| normalize_path(&i.path) == norm);
             if already_listed {
                 continue;
             }
             project_infos.push(ProjectInfo {
                 id: p.id.clone(),
                 name: p.alias.clone().unwrap_or_else(|| {
-                    p.path.split(['/', '\\']).next_back().unwrap_or(&p.path).to_string()
+                    p.path
+                        .split(['/', '\\'])
+                        .next_back()
+                        .unwrap_or(&p.path)
+                        .to_string()
                 }),
                 path: p.path.clone(),
                 workspace_name: Some(ws.name.clone()),
@@ -1696,7 +1805,9 @@ async fn handle_list_projects(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!(ProjectsResponse { projects: project_infos })),
+        Json(serde_json::json!(ProjectsResponse {
+            projects: project_infos
+        })),
     )
 }
 
@@ -1709,7 +1820,9 @@ async fn handle_task_status(
     if !verify_token(&headers, &state.token) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
         );
     }
 
@@ -1718,7 +1831,9 @@ async fn handle_task_status(
         Some(status) => (StatusCode::OK, Json(serde_json::json!(status))),
         None => (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!(ApiError { error: format!("Task '{}' not found", task_id) })),
+            Json(serde_json::json!(ApiError {
+                error: format!("Task '{}' not found", task_id)
+            })),
         ),
     }
 }
@@ -1755,26 +1870,36 @@ async fn handle_list_sessions(
     if !verify_token(&headers, &state.token) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
         );
     }
 
     match state.terminal_service.get_all_status() {
         Ok(statuses) => {
-            let sessions: Vec<serde_json::Value> = statuses.iter().map(|s| {
-                serde_json::json!({
-                    "sessionId": s.session_id,
-                    "status": s.status,
-                    "lastOutputAt": s.last_output_at,
+            let sessions: Vec<serde_json::Value> = statuses
+                .iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "sessionId": s.session_id,
+                        "status": s.status,
+                        "lastOutputAt": s.last_output_at,
+                    })
                 })
-            }).collect();
-            (StatusCode::OK, Json(serde_json::json!({ "sessions": sessions })))
+                .collect();
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "sessions": sessions })),
+            )
         }
         Err(e) => {
             error!(err = %e, "REST::list_sessions failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!(ApiError { error: format!("Failed to list sessions: {}", e) })),
+                Json(serde_json::json!(ApiError {
+                    error: format!("Failed to list sessions: {}", e)
+                })),
             )
         }
     }
@@ -1789,32 +1914,36 @@ async fn handle_session_status(
     if !verify_token(&headers, &state.token) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
         );
     }
 
     match state.terminal_service.get_all_status() {
-        Ok(statuses) => {
-            match statuses.iter().find(|s| s.session_id == session_id) {
-                Some(status) => (
-                    StatusCode::OK,
-                    Json(serde_json::json!({
-                        "sessionId": status.session_id,
-                        "status": status.status,
-                        "lastOutputAt": status.last_output_at,
-                    })),
-                ),
-                None => (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!(ApiError { error: format!("Session '{}' not found", session_id) })),
-                ),
-            }
-        }
+        Ok(statuses) => match statuses.iter().find(|s| s.session_id == session_id) {
+            Some(status) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "sessionId": status.session_id,
+                    "status": status.status,
+                    "lastOutputAt": status.last_output_at,
+                })),
+            ),
+            None => (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!(ApiError {
+                    error: format!("Session '{}' not found", session_id)
+                })),
+            ),
+        },
         Err(e) => {
             error!(session_id = %session_id, err = %e, "REST::session_status failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!(ApiError { error: format!("Failed to get session status: {}", e) })),
+                Json(serde_json::json!(ApiError {
+                    error: format!("Failed to get session status: {}", e)
+                })),
             )
         }
     }
@@ -1829,7 +1958,9 @@ async fn handle_write_to_session(
     if !verify_token(&headers, &state.token) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
         );
     }
 
@@ -1837,7 +1968,9 @@ async fn handle_write_to_session(
         warn!("REST::write_to_session rate limit exceeded");
         return (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(serde_json::json!(ApiError { error: "Rate limit exceeded".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Rate limit exceeded".to_string()
+            })),
         );
     }
 
@@ -1853,14 +1986,18 @@ async fn handle_write_to_session(
             error!(session_id = %req.session_id, err = %e, "REST::write_to_session failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!(ApiError { error: format!("Failed to write to session: {}", e) })),
+                Json(serde_json::json!(ApiError {
+                    error: format!("Failed to write to session: {}", e)
+                })),
             )
         }
         Err(e) => {
             error!(session_id = %req.session_id, err = %e, "REST::write_to_session spawn_blocking failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!(ApiError { error: format!("Failed to write to session: {}", e) })),
+                Json(serde_json::json!(ApiError {
+                    error: format!("Failed to write to session: {}", e)
+                })),
             )
         }
     }
@@ -1875,7 +2012,9 @@ async fn handle_submit_to_session(
     if !verify_token(&headers, &state.token) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
         );
     }
 
@@ -1883,7 +2022,9 @@ async fn handle_submit_to_session(
         warn!("REST::submit_to_session rate limit exceeded");
         return (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(serde_json::json!(ApiError { error: "Rate limit exceeded".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Rate limit exceeded".to_string()
+            })),
         );
     }
 
@@ -1899,7 +2040,9 @@ async fn handle_submit_to_session(
             error!(session_id = %req.session_id, err = %e, "REST::submit_to_session failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!(ApiError { error: format!("Failed to submit to session: {}", e) })),
+                Json(serde_json::json!(ApiError {
+                    error: format!("Failed to submit to session: {}", e)
+                })),
             )
         }
     }
@@ -1914,7 +2057,9 @@ async fn handle_kill_session(
     if !verify_token(&headers, &state.token) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!(ApiError { error: "Invalid or missing Bearer token".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
         );
     }
 
@@ -1922,7 +2067,9 @@ async fn handle_kill_session(
         warn!("REST::kill_session rate limit exceeded");
         return (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(serde_json::json!(ApiError { error: "Rate limit exceeded".to_string() })),
+            Json(serde_json::json!(ApiError {
+                error: "Rate limit exceeded".to_string()
+            })),
         );
     }
 
@@ -1935,7 +2082,9 @@ async fn handle_kill_session(
             error!(session_id = %req.session_id, err = %e, "REST::kill_session failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!(ApiError { error: format!("Failed to kill session: {}", e) })),
+                Json(serde_json::json!(ApiError {
+                    error: format!("Failed to kill session: {}", e)
+                })),
             )
         }
     }
@@ -1945,8 +2094,8 @@ async fn handle_kill_session(
 
 /// 生成随机 Bearer Token（32 字符 hex，密码学安全随机源）
 fn generate_token() -> String {
-    use rand::Rng;
     use rand::rngs::OsRng;
+    use rand::Rng;
     let bytes: [u8; 16] = OsRng.gen();
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -2038,7 +2187,12 @@ fn spawn_prompt_injector(
                     polls = poll_count,
                     "prompt_injector: TIMEOUT — Claude did not become ready within 60s"
                 );
-                update_task_status(&tasks, &task_id, "timeout", Some("Claude did not become ready within 60s"));
+                update_task_status(
+                    &tasks,
+                    &task_id,
+                    "timeout",
+                    Some("Claude did not become ready within 60s"),
+                );
                 return;
             }
 
@@ -2071,8 +2225,11 @@ fn spawn_prompt_injector(
                                 match terminal_svc.write(&session_id, &sanitized_prompt) {
                                     Ok(_) => {
                                         // 等待 ink 处理完文本后再发 Enter（根据长度动态延迟）
-                                        let delay_ms = compute_enter_delay_ms(sanitized_prompt.len());
-                                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                                        let delay_ms =
+                                            compute_enter_delay_ms(sanitized_prompt.len());
+                                        std::thread::sleep(std::time::Duration::from_millis(
+                                            delay_ms,
+                                        ));
                                         match terminal_svc.write(&session_id, "\r") {
                                             Ok(_) => {
                                                 info!(
@@ -2082,11 +2239,16 @@ fn spawn_prompt_injector(
                                                     enter_delay_ms = delay_ms,
                                                     "prompt_injector: prompt written successfully (split text+enter)"
                                                 );
-                                                update_task_status(&tasks, &task_id, "running", None);
-                                                let _ = app_handle.emit("orchestrator-task-update", serde_json::json!({
-                                                    "taskId": task_id,
-                                                    "status": "running",
-                                                }));
+                                                update_task_status(
+                                                    &tasks, &task_id, "running", None,
+                                                );
+                                                let _ = app_handle.emit(
+                                                    "orchestrator-task-update",
+                                                    serde_json::json!({
+                                                        "taskId": task_id,
+                                                        "status": "running",
+                                                    }),
+                                                );
                                             }
                                             Err(e) => {
                                                 error!(
@@ -2095,7 +2257,12 @@ fn spawn_prompt_injector(
                                                     err = %e,
                                                     "prompt_injector: FAILED to send Enter"
                                                 );
-                                                update_task_status(&tasks, &task_id, "error", Some(&format!("Failed to send Enter: {}", e)));
+                                                update_task_status(
+                                                    &tasks,
+                                                    &task_id,
+                                                    "error",
+                                                    Some(&format!("Failed to send Enter: {}", e)),
+                                                );
                                             }
                                         }
                                     }
@@ -2106,7 +2273,12 @@ fn spawn_prompt_injector(
                                             err = %e,
                                             "prompt_injector: FAILED to write prompt text"
                                         );
-                                        update_task_status(&tasks, &task_id, "error", Some(&format!("Failed to write prompt: {}", e)));
+                                        update_task_status(
+                                            &tasks,
+                                            &task_id,
+                                            "error",
+                                            Some(&format!("Failed to write prompt: {}", e)),
+                                        );
                                     }
                                 }
                                 return;
@@ -2118,7 +2290,12 @@ fn spawn_prompt_injector(
                                     elapsed_ms = start.elapsed().as_millis() as u64,
                                     "prompt_injector: session EXITED before prompt injection"
                                 );
-                                update_task_status(&tasks, &task_id, "error", Some("Session exited before prompt injection"));
+                                update_task_status(
+                                    &tasks,
+                                    &task_id,
+                                    "error",
+                                    Some("Session exited before prompt injection"),
+                                );
                                 return;
                             }
                             _ => {

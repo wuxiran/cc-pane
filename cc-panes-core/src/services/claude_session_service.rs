@@ -116,16 +116,14 @@ fn parse_session_file(file_path: &PathBuf, project_path: &str) -> Option<ClaudeS
 pub fn list_sessions(project_path: &str, limit: usize) -> Result<Vec<ClaudeSession>, String> {
     let mut sessions = Vec::new();
 
-    let home = dirs::home_dir()
-        .ok_or_else(|| "Failed to get user home directory".to_string())?;
+    let home = dirs::home_dir().ok_or_else(|| "Failed to get user home directory".to_string())?;
 
     let claude_projects = home.join(".claude").join("projects");
     if !claude_projects.exists() {
         return Ok(sessions);
     }
 
-    let entries = fs::read_dir(&claude_projects)
-        .map_err(|e| e.to_string())?;
+    let entries = fs::read_dir(&claude_projects).map_err(|e| e.to_string())?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -163,16 +161,14 @@ pub fn list_sessions(project_path: &str, limit: usize) -> Result<Vec<ClaudeSessi
 pub fn list_all_sessions(limit: usize) -> Result<Vec<ClaudeSession>, String> {
     let mut sessions = Vec::new();
 
-    let home = dirs::home_dir()
-        .ok_or_else(|| "Failed to get user home directory".to_string())?;
+    let home = dirs::home_dir().ok_or_else(|| "Failed to get user home directory".to_string())?;
 
     let claude_projects = home.join(".claude").join("projects");
     if !claude_projects.exists() {
         return Ok(sessions);
     }
 
-    let entries = fs::read_dir(&claude_projects)
-        .map_err(|e| e.to_string())?;
+    let entries = fs::read_dir(&claude_projects).map_err(|e| e.to_string())?;
 
     for entry in entries.flatten() {
         let path = entry.path();

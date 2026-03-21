@@ -62,7 +62,10 @@ pub fn validate_relative_path(project_path: &str, file_path: &str) -> Result<(),
 /// 拒绝包含路径穿越或路径分隔符的名称
 pub fn validate_worktree_name(name: &str) -> Result<(), AppError> {
     if name.is_empty() {
-        return Err(AppError::coded(EC::WORKTREE_NAME_EMPTY, "Worktree name cannot be empty"));
+        return Err(AppError::coded(
+            EC::WORKTREE_NAME_EMPTY,
+            "Worktree name cannot be empty",
+        ));
     }
 
     if name.contains("..") || name.contains('/') || name.contains('\\') {
@@ -75,7 +78,10 @@ pub fn validate_worktree_name(name: &str) -> Result<(), AppError> {
 
     // 拒绝纯空白名称
     if name.trim().is_empty() {
-        return Err(AppError::coded(EC::WORKTREE_NAME_BLANK, "Worktree name cannot be blank"));
+        return Err(AppError::coded(
+            EC::WORKTREE_NAME_BLANK,
+            "Worktree name cannot be blank",
+        ));
     }
 
     Ok(())
@@ -86,7 +92,10 @@ pub fn validate_worktree_name(name: &str) -> Result<(), AppError> {
 /// 只允许 HTTP/HTTPS 协议，防止 file:// 等危险协议
 pub fn validate_git_url(url: &str) -> Result<(), AppError> {
     if url.is_empty() {
-        return Err(AppError::coded(EC::GIT_URL_EMPTY, "Git URL cannot be empty"));
+        return Err(AppError::coded(
+            EC::GIT_URL_EMPTY,
+            "Git URL cannot be empty",
+        ));
     }
 
     if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -99,7 +108,10 @@ pub fn validate_git_url(url: &str) -> Result<(), AppError> {
 
     // 防止命令注入字符
     if url.contains(';') || url.contains('|') || url.contains('`') || url.contains("$(") {
-        return Err(AppError::coded(EC::GIT_URL_INVALID_CHARS, "Git URL contains illegal characters"));
+        return Err(AppError::coded(
+            EC::GIT_URL_INVALID_CHARS,
+            "Git URL contains illegal characters",
+        ));
     }
 
     Ok(())
@@ -108,10 +120,16 @@ pub fn validate_git_url(url: &str) -> Result<(), AppError> {
 /// 验证 MCP Server 名称
 pub fn validate_mcp_name(name: &str) -> Result<(), AppError> {
     if name.trim().is_empty() {
-        return Err(AppError::coded(EC::MCP_NAME_EMPTY, "MCP server name cannot be empty"));
+        return Err(AppError::coded(
+            EC::MCP_NAME_EMPTY,
+            "MCP server name cannot be empty",
+        ));
     }
     if name.len() > 128 {
-        return Err(AppError::coded(EC::MCP_NAME_TOO_LONG, "MCP server name is too long (max 128 chars)"));
+        return Err(AppError::coded(
+            EC::MCP_NAME_TOO_LONG,
+            "MCP server name is too long (max 128 chars)",
+        ));
     }
     if !name
         .chars()
@@ -129,7 +147,10 @@ pub fn validate_mcp_name(name: &str) -> Result<(), AppError> {
 /// 验证命令名安全性
 pub fn validate_command(command: &str) -> Result<(), AppError> {
     if command.trim().is_empty() {
-        return Err(AppError::coded(EC::COMMAND_EMPTY, "Command cannot be empty"));
+        return Err(AppError::coded(
+            EC::COMMAND_EMPTY,
+            "Command cannot be empty",
+        ));
     }
     if command.contains(';')
         || command.contains('|')
@@ -152,7 +173,10 @@ pub fn validate_ssh_info(info: &crate::models::SshConnectionInfo) -> Result<(), 
 
     // host 非空
     if info.host.trim().is_empty() {
-        return Err(AppError::coded(EC::SSH_HOST_EMPTY, "SSH host cannot be empty"));
+        return Err(AppError::coded(
+            EC::SSH_HOST_EMPTY,
+            "SSH host cannot be empty",
+        ));
     }
 
     // host 无危险字符
@@ -166,24 +190,37 @@ pub fn validate_ssh_info(info: &crate::models::SshConnectionInfo) -> Result<(), 
 
     // remote_path 非空
     if info.remote_path.trim().is_empty() {
-        return Err(AppError::coded(EC::SSH_REMOTE_PATH_EMPTY, "SSH remote path cannot be empty"));
+        return Err(AppError::coded(
+            EC::SSH_REMOTE_PATH_EMPTY,
+            "SSH remote path cannot be empty",
+        ));
     }
 
     // remote_path 必须以 / 或 ~ 开头（绝对路径或 home 目录）
     if !info.remote_path.starts_with('/') && !info.remote_path.starts_with('~') {
         return Err(AppError::coded_with_params(
             EC::SSH_REMOTE_PATH_NOT_ABSOLUTE,
-            format!("SSH remote path must be absolute (start with /): {}", info.remote_path),
+            format!(
+                "SSH remote path must be absolute (start with /): {}",
+                info.remote_path
+            ),
             HashMap::from([("path".into(), info.remote_path.clone())]),
         ));
     }
 
     // remote_path 无危险字符（允许单引号在 shell_escape 中处理，但其他字符拒绝）
     const PATH_DANGEROUS: &[char] = &[';', '|', '`', '$', '&', '\n', '\r', '"', '(', ')'];
-    if info.remote_path.chars().any(|c| PATH_DANGEROUS.contains(&c)) {
+    if info
+        .remote_path
+        .chars()
+        .any(|c| PATH_DANGEROUS.contains(&c))
+    {
         return Err(AppError::coded_with_params(
             EC::SSH_INVALID_CHARS,
-            format!("SSH remote path contains illegal characters: {}", info.remote_path),
+            format!(
+                "SSH remote path contains illegal characters: {}",
+                info.remote_path
+            ),
             HashMap::from([("field".into(), "remotePath".into())]),
         ));
     }
@@ -201,7 +238,10 @@ pub fn validate_ssh_info(info: &crate::models::SshConnectionInfo) -> Result<(), 
 
     // port > 0（u16 已保证 >= 0，检查非零）
     if info.port == 0 {
-        return Err(AppError::coded(EC::SSH_PORT_INVALID, "SSH port must be > 0"));
+        return Err(AppError::coded(
+            EC::SSH_PORT_INVALID,
+            "SSH port must be > 0",
+        ));
     }
 
     // identity_file（可选）验证
@@ -233,17 +273,25 @@ pub fn validate_ssh_info(info: &crate::models::SshConnectionInfo) -> Result<(), 
 }
 
 /// 验证 SSH Machine 输入安全性（add/update 命令前置校验）
-pub fn validate_ssh_machine(machine: &crate::models::ssh_machine::SshMachine) -> Result<(), AppError> {
+pub fn validate_ssh_machine(
+    machine: &crate::models::ssh_machine::SshMachine,
+) -> Result<(), AppError> {
     const DANGEROUS_CHARS: &[char] = &[';', '|', '&', '`', '\n', '\r'];
 
     // name 非空
     if machine.name.trim().is_empty() {
-        return Err(AppError::coded(EC::SSH_NAME_EMPTY, "SSH machine name cannot be empty"));
+        return Err(AppError::coded(
+            EC::SSH_NAME_EMPTY,
+            "SSH machine name cannot be empty",
+        ));
     }
 
     // host 非空
     if machine.host.trim().is_empty() {
-        return Err(AppError::coded(EC::SSH_HOST_EMPTY, "SSH machine host cannot be empty"));
+        return Err(AppError::coded(
+            EC::SSH_HOST_EMPTY,
+            "SSH machine host cannot be empty",
+        ));
     }
 
     // host 无危险字符
@@ -257,7 +305,10 @@ pub fn validate_ssh_machine(machine: &crate::models::ssh_machine::SshMachine) ->
 
     // port 范围 1-65535（u16 已保证 <= 65535，只需检查非零）
     if machine.port == 0 {
-        return Err(AppError::coded(EC::SSH_PORT_INVALID, "SSH port must be between 1 and 65535"));
+        return Err(AppError::coded(
+            EC::SSH_PORT_INVALID,
+            "SSH port must be between 1 and 65535",
+        ));
     }
 
     // user（可选）无危险字符
@@ -274,7 +325,9 @@ pub fn validate_ssh_machine(machine: &crate::models::ssh_machine::SshMachine) ->
     // identity_file（可选）无危险字符
     if let Some(ref identity_file) = machine.identity_file {
         let trimmed = identity_file.trim();
-        if !trimmed.is_empty() && (trimmed.chars().any(|c| DANGEROUS_CHARS.contains(&c)) || trimmed.contains("$(")) {
+        if !trimmed.is_empty()
+            && (trimmed.chars().any(|c| DANGEROUS_CHARS.contains(&c)) || trimmed.contains("$("))
+        {
             return Err(AppError::coded_with_params(
                 EC::SSH_IDENTITY_FILE_INVALID,
                 format!("SSH identity file contains illegal characters: {}", trimmed),

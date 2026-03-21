@@ -195,9 +195,7 @@ fn test_label_crud_flow() {
     assert_eq!(labels[0].file_snapshots[0].file_path, "src/lib.rs");
 
     // 删除标签
-    service
-        .delete_label(&project_path, "label-test-1")
-        .unwrap();
+    service.delete_label(&project_path, "label-test-1").unwrap();
     let labels = service.list_labels(&project_path).unwrap();
     assert!(labels.is_empty());
 }
@@ -249,9 +247,7 @@ fn test_cleanup_old_versions() {
     }
     drop(repo);
 
-    let versions = service
-        .list_versions(&project_path, "evolving.rs")
-        .unwrap();
+    let versions = service.list_versions(&project_path, "evolving.rs").unwrap();
     assert_eq!(versions.len(), 5);
 
     // 更新配置，限制每文件最多 2 个版本
@@ -263,9 +259,7 @@ fn test_cleanup_old_versions() {
     // 执行清理
     service.cleanup(&project_path).unwrap();
 
-    let versions = service
-        .list_versions(&project_path, "evolving.rs")
-        .unwrap();
+    let versions = service.list_versions(&project_path, "evolving.rs").unwrap();
     assert_eq!(versions.len(), 2);
 
     // 验证保留的是最新的两个版本
@@ -448,9 +442,7 @@ fn test_restore_version_to_filesystem() {
     // 恢复应创建 "Before Restore" 自动标签
     let labels = service.list_labels(&project_path).unwrap();
     assert!(!labels.is_empty());
-    assert!(labels
-        .iter()
-        .any(|l| l.name.starts_with("Before Restore")));
+    assert!(labels.iter().any(|l| l.name.starts_with("Before Restore")));
 }
 
 // ============ 10. 压缩 ============

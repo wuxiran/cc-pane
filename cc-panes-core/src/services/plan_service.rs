@@ -69,11 +69,7 @@ impl PlanService {
     }
 
     /// 读取指定 plan 文件的内容
-    pub fn get_plan_content(
-        &self,
-        project_path: &str,
-        file_name: &str,
-    ) -> Result<String, String> {
+    pub fn get_plan_content(&self, project_path: &str, file_name: &str) -> Result<String, String> {
         // 安全检查：防止路径遍历
         if file_name.contains("..") || file_name.contains('/') || file_name.contains('\\') {
             return Err("Invalid file name".to_string());

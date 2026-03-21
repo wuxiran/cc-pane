@@ -71,14 +71,14 @@ impl FileSearchIndex {
         // 构建索引
         let entries = Self::build_entries(root);
         let mut indices = self.indices.write();
-        let project_index = indices.entry(root.to_path_buf()).or_insert_with(|| {
-            ProjectIndex {
+        let project_index = indices
+            .entry(root.to_path_buf())
+            .or_insert_with(|| ProjectIndex {
                 root: root.to_path_buf(),
                 entries: Vec::new(),
                 ready: false,
                 watcher: None,
-            }
-        });
+            });
         project_index.entries = entries;
         project_index.ready = true;
     }
@@ -122,12 +122,7 @@ impl FileSearchIndex {
     ///
     /// 先克隆 entries 快照并释放读锁，再在锁外执行打分，
     /// 避免大索引搜索期间阻塞写锁（增量更新 / invalidate）。
-    pub fn search(
-        &self,
-        root: &Path,
-        query: &str,
-        max_results: usize,
-    ) -> Vec<SearchHit> {
+    pub fn search(&self, root: &Path, query: &str, max_results: usize) -> Vec<SearchHit> {
         if query.is_empty() {
             return Vec::new();
         }
@@ -141,7 +136,11 @@ impl FileSearchIndex {
             }
         };
 
-        let max = if max_results == 0 { 100 } else { max_results.min(500) };
+        let max = if max_results == 0 {
+            100
+        } else {
+            max_results.min(500)
+        };
 
         let pattern = Atom::new(
             query,
@@ -166,7 +165,9 @@ impl FileSearchIndex {
             } else {
                 let mut buf2 = Vec::new();
                 let rel_haystack = Utf32Str::new(&entry.rel_path, &mut buf2);
-                pattern.score(rel_haystack, &mut matcher).map(|s| (s as u32) / 2)
+                pattern
+                    .score(rel_haystack, &mut matcher)
+                    .map(|s| (s as u32) / 2)
             };
 
             if let Some(score) = score {
@@ -272,7 +273,10 @@ impl FileSearchIndex {
         let mut watcher = match watcher_result {
             Ok(w) => w,
             Err(e) => {
-                error!("[file_search_index] Failed to create watcher for {:?}: {}", root, e);
+                error!(
+                    "[file_search_index] Failed to create watcher for {:?}: {}",
+                    root, e
+                );
                 return;
             }
         };

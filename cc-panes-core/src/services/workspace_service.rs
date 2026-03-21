@@ -1,3 +1,5 @@
+use crate::constants::events as EV;
+use crate::events::EventEmitter;
 use crate::models::{ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace, WorkspaceProject};
 use crate::utils::{output_with_timeout, GIT_LOCAL_TIMEOUT};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
@@ -8,8 +10,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use crate::constants::events as EV;
-use crate::events::EventEmitter;
 use tracing::{error, info, warn};
 
 pub struct WorkspaceService {
@@ -25,7 +25,11 @@ impl WorkspaceService {
         // 确保目录存在
         if !base_dir.exists() {
             if let Err(e) = fs::create_dir_all(&base_dir) {
-                warn!("Failed to create workspaces directory {}: {}", base_dir.display(), e);
+                warn!(
+                    "Failed to create workspaces directory {}: {}",
+                    base_dir.display(),
+                    e
+                );
             }
         }
 
@@ -48,9 +52,11 @@ impl WorkspaceService {
         let watcher = RecommendedWatcher::new(
             move |res: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
-                    if event.paths.iter().any(|p| {
-                        p.file_name() == Some(std::ffi::OsStr::new("workspace.json"))
-                    }) {
+                    if event
+                        .paths
+                        .iter()
+                        .any(|p| p.file_name() == Some(std::ffi::OsStr::new("workspace.json")))
+                    {
                         dirty_clone.store(true, Ordering::Relaxed);
                     }
                 }
@@ -61,7 +67,11 @@ impl WorkspaceService {
         match watcher {
             Ok(mut w) => {
                 if let Err(e) = w.watch(&self.base_dir, RecursiveMode::Recursive) {
-                    error!("[workspace-watcher] Failed to watch {}: {}", self.base_dir.display(), e);
+                    error!(
+                        "[workspace-watcher] Failed to watch {}: {}",
+                        self.base_dir.display(),
+                        e
+                    );
                     return;
                 }
                 info!("[workspace-watcher] Watching {}", self.base_dir.display());
@@ -139,15 +149,14 @@ impl WorkspaceService {
         // 排序：pinned 优先 → sort_order 升序 → 创建时间升序
         workspaces.sort_by(|a, b| {
             // pinned 在前
-            b.pinned.cmp(&a.pinned)
+            b.pinned
+                .cmp(&a.pinned)
                 // sort_order 升序（None 排在最后）
-                .then_with(|| {
-                    match (a.sort_order, b.sort_order) {
-                        (Some(sa), Some(sb)) => sa.cmp(&sb),
-                        (Some(_), None) => std::cmp::Ordering::Less,
-                        (None, Some(_)) => std::cmp::Ordering::Greater,
-                        (None, None) => std::cmp::Ordering::Equal,
-                    }
+                .then_with(|| match (a.sort_order, b.sort_order) {
+                    (Some(sa), Some(sb)) => sa.cmp(&sb),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
                 })
                 // 最后按创建时间
                 .then_with(|| a.created_at.cmp(&b.created_at))
@@ -205,12 +214,14 @@ impl WorkspaceService {
         }
 
         if new_dir.exists() {
-            return Err(format!("WORKSPACE_NAME_DUPLICATE: Workspace '{}' already exists", new_name));
+            return Err(format!(
+                "WORKSPACE_NAME_DUPLICATE: Workspace '{}' already exists",
+                new_name
+            ));
         }
 
         // 重命名目录
-        fs::rename(&old_dir, &new_dir)
-            .map_err(|e| format!("Failed to rename directory: {}", e))?;
+        fs::rename(&old_dir, &new_dir).map_err(|e| format!("Failed to rename directory: {}", e))?;
 
         // 更新 workspace.json 中的 name
         let mut workspace = self.get_workspace(new_name)?;
@@ -228,8 +239,7 @@ impl WorkspaceService {
             return Err(format!("Workspace '{}' does not exist", name));
         }
 
-        fs::remove_dir_all(&ws_dir)
-            .map_err(|e| format!("Failed to delete workspace: {}", e))?;
+        fs::remove_dir_all(&ws_dir).map_err(|e| format!("Failed to delete workspace: {}", e))?;
 
         Ok(())
     }
@@ -245,13 +255,24 @@ impl WorkspaceService {
     }
 
     /// 添加项目到工作空间
-    pub fn add_project(&self, workspace_name: &str, path: &str) -> Result<WorkspaceProject, String> {
+    pub fn add_project(
+        &self,
+        workspace_name: &str,
+        path: &str,
+    ) -> Result<WorkspaceProject, String> {
         let mut workspace = self.get_workspace(workspace_name)?;
 
         // 检查路径是否已存在（归一化比较：统一分隔符、去尾部斜杠、Windows 忽略大小写）
         let norm_input = Self::normalize_project_path(path);
-        if workspace.projects.iter().any(|p| Self::normalize_project_path(&p.path) == norm_input) {
-            return Err(format!("PROJECT_ALREADY_EXISTS: Project path '{}' already exists in workspace", path));
+        if workspace
+            .projects
+            .iter()
+            .any(|p| Self::normalize_project_path(&p.path) == norm_input)
+        {
+            return Err(format!(
+                "PROJECT_ALREADY_EXISTS: Project path '{}' already exists in workspace",
+                path
+            ));
         }
 
         let project = WorkspaceProject::new(path.to_string());
@@ -442,11 +463,10 @@ impl WorkspaceService {
     // ============ 私有方法 ============
 
     fn read_workspace_json(&self, path: &PathBuf) -> Result<Workspace, String> {
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse JSON: {}", e))
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON: {}", e))
     }
 
     pub fn write_workspace_json(&self, name: &str, workspace: &Workspace) -> Result<(), String> {
@@ -454,8 +474,7 @@ impl WorkspaceService {
         let content = serde_json::to_string_pretty(workspace)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
-        fs::write(&json_path, content)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+        fs::write(&json_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
 
         Ok(())
     }
@@ -469,8 +488,12 @@ impl WorkspaceService {
 
         // 创建 .ccpanes/ 目录
         let ccpanes_dir = ws_path.join(".ccpanes");
-        fs::create_dir_all(&ccpanes_dir)
-            .map_err(|e| format!("Failed to create .ccpanes directory in workspace path: {}", e))?;
+        fs::create_dir_all(&ccpanes_dir).map_err(|e| {
+            format!(
+                "Failed to create .ccpanes directory in workspace path: {}",
+                e
+            )
+        })?;
 
         // 生成 CLAUDE.md（仅当不存在时）
         let claude_md_path = ws_path.join("CLAUDE.md");
@@ -512,7 +535,10 @@ impl WorkspaceService {
             // CSV 转义：如果字段包含逗号或引号，用双引号包裹
             let escaped_path = Self::csv_escape(&project.path);
             let escaped_alias = Self::csv_escape(alias);
-            lines.push(format!("{},{},{},{}", escaped_path, escaped_alias, branch, status));
+            lines.push(format!(
+                "{},{},{},{}",
+                escaped_path, escaped_alias, branch, status
+            ));
         }
 
         let content = lines.join("\n") + "\n";
@@ -528,9 +554,7 @@ impl WorkspaceService {
             GIT_LOCAL_TIMEOUT,
         );
         match output {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout).trim().to_string()
-            }
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
             _ => String::new(),
         }
     }
@@ -569,11 +593,13 @@ impl WorkspaceService {
     /// 扫描指定目录，发现 Git 仓库及其 worktree，按主仓库分组返回
     pub fn scan_directory(root: &Path) -> Result<Vec<ScannedRepo>, String> {
         if !root.is_dir() {
-            return Err(format!("Path does not exist or is not a directory: {}", root.display()));
+            return Err(format!(
+                "Path does not exist or is not a directory: {}",
+                root.display()
+            ));
         }
 
-        let entries = fs::read_dir(root)
-            .map_err(|e| format!("Failed to read directory: {}", e))?;
+        let entries = fs::read_dir(root).map_err(|e| format!("Failed to read directory: {}", e))?;
 
         // 收集所有子目录的 git 信息
         // key = 主仓库路径, value = ScannedRepo
@@ -598,11 +624,13 @@ impl WorkspaceService {
                 // 获取该仓库的 worktree 列表
                 let worktrees = Self::get_worktrees_for_repo(&sub_dir);
 
-                let entry = repo_map.entry(main_path.clone()).or_insert_with(|| ScannedRepo {
-                    main_path,
-                    main_branch,
-                    worktrees: Vec::new(),
-                });
+                let entry = repo_map
+                    .entry(main_path.clone())
+                    .or_insert_with(|| ScannedRepo {
+                        main_path,
+                        main_branch,
+                        worktrees: Vec::new(),
+                    });
                 // 合并 worktree（避免重复）
                 for wt in worktrees {
                     if !entry.worktrees.iter().any(|w| w.path == wt.path) {
@@ -615,11 +643,14 @@ impl WorkspaceService {
                     let wt_path = sub_dir.to_string_lossy().to_string();
                     let main_branch = Self::read_branch_from_dir(&PathBuf::from(&main_repo_path));
 
-                    let entry = repo_map.entry(main_repo_path.clone()).or_insert_with(|| ScannedRepo {
-                        main_path: main_repo_path,
-                        main_branch,
-                        worktrees: Vec::new(),
-                    });
+                    let entry =
+                        repo_map
+                            .entry(main_repo_path.clone())
+                            .or_insert_with(|| ScannedRepo {
+                                main_path: main_repo_path,
+                                main_branch,
+                                worktrees: Vec::new(),
+                            });
                     if !entry.worktrees.iter().any(|w| w.path == wt_path) {
                         entry.worktrees.push(ScannedWorktree {
                             path: wt_path,
@@ -659,7 +690,10 @@ impl WorkspaceService {
 
         if let Ok(content) = fs::read_to_string(&head_path) {
             if content.starts_with("ref: refs/heads/") {
-                content.trim_start_matches("ref: refs/heads/").trim().to_string()
+                content
+                    .trim_start_matches("ref: refs/heads/")
+                    .trim()
+                    .to_string()
             } else {
                 "HEAD".to_string()
             }
@@ -734,8 +768,8 @@ impl WorkspaceService {
         // gitdir_path = .git/worktrees/<name>
         // 向上两层得到 .git/，再取 parent 得到主仓库根目录
         let worktrees_dir = gitdir_path.parent()?; // .git/worktrees/
-        let git_dir = worktrees_dir.parent()?;      // .git/
-        let main_repo = git_dir.parent()?;           // 主仓库根目录
+        let git_dir = worktrees_dir.parent()?; // .git/
+        let main_repo = git_dir.parent()?; // 主仓库根目录
 
         let branch = Self::read_branch_from_dir(wt_dir);
         Some((main_repo.to_string_lossy().to_string(), branch))

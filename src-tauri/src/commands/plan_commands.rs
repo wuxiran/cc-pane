@@ -1,6 +1,6 @@
 use crate::services::plan_service::PlanEntry;
 use crate::services::PlanService;
-use crate::utils::{AppResult, validate_path};
+use crate::utils::{validate_path, AppResult};
 use std::sync::Arc;
 use tauri::State;
 use tracing::debug;

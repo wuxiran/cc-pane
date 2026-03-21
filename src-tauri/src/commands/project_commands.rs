@@ -1,6 +1,6 @@
 use crate::models::Project;
 use crate::services::ProjectService;
-use crate::utils::{AppResult, validate_path};
+use crate::utils::{validate_path, AppResult};
 use std::sync::Arc;
 use tauri::State;
 use tracing::debug;
@@ -26,7 +26,10 @@ pub fn remove_project(id: String, service: State<'_, Arc<ProjectService>>) -> Ap
 }
 
 #[tauri::command]
-pub fn get_project(id: String, service: State<'_, Arc<ProjectService>>) -> AppResult<Option<Project>> {
+pub fn get_project(
+    id: String,
+    service: State<'_, Arc<ProjectService>>,
+) -> AppResult<Option<Project>> {
     Ok(service.get_project(&id)?)
 }
 

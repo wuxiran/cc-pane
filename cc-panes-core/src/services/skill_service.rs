@@ -107,15 +107,24 @@ impl SkillService {
         debug!(project = %project_path, name = %name, "svc::save_skill");
         // Validate name
         if name.trim().is_empty() {
-            return Err(AppError::coded(EC::SKILL_NAME_EMPTY, "Skill name cannot be empty"));
+            return Err(AppError::coded(
+                EC::SKILL_NAME_EMPTY,
+                "Skill name cannot be empty",
+            ));
         }
         // Validate name does not contain path separators
         if name.contains('/') || name.contains('\\') || name.contains("..") {
-            return Err(AppError::coded(EC::SKILL_NAME_PATH_SEPARATOR, "Skill name cannot contain path separators"));
+            return Err(AppError::coded(
+                EC::SKILL_NAME_PATH_SEPARATOR,
+                "Skill name cannot contain path separators",
+            ));
         }
         // Reject hidden file names starting with '.'
         if name.starts_with('.') {
-            return Err(AppError::coded(EC::SKILL_NAME_DOT_PREFIX, "Skill name cannot start with '.'"));
+            return Err(AppError::coded(
+                EC::SKILL_NAME_DOT_PREFIX,
+                "Skill name cannot start with '.'",
+            ));
         }
 
         let dir = Self::commands_dir(project_path);
@@ -153,9 +162,9 @@ impl SkillService {
         name: &str,
     ) -> AppResult<SkillInfo> {
         debug!(source = %source_project, target = %target_project, name = %name, "svc::copy_skill");
-        let skill = self
-            .get_skill(source_project, name)?
-            .ok_or_else(|| AppError::from(format!("Skill not found in source project: {}", name)))?;
+        let skill = self.get_skill(source_project, name)?.ok_or_else(|| {
+            AppError::from(format!("Skill not found in source project: {}", name))
+        })?;
         self.save_skill(target_project, name, &skill.content)
     }
 }

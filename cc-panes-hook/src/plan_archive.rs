@@ -57,7 +57,9 @@ pub fn run() {
 
     let file_path_buf = PathBuf::from(&file_path);
     // Normalize for comparison
-    let canonical_file = file_path_buf.canonicalize().unwrap_or(file_path_buf.clone());
+    let canonical_file = file_path_buf
+        .canonicalize()
+        .unwrap_or(file_path_buf.clone());
     let canonical_plans = plans_dir.canonicalize().unwrap_or(plans_dir.clone());
 
     if !canonical_file.starts_with(&canonical_plans) {

@@ -158,12 +158,10 @@ impl TodoRepository {
         let sql = format!("UPDATE todos SET {} WHERE id = ?", sets.join(", "));
         let params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v.as_ref()).collect();
 
-        let affected = conn
-            .execute(&sql, params.as_slice())
-            .map_err(|e| {
-                error!(table = "todos", id = %id, err = %e, "SQL update failed");
-                e.to_string()
-            })?;
+        let affected = conn.execute(&sql, params.as_slice()).map_err(|e| {
+            error!(table = "todos", id = %id, err = %e, "SQL update failed");
+            e.to_string()
+        })?;
 
         Ok(affected > 0)
     }
@@ -219,7 +217,7 @@ impl TodoRepository {
             }
             if let Some(ref tag) = query.tag {
                 conditions.push("tags LIKE ?");
-                values.push(Box::new(format!("%\"{}\"%" , tag)));
+                values.push(Box::new(format!("%\"{}\"%", tag)));
             }
             if let Some(ref todo_type) = query.todo_type {
                 conditions.push("todo_type = ?");
@@ -248,7 +246,8 @@ impl TodoRepository {
 
             // 获取总数
             let count_sql = format!("SELECT COUNT(*) FROM todos {}", where_clause);
-            let count_params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v.as_ref()).collect();
+            let count_params: Vec<&dyn rusqlite::types::ToSql> =
+                values.iter().map(|v| v.as_ref()).collect();
             let total: u32 = conn
                 .query_row(&count_sql, count_params.as_slice(), |row| row.get(0))
                 .map_err(|e| {
@@ -268,7 +267,8 @@ impl TodoRepository {
 
             values.push(Box::new(limit));
             values.push(Box::new(offset));
-            let data_params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v.as_ref()).collect();
+            let data_params: Vec<&dyn rusqlite::types::ToSql> =
+                values.iter().map(|v| v.as_ref()).collect();
 
             let mut stmt = conn.prepare(&data_sql).map_err(|e| {
                 error!(table = "todos", err = %e, "SQL prepare failed");
@@ -366,7 +366,10 @@ impl TodoRepository {
 
         // 总数
         let total_sql = format!("SELECT COUNT(*) FROM todos {}", where_clause);
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = values
+            .iter()
+            .map(|v| v as &dyn rusqlite::types::ToSql)
+            .collect();
         let total: u32 = conn
             .query_row(&total_sql, params_ref.as_slice(), |row| row.get(0))
             .map_err(|e| {
@@ -461,7 +464,10 @@ impl TodoRepository {
             let overdue_sql = format!("SELECT COUNT(*) FROM todos {}", overdue_where);
             let mut overdue_vals = values.clone();
             overdue_vals.push(now);
-            let overdue_params: Vec<&dyn rusqlite::types::ToSql> = overdue_vals.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+            let overdue_params: Vec<&dyn rusqlite::types::ToSql> = overdue_vals
+                .iter()
+                .map(|v| v as &dyn rusqlite::types::ToSql)
+                .collect();
             conn.query_row(&overdue_sql, overdue_params.as_slice(), |row| row.get(0))
                 .map_err(|e| {
                     error!(table = "todos", err = %e, "SQL stats overdue filtered query failed");
@@ -482,11 +488,7 @@ impl TodoRepository {
     pub fn max_sort_order(&self) -> Result<i32, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let max: Option<i32> = conn
-            .query_row(
-                "SELECT MAX(sort_order) FROM todos",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(sort_order) FROM todos", [], |row| row.get(0))
             .map_err(|e| {
                 error!(table = "todos", err = %e, "SQL max_sort_order query failed");
                 e.to_string()
@@ -573,12 +575,10 @@ impl TodoRepository {
         let sql = format!("UPDATE todo_subtasks SET {} WHERE id = ?", sets.join(", "));
         let params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v.as_ref()).collect();
 
-        let affected = conn
-            .execute(&sql, params.as_slice())
-            .map_err(|e| {
-                error!(table = "todo_subtasks", id = %id, err = %e, "SQL update_subtask failed");
-                e.to_string()
-            })?;
+        let affected = conn.execute(&sql, params.as_slice()).map_err(|e| {
+            error!(table = "todo_subtasks", id = %id, err = %e, "SQL update_subtask failed");
+            e.to_string()
+        })?;
         Ok(affected > 0)
     }
 
@@ -712,7 +712,10 @@ impl TodoRepository {
             my_day_date: row.get(10).map_err(|e| e.to_string())?,
             reminder_at: row.get(11).map_err(|e| e.to_string())?,
             recurrence: row.get(12).map_err(|e| e.to_string())?,
-            todo_type: row.get::<_, Option<String>>(13).map_err(|e| e.to_string())?.unwrap_or_default(),
+            todo_type: row
+                .get::<_, Option<String>>(13)
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default(),
             sort_order: row.get(14).map_err(|e| e.to_string())?,
             created_at: row.get(15).map_err(|e| e.to_string())?,
             updated_at: row.get(16).map_err(|e| e.to_string())?,

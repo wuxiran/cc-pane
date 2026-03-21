@@ -33,10 +33,7 @@ pub fn fs_write_file(
 }
 
 #[tauri::command]
-pub fn fs_create_file(
-    path: String,
-    service: State<'_, Arc<FileSystemService>>,
-) -> AppResult<()> {
+pub fn fs_create_file(path: String, service: State<'_, Arc<FileSystemService>>) -> AppResult<()> {
     debug!("cmd::fs_create_file path={}", path);
     service.create_file(&path)
 }
@@ -51,10 +48,7 @@ pub fn fs_create_directory(
 }
 
 #[tauri::command]
-pub fn fs_delete_entry(
-    path: String,
-    service: State<'_, Arc<FileSystemService>>,
-) -> AppResult<()> {
+pub fn fs_delete_entry(path: String, service: State<'_, Arc<FileSystemService>>) -> AppResult<()> {
     debug!("cmd::fs_delete_entry path={}", path);
     service.delete_entry(&path)
 }
@@ -65,7 +59,10 @@ pub fn fs_rename_entry(
     new_name: String,
     service: State<'_, Arc<FileSystemService>>,
 ) -> AppResult<()> {
-    debug!("cmd::fs_rename_entry old_path={} new_name={}", old_path, new_name);
+    debug!(
+        "cmd::fs_rename_entry old_path={} new_name={}",
+        old_path, new_name
+    );
     service.rename_entry(&old_path, &new_name)
 }
 

@@ -23,7 +23,11 @@ use std::time::Duration;
 ///
 /// 使用轮询方案，能正确 kill 超时进程，避免僵尸进程。
 /// 同时关闭 stdin（`Stdio::null()`），防止子进程因等待输入而卡住。
-pub fn run_with_timeout(cmd: &std::path::Path, args: &[String], timeout: Duration) -> Option<String> {
+pub fn run_with_timeout(
+    cmd: &std::path::Path,
+    args: &[String],
+    timeout: Duration,
+) -> Option<String> {
     let mut child = std::process::Command::new(cmd)
         .args(args)
         .stdout(std::process::Stdio::piped())
@@ -79,11 +83,7 @@ pub trait CliToolAdapter: Send + Sync {
             Ok(path) => {
                 info.installed = true;
                 info.path = Some(path.to_string_lossy().into_owned());
-                info.version = run_with_timeout(
-                    &path,
-                    &info.version_args,
-                    Duration::from_secs(5),
-                );
+                info.version = run_with_timeout(&path, &info.version_args, Duration::from_secs(5));
             }
             Err(_) => {
                 info.installed = false;

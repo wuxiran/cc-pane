@@ -1,6 +1,7 @@
 use crate::models::settings::AppSettings;
 use crate::models::Workspace;
 use crate::services::SettingsService;
+use crate::utils::AppPaths;
 use crate::utils::AppResult;
 use serde::Serialize;
 use std::net::TcpStream;
@@ -8,14 +9,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::State;
-use crate::utils::AppPaths;
 use tracing::{debug, info};
 
 /// 获取设置
 #[tauri::command]
-pub fn get_settings(
-    service: State<'_, Arc<SettingsService>>,
-) -> AppResult<AppSettings> {
+pub fn get_settings(service: State<'_, Arc<SettingsService>>) -> AppResult<AppSettings> {
     Ok(service.get_settings())
 }
 
@@ -31,9 +29,7 @@ pub fn update_settings(
 
 /// 测试代理连接
 #[tauri::command]
-pub fn test_proxy(
-    service: State<'_, Arc<SettingsService>>,
-) -> AppResult<bool> {
+pub fn test_proxy(service: State<'_, Arc<SettingsService>>) -> AppResult<bool> {
     let settings = service.get_settings();
     let proxy = &settings.proxy;
     if !proxy.enabled || proxy.host.is_empty() {
@@ -62,9 +58,7 @@ pub struct DataDirInfo {
 
 /// 获取数据目录信息
 #[tauri::command]
-pub fn get_data_dir_info(
-    app_paths: State<'_, Arc<AppPaths>>,
-) -> AppResult<DataDirInfo> {
+pub fn get_data_dir_info(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<DataDirInfo> {
     Ok(DataDirInfo {
         current_path: app_paths.data_dir().to_string_lossy().to_string(),
         default_path: app_paths.default_data_dir().to_string_lossy().to_string(),
@@ -92,9 +86,16 @@ pub fn migrate_data_dir(
 
     // 路径安全校验：禁止迁移到系统目录
     let forbidden_prefixes: &[&str] = if cfg!(windows) {
-        &["C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)", "C:\\System32"]
+        &[
+            "C:\\Windows",
+            "C:\\Program Files",
+            "C:\\Program Files (x86)",
+            "C:\\System32",
+        ]
     } else {
-        &["/etc", "/usr", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev"]
+        &[
+            "/etc", "/usr", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev",
+        ]
     };
     let target_str = target.to_string_lossy();
     for prefix in forbidden_prefixes {
@@ -110,8 +111,10 @@ pub fn migrate_data_dir(
             .unwrap_or(false);
         if !is_empty {
             // 允许与源目录相同（后续逻辑会拦截）
-            let target_canonical = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
-            let source_canonical = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+            let target_canonical =
+                std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+            let source_canonical =
+                std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
             if target_canonical != source_canonical {
                 return Err("Target directory must be empty".into());
             }
@@ -136,10 +139,7 @@ pub fn migrate_data_dir(
     let _ = std::fs::remove_file(&test_file);
 
     // 复制 data.db
-    copy_if_exists(
-        &source.join("data.db"),
-        &target.join("data.db"),
-    )?;
+    copy_if_exists(&source.join("data.db"), &target.join("data.db"))?;
 
     // 复制 providers.json
     copy_if_exists(
@@ -156,7 +156,10 @@ pub fn migrate_data_dir(
 
     // 校验文件完整性（文件大小一致）
     verify_copy(&source.join("data.db"), &target.join("data.db"))?;
-    verify_copy(&source.join("providers.json"), &target.join("providers.json"))?;
+    verify_copy(
+        &source.join("providers.json"),
+        &target.join("providers.json"),
+    )?;
 
     // 校验 workspaces 目录的文件数量一致
     if src_ws.exists() {
@@ -166,17 +169,16 @@ pub fn migrate_data_dir(
             return Err(format!(
                 "Workspaces directory file count mismatch (source: {}, target: {})",
                 src_count, dst_count
-            ).into());
+            )
+            .into());
         }
     }
 
     // 更新设置中的 data_dir
     // 如果目标路径是默认路径，则设为 None（恢复默认）
     let default_path = app_paths.default_data_dir();
-    let target_is_default = std::fs::canonicalize(target)
-        .unwrap_or_else(|_| target.to_path_buf())
-        == std::fs::canonicalize(default_path)
-            .unwrap_or_else(|_| default_path.to_path_buf());
+    let target_is_default = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf())
+        == std::fs::canonicalize(default_path).unwrap_or_else(|_| default_path.to_path_buf());
 
     let mut current_settings = settings_service.get_settings();
     current_settings.general.data_dir = if target_is_default {
@@ -184,7 +186,8 @@ pub fn migrate_data_dir(
     } else {
         Some(target_dir)
     };
-    settings_service.update_settings(current_settings)
+    settings_service
+        .update_settings(current_settings)
         .map_err(|e| format!("Failed to update config: {}", e))?;
 
     Ok(())
@@ -194,8 +197,7 @@ pub fn migrate_data_dir(
 fn copy_if_exists(src: &Path, dst: &Path) -> AppResult<()> {
     if src.exists() {
         let name = crate::utils::sanitize_path_display(src);
-        std::fs::copy(src, dst)
-            .map_err(|e| format!("Failed to copy {}: {}", name, e))?;
+        std::fs::copy(src, dst).map_err(|e| format!("Failed to copy {}: {}", name, e))?;
     }
     Ok(())
 }
@@ -289,9 +291,7 @@ fn collect_workspace_summaries(workspaces_dir: &Path) -> Vec<WorkspaceSummary> {
 
 /// 在数据目录下生成 CLAUDE.md，供 Claude Code 自我对话时参考
 #[tauri::command]
-pub fn generate_claude_md(
-    app_paths: State<'_, Arc<AppPaths>>,
-) -> AppResult<()> {
+pub fn generate_claude_md(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<()> {
     debug!("cmd::generate_claude_md");
     let data_dir = app_paths.data_dir();
     let claude_md_path = data_dir.join("CLAUDE.md");
@@ -302,10 +302,14 @@ pub fn generate_claude_md(
     let workspaces_section = if summaries.is_empty() {
         "暂无工作空间。可通过 CC-Panes 界面创建。\n".to_string()
     } else {
-        let mut table = String::from("| 工作空间 | 项目数 | 绑定路径 |\n|---------|--------|--------|\n");
+        let mut table =
+            String::from("| 工作空间 | 项目数 | 绑定路径 |\n|---------|--------|--------|\n");
         for s in &summaries {
             let path_display = s.path.as_deref().unwrap_or("未绑定");
-            table.push_str(&format!("| {} | {} | {} |\n", s.name, s.project_count, path_display));
+            table.push_str(&format!(
+                "| {} | {} | {} |\n",
+                s.name, s.project_count, path_display
+            ));
         }
         table
     };
@@ -605,15 +609,18 @@ fn verify_copy(src: &Path, dst: &Path) -> AppResult<()> {
     }
 
     let src_size = std::fs::metadata(src)
-        .map_err(|e| format!("Failed to read source file metadata: {}", e))?.len();
+        .map_err(|e| format!("Failed to read source file metadata: {}", e))?
+        .len();
     let dst_size = std::fs::metadata(dst)
-        .map_err(|e| format!("Failed to read target file metadata: {}", e))?.len();
+        .map_err(|e| format!("Failed to read target file metadata: {}", e))?
+        .len();
 
     if src_size != dst_size {
         return Err(format!(
             "File size mismatch: {} (source: {} bytes, target: {} bytes)",
             name, src_size, dst_size
-        ).into());
+        )
+        .into());
     }
 
     Ok(())

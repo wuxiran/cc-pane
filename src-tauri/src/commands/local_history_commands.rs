@@ -3,7 +3,9 @@ use std::sync::Arc;
 use tauri::State;
 use tracing::debug;
 
-use crate::models::{DiffResult, FileVersion, HistoryConfig, HistoryLabel, RecentChange, WorktreeRecentChange};
+use crate::models::{
+    DiffResult, FileVersion, HistoryConfig, HistoryLabel, RecentChange, WorktreeRecentChange,
+};
 use crate::services::HistoryService;
 use crate::utils::AppResult;
 
@@ -13,8 +15,7 @@ pub async fn init_project_history(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
     debug!(project_path = %project_path, "cmd::init_project_history");
-    history_service
-        .init_project_history(Path::new(&project_path))?;
+    history_service.init_project_history(Path::new(&project_path))?;
     Ok(())
 }
 
@@ -24,8 +25,7 @@ pub async fn list_file_versions(
     file_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<FileVersion>> {
-    let versions = history_service
-        .list_versions(Path::new(&project_path), &file_path)?;
+    let versions = history_service.list_versions(Path::new(&project_path), &file_path)?;
     Ok(versions)
 }
 
@@ -36,8 +36,8 @@ pub async fn get_version_content(
     version_id: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
-    let content = history_service
-        .get_version_content(Path::new(&project_path), &file_path, &version_id)?;
+    let content =
+        history_service.get_version_content(Path::new(&project_path), &file_path, &version_id)?;
 
     // 尝试 UTF-8 解码，失败尝试 GBK
     match String::from_utf8(content) {
@@ -59,8 +59,7 @@ pub async fn restore_file_version(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
     debug!(file_path = %file_path, version_id = %version_id, "cmd::restore_file_version");
-    history_service
-        .restore_version(Path::new(&project_path), &file_path, &version_id)?;
+    history_service.restore_version(Path::new(&project_path), &file_path, &version_id)?;
     Ok(())
 }
 
@@ -69,8 +68,7 @@ pub async fn get_history_config(
     project_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<HistoryConfig> {
-    let config = history_service
-        .get_config(Path::new(&project_path))?;
+    let config = history_service.get_config(Path::new(&project_path))?;
     Ok(config)
 }
 
@@ -81,8 +79,7 @@ pub async fn update_history_config(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
     debug!(project_path = %project_path, "cmd::update_history_config");
-    history_service
-        .update_config(Path::new(&project_path), config)?;
+    history_service.update_config(Path::new(&project_path), config)?;
     Ok(())
 }
 
@@ -92,8 +89,7 @@ pub async fn stop_project_history(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
     debug!(project_path = %project_path, "cmd::stop_project_history");
-    history_service
-        .stop_watching(Path::new(&project_path))?;
+    history_service.stop_watching(Path::new(&project_path))?;
     Ok(())
 }
 
@@ -103,8 +99,7 @@ pub async fn cleanup_project_history(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
     debug!(project_path = %project_path, "cmd::cleanup_project_history");
-    history_service
-        .cleanup(Path::new(&project_path))?;
+    history_service.cleanup(Path::new(&project_path))?;
     Ok(())
 }
 
@@ -117,8 +112,8 @@ pub async fn get_version_diff(
     version_id: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<DiffResult> {
-    let diff = history_service
-        .get_version_diff(Path::new(&project_path), &file_path, &version_id)?;
+    let diff =
+        history_service.get_version_diff(Path::new(&project_path), &file_path, &version_id)?;
     Ok(diff)
 }
 
@@ -130,13 +125,12 @@ pub async fn get_versions_diff(
     new_version_id: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<DiffResult> {
-    let diff = history_service
-        .get_versions_diff(
-            Path::new(&project_path),
-            &file_path,
-            &old_version_id,
-            &new_version_id,
-        )?;
+    let diff = history_service.get_versions_diff(
+        Path::new(&project_path),
+        &file_path,
+        &old_version_id,
+        &new_version_id,
+    )?;
     Ok(diff)
 }
 
@@ -149,8 +143,7 @@ pub async fn put_label(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
     debug!(project_path = %project_path, label_id = %label.id, "cmd::put_label");
-    history_service
-        .put_label(Path::new(&project_path), &label)?;
+    history_service.put_label(Path::new(&project_path), &label)?;
     Ok(())
 }
 
@@ -159,8 +152,7 @@ pub async fn list_labels(
     project_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<HistoryLabel>> {
-    let labels = history_service
-        .list_labels(Path::new(&project_path))?;
+    let labels = history_service.list_labels(Path::new(&project_path))?;
     Ok(labels)
 }
 
@@ -171,8 +163,7 @@ pub async fn delete_label(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<()> {
     debug!(project_path = %project_path, label_id = %label_id, "cmd::delete_label");
-    history_service
-        .delete_label(Path::new(&project_path), &label_id)?;
+    history_service.delete_label(Path::new(&project_path), &label_id)?;
     Ok(())
 }
 
@@ -183,8 +174,7 @@ pub async fn restore_to_label(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<String>> {
     debug!(project_path = %project_path, label_id = %label_id, "cmd::restore_to_label");
-    let restored = history_service
-        .restore_to_label(Path::new(&project_path), &label_id)?;
+    let restored = history_service.restore_to_label(Path::new(&project_path), &label_id)?;
     Ok(restored)
 }
 
@@ -196,8 +186,7 @@ pub async fn create_auto_label(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
     debug!(project_path = %project_path, name = %name, source = %source, "cmd::create_auto_label");
-    let label_id = history_service
-        .create_auto_label(Path::new(&project_path), &name, &source)?;
+    let label_id = history_service.create_auto_label(Path::new(&project_path), &name, &source)?;
     Ok(label_id)
 }
 
@@ -210,12 +199,11 @@ pub async fn list_directory_changes(
     since: Option<String>,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<FileVersion>> {
-    let changes = history_service
-        .list_directory_changes(
-            Path::new(&project_path),
-            &dir_path,
-            since.as_deref(),
-        )?;
+    let changes = history_service.list_directory_changes(
+        Path::new(&project_path),
+        &dir_path,
+        since.as_deref(),
+    )?;
     Ok(changes)
 }
 
@@ -225,8 +213,8 @@ pub async fn get_recent_changes(
     limit: Option<usize>,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<RecentChange>> {
-    let changes = history_service
-        .get_recent_changes(Path::new(&project_path), limit.unwrap_or(50))?;
+    let changes =
+        history_service.get_recent_changes(Path::new(&project_path), limit.unwrap_or(50))?;
     Ok(changes)
 }
 
@@ -237,8 +225,7 @@ pub async fn list_deleted_files(
     project_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<FileVersion>> {
-    let files = history_service
-        .list_deleted_files(Path::new(&project_path))?;
+    let files = history_service.list_deleted_files(Path::new(&project_path))?;
     Ok(files)
 }
 
@@ -250,8 +237,7 @@ pub async fn compress_history(
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<usize> {
     debug!(project_path = %project_path, "cmd::compress_history");
-    let count = history_service
-        .compress_blobs(Path::new(&project_path))?;
+    let count = history_service.compress_blobs(Path::new(&project_path))?;
     Ok(count)
 }
 
@@ -262,8 +248,7 @@ pub async fn get_current_branch(
     project_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
-    let branch = history_service
-        .get_current_branch(Path::new(&project_path))?;
+    let branch = history_service.get_current_branch(Path::new(&project_path))?;
     Ok(branch)
 }
 
@@ -273,8 +258,7 @@ pub async fn get_file_branches(
     file_path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<String>> {
-    let branches = history_service
-        .get_file_branches(Path::new(&project_path), &file_path)?;
+    let branches = history_service.get_file_branches(Path::new(&project_path), &file_path)?;
     Ok(branches)
 }
 
@@ -285,8 +269,8 @@ pub async fn list_file_versions_by_branch(
     branch: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<Vec<FileVersion>> {
-    let versions = history_service
-        .list_versions_by_branch(Path::new(&project_path), &file_path, &branch)?;
+    let versions =
+        history_service.list_versions_by_branch(Path::new(&project_path), &file_path, &branch)?;
     Ok(versions)
 }
 

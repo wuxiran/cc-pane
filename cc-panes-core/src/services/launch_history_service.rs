@@ -13,8 +13,25 @@ impl LaunchHistoryService {
 
     /// 添加启动记录，返回记录 ID
     #[allow(clippy::too_many_arguments)]
-    pub fn add(&self, project_id: &str, project_name: &str, project_path: &str, workspace_name: Option<&str>, workspace_path: Option<&str>, launch_cwd: Option<&str>, provider_id: Option<&str>) -> Result<i64, String> {
-        self.repo.add(project_id, project_name, project_path, workspace_name, workspace_path, launch_cwd, provider_id)
+    pub fn add(
+        &self,
+        project_id: &str,
+        project_name: &str,
+        project_path: &str,
+        workspace_name: Option<&str>,
+        workspace_path: Option<&str>,
+        launch_cwd: Option<&str>,
+        provider_id: Option<&str>,
+    ) -> Result<i64, String> {
+        self.repo.add(
+            project_id,
+            project_name,
+            project_path,
+            workspace_name,
+            workspace_path,
+            launch_cwd,
+            provider_id,
+        )
     }
 
     /// 获取最近的启动记录
@@ -23,7 +40,11 @@ impl LaunchHistoryService {
     }
 
     /// 按项目路径获取启动记录（SQL 层路径规范化过滤）
-    pub fn list_by_project(&self, project_path: &str, limit: usize) -> Result<Vec<LaunchRecord>, String> {
+    pub fn list_by_project(
+        &self,
+        project_path: &str,
+        limit: usize,
+    ) -> Result<Vec<LaunchRecord>, String> {
         self.repo.list_by_project(project_path, limit)
     }
 

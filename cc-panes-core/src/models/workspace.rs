@@ -78,7 +78,9 @@ pub struct ScannedRepo {
     pub worktrees: Vec<ScannedWorktree>,
 }
 
-fn default_ssh_port() -> u16 { 22 }
+fn default_ssh_port() -> u16 {
+    22
+}
 
 /// SSH 连接信息
 #[derive(Debug, Clone, Serialize, Deserialize)]

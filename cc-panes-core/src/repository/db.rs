@@ -1,8 +1,8 @@
 use crate::utils::error::AppError;
 use rusqlite::Connection;
-use tracing::{error, info, warn};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use tracing::{error, info, warn};
 
 /// 单条迁移定义
 struct Migration {
@@ -130,18 +130,16 @@ impl Database {
     pub fn new(db_path: PathBuf) -> Result<Self, AppError> {
         // 确保目录存在
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| {
-                    error!(path = %parent.display(), err = %e, "Failed to create database directory");
-                    AppError::from(format!("Failed to create database directory: {}", e))
-                })?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                error!(path = %parent.display(), err = %e, "Failed to create database directory");
+                AppError::from(format!("Failed to create database directory: {}", e))
+            })?;
         }
 
-        let conn = Connection::open(&db_path)
-            .map_err(|e| {
-                error!(path = %db_path.display(), err = %e, "Failed to open database");
-                AppError::from(format!("Failed to open database: {}", e))
-            })?;
+        let conn = Connection::open(&db_path).map_err(|e| {
+            error!(path = %db_path.display(), err = %e, "Failed to open database");
+            AppError::from(format!("Failed to open database: {}", e))
+        })?;
         Self::run_migrations(&conn)?;
 
         Ok(Self {
@@ -151,11 +149,13 @@ impl Database {
 
     /// 降级到内存数据库（磁盘数据库失败时的 fallback）
     pub fn new_fallback() -> Result<Self, AppError> {
-        let conn = Connection::open_in_memory()
-            .map_err(|e| {
-                error!(err = %e, "Failed to create fallback in-memory database");
-                AppError::from(format!("Failed to create fallback in-memory database: {}", e))
-            })?;
+        let conn = Connection::open_in_memory().map_err(|e| {
+            error!(err = %e, "Failed to create fallback in-memory database");
+            AppError::from(format!(
+                "Failed to create fallback in-memory database: {}",
+                e
+            ))
+        })?;
         Self::run_migrations(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -178,10 +178,16 @@ impl Database {
         })?;
 
         let current_version = Self::get_current_version(conn)?;
-        let pending: Vec<&Migration> = MIGRATIONS.iter().filter(|m| m.version > current_version).collect();
+        let pending: Vec<&Migration> = MIGRATIONS
+            .iter()
+            .filter(|m| m.version > current_version)
+            .collect();
 
         if pending.is_empty() {
-            info!("Database schema is up to date (version {})", current_version);
+            info!(
+                "Database schema is up to date (version {})",
+                current_version
+            );
             return Ok(());
         }
 
@@ -193,7 +199,10 @@ impl Database {
         );
 
         for migration in pending {
-            info!("Applying migration v{}: {}", migration.version, migration.description);
+            info!(
+                "Applying migration v{}: {}",
+                migration.version, migration.description
+            );
 
             // 每条迁移在一个事务内执行，保证原子性
             let tx = conn.unchecked_transaction()
@@ -235,14 +244,13 @@ impl Database {
                 ))
             })?;
 
-            tx.commit()
-                .map_err(|e| {
-                    error!(version = migration.version, err = %e, "Failed to commit migration");
-                    AppError::from(format!(
-                        "Failed to commit migration v{}: {}",
-                        migration.version, e
-                    ))
-                })?;
+            tx.commit().map_err(|e| {
+                error!(version = migration.version, err = %e, "Failed to commit migration");
+                AppError::from(format!(
+                    "Failed to commit migration v{}: {}",
+                    migration.version, e
+                ))
+            })?;
 
             info!("Migration v{} applied successfully", migration.version);
         }
@@ -273,12 +281,10 @@ impl Database {
 
     /// 获取数据库连接的可变引用
     pub fn connection(&self) -> Result<MutexGuard<'_, Connection>, AppError> {
-        self.conn
-            .lock()
-            .map_err(|_| {
-                error!("Database lock poisoned");
-                AppError::from("Database lock poisoned")
-            })
+        self.conn.lock().map_err(|_| {
+            error!("Database lock poisoned");
+            AppError::from("Database lock poisoned")
+        })
     }
 }
 
@@ -307,7 +313,9 @@ mod tests {
         let db = Database::new_in_memory().expect("should create db");
         let conn = db.connection().expect("should get connection");
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
             .expect("should count migrations");
         assert_eq!(count, MIGRATIONS.len() as i64);
     }
@@ -317,7 +325,14 @@ mod tests {
         let db = Database::new_in_memory().expect("should create db");
         let conn = db.connection().expect("should get connection");
 
-        let tables = ["projects", "launch_history", "todos", "todo_subtasks", "specs", "schema_migrations"];
+        let tables = [
+            "projects",
+            "launch_history",
+            "todos",
+            "todo_subtasks",
+            "specs",
+            "schema_migrations",
+        ];
         for table in &tables {
             let exists: bool = conn
                 .query_row(

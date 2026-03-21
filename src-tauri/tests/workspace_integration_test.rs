@@ -248,9 +248,7 @@ fn test_project_alias_in_workspace() {
     let (_dir, service) = setup();
 
     service.create_workspace("ws-proj-alias", None).unwrap();
-    let project = service
-        .add_project("ws-proj-alias", "/path/proj")
-        .unwrap();
+    let project = service.add_project("ws-proj-alias", "/path/proj").unwrap();
 
     // 设置项目别名
     service
@@ -285,9 +283,7 @@ fn test_workspace_hidden() {
     assert!(ws.hidden);
 
     // 取消隐藏
-    service
-        .update_workspace_hidden("ws-hidden", false)
-        .unwrap();
+    service.update_workspace_hidden("ws-hidden", false).unwrap();
     let ws = service.get_workspace("ws-hidden").unwrap();
     assert!(!ws.hidden);
 }

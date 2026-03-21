@@ -237,10 +237,7 @@ impl ProxySettings {
             _ => String::new(),
         };
 
-        let proxy_url = format!(
-            "{}://{}{}:{}",
-            self.proxy_type, auth, self.host, self.port
-        );
+        let proxy_url = format!("{}://{}{}:{}", self.proxy_type, auth, self.host, self.port);
 
         vars.insert("HTTP_PROXY".to_string(), proxy_url.clone());
         vars.insert("HTTPS_PROXY".to_string(), proxy_url.clone());

@@ -238,8 +238,7 @@ impl HistoryFileRepository {
     pub fn read_config(&self) -> Result<ProjectConfig> {
         let config_path = self.config_path();
         if config_path.exists() {
-            let content =
-                fs::read_to_string(&config_path).context("Failed to read config file")?;
+            let content = fs::read_to_string(&config_path).context("Failed to read config file")?;
             toml::from_str(&content).context("Failed to parse config file")
         } else {
             Ok(ProjectConfig::default())
@@ -248,8 +247,7 @@ impl HistoryFileRepository {
 
     pub fn save_config(&self, config: &ProjectConfig) -> Result<()> {
         let config_path = self.config_path();
-        let toml_str =
-            toml::to_string_pretty(config).context("Failed to serialize config")?;
+        let toml_str = toml::to_string_pretty(config).context("Failed to serialize config")?;
         fs::write(&config_path, toml_str).context("Failed to write config file")
     }
 
@@ -437,7 +435,11 @@ impl HistoryFileRepository {
     }
 
     /// 列出文件在指定分支的版本
-    pub fn list_versions_by_branch(&self, file_path: &str, branch: &str) -> Result<Vec<FileVersion>> {
+    pub fn list_versions_by_branch(
+        &self,
+        file_path: &str,
+        branch: &str,
+    ) -> Result<Vec<FileVersion>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db
             .prepare(
@@ -608,11 +610,13 @@ impl HistoryFileRepository {
                 // 只在首次遇到该 hash 时计入释放量（共享 blob 不重复计数）
                 if counted_hashes.insert(hash.clone()) {
                     // 检查该 blob 是否仍被其他版本引用
-                    let ref_count: i64 = db.query_row(
-                        "SELECT COUNT(*) FROM file_versions WHERE hash = ?1",
-                        params![hash],
-                        |row| row.get(0),
-                    ).unwrap_or(0);
+                    let ref_count: i64 = db
+                        .query_row(
+                            "SELECT COUNT(*) FROM file_versions WHERE hash = ?1",
+                            params![hash],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(0);
                     if ref_count == 0 {
                         let blob_size = self
                             .blob_path(hash)
@@ -640,7 +644,8 @@ impl HistoryFileRepository {
         let referenced_hashes: std::collections::HashSet<String> = {
             let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
             let mut stmt = db.prepare("SELECT DISTINCT hash FROM file_versions")?;
-            let result = stmt.query_map([], |row| row.get(0))?
+            let result = stmt
+                .query_map([], |row| row.get(0))?
                 .filter_map(|r| r.ok())
                 .collect();
             result
@@ -771,7 +776,9 @@ impl HistoryFileRepository {
             let mut hunk_old_count = 0;
             let mut hunk_new_count = 0;
 
-            for (idx, (tag, old_no, new_no, value)) in all_changes[hunk_start..hunk_end].iter().enumerate() {
+            for (idx, (tag, old_no, new_no, value)) in
+                all_changes[hunk_start..hunk_end].iter().enumerate()
+            {
                 if idx == 0 {
                     hunk_old_start = if *old_no > 0 { *old_no } else { 1 };
                     hunk_new_start = if *new_no > 0 { *new_no } else { 1 };
@@ -988,7 +995,16 @@ impl HistoryFileRepository {
 
     /// 列出所有标签（单次 JOIN 查询，避免 N+1）
     pub fn list_labels(&self) -> Result<Vec<HistoryLabel>> {
-        type LabelRow = (String, String, String, String, String, String, Option<String>, Option<String>);
+        type LabelRow = (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        );
 
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
@@ -999,8 +1015,8 @@ impl HistoryFileRepository {
              ORDER BY l.timestamp DESC, l.id",
         )?;
 
-        let rows: Vec<LabelRow> =
-            stmt.query_map([], |row| {
+        let rows: Vec<LabelRow> = stmt
+            .query_map([], |row| {
                 Ok((
                     row.get(0)?,
                     row.get(1)?,
@@ -1079,19 +1095,20 @@ impl HistoryFileRepository {
                  WHERE file_path LIKE ?1 ESCAPE '\\' AND created_at >= ?2
                  ORDER BY created_at DESC",
             )?;
-            let result = stmt.query_map(params![pattern, since_time], |row| {
-                Ok(FileVersion {
-                    id: row.get(0)?,
-                    file_path: row.get(1)?,
-                    hash: row.get(2)?,
-                    size: row.get::<_, i64>(3)? as u64,
-                    created_at: row.get(4)?,
-                    is_deleted: row.get::<_, i32>(5)? != 0,
-                    branch: row.get(6)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+            let result = stmt
+                .query_map(params![pattern, since_time], |row| {
+                    Ok(FileVersion {
+                        id: row.get(0)?,
+                        file_path: row.get(1)?,
+                        hash: row.get(2)?,
+                        size: row.get::<_, i64>(3)? as u64,
+                        created_at: row.get(4)?,
+                        is_deleted: row.get::<_, i32>(5)? != 0,
+                        branch: row.get(6)?,
+                    })
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
             result
         } else {
             let mut stmt = db.prepare(
@@ -1100,19 +1117,20 @@ impl HistoryFileRepository {
                  WHERE file_path LIKE ?1 ESCAPE '\\'
                  ORDER BY created_at DESC",
             )?;
-            let result = stmt.query_map(params![pattern], |row| {
-                Ok(FileVersion {
-                    id: row.get(0)?,
-                    file_path: row.get(1)?,
-                    hash: row.get(2)?,
-                    size: row.get::<_, i64>(3)? as u64,
-                    created_at: row.get(4)?,
-                    is_deleted: row.get::<_, i32>(5)? != 0,
-                    branch: row.get(6)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+            let result = stmt
+                .query_map(params![pattern], |row| {
+                    Ok(FileVersion {
+                        id: row.get(0)?,
+                        file_path: row.get(1)?,
+                        hash: row.get(2)?,
+                        size: row.get::<_, i64>(3)? as u64,
+                        created_at: row.get(4)?,
+                        is_deleted: row.get::<_, i32>(5)? != 0,
+                        branch: row.get(6)?,
+                    })
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
             result
         };
 
@@ -1278,7 +1296,6 @@ impl HistoryFileRepository {
             project_path: project_path.to_path_buf(),
         })
     }
-
 }
 
 /// 转义 SQLite LIKE 模式中的特殊字符（`\`、`%`、`_`）
@@ -1317,10 +1334,7 @@ mod tests {
     #[test]
     fn test_escape_like_all_special() {
         // 含全部三种特殊字符
-        assert_eq!(
-            escape_like_pattern("a\\b%c_d"),
-            "a\\\\b\\%c\\_d"
-        );
+        assert_eq!(escape_like_pattern("a\\b%c_d"), "a\\\\b\\%c\\_d");
     }
 
     #[test]

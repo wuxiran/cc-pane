@@ -43,10 +43,7 @@ pub fn output_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<O
                 let _ = child.wait();
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
-                    format!(
-                        "Command timed out (waited {} seconds)",
-                        timeout.as_secs()
-                    ),
+                    format!("Command timed out (waited {} seconds)", timeout.as_secs()),
                 ));
             }
             None => std::thread::sleep(Duration::from_millis(200)),
@@ -60,10 +57,8 @@ mod tests {
 
     #[test]
     fn test_output_with_timeout_success() {
-        let output = output_with_timeout(
-            Command::new("git").arg("--version"),
-            Duration::from_secs(5),
-        );
+        let output =
+            output_with_timeout(Command::new("git").arg("--version"), Duration::from_secs(5));
         assert!(output.is_ok());
         let out = output.unwrap();
         assert!(out.status.success());
@@ -74,10 +69,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn test_output_with_timeout_expires() {
-        let result = output_with_timeout(
-            Command::new("sleep").arg("10"),
-            Duration::from_secs(1),
-        );
+        let result = output_with_timeout(Command::new("sleep").arg("10"), Duration::from_secs(1));
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);

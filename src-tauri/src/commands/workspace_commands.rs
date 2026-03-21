@@ -1,15 +1,13 @@
 use crate::models::{ScannedRepo, SshConnectionInfo, Workspace, WorkspaceProject};
 use crate::services::WorkspaceService;
-use crate::utils::{AppResult, validate_path, validate_ssh_info};
+use crate::utils::{validate_path, validate_ssh_info, AppResult};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
 use tracing::debug;
 
 #[tauri::command]
-pub fn list_workspaces(
-    service: State<'_, Arc<WorkspaceService>>,
-) -> AppResult<Vec<Workspace>> {
+pub fn list_workspaces(service: State<'_, Arc<WorkspaceService>>) -> AppResult<Vec<Workspace>> {
     Ok(service.list_workspaces()?)
 }
 
@@ -45,10 +43,7 @@ pub fn rename_workspace(
 }
 
 #[tauri::command]
-pub fn delete_workspace(
-    name: String,
-    service: State<'_, Arc<WorkspaceService>>,
-) -> AppResult<()> {
+pub fn delete_workspace(name: String, service: State<'_, Arc<WorkspaceService>>) -> AppResult<()> {
     debug!(name = %name, "cmd::delete_workspace");
     Ok(service.delete_workspace(&name)?)
 }
@@ -148,9 +143,7 @@ pub fn reorder_workspaces(
 }
 
 #[tauri::command]
-pub fn scan_workspace_directory(
-    root_path: String,
-) -> AppResult<Vec<ScannedRepo>> {
+pub fn scan_workspace_directory(root_path: String) -> AppResult<Vec<ScannedRepo>> {
     validate_path(&root_path)?;
     Ok(WorkspaceService::scan_directory(Path::new(&root_path))?)
 }

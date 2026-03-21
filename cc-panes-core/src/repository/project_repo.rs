@@ -18,7 +18,9 @@ impl ProjectRepository {
     pub fn list(&self) -> Result<Vec<Project>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
-            .prepare("SELECT id, name, path, created_at, alias FROM projects ORDER BY created_at DESC")
+            .prepare(
+                "SELECT id, name, path, created_at, alias FROM projects ORDER BY created_at DESC",
+            )
             .map_err(|e| {
                 error!(table = "projects", err = %e, "SQL prepare failed");
                 e.to_string()

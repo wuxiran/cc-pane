@@ -29,7 +29,9 @@ impl SpecService {
 
     /// 获取项目级锁
     fn get_project_lock(&self, project_path: &str) -> AppResult<Arc<TokioMutex<()>>> {
-        let mut locks = self.project_locks.lock()
+        let mut locks = self
+            .project_locks
+            .lock()
             .map_err(|_| AppError::from("Project lock poisoned"))?;
         Ok(locks
             .entry(project_path.to_string())
@@ -44,7 +46,10 @@ impl SpecService {
         debug!("svc::create_spec");
         let title = req.title.trim().to_string();
         if title.is_empty() {
-            return Err(AppError::coded(EC::SPEC_TITLE_EMPTY, "Spec title cannot be empty"));
+            return Err(AppError::coded(
+                EC::SPEC_TITLE_EMPTY,
+                "Spec title cannot be empty",
+            ));
         }
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -73,7 +78,10 @@ impl SpecService {
         if let Err(e) = std::fs::create_dir_all(&spec_dir) {
             // 补偿：删除 DB 记录
             let _ = self.spec_repo.delete(&spec_id);
-            return Err(AppError::from(format!("Failed to create spec directory: {}", e)));
+            return Err(AppError::from(format!(
+                "Failed to create spec directory: {}",
+                e
+            )));
         }
 
         let spec_path = spec_dir.join(&file_name);
@@ -97,14 +105,10 @@ impl SpecService {
         match todo_result {
             Ok(todo) => {
                 // Step 4: 更新 DB 关联 todo_id
-                if let Err(e) = self.spec_repo.update(
-                    &spec_id,
-                    None,
-                    None,
-                    None,
-                    Some(&todo.id),
-                    None,
-                ) {
+                if let Err(e) =
+                    self.spec_repo
+                        .update(&spec_id, None, None, None, Some(&todo.id), None)
+                {
                     warn!("Failed to update spec todo_id: {}", e);
                 }
 
@@ -235,9 +239,7 @@ impl SpecService {
         }
 
         // 3. 删除 DB 记录
-        self.spec_repo
-            .delete(spec_id)
-            .map_err(AppError::from)?;
+        self.spec_repo.delete(spec_id).map_err(AppError::from)?;
         Ok(())
     }
 
@@ -344,12 +346,7 @@ impl SpecService {
     }
 
     /// 追加 Log 段（持锁操作）
-    pub fn append_log(
-        &self,
-        project_path: &str,
-        spec_id: &str,
-        log_entry: &str,
-    ) -> AppResult<()> {
+    pub fn append_log(&self, project_path: &str, spec_id: &str, log_entry: &str) -> AppResult<()> {
         if log_entry.trim().is_empty() {
             return Ok(());
         }
@@ -405,13 +402,7 @@ impl SpecService {
         let slug: String = title
             .to_lowercase()
             .chars()
-            .map(|c| {
-                if c.is_alphanumeric() {
-                    c
-                } else {
-                    '-'
-                }
-            })
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
             .collect();
         // 去除连续的 - 和首尾的 -
         let slug = slug
@@ -569,7 +560,7 @@ impl SpecService {
                     result.push(new_tasks);
                 }
                 result.push(""); // 空行分隔
-                // 保留后续内容
+                                 // 保留后续内容
                 for line in &lines[end..] {
                     result.push(*line);
                 }
@@ -603,9 +594,7 @@ impl SpecService {
                 }
                 // 检查是否已有当天的日期标题
                 let date_header = format!("### {}", date);
-                let has_today = lines[idx..]
-                    .iter()
-                    .any(|l| l.trim() == date_header.trim());
+                let has_today = lines[idx..].iter().any(|l| l.trim() == date_header.trim());
 
                 if has_today {
                     // 找到当天最后一条 "- " 条目的位置，在其后插入新条目
@@ -672,14 +661,9 @@ impl SpecService {
                 .map_err(|e| AppError::from(format!("Failed to archive spec file: {}", e)))?;
 
             // 更新 DB 的 file_name 为归档后的文件名
-            let _ = self.spec_repo.update(
-                &entry.id,
-                None,
-                Some(&archived_name),
-                None,
-                None,
-                None,
-            );
+            let _ = self
+                .spec_repo
+                .update(&entry.id, None, Some(&archived_name), None, None, None);
             info!("Spec file archived: {:?} → {:?}", src, dst);
         }
         Ok(())
@@ -795,12 +779,17 @@ mod tests {
     fn test_append_to_log_section_existing_date() {
         // 当天已有条目时，新条目应追加到末尾而非日期标题后
         let content = "# Spec\n## Log\n### 2026-03-15\n- old entry 1\n- old entry 2\n";
-        let result =
-            SpecService::append_to_log_section(content, "2026-03-15", "NEW entry");
+        let result = SpecService::append_to_log_section(content, "2026-03-15", "NEW entry");
         let lines: Vec<&str> = result.lines().collect();
         // 找到所有条目的位置
-        let old1_pos = lines.iter().position(|l| l.contains("old entry 1")).unwrap();
-        let old2_pos = lines.iter().position(|l| l.contains("old entry 2")).unwrap();
+        let old1_pos = lines
+            .iter()
+            .position(|l| l.contains("old entry 1"))
+            .unwrap();
+        let old2_pos = lines
+            .iter()
+            .position(|l| l.contains("old entry 2"))
+            .unwrap();
         let new_pos = lines.iter().position(|l| l.contains("NEW entry")).unwrap();
         // 新条目应在所有旧条目之后
         assert!(new_pos > old1_pos, "NEW should be after old entry 1");

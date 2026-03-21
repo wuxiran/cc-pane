@@ -1,6 +1,6 @@
 use crate::models::process_info::ProcessScanResult;
 use crate::services::ProcessMonitorService;
-use crate::utils::{AppResult, error::AppError};
+use crate::utils::{error::AppError, AppResult};
 use std::sync::Arc;
 use tauri::State;
 

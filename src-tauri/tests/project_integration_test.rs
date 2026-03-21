@@ -33,9 +33,7 @@ fn test_full_lifecycle() {
     std::fs::create_dir_all(&project_dir).unwrap();
 
     // 3. 添加项目
-    let project = service
-        .add_project(project_dir.to_str().unwrap())
-        .unwrap();
+    let project = service.add_project(project_dir.to_str().unwrap()).unwrap();
     assert_eq!(project.name, "my-project");
     assert!(!project.id.is_empty());
 
@@ -127,9 +125,7 @@ fn test_error_handling() {
     // 空名称更新
     let project_dir = temp_dir.join("error-test");
     std::fs::create_dir_all(&project_dir).unwrap();
-    let project = service
-        .add_project(project_dir.to_str().unwrap())
-        .unwrap();
+    let project = service.add_project(project_dir.to_str().unwrap()).unwrap();
     assert!(service.update_project_name(&project.id, "").is_err());
 
     cleanup(&temp_dir);

@@ -1,7 +1,7 @@
 use crate::services::HistoryService;
 use crate::utils::{
-    output_with_timeout, AppResult, validate_git_url, validate_path,
-    GIT_LOCAL_TIMEOUT, GIT_NETWORK_TIMEOUT,
+    output_with_timeout, validate_git_url, validate_path, AppResult, GIT_LOCAL_TIMEOUT,
+    GIT_NETWORK_TIMEOUT,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -28,9 +28,7 @@ pub fn get_git_branch(path: String) -> AppResult<Option<String>> {
     )?;
 
     if output.status.success() {
-        let branch = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .to_string();
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if branch.is_empty() {
             Ok(None)
         } else {
@@ -74,9 +72,7 @@ fn run_git_command(path: &str, args: &[&str]) -> AppResult<String> {
     }
 
     let output = output_with_timeout(
-        Command::new("git")
-            .args(args)
-            .current_dir(project_path),
+        Command::new("git").args(args).current_dir(project_path),
         GIT_NETWORK_TIMEOUT,
     )?;
 
@@ -84,24 +80,20 @@ fn run_git_command(path: &str, args: &[&str]) -> AppResult<String> {
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() {
-        Ok(if stdout.is_empty() { "Operation successful".to_string() } else { stdout })
+        Ok(if stdout.is_empty() {
+            "Operation successful".to_string()
+        } else {
+            stdout
+        })
     } else {
         Err(if stderr.is_empty() { stdout } else { stderr }.into())
     }
 }
 
 /// Git 操作前自动打标签的辅助函数
-fn auto_label_before_git(
-    history_service: &HistoryService,
-    path: &str,
-    operation: &str,
-) {
+fn auto_label_before_git(history_service: &HistoryService, path: &str, operation: &str) {
     let label_name = format!("Before Git {}", operation);
-    let _ = history_service.create_auto_label(
-        Path::new(path),
-        &label_name,
-        "git_commit",
-    );
+    let _ = history_service.create_auto_label(Path::new(path), &label_name, "git_commit");
 }
 
 #[tauri::command]
@@ -176,10 +168,7 @@ pub struct GitCloneRequest {
 }
 
 #[tauri::command]
-pub async fn git_clone(
-    app_handle: AppHandle,
-    request: GitCloneRequest,
-) -> AppResult<String> {
+pub async fn git_clone(app_handle: AppHandle, request: GitCloneRequest) -> AppResult<String> {
     info!(url = %request.url, target_dir = %request.target_dir, "cmd::git_clone");
     validate_git_url(&request.url)?;
     validate_path(&request.target_dir)?;
@@ -235,7 +224,11 @@ pub async fn git_clone(
                             if !buf.is_empty() {
                                 let line = String::from_utf8_lossy(&buf).to_string();
                                 let progress = parse_git_progress(&line);
-                                let _ = handle.emit_to(EventTarget::webview("main"), "git-clone-progress", progress);
+                                let _ = handle.emit_to(
+                                    EventTarget::webview("main"),
+                                    "git-clone-progress",
+                                    progress,
+                                );
                                 buf.clear();
                             }
                         } else {
@@ -249,7 +242,8 @@ pub async fn git_clone(
             if !buf.is_empty() {
                 let line = String::from_utf8_lossy(&buf).to_string();
                 let progress = parse_git_progress(&line);
-                let _ = handle.emit_to(EventTarget::webview("main"), "git-clone-progress", progress);
+                let _ =
+                    handle.emit_to(EventTarget::webview("main"), "git-clone-progress", progress);
             }
         })
     });

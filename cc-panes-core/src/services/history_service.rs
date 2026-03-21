@@ -47,7 +47,6 @@ pub struct HistoryService {
     silence_until: Arc<Mutex<HashMap<PathBuf, Instant>>>,
 }
 
-
 impl Default for HistoryService {
     fn default() -> Self {
         Self::new()
@@ -99,7 +98,12 @@ impl HistoryService {
         };
         let content = fs::read_to_string(&head_path).ok()?;
         if content.starts_with("ref: refs/heads/") {
-            Some(content.trim_start_matches("ref: refs/heads/").trim().to_string())
+            Some(
+                content
+                    .trim_start_matches("ref: refs/heads/")
+                    .trim()
+                    .to_string(),
+            )
         } else {
             Some("HEAD".to_string()) // detached HEAD
         }
@@ -149,14 +153,24 @@ impl HistoryService {
 
             // 先处理 BranchSwitched 事件
             for event in branch_events {
-                if let HistoryEvent::BranchSwitched { project_path, old_branch, new_branch } = event {
+                if let HistoryEvent::BranchSwitched {
+                    project_path,
+                    old_branch,
+                    new_branch,
+                } = event
+                {
                     // 设置静默窗口
                     silence_until.insert(
                         project_path.clone(),
                         Instant::now() + Duration::from_secs(CHECKOUT_SILENCE_SECS),
                     );
                     // 创建 BranchSwitched 自动标签
-                    Self::create_branch_switch_label(&repos, &project_path, &old_branch, &new_branch);
+                    Self::create_branch_switch_label(
+                        &repos,
+                        &project_path,
+                        &old_branch,
+                        &new_branch,
+                    );
                 }
             }
 
@@ -305,7 +319,13 @@ impl HistoryService {
                 return Ok(());
             }
 
-            let _ = repo.save_version(&relative_str, &content, false, branch, config.history.min_save_interval_secs);
+            let _ = repo.save_version(
+                &relative_str,
+                &content,
+                false,
+                branch,
+                config.history.min_save_interval_secs,
+            );
         }
 
         Ok(())
@@ -378,11 +398,7 @@ impl HistoryService {
     }
 
     /// 更新配置
-    pub fn update_config(
-        &self,
-        project_path: &Path,
-        history_config: HistoryConfig,
-    ) -> Result<()> {
+    pub fn update_config(&self, project_path: &Path, history_config: HistoryConfig) -> Result<()> {
         let repo = self.get_or_create_repo(project_path)?;
         let mut config = repo.read_config()?;
         config.history = history_config;
@@ -410,7 +426,13 @@ impl HistoryService {
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
                 if let Ok(event) = res {
-                    Self::dispatch_event(&project_path_clone, event, &tx, &branch_cache, &silence_until);
+                    Self::dispatch_event(
+                        &project_path_clone,
+                        event,
+                        &tx,
+                        &branch_cache,
+                        &silence_until,
+                    );
                 }
             },
             Config::default(),
@@ -527,11 +549,7 @@ impl HistoryService {
     }
 
     /// 列出文件版本
-    pub fn list_versions(
-        &self,
-        project_path: &Path,
-        file_path: &str,
-    ) -> Result<Vec<FileVersion>> {
+    pub fn list_versions(&self, project_path: &Path, file_path: &str) -> Result<Vec<FileVersion>> {
         let repo = self.get_or_create_repo(project_path)?;
         repo.list_versions(file_path)
     }
@@ -668,8 +686,8 @@ impl HistoryService {
         let mut restored_files = Vec::new();
         for snap in &target_label.file_snapshots {
             if let Ok(content) = repo.get_version_content(&snap.file_path, &snap.version_id) {
-                let full_path = project_path
-                    .join(snap.file_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                let full_path =
+                    project_path.join(snap.file_path.replace('/', std::path::MAIN_SEPARATOR_STR));
                 if let Some(parent) = full_path.parent() {
                     let _ = fs::create_dir_all(parent);
                 }
@@ -750,11 +768,7 @@ impl HistoryService {
     }
 
     /// 获取文件有版本的所有分支列表
-    pub fn get_file_branches(
-        &self,
-        project_path: &Path,
-        file_path: &str,
-    ) -> Result<Vec<String>> {
+    pub fn get_file_branches(&self, project_path: &Path, file_path: &str) -> Result<Vec<String>> {
         let repo = self.get_or_create_repo(project_path)?;
         repo.get_file_branches(file_path)
     }
@@ -819,12 +833,17 @@ impl HistoryService {
                         if let Some(main_repo_dir) = git_dir.parent() {
                             // main_repo_dir = 主仓库根目录
                             if main_repo_dir != project_path {
-                                if let Ok(main_repo) = HistoryFileRepository::open_readonly(main_repo_dir) {
-                                    let main_branch = Self::read_current_branch(main_repo_dir).unwrap_or_default();
+                                if let Ok(main_repo) =
+                                    HistoryFileRepository::open_readonly(main_repo_dir)
+                                {
+                                    let main_branch = Self::read_current_branch(main_repo_dir)
+                                        .unwrap_or_default();
                                     if let Ok(main_changes) = main_repo.get_recent_changes(limit) {
                                         for change in main_changes {
                                             all_changes.push(WorktreeRecentChange {
-                                                worktree_path: main_repo_dir.to_string_lossy().to_string(),
+                                                worktree_path: main_repo_dir
+                                                    .to_string_lossy()
+                                                    .to_string(),
                                                 worktree_branch: main_branch.clone(),
                                                 is_main: true,
                                                 change,

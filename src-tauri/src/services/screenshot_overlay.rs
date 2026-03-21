@@ -72,7 +72,13 @@ mod win32_impl {
             return None;
         }
 
-        let result = run_overlay(screenshot, monitor_x, monitor_y, monitor_width, monitor_height);
+        let result = run_overlay(
+            screenshot,
+            monitor_x,
+            monitor_y,
+            monitor_width,
+            monitor_height,
+        );
         OVERLAY_ACTIVE.store(false, Ordering::SeqCst);
         result
     }
@@ -146,8 +152,14 @@ mod win32_impl {
             };
             let mut _mask_bits: *mut std::ffi::c_void = std::ptr::null_mut();
             let mask_bmp = CreateDIBSection(
-                Some(screen_dc), &mask_bmi, DIB_RGB_COLORS, &mut _mask_bits, None, 0,
-            ).unwrap_or_default();
+                Some(screen_dc),
+                &mask_bmi,
+                DIB_RGB_COLORS,
+                &mut _mask_bits,
+                None,
+                0,
+            )
+            .unwrap_or_default();
             SelectObject(mask_dc, mask_bmp.into());
             // DIBSection 初始化为全零（全黑），正好用于 AlphaBlend 遮罩
 
@@ -218,12 +230,8 @@ mod win32_impl {
 
             // 读取结果（窗口坐标 → 原始图像坐标）
             let result = if state.confirmed && state.has_selection {
-                let (x1, y1, x2, y2) = normalize_rect(
-                    state.start_x,
-                    state.start_y,
-                    state.end_x,
-                    state.end_y,
-                );
+                let (x1, y1, x2, y2) =
+                    normalize_rect(state.start_x, state.start_y, state.end_x, state.end_y);
                 let sel_w = (x2 - x1) as u32;
                 let sel_h = (y2 - y1) as u32;
                 if sel_w > 2 && sel_h > 2 {
@@ -293,17 +301,15 @@ mod win32_impl {
         // 如果源图像和目标尺寸相同，直接复制像素；否则用 StretchBlt
         if src_w == target_w && src_h == target_h {
             // 直接复制像素（RGBA → BGRA）
-            let dst_slice = std::slice::from_raw_parts_mut(
-                bits as *mut u8,
-                (target_w * target_h * 4) as usize,
-            );
+            let dst_slice =
+                std::slice::from_raw_parts_mut(bits as *mut u8, (target_w * target_h * 4) as usize);
             let src = img.as_raw();
             for i in 0..(target_w * target_h) as usize {
                 let si = i * 4;
-                dst_slice[si] = src[si + 2];     // B
+                dst_slice[si] = src[si + 2]; // B
                 dst_slice[si + 1] = src[si + 1]; // G
-                dst_slice[si + 2] = src[si];     // R
-                dst_slice[si + 3] = 255;         // A
+                dst_slice[si + 2] = src[si]; // R
+                dst_slice[si + 3] = 255; // A
             }
         } else {
             // 先创建源尺寸位图，再 StretchBlt 缩放
@@ -320,8 +326,9 @@ mod win32_impl {
                 ..Default::default()
             };
             let mut src_bits: *mut std::ffi::c_void = std::ptr::null_mut();
-            let src_bmp = CreateDIBSection(Some(hdc), &src_bmi, DIB_RGB_COLORS, &mut src_bits, None, 0)
-                .unwrap_or_default();
+            let src_bmp =
+                CreateDIBSection(Some(hdc), &src_bmi, DIB_RGB_COLORS, &mut src_bits, None, 0)
+                    .unwrap_or_default();
 
             if !src_bits.is_null() {
                 let dst_slice = std::slice::from_raw_parts_mut(
@@ -344,8 +351,16 @@ mod win32_impl {
 
                 SetStretchBltMode(dst_dc, HALFTONE);
                 let _ = StretchBlt(
-                    dst_dc, 0, 0, target_w, target_h,
-                    Some(src_dc), 0, 0, src_w, src_h,
+                    dst_dc,
+                    0,
+                    0,
+                    target_w,
+                    target_h,
+                    Some(src_dc),
+                    0,
+                    0,
+                    src_w,
+                    src_h,
                     SRCCOPY,
                 );
 
@@ -482,16 +497,14 @@ mod win32_impl {
 
         // 2. 绘制半透明遮罩
         if state.has_selection {
-            let (x1, y1, x2, y2) = normalize_rect(
-                state.start_x, state.start_y,
-                state.end_x, state.end_y,
-            );
+            let (x1, y1, x2, y2) =
+                normalize_rect(state.start_x, state.start_y, state.end_x, state.end_y);
 
             // 选区外区域绘制半透明遮罩（分四个矩形，使用缓存的 mask_dc）
-            draw_mask_region(mem_dc, state.mask_dc, 0, 0, w, y1);       // 上
-            draw_mask_region(mem_dc, state.mask_dc, 0, y1, x1, y2);     // 左
-            draw_mask_region(mem_dc, state.mask_dc, x2, y1, w, y2);     // 右
-            draw_mask_region(mem_dc, state.mask_dc, 0, y2, w, h);       // 下
+            draw_mask_region(mem_dc, state.mask_dc, 0, 0, w, y1); // 上
+            draw_mask_region(mem_dc, state.mask_dc, 0, y1, x1, y2); // 左
+            draw_mask_region(mem_dc, state.mask_dc, x2, y1, w, y2); // 右
+            draw_mask_region(mem_dc, state.mask_dc, 0, y2, w, h); // 下
 
             // 3. 选区边框（2px 蓝色 #4fc3f7）
             let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00f7c34f)); // BGR: 4f c3 f7
@@ -553,9 +566,14 @@ mod win32_impl {
 
         // 创建字体
         let font = CreateFontW(
-            16, 0, 0, 0,
+            16,
+            0,
+            0,
+            0,
             FW_NORMAL.0 as i32,
-            0, 0, 0,
+            0,
+            0,
+            0,
             DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS,
             CLIP_DEFAULT_PRECIS,

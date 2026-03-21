@@ -65,7 +65,11 @@ impl NotificationService {
             return;
         }
 
-        self.send_notification(app, "Action Required", "Terminal is waiting for input confirmation");
+        self.send_notification(
+            app,
+            "Action Required",
+            "Terminal is waiting for input confirmation",
+        );
     }
 
     /// 检查窗口是否处于聚焦状态
@@ -90,21 +94,11 @@ impl NotificationService {
 
     /// 发送桌面通知
     fn send_notification(&self, app: &AppHandle, title: &str, body: &str) {
-        let _ = app
-            .notification()
-            .builder()
-            .title(title)
-            .body(body)
-            .show();
+        let _ = app.notification().builder().title(title).body(body).show();
     }
 
     /// Todo 提醒通知
-    pub fn notify_todo_reminder(
-        &self,
-        app: &AppHandle,
-        todo_id: &str,
-        title: &str,
-    ) {
+    pub fn notify_todo_reminder(&self, app: &AppHandle, todo_id: &str, title: &str) {
         if !self.check_debounce(&format!("todo_reminder_{}", todo_id)) {
             return;
         }

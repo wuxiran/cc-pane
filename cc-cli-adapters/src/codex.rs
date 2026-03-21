@@ -30,10 +30,7 @@ impl CodexAdapter {
                 supports_mcp: true,
                 supports_system_prompt: true,
                 supports_workspace: true,
-                compatible_provider_types: vec![
-                    "openai".into(),
-                    "custom".into(),
-                ],
+                compatible_provider_types: vec!["openai".into(), "custom".into()],
             },
         }
     }
@@ -64,11 +61,8 @@ impl CodexAdapter {
         // 健康检查
         let check_addr = format!("127.0.0.1:{}", port);
         if let Ok(addr) = check_addr.parse() {
-            if std::net::TcpStream::connect_timeout(
-                &addr,
-                std::time::Duration::from_millis(200),
-            )
-            .is_err()
+            if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200))
+                .is_err()
             {
                 warn!(
                     session_id = %ctx.session_id,

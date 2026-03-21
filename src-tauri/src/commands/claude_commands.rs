@@ -15,15 +15,13 @@ use crate::utils::is_claude_project_match;
 /// 列出项目的 Claude 会话历史
 #[tauri::command]
 pub fn list_claude_sessions(project_path: String) -> AppResult<Vec<ClaudeSession>> {
-    claude_session_service::list_sessions(&project_path, 10)
-        .map_err(|e| e.into())
+    claude_session_service::list_sessions(&project_path, 10).map_err(|e| e.into())
 }
 
 /// 获取所有 Claude 项目的会话
 #[tauri::command]
 pub fn list_all_claude_sessions() -> AppResult<Vec<ClaudeSession>> {
-    claude_session_service::list_all_sessions(20)
-        .map_err(|e| e.into())
+    claude_session_service::list_all_sessions(20).map_err(|e| e.into())
 }
 
 // ============ 会话清理功能 ============
@@ -78,8 +76,7 @@ fn count_thinking_blocks(line: &str) -> u32 {
 pub fn scan_broken_sessions(project_path: Option<String>) -> AppResult<Vec<BrokenSession>> {
     let mut results = Vec::new();
 
-    let home = dirs::home_dir()
-        .ok_or("Failed to get user home directory")?;
+    let home = dirs::home_dir().ok_or("Failed to get user home directory")?;
 
     let claude_projects = home.join(".claude").join("projects");
     if !claude_projects.exists() {
@@ -134,9 +131,7 @@ pub fn scan_broken_sessions(project_path: Option<String>) -> AppResult<Vec<Broke
             }
 
             if total_thinking > 0 {
-                let file_size = fs::metadata(&file_path)
-                    .map(|m| m.len())
-                    .unwrap_or(0);
+                let file_size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
 
                 let file_name = file_path
                     .file_stem()
@@ -167,7 +162,9 @@ pub fn clean_session_file(file_path: String) -> CleanResult {
 
     // 路径安全校验：必须在 ~/.claude 目录范围内
     let validate = || -> Result<(), String> {
-        let canonical = path.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| format!("Invalid path: {}", e))?;
         let claude_dir = dirs::home_dir()
             .ok_or_else(|| "Failed to get home directory".to_string())?
             .join(".claude");
@@ -244,7 +241,8 @@ pub fn clean_session_file(file_path: String) -> CleanResult {
                             }
                         }
                     }
-                    new_lines.push(serde_json::to_string(&json).unwrap_or_else(|_| line.to_string()));
+                    new_lines
+                        .push(serde_json::to_string(&json).unwrap_or_else(|_| line.to_string()));
                 } else {
                     new_lines.push(line.to_string());
                 }
@@ -268,8 +266,8 @@ pub fn clean_session_file(file_path: String) -> CleanResult {
     // 写入临时文件再 rename，确保原子性
     let tmp_path = path.with_extension("jsonl.tmp");
     let write_result = (|| -> Result<(), String> {
-        let mut tmp_file = File::create(&tmp_path)
-            .map_err(|e| format!("Failed to create temp file: {}", e))?;
+        let mut tmp_file =
+            File::create(&tmp_path).map_err(|e| format!("Failed to create temp file: {}", e))?;
         for (i, line) in new_lines.iter().enumerate() {
             tmp_file
                 .write_all(line.as_bytes())
@@ -280,7 +278,9 @@ pub fn clean_session_file(file_path: String) -> CleanResult {
                     .map_err(|e| format!("Failed to write newline: {}", e))?;
             }
         }
-        tmp_file.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+        tmp_file
+            .flush()
+            .map_err(|e| format!("Failed to flush: {}", e))?;
         fs::rename(&tmp_path, &path).map_err(|e| format!("Failed to rename: {}", e))?;
         Ok(())
     })();
@@ -319,8 +319,7 @@ pub fn clean_all_broken_sessions(project_path: Option<String>) -> AppResult<Vec<
 /// 从 Claude 会话 JSONL 文件中提取最后一条用户 prompt（反向遍历）
 #[tauri::command]
 pub fn extract_last_prompt(project_path: String, session_id: String) -> AppResult<Option<String>> {
-    let home = dirs::home_dir()
-        .ok_or("Failed to get user home directory")?;
+    let home = dirs::home_dir().ok_or("Failed to get user home directory")?;
 
     let claude_projects = home.join(".claude").join("projects");
     if !claude_projects.exists() {

@@ -8,9 +8,7 @@ use tauri::{AppHandle, State};
 use tracing::debug;
 
 #[tauri::command]
-pub fn list_providers(
-    service: State<'_, Arc<ProviderService>>,
-) -> AppResult<Vec<Provider>> {
+pub fn list_providers(service: State<'_, Arc<ProviderService>>) -> AppResult<Vec<Provider>> {
     Ok(service.list_providers())
 }
 
@@ -30,10 +28,7 @@ pub fn get_default_provider(
 }
 
 #[tauri::command]
-pub fn add_provider(
-    provider: Provider,
-    service: State<'_, Arc<ProviderService>>,
-) -> AppResult<()> {
+pub fn add_provider(provider: Provider, service: State<'_, Arc<ProviderService>>) -> AppResult<()> {
     debug!(id = %provider.id, name = %provider.name, "cmd::add_provider");
     Ok(service.add_provider(provider)?)
 }
@@ -48,19 +43,13 @@ pub fn update_provider(
 }
 
 #[tauri::command]
-pub fn remove_provider(
-    id: String,
-    service: State<'_, Arc<ProviderService>>,
-) -> AppResult<()> {
+pub fn remove_provider(id: String, service: State<'_, Arc<ProviderService>>) -> AppResult<()> {
     debug!(id = %id, "cmd::remove_provider");
     Ok(service.remove_provider(&id)?)
 }
 
 #[tauri::command]
-pub fn set_default_provider(
-    id: String,
-    service: State<'_, Arc<ProviderService>>,
-) -> AppResult<()> {
+pub fn set_default_provider(id: String, service: State<'_, Arc<ProviderService>>) -> AppResult<()> {
     debug!(id = %id, "cmd::set_default_provider");
     Ok(service.set_default(&id)?)
 }
@@ -107,9 +96,7 @@ pub fn read_config_dir_info(path: String) -> AppResult<ConfigDirInfo> {
     let settings_summary = if has_settings {
         std::fs::read_to_string(p.join("settings.json"))
             .ok()
-            .and_then(|content| {
-                serde_json::from_str::<serde_json::Value>(&content).ok()
-            })
+            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
             .map(|val| {
                 let mut parts = Vec::new();
                 if let Some(model) = val.get("model").and_then(|v| v.as_str()) {
@@ -119,7 +106,8 @@ pub fn read_config_dir_info(path: String) -> AppResult<ConfigDirInfo> {
                     parts.push(format!("provider: {}", provider));
                 }
                 if parts.is_empty() {
-                    let keys: Vec<String> = val.as_object()
+                    let keys: Vec<String> = val
+                        .as_object()
                         .map(|obj| obj.keys().take(5).cloned().collect())
                         .unwrap_or_default();
                     format!("keys: {}", keys.join(", "))
@@ -142,11 +130,10 @@ pub fn read_config_dir_info(path: String) -> AppResult<ConfigDirInfo> {
 
 /// 读取 ccswitch JSON 配置文件信息
 fn read_config_file_info(file_path: &Path, path: String) -> AppResult<ConfigDirInfo> {
-    let content = std::fs::read_to_string(file_path)
-        .map_err(|e| format!("无法读取文件: {}", e))?;
+    let content = std::fs::read_to_string(file_path).map_err(|e| format!("无法读取文件: {}", e))?;
 
-    let json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("JSON 解析失败: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("JSON 解析失败: {}", e))?;
 
     let env_keys: Vec<String> = json
         .get("env")
@@ -157,7 +144,11 @@ fn read_config_file_info(file_path: &Path, path: String) -> AppResult<ConfigDirI
     let summary = if env_keys.is_empty() {
         None
     } else {
-        Some(format!("env 变量 ({}): {}", env_keys.len(), env_keys.join(", ")))
+        Some(format!(
+            "env 变量 ({}): {}",
+            env_keys.len(),
+            env_keys.join(", ")
+        ))
     };
 
     Ok(ConfigDirInfo {

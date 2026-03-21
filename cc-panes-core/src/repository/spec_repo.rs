@@ -44,9 +44,7 @@ impl SpecRepository {
             .map_err(|e| format!("Failed to prepare spec query: {}", e))?;
 
         let result = stmt
-            .query_row(rusqlite::params![id], |row| {
-                Ok(Self::row_to_entry(row))
-            })
+            .query_row(rusqlite::params![id], |row| Ok(Self::row_to_entry(row)))
             .optional()
             .map_err(|e| format!("Failed to query spec: {}", e))?;
 
@@ -209,9 +207,7 @@ impl SpecRepository {
             project_path: row.get(1).unwrap_or_default(),
             title: row.get(2).unwrap_or_default(),
             file_name: row.get(3).unwrap_or_default(),
-            status: status_str
-                .parse()
-                .unwrap_or(SpecStatus::Draft),
+            status: status_str.parse().unwrap_or(SpecStatus::Draft),
             todo_id: row.get(5).unwrap_or(None),
             created_at: row.get(6).unwrap_or_default(),
             updated_at: row.get(7).unwrap_or_default(),
@@ -302,7 +298,14 @@ mod tests {
         .unwrap();
 
         let updated = repo
-            .update("spec-u", Some("New title"), None, Some(&SpecStatus::Active), None, None)
+            .update(
+                "spec-u",
+                Some("New title"),
+                None,
+                Some(&SpecStatus::Active),
+                None,
+                None,
+            )
             .unwrap();
         assert!(updated);
 

@@ -23,10 +23,10 @@ impl ProviderService {
     }
 
     fn load_from_file(path: &Path) -> Result<ProviderConfig> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| "Failed to read providers config")?;
-        let config: ProviderConfig = serde_json::from_str(&content)
-            .with_context(|| "Failed to parse providers.json")?;
+        let content =
+            std::fs::read_to_string(path).with_context(|| "Failed to read providers config")?;
+        let config: ProviderConfig =
+            serde_json::from_str(&content).with_context(|| "Failed to parse providers.json")?;
         Ok(config)
     }
 
@@ -43,18 +43,31 @@ impl ProviderService {
 
     /// 列出所有 Provider
     pub fn list_providers(&self) -> Vec<Provider> {
-        self.config.lock().unwrap_or_else(|e| e.into_inner()).providers.clone()
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .providers
+            .clone()
     }
 
     /// 获取指定 Provider
     pub fn get_provider(&self, id: &str) -> Option<Provider> {
-        self.config.lock().unwrap_or_else(|e| e.into_inner()).providers.iter().find(|p| p.id == id).cloned()
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .providers
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
     }
 
     /// 获取默认 Provider
     pub fn get_default_provider(&self) -> Option<Provider> {
         let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
-        config.providers.iter().find(|p| p.is_default)
+        config
+            .providers
+            .iter()
+            .find(|p| p.is_default)
             .or_else(|| config.providers.first())
             .cloned()
     }
@@ -84,7 +97,10 @@ impl ProviderService {
     pub fn update_provider(&self, provider: Provider) -> Result<()> {
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
-        let pos = config.providers.iter().position(|p| p.id == provider.id)
+        let pos = config
+            .providers
+            .iter()
+            .position(|p| p.id == provider.id)
             .with_context(|| format!("Provider '{}' not found", provider.id))?;
 
         // 如果设为默认，取消其他的默认状态
@@ -104,7 +120,9 @@ impl ProviderService {
     pub fn remove_provider(&self, id: &str) -> Result<()> {
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
-        let was_default = config.providers.iter()
+        let was_default = config
+            .providers
+            .iter()
             .find(|p| p.id == id)
             .map(|p| p.is_default)
             .unwrap_or(false);
@@ -150,7 +168,10 @@ impl ProviderService {
         match provider {
             Some(p) => self.resolve_env_vars(p),
             None => {
-                warn!("[ProviderService] Provider '{}' not found, skipping env injection", provider_id.unwrap_or("unknown"));
+                warn!(
+                    "[ProviderService] Provider '{}' not found, skipping env injection",
+                    provider_id.unwrap_or("unknown")
+                );
                 HashMap::new()
             }
         }
@@ -177,12 +198,18 @@ impl ProviderService {
             match Self::parse_env_config_file(path) {
                 Ok(vars) => vars,
                 Err(e) => {
-                    warn!("[ProviderService] Failed to parse config file {}: {}", config_path, e);
+                    warn!(
+                        "[ProviderService] Failed to parse config file {}: {}",
+                        config_path, e
+                    );
                     HashMap::new()
                 }
             }
         } else {
-            warn!("[ProviderService] Config path does not exist: {}", config_path);
+            warn!(
+                "[ProviderService] Config path does not exist: {}",
+                config_path
+            );
             HashMap::new()
         }
     }
@@ -199,7 +226,10 @@ impl ProviderService {
         let env_obj = match json.get("env").and_then(|v| v.as_object()) {
             Some(obj) => obj,
             None => {
-                warn!("[ProviderService] Config file missing 'env' field: {}", path.display());
+                warn!(
+                    "[ProviderService] Config file missing 'env' field: {}",
+                    path.display()
+                );
                 return Ok(HashMap::new());
             }
         };

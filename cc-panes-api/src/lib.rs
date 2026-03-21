@@ -6,5 +6,5 @@
 //! Currently a placeholder — routes will be incrementally migrated from
 //! src-tauri's OrchestratorService.
 
-pub mod routes;
 pub mod error;
+pub mod routes;

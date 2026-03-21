@@ -29,10 +29,9 @@ impl SettingsService {
 
     /// 从文件加载配置
     fn load_from_file(path: &PathBuf) -> Result<AppSettings> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| "Failed to read config")?;
-        let settings: AppSettings = toml::from_str(&content)
-            .with_context(|| "Failed to parse config.toml")?;
+        let content = std::fs::read_to_string(path).with_context(|| "Failed to read config")?;
+        let settings: AppSettings =
+            toml::from_str(&content).with_context(|| "Failed to parse config.toml")?;
         Ok(settings)
     }
 
@@ -42,16 +41,18 @@ impl SettingsService {
         if let Some(parent) = self.config_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = toml::to_string_pretty(settings)
-            .with_context(|| "Failed to serialize settings")?;
-        std::fs::write(&self.config_path, content)
-            .with_context(|| "Failed to write config")?;
+        let content =
+            toml::to_string_pretty(settings).with_context(|| "Failed to serialize settings")?;
+        std::fs::write(&self.config_path, content).with_context(|| "Failed to write config")?;
         Ok(())
     }
 
     /// 获取当前设置
     pub fn get_settings(&self) -> AppSettings {
-        self.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// 更新设置
@@ -65,7 +66,11 @@ impl SettingsService {
 
     /// 获取代理环境变量
     pub fn get_proxy_env_vars(&self) -> std::collections::HashMap<String, String> {
-        self.settings.lock().unwrap_or_else(|e| e.into_inner()).proxy.to_env_vars()
+        self.settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .proxy
+            .to_env_vars()
     }
 }
 

@@ -31,7 +31,15 @@ pub fn add_launch_history(
     provider_id: Option<String>,
 ) -> AppResult<i64> {
     debug!(project_name = %project_name, project_path = %project_path, "cmd::add_launch_history");
-    Ok(service.add(&project_id, &project_name, &project_path, workspace_name.as_deref(), workspace_path.as_deref(), launch_cwd.as_deref(), provider_id.as_deref())?)
+    Ok(service.add(
+        &project_id,
+        &project_name,
+        &project_path,
+        workspace_name.as_deref(),
+        workspace_path.as_deref(),
+        launch_cwd.as_deref(),
+        provider_id.as_deref(),
+    )?)
 }
 
 #[tauri::command]
@@ -52,9 +60,7 @@ pub fn delete_launch_history(
 }
 
 #[tauri::command]
-pub fn clear_launch_history(
-    service: State<'_, Arc<LaunchHistoryService>>,
-) -> AppResult<()> {
+pub fn clear_launch_history(service: State<'_, Arc<LaunchHistoryService>>) -> AppResult<()> {
     debug!("cmd::clear_launch_history");
     Ok(service.clear()?)
 }
@@ -135,7 +141,13 @@ pub fn detect_claude_session(
     for path in paths_to_try {
         let encoded = encode_claude_project_path(path);
         let sessions_dir = home.join(".claude").join("projects").join(&encoded);
-        debug!("[session-detect] path={} encoded={} dir={} exists={}", path, encoded, sessions_dir.display(), sessions_dir.is_dir());
+        debug!(
+            "[session-detect] path={} encoded={} dir={} exists={}",
+            path,
+            encoded,
+            sessions_dir.display(),
+            sessions_dir.is_dir()
+        );
         if !sessions_dir.is_dir() {
             continue;
         }
@@ -174,7 +186,10 @@ pub fn detect_claude_session(
         }
     }
 
-    debug!("[session-detect] no session found for project_path={}", project_path);
+    debug!(
+        "[session-detect] no session found for project_path={}",
+        project_path
+    );
     Ok(None)
 }
 

@@ -8,7 +8,10 @@ pub fn screenshot_update_shortcut(
     old_shortcut: String,
     new_shortcut: String,
 ) -> AppResult<()> {
-    debug!("cmd::screenshot_update_shortcut new_shortcut={}", new_shortcut);
+    debug!(
+        "cmd::screenshot_update_shortcut new_shortcut={}",
+        new_shortcut
+    );
 
     #[cfg(not(target_os = "windows"))]
     {

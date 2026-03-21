@@ -8,4 +8,3 @@ pub struct ScreenshotResult {
     pub width: u32,
     pub height: u32,
 }
-

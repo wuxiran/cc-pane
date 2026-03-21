@@ -48,9 +48,9 @@ impl FileSystemService {
                 return Err(format!("Path contains illegal '..' component: {}", path).into());
             }
         }
-        let canonical = p.canonicalize().map_err(|e| {
-            format!("Invalid path '{}': {}", path, e)
-        })?;
+        let canonical = p
+            .canonicalize()
+            .map_err(|e| format!("Invalid path '{}': {}", path, e))?;
         // 确保不是系统关键路径
         #[cfg(windows)]
         {
@@ -76,7 +76,10 @@ impl FileSystemService {
     }
 
     /// 判断是否隐藏（接受已有 metadata，避免重复 I/O）
-    fn is_hidden_with_meta(name: &str, #[allow(unused_variables)] meta: Option<&fs::Metadata>) -> bool {
+    fn is_hidden_with_meta(
+        name: &str,
+        #[allow(unused_variables)] meta: Option<&fs::Metadata>,
+    ) -> bool {
         if name.starts_with('.') {
             return true;
         }
@@ -131,9 +134,9 @@ impl FileSystemService {
             }
             // Windows 保留名
             let reserved = [
-                "CON", "PRN", "AUX", "NUL",
-                "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-                "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+                "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+                "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
+                "LPT9",
             ];
             let upper = name.to_uppercase();
             let stem = upper.split('.').next().unwrap_or("");
@@ -168,7 +171,13 @@ impl FileSystemService {
                         dt.to_rfc3339()
                     });
                     let h = Self::is_hidden_with_meta(&name, Some(&target_meta));
-                    (target_meta.is_dir(), target_meta.is_file(), target_meta.len(), mod_time, h)
+                    (
+                        target_meta.is_dir(),
+                        target_meta.is_file(),
+                        target_meta.len(),
+                        mod_time,
+                        h,
+                    )
                 }
                 Err(_) => (false, false, 0, None, name.starts_with('.')), // 悬空 symlink
             }
@@ -202,7 +211,8 @@ impl FileSystemService {
     fn entry_from_path(path: &Path) -> AppResult<FsEntry> {
         let meta = fs::symlink_metadata(path)?;
         let is_symlink = meta.is_symlink();
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         let modified = meta.modified().ok().map(|t| {
@@ -215,7 +225,12 @@ impl FileSystemService {
             match fs::metadata(path) {
                 Ok(target_meta) => {
                     let h = Self::is_hidden_with_meta(&name, Some(&target_meta));
-                    (target_meta.is_dir(), target_meta.is_file(), target_meta.len(), h)
+                    (
+                        target_meta.is_dir(),
+                        target_meta.is_file(),
+                        target_meta.len(),
+                        h,
+                    )
                 }
                 Err(_) => (false, false, 0, name.starts_with('.')),
             }
@@ -316,7 +331,8 @@ impl FileSystemService {
 
         // 排序：目录在前，同类按字母排序（不区分大小写）
         entries.sort_by(|a, b| {
-            b.is_dir.cmp(&a.is_dir)
+            b.is_dir
+                .cmp(&a.is_dir)
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
 
@@ -339,7 +355,8 @@ impl FileSystemService {
                 "File too large ({:.1}MB). Maximum is {}MB",
                 meta.len() as f64 / 1024.0 / 1024.0,
                 MAX_READ_SIZE / 1024 / 1024
-            ).into());
+            )
+            .into());
         }
 
         let mut raw = Vec::new();
@@ -371,7 +388,8 @@ impl FileSystemService {
             (detected.name().to_string(), decoded.into_owned())
         };
 
-        let language = file_path.extension()
+        let language = file_path
+            .extension()
             .and_then(|e| e.to_str())
             .and_then(Self::detect_language);
 
@@ -396,7 +414,8 @@ impl FileSystemService {
                 "Content too large ({:.1}MB). Maximum is {}MB",
                 content.len() as f64 / 1024.0 / 1024.0,
                 MAX_WRITE_SIZE / 1024 / 1024
-            ).into());
+            )
+            .into());
         }
         fs::write(&file_path, content)?;
         Ok(())
@@ -449,9 +468,7 @@ impl FileSystemService {
         if Self::is_readonly_path(&entry_path) {
             return Err("Cannot delete read-only path".into());
         }
-        trash::delete(&entry_path).map_err(|e| {
-            format!("Failed to move to trash: {}", e)
-        })?;
+        trash::delete(&entry_path).map_err(|e| format!("Failed to move to trash: {}", e))?;
         Ok(())
     }
 
@@ -463,7 +480,8 @@ impl FileSystemService {
         if Self::is_readonly_path(&source) {
             return Err("Cannot rename read-only path".into());
         }
-        let new_path = source.parent()
+        let new_path = source
+            .parent()
             .ok_or("Cannot determine parent directory")?
             .join(new_name);
         if new_path.exists() {
@@ -484,11 +502,12 @@ impl FileSystemService {
         if source.is_dir() && dest_parent.starts_with(&source) {
             return Err("Cannot copy a directory into itself".into());
         }
-        let name = source.file_name()
-            .ok_or("Cannot determine source name")?;
+        let name = source.file_name().ok_or("Cannot determine source name")?;
         let dest = dest_parent.join(name);
         if dest.exists() {
-            return Err(format!("'{}' already exists in destination", name.to_string_lossy()).into());
+            return Err(
+                format!("'{}' already exists in destination", name.to_string_lossy()).into(),
+            );
         }
 
         if source.is_dir() {
@@ -510,11 +529,12 @@ impl FileSystemService {
         if !dest_parent.is_dir() {
             return Err(format!("Destination '{}' is not a directory", dest_dir).into());
         }
-        let name = source.file_name()
-            .ok_or("Cannot determine source name")?;
+        let name = source.file_name().ok_or("Cannot determine source name")?;
         let dest = dest_parent.join(name);
         if dest.exists() {
-            return Err(format!("'{}' already exists in destination", name.to_string_lossy()).into());
+            return Err(
+                format!("'{}' already exists in destination", name.to_string_lossy()).into(),
+            );
         }
         // fs::rename 跨盘/跨文件系统会失败，降级为 copy + delete
         if fs::rename(&source, &dest).is_err() {
@@ -572,7 +592,11 @@ impl FileSystemService {
         }
 
         let query_lower = query.to_lowercase();
-        let max = if max_results == 0 { 100 } else { max_results.min(500) };
+        let max = if max_results == 0 {
+            100
+        } else {
+            max_results.min(500)
+        };
         let mut results = Vec::new();
 
         for entry in WalkDir::new(&root_path)
@@ -595,7 +619,9 @@ impl FileSystemService {
             }
             let name = entry.file_name().to_string_lossy().to_string();
             if name.to_lowercase().contains(&query_lower) {
-                let rel = entry.path().strip_prefix(&root_path)
+                let rel = entry
+                    .path()
+                    .strip_prefix(&root_path)
                     .unwrap_or(entry.path())
                     .to_string_lossy()
                     .to_string();

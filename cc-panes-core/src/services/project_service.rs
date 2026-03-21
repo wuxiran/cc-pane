@@ -78,7 +78,11 @@ impl ProjectService {
         // 如果别名为空字符串，则设为 None
         let alias = alias.and_then(|a| {
             let trimmed = a.trim();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         });
 
         let updated = self.repo.update_alias(id, alias)?;
@@ -243,12 +247,16 @@ mod tests {
         let project = service.add_project(temp_dir.to_str().unwrap()).unwrap();
 
         // 设置别名
-        service.update_project_alias(&project.id, Some("别名")).unwrap();
+        service
+            .update_project_alias(&project.id, Some("别名"))
+            .unwrap();
         let found = service.get_project(&project.id).unwrap().unwrap();
         assert_eq!(found.alias, Some("别名".to_string()));
 
         // 空字符串别名应被视为 None
-        service.update_project_alias(&project.id, Some("  ")).unwrap();
+        service
+            .update_project_alias(&project.id, Some("  "))
+            .unwrap();
         let found = service.get_project(&project.id).unwrap().unwrap();
         assert!(found.alias.is_none());
 

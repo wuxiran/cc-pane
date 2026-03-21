@@ -19,10 +19,10 @@ impl SshMachineService {
     }
 
     fn load_from_file(path: &Path) -> Result<SshMachineConfig> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| "Failed to read ssh-machines config")?;
-        let config: SshMachineConfig = serde_json::from_str(&content)
-            .with_context(|| "Failed to parse ssh-machines.json")?;
+        let content =
+            std::fs::read_to_string(path).with_context(|| "Failed to read ssh-machines config")?;
+        let config: SshMachineConfig =
+            serde_json::from_str(&content).with_context(|| "Failed to parse ssh-machines.json")?;
         Ok(config)
     }
 
@@ -39,20 +39,33 @@ impl SshMachineService {
 
     /// 列出所有 SSH 机器
     pub fn list(&self) -> Vec<SshMachine> {
-        self.config.lock().unwrap_or_else(|e| e.into_inner()).machines.clone()
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .machines
+            .clone()
     }
 
     /// 获取指定 SSH 机器
     pub fn get(&self, id: &str) -> Option<SshMachine> {
-        self.config.lock().unwrap_or_else(|e| e.into_inner())
-            .machines.iter().find(|m| m.id == id).cloned()
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .machines
+            .iter()
+            .find(|m| m.id == id)
+            .cloned()
     }
 
     /// 添加 SSH 机器（name 去重校验，大小写不敏感）
     pub fn add(&self, machine: SshMachine) -> Result<()> {
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
-        if config.machines.iter().any(|m| m.name.to_lowercase() == machine.name.to_lowercase()) {
+        if config
+            .machines
+            .iter()
+            .any(|m| m.name.to_lowercase() == machine.name.to_lowercase())
+        {
             anyhow::bail!("SSH machine with name '{}' already exists", machine.name);
         }
 
@@ -68,11 +81,18 @@ impl SshMachineService {
     pub fn update(&self, machine: SshMachine) -> Result<()> {
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
-        let pos = config.machines.iter().position(|m| m.id == machine.id)
+        let pos = config
+            .machines
+            .iter()
+            .position(|m| m.id == machine.id)
             .with_context(|| format!("SSH machine '{}' not found", machine.id))?;
 
         // 检查名称是否与其他机器重复（大小写不敏感）
-        if config.machines.iter().any(|m| m.id != machine.id && m.name.to_lowercase() == machine.name.to_lowercase()) {
+        if config
+            .machines
+            .iter()
+            .any(|m| m.id != machine.id && m.name.to_lowercase() == machine.name.to_lowercase())
+        {
             anyhow::bail!("SSH machine with name '{}' already exists", machine.name);
         }
 

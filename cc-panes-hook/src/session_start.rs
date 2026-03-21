@@ -51,7 +51,10 @@ pub fn run() {
             let state_path = ccpanes_dir.join("session-state.json");
             let _ = fs::create_dir_all(&ccpanes_dir);
             match fs::write(&state_path, state.to_string()) {
-                Ok(_) => eprintln!("[ccpanes-hook] wrote session-state.json → {}", state_path.display()),
+                Ok(_) => eprintln!(
+                    "[ccpanes-hook] wrote session-state.json → {}",
+                    state_path.display()
+                ),
                 Err(e) => eprintln!("[ccpanes-hook] FAILED to write session-state.json: {}", e),
             }
         }

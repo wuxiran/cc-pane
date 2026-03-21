@@ -68,11 +68,19 @@ pub fn detect_shells() -> Vec<ShellInfo> {
     {
         // 1. PowerShell 7
         if let Ok(path) = which::which("pwsh") {
-            shells.push(ShellInfo::new("pwsh", "PowerShell 7", &path.to_string_lossy()));
+            shells.push(ShellInfo::new(
+                "pwsh",
+                "PowerShell 7",
+                &path.to_string_lossy(),
+            ));
         }
         // 2. PowerShell 5.1
         if let Ok(path) = which::which("powershell") {
-            shells.push(ShellInfo::new("powershell", "Windows PowerShell", &path.to_string_lossy()));
+            shells.push(ShellInfo::new(
+                "powershell",
+                "Windows PowerShell",
+                &path.to_string_lossy(),
+            ));
         }
         // 3. cmd.exe
         let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
@@ -241,7 +249,11 @@ impl OutputBuffer {
         if n == 0 || n >= self.lines.len() {
             self.lines.iter().cloned().collect()
         } else {
-            self.lines.iter().skip(self.lines.len() - n).cloned().collect()
+            self.lines
+                .iter()
+                .skip(self.lines.len() - n)
+                .cloned()
+                .collect()
         }
     }
 }
@@ -323,9 +335,7 @@ fn strip_conpty_artifacts(data: &[u8]) -> Vec<u8> {
         }
 
         // 模式 D：style-only 空闲帧 (25 字节)
-        if i + CONPTY_STYLE_ONLY.len() <= data.len()
-            && data[i..].starts_with(CONPTY_STYLE_ONLY)
-        {
+        if i + CONPTY_STYLE_ONLY.len() <= data.len() && data[i..].starts_with(CONPTY_STYLE_ONLY) {
             i += CONPTY_STYLE_ONLY.len();
             continue;
         }
@@ -444,10 +454,15 @@ fn utf8_safe_process(buf: &[u8], carry: &mut Vec<u8>) -> Option<String> {
         }
         if byte & 0xC0 == 0xC0 {
             // 多字节起始字节
-            let expected_len = if byte & 0xF8 == 0xF0 { 4 }
-                else if byte & 0xF0 == 0xE0 { 3 }
-                else if byte & 0xE0 == 0xC0 { 2 }
-                else { 1 };
+            let expected_len = if byte & 0xF8 == 0xF0 {
+                4
+            } else if byte & 0xF0 == 0xE0 {
+                3
+            } else if byte & 0xE0 == 0xC0 {
+                2
+            } else {
+                1
+            };
             let actual_len = combined.len() - i;
             if actual_len < expected_len {
                 valid_end = i;
@@ -526,10 +541,12 @@ impl TerminalService {
         let mut env_vars = self.settings_service.get_proxy_env_vars();
         let provider_vars = self.provider_service.get_env_vars(provider_id);
         env_vars.extend(provider_vars.clone());
-        let emitter = self.emitter.read().clone()
-            .ok_or_else(|| anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)"))?;
-        let notifier = self.notifier.read().clone()
-            .ok_or_else(|| anyhow!("TerminalService not initialized: notifier not set (call set_notifier first)"))?;
+        let emitter = self.emitter.read().clone().ok_or_else(|| {
+            anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)")
+        })?;
+        let notifier = self.notifier.read().clone().ok_or_else(|| {
+            anyhow!("TerminalService not initialized: notifier not set (call set_notifier first)")
+        })?;
         let settings_service = self.settings_service.clone();
         let session_id = Uuid::new_v4().to_string();
 
@@ -540,12 +557,7 @@ impl TerminalService {
         }
 
         // 解析 Shell 配置
-        let shell_id = self
-            .settings_service
-            .get_settings()
-            .terminal
-            .shell
-            .clone();
+        let shell_id = self.settings_service.get_settings().terminal.shell.clone();
 
         let _ = workspace_name;
 
@@ -587,9 +599,10 @@ impl TerminalService {
                 let (c, shell_args) = resolve_shell(shell_id.as_deref());
                 (c, shell_args, vec![])
             } else {
-                let adapter = self.cli_registry.get(cli_tool_id).ok_or_else(|| {
-                    anyhow!("Unknown CLI tool: {}", cli_tool_id)
-                })?;
+                let adapter = self
+                    .cli_registry
+                    .get(cli_tool_id)
+                    .ok_or_else(|| anyhow!("Unknown CLI tool: {}", cli_tool_id))?;
 
                 // 自动注入 Spec prompt（仅 CLI 工具模式，且无显式 append_system_prompt 时）
                 let spec_prompt = if append_system_prompt.is_none() {
@@ -597,9 +610,7 @@ impl TerminalService {
                 } else {
                     None
                 };
-                let effective_prompt = append_system_prompt
-                    .map(|s| s.to_string())
-                    .or(spec_prompt);
+                let effective_prompt = append_system_prompt.map(|s| s.to_string()).or(spec_prompt);
 
                 let orch_info = self.orchestrator_info.lock().ok().and_then(|g| g.clone());
                 let ctx = CliAdapterContext {
@@ -733,8 +744,15 @@ impl TerminalService {
                     Ok(n) => {
                         // 首次输出诊断日志（含 hex），用于排查前端事件注册竞态
                         if first_output {
-                            let hex: String = buf[..n].iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ");
-                            info!("[pty-read] session={} first output: {} bytes, hex=[{}]", sid, n, hex);
+                            let hex: String = buf[..n]
+                                .iter()
+                                .map(|b| format!("{:02x}", b))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            info!(
+                                "[pty-read] session={} first output: {} bytes, hex=[{}]",
+                                sid, n, hex
+                            );
                             first_output = false;
                         }
                         #[cfg(windows)]
@@ -806,7 +824,8 @@ impl TerminalService {
                                 serde_json::to_value(&TerminalOutput {
                                     session_id: sid.clone(),
                                     data,
-                                }).unwrap_or_default(),
+                                })
+                                .unwrap_or_default(),
                             );
                         }));
 
@@ -828,7 +847,8 @@ impl TerminalService {
                                             .unwrap_or_default()
                                             .as_millis()
                                             as u64,
-                                    }).unwrap_or_default(),
+                                    })
+                                    .unwrap_or_default(),
                                 );
                             }));
                             last_emitted_status = new_status;
@@ -882,7 +902,8 @@ impl TerminalService {
                     serde_json::to_value(&TerminalExit {
                         session_id: sid.clone(),
                         exit_code,
-                    }).unwrap_or_default(),
+                    })
+                    .unwrap_or_default(),
                 );
             }));
 
@@ -897,7 +918,8 @@ impl TerminalService {
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as u64,
-                    }).unwrap_or_default(),
+                    })
+                    .unwrap_or_default(),
                 );
             }));
 
@@ -1014,7 +1036,10 @@ impl TerminalService {
         if let Some(session) = session {
             // 保存 output_buffer 到 dead_buffers，供事后读取
             if let Ok(mut dead) = self.dead_buffers.lock() {
-                dead.insert(session_id.to_string(), (Arc::clone(&session.output_buffer), Instant::now()));
+                dead.insert(
+                    session_id.to_string(),
+                    (Arc::clone(&session.output_buffer), Instant::now()),
+                );
             }
             // 设置取消标志，通知 reader 线程停止 emit 事件
             session.cancelled.store(true, Ordering::Relaxed);
@@ -1061,7 +1086,9 @@ impl TerminalService {
                 .sessions
                 .lock()
                 .map_err(|_| anyhow!("sessions lock poisoned"))?;
-            sessions.get(session_id).map(|s| Arc::clone(&s.output_buffer))
+            sessions
+                .get(session_id)
+                .map(|s| Arc::clone(&s.output_buffer))
         };
 
         // 2. 未找到则查 dead_buffers（懒清理过期条目）
@@ -1123,8 +1150,7 @@ impl TerminalService {
         cli_tool: CliTool,
         provider_env: &HashMap<String, String>,
     ) -> Result<(String, Vec<String>)> {
-        let ssh_path = which::which("ssh")
-            .map_err(|_| anyhow!("ssh not found in PATH"))?;
+        let ssh_path = which::which("ssh").map_err(|_| anyhow!("ssh not found in PATH"))?;
 
         let mut args = vec!["-t".to_string()]; // 强制伪终端
         if ssh.port != 22 {
@@ -1161,9 +1187,9 @@ impl TerminalService {
             remote_parts.push(format!("cd {}", escaped_path));
         }
         match cli_tool {
-            CliTool::None   => remote_parts.push("exec $SHELL -l".into()),
+            CliTool::None => remote_parts.push("exec $SHELL -l".into()),
             CliTool::Claude => remote_parts.push("claude".into()),
-            CliTool::Codex  => remote_parts.push("codex --full-auto".into()),
+            CliTool::Codex => remote_parts.push("codex --full-auto".into()),
         }
         args.push(remote_parts.join(" && "));
 
@@ -1421,7 +1447,10 @@ mod tests {
 
     #[test]
     fn test_infer_status_question() {
-        assert_eq!(infer_status("Do you want to continue?"), SessionStatus::WaitingInput);
+        assert_eq!(
+            infer_status("Do you want to continue?"),
+            SessionStatus::WaitingInput
+        );
     }
 
     // --- strip_conpty_artifacts 单元测试 (不依赖 cfg(windows)) ---
@@ -1450,7 +1479,10 @@ mod tests {
     fn test_strip_pattern_d_style_only() {
         // 模式 D: style-only 空闲帧
         let output = strip_conpty_artifacts(CONPTY_STYLE_ONLY);
-        assert!(output.is_empty(), "pattern D (style-only) should be stripped");
+        assert!(
+            output.is_empty(),
+            "pattern D (style-only) should be stripped"
+        );
     }
 
     #[test]
@@ -1461,7 +1493,10 @@ mod tests {
         input.extend_from_slice(b"\x1b\x5b\x32\x37\x6d"); // \x1b[27m — 透传
         input.extend_from_slice(b"\x08\x32\x1b\x5b\x37\x6d\x20"); // \x08 '2' \x1b[7m ' ' (模式 A — 剥离)
         let output = strip_conpty_artifacts(&input);
-        assert_eq!(output, b"\x1b[27m", "ESC[27m should pass through, only pattern A stripped");
+        assert_eq!(
+            output, b"\x1b[27m",
+            "ESC[27m should pass through, only pattern A stripped"
+        );
     }
 
     #[test]
@@ -1501,7 +1536,11 @@ mod tests {
         // 这是 vim/less/htop 等 TUI 应用的标准用法
         let input = b"\x1b[7m highlighted text \x1b[27m normal text";
         let output = strip_conpty_artifacts(input);
-        assert_eq!(output, input.to_vec(), "legitimate reverse video sequences must pass through unchanged");
+        assert_eq!(
+            output,
+            input.to_vec(),
+            "legitimate reverse video sequences must pass through unchanged"
+        );
     }
 
     // --- trailing_partial_len 单元测试 ---
@@ -1555,7 +1594,7 @@ mod tests {
     fn test_utf8_safe_split_multibyte() {
         let mut carry = Vec::new();
         let full = "你".as_bytes(); // 3 bytes: E4 BD A0
-        // 只发送前 2 字节
+                                    // 只发送前 2 字节
         let part1 = &full[..2];
         let result1 = utf8_safe_process(part1, &mut carry);
         assert_eq!(result1, None);
@@ -1623,7 +1662,10 @@ mod tests {
 
         // 第二个 chunk: \x08 '2' \x1b[7m ' ' (模式 A) — 剥离
         let out = sanitize_windows_output(b"\x08\x32\x1b\x5b\x37\x6d\x20", &mut state, false);
-        assert!(out.is_empty(), "cursor redraw with variable char '2' should be fully stripped");
+        assert!(
+            out.is_empty(),
+            "cursor redraw with variable char '2' should be fully stripped"
+        );
     }
 
     #[test]
@@ -1643,7 +1685,10 @@ mod tests {
         let out = sanitize_windows_output(b"\x1b[27m", &mut state, false);
         assert_eq!(out, b"\x1b[27m");
         let out = sanitize_windows_output(b"\x08\x6b\x1b\x5b\x37\x6d\x20", &mut state, false);
-        assert!(out.is_empty(), "repeated cursor redraw 'k' should also be stripped");
+        assert!(
+            out.is_empty(),
+            "repeated cursor redraw 'k' should also be stripped"
+        );
     }
 
     #[test]
@@ -1656,7 +1701,10 @@ mod tests {
         chunk.extend_from_slice(b"\x1b\x5b\x37\x6d\x20"); // 合法 SGR 7 + 空格 — 透传
         chunk.extend_from_slice(CONPTY_STYLE_ONLY); // 模式 D — 剥离
         let output = sanitize_windows_output(&chunk, &mut state, false);
-        assert_eq!(output, b"\x1b[21;6H2\x1b[7m ", "valid CSI + SGR preserved, only style-only frame stripped");
+        assert_eq!(
+            output, b"\x1b[21;6H2\x1b[7m ",
+            "valid CSI + SGR preserved, only style-only frame stripped"
+        );
     }
 
     // --- detect_shells 测试 ---

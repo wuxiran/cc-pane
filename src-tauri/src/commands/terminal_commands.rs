@@ -1,12 +1,12 @@
 use crate::models::{CreateSessionRequest, ResizeRequest};
-use crate::services::{TerminalService, SessionStatusInfo, ShellInfo};
+use crate::services::terminal_service;
 use crate::services::terminal_service::SessionOutput;
+use crate::services::{SessionStatusInfo, ShellInfo, TerminalService};
 use crate::utils::error::AppError;
-use crate::utils::{AppResult, validate_path, validate_ssh_info};
+use crate::utils::{validate_path, validate_ssh_info, AppResult};
 use cc_cli_adapters::{CliToolInfo, CliToolRegistry};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
-use crate::services::terminal_service;
 use tracing::debug;
 
 /// 创建终端会话
@@ -89,9 +89,7 @@ pub fn get_all_terminal_status(
 
 /// 获取可用 Shell 列表
 #[tauri::command]
-pub fn get_available_shells(
-    service: State<'_, Arc<TerminalService>>,
-) -> AppResult<Vec<ShellInfo>> {
+pub fn get_available_shells(service: State<'_, Arc<TerminalService>>) -> AppResult<Vec<ShellInfo>> {
     Ok(service.get_available_shells())
 }
 
@@ -103,9 +101,7 @@ pub fn get_windows_build_number() -> AppResult<u32> {
 
 /// 检测开发环境（Node.js + CLI 工具，所有子进程调用均带 5s 超时）
 #[tauri::command]
-pub fn check_environment(
-    registry: State<'_, Arc<CliToolRegistry>>,
-) -> serde_json::Value {
+pub fn check_environment(registry: State<'_, Arc<CliToolRegistry>>) -> serde_json::Value {
     let node_path = which::which("node").ok();
     let node_installed = node_path.is_some();
     let node_version = node_path.and_then(|path| {
@@ -126,9 +122,7 @@ pub fn check_environment(
 
 /// 列出所有已注册的 CLI 工具（含实时检测状态）
 #[tauri::command]
-pub fn list_cli_tools(
-    registry: State<'_, Arc<CliToolRegistry>>,
-) -> Vec<CliToolInfo> {
+pub fn list_cli_tools(registry: State<'_, Arc<CliToolRegistry>>) -> Vec<CliToolInfo> {
     registry.detect_all()
 }
 

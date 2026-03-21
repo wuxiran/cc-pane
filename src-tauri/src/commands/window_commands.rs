@@ -36,7 +36,9 @@ pub fn maximize_window(window: WebviewWindow) -> AppResult<()> {
 pub fn toggle_always_on_top(window: WebviewWindow) -> AppResult<bool> {
     debug!("cmd::toggle_always_on_top");
     let is_on_top = window.is_always_on_top().map_err(|e| e.to_string())?;
-    window.set_always_on_top(!is_on_top).map_err(|e| e.to_string())?;
+    window
+        .set_always_on_top(!is_on_top)
+        .map_err(|e| e.to_string())?;
     Ok(!is_on_top)
 }
 
@@ -64,14 +66,18 @@ pub fn is_fullscreen(window: WebviewWindow) -> AppResult<bool> {
 #[tauri::command]
 pub fn set_decorations(window: WebviewWindow, decorations: bool) -> AppResult<()> {
     debug!("cmd::set_decorations decorations={}", decorations);
-    Ok(window.set_decorations(decorations).map_err(|e| e.to_string())?)
+    Ok(window
+        .set_decorations(decorations)
+        .map_err(|e| e.to_string())?)
 }
 
 /// 进入迷你模式
 #[tauri::command]
 pub fn enter_mini_mode(window: WebviewWindow) -> AppResult<()> {
     debug!("cmd::enter_mini_mode");
-    window.set_size(LogicalSize::new(320.0, 200.0)).map_err(|e| e.to_string())?;
+    window
+        .set_size(LogicalSize::new(320.0, 200.0))
+        .map_err(|e| e.to_string())?;
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
     window.set_decorations(false).map_err(|e| e.to_string())?;
     Ok(())
@@ -79,14 +85,12 @@ pub fn enter_mini_mode(window: WebviewWindow) -> AppResult<()> {
 
 /// 退出迷你模式
 #[tauri::command]
-pub fn exit_mini_mode(
-    window: WebviewWindow,
-    width: f64,
-    height: f64,
-) -> AppResult<()> {
+pub fn exit_mini_mode(window: WebviewWindow, width: f64, height: f64) -> AppResult<()> {
     debug!("cmd::exit_mini_mode");
     window.set_always_on_top(false).map_err(|e| e.to_string())?;
-    window.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

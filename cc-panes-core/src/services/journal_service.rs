@@ -1,7 +1,7 @@
-use std::fs;
-use std::path::PathBuf;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 
 use crate::constants::journal::MAX_LINES;
 
@@ -36,11 +36,18 @@ impl JournalService {
 
     /// 根据 workspace 名称获取对应的目录路径
     fn workspace_path(&self, workspace_name: &str) -> String {
-        self.workspaces_dir.join(workspace_name).to_string_lossy().to_string()
+        self.workspaces_dir
+            .join(workspace_name)
+            .to_string_lossy()
+            .to_string()
     }
 
     /// 添加会话摘要（按 workspace 名称）
-    pub fn add_session_by_workspace(&self, workspace_name: &str, summary: SessionSummary) -> Result<u32, String> {
+    pub fn add_session_by_workspace(
+        &self,
+        workspace_name: &str,
+        summary: SessionSummary,
+    ) -> Result<u32, String> {
         let ws_path = self.workspace_path(workspace_name);
         self.add_session(&ws_path, summary)
     }
@@ -78,7 +85,10 @@ impl JournalService {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.starts_with("journal-") && name.ends_with(".md") {
-                    if let Some(num_str) = name.strip_prefix("journal-").and_then(|s| s.strip_suffix(".md")) {
+                    if let Some(num_str) = name
+                        .strip_prefix("journal-")
+                        .and_then(|s| s.strip_suffix(".md"))
+                    {
                         if let Ok(num) = num_str.parse::<i32>() {
                             if num > latest_num {
                                 latest_num = num;
@@ -138,7 +148,8 @@ impl JournalService {
             table
         };
 
-        format!(r#"
+        format!(
+            r#"
 ## Session {}: {}
 
 **Date**: {}
@@ -157,7 +168,9 @@ impl JournalService {
 [OK] **Completed**
 
 ---
-"#, session_num, summary.title, summary.date, summary.title, summary.summary, commits_table)
+"#,
+            session_num, summary.title, summary.date, summary.title, summary.summary, commits_table
+        )
     }
 
     /// 创建新的 journal 文件
@@ -166,14 +179,20 @@ impl JournalService {
         let new_file = journal_dir.join(format!("journal-{}.md", num));
         let today = Local::now().format("%Y-%m-%d").to_string();
 
-        let content = format!(r#"# Session Journal (Part {})
+        let content = format!(
+            r#"# Session Journal (Part {})
 
 > Continuation from `journal-{}.md` (archived at ~{} lines)
 > Started: {}
 > Managed by CC-Panes
 
 ---
-"#, num, num - 1, MAX_LINES, today);
+"#,
+            num,
+            num - 1,
+            MAX_LINES,
+            today
+        );
 
         fs::write(&new_file, content)
             .map_err(|e| format!("Failed to create journal file: {}", e))?;
@@ -182,7 +201,14 @@ impl JournalService {
     }
 
     /// 更新索引文件
-    fn update_index(&self, project_path: &str, session_num: u32, title: &str, commits: &[String], active_file: &str) -> Result<(), String> {
+    fn update_index(
+        &self,
+        project_path: &str,
+        session_num: u32,
+        title: &str,
+        commits: &[String],
+        active_file: &str,
+    ) -> Result<(), String> {
         let index_path = Self::get_index_path(project_path);
         let today = Local::now().format("%Y-%m-%d").to_string();
 
@@ -196,7 +222,8 @@ impl JournalService {
         let commits_display = if commits.is_empty() {
             "-".to_string()
         } else {
-            commits.iter()
+            commits
+                .iter()
                 .map(|c| format!("`{}`", c))
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -247,8 +274,10 @@ impl JournalService {
                 new_content.push_str(line);
                 new_content.push('\n');
                 if line.starts_with("|---") && !header_written {
-                    new_content.push_str(&format!("| {} | {} | {} | {} |\n",
-                        session_num, today, title, commits_display));
+                    new_content.push_str(&format!(
+                        "| {} | {} | {} | {} |\n",
+                        session_num, today, title, commits_display
+                    ));
                     header_written = true;
                 }
                 continue;
@@ -273,7 +302,8 @@ impl JournalService {
             .map_err(|e| format!("Failed to create journal directory: {}", e))?;
 
         // 获取当前 journal 信息
-        let (current_file, current_num, current_lines) = self.get_latest_journal_info(project_path)?;
+        let (current_file, current_num, current_lines) =
+            self.get_latest_journal_info(project_path)?;
         let current_session = self.get_current_session_count(project_path)?;
         let new_session = current_session + 1;
 
@@ -303,7 +333,13 @@ impl JournalService {
 
         // 更新索引
         let active_file = format!("journal-{}.md", target_num);
-        self.update_index(project_path, new_session, &summary.title, &summary.commits, &active_file)?;
+        self.update_index(
+            project_path,
+            new_session,
+            &summary.title,
+            &summary.commits,
+            &active_file,
+        )?;
 
         Ok(new_session)
     }
@@ -329,8 +365,7 @@ impl JournalService {
             return Ok(String::new());
         }
 
-        fs::read_to_string(&file)
-            .map_err(|e| format!("Failed to read journal: {}", e))
+        fs::read_to_string(&file).map_err(|e| format!("Failed to read journal: {}", e))
     }
 }
 

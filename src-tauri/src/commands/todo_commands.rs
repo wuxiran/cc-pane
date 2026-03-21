@@ -17,10 +17,7 @@ pub fn create_todo(
 }
 
 #[tauri::command]
-pub fn get_todo(
-    service: State<'_, Arc<TodoService>>,
-    id: String,
-) -> AppResult<Option<TodoItem>> {
+pub fn get_todo(service: State<'_, Arc<TodoService>>, id: String) -> AppResult<Option<TodoItem>> {
     service.get_todo(&id)
 }
 
@@ -35,10 +32,7 @@ pub fn update_todo(
 }
 
 #[tauri::command]
-pub fn delete_todo(
-    service: State<'_, Arc<TodoService>>,
-    id: String,
-) -> AppResult<()> {
+pub fn delete_todo(service: State<'_, Arc<TodoService>>, id: String) -> AppResult<()> {
     debug!(id = %id, "cmd::delete_todo");
     service.delete_todo(&id)
 }
@@ -52,10 +46,7 @@ pub fn query_todos(
 }
 
 #[tauri::command]
-pub fn reorder_todos(
-    service: State<'_, Arc<TodoService>>,
-    todo_ids: Vec<String>,
-) -> AppResult<()> {
+pub fn reorder_todos(service: State<'_, Arc<TodoService>>, todo_ids: Vec<String>) -> AppResult<()> {
     debug!("cmd::reorder_todos");
     service.reorder_todos(todo_ids)
 }
@@ -80,18 +71,13 @@ pub fn get_todo_stats(
 }
 
 #[tauri::command]
-pub fn toggle_todo_my_day(
-    service: State<'_, Arc<TodoService>>,
-    id: String,
-) -> AppResult<TodoItem> {
+pub fn toggle_todo_my_day(service: State<'_, Arc<TodoService>>, id: String) -> AppResult<TodoItem> {
     debug!(id = %id, "cmd::toggle_todo_my_day");
     service.toggle_my_day(&id)
 }
 
 #[tauri::command]
-pub fn check_todo_reminders(
-    service: State<'_, Arc<TodoService>>,
-) -> AppResult<Vec<TodoItem>> {
+pub fn check_todo_reminders(service: State<'_, Arc<TodoService>>) -> AppResult<Vec<TodoItem>> {
     service.get_due_reminders()
 }
 
@@ -119,19 +105,13 @@ pub fn update_todo_subtask(
 }
 
 #[tauri::command]
-pub fn delete_todo_subtask(
-    service: State<'_, Arc<TodoService>>,
-    id: String,
-) -> AppResult<()> {
+pub fn delete_todo_subtask(service: State<'_, Arc<TodoService>>, id: String) -> AppResult<()> {
     debug!(id = %id, "cmd::delete_todo_subtask");
     service.delete_subtask(&id)
 }
 
 #[tauri::command]
-pub fn toggle_todo_subtask(
-    service: State<'_, Arc<TodoService>>,
-    id: String,
-) -> AppResult<bool> {
+pub fn toggle_todo_subtask(service: State<'_, Arc<TodoService>>, id: String) -> AppResult<bool> {
     debug!(id = %id, "cmd::toggle_todo_subtask");
     service.toggle_subtask(&id)
 }

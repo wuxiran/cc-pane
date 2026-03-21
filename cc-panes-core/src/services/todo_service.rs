@@ -24,13 +24,19 @@ impl TodoService {
         debug!("svc::create_todo");
         let title = req.title.trim().to_string();
         if title.is_empty() {
-            return Err(AppError::coded(EC::TODO_TITLE_EMPTY, "Title cannot be empty"));
+            return Err(AppError::coded(
+                EC::TODO_TITLE_EMPTY,
+                "Title cannot be empty",
+            ));
         }
 
         let scope = req.scope.unwrap_or(TodoScope::Global);
         // Validate: workspace/project scope requires scope_ref
         if matches!(scope, TodoScope::Workspace | TodoScope::Project) && req.scope_ref.is_none() {
-            return Err(AppError::coded(EC::TODO_SCOPE_REF_REQUIRED, "workspace/project scope requires scopeRef"));
+            return Err(AppError::coded(
+                EC::TODO_SCOPE_REF_REQUIRED,
+                "workspace/project scope requires scopeRef",
+            ));
         }
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -72,13 +78,15 @@ impl TodoService {
         // Validate title is not empty (if provided)
         if let Some(ref title) = req.title {
             if title.trim().is_empty() {
-                return Err(AppError::coded(EC::TODO_TITLE_EMPTY, "Title cannot be empty"));
+                return Err(AppError::coded(
+                    EC::TODO_TITLE_EMPTY,
+                    "Title cannot be empty",
+                ));
             }
         }
 
         // 获取旧记录，用于判断是否需要触发重复任务
-        let old_todo = self.repo.get(id)?
-            .ok_or_else(|| todo_not_found(id))?;
+        let old_todo = self.repo.get(id)?.ok_or_else(|| todo_not_found(id))?;
 
         let updated = self.repo.update(id, &req)?;
         if !updated {
@@ -86,8 +94,8 @@ impl TodoService {
         }
 
         // 重复任务：状态变为 done 且有 recurrence 时，自动创建下一个实例
-        let is_becoming_done = req.status.as_ref() == Some(&TodoStatus::Done)
-            && old_todo.status != TodoStatus::Done;
+        let is_becoming_done =
+            req.status.as_ref() == Some(&TodoStatus::Done) && old_todo.status != TodoStatus::Done;
         if is_becoming_done {
             if let Some(ref recurrence) = old_todo.recurrence {
                 if !recurrence.is_empty() {
@@ -96,50 +104,57 @@ impl TodoService {
             }
         }
 
-        self.repo
-            .get(id)?
-            .ok_or_else(|| todo_not_found(id))
+        self.repo.get(id)?.ok_or_else(|| todo_not_found(id))
     }
 
     /// 根据重复规则创建下一个 Todo 实例
     fn create_next_recurrence(&self, old: &TodoItem, recurrence: &str) -> AppResult<TodoItem> {
-        use chrono::{NaiveDate, Duration, Months};
+        use chrono::{Duration, Months, NaiveDate};
 
         // 计算下一个 due_date
-        let next_due = old.due_date.as_ref().and_then(|d| {
-            // 支持 ISO 8601 日期（可能包含时间部分）
-            let date_str = if d.len() >= 10 { &d[..10] } else { d };
-            NaiveDate::parse_from_str(date_str, "%Y-%m-%d").ok()
-        }).map(|date| {
-            let next = match recurrence {
-                "daily" => date + Duration::days(1),
-                "weekly" => date + Duration::weeks(1),
-                "monthly" => date.checked_add_months(Months::new(1)).unwrap_or(date + Duration::days(30)),
-                _ => date + Duration::days(1),
-            };
-            next.format("%Y-%m-%d").to_string()
-        });
+        let next_due = old
+            .due_date
+            .as_ref()
+            .and_then(|d| {
+                // 支持 ISO 8601 日期（可能包含时间部分）
+                let date_str = if d.len() >= 10 { &d[..10] } else { d };
+                NaiveDate::parse_from_str(date_str, "%Y-%m-%d").ok()
+            })
+            .map(|date| {
+                let next = match recurrence {
+                    "daily" => date + Duration::days(1),
+                    "weekly" => date + Duration::weeks(1),
+                    "monthly" => date
+                        .checked_add_months(Months::new(1))
+                        .unwrap_or(date + Duration::days(30)),
+                    _ => date + Duration::days(1),
+                };
+                next.format("%Y-%m-%d").to_string()
+            });
 
         // 计算下一个 reminder_at（保持与 due_date 相同的偏移量）
-        let next_reminder = if let (Some(ref due), Some(ref reminder)) = (&old.due_date, &old.reminder_at) {
-            if let (Ok(due_dt), Ok(rem_dt)) = (
-                chrono::DateTime::parse_from_rfc3339(due),
-                chrono::DateTime::parse_from_rfc3339(reminder),
-            ) {
-                let offset = rem_dt.signed_duration_since(due_dt);
-                next_due.as_ref().and_then(|nd| {
-                    NaiveDate::parse_from_str(nd, "%Y-%m-%d").ok().and_then(|d| {
-                        d.and_hms_opt(0, 0, 0)
-                            .and_then(|dt| dt.and_local_timezone(chrono::Utc).single())
-                            .map(|base| (base + offset).to_rfc3339())
+        let next_reminder =
+            if let (Some(ref due), Some(ref reminder)) = (&old.due_date, &old.reminder_at) {
+                if let (Ok(due_dt), Ok(rem_dt)) = (
+                    chrono::DateTime::parse_from_rfc3339(due),
+                    chrono::DateTime::parse_from_rfc3339(reminder),
+                ) {
+                    let offset = rem_dt.signed_duration_since(due_dt);
+                    next_due.as_ref().and_then(|nd| {
+                        NaiveDate::parse_from_str(nd, "%Y-%m-%d")
+                            .ok()
+                            .and_then(|d| {
+                                d.and_hms_opt(0, 0, 0)
+                                    .and_then(|dt| dt.and_local_timezone(chrono::Utc).single())
+                                    .map(|base| (base + offset).to_rfc3339())
+                            })
                     })
-                })
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
 
         let req = CreateTodoRequest {
             title: old.title.clone(),
@@ -148,7 +163,11 @@ impl TodoService {
             priority: Some(old.priority.clone()),
             scope: Some(old.scope.clone()),
             scope_ref: old.scope_ref.clone(),
-            tags: if old.tags.is_empty() { None } else { Some(old.tags.clone()) },
+            tags: if old.tags.is_empty() {
+                None
+            } else {
+                Some(old.tags.clone())
+            },
             due_date: next_due,
             reminder_at: next_reminder,
             recurrence: Some(recurrence.to_string()),
@@ -179,11 +198,7 @@ impl TodoService {
     }
 
     /// 批量更新状态
-    pub fn batch_update_status(
-        &self,
-        ids: Vec<String>,
-        status: TodoStatus,
-    ) -> AppResult<u32> {
+    pub fn batch_update_status(&self, ids: Vec<String>, status: TodoStatus) -> AppResult<u32> {
         Ok(self.repo.batch_update_status(&ids, &status)?)
     }
 
@@ -198,10 +213,7 @@ impl TodoService {
 
     /// 切换"我的一天"状态
     pub fn toggle_my_day(&self, id: &str) -> AppResult<TodoItem> {
-        let todo = self
-            .repo
-            .get(id)?
-            .ok_or_else(|| todo_not_found(id))?;
+        let todo = self.repo.get(id)?.ok_or_else(|| todo_not_found(id))?;
 
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let new_my_day = !todo.my_day || todo.my_day_date.as_deref() != Some(&today);
@@ -213,14 +225,14 @@ impl TodoService {
         };
 
         self.repo.update(id, &req)?;
-        self.repo
-            .get(id)?
-            .ok_or_else(|| todo_not_found(id))
+        self.repo.get(id)?.ok_or_else(|| todo_not_found(id))
     }
 
     /// 获取到期提醒的 Todo
     pub fn get_due_reminders(&self) -> AppResult<Vec<TodoItem>> {
-        Ok(self.repo.get_due_reminders(&chrono::Utc::now().to_rfc3339())?)
+        Ok(self
+            .repo
+            .get_due_reminders(&chrono::Utc::now().to_rfc3339())?)
     }
 
     // ============ 子任务操作 ============
@@ -229,7 +241,10 @@ impl TodoService {
     pub fn add_subtask(&self, todo_id: &str, title: &str) -> AppResult<TodoSubtask> {
         let title = title.trim().to_string();
         if title.is_empty() {
-            return Err(AppError::coded(EC::SUBTASK_TITLE_EMPTY, "Subtask title cannot be empty"));
+            return Err(AppError::coded(
+                EC::SUBTASK_TITLE_EMPTY,
+                "Subtask title cannot be empty",
+            ));
         }
 
         // Validate parent Todo exists
@@ -277,18 +292,16 @@ impl TodoService {
 
     /// 切换子任务完成状态
     pub fn toggle_subtask(&self, id: &str) -> AppResult<bool> {
-        let subtask = self
-            .repo
-            .get_subtask(id)?
-            .ok_or_else(|| AppError::coded_with_params(
+        let subtask = self.repo.get_subtask(id)?.ok_or_else(|| {
+            AppError::coded_with_params(
                 EC::SUBTASK_NOT_FOUND,
                 format!("Subtask {} not found", id),
                 HashMap::from([("id".into(), id.into())]),
-            ))?;
+            )
+        })?;
 
         let new_completed = !subtask.completed;
-        self.repo
-            .update_subtask(id, None, Some(new_completed))?;
+        self.repo.update_subtask(id, None, Some(new_completed))?;
         Ok(new_completed)
     }
 

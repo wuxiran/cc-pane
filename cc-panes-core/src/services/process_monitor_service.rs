@@ -1,7 +1,7 @@
 use crate::models::process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult};
 use crate::utils::error::AppResult;
 use parking_lot::Mutex;
-use sysinfo::{System, Pid};
+use sysinfo::{Pid, System};
 use tracing::{debug, warn};
 
 /// 系统级 Claude Code 进程监控服务
@@ -42,7 +42,9 @@ impl ProcessMonitorService {
             }
 
             let name = process.name().to_string_lossy().to_string();
-            let cmd_parts: Vec<String> = process.cmd().iter()
+            let cmd_parts: Vec<String> = process
+                .cmd()
+                .iter()
                 .map(|s| s.to_string_lossy().to_string())
                 .collect();
             let command = cmd_parts.join(" ");
@@ -110,21 +112,24 @@ impl ProcessMonitorService {
         let mut sys = self.sys.lock();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, false);
 
-        let results: Vec<(u32, bool)> = pids.iter().map(|&pid| {
-            // 自身保护
-            if pid == self_pid {
-                warn!(pid = pid, "kill_processes: refused to kill self");
-                return (pid, false);
-            }
+        let results: Vec<(u32, bool)> = pids
+            .iter()
+            .map(|&pid| {
+                // 自身保护
+                if pid == self_pid {
+                    warn!(pid = pid, "kill_processes: refused to kill self");
+                    return (pid, false);
+                }
 
-            let sysinfo_pid = Pid::from_u32(pid);
-            let success = if let Some(process) = sys.process(sysinfo_pid) {
-                Self::kill_process_cross_platform(process)
-            } else {
-                false
-            };
-            (pid, success)
-        }).collect();
+                let sysinfo_pid = Pid::from_u32(pid);
+                let success = if let Some(process) = sys.process(sysinfo_pid) {
+                    Self::kill_process_cross_platform(process)
+                } else {
+                    false
+                };
+                (pid, success)
+            })
+            .collect();
 
         debug!(count = results.len(), "kill_processes batch completed");
         Ok(results)
@@ -136,8 +141,7 @@ impl ProcessMonitorService {
         {
             use sysinfo::Signal;
             // Unix: 优先 SIGTERM（优雅退出），失败再 SIGKILL
-            process.kill_with(Signal::Term).unwrap_or(false)
-                || process.kill()
+            process.kill_with(Signal::Term).unwrap_or(false) || process.kill()
         }
         #[cfg(not(unix))]
         {
@@ -159,7 +163,8 @@ impl ProcessMonitorService {
         // Node.js 进程 — 需要进一步检查命令行
         if name_lower == "node" || name_lower == "node.exe" {
             // MCP Server 进程（检查更具体的模式以减少误匹配）
-            if cmd_lower.contains("mcp-server") || cmd_lower.contains("mcp_server")
+            if cmd_lower.contains("mcp-server")
+                || cmd_lower.contains("mcp_server")
                 || cmd_lower.contains("model-context-protocol")
             {
                 return Some(ClaudeProcessType::McpServer);
@@ -199,7 +204,10 @@ mod tests {
     #[test]
     fn test_classify_claude_node() {
         assert_eq!(
-            ProcessMonitorService::classify_process("node", "node /path/to/@anthropic/claude-code/cli.js"),
+            ProcessMonitorService::classify_process(
+                "node",
+                "node /path/to/@anthropic/claude-code/cli.js"
+            ),
             Some(ClaudeProcessType::ClaudeNode)
         );
         assert_eq!(

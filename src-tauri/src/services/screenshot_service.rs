@@ -20,8 +20,7 @@ fn get_cursor_position() -> AppResult<(i32, i32)> {
 
     unsafe {
         let mut point = POINT { x: 0, y: 0 };
-        GetCursorPos(&mut point)
-            .map_err(|e| format!("GetCursorPos failed: {}", e))?;
+        GetCursorPos(&mut point).map_err(|e| format!("GetCursorPos failed: {}", e))?;
         Ok((point.x, point.y))
     }
 }
@@ -78,13 +77,16 @@ impl ScreenshotService {
         }
 
         let (cursor_x, cursor_y) = get_cursor_position()?;
-        let monitor_idx = find_monitor_at_point(&monitors, cursor_x, cursor_y)
-            .unwrap_or(0);
+        let monitor_idx = find_monitor_at_point(&monitors, cursor_x, cursor_y).unwrap_or(0);
 
         let monitor = &monitors[monitor_idx];
-        let img = monitor
-            .capture_image()
-            .map_err(|e| format!("Failed to capture monitor '{}': {}", monitor.name().unwrap_or_default(), e))?;
+        let img = monitor.capture_image().map_err(|e| {
+            format!(
+                "Failed to capture monitor '{}': {}",
+                monitor.name().unwrap_or_default(),
+                e
+            )
+        })?;
 
         Ok(CaptureResult {
             image: img,

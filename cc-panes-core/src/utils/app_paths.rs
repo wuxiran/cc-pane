@@ -2,7 +2,11 @@ use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 /// dev/release 使用不同的应用目录，避免数据冲突
-pub const APP_DIR_NAME: &str = if cfg!(debug_assertions) { ".cc-panes-dev" } else { ".cc-panes" };
+pub const APP_DIR_NAME: &str = if cfg!(debug_assertions) {
+    ".cc-panes-dev"
+} else {
+    ".cc-panes"
+};
 
 /// 统一路径管理
 ///
@@ -26,10 +30,18 @@ impl AppPaths {
 
         // 确保目录存在
         if let Err(e) = std::fs::create_dir_all(&config_dir) {
-            warn!("Failed to create config directory {}: {}", config_dir.display(), e);
+            warn!(
+                "Failed to create config directory {}: {}",
+                config_dir.display(),
+                e
+            );
         }
         if let Err(e) = std::fs::create_dir_all(&data_dir) {
-            warn!("Failed to create data directory {}: {}", data_dir.display(), e);
+            warn!(
+                "Failed to create data directory {}: {}",
+                data_dir.display(),
+                e
+            );
         }
 
         Self {
@@ -83,21 +95,25 @@ impl AppPaths {
     pub fn extract_bundled_claude_config(&self, resource_dir: &Path) {
         let src_base = resource_dir.join("bundled-claude-config");
         if !src_base.exists() {
-            info!("[app_paths] No bundled-claude-config found at {}, skipping extraction", src_base.display());
+            info!(
+                "[app_paths] No bundled-claude-config found at {}, skipping extraction",
+                src_base.display()
+            );
             return;
         }
 
         // 清空目标目录后再复制，避免旧版本残留文件
-        let dest_commands = self.data_dir.join(".claude").join("commands").join("ccbook");
+        let dest_commands = self
+            .data_dir
+            .join(".claude")
+            .join("commands")
+            .join("ccbook");
         let dest_agents = self.data_dir.join(".claude").join("agents");
         Self::clean_and_copy(
             &src_base.join(".claude").join("commands").join("ccbook"),
             &dest_commands,
         );
-        Self::clean_and_copy(
-            &src_base.join(".claude").join("agents"),
-            &dest_agents,
-        );
+        Self::clean_and_copy(&src_base.join(".claude").join("agents"), &dest_agents);
 
         // 复制 CLAUDE.md
         let src_claude_md = src_base.join("CLAUDE.md");
@@ -109,7 +125,10 @@ impl AppPaths {
             }
         }
 
-        info!("[app_paths] Bundled claude config extracted to {}", self.data_dir.display());
+        info!(
+            "[app_paths] Bundled claude config extracted to {}",
+            self.data_dir.display()
+        );
     }
 
     /// 清空目标目录后再递归复制，确保与源完全一致

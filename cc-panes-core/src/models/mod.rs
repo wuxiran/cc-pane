@@ -1,28 +1,38 @@
-mod project;
-mod terminal;
-mod history;
-mod workspace;
-pub mod settings;
-pub mod provider;
-pub mod todo;
-pub mod spec;
 pub mod filesystem;
-pub mod screenshot;
-pub mod ssh_machine;
+mod history;
 pub mod process_info;
+mod project;
+pub mod provider;
+pub mod screenshot;
+pub mod settings;
+pub mod spec;
+pub mod ssh_machine;
+mod terminal;
+pub mod todo;
+mod workspace;
 
-pub use project::Project;
-pub use terminal::{CliTool, CreateSessionRequest, ResizeRequest, TerminalExit, TerminalOutput};
 pub use history::{
-    FileVersion, VersionsMetadata, HistoryConfig, ProjectConfig,
     // Diff 模型
-    DiffChangeType, InlineChange, DiffLine, DiffStats, DiffHunk, DiffResult,
+    DiffChangeType,
+    DiffHunk,
+    DiffLine,
+    DiffResult,
+    DiffStats,
+    FileVersion,
+    HistoryConfig,
+    HistoryLabel,
+    InlineChange,
     // 标签模型
-    LabelFileSnapshot, HistoryLabel,
+    LabelFileSnapshot,
+    ProjectConfig,
     // 最近更改
-    RecentChange, WorktreeRecentChange,
+    RecentChange,
+    VersionsMetadata,
+    WorktreeRecentChange,
 };
-pub use workspace::{Workspace, WorkspaceProject, ScannedRepo, ScannedWorktree, SshConnectionInfo};
-pub use screenshot::ScreenshotResult;
-pub use ssh_machine::{SshMachine, SshMachineConfig, AuthMethod};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult};
+pub use project::Project;
+pub use screenshot::ScreenshotResult;
+pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig};
+pub use terminal::{CliTool, CreateSessionRequest, ResizeRequest, TerminalExit, TerminalOutput};
+pub use workspace::{ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace, WorkspaceProject};

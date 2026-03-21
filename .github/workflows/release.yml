@@ -57,8 +57,6 @@ jobs:
             args: --bundles nsis
           - platform: macos-latest
             args: --bundles dmg
-          - platform: macos-13
-            args: --bundles dmg
     steps:
       - uses: actions/checkout@v4
 

@@ -1,5 +1,5 @@
-use crate::services::{HooksService, HookStatus};
-use crate::utils::{AppResult, validate_path};
+use crate::services::{HookStatus, HooksService};
+use crate::utils::{validate_path, AppResult};
 use std::sync::Arc;
 use tauri::State;
 use tracing::debug;
@@ -16,20 +16,14 @@ pub fn is_hooks_enabled(
 }
 
 #[tauri::command]
-pub fn enable_hooks(
-    project_path: String,
-    service: State<'_, Arc<HooksService>>,
-) -> AppResult<()> {
+pub fn enable_hooks(project_path: String, service: State<'_, Arc<HooksService>>) -> AppResult<()> {
     debug!(project_path = %project_path, "cmd::enable_hooks");
     validate_path(&project_path)?;
     Ok(service.enable_hooks(&project_path)?)
 }
 
 #[tauri::command]
-pub fn disable_hooks(
-    project_path: String,
-    service: State<'_, Arc<HooksService>>,
-) -> AppResult<()> {
+pub fn disable_hooks(project_path: String, service: State<'_, Arc<HooksService>>) -> AppResult<()> {
     debug!(project_path = %project_path, "cmd::disable_hooks");
     validate_path(&project_path)?;
     Ok(service.disable_hooks(&project_path)?)
@@ -97,10 +91,7 @@ pub fn save_workflow(
 }
 
 #[tauri::command]
-pub fn init_ccpanes(
-    project_path: String,
-    service: State<'_, Arc<HooksService>>,
-) -> AppResult<()> {
+pub fn init_ccpanes(project_path: String, service: State<'_, Arc<HooksService>>) -> AppResult<()> {
     debug!(project_path = %project_path, "cmd::init_ccpanes");
     validate_path(&project_path)?;
     Ok(service.init_ccpanes(&project_path)?)

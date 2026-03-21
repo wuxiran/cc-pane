@@ -7,9 +7,7 @@ use tauri::State;
 use tracing::debug;
 
 #[tauri::command]
-pub fn list_ssh_machines(
-    service: State<'_, Arc<SshMachineService>>,
-) -> AppResult<Vec<SshMachine>> {
+pub fn list_ssh_machines(service: State<'_, Arc<SshMachineService>>) -> AppResult<Vec<SshMachine>> {
     Ok(service.list())
 }
 
@@ -42,10 +40,7 @@ pub fn update_ssh_machine(
 }
 
 #[tauri::command]
-pub fn remove_ssh_machine(
-    id: String,
-    service: State<'_, Arc<SshMachineService>>,
-) -> AppResult<()> {
+pub fn remove_ssh_machine(id: String, service: State<'_, Arc<SshMachineService>>) -> AppResult<()> {
     debug!(id = %id, "cmd::remove_ssh_machine");
     Ok(service.remove(&id)?)
 }

@@ -202,7 +202,11 @@ fn kill_process_by_pid(pid: u32) -> Result<()> {
                 if stderr.contains("not found") || stderr.contains("找不到") {
                     Ok(())
                 } else {
-                    Err(anyhow!("taskkill failed for pid {}: {}", pid, stderr.trim()))
+                    Err(anyhow!(
+                        "taskkill failed for pid {}: {}",
+                        pid,
+                        stderr.trim()
+                    ))
                 }
             }
             Err(e) => Err(anyhow!("taskkill spawn failed: {}", e)),

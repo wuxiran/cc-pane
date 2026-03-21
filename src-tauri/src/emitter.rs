@@ -1,5 +1,5 @@
-use cc_panes_core::events::{EventEmitter, SessionNotifier};
 use crate::services::{NotificationService, SettingsService};
+use cc_panes_core::events::{EventEmitter, SessionNotifier};
 use serde_json::Value;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -45,13 +45,20 @@ impl TauriSessionNotifier {
 
 impl SessionNotifier for TauriSessionNotifier {
     fn notify_waiting_input(&self, session_id: &str) {
-        self.notification_service
-            .notify_waiting_input(&self.app_handle, &self.settings_service, session_id);
+        self.notification_service.notify_waiting_input(
+            &self.app_handle,
+            &self.settings_service,
+            session_id,
+        );
     }
 
     fn notify_session_exited(&self, session_id: &str, exit_code: i32) {
-        self.notification_service
-            .notify_session_exited(&self.app_handle, &self.settings_service, session_id, exit_code);
+        self.notification_service.notify_session_exited(
+            &self.app_handle,
+            &self.settings_service,
+            session_id,
+            exit_code,
+        );
     }
 
     fn cleanup_session(&self, session_id: &str) {

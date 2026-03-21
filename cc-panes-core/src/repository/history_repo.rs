@@ -31,7 +31,16 @@ impl HistoryRepository {
 
     /// 添加启动记录，返回新记录的 ID
     #[allow(clippy::too_many_arguments)]
-    pub fn add(&self, project_id: &str, project_name: &str, project_path: &str, workspace_name: Option<&str>, workspace_path: Option<&str>, launch_cwd: Option<&str>, provider_id: Option<&str>) -> Result<i64, String> {
+    pub fn add(
+        &self,
+        project_id: &str,
+        project_name: &str,
+        project_path: &str,
+        workspace_name: Option<&str>,
+        workspace_path: Option<&str>,
+        launch_cwd: Option<&str>,
+        provider_id: Option<&str>,
+    ) -> Result<i64, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let now = Utc::now().to_rfc3339();
 
@@ -84,7 +93,11 @@ impl HistoryRepository {
     }
 
     /// 按项目路径获取启动记录（SQL 层过滤，路径大小写不敏感 + 正反斜杠统一比较）
-    pub fn list_by_project(&self, project_path: &str, limit: usize) -> Result<Vec<LaunchRecord>, String> {
+    pub fn list_by_project(
+        &self,
+        project_path: &str,
+        limit: usize,
+    ) -> Result<Vec<LaunchRecord>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         // 在 SQL 中用 REPLACE + LOWER 做路径规范化比较
         let mut stmt = conn
@@ -157,13 +170,15 @@ impl HistoryRepository {
     pub fn touch_by_session_id(&self, claude_session_id: &str) -> Result<Option<i64>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let now = Utc::now().to_rfc3339();
-        let affected = conn.execute(
-            "UPDATE launch_history SET launched_at = ?1 WHERE claude_session_id = ?2",
-            rusqlite::params![&now, claude_session_id],
-        ).map_err(|e| {
-            error!(table = "launch_history", err = %e, "SQL touch_by_session_id update failed");
-            e.to_string()
-        })?;
+        let affected = conn
+            .execute(
+                "UPDATE launch_history SET launched_at = ?1 WHERE claude_session_id = ?2",
+                rusqlite::params![&now, claude_session_id],
+            )
+            .map_err(|e| {
+                error!(table = "launch_history", err = %e, "SQL touch_by_session_id update failed");
+                e.to_string()
+            })?;
         if affected == 0 {
             return Ok(None);
         }
@@ -181,11 +196,14 @@ impl HistoryRepository {
     /// 删除单条启动记录
     pub fn delete_by_id(&self, id: i64) -> Result<(), String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM launch_history WHERE id = ?1", rusqlite::params![id])
-            .map_err(|e| {
-                error!(table = "launch_history", id = %id, err = %e, "SQL delete_by_id failed");
-                e.to_string()
-            })?;
+        conn.execute(
+            "DELETE FROM launch_history WHERE id = ?1",
+            rusqlite::params![id],
+        )
+        .map_err(|e| {
+            error!(table = "launch_history", id = %id, err = %e, "SQL delete_by_id failed");
+            e.to_string()
+        })?;
         Ok(())
     }
 

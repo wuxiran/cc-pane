@@ -109,7 +109,10 @@ impl HooksService {
                 #[cfg(target_os = "macos")]
                 {
                     if let Some(contents_dir) = exe_dir.parent() {
-                        let macos_resources = contents_dir.join("Resources").join("binaries").join(&binary_name);
+                        let macos_resources = contents_dir
+                            .join("Resources")
+                            .join("binaries")
+                            .join(&binary_name);
                         if macos_resources.exists() {
                             return Ok(macos_resources);
                         }
@@ -137,7 +140,10 @@ impl HooksService {
             return Ok(debug_candidate);
         }
 
-        Err("cc-panes-hook binary not found. Please build it first: cargo build -p cc-panes-hook".to_string())
+        Err(
+            "cc-panes-hook binary not found. Please build it first: cargo build -p cc-panes-hook"
+                .to_string(),
+        )
     }
 
     /// 查找 workspace 根目录（包含 Cargo.toml 的最上层目录）
@@ -162,8 +168,7 @@ impl HooksService {
         }
 
         // 回退到当前工作目录
-        std::env::current_dir()
-            .map_err(|e| format!("Failed to get current directory: {}", e))
+        std::env::current_dir().map_err(|e| format!("Failed to get current directory: {}", e))
     }
 
     /// 检查 settings.local.json 中是否注册了指定 hook 的 cc-panes-hook 命令
@@ -324,9 +329,7 @@ impl HooksService {
             .entry("hooks")
             .or_insert(json!({}));
 
-        let hooks_obj = hooks
-            .as_object_mut()
-            .ok_or("hooks is not an object")?;
+        let hooks_obj = hooks.as_object_mut().ok_or("hooks is not an object")?;
 
         let command = Self::build_hook_command(binary_path, def);
         let entry = json!({
@@ -365,19 +368,14 @@ impl HooksService {
             }
 
             // 清理空数组
-            hooks.retain(|_, v| {
-                v.as_array().map(|a| !a.is_empty()).unwrap_or(true)
-            });
+            hooks.retain(|_, v| v.as_array().map(|a| !a.is_empty()).unwrap_or(true));
         }
 
         Self::write_settings(&settings_path, &settings)
     }
 
     /// 注册所有 hooks 到 .claude/settings.local.json
-    fn register_hooks_in_settings(
-        project_path: &str,
-        binary_path: &Path,
-    ) -> Result<(), String> {
+    fn register_hooks_in_settings(project_path: &str, binary_path: &Path) -> Result<(), String> {
         let settings_path = PathBuf::from(project_path)
             .join(".claude")
             .join("settings.local.json");
@@ -395,9 +393,7 @@ impl HooksService {
             .entry("hooks")
             .or_insert(json!({}));
 
-        let hooks_obj = hooks
-            .as_object_mut()
-            .ok_or("hooks is not an object")?;
+        let hooks_obj = hooks.as_object_mut().ok_or("hooks is not an object")?;
 
         for def in HOOK_DEFS {
             let command = Self::build_hook_command(binary_path, def);
@@ -436,9 +432,7 @@ impl HooksService {
             }
 
             // 清理空数组
-            hooks.retain(|_, v| {
-                v.as_array().map(|a| !a.is_empty()).unwrap_or(true)
-            });
+            hooks.retain(|_, v| v.as_array().map(|a| !a.is_empty()).unwrap_or(true));
         }
 
         Self::write_settings(&settings_path, &settings)
@@ -466,10 +460,7 @@ impl HooksService {
         event: &str,
         entry: serde_json::Value,
     ) {
-        let arr = hooks_obj
-            .entry(event)
-            .or_insert(json!([]))
-            .as_array_mut();
+        let arr = hooks_obj.entry(event).or_insert(json!([])).as_array_mut();
 
         if let Some(arr) = arr {
             // 移除旧的 ccpanes 条目（包括旧版 Python 和新版二进制）
@@ -490,10 +481,7 @@ impl HooksService {
     }
 
     /// 写入 settings.local.json
-    fn write_settings(
-        settings_path: &PathBuf,
-        settings: &serde_json::Value,
-    ) -> Result<(), String> {
+    fn write_settings(settings_path: &PathBuf, settings: &serde_json::Value) -> Result<(), String> {
         let content = serde_json::to_string_pretty(settings)
             .map_err(|e| format!("Failed to serialize settings: {}", e))?;
         fs::write(settings_path, content)
@@ -509,8 +497,7 @@ impl HooksService {
             return Err("workflow.md does not exist".to_string());
         }
 
-        fs::read_to_string(&workflow_path)
-            .map_err(|e| format!("Failed to read workflow.md: {}", e))
+        fs::read_to_string(&workflow_path).map_err(|e| format!("Failed to read workflow.md: {}", e))
     }
 
     /// 保存 workflow.md 内容
@@ -524,8 +511,7 @@ impl HooksService {
 
         let workflow_path = ccpanes_dir.join("workflow.md");
 
-        fs::write(&workflow_path, content)
-            .map_err(|e| format!("Failed to save workflow.md: {}", e))
+        fs::write(&workflow_path, content).map_err(|e| format!("Failed to save workflow.md: {}", e))
     }
 
     /// 初始化项目的 .ccpanes 目录
@@ -586,7 +572,8 @@ impl HooksService {
 ## 当前任务
 
 - [ ] 待添加
-"#.to_string()
+"#
+        .to_string()
     }
 
     fn get_default_journal_index(&self) -> String {
@@ -606,7 +593,8 @@ impl HooksService {
 | # | Date | Title | Commits |
 |---|------|-------|---------|
 <!-- @@@/auto:session-history -->
-"#.to_string()
+"#
+        .to_string()
     }
 
     fn get_default_journal(&self) -> String {
@@ -615,7 +603,8 @@ impl HooksService {
 > Managed by CC-Panes
 
 ---
-"#.to_string()
+"#
+        .to_string()
     }
 }
 
