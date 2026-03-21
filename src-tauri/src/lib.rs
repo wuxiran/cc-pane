@@ -20,6 +20,7 @@ use commands::{
     add_worktree,
     batch_update_todo_status,
     check_environment,
+    check_ssh_connectivity,
     check_todo_reminders,
     clean_all_broken_sessions,
     clean_session_file,
@@ -1019,6 +1020,7 @@ pub fn run() {
             add_ssh_machine,
             update_ssh_machine,
             remove_ssh_machine,
+            check_ssh_connectivity,
             // Process Monitor 命令
             scan_claude_processes,
             kill_claude_process,

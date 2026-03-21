@@ -35,7 +35,7 @@ pub use provider_service::ProviderService;
 pub use settings_service::SettingsService;
 pub use skill_service::SkillService;
 pub use spec_service::SpecService;
-pub use ssh_machine_service::SshMachineService;
+pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use terminal_service::{OrchestratorInfo, SessionStatusInfo, ShellInfo, TerminalService};
 pub use todo_service::TodoService;
 pub use workspace_service::WorkspaceService;

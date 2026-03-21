@@ -18,7 +18,9 @@ interface TabContentRendererProps {
   paneId: string;
   isPoppedOut?: boolean;
   onSessionCreated: (sessionId: string) => void;
+  onSessionExited?: (exitCode: number) => void;
   onTerminalRef: (ref: TerminalViewHandle | null) => void;
+  onReconnect?: () => Promise<string | null>;
 }
 
 function LoadingFallback() {
@@ -35,7 +37,9 @@ export default memo(function TabContentRenderer({
   paneId,
   isPoppedOut,
   onSessionCreated,
+  onSessionExited,
   onTerminalRef,
+  onReconnect,
 }: TabContentRendererProps) {
   const { t } = useTranslation("panes");
   switch (tab.contentType) {
@@ -69,6 +73,8 @@ export default memo(function TabContentRenderer({
           resumeId={tab.resumeId}
           ssh={tab.ssh}
           onSessionCreated={onSessionCreated}
+          onSessionExited={onSessionExited}
+          onReconnect={onReconnect}
         />
       );
 

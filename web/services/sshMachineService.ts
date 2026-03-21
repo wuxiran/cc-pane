@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SshMachine } from "@/types";
+import type { SshMachine, SshConnectivityResult } from "@/types";
 
 export async function listSshMachines(): Promise<SshMachine[]> {
   return invoke<SshMachine[]>("list_ssh_machines");
@@ -19,4 +19,10 @@ export async function updateSshMachine(machine: SshMachine): Promise<void> {
 
 export async function removeSshMachine(id: string): Promise<void> {
   return invoke("remove_ssh_machine", { id });
+}
+
+export async function checkSshConnectivity(
+  id: string
+): Promise<SshConnectivityResult> {
+  return invoke<SshConnectivityResult>("check_ssh_connectivity", { id });
 }

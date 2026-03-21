@@ -1,5 +1,5 @@
 use crate::models::ssh_machine::SshMachine;
-use crate::services::SshMachineService;
+use crate::services::{SshConnectivityResult, SshMachineService};
 use crate::utils::path_validator::validate_ssh_machine;
 use crate::utils::AppResult;
 use std::sync::Arc;
@@ -43,4 +43,13 @@ pub fn update_ssh_machine(
 pub fn remove_ssh_machine(id: String, service: State<'_, Arc<SshMachineService>>) -> AppResult<()> {
     debug!(id = %id, "cmd::remove_ssh_machine");
     Ok(service.remove(&id)?)
+}
+
+#[tauri::command]
+pub async fn check_ssh_connectivity(
+    id: String,
+    service: State<'_, Arc<SshMachineService>>,
+) -> AppResult<SshConnectivityResult> {
+    debug!(id = %id, "cmd::check_ssh_connectivity");
+    Ok(service.check_connectivity(&id).await?)
 }

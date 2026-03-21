@@ -14,3 +14,10 @@ export interface SshMachine {
   createdAt: string;
   updatedAt: string;
 }
+
+/** SSH 连通性检测结果 */
+export interface SshConnectivityResult {
+  reachable: boolean;
+  message: string;
+  latencyMs: number | null;
+}

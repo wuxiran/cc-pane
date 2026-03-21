@@ -339,13 +339,13 @@ function MainApp() {
   // 打开终端
   const handleOpenTerminal = useCallback(
     (opts: OpenTerminalOptions) => {
-      const { path, workspaceName, providerId, workspacePath, resumeId, ssh } = opts;
+      const { path, workspaceName, providerId, workspacePath, resumeId, ssh, machineName } = opts;
       // 兼容：如果有 resumeId 但没有指定 cliTool，跟随全局默认设置
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
       const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
-      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, workspacePath, cliTool: effectiveCliTool, ssh });
+      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, workspacePath, cliTool: effectiveCliTool, ssh, machineName });
       const name = path.split(/[/\\]/).pop() || path;
 
       // SSH 项目：launchCwd 用 display path

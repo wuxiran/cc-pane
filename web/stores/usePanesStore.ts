@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { useEditorTabsStore } from "./useEditorTabsStore";
 import { useActivityBarStore } from "./useActivityBarStore";
+import { terminalService, ensureListeners } from "@/services/terminalService";
 import type {
   PaneNode,
   Panel,
@@ -48,17 +49,20 @@ interface CreateTabOptions {
   cliTool?: CliTool;
   customTitle?: string;
   ssh?: SshConnectionInfo;
+  machineName?: string;
 }
 
 function createTab(opts: CreateTabOptions): Tab {
-  const { projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool, customTitle, ssh } = opts;
+  const { projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool, customTitle, ssh, machineName } = opts;
   let title: string;
   if (customTitle) {
     title = customTitle;
   } else {
     const name = projectPath.split(/[/\\]/).pop() || "Terminal";
     if (ssh) {
-      title = `[SSH] ${name}`;
+      // 优先使用 machineName，否则回退到 [SSH]
+      const label = machineName || "SSH";
+      title = `[${label}] ${name}`;
     } else if (cliTool && cliTool !== "none") {
       const toolLabel = cliTool.charAt(0).toUpperCase() + cliTool.slice(1);
       title = `${name} (${toolLabel})`;
@@ -84,6 +88,7 @@ function createTab(opts: CreateTabOptions): Tab {
     cliTool,
     launchClaude: (cliTool && cliTool !== "none") || undefined,
     ssh,
+    machineName,
   };
 }
 
@@ -135,6 +140,7 @@ interface ClosedTabSnapshot {
   launchClaude?: boolean;
   cliTool?: CliTool;
   ssh?: SshConnectionInfo;
+  machineName?: string;
 }
 
 interface PanesState {
@@ -186,6 +192,8 @@ interface PanesState {
   markTabPoppedOut: (tabId: string) => void;
   markTabReclaimed: (tabId: string) => void;
   isTabPoppedOut: (tabId: string) => boolean;
+  setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean) => void;
+  reconnectTab: (paneId: string, tabId: string) => Promise<string | null>;
 }
 
 const initialPanel = createPanel();
@@ -541,6 +549,7 @@ export const usePanesStore = create<PanesState>()(
             launchClaude: snapTab.launchClaude,
             cliTool: snapTab.cliTool,
             ssh: snapTab.ssh,
+            machineName: snapTab.machineName,
           });
         });
       }
@@ -785,6 +794,7 @@ export const usePanesStore = create<PanesState>()(
         workspacePath: lastClosed.workspacePath,
         cliTool: lastClosed.cliTool,
         ssh: lastClosed.ssh,
+        machineName: lastClosed.machineName,
       });
     },
 
@@ -943,6 +953,68 @@ export const usePanesStore = create<PanesState>()(
     },
 
     isTabPoppedOut: (tabId) => get().poppedOutTabs.has(tabId),
+
+    setTabDisconnected: (paneId, tabId, disconnected) => {
+      set((state) => {
+        const pane = findPane(state.rootPane, paneId);
+        if (pane?.type !== "panel") return;
+        const tab = pane.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+        tab.disconnected = disconnected;
+        // 更新标题：断连时加 ⚡，重连时移除
+        if (tab.ssh && tab.machineName) {
+          const name = tab.projectPath.split(/[/\\]/).pop() || "Terminal";
+          if (disconnected) {
+            tab.title = `[${tab.machineName}] \u26A1 ${name}`;
+          } else {
+            tab.title = `[${tab.machineName}] ${name}`;
+          }
+        }
+      });
+    },
+
+    reconnectTab: async (paneId, tabId) => {
+      // 从 Tab 数据中提取创建参数
+      const snapshot = get();
+      const pane = findPane(snapshot.rootPane, paneId);
+      if (pane?.type !== "panel") return null;
+      const tab = pane.tabs.find((t) => t.id === tabId);
+      if (!tab || !tab.projectPath) return null;
+
+      try {
+        await ensureListeners();
+        const sessionId = await terminalService.createSession({
+          projectPath: tab.projectPath,
+          cols: 80,
+          rows: 24,
+          workspaceName: tab.workspaceName,
+          providerId: tab.providerId,
+          workspacePath: tab.workspacePath,
+          cliTool: tab.cliTool,
+          ssh: tab.ssh,
+        });
+
+        // 更新 tab 的 sessionId 和断连状态
+        set((state) => {
+          const p = findPane(state.rootPane, paneId);
+          if (p?.type !== "panel") return;
+          const t = p.tabs.find((x) => x.id === tabId);
+          if (!t) return;
+          t.sessionId = sessionId;
+          t.disconnected = false;
+          // 恢复标题
+          if (t.ssh && t.machineName) {
+            const name = t.projectPath.split(/[/\\]/).pop() || "Terminal";
+            t.title = `[${t.machineName}] ${name}`;
+          }
+        });
+
+        return sessionId;
+      } catch (error) {
+        console.error("[reconnectTab] Failed to reconnect:", error);
+        return null;
+      }
+    },
   })),
   {
     name: "cc-panes-layout",

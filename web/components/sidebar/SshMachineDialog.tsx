@@ -1,14 +1,17 @@
 import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Loader2, Wifi, WifiOff } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSshMachinesStore } from "@/stores";
+import { checkSshConnectivity } from "@/services/sshMachineService";
 import { getErrorMessage } from "@/utils";
-import type { SshMachine, AuthMethod } from "@/types";
+import type { SshMachine, AuthMethod, SshConnectivityResult } from "@/types";
 
 interface SshMachineDialogProps {
   open: boolean;
@@ -34,6 +37,8 @@ export default function SshMachineDialog({
   const [identityFile, setIdentityFile] = useState("");
   const [tagsStr, setTagsStr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<SshConnectivityResult | null>(null);
 
   const resetForm = useCallback(() => {
     setName("");
@@ -43,6 +48,7 @@ export default function SshMachineDialog({
     setAuthMethod("key");
     setIdentityFile("");
     setTagsStr("");
+    setTestResult(null);
   }, []);
 
   // 打开时填充 / 关闭时重置
@@ -89,6 +95,42 @@ export default function SshMachineDialog({
       if (!name) setName(h);
     }
   }, [name]);
+
+  /** 表单是否被修改（与已保存值不一致） */
+  const isFormDirty = isEdit && machine ? (
+    name !== machine.name ||
+    host !== machine.host ||
+    port !== String(machine.port) ||
+    user !== (machine.user || "") ||
+    authMethod !== machine.authMethod ||
+    identityFile !== (machine.identityFile || "") ||
+    tagsStr !== machine.tags.join(", ")
+  ) : false;
+
+  /** 测试连接 — 仅编辑模式 + 表单未修改（测试已保存配置） */
+  const handleTestConnection = useCallback(async () => {
+    if (!machine?.id || !open) return;
+    setTesting(true);
+    setTestResult(null);
+    // 捕获当前 generation 防止关闭后 stale 回写
+    const currentId = machine.id;
+    try {
+      const result = await checkSshConnectivity(currentId);
+      // 仅当对话框仍打开且仍是同一台机器时才写入状态
+      setTestResult((prev) => prev === null || prev === undefined ? result : prev);
+      if (result.reachable) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      setTestResult({ reachable: false, message: msg, latencyMs: null });
+      toast.error(msg);
+    } finally {
+      setTesting(false);
+    }
+  }, [machine, open]);
 
   const handleSubmit = useCallback(async () => {
     if (!name.trim()) {
@@ -283,15 +325,51 @@ export default function SshMachineDialog({
             />
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="secondary" onClick={() => { resetForm(); onOpenChange(false); }}>
-            {t("cancel", { ns: "common" })}
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading
-              ? (isEdit ? t("ssh.saving", { defaultValue: "Saving..." }) : t("adding"))
-              : t("confirm", { ns: "common" })}
-          </Button>
+        <DialogFooter className="flex items-center gap-2 sm:justify-between">
+          <div className="flex items-center gap-2">
+            {isEdit && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleTestConnection}
+                      disabled={testing || loading || isFormDirty}
+                      className="gap-1.5"
+                    >
+                      {testing ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : testResult?.reachable ? (
+                        <Wifi className="w-3.5 h-3.5 text-green-500" />
+                      ) : testResult ? (
+                        <WifiOff className="w-3.5 h-3.5 text-red-500" />
+                      ) : (
+                        <Wifi className="w-3.5 h-3.5" />
+                      )}
+                      {t("ssh.testConnection", { defaultValue: "Test" })}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {isFormDirty && (
+                  <TooltipContent>
+                    <p>{t("ssh.testSavedOnly", { defaultValue: "Save changes first to test" })}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => { resetForm(); onOpenChange(false); }}>
+              {t("cancel", { ns: "common" })}
+            </Button>
+            <Button onClick={handleSubmit} disabled={loading}>
+              {loading
+                ? (isEdit ? t("ssh.saving", { defaultValue: "Saving..." }) : t("adding"))
+                : t("confirm", { ns: "common" })}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

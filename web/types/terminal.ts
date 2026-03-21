@@ -46,6 +46,8 @@ export interface Tab {
   dirty?: boolean; // 是否有未保存修改
   reclaimKey?: number; // 回收时递增，作为 React key 触发 remount
   ssh?: import("./workspace").SshConnectionInfo; // SSH 远程连接信息
+  machineName?: string; // SSH 机器名称（用于 Tab 标题显示）
+  disconnected?: boolean; // SSH 终端断连状态（用于显示重连 UI）
 }
 
 /** 终端会话状态 */
@@ -82,6 +84,7 @@ export interface OpenTerminalOptions {
   cliTool?: CliTool;
   resumeId?: string;
   ssh?: import("./workspace").SshConnectionInfo;
+  machineName?: string;
 }
 
 /** 终端输出事件 */

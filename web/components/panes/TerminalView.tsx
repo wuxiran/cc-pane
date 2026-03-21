@@ -42,6 +42,8 @@ interface TerminalViewProps {
   ssh?: SshConnectionInfo;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
+  /** SSH 断线重连回调，返回新 sessionId（null 表示失败） */
+  onReconnect?: () => Promise<string | null>;
 }
 
 export interface TerminalViewHandle {
@@ -61,8 +63,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const lastContainerSizeRef = useRef<{ width: number; height: number } | null>(null);
 
+    // SSH 断线重连状态
+    const isDisconnectedRef = useRef(false);
+    const isReconnectingRef = useRef(false);
+    const isSshRef = useRef(!!props.ssh);
+
     const onSessionCreatedRef = useRef(props.onSessionCreated);
     const onSessionExitedRef = useRef(props.onSessionExited);
+    const onReconnectRef = useRef(props.onReconnect);
 
     // 暴露方法
     useImperativeHandle(ref, () => ({
@@ -74,6 +82,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     useEffect(() => {
       onSessionCreatedRef.current = props.onSessionCreated;
       onSessionExitedRef.current = props.onSessionExited;
+      onReconnectRef.current = props.onReconnect;
     });
 
     // 清理资源
@@ -109,6 +118,88 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         }
       }
     }, []);
+
+    /** 会话退出处理（共享逻辑：init 和 reconnect 都使用） */
+    const handleSessionExit = useCallback((sessionId: string, exitCode: number) => {
+      console.warn(`[TerminalView] Session exited: ${sessionId}, exitCode=${exitCode}`);
+      const term = terminalInstanceRef.current;
+      if (!term) return;
+      term.writeln(`\r\n\x1b[33mProcess exited with code ${exitCode}\x1b[0m`);
+
+      // SSH 终端退出后显示重连提示
+      if (isSshRef.current && onReconnectRef.current) {
+        term.writeln(
+          "\x1b[36m[Disconnected] Press Enter to reconnect, or Ctrl+C to close.\x1b[0m"
+        );
+        isDisconnectedRef.current = true;
+      }
+
+      onSessionExitedRef.current?.(exitCode);
+    }, []);
+
+    /** 绑定 session 的 output/exit 回调 */
+    const bindSessionCallbacks = useCallback(async (sessionId: string) => {
+      await terminalService.registerOutput(sessionId, (data) => {
+        terminalInstanceRef.current?.write(data);
+      });
+      await terminalService.registerExit(sessionId, (exitCode) => {
+        handleSessionExit(sessionId, exitCode);
+      });
+    }, [handleSessionExit]);
+
+    /** SSH 断线重连 */
+    const doReconnect = useCallback(async () => {
+      const term = terminalInstanceRef.current;
+      if (!term || isReconnectingRef.current) return;
+      const onReconnect = onReconnectRef.current;
+      if (!onReconnect) return;
+
+      isReconnectingRef.current = true;
+      term.writeln("\r\n\x1b[33mReconnecting...\x1b[0m");
+
+      try {
+        // 解除旧 session 回调
+        if (currentSessionIdRef.current) {
+          terminalService.detachOutput(currentSessionIdRef.current);
+          terminalService.detachExit(currentSessionIdRef.current);
+        }
+
+        const newSessionId = await onReconnect();
+        if (!newSessionId) {
+          term.writeln("\x1b[31mReconnection failed.\x1b[0m");
+          term.writeln(
+            "\x1b[36mPress Enter to retry.\x1b[0m"
+          );
+          isReconnectingRef.current = false;
+          return;
+        }
+
+        currentSessionIdRef.current = newSessionId;
+        term.writeln("\r\n\x1b[32m--- Reconnected ---\x1b[0m\r\n");
+
+        // 绑定新 session 的 output/exit 回调
+        await bindSessionCallbacks(newSessionId);
+
+        // 同步 PTY 尺寸
+        terminalService.resize({
+          sessionId: newSessionId,
+          cols: term.cols,
+          rows: term.rows,
+        });
+
+        isDisconnectedRef.current = false;
+        isReconnectingRef.current = false;
+      } catch (error) {
+        console.error("[TerminalView] Reconnection failed:", error);
+        term.writeln(
+          `\r\n\x1b[31mReconnection failed: ${getErrorMessage(error)}\x1b[0m`
+        );
+        term.writeln(
+          "\x1b[36mPress Enter to retry.\x1b[0m"
+        );
+        isReconnectingRef.current = false;
+      }
+    }, [bindSessionCallbacks]);
 
     // 初始化终端
     useEffect(() => {
@@ -206,8 +297,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // 适配大小
         requestAnimationFrame(() => fit.fit());
 
-        // 监听输入
+        // 监听输入（含断线重连拦截）
         const onDataDisposable = term.onData((data) => {
+          // SSH 断线状态：拦截 Enter 触发重连，忽略其他输入
+          if (isDisconnectedRef.current) {
+            if (!isReconnectingRef.current && (data === "\r" || data === "\n")) {
+              doReconnect();
+            }
+            return;
+          }
           const sessionId = currentSessionIdRef.current;
           if (sessionId) {
             terminalService.write(sessionId, data);
@@ -259,6 +357,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         fitAddonRef.current = fit;
         resizeObserverRef.current = observer;
 
+        // 记录是否为 SSH 终端
+        isSshRef.current = !!props.ssh;
+
         // 创建或重连后端会话
         if (props.projectPath) {
           try {
@@ -306,21 +407,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               onSessionCreatedRef.current(sessionId);
             }
 
-            // 注册输出回调（registerOutput 会自动 flush pendingBuffers）
-            await terminalService.registerOutput(sessionId, (data) => {
-              terminalInstanceRef.current?.write(data);
-            });
-            if (!isMounted) { terminalService.detachOutput(sessionId); return; }
-
-            // 注册退出回调
-            await terminalService.registerExit(sessionId, (exitCode) => {
-              console.warn(`[TerminalView] Session exited: ${sessionId}, exitCode=${exitCode}, launchClaude=${props.launchClaude ?? false}`);
-              terminalInstanceRef.current?.writeln(
-                `\r\n\x1b[33mProcess exited with code ${exitCode}\x1b[0m`
-              );
-              onSessionExitedRef.current?.(exitCode);
-            });
-            if (!isMounted) { terminalService.detachExit(sessionId); return; }
+            // 注册输出/退出回调
+            await bindSessionCallbacks(sessionId);
+            if (!isMounted) {
+              terminalService.detachOutput(sessionId);
+              terminalService.detachExit(sessionId);
+              return;
+            }
 
             // 重连时同步 PTY 尺寸
             if (props.sessionId) {

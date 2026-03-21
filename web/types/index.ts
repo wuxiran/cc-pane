@@ -79,5 +79,5 @@ export type {
   SelfChatStatus,
   SelfChatSession,
 } from "./selfchat";
-export type { SshMachine, AuthMethod } from "./ssh-machine";
+export type { SshMachine, AuthMethod, SshConnectivityResult } from "./ssh-machine";
 export type { ClaudeProcess, ClaudeProcessType, ProcessScanResult } from "./process";

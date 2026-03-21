@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "cc-panes"
-version = "0.9.15"
+version = "0.9.18"
 dependencies = [
  "anyhow",
  "axum",
@@ -894,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "cc-panes-api"
-version = "0.9.15"
+version = "0.9.17"
 dependencies = [
  "axum",
  "cc-panes-core",
@@ -907,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "cc-panes-core"
-version = "0.9.15"
+version = "0.9.17"
 dependencies = [
  "anyhow",
  "cc-cli-adapters",
@@ -6691,6 +6691,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

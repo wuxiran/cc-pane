@@ -35,6 +35,8 @@ export default memo(function Panel({ pane }: PanelProps) {
   const closeOtherTabs = usePanesStore((s) => s.closeOtherTabs);
   const setActivePane = usePanesStore((s) => s.setActivePane);
   const updateTabSession = usePanesStore((s) => s.updateTabSession);
+  const reconnectTab = usePanesStore((s) => s.reconnectTab);
+  const setTabDisconnected = usePanesStore((s) => s.setTabDisconnected);
   const markTabPoppedOut = usePanesStore((s) => s.markTabPoppedOut);
   const isTabPoppedOut = usePanesStore((s) => s.isTabPoppedOut);
 
@@ -220,6 +222,23 @@ export default memo(function Panel({ pane }: PanelProps) {
     [pane.id, updateTabSession]
   );
 
+  /** SSH 终端退出时标记 Tab 为断连状态 */
+  const handleSessionExited = useCallback(
+    (tabId: string, _exitCode: number) => {
+      const tab = pane.tabs.find((t) => t.id === tabId);
+      if (tab?.ssh) {
+        setTabDisconnected(pane.id, tabId, true);
+      }
+    },
+    [pane.id, pane.tabs, setTabDisconnected]
+  );
+
+  /** SSH 断线重连：从 Tab 数据重建 session */
+  const handleReconnect = useCallback(
+    (tabId: string) => reconnectTab(pane.id, tabId),
+    [pane.id, reconnectTab]
+  );
+
   const handlePanelClick = useCallback(
     () => setActivePane(pane.id),
     [pane.id, setActivePane]
@@ -335,7 +354,9 @@ export default memo(function Panel({ pane }: PanelProps) {
               paneId={pane.id}
               isPoppedOut={isTabPoppedOut(tab.id)}
               onSessionCreated={(sid) => handleSessionCreated(tab.id, sid)}
+              onSessionExited={(code) => handleSessionExited(tab.id, code)}
               onTerminalRef={(ref) => setTerminalRef(tab.id, ref)}
+              onReconnect={tab.ssh ? () => handleReconnect(tab.id) : undefined}
             />
           </div>
         ))}
