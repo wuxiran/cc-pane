@@ -1,6 +1,6 @@
 [package]
 name = "cc-panes"
-version = "0.9.19"
+version = "0.9.20"
 description = "CC-Panes - Multi-instance split-pane manager for Claude Code"
 authors = ["wuxiran"]
 license = "GPL-3.0"
@@ -58,7 +58,12 @@ base64 = "0.22"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-log = { version = "2", features = ["tracing"] }
-tauri-plugin-updater = "2"
+tauri-plugin-updater = ">=2.10"
+# 启用 system-proxy feature，通过 Cargo feature unification
+# 让 tauri-plugin-updater 内部的 reqwest 获得读取 Windows/macOS 系统代理配置的能力
+# 注意：环境变量代理（HTTP_PROXY/HTTPS_PROXY）由 reqwest 基础的 client-proxy 提供，无需此 feature
+# 要求 tauri-plugin-updater >=2.10（2.10 起依赖 reqwest 0.13，与此处版本一致才能触发 feature 合并）
+reqwest = { version = "0.13", default-features = false, features = ["system-proxy"] }
 tauri-plugin-process = "2"
 tracing = "0.1"
 log = "0.4"

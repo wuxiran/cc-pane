@@ -46,7 +46,12 @@ export async function checkForAppUpdates(userInitiated: boolean): Promise<void> 
   } catch (error) {
     console.error("[updater] 检查更新失败:", error);
     if (userInitiated) {
-      await message(`检查更新失败：${getErrorMessage(error)}`, { title: "检查更新", kind: "error" });
+      const msg = getErrorMessage(error);
+      const hint =
+        msg.includes("request") || msg.includes("connect") || msg.includes("timed out")
+          ? "\n\n提示：如果无法访问 GitHub，请确认代理工具已开启「系统代理」模式，或在 设置 → 代理 中手动配置。"
+          : "";
+      await message(`检查更新失败：${msg}${hint}`, { title: "检查更新", kind: "error" });
     }
   }
 }

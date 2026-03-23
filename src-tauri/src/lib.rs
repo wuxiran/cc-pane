@@ -514,6 +514,16 @@ pub fn run() {
         _ => log::LevelFilter::Info,
     };
 
+    // 1.5 如果代理已启用，设置进程级环境变量（影响 updater 等 HTTP 请求）
+    if settings.proxy.enabled && !settings.proxy.host.is_empty() {
+        for (key, value) in settings.proxy.to_env_vars() {
+            // SAFETY: 在 main 线程启动阶段调用，此时无其他线程读取这些变量
+            unsafe {
+                std::env::set_var(&key, &value);
+            }
+        }
+    }
+
     // 2. 构造路径管理器
     let app_paths = Arc::new(AppPaths::new(data_dir));
 

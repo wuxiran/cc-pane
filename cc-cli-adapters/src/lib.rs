@@ -28,13 +28,20 @@ pub fn run_with_timeout(
     args: &[String],
     timeout: Duration,
 ) -> Option<String> {
-    let mut child = std::process::Command::new(cmd)
-        .args(args)
+    let mut cmd = std::process::Command::new(cmd);
+    cmd.args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
-        .stdin(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
+        .stdin(std::process::Stdio::null());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = cmd.spawn().ok()?;
 
     let start = std::time::Instant::now();
     loop {

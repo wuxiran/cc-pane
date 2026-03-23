@@ -100,30 +100,46 @@ pub fn get_windows_build_number() -> AppResult<u32> {
 }
 
 /// 检测开发环境（Node.js + CLI 工具，所有子进程调用均带 5s 超时）
+/// async + spawn_blocking 防止阻塞 IPC 线程
 #[tauri::command]
-pub fn check_environment(registry: State<'_, Arc<CliToolRegistry>>) -> serde_json::Value {
-    let node_path = which::which("node").ok();
-    let node_installed = node_path.is_some();
-    let node_version = node_path.and_then(|path| {
-        cc_cli_adapters::run_with_timeout(
-            &path,
-            &["--version".to_string()],
-            std::time::Duration::from_secs(5),
-        )
-    });
+pub async fn check_environment(
+    registry: State<'_, Arc<CliToolRegistry>>,
+) -> AppResult<serde_json::Value> {
+    let registry = registry.inner().clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let node_path = which::which("node").ok();
+        let node_installed = node_path.is_some();
+        let node_version = node_path.and_then(|path| {
+            cc_cli_adapters::run_with_timeout(
+                &path,
+                &["--version".to_string()],
+                std::time::Duration::from_secs(5),
+            )
+        });
 
-    let cli_tools = registry.detect_all();
+        let cli_tools = registry.detect_all();
 
-    serde_json::json!({
-        "node": { "installed": node_installed, "version": node_version },
-        "cliTools": cli_tools
+        serde_json::json!({
+            "node": { "installed": node_installed, "version": node_version },
+            "cliTools": cli_tools
+        })
     })
+    .await
+    .map_err(|e| AppError::from(format!("Environment check failed: {}", e)))?;
+    Ok(result)
 }
 
 /// 列出所有已注册的 CLI 工具（含实时检测状态）
+/// async + spawn_blocking 防止阻塞 IPC 线程
 #[tauri::command]
-pub fn list_cli_tools(registry: State<'_, Arc<CliToolRegistry>>) -> Vec<CliToolInfo> {
-    registry.detect_all()
+pub async fn list_cli_tools(
+    registry: State<'_, Arc<CliToolRegistry>>,
+) -> AppResult<Vec<CliToolInfo>> {
+    let registry = registry.inner().clone();
+    let tools = tauri::async_runtime::spawn_blocking(move || registry.detect_all())
+        .await
+        .map_err(|e| AppError::from(format!("List CLI tools failed: {}", e)))?;
+    Ok(tools)
 }
 
 /// 读取终端会话的最近输出（纯文本，ANSI 已剥离）
