@@ -36,6 +36,7 @@ import {
   useSettingsStore,
   useActivityBarStore,
   useWorkspacesStore,
+  useResourceStatsStore,
 } from "@/stores";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
@@ -149,6 +150,7 @@ function MainApp() {
         i18n.changeLanguage(lang);
       }
       useTerminalStatusStore.getState().init();
+      useResourceStatsStore.getState().init();
       // 应用启动后静默检查更新（仅写入 store，不弹窗）
       checkUpdateSilent().catch(console.error);
       // 首次启动检测：清理残留布局 + 弹出新手引导
@@ -162,6 +164,7 @@ function MainApp() {
     return () => {
       cancelled = true;
       useTerminalStatusStore.getState().cleanup();
+      useResourceStatsStore.getState().cleanup();
     };
   }, []);
 

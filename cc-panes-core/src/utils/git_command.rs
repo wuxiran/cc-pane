@@ -2,12 +2,6 @@ use std::io;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-
 /// 本地 Git 命令超时（30 秒）
 pub const GIT_LOCAL_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -20,13 +14,17 @@ pub const GIT_CHECKOUT_TIMEOUT: Duration = Duration::from_secs(60);
 /// 带超时的命令执行，替代 `Command::output()`
 ///
 /// 通过 `try_wait` 轮询实现超时检测，超时后 kill 子进程。
+/// Windows 上自动设置 `CREATE_NO_WINDOW` 防止弹出控制台窗口。
 pub fn output_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<Output> {
     // 阻止 git 弹出交互式认证提示（GUI 子进程中无法交互）
     cmd.env("GIT_TERMINAL_PROMPT", "0");
 
     // Windows: 不创建控制台窗口
     #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
 
     let mut child = cmd
         .stdin(Stdio::null())

@@ -4,7 +4,6 @@ import { useTerminalStatusStore, usePanesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
 import { handleErrorSilent } from "@/utils";
-import ProcessMonitorSection from "@/components/sidebar/ProcessMonitorSection";
 
 import type { PaneNode, Panel as PanelType, OpenTerminalOptions } from "@/types";
 
@@ -85,9 +84,6 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* 系统进程监控 */}
-        <ProcessMonitorSection />
-
         {/* 活跃会话 */}
         {activeSessions.length > 0 && (
           <div className="px-3 mb-3">

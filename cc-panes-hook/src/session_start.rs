@@ -4,6 +4,17 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// 创建不弹窗的 Command（Windows 自动设置 CREATE_NO_WINDOW）
+fn no_window_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd
+}
+
 use chrono::Local;
 
 /// Hook input from Claude Code (stdin JSON).
@@ -121,7 +132,7 @@ pub fn run() {
 }
 
 fn get_git_branch(project_dir: &Path) -> String {
-    let output = Command::new("git")
+    let output = no_window_command("git")
         .args(["branch", "--show-current"])
         .current_dir(project_dir)
         .output();
@@ -140,7 +151,7 @@ fn get_git_branch(project_dir: &Path) -> String {
 }
 
 fn get_git_status(project_dir: &Path) -> String {
-    let output = Command::new("git")
+    let output = no_window_command("git")
         .args(["status", "--short"])
         .current_dir(project_dir)
         .output();
@@ -219,7 +230,7 @@ fn load_memory_context(project_dir: &Path) -> Option<String> {
         return None;
     }
 
-    let output = Command::new(&cli_path)
+    let output = no_window_command(&cli_path)
         .args([
             "search",
             "--db-path",

@@ -1,4 +1,5 @@
 pub mod claude_session_service;
+pub mod default_skill_service;
 pub mod file_search_index;
 mod filesystem_service;
 mod history_service;
@@ -20,6 +21,7 @@ mod todo_service;
 mod workspace_service;
 mod worktree_service;
 
+pub use default_skill_service::DefaultSkillService;
 pub use file_search_index::FileSearchIndex;
 pub use filesystem_service::FileSystemService;
 pub use history_service::HistoryService;

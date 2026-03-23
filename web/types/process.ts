@@ -17,3 +17,11 @@ export interface ProcessScanResult {
   totalMemoryBytes: number;
   scannedAt: string;
 }
+
+/** 轻量级资源统计（StatusBar 用） */
+export interface ResourceStats {
+  totalCpuPercent: number;
+  totalMemoryBytes: number;
+  processCount: number;
+  timestamp: number;
+}

@@ -30,7 +30,7 @@ pub use history::{
     VersionsMetadata,
     WorktreeRecentChange,
 };
-pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult};
+pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 pub use project::Project;
 pub use screenshot::ScreenshotResult;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig};

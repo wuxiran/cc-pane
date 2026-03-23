@@ -92,12 +92,13 @@ pub fn handle_terminal_exit_spec(
         warn!("[spec] sync_tasks on exit failed: {}", e);
     }
 
-    // 3. git diff --stat HEAD
-    let diff_output = match std::process::Command::new("git")
-        .args(["diff", "--stat", "HEAD"])
-        .current_dir(&project_path)
-        .output()
-    {
+    // 3. git diff --stat HEAD（使用 output_with_timeout 自动设置 CREATE_NO_WINDOW）
+    let diff_output = match cc_panes_core::utils::output_with_timeout(
+        std::process::Command::new("git")
+            .args(["diff", "--stat", "HEAD"])
+            .current_dir(&project_path),
+        cc_panes_core::utils::GIT_LOCAL_TIMEOUT,
+    ) {
         Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
         Err(e) => {
             warn!("[spec] git diff failed: {}", e);

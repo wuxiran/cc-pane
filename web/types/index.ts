@@ -80,4 +80,4 @@ export type {
   SelfChatSession,
 } from "./selfchat";
 export type { SshMachine, AuthMethod, SshConnectivityResult } from "./ssh-machine";
-export type { ClaudeProcess, ClaudeProcessType, ProcessScanResult } from "./process";
+export type { ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats } from "./process";

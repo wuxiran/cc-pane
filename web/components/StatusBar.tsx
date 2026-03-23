@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle } from "lucide-react";
+import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle, Cpu, MemoryStick } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip,
@@ -14,9 +14,16 @@ import {
   useSettingsStore,
   useTerminalStatusStore,
   useUpdateStore,
+  useResourceStatsStore,
 } from "@/stores";
 import { triggerUpdate } from "@/services";
 import { useWindowControl } from "@/hooks/useWindowControl";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
 
 export default function StatusBar() {
   const { t, i18n } = useTranslation();
@@ -27,6 +34,7 @@ export default function StatusBar() {
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
+  const resourceStats = useResourceStatsStore((s) => s.stats);
   const [updating, setUpdating] = useState(false);
   const { isPinned, togglePin } = useWindowControl();
 
@@ -79,6 +87,27 @@ export default function StatusBar() {
             <Terminal className="w-3 h-3" />
             <span>{activeCount}</span>
           </span>
+        )}
+
+        {/* CPU / 内存指标 */}
+        {resourceStats && resourceStats.processCount > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex items-center gap-2">
+                <span className="flex items-center gap-0.5">
+                  <Cpu className="w-3 h-3" />
+                  <span>{resourceStats.totalCpuPercent.toFixed(1)}%</span>
+                </span>
+                <span className="flex items-center gap-0.5">
+                  <MemoryStick className="w-3 h-3" />
+                  <span>{formatBytes(resourceStats.totalMemoryBytes)}</span>
+                </span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{resourceStats.processCount} processes | CPU {resourceStats.totalCpuPercent.toFixed(1)}% | Mem {formatBytes(resourceStats.totalMemoryBytes)}</p>
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {/* 版本更新提示 */}

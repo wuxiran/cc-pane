@@ -9,6 +9,7 @@ import SessionsView from "@/components/sidebar/SessionsView";
 import SearchView from "@/components/sidebar/SearchView";
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
+import ProcessView from "@/components/sidebar/ProcessView";
 import { setDragging } from "@/stores/splitDragState";
 
 const SIDEBAR_WIDTH_KEY = "cc-panes-sidebar-width";
@@ -125,6 +126,9 @@ export default function Sidebar({
         )}
         {activeView === "files" && (
           <FileBrowserView />
+        )}
+        {activeView === "process" && (
+          <ProcessView />
         )}
         {activeView === "ssh" && (
           <SshMachinesView onOpenTerminal={onOpenTerminal} />

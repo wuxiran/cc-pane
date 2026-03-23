@@ -111,4 +111,5 @@ export interface TerminalStatusInfo {
   sessionId: string;
   status: TerminalStatusType;
   lastOutputAt: number;
+  pid?: number;
 }

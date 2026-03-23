@@ -1,5 +1,6 @@
 mod app_paths;
 pub mod claude_path;
+pub mod command;
 pub mod error;
 pub mod error_codes;
 pub mod git_command;
@@ -7,6 +8,7 @@ pub mod path_validator;
 
 pub use app_paths::{AppPaths, APP_DIR_NAME};
 pub use claude_path::{encode_claude_project_path, is_claude_project_match};
+pub use command::no_window_command;
 pub use error::AppResult;
 pub use git_command::{
     output_with_timeout, GIT_CHECKOUT_TIMEOUT, GIT_LOCAL_TIMEOUT, GIT_NETWORK_TIMEOUT,

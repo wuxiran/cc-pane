@@ -1,12 +1,14 @@
-use crate::models::process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult};
+use crate::models::process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 use crate::utils::error::AppResult;
 use parking_lot::Mutex;
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tracing::{debug, warn};
 
 /// 系统级 Claude Code 进程监控服务
 pub struct ProcessMonitorService {
     sys: Mutex<System>,
+    /// 缓存的活跃 PID 列表（由 TerminalService 注入）
+    tracked_pids: Mutex<Vec<Pid>>,
 }
 
 impl Default for ProcessMonitorService {
@@ -19,7 +21,62 @@ impl ProcessMonitorService {
     pub fn new() -> Self {
         Self {
             sys: Mutex::new(System::new()),
+            tracked_pids: Mutex::new(Vec::new()),
         }
+    }
+
+    /// 更新跟踪的 PID 列表（从 TerminalService 注入活跃 session 的根 PID）
+    pub fn update_tracked_pids(&self, pids: Vec<u32>) {
+        let mut tracked = self.tracked_pids.lock();
+        *tracked = pids.into_iter().map(Pid::from_u32).collect();
+    }
+
+    /// 轻量级增量刷新：仅刷新已跟踪 PID 的 CPU/内存，返回聚合统计
+    pub fn refresh_resource_stats(&self) -> AppResult<ResourceStats> {
+        let tracked = self.tracked_pids.lock().clone();
+
+        if tracked.is_empty() {
+            return Ok(ResourceStats {
+                total_cpu_percent: 0.0,
+                total_memory_bytes: 0,
+                process_count: 0,
+                timestamp: Self::now_millis(),
+            });
+        }
+
+        let mut sys = self.sys.lock();
+        // 仅刷新指定 PID 的 CPU 和内存（不读取命令行/环境变量等）
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&tracked),
+            true,
+            ProcessRefreshKind::nothing().with_cpu().with_memory(),
+        );
+
+        let mut total_cpu: f32 = 0.0;
+        let mut total_mem: u64 = 0;
+        let mut count: u32 = 0;
+
+        for pid in &tracked {
+            if let Some(process) = sys.process(*pid) {
+                total_cpu += process.cpu_usage();
+                total_mem += process.memory();
+                count += 1;
+            }
+        }
+
+        Ok(ResourceStats {
+            total_cpu_percent: total_cpu,
+            total_memory_bytes: total_mem,
+            process_count: count,
+            timestamp: Self::now_millis(),
+        })
+    }
+
+    fn now_millis() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
     }
 
     /// 当前进程的 PID（用于自身保护）
@@ -30,7 +87,7 @@ impl ProcessMonitorService {
     /// 扫描系统中所有 Claude 相关进程
     pub fn scan_claude_processes(&self) -> AppResult<ProcessScanResult> {
         let mut sys = self.sys.lock();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        sys.refresh_processes(ProcessesToUpdate::All, true);
 
         let self_pid = Self::self_pid();
         let mut processes = Vec::new();
@@ -93,7 +150,7 @@ impl ProcessMonitorService {
         }
 
         let mut sys = self.sys.lock();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, false);
+        sys.refresh_processes(ProcessesToUpdate::All, false);
 
         let sysinfo_pid = Pid::from_u32(pid);
         if let Some(process) = sys.process(sysinfo_pid) {
@@ -110,7 +167,7 @@ impl ProcessMonitorService {
     pub fn kill_processes(&self, pids: Vec<u32>) -> AppResult<Vec<(u32, bool)>> {
         let self_pid = Self::self_pid();
         let mut sys = self.sys.lock();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, false);
+        sys.refresh_processes(ProcessesToUpdate::All, false);
 
         let results: Vec<(u32, bool)> = pids
             .iter()

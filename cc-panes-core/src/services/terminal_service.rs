@@ -148,6 +148,7 @@ pub struct SessionStatusInfo {
     pub session_id: String,
     pub status: SessionStatus,
     pub last_output_at: u64, // 毫秒时间戳
+    pub pid: Option<u32>,    // PTY 根进程 PID
 }
 
 // ============ 输出缓冲区 ============
@@ -695,6 +696,8 @@ impl TerminalService {
             .disable_conpty_sanitize
             .unwrap_or(true);
 
+        // 保存 PID 用于 reader 线程状态推送
+        let session_pid = process.pid();
         // 为等待线程 clone 一份 process 引用
         let process_for_wait = Arc::clone(&process);
 
@@ -726,6 +729,7 @@ impl TerminalService {
         let read_notifier = notifier.clone();
         let _settings_svc = settings_service.clone();
         let read_output_buffer = output_buffer.clone();
+        let reader_pid = session_pid;
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             let prev_status = Mutex::new(SessionStatus::Active);
@@ -847,6 +851,7 @@ impl TerminalService {
                                             .unwrap_or_default()
                                             .as_millis()
                                             as u64,
+                                        pid: Some(reader_pid),
                                     })
                                     .unwrap_or_default(),
                                 );
@@ -870,6 +875,7 @@ impl TerminalService {
         let wait_notifier = notifier;
         let sessions_for_wait = Arc::clone(&self.sessions);
         let dead_buffers_for_wait = Arc::clone(&self.dead_buffers);
+        let wait_pid = session_pid;
         thread::spawn(move || {
             let exit_code = match process_for_wait.wait() {
                 Ok(status) => {
@@ -918,6 +924,7 @@ impl TerminalService {
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as u64,
+                        pid: Some(wait_pid),
                     })
                     .unwrap_or_default(),
                 );
@@ -970,9 +977,29 @@ impl TerminalService {
                         .unwrap_or_default()
                         .as_millis() as u64
                         - elapsed.as_millis() as u64,
+                    pid: Some(session.process.pid()),
                 }
             })
             .collect())
+    }
+
+    /// 返回所有活跃（非 Exited）session 的根 PID
+    pub fn get_active_pids(&self) -> Vec<u32> {
+        let sessions = match self.sessions.lock() {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        sessions
+            .iter()
+            .filter_map(|(_id, session)| {
+                let status = *session.status.lock().unwrap_or_else(|e| e.into_inner());
+                if status != SessionStatus::Exited {
+                    Some(session.process.pid())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// 向终端写入数据（分块写入防止 ConPTY 大缓冲丢字符）

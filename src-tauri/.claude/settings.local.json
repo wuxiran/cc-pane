@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "\"D:\\\\04_workspace_rust\\\\cc-book\\\\target\\\\debug\\\\binaries\\\\cc-panes-hook.exe\" plan-archive",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "\"D:\\\\04_workspace_rust\\\\cc-book\\\\target\\\\debug\\\\binaries\\\\cc-panes-hook.exe\" session-start",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "startup"
+      }
+    ]
+  }
+}

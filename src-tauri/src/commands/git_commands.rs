@@ -200,8 +200,8 @@ pub async fn git_clone(app_handle: AppHandle, request: GitCloneRequest) -> AppRe
     let clone_path_str = clone_path.to_string_lossy().to_string();
     args.push(clone_path_str.clone());
 
-    // 使用 spawn + stderr pipe 执行 clone
-    let mut child = Command::new("git")
+    // 使用 spawn + stderr pipe 执行 clone（no_window_command 避免 Windows cmd 弹窗）
+    let mut child = cc_panes_core::utils::no_window_command("git")
         .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

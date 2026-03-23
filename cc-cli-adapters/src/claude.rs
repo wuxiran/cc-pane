@@ -132,6 +132,10 @@ impl CliToolAdapter for ClaudeAdapter {
         &self.caps
     }
 
+    fn global_commands_dir(&self) -> Option<std::path::PathBuf> {
+        dirs::home_dir().map(|h| h.join(".claude").join("commands"))
+    }
+
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let path = which::which("claude").map_err(|_| anyhow!("claude CLI not found in PATH"))?;
         let mut args = Vec::new();

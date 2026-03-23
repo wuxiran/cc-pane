@@ -14,6 +14,7 @@ fn ensure_bundled_claude_config() {
     let dirs = [
         "bundled-claude-config/.claude/commands/ccbook",
         "bundled-claude-config/.claude/agents",
+        "bundled-claude-config/default-skills",
     ];
     for dir in &dirs {
         let path = Path::new(dir);

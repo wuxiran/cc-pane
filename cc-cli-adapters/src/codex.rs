@@ -82,7 +82,7 @@ impl CodexAdapter {
 
         // 注册（已存在则覆盖，天然幂等）
         let url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
-        match std::process::Command::new(codex_cmd)
+        match crate::no_window_command(codex_cmd)
             .args([
                 "mcp",
                 "add",

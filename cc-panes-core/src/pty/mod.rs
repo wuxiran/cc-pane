@@ -186,13 +186,11 @@ fn kill_process_by_pid(pid: u32) -> Result<()> {
 
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        use crate::utils::no_window_command;
 
         // taskkill /T = 杀进程树, /F = 强制终止
-        let output = std::process::Command::new("taskkill")
+        let output = no_window_command("taskkill")
             .args(["/T", "/F", "/PID", &pid.to_string()])
-            .creation_flags(CREATE_NO_WINDOW)
             .output();
         match output {
             Ok(o) if o.status.success() => Ok(()),

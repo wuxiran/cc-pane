@@ -37,3 +37,17 @@ pub struct ProcessScanResult {
     pub total_memory_bytes: u64,
     pub scanned_at: String,
 }
+
+/// 轻量级资源统计（StatusBar 用）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceStats {
+    /// 所有被管理进程的 CPU% 总和
+    pub total_cpu_percent: f32,
+    /// 所有被管理进程的内存总和（字节）
+    pub total_memory_bytes: u64,
+    /// 进程数
+    pub process_count: u32,
+    /// 毫秒时间戳
+    pub timestamp: u64,
+}

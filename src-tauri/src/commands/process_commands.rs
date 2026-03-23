@@ -1,4 +1,4 @@
-use crate::models::process_info::ProcessScanResult;
+use crate::models::process_info::{ProcessScanResult, ResourceStats};
 use crate::services::ProcessMonitorService;
 use crate::utils::{error::AppError, AppResult};
 use std::sync::Arc;
@@ -37,6 +37,18 @@ pub async fn kill_claude_processes(
 ) -> AppResult<Vec<(u32, bool)>> {
     let svc = service.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || svc.kill_processes(pids))
+        .await
+        .map_err(|e| AppError::from(e.to_string()))?;
+    result
+}
+
+/// 获取资源统计（一次性查询，供初始化或手动刷新）
+#[tauri::command]
+pub async fn get_resource_stats(
+    service: State<'_, Arc<ProcessMonitorService>>,
+) -> AppResult<ResourceStats> {
+    let svc = service.inner().clone();
+    let result = tauri::async_runtime::spawn_blocking(move || svc.refresh_resource_stats())
         .await
         .map_err(|e| AppError::from(e.to_string()))?;
     result

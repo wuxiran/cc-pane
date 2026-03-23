@@ -98,6 +98,7 @@ use commands::{
     get_provider,
     get_recent_changes,
     get_recent_journal,
+    get_resource_stats,
     // Settings 命令
     get_settings,
     get_skill,
@@ -241,7 +242,7 @@ use tracing::{debug, error, info};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 
 /// 截图进行中标志（模块级），托盘/菜单 show 守卫会检查此标志
@@ -649,6 +650,13 @@ pub fn run() {
                 let paths = app.state::<Arc<AppPaths>>();
                 if let Ok(resource_dir) = app.path().resource_dir() {
                     paths.extract_bundled_claude_config(&resource_dir);
+
+                    // ---- 注入默认 Skill 到各 CLI 工具的全局命令目录 ----
+                    let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
+                    let svc = cc_panes_core::services::DefaultSkillService::new(
+                        resource_dir.join("bundled-claude-config").join("default-skills"),
+                    );
+                    svc.inject_all(registry.inner());
                 }
             }
 
@@ -743,6 +751,33 @@ pub fn run() {
                 if let Some(port) = orch_svc.port() {
                     term_svc.set_orchestrator_info(port, orch_svc.token().to_string());
                 }
+            }
+
+            // ---- 资源监控定时推送（3 秒间隔）----
+            {
+                let term_svc = app.state::<Arc<TerminalService>>().inner().clone();
+                let proc_svc = app.state::<Arc<ProcessMonitorService>>().inner().clone();
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use tokio::time::{interval, Duration};
+                    let mut ticker = interval(Duration::from_secs(3));
+                    loop {
+                        ticker.tick().await;
+                        let pids = term_svc.get_active_pids();
+                        if pids.is_empty() {
+                            continue;
+                        }
+                        proc_svc.update_tracked_pids(pids);
+                        let proc_svc_clone = proc_svc.clone();
+                        if let Ok(Ok(stats)) = tauri::async_runtime::spawn_blocking(move || {
+                            proc_svc_clone.refresh_resource_stats()
+                        })
+                        .await
+                        {
+                            let _ = app_handle.emit("resource-stats", &stats);
+                        }
+                    }
+                });
             }
 
             // ---- 系统托盘 ----
@@ -1034,7 +1069,8 @@ pub fn run() {
             // Process Monitor 命令
             scan_claude_processes,
             kill_claude_process,
-            kill_claude_processes
+            kill_claude_processes,
+            get_resource_stats
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -19,6 +19,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// 创建不弹窗的 Command（Windows 自动设置 CREATE_NO_WINDOW）
+///
+/// 独立于 cc-panes-core，避免循环依赖。
+pub fn no_window_command(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    cmd
+}
+
 /// 带超时执行子进程，返回 stdout（超时或失败返回 None）
 ///
 /// 使用轮询方案，能正确 kill 超时进程，避免僵尸进程。
@@ -28,18 +41,11 @@ pub fn run_with_timeout(
     args: &[String],
     timeout: Duration,
 ) -> Option<String> {
-    let mut cmd = std::process::Command::new(cmd);
+    let mut cmd = no_window_command(&cmd.to_string_lossy());
     cmd.args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .stdin(std::process::Stdio::null());
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
 
     let mut child = cmd.spawn().ok()?;
 
@@ -82,6 +88,11 @@ pub trait CliToolAdapter: Send + Sync {
 
     /// 构建启动命令（核心方法，含 MCP 注入逻辑）
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult>;
+
+    /// 用户全局命令目录。None = 不支持全局命令注入
+    fn global_commands_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
 
     /// 环境检测（默认实现: which + --version，带 5s 超时）
     fn detect(&self) -> CliToolInfo {
@@ -205,6 +216,18 @@ impl CliToolRegistry {
         self.order
             .iter()
             .filter_map(|id| self.adapters.get(id).map(|a| a.detect()))
+            .collect()
+    }
+
+    /// 收集所有工具的全局命令目录（保持注册顺序，过滤 None）
+    pub fn global_commands_dirs(&self) -> Vec<(String, PathBuf)> {
+        self.order
+            .iter()
+            .filter_map(|id| {
+                self.adapters.get(id).and_then(|a| {
+                    a.global_commands_dir().map(|dir| (id.clone(), dir))
+                })
+            })
             .collect()
     }
 
