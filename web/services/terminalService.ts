@@ -40,6 +40,7 @@ const MAX_PENDING_CHUNKS = 1000;
 let listenersInitialized = false;
 let unlistenOutput: UnlistenFn | null = null;
 let unlistenExit: UnlistenFn | null = null;
+let unlistenKilled: UnlistenFn | null = null;
 
 /**
  * 惰性初始化：首次调用时注册两个全局 listener，生命周期与应用一致。
@@ -82,6 +83,19 @@ export async function ensureListeners(): Promise<void> {
       cb?.(event.payload.exitCode);
     }
   );
+
+  // MCP kill_session 场景：后端主动通知前端关闭标签
+  unlistenKilled = await webviewWindow.listen<{ sessionId: string }>(
+    "session-killed",
+    async (event) => {
+      const { sessionId } = event.payload;
+      // 前端主动 kill 的已经自己关了标签，跳过
+      if (killedSessions.has(sessionId)) return;
+      // MCP kill：延迟 import 避免循环依赖
+      const { usePanesStore } = await import("@/stores/usePanesStore");
+      usePanesStore.getState().closeTabBySessionId(sessionId);
+    }
+  );
 }
 
 // ── HMR 清理（开发模式） ──────────────────────────────────
@@ -90,8 +104,10 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     unlistenOutput?.();
     unlistenExit?.();
+    unlistenKilled?.();
     unlistenOutput = null;
     unlistenExit = null;
+    unlistenKilled = null;
     listenersInitialized = false;
     outputCallbacks.clear();
     exitCallbacks.clear();

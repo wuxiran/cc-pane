@@ -155,6 +155,8 @@ pub struct CliAdapterContext {
     pub resume_id: Option<String>,
     pub skip_mcp: bool,
     pub append_system_prompt: Option<String>,
+    /// 初始用户 prompt（作为 CLI 位置参数传递，显示为首条用户消息）
+    pub initial_prompt: Option<String>,
     /// Orchestrator HTTP 端口
     pub orchestrator_port: Option<u16>,
     /// Orchestrator Bearer Token

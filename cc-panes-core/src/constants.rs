@@ -42,6 +42,7 @@ pub mod events {
     pub const TERMINAL_EXIT: &str = "terminal-exit";
     pub const TERMINAL_STATUS: &str = "terminal-status";
     pub const WORKSPACES_CHANGED: &str = "workspaces-changed";
+    pub const SESSION_KILLED: &str = "session-killed";
 }
 
 /// 终端默认值

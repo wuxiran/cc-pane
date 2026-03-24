@@ -40,6 +40,7 @@ pub fn create_terminal_session(
         request.resume_id.as_deref(),
         request.skip_mcp,
         request.append_system_prompt.as_deref(),
+        None, // initial_prompt: 前端 IPC 不使用 CLI 位置参数注入
         request.ssh.as_ref(),
     )?)
 }

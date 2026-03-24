@@ -740,6 +740,9 @@ impl McpToolHandler {
             _ => CliTool::Claude, // 默认 Claude
         };
 
+        // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
+        let initial_prompt = if !is_resume { params.prompt.as_deref() } else { None };
+
         // 创建 PTY 会话（resume 时传 resume_id）
         let session_id = match self.state.terminal_service.create_session(
             &params.project_path,
@@ -752,6 +755,7 @@ impl McpToolHandler {
             params.resume_id.as_deref(),
             false,
             None,
+            initial_prompt,
             None,
         ) {
             Ok(sid) => sid,
@@ -795,21 +799,6 @@ impl McpToolHandler {
             .state
             .app_handle
             .emit("orchestrator-launch-task", &event);
-
-        // resume 时不注入 prompt（Claude --resume 自动恢复上下文）
-        // 新任务时后台注入 prompt
-        if !is_resume {
-            if let Some(prompt) = params.prompt {
-                spawn_prompt_injector(
-                    self.state.terminal_service.clone(),
-                    self.state.tasks.clone(),
-                    self.state.app_handle.clone(),
-                    session_id.clone(),
-                    task_id.clone(),
-                    prompt,
-                );
-            }
-        }
 
         serde_json::json!({
             "taskId": task_id,
@@ -1667,6 +1656,9 @@ async fn handle_launch_task(
         _ => CliTool::Claude,
     };
 
+    // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
+    let initial_prompt = if !is_resume { req.prompt.as_deref() } else { None };
+
     let session_id = match state.terminal_service.create_session(
         &req.project_path,
         120,
@@ -1678,6 +1670,7 @@ async fn handle_launch_task(
         req.resume_id.as_deref(),
         false,
         None,
+        initial_prompt,
         None,
     ) {
         Ok(sid) => {
@@ -1724,20 +1717,6 @@ async fn handle_launch_task(
         cli_tool: req.cli_tool.clone(),
     };
     let _ = state.app_handle.emit("orchestrator-launch-task", &event);
-
-    // resume 时不注入 prompt
-    if !is_resume {
-        if let Some(ref prompt) = req.prompt {
-            spawn_prompt_injector(
-                state.terminal_service.clone(),
-                state.tasks.clone(),
-                state.app_handle.clone(),
-                session_id.clone(),
-                task_id.clone(),
-                prompt.clone(),
-            );
-        }
-    }
 
     let response = LaunchTaskResponse {
         task_id,
@@ -2100,21 +2079,6 @@ fn generate_token() -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// 更新任务状态
-fn update_task_status(
-    tasks: &Arc<Mutex<HashMap<String, TaskStatus>>>,
-    task_id: &str,
-    status: &str,
-    error: Option<&str>,
-) {
-    if let Ok(mut tasks) = tasks.lock() {
-        if let Some(task) = tasks.get_mut(task_id) {
-            task.status = status.to_string();
-            task.error = error.map(|e| e.to_string());
-        }
-    }
-}
-
 /// L2: 清理已完成/超时/错误的旧任务（30 分钟淘汰）
 fn cleanup_stale_tasks(tasks: &mut HashMap<String, TaskStatus>) {
     let ttl = std::time::Duration::from_secs(30 * 60);
@@ -2127,11 +2091,11 @@ fn cleanup_stale_tasks(tasks: &mut HashMap<String, TaskStatus>) {
 /// 根据文本长度动态计算 Enter 前的等待延迟（ms）
 ///
 /// write() 同步阻塞完成后调用，只需覆盖 ink 渲染处理时间。
-/// 基础 150ms + 每 1KB 额外 20ms（ink 渲染时间）。
-/// 范围: [150, 5000] ms
+/// 基础 200ms + 每 512B 额外 30ms（匹配 write() 的 512B/30ms 分块速率）。
+/// 范围: [200, 5000] ms
 fn compute_enter_delay_ms(text_len: usize) -> u64 {
-    let extra_ms = (text_len as u64 / 1024) * 20;
-    std::cmp::min(150 + extra_ms, 5000)
+    let extra_ms = (text_len as u64 / 512) * 30;
+    std::cmp::min(200 + extra_ms, 5000)
 }
 
 /// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交
@@ -2155,185 +2119,6 @@ async fn submit_text_to_session(
     // Step 3: 发送 Enter（短写入不需要 spawn_blocking）
     terminal_svc.write(session_id, "\r")?;
     Ok(())
-}
-
-/// 后台线程：等待 Claude 就绪后注入 prompt
-fn spawn_prompt_injector(
-    terminal_svc: Arc<TerminalService>,
-    tasks: Arc<Mutex<HashMap<String, TaskStatus>>>,
-    app_handle: AppHandle,
-    session_id: String,
-    task_id: String,
-    prompt: String,
-) {
-    info!(
-        task_id = %task_id,
-        session_id = %session_id,
-        prompt_len = prompt.len(),
-        "prompt_injector: spawned, waiting for Claude WaitingInput"
-    );
-    std::thread::spawn(move || {
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(60);
-        let poll_interval = std::time::Duration::from_millis(500);
-        let mut poll_count: u32 = 0;
-
-        loop {
-            if start.elapsed() > timeout {
-                error!(
-                    task_id = %task_id,
-                    session_id = %session_id,
-                    elapsed_secs = start.elapsed().as_secs(),
-                    polls = poll_count,
-                    "prompt_injector: TIMEOUT — Claude did not become ready within 60s"
-                );
-                update_task_status(
-                    &tasks,
-                    &task_id,
-                    "timeout",
-                    Some("Claude did not become ready within 60s"),
-                );
-                return;
-            }
-
-            poll_count += 1;
-
-            match terminal_svc.get_all_status() {
-                Ok(statuses) => {
-                    if let Some(status) = statuses.iter().find(|s| s.session_id == session_id) {
-                        match status.status {
-                            // WaitingInput: infer_status 明确检测到提示符
-                            // Idle: 兜底 — 8 秒无输出，Claude 可能已就绪但 infer_status 未匹配
-                            crate::services::terminal_service::SessionStatus::WaitingInput
-                            | crate::services::terminal_service::SessionStatus::Idle => {
-                                info!(
-                                    task_id = %task_id,
-                                    session_id = %session_id,
-                                    elapsed_ms = start.elapsed().as_millis() as u64,
-                                    polls = poll_count,
-                                    detected_status = ?status.status,
-                                    "prompt_injector: ready detected, injecting prompt"
-                                );
-                                std::thread::sleep(std::time::Duration::from_millis(300));
-
-                                // 净化 prompt：将换行替换为空格，防止多行 prompt 被 ink 误识为多次提交
-                                let sanitized_prompt = prompt.replace(['\r', '\n'], " ");
-
-                                // 分两步写入：先文本，再单独发 Enter
-                                // ink-text-input 仅在 \r 作为独立 stdin read 时识别为提交
-                                // 参考: https://github.com/anthropics/claude-code/issues/15553
-                                match terminal_svc.write(&session_id, &sanitized_prompt) {
-                                    Ok(_) => {
-                                        // 等待 ink 处理完文本后再发 Enter（根据长度动态延迟）
-                                        let delay_ms =
-                                            compute_enter_delay_ms(sanitized_prompt.len());
-                                        std::thread::sleep(std::time::Duration::from_millis(
-                                            delay_ms,
-                                        ));
-                                        match terminal_svc.write(&session_id, "\r") {
-                                            Ok(_) => {
-                                                info!(
-                                                    task_id = %task_id,
-                                                    session_id = %session_id,
-                                                    prompt_len = sanitized_prompt.len(),
-                                                    enter_delay_ms = delay_ms,
-                                                    "prompt_injector: prompt written successfully (split text+enter)"
-                                                );
-                                                update_task_status(
-                                                    &tasks, &task_id, "running", None,
-                                                );
-                                                let _ = app_handle.emit(
-                                                    "orchestrator-task-update",
-                                                    serde_json::json!({
-                                                        "taskId": task_id,
-                                                        "status": "running",
-                                                    }),
-                                                );
-                                            }
-                                            Err(e) => {
-                                                error!(
-                                                    task_id = %task_id,
-                                                    session_id = %session_id,
-                                                    err = %e,
-                                                    "prompt_injector: FAILED to send Enter"
-                                                );
-                                                update_task_status(
-                                                    &tasks,
-                                                    &task_id,
-                                                    "error",
-                                                    Some(&format!("Failed to send Enter: {}", e)),
-                                                );
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            task_id = %task_id,
-                                            session_id = %session_id,
-                                            err = %e,
-                                            "prompt_injector: FAILED to write prompt text"
-                                        );
-                                        update_task_status(
-                                            &tasks,
-                                            &task_id,
-                                            "error",
-                                            Some(&format!("Failed to write prompt: {}", e)),
-                                        );
-                                    }
-                                }
-                                return;
-                            }
-                            crate::services::terminal_service::SessionStatus::Exited => {
-                                error!(
-                                    task_id = %task_id,
-                                    session_id = %session_id,
-                                    elapsed_ms = start.elapsed().as_millis() as u64,
-                                    "prompt_injector: session EXITED before prompt injection"
-                                );
-                                update_task_status(
-                                    &tasks,
-                                    &task_id,
-                                    "error",
-                                    Some("Session exited before prompt injection"),
-                                );
-                                return;
-                            }
-                            _ => {
-                                // 每 10 次轮询输出一次 debug，避免刷屏
-                                if poll_count.is_multiple_of(10) {
-                                    debug!(
-                                        task_id = %task_id,
-                                        session_id = %session_id,
-                                        elapsed_secs = start.elapsed().as_secs(),
-                                        polls = poll_count,
-                                        current_status = ?status.status,
-                                        "prompt_injector: still waiting..."
-                                    );
-                                }
-                            }
-                        }
-                    } else if poll_count.is_multiple_of(10) {
-                        warn!(
-                            task_id = %task_id,
-                            session_id = %session_id,
-                            polls = poll_count,
-                            "prompt_injector: session not found in status list"
-                        );
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        task_id = %task_id,
-                        session_id = %session_id,
-                        err = %e,
-                        "prompt_injector: failed to get terminal statuses"
-                    );
-                }
-            }
-
-            std::thread::sleep(poll_interval);
-        }
-    });
 }
 
 #[cfg(test)]

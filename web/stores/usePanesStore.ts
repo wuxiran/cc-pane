@@ -194,6 +194,7 @@ interface PanesState {
   isTabPoppedOut: (tabId: string) => boolean;
   setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean) => void;
   reconnectTab: (paneId: string, tabId: string) => Promise<string | null>;
+  closeTabBySessionId: (sessionId: string) => void;
 }
 
 const initialPanel = createPanel();
@@ -1013,6 +1014,17 @@ export const usePanesStore = create<PanesState>()(
       } catch (error) {
         console.error("[reconnectTab] Failed to reconnect:", error);
         return null;
+      }
+    },
+
+    closeTabBySessionId: (sessionId) => {
+      const panels = collectPanels(get().rootPane);
+      for (const panel of panels) {
+        const tab = panel.tabs.find((t) => t.sessionId === sessionId);
+        if (tab) {
+          get().closeTab(panel.id, tab.id);
+          return;
+        }
       }
     },
   })),

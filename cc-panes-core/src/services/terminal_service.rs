@@ -536,6 +536,7 @@ impl TerminalService {
         resume_id: Option<&str>,
         skip_mcp: bool,
         append_system_prompt: Option<&str>,
+        initial_prompt: Option<&str>,
         ssh: Option<&SshConnectionInfo>,
     ) -> Result<String> {
         let is_ssh = ssh.is_some();
@@ -621,6 +622,7 @@ impl TerminalService {
                     resume_id: resume_id.map(|s| s.to_string()),
                     skip_mcp,
                     append_system_prompt: effective_prompt,
+                    initial_prompt: initial_prompt.map(|s| s.to_string()),
                     orchestrator_port: orch_info.as_ref().map(|i| i.port),
                     orchestrator_token: orch_info.as_ref().map(|i| i.token.clone()),
                     data_dir: self.app_paths.data_dir().to_path_buf(),
@@ -1002,14 +1004,14 @@ impl TerminalService {
             .collect()
     }
 
-    /// 向终端写入数据（分块写入防止 ConPTY 大缓冲丢字符）
+    /// 向终端写入数据（分块写入防止 ConPTY/ink 丢字符）
     ///
     /// 多 chunk 写入时，每个 chunk 单独获取/释放锁，并在 chunk 间添加延迟，
-    /// 避免 Windows ConPTY 输入缓冲溢出导致丢字符。
+    /// 避免 Windows ConPTY 输入缓冲溢出或 ink-text-input 处理不及导致丢字符。
     pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
         let bytes = data.as_bytes();
-        const CHUNK_SIZE: usize = 2048;
-        const INTER_CHUNK_DELAY_MS: u64 = 10;
+        const CHUNK_SIZE: usize = 512;
+        const INTER_CHUNK_DELAY_MS: u64 = 30;
 
         let chunks: Vec<&[u8]> = bytes.chunks(CHUNK_SIZE).collect();
 
@@ -1076,6 +1078,13 @@ impl TerminalService {
                 *s = SessionStatus::Exited;
             }
             let _ = session.process.kill();
+            // 通知前端关闭标签（MCP kill 场景）
+            if let Some(emitter) = self.emitter.read().as_ref() {
+                let _ = emitter.emit(
+                    EV::SESSION_KILLED,
+                    serde_json::json!({ "sessionId": session_id }),
+                );
+            }
             // session 在此 drop，writer handle 关闭 — 不再持有 sessions lock
             Ok(())
         } else {

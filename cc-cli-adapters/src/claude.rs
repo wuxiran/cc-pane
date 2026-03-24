@@ -179,6 +179,11 @@ impl CliToolAdapter for ClaudeAdapter {
             args.push(prompt.clone());
         }
 
+        // 位置参数：初始用户 prompt（必须在所有 --option 之后）
+        if let Some(ref prompt) = ctx.initial_prompt {
+            args.push(prompt.clone());
+        }
+
         Ok(CliCommandResult {
             command: path.to_string_lossy().into_owned(),
             args,

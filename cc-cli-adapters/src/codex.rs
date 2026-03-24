@@ -167,7 +167,7 @@ impl CliToolAdapter for CodexAdapter {
         }
 
         // [PROMPT] 位置参数（必须在所有 --option 之后）
-        if let Some(ref prompt) = ctx.append_system_prompt {
+        if let Some(ref prompt) = ctx.initial_prompt {
             args.push(prompt.clone());
         }
 
