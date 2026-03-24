@@ -160,12 +160,6 @@ impl CliToolAdapter for CodexAdapter {
             args.push(rid.clone());
         }
 
-        // 多目录
-        if let Some(ref ws_path) = ctx.workspace_path {
-            args.push("--add-dir".to_string());
-            args.push(ws_path.clone());
-        }
-
         // [PROMPT] 位置参数（必须在所有 --option 之后）
         if let Some(ref prompt) = ctx.initial_prompt {
             args.push(prompt.clone());
