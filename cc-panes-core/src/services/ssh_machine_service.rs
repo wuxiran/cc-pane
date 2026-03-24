@@ -154,9 +154,9 @@ impl SshMachineService {
     /// BatchMode=yes 禁止交互式密码提示，仅测试非交互 reachability。
     /// 使用临时 UserKnownHostsFile 避免修改用户的 known_hosts。
     pub async fn check_connectivity(&self, id: &str) -> Result<SshConnectivityResult> {
-        let machine = self.get(id).with_context(|| {
-            format!("SSH machine '{}' not found", id)
-        })?;
+        let machine = self
+            .get(id)
+            .with_context(|| format!("SSH machine '{}' not found", id))?;
 
         // 输入校验：防止 host/user/identityFile 被 SSH 解析为选项
         Self::validate_ssh_field(&machine.host, "host")?;
@@ -169,8 +169,7 @@ impl SshMachineService {
             }
         }
 
-        let ssh_path = which::which("ssh")
-            .map_err(|_| anyhow::anyhow!("ssh not found in PATH"))?;
+        let ssh_path = which::which("ssh").map_err(|_| anyhow::anyhow!("ssh not found in PATH"))?;
 
         // 临时 known_hosts 文件（NUL on Windows, /dev/null on Unix）
         let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
@@ -231,7 +230,11 @@ impl SshMachineService {
             })
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let msg = stderr.lines().next().unwrap_or("Connection failed").to_string();
+            let msg = stderr
+                .lines()
+                .next()
+                .unwrap_or("Connection failed")
+                .to_string();
             Ok(SshConnectivityResult {
                 reachable: false,
                 message: msg,

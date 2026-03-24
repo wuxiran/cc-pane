@@ -741,7 +741,11 @@ impl McpToolHandler {
         };
 
         // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
-        let initial_prompt = if !is_resume { params.prompt.as_deref() } else { None };
+        let initial_prompt = if !is_resume {
+            params.prompt.as_deref()
+        } else {
+            None
+        };
 
         // 创建 PTY 会话（resume 时传 resume_id）
         let session_id = match self.state.terminal_service.create_session(
@@ -1657,7 +1661,11 @@ async fn handle_launch_task(
     };
 
     // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
-    let initial_prompt = if !is_resume { req.prompt.as_deref() } else { None };
+    let initial_prompt = if !is_resume {
+        req.prompt.as_deref()
+    } else {
+        None
+    };
 
     let session_id = match state.terminal_service.create_session(
         &req.project_path,

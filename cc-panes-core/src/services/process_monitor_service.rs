@@ -1,4 +1,6 @@
-use crate::models::process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
+use crate::models::process_info::{
+    ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats,
+};
 use crate::utils::error::AppResult;
 use parking_lot::Mutex;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};

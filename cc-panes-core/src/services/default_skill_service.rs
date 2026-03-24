@@ -117,11 +117,7 @@ impl DefaultSkillService {
                 Ok(template) => {
                     let content = Self::replace_variables(&template, &manifest.variables);
                     if let Err(e) = std::fs::write(&dest, content) {
-                        warn!(
-                            "[default_skill] Failed to write {}: {}",
-                            dest.display(),
-                            e
-                        );
+                        warn!("[default_skill] Failed to write {}: {}", dest.display(), e);
                     } else {
                         success_count += 1;
                     }

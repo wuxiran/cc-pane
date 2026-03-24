@@ -497,7 +497,9 @@ pub fn run() {
                 let shell_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !shell_path.is_empty() {
                     // SAFETY: 在 main 线程启动阶段调用，此时无其他线程读取 PATH
-                    unsafe { std::env::set_var("PATH", &shell_path); }
+                    unsafe {
+                        std::env::set_var("PATH", &shell_path);
+                    }
                 }
             }
         }
@@ -654,7 +656,9 @@ pub fn run() {
                     // ---- 注入默认 Skill 到各 CLI 工具的全局命令目录 ----
                     let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
                     let svc = cc_panes_core::services::DefaultSkillService::new(
-                        resource_dir.join("bundled-claude-config").join("default-skills"),
+                        resource_dir
+                            .join("bundled-claude-config")
+                            .join("default-skills"),
                     );
                     svc.inject_all(registry.inner());
                 }

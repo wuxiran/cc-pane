@@ -226,9 +226,9 @@ impl CliToolRegistry {
         self.order
             .iter()
             .filter_map(|id| {
-                self.adapters.get(id).and_then(|a| {
-                    a.global_commands_dir().map(|dir| (id.clone(), dir))
-                })
+                self.adapters
+                    .get(id)
+                    .and_then(|a| a.global_commands_dir().map(|dir| (id.clone(), dir)))
             })
             .collect()
     }
