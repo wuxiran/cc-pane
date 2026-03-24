@@ -11,7 +11,6 @@ use tracing::{info, warn};
 /// Skill 清单文件
 #[derive(Debug, Deserialize)]
 struct SkillManifest {
-    version: String,
     namespace: String,
     #[serde(default)]
     variables: std::collections::HashMap<String, String>,
@@ -41,7 +40,10 @@ impl DefaultSkillService {
     }
 
     /// 将所有默认 Skill 注入到各 CLI 工具的全局命令目录
-    pub fn inject_all(&self, registry: &CliToolRegistry) {
+    ///
+    /// `app_version` 应为应用主版本（如 `env!("CARGO_PKG_VERSION")`），
+    /// 用作版本戳判断是否需要 re-inject。
+    pub fn inject_all(&self, registry: &CliToolRegistry, app_version: &str) {
         let manifest_path = self.templates_dir.join("manifest.json");
         let manifest = match Self::load_manifest(&manifest_path) {
             Some(m) => m,
@@ -56,7 +58,7 @@ impl DefaultSkillService {
 
         for (tool_id, commands_dir) in &dirs {
             let target_dir = commands_dir.join(&manifest.namespace);
-            self.inject_for_tool(tool_id, &target_dir, &manifest);
+            self.inject_for_tool(tool_id, &target_dir, &manifest, app_version);
         }
     }
 
@@ -83,15 +85,21 @@ impl DefaultSkillService {
     }
 
     /// 为单个 CLI 工具注入 Skill
-    fn inject_for_tool(&self, tool_id: &str, target_dir: &Path, manifest: &SkillManifest) {
+    fn inject_for_tool(
+        &self,
+        tool_id: &str,
+        target_dir: &Path,
+        manifest: &SkillManifest,
+        app_version: &str,
+    ) {
         // 检查版本戳
         let version_file = target_dir.join(".ccpanes-version");
         if version_file.exists() {
             if let Ok(existing) = std::fs::read_to_string(&version_file) {
-                if existing.trim() == manifest.version {
+                if existing.trim() == app_version {
                     info!(
                         "[default_skill] {} already up to date (v{}), skipping",
-                        tool_id, manifest.version
+                        tool_id, app_version
                     );
                     return;
                 }
@@ -108,7 +116,11 @@ impl DefaultSkillService {
             return;
         }
 
+        // 清理不在 manifest 中的旧 .md 文件
+        Self::cleanup_stale_files(target_dir, manifest);
+
         // 写入每个 Skill
+        let total = manifest.skills.len();
         let mut success_count = 0;
         for skill in &manifest.skills {
             let src = self.templates_dir.join(&skill.file);
@@ -132,18 +144,52 @@ impl DefaultSkillService {
             }
         }
 
-        // 写入版本戳
-        if let Err(e) = std::fs::write(&version_file, &manifest.version) {
-            warn!("[default_skill] Failed to write version stamp: {}", e);
+        // 仅当全部 skill 写入成功时才写入版本戳
+        if success_count == total {
+            if let Err(e) = std::fs::write(&version_file, app_version) {
+                warn!("[default_skill] Failed to write version stamp: {}", e);
+            }
+        } else {
+            warn!(
+                "[default_skill] Only {}/{} skills succeeded for {}, version stamp NOT written",
+                success_count, total, tool_id
+            );
         }
 
         info!(
             "[default_skill] Injected {}/{} skills for {} (v{})",
-            success_count,
-            manifest.skills.len(),
-            tool_id,
-            manifest.version
+            success_count, total, tool_id, app_version
         );
+    }
+
+    /// 删除 target_dir 中不在 manifest.skills 列表中的 .md 文件
+    fn cleanup_stale_files(target_dir: &Path, manifest: &SkillManifest) {
+        let expected: std::collections::HashSet<&str> =
+            manifest.skills.iter().map(|s| s.file.as_str()).collect();
+
+        let entries = match std::fs::read_dir(target_dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if !expected.contains(name) {
+                        if let Err(e) = std::fs::remove_file(&path) {
+                            warn!(
+                                "[default_skill] Failed to remove stale file {}: {}",
+                                path.display(),
+                                e
+                            );
+                        } else {
+                            info!("[default_skill] Removed stale skill file: {}", name);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// 替换模板中的 {{key}} 变量
@@ -187,6 +233,6 @@ mod tests {
         let svc = DefaultSkillService::new(PathBuf::from("/nonexistent/path"));
         let registry = CliToolRegistry::new();
         // Should not panic
-        svc.inject_all(&registry);
+        svc.inject_all(&registry, "0.0.0");
     }
 }

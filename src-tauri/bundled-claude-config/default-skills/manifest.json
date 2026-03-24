@@ -1,5 +1,4 @@
 {
-  "version": "0.9.22",
   "namespace": "ccpanes",
   "variables": {
     "app_name": "CC-Panes",

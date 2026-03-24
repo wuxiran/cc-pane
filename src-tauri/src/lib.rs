@@ -650,17 +650,29 @@ pub fn run() {
             // ---- 提取打包的 .claude/ 配置到数据目录（Release 模式）----
             {
                 let paths = app.state::<Arc<AppPaths>>();
-                if let Ok(resource_dir) = app.path().resource_dir() {
-                    paths.extract_bundled_claude_config(&resource_dir);
+                match app.path().resource_dir() {
+                    Ok(resource_dir) => {
+                        paths.extract_bundled_claude_config(&resource_dir);
 
-                    // ---- 注入默认 Skill 到各 CLI 工具的全局命令目录 ----
-                    let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
-                    let svc = cc_panes_core::services::DefaultSkillService::new(
-                        resource_dir
-                            .join("bundled-claude-config")
-                            .join("default-skills"),
-                    );
-                    svc.inject_all(registry.inner());
+                        // ---- 注入默认 Skill 到各 CLI 工具的全局命令目录 ----
+                        let registry =
+                            app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
+                        let svc = cc_panes_core::services::DefaultSkillService::new(
+                            resource_dir
+                                .join("bundled-claude-config")
+                                .join("default-skills"),
+                        );
+                        svc.inject_all(
+                            registry.inner(),
+                            env!("CARGO_PKG_VERSION"),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "[setup] Failed to resolve resource_dir, skill injection skipped: {}",
+                            e
+                        );
+                    }
                 }
             }
 
