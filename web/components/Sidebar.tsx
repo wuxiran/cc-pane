@@ -110,7 +110,8 @@ export default function Sidebar({
         borderRight: "1px solid var(--app-border)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
-      }}
+        WebkitAppRegion: "no-drag",
+      } as React.CSSProperties}
     >
       {/* 侧边栏主体内容 */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">

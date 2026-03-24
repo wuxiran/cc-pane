@@ -98,7 +98,8 @@ export default function ActivityBar() {
         background: "var(--app-activity-bar-bg)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
-      }}
+        WebkitAppRegion: "no-drag",
+      } as React.CSSProperties}
     >
       {/* Logo — 点击切换首页 */}
       <Tooltip>
