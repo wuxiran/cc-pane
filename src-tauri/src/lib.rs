@@ -239,7 +239,7 @@ use std::sync::Arc;
 use utils::AppPaths;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -511,13 +511,14 @@ pub fn run() {
     #[cfg(not(target_os = "windows"))]
     {
         let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        if let Ok(child) = std::process::Command::new(&user_shell)
+        if let Ok(mut child) = std::process::Command::new(&user_shell)
             .args(["-l", "-c", "echo $PATH"])
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .spawn()
         {
+            let child_pid = child.id();
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
                 let _ = tx.send(child.wait_with_output());
@@ -533,7 +534,17 @@ pub fn run() {
                     }
                 }
                 _ => {
-                    // 超时或失败，保持当前 PATH 不变
+                    // 超时或失败：kill 泄漏的 shell 子进程，防止 CPU 占用
+                    eprintln!(
+                        "[boot] PATH loading timed out, killing shell child process (pid={})",
+                        child_pid
+                    );
+                    #[cfg(unix)]
+                    {
+                        unsafe {
+                            libc::kill(child_pid as i32, libc::SIGKILL);
+                        }
+                    }
                 }
             }
         }
@@ -703,9 +714,15 @@ pub fn run() {
                 let paths = app.state::<Arc<AppPaths>>();
                 match app.path().resource_dir() {
                     Ok(resource_dir) => {
+                        let t_extract = std::time::Instant::now();
                         paths.extract_bundled_claude_config(&resource_dir);
+                        info!(
+                            "[boot] bundled config extraction took {}ms",
+                            t_extract.elapsed().as_millis()
+                        );
 
                         // ---- 注入默认 Skill 到各 CLI 工具的全局命令目录 ----
+                        let t_skill = std::time::Instant::now();
                         let registry =
                             app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
                         let svc = cc_panes_core::services::DefaultSkillService::new(
@@ -716,6 +733,10 @@ pub fn run() {
                         svc.inject_all(
                             registry.inner(),
                             env!("CARGO_PKG_VERSION"),
+                        );
+                        info!(
+                            "[boot] skill injection took {}ms",
+                            t_skill.elapsed().as_millis()
                         );
                     }
                     Err(e) => {
@@ -832,28 +853,49 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     use tokio::time::{interval, Duration};
                     let mut ticker = interval(Duration::from_secs(3));
+                    // 防堆积：上一次 refresh 未完成则跳过本轮
+                    let refreshing = Arc::new(std::sync::atomic::AtomicBool::new(false));
                     loop {
                         ticker.tick().await;
                         let pids = term_svc.get_active_pids();
                         if pids.is_empty() {
                             continue;
                         }
+                        // 防堆积检查
+                        if refreshing.load(std::sync::atomic::Ordering::Relaxed) {
+                            warn!("[resource-monitor] previous refresh still running, skipping");
+                            continue;
+                        }
                         let pid_count = pids.len();
                         let t0 = std::time::Instant::now();
                         proc_svc.update_tracked_pids(pids);
                         let proc_svc_clone = proc_svc.clone();
-                        if let Ok(Ok(stats)) = tauri::async_runtime::spawn_blocking(move || {
-                            proc_svc_clone.refresh_resource_stats()
-                        })
-                        .await
-                        {
-                            debug!(
-                                "[resource-monitor] refreshed {} pids in {}ms",
-                                pid_count,
-                                t0.elapsed().as_millis()
-                            );
-                            let _ = app_handle.emit("resource-stats", &stats);
-                        }
+                        let refreshing_clone = refreshing.clone();
+                        let app_handle_clone = app_handle.clone();
+                        refreshing.store(true, std::sync::atomic::Ordering::Relaxed);
+                        tauri::async_runtime::spawn(async move {
+                            let result = tauri::async_runtime::spawn_blocking(move || {
+                                proc_svc_clone.refresh_resource_stats()
+                            })
+                            .await;
+                            refreshing_clone
+                                .store(false, std::sync::atomic::Ordering::Relaxed);
+                            if let Ok(Ok(stats)) = result {
+                                let elapsed = t0.elapsed().as_millis();
+                                if elapsed > 2000 {
+                                    warn!(
+                                        "[resource-monitor] slow refresh: {} pids in {}ms",
+                                        pid_count, elapsed
+                                    );
+                                } else {
+                                    debug!(
+                                        "[resource-monitor] refreshed {} pids in {}ms",
+                                        pid_count, elapsed
+                                    );
+                                }
+                                let _ = app_handle_clone.emit("resource-stats", &stats);
+                            }
+                        });
                     }
                 });
             }

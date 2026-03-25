@@ -256,12 +256,16 @@ impl OrchestratorService {
 
         // 在独立线程中启动 tokio runtime + axum 服务器
         std::thread::spawn(move || {
+            info!("[orchestrator] Creating dedicated tokio runtime (2 worker threads)...");
             let rt = match tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
                 .build()
             {
-                Ok(rt) => rt,
+                Ok(rt) => {
+                    info!("[orchestrator] Tokio runtime created successfully");
+                    rt
+                }
                 Err(e) => {
                     error!("[orchestrator] Failed to create tokio runtime: {}", e);
                     return;
@@ -299,10 +303,13 @@ impl OrchestratorService {
                 }
 
                 // 启动服务器
+                info!("[orchestrator] axum::serve starting...");
                 if let Err(e) = axum::serve(listener, app).await {
                     error!("[orchestrator] Server error: {}", e);
                 }
+                warn!("[orchestrator] axum::serve returned — server stopped");
             });
+            warn!("[orchestrator] rt.block_on returned — runtime thread exiting");
         });
 
         // 等待端口分配完成（最多 5 秒）

@@ -797,6 +797,9 @@ impl TerminalService {
             let mut first_output = true;
             let mut last_emitted_status = SessionStatus::Active;
             let mut last_status_emit_time = Instant::now();
+            // busy-loop 检测：每秒 read 次数超过阈值则警告
+            let mut read_count: u64 = 0;
+            let mut read_window_start = Instant::now();
             #[cfg(windows)]
             let mut sanitize_state = WindowsOutputSanitizeState::default();
             loop {
@@ -804,8 +807,33 @@ impl TerminalService {
                     break;
                 }
                 match reader.read(&mut buf) {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        warn!(
+                            "[pty-read] session={} read returned Ok(0), breaking loop \
+                             (read_count={} in {}ms)",
+                            sid,
+                            read_count,
+                            read_window_start.elapsed().as_millis()
+                        );
+                        break;
+                    }
                     Ok(n) => {
+                        // busy-loop 检测
+                        read_count += 1;
+                        if read_count % 500 == 0 {
+                            let elapsed = read_window_start.elapsed();
+                            if elapsed.as_secs() < 2 {
+                                warn!(
+                                    "[pty-read] session={} potential busy-loop: {} reads in {}ms \
+                                     (last chunk={} bytes)",
+                                    sid, read_count, elapsed.as_millis(), n
+                                );
+                            }
+                            // 重置窗口
+                            read_count = 0;
+                            read_window_start = Instant::now();
+                        }
+
                         // 首次输出诊断日志（含 hex），用于排查前端事件注册竞态
                         if first_output {
                             let hex: String = buf[..n]
@@ -921,7 +949,10 @@ impl TerminalService {
                         }
                     }
                     Err(e) => {
-                        warn!("Terminal read error: {}", e);
+                        warn!(
+                            "[pty-read] session={} read error: {} (read_count={} in {}ms)",
+                            sid, e, read_count, read_window_start.elapsed().as_millis()
+                        );
                         break;
                     }
                 }
