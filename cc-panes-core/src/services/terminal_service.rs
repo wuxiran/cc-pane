@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -610,11 +610,13 @@ impl TerminalService {
         let settings_service = self.settings_service.clone();
         let session_id = Uuid::new_v4().to_string();
 
-        // 注入 TERM 环境变量（Windows 上需要）
-        #[cfg(windows)]
-        {
-            env_vars.insert("TERM".to_string(), "xterm-256color".to_string());
-        }
+        // 注入终端环境变量（macOS Release .app 从 Finder 启动时不继承终端环境）
+        env_vars
+            .entry("TERM".to_string())
+            .or_insert_with(|| "xterm-256color".to_string());
+        env_vars
+            .entry("COLORTERM".to_string())
+            .or_insert_with(|| "truecolor".to_string());
 
         // 解析 Shell 配置
         let shell_id = self.settings_service.get_settings().terminal.shell.clone();
@@ -780,6 +782,81 @@ impl TerminalService {
             );
         }
 
+        // 启动输出批量合并线程（减少 IPC 事件频率，防止 WKWebView 主线程死锁）
+        // 策略：累积数据，满足任一条件时刷出：≥16KB 或 ≥16ms 超时
+        let (batch_tx, batch_rx) = std::sync::mpsc::channel::<String>();
+        let batch_emitter = emitter.clone();
+        let batch_sid = session_id.clone();
+        thread::spawn(move || {
+            const BATCH_SIZE_THRESHOLD: usize = 16384; // 16KB
+            const BATCH_TIMEOUT: Duration = Duration::from_millis(16); // ~60fps
+
+            let mut batch = String::with_capacity(BATCH_SIZE_THRESHOLD);
+            loop {
+                match batch_rx.recv_timeout(BATCH_TIMEOUT) {
+                    Ok(data) => {
+                        batch.push_str(&data);
+                        // 排空通道中已有的数据
+                        while let Ok(more) = batch_rx.try_recv() {
+                            batch.push_str(&more);
+                            if batch.len() >= BATCH_SIZE_THRESHOLD {
+                                break;
+                            }
+                        }
+                        // 达到大小阈值则立即刷出
+                        if batch.len() >= BATCH_SIZE_THRESHOLD {
+                            let _ =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    let _ = batch_emitter.emit(
+                                        EV::TERMINAL_OUTPUT,
+                                        serde_json::to_value(&TerminalOutput {
+                                            session_id: batch_sid.clone(),
+                                            data: std::mem::take(&mut batch),
+                                        })
+                                        .unwrap_or_default(),
+                                    );
+                                }));
+                            batch = String::with_capacity(BATCH_SIZE_THRESHOLD);
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        // 超时：刷出累积的数据（保证低吞吐场景下数据不滞留）
+                        if !batch.is_empty() {
+                            let _ =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    let _ = batch_emitter.emit(
+                                        EV::TERMINAL_OUTPUT,
+                                        serde_json::to_value(&TerminalOutput {
+                                            session_id: batch_sid.clone(),
+                                            data: std::mem::take(&mut batch),
+                                        })
+                                        .unwrap_or_default(),
+                                    );
+                                }));
+                            batch = String::with_capacity(BATCH_SIZE_THRESHOLD);
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        // 读取线程退出，刷出残留数据
+                        if !batch.is_empty() {
+                            let _ =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    let _ = batch_emitter.emit(
+                                        EV::TERMINAL_OUTPUT,
+                                        serde_json::to_value(&TerminalOutput {
+                                            session_id: batch_sid.clone(),
+                                            data: batch,
+                                        })
+                                        .unwrap_or_default(),
+                                    );
+                                }));
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+
         // 启动读取线程（含状态检测 + UTF-8 安全）
         let sid = session_id.clone();
         let read_emitter = emitter.clone();
@@ -904,22 +981,13 @@ impl TerminalService {
                             *prev = new_status;
                         }
 
-                        // 追加到输出缓冲区（在 emit 之前，避免 data 被 move）
+                        // 追加到输出缓冲区
                         if let Ok(mut buf) = read_output_buffer.lock() {
                             buf.push(&data);
                         }
 
-                        // 直接 emit，用 catch_unwind 保护
-                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let _ = read_emitter.emit(
-                                EV::TERMINAL_OUTPUT,
-                                serde_json::to_value(&TerminalOutput {
-                                    session_id: sid.clone(),
-                                    data,
-                                })
-                                .unwrap_or_default(),
-                            );
-                        }));
+                        // 发送到批量合并线程（替代直接 emit，降低 IPC 频率）
+                        let _ = batch_tx.send(data);
 
                         // 发送状态事件（节流：仅在 status 变化或距上次发射 ≥2s 时发射）
                         let now_instant = Instant::now();
@@ -957,6 +1025,7 @@ impl TerminalService {
                     }
                 }
             }
+            // reader 线程退出时 batch_tx 被 drop，触发 batcher 线程的 Disconnected 分支
         });
 
         // 启动等待线程

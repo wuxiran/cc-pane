@@ -8,6 +8,8 @@ interface TitleBarProps {
   onOpenQuickSearch?: () => void;
 }
 
+const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+
 export default function TitleBar({ workspaceName, onOpenQuickSearch }: TitleBarProps) {
   const { t } = useTranslation("common");
   const isBorderless = useBorderlessStore((s) => s.isBorderless);
@@ -18,8 +20,10 @@ export default function TitleBar({ workspaceName, onOpenQuickSearch }: TitleBarP
 
   return (
     <div
-      className="relative flex items-center h-[32px] px-3 shrink-0 select-none z-10"
+      className="relative flex items-center h-[32px] shrink-0 select-none z-10"
       style={{
+        paddingLeft: isMac ? 78 : 12,
+        paddingRight: 12,
         background: "var(--app-menubar)",
         borderBottom: "1px solid var(--app-border)",
         backdropFilter: `blur(var(--app-glass-blur))`,
@@ -80,30 +84,32 @@ export default function TitleBar({ workspaceName, onOpenQuickSearch }: TitleBarP
         </button>
       </div>
 
-      {/* 右侧：窗口控件 */}
-      <div className="flex items-center -mr-1 shrink-0" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-        <button
-          className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
-          onClick={minimizeWindow}
-          title={t("minimize")}
-        >
-          <Minus className="w-[13px] h-[13px]" />
-        </button>
-        <button
-          className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
-          onClick={maximizeWindow}
-          title={isMaximized ? t("restoreWindow") : t("maximize")}
-        >
-          {isMaximized ? <Copy className="w-3 h-3" /> : <Square className="w-3 h-3" />}
-        </button>
-        <button
-          className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
-          onClick={closeWindow}
-          title={t("close")}
-        >
-          <X className="w-[13px] h-[13px]" />
-        </button>
-      </div>
+      {/* 右侧：窗口控件（macOS 使用原生红绿灯，不需要自定义按钮） */}
+      {!isMac && (
+        <div className="flex items-center -mr-1 shrink-0" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+          <button
+            className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+            onClick={minimizeWindow}
+            title={t("minimize")}
+          >
+            <Minus className="w-[13px] h-[13px]" />
+          </button>
+          <button
+            className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+            onClick={maximizeWindow}
+            title={isMaximized ? t("restoreWindow") : t("maximize")}
+          >
+            {isMaximized ? <Copy className="w-3 h-3" /> : <Square className="w-3 h-3" />}
+          </button>
+          <button
+            className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
+            onClick={closeWindow}
+            title={t("close")}
+          >
+            <X className="w-[13px] h-[13px]" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

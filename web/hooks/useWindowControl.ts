@@ -11,10 +11,17 @@ export function useWindowControl() {
     if (!isTauriReady()) return;
     const win = getCurrentWindow();
     win.isMaximized().then(setIsMaximized).catch((e) => handleErrorSilent(e, "check maximized"));
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const unlisten = win.onResized(() => {
-      win.isMaximized().then(setIsMaximized).catch((e) => handleErrorSilent(e, "check maximized"));
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        win.isMaximized().then(setIsMaximized).catch((e) => handleErrorSilent(e, "check maximized"));
+      }, 150);
     });
-    return () => { unlisten.then((fn) => fn()); };
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unlisten.then((fn) => fn());
+    };
   }, []);
 
   const togglePin = useCallback(async () => {
@@ -52,7 +59,7 @@ export function useWindowControl() {
 
   const startDrag = useCallback(() => {
     if (!isTauriReady()) return;
-    getCurrentWindow().startDragging();
+    getCurrentWindow().startDragging().catch((e) => handleErrorSilent(e, "start drag"));
   }, []);
 
   return { isPinned, isMaximized, togglePin, closeWindow, minimizeWindow, maximizeWindow, startDrag };

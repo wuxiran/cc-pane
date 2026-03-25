@@ -128,9 +128,11 @@ export default function Sidebar({
         {activeView === "files" && (
           <FileBrowserView />
         )}
+        {/* activeView === "process" 已禁用（macOS 卡顿排查）
         {activeView === "process" && (
           <ProcessView />
         )}
+        */}
         {activeView === "ssh" && (
           <SshMachinesView onOpenTerminal={onOpenTerminal} />
         )}

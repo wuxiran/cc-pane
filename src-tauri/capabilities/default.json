@@ -25,6 +25,7 @@
     "core:event:default",
     "log:default",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "core:window:allow-start-dragging"
   ]
 }

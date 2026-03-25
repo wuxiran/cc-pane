@@ -247,6 +247,36 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 
+/// macOS: 强制将 WKWebView 设为 NSWindow 的 firstResponder
+/// 修复无边框窗口（decorations: false）下键盘输入失效的问题
+#[cfg(target_os = "macos")]
+fn force_webview_focus(window: &tauri::WebviewWindow) {
+    // 层 1: JS eval 强制 document 获焦（同步，不依赖 with_webview 回调时序）
+    let _ = window.eval("setTimeout(() => document.documentElement.focus(), 50)");
+
+    // 层 2: 原生 ObjC（异步，通过事件循环）
+    let _ = window.with_webview(|webview| unsafe {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::{NSApplication, NSWindow};
+        use objc2_web_kit::WKWebView;
+
+        let wk_webview: &WKWebView = &*webview.inner().cast();
+        let ns_window: &NSWindow = &*webview.ns_window().cast();
+
+        // with_webview 回调在主线程执行，可安全获取 MainThreadMarker
+        let mtm = MainThreadMarker::new().expect("with_webview callback must run on main thread");
+
+        // 确保 app 激活 + 窗口为 key window
+        let app = NSApplication::sharedApplication(mtm);
+        app.activate();
+        ns_window.makeKeyAndOrderFront(None);
+
+        // 设置 firstResponder
+        let ok = ns_window.makeFirstResponder(Some(wk_webview));
+        eprintln!("[macos-focus] with_webview callback executed, makeFirstResponder={ok}");
+    });
+}
+
 /// 截图进行中标志（模块级），托盘/菜单 show 守卫会检查此标志
 static CAPTURING: AtomicBool = AtomicBool::new(false);
 
@@ -455,6 +485,202 @@ fn copy_to_clipboard_win32(text: &str) {
     }
 }
 
+// ============ 辅助函数 ============
+
+/// Strip ANSI escape sequences from a string.
+/// Handles CSI sequences like `\x1b[31m`, `\x1b[0m`, etc.
+#[cfg(not(target_os = "windows"))]
+fn strip_ansi_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // consume '[' if present
+            if let Some(next) = chars.next() {
+                if next == '[' {
+                    // consume until a letter (the terminator)
+                    for sc in chars.by_ref() {
+                        if sc.is_ascii_alphabetic() {
+                            break;
+                        }
+                    }
+                }
+                // else: lone ESC + non-'[', skip both
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+/// 获取 PATH 缓存文件路径
+#[cfg(not(target_os = "windows"))]
+fn get_path_cache_file() -> String {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    home.join(crate::utils::APP_DIR_NAME)
+        .join("cached_path")
+        .to_string_lossy()
+        .to_string()
+}
+
+/// 写 PATH 缓存文件（确保父目录存在）
+#[cfg(not(target_os = "windows"))]
+fn write_path_cache(file: &str, path: &str) -> std::io::Result<()> {
+    let p = std::path::Path::new(file);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(file, path)
+}
+
+/// 从 shell 解析 PATH（10 秒超时）
+#[cfg(not(target_os = "windows"))]
+fn resolve_path_from_shell(shell: &str) -> Option<String> {
+    let child = std::process::Command::new(shell)
+        .args(["-ilc", "echo $PATH"])
+        .env("CCPANES_RESOLVING_ENVIRONMENT", "1")
+        .env("ZSH_TMUX_AUTOSTART", "false")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+
+    let child_pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(Ok(output)) if output.status.success() => {
+            let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = strip_ansi_escapes(&raw);
+            if path.is_empty() { None } else { Some(path) }
+        }
+        _ => {
+            eprintln!("[boot] shell timed out or failed, killing pid={child_pid}");
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(child_pid as i32, libc::SIGKILL);
+            }
+            None
+        }
+    }
+}
+
+/// well-known paths fallback：扫描常见目录，存在才加入
+#[cfg(not(target_os = "windows"))]
+fn build_fallback_path() -> String {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let home_str = home.to_string_lossy();
+
+    let mut dirs: Vec<String> = Vec::new();
+
+    // 用户级工具目录
+    let user_dirs = [
+        format!("{home_str}/.cargo/bin"),
+        format!("{home_str}/.local/bin"),
+    ];
+    for d in &user_dirs {
+        if std::path::Path::new(d).is_dir() {
+            dirs.push(d.clone());
+        }
+    }
+
+    // nvm：找最新的 node 版本目录
+    let nvm_dir = std::env::var("NVM_DIR")
+        .unwrap_or_else(|_| format!("{home_str}/.nvm"));
+    let nvm_versions = std::path::Path::new(&nvm_dir).join("versions/node");
+    if nvm_versions.is_dir() {
+        if let Ok(mut entries) = std::fs::read_dir(&nvm_versions) {
+            let mut latest: Option<std::path::PathBuf> = None;
+            while let Some(Ok(e)) = entries.next() {
+                let p = e.path();
+                if p.is_dir() {
+                    // 取字典序最大的版本（v20 > v18 等）
+                    if latest.as_ref().is_none_or(|l| p > *l) {
+                        latest = Some(p);
+                    }
+                }
+            }
+            if let Some(node_dir) = latest {
+                let bin = node_dir.join("bin");
+                if bin.is_dir() {
+                    dirs.push(bin.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    // 系统级目录
+    let system_dirs = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+        "/opt/local/bin",
+    ];
+    for d in &system_dirs {
+        if std::path::Path::new(d).is_dir() {
+            dirs.push(d.to_string());
+        }
+    }
+
+    // 追加当前 PATH 去重
+    if let Ok(current) = std::env::var("PATH") {
+        for entry in current.split(':') {
+            if !entry.is_empty() && !dirs.contains(&entry.to_string()) {
+                dirs.push(entry.to_string());
+            }
+        }
+    }
+
+    dirs.join(":")
+}
+
+/// 后台刷新 PATH 缓存 + 更新当前进程 PATH
+#[cfg(not(target_os = "windows"))]
+fn refresh_path_cache(cache_file: &str) {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    if let Some(path) = resolve_path_from_shell(&shell) {
+        let _ = write_path_cache(cache_file, &path);
+        unsafe { std::env::set_var("PATH", &path); }
+        eprintln!("[boot/bg] PATH cache refreshed + process PATH updated ({} entries)", path.split(':').count());
+    }
+}
+
+/// 两层 PATH 加载：缓存 → well-known fallback（shell 全走后台）
+#[cfg(not(target_os = "windows"))]
+fn load_full_path() {
+    let cache_file = get_path_cache_file();
+
+    // 1. 尝试读缓存
+    if let Ok(cached) = std::fs::read_to_string(&cache_file) {
+        let cached = cached.trim().to_string();
+        if !cached.is_empty() {
+            eprintln!("[boot] PATH loaded from cache ({} entries)", cached.split(':').count());
+            unsafe { std::env::set_var("PATH", &cached); }
+            let cache_file_bg = cache_file.clone();
+            std::thread::spawn(move || refresh_path_cache(&cache_file_bg));
+            return;
+        }
+    }
+
+    // 2. 无缓存：立即用 well-known paths（纯 fs 扫描，<1ms）
+    let path = build_fallback_path();
+    eprintln!("[boot] PATH set from well-known paths ({} entries), shell refresh in background", path.split(':').count());
+    unsafe { std::env::set_var("PATH", &path); }
+
+    // 后台 spawn shell 刷新缓存 + 更新当前进程 PATH
+    std::thread::spawn(move || refresh_path_cache(&cache_file));
+}
+
 // ============ 应用入口 ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -503,51 +729,10 @@ pub fn run() {
     }
     boot_mark!("panic hook installed");
 
-    // 0.5 macOS/Linux: 从用户 login shell 获取完整 PATH
-    //     GUI 应用从 Finder 启动时 PATH 只有 /usr/bin:/bin，需要补全
-    //     只用 -l（login shell）加载 .zprofile，不用 -i 避免加载 .zshrc
-    //     .zprofile 包含 homebrew、系统工具的 PATH，通常 <1s 完成
-    //     保留 5s 超时作为安全兜底
+    // 0.5 macOS/Linux: 两层 PATH 加载（缓存 → well-known fallback，shell 全走后台）
     #[cfg(not(target_os = "windows"))]
     {
-        let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        if let Ok(mut child) = std::process::Command::new(&user_shell)
-            .args(["-l", "-c", "echo $PATH"])
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-        {
-            let child_pid = child.id();
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let _ = tx.send(child.wait_with_output());
-            });
-            match rx.recv_timeout(std::time::Duration::from_secs(5)) {
-                Ok(Ok(output)) if output.status.success() => {
-                    let shell_path =
-                        String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    if !shell_path.is_empty() {
-                        unsafe {
-                            std::env::set_var("PATH", &shell_path);
-                        }
-                    }
-                }
-                _ => {
-                    // 超时或失败：kill 泄漏的 shell 子进程，防止 CPU 占用
-                    eprintln!(
-                        "[boot] PATH loading timed out, killing shell child process (pid={})",
-                        child_pid
-                    );
-                    #[cfg(unix)]
-                    {
-                        unsafe {
-                            libc::kill(child_pid as i32, libc::SIGKILL);
-                        }
-                    }
-                }
-            }
-        }
+        load_full_path();
     }
     boot_mark!("PATH loaded");
 
@@ -845,7 +1030,7 @@ pub fn run() {
             }
             info!("[boot] +{}ms: orchestrator started", boot_t0.elapsed().as_millis());
 
-            // ---- 资源监控定时推送（3 秒间隔）----
+            /* ---- 资源监控定时推送 已禁用（macOS 卡顿排查）----
             {
                 let term_svc = app.state::<Arc<TerminalService>>().inner().clone();
                 let proc_svc = app.state::<Arc<ProcessMonitorService>>().inner().clone();
@@ -853,7 +1038,6 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     use tokio::time::{interval, Duration};
                     let mut ticker = interval(Duration::from_secs(3));
-                    // 防堆积：上一次 refresh 未完成则跳过本轮
                     let refreshing = Arc::new(std::sync::atomic::AtomicBool::new(false));
                     loop {
                         ticker.tick().await;
@@ -861,7 +1045,6 @@ pub fn run() {
                         if pids.is_empty() {
                             continue;
                         }
-                        // 防堆积检查
                         if refreshing.load(std::sync::atomic::Ordering::Relaxed) {
                             warn!("[resource-monitor] previous refresh still running, skipping");
                             continue;
@@ -899,8 +1082,9 @@ pub fn run() {
                     }
                 });
             }
+            */
 
-            info!("[boot] +{}ms: resource monitor started", boot_t0.elapsed().as_millis());
+            info!("[boot] resource monitor DISABLED (macOS perf test)");
 
             // ---- 系统托盘 ----
             let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
@@ -958,17 +1142,58 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // ---- macOS: 运行时设置 titlebar overlay 样式 ----
+            // config 保持 decorations: false（Windows 兼容），macOS 在此通过 NSWindow API
+            // 设置透明标题栏 + fullSizeContentView，等效于 titleBarStyle: Overlay
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.with_webview(|webview| unsafe {
+                        use objc2_app_kit::{
+                            NSWindow, NSWindowStyleMask, NSWindowTitleVisibility,
+                        };
+
+                        let ns_window: &NSWindow = &*webview.ns_window().cast();
+
+                        // 1. 添加 decorations（标题栏 + 红绿灯按钮）
+                        let mut mask = ns_window.styleMask();
+                        mask.insert(NSWindowStyleMask::Titled);
+                        mask.insert(NSWindowStyleMask::FullSizeContentView);
+                        ns_window.setStyleMask(mask);
+
+                        // 2. 标题栏透明 + 隐藏标题文字
+                        ns_window.setTitlebarAppearsTransparent(true);
+                        ns_window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+                    });
+                    info!("[boot] macOS: configured titlebar overlay via NSWindow API");
+
+                    force_webview_focus(&window);
+                    info!("[boot] macOS: forced WKWebView as firstResponder");
+                }
+            }
+
             info!("[boot] +{}ms: === setup complete ===", boot_t0.elapsed().as_millis());
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    // 主窗口关闭 → 隐藏到托盘（不退出）
-                    let _ = window.hide();
-                    api.prevent_close();
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    if window.label() == "main" {
+                        // 主窗口关闭 → 隐藏到托盘（不退出）
+                        let _ = window.hide();
+                        api.prevent_close();
+                    }
+                    // 弹出窗口正常关闭，不拦截
                 }
-                // 弹出窗口正常关闭，不拦截
+                #[cfg(target_os = "macos")]
+                WindowEvent::Focused(true) => {
+                    if window.label() == "main" {
+                        if let Some(ww) = window.app_handle().get_webview_window("main") {
+                            force_webview_focus(&ww);
+                        }
+                    }
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![

@@ -89,7 +89,7 @@ export default function StatusBar() {
           </span>
         )}
 
-        {/* CPU / 内存指标 */}
+        {/* CPU / 内存指标 — 已禁用（macOS 卡顿排查）
         {resourceStats && resourceStats.processCount > 0 && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -109,6 +109,7 @@ export default function StatusBar() {
             </TooltipContent>
           </Tooltip>
         )}
+        */}
 
         {/* 版本更新提示 */}
         {updateAvailable && updateVersion && (
