@@ -8,7 +8,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::State;
+use tauri::{Manager, State};
 use tracing::{debug, info};
 
 /// 获取设置
@@ -596,6 +596,16 @@ sqlite3 data.db "VACUUM"
         .map_err(|e| format!("Failed to write CLAUDE.md: {}", e))?;
 
     Ok(())
+}
+
+/// 获取应用日志目录路径（供前端"打开日志目录"使用）
+#[tauri::command]
+pub fn get_log_dir(app: tauri::AppHandle) -> AppResult<String> {
+    let log_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| format!("Failed to resolve log dir: {}", e))?;
+    Ok(log_dir.to_string_lossy().to_string())
 }
 
 /// 校验复制的文件大小一致

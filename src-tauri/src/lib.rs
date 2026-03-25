@@ -13,6 +13,8 @@ use commands::{
     add_launch_history,
     add_project,
     add_provider,
+    // 日志命令
+    get_log_dir,
     add_ssh_machine,
     add_ssh_project,
     add_todo_subtask,
@@ -457,6 +459,23 @@ fn copy_to_clipboard_win32(text: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let boot_t0 = std::time::Instant::now();
+    // 早期启动打点收集（log 插件尚未初始化，先存到 Vec，setup 后 replay 到 info!）
+    let mut boot_marks: Vec<(u128, String)> = Vec::new();
+    macro_rules! boot_mark {
+        ($msg:literal) => {{
+            let ms = boot_t0.elapsed().as_millis();
+            eprintln!("[boot] +{}ms: {}", ms, $msg);
+            boot_marks.push((ms, $msg.to_string()));
+        }};
+        ($fmt:expr, $($arg:tt)*) => {{
+            let ms = boot_t0.elapsed().as_millis();
+            let msg = format!($fmt, $($arg)*);
+            eprintln!("[boot] +{}ms: {}", ms, msg);
+            boot_marks.push((ms, msg));
+        }};
+    }
+
     // 0. Panic hook — 将 panic 信息写入 crash.log（诊断兜底）
     {
         use std::io::Write as _;
@@ -482,6 +501,7 @@ pub fn run() {
             default_hook(info);
         }));
     }
+    boot_mark!("panic hook installed");
 
     // 0.5 macOS/Linux: 从用户 login shell 获取完整 PATH
     //     GUI 应用从 Finder 启动时 PATH 只有 /usr/bin:/bin，需要补全
@@ -518,6 +538,7 @@ pub fn run() {
             }
         }
     }
+    boot_mark!("PATH loaded");
 
     // 1. 先加载设置，取得 data_dir + log_level
     let settings_service = Arc::new(SettingsService::new());
@@ -531,6 +552,8 @@ pub fn run() {
         _ => log::LevelFilter::Info,
     };
 
+    boot_mark!("settings loaded (log_level={:?})", log_level);
+
     // 1.5 如果代理已启用，设置进程级环境变量（影响 updater 等 HTTP 请求）
     if settings.proxy.enabled && !settings.proxy.host.is_empty() {
         for (key, value) in settings.proxy.to_env_vars() {
@@ -543,8 +566,10 @@ pub fn run() {
 
     // 2. 构造路径管理器
     let app_paths = Arc::new(AppPaths::new(data_dir));
+    boot_mark!("app_paths initialized");
 
     // 3. 各服务用 app_paths 初始化
+    boot_mark!("initializing database...");
     let db = match Database::new(app_paths.database_path()) {
         Ok(db) => Arc::new(db),
         Err(e) => {
@@ -560,6 +585,7 @@ pub fn run() {
             }))
         }
     };
+    boot_mark!("database initialized");
     let project_repo = Arc::new(ProjectRepository::new(db.clone()));
     let history_repo = Arc::new(HistoryRepository::new(db.clone()));
     let todo_repo = Arc::new(TodoRepository::new(db.clone()));
@@ -610,6 +636,7 @@ pub fn run() {
 
     let popup_data_store = commands::PopupDataStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new());
+    boot_mark!("all services created");
 
     // 保存引用用于退出时清理
     let terminal_cleanup = terminal_service.clone();
@@ -617,6 +644,7 @@ pub fn run() {
     let workspace_cleanup = workspace_service.clone();
     let search_index_cleanup = search_index.clone();
 
+    boot_mark!("building tauri app...");
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -628,6 +656,8 @@ pub fn run() {
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
                 .level(log_level)
+                .max_file_size(10_000_000) // 10MB 单文件上限
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
@@ -660,7 +690,14 @@ pub fn run() {
         .manage(popup_data_store)
         .manage(orchestrator_service.clone())
         .manage(cli_registry)
-        .setup(|app| {
+        .setup(move |app| {
+            // Replay 早期启动打点到日志文件（此时 tauri-plugin-log 已初始化）
+            info!("[boot] === CC-Panes starting ===");
+            for (ms, msg) in &boot_marks {
+                info!("[boot] +{}ms: {}", ms, msg);
+            }
+            info!("[boot] +{}ms: setup callback entered", boot_t0.elapsed().as_millis());
+
             // ---- 提取打包的 .claude/ 配置到数据目录（Release 模式）----
             {
                 let paths = app.state::<Arc<AppPaths>>();
@@ -690,6 +727,8 @@ pub fn run() {
                 }
             }
 
+            info!("[boot] +{}ms: bundled config extracted", boot_t0.elapsed().as_millis());
+
             // ---- 注册 updater 插件（需在 setup 中注册以访问 app handle）----
             #[cfg(desktop)]
             app.handle()
@@ -717,6 +756,7 @@ pub fn run() {
                 let ws_svc = app.state::<Arc<WorkspaceService>>();
                 ws_svc.start_watcher(tauri_emitter);
             }
+            info!("[boot] +{}ms: emitters injected + workspace watcher started", boot_t0.elapsed().as_millis());
 
             // ---- 注册截图全局快捷键（仅 Windows，macOS 截图功能暂未实现）----
             #[cfg(target_os = "windows")]
@@ -782,6 +822,7 @@ pub fn run() {
                     term_svc.set_orchestrator_info(port, orch_svc.token().to_string());
                 }
             }
+            info!("[boot] +{}ms: orchestrator started", boot_t0.elapsed().as_millis());
 
             // ---- 资源监控定时推送（3 秒间隔）----
             {
@@ -797,6 +838,8 @@ pub fn run() {
                         if pids.is_empty() {
                             continue;
                         }
+                        let pid_count = pids.len();
+                        let t0 = std::time::Instant::now();
                         proc_svc.update_tracked_pids(pids);
                         let proc_svc_clone = proc_svc.clone();
                         if let Ok(Ok(stats)) = tauri::async_runtime::spawn_blocking(move || {
@@ -804,11 +847,18 @@ pub fn run() {
                         })
                         .await
                         {
+                            debug!(
+                                "[resource-monitor] refreshed {} pids in {}ms",
+                                pid_count,
+                                t0.elapsed().as_millis()
+                            );
                             let _ = app_handle.emit("resource-stats", &stats);
                         }
                     }
                 });
             }
+
+            info!("[boot] +{}ms: resource monitor started", boot_t0.elapsed().as_millis());
 
             // ---- 系统托盘 ----
             let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
@@ -866,6 +916,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            info!("[boot] +{}ms: === setup complete ===", boot_t0.elapsed().as_millis());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1011,6 +1062,7 @@ pub fn run() {
             get_data_dir_info,
             migrate_data_dir,
             generate_claude_md,
+            get_log_dir,
             // Provider 命令
             list_providers,
             get_provider,

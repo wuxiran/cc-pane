@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { useUpdateStore } from "@/stores";
+import { logService } from "@/services";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, FolderOpen } from "lucide-react";
 
 export default function AboutSection() {
   const { t } = useTranslation("settings");
@@ -67,16 +69,33 @@ export default function AboutSection() {
         </div>
       )}
 
-      <Button
-        variant="outline"
-        size="sm"
-        className="mt-2 self-start"
-        disabled={checking}
-        onClick={handleCheckUpdate}
-      >
-        <RefreshCw className={`w-4 h-4 mr-1.5 ${checking ? "animate-spin" : ""}`} />
-        {checking ? t("checking") : t("checkUpdate")}
-      </Button>
+      <div className="flex gap-2 mt-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={checking}
+          onClick={handleCheckUpdate}
+        >
+          <RefreshCw className={`w-4 h-4 mr-1.5 ${checking ? "animate-spin" : ""}`} />
+          {checking ? t("checking") : t("checkUpdate")}
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            try {
+              const logDir = await logService.getLogDir();
+              await invoke("open_path_in_explorer", { path: logDir });
+            } catch (error) {
+              console.error("[AboutSection] Failed to open log dir:", error);
+            }
+          }}
+        >
+          <FolderOpen className="w-4 h-4 mr-1.5" />
+          {t("openLogDir")}
+        </Button>
+      </div>
     </div>
   );
 }

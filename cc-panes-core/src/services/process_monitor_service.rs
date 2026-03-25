@@ -35,6 +35,7 @@ impl ProcessMonitorService {
 
     /// 轻量级增量刷新：仅刷新已跟踪 PID 的 CPU/内存，返回聚合统计
     pub fn refresh_resource_stats(&self) -> AppResult<ResourceStats> {
+        let t0 = std::time::Instant::now();
         let tracked = self.tracked_pids.lock().clone();
 
         if tracked.is_empty() {
@@ -66,6 +67,12 @@ impl ProcessMonitorService {
             }
         }
 
+        debug!(
+            "[process-monitor] refresh_resource_stats: {} pids in {}ms",
+            count,
+            t0.elapsed().as_millis()
+        );
+
         Ok(ResourceStats {
             total_cpu_percent: total_cpu,
             total_memory_bytes: total_mem,
@@ -88,6 +95,7 @@ impl ProcessMonitorService {
 
     /// 扫描系统中所有 Claude 相关进程
     pub fn scan_claude_processes(&self) -> AppResult<ProcessScanResult> {
+        let t0 = std::time::Instant::now();
         let mut sys = self.sys.lock();
         // 只请求分类所需的信息（cmd + memory），不请求 CPU/disk/环境变量等
         // 第二个参数 false = 不更新已有条目，只发现新进程（macOS 上显著更快）
@@ -138,9 +146,9 @@ impl ProcessMonitorService {
         let scanned_at = chrono::Utc::now().to_rfc3339();
 
         debug!(
-            total_count = total_count,
-            total_memory_bytes = total_memory_bytes,
-            "scan_claude_processes completed"
+            "[process-monitor] scan_claude_processes: {} found in {}ms",
+            total_count,
+            t0.elapsed().as_millis()
         );
 
         Ok(ProcessScanResult {

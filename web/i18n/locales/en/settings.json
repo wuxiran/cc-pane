@@ -93,6 +93,7 @@
   "appDescription": "Multi-instance split-pane manager for Claude Code",
   "checkUpdate": "Check for Updates",
   "checking": "Checking...",
+  "openLogDir": "Open Log Directory",
   "updateAvailable": "New version v{{version}} available, click to update",
   "newVersionAvailable": "New version v{{version}} available",
 

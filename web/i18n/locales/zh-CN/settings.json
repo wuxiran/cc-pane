@@ -93,6 +93,7 @@
   "appDescription": "Claude Code 多实例分屏管理",
   "checkUpdate": "检查更新",
   "checking": "检查中...",
+  "openLogDir": "打开日志目录",
   "updateAvailable": "发现新版本 v{{version}}，点击更新",
   "newVersionAvailable": "新版本 v{{version}} 已可用",
 

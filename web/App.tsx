@@ -168,6 +168,25 @@ function MainApp() {
     };
   }, []);
 
+  // 重启时为 rehydrated Claude tabs touch 历史记录时间戳
+  useEffect(() => {
+    waitForTauri().then((ready) => {
+      if (!ready) return;
+      const allPanels = getAllPanels(usePanesStore.getState().rootPane);
+      for (const panel of allPanels) {
+        for (const tab of panel.tabs) {
+          if (tab.resumeId && tab.resumeId !== "new" && tab.launchClaude) {
+            historyService.touchBySessionId(tab.resumeId).then((id) => {
+              if (id !== null) {
+                window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
+              }
+            }).catch(console.error);
+          }
+        }
+      }
+    });
+  }, []);
+
   // Ctrl+P / Ctrl+E 全局快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -412,14 +431,23 @@ function MainApp() {
               return;
             }
             try {
-              // 方式 1：session-state.json（hook 写入到 CLAUDE_PROJECT_DIR）
-              const state = await historyService.readSessionState(path);
-              console.debug(`[session-detect] method1: pollPath=${path} result=${state?.claudeSessionId ?? "null"} attempt=${attempts}`);
+              // 方式 1：session-state.json（hook 写入到 workspacePath || path）
+              const statePath = workspacePath ?? path;
+              const state = await historyService.readSessionState(statePath);
+              console.debug(`[session-detect] method1: pollPath=${statePath} result=${state?.claudeSessionId ?? "null"} attempt=${attempts}`);
               if (state?.claudeSessionId) {
                 clearInterval(interval);
-                await historyService.updateSessionId(recordId, state.claudeSessionId);
+                const detectedSessionId = state.claudeSessionId;
+                await historyService.updateSessionId(recordId, detectedSessionId);
                 window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
-                updateSessionMap(recordId, state.claudeSessionId);
+                updateSessionMap(recordId, detectedSessionId);
+                // 回写 store，确保 tab.resumeId 保持最新
+                for (const [ptyId, info] of sessionMapRef.current) {
+                  if (info.recordId === recordId) {
+                    usePanesStore.getState().updateTabClaudeSession(ptyId, detectedSessionId);
+                    break;
+                  }
+                }
                 return;
               }
               // 方式 2：~/.claude/projects/ 扫描（无需 hook）
@@ -430,6 +458,13 @@ function MainApp() {
                 await historyService.updateSessionId(recordId, detectedId);
                 window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
                 updateSessionMap(recordId, detectedId);
+                // 回写 store，确保 tab.resumeId 保持最新
+                for (const [ptyId, info] of sessionMapRef.current) {
+                  if (info.recordId === recordId) {
+                    usePanesStore.getState().updateTabClaudeSession(ptyId, detectedId);
+                    break;
+                  }
+                }
                 return;
               }
             } catch (err) {

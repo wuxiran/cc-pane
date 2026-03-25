@@ -1,10 +1,10 @@
 import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { terminalService } from "@/services";
+import { terminalService, historyService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
-import { shouldTerminalHandleKey, useShortcutsStore, useSettingsStore } from "@/stores";
+import { shouldTerminalHandleKey, useShortcutsStore, useSettingsStore, usePanesStore } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
 import "@xterm/xterm/css/xterm.css";
 
@@ -366,6 +366,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             await ensureListeners();
 
             let sessionId: string;
+            let effectiveResumeId = props.resumeId;
 
             if (props.sessionId) {
               // 重连模式：session 已存在于后端
@@ -373,8 +374,25 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               sessionId = props.sessionId;
             } else {
               // 新建模式
+              // 重启恢复时 tab.resumeId 可能是 stale 的，查 session-state.json 获取最新值
+              if ((props.launchClaude || (props.cliTool && props.cliTool !== "none")) && !props.sessionId) {
+                try {
+                  // hook 写在 workspacePath（如果有），读取时也要对应
+                  const statePath = props.workspacePath || props.projectPath;
+                  const state = await historyService.readSessionState(statePath);
+                  if (state?.claudeSessionId && state.claudeSessionId !== "new") {
+                    if (!effectiveResumeId || effectiveResumeId !== state.claudeSessionId) {
+                      console.info(
+                        `[TerminalView] Using session from session-state.json: ${state.claudeSessionId} (tab had: ${effectiveResumeId ?? "none"})`
+                      );
+                      effectiveResumeId = state.claudeSessionId;
+                    }
+                  }
+                } catch { /* session-state.json 不存在时忽略 */ }
+              }
+
               console.info(
-                `[TerminalView] Creating new session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, resumeId=${props.resumeId ?? "none"}`
+                `[TerminalView] Creating new session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, resumeId=${effectiveResumeId ?? "none"}`
               );
               sessionId = await terminalService.createSession({
                 projectPath: props.projectPath,
@@ -385,7 +403,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 workspacePath: props.workspacePath,
                 launchClaude: props.launchClaude,
                 cliTool: props.cliTool,
-                resumeId: props.resumeId,
+                resumeId: effectiveResumeId,
                 skipMcp: props.skipMcp,
                 appendSystemPrompt: props.appendSystemPrompt,
                 ssh: props.ssh,
@@ -405,6 +423,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
             if (!props.sessionId) {
               onSessionCreatedRef.current(sessionId);
+              // 如果 session-state.json 纠正了 resumeId，回写 store 以确保持久化
+              if (effectiveResumeId && effectiveResumeId !== props.resumeId) {
+                usePanesStore.getState().updateTabClaudeSession(sessionId, effectiveResumeId);
+              }
             }
 
             // 注册输出/退出回调

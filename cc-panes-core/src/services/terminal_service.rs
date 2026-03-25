@@ -178,6 +178,45 @@ pub struct SessionOutput {
     pub lines: Vec<String>,
 }
 
+/// 检测 Claude Code spinner 行（无实质内容，应被过滤）
+fn is_spinner_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    const SPINNER_WORDS: &[&str] = &[
+        "Reticulating",
+        "Swirling",
+        "Whirlpooling",
+        "Quantumizing",
+        "Synthesizing",
+        "Materializing",
+        "Crystallizing",
+        "Harmonizing",
+        "Calibrating",
+        "Percolating",
+        "Amalgamating",
+        "Coalescing",
+    ];
+
+    let text = trimmed.trim_start_matches(|c: char| {
+        matches!(
+            c,
+            '✻' | '✽' | '✶' | '✢' | '●' | '·' | '*' | ' ' | '○' | '◉' | '◌'
+        )
+    });
+
+    SPINNER_WORDS.iter().any(|word| {
+        if let Some(rest) = text.strip_prefix(word) {
+            let rest = rest.trim_start_matches('…').trim_start_matches("...");
+            rest.is_empty() || rest.chars().all(|c| c.is_ascii_digit())
+        } else {
+            false
+        }
+    })
+}
+
 impl OutputBuffer {
     fn new(max_lines: usize, max_bytes: usize) -> Self {
         Self {
@@ -231,6 +270,18 @@ impl OutputBuffer {
     }
 
     fn push_line(&mut self, line: String) {
+        // 过滤 spinner 动画行
+        if is_spinner_line(&line) {
+            return;
+        }
+        // 压缩连续空行：最多保留 1 个
+        if line.trim().is_empty() {
+            if let Some(last) = self.lines.back() {
+                if last.trim().is_empty() {
+                    return;
+                }
+            }
+        }
         self.total_bytes += line.len();
         self.lines.push_back(line);
     }
@@ -243,6 +294,13 @@ impl OutputBuffer {
                 break;
             }
         }
+    }
+
+    /// 缩减缓冲区到指定上限（用于会话退出后释放内存）
+    fn shrink(&mut self, max_lines: usize, max_bytes: usize) {
+        self.max_lines = max_lines;
+        self.max_bytes = max_bytes;
+        self.evict();
     }
 
     /// 获取最近 N 行（0 = 全部）
@@ -687,7 +745,7 @@ impl TerminalService {
         let last_output_at = Arc::new(Mutex::new(Instant::now()));
         let cancelled = Arc::new(AtomicBool::new(false));
         // 输出缓冲区：2000 行 / 512KB 上限
-        let output_buffer = Arc::new(Mutex::new(OutputBuffer::new(2000, 512 * 1024)));
+        let output_buffer = Arc::new(Mutex::new(OutputBuffer::new(10_000, 10 * 1024 * 1024)));
 
         // sanitize 可开关兜底（默认关闭 — dwFlags=0 应该解决了根本问题）
         #[cfg(windows)]
@@ -938,6 +996,10 @@ impl TerminalService {
             if let Ok(mut sessions) = sessions_for_wait.lock() {
                 // 移除前保存 output_buffer 到 dead_buffers，供事后读取
                 if let Some(session) = sessions.remove(&sid) {
+                    // 缩减缓冲：10MB → 2000行/1MB，释放内存
+                    if let Ok(mut buf) = session.output_buffer.lock() {
+                        buf.shrink(2000, 1024 * 1024);
+                    }
                     if let Ok(mut dead) = dead_buffers_for_wait.lock() {
                         dead.insert(sid.clone(), (session.output_buffer, Instant::now()));
                     }
@@ -1064,6 +1126,10 @@ impl TerminalService {
 
         if let Some(session) = session {
             // 保存 output_buffer 到 dead_buffers，供事后读取
+            // 先缩减缓冲：10MB → 2000行/1MB，释放内存
+            if let Ok(mut buf) = session.output_buffer.lock() {
+                buf.shrink(2000, 1024 * 1024);
+            }
             if let Ok(mut dead) = self.dead_buffers.lock() {
                 dead.insert(
                     session_id.to_string(),

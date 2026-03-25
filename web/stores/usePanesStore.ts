@@ -192,6 +192,7 @@ interface PanesState {
   markTabPoppedOut: (tabId: string) => void;
   markTabReclaimed: (tabId: string) => void;
   isTabPoppedOut: (tabId: string) => boolean;
+  updateTabClaudeSession: (ptySessionId: string, claudeSessionId: string) => void;
   setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean) => void;
   reconnectTab: (paneId: string, tabId: string) => Promise<string | null>;
   closeTabBySessionId: (sessionId: string) => void;
@@ -205,6 +206,9 @@ function cleanRehydratedPanes(node: PaneNode) {
     for (const tab of node.tabs) {
       if (tab.contentType === "terminal") {
         tab.sessionId = null;
+        if (tab.resumeId === "new") {
+          tab.resumeId = undefined;
+        }
       }
       if (tab.contentType === "editor") {
         tab.dirty = false;
@@ -671,6 +675,27 @@ export const usePanesStore = create<PanesState>()(
         if (pane?.type !== "panel") return;
         const tab = pane.tabs.find((t) => t.id === tabId);
         if (tab) tab.sessionId = sessionId;
+      });
+    },
+
+    updateTabClaudeSession: (ptySessionId, claudeSessionId) => {
+      set((state) => {
+        const update = (node: PaneNode): boolean => {
+          if (node.type === "panel") {
+            for (const tab of node.tabs) {
+              if (tab.sessionId === ptySessionId) {
+                tab.resumeId = claudeSessionId;
+                return true;
+              }
+            }
+          } else {
+            for (const child of node.children) {
+              if (update(child)) return true;
+            }
+          }
+          return false;
+        };
+        update(state.rootPane);
       });
     },
 

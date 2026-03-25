@@ -35,6 +35,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info, warn};
@@ -741,11 +742,15 @@ impl McpToolHandler {
         };
 
         // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
-        let initial_prompt = if !is_resume {
-            params.prompt.as_deref()
+        // 安全网：长 prompt 自动外部化为文件，避免终端黑屏
+        let initial_prompt_owned = if !is_resume {
+            params
+                .prompt
+                .map(|p| externalize_long_prompt(&params.project_path, &task_id, p))
         } else {
             None
         };
+        let initial_prompt = initial_prompt_owned.as_deref();
 
         // 创建 PTY 会话（resume 时传 resume_id）
         let session_id = match self.state.terminal_service.create_session(
@@ -1086,7 +1091,7 @@ impl McpToolHandler {
             return format!("错误: '{}' 不是目录", params.path);
         }
         let canonical = match path.canonicalize() {
-            Ok(p) => p.to_string_lossy().to_string(),
+            Ok(p) => strip_unc_prefix(p.to_string_lossy().to_string()),
             Err(e) => return format!("错误: 路径规范化失败: {}", e),
         };
         let event = OrchestratorOpenFolderEvent {
@@ -1111,7 +1116,7 @@ impl McpToolHandler {
             return format!("错误: '{}' 不是文件", params.file_path);
         }
         let canonical_file = match file_path.canonicalize() {
-            Ok(p) => p.to_string_lossy().to_string(),
+            Ok(p) => strip_unc_prefix(p.to_string_lossy().to_string()),
             Err(e) => return format!("错误: 路径规范化失败: {}", e),
         };
 
@@ -1307,10 +1312,17 @@ impl McpToolHandler {
         info!(session_id = %params.session_id, text_len = params.text.len(), "mcp::submit_to_session");
         // 去除文本中的换行符，防止意外提交
         let clean_text = params.text.replace(['\r', '\n'], "");
+        // 安全网：长文本外部化为文件，避免 PTY 处理异常
+        let fallback_dir = self.state.app_paths.data_dir().to_string_lossy().to_string();
+        let effective_text = externalize_long_prompt(
+            &fallback_dir,
+            &uuid::Uuid::new_v4().to_string(),
+            clean_text,
+        );
         match submit_text_to_session(
             &self.state.terminal_service,
             &params.session_id,
-            &clean_text,
+            &effective_text,
         )
         .await
         {
@@ -1661,11 +1673,14 @@ async fn handle_launch_task(
     };
 
     // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
-    let initial_prompt = if !is_resume {
-        req.prompt.as_deref()
+    // 安全网：长 prompt 自动外部化为文件，避免终端黑屏
+    let initial_prompt_owned = if !is_resume {
+        req.prompt
+            .map(|p| externalize_long_prompt(&req.project_path, &task_id, p))
     } else {
         None
     };
+    let initial_prompt = initial_prompt_owned.as_deref();
 
     let session_id = match state.terminal_service.create_session(
         &req.project_path,
@@ -2017,8 +2032,15 @@ async fn handle_submit_to_session(
 
     // 去除文本中的换行符，防止意外提交
     let clean_text = req.text.replace(['\r', '\n'], "");
+    // 安全网：长文本外部化为文件，避免 PTY 处理异常
+    let fallback_dir = state.app_paths.data_dir().to_string_lossy().to_string();
+    let effective_text = externalize_long_prompt(
+        &fallback_dir,
+        &uuid::Uuid::new_v4().to_string(),
+        clean_text,
+    );
 
-    match submit_text_to_session(&state.terminal_service, &req.session_id, &clean_text).await {
+    match submit_text_to_session(&state.terminal_service, &req.session_id, &effective_text).await {
         Ok(()) => (
             StatusCode::OK,
             Json(serde_json::json!({ "success": true, "sessionId": req.session_id })),
@@ -2096,6 +2118,47 @@ fn cleanup_stale_tasks(tasks: &mut HashMap<String, TaskStatus>) {
     });
 }
 
+/// 长 prompt 阈值（字节）。超过此长度的 prompt 将被写入文件，用短引用替代。
+/// 8KB 足以避免 Windows 命令行长度限制和 ConPTY/ink 处理异常。
+const PROMPT_FILE_THRESHOLD: usize = 8192;
+
+/// 将长 prompt 写入 `.ccpanes/prompts/<id>.md`，返回文件路径
+fn write_prompt_file(project_path: &str, id: &str, prompt: &str) -> std::io::Result<PathBuf> {
+    let dir = PathBuf::from(project_path)
+        .join(".ccpanes")
+        .join("prompts");
+    std::fs::create_dir_all(&dir)?;
+    let file_path = dir.join(format!("{}.md", id));
+    std::fs::write(&file_path, prompt)?;
+    Ok(file_path)
+}
+
+/// 如果 prompt 超过阈值，写入文件并返回短引用指令；否则原样返回。
+/// 这是防止长 prompt 导致终端黑屏的安全网。
+fn externalize_long_prompt(project_path: &str, id: &str, prompt: String) -> String {
+    if prompt.len() <= PROMPT_FILE_THRESHOLD {
+        return prompt;
+    }
+    match write_prompt_file(project_path, id, &prompt) {
+        Ok(path) => {
+            info!(
+                path = %path.display(),
+                len = prompt.len(),
+                "Long prompt externalized to file"
+            );
+            format!(
+                "Read the detailed task description from '{}' and execute it. \
+                 After reading, delete the file.",
+                path.display()
+            )
+        }
+        Err(e) => {
+            warn!(err = %e, "Failed to write prompt file, using original");
+            prompt
+        }
+    }
+}
+
 /// 根据文本长度动态计算 Enter 前的等待延迟（ms）
 ///
 /// write() 同步阻塞完成后调用，只需覆盖 ink 渲染处理时间。
@@ -2127,6 +2190,17 @@ async fn submit_text_to_session(
     // Step 3: 发送 Enter（短写入不需要 spawn_blocking）
     terminal_svc.write(session_id, "\r")?;
     Ok(())
+}
+
+/// 剥离 Windows `canonicalize()` 产生的 `\\?\` UNC 前缀
+#[cfg(windows)]
+fn strip_unc_prefix(path: String) -> String {
+    path.strip_prefix(r"\\?\").unwrap_or(&path).to_string()
+}
+
+#[cfg(not(windows))]
+fn strip_unc_prefix(path: String) -> String {
+    path
 }
 
 #[cfg(test)]
