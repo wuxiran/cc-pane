@@ -3,7 +3,7 @@ use crate::models::process_info::{
 };
 use crate::utils::error::AppResult;
 use parking_lot::Mutex;
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use tracing::{debug, warn};
 
 /// 系统级 Claude Code 进程监控服务
@@ -89,7 +89,15 @@ impl ProcessMonitorService {
     /// 扫描系统中所有 Claude 相关进程
     pub fn scan_claude_processes(&self) -> AppResult<ProcessScanResult> {
         let mut sys = self.sys.lock();
-        sys.refresh_processes(ProcessesToUpdate::All, true);
+        // 只请求分类所需的信息（cmd + memory），不请求 CPU/disk/环境变量等
+        // 第二个参数 false = 不更新已有条目，只发现新进程（macOS 上显著更快）
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            false,
+            ProcessRefreshKind::nothing()
+                .with_cmd(UpdateKind::OnlyIfNotSet)
+                .with_memory(),
+        );
 
         let self_pid = Self::self_pid();
         let mut processes = Vec::new();

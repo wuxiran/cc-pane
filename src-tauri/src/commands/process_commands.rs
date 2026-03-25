@@ -10,10 +10,12 @@ pub async fn scan_claude_processes(
     service: State<'_, Arc<ProcessMonitorService>>,
 ) -> AppResult<ProcessScanResult> {
     let svc = service.inner().clone();
-    let result = tauri::async_runtime::spawn_blocking(move || svc.scan_claude_processes())
-        .await
-        .map_err(|e| AppError::from(e.to_string()))?;
-    result
+    let handle = tauri::async_runtime::spawn_blocking(move || svc.scan_claude_processes());
+    match tokio::time::timeout(std::time::Duration::from_secs(10), handle).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => Err(AppError::from(e.to_string())),
+        Err(_) => Err(AppError::from("进程扫描超时（10s）")),
+    }
 }
 
 /// 终止单个 Claude 相关进程

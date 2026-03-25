@@ -485,21 +485,35 @@ pub fn run() {
 
     // 0.5 macOS/Linux: 从用户 login shell 获取完整 PATH
     //     GUI 应用从 Finder 启动时 PATH 只有 /usr/bin:/bin，需要补全
+    //     只用 -l（login shell）加载 .zprofile，不用 -i 避免加载 .zshrc
+    //     .zprofile 包含 homebrew、系统工具的 PATH，通常 <1s 完成
+    //     保留 5s 超时作为安全兜底
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(output) = std::process::Command::new("/bin/sh")
+        let user_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        if let Ok(child) = std::process::Command::new(&user_shell)
             .args(["-l", "-c", "echo $PATH"])
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .output()
+            .stdout(std::process::Stdio::piped())
+            .spawn()
         {
-            if output.status.success() {
-                let shell_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !shell_path.is_empty() {
-                    // SAFETY: 在 main 线程启动阶段调用，此时无其他线程读取 PATH
-                    unsafe {
-                        std::env::set_var("PATH", &shell_path);
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(child.wait_with_output());
+            });
+            match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                Ok(Ok(output)) if output.status.success() => {
+                    let shell_path =
+                        String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !shell_path.is_empty() {
+                        unsafe {
+                            std::env::set_var("PATH", &shell_path);
+                        }
                     }
+                }
+                _ => {
+                    // 超时或失败，保持当前 PATH 不变
                 }
             }
         }

@@ -40,6 +40,17 @@ export const useProcessMonitorStore = create<ProcessMonitorState>((set, get) => 
       set({ scanResult: result, selectedPids: newSelected });
     } catch (e) {
       handleErrorSilent(e, "scan processes");
+      // 扫描失败时设置空结果，避免 UI 一直显示"扫描中"
+      if (!get().scanResult) {
+        set({
+          scanResult: {
+            processes: [],
+            totalCount: 0,
+            totalMemoryBytes: 0,
+            scannedAt: new Date().toISOString(),
+          },
+        });
+      }
     } finally {
       set({ scanning: false });
     }
