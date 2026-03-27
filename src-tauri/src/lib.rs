@@ -103,6 +103,16 @@ use commands::{
     get_resource_stats,
     // Settings 命令
     get_settings,
+    // 共享 MCP 命令
+    get_shared_mcp_config,
+    get_shared_mcp_status,
+    import_shared_mcp_from_claude,
+    upsert_shared_mcp_server,
+    remove_shared_mcp_server,
+    start_shared_mcp_server,
+    stop_shared_mcp_server,
+    restart_shared_mcp_server,
+    update_shared_mcp_global_config,
     get_skill,
     get_spec_content,
     get_ssh_machine,
@@ -232,8 +242,8 @@ use services::{
     FileSearchIndex, FileSystemService, HistoryService, HooksService, JournalService,
     LaunchHistoryService, McpConfigService, MemoryService, NotificationService,
     OrchestratorService, PlanService, ProcessMonitorService, ProjectService, ProviderService,
-    ScreenshotService, SettingsService, SkillService, SpecService, SshMachineService,
-    TerminalService, TodoService, WorkspaceService, WorktreeService,
+    ScreenshotService, SettingsService, SharedMcpService, SkillService, SpecService,
+    SshMachineService, TerminalService, TodoService, WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -830,6 +840,8 @@ pub fn run() {
 
     let process_monitor_service = Arc::new(ProcessMonitorService::new());
 
+    let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
+
     let popup_data_store = commands::PopupDataStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new());
     boot_mark!("all services created");
@@ -839,6 +851,7 @@ pub fn run() {
     let history_cleanup = history_service.clone();
     let workspace_cleanup = workspace_service.clone();
     let search_index_cleanup = search_index.clone();
+    let shared_mcp_cleanup = shared_mcp_service.clone();
 
     boot_mark!("building tauri app...");
     tauri::Builder::default()
@@ -883,6 +896,7 @@ pub fn run() {
         .manage(memory_service)
         .manage(ssh_machine_service)
         .manage(process_monitor_service)
+        .manage(shared_mcp_service.clone())
         .manage(popup_data_store)
         .manage(orchestrator_service.clone())
         .manage(cli_registry)
@@ -1029,6 +1043,17 @@ pub fn run() {
                 }
             }
             info!("[boot] +{}ms: orchestrator started", boot_t0.elapsed().as_millis());
+
+            // ---- 共享 MCP Server 启动 ----
+            {
+                let svc = app.state::<Arc<SharedMcpService>>().inner().clone();
+                let term_svc = app.state::<Arc<TerminalService>>().inner().clone();
+                svc.start_all();
+                svc.start_health_check();
+                // 注入到 TerminalService
+                term_svc.set_shared_mcp_service(svc);
+            }
+            info!("[boot] +{}ms: shared MCP servers started", boot_t0.elapsed().as_millis());
 
             /* ---- 资源监控定时推送 已禁用（macOS 卡顿排查）----
             {
@@ -1419,13 +1444,25 @@ pub fn run() {
             scan_claude_processes,
             kill_claude_process,
             kill_claude_processes,
-            get_resource_stats
+            get_resource_stats,
+            // 共享 MCP 命令
+            get_shared_mcp_config,
+            get_shared_mcp_status,
+            upsert_shared_mcp_server,
+            remove_shared_mcp_server,
+            start_shared_mcp_server,
+            stop_shared_mcp_server,
+            restart_shared_mcp_server,
+            update_shared_mcp_global_config,
+            import_shared_mcp_from_claude
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |_app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 info!("[cleanup] Application exiting, cleaning up resources...");
+                shared_mcp_cleanup.stop_health_check();
+                shared_mcp_cleanup.stop_all();
                 terminal_cleanup.cleanup_all();
                 history_cleanup.stop_all_watching();
                 workspace_cleanup.stop_watcher();

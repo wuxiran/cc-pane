@@ -145,8 +145,8 @@ describe("useTerminalStatusStore", () => {
       });
       useTerminalStatusStore.setState({ statusMap: map });
 
-      // 推进定时器 5s（interval 周期）
-      vi.advanceTimersByTime(5000);
+      // 推进定时器 15s（interval 周期）
+      vi.advanceTimersByTime(15000);
 
       const updatedMap = useTerminalStatusStore.getState().statusMap;
       expect(updatedMap.get("session-old")?.status).toBe("idle");

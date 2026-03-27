@@ -81,3 +81,10 @@ export type {
 } from "./selfchat";
 export type { SshMachine, AuthMethod, SshConnectivityResult } from "./ssh-machine";
 export type { ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats } from "./process";
+export type {
+  BridgeMode,
+  SharedMcpServerConfig,
+  SharedMcpServerStatus,
+  SharedMcpServerInfo,
+  SharedMcpConfig,
+} from "./shared-mcp";

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { handleErrorSilent } from "@/utils";
 import type { Panel as PanelType, Tab } from "@/types";
+import { useShallow } from "zustand/react/shallow";
 import { usePanesStore, useFullscreenStore, useFileTreeStore } from "@/stores";
 import { terminalService, popOutTab } from "@/services";
 import type { PopupTabData } from "@/services/popupWindowService";
@@ -21,29 +22,44 @@ interface PanelProps {
 
 export default memo(function Panel({ pane }: PanelProps) {
   const { t } = useTranslation("panes");
-  const activePaneId = usePanesStore((s) => s.activePaneId);
-  const selectTab = usePanesStore((s) => s.selectTab);
-  const closeTab = usePanesStore((s) => s.closeTab);
-  const togglePinTab = usePanesStore((s) => s.togglePinTab);
-  const renameTab = usePanesStore((s) => s.renameTab);
-  const addTab = usePanesStore((s) => s.addTab);
-  const splitRight = usePanesStore((s) => s.splitRight);
-  const splitDown = usePanesStore((s) => s.splitDown);
-  const splitAndMoveTab = usePanesStore((s) => s.splitAndMoveTab);
-  const closeTabsToLeft = usePanesStore((s) => s.closeTabsToLeft);
-  const closeTabsToRight = usePanesStore((s) => s.closeTabsToRight);
-  const closeOtherTabs = usePanesStore((s) => s.closeOtherTabs);
-  const setActivePane = usePanesStore((s) => s.setActivePane);
-  const updateTabSession = usePanesStore((s) => s.updateTabSession);
-  const reconnectTab = usePanesStore((s) => s.reconnectTab);
-  const setTabDisconnected = usePanesStore((s) => s.setTabDisconnected);
-  const markTabPoppedOut = usePanesStore((s) => s.markTabPoppedOut);
-  const isTabPoppedOut = usePanesStore((s) => s.isTabPoppedOut);
 
+  // Data 选择器：值变化时触发重渲染
+  const activePaneId = usePanesStore((s) => s.activePaneId);
+
+  // Action 选择器合并 + useShallow：浅比较避免对象引用变化导致的重渲染
+  const {
+    selectTab, closeTab, togglePinTab, renameTab, addTab,
+    splitRight, splitDown, splitAndMoveTab,
+    closeTabsToLeft, closeTabsToRight, closeOtherTabs,
+    setActivePane, updateTabSession, reconnectTab,
+    setTabDisconnected, markTabPoppedOut, isTabPoppedOut,
+  } = usePanesStore(useShallow((s) => ({
+    selectTab: s.selectTab,
+    closeTab: s.closeTab,
+    togglePinTab: s.togglePinTab,
+    renameTab: s.renameTab,
+    addTab: s.addTab,
+    splitRight: s.splitRight,
+    splitDown: s.splitDown,
+    splitAndMoveTab: s.splitAndMoveTab,
+    closeTabsToLeft: s.closeTabsToLeft,
+    closeTabsToRight: s.closeTabsToRight,
+    closeOtherTabs: s.closeOtherTabs,
+    setActivePane: s.setActivePane,
+    updateTabSession: s.updateTabSession,
+    reconnectTab: s.reconnectTab,
+    setTabDisconnected: s.setTabDisconnected,
+    markTabPoppedOut: s.markTabPoppedOut,
+    isTabPoppedOut: s.isTabPoppedOut,
+  })));
+
+  // Fullscreen store: action 同样合并
   const isFullscreen = useFullscreenStore((s) => s.isFullscreen);
   const fullscreenPaneId = useFullscreenStore((s) => s.fullscreenPaneId);
-  const enterFullscreen = useFullscreenStore((s) => s.enterFullscreen);
-  const exitFullscreen = useFullscreenStore((s) => s.exitFullscreen);
+  const { enterFullscreen, exitFullscreen } = useFullscreenStore(useShallow((s) => ({
+    enterFullscreen: s.enterFullscreen,
+    exitFullscreen: s.exitFullscreen,
+  })));
 
   const terminalRefs = useRef<Map<string, TerminalViewHandle>>(new Map());
 

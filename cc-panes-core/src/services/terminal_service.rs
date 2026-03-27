@@ -16,6 +16,20 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+/// 进程级 which 结果缓存，避免每次调用遍历 PATH（macOS 含网络路径时可能阻塞 3-10 秒）
+fn cached_which(name: &str) -> Result<PathBuf, which::Error> {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<PathBuf>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(cached) = map.get(name) {
+        return cached.clone().ok_or(which::Error::CannotFindBinaryPath);
+    }
+    let result = cached_which(name);
+    map.insert(name.to_string(), result.as_ref().ok().cloned());
+    result
+}
+
 /// 解析默认 Shell
 /// Windows: 优先 pwsh > powershell > cmd
 /// Unix: 使用 $SHELL 或 /bin/sh
@@ -23,11 +37,11 @@ fn resolve_default_shell() -> (String, Vec<String>) {
     #[cfg(windows)]
     {
         // 优先 PowerShell 7
-        if which::which("pwsh").is_ok() {
+        if cached_which("pwsh").is_ok() {
             return ("pwsh".to_string(), vec![]);
         }
         // PowerShell 5.1
-        if which::which("powershell").is_ok() {
+        if cached_which("powershell").is_ok() {
             return ("powershell".to_string(), vec![]);
         }
         // cmd.exe
@@ -67,7 +81,7 @@ pub fn detect_shells() -> Vec<ShellInfo> {
     #[cfg(windows)]
     {
         // 1. PowerShell 7
-        if let Ok(path) = which::which("pwsh") {
+        if let Ok(path) = cached_which("pwsh") {
             shells.push(ShellInfo::new(
                 "pwsh",
                 "PowerShell 7",
@@ -75,7 +89,7 @@ pub fn detect_shells() -> Vec<ShellInfo> {
             ));
         }
         // 2. PowerShell 5.1
-        if let Ok(path) = which::which("powershell") {
+        if let Ok(path) = cached_which("powershell") {
             shells.push(ShellInfo::new(
                 "powershell",
                 "Windows PowerShell",
@@ -91,7 +105,7 @@ pub fn detect_shells() -> Vec<ShellInfo> {
             shells.push(ShellInfo::new("git-bash", "Git Bash", git_bash));
         }
         // 5. WSL
-        if which::which("wsl").is_ok() {
+        if cached_which("wsl").is_ok() {
             shells.push(ShellInfo::new("wsl", "WSL", "wsl"));
         }
     }
@@ -355,6 +369,8 @@ pub struct TerminalService {
     spec_service: Mutex<Option<Arc<SpecService>>>,
     /// CLI 工具适配器注册表
     cli_registry: Arc<CliToolRegistry>,
+    /// 共享 MCP 服务引用（setup 阶段注入）
+    shared_mcp_service: parking_lot::RwLock<Option<Arc<crate::services::SharedMcpService>>>,
 }
 
 /// ConPTY style-only 空闲帧：\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l  (25 字节)
@@ -560,6 +576,7 @@ impl TerminalService {
             orchestrator_info: Mutex::new(None),
             spec_service: Mutex::new(None),
             cli_registry,
+            shared_mcp_service: parking_lot::RwLock::new(None),
         }
     }
 
@@ -578,6 +595,12 @@ impl TerminalService {
         if let Ok(mut svc) = self.spec_service.lock() {
             *svc = Some(spec_service);
         }
+    }
+
+    /// 设置共享 MCP 服务引用（setup 阶段调用）
+    pub fn set_shared_mcp_service(&self, service: Arc<crate::services::SharedMcpService>) {
+        *self.shared_mcp_service.write() = Some(service);
+        info!("[terminal] SharedMcpService injected");
     }
 
     /// 创建新的终端会话
@@ -675,6 +698,12 @@ impl TerminalService {
                 let effective_prompt = append_system_prompt.map(|s| s.to_string()).or(spec_prompt);
 
                 let orch_info = self.orchestrator_info.lock().ok().and_then(|g| g.clone());
+                let shared_mcp_urls = self
+                    .shared_mcp_service
+                    .read()
+                    .as_ref()
+                    .map(|svc| svc.get_running_servers_urls())
+                    .unwrap_or_default();
                 let ctx = CliAdapterContext {
                     session_id: session_id.clone(),
                     project_path: project_path.to_string(),
@@ -686,6 +715,7 @@ impl TerminalService {
                     orchestrator_port: orch_info.as_ref().map(|i| i.port),
                     orchestrator_token: orch_info.as_ref().map(|i| i.token.clone()),
                     data_dir: self.app_paths.data_dir().to_path_buf(),
+                    shared_mcp_urls,
                 };
 
                 let result = adapter.build_command(&ctx)?;
@@ -897,7 +927,7 @@ impl TerminalService {
                     Ok(n) => {
                         // busy-loop 检测
                         read_count += 1;
-                        if read_count % 500 == 0 {
+                        if read_count.is_multiple_of(500) {
                             let elapsed = read_window_start.elapsed();
                             if elapsed.as_secs() < 2 {
                                 warn!(
@@ -1112,7 +1142,14 @@ impl TerminalService {
     }
 
     /// 获取所有会话状态
+    ///
+    /// 附带清理过期 dead_buffers（搭便车，前端周期性调用此方法）
     pub fn get_all_status(&self) -> Result<Vec<SessionStatusInfo>> {
+        // 主动清理过期 dead_buffers（>5 分钟），防止内存泄漏
+        if let Ok(mut dead) = self.dead_buffers.lock() {
+            dead.retain(|_, (_, created_at)| created_at.elapsed().as_secs() < 300);
+        }
+
         let sessions = self
             .sessions
             .lock()
@@ -1352,7 +1389,7 @@ impl TerminalService {
         cli_tool: CliTool,
         provider_env: &HashMap<String, String>,
     ) -> Result<(String, Vec<String>)> {
-        let ssh_path = which::which("ssh").map_err(|_| anyhow!("ssh not found in PATH"))?;
+        let ssh_path = cached_which("ssh").map_err(|_| anyhow!("ssh not found in PATH"))?;
 
         let mut args = vec!["-t".to_string()]; // 强制伪终端
         if ssh.port != 22 {

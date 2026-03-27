@@ -140,6 +140,16 @@ impl Database {
             error!(path = %db_path.display(), err = %e, "Failed to open database");
             AppError::from(format!("Failed to open database: {}", e))
         })?;
+
+        // WAL 模式：提升读写并发性能，减少写锁等待
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+        )
+        .map_err(|e| {
+            error!(err = %e, "Failed to set database pragmas");
+            AppError::from(format!("Failed to set database pragmas: {}", e))
+        })?;
+
         Self::run_migrations(&conn)?;
 
         Ok(Self {

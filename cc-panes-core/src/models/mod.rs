@@ -5,6 +5,7 @@ mod project;
 pub mod provider;
 pub mod screenshot;
 pub mod settings;
+pub mod shared_mcp;
 pub mod spec;
 pub mod ssh_machine;
 mod terminal;

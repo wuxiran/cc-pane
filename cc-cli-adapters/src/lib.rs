@@ -163,6 +163,10 @@ pub struct CliAdapterContext {
     pub orchestrator_token: Option<String>,
     /// 数据目录（用于写入 MCP 配置文件等）
     pub data_dir: PathBuf,
+    /// 共享 MCP Server URL 映射（name → http url）
+    /// 非空时 generate_mcp_config 会跳过同名 stdio 配置并注入 HTTP 版本
+    #[allow(dead_code)]
+    pub shared_mcp_urls: HashMap<String, String>,
 }
 
 /// 命令构建结果

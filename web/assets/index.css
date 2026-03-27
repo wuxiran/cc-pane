@@ -214,8 +214,8 @@
   --app-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
   --app-glass-shadow-sidebar: 5px 0 40px rgba(0, 0, 0, 0.20);
   --app-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --app-glass-blur: 40px;
-  --app-glass-blur-sm: 24px;
+  --app-glass-blur: 12px;
+  --app-glass-blur-sm: 8px;
   --app-orb-1: rgba(59, 130, 246, 0.25);
   --app-orb-2: rgba(139, 92, 246, 0.20);
   --app-orb-3: rgba(6, 182, 212, 0.15);

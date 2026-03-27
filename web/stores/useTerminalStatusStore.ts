@@ -50,6 +50,7 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
     });
     set({ _unlisten: unlistenFn });
 
+    // Idle 阈值 30 秒，检查间隔 15 秒足够（无需 5 秒精度）
     const interval = setInterval(() => {
       const now = Date.now();
       set((state) => {
@@ -63,7 +64,7 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
         }
         return changed ? { statusMap: newMap } : state;
       });
-    }, 5000);
+    }, 15000);
     set({ _idleCheckInterval: interval });
   },
 

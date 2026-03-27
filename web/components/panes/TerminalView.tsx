@@ -1,6 +1,8 @@
 import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { writeText as tauriWriteText, readText as tauriReadText } from "@tauri-apps/plugin-clipboard-manager";
 import { terminalService, historyService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
@@ -56,6 +58,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const terminalRef = useRef<HTMLDivElement>(null);
     const terminalInstanceRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
+    const webglAddonRef = useRef<WebglAddon | null>(null);
     const onDataDisposableRef = useRef<IDisposable | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const currentSessionIdRef = useRef<string | null>(null);
@@ -85,7 +88,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       onReconnectRef.current = props.onReconnect;
     });
 
-    // 清理资源
+    // 清理资源（按顺序：回调 → 定时器 → observer → addon → terminal）
     const cleanup = useCallback(() => {
       if (onDataDisposableRef.current) {
         onDataDisposableRef.current.dispose();
@@ -105,11 +108,29 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         resizeObserverRef.current = null;
       }
 
+      // 先 dispose addon，再 dispose terminal
+      const webglToDispose = webglAddonRef.current;
+      const fitToDispose = fitAddonRef.current;
       const termToDispose = terminalInstanceRef.current;
       terminalInstanceRef.current = null;
+      webglAddonRef.current = null;
       fitAddonRef.current = null;
       lastContainerSizeRef.current = null;
 
+      if (webglToDispose) {
+        try {
+          webglToDispose.dispose();
+        } catch {
+          // WebGL addon dispose 可能在上下文丢失时抛错，安全忽略
+        }
+      }
+      if (fitToDispose) {
+        try {
+          fitToDispose.dispose();
+        } catch {
+          // addon dispose 在 DOM 节点已移除时可能抛错，安全忽略
+        }
+      }
       if (termToDispose) {
         try {
           termToDispose.dispose();
@@ -260,6 +281,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         term.open(terminalRef.current);
 
+        // 尝试启用 WebGL 加速渲染（GPU 加速，CPU 降低 50-70%）
+        // 不可用时（如 WebGL 上下文受限）自动降级到 Canvas2D
+        try {
+          const webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            console.warn("[TerminalView] WebGL context lost, falling back to Canvas2D");
+            try { webgl.dispose(); } catch { /* ignore */ }
+            webglAddonRef.current = null;
+          });
+          term.loadAddon(webgl);
+          webglAddonRef.current = webgl;
+        } catch {
+          console.info("[TerminalView] WebGL not available, using Canvas2D renderer");
+        }
+
         // 同步终端聚焦状态，用于控制冲突快捷键的放行
         const textarea = term.textarea;
         if (textarea) {
@@ -276,7 +312,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               const selection = term.getSelection();
               if (selection) {
                 e.preventDefault();
-                navigator.clipboard.writeText(selection).catch(() => {});
+                // Web API 优先，WKWebView 权限拒绝时 fallback 到 Tauri plugin
+                navigator.clipboard.writeText(selection)
+                  .catch(() => tauriWriteText(selection).catch(() => {}));
                 term.clearSelection();
                 return false;
               }
@@ -285,9 +323,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             // Ctrl+V: 显式读取剪贴板粘贴，e.preventDefault() 防止浏览器 paste 事件导致粘贴两次
             if (e.key === 'v' || e.key === 'V') {
               e.preventDefault();
+              // Web API 优先，WKWebView 权限拒绝时 fallback 到 Tauri plugin
               navigator.clipboard.readText()
                 .then((text) => { if (text) term.paste(text); })
-                .catch(() => {});
+                .catch(() => tauriReadText().then((text) => { if (text) term.paste(text); }).catch(() => {}));
               return false;
             }
           }

@@ -44,3 +44,4 @@ export type { PopupTabData } from "./popupWindowService";
 export * as sshMachineService from "./sshMachineService";
 export { processService } from "./processService";
 export { logService } from "./logService";
+export { sharedMcpService } from "./sharedMcpService";

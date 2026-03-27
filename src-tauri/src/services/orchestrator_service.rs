@@ -276,10 +276,15 @@ impl OrchestratorService {
                 let app = build_router(state);
 
                 // 绑定 127.0.0.1:0（自动分配端口）
+                // macOS Ventura+ 首次绑定可能触发防火墙授权弹窗，这是正常行为
                 let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
                     Ok(l) => l,
                     Err(e) => {
-                        error!("[orchestrator] Failed to bind: {}", e);
+                        error!(
+                            "[orchestrator] Failed to bind 127.0.0.1:0: {}. \
+                             On macOS, ensure the app is allowed in System Settings > Privacy & Security > Firewall.",
+                            e
+                        );
                         return;
                     }
                 };

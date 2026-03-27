@@ -206,8 +206,10 @@ function MainApp() {
   // 监听 terminal-exit 事件，提取 last prompt
   useEffect(() => {
     if (!isTauriReady()) return;
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
     getCurrentWebview().listen<{ sessionId: string }>("terminal-exit", async (e) => {
+      if (cancelled) return;
       const info = sessionMapRef.current.get(e.payload.sessionId);
       if (info?.claudeSessionId) {
         try {
@@ -228,22 +230,42 @@ function MainApp() {
           .catch((err: unknown) => console.warn("Spec exit handling failed:", err));
       }
       sessionMapRef.current.delete(e.payload.sessionId);
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   // 监听弹出窗口回收事件
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
     listen<{ tabId: string; paneId: string; sessionId: string }>(
       "popup-terminal-reclaim",
       (e) => {
+        if (cancelled) return;
         const { tabId } = e.payload;
         usePanesStore.getState().markTabReclaimed(tabId);
         popupMarkReclaimed(tabId);
       }
-    ).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    ).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   // 注册快捷键动作（所有 handler 通过 getState() 获取最新值，无需依赖）
@@ -412,10 +434,12 @@ function MainApp() {
         // 新启动 Claude（非 resume）时，轮询获取 claudeSessionId
         // 方式 1：session-state.json（hook 写入）
         // 方式 2：~/.claude/projects/ 扫描（无需 hook）
+        // 后台（document.hidden）时暂停轮询，减少 CPU 消耗
         if (launchClaude && !resumeId) {
           const startTime = new Date().toISOString();
           let attempts = 0;
           const maxAttempts = 15; // 30 秒（15 × 2s），两种检测方式足够
+          let resolved = false;
           const updateSessionMap = (rid: number, sessionId: string) => {
             for (const [ptyId, info] of sessionMapRef.current) {
               if (info.recordId === rid) {
@@ -425,8 +449,10 @@ function MainApp() {
             }
           };
           const interval = setInterval(async () => {
+            // 后台暂停：页面不可见时跳过本次轮询（不计入 attempts）
+            if (document.hidden) return;
             attempts++;
-            if (attempts > maxAttempts) {
+            if (attempts > maxAttempts || resolved) {
               clearInterval(interval);
               return;
             }
@@ -436,6 +462,7 @@ function MainApp() {
               const state = await historyService.readSessionState(statePath);
               console.debug(`[session-detect] method1: pollPath=${statePath} result=${state?.claudeSessionId ?? "null"} attempt=${attempts}`);
               if (state?.claudeSessionId) {
+                resolved = true;
                 clearInterval(interval);
                 const detectedSessionId = state.claudeSessionId;
                 await historyService.updateSessionId(recordId, detectedSessionId);
@@ -454,6 +481,7 @@ function MainApp() {
               const detectedId = await historyService.detectClaudeSession(path, workspacePath, startTime);
               console.debug(`[session-detect] method2: projectPath=${path} wsPath=${workspacePath} after=${startTime} result=${detectedId ?? "null"} attempt=${attempts}`);
               if (detectedId) {
+                resolved = true;
                 clearInterval(interval);
                 await historyService.updateSessionId(recordId, detectedId);
                 window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));

@@ -43,7 +43,10 @@
       "bundled-claude-config/.claude/agents/*",
       "bundled-claude-config/CLAUDE.md",
       "bundled-claude-config/default-skills/*"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   },
   "plugins": {
     "updater": {

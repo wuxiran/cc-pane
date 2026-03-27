@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitStatus;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// PTY 创建配置
@@ -46,7 +47,8 @@ pub trait PtyProcess: Send + Sync {
 struct PortablePtyProcess {
     child: Mutex<Box<dyn portable_pty::Child + Send + Sync>>,
     master: Mutex<Box<dyn portable_pty::MasterPty + Send>>,
-    exited: Mutex<bool>,
+    /// 使用 AtomicBool 消除 wait() 和 kill() 之间的锁竞态
+    exited: AtomicBool,
     /// 创建时存储 PID，kill() 通过 OS API 按 PID 终止，绕过 child 锁死锁
     pid: u32,
 }
@@ -76,13 +78,7 @@ impl PtyProcess for PortablePtyProcess {
             .lock()
             .map_err(|_| anyhow!("child lock poisoned"))?;
         let status = child.wait()?;
-        {
-            let mut exited = self
-                .exited
-                .lock()
-                .map_err(|_| anyhow!("exited lock poisoned"))?;
-            *exited = true;
-        }
+        self.exited.store(true, Ordering::Release);
 
         // ExitStatus::from_raw() 的参数含义因平台而异：
         //   Unix: wait status 格式 — exit code 编码为 (code << 8)
@@ -108,24 +104,19 @@ impl PtyProcess for PortablePtyProcess {
     }
 
     fn kill(&self) -> Result<()> {
-        let exited = self
-            .exited
-            .lock()
-            .map_err(|_| anyhow!("exited lock poisoned"))?;
-        if *exited {
+        if self.exited.load(Ordering::Acquire) {
             return Ok(());
         }
-        drop(exited);
 
         // 通过 OS API 按 PID 终止进程，绕过 child 互斥锁
         // 解决 wait() 持锁阻塞导致 kill() 获取 child 锁死锁的问题
         kill_process_by_pid(self.pid)?;
 
-        let mut exited = self
-            .exited
-            .lock()
-            .map_err(|_| anyhow!("exited lock poisoned"))?;
-        *exited = true;
+        // Unix: kill 后回收子进程，防止僵尸
+        #[cfg(unix)]
+        reap_child(self.pid);
+
+        self.exited.store(true, Ordering::Release);
         Ok(())
     }
 }
@@ -167,7 +158,7 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
         process: Arc::new(PortablePtyProcess {
             child: Mutex::new(child),
             master: Mutex::new(pair.master),
-            exited: Mutex::new(false),
+            exited: AtomicBool::new(false),
             pid,
         }),
         reader,
@@ -213,23 +204,50 @@ fn kill_process_by_pid(pid: u32) -> Result<()> {
 
     #[cfg(unix)]
     {
-        // 先尝试杀进程组（PTY 子进程通常在同一进程组）
-        let ret = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
-        if ret != 0 {
+        let pgid = -(pid as i32);
+        let spid = pid as i32;
+
+        // 先 SIGTERM 请求优雅退出
+        let term_ret = unsafe { libc::kill(pgid, libc::SIGTERM) };
+        if term_ret != 0 {
             let err = std::io::Error::last_os_error();
             if err.raw_os_error() == Some(libc::ESRCH) {
                 return Ok(());
             }
-            // 进程组杀失败，回退到杀单进程
-            let ret2 = unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+            // 进程组不存在，尝试单进程 SIGTERM
+            let ret2 = unsafe { libc::kill(spid, libc::SIGTERM) };
             if ret2 != 0 {
                 let err2 = std::io::Error::last_os_error();
                 if err2.raw_os_error() == Some(libc::ESRCH) {
                     return Ok(());
                 }
-                return Err(anyhow!("kill({}) failed: {}", pid, err2));
+                return Err(anyhow!("kill({}) SIGTERM failed: {}", pid, err2));
             }
         }
+
+        // 等待 100ms 让进程响应 SIGTERM
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // 检查进程是否已退出，未退出则 SIGKILL 强制终止
+        let check = unsafe { libc::kill(spid, 0) };
+        if check == 0 {
+            // 进程仍存在，SIGKILL
+            let _ = unsafe { libc::kill(pgid, libc::SIGKILL) };
+            // 进程组杀失败也尝试单进程
+            let _ = unsafe { libc::kill(spid, libc::SIGKILL) };
+        }
+
         Ok(())
+    }
+}
+
+/// Unix: 回收子进程，防止僵尸进程
+#[cfg(unix)]
+fn reap_child(pid: u32) {
+    // SAFETY: waitpid 是标准 POSIX 调用，pid 为有效进程 ID，
+    // WNOHANG 确保非阻塞，不会影响其他线程
+    unsafe {
+        let mut status: libc::c_int = 0;
+        libc::waitpid(pid as i32, &mut status, libc::WNOHANG);
     }
 }
