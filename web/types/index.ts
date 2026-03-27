@@ -72,7 +72,6 @@ export type {
   FsEntry,
   DirListing,
   FileContent,
-  SearchResult,
   FileTreeNode,
 } from "./filesystem";
 export type {
@@ -88,3 +87,5 @@ export type {
   SharedMcpServerInfo,
   SharedMcpConfig,
 } from "./shared-mcp";
+export type { SavedSession } from "./session-restore";
+export type { WslDistro, WslDistroState } from "./wsl";

@@ -13,8 +13,6 @@ use commands::{
     add_launch_history,
     add_project,
     add_provider,
-    // 日志命令
-    get_log_dir,
     add_ssh_machine,
     add_ssh_project,
     add_todo_subtask,
@@ -28,6 +26,8 @@ use commands::{
     clean_session_file,
     cleanup_project_history,
     clear_launch_history,
+    clear_session_output,
+    clear_terminal_sessions,
     close_window,
     compress_history,
     copy_skill,
@@ -52,6 +52,7 @@ use commands::{
     detect_claude_session,
     disable_hook,
     disable_hooks,
+    discover_wsl_distros,
     enable_all_hooks,
     enable_hook,
     enable_hooks,
@@ -71,7 +72,6 @@ use commands::{
     fs_move_entry,
     fs_read_file,
     fs_rename_entry,
-    fs_search_files,
     fs_write_file,
     generate_claude_md,
     get_all_terminal_status,
@@ -88,6 +88,8 @@ use commands::{
     get_history_config,
     get_hooks_status,
     get_journal_index,
+    // 日志命令
+    get_log_dir,
     get_mcp_server,
     get_memory,
     get_memory_stats,
@@ -106,13 +108,6 @@ use commands::{
     // 共享 MCP 命令
     get_shared_mcp_config,
     get_shared_mcp_status,
-    import_shared_mcp_from_claude,
-    upsert_shared_mcp_server,
-    remove_shared_mcp_server,
-    start_shared_mcp_server,
-    stop_shared_mcp_server,
-    restart_shared_mcp_server,
-    update_shared_mcp_global_config,
     get_skill,
     get_spec_content,
     get_ssh_machine,
@@ -133,6 +128,7 @@ use commands::{
     git_stash,
     git_stash_pop,
     handle_terminal_exit_spec,
+    import_shared_mcp_from_claude,
     init_ccpanes,
     // Local History 命令
     init_project_history,
@@ -172,6 +168,8 @@ use commands::{
     list_workspaces,
     list_worktree_recent_changes,
     list_worktrees,
+    load_session_output,
+    load_terminal_sessions,
     maximize_window,
     migrate_data_dir,
     minimize_window,
@@ -185,6 +183,7 @@ use commands::{
     remove_mcp_server,
     remove_project,
     remove_provider,
+    remove_shared_mcp_server,
     remove_ssh_machine,
     remove_workspace_project,
     remove_worktree,
@@ -194,10 +193,13 @@ use commands::{
     reorder_workspaces,
     resize_terminal,
     respond_orchestrator_query,
+    restart_shared_mcp_server,
     restore_file_version,
     restore_to_label,
     save_skill,
     save_spec_content,
+    // Session Restore 命令
+    save_terminal_sessions,
     save_workflow,
     scan_broken_sessions,
     // Process Monitor 命令
@@ -209,7 +211,9 @@ use commands::{
     search_memory,
     set_decorations,
     set_default_provider,
+    start_shared_mcp_server,
     stop_project_history,
+    stop_shared_mcp_server,
     store_memory,
     sync_spec_tasks,
     test_proxy,
@@ -225,6 +229,7 @@ use commands::{
     update_project_name,
     update_provider,
     update_settings,
+    update_shared_mcp_global_config,
     update_spec,
     update_ssh_machine,
     update_todo,
@@ -235,14 +240,15 @@ use commands::{
     update_workspace_project_alias,
     update_workspace_provider,
     upsert_mcp_server,
+    upsert_shared_mcp_server,
     write_terminal,
 };
 use repository::{Database, HistoryRepository, ProjectRepository, SpecRepository, TodoRepository};
 use services::{
-    FileSearchIndex, FileSystemService, HistoryService, HooksService, JournalService,
-    LaunchHistoryService, McpConfigService, MemoryService, NotificationService,
-    OrchestratorService, PlanService, ProcessMonitorService, ProjectService, ProviderService,
-    ScreenshotService, SettingsService, SharedMcpService, SkillService, SpecService,
+    FileSystemService, HistoryService, HooksService, JournalService, LaunchHistoryService,
+    McpConfigService, MemoryService, NotificationService, OrchestratorService, PlanService,
+    ProcessMonitorService, ProjectService, ProviderService, ScreenshotService,
+    SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
     SshMachineService, TerminalService, TodoService, WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
@@ -567,7 +573,11 @@ fn resolve_path_from_shell(shell: &str) -> Option<String> {
         Ok(Ok(output)) if output.status.success() => {
             let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let path = strip_ansi_escapes(&raw);
-            if path.is_empty() { None } else { Some(path) }
+            if path.is_empty() {
+                None
+            } else {
+                Some(path)
+            }
         }
         _ => {
             eprintln!("[boot] shell timed out or failed, killing pid={child_pid}");
@@ -600,8 +610,7 @@ fn build_fallback_path() -> String {
     }
 
     // nvm：找最新的 node 版本目录
-    let nvm_dir = std::env::var("NVM_DIR")
-        .unwrap_or_else(|_| format!("{home_str}/.nvm"));
+    let nvm_dir = std::env::var("NVM_DIR").unwrap_or_else(|_| format!("{home_str}/.nvm"));
     let nvm_versions = std::path::Path::new(&nvm_dir).join("versions/node");
     if nvm_versions.is_dir() {
         if let Ok(mut entries) = std::fs::read_dir(&nvm_versions) {
@@ -660,8 +669,13 @@ fn refresh_path_cache(cache_file: &str) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     if let Some(path) = resolve_path_from_shell(&shell) {
         let _ = write_path_cache(cache_file, &path);
-        unsafe { std::env::set_var("PATH", &path); }
-        eprintln!("[boot/bg] PATH cache refreshed + process PATH updated ({} entries)", path.split(':').count());
+        unsafe {
+            std::env::set_var("PATH", &path);
+        }
+        eprintln!(
+            "[boot/bg] PATH cache refreshed + process PATH updated ({} entries)",
+            path.split(':').count()
+        );
     }
 }
 
@@ -674,8 +688,13 @@ fn load_full_path() {
     if let Ok(cached) = std::fs::read_to_string(&cache_file) {
         let cached = cached.trim().to_string();
         if !cached.is_empty() {
-            eprintln!("[boot] PATH loaded from cache ({} entries)", cached.split(':').count());
-            unsafe { std::env::set_var("PATH", &cached); }
+            eprintln!(
+                "[boot] PATH loaded from cache ({} entries)",
+                cached.split(':').count()
+            );
+            unsafe {
+                std::env::set_var("PATH", &cached);
+            }
             let cache_file_bg = cache_file.clone();
             std::thread::spawn(move || refresh_path_cache(&cache_file_bg));
             return;
@@ -684,8 +703,13 @@ fn load_full_path() {
 
     // 2. 无缓存：立即用 well-known paths（纯 fs 扫描，<1ms）
     let path = build_fallback_path();
-    eprintln!("[boot] PATH set from well-known paths ({} entries), shell refresh in background", path.split(':').count());
-    unsafe { std::env::set_var("PATH", &path); }
+    eprintln!(
+        "[boot] PATH set from well-known paths ({} entries), shell refresh in background",
+        path.split(':').count()
+    );
+    unsafe {
+        std::env::set_var("PATH", &path);
+    }
 
     // 后台 spawn shell 刷新缓存 + 更新当前进程 PATH
     std::thread::spawn(move || refresh_path_cache(&cache_file));
@@ -795,7 +819,7 @@ pub fn run() {
     let project_repo = Arc::new(ProjectRepository::new(db.clone()));
     let history_repo = Arc::new(HistoryRepository::new(db.clone()));
     let todo_repo = Arc::new(TodoRepository::new(db.clone()));
-    let spec_repo = Arc::new(SpecRepository::new(db));
+    let spec_repo = Arc::new(SpecRepository::new(db.clone()));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
@@ -810,8 +834,7 @@ pub fn run() {
     let mcp_config_service = Arc::new(McpConfigService::new());
     let skill_service = Arc::new(SkillService::new());
     let plan_service = Arc::new(PlanService::new());
-    let search_index = Arc::new(FileSearchIndex::new());
-    let filesystem_service = Arc::new(FileSystemService::new(search_index.clone()));
+    let filesystem_service = Arc::new(FileSystemService::new());
     let cli_registry = {
         let mut reg = cc_cli_adapters::CliToolRegistry::new();
         reg.register(Arc::new(cc_cli_adapters::ClaudeAdapter::new()));
@@ -842,6 +865,9 @@ pub fn run() {
 
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
 
+    let session_restore_service =
+        Arc::new(SessionRestoreService::new(db.clone(), app_paths.clone()));
+
     let popup_data_store = commands::PopupDataStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new());
     boot_mark!("all services created");
@@ -850,8 +876,8 @@ pub fn run() {
     let terminal_cleanup = terminal_service.clone();
     let history_cleanup = history_service.clone();
     let workspace_cleanup = workspace_service.clone();
-    let search_index_cleanup = search_index.clone();
     let shared_mcp_cleanup = shared_mcp_service.clone();
+    let session_restore_cleanup = session_restore_service.clone();
 
     boot_mark!("building tauri app...");
     tauri::Builder::default()
@@ -897,6 +923,7 @@ pub fn run() {
         .manage(ssh_machine_service)
         .manage(process_monitor_service)
         .manage(shared_mcp_service.clone())
+        .manage(session_restore_service)
         .manage(popup_data_store)
         .manage(orchestrator_service.clone())
         .manage(cli_registry)
@@ -906,7 +933,10 @@ pub fn run() {
             for (ms, msg) in &boot_marks {
                 info!("[boot] +{}ms: {}", ms, msg);
             }
-            info!("[boot] +{}ms: setup callback entered", boot_t0.elapsed().as_millis());
+            info!(
+                "[boot] +{}ms: setup callback entered",
+                boot_t0.elapsed().as_millis()
+            );
 
             // ---- 提取打包的 .claude/ 配置到数据目录（Release 模式）----
             {
@@ -922,17 +952,13 @@ pub fn run() {
 
                         // ---- 注入默认 Skill 到各 CLI 工具的全局命令目录 ----
                         let t_skill = std::time::Instant::now();
-                        let registry =
-                            app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
+                        let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
                         let svc = cc_panes_core::services::DefaultSkillService::new(
                             resource_dir
                                 .join("bundled-claude-config")
                                 .join("default-skills"),
                         );
-                        svc.inject_all(
-                            registry.inner(),
-                            env!("CARGO_PKG_VERSION"),
-                        );
+                        svc.inject_all(registry.inner(), env!("CARGO_PKG_VERSION"));
                         info!(
                             "[boot] skill injection took {}ms",
                             t_skill.elapsed().as_millis()
@@ -947,7 +973,10 @@ pub fn run() {
                 }
             }
 
-            info!("[boot] +{}ms: bundled config extracted", boot_t0.elapsed().as_millis());
+            info!(
+                "[boot] +{}ms: bundled config extracted",
+                boot_t0.elapsed().as_millis()
+            );
 
             // ---- 注册 updater 插件（需在 setup 中注册以访问 app handle）----
             #[cfg(desktop)]
@@ -976,7 +1005,10 @@ pub fn run() {
                 let ws_svc = app.state::<Arc<WorkspaceService>>();
                 ws_svc.start_watcher(tauri_emitter);
             }
-            info!("[boot] +{}ms: emitters injected + workspace watcher started", boot_t0.elapsed().as_millis());
+            info!(
+                "[boot] +{}ms: emitters injected + workspace watcher started",
+                boot_t0.elapsed().as_millis()
+            );
 
             // ---- 注册截图全局快捷键（仅 Windows，macOS 截图功能暂未实现）----
             #[cfg(target_os = "windows")]
@@ -1042,7 +1074,10 @@ pub fn run() {
                     term_svc.set_orchestrator_info(port, orch_svc.token().to_string());
                 }
             }
-            info!("[boot] +{}ms: orchestrator started", boot_t0.elapsed().as_millis());
+            info!(
+                "[boot] +{}ms: orchestrator started",
+                boot_t0.elapsed().as_millis()
+            );
 
             // ---- 共享 MCP Server 启动 ----
             {
@@ -1053,7 +1088,10 @@ pub fn run() {
                 // 注入到 TerminalService
                 term_svc.set_shared_mcp_service(svc);
             }
-            info!("[boot] +{}ms: shared MCP servers started", boot_t0.elapsed().as_millis());
+            info!(
+                "[boot] +{}ms: shared MCP servers started",
+                boot_t0.elapsed().as_millis()
+            );
 
             /* ---- 资源监控定时推送 已禁用（macOS 卡顿排查）----
             {
@@ -1174,9 +1212,7 @@ pub fn run() {
             {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.with_webview(|webview| unsafe {
-                        use objc2_app_kit::{
-                            NSWindow, NSWindowStyleMask, NSWindowTitleVisibility,
-                        };
+                        use objc2_app_kit::{NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
 
                         let ns_window: &NSWindow = &*webview.ns_window().cast();
 
@@ -1197,7 +1233,10 @@ pub fn run() {
                 }
             }
 
-            info!("[boot] +{}ms: === setup complete ===", boot_t0.elapsed().as_millis());
+            info!(
+                "[boot] +{}ms: === setup complete ===",
+                boot_t0.elapsed().as_millis()
+            );
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1207,8 +1246,11 @@ pub fn run() {
                         // 主窗口关闭 → 隐藏到托盘（不退出）
                         let _ = window.hide();
                         api.prevent_close();
+                    } else if window.label().starts_with("popup-") {
+                        // 弹出窗口关闭 → 通知主窗口回收标签（不阻止关闭）
+                        let label = window.label().to_string();
+                        let _ = window.app_handle().emit("popup-window-closing", &label);
                     }
-                    // 弹出窗口正常关闭，不拦截
                 }
                 #[cfg(target_os = "macos")]
                 WindowEvent::Focused(true) => {
@@ -1415,7 +1457,6 @@ pub fn run() {
             fs_rename_entry,
             fs_copy_entry,
             fs_move_entry,
-            fs_search_files,
             fs_get_entry_info,
             // Screenshot 命令
             screenshot_update_shortcut,
@@ -1440,6 +1481,8 @@ pub fn run() {
             update_ssh_machine,
             remove_ssh_machine,
             check_ssh_connectivity,
+            // WSL 发现命令
+            discover_wsl_distros,
             // Process Monitor 命令
             scan_claude_processes,
             kill_claude_process,
@@ -1454,19 +1497,41 @@ pub fn run() {
             stop_shared_mcp_server,
             restart_shared_mcp_server,
             update_shared_mcp_global_config,
-            import_shared_mcp_from_claude
+            import_shared_mcp_from_claude,
+            // Session Restore 命令
+            save_terminal_sessions,
+            load_terminal_sessions,
+            clear_terminal_sessions,
+            load_session_output,
+            clear_session_output
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |_app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 info!("[cleanup] Application exiting, cleaning up resources...");
+
+                // 在 cleanup_all() 前保存终端输出到文件
+                let outputs = terminal_cleanup.get_all_session_outputs();
+                if !outputs.is_empty() {
+                    info!(
+                        "[cleanup] Saving {} session outputs for restore",
+                        outputs.len()
+                    );
+                    for (session_id, lines) in &outputs {
+                        if let Err(e) =
+                            session_restore_cleanup.save_session_output(session_id, lines)
+                        {
+                            error!("[cleanup] Failed to save output for {}: {}", session_id, e);
+                        }
+                    }
+                }
+
                 shared_mcp_cleanup.stop_health_check();
                 shared_mcp_cleanup.stop_all();
                 terminal_cleanup.cleanup_all();
                 history_cleanup.stop_all_watching();
                 workspace_cleanup.stop_watcher();
-                search_index_cleanup.stop_all_watching();
             }
         });
 }

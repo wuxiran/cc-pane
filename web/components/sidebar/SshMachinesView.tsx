@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, memo } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Plus, Server, MoreHorizontal, Pencil, Trash2, Copy, Terminal, RefreshCw } from "lucide-react";
+import { Plus, Server, MoreHorizontal, Pencil, Trash2, Copy, Terminal, RefreshCw, MonitorSmartphone } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -24,8 +24,12 @@ import { useSshMachinesStore } from "@/stores";
 import { waitForTauri, getErrorMessage } from "@/utils";
 import { checkSshConnectivity } from "@/services/sshMachineService";
 import SshMachineDialog from "./SshMachineDialog";
+import WslDiscoverDialog from "./WslDiscoverDialog";
 import type { SshMachine, OpenTerminalOptions, SshConnectivityResult } from "@/types";
 import type { SshConnectionInfo } from "@/types/workspace";
+
+/** 检测当前是否为 Windows 平台 */
+const isWindows = navigator.platform?.startsWith("Win") ?? false;
 
 /** 格式化连接信息字符串 */
 function formatConnection(m: SshMachine): string {
@@ -64,6 +68,7 @@ export default function SshMachinesView({ onOpenTerminal }: SshMachinesViewProps
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editMachine, setEditMachine] = useState<SshMachine | null>(null);
+  const [wslDialogOpen, setWslDialogOpen] = useState(false);
   const [connectivity, setConnectivity] = useState<Record<string, ConnectivityState>>({});
   const [checkingAll, setCheckingAll] = useState(false);
   const abortRef = useRef(false);
@@ -194,6 +199,21 @@ export default function SshMachinesView({ onOpenTerminal }: SshMachinesViewProps
               </TooltipContent>
             </Tooltip>
           )}
+          {isWindows && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="h-5 w-5 flex items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]"
+                  onClick={() => setWslDialogOpen(true)}
+                >
+                  <MonitorSmartphone className="w-3.5 h-3.5" style={{ color: "var(--app-text-secondary)" }} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{t("ssh.wsl.discover", { defaultValue: "Discover WSL" })}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -250,6 +270,12 @@ export default function SshMachinesView({ onOpenTerminal }: SshMachinesViewProps
         onOpenChange={setDialogOpen}
         machine={editMachine}
       />
+      {isWindows && (
+        <WslDiscoverDialog
+          open={wslDialogOpen}
+          onOpenChange={setWslDialogOpen}
+        />
+      )}
     </div>
   );
 }

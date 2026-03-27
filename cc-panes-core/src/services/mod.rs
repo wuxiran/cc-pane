@@ -1,6 +1,5 @@
 pub mod claude_session_service;
 pub mod default_skill_service;
-pub mod file_search_index;
 mod filesystem_service;
 mod history_service;
 mod hooks_service;
@@ -11,9 +10,10 @@ mod memory_service;
 pub mod plan_service;
 mod process_monitor_service;
 mod project_service;
-mod shared_mcp_service;
 mod provider_service;
+mod session_restore_service;
 mod settings_service;
+mod shared_mcp_service;
 pub mod skill_service;
 mod spec_service;
 mod ssh_machine_service;
@@ -21,9 +21,10 @@ pub mod terminal_service;
 mod todo_service;
 mod workspace_service;
 mod worktree_service;
+#[cfg(target_os = "windows")]
+pub mod wsl_discovery_service;
 
 pub use default_skill_service::DefaultSkillService;
-pub use file_search_index::FileSearchIndex;
 pub use filesystem_service::FileSystemService;
 pub use history_service::HistoryService;
 pub use hooks_service::{HookStatus, HooksService};
@@ -35,6 +36,7 @@ pub use plan_service::PlanService;
 pub use process_monitor_service::ProcessMonitorService;
 pub use project_service::ProjectService;
 pub use provider_service::ProviderService;
+pub use session_restore_service::SessionRestoreService;
 pub use settings_service::SettingsService;
 pub use shared_mcp_service::SharedMcpService;
 pub use skill_service::SkillService;

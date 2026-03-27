@@ -4,6 +4,7 @@ pub mod process_info;
 mod project;
 pub mod provider;
 pub mod screenshot;
+pub mod session_restore;
 pub mod settings;
 pub mod shared_mcp;
 pub mod spec;
@@ -11,6 +12,7 @@ pub mod ssh_machine;
 mod terminal;
 pub mod todo;
 mod workspace;
+pub mod wsl;
 
 pub use history::{
     // Diff 模型
@@ -37,3 +39,4 @@ pub use screenshot::ScreenshotResult;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig};
 pub use terminal::{CliTool, CreateSessionRequest, ResizeRequest, TerminalExit, TerminalOutput};
 pub use workspace::{ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace, WorkspaceProject};
+pub use wsl::{WslDistro, WslDistroState};
