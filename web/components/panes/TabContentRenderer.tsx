@@ -1,7 +1,9 @@
-import { memo, lazy, Suspense } from "react";
-import { ExternalLink } from "lucide-react";
+import { memo, lazy, Suspense, useCallback } from "react";
+import { ExternalLink, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types";
+import { usePanesStore } from "@/stores";
+import { markTabReclaimed } from "@/services";
 import TerminalView from "./TerminalView";
 import type { TerminalViewHandle } from "./TerminalView";
 
@@ -42,6 +44,12 @@ export default memo(function TabContentRenderer({
   onReconnect,
 }: TabContentRendererProps) {
   const { t } = useTranslation("panes");
+
+  const handleReclaim = useCallback(() => {
+    usePanesStore.getState().markTabReclaimed(tab.id);
+    markTabReclaimed(tab.id);
+  }, [tab.id]);
+
   switch (tab.contentType) {
     case "terminal":
       if (!tab.projectPath) return null;
@@ -55,6 +63,24 @@ export default memo(function TabContentRenderer({
             <p className="text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>
               {t("poppedOutPlaceholder")}
             </p>
+            <button
+              onClick={handleReclaim}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-colors"
+              style={{
+                color: "rgba(255,255,255,0.7)",
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.15)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.2)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.1)";
+              }}
+            >
+              <Undo2 size={14} />
+              {t("reclaimTab")}
+            </button>
           </div>
         );
       }
@@ -72,6 +98,10 @@ export default memo(function TabContentRenderer({
           cliTool={tab.cliTool}
           resumeId={tab.resumeId}
           ssh={tab.ssh}
+          restoring={tab.restoring}
+          savedSessionId={tab.savedSessionId}
+          paneId={paneId}
+          tabId={tab.id}
           onSessionCreated={onSessionCreated}
           onSessionExited={onSessionExited}
           onReconnect={onReconnect}

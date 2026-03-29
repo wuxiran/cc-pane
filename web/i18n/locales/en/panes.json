@@ -30,5 +30,6 @@
   "unsavedTabsCount": "{{count}} tab(s) have unsaved changes. Discard all and close?",
   "revealInExplorer": "Reveal in File Tree",
   "popOutWindow": "Pop Out to Window",
-  "poppedOutPlaceholder": "Popped out to a separate window. Close the window to reclaim."
+  "poppedOutPlaceholder": "Popped out to a separate window. Close the window to reclaim.",
+  "reclaimTab": "Reclaim"
 }

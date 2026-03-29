@@ -19,10 +19,11 @@ import TodoManager from "@/components/todo/TodoManager";
 import SelfChatPanel from "@/components/SelfChatPanel";
 import { SelfChatManager } from "@/components/selfchat";
 import { HomeDashboard } from "@/components/home";
+import { ProvidersPanel } from "@/components/providers";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
 import OnboardingGuide from "@/components/OnboardingGuide";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import QuickSearch from "@/components/QuickSearch";
+
 import RecentFilesPicker from "@/components/RecentFilesPicker";
 import PopupTerminalWindow from "@/components/PopupTerminalWindow";
 import {
@@ -42,14 +43,15 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
-import { historyService, terminalService, localHistoryService, hooksService, checkUpdateSilent, markTabReclaimed as popupMarkReclaimed } from "@/services";
+import { historyService, terminalService, localHistoryService, hooksService, checkUpdateSilent, markTabReclaimed as popupMarkReclaimed, getPoppedTabs, sessionRestoreService } from "@/services";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isTauriReady, waitForTauri } from "@/utils";
 import { registerGlobalApi } from "@/utils/globalApi";
 import i18n from "@/i18n";
-import type { PaneNode, Panel as PanelType, OpenTerminalOptions } from "@/types";
+import type { PaneNode, Panel as PanelType, OpenTerminalOptions, SavedSession } from "@/types";
 
 interface SessionTrackInfo {
   recordId: number;
@@ -89,11 +91,6 @@ function MainApp() {
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
 
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
-
-  // QuickSearch 状态
-  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
-  const openQuickSearch = useCallback(() => setQuickSearchOpen(true), []);
-  const closeQuickSearch = useCallback(() => setQuickSearchOpen(false), []);
 
   // RecentFilesPicker 状态
   const [recentFilesOpen, setRecentFilesOpen] = useState(false);
@@ -135,6 +132,83 @@ function MainApp() {
   // 注册全局 API（Skill 用）
   useEffect(() => {
     registerGlobalApi();
+  }, []);
+
+  // 退出时保存终端会话元数据 + 周期性自动保存
+  useEffect(() => {
+    // 收集可恢复的 Tab 并转为 SavedSession
+    const collectSessions = (): SavedSession[] => {
+      const tabs = usePanesStore.getState().getRestorableTabs();
+      const now = new Date().toISOString();
+      return tabs
+        .filter(({ tab }) => tab.contentType === "terminal" && tab.projectPath)
+        .map(({ tab, paneId }) => ({
+          sessionId: tab.sessionId || tab.savedSessionId || tab.id,
+          tabId: tab.id,
+          paneId,
+          projectPath: tab.projectPath,
+          workspaceName: tab.workspaceName,
+          workspacePath: tab.workspacePath,
+          providerId: tab.providerId,
+          cliTool: tab.cliTool || (tab.launchClaude ? "claude" : "none"),
+          resumeId: tab.resumeId,
+          claudeSessionId: undefined, // 退出时由兜底扫描填充
+          sshConfig: tab.ssh ? JSON.stringify(tab.ssh) : undefined,
+          customTitle: tab.title,
+          createdAt: now,
+          savedAt: now,
+          hasOutput: false,
+        }));
+    };
+
+    // 等待 Tauri IPC 就绪后再注册窗口关闭监听
+    let unlistenClose: (() => void) | undefined;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    waitForTauri().then(async (ready) => {
+      if (!ready) return;
+
+      // 监听窗口关闭请求
+      unlistenClose = await getCurrentWindow().onCloseRequested(async () => {
+        try {
+          const sessions = collectSessions();
+          if (sessions.length > 0) {
+            // 兜底扫描 Claude session ID
+            for (const s of sessions) {
+              if ((s.cliTool === "claude" || s.cliTool === "codex") && !s.claudeSessionId) {
+                try {
+                  const statePath = s.workspacePath || s.projectPath;
+                  const state = await historyService.readSessionState(statePath);
+                  if (state?.claudeSessionId) {
+                    s.claudeSessionId = state.claudeSessionId;
+                  }
+                } catch { /* ignore */ }
+              }
+            }
+            await sessionRestoreService.save(sessions);
+            console.info(`[SessionRestore] Saved ${sessions.length} sessions on close`);
+          }
+        } catch (err) {
+          console.error("[SessionRestore] Failed to save sessions on close:", err);
+        }
+        // 不阻止关闭
+      });
+
+      // 周期性保存（每 60 秒）
+      timer = setInterval(async () => {
+        try {
+          const sessions = collectSessions();
+          if (sessions.length > 0) {
+            await sessionRestoreService.save(sessions);
+          }
+        } catch { /* silent */ }
+      }, 60_000);
+    });
+
+    return () => {
+      unlistenClose?.();
+      if (timer) clearInterval(timer);
+    };
   }, []);
 
   // 初始化设置 + TerminalStatusStore（等待 Tauri IPC 就绪）
@@ -187,13 +261,9 @@ function MainApp() {
     });
   }, []);
 
-  // Ctrl+P / Ctrl+E 全局快捷键
+  // Ctrl+E 全局快捷键（最近文件）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "p") {
-        e.preventDefault();
-        setQuickSearchOpen((prev) => !prev);
-      }
       if ((e.ctrlKey || e.metaKey) && e.key === "e") {
         e.preventDefault();
         setRecentFilesOpen((prev) => !prev);
@@ -243,19 +313,53 @@ function MainApp() {
     };
   }, []);
 
-  // 监听弹出窗口回收事件
+  // 监听 Rust 侧 popup 窗口关闭通知（on_window_event 发射）
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
-    listen<{ tabId: string; paneId: string; sessionId: string }>(
-      "popup-terminal-reclaim",
-      (e) => {
-        if (cancelled) return;
-        const { tabId } = e.payload;
-        usePanesStore.getState().markTabReclaimed(tabId);
-        popupMarkReclaimed(tabId);
+    listen<string>("popup-window-closing", (e) => {
+      if (cancelled) return;
+      const label = e.payload;
+      const poppedTabs = getPoppedTabs();
+      for (const [tabId, windowLabel] of poppedTabs) {
+        if (windowLabel === label) {
+          usePanesStore.getState().markTabReclaimed(tabId);
+          popupMarkReclaimed(tabId);
+          break;
+        }
       }
-    ).then((fn) => {
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // Fallback: 监听 popup 窗口销毁事件，防止 reclaim 事件丢失
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    listen<{ label: string }>("tauri://window-destroyed", (e) => {
+      if (cancelled) return;
+      const label = (e.payload as { label?: string })?.label ?? "";
+      if (!label.startsWith("popup-")) return;
+      // 从 popupWindowService 的映射中查找对应的 tabId
+      const poppedTabs = getPoppedTabs();
+      for (const [tabId, windowLabel] of poppedTabs) {
+        if (windowLabel === label) {
+          console.info(`[popup-fallback] Window ${label} destroyed, reclaiming tab ${tabId}`);
+          usePanesStore.getState().markTabReclaimed(tabId);
+          popupMarkReclaimed(tabId);
+          break;
+        }
+      }
+    }).then((fn) => {
       if (cancelled) {
         fn();
       } else {
@@ -351,11 +455,6 @@ function MainApp() {
       id: "show-explorer",
       label: "Explorer",
       handler: () => useActivityBarStore.getState().toggleView("explorer"),
-    });
-    register({
-      id: "show-search",
-      label: "Search",
-      handler: () => useActivityBarStore.getState().toggleView("search"),
     });
     register({
       id: "show-sessions",
@@ -582,7 +681,6 @@ function MainApp() {
           <>
             <TitleBar
               workspaceName={selectedWorkspace()?.alias || selectedWorkspace()?.name}
-              onOpenQuickSearch={openQuickSearch}
             />
             {/* 主区域：ActivityBar | Sidebar/Todo | 主内容区 */}
             <div className="flex-1 flex overflow-hidden relative z-[1]">
@@ -601,6 +699,11 @@ function MainApp() {
                 /* Self-Chat 全屏模式 */
                 <div className="flex-1 overflow-hidden">
                   <SelfChatManager />
+                </div>
+              ) : appViewMode === "providers" ? (
+                /* Providers 全屏模式 */
+                <div className="flex-1 overflow-hidden">
+                  <ProvidersPanel />
                 </div>
               ) : appViewMode === "files" ? (
                 /* Files 模式：侧边栏（文件浏览器）+ 文件编辑面板 */
@@ -679,9 +782,6 @@ function MainApp() {
 
         {/* 新手引导 */}
         <OnboardingGuide />
-
-        {/* 全局快速搜索 */}
-        <QuickSearch open={quickSearchOpen} onClose={closeQuickSearch} />
 
         {/* 最近文件选择器 */}
         <RecentFilesPicker open={recentFilesOpen} onClose={closeRecentFiles} />

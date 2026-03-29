@@ -30,5 +30,6 @@
   "unsavedTabsCount": "有 {{count}} 个标签页含未保存修改，确定全部放弃并关闭吗？",
   "revealInExplorer": "在文件树中显示",
   "popOutWindow": "弹出为独立窗口",
-  "poppedOutPlaceholder": "已弹出为独立窗口，关闭窗口后自动回收"
+  "poppedOutPlaceholder": "已弹出为独立窗口，关闭窗口后自动回收",
+  "reclaimTab": "回收"
 }

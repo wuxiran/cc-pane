@@ -1,6 +1,11 @@
 import { enableMapSet } from "immer";
 enableMapSet();
 
+// Monaco Editor: 使用本地打包资源，不从 CDN 加载（Release CSP 会阻止 CDN 脚本）
+import { loader } from "@monaco-editor/react";
+import * as monaco from "monaco-editor";
+loader.config({ monaco });
+
 import ReactDOM from "react-dom/client";
 import "@/i18n";
 import App from "./App";

@@ -1325,12 +1325,14 @@ impl McpToolHandler {
         // 去除文本中的换行符，防止意外提交
         let clean_text = params.text.replace(['\r', '\n'], "");
         // 安全网：长文本外部化为文件，避免 PTY 处理异常
-        let fallback_dir = self.state.app_paths.data_dir().to_string_lossy().to_string();
-        let effective_text = externalize_long_prompt(
-            &fallback_dir,
-            &uuid::Uuid::new_v4().to_string(),
-            clean_text,
-        );
+        let fallback_dir = self
+            .state
+            .app_paths
+            .data_dir()
+            .to_string_lossy()
+            .to_string();
+        let effective_text =
+            externalize_long_prompt(&fallback_dir, &uuid::Uuid::new_v4().to_string(), clean_text);
         match submit_text_to_session(
             &self.state.terminal_service,
             &params.session_id,
@@ -2046,11 +2048,8 @@ async fn handle_submit_to_session(
     let clean_text = req.text.replace(['\r', '\n'], "");
     // 安全网：长文本外部化为文件，避免 PTY 处理异常
     let fallback_dir = state.app_paths.data_dir().to_string_lossy().to_string();
-    let effective_text = externalize_long_prompt(
-        &fallback_dir,
-        &uuid::Uuid::new_v4().to_string(),
-        clean_text,
-    );
+    let effective_text =
+        externalize_long_prompt(&fallback_dir, &uuid::Uuid::new_v4().to_string(), clean_text);
 
     match submit_text_to_session(&state.terminal_service, &req.session_id, &effective_text).await {
         Ok(()) => (
@@ -2136,9 +2135,7 @@ const PROMPT_FILE_THRESHOLD: usize = 8192;
 
 /// 将长 prompt 写入 `.ccpanes/prompts/<id>.md`，返回文件路径
 fn write_prompt_file(project_path: &str, id: &str, prompt: &str) -> std::io::Result<PathBuf> {
-    let dir = PathBuf::from(project_path)
-        .join(".ccpanes")
-        .join("prompts");
+    let dir = PathBuf::from(project_path).join(".ccpanes").join("prompts");
     std::fs::create_dir_all(&dir)?;
     let file_path = dir.join(format!("{}.md", id));
     std::fs::write(&file_path, prompt)?;

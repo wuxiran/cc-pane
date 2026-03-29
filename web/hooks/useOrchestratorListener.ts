@@ -31,6 +31,7 @@ interface OrchestratorLaunchPayload {
   providerId?: string;
   workspacePath?: string;
   title?: string;
+  resumeId?: string;  // 对应 Rust OrchestratorLaunchEvent.resume_id
   paneId?: string;
   cliTool?: string;
 }
@@ -86,21 +87,14 @@ export function useOrchestratorListener() {
           panesStore.addTab(paneId, {
             projectId,
             projectPath,
+            sessionId,           // 后端已创建的 PTY session，避免前端重复创建
+            resumeId: event.payload.resumeId,
             workspaceName,
             providerId,
             workspacePath,
             cliTool: resolvedCliTool,
             customTitle: title,
           });
-
-          const updatedState = usePanesStore.getState();
-          const pane = updatedState.findPaneById(paneId);
-          if (pane?.type === "panel") {
-            const lastTab = pane.tabs[pane.tabs.length - 1];
-            if (lastTab && lastTab.projectId === projectId) {
-              updatedState.updateTabSession(paneId, lastTab.id, sessionId);
-            }
-          }
         }
       )
       .then((fn) => unlisteners.push(fn));

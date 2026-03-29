@@ -194,5 +194,6 @@
   "ssh.wsl.stateUnknown": "Unknown",
   "ssh.wsl.import": "Import ({{count}})",
   "ssh.wsl.imported": "{{count}} WSL distro(s) imported",
-  "ssh.wsl.importFailed": "Failed to import {{name}}: {{error}}"
+  "ssh.wsl.importFailed": "Failed to import {{name}}: {{error}}",
+  "providers": "Providers"
 }

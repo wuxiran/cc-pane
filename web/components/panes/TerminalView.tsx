@@ -2,8 +2,9 @@ import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { writeText as tauriWriteText, readText as tauriReadText } from "@tauri-apps/plugin-clipboard-manager";
-import { terminalService, historyService } from "@/services";
+import { terminalService, historyService, sessionRestoreService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
 import { shouldTerminalHandleKey, useShortcutsStore, useSettingsStore, usePanesStore } from "@/stores";
@@ -42,6 +43,14 @@ interface TerminalViewProps {
   skipMcp?: boolean;
   appendSystemPrompt?: string;
   ssh?: SshConnectionInfo;
+  /** 是否处于恢复模式（重启后标记） */
+  restoring?: boolean;
+  /** 关闭前的 session ID（用于加载输出文件） */
+  savedSessionId?: string;
+  /** 所属 Pane ID（恢复完成后清除标记用） */
+  paneId?: string;
+  /** Tab ID（恢复完成后清除标记用） */
+  tabId?: string;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
   /** SSH 断线重连回调，返回新 sessionId（null 表示失败） */
@@ -70,6 +79,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const isDisconnectedRef = useRef(false);
     const isReconnectingRef = useRef(false);
     const isSshRef = useRef(!!props.ssh);
+    // 延迟恢复标记：非 active Tab 恢复时仅回放输出，待切换到 active 再创建 PTY
+    const deferredRestoreRef = useRef(false);
 
     const onSessionCreatedRef = useRef(props.onSessionCreated);
     const onSessionExitedRef = useRef(props.onSessionExited);
@@ -237,13 +248,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         if (!isMounted || !terminalRef.current) return;
 
-        const scrollback = useSettingsStore.getState().settings?.terminal?.scrollback ?? 1000;
+        const termSettings = useSettingsStore.getState().settings?.terminal;
+        const scrollback = termSettings?.scrollback ?? 1000;
+        const fontFamily = termSettings?.fontFamily || 'Consolas, "Courier New", "Microsoft YaHei Mono", "Noto Sans Mono CJK SC", "PingFang SC", monospace';
 
         const term = new Terminal({
+          allowProposedApi: true,
           cursorBlink: true,
           fontSize: 14,
           scrollback,
-          fontFamily: 'Consolas, "Courier New", monospace',
+          fontFamily,
           ...(navigator.platform.startsWith('Win') && buildNumber && buildNumber > 0 && {
             windowsPty: {
               backend: 'conpty' as const,
@@ -280,6 +294,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         term.loadAddon(fit);
 
         term.open(terminalRef.current);
+
+        // 启用 Unicode 11 宽度表（修复 CJK + emoji 字符宽度计算错误导致的花屏）
+        const unicode11 = new Unicode11Addon();
+        term.loadAddon(unicode11);
+        term.unicode.activeVersion = "11";
 
         // 尝试启用 WebGL 加速渲染（GPU 加速，CPU 降低 50-70%）
         // 不可用时（如 WebGL 上下文受限）自动降级到 Canvas2D
@@ -404,6 +423,30 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           try {
             await ensureListeners();
 
+            // --- 恢复模式：回放历史输出 ---
+            if (props.restoring && props.savedSessionId) {
+              try {
+                const lines = await sessionRestoreService.loadOutput(props.savedSessionId);
+                if (lines && lines.length > 0) {
+                  term.writeln("\x1b[90m--- Session restored ---\x1b[0m");
+                  for (const line of lines) {
+                    term.writeln(line);
+                  }
+                  term.writeln("");
+                }
+              } catch (err) {
+                console.warn("[TerminalView] Failed to load restored output:", err);
+              }
+
+              // 延迟恢复：非 active Tab 仅回放输出，不创建 PTY
+              // 用户切换到此 Tab 时通过 isActive 变化触发 PTY 创建
+              if (!props.isActive) {
+                console.info(`[TerminalView] Deferred restore (not active): ${props.projectPath}`);
+                deferredRestoreRef.current = true;
+                return;
+              }
+            }
+
             let sessionId: string;
             let effectiveResumeId = props.resumeId;
 
@@ -414,7 +457,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             } else {
               // 新建模式
               // 重启恢复时 tab.resumeId 可能是 stale 的，查 session-state.json 获取最新值
-              if ((props.launchClaude || (props.cliTool && props.cliTool !== "none")) && !props.sessionId) {
+              if ((props.launchClaude || (props.cliTool && props.cliTool !== "none")) && !props.sessionId && effectiveResumeId) {
                 try {
                   // hook 写在 workspacePath（如果有），读取时也要对应
                   const statePath = props.workspacePath || props.projectPath;
@@ -468,6 +511,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }
             }
 
+            // 恢复完成后清理状态和输出文件
+            if (props.restoring && props.paneId && props.tabId) {
+              usePanesStore.getState().clearRestoring(props.paneId, props.tabId);
+              if (props.savedSessionId) {
+                sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
+              }
+            }
+
             // 注册输出/退出回调
             await bindSessionCallbacks(sessionId);
             if (!isMounted) {
@@ -515,7 +566,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 激活时重新适配大小 + 聚焦
+    // 激活时重新适配大小 + 聚焦 + 延迟恢复
     useEffect(() => {
       if (props.isActive && fitAddonRef.current) {
         requestAnimationFrame(() => {
@@ -523,6 +574,46 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           terminalInstanceRef.current?.focus();
         });
       }
+      // 延迟恢复：用户切换到此 Tab 时创建 PTY
+      if (props.isActive && deferredRestoreRef.current) {
+        deferredRestoreRef.current = false;
+        const term = terminalInstanceRef.current;
+        if (!term || !props.projectPath) return;
+
+        (async () => {
+          try {
+            await ensureListeners();
+            const effectiveResumeId = props.resumeId;
+            console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
+            const sessionId = await terminalService.createSession({
+              projectPath: props.projectPath,
+              cols: term.cols,
+              rows: term.rows,
+              workspaceName: props.workspaceName,
+              providerId: props.providerId,
+              workspacePath: props.workspacePath,
+              launchClaude: props.launchClaude,
+              cliTool: props.cliTool,
+              resumeId: effectiveResumeId,
+              ssh: props.ssh,
+            });
+            currentSessionIdRef.current = sessionId;
+            onSessionCreatedRef.current(sessionId);
+            // 清理恢复状态
+            if (props.paneId && props.tabId) {
+              usePanesStore.getState().clearRestoring(props.paneId, props.tabId);
+              if (props.savedSessionId) {
+                sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
+              }
+            }
+            await bindSessionCallbacks(sessionId);
+          } catch (err) {
+            console.error("[TerminalView] Deferred restore failed:", err);
+            term.writeln(`\x1b[31m--- Failed to restore session: ${getErrorMessage(err)} ---\x1b[0m`);
+          }
+        })();
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.isActive]);
 
     return (

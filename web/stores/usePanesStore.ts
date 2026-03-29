@@ -42,6 +42,7 @@ function createPanel(tab?: Tab): Panel {
 interface CreateTabOptions {
   projectId: string;
   projectPath: string;
+  sessionId?: string;  // 后端已创建的 PTY session ID（MCP launch_task 场景）
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
@@ -53,7 +54,7 @@ interface CreateTabOptions {
 }
 
 function createTab(opts: CreateTabOptions): Tab {
-  const { projectId, projectPath, resumeId, workspaceName, providerId, workspacePath, cliTool, customTitle, ssh, machineName } = opts;
+  const { projectId, projectPath, sessionId, resumeId, workspaceName, providerId, workspacePath, cliTool, customTitle, ssh, machineName } = opts;
   let title: string;
   if (customTitle) {
     title = customTitle;
@@ -80,7 +81,7 @@ function createTab(opts: CreateTabOptions): Tab {
     contentType: "terminal",
     projectId,
     projectPath,
-    sessionId: null,
+    sessionId: sessionId ?? null,
     resumeId,
     workspaceName,
     providerId,
@@ -196,6 +197,10 @@ interface PanesState {
   setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean) => void;
   reconnectTab: (paneId: string, tabId: string) => Promise<string | null>;
   closeTabBySessionId: (sessionId: string) => void;
+  /** 清除 Tab 的 restoring 状态（恢复完成后调用） */
+  clearRestoring: (paneId: string, tabId: string) => void;
+  /** 获取所有可恢复的终端 Tab（退出时保存用） */
+  getRestorableTabs: () => Array<{ tab: Tab; paneId: string }>;
 }
 
 const initialPanel = createPanel();
@@ -205,6 +210,11 @@ function cleanRehydratedPanes(node: PaneNode) {
   if (node.type === "panel") {
     for (const tab of node.tabs) {
       if (tab.contentType === "terminal") {
+        // 保存旧 sessionId 用于加载输出文件
+        if (tab.sessionId) {
+          tab.savedSessionId = tab.sessionId;
+          tab.restoring = true;
+        }
         tab.sessionId = null;
         if (tab.resumeId === "new") {
           tab.resumeId = undefined;
@@ -1051,6 +1061,32 @@ export const usePanesStore = create<PanesState>()(
           return;
         }
       }
+    },
+
+    clearRestoring: (paneId, tabId) => {
+      set((state) => {
+        const pane = findPane(state.rootPane, paneId);
+        if (pane?.type === "panel") {
+          const tab = pane.tabs.find((t) => t.id === tabId);
+          if (tab) {
+            tab.restoring = false;
+            tab.savedSessionId = undefined;
+          }
+        }
+      });
+    },
+
+    getRestorableTabs: () => {
+      const panels = collectPanels(get().rootPane);
+      const result: Array<{ tab: Tab; paneId: string }> = [];
+      for (const panel of panels) {
+        for (const tab of panel.tabs) {
+          if (tab.contentType === "terminal" && tab.projectPath) {
+            result.push({ tab, paneId: panel.id });
+          }
+        }
+      }
+      return result;
     },
   })),
   {

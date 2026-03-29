@@ -95,6 +95,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
             onSetPath={handleSetWorkspacePath}
             onClearPath={handleClearWorkspacePath}
             onSetProvider={actions.handleSetWorkspaceProvider}
+            onOpenInFileBrowser={handleOpenInFileBrowser}
           >
             <ProjectListView
               projects={ws.projects}

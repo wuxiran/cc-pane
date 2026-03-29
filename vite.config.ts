@@ -23,6 +23,7 @@ export default defineConfig(async () => ({
         manualChunks: {
           "xterm": ["@xterm/xterm", "@xterm/addon-fit"],
           "radix": ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-context-menu", "@radix-ui/react-tooltip", "@radix-ui/react-alert-dialog"],
+          "monaco-editor": ["monaco-editor"],
         },
       },
     },

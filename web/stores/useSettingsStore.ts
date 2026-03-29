@@ -52,7 +52,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     },
     terminal: {
       fontSize: 14,
-      fontFamily: 'Consolas, "Courier New", monospace',
+      fontFamily: 'Consolas, "Courier New", "Microsoft YaHei Mono", "Noto Sans Mono CJK SC", "PingFang SC", monospace',
       cursorStyle: "block",
       cursorBlink: true,
       scrollback: 1000,

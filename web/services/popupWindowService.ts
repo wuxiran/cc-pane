@@ -39,6 +39,11 @@ export function markTabReclaimed(tabId: string): void {
   poppedTabs.delete(tabId);
 }
 
+/** 获取所有已弹出标签的 tabId -> windowLabel 映射副本 */
+export function getPoppedTabs(): Map<string, string> {
+  return new Map(poppedTabs);
+}
+
 /** 弹出窗口启动后从 Rust PopupDataStore 获取 tabData（one-shot，带重试） */
 export async function getPopupTabData(): Promise<PopupTabData | null> {
   // 重试机制：WebView JS 可能在 Rust 写入数据之前就执行

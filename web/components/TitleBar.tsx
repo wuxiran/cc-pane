@@ -1,16 +1,15 @@
-import { Minus, Square, Copy, X, Search } from "lucide-react";
+import { Minus, Square, Copy, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useBorderlessStore } from "@/stores";
 import { useWindowControl } from "@/hooks/useWindowControl";
 
 interface TitleBarProps {
   workspaceName?: string;
-  onOpenQuickSearch?: () => void;
 }
 
 const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
 
-export default function TitleBar({ workspaceName, onOpenQuickSearch }: TitleBarProps) {
+export default function TitleBar({ workspaceName }: TitleBarProps) {
   const { t } = useTranslation("common");
   const isBorderless = useBorderlessStore((s) => s.isBorderless);
   const { closeWindow, minimizeWindow, maximizeWindow, isMaximized, startDrag } = useWindowControl();
@@ -48,7 +47,7 @@ export default function TitleBar({ workspaceName, onOpenQuickSearch }: TitleBarP
         </span>
       </div>
 
-      {/* 中间：搜索入口 + 拖拽区 */}
+      {/* 中间：拖拽区 */}
       <div
         className="flex-1 h-full flex items-center justify-center cursor-grab"
         data-tauri-drag-region=""
@@ -59,30 +58,7 @@ export default function TitleBar({ workspaceName, onOpenQuickSearch }: TitleBarP
             startDrag();
           }
         }}
-      >
-        <button
-          className="flex items-center gap-2 w-[420px] max-w-[50vw] h-[22px] px-2.5 rounded-md border text-[12px] transition-colors hover:opacity-90"
-          style={{
-            background: "var(--app-hover)",
-            borderColor: "var(--app-border)",
-            color: "var(--app-text-tertiary)",
-            WebkitAppRegion: "no-drag",
-          } as React.CSSProperties}
-          onClick={onOpenQuickSearch}
-        >
-          <Search size={12} className="shrink-0" />
-          <span className="flex-1 text-left truncate">Search files...</span>
-          <kbd
-            className="text-[10px] px-1 py-0.5 rounded-sm"
-            style={{
-              background: "var(--app-hover)",
-              color: "var(--app-text-tertiary)",
-            }}
-          >
-            Ctrl+P
-          </kbd>
-        </button>
-      </div>
+      />
 
       {/* 右侧：窗口控件（macOS 使用原生红绿灯，不需要自定义按钮） */}
       {!isMac && (

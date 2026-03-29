@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import {
   Folder, ChevronRight, Trash2,
   FolderOpen, FolderSearch, ShieldCheck, Terminal, GitBranch,
-  FileText, Settings2, Globe,
+  FileText, Settings2, Globe, Files,
 } from "lucide-react";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
@@ -17,6 +17,7 @@ import { useProvidersStore, useDialogStore } from "@/stores";
 import { hooksService, type HookStatus } from "@/services";
 import { useCliTools } from "@/hooks/useCliTools";
 import type { Workspace, OpenTerminalOptions } from "@/types";
+import { getCompatibleCliTool } from "@/types/provider";
 import AddSshProjectDialog from "./AddSshProjectDialog";
 
 interface WorkspaceItemProps {
@@ -34,12 +35,13 @@ interface WorkspaceItemProps {
   onSetPath: (ws: Workspace) => void;
   onClearPath: (ws: Workspace) => void;
   onSetProvider: (ws: Workspace, providerId: string | null) => void;
+  onOpenInFileBrowser?: (path: string) => void;
 }
 
 export default function WorkspaceItem({
   ws, expanded, children,
   onExpand, onOpenTerminal, onRename, onDelete, onSetAlias,
-  onImportProject, onScanImport, onGitClone, onSetPath, onClearPath, onSetProvider,
+  onImportProject, onScanImport, onGitClone, onSetPath, onClearPath, onSetProvider, onOpenInFileBrowser,
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const providerList = useProvidersStore((s) => s.providers);
@@ -107,14 +109,9 @@ export default function WorkspaceItem({
             style={expanded ? { background: "var(--app-hover)" } : undefined}
             onClick={() => onExpand(ws.id)}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
               <span className="text-sm font-medium tracking-wide">{displayName}</span>
-              {ws.path && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30">
-                  Claude
-                </span>
-              )}
               {boundProvider && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -146,14 +143,18 @@ export default function WorkspaceItem({
         </ContextMenuTrigger>
         <ContextMenuContent className="w-48">
           {/* Open Terminal */}
-          <ContextMenuItem disabled={ws.projects.length === 0} onClick={() => {
-            if (ws.projects.length > 0) onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId });
+          <ContextMenuItem disabled={!ws.path && ws.projects.length === 0} onClick={() => {
+            const terminalPath = ws.path || ws.projects[0]?.path;
+            if (terminalPath) onOpenTerminal({ path: terminalPath, workspaceName: ws.name, providerId: ws.providerId });
           }}>
             <Terminal /> {t("openTerminal")}
           </ContextMenuItem>
           {/* CLI 工具（动态渲染） */}
-          {cliTools.map((tool) =>
-            tool.id === "claude" ? (
+          {cliTools.map((tool) => {
+            const compatibleProviders = providerList.filter(
+              (p) => getCompatibleCliTool(p.providerType) === tool.id
+            );
+            return (
               <ContextMenuSub key={tool.id}>
                 <ContextMenuSubTrigger disabled={ws.projects.length === 0}>
                   <Terminal /> {tool.displayName}
@@ -163,14 +164,14 @@ export default function WorkspaceItem({
                     if (ws.projects.length > 0) onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId, workspacePath: ws.path, cliTool: tool.id });
                   }}>
                     {t("useWorkspaceProvider")}
-                    {ws.providerId && providerList.find(p => p.id === ws.providerId) && (
+                    {ws.providerId && boundProvider && (
                       <span className="ml-auto text-[10px] opacity-60">
-                        {providerList.find(p => p.id === ws.providerId)?.name}
+                        {boundProvider.name}
                       </span>
                     )}
                   </ContextMenuItem>
-                  {providerList.length > 0 && <ContextMenuSeparator />}
-                  {providerList.map((p) => (
+                  {compatibleProviders.length > 0 && <ContextMenuSeparator />}
+                  {compatibleProviders.map((p) => (
                     <ContextMenuItem
                       key={p.id}
                       onClick={() => {
@@ -182,17 +183,14 @@ export default function WorkspaceItem({
                   ))}
                 </ContextMenuSubContent>
               </ContextMenuSub>
-            ) : (
-              <ContextMenuItem key={tool.id} disabled={ws.projects.length === 0} onClick={() => {
-                if (ws.projects.length > 0) onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId, workspacePath: ws.path, cliTool: tool.id });
-              }}>
-                <Terminal /> {tool.displayName}
-              </ContextMenuItem>
-            )
-          )}
+            );
+          })}
           {/* Open in Explorer */}
           <ContextMenuItem disabled={!rootPath} onClick={handleRevealFolder}>
             <FolderOpen /> {t("openFolder")}
+          </ContextMenuItem>
+          <ContextMenuItem disabled={!rootPath} onClick={() => rootPath && onOpenInFileBrowser?.(rootPath)}>
+            <Files /> {t("openInFileBrowser")}
           </ContextMenuItem>
           <ContextMenuSeparator />
           {/* Session Journal */}

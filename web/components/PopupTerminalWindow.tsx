@@ -5,7 +5,6 @@
 
 import { useEffect, useCallback, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { emit } from "@tauri-apps/api/event";
 import TerminalView from "@/components/panes/TerminalView";
 import { getPopupTabData } from "@/services/popupWindowService";
 import type { PopupTabData } from "@/services/popupWindowService";
@@ -29,28 +28,6 @@ export default function PopupTerminalWindow() {
         setError(`Failed to get tab data: ${String(err)}`);
       });
   }, []);
-
-  // 窗口关闭前通知主窗口回收标签
-  useEffect(() => {
-    if (!tabData) return;
-    let unlistenFn: (() => void) | undefined;
-    let cancelled = false;
-    const currentWindow = getCurrentWindow();
-    currentWindow.onCloseRequested(async () => {
-      await emit("popup-terminal-reclaim", {
-        tabId: tabData.tabId,
-        paneId: tabData.paneId,
-        sessionId: tabData.sessionId,
-      });
-    }).then((fn) => {
-      if (cancelled) fn(); // 已卸载则立即注销
-      else unlistenFn = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlistenFn?.();
-    };
-  }, [tabData]);
 
   // 设置窗口标题
   useEffect(() => {

@@ -194,5 +194,6 @@
   "ssh.wsl.stateUnknown": "未知",
   "ssh.wsl.import": "导入 ({{count}})",
   "ssh.wsl.imported": "已导入 {{count}} 个 WSL 分发版",
-  "ssh.wsl.importFailed": "导入 {{name}} 失败: {{error}}"
+  "ssh.wsl.importFailed": "导入 {{name}} 失败: {{error}}",
+  "providers": "供应商"
 }
