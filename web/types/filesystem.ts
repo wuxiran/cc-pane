@@ -26,15 +26,6 @@ export interface FileContent {
   language: string | null;
 }
 
-/** 搜索结果 */
-export interface SearchResult {
-  path: string;
-  name: string;
-  isDir: boolean;
-  relPath: string;
-  score?: number;
-}
-
 /** 文件树节点（用于前端树结构） */
 export interface FileTreeNode {
   entry: FsEntry;

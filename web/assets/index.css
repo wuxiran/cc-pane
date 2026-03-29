@@ -391,13 +391,6 @@
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* QuickSearch 入场动画 */
-@keyframes quicksearch-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.98); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-}
-.quicksearch-enter { animation: quicksearch-in 0.12s ease-out; }
-
 /* Home Dashboard — hover styles */
 .home-quick-action:hover {
   background: var(--app-hover) !important;

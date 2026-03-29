@@ -33,15 +33,3 @@ pub struct FileContent {
     pub size: u64,
     pub language: Option<String>,
 }
-
-/// 搜索结果
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchResult {
-    pub path: String,
-    pub name: String,
-    pub is_dir: bool,
-    pub rel_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub score: Option<u32>,
-}

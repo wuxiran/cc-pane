@@ -1,5 +1,5 @@
 import {
-  Command, FolderTree, Search, History, Bot, ListTodo, Settings, Files, Server, Activity,
+  Command, FolderTree, History, Bot, ListTodo, Settings, Files, Server, Activity, Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -69,6 +69,7 @@ export default function ActivityBar() {
   const toggleTodoMode = useActivityBarStore((s) => s.toggleTodoMode);
   const toggleSelfChatMode = useActivityBarStore((s) => s.toggleSelfChatMode);
   const toggleHomeMode = useActivityBarStore((s) => s.toggleHomeMode);
+  const toggleProvidersMode = useActivityBarStore((s) => s.toggleProvidersMode);
   const openSettings = useDialogStore((s) => s.openSettings);
 
   const processCount = useProcessMonitorStore((s) => s.scanResult?.totalCount ?? 0);
@@ -83,7 +84,6 @@ export default function ActivityBar() {
   const viewItems: { view: ActivityView; icon: React.ReactNode; label: string; badge?: number }[] = [
     { view: "explorer", icon: <FolderTree className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("workspaces") },
     { view: "files", icon: <Files className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("fileBrowser", { defaultValue: "Files" }) },
-    { view: "search", icon: <Search className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("search", { ns: "common", defaultValue: "Search" }) },
     { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches") },
     // { view: "process", icon: <Activity className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("processMonitor", { defaultValue: "Processes" }), badge: processCount }, // 已禁用（macOS 卡顿排查）
     { view: "ssh", icon: <Server className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("sshMachines", { defaultValue: "SSH Machines" }) },
@@ -154,6 +154,14 @@ export default function ActivityBar() {
             badge={item.badge}
           />
         ))}
+
+        {/* Providers (切换全屏 providers 视图模式) */}
+        <ActivityBarIcon
+          icon={<Zap className="w-[22px] h-[22px]" strokeWidth={1.5} />}
+          label={t("providers", { defaultValue: "Providers" })}
+          active={appViewMode === "providers"}
+          onClick={toggleProvidersMode}
+        />
 
         {/* Todo (切换全屏 todo 视图模式) */}
         <ActivityBarIcon

@@ -6,7 +6,7 @@ import { historyService, localHistoryService } from "@/services";
 import { waitForTauri } from "@/utils";
 import ExplorerView from "@/components/sidebar/ExplorerView";
 import SessionsView from "@/components/sidebar/SessionsView";
-import SearchView from "@/components/sidebar/SearchView";
+
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
 import ProcessView from "@/components/sidebar/ProcessView";
@@ -121,9 +121,6 @@ export default function Sidebar({
         )}
         {activeView === "sessions" && (
           <SessionsView onOpenTerminal={onOpenTerminal} />
-        )}
-        {activeView === "search" && (
-          <SearchView />
         )}
         {activeView === "files" && (
           <FileBrowserView />

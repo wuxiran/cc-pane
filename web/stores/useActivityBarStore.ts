@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type ActivityView = "explorer" | "search" | "sessions" | "files" | "ssh" | "process";
-export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files";
+export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process";
+export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files" | "providers";
 
 interface ActivityBarState {
   activeView: ActivityView;
@@ -17,6 +17,7 @@ interface ActivityBarState {
   toggleSelfChatMode: () => void;
   toggleFilesMode: () => void;
   toggleHomeMode: () => void;
+  toggleProvidersMode: () => void;
 }
 
 export const useActivityBarStore = create<ActivityBarState>()(
@@ -76,6 +77,11 @@ export const useActivityBarStore = create<ActivityBarState>()(
       toggleHomeMode: () =>
         set((s) => ({
           appViewMode: s.appViewMode === "home" ? "panes" : "home",
+        })),
+
+      toggleProvidersMode: () =>
+        set((s) => ({
+          appViewMode: s.appViewMode === "providers" ? "panes" : "providers",
         })),
 
       toggleFilesMode: () =>

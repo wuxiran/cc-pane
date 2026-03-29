@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { filesystemService } from "@/services/filesystemService";
-import type { FileTreeNode, SearchResult } from "@/types/filesystem";
+import type { FileTreeNode } from "@/types/filesystem";
 
 interface FileTreeState {
   /** rootPath → 根节点（entry + children） */
@@ -19,8 +19,6 @@ interface FileTreeState {
   toggleExpand: (rootPath: string, dirPath: string) => Promise<void>;
   /** 刷新整棵树或指定目录 */
   refresh: (rootPath: string, dirPath?: string) => Promise<void>;
-  /** 搜索文件 */
-  searchFiles: (rootPath: string, query: string) => Promise<SearchResult[]>;
   /** 清除指定根路径的文件树缓存 */
   clearTree: (rootPath: string) => void;
   /** 切换隐藏文件显示 */
@@ -187,10 +185,6 @@ export const useFileTreeStore = create<FileTreeState>()(
     refresh: async (rootPath, dirPath?) => {
       const target = dirPath || rootPath;
       await get().loadDirectory(rootPath, target);
-    },
-
-    searchFiles: async (rootPath, query) => {
-      return filesystemService.searchFiles(rootPath, query, 100);
     },
 
     clearTree: (rootPath) => {

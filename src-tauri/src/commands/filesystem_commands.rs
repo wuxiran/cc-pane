@@ -1,4 +1,4 @@
-use crate::models::filesystem::{DirListing, FileContent, FsEntry, SearchResult};
+use crate::models::filesystem::{DirListing, FileContent, FsEntry};
 use crate::services::FileSystemService;
 use crate::utils::AppResult;
 use std::sync::Arc;
@@ -84,16 +84,6 @@ pub fn fs_move_entry(
 ) -> AppResult<()> {
     debug!("cmd::fs_move_entry src={} dest_dir={}", src, dest_dir);
     service.move_entry(&src, &dest_dir)
-}
-
-#[tauri::command]
-pub fn fs_search_files(
-    root: String,
-    query: String,
-    max_results: usize,
-    service: State<'_, Arc<FileSystemService>>,
-) -> AppResult<Vec<SearchResult>> {
-    service.search_files(&root, &query, max_results)
 }
 
 #[tauri::command]

@@ -3,7 +3,6 @@ import type {
   DirListing,
   FileContent,
   FsEntry,
-  SearchResult,
 } from "@/types/filesystem";
 
 /** 文件系统服务 — 封装所有 fs_* IPC 调用 */
@@ -51,15 +50,6 @@ export const filesystemService = {
   /** 移动 */
   moveEntry(src: string, destDir: string): Promise<void> {
     return invoke("fs_move_entry", { src, destDir });
-  },
-
-  /** 搜索文件名 */
-  searchFiles(
-    root: string,
-    query: string,
-    maxResults: number = 100
-  ): Promise<SearchResult[]> {
-    return invoke("fs_search_files", { root, query, maxResults });
   },
 
   /** 获取单个条目信息 */

@@ -1,39 +1,20 @@
 use crate::constants::fs_limits::{MAX_DIR_ENTRIES, MAX_READ_SIZE, MAX_WRITE_SIZE};
-use crate::models::filesystem::{DirListing, FileContent, FsEntry, SearchResult};
-use crate::services::file_search_index::FileSearchIndex;
+use crate::models::filesystem::{DirListing, FileContent, FsEntry};
 use crate::utils::AppResult;
 use encoding_rs::Encoding;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tracing::debug;
-use walkdir::WalkDir;
-
-/// 搜索时默认过滤的目录
-const SEARCH_IGNORED_DIRS: &[&str] = &[
-    ".git",
-    "node_modules",
-    "target",
-    ".next",
-    ".nuxt",
-    "dist",
-    "build",
-    "__pycache__",
-    ".venv",
-    "venv",
-];
 
 /// 只读目录前缀（这些目录下的文件不允许编辑）
 const READONLY_PREFIXES: &[&str] = &["node_modules", ".git"];
 
-pub struct FileSystemService {
-    search_index: Arc<FileSearchIndex>,
-}
+pub struct FileSystemService;
 
 impl FileSystemService {
-    pub fn new(search_index: Arc<FileSearchIndex>) -> Self {
-        Self { search_index }
+    pub fn new() -> Self {
+        Self
     }
 
     /// 校验路径安全性（路径沙箱）
@@ -547,95 +528,6 @@ impl FileSystemService {
             }
         }
         Ok(())
-    }
-
-    /// 搜索文件名（内存索引 + nucleo 模糊匹配）
-    pub fn search_files(
-        &self,
-        root: &str,
-        query: &str,
-        max_results: usize,
-    ) -> AppResult<Vec<SearchResult>> {
-        let root_path = Self::validate_path(root)?;
-        if !root_path.is_dir() {
-            return Err(format!("'{}' is not a directory", root).into());
-        }
-
-        // 构建/复用内存索引
-        self.search_index.ensure_index(&root_path);
-
-        let hits = self.search_index.search(&root_path, query, max_results);
-        let results = hits
-            .into_iter()
-            .map(|h| SearchResult {
-                path: h.path,
-                name: h.name,
-                is_dir: h.is_dir,
-                rel_path: h.rel_path,
-                score: Some(h.score),
-            })
-            .collect();
-
-        Ok(results)
-    }
-
-    /// 搜索文件名（WalkDir fallback，用于非项目路径）
-    pub fn search_files_walkdir(
-        &self,
-        root: &str,
-        query: &str,
-        max_results: usize,
-    ) -> AppResult<Vec<SearchResult>> {
-        let root_path = Self::validate_path(root)?;
-        if !root_path.is_dir() {
-            return Err(format!("'{}' is not a directory", root).into());
-        }
-
-        let query_lower = query.to_lowercase();
-        let max = if max_results == 0 {
-            100
-        } else {
-            max_results.min(500)
-        };
-        let mut results = Vec::new();
-
-        for entry in WalkDir::new(&root_path)
-            .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| {
-                let name = e.file_name().to_string_lossy();
-                !SEARCH_IGNORED_DIRS.contains(&name.as_ref())
-            })
-        {
-            if results.len() >= max {
-                break;
-            }
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-            if entry.path() == root_path {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.to_lowercase().contains(&query_lower) {
-                let rel = entry
-                    .path()
-                    .strip_prefix(&root_path)
-                    .unwrap_or(entry.path())
-                    .to_string_lossy()
-                    .to_string();
-                results.push(SearchResult {
-                    path: entry.path().to_string_lossy().to_string(),
-                    name,
-                    is_dir: entry.file_type().is_dir(),
-                    rel_path: rel,
-                    score: None,
-                });
-            }
-        }
-
-        Ok(results)
     }
 
     /// 获取单个条目信息
