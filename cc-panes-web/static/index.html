@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CC-Panes Web Terminal</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1e1e2e; color: #cdd6f4; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+    #toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0; }
+    #toolbar button { background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
+    #toolbar button:hover { background: #45475a; }
+    #tabs { display: flex; gap: 2px; flex: 1; overflow-x: auto; }
+    .tab { display: flex; align-items: center; gap: 6px; padding: 4px 12px; background: #313244; border-radius: 4px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+    .tab.active { background: #45475a; color: #f5e0dc; }
+    .tab .close { opacity: 0.5; font-size: 11px; }
+    .tab .close:hover { opacity: 1; color: #f38ba8; }
+    #terminal-container { flex: 1; position: relative; }
+    .terminal-wrapper { position: absolute; inset: 0; padding: 4px; display: none; }
+    .terminal-wrapper.active { display: block; }
+    #status { padding: 4px 12px; background: #181825; border-top: 1px solid #313244; font-size: 12px; color: #6c7086; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <button id="btn-new" title="New Terminal (Ctrl+Shift+T)">+ New</button>
+    <div id="tabs"></div>
+  </div>
+  <div id="terminal-container"></div>
+  <div id="status">Ready</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script>
+    const sessions = new Map(); // sessionId → { term, ws, fitAddon, wrapper }
+    let activeSession = null;
+    let sessionCounter = 0;
+
+    const tabsEl = document.getElementById('tabs');
+    const containerEl = document.getElementById('terminal-container');
+    const statusEl = document.getElementById('status');
+
+    function setStatus(msg) { statusEl.textContent = msg; }
+
+    async function createSession() {
+      setStatus('Creating session...');
+      try {
+        const res = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cols: 120, rows: 30 }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const { sessionId } = await res.json();
+        setupTerminal(sessionId);
+        setStatus(`Session ${sessionId.slice(0, 8)} created`);
+      } catch (e) {
+        setStatus(`Error: ${e.message}`);
+        console.error(e);
+      }
+    }
+
+    function setupTerminal(sessionId) {
+      sessionCounter++;
+      const term = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace",
+        theme: {
+          background: '#1e1e2e',
+          foreground: '#cdd6f4',
+          cursor: '#f5e0dc',
+          selectionBackground: '#45475a',
+        },
+      });
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+
+      // Create wrapper element
+      const wrapper = document.createElement('div');
+      wrapper.className = 'terminal-wrapper';
+      wrapper.id = `term-${sessionId}`;
+      containerEl.appendChild(wrapper);
+      term.open(wrapper);
+
+      // Connect WebSocket
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${proto}//${location.host}/ws/${sessionId}`);
+
+      ws.onopen = () => {
+        fitAddon.fit();
+        sendResize(ws, term.cols, term.rows);
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'output') {
+            term.write(msg.data);
+          } else if (msg.type === 'exit') {
+            term.writeln(`\r\n[Process exited with code ${msg.exitCode}]`);
+            updateTabStatus(sessionId, 'exited');
+          }
+        } catch {
+          // If not JSON, write raw
+          term.write(evt.data);
+        }
+      };
+
+      ws.onclose = () => {
+        term.writeln('\r\n[Connection closed]');
+        updateTabStatus(sessionId, 'disconnected');
+      };
+
+      // Terminal input → WebSocket
+      term.onData((data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data }));
+        }
+      });
+
+      // Store session
+      sessions.set(sessionId, { term, ws, fitAddon, wrapper, index: sessionCounter });
+
+      // Create tab
+      addTab(sessionId, sessionCounter);
+      switchTo(sessionId);
+    }
+
+    function sendResize(ws, cols, rows) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    }
+
+    function addTab(sessionId, index) {
+      const tab = document.createElement('div');
+      tab.className = 'tab';
+      tab.dataset.id = sessionId;
+      tab.innerHTML = `<span>Terminal ${index}</span><span class="close" title="Close">&times;</span>`;
+      tab.querySelector('.close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeSession(sessionId);
+      });
+      tab.addEventListener('click', () => switchTo(sessionId));
+      tabsEl.appendChild(tab);
+    }
+
+    function updateTabStatus(sessionId, status) {
+      const tab = tabsEl.querySelector(`[data-id="${sessionId}"]`);
+      if (tab) {
+        const span = tab.querySelector('span');
+        const s = sessions.get(sessionId);
+        span.textContent = `Terminal ${s?.index || '?'} (${status})`;
+      }
+    }
+
+    function switchTo(sessionId) {
+      activeSession = sessionId;
+      // Update wrappers
+      containerEl.querySelectorAll('.terminal-wrapper').forEach((w) => w.classList.remove('active'));
+      const s = sessions.get(sessionId);
+      if (s) {
+        s.wrapper.classList.add('active');
+        // Defer fit to next frame so layout is ready
+        requestAnimationFrame(() => {
+          s.fitAddon.fit();
+          s.term.focus();
+        });
+      }
+      // Update tabs
+      tabsEl.querySelectorAll('.tab').forEach((t) => {
+        t.classList.toggle('active', t.dataset.id === sessionId);
+      });
+    }
+
+    async function closeSession(sessionId) {
+      const s = sessions.get(sessionId);
+      if (!s) return;
+      // Kill on server
+      try {
+        await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+      } catch { /* ignore */ }
+      s.ws.close();
+      s.term.dispose();
+      s.wrapper.remove();
+      sessions.delete(sessionId);
+      // Remove tab
+      const tab = tabsEl.querySelector(`[data-id="${sessionId}"]`);
+      if (tab) tab.remove();
+      // Switch to another session
+      if (activeSession === sessionId) {
+        const remaining = [...sessions.keys()];
+        if (remaining.length > 0) {
+          switchTo(remaining[remaining.length - 1]);
+        } else {
+          activeSession = null;
+        }
+      }
+    }
+
+    // Resize handler
+    const resizeObserver = new ResizeObserver(() => {
+      if (activeSession) {
+        const s = sessions.get(activeSession);
+        if (s) {
+          s.fitAddon.fit();
+          sendResize(s.ws, s.term.cols, s.term.rows);
+        }
+      }
+    });
+    resizeObserver.observe(containerEl);
+
+    // Button handler
+    document.getElementById('btn-new').addEventListener('click', createSession);
+
+    // Keyboard shortcut
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+        e.preventDefault();
+        createSession();
+      }
+    });
+
+    // Auto-create first session on load
+    createSession();
+  </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+services:
+  cc-panes-web:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/workspace
+    environment:
+      - RUST_LOG=cc_panes_web=info,cc_panes_core=info

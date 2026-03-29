@@ -5,6 +5,7 @@ members = [
     "cc-panes-core",
     "cc-panes-api",
     "cc-panes-hook",
+    "cc-panes-web",
     "cc-memory",
     "cc-memory-mcp",
     "cc-notify",
