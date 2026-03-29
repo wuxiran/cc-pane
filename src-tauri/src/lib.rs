@@ -839,6 +839,8 @@ pub fn run() {
         let mut reg = cc_cli_adapters::CliToolRegistry::new();
         reg.register(Arc::new(cc_cli_adapters::ClaudeAdapter::new()));
         reg.register(Arc::new(cc_cli_adapters::CodexAdapter::new()));
+        reg.register(Arc::new(cc_cli_adapters::GeminiAdapter::new()));
+        reg.register(Arc::new(cc_cli_adapters::OpenCodeAdapter::new()));
         Arc::new(reg)
     };
     let terminal_service = Arc::new(TerminalService::new(
