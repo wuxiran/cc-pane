@@ -118,6 +118,28 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE launch_history ADD COLUMN provider_id TEXT;
         ",
     },
+    Migration {
+        version: 7,
+        description: "terminal_sessions: session restore support",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS terminal_sessions (
+                session_id TEXT PRIMARY KEY,
+                tab_id TEXT NOT NULL,
+                pane_id TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                workspace_name TEXT,
+                workspace_path TEXT,
+                provider_id TEXT,
+                cli_tool TEXT NOT NULL DEFAULT 'none',
+                resume_id TEXT,
+                claude_session_id TEXT,
+                ssh_config TEXT,
+                custom_title TEXT,
+                created_at TEXT NOT NULL,
+                saved_at TEXT NOT NULL
+            );
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -341,6 +363,7 @@ mod tests {
             "todos",
             "todo_subtasks",
             "specs",
+            "terminal_sessions",
             "schema_migrations",
         ];
         for table in &tables {

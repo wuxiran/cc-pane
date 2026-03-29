@@ -12,6 +12,8 @@ pub enum ProviderType {
     Proxy,
     ConfigProfile,
     OpenAI,
+    Gemini,
+    OpenCode,
 }
 
 /// Provider 配置
@@ -85,6 +87,23 @@ impl Provider {
             ProviderType::OpenAI => {
                 if let Some(ref key) = self.api_key {
                     vars.insert("CODEX_API_KEY".to_string(), key.clone());
+                }
+                if let Some(ref url) = self.base_url {
+                    vars.insert("OPENAI_BASE_URL".to_string(), url.clone());
+                }
+            }
+            ProviderType::Gemini => {
+                if let Some(ref key) = self.api_key {
+                    vars.insert("GEMINI_API_KEY".to_string(), key.clone());
+                }
+                if let Some(ref url) = self.base_url {
+                    vars.insert("GEMINI_API_BASE".to_string(), url.clone());
+                }
+            }
+            ProviderType::OpenCode => {
+                // OpenCode uses standard OpenAI-compatible variables
+                if let Some(ref key) = self.api_key {
+                    vars.insert("OPENAI_API_KEY".to_string(), key.clone());
                 }
                 if let Some(ref url) = self.base_url {
                     vars.insert("OPENAI_BASE_URL".to_string(), url.clone());
