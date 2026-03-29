@@ -3,7 +3,7 @@
  */
 
 /** CLI 工具类型（已知值自动补全 + 允许任意字符串） */
-export type KnownCliTool = "none" | "claude" | "codex";
+export type KnownCliTool = "none" | "claude" | "codex" | "gemini" | "opencode";
 export type CliTool = KnownCliTool | (string & {});
 
 /** CLI 工具元信息（来自 Rust cc-cli-adapters crate） */
@@ -48,6 +48,8 @@ export interface Tab {
   ssh?: import("./workspace").SshConnectionInfo; // SSH 远程连接信息
   machineName?: string; // SSH 机器名称（用于 Tab 标题显示）
   disconnected?: boolean; // SSH 终端断连状态（用于显示重连 UI）
+  restoring?: boolean; // 是否正在恢复中（重启后标记，恢复完成后清除）
+  savedSessionId?: string; // 关闭前的 session ID（用于加载输出文件）
 }
 
 /** 终端会话状态 */

@@ -63,8 +63,7 @@ impl ClaudeAdapter {
 
         // 清理旧 MCP 配置文件（>1h），防止 per-session 文件随时间积累
         if let Ok(entries) = std::fs::read_dir(&ctx.data_dir) {
-            let cutoff = std::time::SystemTime::now()
-                - std::time::Duration::from_secs(3600);
+            let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();

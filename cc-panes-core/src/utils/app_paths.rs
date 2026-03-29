@@ -60,6 +60,16 @@ impl AppPaths {
         self.data_dir.join("providers.json")
     }
 
+    /// 终端输出文件目录
+    pub fn sessions_dir(&self) -> PathBuf {
+        self.data_dir.join("sessions")
+    }
+
+    /// 指定会话的输出文件路径
+    pub fn session_output_path(&self, session_id: &str) -> PathBuf {
+        self.sessions_dir().join(format!("{}.output", session_id))
+    }
+
     /// workspaces 目录
     pub fn workspaces_dir(&self) -> PathBuf {
         self.data_dir.join("workspaces")

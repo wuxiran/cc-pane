@@ -25,7 +25,7 @@ fn cached_which(name: &str) -> Result<PathBuf, which::Error> {
     if let Some(cached) = map.get(name) {
         return cached.clone().ok_or(which::Error::CannotFindBinaryPath);
     }
-    let result = cached_which(name);
+    let result = which::which(name);
     map.insert(name.to_string(), result.as_ref().ok().cloned());
     result
 }
@@ -835,51 +835,48 @@ impl TerminalService {
                         }
                         // 达到大小阈值则立即刷出
                         if batch.len() >= BATCH_SIZE_THRESHOLD {
-                            let _ =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    let _ = batch_emitter.emit(
-                                        EV::TERMINAL_OUTPUT,
-                                        serde_json::to_value(&TerminalOutput {
-                                            session_id: batch_sid.clone(),
-                                            data: std::mem::take(&mut batch),
-                                        })
-                                        .unwrap_or_default(),
-                                    );
-                                }));
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                let _ = batch_emitter.emit(
+                                    EV::TERMINAL_OUTPUT,
+                                    serde_json::to_value(&TerminalOutput {
+                                        session_id: batch_sid.clone(),
+                                        data: std::mem::take(&mut batch),
+                                    })
+                                    .unwrap_or_default(),
+                                );
+                            }));
                             batch = String::with_capacity(BATCH_SIZE_THRESHOLD);
                         }
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                         // 超时：刷出累积的数据（保证低吞吐场景下数据不滞留）
                         if !batch.is_empty() {
-                            let _ =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    let _ = batch_emitter.emit(
-                                        EV::TERMINAL_OUTPUT,
-                                        serde_json::to_value(&TerminalOutput {
-                                            session_id: batch_sid.clone(),
-                                            data: std::mem::take(&mut batch),
-                                        })
-                                        .unwrap_or_default(),
-                                    );
-                                }));
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                let _ = batch_emitter.emit(
+                                    EV::TERMINAL_OUTPUT,
+                                    serde_json::to_value(&TerminalOutput {
+                                        session_id: batch_sid.clone(),
+                                        data: std::mem::take(&mut batch),
+                                    })
+                                    .unwrap_or_default(),
+                                );
+                            }));
                             batch = String::with_capacity(BATCH_SIZE_THRESHOLD);
                         }
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         // 读取线程退出，刷出残留数据
                         if !batch.is_empty() {
-                            let _ =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    let _ = batch_emitter.emit(
-                                        EV::TERMINAL_OUTPUT,
-                                        serde_json::to_value(&TerminalOutput {
-                                            session_id: batch_sid.clone(),
-                                            data: batch,
-                                        })
-                                        .unwrap_or_default(),
-                                    );
-                                }));
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                let _ = batch_emitter.emit(
+                                    EV::TERMINAL_OUTPUT,
+                                    serde_json::to_value(&TerminalOutput {
+                                        session_id: batch_sid.clone(),
+                                        data: batch,
+                                    })
+                                    .unwrap_or_default(),
+                                );
+                            }));
                         }
                         break;
                     }
@@ -933,7 +930,10 @@ impl TerminalService {
                                 warn!(
                                     "[pty-read] session={} potential busy-loop: {} reads in {}ms \
                                      (last chunk={} bytes)",
-                                    sid, read_count, elapsed.as_millis(), n
+                                    sid,
+                                    read_count,
+                                    elapsed.as_millis(),
+                                    n
                                 );
                             }
                             // 重置窗口
@@ -1049,7 +1049,10 @@ impl TerminalService {
                     Err(e) => {
                         warn!(
                             "[pty-read] session={} read error: {} (read_count={} in {}ms)",
-                            sid, e, read_count, read_window_start.elapsed().as_millis()
+                            sid,
+                            e,
+                            read_count,
+                            read_window_start.elapsed().as_millis()
                         );
                         break;
                     }
@@ -1293,6 +1296,41 @@ impl TerminalService {
         } else {
             Err(anyhow!("Session not found: {}", session_id))
         }
+    }
+
+    /// 获取所有活跃会话的输出缓冲区内容（用于退出时持久化）
+    ///
+    /// 返回 `HashMap<session_id, Vec<行>>`，包含活跃会话和 dead_buffers 中的内容。
+    pub fn get_all_session_outputs(&self) -> std::collections::HashMap<String, Vec<String>> {
+        let mut result = std::collections::HashMap::new();
+
+        // 活跃会话
+        if let Ok(sessions) = self.sessions.lock() {
+            for (id, session) in sessions.iter() {
+                if let Ok(buf) = session.output_buffer.lock() {
+                    let lines = buf.get_recent(0);
+                    if !lines.is_empty() {
+                        result.insert(id.clone(), lines);
+                    }
+                }
+            }
+        }
+
+        // 已退出但尚未过期的会话
+        if let Ok(dead) = self.dead_buffers.lock() {
+            for (id, (buf, _)) in dead.iter() {
+                if !result.contains_key(id) {
+                    if let Ok(buf) = buf.lock() {
+                        let lines = buf.get_recent(0);
+                        if !lines.is_empty() {
+                            result.insert(id.clone(), lines);
+                        }
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     /// 清理所有终端会话（应用退出时调用）
