@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Terminal } from "lucide-react";
-import { useTerminalStatusStore, usePanesStore } from "@/stores";
+import { useTerminalStatusStore, usePanesStore, useWorkspacesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
 import { handleErrorSilent } from "@/utils";
@@ -118,7 +118,12 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
           <RecentLaunches
             launchHistory={launchHistory}
             onOpenTerminal={(path: string, resumeId?: string, workspacePath?: string, launchCwd?: string, workspaceName?: string, providerId?: string) => {
-              const effectiveCwd = launchCwd ?? workspacePath;
+              let effectiveCwd = launchCwd ?? workspacePath;
+              // 兼容旧数据：effectiveCwd 为空时从 store 按 workspaceName 查找
+              if (!effectiveCwd && workspaceName) {
+                const ws = useWorkspacesStore.getState().workspaces.find((w) => w.name === workspaceName);
+                if (ws?.path) effectiveCwd = ws.path;
+              }
               onOpenTerminal({ path, workspaceName, providerId, workspacePath: effectiveCwd, cliTool: "claude", resumeId });
             }}
             onClearHistory={clearHistory}
