@@ -140,6 +140,32 @@ const MIGRATIONS: &[Migration] = &[
             );
         ",
     },
+    Migration {
+        version: 8,
+        description: "task_bindings: orchestration task binding support",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS task_bindings (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                prompt TEXT,
+                session_id TEXT,
+                todo_id TEXT,
+                project_path TEXT NOT NULL,
+                workspace_name TEXT,
+                cli_tool TEXT NOT NULL DEFAULT 'claude',
+                status TEXT NOT NULL DEFAULT 'pending',
+                progress INTEGER NOT NULL DEFAULT 0,
+                completion_summary TEXT,
+                exit_code INTEGER,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_bindings_status ON task_bindings(status);
+            CREATE INDEX IF NOT EXISTS idx_task_bindings_project ON task_bindings(project_path);
+            CREATE INDEX IF NOT EXISTS idx_task_bindings_session ON task_bindings(session_id);
+        ",
+    },
 ];
 
 /// 数据库连接管理

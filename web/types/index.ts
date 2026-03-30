@@ -89,3 +89,11 @@ export type {
 } from "./shared-mcp";
 export type { SavedSession } from "./session-restore";
 export type { WslDistro, WslDistroState } from "./wsl";
+export type {
+  TaskBindingStatus,
+  TaskBinding,
+  CreateTaskBindingRequest,
+  UpdateTaskBindingRequest,
+  TaskBindingQuery,
+  TaskBindingQueryResult,
+} from "./orchestrator";

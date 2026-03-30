@@ -1,5 +1,5 @@
 import {
-  Command, FolderTree, History, Bot, ListTodo, Settings, Files, Server, Activity, Zap,
+  Command, FolderTree, History, Bot, ListTodo, Settings, Files, Server, Activity, Zap, Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -87,6 +87,7 @@ export default function ActivityBar() {
     { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches") },
     // { view: "process", icon: <Activity className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("processMonitor", { defaultValue: "Processes" }), badge: processCount }, // 已禁用（macOS 卡顿排查）
     { view: "ssh", icon: <Server className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("sshMachines", { defaultValue: "SSH Machines" }) },
+    { view: "orchestration", icon: <Workflow className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("orchestration", { defaultValue: "Orchestration" }) },
   ];
 
   return (

@@ -36,6 +36,8 @@ use commands::{
     // Spec 命令
     create_spec,
     create_terminal_session,
+    // TaskBinding 命令
+    create_task_binding,
     // Todo 命令
     create_todo,
     create_workspace,
@@ -46,6 +48,7 @@ use commands::{
     delete_plan,
     delete_skill,
     delete_spec,
+    delete_task_binding,
     delete_todo,
     delete_todo_subtask,
     delete_workspace,
@@ -58,6 +61,7 @@ use commands::{
     enable_hooks,
     enter_fullscreen,
     enter_mini_mode,
+    find_task_binding_by_session,
     exit_fullscreen,
     exit_mini_mode,
     extract_last_prompt,
@@ -99,6 +103,7 @@ use commands::{
     get_plan_content,
     get_popup_tab_data,
     get_project,
+    get_task_binding,
     get_provider,
     get_recent_changes,
     get_recent_journal,
@@ -177,6 +182,7 @@ use commands::{
     prepare_session_context,
     // Local History - 标签
     put_label,
+    query_task_bindings,
     query_todos,
     read_config_dir_info,
     read_session_state,
@@ -227,6 +233,7 @@ use commands::{
     update_memory,
     update_project_alias,
     update_project_name,
+    update_task_binding,
     update_provider,
     update_settings,
     update_shared_mcp_global_config,
@@ -243,13 +250,17 @@ use commands::{
     upsert_shared_mcp_server,
     write_terminal,
 };
-use repository::{Database, HistoryRepository, ProjectRepository, SpecRepository, TodoRepository};
+use repository::{
+    Database, HistoryRepository, ProjectRepository, SpecRepository, TaskBindingRepository,
+    TodoRepository,
+};
 use services::{
     FileSystemService, HistoryService, HooksService, JournalService, LaunchHistoryService,
     McpConfigService, MemoryService, NotificationService, OrchestratorService, PlanService,
     ProcessMonitorService, ProjectService, ProviderService, ScreenshotService,
     SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
-    SshMachineService, TerminalService, TodoService, WorkspaceService, WorktreeService,
+    SshMachineService, TaskBindingService, TerminalService, TodoService, WorkspaceService,
+    WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -820,8 +831,10 @@ pub fn run() {
     let history_repo = Arc::new(HistoryRepository::new(db.clone()));
     let todo_repo = Arc::new(TodoRepository::new(db.clone()));
     let spec_repo = Arc::new(SpecRepository::new(db.clone()));
+    let task_binding_repo = Arc::new(TaskBindingRepository::new(db.clone()));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let todo_service = Arc::new(TodoService::new(todo_repo));
+    let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let project_service = Arc::new(ProjectService::new(project_repo));
     let history_service = Arc::new(HistoryService::new());
@@ -916,6 +929,7 @@ pub fn run() {
         .manage(provider_service)
         .manage(notification_service)
         .manage(todo_service)
+        .manage(task_binding_service)
         .manage(spec_service)
         .manage(mcp_config_service)
         .manage(skill_service)
@@ -1053,6 +1067,7 @@ pub fn run() {
                 let proj_svc = app.state::<Arc<ProjectService>>();
                 let ws_svc_orch = app.state::<Arc<WorkspaceService>>();
                 let todo_svc = app.state::<Arc<TodoService>>();
+                let tb_svc = app.state::<Arc<TaskBindingService>>();
                 let spec_svc = app.state::<Arc<SpecService>>();
                 let skill_svc = app.state::<Arc<SkillService>>();
                 let lh_svc = app.state::<Arc<LaunchHistoryService>>();
@@ -1063,6 +1078,7 @@ pub fn run() {
                     proj_svc.inner().clone(),
                     ws_svc_orch.inner().clone(),
                     todo_svc.inner().clone(),
+                    tb_svc.inner().clone(),
                     spec_svc.inner().clone(),
                     skill_svc.inner().clone(),
                     lh_svc.inner().clone(),
@@ -1466,6 +1482,13 @@ pub fn run() {
             get_orchestrator_port,
             get_orchestrator_token,
             respond_orchestrator_query,
+            // TaskBinding 命令
+            create_task_binding,
+            get_task_binding,
+            find_task_binding_by_session,
+            update_task_binding,
+            delete_task_binding,
+            query_task_bindings,
             // Memory 命令
             search_memory,
             store_memory,

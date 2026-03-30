@@ -164,6 +164,7 @@ pub struct AppState {
     pub project_service: Arc<ProjectService>,
     pub workspace_service: Arc<WorkspaceService>,
     pub todo_service: Arc<TodoService>,
+    pub task_binding_service: Arc<crate::services::TaskBindingService>,
     pub spec_service: Arc<SpecService>,
     pub skill_service: Arc<SkillService>,
     pub launch_history_service: Arc<LaunchHistoryService>,
@@ -221,6 +222,7 @@ impl OrchestratorService {
         project_service: Arc<ProjectService>,
         workspace_service: Arc<WorkspaceService>,
         todo_service: Arc<TodoService>,
+        task_binding_service: Arc<crate::services::TaskBindingService>,
         spec_service: Arc<SpecService>,
         skill_service: Arc<SkillService>,
         launch_history_service: Arc<LaunchHistoryService>,
@@ -235,6 +237,7 @@ impl OrchestratorService {
             project_service,
             workspace_service,
             todo_service,
+            task_binding_service,
             spec_service,
             skill_service,
             launch_history_service,
@@ -661,6 +664,62 @@ struct McpListClaudeSessionsParams {
     project_path: Option<String>,
     /// 返回数量上限（默认 20）
     limit: Option<usize>,
+}
+
+// ============ TaskBinding MCP 参数 ============
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpCreateTaskBindingParams {
+    /// 任务标题（简短描述）
+    title: String,
+    /// 完整 prompt（可能比 title 长）
+    prompt: Option<String>,
+    /// 关联终端会话 ID
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    /// 项目路径
+    #[serde(rename = "projectPath")]
+    project_path: String,
+    /// 工作空间名称
+    #[serde(rename = "workspaceName")]
+    workspace_name: Option<String>,
+    /// CLI 工具类型：claude/codex/gemini/opencode
+    #[serde(rename = "cliTool")]
+    cli_tool: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpUpdateTaskBindingParams {
+    /// 任务 ID
+    id: String,
+    /// 新标题
+    title: Option<String>,
+    /// 新状态：pending/running/waiting/completed/failed
+    status: Option<String>,
+    /// 进度 0-100
+    progress: Option<i32>,
+    /// 完成摘要
+    #[serde(rename = "completionSummary")]
+    completion_summary: Option<String>,
+    /// 关联终端会话 ID
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    /// 退出码
+    #[serde(rename = "exitCode")]
+    exit_code: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpQueryTaskBindingsParams {
+    /// 按状态过滤：pending/running/waiting/completed/failed
+    status: Option<String>,
+    /// 按项目路径过滤
+    #[serde(rename = "projectPath")]
+    project_path: Option<String>,
+    /// 搜索关键词
+    search: Option<String>,
+    /// 返回数量上限（默认 50）
+    limit: Option<u32>,
 }
 
 /// MCP 工具处理器
@@ -1524,6 +1583,91 @@ impl McpToolHandler {
             Err(e) => format!("错误: 查询 Claude 会话失败: {}", e),
         }
     }
+
+    /// 创建编排任务（TaskBinding），用于跟踪和管理多任务编排
+    #[tool]
+    async fn create_task_binding(
+        &self,
+        Parameters(params): Parameters<McpCreateTaskBindingParams>,
+    ) -> String {
+        use crate::models::task_binding::CreateTaskBindingRequest;
+        info!(title = %params.title, "mcp::create_task_binding");
+
+        let req = CreateTaskBindingRequest {
+            title: params.title,
+            prompt: params.prompt,
+            session_id: params.session_id,
+            todo_id: None,
+            project_path: params.project_path,
+            workspace_name: params.workspace_name,
+            cli_tool: params.cli_tool,
+        };
+
+        match self.state.task_binding_service.create(req) {
+            Ok(binding) => serde_json::to_string(&binding).unwrap_or_else(|e| {
+                format!("错误: 序列化失败: {}", e)
+            }),
+            Err(e) => format!("错误: 创建 TaskBinding 失败: {}", e),
+        }
+    }
+
+    /// 更新编排任务的状态、进度、摘要等信息
+    #[tool]
+    async fn update_task_binding(
+        &self,
+        Parameters(params): Parameters<McpUpdateTaskBindingParams>,
+    ) -> String {
+        use crate::models::task_binding::{TaskBindingStatus, UpdateTaskBindingRequest};
+        info!(id = %params.id, "mcp::update_task_binding");
+
+        let req = UpdateTaskBindingRequest {
+            title: params.title,
+            prompt: None,
+            session_id: params.session_id,
+            status: params
+                .status
+                .and_then(|s| s.parse::<TaskBindingStatus>().ok()),
+            progress: params.progress,
+            completion_summary: params.completion_summary,
+            exit_code: params.exit_code,
+            sort_order: None,
+        };
+
+        match self.state.task_binding_service.update(&params.id, req) {
+            Ok(binding) => serde_json::to_string(&binding).unwrap_or_else(|e| {
+                format!("错误: 序列化失败: {}", e)
+            }),
+            Err(e) => format!("错误: 更新 TaskBinding 失败: {}", e),
+        }
+    }
+
+    /// 查询编排任务列表（按状态、项目路径过滤）
+    #[tool]
+    async fn query_task_bindings(
+        &self,
+        Parameters(params): Parameters<McpQueryTaskBindingsParams>,
+    ) -> String {
+        use crate::models::task_binding::{TaskBindingQuery, TaskBindingStatus};
+        debug!("mcp::query_task_bindings");
+
+        let query = TaskBindingQuery {
+            status: params
+                .status
+                .and_then(|s| s.parse::<TaskBindingStatus>().ok()),
+            project_path: params.project_path,
+            workspace_name: None,
+            search: params.search,
+            limit: params.limit,
+            offset: None,
+        };
+
+        match self.state.task_binding_service.query(query) {
+            Ok(result) => serde_json::to_string(&result).unwrap_or_else(|e| {
+                format!("错误: 序列化失败: {}", e)
+            }),
+            Err(e) => format!("错误: 查询 TaskBindings 失败: {}", e),
+        }
+    }
 }
 
 #[tool_handler]
@@ -1536,6 +1680,7 @@ impl ServerHandler for McpToolHandler {
                 "PTY 控制: write_to_session（向会话写入文本/命令）、get_session_status（查询会话状态）、list_sessions（列出所有会话）、kill_session（终止会话）、get_session_output（读取输出内容）\n",
                 "工作空间: list_workspaces、get_workspace、create_workspace、add_project_to_workspace、scan_directory\n",
                 "待办: query_todos、create_todo、update_todo\n",
+                "编排任务: create_task_binding、update_task_binding、query_task_bindings\n",
                 "Skill: list_skills（查看项目可用命令模板）\n",
                 "文件: open_folder（导航文件浏览器）、open_file（编辑器打开文件）、close_file（关闭标签）、list_open_files（查询打开的文件）\n",
                 "面板: list_panes（查询当前面板布局和标签信息，返回 paneId 可用于 launch_task）\n",

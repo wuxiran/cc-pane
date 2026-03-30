@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process";
+export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process" | "orchestration";
 export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files" | "providers";
 
 interface ActivityBarState {

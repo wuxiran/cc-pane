@@ -9,6 +9,7 @@ pub mod settings;
 pub mod shared_mcp;
 pub mod spec;
 pub mod ssh_machine;
+pub mod task_binding;
 mod terminal;
 pub mod todo;
 mod workspace;

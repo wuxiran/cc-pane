@@ -34,3 +34,4 @@ export { useSshMachinesStore } from "./useSshMachinesStore";
 export { useProcessMonitorStore } from "./useProcessMonitorStore";
 export { useResourceStatsStore } from "./useResourceStatsStore";
 export { useSharedMcpStore } from "./useSharedMcpStore";
+export { useOrchestratorStore } from "./useOrchestratorStore";
