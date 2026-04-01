@@ -74,6 +74,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const lastContainerSizeRef = useRef<{ width: number; height: number } | null>(null);
+    const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
 
     // SSH 断线重连状态
     const isDisconnectedRef = useRef(false);
@@ -117,6 +118,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
+      }
+
+      // 移除 wheel handler
+      if (wheelHandlerRef.current && terminalInstanceRef.current?.element) {
+        terminalInstanceRef.current.element.removeEventListener('wheel', wheelHandlerRef.current);
+        wheelHandlerRef.current = null;
       }
 
       // 先 dispose addon，再 dispose terminal
@@ -411,6 +418,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
         observer.observe(terminalRef.current);
 
+        // 替代屏幕模式（vim/codex/less 等全屏 TUI）下：
+        // 鼠标滚轮转方向键，使滚轮能在 alternate buffer 中上下翻页
+        const wheelHandler = (e: WheelEvent) => {
+          if (term.buffer.active.type !== 'alternate') return;
+          e.preventDefault();
+          e.stopPropagation();
+          const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 40));
+          const arrow = e.deltaY < 0 ? '\x1b[A' : '\x1b[B';
+          if (currentSessionIdRef.current) {
+            terminalService.write(currentSessionIdRef.current, arrow.repeat(lines));
+          }
+        };
+        term.element?.addEventListener('wheel', wheelHandler, { passive: false });
+        wheelHandlerRef.current = wheelHandler;
+
         terminalInstanceRef.current = term;
         fitAddonRef.current = fit;
         resizeObserverRef.current = observer;
@@ -569,10 +591,28 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     // 激活时重新适配大小 + 聚焦 + 延迟恢复
     useEffect(() => {
       if (props.isActive && fitAddonRef.current) {
-        requestAnimationFrame(() => {
-          fitAddonRef.current?.fit();
-          terminalInstanceRef.current?.focus();
+        // 双重 rAF：第一帧触发 reflow，第二帧确保布局完成后再 fit
+        // 解决 Tab 跨面板拖拽后 display:none→flex 切换时 fit() 计算错误
+        const rafId = requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!fitAddonRef.current || !terminalInstanceRef.current) return;
+            fitAddonRef.current.fit();
+            terminalInstanceRef.current.focus();
+            // fit 后同步 PTY 尺寸，防止拖拽后 cols/rows 不匹配
+            const { cols, rows } = terminalInstanceRef.current;
+            if (lastSizeRef.current?.cols !== cols || lastSizeRef.current?.rows !== rows) {
+              lastSizeRef.current = { cols, rows };
+              if (currentSessionIdRef.current) {
+                terminalService.resize({
+                  sessionId: currentSessionIdRef.current,
+                  cols,
+                  rows,
+                });
+              }
+            }
+          });
         });
+        return () => cancelAnimationFrame(rafId);
       }
       // 延迟恢复：用户切换到此 Tab 时创建 PTY
       if (props.isActive && deferredRestoreRef.current) {
