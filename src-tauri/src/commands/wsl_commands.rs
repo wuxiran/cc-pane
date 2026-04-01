@@ -10,7 +10,7 @@ use tracing::debug;
 /// - 非 Windows: 返回空列表
 #[tauri::command]
 pub async fn discover_wsl_distros(
-    #[cfg(target_os = "windows")] ssh_service: State<'_, Arc<crate::services::SshMachineService>>,
+    ssh_service: State<'_, Arc<crate::services::SshMachineService>>,
 ) -> AppResult<Vec<WslDistro>> {
     debug!("cmd::discover_wsl_distros");
 
@@ -23,6 +23,7 @@ pub async fn discover_wsl_distros(
 
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = &ssh_service;
         Ok(Vec::new())
     }
 }
