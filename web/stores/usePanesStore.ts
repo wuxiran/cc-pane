@@ -4,6 +4,7 @@ import { immer } from "zustand/middleware/immer";
 import { useEditorTabsStore } from "./useEditorTabsStore";
 import { useActivityBarStore } from "./useActivityBarStore";
 import { terminalService, ensureListeners } from "@/services/terminalService";
+import { devDebugLog } from "@/utils/devLogger";
 import type {
   PaneNode,
   Panel,
@@ -12,6 +13,7 @@ import type {
   SplitDirection,
   CliTool,
   SshConnectionInfo,
+  WslLaunchInfo,
 } from "@/types";
 
 // 生成唯一 ID
@@ -38,11 +40,10 @@ function createPanel(tab?: Tab): Panel {
   };
 }
 
-// 创建新标签（对象参数）
 interface CreateTabOptions {
   projectId: string;
   projectPath: string;
-  sessionId?: string;  // 后端已创建的 PTY session ID（MCP launch_task 场景）
+  sessionId?: string;
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
@@ -50,20 +51,23 @@ interface CreateTabOptions {
   cliTool?: CliTool;
   customTitle?: string;
   ssh?: SshConnectionInfo;
+  wsl?: WslLaunchInfo;
   machineName?: string;
 }
 
 function createTab(opts: CreateTabOptions): Tab {
-  const { projectId, projectPath, sessionId, resumeId, workspaceName, providerId, workspacePath, cliTool, customTitle, ssh, machineName } = opts;
+  const { projectId, projectPath, sessionId, resumeId, workspaceName, providerId, workspacePath, cliTool, customTitle, ssh, wsl, machineName } = opts;
   let title: string;
   if (customTitle) {
     title = customTitle;
   } else {
     const name = projectPath.split(/[/\\]/).pop() || "Terminal";
     if (ssh) {
-      // 优先使用 machineName，否则回退到 [SSH]
       const label = machineName || "SSH";
       title = `[${label}] ${name}`;
+    } else if (wsl && cliTool && cliTool !== "none") {
+      const toolLabel = cliTool.charAt(0).toUpperCase() + cliTool.slice(1);
+      title = `${name} (${toolLabel} WSL)`;
     } else if (cliTool && cliTool !== "none") {
       const toolLabel = cliTool.charAt(0).toUpperCase() + cliTool.slice(1);
       title = `${name} (${toolLabel})`;
@@ -89,11 +93,10 @@ function createTab(opts: CreateTabOptions): Tab {
     cliTool,
     launchClaude: (cliTool && cliTool !== "none") || undefined,
     ssh,
+    wsl,
     machineName,
   };
 }
-
-// 递归查找面板
 function findPane(node: PaneNode, paneId: string): PaneNode | null {
   if (node.id === paneId) return node;
   if (node.type === "split") {
@@ -123,13 +126,34 @@ function findParent(
   return null;
 }
 
-// 获取所有面板（扁平化）
+// Flatten all panels in the pane tree.
 function collectPanels(node: PaneNode): Panel[] {
   if (node.type === "panel") return [node];
   return node.children.flatMap(collectPanels);
 }
 
-/** 已关闭标签的快照（用于恢复） */
+const PANES_DEBUG = import.meta.env.DEV;
+
+function summarizePanel(node: PaneNode | null) {
+  if (node?.type !== "panel") return null;
+  return {
+    paneId: node.id,
+    activeTabId: node.activeTabId,
+    tabs: node.tabs.map((tab) => ({
+      tabId: tab.id,
+      sessionId: tab.sessionId ?? null,
+      cliTool: tab.cliTool ?? (tab.launchClaude ? "claude" : "none"),
+      projectPath: tab.projectPath,
+    })),
+  };
+}
+
+function debugPanes(event: string, payload: Record<string, unknown>): void {
+  if (!PANES_DEBUG) return;
+  devDebugLog("panes-store-debug", event, payload);
+}
+
+/** Snapshot of a closed tab so it can be reopened later. */
 interface ClosedTabSnapshot {
   projectId: string;
   projectPath: string;
@@ -141,6 +165,7 @@ interface ClosedTabSnapshot {
   launchClaude?: boolean;
   cliTool?: CliTool;
   ssh?: SshConnectionInfo;
+  wsl?: WslLaunchInfo;
   machineName?: string;
 }
 
@@ -150,19 +175,19 @@ interface PanesState {
   closedTabs: ClosedTabSnapshot[];
   poppedOutTabs: Set<string>;
 
-  // 派生
+  // Derived helpers
   allPanels: () => Panel[];
   activePane: () => Panel | null;
   findPaneById: (paneId: string) => PaneNode | null;
 
-  // 分屏
+  // Pane layout
   split: (paneId: string, direction: SplitDirection) => void;
   splitRight: (paneId: string) => void;
   splitDown: (paneId: string) => void;
   closePane: (paneId: string) => void;
   resizePanes: (paneId: string, sizes: number[]) => void;
 
-  // 标签
+  // Tabs
   addTab: (paneId: string, opts: CreateTabOptions) => void;
   closeTab: (paneId: string, tabId: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;
@@ -197,20 +222,20 @@ interface PanesState {
   setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean) => void;
   reconnectTab: (paneId: string, tabId: string) => Promise<string | null>;
   closeTabBySessionId: (sessionId: string) => void;
-  /** 清除 Tab 的 restoring 状态（恢复完成后调用） */
+  /** Clear restoring metadata after a terminal tab finishes recovery. */
   clearRestoring: (paneId: string, tabId: string) => void;
-  /** 获取所有可恢复的终端 Tab（退出时保存用） */
+  /** Collect terminal tabs that can be restored after restart. */
   getRestorableTabs: () => Array<{ tab: Tab; paneId: string }>;
 }
 
 const initialPanel = createPanel();
 
-/** 递归清理重启后不可恢复的状态 */
+/** Clean non-restorable runtime state after layout rehydration. */
 function cleanRehydratedPanes(node: PaneNode) {
   if (node.type === "panel") {
     for (const tab of node.tabs) {
       if (tab.contentType === "terminal") {
-        // 保存旧 sessionId 用于加载输出文件
+        // Keep the old session id so persisted output can be replayed once.
         if (tab.sessionId) {
           tab.savedSessionId = tab.sessionId;
           tab.restoring = true;
@@ -315,6 +340,8 @@ export const usePanesStore = create<PanesState>()(
             launchClaude: t.launchClaude,
             cliTool: t.cliTool,
             ssh: t.ssh,
+            wsl: t.wsl,
+            machineName: t.machineName,
           }));
         if (recoverableTabs.length > 0) {
           set((state) => {
@@ -354,8 +381,7 @@ export const usePanesStore = create<PanesState>()(
           }
         }
 
-        // 清理空 split 节点链（0 个子节点时从树中移除）
-        // 注意：1 个子节点的 split 保留不折叠，避免 React remount 终端
+        // Remove empty split chains, but keep single-child splits to avoid remounting terminals.
         let emptyNodeId: string | null =
           parent.children.length === 0 ? parent.id : null;
         while (emptyNodeId) {
@@ -363,7 +389,7 @@ export const usePanesStore = create<PanesState>()(
           if (!gpResult) break;
 
           if (gpResult.parent === null) {
-            // 空 split 是根节点 → 替换为新空面板
+            // 空 split 是根节点，替换为新空面板
             const newPane = createPanel();
             state.rootPane = newPane;
             state.activePaneId = newPane.id;
@@ -446,6 +472,24 @@ export const usePanesStore = create<PanesState>()(
     },
 
     moveTab: (fromPaneId, toPaneId, tabId, toIndex?) => {
+      const beforeState = get();
+      const beforeFromPane = findPane(beforeState.rootPane, fromPaneId);
+      const beforeToPane = findPane(beforeState.rootPane, toPaneId);
+      const movingTab =
+        beforeFromPane?.type === "panel"
+          ? beforeFromPane.tabs.find((t) => t.id === tabId) ?? null
+          : null;
+      debugPanes("moveTab.begin", {
+        fromPaneId,
+        toPaneId,
+        tabId,
+        toIndex: toIndex ?? null,
+        activePaneId: beforeState.activePaneId,
+        movingSessionId: movingTab?.sessionId ?? null,
+        cliTool: movingTab?.cliTool ?? (movingTab?.launchClaude ? "claude" : "none"),
+        fromPane: summarizePanel(beforeFromPane),
+        toPane: summarizePanel(beforeToPane),
+      });
       set((state) => {
         const fromPane = findPane(state.rootPane, fromPaneId);
         const toPane = findPane(state.rootPane, toPaneId);
@@ -469,14 +513,54 @@ export const usePanesStore = create<PanesState>()(
         state.activePaneId = toPaneId;
       });
 
-      // 源面板空了则关闭（closePane 内部有独立 set，不可嵌套）
+      const afterState = get();
+      const afterFromPane = findPane(afterState.rootPane, fromPaneId);
+      const afterToPane = findPane(afterState.rootPane, toPaneId);
+      debugPanes("moveTab.end", {
+        fromPaneId,
+        toPaneId,
+        tabId,
+        activePaneId: afterState.activePaneId,
+        fromPane: summarizePanel(afterFromPane),
+        toPane: summarizePanel(afterToPane),
+      });
+
+      // closePane uses its own state update, so do this after the move completes.
       const fromPane = findPane(get().rootPane, fromPaneId);
       if (fromPane?.type === "panel" && fromPane.tabs.length === 0) {
+        debugPanes("moveTab.close-empty-pane", {
+          paneId: fromPaneId,
+          tabId,
+        });
         get().closePane(fromPaneId);
+
+        const targetPane = findPane(get().rootPane, toPaneId);
+        if (targetPane?.type === "panel" && targetPane.tabs.some((t) => t.id === tabId)) {
+          debugPanes("moveTab.restore-target-focus", {
+            paneId: toPaneId,
+            tabId,
+          });
+          get().selectTab(toPaneId, tabId);
+        }
       }
     },
 
     splitAndMoveTab: (paneId, tabId, direction) => {
+      const beforeState = get();
+      const beforePane = findPane(beforeState.rootPane, paneId);
+      const movingTab =
+        beforePane?.type === "panel"
+          ? beforePane.tabs.find((t) => t.id === tabId) ?? null
+          : null;
+      debugPanes("splitAndMoveTab.begin", {
+        paneId,
+        tabId,
+        direction,
+        activePaneId: beforeState.activePaneId,
+        movingSessionId: movingTab?.sessionId ?? null,
+        cliTool: movingTab?.cliTool ?? (movingTab?.launchClaude ? "claude" : "none"),
+        sourcePane: summarizePanel(beforePane),
+      });
       const directionMap: Record<SplitDirection, "horizontal" | "vertical"> = {
         right: "horizontal",
         down: "vertical",
@@ -486,16 +570,16 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const sourcePane = findPane(state.rootPane, paneId);
         if (sourcePane?.type !== "panel") return;
-        if (sourcePane.tabs.length <= 1) return; // 不允许移走唯一标签
+        if (sourcePane.tabs.length <= 1) return; // Never move the only tab out of a pane.
 
         const tabIndex = sourcePane.tabs.findIndex((t) => t.id === tabId);
         if (tabIndex === -1) return;
 
-        // 取出 tab，创建 plain copy 避免 Immer orphaned draft proxy 问题
+        // Copy the tab out of the draft to avoid keeping an orphaned Immer proxy around.
         const [draftTab] = sourcePane.tabs.splice(tabIndex, 1);
         const tab: Tab = { ...draftTab };
 
-        // 更新源面板 activeTabId
+        // Update the source pane's active tab after removing the moved tab.
         if (sourcePane.activeTabId === tabId) {
           const newIdx = Math.min(tabIndex, sourcePane.tabs.length - 1);
           sourcePane.activeTabId = sourcePane.tabs[newIdx].id;
@@ -541,6 +625,15 @@ export const usePanesStore = create<PanesState>()(
 
         state.activePaneId = newPane.id;
       });
+
+      const afterState = get();
+      debugPanes("splitAndMoveTab.end", {
+        paneId,
+        tabId,
+        direction,
+        activePaneId: afterState.activePaneId,
+        panels: collectPanels(afterState.rootPane).map((panel) => summarizePanel(panel)),
+      });
     },
 
     closeTab: (paneId, tabId) => {
@@ -564,6 +657,7 @@ export const usePanesStore = create<PanesState>()(
             launchClaude: snapTab.launchClaude,
             cliTool: snapTab.cliTool,
             ssh: snapTab.ssh,
+            wsl: snapTab.wsl,
             machineName: snapTab.machineName,
           });
         });
@@ -611,7 +705,7 @@ export const usePanesStore = create<PanesState>()(
         }
       });
 
-      // 如果所有标签都被关闭，关闭面板
+      // Close the pane if every tab was removed.
       const afterPane = findPane(get().rootPane, paneId);
       if (afterPane?.type === "panel" && afterPane.tabs.length === 0) {
         get().closePane(paneId);
@@ -791,7 +885,7 @@ export const usePanesStore = create<PanesState>()(
         const tab = pane.tabs.find((t) => t.id === tabId);
         if (!tab) return;
         tab.minimized = true;
-        // 如果当前活动标签被最小化，切换到下一个非最小化标签
+        // If the active tab is minimized, switch to the next visible tab.
         if (pane.activeTabId === tabId) {
           const nextVisible = pane.tabs.find((t) => t.id !== tabId && !t.minimized);
           if (nextVisible) {
@@ -830,6 +924,7 @@ export const usePanesStore = create<PanesState>()(
         workspacePath: lastClosed.workspacePath,
         cliTool: lastClosed.cliTool,
         ssh: lastClosed.ssh,
+        wsl: lastClosed.wsl,
         machineName: lastClosed.machineName,
       });
     },
@@ -838,7 +933,7 @@ export const usePanesStore = create<PanesState>()(
       const active = get().activePane();
       if (!active) return;
 
-      // 复用已有 tab
+      // Reuse the existing tab if the project is already open here.
       const existing = active.tabs.find(
         (t) => t.contentType === "mcp-config" && t.projectPath === projectPath
       );
@@ -948,7 +1043,7 @@ export const usePanesStore = create<PanesState>()(
     },
 
     openEditor: (projectPath, filePath, title) => {
-      // 代理到 EditorTabsStore + 切换到 files 模式
+      // Delegate to the editor tab store and switch to files mode.
       useEditorTabsStore.getState().openFile(projectPath, filePath, title);
       const activityState = useActivityBarStore.getState();
       if (activityState.appViewMode !== "files") {
@@ -976,7 +1071,7 @@ export const usePanesStore = create<PanesState>()(
         const next = new Set(state.poppedOutTabs);
         next.delete(tabId);
         state.poppedOutTabs = next;
-        // 递增 reclaimKey 触发 TerminalView remount
+        // Bump reclaimKey so TerminalView remounts after a popped-out tab returns.
         const panels = collectPanels(state.rootPane);
         for (const panel of panels) {
           const tab = panel.tabs.find((t) => t.id === tabId);
@@ -997,7 +1092,7 @@ export const usePanesStore = create<PanesState>()(
         const tab = pane.tabs.find((t) => t.id === tabId);
         if (!tab) return;
         tab.disconnected = disconnected;
-        // 更新标题：断连时加 ⚡，重连时移除
+        // 更新标题：断连时加闪电，重连时移除
         if (tab.ssh && tab.machineName) {
           const name = tab.projectPath.split(/[/\\]/).pop() || "Terminal";
           if (disconnected) {
@@ -1028,6 +1123,7 @@ export const usePanesStore = create<PanesState>()(
           workspacePath: tab.workspacePath,
           cliTool: tab.cliTool,
           ssh: tab.ssh,
+          wsl: tab.wsl,
         });
 
         // 更新 tab 的 sessionId 和断连状态
@@ -1038,7 +1134,7 @@ export const usePanesStore = create<PanesState>()(
           if (!t) return;
           t.sessionId = sessionId;
           t.disconnected = false;
-          // 恢复标题
+          // Restore the original SSH tab title after reconnection succeeds.
           if (t.ssh && t.machineName) {
             const name = t.projectPath.split(/[/\\]/).pop() || "Terminal";
             t.title = `[${t.machineName}] ${name}`;
@@ -1095,7 +1191,7 @@ export const usePanesStore = create<PanesState>()(
     migrate: (persistedState, version) => {
       const state = persistedState as Record<string, unknown>;
       if (version < 2) {
-        // v1 → v2: launchClaude: true → cliTool: "claude"
+        // v1 -> v2: migrate launchClaude=true tabs to cliTool="claude"
         function migrateNode(node: PaneNode) {
           if (node.type === "panel") {
             for (const tab of node.tabs) {
@@ -1116,14 +1212,14 @@ export const usePanesStore = create<PanesState>()(
     partialize: (state) => ({
       rootPane: state.rootPane,
       activePaneId: state.activePaneId,
-      // poppedOutTabs 不持久化（重启后弹出窗口不存在）
+      // poppedOutTabs is runtime-only; popped windows do not survive restart.
     }),
     merge: (persistedState, currentState) => {
       const merged = {
         ...currentState,
         ...(persistedState as object),
       };
-      // persistedState 来自 JSON.parse，未被 Immer 冻结，可安全修改
+      // persistedState comes from JSON.parse and is safe to normalize in place.
       if (persistedState && (persistedState as Partial<PanesState>).rootPane) {
         cleanRehydratedPanes((merged as PanesState).rootPane);
       }
@@ -1132,3 +1228,7 @@ export const usePanesStore = create<PanesState>()(
   },
   )
 );
+
+
+
+

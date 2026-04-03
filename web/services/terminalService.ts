@@ -11,6 +11,12 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { CreateSessionRequest, ResizeRequest, EnvironmentInfo } from "@/types";
 import type { EnvironmentInfoRaw } from "@/types/settings";
+import { devDebugLog } from "@/utils/devLogger";
+
+export interface TerminalReplaySnapshot {
+  data: string;
+  bufferMode: "normal" | "alternate";
+}
 
 /** 将 Rust 返回的 cliTools 数组规范化为含向后兼容字段的 EnvironmentInfo */
 function normalizeEnvironmentInfo(raw: EnvironmentInfoRaw): EnvironmentInfo {
@@ -27,6 +33,13 @@ function normalizeEnvironmentInfo(raw: EnvironmentInfoRaw): EnvironmentInfo {
     claude: findTool("claude"),
     codex: findTool("codex"),
   };
+}
+
+const TERMINAL_SERVICE_DEBUG = import.meta.env.DEV;
+
+function debugTerminalService(event: string, payload: Record<string, unknown>): void {
+  if (!TERMINAL_SERVICE_DEBUG) return;
+  devDebugLog("terminal-service-debug", event, payload);
 }
 
 // ── 模块级状态：单例监听器 ──────────────────────────────────
@@ -49,6 +62,7 @@ let unlistenKilled: UnlistenFn | null = null;
 export async function ensureListeners(): Promise<void> {
   if (listenersInitialized) return;
   listenersInitialized = true;
+  debugTerminalService("listeners.init", {});
 
   const webviewWindow = getCurrentWebview();
 
@@ -62,6 +76,11 @@ export async function ensureListeners(): Promise<void> {
         cb(data);
       } else {
         // 回调未注册 — 缓冲等待 flush
+        debugTerminalService("output.buffered", {
+          sessionId,
+          dataLength: data.length,
+          pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+        });
         const buf = pendingBuffers.get(sessionId);
         if (buf) {
           if (buf.length >= MAX_PENDING_CHUNKS) {
@@ -152,21 +171,40 @@ export const terminalService = {
     return invoke("kill_terminal", { sessionId });
   },
 
+  async getReplaySnapshot(sessionId: string): Promise<TerminalReplaySnapshot | null> {
+    return invoke<TerminalReplaySnapshot | null>("get_terminal_replay_snapshot", { sessionId });
+  },
+
   // ── 断连 API（分屏重连用） ──────────────────────────────
 
   /** 断连：移除输出回调并清理 pendingBuffers，防止内存泄漏 */
   detachOutput(sessionId: string): void {
+    debugTerminalService("callback.detach.output", {
+      sessionId,
+      hadCallback: outputCallbacks.has(sessionId),
+      pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+    });
     outputCallbacks.delete(sessionId);
     pendingBuffers.delete(sessionId);
   },
 
   /** 断连：仅移除退出回调 */
   detachExit(sessionId: string): void {
+    debugTerminalService("callback.detach.exit", {
+      sessionId,
+      hadCallback: exitCallbacks.has(sessionId),
+    });
     exitCallbacks.delete(sessionId);
   },
 
   /** 完整终止 session：清除回调 + 缓冲 + 发送 kill IPC */
   async killSession(sessionId: string): Promise<void> {
+    debugTerminalService("session.kill", {
+      sessionId,
+      hadOutputCallback: outputCallbacks.has(sessionId),
+      hadExitCallback: exitCallbacks.has(sessionId),
+      pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+    });
     killedSessions.add(sessionId);
     outputCallbacks.delete(sessionId);
     exitCallbacks.delete(sessionId);
@@ -182,10 +220,19 @@ export const terminalService = {
     callback: (data: string) => void
   ): Promise<void> {
     await ensureListeners();
+    debugTerminalService("callback.register.output", {
+      sessionId,
+      replacedExisting: outputCallbacks.has(sessionId),
+      pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+    });
     outputCallbacks.set(sessionId, callback);
     // Flush 缓冲的早期输出
     const buf = pendingBuffers.get(sessionId);
     if (buf) {
+      debugTerminalService("callback.flush.output", {
+        sessionId,
+        chunkCount: buf.length,
+      });
       pendingBuffers.delete(sessionId);
       for (const data of buf) {
         callback(data);
@@ -195,6 +242,11 @@ export const terminalService = {
 
   /** 注销终端输出回调 */
   unregisterOutput(sessionId: string): void {
+    debugTerminalService("callback.unregister.output", {
+      sessionId,
+      hadCallback: outputCallbacks.has(sessionId),
+      pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+    });
     outputCallbacks.delete(sessionId);
     pendingBuffers.delete(sessionId);
   },
@@ -205,11 +257,19 @@ export const terminalService = {
     callback: (exitCode: number) => void
   ): Promise<void> {
     await ensureListeners();
+    debugTerminalService("callback.register.exit", {
+      sessionId,
+      replacedExisting: exitCallbacks.has(sessionId),
+    });
     exitCallbacks.set(sessionId, callback);
   },
 
   /** 注销终端退出回调 */
   unregisterExit(sessionId: string): void {
+    debugTerminalService("callback.unregister.exit", {
+      sessionId,
+      hadCallback: exitCallbacks.has(sessionId),
+    });
     exitCallbacks.delete(sessionId);
   },
 

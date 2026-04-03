@@ -296,6 +296,28 @@ describe("usePanesStore", () => {
       expect(fromPane.tabs.find((t) => t.id === tabToMove)).toBeUndefined();
       expect(toPane.tabs.find((t) => t.id === tabToMove)).toBeDefined();
     });
+
+    it("应在关闭空源面板后保持目标面板为活动状态", () => {
+      const { rootPane, splitRight } = usePanesStore.getState();
+      const firstPaneId = rootPane.id;
+
+      splitRight(firstPaneId);
+
+      const panels = usePanesStore.getState().allPanels();
+      const secondPaneId = panels.find((p) => p.id !== firstPaneId)!.id;
+      const firstPane = panels.find((p) => p.id === firstPaneId) as Panel;
+      const tabToMove = firstPane.tabs[0].id;
+
+      usePanesStore.getState().moveTab(firstPaneId, secondPaneId, tabToMove);
+
+      const stateAfter = usePanesStore.getState();
+      const targetPane = stateAfter.findPaneById(secondPaneId) as Panel;
+
+      expect(stateAfter.activePaneId).toBe(secondPaneId);
+      expect(stateAfter.findPaneById(firstPaneId)).toBeNull();
+      expect(targetPane.activeTabId).toBe(tabToMove);
+      expect(targetPane.tabs.some((t) => t.id === tabToMove)).toBe(true);
+    });
   });
 
   describe("minimizeTab", () => {

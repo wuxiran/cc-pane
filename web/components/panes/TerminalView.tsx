@@ -7,14 +7,14 @@ import { writeText as tauriWriteText, readText as tauriReadText } from "@tauri-a
 import { terminalService, historyService, sessionRestoreService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
+import { devDebugLog } from "@/utils/devLogger";
 import { shouldTerminalHandleKey, useShortcutsStore, useSettingsStore, usePanesStore } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
+import { replayAttachedSession } from "./terminalReplay";
+import { formatTerminalInitError } from "./terminalInitError";
 import "@xterm/xterm/css/xterm.css";
 
-/**
- * 全局缓存 Windows Build Number（系统级常量，运行时不变）
- * 多组件实例共享，避免重复 invoke 后端。
- */
+/** Cache the Windows build number once per renderer process. */
 let cachedBuildNumber: number | null = null;
 let buildNumberPromise: Promise<number> | null = null;
 
@@ -28,7 +28,30 @@ async function getCachedBuildNumber(): Promise<number> {
   return buildNumberPromise;
 }
 
-import type { CliTool, SshConnectionInfo } from "@/types";
+import type { CliTool, SshConnectionInfo, WslLaunchInfo } from "@/types";
+
+const TERMINAL_DEBUG = import.meta.env.DEV;
+const ALTERNATE_BUFFER_SEQUENCE = /\x1b\[\?(1049|1047|47)(h|l)/g;
+
+interface AlternateBufferTransition {
+  mode: string;
+  action: "enter" | "exit";
+}
+
+function detectAlternateBufferTransitions(data: string): AlternateBufferTransition[] {
+  const transitions: AlternateBufferTransition[] = [];
+  for (const match of data.matchAll(new RegExp(ALTERNATE_BUFFER_SEQUENCE.source, "g"))) {
+    transitions.push({
+      mode: match[1],
+      action: match[2] === "h" ? "enter" : "exit",
+    });
+  }
+  return transitions;
+}
+
+function resolveCliTool(cliTool?: CliTool, launchClaude?: boolean): string {
+  return cliTool ?? (launchClaude ? "claude" : "none");
+}
 
 interface TerminalViewProps {
   sessionId: string | null;
@@ -43,17 +66,18 @@ interface TerminalViewProps {
   skipMcp?: boolean;
   appendSystemPrompt?: string;
   ssh?: SshConnectionInfo;
-  /** 是否处于恢复模式（重启后标记） */
+  wsl?: WslLaunchInfo;
+  /** Whether the tab is restoring output from a saved session. */
   restoring?: boolean;
-  /** 关闭前的 session ID（用于加载输出文件） */
+  /** Saved session id used to replay persisted terminal output. */
   savedSessionId?: string;
-  /** 所属 Pane ID（恢复完成后清除标记用） */
+  /** Pane id used to clear restoring state after recovery finishes. */
   paneId?: string;
-  /** Tab ID（恢复完成后清除标记用） */
+  /** Tab id used to clear restoring state after recovery finishes. */
   tabId?: string;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
-  /** SSH 断线重连回调，返回新 sessionId（null 表示失败） */
+  /** Optional SSH reconnect callback for disconnected sessions. */
   onReconnect?: () => Promise<string | null>;
 }
 
@@ -76,37 +100,87 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const lastContainerSizeRef = useRef<{ width: number; height: number } | null>(null);
     const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
 
-    // SSH 断线重连状态
+    // Track SSH reconnect state.
     const isDisconnectedRef = useRef(false);
     const isReconnectingRef = useRef(false);
     const isSshRef = useRef(!!props.ssh);
-    // 延迟恢复标记：非 active Tab 恢复时仅回放输出，待切换到 active 再创建 PTY
+    // Delay PTY creation for inactive restored tabs until they become active.
     const deferredRestoreRef = useRef(false);
 
     const onSessionCreatedRef = useRef(props.onSessionCreated);
     const onSessionExitedRef = useRef(props.onSessionExited);
     const onReconnectRef = useRef(props.onReconnect);
+    const debugInstanceIdRef = useRef(`term-${Math.random().toString(36).slice(2, 8)}`);
+    const trackedBufferTypeRef = useRef<"unknown" | "normal" | "alternate">("unknown");
+    const lastWheelDecisionRef = useRef<string | null>(null);
 
-    // 暴露方法
+    const debugLog = useCallback((event: string, payload: Record<string, unknown> = {}) => {
+      if (!TERMINAL_DEBUG) return;
+      devDebugLog("terminal-debug", event, {
+        instanceId: debugInstanceIdRef.current,
+        paneId: props.paneId ?? null,
+        tabId: props.tabId ?? null,
+        projectPath: props.projectPath,
+        propSessionId: props.sessionId ?? null,
+        sessionId: currentSessionIdRef.current ?? props.sessionId ?? null,
+        cliTool: resolveCliTool(props.cliTool, props.launchClaude),
+        isActive: props.isActive,
+        xtermBuffer: terminalInstanceRef.current?.buffer.active.type ?? null,
+        ...payload,
+      });
+    }, [
+      props.cliTool,
+      props.isActive,
+      props.launchClaude,
+      props.paneId,
+      props.projectPath,
+      props.sessionId,
+      props.tabId,
+    ]);
+
+    const syncTrackedBufferType = useCallback((reason: string) => {
+      const current = terminalInstanceRef.current?.buffer.active.type;
+      const next =
+        current === "alternate" || current === "normal"
+          ? current
+          : "unknown";
+      if (trackedBufferTypeRef.current === next) return;
+      const previous = trackedBufferTypeRef.current;
+      trackedBufferTypeRef.current = next;
+      lastWheelDecisionRef.current = null;
+      debugLog("buffer.changed", {
+        reason,
+        previousBuffer: previous,
+        nextBuffer: next,
+      });
+    }, [debugLog]);
+
+    // Expose imperative helpers to parent panes.
     useImperativeHandle(ref, () => ({
       focus: () => terminalInstanceRef.current?.focus(),
       fit: () => fitAddonRef.current?.fit(),
     }));
 
-    // 保持 ref 与 props 同步
+    // Keep callback refs in sync with the latest props.
     useEffect(() => {
       onSessionCreatedRef.current = props.onSessionCreated;
       onSessionExitedRef.current = props.onSessionExited;
       onReconnectRef.current = props.onReconnect;
     });
 
-    // 清理资源（按顺序：回调 → 定时器 → observer → addon → terminal）
+    // Dispose listeners, timers, observers, addons, and the terminal instance.
     const cleanup = useCallback(() => {
+      debugLog("cleanup.begin", {
+        trackedBuffer: trackedBufferTypeRef.current,
+      });
       if (onDataDisposableRef.current) {
         onDataDisposableRef.current.dispose();
         onDataDisposableRef.current = null;
       }
       if (currentSessionIdRef.current) {
+        debugLog("cleanup.detach-session", {
+          detachSessionId: currentSessionIdRef.current,
+        });
         terminalService.detachOutput(currentSessionIdRef.current);
         terminalService.detachExit(currentSessionIdRef.current);
         currentSessionIdRef.current = null;
@@ -120,13 +194,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         resizeObserverRef.current = null;
       }
 
-      // 移除 wheel handler
+      // Remove the wheel handler before disposing xterm.
       if (wheelHandlerRef.current && terminalInstanceRef.current?.element) {
         terminalInstanceRef.current.element.removeEventListener('wheel', wheelHandlerRef.current);
         wheelHandlerRef.current = null;
       }
 
-      // 先 dispose addon，再 dispose terminal
+      // Dispose addons before the terminal instance.
       const webglToDispose = webglAddonRef.current;
       const fitToDispose = fitAddonRef.current;
       const termToDispose = terminalInstanceRef.current;
@@ -134,38 +208,41 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       webglAddonRef.current = null;
       fitAddonRef.current = null;
       lastContainerSizeRef.current = null;
+      trackedBufferTypeRef.current = "unknown";
+      lastWheelDecisionRef.current = null;
 
       if (webglToDispose) {
         try {
           webglToDispose.dispose();
         } catch {
-          // WebGL addon dispose 可能在上下文丢失时抛错，安全忽略
+          // Safe to ignore if the WebGL addon is already torn down.
         }
       }
       if (fitToDispose) {
         try {
           fitToDispose.dispose();
         } catch {
-          // addon dispose 在 DOM 节点已移除时可能抛错，安全忽略
+          // Safe to ignore if the addon is already detached from the DOM.
         }
       }
       if (termToDispose) {
         try {
           termToDispose.dispose();
         } catch {
-          // xterm.js dispose 可能在 DOM 节点已移除时抛错，安全忽略
+          // Safe to ignore if xterm was already detached from the DOM.
         }
       }
-    }, []);
+      debugLog("cleanup.end", {});
+    }, [debugLog]);
 
-    /** 会话退出处理（共享逻辑：init 和 reconnect 都使用） */
+    /** Shared exit handling for initial attach and reconnect flows. */
     const handleSessionExit = useCallback((sessionId: string, exitCode: number) => {
       console.warn(`[TerminalView] Session exited: ${sessionId}, exitCode=${exitCode}`);
       const term = terminalInstanceRef.current;
       if (!term) return;
       term.writeln(`\r\n\x1b[33mProcess exited with code ${exitCode}\x1b[0m`);
 
-      // SSH 终端退出后显示重连提示
+      // Show reconnect hints after an SSH disconnect.
       if (isSshRef.current && onReconnectRef.current) {
         term.writeln(
           "\x1b[36m[Disconnected] Press Enter to reconnect, or Ctrl+C to close.\x1b[0m"
@@ -176,17 +253,53 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       onSessionExitedRef.current?.(exitCode);
     }, []);
 
-    /** 绑定 session 的 output/exit 回调 */
+    /** Attach output and exit listeners for a session. */
     const bindSessionCallbacks = useCallback(async (sessionId: string) => {
+      debugLog("session.bind-callbacks.begin", {
+        bindSessionId: sessionId,
+      });
       await terminalService.registerOutput(sessionId, (data) => {
-        terminalInstanceRef.current?.write(data);
+        const term = terminalInstanceRef.current;
+        const transitions = detectAlternateBufferTransitions(data);
+        if (transitions.length > 0) {
+          debugLog("output.alternate-sequence.received", {
+            bindSessionId: sessionId,
+            transitions,
+            dataLength: data.length,
+          });
+        }
+
+        if (!term) {
+          debugLog("output.write.skipped", {
+            bindSessionId: sessionId,
+            dataLength: data.length,
+            transitions,
+          });
+          return;
+        }
+
+        term.write(data, () => {
+          if (transitions.length > 0) {
+            debugLog("output.alternate-sequence.applied", {
+              bindSessionId: sessionId,
+              transitions,
+              bufferAfter: term.buffer.active.type,
+            });
+          }
+          syncTrackedBufferType(
+            transitions.length > 0 ? "output.alternate-sequence" : "output.write"
+          );
+        });
       });
       await terminalService.registerExit(sessionId, (exitCode) => {
         handleSessionExit(sessionId, exitCode);
       });
-    }, [handleSessionExit]);
+      debugLog("session.bind-callbacks.end", {
+        bindSessionId: sessionId,
+      });
+    }, [debugLog, handleSessionExit, syncTrackedBufferType]);
 
-    /** SSH 断线重连 */
+    /** Attempt to reconnect an SSH-backed session. */
     const doReconnect = useCallback(async () => {
       const term = terminalInstanceRef.current;
       if (!term || isReconnectingRef.current) return;
@@ -197,7 +310,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       term.writeln("\r\n\x1b[33mReconnecting...\x1b[0m");
 
       try {
-        // 解除旧 session 回调
+        // Detach callbacks from the previous session before reconnecting.
         if (currentSessionIdRef.current) {
           terminalService.detachOutput(currentSessionIdRef.current);
           terminalService.detachExit(currentSessionIdRef.current);
@@ -216,10 +329,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         currentSessionIdRef.current = newSessionId;
         term.writeln("\r\n\x1b[32m--- Reconnected ---\x1b[0m\r\n");
 
-        // 绑定新 session 的 output/exit 回调
+        // Attach callbacks to the new session.
         await bindSessionCallbacks(newSessionId);
 
-        // 同步 PTY 尺寸
+        // Keep the backend PTY size aligned with the current terminal size.
         terminalService.resize({
           sessionId: newSessionId,
           cols: term.cols,
@@ -240,14 +353,18 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       }
     }, [bindSessionCallbacks]);
 
-    // 初始化终端
+    // Initialize xterm and create or attach the backend session.
     useEffect(() => {
       if (!terminalRef.current) return;
 
       let isMounted = true;
+      debugLog("mount", {
+        restoring: props.restoring ?? false,
+        savedSessionId: props.savedSessionId ?? null,
+      });
 
       const init = async () => {
-        // 异步获取 Windows Build Number
+        // Read the Windows build number once so xterm can enable ConPTY tuning.
         let buildNumber = 0;
         if (navigator.platform.startsWith('Win')) {
           buildNumber = await getCachedBuildNumber();
@@ -301,14 +418,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         term.loadAddon(fit);
 
         term.open(terminalRef.current);
+        trackedBufferTypeRef.current = term.buffer.active.type;
+        debugLog("xterm.ready", {
+          scrollback,
+          fontFamily,
+          initialBuffer: term.buffer.active.type,
+        });
 
-        // 启用 Unicode 11 宽度表（修复 CJK + emoji 字符宽度计算错误导致的花屏）
+        // Use Unicode 11 widths so CJK and emoji render correctly.
         const unicode11 = new Unicode11Addon();
         term.loadAddon(unicode11);
         term.unicode.activeVersion = "11";
 
-        // 尝试启用 WebGL 加速渲染（GPU 加速，CPU 降低 50-70%）
-        // 不可用时（如 WebGL 上下文受限）自动降级到 Canvas2D
+        // Prefer WebGL when available and fall back to Canvas2D on failure.
         try {
           const webgl = new WebglAddon();
           webgl.onContextLoss(() => {
@@ -322,23 +444,29 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           console.info("[TerminalView] WebGL not available, using Canvas2D renderer");
         }
 
-        // 同步终端聚焦状态，用于控制冲突快捷键的放行
+        // Track terminal focus so global shortcuts can defer to xterm.
         const textarea = term.textarea;
         if (textarea) {
           const setFocused = useShortcutsStore.getState().setTerminalFocused;
-          textarea.addEventListener('focus', () => setFocused(true));
-          textarea.addEventListener('blur', () => setFocused(false));
+          textarea.addEventListener('focus', () => {
+            setFocused(true);
+            debugLog("textarea.focus", {});
+          });
+          textarea.addEventListener('blur', () => {
+            setFocused(false);
+            debugLog("textarea.blur", {});
+          });
         }
 
-        // 拦截快捷键：Ctrl+C 复制 / Ctrl+V 粘贴 / 应用快捷键放行
+        // Intercept clipboard shortcuts while still allowing terminal keys through.
         term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
           if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !e.altKey) {
-            // Ctrl+C: 有选区时复制到剪贴板，无选区时放行给终端（发送 SIGINT）
+            // Copy the selection on Ctrl+C; otherwise let the terminal handle SIGINT.
             if (!e.shiftKey && (e.key === 'c' || e.key === 'C')) {
               const selection = term.getSelection();
               if (selection) {
                 e.preventDefault();
-                // Web API 优先，WKWebView 权限拒绝时 fallback 到 Tauri plugin
+                // Prefer the Web API and fall back to the Tauri clipboard plugin.
                 navigator.clipboard.writeText(selection)
                   .catch(() => tauriWriteText(selection).catch(() => {}));
                 term.clearSelection();
@@ -346,10 +474,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }
               return true;
             }
-            // Ctrl+V: 显式读取剪贴板粘贴，e.preventDefault() 防止浏览器 paste 事件导致粘贴两次
+            // Read the clipboard explicitly on Ctrl+V to avoid duplicate paste events.
             if (e.key === 'v' || e.key === 'V') {
               e.preventDefault();
-              // Web API 优先，WKWebView 权限拒绝时 fallback 到 Tauri plugin
+              // Prefer the Web API and fall back to the Tauri clipboard plugin.
               navigator.clipboard.readText()
                 .then((text) => { if (text) term.paste(text); })
                 .catch(() => tauriReadText().then((text) => { if (text) term.paste(text); }).catch(() => {}));
@@ -359,12 +487,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           return shouldTerminalHandleKey(e);
         });
 
-        // 适配大小
+        // Fit once after the initial layout pass.
         requestAnimationFrame(() => fit.fit());
 
-        // 监听输入（含断线重连拦截）
+        // Forward terminal input, with Enter-to-reconnect handling for SSH disconnects.
         const onDataDisposable = term.onData((data) => {
-          // SSH 断线状态：拦截 Enter 触发重连，忽略其他输入
+          // Only Enter should trigger reconnect while disconnected.
           if (isDisconnectedRef.current) {
             if (!isReconnectingRef.current && (data === "\r" || data === "\n")) {
               doReconnect();
@@ -378,13 +506,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
         onDataDisposableRef.current = onDataDisposable;
 
-        // 监听大小变化 → 150ms 防抖 fit → resize
-        // 忽略 <5px 的子像素级布局抖动，防止 ResizeObserver 自激振荡
-        // 拖拽分隔线期间完全跳过 fit，由拖拽结束后的 resize 事件补偿
+        // Debounce fit/resize work and ignore tiny layout jitter while dragging.
+        // Small sub-pixel layout changes should not trigger a full terminal resize.
+        // Pane drag handling will trigger a compensating resize after the drag completes.
         const MIN_CONTAINER_CHANGE = 5;
         const observer = new ResizeObserver((entries) => {
           if (!isMounted) return;
-          if (isDragging()) return; // 拖拽期间完全跳过
+          if (isDragging()) return; // Skip resize work entirely while pane dragging is active.
           const entry = entries[0];
           if (!entry) return;
 
@@ -418,10 +546,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
         observer.observe(terminalRef.current);
 
-        // 替代屏幕模式（vim/codex/less 等全屏 TUI）下：
-        // 鼠标滚轮转方向键，使滚轮能在 alternate buffer 中上下翻页
+        // Convert wheel events into arrow keys while the alternate buffer is active.
         const wheelHandler = (e: WheelEvent) => {
-          if (term.buffer.active.type !== 'alternate') return;
+          const bufferType = term.buffer.active.type;
+          const decision = bufferType === "alternate" ? "alternate-handle" : "normal-bypass";
+          if (lastWheelDecisionRef.current !== decision) {
+            lastWheelDecisionRef.current = decision;
+            debugLog("wheel.mode", {
+              bufferType,
+              decision,
+              deltaMode: e.deltaMode,
+            });
+          }
+          if (bufferType !== 'alternate') return;
           e.preventDefault();
           e.stopPropagation();
           const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 40));
@@ -436,20 +573,25 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         terminalInstanceRef.current = term;
         fitAddonRef.current = fit;
         resizeObserverRef.current = observer;
+        syncTrackedBufferType("xterm.initialized");
 
-        // 记录是否为 SSH 终端
+        // Remember whether this terminal is backed by SSH for exit handling.
         isSshRef.current = !!props.ssh;
 
-        // 创建或重连后端会话
+        // Create a new backend session or attach to an existing one.
         if (props.projectPath) {
           try {
             await ensureListeners();
 
-            // --- 恢复模式：回放历史输出 ---
+            // Replay persisted output before deciding whether to create a live PTY.
             if (props.restoring && props.savedSessionId) {
               try {
                 const lines = await sessionRestoreService.loadOutput(props.savedSessionId);
                 if (lines && lines.length > 0) {
+                  debugLog("session.restore.replay", {
+                    savedSessionId: props.savedSessionId,
+                    lineCount: lines.length,
+                  });
                   term.writeln("\x1b[90m--- Session restored ---\x1b[0m");
                   for (const line of lines) {
                     term.writeln(line);
@@ -460,9 +602,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 console.warn("[TerminalView] Failed to load restored output:", err);
               }
 
-              // 延迟恢复：非 active Tab 仅回放输出，不创建 PTY
-              // 用户切换到此 Tab 时通过 isActive 变化触发 PTY 创建
+              // Inactive restored tabs only replay saved output; PTY creation waits until activation.
+              // The live session is created later when the tab becomes active again.
               if (!props.isActive) {
+                debugLog("session.restore.defer", {
+                  savedSessionId: props.savedSessionId,
+                });
                 console.info(`[TerminalView] Deferred restore (not active): ${props.projectPath}`);
                 deferredRestoreRef.current = true;
                 return;
@@ -473,15 +618,32 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             let effectiveResumeId = props.resumeId;
 
             if (props.sessionId) {
-              // 重连模式：session 已存在于后端
+              debugLog("session.attach-existing", {
+                attachSessionId: props.sessionId,
+                note: "reusing existing PTY session with replay snapshot when available",
+              });
               console.info(`[TerminalView] Reconnecting to existing session: ${props.sessionId}`);
               sessionId = props.sessionId;
+              try {
+                await replayAttachedSession({
+                  term,
+                  sessionId,
+                  getReplaySnapshot: (attachSessionId) => terminalService.getReplaySnapshot(attachSessionId),
+                  syncTrackedBufferType,
+                  debugLog,
+                });
+              } catch (error) {
+                debugLog("session.attach-existing.replay.fail", {
+                  attachSessionId: props.sessionId,
+                  error: getErrorMessage(error),
+                });
+              }
             } else {
-              // 新建模式
-              // 重启恢复时 tab.resumeId 可能是 stale 的，查 session-state.json 获取最新值
+              // Create a brand-new backend session.
+              // Restored tabs may hold a stale resume id, so reload the latest one from session-state.json.
               if ((props.launchClaude || (props.cliTool && props.cliTool !== "none")) && !props.sessionId && effectiveResumeId) {
                 try {
-                  // hook 写在 workspacePath（如果有），读取时也要对应
+                  // When workspacePath exists, session-state.json is stored under that location.
                   const statePath = props.workspacePath || props.projectPath;
                   const state = await historyService.readSessionState(statePath);
                   if (state?.claudeSessionId && state.claudeSessionId !== "new") {
@@ -492,12 +654,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                       effectiveResumeId = state.claudeSessionId;
                     }
                   }
-                } catch { /* session-state.json 不存在时忽略 */ }
+                } catch { /* Ignore missing session-state.json. */ }
               }
 
               console.info(
                 `[TerminalView] Creating new session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, resumeId=${effectiveResumeId ?? "none"}`
               );
+              debugLog("session.create.begin", {
+                resumeId: effectiveResumeId ?? null,
+              });
               sessionId = await terminalService.createSession({
                 projectPath: props.projectPath,
                 cols: term.cols,
@@ -511,6 +676,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 skipMcp: props.skipMcp,
                 appendSystemPrompt: props.appendSystemPrompt,
                 ssh: props.ssh,
+                wsl: props.wsl,
+              });
+              debugLog("session.create.end", {
+                createdSessionId: sessionId,
               });
               console.info(`[TerminalView] Session created: ${sessionId}`);
             }
@@ -524,16 +693,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
 
             currentSessionIdRef.current = sessionId;
+            debugLog("session.current.updated", {
+              currentSessionId: sessionId,
+            });
 
             if (!props.sessionId) {
               onSessionCreatedRef.current(sessionId);
-              // 如果 session-state.json 纠正了 resumeId，回写 store 以确保持久化
+              // Persist the corrected resume id back into the tab state.
               if (effectiveResumeId && effectiveResumeId !== props.resumeId) {
                 usePanesStore.getState().updateTabClaudeSession(sessionId, effectiveResumeId);
               }
             }
 
-            // 恢复完成后清理状态和输出文件
+            // Clear restore metadata once the live session is ready.
             if (props.restoring && props.paneId && props.tabId) {
               usePanesStore.getState().clearRestoring(props.paneId, props.tabId);
               if (props.savedSessionId) {
@@ -541,7 +713,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }
             }
 
-            // 注册输出/退出回调
+            // Register output and exit handlers.
             await bindSessionCallbacks(sessionId);
             if (!isMounted) {
               terminalService.detachOutput(sessionId);
@@ -549,7 +721,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               return;
             }
 
-            // 重连时同步 PTY 尺寸
+            // Keep PTY size aligned when attaching to an existing session.
             if (props.sessionId) {
               terminalService.resize({ sessionId, cols: term.cols, rows: term.rows });
             }
@@ -560,6 +732,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               error
             );
             const errorMsg = getErrorMessage(error);
+            const formattedInitError = formatTerminalInitError(errorMsg);
+            if (formattedInitError) {
+              for (const line of formattedInitError) {
+                term.writeln(line);
+              }
+              return;
+            }
             const cliNotFoundMatch = errorMsg.match(/(\w+) CLI not found/);
             if (cliNotFoundMatch) {
               const toolName = cliNotFoundMatch[1];
@@ -588,17 +767,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 激活时重新适配大小 + 聚焦 + 延迟恢复
+    // Refit on activation and create deferred PTYs for restored tabs.
     useEffect(() => {
+      debugLog("active.effect", {
+        deferredRestore: deferredRestoreRef.current,
+        trackedBuffer: trackedBufferTypeRef.current,
+      });
       if (props.isActive && fitAddonRef.current) {
-        // 双重 rAF：第一帧触发 reflow，第二帧确保布局完成后再 fit
-        // 解决 Tab 跨面板拖拽后 display:none→flex 切换时 fit() 计算错误
+        // Double-rAF waits for layout to settle after hidden-tab and split changes.
+        // This keeps fit() accurate after display:none to flex transitions.
         const rafId = requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             if (!fitAddonRef.current || !terminalInstanceRef.current) return;
             fitAddonRef.current.fit();
             terminalInstanceRef.current.focus();
-            // fit 后同步 PTY 尺寸，防止拖拽后 cols/rows 不匹配
+            // Keep PTY size aligned after refitting the terminal.
             const { cols, rows } = terminalInstanceRef.current;
             if (lastSizeRef.current?.cols !== cols || lastSizeRef.current?.rows !== rows) {
               lastSizeRef.current = { cols, rows };
@@ -614,7 +797,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
         return () => cancelAnimationFrame(rafId);
       }
-      // 延迟恢复：用户切换到此 Tab 时创建 PTY
+      // Create the deferred PTY once the restored tab becomes active.
       if (props.isActive && deferredRestoreRef.current) {
         deferredRestoreRef.current = false;
         const term = terminalInstanceRef.current;
@@ -624,6 +807,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           try {
             await ensureListeners();
             const effectiveResumeId = props.resumeId;
+            debugLog("session.deferred-restore.begin", {
+              resumeId: effectiveResumeId ?? null,
+            });
             console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
             const sessionId = await terminalService.createSession({
               projectPath: props.projectPath,
@@ -636,10 +822,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               cliTool: props.cliTool,
               resumeId: effectiveResumeId,
               ssh: props.ssh,
+              wsl: props.wsl,
             });
             currentSessionIdRef.current = sessionId;
+            debugLog("session.deferred-restore.end", {
+              createdSessionId: sessionId,
+            });
             onSessionCreatedRef.current(sessionId);
-            // 清理恢复状态
+            // Clear restoring state once the deferred session is live.
             if (props.paneId && props.tabId) {
               usePanesStore.getState().clearRestoring(props.paneId, props.tabId);
               if (props.savedSessionId) {
@@ -668,3 +858,4 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 );
 
 export default TerminalView;
+

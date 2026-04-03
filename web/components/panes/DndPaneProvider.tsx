@@ -12,9 +12,17 @@ import {
 import { useState } from "react";
 import { usePanesStore } from "@/stores";
 import type { Tab } from "@/types";
+import { devDebugLog } from "@/utils/devLogger";
 
 interface DndPaneProviderProps {
   children: React.ReactNode;
+}
+
+const DND_DEBUG = import.meta.env.DEV;
+
+function debugDnd(event: string, payload: Record<string, unknown>): void {
+  if (!DND_DEBUG) return;
+  devDebugLog("pane-dnd-debug", event, payload);
 }
 
 /**
@@ -40,7 +48,14 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
     const { active } = event;
     const data = active.data.current;
     if (data?.type === "tab") {
-      setActiveTab(data.tab as Tab);
+      const tab = data.tab as Tab;
+      debugDnd("drag.start", {
+        tabId: tab.id,
+        fromPaneId: data.paneId ?? null,
+        sessionId: tab.sessionId ?? null,
+        cliTool: tab.cliTool ?? (tab.launchClaude ? "claude" : "none"),
+      });
+      setActiveTab(tab);
     }
   }, []);
 
@@ -74,6 +89,12 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
         const fromIndex = panel.tabs.findIndex((t) => t.id === tabId);
         const toIndex = panel.tabs.findIndex((t) => t.id === over.id);
         if (fromIndex !== -1 && toIndex !== -1 && fromIndex !== toIndex) {
+          debugDnd("drag.end.reorder", {
+            tabId,
+            paneId: fromPaneId,
+            fromIndex,
+            toIndex,
+          });
           reorderTabs(fromPaneId, fromIndex, toIndex);
         }
       } else {
@@ -81,6 +102,15 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
         const toPanel = allPanels().find((p) => p.id === toPaneId);
         if (!toPanel) return;
         const toIndex = toPanel.tabs.findIndex((t) => t.id === over.id);
+        const movedTab = activeData.tab as Tab | undefined;
+        debugDnd("drag.end.cross-pane", {
+          tabId,
+          fromPaneId,
+          toPaneId,
+          sessionId: movedTab?.sessionId ?? null,
+          cliTool: movedTab?.cliTool ?? (movedTab?.launchClaude ? "claude" : "none"),
+          toIndex: toIndex >= 0 ? toIndex : null,
+        });
         moveTab(fromPaneId, toPaneId, tabId, toIndex >= 0 ? toIndex : undefined);
       }
     }
