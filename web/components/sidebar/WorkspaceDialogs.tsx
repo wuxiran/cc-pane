@@ -1,12 +1,18 @@
 import { useTranslation } from "react-i18next";
 import { FolderOpen } from "lucide-react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ScanImportDialog from "@/components/ScanImportDialog";
 import GitCloneDialog from "@/components/GitCloneDialog";
+import type { Workspace, WorkspaceProject } from "@/types";
+import ProjectMigrationDialog from "./ProjectMigrationDialog";
 import type { ScannedRepo } from "@/services/workspaceService";
 
 interface DialogFieldProps {
@@ -22,22 +28,34 @@ interface TextDialogProps extends DialogFieldProps {
   onConfirm: () => void;
 }
 
-function TextInputDialog({ open, setOpen, title, placeholder, value, setValue, onConfirm }: TextDialogProps) {
+function TextInputDialog({
+  open,
+  setOpen,
+  title,
+  placeholder,
+  value,
+  setValue,
+  onConfirm,
+}: TextDialogProps) {
   const { t } = useTranslation("dialogs");
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="sm:max-w-sm">
-        <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
         <div className="py-4">
           <Input
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(event) => setValue(event.target.value)}
             placeholder={placeholder}
-            onKeyDown={(e) => e.key === "Enter" && onConfirm()}
+            onKeyDown={(event) => event.key === "Enter" && onConfirm()}
           />
         </div>
         <DialogFooter>
-          <Button variant="secondary" onClick={() => setOpen(false)}>{t("cancel", { ns: "common" })}</Button>
+          <Button variant="secondary" onClick={() => setOpen(false)}>
+            {t("cancel", { ns: "common" })}
+          </Button>
           <Button onClick={onConfirm}>{t("confirm", { ns: "common" })}</Button>
         </DialogFooter>
       </DialogContent>
@@ -52,16 +70,32 @@ interface ConfirmDialogProps extends DialogFieldProps {
   variant?: "default" | "destructive";
 }
 
-export function ConfirmDialog({ open, setOpen, title, description, onConfirm, variant = "default" }: ConfirmDialogProps) {
+export function ConfirmDialog({
+  open,
+  setOpen,
+  title,
+  description,
+  onConfirm,
+  variant = "default",
+}: ConfirmDialogProps) {
   const { t } = useTranslation("dialogs");
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="sm:max-w-sm">
-        <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
         <p className="text-sm text-muted-foreground py-2">{description}</p>
         <DialogFooter>
-          <Button variant="secondary" onClick={() => setOpen(false)}>{t("cancel", { ns: "common" })}</Button>
-          <Button variant={variant === "destructive" ? "destructive" : "default"} onClick={onConfirm}>{t("confirm", { ns: "common" })}</Button>
+          <Button variant="secondary" onClick={() => setOpen(false)}>
+            {t("cancel", { ns: "common" })}
+          </Button>
+          <Button
+            variant={variant === "destructive" ? "destructive" : "default"}
+            onClick={onConfirm}
+          >
+            {t("confirm", { ns: "common" })}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -121,12 +155,27 @@ export interface WorkspaceDialogsProps {
     workspaceName: string;
     onCloned: (path: string) => void;
   };
+  projectMigration: {
+    open: boolean;
+    setOpen: (v: boolean) => void;
+    workspace: Workspace | null;
+    project: WorkspaceProject | null;
+  };
   confirm: ConfirmDialogState;
 }
 
 export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
   const { t } = useTranslation("dialogs");
-  const { newWorkspace, renameWorkspace, projectAlias, workspaceAlias, scan, gitClone, confirm } = props;
+  const {
+    newWorkspace,
+    renameWorkspace,
+    projectAlias,
+    workspaceAlias,
+    scan,
+    gitClone,
+    projectMigration,
+    confirm,
+  } = props;
 
   return (
     <>
@@ -141,29 +190,35 @@ export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
 
       <Dialog open={newWorkspace.open} onOpenChange={newWorkspace.setOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>{t("newWorkspace")}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{t("newWorkspace")}</DialogTitle>
+          </DialogHeader>
           <div className="py-4 flex flex-col gap-3">
             <Input
               value={newWorkspace.name}
-              onChange={(e) => newWorkspace.setName(e.target.value)}
+              onChange={(event) => newWorkspace.setName(event.target.value)}
               placeholder={t("workspaceNamePlaceholder")}
-              onKeyDown={(e) => e.key === "Enter" && newWorkspace.onConfirm()}
+              onKeyDown={(event) => event.key === "Enter" && newWorkspace.onConfirm()}
             />
             <div className="flex gap-2">
               <Input
                 value={newWorkspace.path}
                 readOnly
-                placeholder={t("selectWorkspacePath", { defaultValue: "选择工作空间根目录" })}
+                placeholder="Optional workspace anchor path"
                 className="flex-1"
               />
               <Button variant="secondary" onClick={newWorkspace.onSelectPath}>
-                <FolderOpen size={14} className="mr-1" /> {t("browse", { ns: "common", defaultValue: "浏览" })}
+                <FolderOpen size={14} className="mr-1" /> Browse
               </Button>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="secondary" onClick={() => newWorkspace.setOpen(false)}>{t("cancel", { ns: "common" })}</Button>
-            <Button onClick={newWorkspace.onConfirm} disabled={!newWorkspace.name.trim() || !newWorkspace.path.trim()}>{t("create", { ns: "common", defaultValue: "创建" })}</Button>
+            <Button variant="secondary" onClick={() => newWorkspace.setOpen(false)}>
+              {t("cancel", { ns: "common" })}
+            </Button>
+            <Button onClick={newWorkspace.onConfirm} disabled={!newWorkspace.name.trim()}>
+              {t("create", { ns: "common", defaultValue: "Create" })}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -210,6 +265,13 @@ export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
         onOpenChange={gitClone.setOpen}
         workspaceName={gitClone.workspaceName}
         onCloned={gitClone.onCloned}
+      />
+
+      <ProjectMigrationDialog
+        open={projectMigration.open}
+        onOpenChange={projectMigration.setOpen}
+        workspace={projectMigration.workspace}
+        project={projectMigration.project}
       />
     </>
   );

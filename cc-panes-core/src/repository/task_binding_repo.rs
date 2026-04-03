@@ -129,12 +129,10 @@ impl TaskBindingRepository {
         values.push(Box::new(id.to_string()));
 
         let params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v.as_ref()).collect();
-        let affected = conn
-            .execute(&sql, params.as_slice())
-            .map_err(|e| {
-                error!(table = "task_bindings", id = %id, err = %e, "SQL update failed");
-                e.to_string()
-            })?;
+        let affected = conn.execute(&sql, params.as_slice()).map_err(|e| {
+            error!(table = "task_bindings", id = %id, err = %e, "SQL update failed");
+            e.to_string()
+        })?;
 
         Ok(affected > 0)
     }
@@ -215,8 +213,14 @@ impl TaskBindingRepository {
         let items = stmt
             .query_map(data_refs.as_slice(), |row| Ok(Self::row_to_binding(row)))
             .map_err(|e| e.to_string())?
-            .filter_map(|r| r.map_err(|e| warn!("task_bindings query_map error: {}", e)).ok())
-            .filter_map(|r| r.map_err(|e| warn!("task_bindings row parse error: {}", e)).ok())
+            .filter_map(|r| {
+                r.map_err(|e| warn!("task_bindings query_map error: {}", e))
+                    .ok()
+            })
+            .filter_map(|r| {
+                r.map_err(|e| warn!("task_bindings row parse error: {}", e))
+                    .ok()
+            })
             .collect::<Vec<_>>();
 
         Ok(TaskBindingQueryResult {
@@ -228,9 +232,7 @@ impl TaskBindingRepository {
 
     fn row_to_binding(row: &rusqlite::Row) -> Result<TaskBinding, String> {
         let status_str: String = row.get(8).map_err(|e| e.to_string())?;
-        let status: TaskBindingStatus = status_str
-            .parse()
-            .unwrap_or(TaskBindingStatus::Pending);
+        let status: TaskBindingStatus = status_str.parse().unwrap_or(TaskBindingStatus::Pending);
 
         Ok(TaskBinding {
             id: row.get(0).map_err(|e| e.to_string())?,

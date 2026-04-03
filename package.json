@@ -61,7 +61,7 @@
     "i18next": "^25.8.13",
     "immer": "^11.1.4",
     "lucide-react": "^0.564.0",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "^0.53.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

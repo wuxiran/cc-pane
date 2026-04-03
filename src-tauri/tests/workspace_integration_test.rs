@@ -2,6 +2,7 @@
 //!
 //! 测试 WorkspaceService 与文件系统 (workspace.json) 的端到端流程
 
+use cc_panes_lib::models::{WorkspaceLaunchEnvironment, WorkspaceSshLaunchConfig, WorkspaceWslConfig};
 use cc_panes_lib::services::WorkspaceService;
 
 /// 创建临时目录和 WorkspaceService 实例
@@ -119,6 +120,36 @@ fn test_provider_binding() {
         .unwrap();
     let ws = service.get_workspace("ws-provider").unwrap();
     assert!(ws.provider_id.is_none());
+}
+
+#[test]
+fn test_workspace_environment_config_persistence() {
+    let (_dir, service) = setup();
+
+    service.create_workspace("ws-env", Some("D:/workspace")).unwrap();
+    let mut ws = service.get_workspace("ws-env").unwrap();
+    ws.default_environment = WorkspaceLaunchEnvironment::Ssh;
+    ws.wsl = Some(WorkspaceWslConfig {
+        distro: Some("Ubuntu".to_string()),
+        remote_path: Some("/mnt/d/workspace".to_string()),
+    });
+    ws.ssh_launch = Some(WorkspaceSshLaunchConfig {
+        machine_id: Some("machine-1".to_string()),
+        remote_path: Some("/home/dev/workspace".to_string()),
+    });
+
+    service.write_workspace_json("ws-env", &ws).unwrap();
+
+    let loaded = service.get_workspace("ws-env").unwrap();
+    assert_eq!(loaded.default_environment, WorkspaceLaunchEnvironment::Ssh);
+    assert_eq!(
+        loaded.wsl.and_then(|cfg| cfg.remote_path),
+        Some("/mnt/d/workspace".to_string())
+    );
+    assert_eq!(
+        loaded.ssh_launch.and_then(|cfg| cfg.machine_id),
+        Some("machine-1".to_string())
+    );
 }
 
 // ============ 4. 持久化验证 ============

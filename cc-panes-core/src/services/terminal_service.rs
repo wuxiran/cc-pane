@@ -1,6 +1,9 @@
 use crate::constants::events as EV;
 use crate::events::{EventEmitter, SessionNotifier};
-use crate::models::{CliTool, SshConnectionInfo, TerminalExit, TerminalOutput};
+use crate::models::{
+    CliTool, SshConnectionInfo, TerminalBufferMode, TerminalExit, TerminalOutput,
+    TerminalReplaySnapshot, WslLaunchInfo,
+};
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{ProviderService, SettingsService, SpecService};
 use crate::utils::AppPaths;
@@ -16,20 +19,29 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-/// 进程级 which 结果缓存，避免每次调用遍历 PATH（macOS 含网络路径时可能阻塞 3-10 秒）
+mod wsl_codex;
+
+use self::wsl_codex::{
+    has_codex_auth_env, normalize_codex_env_vars, strip_wsl_proxy_env_vars, WSL_PROXY_ENV_KEYS,
+};
+
 fn cached_which(name: &str) -> Result<PathBuf, which::Error> {
     use std::sync::OnceLock;
+
     static CACHE: OnceLock<Mutex<HashMap<String, Option<PathBuf>>>> = OnceLock::new();
+
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let mut map = cache.lock().unwrap_or_else(|error| error.into_inner());
     if let Some(cached) = map.get(name) {
         return cached.clone().ok_or(which::Error::CannotFindBinaryPath);
     }
+
     let result = which::which(name);
     map.insert(name.to_string(), result.as_ref().ok().cloned());
     result
 }
 
+/// 进程级 which 结果缓存，避免每次调用遍历 PATH（macOS 含网络路径时可能阻塞 3-10 秒）
 /// 解析默认 Shell
 /// Windows: 优先 pwsh > powershell > cmd
 /// Unix: 使用 $SHELL 或 /bin/sh
@@ -184,6 +196,14 @@ struct OutputBuffer {
     max_bytes: usize,
 }
 
+/// attach-existing 时用于重建终端画面的原始 VT 回放缓冲区
+struct ReplayBuffer {
+    chunks: VecDeque<String>,
+    total_bytes: usize,
+    max_bytes: usize,
+    buffer_mode: TerminalBufferMode,
+}
+
 /// 读取终端输出的返回类型
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -331,6 +351,86 @@ impl OutputBuffer {
     }
 }
 
+impl ReplayBuffer {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            chunks: VecDeque::new(),
+            total_bytes: 0,
+            max_bytes,
+            buffer_mode: TerminalBufferMode::Normal,
+        }
+    }
+
+    fn push(&mut self, data: &str) {
+        if data.is_empty() {
+            return;
+        }
+
+        self.update_buffer_mode(data);
+
+        let chunk_len = data.len();
+        self.chunks.push_back(data.to_string());
+        self.total_bytes += chunk_len;
+
+        while self.total_bytes > self.max_bytes {
+            let Some(front) = self.chunks.pop_front() else {
+                break;
+            };
+            self.total_bytes = self.total_bytes.saturating_sub(front.len());
+        }
+    }
+
+    fn shrink(&mut self, max_bytes: usize) {
+        self.max_bytes = max_bytes;
+        while self.total_bytes > self.max_bytes {
+            let Some(front) = self.chunks.pop_front() else {
+                break;
+            };
+            self.total_bytes = self.total_bytes.saturating_sub(front.len());
+        }
+    }
+
+    fn snapshot(&self) -> TerminalReplaySnapshot {
+        let mut data = String::with_capacity(self.total_bytes);
+        for chunk in &self.chunks {
+            data.push_str(chunk);
+        }
+        TerminalReplaySnapshot {
+            data,
+            buffer_mode: self.buffer_mode,
+        }
+    }
+
+    fn update_buffer_mode(&mut self, data: &str) {
+        let bytes = data.as_bytes();
+        let mut i = 0;
+        while i + 4 < bytes.len() {
+            if bytes[i] == 0x1b && bytes[i + 1] == b'[' && bytes[i + 2] == b'?' {
+                let mut j = i + 3;
+                while j < bytes.len() && bytes[j].is_ascii_digit() {
+                    j += 1;
+                }
+                if j >= bytes.len() {
+                    break;
+                }
+
+                let code = &data[i + 3..j];
+                let action = bytes[j];
+                let is_alt_screen = matches!(code, "47" | "1047" | "1049");
+                if is_alt_screen {
+                    match action {
+                        b'h' => self.buffer_mode = TerminalBufferMode::Alternate,
+                        b'l' => self.buffer_mode = TerminalBufferMode::Normal,
+                        _ => {}
+                    }
+                }
+                i = j;
+            }
+            i += 1;
+        }
+    }
+}
+
 /// 终端会话
 struct TerminalSession {
     process: Arc<dyn PtyProcess>,
@@ -341,6 +441,8 @@ struct TerminalSession {
     cancelled: Arc<AtomicBool>,
     /// 输出缓冲区（ANSI 已剥离的纯文本行）
     output_buffer: Arc<Mutex<OutputBuffer>>,
+    /// attach-existing 时重建屏幕用的原始 VT 缓冲
+    replay_buffer: Arc<Mutex<ReplayBuffer>>,
 }
 
 /// Orchestrator 连接信息（port + token），启动后注入
@@ -350,8 +452,11 @@ pub struct OrchestratorInfo {
     pub token: String,
 }
 
-/// 已退出会话的缓冲区条目：(缓冲区, 退出时间)
-type DeadBufferEntry = (Arc<Mutex<OutputBuffer>>, Instant);
+struct DeadBufferEntry {
+    output_buffer: Arc<Mutex<OutputBuffer>>,
+    replay_buffer: Arc<Mutex<ReplayBuffer>>,
+    created_at: Instant,
+}
 
 /// 终端服务 - 管理多个 PTY 会话
 pub struct TerminalService {
@@ -374,9 +479,11 @@ pub struct TerminalService {
 }
 
 /// ConPTY style-only 空闲帧：\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l  (25 字节)
+#[cfg_attr(not(windows), allow(dead_code))]
 const CONPTY_STYLE_ONLY: &[u8] = b"\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l";
 
 /// 跨块缓冲状态，仅保留 carry 用于处理被拆分到两次 read() 的模式
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Default)]
 struct WindowsOutputSanitizeState {
     carry: Vec<u8>,
@@ -391,6 +498,7 @@ struct WindowsOutputSanitizeState {
 /// 注意：旧版模式 B (\x1b[27m) 和模式 C (\x1b[7m <space>) 已移除。
 /// 它们是标准的 SGR 反显序列，无条件剥离会导致 vim/less 等 TUI 应用渲染乱码。
 /// 残留的 \x1b[27m 传到 xterm.js 后是无害的（当前无反显则为 no-op）。
+#[cfg_attr(not(windows), allow(dead_code))]
 fn strip_conpty_artifacts(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len());
     let mut i = 0;
@@ -425,6 +533,7 @@ fn strip_conpty_artifacts(data: &[u8]) -> Vec<u8> {
 ///
 /// 返回需要保留到下一次 read() 的尾部字节数。
 /// 所有模式的起始字节是 0x08 或 0x1b，只需检查以这些字节开头的后缀。
+#[cfg_attr(not(windows), allow(dead_code))]
 fn trailing_partial_len(input: &[u8]) -> usize {
     if input.is_empty() {
         return 0;
@@ -452,6 +561,7 @@ fn trailing_partial_len(input: &[u8]) -> usize {
 }
 
 /// 检查 `data` 是否是任意一个可识别模式的前缀（但不是完整匹配）
+#[cfg_attr(not(windows), allow(dead_code))]
 fn is_prefix_of_any_pattern(data: &[u8]) -> bool {
     let len = data.len();
 
@@ -619,6 +729,7 @@ impl TerminalService {
         append_system_prompt: Option<&str>,
         initial_prompt: Option<&str>,
         ssh: Option<&SshConnectionInfo>,
+        wsl: Option<&WslLaunchInfo>,
     ) -> Result<String> {
         let is_ssh = ssh.is_some();
         let mut env_vars = self.settings_service.get_proxy_env_vars();
@@ -670,6 +781,72 @@ impl TerminalService {
                 "create_session: SSH mode"
             );
             (home, cmd, cmd_args, vec![])
+        } else if let Some(wsl_info) = wsl {
+            let cwd = match workspace_path {
+                Some(ws_path) => PathBuf::from(ws_path),
+                None => PathBuf::from(project_path),
+            };
+            let env_remove = WSL_PROXY_ENV_KEYS
+                .iter()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>();
+            strip_wsl_proxy_env_vars(&mut env_vars);
+
+            let mut resolved_wsl = self.resolve_wsl_launch(
+                wsl_info,
+                &session_id,
+                cli_tool == CliTool::Codex && !skip_mcp,
+            )?;
+
+            let (cmd, cmd_args) = match cli_tool {
+                CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
+                CliTool::Codex => {
+                    self.validate_wsl_codex_runtime(&mut resolved_wsl)?;
+
+                    let mut auth_env = provider_vars.clone();
+                    normalize_codex_env_vars(&mut auth_env);
+                    if !has_codex_auth_env(&auth_env)
+                        && !resolved_wsl.has_local_codex_config
+                        && !resolved_wsl.has_local_codex_auth
+                    {
+                        return Err(anyhow!(
+                            "WSL_CODEX_CONFIG_MISSING: no workspace Provider auth was injected and WSL distro '{}' has neither '~/.codex/config.toml' nor '~/.codex/auth.json'. Bind a Provider or configure/sign in to Codex inside WSL first.",
+                            resolved_wsl.distro
+                        ));
+                    }
+
+                    normalize_codex_env_vars(&mut env_vars);
+                    self.ensure_wsl_codex_mcp_registered(
+                        &session_id,
+                        &resolved_wsl,
+                        &env_vars,
+                        skip_mcp,
+                    )?;
+                    self.build_wsl_command(
+                        &resolved_wsl,
+                        &env_vars,
+                        resume_id,
+                        initial_prompt,
+                        skip_mcp,
+                    )?
+                }
+                other => {
+                    return Err(anyhow!(
+                        "WSL launch currently supports only the local shell and Codex. Requested tool: {:?}",
+                        other
+                    ));
+                }
+            };
+
+            info!(
+                session_id = %session_id,
+                distro = %resolved_wsl.distro,
+                remote_path = %resolved_wsl.remote_path,
+                cli_tool = ?cli_tool,
+                "create_session: WSL mode"
+            );
+
+            (cwd, cmd, cmd_args, env_remove)
         } else {
             // 本地模式：原有逻辑
             let cwd = match workspace_path {
@@ -778,6 +955,7 @@ impl TerminalService {
         let cancelled = Arc::new(AtomicBool::new(false));
         // 输出缓冲区：2000 行 / 512KB 上限
         let output_buffer = Arc::new(Mutex::new(OutputBuffer::new(10_000, 10 * 1024 * 1024)));
+        let replay_buffer = Arc::new(Mutex::new(ReplayBuffer::new(1024 * 1024)));
 
         // sanitize 可开关兜底（默认关闭 — dwFlags=0 应该解决了根本问题）
         #[cfg(windows)]
@@ -808,6 +986,7 @@ impl TerminalService {
                     last_output_at: last_output_at.clone(),
                     cancelled: cancelled.clone(),
                     output_buffer: output_buffer.clone(),
+                    replay_buffer: replay_buffer.clone(),
                 },
             );
         }
@@ -893,6 +1072,7 @@ impl TerminalService {
         let read_notifier = notifier.clone();
         let _settings_svc = settings_service.clone();
         let read_output_buffer = output_buffer.clone();
+        let read_replay_buffer = replay_buffer.clone();
         let reader_pid = session_pid;
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -1011,7 +1191,12 @@ impl TerminalService {
                             *prev = new_status;
                         }
 
-                        // 追加到输出缓冲区
+                        // 追加到原始 VT 回放缓冲区
+                        if let Ok(mut replay) = read_replay_buffer.lock() {
+                            replay.push(&data);
+                        }
+
+                        // 追加到纯文本输出缓冲区
                         if let Ok(mut buf) = read_output_buffer.lock() {
                             buf.push(&data);
                         }
@@ -1133,8 +1318,18 @@ impl TerminalService {
                     if let Ok(mut buf) = session.output_buffer.lock() {
                         buf.shrink(2000, 1024 * 1024);
                     }
+                    if let Ok(mut replay) = session.replay_buffer.lock() {
+                        replay.shrink(1024 * 1024);
+                    }
                     if let Ok(mut dead) = dead_buffers_for_wait.lock() {
-                        dead.insert(sid.clone(), (session.output_buffer, Instant::now()));
+                        dead.insert(
+                            sid.clone(),
+                            DeadBufferEntry {
+                                output_buffer: session.output_buffer,
+                                replay_buffer: session.replay_buffer,
+                                created_at: Instant::now(),
+                            },
+                        );
                     }
                 }
             }
@@ -1150,7 +1345,7 @@ impl TerminalService {
     pub fn get_all_status(&self) -> Result<Vec<SessionStatusInfo>> {
         // 主动清理过期 dead_buffers（>5 分钟），防止内存泄漏
         if let Ok(mut dead) = self.dead_buffers.lock() {
-            dead.retain(|_, (_, created_at)| created_at.elapsed().as_secs() < 300);
+            dead.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
         }
 
         let sessions = self
@@ -1270,10 +1465,17 @@ impl TerminalService {
             if let Ok(mut buf) = session.output_buffer.lock() {
                 buf.shrink(2000, 1024 * 1024);
             }
+            if let Ok(mut replay) = session.replay_buffer.lock() {
+                replay.shrink(1024 * 1024);
+            }
             if let Ok(mut dead) = self.dead_buffers.lock() {
                 dead.insert(
                     session_id.to_string(),
-                    (Arc::clone(&session.output_buffer), Instant::now()),
+                    DeadBufferEntry {
+                        output_buffer: Arc::clone(&session.output_buffer),
+                        replay_buffer: Arc::clone(&session.replay_buffer),
+                        created_at: Instant::now(),
+                    },
                 );
             }
             // 设置取消标志，通知 reader 线程停止 emit 事件
@@ -1318,9 +1520,9 @@ impl TerminalService {
 
         // 已退出但尚未过期的会话
         if let Ok(dead) = self.dead_buffers.lock() {
-            for (id, (buf, _)) in dead.iter() {
+            for (id, entry) in dead.iter() {
                 if !result.contains_key(id) {
-                    if let Ok(buf) = buf.lock() {
+                    if let Ok(buf) = entry.output_buffer.lock() {
                         let lines = buf.get_recent(0);
                         if !lines.is_empty() {
                             result.insert(id.clone(), lines);
@@ -1377,9 +1579,9 @@ impl TerminalService {
                     .lock()
                     .map_err(|_| anyhow!("dead_buffers lock poisoned"))?;
                 // 懒清理：移除超过 5 分钟的条目
-                dead.retain(|_, (_, created_at)| created_at.elapsed().as_secs() < 300);
+                dead.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
                 dead.get(session_id)
-                    .map(|(arc, _)| Arc::clone(arc))
+                    .map(|entry| Arc::clone(&entry.output_buffer))
                     .ok_or_else(|| anyhow!("Session not found: {}", session_id))?
             }
         };
@@ -1392,6 +1594,44 @@ impl TerminalService {
             session_id: session_id.to_string(),
             lines: buf.get_recent(lines),
         })
+    }
+
+    /// 读取终端会话的原始 VT replay 快照，用于 attach-existing 首屏恢复。
+    ///
+    /// 会话存在但尚无输出时返回空快照；会话不存在时返回 None。
+    pub fn get_session_replay_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<TerminalReplaySnapshot>> {
+        let replay_arc = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| anyhow!("sessions lock poisoned"))?;
+            sessions
+                .get(session_id)
+                .map(|session| Arc::clone(&session.replay_buffer))
+        };
+
+        let replay_arc = match replay_arc {
+            Some(arc) => arc,
+            None => {
+                let mut dead = self
+                    .dead_buffers
+                    .lock()
+                    .map_err(|_| anyhow!("dead_buffers lock poisoned"))?;
+                dead.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
+                match dead.get(session_id) {
+                    Some(entry) => Arc::clone(&entry.replay_buffer),
+                    None => return Ok(None),
+                }
+            }
+        };
+
+        let replay = replay_arc
+            .lock()
+            .map_err(|_| anyhow!("replay_buffer lock poisoned"))?;
+        Ok(Some(replay.snapshot()))
     }
 
     pub fn get_available_shells(&self) -> Vec<ShellInfo> {
@@ -1660,6 +1900,33 @@ mod tests {
     #[test]
     fn test_infer_status_waiting_prompt() {
         assert_eq!(infer_status("Continue? [Y/n]"), SessionStatus::WaitingInput);
+    }
+
+    #[test]
+    fn test_replay_buffer_tracks_alternate_screen_mode() {
+        let mut replay = ReplayBuffer::new(1024);
+
+        replay.push("hello");
+        assert_eq!(replay.snapshot().buffer_mode, TerminalBufferMode::Normal);
+
+        replay.push("\x1b[?1049h");
+        assert_eq!(replay.snapshot().buffer_mode, TerminalBufferMode::Alternate);
+
+        replay.push("\x1b[?1049l");
+        assert_eq!(replay.snapshot().buffer_mode, TerminalBufferMode::Normal);
+    }
+
+    #[test]
+    fn test_replay_buffer_trims_oldest_chunks_by_size() {
+        let mut replay = ReplayBuffer::new(8);
+
+        replay.push("1234");
+        replay.push("5678");
+        replay.push("90");
+
+        let snapshot = replay.snapshot();
+        assert_eq!(snapshot.data, "567890");
+        assert_eq!(snapshot.buffer_mode, TerminalBufferMode::Normal);
     }
 
     // --- strip_ansi_escapes 单元测试 ---

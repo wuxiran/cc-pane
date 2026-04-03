@@ -152,7 +152,7 @@ impl ProviderService {
 
     /// 获取指定 Provider 的环境变量（核心方法）
     /// - 传入 provider_id 时使用该 Provider
-    /// - provider_id 为 None 时不注入任何 env var，让 cc-switch 全局配置自然生效
+    /// - provider_id 为 None 时不注入任何 env var，由调用方决定默认回退来源
     /// - 指定的 provider_id 找不到时返回空
     pub fn get_env_vars(&self, provider_id: Option<&str>) -> HashMap<String, String> {
         let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
@@ -161,7 +161,7 @@ impl ProviderService {
             config.providers.iter().find(|p| p.id == id)
         } else {
             // 无指定时不注入任何 Provider env var
-            // 让 cc-switch 的全局配置自然生效
+            // 默认回退来源由调用方决定（例如 Windows 默认 .codex）
             return HashMap::new();
         };
 

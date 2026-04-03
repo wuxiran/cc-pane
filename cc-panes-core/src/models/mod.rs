@@ -38,6 +38,16 @@ pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, Reso
 pub use project::Project;
 pub use screenshot::ScreenshotResult;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig};
-pub use terminal::{CliTool, CreateSessionRequest, ResizeRequest, TerminalExit, TerminalOutput};
-pub use workspace::{ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace, WorkspaceProject};
+pub use terminal::{
+    CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,
+    TerminalReplaySnapshot, WslLaunchInfo,
+};
+pub use workspace::{
+    ProjectMigrationPlan, ProjectMigrationRequest, ProjectMigrationResult,
+    ProjectMigrationRollbackResult, ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace,
+    WorkspaceLaunchEnvironment, WorkspaceMigrationItem, WorkspaceMigrationPlan,
+    WorkspaceMigrationRequest, WorkspaceMigrationResult, WorkspaceMigrationRollbackResult,
+    WorkspaceMigrationStatus, WorkspaceMigrationTargetKind, WorkspaceProject,
+    WorkspaceSshLaunchConfig, WorkspaceWslConfig,
+};
 pub use wsl::{WslDistro, WslDistroState};

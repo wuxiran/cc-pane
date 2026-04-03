@@ -1,4 +1,9 @@
-use crate::models::{ScannedRepo, SshConnectionInfo, Workspace, WorkspaceProject};
+use crate::models::{
+    ProjectMigrationPlan, ProjectMigrationRequest, ProjectMigrationResult,
+    ProjectMigrationRollbackResult,
+    ScannedRepo, SshConnectionInfo, Workspace, WorkspaceMigrationPlan, WorkspaceMigrationRequest,
+    WorkspaceMigrationResult, WorkspaceMigrationRollbackResult, WorkspaceProject,
+};
 use crate::services::WorkspaceService;
 use crate::utils::{validate_path, validate_ssh_info, AppResult};
 use std::path::Path;
@@ -146,4 +151,100 @@ pub fn reorder_workspaces(
 pub fn scan_workspace_directory(root_path: String) -> AppResult<Vec<ScannedRepo>> {
     validate_path(&root_path)?;
     Ok(WorkspaceService::scan_directory(Path::new(&root_path))?)
+}
+
+#[tauri::command]
+pub async fn preview_workspace_migration(
+    request: WorkspaceMigrationRequest,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<WorkspaceMigrationPlan> {
+    debug!(workspace = %request.workspace_name, "cmd::preview_workspace_migration");
+    let svc = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || svc.preview_workspace_migration(&request))
+        .await
+        .map_err(|e| crate::utils::AppError::from(format!("Failed to preview workspace migration: {}", e)))?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn execute_workspace_migration(
+    request: WorkspaceMigrationRequest,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<WorkspaceMigrationResult> {
+    debug!(workspace = %request.workspace_name, "cmd::execute_workspace_migration");
+    let svc = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || svc.execute_workspace_migration(&request))
+        .await
+        .map_err(|e| crate::utils::AppError::from(format!("Failed to execute workspace migration: {}", e)))?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn rollback_workspace_migration(
+    workspace_name: String,
+    snapshot_id: String,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<WorkspaceMigrationRollbackResult> {
+    debug!(workspace = %workspace_name, snapshot_id = %snapshot_id, "cmd::rollback_workspace_migration");
+    let svc = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        svc.rollback_workspace_migration(&workspace_name, &snapshot_id)
+    })
+    .await
+    .map_err(|e| crate::utils::AppError::from(format!("Failed to rollback workspace migration: {}", e)))?
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn preview_project_migration(
+    request: ProjectMigrationRequest,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<ProjectMigrationPlan> {
+    debug!(
+        workspace = %request.workspace_name,
+        project = %request.project_id,
+        "cmd::preview_project_migration"
+    );
+    let svc = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || svc.preview_project_migration(&request))
+        .await
+        .map_err(|e| crate::utils::AppError::from(format!("Failed to preview project migration: {}", e)))?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn execute_project_migration(
+    request: ProjectMigrationRequest,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<ProjectMigrationResult> {
+    debug!(
+        workspace = %request.workspace_name,
+        project = %request.project_id,
+        "cmd::execute_project_migration"
+    );
+    let svc = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || svc.execute_project_migration(&request))
+        .await
+        .map_err(|e| crate::utils::AppError::from(format!("Failed to execute project migration: {}", e)))?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn rollback_project_migration(
+    workspace_name: String,
+    snapshot_id: String,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<ProjectMigrationRollbackResult> {
+    debug!(
+        workspace = %workspace_name,
+        snapshot_id = %snapshot_id,
+        "cmd::rollback_project_migration"
+    );
+    let svc = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        svc.rollback_project_migration(&workspace_name, &snapshot_id)
+    })
+    .await
+    .map_err(|e| crate::utils::AppError::from(format!("Failed to rollback project migration: {}", e)))?
+    .map_err(Into::into)
 }

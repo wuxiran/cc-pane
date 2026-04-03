@@ -22,6 +22,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
   const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
+  const saveWorkspace = useWorkspacesStore((s) => s.saveWorkspace);
   const updateWorkspacePath = useWorkspacesStore((s) => s.updateWorkspacePath);
 
   // useWorkspaceActions 处理 dialog 状态 + 工作空间/项目 CRUD
@@ -69,6 +70,21 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
     }
   }, [t, updateWorkspacePath]);
 
+  const handleSetDefaultEnvironment = useCallback(async (
+    ws: Workspace,
+    environment: Workspace["defaultEnvironment"],
+  ) => {
+    try {
+      await saveWorkspace({
+        ...ws,
+        defaultEnvironment: environment ?? "local",
+      });
+      toast.success(`Default environment set to ${(environment ?? "local").toUpperCase()}`);
+    } catch (e) {
+      toast.error(t("setProviderFailed", { error: e }));
+    }
+  }, [saveWorkspace, t]);
+
   return (
     <>
       {/* Section: 工作空间 */}
@@ -95,6 +111,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
             onSetPath={handleSetWorkspacePath}
             onClearPath={handleClearWorkspacePath}
             onSetProvider={actions.handleSetWorkspaceProvider}
+            onSetDefaultEnvironment={handleSetDefaultEnvironment}
             onOpenInFileBrowser={handleOpenInFileBrowser}
           >
             <ProjectListView
@@ -105,6 +122,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
               onRemoveProject={actions.handleRemoveProject}
               onSetProjectAlias={actions.handleSetAlias}
               onImportProject={actions.handleImportProject}
+              onMigrateProject={actions.handleMigrateProject}
               onOpenWorktreeManager={handleOpenWorktreeManager}
               onOpenInFileBrowser={handleOpenInFileBrowser}
             />

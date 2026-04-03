@@ -1,10 +1,10 @@
-import { useCallback, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import {
   Folder, Trash2, Plus, Pencil, Clock, Globe,
-  FolderOpen, Terminal, GitBranch, Copy, Files, FileText,
+  FolderOpen, Terminal, GitBranch, Copy, Files, FileText, MonitorSmartphone,
 } from "lucide-react";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
@@ -13,7 +13,12 @@ import {
 import { useProvidersStore, useDialogStore, useSshMachinesStore } from "@/stores";
 import { specService } from "@/services/specService";
 import { useCliTools } from "@/hooks/useCliTools";
-import { getProjectName } from "@/utils";
+import {
+  detectAppPlatform,
+  getProjectName,
+  getWorkspaceProjectKind,
+  resolveWorkspaceProjectWslPath,
+} from "@/utils";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions, SpecEntry, SshConnectionInfo } from "@/types";
 
 interface ProjectListViewProps {
@@ -24,6 +29,7 @@ interface ProjectListViewProps {
   onRemoveProject: (ws: Workspace, project: WorkspaceProject) => void;
   onSetProjectAlias: (ws: Workspace, project: WorkspaceProject) => void;
   onImportProject: (ws: Workspace) => void;
+  onMigrateProject: (ws: Workspace, project: WorkspaceProject) => void;
   onOpenWorktreeManager: (project: WorkspaceProject, ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
 }
@@ -46,10 +52,22 @@ function getRelativePath(projectPath: string, wsPath?: string | null): string {
   return parts.pop() || projectPath;
 }
 
+function projectBadgeClassName(kind: "local" | "wsl" | "ssh"): string {
+  switch (kind) {
+    case "local":
+      return "text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-500/20 dark:text-slate-300 dark:border-slate-500/30";
+    case "wsl":
+      return "text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30";
+    case "ssh":
+      return "text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/30";
+  }
+}
+
+
 export default function ProjectListView({
   projects, ws, gitBranches,
   onOpenTerminal, onRemoveProject, onSetProjectAlias,
-  onImportProject, onOpenWorktreeManager, onOpenInFileBrowser,
+  onImportProject, onMigrateProject, onOpenWorktreeManager, onOpenInFileBrowser,
 }: ProjectListViewProps) {
   const { t } = useTranslation(["sidebar", "common", "spec"]);
   const providerList = useProvidersStore((s) => s.providers);
@@ -61,6 +79,7 @@ export default function ProjectListView({
   const onOpenHistory = useDialogStore((s) => s.openLocalHistory);
   const onOpenTodo = useDialogStore((s) => s.openTodo);
   const [projectSpecs, setProjectSpecs] = useState<Record<string, SpecEntry[]>>({});
+  const isWindows = detectAppPlatform() === "windows";
 
   const handleLoadSpecs = useCallback(async (projectPath: string) => {
     try {
@@ -114,6 +133,7 @@ export default function ProjectListView({
     <div className="pl-4 pr-1 pb-2 flex flex-col gap-0.5">
       {projects.map((project) => {
         const isSsh = !!project.ssh;
+        const projectKind = getWorkspaceProjectKind(project);
         const displayName = project.alias || (isSsh ? getSshDisplayName(project.ssh!) : getProjectName(project.path));
         const sshMachine = isSsh ? findMachine(project.ssh!.host, project.ssh!.port, project.ssh!.user) : undefined;
         const terminalOpts: OpenTerminalOptions = {
@@ -123,6 +143,10 @@ export default function ProjectListView({
           ssh: project.ssh,
           machineName: sshMachine?.name ?? project.alias,
         };
+        const wslRemotePath = !isSsh ? resolveWorkspaceProjectWslPath(ws, project) : null;
+        const codexWslOpts = wslRemotePath
+          ? { ...terminalOpts, workspacePath: ws.path, cliTool: "codex" as const, wsl: { remotePath: wslRemotePath } }
+          : null;
         return (
         <div key={project.id}>
           <ContextMenu>
@@ -141,11 +165,9 @@ export default function ProjectListView({
                     {gitBranches[project.path]}
                   </span>
                 )}
-                {isSsh && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/30">
-                    SSH
-                  </span>
-                )}
+                <span className={projectBadgeClassName(projectKind)}>
+                  {projectKind.toUpperCase()}
+                </span>
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-48">
@@ -179,6 +201,15 @@ export default function ProjectListView({
                       ))}
                     </ContextMenuSubContent>
                   </ContextMenuSub>
+                ) : tool.id === "codex" && codexWslOpts ? (
+                  <Fragment key={tool.id}>
+                    <ContextMenuItem onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
+                      <Terminal /> {tool.displayName}
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => onOpenTerminal(codexWslOpts)}>
+                      <Terminal /> Codex (WSL)
+                    </ContextMenuItem>
+                  </Fragment>
                 ) : (
                   <ContextMenuItem key={tool.id} onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
                     <Terminal /> {tool.displayName}
@@ -211,6 +242,11 @@ export default function ProjectListView({
                   <ContextMenuItem onClick={() => onOpenWorktreeManager(project, ws)}>
                     <GitBranch /> {t("worktreeManager")}
                   </ContextMenuItem>
+                  {isWindows && (
+                    <ContextMenuItem onClick={() => onMigrateProject(ws, project)}>
+                      <MonitorSmartphone /> Migrate To WSL
+                    </ContextMenuItem>
+                  )}
                   <ContextMenuSeparator />
                   {/* Spec */}
                   <ContextMenuItem onClick={() => handleNewSpec(project.path)}>
@@ -275,3 +311,4 @@ export default function ProjectListView({
     </div>
   );
 }
+

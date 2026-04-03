@@ -23,3 +23,15 @@ export function getProjectName(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/");
   return parts[parts.length - 1] || path;
 }
+
+/**
+ * 将 Windows 本地路径转换为 WSL 路径
+ */
+export function toWslPath(path?: string | null): string | null {
+  if (!path) return null;
+  const match = path.match(/^([A-Za-z]):[\\/](.*)$/);
+  if (!match) return null;
+  const drive = match[1].toLowerCase();
+  const rest = match[2].replace(/\\/g, "/").replace(/^\/+/, "");
+  return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`;
+}

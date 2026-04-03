@@ -26,6 +26,12 @@ export interface CliToolCapabilities {
   compatibleProviderTypes: string[];
 }
 
+/** WSL 启动信息 */
+export interface WslLaunchInfo {
+  remotePath: string;
+  distro?: string;
+}
+
 /** 通用标签 */
 export interface Tab {
   id: string;
@@ -33,23 +39,24 @@ export interface Tab {
   contentType: "terminal" | "mcp-config" | "skill-manager" | "memory-manager" | "file-explorer" | "editor";
   projectId: string;
   projectPath: string;
-  sessionId: string | null; // 终端特有，其他类型可忽略
+  sessionId: string | null;
   pinned?: boolean;
   minimized?: boolean;
-  resumeId?: string; // Claude resume 会话 ID
-  workspaceName?: string; // 所属工作空间名称（用于启动 TUI）
-  providerId?: string; // 关联的 Provider ID
-  workspacePath?: string; // 工作空间根目录路径（用于 claude --add-dir 模式）
-  launchClaude?: boolean; // 是否启动 Claude Code CLI（兼容旧版）
-  cliTool?: CliTool; // CLI 工具类型（优先于 launchClaude）
-  filePath?: string; // 编辑器打开的文件绝对路径
-  dirty?: boolean; // 是否有未保存修改
-  reclaimKey?: number; // 回收时递增，作为 React key 触发 remount
-  ssh?: import("./workspace").SshConnectionInfo; // SSH 远程连接信息
-  machineName?: string; // SSH 机器名称（用于 Tab 标题显示）
-  disconnected?: boolean; // SSH 终端断连状态（用于显示重连 UI）
-  restoring?: boolean; // 是否正在恢复中（重启后标记，恢复完成后清除）
-  savedSessionId?: string; // 关闭前的 session ID（用于加载输出文件）
+  resumeId?: string;
+  workspaceName?: string;
+  providerId?: string;
+  workspacePath?: string;
+  launchClaude?: boolean;
+  cliTool?: CliTool;
+  filePath?: string;
+  dirty?: boolean;
+  reclaimKey?: number;
+  ssh?: import("./workspace").SshConnectionInfo;
+  wsl?: WslLaunchInfo;
+  machineName?: string;
+  disconnected?: boolean;
+  restoring?: boolean;
+  savedSessionId?: string;
 }
 
 /** 终端会话状态 */
@@ -75,9 +82,10 @@ export interface CreateSessionRequest {
   skipMcp?: boolean;
   appendSystemPrompt?: string;
   ssh?: import("./workspace").SshConnectionInfo;
+  wsl?: WslLaunchInfo;
 }
 
-/** 打开终端的选项（Commit A 对象参数 + Commit B SSH 扩展） */
+/** 打开终端的选项 */
 export interface OpenTerminalOptions {
   path: string;
   workspaceName?: string;
@@ -86,6 +94,7 @@ export interface OpenTerminalOptions {
   cliTool?: CliTool;
   resumeId?: string;
   ssh?: import("./workspace").SshConnectionInfo;
+  wsl?: WslLaunchInfo;
   machineName?: string;
 }
 

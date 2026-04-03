@@ -98,6 +98,7 @@ export default memo(function TabContentRenderer({
           cliTool={tab.cliTool}
           resumeId={tab.resumeId}
           ssh={tab.ssh}
+          wsl={tab.wsl}
           restoring={tab.restoring}
           savedSessionId={tab.savedSessionId}
           paneId={paneId}
@@ -154,3 +155,5 @@ export default memo(function TabContentRenderer({
       return null;
   }
 });
+
+

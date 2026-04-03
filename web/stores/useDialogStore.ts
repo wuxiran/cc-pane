@@ -1,10 +1,14 @@
 import { create } from "zustand";
+import type { SshConnectionInfo, WslLaunchInfo } from "@/types";
 
 interface PendingLaunch {
   path: string;
   workspaceName?: string;
   providerId: string;
   workspacePath?: string;
+  ssh?: SshConnectionInfo;
+  wsl?: WslLaunchInfo;
+  machineName?: string;
 }
 
 interface DialogState {

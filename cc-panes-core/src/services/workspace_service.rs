@@ -1,16 +1,59 @@
 use crate::constants::events as EV;
 use crate::events::EventEmitter;
-use crate::models::{ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace, WorkspaceProject};
+use crate::models::{
+    ProjectMigrationPlan, ProjectMigrationRequest, ProjectMigrationResult,
+    ProjectMigrationRollbackResult, ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace,
+    WorkspaceMigrationItem, WorkspaceMigrationPlan, WorkspaceMigrationRequest,
+    WorkspaceMigrationResult, WorkspaceMigrationRollbackResult, WorkspaceMigrationStatus,
+    WorkspaceMigrationTargetKind, WorkspaceProject, WorkspaceWslConfig,
+};
 use crate::utils::{output_with_timeout, GIT_LOCAL_TIMEOUT};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{error, info, warn};
+
+const MIGRATION_EXCLUDED_NAMES: &[&str] = &[
+    "node_modules",
+    "target",
+    ".venv",
+    ".next",
+    "dist",
+    "build",
+    ".turbo",
+    ".cache",
+    "__pycache__",
+];
+
+const MIGRATION_PROJECTS_CSV_RELATIVE_PATH: &str = ".ccpanes/projects.csv";
+
+#[derive(Debug, Default, Clone, Copy)]
+struct CopyStats {
+    files: u64,
+    bytes: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceMigrationSnapshot {
+    workspace: Workspace,
+    plan: WorkspaceMigrationPlan,
+    created_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectMigrationSnapshot {
+    workspace: Workspace,
+    plan: ProjectMigrationPlan,
+    created_at: String,
+}
 
 pub struct WorkspaceService {
     base_dir: PathBuf,
@@ -332,6 +375,7 @@ impl WorkspaceService {
             id: uuid::Uuid::new_v4().to_string(),
             path: display_path,
             alias: None,
+            wsl_remote_path: None,
             ssh: Some(ssh_info),
         };
 
@@ -460,7 +504,1149 @@ impl WorkspaceService {
         Ok(())
     }
 
+    /// 预览工作空间迁移计划
+    pub fn preview_workspace_migration(
+        &self,
+        request: &WorkspaceMigrationRequest,
+    ) -> Result<WorkspaceMigrationPlan, String> {
+        self.build_migration_plan(request).map(|(_, plan)| plan)
+    }
+
+    /// 执行工作空间迁移
+    pub fn execute_workspace_migration(
+        &self,
+        request: &WorkspaceMigrationRequest,
+    ) -> Result<WorkspaceMigrationResult, String> {
+        let (workspace, plan) = self.build_migration_plan(request)?;
+        let source_root = PathBuf::from(&plan.source_root);
+        let target_root = self.resolve_physical_target_root(&plan)?;
+        let snapshot_id = uuid::Uuid::new_v4().to_string();
+        self.write_migration_snapshot(&workspace, &plan, &snapshot_id)?;
+
+        self.ensure_directory_exists(&target_root)?;
+        let mut stats = self.copy_workspace_shell(&workspace, &source_root, &target_root)?;
+
+        for item in &plan.items {
+            let destination = self.resolve_item_target_path(&plan, item)?;
+            self.ensure_directory_exists(&destination)?;
+            let item_stats =
+                self.copy_directory_recursive(Path::new(&item.source_path), &destination)?;
+            stats.files += item_stats.files;
+            stats.bytes += item_stats.bytes;
+        }
+
+        let target_workspace = self.build_target_workspace_view(&workspace, &plan);
+        self.ensure_workspace_files_at_path(&target_workspace, &target_root)?;
+        self.verify_workspace_metadata(&source_root, &target_root)?;
+        for item in &plan.items {
+            self.verify_directory_copy(
+                Path::new(&item.source_path),
+                &self.resolve_item_target_path(&plan, item)?,
+            )?;
+        }
+
+        let updated_workspace = self.build_workspace_after_migration(&workspace, &plan);
+        let result_warnings = plan.warnings.clone();
+
+        self.write_workspace_json(&workspace.name, &updated_workspace)?;
+        self.sync_projects_csv(&updated_workspace);
+
+        Ok(WorkspaceMigrationResult {
+            status: WorkspaceMigrationStatus::Succeeded,
+            snapshot_id,
+            workspace: updated_workspace,
+            plan,
+            copied_files: stats.files,
+            copied_bytes: stats.bytes,
+            warnings: result_warnings,
+        })
+    }
+
+    /// 回滚工作空间迁移，仅恢复 workspace.json 与工作空间元数据文件
+    pub fn rollback_workspace_migration(
+        &self,
+        workspace_name: &str,
+        snapshot_id: &str,
+    ) -> Result<WorkspaceMigrationRollbackResult, String> {
+        let snapshot = self.read_migration_snapshot(workspace_name, snapshot_id)?;
+        self.write_workspace_json(workspace_name, &snapshot.workspace)?;
+        self.sync_projects_csv(&snapshot.workspace);
+        Ok(WorkspaceMigrationRollbackResult {
+            snapshot_id: snapshot_id.to_string(),
+            workspace: snapshot.workspace,
+        })
+    }
+
     // ============ 私有方法 ============
+
+    pub fn preview_project_migration(
+        &self,
+        request: &ProjectMigrationRequest,
+    ) -> Result<ProjectMigrationPlan, String> {
+        self.build_project_migration_plan(request)
+            .map(|(_, plan)| plan)
+    }
+
+    pub fn execute_project_migration(
+        &self,
+        request: &ProjectMigrationRequest,
+    ) -> Result<ProjectMigrationResult, String> {
+        let (workspace, plan) = self.build_project_migration_plan(request)?;
+        let source_root = PathBuf::from(&plan.source_path);
+        let target_root = self.resolve_target_root_path(
+            plan.target_kind,
+            &plan.target_root,
+            plan.target_distro.as_deref(),
+        )?;
+        let snapshot_id = uuid::Uuid::new_v4().to_string();
+        self.write_project_migration_snapshot(&workspace, &plan, &snapshot_id)?;
+
+        self.ensure_directory_exists(&target_root)?;
+        let stats = self.copy_directory_recursive(&source_root, &target_root)?;
+        self.verify_directory_copy(&source_root, &target_root)?;
+
+        let updated_workspace =
+            self.build_workspace_after_project_migration(&workspace, &plan, &target_root);
+        self.write_workspace_json(&workspace.name, &updated_workspace)?;
+        self.sync_projects_csv(&updated_workspace);
+
+        Ok(ProjectMigrationResult {
+            status: WorkspaceMigrationStatus::Succeeded,
+            snapshot_id,
+            workspace: updated_workspace,
+            plan: plan.clone(),
+            copied_files: stats.files,
+            copied_bytes: stats.bytes,
+            warnings: plan.warnings.clone(),
+        })
+    }
+
+    pub fn rollback_project_migration(
+        &self,
+        workspace_name: &str,
+        snapshot_id: &str,
+    ) -> Result<ProjectMigrationRollbackResult, String> {
+        let snapshot = self.read_project_migration_snapshot(workspace_name, snapshot_id)?;
+        self.write_workspace_json(workspace_name, &snapshot.workspace)?;
+        self.sync_projects_csv(&snapshot.workspace);
+        Ok(ProjectMigrationRollbackResult {
+            snapshot_id: snapshot_id.to_string(),
+            workspace: snapshot.workspace,
+        })
+    }
+
+    fn build_migration_plan(
+        &self,
+        request: &WorkspaceMigrationRequest,
+    ) -> Result<(Workspace, WorkspaceMigrationPlan), String> {
+        let workspace = self.get_workspace(&request.workspace_name)?;
+        let source_root = workspace.path.clone().ok_or_else(|| {
+            format!(
+                "Workspace '{}' requires a local path before migration",
+                workspace.name
+            )
+        })?;
+        let source_root_path = PathBuf::from(&source_root);
+        if !source_root_path.is_dir() {
+            return Err(format!(
+                "Workspace root does not exist or is not a directory: {}",
+                source_root
+            ));
+        }
+
+        let target_root = request.target_root.trim();
+        if target_root.is_empty() {
+            return Err("Migration target root cannot be empty".to_string());
+        }
+
+        if matches!(request.target_kind, WorkspaceMigrationTargetKind::Ssh) {
+            return Err("SSH migration is not supported yet".to_string());
+        }
+
+        let resolved_target_root = match request.target_kind {
+            WorkspaceMigrationTargetKind::Local => {
+                PathBuf::from(target_root).to_string_lossy().to_string()
+            }
+            WorkspaceMigrationTargetKind::Wsl => Self::normalize_wsl_root(target_root)?,
+            WorkspaceMigrationTargetKind::Ssh => unreachable!(),
+        };
+
+        let resolved_target_distro = self.resolve_target_distro(request)?;
+        let physical_target_root = self.resolve_target_root_path(
+            request.target_kind,
+            &resolved_target_root,
+            resolved_target_distro.as_deref(),
+        )?;
+        self.ensure_migration_target_available(
+            &source_root_path,
+            request.target_kind,
+            &physical_target_root,
+        )?;
+
+        let external_names = Self::build_external_name_map(&workspace.projects, &source_root);
+        let mut warnings = Vec::new();
+        let mut items = Vec::new();
+
+        for project in &workspace.projects {
+            if project.ssh.is_some() {
+                warnings.push(format!(
+                    "Skipped SSH project '{}' during migration preview",
+                    project.alias.as_deref().unwrap_or(&project.path)
+                ));
+                continue;
+            }
+
+            let source_path = PathBuf::from(&project.path);
+            if !source_path.is_dir() {
+                return Err(format!(
+                    "Project path does not exist or is not a directory: {}",
+                    project.path
+                ));
+            }
+
+            let relative_path = Self::relative_path_from_workspace(&project.path, &source_root);
+            let (logical_relative_path, external) = match relative_path {
+                Some(relative) => (relative, false),
+                None => {
+                    let folder_name =
+                        external_names.get(&project.id).cloned().ok_or_else(|| {
+                            format!("Failed to resolve external path for '{}'", project.path)
+                        })?;
+                    (format!("externals/{}", folder_name), true)
+                }
+            };
+
+            let destination_path = Self::join_logical_path(
+                request.target_kind,
+                &resolved_target_root,
+                &logical_relative_path,
+            );
+            items.push(WorkspaceMigrationItem {
+                project_id: project.id.clone(),
+                project_name: Self::display_project_name(project),
+                source_path: project.path.clone(),
+                destination_path,
+                relative_path: Some(logical_relative_path),
+                external,
+            });
+        }
+
+        let plan = WorkspaceMigrationPlan {
+            workspace_name: workspace.name.clone(),
+            source_root,
+            root_destination: resolved_target_root.clone(),
+            target_kind: request.target_kind,
+            target_root: resolved_target_root,
+            target_distro: resolved_target_distro,
+            items,
+            warnings,
+        };
+
+        Ok((workspace, plan))
+    }
+
+    fn build_project_migration_plan(
+        &self,
+        request: &ProjectMigrationRequest,
+    ) -> Result<(Workspace, ProjectMigrationPlan), String> {
+        let workspace = self.get_workspace(&request.workspace_name)?;
+        let project = workspace
+            .projects
+            .iter()
+            .find(|item| item.id == request.project_id)
+            .ok_or_else(|| {
+                format!(
+                    "Project '{}' does not exist in workspace '{}'",
+                    request.project_id, request.workspace_name
+                )
+            })?;
+
+        if project.ssh.is_some() {
+            return Err("SSH projects are not supported for migration".to_string());
+        }
+
+        let source_root_path = PathBuf::from(&project.path);
+        if !source_root_path.is_dir() {
+            return Err(format!(
+                "Project path does not exist or is not a directory: {}",
+                project.path
+            ));
+        }
+
+        let target_root = request.target_root.trim();
+        if target_root.is_empty() {
+            return Err("Migration target root cannot be empty".to_string());
+        }
+
+        if matches!(request.target_kind, WorkspaceMigrationTargetKind::Ssh) {
+            return Err("SSH migration is not supported yet".to_string());
+        }
+
+        let resolved_target_root = match request.target_kind {
+            WorkspaceMigrationTargetKind::Local => {
+                PathBuf::from(target_root).to_string_lossy().to_string()
+            }
+            WorkspaceMigrationTargetKind::Wsl => Self::normalize_wsl_root(target_root)?,
+            WorkspaceMigrationTargetKind::Ssh => unreachable!(),
+        };
+
+        let resolved_target_distro = self.resolve_target_distro_for_kind(
+            request.target_kind,
+            request.target_distro.as_deref(),
+        )?;
+        let physical_target_root = self.resolve_target_root_path(
+            request.target_kind,
+            &resolved_target_root,
+            resolved_target_distro.as_deref(),
+        )?;
+        self.ensure_migration_target_available(
+            &source_root_path,
+            request.target_kind,
+            &physical_target_root,
+        )?;
+
+        let plan = ProjectMigrationPlan {
+            workspace_name: workspace.name.clone(),
+            project_id: project.id.clone(),
+            project_name: Self::display_project_name(project),
+            source_path: project.path.clone(),
+            destination_path: resolved_target_root.clone(),
+            target_kind: request.target_kind,
+            target_root: resolved_target_root,
+            target_distro: resolved_target_distro,
+            warnings: Vec::new(),
+        };
+
+        Ok((workspace, plan))
+    }
+
+    fn resolve_target_distro(
+        &self,
+        request: &WorkspaceMigrationRequest,
+    ) -> Result<Option<String>, String> {
+        self.resolve_target_distro_for_kind(request.target_kind, request.target_distro.as_deref())
+    }
+
+    fn resolve_target_distro_for_kind(
+        &self,
+        target_kind: WorkspaceMigrationTargetKind,
+        requested_distro: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        #[cfg(not(target_os = "windows"))]
+        let _ = requested_distro;
+
+        match target_kind {
+            WorkspaceMigrationTargetKind::Local => Ok(None),
+            WorkspaceMigrationTargetKind::Wsl => {
+                #[cfg(target_os = "windows")]
+                {
+                    let requested = requested_distro
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string);
+                    if requested.is_some() {
+                        return Ok(requested);
+                    }
+                    crate::services::wsl_discovery_service::resolve_default_distro()
+                        .map_err(|error| {
+                            format!("Failed to resolve WSL default distro: {}", error)
+                        })?
+                        .ok_or_else(|| "No default WSL distro found".to_string())
+                        .map(Some)
+                }
+
+                #[cfg(not(target_os = "windows"))]
+                {
+                    Err("WSL migration is only supported on Windows".to_string())
+                }
+            }
+            WorkspaceMigrationTargetKind::Ssh => Ok(None),
+        }
+    }
+
+    fn resolve_physical_target_root(
+        &self,
+        plan: &WorkspaceMigrationPlan,
+    ) -> Result<PathBuf, String> {
+        self.resolve_target_root_path(
+            plan.target_kind,
+            &plan.target_root,
+            plan.target_distro.as_deref(),
+        )
+    }
+
+    fn resolve_target_root_path(
+        &self,
+        target_kind: WorkspaceMigrationTargetKind,
+        target_root: &str,
+        target_distro: Option<&str>,
+    ) -> Result<PathBuf, String> {
+        match target_kind {
+            WorkspaceMigrationTargetKind::Local => Ok(PathBuf::from(target_root)),
+            WorkspaceMigrationTargetKind::Wsl => {
+                #[cfg(target_os = "windows")]
+                {
+                    let distro = target_distro
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| "WSL migration requires a distro".to_string())?;
+                    Ok(Self::wsl_remote_to_windows_path(distro, target_root))
+                }
+
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let _ = target_distro;
+                    Err("WSL migration is only supported on Windows".to_string())
+                }
+            }
+            WorkspaceMigrationTargetKind::Ssh => {
+                Err("SSH migration is not supported yet".to_string())
+            }
+        }
+    }
+
+    fn ensure_migration_target_available(
+        &self,
+        source_root: &Path,
+        target_kind: WorkspaceMigrationTargetKind,
+        physical_target_root: &Path,
+    ) -> Result<(), String> {
+        if matches!(target_kind, WorkspaceMigrationTargetKind::Local) {
+            let normalized_source = Self::normalize_filesystem_path(&source_root.to_string_lossy());
+            let normalized_target =
+                Self::normalize_filesystem_path(&physical_target_root.to_string_lossy());
+            if normalized_source == normalized_target {
+                return Err("Migration target root cannot be the same as source root".to_string());
+            }
+            if normalized_target.starts_with(&(normalized_source.clone() + "/")) {
+                return Err(
+                    "Migration target root cannot be inside the source workspace".to_string(),
+                );
+            }
+        }
+
+        if physical_target_root.exists() {
+            let mut entries = fs::read_dir(physical_target_root)
+                .map_err(|e| format!("Failed to inspect migration target: {}", e))?;
+            if entries
+                .next()
+                .transpose()
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
+                return Err(format!(
+                    "Migration target directory must be empty: {}",
+                    physical_target_root.display()
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn build_workspace_after_migration(
+        &self,
+        workspace: &Workspace,
+        plan: &WorkspaceMigrationPlan,
+    ) -> Workspace {
+        let item_map: HashMap<&str, &WorkspaceMigrationItem> = plan
+            .items
+            .iter()
+            .map(|item| (item.project_id.as_str(), item))
+            .collect();
+        let mut next_workspace = workspace.clone();
+
+        match plan.target_kind {
+            WorkspaceMigrationTargetKind::Local => {
+                next_workspace.path = Some(plan.target_root.clone());
+                next_workspace.default_environment =
+                    crate::models::WorkspaceLaunchEnvironment::Local;
+                next_workspace.wsl = next_workspace.wsl.take().map(|mut config| {
+                    config.remote_path = None;
+                    config
+                });
+                for project in &mut next_workspace.projects {
+                    if let Some(item) = item_map.get(project.id.as_str()) {
+                        project.path = item.destination_path.clone();
+                    }
+                    project.wsl_remote_path = None;
+                }
+            }
+            WorkspaceMigrationTargetKind::Wsl => {
+                next_workspace.default_environment = crate::models::WorkspaceLaunchEnvironment::Wsl;
+                next_workspace.wsl = Some(WorkspaceWslConfig {
+                    distro: plan.target_distro.clone(),
+                    remote_path: Some(plan.target_root.clone()),
+                });
+                for project in &mut next_workspace.projects {
+                    if let Some(item) = item_map.get(project.id.as_str()) {
+                        project.wsl_remote_path = Some(item.destination_path.clone());
+                    }
+                }
+            }
+            WorkspaceMigrationTargetKind::Ssh => {}
+        }
+
+        next_workspace
+    }
+
+    fn build_workspace_after_project_migration(
+        &self,
+        workspace: &Workspace,
+        plan: &ProjectMigrationPlan,
+        physical_target_root: &Path,
+    ) -> Workspace {
+        let mut next_workspace = workspace.clone();
+
+        if let Some(project) = next_workspace
+            .projects
+            .iter_mut()
+            .find(|item| item.id == plan.project_id)
+        {
+            match plan.target_kind {
+                WorkspaceMigrationTargetKind::Local => {
+                    project.path = plan.destination_path.clone();
+                    project.wsl_remote_path = None;
+                }
+                WorkspaceMigrationTargetKind::Wsl => {
+                    project.path = physical_target_root.to_string_lossy().to_string();
+                    project.wsl_remote_path = Some(plan.destination_path.clone());
+                }
+                WorkspaceMigrationTargetKind::Ssh => {}
+            }
+        }
+
+        next_workspace
+    }
+
+    fn build_target_workspace_view(
+        &self,
+        workspace: &Workspace,
+        plan: &WorkspaceMigrationPlan,
+    ) -> Workspace {
+        let item_map: HashMap<&str, &WorkspaceMigrationItem> = plan
+            .items
+            .iter()
+            .map(|item| (item.project_id.as_str(), item))
+            .collect();
+        let mut target_workspace = workspace.clone();
+        target_workspace.path = Some(plan.target_root.clone());
+
+        for project in &mut target_workspace.projects {
+            if let Some(item) = item_map.get(project.id.as_str()) {
+                project.path = item.destination_path.clone();
+            }
+        }
+
+        target_workspace
+    }
+
+    fn write_migration_snapshot(
+        &self,
+        workspace: &Workspace,
+        plan: &WorkspaceMigrationPlan,
+        snapshot_id: &str,
+    ) -> Result<(), String> {
+        let snapshot_dir = self.migration_snapshot_dir(&workspace.name);
+        fs::create_dir_all(&snapshot_dir)
+            .map_err(|e| format!("Failed to create migration snapshot directory: {}", e))?;
+
+        let snapshot = WorkspaceMigrationSnapshot {
+            workspace: workspace.clone(),
+            plan: plan.clone(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let content = serde_json::to_string_pretty(&snapshot)
+            .map_err(|e| format!("Failed to serialize migration snapshot: {}", e))?;
+        fs::write(snapshot_dir.join(format!("{}.json", snapshot_id)), content)
+            .map_err(|e| format!("Failed to write migration snapshot: {}", e))?;
+        Ok(())
+    }
+
+    fn read_migration_snapshot(
+        &self,
+        workspace_name: &str,
+        snapshot_id: &str,
+    ) -> Result<WorkspaceMigrationSnapshot, String> {
+        let path = self
+            .migration_snapshot_dir(workspace_name)
+            .join(format!("{}.json", snapshot_id));
+        let content = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read migration snapshot: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse migration snapshot: {}", e))
+    }
+
+    fn write_project_migration_snapshot(
+        &self,
+        workspace: &Workspace,
+        plan: &ProjectMigrationPlan,
+        snapshot_id: &str,
+    ) -> Result<(), String> {
+        let snapshot_dir = self.project_migration_snapshot_dir(&workspace.name);
+        fs::create_dir_all(&snapshot_dir).map_err(|e| {
+            format!(
+                "Failed to create project migration snapshot directory: {}",
+                e
+            )
+        })?;
+
+        let snapshot = ProjectMigrationSnapshot {
+            workspace: workspace.clone(),
+            plan: plan.clone(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let content = serde_json::to_string_pretty(&snapshot)
+            .map_err(|e| format!("Failed to serialize project migration snapshot: {}", e))?;
+        fs::write(snapshot_dir.join(format!("{}.json", snapshot_id)), content)
+            .map_err(|e| format!("Failed to write project migration snapshot: {}", e))?;
+        Ok(())
+    }
+
+    fn read_project_migration_snapshot(
+        &self,
+        workspace_name: &str,
+        snapshot_id: &str,
+    ) -> Result<ProjectMigrationSnapshot, String> {
+        let path = self
+            .project_migration_snapshot_dir(workspace_name)
+            .join(format!("{}.json", snapshot_id));
+        let content = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read project migration snapshot: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse project migration snapshot: {}", e))
+    }
+
+    fn migration_snapshot_dir(&self, workspace_name: &str) -> PathBuf {
+        self.base_dir
+            .parent()
+            .unwrap_or(&self.base_dir)
+            .join("workspace-migrations")
+            .join(workspace_name)
+    }
+
+    fn project_migration_snapshot_dir(&self, workspace_name: &str) -> PathBuf {
+        self.base_dir
+            .parent()
+            .unwrap_or(&self.base_dir)
+            .join("project-migrations")
+            .join(workspace_name)
+    }
+
+    fn ensure_workspace_files_at_path(
+        &self,
+        workspace: &Workspace,
+        target_root: &Path,
+    ) -> Result<(), String> {
+        let ccpanes_dir = target_root.join(".ccpanes");
+        fs::create_dir_all(&ccpanes_dir)
+            .map_err(|e| format!("Failed to create target .ccpanes directory: {}", e))?;
+        self.write_projects_csv_for_root(target_root, workspace)?;
+
+        let claude_md_path = target_root.join("CLAUDE.md");
+        if !claude_md_path.exists() {
+            let content = format!(
+                "# {}\n\n> CC-Panes 管理的工作空间\n\n## 子项目\n项目列表见 `.ccpanes/projects.csv`。\n",
+                workspace.name
+            );
+            fs::write(&claude_md_path, content)
+                .map_err(|e| format!("Failed to write target CLAUDE.md: {}", e))?;
+        }
+
+        Ok(())
+    }
+
+    fn verify_workspace_metadata(
+        &self,
+        source_root: &Path,
+        target_root: &Path,
+    ) -> Result<(), String> {
+        if !target_root.exists() {
+            return Err(format!(
+                "Migration verification failed because target root is missing: {}",
+                target_root.display()
+            ));
+        }
+
+        let source_claude = source_root.join("CLAUDE.md");
+        if source_claude.exists() && !target_root.join("CLAUDE.md").exists() {
+            return Err(
+                "Migration verification failed because CLAUDE.md was not copied".to_string(),
+            );
+        }
+
+        Ok(())
+    }
+
+    fn verify_directory_copy(&self, source: &Path, target: &Path) -> Result<(), String> {
+        let source_manifest = self.build_manifest(source)?;
+        let target_manifest = self.build_manifest(target)?;
+        for (relative_path, source_size) in source_manifest {
+            match target_manifest.get(&relative_path) {
+                Some(target_size) if *target_size == source_size => {}
+                _ => {
+                    return Err(format!(
+                        "Migration verification failed for '{}' at '{}'",
+                        source.display(),
+                        relative_path
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn build_manifest(&self, root: &Path) -> Result<HashMap<String, u64>, String> {
+        let mut manifest = HashMap::new();
+        self.collect_manifest(root, root, &mut manifest)?;
+        Ok(manifest)
+    }
+
+    fn collect_manifest(
+        &self,
+        base: &Path,
+        current: &Path,
+        manifest: &mut HashMap<String, u64>,
+    ) -> Result<(), String> {
+        let entries = fs::read_dir(current)
+            .map_err(|e| format!("Failed to read directory '{}': {}", current.display(), e))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(base)
+                .map_err(|e| format!("Failed to calculate relative path: {}", e))?;
+            let relative_string = Self::normalize_relative_path(&relative.to_string_lossy());
+            if self.should_skip_migration_entry(relative) {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|e| format!("Failed to read metadata '{}': {}", path.display(), e))?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                self.collect_manifest(base, &path, manifest)?;
+            } else if metadata.is_file() {
+                manifest.insert(relative_string, metadata.len());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn copy_directory_recursive(
+        &self,
+        source: &Path,
+        destination: &Path,
+    ) -> Result<CopyStats, String> {
+        self.ensure_directory_exists(destination)?;
+        let mut stats = CopyStats::default();
+        self.copy_directory_recursive_inner(source, source, destination, &mut stats)?;
+        Ok(stats)
+    }
+
+    fn copy_workspace_shell(
+        &self,
+        workspace: &Workspace,
+        source_root: &Path,
+        destination_root: &Path,
+    ) -> Result<CopyStats, String> {
+        let source_root_text = source_root.to_string_lossy().to_string();
+        let skipped_project_roots: Vec<String> = workspace
+            .projects
+            .iter()
+            .filter(|project| {
+                project.ssh.is_none()
+                    && Self::relative_path_from_workspace(&project.path, &source_root_text)
+                        .is_some()
+            })
+            .map(|project| Self::normalize_compare_path(&project.path))
+            .collect();
+
+        self.ensure_directory_exists(destination_root)?;
+        let mut stats = CopyStats::default();
+        self.copy_directory_recursive_filtered(
+            source_root,
+            source_root,
+            destination_root,
+            &skipped_project_roots,
+            &mut stats,
+        )?;
+        Ok(stats)
+    }
+
+    fn copy_directory_recursive_inner(
+        &self,
+        source_root: &Path,
+        source: &Path,
+        destination: &Path,
+        stats: &mut CopyStats,
+    ) -> Result<(), String> {
+        let entries = fs::read_dir(source).map_err(|e| {
+            format!(
+                "Failed to read source directory '{}': {}",
+                source.display(),
+                e
+            )
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Failed to read source entry: {}", e))?;
+            let source_path = entry.path();
+            let relative = source_path
+                .strip_prefix(source_root)
+                .map_err(|e| format!("Failed to calculate relative path: {}", e))?;
+            if self.should_skip_migration_entry(relative) {
+                continue;
+            }
+
+            let metadata = fs::symlink_metadata(&source_path).map_err(|e| {
+                format!("Failed to read metadata '{}': {}", source_path.display(), e)
+            })?;
+            let destination_path = destination.join(entry.file_name());
+
+            if metadata.file_type().is_symlink() {
+                if fs::metadata(&source_path)
+                    .map(|resolved| resolved.is_file())
+                    .unwrap_or(false)
+                {
+                    let copied = fs::copy(&source_path, &destination_path).map_err(|e| {
+                        format!(
+                            "Failed to copy symlinked file '{}' to '{}': {}",
+                            source_path.display(),
+                            destination_path.display(),
+                            e
+                        )
+                    })?;
+                    stats.files += 1;
+                    stats.bytes += copied;
+                }
+                continue;
+            }
+
+            if metadata.is_dir() {
+                self.ensure_directory_exists(&destination_path)?;
+                self.copy_directory_recursive_inner(
+                    source_root,
+                    &source_path,
+                    &destination_path,
+                    stats,
+                )?;
+            } else if metadata.is_file() {
+                let copied = fs::copy(&source_path, &destination_path).map_err(|e| {
+                    format!(
+                        "Failed to copy file '{}' to '{}': {}",
+                        source_path.display(),
+                        destination_path.display(),
+                        e
+                    )
+                })?;
+                stats.files += 1;
+                stats.bytes += copied;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn copy_directory_recursive_filtered(
+        &self,
+        source_root: &Path,
+        source: &Path,
+        destination: &Path,
+        skipped_project_roots: &[String],
+        stats: &mut CopyStats,
+    ) -> Result<(), String> {
+        let entries = fs::read_dir(source).map_err(|e| {
+            format!(
+                "Failed to read source directory '{}': {}",
+                source.display(),
+                e
+            )
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Failed to read source entry: {}", e))?;
+            let source_path = entry.path();
+            let relative = source_path
+                .strip_prefix(source_root)
+                .map_err(|e| format!("Failed to calculate relative path: {}", e))?;
+            if self.should_skip_workspace_shell_entry(relative, &source_path, skipped_project_roots)
+            {
+                continue;
+            }
+
+            let metadata = fs::symlink_metadata(&source_path).map_err(|e| {
+                format!("Failed to read metadata '{}': {}", source_path.display(), e)
+            })?;
+            let destination_path = destination.join(entry.file_name());
+
+            if metadata.file_type().is_symlink() {
+                if fs::metadata(&source_path)
+                    .map(|resolved| resolved.is_file())
+                    .unwrap_or(false)
+                {
+                    let copied = fs::copy(&source_path, &destination_path).map_err(|e| {
+                        format!(
+                            "Failed to copy symlinked file '{}' to '{}': {}",
+                            source_path.display(),
+                            destination_path.display(),
+                            e
+                        )
+                    })?;
+                    stats.files += 1;
+                    stats.bytes += copied;
+                }
+                continue;
+            }
+
+            if metadata.is_dir() {
+                self.ensure_directory_exists(&destination_path)?;
+                self.copy_directory_recursive_filtered(
+                    source_root,
+                    &source_path,
+                    &destination_path,
+                    skipped_project_roots,
+                    stats,
+                )?;
+            } else if metadata.is_file() {
+                let copied = fs::copy(&source_path, &destination_path).map_err(|e| {
+                    format!(
+                        "Failed to copy file '{}' to '{}': {}",
+                        source_path.display(),
+                        destination_path.display(),
+                        e
+                    )
+                })?;
+                stats.files += 1;
+                stats.bytes += copied;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn should_skip_migration_entry(&self, relative: &Path) -> bool {
+        let normalized = Self::normalize_relative_path(&relative.to_string_lossy());
+        if normalized == MIGRATION_PROJECTS_CSV_RELATIVE_PATH {
+            return true;
+        }
+        relative.components().any(|component| {
+            let component = component.as_os_str().to_string_lossy();
+            MIGRATION_EXCLUDED_NAMES
+                .iter()
+                .any(|excluded| *excluded == component)
+        })
+    }
+
+    fn should_skip_workspace_shell_entry(
+        &self,
+        relative: &Path,
+        source_path: &Path,
+        skipped_project_roots: &[String],
+    ) -> bool {
+        if self.should_skip_migration_entry(relative) {
+            return true;
+        }
+
+        let normalized_source = Self::normalize_compare_path(&source_path.to_string_lossy());
+        skipped_project_roots.iter().any(|project_root| {
+            normalized_source == *project_root
+                || normalized_source.starts_with(&(project_root.clone() + "/"))
+        })
+    }
+
+    fn ensure_directory_exists(&self, path: &Path) -> Result<(), String> {
+        fs::create_dir_all(path)
+            .map_err(|e| format!("Failed to create directory '{}': {}", path.display(), e))
+    }
+
+    fn resolve_item_target_path(
+        &self,
+        plan: &WorkspaceMigrationPlan,
+        item: &WorkspaceMigrationItem,
+    ) -> Result<PathBuf, String> {
+        let relative_path = item
+            .relative_path
+            .as_deref()
+            .ok_or_else(|| format!("Missing relative path for '{}'", item.project_name))?;
+        Ok(Self::join_relative_path(
+            &self.resolve_physical_target_root(plan)?,
+            relative_path,
+        ))
+    }
+
+    fn write_projects_csv_for_root(
+        &self,
+        root_path: &Path,
+        workspace: &Workspace,
+    ) -> Result<(), String> {
+        let ccpanes_dir = root_path.join(".ccpanes");
+        fs::create_dir_all(&ccpanes_dir)
+            .map_err(|e| format!("Failed to create .ccpanes directory: {}", e))?;
+        let csv_path = ccpanes_dir.join("projects.csv");
+        let mut lines = Vec::with_capacity(workspace.projects.len() + 1);
+        lines.push("path,alias,branch,status".to_string());
+
+        for project in &workspace.projects {
+            let alias = project.alias.as_deref().unwrap_or("");
+            let branch = Self::get_git_branch_for_csv(&project.path);
+            let status = Self::get_git_status_for_csv(&project.path);
+            lines.push(format!(
+                "{},{},{},{}",
+                Self::csv_escape(&project.path),
+                Self::csv_escape(alias),
+                branch,
+                status
+            ));
+        }
+
+        let mut file = fs::File::create(&csv_path)
+            .map_err(|e| format!("Failed to create projects.csv: {}", e))?;
+        file.write_all(lines.join("\n").as_bytes())
+            .and_then(|_| file.write_all(b"\n"))
+            .map_err(|e| format!("Failed to write projects.csv: {}", e))?;
+        Ok(())
+    }
+
+    fn build_external_name_map(
+        projects: &[WorkspaceProject],
+        workspace_root: &str,
+    ) -> HashMap<String, String> {
+        let mut name_counts: HashMap<String, usize> = HashMap::new();
+        for project in projects.iter().filter(|project| {
+            project.ssh.is_none()
+                && Self::relative_path_from_workspace(&project.path, workspace_root).is_none()
+        }) {
+            let basename = Self::path_basename(&project.path);
+            *name_counts.entry(basename).or_default() += 1;
+        }
+
+        let mut mapping = HashMap::new();
+        for project in projects.iter().filter(|project| {
+            project.ssh.is_none()
+                && Self::relative_path_from_workspace(&project.path, workspace_root).is_none()
+        }) {
+            let basename = Self::path_basename(&project.path);
+            let name = if name_counts.get(&basename).copied().unwrap_or(0) > 1 {
+                let short_id = project.id.chars().take(8).collect::<String>();
+                format!("{}--{}", basename, short_id)
+            } else {
+                basename
+            };
+            mapping.insert(project.id.clone(), name);
+        }
+
+        mapping
+    }
+
+    fn relative_path_from_workspace(project_path: &str, workspace_root: &str) -> Option<String> {
+        let display_root = Self::normalize_filesystem_path(workspace_root);
+        let display_project = Self::normalize_filesystem_path(project_path);
+        let compare_root = Self::normalize_compare_path(workspace_root);
+        let compare_project = Self::normalize_compare_path(project_path);
+
+        if compare_project == compare_root {
+            return Some(String::new());
+        }
+
+        let prefix = compare_root + "/";
+        if compare_project.starts_with(&prefix) {
+            let relative = display_project
+                .strip_prefix(&(display_root + "/"))
+                .unwrap_or("");
+            return Some(relative.to_string());
+        }
+
+        None
+    }
+
+    fn normalize_wsl_root(path: &str) -> Result<String, String> {
+        if !path.starts_with('/') {
+            return Err("WSL migration target must be an absolute Linux path".to_string());
+        }
+        let trimmed = path.trim_end_matches('/');
+        if trimmed.is_empty() {
+            Ok("/".to_string())
+        } else {
+            Ok(trimmed.to_string())
+        }
+    }
+
+    fn join_logical_path(
+        target_kind: WorkspaceMigrationTargetKind,
+        root: &str,
+        relative: &str,
+    ) -> String {
+        if relative.is_empty() {
+            return root.to_string();
+        }
+
+        match target_kind {
+            WorkspaceMigrationTargetKind::Local => {
+                Self::join_relative_path(Path::new(root), relative)
+                    .to_string_lossy()
+                    .to_string()
+            }
+            WorkspaceMigrationTargetKind::Wsl | WorkspaceMigrationTargetKind::Ssh => {
+                format!(
+                    "{}/{}",
+                    root.trim_end_matches('/'),
+                    relative.trim_start_matches('/')
+                )
+            }
+        }
+    }
+
+    fn join_relative_path(root: &Path, relative: &str) -> PathBuf {
+        relative
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .fold(root.to_path_buf(), |current, segment| current.join(segment))
+    }
+
+    fn normalize_relative_path(path: &str) -> String {
+        path.replace('\\', "/").trim_start_matches("./").to_string()
+    }
+
+    fn normalize_filesystem_path(path: &str) -> String {
+        path.replace('\\', "/").trim_end_matches('/').to_string()
+    }
+
+    fn normalize_compare_path(path: &str) -> String {
+        let normalized = Self::normalize_filesystem_path(path);
+        if cfg!(windows) {
+            normalized.to_lowercase()
+        } else {
+            normalized
+        }
+    }
+
+    fn path_basename(path: &str) -> String {
+        Path::new(path)
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "project".to_string())
+    }
+
+    fn display_project_name(project: &WorkspaceProject) -> String {
+        project
+            .alias
+            .clone()
+            .unwrap_or_else(|| Self::path_basename(&project.path))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn wsl_remote_to_windows_path(distro: &str, remote_path: &str) -> PathBuf {
+        let tail = remote_path.trim_start_matches('/').replace('/', "\\");
+        if tail.is_empty() {
+            PathBuf::from(format!("\\\\wsl$\\{}", distro))
+        } else {
+            PathBuf::from(format!("\\\\wsl$\\{}\\{}", distro, tail))
+        }
+    }
 
     fn read_workspace_json(&self, path: &PathBuf) -> Result<Workspace, String> {
         let content =
@@ -507,7 +1693,7 @@ impl WorkspaceService {
         }
 
         // 生成初始 projects.csv
-        self.sync_projects_csv(ws);
+        self.write_projects_csv_for_root(&ws_path, ws)?;
 
         Ok(())
     }
@@ -518,31 +1704,7 @@ impl WorkspaceService {
             Some(p) => PathBuf::from(p),
             None => return,
         };
-
-        let ccpanes_dir = ws_path.join(".ccpanes");
-        if fs::create_dir_all(&ccpanes_dir).is_err() {
-            return;
-        }
-
-        let csv_path = ccpanes_dir.join("projects.csv");
-        let mut lines = Vec::with_capacity(ws.projects.len() + 1);
-        lines.push("path,alias,branch,status".to_string());
-
-        for project in &ws.projects {
-            let alias = project.alias.as_deref().unwrap_or("");
-            let branch = Self::get_git_branch_for_csv(&project.path);
-            let status = Self::get_git_status_for_csv(&project.path);
-            // CSV 转义：如果字段包含逗号或引号，用双引号包裹
-            let escaped_path = Self::csv_escape(&project.path);
-            let escaped_alias = Self::csv_escape(alias);
-            lines.push(format!(
-                "{},{},{},{}",
-                escaped_path, escaped_alias, branch, status
-            ));
-        }
-
-        let content = lines.join("\n") + "\n";
-        let _ = fs::write(&csv_path, content);
+        let _ = self.write_projects_csv_for_root(&ws_path, ws);
     }
 
     /// 获取 git 当前分支名（用于 CSV）
