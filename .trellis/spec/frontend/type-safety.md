@@ -50,8 +50,8 @@ interface Project {
 | Layer | Path | Format |
 |-------|------|--------|
 | Rust Models | `src-tauri/src/models/*.rs` | `#[derive(Serialize)]` structs |
-| TS Types | `src/types/index.ts` | `interface` + `export` |
-| TS Service | `src/services/*.ts` | invoke 泛型参数 |
+| TS Types | `web/types/index.ts` | `interface` + `export` |
+| TS Service | `web/services/*.ts` | invoke 泛型参数 |
 
 ---
 

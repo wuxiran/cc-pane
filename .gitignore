@@ -48,6 +48,17 @@ _archived_v1/
 .spec-workflow/
 .serena/
 
+# 本地代理/编排状态
+.omx/
+.codex
+.codex/
+.cargo/
+.claude/worktrees/
+.codex-*.log
+
+# 误生成的 Windows 盘符路径镜像
+src-tauri/[A-Za-z]:/
+
 # Claude 本地设置（不提交个人权限配置）
 .claude/settings.local.json
 

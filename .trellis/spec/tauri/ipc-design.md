@@ -82,7 +82,7 @@ async fn set_status(status: ProjectStatus) -> Result<(), String> { ... }
 每个 Rust command 对应一个 TS service 函数：
 
 ```typescript
-// src/services/projectService.ts
+// web/services/projectService.ts
 import { invoke } from '@tauri-apps/api/core';
 import type { Project } from '@/types';
 

@@ -8,7 +8,7 @@
 
 - 以 `use` 开头
 - 描述功能而非实现: `useTerminalSize` 而非 `useResizeObserver`
-- 放在 `src/hooks/` 目录
+- 放在 `web/hooks/` 目录
 
 ---
 

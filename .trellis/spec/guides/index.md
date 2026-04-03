@@ -26,7 +26,7 @@
 
 - [ ] 写类似代码时先搜索已有实现
 - [ ] 同一模式出现 3+ 次
-- [ ] 新增工具函数前搜索 `src/utils/` 和 `src-tauri/src/utils/`
+- [ ] 新增工具函数前搜索 `web/utils/` 和 `src-tauri/src/utils/`
 
 ### When to Think About Tauri Architecture
 

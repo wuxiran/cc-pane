@@ -10,10 +10,10 @@
 
 ```bash
 # Search frontend
-grep -r "functionName" src/
+rg "functionName" web/
 
 # Search backend
-grep -r "function_name" src-tauri/src/
+rg "function_name" src-tauri/src/
 ```
 
 ---
@@ -24,11 +24,11 @@ grep -r "function_name" src-tauri/src/
 
 | 场景 | 先检查 |
 |------|--------|
-| 日期格式化 | `src/utils/` 是否已有 |
-| 路径处理 | `src/utils/` 或 `@tauri-apps/api/path` |
+| 日期格式化 | `web/utils/` 是否已有 |
+| 路径处理 | `web/utils/` 或 `@tauri-apps/api/path` |
 | ID 生成 | 已有 `crypto.randomUUID()` 模式 |
 | Toast 通知 | 已有 `sonner` 组件 |
-| 类名合并 | 已有 `cn()` from `src/lib/utils` |
+| 类名合并 | 已有 `cn()` from `web/lib/utils` |
 
 ### Backend
 

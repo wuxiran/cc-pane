@@ -67,16 +67,16 @@ User Action → Component → Store → Service → invoke('command') →
 
 ```bash
 # Check Rust models
-grep -r "pub struct" src-tauri/src/models/
+rg "pub struct" src-tauri/src/models/
 
 # Check TS types
-grep -r "interface" src/types/
+rg "interface" web/types/
 
 # Check invoke calls
-grep -r "invoke(" src/services/
+rg "invoke\\(" web/services/
 
 # Check command definitions
-grep -r "#\[tauri::command\]" src-tauri/src/commands/
+rg "#\\[tauri::command\\]" src-tauri/src/commands/
 ```
 
 ---

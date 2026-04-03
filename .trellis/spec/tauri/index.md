@@ -25,7 +25,7 @@ CC-Panes 使用 Tauri 2 框架，前端 React 通过 IPC (`invoke`) 调用后端
 - **数据流**: Component → Store → Service (`invoke`) → Command → Service → Repository
 - **命名**: Rust `snake_case` → serde → TS `camelCase`
 - **错误**: Rust `AppResult<T>` → `String` → TS `catch`
-- **类型对齐**: `src-tauri/src/models/*.rs` ↔ `src/types/index.ts`
+- **类型对齐**: `src-tauri/src/models/*.rs` ↔ `web/types/index.ts`
 
 ---
 

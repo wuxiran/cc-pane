@@ -59,9 +59,9 @@ app.emit("terminal-output", payload)?;
 2. **Repository** (`src-tauri/src/repository/`) — SQL CRUD
 3. **Service (Rust)** (`src-tauri/src/services/`) — 业务逻辑
 4. **Command** (`src-tauri/src/commands/`) — IPC 接口 + 在 `lib.rs` 注册
-5. **Service (TS)** (`src/services/`) — invoke 封装
-6. **Store** (`src/stores/`) — Zustand 状态
-7. **Component** (`src/components/`) — UI
+5. **Service (TS)** (`web/services/`) — invoke 封装
+6. **Store** (`web/stores/`) — Zustand 状态
+7. **Component** (`web/components/`) — UI
 
 跳过不需要的步骤（如纯前端功能跳过 1-4）。
 
@@ -72,4 +72,4 @@ app.emit("terminal-output", payload)?;
 1. **Command 过大** — 应该拆分，每个命令单一职责
 2. **前端直接 invoke** — 必须经过 Service 层
 3. **忘记注册命令** — `lib.rs` 的 `invoke_handler` 中必须添加
-4. **忘记更新 TS 类型** — 修改 Rust model 后必须同步 `src/types/`
+4. **忘记更新 TS 类型** — 修改 Rust model 后必须同步 `web/types/`

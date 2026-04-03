@@ -7,7 +7,7 @@
 ## Structure
 
 ```
-src/
+web/
 ├── main.tsx                    # 应用入口
 ├── App.tsx                     # 根组件（布局 + Dialog 挂载）
 ├── components/                 # React 组件

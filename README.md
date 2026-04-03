@@ -157,20 +157,18 @@ Dev and release builds are fully isolated via `cfg!(debug_assertions)` and can r
 
 ```
 cc-panes/
-├── src/                    # React frontend
+├── web/                    # React frontend source
 │   ├── components/         # React components
 │   │   ├── panes/          # Split-pane terminal components
 │   │   ├── sidebar/        # Sidebar components
-│   │   ├── settings/       # Settings sub-components
-│   │   ├── memory/         # Memory management
-│   │   ├── skill/          # Skill management
-│   │   ├── todo/           # Todo management
+│   │   ├── providers/      # Provider management UI
 │   │   └── ui/             # shadcn/ui base components
 │   ├── stores/             # Zustand state management
 │   ├── services/           # Frontend service layer (invoke wrappers)
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
 │   ├── i18n/               # Internationalization
+│   ├── lib/                # Shared frontend helpers
 │   └── utils/              # Utility functions
 │
 ├── src-tauri/              # Tauri Rust backend
@@ -181,8 +179,11 @@ cc-panes/
 │       ├── models/          # Data models
 │       └── utils/           # Utilities (AppPaths, AppError)
 │
+├── cc-panes-*/             # Shared Rust workspace crates
 └── images/                 # Screenshots
 ```
+
+Frontend imports use the `@/` alias, which resolves to `web/`.
 
 <!--
 ## Screenshots
