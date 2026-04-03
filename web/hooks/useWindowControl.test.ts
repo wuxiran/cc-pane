@@ -9,7 +9,7 @@ import {
 import { useWindowControl } from "./useWindowControl";
 
 // Mock @tauri-apps/api/window（setup.ts 未 mock 此模块）
-const mockStartDragging = vi.fn();
+const mockStartDragging = vi.fn().mockResolvedValue(undefined);
 const mockIsMaximized = vi.fn().mockResolvedValue(false);
 const mockOnResized = vi.fn().mockResolvedValue(vi.fn());
 

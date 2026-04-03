@@ -2,6 +2,7 @@ use crate::utils::error::AppError;
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 /// 单条迁移定义
@@ -189,14 +190,23 @@ impl Database {
             AppError::from(format!("Failed to open database: {}", e))
         })?;
 
-        // WAL 模式：提升读写并发性能，减少写锁等待
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
-        )
-        .map_err(|e| {
-            error!(err = %e, "Failed to set database pragmas");
-            AppError::from(format!("Failed to set database pragmas: {}", e))
-        })?;
+        // WAL 模式：提升读写并发性能，减少写锁等待。
+        // `journal_mode` pragma 会返回结果行，必须通过 query_row 读取。
+        conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get::<_, String>(0))
+            .map_err(|e| {
+                error!(err = %e, "Failed to enable WAL mode");
+                AppError::from(format!("Failed to enable WAL mode: {}", e))
+            })?;
+        conn.pragma_update(None, "synchronous", "NORMAL")
+            .map_err(|e| {
+                error!(err = %e, "Failed to set synchronous pragma");
+                AppError::from(format!("Failed to set synchronous pragma: {}", e))
+            })?;
+        conn.busy_timeout(Duration::from_millis(5000))
+            .map_err(|e| {
+                error!(err = %e, "Failed to set busy timeout");
+                AppError::from(format!("Failed to set busy timeout: {}", e))
+            })?;
 
         Self::run_migrations(&conn)?;
 

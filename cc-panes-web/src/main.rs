@@ -82,7 +82,6 @@ async fn main() -> anyhow::Result<()> {
         terminal_service,
         ws_emitter,
         default_cwd: cwd_str.clone(),
-        default_shell: args.shell.clone(),
     };
 
     let app = routes::build_router(state);

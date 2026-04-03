@@ -62,6 +62,7 @@ pub async fn create_session(
             None, // append_system_prompt
             None, // initial_prompt
             None, // ssh
+            None, // wsl
         )
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to create session");

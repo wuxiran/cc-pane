@@ -27,11 +27,13 @@ use std::time::Duration;
 ///
 /// 独立于 cc-panes-core，避免循环依赖。
 pub fn no_window_command(program: &str) -> std::process::Command {
-    let mut cmd = std::process::Command::new(program);
+    let cmd = std::process::Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        let mut cmd = cmd;
         cmd.creation_flags(0x08000000);
+        return cmd;
     }
     cmd
 }

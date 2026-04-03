@@ -1,5 +1,5 @@
 import {
-  Command, FolderTree, History, Bot, ListTodo, Settings, Files, Server, Activity, Zap, Workflow,
+  Command, FolderTree, History, Bot, ListTodo, Settings, Files, Server, Zap, Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useActivityBarStore, type ActivityView } from "@/stores/useActivityBarStore";
-import { useDialogStore, useProcessMonitorStore } from "@/stores";
+import { useDialogStore } from "@/stores";
 
 interface ActivityBarIconProps {
   icon: React.ReactNode;
@@ -71,8 +71,6 @@ export default function ActivityBar() {
   const toggleHomeMode = useActivityBarStore((s) => s.toggleHomeMode);
   const toggleProvidersMode = useActivityBarStore((s) => s.toggleProvidersMode);
   const openSettings = useDialogStore((s) => s.openSettings);
-
-  const processCount = useProcessMonitorStore((s) => s.scanResult?.totalCount ?? 0);
 
   const isHomeActive = appViewMode === "home";
 
