@@ -978,7 +978,8 @@ pub fn run() {
                         let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
                         let svc = cc_panes_core::services::DefaultSkillService::new(
                             resource_dir
-                                .join("bundled-claude-config")
+                                .join("resources")
+                                .join("claude-bundle")
                                 .join("default-skills"),
                         );
                         svc.inject_all(registry.inner(), env!("CARGO_PKG_VERSION"));

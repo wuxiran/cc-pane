@@ -103,10 +103,10 @@ impl AppPaths {
     /// 将打包的 .claude/ 配置从资源目录提取到数据目录
     /// 每次启动都覆盖，确保使用最新版本
     pub fn extract_bundled_claude_config(&self, resource_dir: &Path) {
-        let src_base = resource_dir.join("bundled-claude-config");
+        let src_base = resource_dir.join("resources").join("claude-bundle");
         if !src_base.exists() {
             info!(
-                "[app_paths] No bundled-claude-config found at {}, skipping extraction",
+                "[app_paths] No claude-bundle found at {}, skipping extraction",
                 src_base.display()
             );
             return;

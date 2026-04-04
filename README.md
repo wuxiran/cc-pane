@@ -11,7 +11,7 @@
 
 <!--
 <p align="center">
-  <img src="images/screenshot-main.png" alt="CC-Panes Main Interface" width="800" />
+  <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes Main Interface" width="800" />
 </p>
 -->
 
@@ -180,7 +180,7 @@ cc-panes/
 │       └── utils/           # Utilities (AppPaths, AppError)
 │
 ├── cc-panes-*/             # Shared Rust workspace crates
-└── images/                 # Screenshots
+└── docs/                   # Architecture docs, examples, and assets
 ```
 
 Frontend imports use the `@/` alias, which resolves to `web/`.
@@ -193,11 +193,11 @@ Frontend imports use the `@/` alias, which resolves to `web/`.
 
 | Split Pane Layout | Panel View |
 |:-:|:-:|
-| ![Split Pane](images/screenshot-no-layout.png) | ![Panel](images/screenshot-panel.png) |
+| ![Split Pane](docs/assets/images/screenshot-no-layout.png) | ![Panel](docs/assets/images/screenshot-panel.png) |
 
 | Todo List | New UI |
 |:-:|:-:|
-| ![Todo](images/screenshot-todolist.png) | ![New UI](images/screenshot-new-ui.png) |
+| ![Todo](docs/assets/images/screenshot-todolist.png) | ![New UI](docs/assets/images/screenshot-new-ui.png) |
 
 </details>
 -->
@@ -206,7 +206,7 @@ Frontend imports use the `@/` alias, which resolves to `web/`.
 
 Found a bug or have a suggestion? Join the WeChat group:
 
-<img src="images/wechat-group.png" alt="WeChat Group: cc-pane" width="200" />
+<img src="docs/assets/images/wechat-group.png" alt="WeChat Group: cc-pane" width="200" />
 
 ## Contributing
 

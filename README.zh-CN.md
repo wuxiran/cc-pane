@@ -11,7 +11,7 @@
 
 <!--
 <p align="center">
-  <img src="images/screenshot-main.png" alt="CC-Panes 主界面" width="800" />
+  <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes 主界面" width="800" />
 </p>
 -->
 
@@ -212,7 +212,7 @@ cc-panes/
 │       └── utils/           # 工具（AppPaths, AppError）
 │
 ├── cc-panes-*/             # 共享 Rust workspace crates
-└── images/                 # 截图
+└── docs/                   # 设计文档、示例与文档资源
 ```
 
 前端导入统一使用 `@/` 别名，对应到 `web/` 目录。
@@ -225,11 +225,11 @@ cc-panes/
 
 | 分屏布局 | 面板视图 |
 |:-:|:-:|
-| ![分屏](images/screenshot-no-layout.png) | ![面板](images/screenshot-panel.png) |
+| ![分屏](docs/assets/images/screenshot-no-layout.png) | ![面板](docs/assets/images/screenshot-panel.png) |
 
 | 待办列表 | 新 UI |
 |:-:|:-:|
-| ![待办](images/screenshot-todolist.png) | ![新 UI](images/screenshot-new-ui.png) |
+| ![待办](docs/assets/images/screenshot-todolist.png) | ![新 UI](docs/assets/images/screenshot-new-ui.png) |
 
 </details>
 -->
@@ -238,7 +238,7 @@ cc-panes/
 
 发现 Bug 或有建议？欢迎加入微信群交流：
 
-<img src="images/wechat-group.png" alt="微信群: cc-pane" width="200" />
+<img src="docs/assets/images/wechat-group.png" alt="微信群: cc-pane" width="200" />
 
 ## 贡献
 

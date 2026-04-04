@@ -39,10 +39,10 @@
     ],
     "resources": [
       "binaries/cc-panes-hook*",
-      "bundled-claude-config/.claude/commands/ccbook/*",
-      "bundled-claude-config/.claude/agents/*",
-      "bundled-claude-config/CLAUDE.md",
-      "bundled-claude-config/default-skills/*"
+      "resources/claude-bundle/.claude/commands/ccbook/*",
+      "resources/claude-bundle/.claude/agents/*",
+      "resources/claude-bundle/CLAUDE.md",
+      "resources/claude-bundle/default-skills/*"
     ],
     "macOS": {
       "minimumSystemVersion": "10.15"

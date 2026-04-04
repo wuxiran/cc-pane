@@ -22,9 +22,9 @@ if (process.platform !== "win32") {
   fs.chmodSync(path.join(d, binaryName), 0o755);
 }
 
-// 2. 复制 .claude/ skills 和 agents 到 src-tauri/bundled-claude-config/
+// 2. 复制 .claude/ skills 和 agents 到 src-tauri/resources/claude-bundle/
 const srcClaude = ".claude";
-const destBase = path.join("src-tauri", "bundled-claude-config");
+const destBase = path.join("src-tauri", "resources", "claude-bundle");
 
 // 复制 commands/ccbook/
 const commandsSrc = path.join(srcClaude, "commands", "ccbook");
