@@ -110,7 +110,6 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
             onGitClone={actions.handleGitClone}
             onSetPath={handleSetWorkspacePath}
             onClearPath={handleClearWorkspacePath}
-            onSetProvider={actions.handleSetWorkspaceProvider}
             onSetDefaultEnvironment={handleSetDefaultEnvironment}
             onOpenInFileBrowser={handleOpenInFileBrowser}
           >

@@ -64,7 +64,6 @@ function renderWorkspaceItem(defaultEnvironment: "local" | "wsl" = "local") {
         onGitClone={vi.fn()}
         onSetPath={vi.fn()}
         onClearPath={vi.fn()}
-        onSetProvider={vi.fn()}
         onSetDefaultEnvironment={onSetDefaultEnvironment}
         onOpenInFileBrowser={vi.fn()}
       >

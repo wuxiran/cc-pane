@@ -19,8 +19,6 @@ import {
   ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuRadioGroup,
-  ContextMenuRadioItem,
   ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
@@ -57,7 +55,6 @@ interface WorkspaceItemProps {
   onGitClone: (ws: Workspace) => void;
   onSetPath: (ws: Workspace) => void;
   onClearPath: (ws: Workspace) => void;
-  onSetProvider: (ws: Workspace, providerId: string | null) => void;
   onSetDefaultEnvironment: (ws: Workspace, environment: WorkspaceLaunchEnvironment) => void;
   onOpenInFileBrowser?: (path: string) => void;
 }
@@ -76,7 +73,6 @@ export default function WorkspaceItem({
   onGitClone,
   onSetPath,
   onClearPath,
-  onSetProvider,
   onSetDefaultEnvironment,
   onOpenInFileBrowser,
 }: WorkspaceItemProps) {
@@ -318,27 +314,6 @@ export default function WorkspaceItem({
               <Settings2 /> {t("settings", { ns: "common" })}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-52">
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>Provider</ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-44">
-                  <ContextMenuRadioGroup value={ws.providerId ?? ""}>
-                    <ContextMenuRadioItem value="" onClick={() => onSetProvider(ws, null)}>
-                      {t("noProvider")}
-                    </ContextMenuRadioItem>
-                    {providerList.length > 0 ? <ContextMenuSeparator /> : null}
-                    {providerList.map((provider) => (
-                      <ContextMenuRadioItem
-                        key={provider.id}
-                        value={provider.id}
-                        onClick={() => onSetProvider(ws, provider.id)}
-                      >
-                        {provider.name}
-                      </ContextMenuRadioItem>
-                    ))}
-                  </ContextMenuRadioGroup>
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-
               <ContextMenuItem onClick={() => onSetPath(ws)}>
                 {t("setWorkspacePath")}
               </ContextMenuItem>
