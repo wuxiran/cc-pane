@@ -69,28 +69,35 @@ export default memo(function TerminalTabContent({
           />
           {!leaf.sessionId && !leaf.restoring ? (
             <div
-              className="pointer-events-none absolute inset-0 flex items-center justify-center"
-              style={{ paddingTop: "var(--notch-bar-height, 0px)" }}
+              className="pointer-events-none absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"
+              style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}
             >
               <div
-                className="flex flex-col items-center justify-center gap-3 rounded-2xl px-5 py-4"
+                className="flex items-center gap-2 rounded-lg px-3 py-2"
                 style={{
-                  background: "rgba(10,10,10,0.55)",
+                  background: "rgba(255,255,255,0.05)",
                   border: "1px solid rgba(255,255,255,0.08)",
-                  backdropFilter: "blur(8px)",
-                  WebkitBackdropFilter: "blur(8px)",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
                 }}
               >
                 <Terminal
-                  className="h-6 w-6"
-                  style={{ color: "rgba(255,255,255,0.38)" }}
+                  className="h-4 w-4 shrink-0"
+                  style={{ color: "rgba(255,255,255,0.42)" }}
                 />
-                <span
-                  className="text-sm font-medium tracking-wide"
-                  style={{ color: "rgba(255,255,255,0.82)" }}
-                >
-                  {t("ready")}
-                </span>
+                <div className="flex min-w-0 flex-col">
+                  <span
+                    className="text-xs font-medium tracking-wide"
+                    style={{ color: "rgba(255,255,255,0.84)" }}
+                  >
+                    {t("ready")}
+                  </span>
+                  <span
+                    className="text-[11px] leading-4"
+                    style={{ color: "rgba(255,255,255,0.45)" }}
+                  >
+                    {t("selectProject")}
+                  </span>
+                </div>
               </div>
             </div>
           ) : null}
@@ -100,7 +107,7 @@ export default memo(function TerminalTabContent({
 
     const childKeys = node.children.map((child) => child.id);
     return (
-      <div key={node.id} className="h-full">
+      <div key={node.id} className="h-full w-full min-h-0 min-w-0">
         <SplitView
           vertical={node.direction === "vertical"}
           sizes={node.sizes}
@@ -126,5 +133,5 @@ export default memo(function TerminalTabContent({
   ]);
 
   if (!tab.terminalRootPane) return null;
-  return <div className="h-full">{renderNode(tab.terminalRootPane)}</div>;
+  return <div className="h-full w-full min-h-0 min-w-0">{renderNode(tab.terminalRootPane)}</div>;
 });

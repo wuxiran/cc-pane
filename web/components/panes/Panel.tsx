@@ -377,7 +377,7 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   return (
     <div
-      className={`flex flex-col h-full overflow-hidden transition-shadow duration-300 ${
+      className={`flex w-full min-w-0 min-h-0 flex-col h-full overflow-hidden transition-shadow duration-300 ${
         isFullscreenPanel ? "fixed inset-0 z-[9999]" : ""
       }`}
       style={{
@@ -389,7 +389,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     >
       {/* 内容区 + 浮动标签栏 (Notch 布局) */}
       <div
-        className="flex-1 relative overflow-hidden"
+        className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
         style={{ '--notch-bar-height': `${tabBarHeight}px` } as React.CSSProperties}
       >
         {/* 浮动标签栏 */}

@@ -65,4 +65,25 @@ describe("TerminalTabContent", () => {
 
     expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
   });
+
+  it("hides ready overlay while a leaf is restoring", () => {
+    render(
+      <TerminalTabContent
+        tab={createTerminalTab({
+          terminalRootPane: {
+            type: "leaf",
+            id: "leaf-1",
+            sessionId: null,
+            restoring: true,
+          },
+        })}
+        isActive
+        onSessionCreated={vi.fn()}
+        onSessionExited={vi.fn()}
+        onTerminalRef={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
+  });
 });
