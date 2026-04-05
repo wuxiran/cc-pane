@@ -13,7 +13,6 @@ use tracing::{info, warn};
 pub(super) const WSL_ERROR_CODE_CODEX_NOT_FOUND: &str = "WSL_CODEX_NOT_FOUND";
 pub(super) const WSL_ERROR_CODE_CODEX_WINDOWS_SHIM: &str = "WSL_CODEX_WINDOWS_SHIM";
 pub(super) const WSL_ERROR_CODE_NODE_NOT_FOUND: &str = "WSL_NODE_NOT_FOUND";
-pub(super) const WSL_ERROR_CODE_CODEX_CONFIG_MISSING: &str = "WSL_CODEX_CONFIG_MISSING";
 pub(super) const WSL_ERROR_CODE_HOST_UNRESOLVED: &str = "WSL_HOST_UNRESOLVED";
 pub(super) const WSL_BASH_EVAL_FLAG: &str = "-lic";
 pub(super) const WSL_PROXY_ENV_KEYS: [&str; 8] = [
@@ -34,23 +33,13 @@ pub(super) struct SensitiveEnvVarSummary {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct WslCodexHomeOverride {
-    pub(super) overlay_home: String,
-    pub(super) config_path: String,
-    pub(super) config_overrides: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
 pub(super) struct ResolvedWslLaunch {
     pub(super) wsl_path: PathBuf,
     pub(super) distro: String,
     pub(super) remote_path: String,
     pub(super) windows_host: Option<String>,
-    pub(super) codex_home_override: Option<WslCodexHomeOverride>,
     pub(super) native_codex_path: Option<String>,
     pub(super) native_node_path: Option<String>,
-    pub(super) has_local_codex_config: bool,
-    pub(super) has_local_codex_auth: bool,
 }
 
 fn is_wsl_proxy_env_key(key: &str) -> bool {
@@ -61,24 +50,6 @@ fn is_wsl_proxy_env_key(key: &str) -> bool {
 
 pub(super) fn strip_wsl_proxy_env_vars(env_vars: &mut HashMap<String, String>) {
     env_vars.retain(|key, _| !is_wsl_proxy_env_key(key));
-}
-
-pub(super) fn has_codex_auth_env(env_vars: &HashMap<String, String>) -> bool {
-    env_vars.contains_key("CODEX_API_KEY") || env_vars.contains_key("OPENAI_API_KEY")
-}
-
-pub(super) fn normalize_codex_env_vars(env_vars: &mut HashMap<String, String>) {
-    if !env_vars.contains_key("CODEX_API_KEY") {
-        if let Some(value) = env_vars.get("OPENAI_API_KEY").cloned() {
-            env_vars.insert("CODEX_API_KEY".to_string(), value);
-        }
-    }
-
-    if !env_vars.contains_key("OPENAI_API_KEY") {
-        if let Some(value) = env_vars.get("CODEX_API_KEY").cloned() {
-            env_vars.insert("OPENAI_API_KEY".to_string(), value);
-        }
-    }
 }
 
 pub(super) fn summarize_sensitive_env_var(
@@ -497,89 +468,16 @@ impl TerminalService {
     #[cfg(windows)]
     fn prepare_wsl_codex_home_override(
         &self,
-        session_id: &str,
-        wsl_path: &std::path::Path,
-        distro: &str,
-    ) -> Result<(Option<WslCodexHomeOverride>, bool, bool)> {
-        let wsl_home = Self::run_wsl_shell_capture(wsl_path, distro, r#"printf %s "$HOME""#)?;
-        if wsl_home.is_empty() {
-            return Ok((None, false, false));
-        }
-
-        let wsl_config_content = Self::run_wsl_shell_capture(
-            wsl_path,
-            distro,
-            r#"cat "$HOME/.codex/config.toml" 2>/dev/null || true"#,
-        )?;
-        let parsed_root = parse_wsl_codex_config_content(&wsl_config_content)?;
-        let has_local_codex_config = parsed_root.is_some();
-        let merged_root = parsed_root.unwrap_or_default();
-
-        let has_local_codex_auth = Self::run_wsl_shell_capture(
-            wsl_path,
-            distro,
-            r#"if [ -e "$HOME/.codex/auth.json" ]; then printf 1; fi"#,
-        )? == "1";
-
-        let mut config_overrides = build_wsl_codex_cli_overrides(&merged_root);
-        if has_local_codex_auth
-            && !config_overrides
-                .iter()
-                .any(|entry| entry.starts_with("cli_auth_credentials_store="))
-        {
-            config_overrides.push("cli_auth_credentials_store=\"file\"".to_string());
-            config_overrides.sort();
-        }
-
-        let fallback_dir = self.app_paths.data_dir().join("wsl-codex");
-        std::fs::create_dir_all(&fallback_dir)?;
-        let config_path = fallback_dir.join(format!("codex-config-{}.toml", session_id));
-        let config_content = serialize_wsl_codex_config_root(merged_root)?;
-        std::fs::write(&config_path, config_content)?;
-
-        let Some(config_path) = windows_path_to_wsl(&config_path) else {
-            return Ok((None, has_local_codex_config, has_local_codex_auth));
-        };
-
-        Ok((
-            Some(WslCodexHomeOverride {
-                overlay_home: format!(
-                    "{}/.cache/cc-panes/codex-home/{}",
-                    wsl_home.trim_end_matches('/'),
-                    session_id
-                ),
-                config_path,
-                config_overrides,
-            }),
-            has_local_codex_config,
-            has_local_codex_auth,
-        ))
+        _session_id: &str,
+        _wsl_path: &std::path::Path,
+        _distro: &str,
+    ) -> Result<(Option<()>, bool, bool)> {
+        Ok((None, false, false))
     }
 
     #[cfg(windows)]
-    pub(super) fn build_wsl_codex_home_override_prelude(wsl: &ResolvedWslLaunch) -> Vec<String> {
-        let Some(override_info) = wsl.codex_home_override.as_ref() else {
-            return Vec::new();
-        };
-
-        let mut parts = vec![
-            "export CCPANES_WSL_REAL_HOME=\"$HOME\"".to_string(),
-            format!("export HOME={}", Self::shell_escape(&override_info.overlay_home)),
-            "mkdir -p \"$HOME/.codex\"".to_string(),
-            format!(
-                "if [ ! -e \"$HOME/.codex/config.toml\" ]; then ln -sn {} \"$HOME/.codex/config.toml\"; fi",
-                Self::shell_escape(&override_info.config_path)
-            ),
-        ];
-
-        for name in ["auth.json", "AGENTS.md", "prompts", "rules", "skills"] {
-            parts.push(format!(
-                "if [ -e \"$CCPANES_WSL_REAL_HOME/.codex/{name}\" ] && [ ! -e \"$HOME/.codex/{name}\" ]; then ln -sn \"$CCPANES_WSL_REAL_HOME/.codex/{name}\" \"$HOME/.codex/{name}\"; fi",
-                name = name,
-            ));
-        }
-
-        parts
+    pub(super) fn build_wsl_codex_home_override_prelude(_wsl: &ResolvedWslLaunch) -> Vec<String> {
+        Vec::new()
     }
 
     #[cfg(windows)]
@@ -732,19 +630,15 @@ impl TerminalService {
             None
         };
 
-        let (codex_home_override, has_local_codex_config, has_local_codex_auth) =
-            self.prepare_wsl_codex_home_override(session_id, &wsl_path, &distro)?;
+        let _ = self.prepare_wsl_codex_home_override(session_id, &wsl_path, &distro)?;
 
         Ok(ResolvedWslLaunch {
             wsl_path,
             distro,
             remote_path: remote_path.to_string(),
             windows_host,
-            codex_home_override,
             native_codex_path: None,
             native_node_path: None,
-            has_local_codex_config,
-            has_local_codex_auth,
         })
     }
 
@@ -861,14 +755,7 @@ impl TerminalService {
         initial_prompt: Option<&str>,
         skip_mcp: bool,
     ) -> Result<(String, Vec<String>)> {
-        let mut remote_parts = Self::build_wsl_codex_home_override_prelude(wsl);
-        for (key, value) in env_vars {
-            if Self::is_valid_env_key(key) {
-                remote_parts.push(format!("export {}={}", key, Self::shell_escape(value)));
-            } else {
-                warn!("Skipping env var with invalid key for WSL launch: {}", key);
-            }
-        }
+        let mut remote_parts = Vec::new();
 
         let codex_path = wsl.native_codex_path.as_ref().ok_or_else(|| {
             anyhow!(
@@ -879,12 +766,6 @@ impl TerminalService {
         })?;
 
         let mut codex_args = Vec::new();
-        if let Some(override_info) = wsl.codex_home_override.as_ref() {
-            for entry in &override_info.config_overrides {
-                codex_args.push("-c".to_string());
-                codex_args.push(entry.clone());
-            }
-        }
 
         if !skip_mcp {
             if let (Some(port), Some(token), Some(windows_host)) = (

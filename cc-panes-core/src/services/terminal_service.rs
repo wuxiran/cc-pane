@@ -21,9 +21,7 @@ use uuid::Uuid;
 
 mod wsl_codex;
 
-use self::wsl_codex::{
-    has_codex_auth_env, normalize_codex_env_vars, strip_wsl_proxy_env_vars, WSL_PROXY_ENV_KEYS,
-};
+use self::wsl_codex::{strip_wsl_proxy_env_vars, WSL_PROXY_ENV_KEYS};
 
 fn cached_which(name: &str) -> Result<PathBuf, which::Error> {
     use std::sync::OnceLock;
@@ -734,7 +732,10 @@ impl TerminalService {
         let is_ssh = ssh.is_some();
         let mut env_vars = self.settings_service.get_proxy_env_vars();
         let provider_vars = self.provider_service.get_env_vars(provider_id);
-        env_vars.extend(provider_vars.clone());
+        let pure_wsl_codex_launch = wsl.is_some() && cli_tool == CliTool::Codex;
+        if !pure_wsl_codex_launch {
+            env_vars.extend(provider_vars.clone());
+        }
         let emitter = self.emitter.read().clone().ok_or_else(|| {
             anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)")
         })?;
@@ -802,20 +803,6 @@ impl TerminalService {
                 CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
                 CliTool::Codex => {
                     self.validate_wsl_codex_runtime(&mut resolved_wsl)?;
-
-                    let mut auth_env = provider_vars.clone();
-                    normalize_codex_env_vars(&mut auth_env);
-                    if !has_codex_auth_env(&auth_env)
-                        && !resolved_wsl.has_local_codex_config
-                        && !resolved_wsl.has_local_codex_auth
-                    {
-                        return Err(anyhow!(
-                            "WSL_CODEX_CONFIG_MISSING: no workspace Provider auth was injected and WSL distro '{}' has neither '~/.codex/config.toml' nor '~/.codex/auth.json'. Bind a Provider or configure/sign in to Codex inside WSL first.",
-                            resolved_wsl.distro
-                        ));
-                    }
-
-                    normalize_codex_env_vars(&mut env_vars);
                     self.ensure_wsl_codex_mcp_registered(
                         &session_id,
                         &resolved_wsl,
