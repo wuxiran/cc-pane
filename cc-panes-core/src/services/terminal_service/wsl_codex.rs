@@ -795,10 +795,6 @@ impl TerminalService {
             }
         }
 
-        codex_args.push("-a".to_string());
-        codex_args.push("untrusted".to_string());
-        codex_args.push("-s".to_string());
-        codex_args.push("workspace-write".to_string());
         if wsl.remote_path != "~" && wsl.remote_path != "~/" {
             codex_args.push("-C".to_string());
             codex_args.push(wsl.remote_path.clone());
@@ -848,10 +844,6 @@ mod tests {
     #[test]
     fn append_codex_resume_args_keeps_prompt_after_resume_id() {
         let mut args = vec![
-            "-a".to_string(),
-            "untrusted".to_string(),
-            "-s".to_string(),
-            "workspace-write".to_string(),
             "-C".to_string(),
             "/workspace/project".to_string(),
         ];
@@ -865,10 +857,6 @@ mod tests {
         assert_eq!(
             args,
             vec![
-                "-a",
-                "untrusted",
-                "-s",
-                "workspace-write",
                 "-C",
                 "/workspace/project",
                 "resume",
