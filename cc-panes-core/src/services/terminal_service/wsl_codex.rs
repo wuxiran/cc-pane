@@ -3,7 +3,7 @@
 #[cfg(windows)]
 use super::cached_which;
 use super::TerminalService;
-use crate::models::WslLaunchInfo;
+use crate::models::{CliTool, WslLaunchInfo};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -747,11 +747,92 @@ impl TerminalService {
     }
 
     #[cfg(windows)]
+    pub(super) fn build_wsl_supported_cli_command(
+        &self,
+        wsl: &ResolvedWslLaunch,
+        cli_tool: CliTool,
+        resume_id: Option<&str>,
+        append_system_prompt: Option<&str>,
+        initial_prompt: Option<&str>,
+    ) -> Result<(String, Vec<String>)> {
+        let command = match cli_tool {
+            CliTool::Claude => "claude",
+            CliTool::Gemini => "gemini",
+            CliTool::Opencode => "opencode",
+            other => {
+                return Err(anyhow!(
+                    "WSL generic launch does not support CLI tool {:?}",
+                    other
+                ));
+            }
+        };
+
+        let mut remote_parts = Vec::new();
+        if !is_wsl_home_path(&wsl.remote_path) {
+            remote_parts.push(format!("cd {}", Self::shell_escape(&wsl.remote_path)));
+        }
+
+        let mut cli_args = Vec::new();
+        if cli_tool == CliTool::Claude {
+            if let Some(resume_id) = resume_id {
+                cli_args.push("--resume".to_string());
+                cli_args.push(resume_id.to_string());
+            }
+            if let Some(prompt) = append_system_prompt {
+                cli_args.push("--append-system-prompt".to_string());
+                cli_args.push(prompt.to_string());
+            }
+            if let Some(prompt) = initial_prompt {
+                cli_args.push("--".to_string());
+                cli_args.push(prompt.to_string());
+            }
+        } else if let Some(prompt) = initial_prompt {
+            cli_args.push(prompt.to_string());
+        }
+
+        let escaped_cli_args = cli_args
+            .iter()
+            .map(|arg| Self::shell_escape(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+        remote_parts.push(if escaped_cli_args.is_empty() {
+            format!("exec {}", command)
+        } else {
+            format!("exec {} {}", command, escaped_cli_args)
+        });
+
+        let args = vec![
+            "-d".to_string(),
+            wsl.distro.clone(),
+            "--".to_string(),
+            "bash".to_string(),
+            WSL_BASH_EVAL_FLAG.to_string(),
+            remote_parts.join(" && "),
+        ];
+
+        Ok((wsl.wsl_path.to_string_lossy().into_owned(), args))
+    }
+
+    #[cfg(not(windows))]
+    pub(super) fn build_wsl_supported_cli_command(
+        &self,
+        _wsl: &ResolvedWslLaunch,
+        _cli_tool: CliTool,
+        _resume_id: Option<&str>,
+        _append_system_prompt: Option<&str>,
+        _initial_prompt: Option<&str>,
+    ) -> Result<(String, Vec<String>)> {
+        unreachable!("WSL launch is only supported on Windows")
+    }
+
+    #[cfg(windows)]
     pub(super) fn build_wsl_command(
         &self,
         wsl: &ResolvedWslLaunch,
+        env_vars: &HashMap<String, String>,
         resume_id: Option<&str>,
         initial_prompt: Option<&str>,
+        skip_mcp: bool,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
 
@@ -764,6 +845,34 @@ impl TerminalService {
         })?;
 
         let mut codex_args = Vec::new();
+
+        if !skip_mcp {
+            if let (Some(port), Some(token), Some(windows_host)) = (
+                env_vars.get("CC_PANES_API_PORT"),
+                env_vars.get("CC_PANES_API_TOKEN"),
+                wsl.windows_host.as_deref(),
+            ) {
+                let mcp_url = build_wsl_mcp_url(windows_host, port, token);
+                codex_args.push("-c".to_string());
+                codex_args.push(format!(
+                    "mcp_servers.ccpanes.url={}",
+                    format_toml_value_for_cli(&toml::Value::String(mcp_url))
+                ));
+                codex_args.push("-c".to_string());
+                codex_args.push(format!(
+                    "mcp_servers.ccpanes.bearer_token_env_var={}",
+                    format_toml_value_for_cli(&toml::Value::String("CC_PANES_API_TOKEN".into()))
+                ));
+            } else {
+                warn!(
+                    distro = %wsl.distro,
+                    has_port = env_vars.contains_key("CC_PANES_API_PORT"),
+                    has_token = env_vars.contains_key("CC_PANES_API_TOKEN"),
+                    has_windows_host = wsl.windows_host.is_some(),
+                    "build_wsl_command: skipping ccpanes MCP CLI override because WSL MCP context is incomplete"
+                );
+            }
+        }
 
         if wsl.remote_path != "~" && wsl.remote_path != "~/" {
             codex_args.push("-C".to_string());
@@ -798,8 +907,10 @@ impl TerminalService {
     pub(super) fn build_wsl_command(
         &self,
         _wsl: &ResolvedWslLaunch,
+        _env_vars: &HashMap<String, String>,
         _resume_id: Option<&str>,
         _initial_prompt: Option<&str>,
+        _skip_mcp: bool,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }

@@ -758,8 +758,8 @@ impl TerminalService {
 
         let _ = workspace_name;
 
-        // 注入 Orchestrator API 信息到所有 PTY 会话（纯净 WSL Codex 启动除外）
-        if !is_ssh && !pure_wsl_codex_launch {
+        // 注入 Orchestrator API 信息到所有 PTY 会话（仅本地模式）
+        if !is_ssh {
             if let Ok(info_guard) = self.orchestrator_info.lock() {
                 if let Some(info) = info_guard.as_ref() {
                     env_vars.insert("CC_PANES_API_PORT".to_string(), info.port.to_string());
@@ -796,25 +796,35 @@ impl TerminalService {
             let mut resolved_wsl = self.resolve_wsl_launch(
                 wsl_info,
                 &session_id,
-                false,
+                cli_tool == CliTool::Codex && !skip_mcp,
             )?;
 
             let (cmd, cmd_args) = match cli_tool {
                 CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
                 CliTool::Codex => {
                     self.validate_wsl_codex_runtime(&mut resolved_wsl)?;
+                    self.ensure_wsl_codex_mcp_registered(
+                        &session_id,
+                        &resolved_wsl,
+                        &env_vars,
+                        skip_mcp,
+                    )?;
                     self.build_wsl_command(
                         &resolved_wsl,
+                        &env_vars,
                         resume_id,
                         initial_prompt,
+                        skip_mcp,
                     )?
                 }
-                other => {
-                    return Err(anyhow!(
-                        "WSL launch currently supports only the local shell and Codex. Requested tool: {:?}",
-                        other
-                    ));
-                }
+                CliTool::Claude | CliTool::Gemini | CliTool::Opencode => self
+                    .build_wsl_supported_cli_command(
+                        &resolved_wsl,
+                        cli_tool,
+                        resume_id,
+                        append_system_prompt,
+                        initial_prompt,
+                    )?,
             };
 
             info!(
@@ -1686,6 +1696,8 @@ impl TerminalService {
             CliTool::None => remote_parts.push("exec $SHELL -l".into()),
             CliTool::Claude => remote_parts.push("claude".into()),
             CliTool::Codex => remote_parts.push("codex --full-auto".into()),
+            CliTool::Gemini => remote_parts.push("gemini".into()),
+            CliTool::Opencode => remote_parts.push("opencode".into()),
         }
         args.push(remote_parts.join(" && "));
 
