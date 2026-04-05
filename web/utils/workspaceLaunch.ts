@@ -161,7 +161,7 @@ function resolveWorkspaceLaunchOptionsInternal(
   const platform = params.platform ?? detectAppPlatform();
   const environment = params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
   const { workspace, machines, cliTool, providerId } = params;
-  const effectiveProviderId = cliTool === "codex" ? undefined : (providerId ?? workspace.providerId);
+  const effectiveProviderId = providerId;
 
   switch (environment) {
     case "local": {

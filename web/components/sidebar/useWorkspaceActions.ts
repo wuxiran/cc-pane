@@ -307,11 +307,11 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
 
   function handleOpenWorkspace(ws: Workspace) {
     if (ws.projects.length === 0) return;
-    onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId, workspacePath: ws.path });
+    onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, workspacePath: ws.path });
   }
 
   function handleOpenProject(project: WorkspaceProject, ws?: Workspace) {
-    onOpenTerminal({ path: project.path, workspaceName: ws?.name, providerId: ws?.providerId, workspacePath: ws?.path });
+    onOpenTerminal({ path: project.path, workspaceName: ws?.name, workspacePath: ws?.path });
   }
 
   async function handleSetWorkspaceProvider(ws: Workspace, providerId: string | null) {

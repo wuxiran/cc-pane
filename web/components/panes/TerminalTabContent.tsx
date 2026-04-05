@@ -1,4 +1,6 @@
 import { memo, useCallback, type ReactNode } from "react";
+import { Terminal } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { Tab, TerminalPaneNode } from "@/types";
 import { usePanesStore } from "@/stores";
 import SplitView from "./SplitView";
@@ -31,6 +33,7 @@ export default memo(function TerminalTabContent({
   onTerminalRef,
   onReconnect,
 }: TerminalTabContentProps) {
+  const { t } = useTranslation("panes");
   const setActiveTerminalPane = usePanesStore((s) => s.setActiveTerminalPane);
   const resizeTerminalPanes = usePanesStore((s) => s.resizeTerminalPanes);
 
@@ -40,7 +43,7 @@ export default memo(function TerminalTabContent({
       return (
         <div
           key={leaf.id}
-          className="h-full w-full overflow-hidden"
+          className="relative h-full w-full overflow-hidden"
           onMouseDown={() => setActiveTerminalPane(tab.id, leaf.id)}
         >
           <TerminalView
@@ -64,6 +67,33 @@ export default memo(function TerminalTabContent({
             onSessionExited={onSessionExited ? (code) => onSessionExited(code, leaf.id) : undefined}
             onReconnect={onReconnect ? () => onReconnect(leaf.id) : undefined}
           />
+          {!leaf.sessionId && !leaf.restoring ? (
+            <div
+              className="pointer-events-none absolute inset-0 flex items-center justify-center"
+              style={{ paddingTop: "var(--notch-bar-height, 0px)" }}
+            >
+              <div
+                className="flex flex-col items-center justify-center gap-3 rounded-2xl px-5 py-4"
+                style={{
+                  background: "rgba(10,10,10,0.55)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  backdropFilter: "blur(8px)",
+                  WebkitBackdropFilter: "blur(8px)",
+                }}
+              >
+                <Terminal
+                  className="h-6 w-6"
+                  style={{ color: "rgba(255,255,255,0.38)" }}
+                />
+                <span
+                  className="text-sm font-medium tracking-wide"
+                  style={{ color: "rgba(255,255,255,0.82)" }}
+                >
+                  {t("ready")}
+                </span>
+              </div>
+            </div>
+          ) : null}
         </div>
       );
     }

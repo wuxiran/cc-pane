@@ -120,6 +120,28 @@ describe("workspaceLaunch", () => {
     expect(options?.providerId).toBeUndefined();
   });
 
+  it("does not inherit the workspace provider for Claude by default", () => {
+    const workspace = createTestWorkspace({
+      path: "D:/workspace-root",
+      providerId: "provider-1",
+      defaultEnvironment: "local",
+    });
+
+    const { options, issue } = resolveWorkspaceLaunchOptions({
+      workspace,
+      cliTool: "claude",
+      machines: [],
+      platform: "windows",
+    });
+
+    expect(issue).toBeNull();
+    expect(options).toMatchObject({
+      path: "D:/workspace-root",
+      cliTool: "claude",
+    });
+    expect(options?.providerId).toBeUndefined();
+  });
+
   it("launches Codex through WSL when workspace default environment is wsl", () => {
     const workspace = createTestWorkspace({
       path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\workspace-root",
@@ -194,6 +216,7 @@ describe("workspaceLaunch", () => {
     expect(options).toMatchObject({
       path: "ssh://dev@devbox.local/home/dev/workspace-ssh",
       workspaceName: "workspace-ssh",
+      providerId: "provider-1",
       cliTool: "codex",
       machineName: "Devbox",
       ssh: {
@@ -204,7 +227,6 @@ describe("workspaceLaunch", () => {
         identityFile: "~/.ssh/id_ed25519",
       },
     });
-    expect(options?.providerId).toBeUndefined();
   });
 
   it("falls back to first SSH project when workspace SSH config is absent", () => {

@@ -20,7 +20,10 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/hooks/useCliTools", () => ({
   useCliTools: () => ({
-    tools: [{ id: "codex", displayName: "Codex" }],
+    tools: [
+      { id: "claude", displayName: "Claude" },
+      { id: "codex", displayName: "Codex" },
+    ],
   }),
 }));
 
@@ -79,6 +82,11 @@ describe("WorkspaceItem", () => {
     resetTestDataCounter();
     useProvidersStore.setState({
       providers: [
+        createTestProvider({
+          id: "provider-claude",
+          name: "Claude Provider",
+          providerType: "anthropic",
+        }),
         createTestProvider({
           id: "provider-codex",
           name: "Codex Provider",
@@ -162,5 +170,13 @@ describe("WorkspaceItem", () => {
         remotePath: "/mnt/d/workspace-alpha",
       },
     }));
+  });
+
+  it("shows Claude as a dedicated launch entry", async () => {
+    renderWorkspaceItem("local");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+
+    expect(await screen.findByRole("menuitem", { name: "Claude" })).toBeVisible();
   });
 });

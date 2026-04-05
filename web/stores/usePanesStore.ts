@@ -251,6 +251,27 @@ function collectPanels(node: PaneNode): Panel[] {
   return node.children.flatMap(collectPanels);
 }
 
+function normalizePaneTree(root: PaneNode): PaneNode {
+  if (root.type === "panel") return root;
+
+  root.children = root.children.map((child) => normalizePaneTree(child));
+
+  if (root.children.length === 0) {
+    return createPanel();
+  }
+
+  if (root.children.length === 1) {
+    return root.children[0];
+  }
+
+  const total = root.sizes.reduce((sum, size) => sum + size, 0);
+  root.sizes = total > 0
+    ? root.sizes.map((size) => (size / total) * 100)
+    : root.children.map(() => 100 / root.children.length);
+
+  return root;
+}
+
 const PANES_DEBUG = import.meta.env.DEV;
 
 function summarizePanel(node: PaneNode | null) {
@@ -507,41 +528,12 @@ export const usePanesStore = create<PanesState>()(
           }
         }
 
-        // Remove empty split chains, but keep single-child splits to avoid remounting terminals.
-        let emptyNodeId: string | null =
-          parent.children.length === 0 ? parent.id : null;
-        while (emptyNodeId) {
-          const gpResult = findParent(state.rootPane, emptyNodeId);
-          if (!gpResult) break;
-
-          if (gpResult.parent === null) {
-            // 空 split 是根节点，替换为新空面板
-            const newPane = createPanel();
-            state.rootPane = newPane;
-            state.activePaneId = newPane.id;
-            break;
-          }
-
-          const gp = gpResult.parent;
-          const gpIdx = gpResult.index;
-          gp.children.splice(gpIdx, 1);
-          gp.sizes.splice(gpIdx, 1);
-
-          const gpTotal = gp.sizes.reduce((a, b) => a + b, 0);
-          gp.sizes = gpTotal > 0
-            ? gp.sizes.map((s) => (s / gpTotal) * 100)
-            : gp.sizes.map(() => 100 / gp.sizes.length);
-
-          if (gp.children.length > 0) {
-            const nextIdx = Math.min(gpIdx, gp.children.length - 1);
-            const panels = collectPanels(gp.children[nextIdx]);
-            if (panels.length > 0) {
-              state.activePaneId = panels[0].id;
-            }
-            emptyNodeId = null;
-          } else {
-            // grandparent 也变空了，继续向上清理
-            emptyNodeId = gp.id;
+        state.rootPane = normalizePaneTree(state.rootPane);
+        const activePane = findPane(state.rootPane, state.activePaneId);
+        if (activePane?.type !== "panel") {
+          const panels = collectPanels(state.rootPane);
+          if (panels.length > 0) {
+            state.activePaneId = panels[0].id;
           }
         }
       });

@@ -157,7 +157,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
           }
         }}
         projectPath={worktreeManagerProjectPath}
-        onOpenWorktree={(path) => onOpenTerminal({ path, workspaceName: worktreeManagerWs?.name, providerId: worktreeManagerWs?.providerId, workspacePath: worktreeManagerWs?.path })}
+        onOpenWorktree={(path) => onOpenTerminal({ path, workspaceName: worktreeManagerWs?.name, workspacePath: worktreeManagerWs?.path })}
       />
     </>
   );

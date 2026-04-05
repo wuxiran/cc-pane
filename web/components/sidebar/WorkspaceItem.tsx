@@ -232,6 +232,14 @@ export default function WorkspaceItem({
             const compatibleProviders = providerList.filter(
               (provider) => getCompatibleCliTool(provider.providerType) === tool.id,
             );
+            if (compatibleProviders.length === 0) {
+              return (
+                <ContextMenuItem key={tool.id} onClick={() => openWorkspace(tool.id)}>
+                  <Terminal /> {tool.displayName}
+                </ContextMenuItem>
+              );
+            }
+
             return (
               <ContextMenuSub key={tool.id}>
                 <ContextMenuSubTrigger>
@@ -239,12 +247,9 @@ export default function WorkspaceItem({
                 </ContextMenuSubTrigger>
                 <ContextMenuSubContent className="w-48">
                   <ContextMenuItem onClick={() => openWorkspace(tool.id)}>
-                    {t("useWorkspaceProvider")}
-                    {ws.providerId && boundProvider ? (
-                      <span className="ml-auto text-[10px] opacity-60">{boundProvider.name}</span>
-                    ) : null}
+                    {`（${t("default", { ns: "common", defaultValue: "默认" })}）`}
                   </ContextMenuItem>
-                  {compatibleProviders.length > 0 ? <ContextMenuSeparator /> : null}
+                  <ContextMenuSeparator />
                   {compatibleProviders.map((provider) => (
                     <ContextMenuItem
                       key={provider.id}

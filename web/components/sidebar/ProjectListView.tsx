@@ -20,6 +20,7 @@ import {
   resolveWorkspaceProjectWslPath,
 } from "@/utils";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions, SpecEntry, SshConnectionInfo } from "@/types";
+import { getCompatibleCliTool } from "@/types/provider";
 
 interface ProjectListViewProps {
   projects: WorkspaceProject[];
@@ -139,7 +140,6 @@ export default function ProjectListView({
         const terminalOpts: OpenTerminalOptions = {
           path: project.path,
           workspaceName: ws.name,
-          providerId: ws.providerId,
           ssh: project.ssh,
           machineName: sshMachine?.name ?? project.alias,
         };
@@ -175,23 +175,22 @@ export default function ProjectListView({
                 <Terminal /> {t("openTerminal")}
               </ContextMenuItem>
               {/* CLI 工具（动态渲染） */}
-              {cliTools.map((tool) =>
-                tool.id === "claude" ? (
+              {cliTools.map((tool) => {
+                const compatibleProviders = providerList.filter(
+                  (provider) => getCompatibleCliTool(provider.providerType) === tool.id,
+                );
+
+                return tool.id !== "codex" && compatibleProviders.length > 0 ? (
                   <ContextMenuSub key={tool.id}>
                     <ContextMenuSubTrigger>
                       <Terminal /> {tool.displayName}
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent className="w-48">
                       <ContextMenuItem onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
-                        {t("useWorkspaceProvider")}
-                        {ws.providerId && providerList.find(p => p.id === ws.providerId) && (
-                          <span className="ml-auto text-[10px] opacity-60">
-                            {providerList.find(p => p.id === ws.providerId)?.name}
-                          </span>
-                        )}
+                        {`（${t("default", { ns: "common", defaultValue: "默认" })}）`}
                       </ContextMenuItem>
-                      {providerList.length > 0 && <ContextMenuSeparator />}
-                      {providerList.map((p) => (
+                      {compatibleProviders.length > 0 && <ContextMenuSeparator />}
+                      {compatibleProviders.map((p) => (
                         <ContextMenuItem
                           key={p.id}
                           onClick={() => onOpenTerminal({ ...terminalOpts, providerId: p.id, workspacePath: ws.path, cliTool: tool.id })}
@@ -214,8 +213,8 @@ export default function ProjectListView({
                   <ContextMenuItem key={tool.id} onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
                     <Terminal /> {tool.displayName}
                   </ContextMenuItem>
-                )
-              )}
+                );
+              })}
               {/* 本地项目专有菜单项 */}
               {!isSsh && (
                 <>
@@ -311,4 +310,3 @@ export default function ProjectListView({
     </div>
   );
 }
-
