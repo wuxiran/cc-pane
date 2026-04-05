@@ -750,10 +750,8 @@ impl TerminalService {
     pub(super) fn build_wsl_command(
         &self,
         wsl: &ResolvedWslLaunch,
-        env_vars: &HashMap<String, String>,
         resume_id: Option<&str>,
         initial_prompt: Option<&str>,
-        skip_mcp: bool,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
 
@@ -766,34 +764,6 @@ impl TerminalService {
         })?;
 
         let mut codex_args = Vec::new();
-
-        if !skip_mcp {
-            if let (Some(port), Some(token), Some(windows_host)) = (
-                env_vars.get("CC_PANES_API_PORT"),
-                env_vars.get("CC_PANES_API_TOKEN"),
-                wsl.windows_host.as_deref(),
-            ) {
-                let mcp_url = build_wsl_mcp_url(windows_host, port, token);
-                codex_args.push("-c".to_string());
-                codex_args.push(format!(
-                    "mcp_servers.ccpanes.url={}",
-                    format_toml_value_for_cli(&toml::Value::String(mcp_url))
-                ));
-                codex_args.push("-c".to_string());
-                codex_args.push(format!(
-                    "mcp_servers.ccpanes.bearer_token_env_var={}",
-                    format_toml_value_for_cli(&toml::Value::String("CC_PANES_API_TOKEN".into()))
-                ));
-            } else {
-                warn!(
-                    distro = %wsl.distro,
-                    has_port = env_vars.contains_key("CC_PANES_API_PORT"),
-                    has_token = env_vars.contains_key("CC_PANES_API_TOKEN"),
-                    has_windows_host = wsl.windows_host.is_some(),
-                    "build_wsl_command: skipping ccpanes MCP CLI override because WSL MCP context is incomplete"
-                );
-            }
-        }
 
         if wsl.remote_path != "~" && wsl.remote_path != "~/" {
             codex_args.push("-C".to_string());
@@ -828,10 +798,8 @@ impl TerminalService {
     pub(super) fn build_wsl_command(
         &self,
         _wsl: &ResolvedWslLaunch,
-        _env_vars: &HashMap<String, String>,
         _resume_id: Option<&str>,
         _initial_prompt: Option<&str>,
-        _skip_mcp: bool,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }

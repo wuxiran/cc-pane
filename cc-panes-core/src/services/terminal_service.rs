@@ -758,8 +758,8 @@ impl TerminalService {
 
         let _ = workspace_name;
 
-        // 注入 Orchestrator API 信息到所有 PTY 会话（仅本地模式）
-        if !is_ssh {
+        // 注入 Orchestrator API 信息到所有 PTY 会话（纯净 WSL Codex 启动除外）
+        if !is_ssh && !pure_wsl_codex_launch {
             if let Ok(info_guard) = self.orchestrator_info.lock() {
                 if let Some(info) = info_guard.as_ref() {
                     env_vars.insert("CC_PANES_API_PORT".to_string(), info.port.to_string());
@@ -796,25 +796,17 @@ impl TerminalService {
             let mut resolved_wsl = self.resolve_wsl_launch(
                 wsl_info,
                 &session_id,
-                cli_tool == CliTool::Codex && !skip_mcp,
+                false,
             )?;
 
             let (cmd, cmd_args) = match cli_tool {
                 CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
                 CliTool::Codex => {
                     self.validate_wsl_codex_runtime(&mut resolved_wsl)?;
-                    self.ensure_wsl_codex_mcp_registered(
-                        &session_id,
-                        &resolved_wsl,
-                        &env_vars,
-                        skip_mcp,
-                    )?;
                     self.build_wsl_command(
                         &resolved_wsl,
-                        &env_vars,
                         resume_id,
                         initial_prompt,
-                        skip_mcp,
                     )?
                 }
                 other => {
