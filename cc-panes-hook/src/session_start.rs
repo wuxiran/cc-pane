@@ -6,11 +6,13 @@ use std::process::Command;
 
 /// 创建不弹窗的 Command（Windows 自动设置 CREATE_NO_WINDOW）
 fn no_window_command(program: &str) -> Command {
-    let mut cmd = Command::new(program);
+    let cmd = Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        let mut cmd = cmd;
         cmd.creation_flags(0x08000000);
+        return cmd;
     }
     cmd
 }

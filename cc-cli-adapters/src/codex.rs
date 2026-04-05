@@ -151,9 +151,6 @@ impl CliToolAdapter for CodexAdapter {
 
         let mut args = Vec::new();
 
-        // 默认使用 full-auto 模式
-        args.push("--full-auto".to_string());
-
         // Resume: codex resume <id>
         if let Some(ref rid) = ctx.resume_id {
             args.push("resume".to_string());

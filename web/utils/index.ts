@@ -1,5 +1,17 @@
 export { formatRelativeTime, formatFullTime, formatSize } from "./format";
-export { getFileName, getDirName, getProjectName } from "./path";
+export { getFileName, getDirName, getProjectName, toWslPath } from "./path";
+export {
+  buildSshConnectionDisplayPath,
+  buildSshDisplayPath,
+  detectAppPlatform,
+  getWorkspaceDefaultEnvironment,
+  getWorkspaceEnvironmentIssue,
+  getWorkspaceLaunchIssueKey,
+  getWorkspaceLaunchIssueValues,
+  getWorkspaceProjectKind,
+  resolveWorkspaceProjectWslPath,
+  resolveWorkspaceLaunchOptions,
+} from "./workspaceLaunch";
 export { parseEnvLines, formatEnvLines } from "./env";
 export { handleError, handleErrorSilent } from "./errorHandler";
 export { translateError } from "./errorTranslation";

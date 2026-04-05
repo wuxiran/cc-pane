@@ -1,4 +1,5 @@
 use crate::models::wsl::WslDistro;
+use crate::services::SshMachineService;
 use crate::utils::AppResult;
 use std::sync::Arc;
 use tauri::State;
@@ -10,13 +11,13 @@ use tracing::debug;
 /// - 非 Windows: 返回空列表
 #[tauri::command]
 pub async fn discover_wsl_distros(
-    #[cfg(target_os = "windows")] ssh_service: State<'_, Arc<crate::services::SshMachineService>>,
+    _ssh_service: State<'_, Arc<SshMachineService>>,
 ) -> AppResult<Vec<WslDistro>> {
     debug!("cmd::discover_wsl_distros");
 
     #[cfg(target_os = "windows")]
     {
-        let existing = ssh_service.list();
+        let existing = _ssh_service.list();
         let distros = cc_panes_core::services::wsl_discovery_service::discover(&existing).await?;
         Ok(distros)
     }

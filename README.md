@@ -11,7 +11,7 @@
 
 <!--
 <p align="center">
-  <img src="images/screenshot-main.png" alt="CC-Panes Main Interface" width="800" />
+  <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes Main Interface" width="800" />
 </p>
 -->
 
@@ -157,20 +157,18 @@ Dev and release builds are fully isolated via `cfg!(debug_assertions)` and can r
 
 ```
 cc-panes/
-├── src/                    # React frontend
+├── web/                    # React frontend source
 │   ├── components/         # React components
 │   │   ├── panes/          # Split-pane terminal components
 │   │   ├── sidebar/        # Sidebar components
-│   │   ├── settings/       # Settings sub-components
-│   │   ├── memory/         # Memory management
-│   │   ├── skill/          # Skill management
-│   │   ├── todo/           # Todo management
+│   │   ├── providers/      # Provider management UI
 │   │   └── ui/             # shadcn/ui base components
 │   ├── stores/             # Zustand state management
 │   ├── services/           # Frontend service layer (invoke wrappers)
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
 │   ├── i18n/               # Internationalization
+│   ├── lib/                # Shared frontend helpers
 │   └── utils/              # Utility functions
 │
 ├── src-tauri/              # Tauri Rust backend
@@ -181,8 +179,11 @@ cc-panes/
 │       ├── models/          # Data models
 │       └── utils/           # Utilities (AppPaths, AppError)
 │
-└── images/                 # Screenshots
+├── cc-panes-*/             # Shared Rust workspace crates
+└── docs/                   # Architecture docs, examples, and assets
 ```
+
+Frontend imports use the `@/` alias, which resolves to `web/`.
 
 <!--
 ## Screenshots
@@ -192,11 +193,11 @@ cc-panes/
 
 | Split Pane Layout | Panel View |
 |:-:|:-:|
-| ![Split Pane](images/screenshot-no-layout.png) | ![Panel](images/screenshot-panel.png) |
+| ![Split Pane](docs/assets/images/screenshot-no-layout.png) | ![Panel](docs/assets/images/screenshot-panel.png) |
 
 | Todo List | New UI |
 |:-:|:-:|
-| ![Todo](images/screenshot-todolist.png) | ![New UI](images/screenshot-new-ui.png) |
+| ![Todo](docs/assets/images/screenshot-todolist.png) | ![New UI](docs/assets/images/screenshot-new-ui.png) |
 
 </details>
 -->
@@ -205,7 +206,7 @@ cc-panes/
 
 Found a bug or have a suggestion? Join the WeChat group:
 
-<img src="images/wechat-group.png" alt="WeChat Group: cc-pane" width="200" />
+<img src="docs/assets/images/wechat-group.png" alt="WeChat Group: cc-pane" width="200" />
 
 ## Contributing
 

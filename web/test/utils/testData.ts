@@ -66,6 +66,7 @@ export function createTestWorkspace(overrides?: Partial<Workspace>): Workspace {
     name: `workspace-${id}`,
     createdAt: new Date().toISOString(),
     projects: [],
+    defaultEnvironment: "local",
     ...overrides,
   };
 }

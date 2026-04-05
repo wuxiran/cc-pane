@@ -1,16 +1,35 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Workspace, WorkspaceProject, SshConnectionInfo } from "@/types";
+import type {
+  ProjectMigrationPlan,
+  ProjectMigrationRequest,
+  ProjectMigrationResult,
+  ProjectMigrationRollbackResult,
+  Workspace,
+  WorkspaceMigrationPlan,
+  WorkspaceMigrationRequest,
+  WorkspaceMigrationResult,
+  WorkspaceMigrationRollbackResult,
+  WorkspaceProject,
+  SshConnectionInfo,
+} from "@/types";
 
 export async function listWorkspaces(): Promise<Workspace[]> {
   return invoke<Workspace[]>("list_workspaces");
 }
 
-export async function createWorkspace(name: string, path: string): Promise<Workspace> {
+export async function createWorkspace(name: string, path?: string | null): Promise<Workspace> {
   return invoke<Workspace>("create_workspace", { name, path });
 }
 
 export async function getWorkspace(name: string): Promise<Workspace> {
   return invoke<Workspace>("get_workspace", { name });
+}
+
+export async function saveWorkspace(
+  name: string,
+  workspace: Workspace
+): Promise<void> {
+  return invoke("update_workspace", { name, workspace });
 }
 
 export async function renameWorkspace(
@@ -82,6 +101,50 @@ export async function updateWorkspacePath(
   path: string | null
 ): Promise<void> {
   return invoke("update_workspace_path", { workspaceName, path });
+}
+
+export async function previewWorkspaceMigration(
+  request: WorkspaceMigrationRequest
+): Promise<WorkspaceMigrationPlan> {
+  return invoke<WorkspaceMigrationPlan>("preview_workspace_migration", { request });
+}
+
+export async function executeWorkspaceMigration(
+  request: WorkspaceMigrationRequest
+): Promise<WorkspaceMigrationResult> {
+  return invoke<WorkspaceMigrationResult>("execute_workspace_migration", { request });
+}
+
+export async function rollbackWorkspaceMigration(
+  workspaceName: string,
+  snapshotId: string
+): Promise<WorkspaceMigrationRollbackResult> {
+  return invoke<WorkspaceMigrationRollbackResult>("rollback_workspace_migration", {
+    workspaceName,
+    snapshotId,
+  });
+}
+
+export async function previewProjectMigration(
+  request: ProjectMigrationRequest
+): Promise<ProjectMigrationPlan> {
+  return invoke<ProjectMigrationPlan>("preview_project_migration", { request });
+}
+
+export async function executeProjectMigration(
+  request: ProjectMigrationRequest
+): Promise<ProjectMigrationResult> {
+  return invoke<ProjectMigrationResult>("execute_project_migration", { request });
+}
+
+export async function rollbackProjectMigration(
+  workspaceName: string,
+  snapshotId: string
+): Promise<ProjectMigrationRollbackResult> {
+  return invoke<ProjectMigrationRollbackResult>("rollback_project_migration", {
+    workspaceName,
+    snapshotId,
+  });
 }
 
 // ============ SSH Project ============

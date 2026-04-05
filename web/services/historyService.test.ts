@@ -24,6 +24,7 @@ describe("historyService", () => {
         workspaceName: null,
         workspacePath: null,
         launchCwd: null,
+        providerId: null,
       });
     });
   });

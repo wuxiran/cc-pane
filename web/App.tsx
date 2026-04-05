@@ -482,13 +482,13 @@ function MainApp() {
   // 打开终端
   const handleOpenTerminal = useCallback(
     (opts: OpenTerminalOptions) => {
-      const { path, workspaceName, providerId, workspacePath, resumeId, ssh, machineName } = opts;
+      const { path, workspaceName, providerId, workspacePath, resumeId, ssh, wsl, machineName } = opts;
       // 兼容：如果有 resumeId 但没有指定 cliTool，跟随全局默认设置
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
       const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
-      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, workspacePath, cliTool: effectiveCliTool, ssh, machineName });
+      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName });
       const name = path.split(/[/\\]/).pop() || path;
 
       // SSH 项目：launchCwd 用 display path
@@ -624,6 +624,9 @@ function MainApp() {
         workspaceName: pendingLaunch.workspaceName,
         providerId: pendingLaunch.providerId,
         workspacePath: pendingLaunch.workspacePath,
+        ssh: pendingLaunch.ssh,
+        wsl: pendingLaunch.wsl,
+        machineName: pendingLaunch.machineName,
         cliTool: defaultTool,
       });
       clearPendingLaunch();
@@ -789,3 +792,4 @@ function MainApp() {
     </TooltipProvider>
   );
 }
+

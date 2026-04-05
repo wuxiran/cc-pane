@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getFileName, getDirName, getProjectName } from "./path";
+import { getFileName, getDirName, getProjectName, toWslPath } from "./path";
 
 describe("getFileName", () => {
   it("正斜杠路径提取文件名", () => {
@@ -86,5 +86,23 @@ describe("getProjectName", () => {
   it("空字符串返回空字符串", () => {
     // "".split("/") = [""], pop = "", "" || "" = ""
     expect(getProjectName("")).toBe("");
+  });
+});
+
+describe("toWslPath", () => {
+  it("Windows 驱动器路径转为 WSL 路径", () => {
+    expect(toWslPath("D:\\workspace\\cc-book")).toBe("/mnt/d/workspace/cc-book");
+  });
+
+  it("盘符根目录转为 WSL 路径", () => {
+    expect(toWslPath("C:\\")).toBe("/mnt/c");
+  });
+
+  it("非 Windows 本地路径返回 null", () => {
+    expect(toWslPath("/home/user/project")).toBeNull();
+  });
+
+  it("空路径返回 null", () => {
+    expect(toWslPath("")).toBeNull();
   });
 });

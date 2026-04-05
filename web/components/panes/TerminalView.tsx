@@ -859,4 +859,3 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
 export default TerminalView;
 
-

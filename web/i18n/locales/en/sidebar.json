@@ -54,6 +54,7 @@
   "newHint": "Create a workspace first, then import projects",
   "setWorkspacePath": "Set Workspace Path",
   "clearWorkspacePath": "Clear Workspace Path",
+  "defaultOpenInWsl": "Default Open In WSL",
   "renameWorkspace": "Rename",
   "selectProjectFirst": "Please select a project first",
   "resumeSession": "Resume Session",

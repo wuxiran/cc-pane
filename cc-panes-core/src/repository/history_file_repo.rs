@@ -35,8 +35,12 @@ impl HistoryFileRepository {
         let db_path = history.join(DB_FILE);
         let conn = Connection::open(&db_path).context("Failed to open history database")?;
 
-        // 启用 WAL 模式
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+        // 启用 WAL 模式。`journal_mode` pragma 会返回结果行，不能走普通 execute 路径。
+        let _: String = conn
+            .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
+            .context("Failed to enable WAL mode for history database")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")
+            .context("Failed to set history database synchronous mode")?;
 
         Self::init_tables(&conn)?;
         Self::migrate_add_branch(&conn)?;

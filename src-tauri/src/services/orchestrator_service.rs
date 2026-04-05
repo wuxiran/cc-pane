@@ -4,7 +4,7 @@
 //! 通过 HTTP/MCP 调用 CC-Panes 功能（创建标签、启动 Claude、注入 prompt）。
 //!
 //! 安全措施：
-//! - 绑定 127.0.0.1（仅本地访问）
+//! - 绑定 0.0.0.0（供本机与 WSL 访问）
 //! - 随机 Bearer Token 认证
 //! - 项目路径白名单校验
 //! - 请求频率限制
@@ -278,13 +278,13 @@ impl OrchestratorService {
             rt.block_on(async move {
                 let app = build_router(state);
 
-                // 绑定 127.0.0.1:0（自动分配端口）
+                // 绑定 0.0.0.0:0（自动分配端口），供本机与 WSL 访问
                 // macOS Ventura+ 首次绑定可能触发防火墙授权弹窗，这是正常行为
-                let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+                let listener = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
                     Ok(l) => l,
                     Err(e) => {
                         error!(
-                            "[orchestrator] Failed to bind 127.0.0.1:0: {}. \
+                            "[orchestrator] Failed to bind 0.0.0.0:0: {}. \
                              On macOS, ensure the app is allowed in System Settings > Privacy & Security > Firewall.",
                             e
                         );
@@ -301,7 +301,7 @@ impl OrchestratorService {
                 };
                 let port = addr.port();
                 info!(
-                    "[orchestrator] HTTP + MCP server listening on http://127.0.0.1:{}",
+                    "[orchestrator] HTTP + MCP server listening on 0.0.0.0:{}",
                     port
                 );
 
@@ -836,6 +836,7 @@ impl McpToolHandler {
             false,
             None,
             initial_prompt,
+            None,
             None,
         ) {
             Ok(sid) => sid,
@@ -1854,6 +1855,7 @@ async fn handle_launch_task(
         None,
         initial_prompt,
         None,
+        None,
     ) {
         Ok(sid) => {
             info!(session_id = %sid, "REST::launch_task session created");
@@ -2395,3 +2397,4 @@ mod tests {
         assert!(!verify_token(&headers, "abc123"));
     }
 }
+

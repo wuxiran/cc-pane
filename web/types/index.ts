@@ -11,6 +11,7 @@ export type {
   CliTool,
   CliToolInfo,
   CliToolCapabilities,
+  WslLaunchInfo,
   OpenTerminalOptions,
   Tab,
   TerminalSession,
@@ -18,7 +19,25 @@ export type {
   TerminalOutput,
   ResizeRequest,
 } from "./terminal";
-export type { Workspace, WorkspaceProject, SshConnectionInfo } from "./workspace";
+export type {
+  ProjectMigrationPlan,
+  ProjectMigrationRequest,
+  ProjectMigrationResult,
+  ProjectMigrationRollbackResult,
+  Workspace,
+  WorkspaceLaunchEnvironment,
+  WorkspaceMigrationItem,
+  WorkspaceMigrationPlan,
+  WorkspaceMigrationRequest,
+  WorkspaceMigrationResult,
+  WorkspaceMigrationRollbackResult,
+  WorkspaceMigrationStatus,
+  WorkspaceMigrationTargetKind,
+  WorkspaceProject,
+  WorkspaceSshLaunchConfig,
+  WorkspaceWslConfig,
+  SshConnectionInfo,
+} from "./workspace";
 export type { Provider, ProviderType } from "./provider";
 export { PROVIDER_TYPE_META } from "./provider";
 export type {
@@ -97,3 +116,5 @@ export type {
   TaskBindingQuery,
   TaskBindingQueryResult,
 } from "./orchestrator";
+
+

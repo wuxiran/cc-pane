@@ -32,12 +32,6 @@ src-tauri/gen/
 # Hook 二进制（构建产物）
 src-tauri/binaries/
 
-# 打包的 Claude 配置（构建产物）
-src-tauri/bundled-claude-config/
-
-# 设计文档与截图（本地使用）
-docs/
-
 # 参考项目与归档（不纳入版本控制）
 _reference/
 _archived_v1/
@@ -47,6 +41,18 @@ _archived_v1/
 .ccpanes/
 .spec-workflow/
 .serena/
+
+# 本地代理/编排状态
+.omx/
+.codex
+.codex/
+.cargo/*
+!.cargo/config.toml
+.claude/worktrees/
+.codex-*.log
+
+# 误生成的 Windows 盘符路径镜像
+src-tauri/[A-Za-z]:/
 
 # Claude 本地设置（不提交个人权限配置）
 .claude/settings.local.json

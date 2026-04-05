@@ -1,20 +1,20 @@
 use std::path::Path;
 
 fn main() {
-    // 确保 bundled-claude-config 目录结构存在（dev 模式下创建占位文件）
+    // 确保 claude-bundle 目录结构存在（dev 模式下创建占位文件）
     // Release 构建时 copy-hook.cjs 会用真实内容覆盖
     ensure_bundled_claude_config();
 
     tauri_build::build();
 }
 
-/// 确保 bundle.resources 中引用的 bundled-claude-config/ 目录存在
+/// 确保 bundle.resources 中引用的 resources/claude-bundle/ 目录存在
 /// 否则 Tauri 构建脚本会因 glob 匹配不到文件而报错
 fn ensure_bundled_claude_config() {
     let dirs = [
-        "bundled-claude-config/.claude/commands/ccbook",
-        "bundled-claude-config/.claude/agents",
-        "bundled-claude-config/default-skills",
+        "resources/claude-bundle/.claude/commands/ccbook",
+        "resources/claude-bundle/.claude/agents",
+        "resources/claude-bundle/default-skills",
     ];
     for dir in &dirs {
         let path = Path::new(dir);
@@ -27,7 +27,7 @@ fn ensure_bundled_claude_config() {
             }
         }
     }
-    let claude_md = Path::new("bundled-claude-config/CLAUDE.md");
+    let claude_md = Path::new("resources/claude-bundle/CLAUDE.md");
     if !claude_md.exists() {
         std::fs::write(claude_md, "# placeholder for dev build").ok();
     }

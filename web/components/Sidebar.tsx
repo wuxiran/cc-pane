@@ -1,16 +1,14 @@
 import { useEffect, useCallback, useRef, useState } from "react";
 import { handleErrorSilent } from "@/utils";
-import { useWorkspacesStore, useProvidersStore } from "@/stores";
+import { useWorkspacesStore, useProvidersStore, useSshMachinesStore } from "@/stores";
 import type { ActivityView } from "@/stores/useActivityBarStore";
 import { historyService, localHistoryService } from "@/services";
 import { waitForTauri } from "@/utils";
 import ExplorerView from "@/components/sidebar/ExplorerView";
 import SessionsView from "@/components/sidebar/SessionsView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
-
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
-import ProcessView from "@/components/sidebar/ProcessView";
 import { setDragging } from "@/stores/splitDragState";
 
 const SIDEBAR_WIDTH_KEY = "cc-panes-sidebar-width";
@@ -42,6 +40,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const loadWorkspaces = useWorkspacesStore((s) => s.load);
   const loadProviders = useProvidersStore((s) => s.loadProviders);
+  const loadSshMachines = useSshMachinesStore((s) => s.load);
 
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -90,6 +89,7 @@ export default function Sidebar({
       await loadWorkspaces();
       historyService.list(1).catch(() => {}); // warm up
       loadProviders();
+      loadSshMachines().catch(() => {});
       // 应用启动时为所有工作空间项目恢复 history watcher（幂等）
       const allWorkspaces = useWorkspacesStore.getState().workspaces;
       for (const ws of allWorkspaces) {
@@ -98,7 +98,7 @@ export default function Sidebar({
         }
       }
     });
-  }, [loadWorkspaces, loadProviders]);
+  }, [loadProviders, loadSshMachines, loadWorkspaces]);
 
   return (
     <div

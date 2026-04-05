@@ -1,3 +1,4 @@
+use crate::models::TerminalReplaySnapshot;
 use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::terminal_service;
 use crate::services::terminal_service::SessionOutput;
@@ -16,10 +17,19 @@ pub fn create_terminal_session(
     service: State<'_, Arc<TerminalService>>,
     request: CreateSessionRequest,
 ) -> AppResult<String> {
-    debug!(project_path = %request.project_path, ssh = ?request.ssh.is_some(), "cmd::create_terminal_session");
+    debug!(
+        project_path = %request.project_path,
+        ssh = request.ssh.is_some(),
+        wsl = request.wsl.is_some(),
+        "cmd::create_terminal_session"
+    );
 
-    // SSH 模式：验证 SSH 连接信息（跳过本地路径验证）
-    // 本地模式：验证项目路径和工作空间路径
+    if request.ssh.is_some() && request.wsl.is_some() {
+        return Err(AppError::from(
+            "SSH and WSL launch options cannot be combined",
+        ));
+    }
+
     if let Some(ref ssh_info) = request.ssh {
         validate_ssh_info(ssh_info)?;
     } else {
@@ -40,8 +50,9 @@ pub fn create_terminal_session(
         request.resume_id.as_deref(),
         request.skip_mcp,
         request.append_system_prompt.as_deref(),
-        None, // initial_prompt: 前端 IPC 不使用 CLI 位置参数注入
+        None,
         request.ssh.as_ref(),
+        request.wsl.as_ref(),
     )?)
 }
 
@@ -152,4 +163,14 @@ pub fn get_terminal_output(
 ) -> AppResult<SessionOutput> {
     debug!(session_id = %session_id, "cmd::get_terminal_output");
     Ok(service.get_session_output(&session_id, lines.unwrap_or(0))?)
+}
+
+/// 获取 attach-existing 所需的原始 VT replay 快照
+#[tauri::command]
+pub fn get_terminal_replay_snapshot(
+    service: State<'_, Arc<TerminalService>>,
+    session_id: String,
+) -> AppResult<Option<TerminalReplaySnapshot>> {
+    debug!(session_id = %session_id, "cmd::get_terminal_replay_snapshot");
+    Ok(service.get_session_replay_snapshot(&session_id)?)
 }

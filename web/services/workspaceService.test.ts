@@ -4,6 +4,7 @@ import {
   listWorkspaces,
   createWorkspace,
   getWorkspace,
+  saveWorkspace,
   renameWorkspace,
   deleteWorkspace,
   addWorkspaceProject,
@@ -14,6 +15,9 @@ import {
   updateWorkspacePinned,
   updateWorkspaceHidden,
   reorderWorkspaces,
+  previewProjectMigration,
+  executeProjectMigration,
+  rollbackProjectMigration,
   gitClone,
   scanDirectory,
 } from "./workspaceService";
@@ -64,6 +68,16 @@ describe("workspaceService", () => {
       expect(invoke).toHaveBeenCalledWith("create_workspace", { name: "ws-1", path: "/test/path" });
       expect(result).toEqual(workspace);
     });
+
+    it("supports creating a shell workspace without path", async () => {
+      const workspace = createTestWorkspace({ name: "ws-shell", path: undefined });
+      mockTauriInvoke({ create_workspace: workspace });
+
+      const result = await createWorkspace("ws-shell");
+
+      expect(invoke).toHaveBeenCalledWith("create_workspace", { name: "ws-shell", path: undefined });
+      expect(result).toEqual(workspace);
+    });
   });
 
   describe("getWorkspace", () => {
@@ -75,6 +89,24 @@ describe("workspaceService", () => {
 
       expect(invoke).toHaveBeenCalledWith("get_workspace", { name: "ws-1" });
       expect(result).toEqual(workspace);
+    });
+  });
+
+  describe("saveWorkspace", () => {
+    it("应该调用 update_workspace 命令保存完整工作空间", async () => {
+      const workspace = createTestWorkspace({
+        name: "ws-1",
+        path: "/test/path",
+        wsl: { distro: "Ubuntu", remotePath: "/mnt/d/test/path" },
+      });
+      mockTauriInvoke({ update_workspace: undefined });
+
+      await saveWorkspace("ws-1", workspace);
+
+      expect(invoke).toHaveBeenCalledWith("update_workspace", {
+        name: "ws-1",
+        workspace,
+      });
     });
   });
 
@@ -248,6 +280,95 @@ describe("workspaceService", () => {
       expect(invoke).toHaveBeenCalledWith("reorder_workspaces", {
         orderedNames: ["ws-1", "ws-2"],
       });
+    });
+  });
+
+  describe("project migration", () => {
+    it("calls preview_project_migration", async () => {
+      const plan = {
+        workspaceName: "ws-1",
+        projectId: "p-1",
+        projectName: "api",
+        sourcePath: "D:/repo/api",
+        destinationPath: "/home/dev/api",
+        targetKind: "wsl" as const,
+        targetRoot: "/home/dev/api",
+        warnings: [],
+      };
+      mockTauriInvoke({ preview_project_migration: plan });
+
+      const result = await previewProjectMigration({
+        workspaceName: "ws-1",
+        projectId: "p-1",
+        targetKind: "wsl",
+        targetRoot: "/home/dev/api",
+      });
+
+      expect(invoke).toHaveBeenCalledWith("preview_project_migration", {
+        request: {
+          workspaceName: "ws-1",
+          projectId: "p-1",
+          targetKind: "wsl",
+          targetRoot: "/home/dev/api",
+        },
+      });
+      expect(result).toEqual(plan);
+    });
+
+    it("calls execute_project_migration", async () => {
+      const workspace = createTestWorkspace({ name: "ws-1" });
+      const resultPayload = {
+        status: "succeeded" as const,
+        snapshotId: "snapshot-1",
+        workspace,
+        plan: {
+          workspaceName: "ws-1",
+          projectId: "p-1",
+          projectName: "api",
+          sourcePath: "D:/repo/api",
+          destinationPath: "/home/dev/api",
+          targetKind: "wsl" as const,
+          targetRoot: "/home/dev/api",
+          warnings: [],
+        },
+        copiedFiles: 12,
+        copiedBytes: 4096,
+        warnings: [],
+      };
+      mockTauriInvoke({ execute_project_migration: resultPayload });
+
+      const result = await executeProjectMigration({
+        workspaceName: "ws-1",
+        projectId: "p-1",
+        targetKind: "wsl",
+        targetRoot: "/home/dev/api",
+      });
+
+      expect(invoke).toHaveBeenCalledWith("execute_project_migration", {
+        request: {
+          workspaceName: "ws-1",
+          projectId: "p-1",
+          targetKind: "wsl",
+          targetRoot: "/home/dev/api",
+        },
+      });
+      expect(result).toEqual(resultPayload);
+    });
+
+    it("calls rollback_project_migration", async () => {
+      const rollbackResult = {
+        snapshotId: "snapshot-1",
+        workspace: createTestWorkspace({ name: "ws-1" }),
+      };
+      mockTauriInvoke({ rollback_project_migration: rollbackResult });
+
+      const result = await rollbackProjectMigration("ws-1", "snapshot-1");
+
+      expect(invoke).toHaveBeenCalledWith("rollback_project_migration", {
+        workspaceName: "ws-1",
+        snapshotId: "snapshot-1",
+      });
+      expect(result).toEqual(rollbackResult);
     });
   });
 

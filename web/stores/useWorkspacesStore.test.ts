@@ -12,6 +12,7 @@ vi.mock("@/services/workspaceService", () => ({
   createWorkspace: vi.fn(),
   renameWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
+  saveWorkspace: vi.fn(),
   addWorkspaceProject: vi.fn(),
   removeWorkspaceProject: vi.fn(),
   updateWorkspaceAlias: vi.fn(),
@@ -90,6 +91,18 @@ describe("useWorkspacesStore", () => {
       const state = useWorkspacesStore.getState();
       expect(state.workspaces).toHaveLength(1);
       expect(state.workspaces[0].id).toBe(newWs.id);
+    });
+  });
+
+  describe("create", () => {
+    it("supports creating shell workspace without path", async () => {
+      const newWs = createTestWorkspace({ name: "shell-workspace", path: undefined });
+      vi.mocked(workspaceService.createWorkspace).mockResolvedValue(newWs);
+
+      const result = await useWorkspacesStore.getState().create("shell-workspace");
+
+      expect(result).toEqual(newWs);
+      expect(workspaceService.createWorkspace).toHaveBeenCalledWith("shell-workspace", undefined);
     });
   });
 
@@ -173,6 +186,27 @@ describe("useWorkspacesStore", () => {
       const state = useWorkspacesStore.getState();
       const ws2After = state.workspaces.find((w) => w.name === "ws-2")!;
       expect(ws2After.pinned).toBe(true);
+    });
+  });
+
+  describe("saveWorkspace", () => {
+    it("应该保存并替换本地 store 中的工作空间", async () => {
+      const ws = createTestWorkspace({ name: "ws-1" });
+      useWorkspacesStore.setState({ workspaces: [ws] });
+      const updated = {
+        ...ws,
+        defaultEnvironment: "ssh" as const,
+        sshLaunch: {
+          machineId: "machine-1",
+          remotePath: "/home/dev/project",
+        },
+      };
+      vi.mocked(workspaceService.saveWorkspace).mockResolvedValue();
+
+      await useWorkspacesStore.getState().saveWorkspace(updated);
+
+      expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("ws-1", updated);
+      expect(useWorkspacesStore.getState().workspaces[0]).toEqual(updated);
     });
   });
 

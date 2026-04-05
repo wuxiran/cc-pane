@@ -1,6 +1,6 @@
 {
   "name": "cc-panes",
-  "version": "0.9.30",
+  "version": "0.9.31",
   "description": "Multi-instance split-pane manager for Claude Code",
   "type": "module",
   "license": "GPL-3.0",
@@ -24,6 +24,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "clean:local": "node scripts/clean-local.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
@@ -61,7 +62,7 @@
     "i18next": "^25.8.13",
     "immer": "^11.1.4",
     "lucide-react": "^0.564.0",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "^0.53.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

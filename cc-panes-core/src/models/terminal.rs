@@ -11,7 +11,7 @@ pub enum CliTool {
 }
 
 impl CliTool {
-    /// 转换为 CLI 适配器注册表的 id 字符串
+    /// 转换为 CLI 适配器注册表中的 id 字符串
     pub fn as_id(&self) -> &str {
         match self {
             CliTool::None => "none",
@@ -19,6 +19,15 @@ impl CliTool {
             CliTool::Codex => "codex",
         }
     }
+}
+
+/// WSL 启动信息
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WslLaunchInfo {
+    pub remote_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distro: Option<String>,
 }
 
 /// 创建终端会话请求
@@ -41,6 +50,8 @@ pub struct CreateSessionRequest {
     pub append_system_prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh: Option<crate::models::workspace::SshConnectionInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl: Option<WslLaunchInfo>,
 }
 
 impl CreateSessionRequest {
@@ -68,6 +79,22 @@ pub struct ResizeRequest {
 pub struct TerminalOutput {
     pub session_id: String,
     pub data: String,
+}
+
+/// 终端重放快照的屏幕模式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalBufferMode {
+    Normal,
+    Alternate,
+}
+
+/// attach-existing 时用于重建当前屏幕状态的原始 VT 快照
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalReplaySnapshot {
+    pub data: String,
+    pub buffer_mode: TerminalBufferMode,
 }
 
 /// 终端退出事件

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Plus, Zap, Wrench, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useProvidersStore, useWorkspacesStore, useDialogStore } from "@/stores";
+import { useProvidersStore, useWorkspacesStore, useDialogStore, useSshMachinesStore } from "@/stores";
 import ProviderCard from "./ProviderCard";
 import ProviderFormPanel from "./ProviderFormPanel";
 import ProviderToolTabs from "./ProviderToolTabs";
@@ -11,6 +11,11 @@ import type { Provider, ProviderPreset } from "@/types/provider";
 import { getCompatibleCliTools, CLI_TOOL_TABS } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
 import { PROVIDER_PRESETS, PRESET_CATEGORIES } from "@/constants/providerPresets";
+import {
+  getWorkspaceLaunchIssueKey,
+  getWorkspaceLaunchIssueValues,
+  resolveWorkspaceLaunchOptions,
+} from "@/utils";
 
 type PanelView = "list" | "preset_pick" | "form";
 
@@ -21,6 +26,7 @@ interface Props {
 export default function ProvidersPanel({ compact }: Props = {}) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
+  const sshMachines = useSshMachinesStore((s) => s.machines);
   const loadProviders = useProvidersStore((s) => s.loadProviders);
   const removeProvider = useProvidersStore((s) => s.removeProvider);
   const setDefault = useProvidersStore((s) => s.setDefault);
@@ -94,17 +100,41 @@ export default function ProvidersPanel({ compact }: Props = {}) {
 
   const handleLaunch = useCallback((providerId: string) => {
     const ws = useWorkspacesStore.getState().selectedWorkspace();
-    if (!ws || ws.projects.length === 0) {
+    if (!ws) {
       toast.error(t("selectWorkspaceFirst"));
       return;
     }
-    useDialogStore.getState().setPendingLaunch({
-      path: ws.projects[0].path,
-      workspaceName: ws.name,
+    const { options, issue } = resolveWorkspaceLaunchOptions({
+      workspace: ws,
       providerId,
-      workspacePath: ws.path,
+      machines: sshMachines,
     });
-  }, [t]);
+    if (!options || issue) {
+      toast.error(t(getWorkspaceLaunchIssueKey(issue!), {
+        ns: "sidebar",
+        ...getWorkspaceLaunchIssueValues(issue!),
+        defaultValue: {
+          local_path_missing: "本机环境需要先设置工作空间路径。",
+          wsl_unsupported: "当前平台不支持 WSL。",
+          wsl_path_missing: "WSL 环境需要填写远端路径。",
+          wsl_local_path_missing: "WSL 环境需要先设置本机工作空间路径。",
+          ssh_machine_missing: "SSH 环境需要先选择机器。",
+          ssh_machine_not_found: "找不到已保存的 SSH 机器：{{machineId}}",
+          ssh_path_missing: "SSH 环境需要填写远端路径。",
+        }[issue!.code],
+      }));
+      return;
+    }
+    useDialogStore.getState().setPendingLaunch({
+      path: options.path,
+      workspaceName: options.workspaceName,
+      providerId,
+      workspacePath: options.workspacePath,
+      ssh: options.ssh,
+      wsl: options.wsl,
+      machineName: options.machineName,
+    });
+  }, [sshMachines, t]);
 
   const handleDuplicate = useCallback((p: Provider) => {
     const duplicated: Provider = {

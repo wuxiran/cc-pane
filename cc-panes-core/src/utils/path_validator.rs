@@ -344,8 +344,17 @@ pub fn validate_ssh_machine(
 /// 避免在面向用户的错误消息中暴露完整的文件系统路径。
 /// 如果无法提取文件名，返回 `"<unknown>"`。
 pub fn sanitize_path_display(path: &Path) -> String {
+    let fallback = path.to_string_lossy();
+
     path.file_name()
-        .map(|n| n.to_string_lossy().to_string())
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.contains('\\') && !name.contains('/'))
+        .or_else(|| {
+            fallback
+                .rsplit(['/', '\\'])
+                .find(|segment| !segment.is_empty())
+                .map(|segment| segment.to_string())
+        })
         .unwrap_or_else(|| "<unknown>".to_string())
 }
 

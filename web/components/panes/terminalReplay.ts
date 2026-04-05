@@ -1,7 +1,13 @@
-import type { Terminal } from "@xterm/xterm";
 import type { TerminalReplaySnapshot } from "@/services/terminalService";
 
-type ReplayTerminal = Pick<Terminal, "write" | "buffer">;
+interface ReplayTerminal {
+  write: (data: string, callback?: () => void) => void;
+  buffer: {
+    active: {
+      type: "normal" | "alternate";
+    };
+  };
+}
 type ReplayLogger = (event: string, payload?: Record<string, unknown>) => void;
 
 interface ReplayAttachedSessionOptions {

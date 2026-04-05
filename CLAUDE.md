@@ -124,9 +124,9 @@ cc-panes/
 │       ├── models/                # 数据模型
 │       └── utils/                 # 工具（AppPaths, AppError）
 │
-├── docs/                          # 设计文档（13 个阶段）
-├── _reference/                    # 参考实现（gitignored）
-└── _archived_v1/                  # 旧版本存档（gitignored）
+├── docs/                          # 正式设计文档、样例与文档资源
+├── .claude/                       # 项目内命令、agents 与 hooks 源目录
+└── .cargo/config.toml             # Rust 构建输出配置（target-dir）
 ```
 
 ## 关键文件
@@ -280,3 +280,5 @@ npm run tauri build
 | `docs/05-local-history.md` | Local History 设计 |
 | `docs/11-tauri-gui-basic.md` | GUI 基础（✅ 完成） |
 | `docs/12-gui-advanced.md` | GUI 高级功能 |
+| `docs/references.md` | 外部参考项目索引 |
+| `docs/archive-v1.md` | 旧版本归档说明 |

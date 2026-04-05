@@ -13,7 +13,7 @@ interface WorkspacesState {
   unpinnedVisibleWorkspaces: () => Workspace[];
   hiddenWorkspaces: () => Workspace[];
   load: () => Promise<void>;
-  create: (name: string, path: string) => Promise<Workspace>;
+  create: (name: string, path?: string | null) => Promise<Workspace>;
   rename: (oldName: string, newName: string) => Promise<void>;
   remove: (name: string) => Promise<void>;
   addProject: (workspaceName: string, path: string) => Promise<WorkspaceProject>;
@@ -23,6 +23,7 @@ interface WorkspacesState {
   updateWorkspaceAlias: (workspaceName: string, alias: string | null) => Promise<void>;
   updateWorkspaceProvider: (workspaceName: string, providerId: string | null) => Promise<void>;
   updateWorkspacePath: (workspaceName: string, path: string | null) => Promise<void>;
+  saveWorkspace: (workspace: Workspace) => Promise<void>;
   updatePinned: (name: string, pinned: boolean) => Promise<void>;
   updateHidden: (name: string, hidden: boolean) => Promise<void>;
   reorder: (orderedNames: string[]) => Promise<void>;
@@ -173,6 +174,15 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     set((state) => ({
       workspaces: state.workspaces.map((ws) =>
         ws.name === workspaceName ? { ...ws, path: path ?? undefined } : ws
+      ),
+    }));
+  },
+
+  saveWorkspace: async (workspace) => {
+    await workspaceService.saveWorkspace(workspace.name, workspace);
+    set((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.name === workspace.name ? workspace : ws
       ),
     }));
   },

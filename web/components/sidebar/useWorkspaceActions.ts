@@ -50,6 +50,9 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   const [scanTargetWorkspace, setScanTargetWorkspace] = useState<Workspace | null>(null);
   const [gitCloneOpen, setGitCloneOpen] = useState(false);
   const [gitCloneTargetWorkspace, setGitCloneTargetWorkspace] = useState<string>("");
+  const [projectMigrationDialogOpen, setProjectMigrationDialogOpen] = useState(false);
+  const [projectMigrationWorkspace, setProjectMigrationWorkspace] = useState<Workspace | null>(null);
+  const [projectMigrationProject, setProjectMigrationProject] = useState<WorkspaceProject | null>(null);
 
   // 确认对话框状态
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -140,9 +143,9 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   }
 
   async function confirmCreateWorkspace() {
-    if (!newWorkspaceName.trim() || !newWorkspacePath.trim()) return;
+    if (!newWorkspaceName.trim()) return;
     try {
-      await createWorkspace(newWorkspaceName.trim(), newWorkspacePath.trim());
+      await createWorkspace(newWorkspaceName.trim(), newWorkspacePath.trim() || undefined);
       setNewWorkspaceOpen(false);
     } catch (e) {
       toast.error(tNotify("createFailed", { error: String(e) }));
@@ -284,6 +287,12 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     setGitCloneOpen(true);
   }
 
+  function handleMigrateProject(ws: Workspace, project: WorkspaceProject) {
+    setProjectMigrationWorkspace(ws);
+    setProjectMigrationProject(project);
+    setProjectMigrationDialogOpen(true);
+  }
+
   async function handleGitCloned(clonedPath: string) {
     if (gitCloneTargetWorkspace) {
       try {
@@ -348,6 +357,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
 
     // Project actions
     handleImportProject,
+    handleMigrateProject,
     handleRemoveProject,
     handleSetAlias,
     handleOpenProject,
@@ -405,6 +415,12 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
         setOpen: setGitCloneOpen,
         workspaceName: gitCloneTargetWorkspace,
         onCloned: handleGitCloned,
+      },
+      projectMigration: {
+        open: projectMigrationDialogOpen,
+        setOpen: setProjectMigrationDialogOpen,
+        workspace: projectMigrationWorkspace,
+        project: projectMigrationProject,
       },
       confirm: {
         open: confirmOpen,

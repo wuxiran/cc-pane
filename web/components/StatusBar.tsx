@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle, Cpu, MemoryStick } from "lucide-react";
+import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip,
@@ -14,16 +14,9 @@ import {
   useSettingsStore,
   useTerminalStatusStore,
   useUpdateStore,
-  useResourceStatsStore,
 } from "@/stores";
 import { triggerUpdate } from "@/services";
 import { useWindowControl } from "@/hooks/useWindowControl";
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
 
 export default function StatusBar() {
   const { t, i18n } = useTranslation();
@@ -34,7 +27,6 @@ export default function StatusBar() {
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
-  const resourceStats = useResourceStatsStore((s) => s.stats);
   const [updating, setUpdating] = useState(false);
   const { isPinned, togglePin } = useWindowControl();
 

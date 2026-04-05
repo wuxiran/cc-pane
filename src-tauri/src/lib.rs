@@ -117,6 +117,7 @@ use commands::{
     get_spec_content,
     get_ssh_machine,
     get_terminal_output,
+    get_terminal_replay_snapshot,
     get_todo,
     get_todo_stats,
     get_version_content,
@@ -198,6 +199,8 @@ use commands::{
     reorder_todos,
     reorder_workspaces,
     resize_terminal,
+    rollback_project_migration,
+    rollback_workspace_migration,
     respond_orchestrator_query,
     restart_shared_mcp_server,
     restore_file_version,
@@ -211,6 +214,8 @@ use commands::{
     // Process Monitor 命令
     scan_claude_processes,
     scan_workspace_directory,
+    preview_project_migration,
+    preview_workspace_migration,
     // Screenshot 命令
     screenshot_update_shortcut,
     // Memory 命令
@@ -248,6 +253,8 @@ use commands::{
     update_workspace_provider,
     upsert_mcp_server,
     upsert_shared_mcp_server,
+    execute_project_migration,
+    execute_workspace_migration,
     write_terminal,
 };
 use repository::{
@@ -266,7 +273,7 @@ use std::sync::Arc;
 use utils::AppPaths;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -971,7 +978,8 @@ pub fn run() {
                         let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
                         let svc = cc_panes_core::services::DefaultSkillService::new(
                             resource_dir
-                                .join("bundled-claude-config")
+                                .join("resources")
+                                .join("claude-bundle")
                                 .join("default-skills"),
                         );
                         svc.inject_all(registry.inner(), env!("CARGO_PKG_VERSION"));
@@ -1300,6 +1308,7 @@ pub fn run() {
             check_environment,
             list_cli_tools,
             get_terminal_output,
+            get_terminal_replay_snapshot,
             // 窗口命令
             close_window,
             minimize_window,
@@ -1407,6 +1416,12 @@ pub fn run() {
             update_workspace,
             reorder_workspaces,
             scan_workspace_directory,
+            preview_workspace_migration,
+            execute_workspace_migration,
+            rollback_workspace_migration,
+            preview_project_migration,
+            execute_project_migration,
+            rollback_project_migration,
             // Settings 命令
             get_settings,
             update_settings,

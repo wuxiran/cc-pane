@@ -54,6 +54,7 @@
   "newHint": "请先创建工作空间，然后导入项目",
   "setWorkspacePath": "设置工作空间路径",
   "clearWorkspacePath": "清除工作空间路径",
+  "defaultOpenInWsl": "默认wsl打开",
   "renameWorkspace": "重命名",
   "selectProjectFirst": "请先选择一个项目",
   "resumeSession": "恢复会话",
