@@ -14,6 +14,9 @@ import type {
   CliTool,
   SshConnectionInfo,
   WslLaunchInfo,
+  TerminalPaneNode,
+  TerminalPaneLeaf,
+  TerminalPaneSplit,
 } from "@/types";
 
 // 生成唯一 ID
@@ -24,14 +27,11 @@ function generateId(prefix: string): string {
 // 创建新的面板
 function createPanel(tab?: Tab): Panel {
   const id = generateId("pane");
-  const defaultTab: Tab = tab || {
-    id: generateId("tab"),
-    title: "Terminal",
-    contentType: "terminal",
+  const defaultTab: Tab = tab || createTab({
     projectId: "",
     projectPath: "",
-    sessionId: null,
-  };
+    customTitle: "Terminal",
+  });
   return {
     type: "panel",
     id,
@@ -79,12 +79,9 @@ function createTab(opts: CreateTabOptions): Tab {
       title = name;
     }
   }
-  return {
-    id: generateId("tab"),
-    title,
-    contentType: "terminal",
-    projectId,
-    projectPath,
+  const terminalLeaf: TerminalPaneLeaf = {
+    type: "leaf",
+    id: generateId("terminal-pane"),
     sessionId: sessionId ?? null,
     resumeId,
     workspaceName,
@@ -96,6 +93,128 @@ function createTab(opts: CreateTabOptions): Tab {
     wsl,
     machineName,
   };
+
+  return {
+    id: generateId("tab"),
+    title,
+    contentType: "terminal",
+    projectId,
+    projectPath,
+    sessionId: terminalLeaf.sessionId,
+    resumeId: terminalLeaf.resumeId,
+    workspaceName: terminalLeaf.workspaceName,
+    providerId: terminalLeaf.providerId,
+    workspacePath: terminalLeaf.workspacePath,
+    cliTool: terminalLeaf.cliTool,
+    launchClaude: terminalLeaf.launchClaude,
+    ssh: terminalLeaf.ssh,
+    wsl: terminalLeaf.wsl,
+    machineName: terminalLeaf.machineName,
+    terminalRootPane: terminalLeaf,
+    activeTerminalPaneId: terminalLeaf.id,
+  };
+}
+
+function cloneTerminalLeaf(source: TerminalPaneLeaf): TerminalPaneLeaf {
+  return {
+    ...source,
+    id: generateId("terminal-pane"),
+    sessionId: null,
+    disconnected: false,
+    restoring: false,
+    savedSessionId: undefined,
+  };
+}
+
+function findTerminalPane(node: TerminalPaneNode, paneId: string): TerminalPaneNode | null {
+  if (node.id === paneId) return node;
+  if (node.type === "split") {
+    for (const child of node.children) {
+      const found = findTerminalPane(child, paneId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function findTerminalPaneParent(
+  node: TerminalPaneNode,
+  paneId: string,
+  parent: TerminalPaneSplit | null = null
+): { parent: TerminalPaneSplit | null; index: number } | null {
+  if (node.id === paneId) {
+    return { parent, index: parent ? parent.children.indexOf(node) : -1 };
+  }
+  if (node.type === "split") {
+    for (let i = 0; i < node.children.length; i += 1) {
+      const result = findTerminalPaneParent(node.children[i], paneId, node);
+      if (result) return result;
+    }
+  }
+  return null;
+}
+
+function collectTerminalLeaves(node?: TerminalPaneNode): TerminalPaneLeaf[] {
+  if (!node) return [];
+  if (node.type === "leaf") return [node];
+  return node.children.flatMap(collectTerminalLeaves);
+}
+
+function syncTabTerminalState(tab: Tab): void {
+  if (tab.contentType !== "terminal") return;
+
+  if (!tab.terminalRootPane) {
+    const fallbackLeaf: TerminalPaneLeaf = {
+      type: "leaf",
+      id: generateId("terminal-pane"),
+      sessionId: tab.sessionId ?? null,
+      resumeId: tab.resumeId,
+      workspaceName: tab.workspaceName,
+      providerId: tab.providerId,
+      workspacePath: tab.workspacePath,
+      cliTool: tab.cliTool,
+      launchClaude: tab.launchClaude,
+      ssh: tab.ssh,
+      wsl: tab.wsl,
+      machineName: tab.machineName,
+      disconnected: tab.disconnected,
+      restoring: tab.restoring,
+      savedSessionId: tab.savedSessionId,
+    };
+    tab.terminalRootPane = fallbackLeaf;
+    tab.activeTerminalPaneId = fallbackLeaf.id;
+  }
+
+  const leaves = collectTerminalLeaves(tab.terminalRootPane);
+  if (leaves.length === 0) return;
+
+  const activeLeaf =
+    (tab.activeTerminalPaneId
+      ? leaves.find((leaf) => leaf.id === tab.activeTerminalPaneId)
+      : null) ?? leaves[0];
+
+  tab.activeTerminalPaneId = activeLeaf.id;
+  tab.sessionId = activeLeaf.sessionId;
+  tab.resumeId = activeLeaf.resumeId;
+  tab.workspaceName = activeLeaf.workspaceName;
+  tab.providerId = activeLeaf.providerId;
+  tab.workspacePath = activeLeaf.workspacePath;
+  tab.cliTool = activeLeaf.cliTool;
+  tab.launchClaude = activeLeaf.launchClaude;
+  tab.ssh = activeLeaf.ssh;
+  tab.wsl = activeLeaf.wsl;
+  tab.machineName = activeLeaf.machineName;
+  tab.disconnected = activeLeaf.disconnected;
+  tab.restoring = activeLeaf.restoring;
+  tab.savedSessionId = activeLeaf.savedSessionId;
+}
+
+function findTabLocation(rootPane: PaneNode, tabId: string): { panel: Panel; tab: Tab } | null {
+  for (const panel of collectPanels(rootPane)) {
+    const tab = panel.tabs.find((item) => item.id === tabId);
+    if (tab) return { panel, tab };
+  }
+  return null;
 }
 function findPane(node: PaneNode, paneId: string): PaneNode | null {
   if (node.id === paneId) return node;
@@ -200,7 +319,11 @@ interface PanesState {
   closeOtherTabs: (paneId: string, tabId: string) => void;
   selectTab: (paneId: string, tabId: string) => void;
   setActivePane: (paneId: string) => void;
-  updateTabSession: (paneId: string, tabId: string, sessionId: string) => void;
+  updateTabSession: (paneId: string, tabId: string, sessionId: string, terminalPaneId?: string) => void;
+  setActiveTerminalPane: (tabId: string, terminalPaneId: string) => void;
+  splitTerminalPane: (tabId: string, terminalPaneId: string, direction: SplitDirection) => void;
+  closeTerminalPane: (tabId: string, terminalPaneId: string) => void;
+  resizeTerminalPanes: (tabId: string, terminalPaneId: string, sizes: number[]) => void;
   openProject: (opts: CreateTabOptions) => void;
   openProjectInPane: (paneId: string, opts: CreateTabOptions) => void;
   nextTab: (paneId: string) => void;
@@ -219,11 +342,11 @@ interface PanesState {
   markTabReclaimed: (tabId: string) => void;
   isTabPoppedOut: (tabId: string) => boolean;
   updateTabClaudeSession: (ptySessionId: string, claudeSessionId: string) => void;
-  setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean) => void;
-  reconnectTab: (paneId: string, tabId: string) => Promise<string | null>;
+  setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean, terminalPaneId?: string) => void;
+  reconnectTab: (paneId: string, tabId: string, terminalPaneId?: string) => Promise<string | null>;
   closeTabBySessionId: (sessionId: string) => void;
   /** Clear restoring metadata after a terminal tab finishes recovery. */
-  clearRestoring: (paneId: string, tabId: string) => void;
+  clearRestoring: (paneId: string, tabId: string, terminalPaneId?: string) => void;
   /** Collect terminal tabs that can be restored after restart. */
   getRestorableTabs: () => Array<{ tab: Tab; paneId: string }>;
 }
@@ -235,15 +358,18 @@ function cleanRehydratedPanes(node: PaneNode) {
   if (node.type === "panel") {
     for (const tab of node.tabs) {
       if (tab.contentType === "terminal") {
-        // Keep the old session id so persisted output can be replayed once.
-        if (tab.sessionId) {
-          tab.savedSessionId = tab.sessionId;
-          tab.restoring = true;
+        syncTabTerminalState(tab);
+        for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
+          if (leaf.sessionId) {
+            leaf.savedSessionId = leaf.sessionId;
+            leaf.restoring = true;
+          }
+          leaf.sessionId = null;
+          if (leaf.resumeId === "new") {
+            leaf.resumeId = undefined;
+          }
         }
-        tab.sessionId = null;
-        if (tab.resumeId === "new") {
-          tab.resumeId = undefined;
-        }
+        syncTabTerminalState(tab);
       }
       if (tab.contentType === "editor") {
         tab.dirty = false;
@@ -767,18 +893,141 @@ export const usePanesStore = create<PanesState>()(
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
         pane.activeTabId = tabId;
+        const tab = pane.tabs.find((item) => item.id === tabId);
+        if (tab?.contentType === "terminal") {
+          syncTabTerminalState(tab);
+        }
         state.activePaneId = paneId;
       });
     },
 
     setActivePane: (paneId) => set({ activePaneId: paneId }),
 
-    updateTabSession: (paneId, tabId, sessionId) => {
+    updateTabSession: (_paneId, tabId, sessionId, terminalPaneId) => {
       set((state) => {
-        const pane = findPane(state.rootPane, paneId);
-        if (pane?.type !== "panel") return;
-        const tab = pane.tabs.find((t) => t.id === tabId);
-        if (tab) tab.sessionId = sessionId;
+        const location = findTabLocation(state.rootPane, tabId);
+        if (!location) return;
+        const { tab } = location;
+        if (tab.contentType !== "terminal") {
+          tab.sessionId = sessionId;
+          return;
+        }
+        syncTabTerminalState(tab);
+        const leafId = terminalPaneId ?? tab.activeTerminalPaneId;
+        const leaf = leafId && tab.terminalRootPane
+          ? findTerminalPane(tab.terminalRootPane, leafId)
+          : null;
+        if (leaf?.type !== "leaf") return;
+        leaf.sessionId = sessionId;
+        syncTabTerminalState(tab);
+      });
+    },
+
+    setActiveTerminalPane: (tabId, terminalPaneId) => {
+      set((state) => {
+        const location = findTabLocation(state.rootPane, tabId);
+        if (!location) return;
+        const { tab } = location;
+        if (tab.contentType !== "terminal" || !tab.terminalRootPane) return;
+        if (!findTerminalPane(tab.terminalRootPane, terminalPaneId)) return;
+        tab.activeTerminalPaneId = terminalPaneId;
+        syncTabTerminalState(tab);
+      });
+    },
+
+    splitTerminalPane: (tabId, terminalPaneId, direction) => {
+      const directionMap: Record<SplitDirection, "horizontal" | "vertical"> = {
+        right: "horizontal",
+        down: "vertical",
+      };
+      set((state) => {
+        const location = findTabLocation(state.rootPane, tabId);
+        if (!location) return;
+        const { tab } = location;
+        if (tab.contentType !== "terminal" || !tab.terminalRootPane) return;
+        const target = findTerminalPane(tab.terminalRootPane, terminalPaneId);
+        if (target?.type !== "leaf") return;
+
+        const newLeaf = cloneTerminalLeaf(target);
+        const splitDirection = directionMap[direction];
+        const parentResult = findTerminalPaneParent(tab.terminalRootPane, terminalPaneId);
+
+        if (!parentResult || parentResult.parent === null) {
+          tab.terminalRootPane = {
+            type: "split",
+            id: generateId("terminal-split"),
+            direction: splitDirection,
+            children: [target, newLeaf],
+            sizes: [50, 50],
+          };
+        } else if (parentResult.parent.direction === splitDirection) {
+          parentResult.parent.children.splice(parentResult.index + 1, 0, newLeaf);
+          const newSize = 100 / parentResult.parent.children.length;
+          parentResult.parent.sizes = parentResult.parent.children.map(() => newSize);
+        } else {
+          parentResult.parent.children[parentResult.index] = {
+            type: "split",
+            id: generateId("terminal-split"),
+            direction: splitDirection,
+            children: [target, newLeaf],
+            sizes: [50, 50],
+          };
+        }
+
+        tab.activeTerminalPaneId = newLeaf.id;
+        syncTabTerminalState(tab);
+      });
+    },
+
+    closeTerminalPane: (tabId, terminalPaneId) => {
+      set((state) => {
+        const location = findTabLocation(state.rootPane, tabId);
+        if (!location) return;
+        const { tab } = location;
+        if (tab.contentType !== "terminal" || !tab.terminalRootPane) return;
+
+        const leaves = collectTerminalLeaves(tab.terminalRootPane);
+        if (leaves.length <= 1) return;
+
+        const parentResult = findTerminalPaneParent(tab.terminalRootPane, terminalPaneId);
+        if (!parentResult) return;
+
+        if (parentResult.parent === null) {
+          return;
+        }
+
+        const parent = parentResult.parent;
+        parent.children.splice(parentResult.index, 1);
+        parent.sizes.splice(parentResult.index, 1);
+
+        if (parent.children.length === 1) {
+          const gpResult = findTerminalPaneParent(tab.terminalRootPane, parent.id);
+          if (!gpResult || gpResult.parent === null) {
+            tab.terminalRootPane = parent.children[0];
+          } else {
+            gpResult.parent.children[gpResult.index] = parent.children[0];
+          }
+        } else {
+          const total = parent.sizes.reduce((sum, size) => sum + size, 0);
+          parent.sizes = parent.sizes.map((size) => (size / total) * 100);
+        }
+
+        const nextLeaves = collectTerminalLeaves(tab.terminalRootPane);
+        tab.activeTerminalPaneId = nextLeaves[Math.min(parentResult.index, nextLeaves.length - 1)]?.id;
+        syncTabTerminalState(tab);
+      });
+    },
+
+    resizeTerminalPanes: (tabId, terminalPaneId, sizes) => {
+      set((state) => {
+        const location = findTabLocation(state.rootPane, tabId);
+        if (!location) return;
+        const { tab } = location;
+        if (tab.contentType !== "terminal" || !tab.terminalRootPane) return;
+        const split = findTerminalPane(tab.terminalRootPane, terminalPaneId);
+        if (split?.type === "split") {
+          split.sizes = sizes;
+        }
       });
     },
 
@@ -787,7 +1036,15 @@ export const usePanesStore = create<PanesState>()(
         const update = (node: PaneNode): boolean => {
           if (node.type === "panel") {
             for (const tab of node.tabs) {
-              if (tab.sessionId === ptySessionId) {
+              if (tab.contentType === "terminal" && tab.terminalRootPane) {
+                for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
+                  if (leaf.sessionId === ptySessionId) {
+                    leaf.resumeId = claudeSessionId;
+                    syncTabTerminalState(tab);
+                    return true;
+                  }
+                }
+              } else if (tab.sessionId === ptySessionId) {
                 tab.resumeId = claudeSessionId;
                 return true;
               }
@@ -1085,13 +1342,21 @@ export const usePanesStore = create<PanesState>()(
 
     isTabPoppedOut: (tabId) => get().poppedOutTabs.has(tabId),
 
-    setTabDisconnected: (paneId, tabId, disconnected) => {
+    setTabDisconnected: (_paneId, tabId, disconnected, terminalPaneId) => {
       set((state) => {
-        const pane = findPane(state.rootPane, paneId);
-        if (pane?.type !== "panel") return;
-        const tab = pane.tabs.find((t) => t.id === tabId);
+        const location = findTabLocation(state.rootPane, tabId);
+        const tab = location?.tab;
         if (!tab) return;
-        tab.disconnected = disconnected;
+        if (tab.contentType === "terminal" && tab.terminalRootPane) {
+          const leafId = terminalPaneId ?? tab.activeTerminalPaneId;
+          const leaf = leafId ? findTerminalPane(tab.terminalRootPane, leafId) : null;
+          if (leaf?.type === "leaf") {
+            leaf.disconnected = disconnected;
+          }
+          syncTabTerminalState(tab);
+        } else {
+          tab.disconnected = disconnected;
+        }
         // 更新标题：断连时加闪电，重连时移除
         if (tab.ssh && tab.machineName) {
           const name = tab.projectPath.split(/[/\\]/).pop() || "Terminal";
@@ -1104,13 +1369,17 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    reconnectTab: async (paneId, tabId) => {
+    reconnectTab: async (_paneId, tabId, terminalPaneId) => {
       // 从 Tab 数据中提取创建参数
       const snapshot = get();
-      const pane = findPane(snapshot.rootPane, paneId);
-      if (pane?.type !== "panel") return null;
-      const tab = pane.tabs.find((t) => t.id === tabId);
+      const location = findTabLocation(snapshot.rootPane, tabId);
+      const tab = location?.tab;
       if (!tab || !tab.projectPath) return null;
+      const terminalLeaf =
+        tab.contentType === "terminal" && tab.terminalRootPane
+          ? findTerminalPane(tab.terminalRootPane, terminalPaneId ?? tab.activeTerminalPaneId ?? "")
+          : null;
+      const leaf = terminalLeaf?.type === "leaf" ? terminalLeaf : null;
 
       try {
         await ensureListeners();
@@ -1118,22 +1387,33 @@ export const usePanesStore = create<PanesState>()(
           projectPath: tab.projectPath,
           cols: 80,
           rows: 24,
-          workspaceName: tab.workspaceName,
-          providerId: tab.providerId,
-          workspacePath: tab.workspacePath,
-          cliTool: tab.cliTool,
-          ssh: tab.ssh,
-          wsl: tab.wsl,
+          workspaceName: leaf?.workspaceName ?? tab.workspaceName,
+          providerId: leaf?.providerId ?? tab.providerId,
+          workspacePath: leaf?.workspacePath ?? tab.workspacePath,
+          cliTool: leaf?.cliTool ?? tab.cliTool,
+          ssh: leaf?.ssh ?? tab.ssh,
+          wsl: leaf?.wsl ?? tab.wsl,
         });
 
         // 更新 tab 的 sessionId 和断连状态
         set((state) => {
-          const p = findPane(state.rootPane, paneId);
-          if (p?.type !== "panel") return;
-          const t = p.tabs.find((x) => x.id === tabId);
+          const currentLocation = findTabLocation(state.rootPane, tabId);
+          const t = currentLocation?.tab;
           if (!t) return;
-          t.sessionId = sessionId;
-          t.disconnected = false;
+          if (t.contentType === "terminal" && t.terminalRootPane) {
+            const currentLeaf = findTerminalPane(
+              t.terminalRootPane,
+              terminalPaneId ?? t.activeTerminalPaneId ?? ""
+            );
+            if (currentLeaf?.type === "leaf") {
+              currentLeaf.sessionId = sessionId;
+              currentLeaf.disconnected = false;
+            }
+            syncTabTerminalState(t);
+          } else {
+            t.sessionId = sessionId;
+            t.disconnected = false;
+          }
           // Restore the original SSH tab title after reconnection succeeds.
           if (t.ssh && t.machineName) {
             const name = t.projectPath.split(/[/\\]/).pop() || "Terminal";
@@ -1151,20 +1431,40 @@ export const usePanesStore = create<PanesState>()(
     closeTabBySessionId: (sessionId) => {
       const panels = collectPanels(get().rootPane);
       for (const panel of panels) {
-        const tab = panel.tabs.find((t) => t.sessionId === sessionId);
+        const tab = panel.tabs.find((t) => {
+          if (t.contentType === "terminal" && t.terminalRootPane) {
+            return collectTerminalLeaves(t.terminalRootPane).some((leaf) => leaf.sessionId === sessionId);
+          }
+          return t.sessionId === sessionId;
+        });
         if (tab) {
+          if (tab.contentType === "terminal" && tab.terminalRootPane) {
+            const leaf = collectTerminalLeaves(tab.terminalRootPane)
+              .find((item) => item.sessionId === sessionId);
+            if (leaf && collectTerminalLeaves(tab.terminalRootPane).length > 1) {
+              get().closeTerminalPane(tab.id, leaf.id);
+              return;
+            }
+          }
           get().closeTab(panel.id, tab.id);
           return;
         }
       }
     },
 
-    clearRestoring: (paneId, tabId) => {
+    clearRestoring: (_paneId, tabId, terminalPaneId) => {
       set((state) => {
-        const pane = findPane(state.rootPane, paneId);
-        if (pane?.type === "panel") {
-          const tab = pane.tabs.find((t) => t.id === tabId);
-          if (tab) {
+        const location = findTabLocation(state.rootPane, tabId);
+        const tab = location?.tab;
+        if (tab) {
+          if (tab.contentType === "terminal" && tab.terminalRootPane) {
+            const leaf = findTerminalPane(tab.terminalRootPane, terminalPaneId ?? tab.activeTerminalPaneId ?? "");
+            if (leaf?.type === "leaf") {
+              leaf.restoring = false;
+              leaf.savedSessionId = undefined;
+            }
+            syncTabTerminalState(tab);
+          } else {
             tab.restoring = false;
             tab.savedSessionId = undefined;
           }
@@ -1178,6 +1478,7 @@ export const usePanesStore = create<PanesState>()(
       for (const panel of panels) {
         for (const tab of panel.tabs) {
           if (tab.contentType === "terminal" && tab.projectPath) {
+            syncTabTerminalState(tab);
             result.push({ tab, paneId: panel.id });
           }
         }
@@ -1187,7 +1488,7 @@ export const usePanesStore = create<PanesState>()(
   })),
   {
     name: "cc-panes-layout",
-    version: 2,
+    version: 3,
     migrate: (persistedState, version) => {
       const state = persistedState as Record<string, unknown>;
       if (version < 2) {
@@ -1206,6 +1507,20 @@ export const usePanesStore = create<PanesState>()(
         if (state.rootPane) {
           migrateNode(state.rootPane as PaneNode);
         }
+      }
+      if (version < 3 && state.rootPane) {
+        const migrateTerminalTabs = (node: PaneNode) => {
+          if (node.type === "panel") {
+            for (const tab of node.tabs) {
+              if (tab.contentType === "terminal") {
+                syncTabTerminalState(tab);
+              }
+            }
+          } else {
+            node.children.forEach(migrateTerminalTabs);
+          }
+        };
+        migrateTerminalTabs(state.rootPane as PaneNode);
       }
       return state;
     },
@@ -1228,7 +1543,3 @@ export const usePanesStore = create<PanesState>()(
   },
   )
 );
-
-
-
-

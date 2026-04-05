@@ -4,7 +4,6 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import {
   ChevronRight,
-  FileText,
   Files,
   Folder,
   FolderOpen,
@@ -12,7 +11,6 @@ import {
   GitBranch,
   Globe,
   Settings2,
-  ShieldCheck,
   Terminal,
   Trash2,
 } from "lucide-react";
@@ -38,6 +36,7 @@ import {
   getWorkspaceDefaultEnvironment,
   getWorkspaceLaunchIssueKey,
   getWorkspaceLaunchIssueValues,
+  hasWorkspaceWslPath,
   resolveWorkspaceLaunchOptions,
 } from "@/utils";
 import type { OpenTerminalOptions, Workspace, WorkspaceLaunchEnvironment } from "@/types";
@@ -85,14 +84,13 @@ export default function WorkspaceItem({
   const providerList = useProvidersStore((s) => s.providers);
   const sshMachines = useSshMachinesStore((s) => s.machines);
   const { tools: cliTools } = useCliTools();
-  const onOpenJournal = useDialogStore((s) => s.openJournal);
-  const onOpenSessionCleaner = useDialogStore((s) => s.openSessionCleaner);
   const [hookStatuses, setHookStatuses] = useState<HookStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
 
   const displayName = ws.alias || ws.name;
   const rootProject = ws.projects.find((project) => !project.ssh);
   const rootPath = ws.path || rootProject?.path;
+  const showWslBadge = hasWorkspaceWslPath(ws);
   const boundProvider = ws.providerId
     ? providerList.find((provider) => provider.id === ws.providerId)
     : undefined;
@@ -192,6 +190,11 @@ export default function WorkspaceItem({
             <div className="flex items-center gap-2">
               <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
               <span className="text-sm font-medium tracking-wide">{displayName}</span>
+              {showWslBadge ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30">
+                  WSL
+                </span>
+              ) : null}
               {boundProvider ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -218,6 +221,14 @@ export default function WorkspaceItem({
           </ContextMenuItem>
 
           {cliTools.map((tool) => {
+            if (tool.id === "codex") {
+              return (
+                <ContextMenuItem key={tool.id} onClick={() => openWorkspace(tool.id)}>
+                  <Terminal /> {tool.displayName}
+                </ContextMenuItem>
+              );
+            }
+
             const compatibleProviders = providerList.filter(
               (provider) => getCompatibleCliTool(provider.providerType) === tool.id,
             );
@@ -272,13 +283,6 @@ export default function WorkspaceItem({
             onClick={() => rootPath && onOpenInFileBrowser?.(rootPath)}
           >
             <Files /> {t("openInFileBrowser")}
-          </ContextMenuItem>
-
-          <ContextMenuItem onClick={() => onOpenJournal(ws.name)}>
-            <FileText /> {t("sessionJournal")}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => onOpenSessionCleaner(ws.name)}>
-            <ShieldCheck /> {t("sessionCleaner")}
           </ContextMenuItem>
 
           <ContextMenuSeparator />

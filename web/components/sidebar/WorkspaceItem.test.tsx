@@ -1,9 +1,11 @@
 import "@/i18n";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useProvidersStore } from "@/stores";
+import { createTestProvider, createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
 import WorkspaceItem from "./WorkspaceItem";
-import { createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openPath: vi.fn(),
@@ -17,7 +19,9 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/hooks/useCliTools", () => ({
-  useCliTools: () => ({ tools: [] }),
+  useCliTools: () => ({
+    tools: [{ id: "codex", displayName: "Codex" }],
+  }),
 }));
 
 vi.mock("@/services", () => ({
@@ -34,48 +38,61 @@ vi.mock("./AddSshProjectDialog", () => ({
 
 function renderWorkspaceItem(defaultEnvironment: "local" | "wsl" = "local") {
   const onSetDefaultEnvironment = vi.fn();
+  const onOpenTerminal = vi.fn();
   const ws = createTestWorkspace({
     name: "workspace-alpha",
     path: "D:/workspace-alpha",
     defaultEnvironment,
+    providerId: "provider-codex",
   });
 
   render(
-    <WorkspaceItem
-      ws={ws}
-      expanded={false}
-      onExpand={vi.fn()}
-      onOpenTerminal={vi.fn()}
-      onRename={vi.fn()}
-      onDelete={vi.fn()}
-      onSetAlias={vi.fn()}
-      onImportProject={vi.fn()}
-      onScanImport={vi.fn()}
-      onGitClone={vi.fn()}
-      onSetPath={vi.fn()}
-      onClearPath={vi.fn()}
-      onSetProvider={vi.fn()}
-      onSetDefaultEnvironment={onSetDefaultEnvironment}
-      onOpenInFileBrowser={vi.fn()}
-    >
-      <div>children</div>
-    </WorkspaceItem>
+    <TooltipProvider>
+      <WorkspaceItem
+        ws={ws}
+        expanded={false}
+        onExpand={vi.fn()}
+        onOpenTerminal={onOpenTerminal}
+        onRename={vi.fn()}
+        onDelete={vi.fn()}
+        onSetAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onScanImport={vi.fn()}
+        onGitClone={vi.fn()}
+        onSetPath={vi.fn()}
+        onClearPath={vi.fn()}
+        onSetProvider={vi.fn()}
+        onSetDefaultEnvironment={onSetDefaultEnvironment}
+        onOpenInFileBrowser={vi.fn()}
+      >
+        <div>children</div>
+      </WorkspaceItem>
+    </TooltipProvider>,
   );
 
-  return { onSetDefaultEnvironment, ws };
+  return { onOpenTerminal, onSetDefaultEnvironment, ws };
 }
 
 describe("WorkspaceItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetTestDataCounter();
+    useProvidersStore.setState({
+      providers: [
+        createTestProvider({
+          id: "provider-codex",
+          name: "Codex Provider",
+          providerType: "open_ai",
+        }),
+      ],
+    });
     Object.defineProperty(window.navigator, "platform", {
       value: "Win32",
       configurable: true,
     });
   });
 
-  it("在一级右键菜单显示默认wsl打开并切换到 wsl", async () => {
+  it("shows the default WSL toggle and switches to wsl", async () => {
     const user = userEvent.setup();
     const { onSetDefaultEnvironment, ws } = renderWorkspaceItem("local");
 
@@ -89,7 +106,7 @@ describe("WorkspaceItem", () => {
     expect(onSetDefaultEnvironment).toHaveBeenCalledWith(ws, "wsl");
   });
 
-  it("在已启用时点击会切换回 local", async () => {
+  it("switches the default WSL toggle back to local", async () => {
     const user = userEvent.setup();
     const { onSetDefaultEnvironment, ws } = renderWorkspaceItem("wsl");
 
@@ -101,7 +118,7 @@ describe("WorkspaceItem", () => {
     expect(onSetDefaultEnvironment).toHaveBeenCalledWith(ws, "local");
   });
 
-  it("非 Windows 平台不显示默认wsl打开", async () => {
+  it("hides the default WSL toggle on non-Windows platforms", async () => {
     Object.defineProperty(window.navigator, "platform", {
       value: "MacIntel",
       configurable: true,
@@ -113,5 +130,37 @@ describe("WorkspaceItem", () => {
     await waitFor(() => {
       expect(screen.queryByRole("menuitemcheckbox", { name: "默认wsl打开" })).not.toBeInTheDocument();
     });
+  });
+
+  it("opens Codex locally when the workspace default environment is local", async () => {
+    const user = userEvent.setup();
+    const { onOpenTerminal } = renderWorkspaceItem("local");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Codex" }));
+
+    const call = onOpenTerminal.mock.calls[0]?.[0];
+    expect(call).toEqual(expect.objectContaining({
+      path: "D:/workspace-alpha",
+      cliTool: "codex",
+    }));
+    expect(call?.wsl).toBeUndefined();
+    expect(call?.providerId).toBeUndefined();
+  });
+
+  it("opens Codex through WSL when the workspace default environment is wsl", async () => {
+    const user = userEvent.setup();
+    const { onOpenTerminal } = renderWorkspaceItem("wsl");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Codex" }));
+
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      path: "D:/workspace-alpha",
+      cliTool: "codex",
+      wsl: {
+        remotePath: "/mnt/d/workspace-alpha",
+      },
+    }));
   });
 });

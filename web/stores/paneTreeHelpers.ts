@@ -1,4 +1,4 @@
-import type { PaneNode, Panel, SplitPane, Tab } from "@/types";
+import type { PaneNode, Panel, SplitPane, Tab, TerminalPaneLeaf } from "@/types";
 
 /** 生成唯一 ID */
 export function generateId(prefix: string): string {
@@ -8,6 +8,11 @@ export function generateId(prefix: string): string {
 /** 创建新的面板 */
 export function createPanel(tab?: Tab): Panel {
   const id = generateId("pane");
+  const defaultLeaf: TerminalPaneLeaf = {
+    type: "leaf",
+    id: generateId("terminal-pane"),
+    sessionId: null,
+  };
   const defaultTab: Tab = tab || {
     id: generateId("tab"),
     title: "Terminal",
@@ -15,6 +20,8 @@ export function createPanel(tab?: Tab): Panel {
     projectId: "",
     projectPath: "",
     sessionId: null,
+    terminalRootPane: defaultLeaf,
+    activeTerminalPaneId: defaultLeaf.id,
   };
   return {
     type: "panel",
@@ -39,6 +46,14 @@ export function createTab(
   } else if (resumeId) {
     title = `${name} (resume)`;
   }
+  const terminalLeaf: TerminalPaneLeaf = {
+    type: "leaf",
+    id: generateId("terminal-pane"),
+    sessionId: null,
+    resumeId,
+    workspaceName,
+    providerId,
+  };
   return {
     id: generateId("tab"),
     title,
@@ -49,6 +64,8 @@ export function createTab(
     resumeId,
     workspaceName,
     providerId,
+    terminalRootPane: terminalLeaf,
+    activeTerminalPaneId: terminalLeaf.id,
   };
 }
 

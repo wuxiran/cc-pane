@@ -4,7 +4,7 @@ import { createPanel } from "./paneTreeHelpers";
 import {
   resetTestDataCounter,
 } from "@/test/utils/testData";
-import type { Panel, SplitPane } from "@/types";
+import type { Panel, SplitPane, Tab } from "@/types";
 
 describe("usePanesStore", () => {
   beforeEach(() => {
@@ -249,6 +249,56 @@ describe("usePanesStore", () => {
 
       const tab = (usePanesStore.getState().rootPane as Panel).tabs[0];
       expect(tab.title).toBe("新名称");
+    });
+  });
+
+  describe("terminal subpanes", () => {
+    it("应拆分终端标签并创建新的活动子窗格", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+
+      const pane = usePanesStore.getState().rootPane as Panel;
+      const tab = pane.tabs[1];
+      const originalTerminalPaneId = tab.activeTerminalPaneId!;
+
+      usePanesStore.getState().splitTerminalPane(tab.id, originalTerminalPaneId, "right");
+
+      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      expect(updatedTab.terminalRootPane?.type).toBe("split");
+      expect(updatedTab.activeTerminalPaneId).not.toBe(originalTerminalPaneId);
+      expect(updatedTab.sessionId).toBeNull();
+    });
+
+    it("关闭活动子窗格后应保留另一个子窗格", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+
+      let tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
+
+      tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      const closingTerminalPaneId = tab.activeTerminalPaneId!;
+
+      usePanesStore.getState().closeTerminalPane(tab.id, closingTerminalPaneId);
+
+      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      expect(updatedTab.terminalRootPane?.type).toBe("leaf");
+      expect(updatedTab.activeTerminalPaneId).not.toBe(closingTerminalPaneId);
+    });
+
+    it("更新指定子窗格会话时应同步到活动标签镜像字段", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+
+      let tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
+
+      tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      const activeTerminalPaneId = tab.activeTerminalPaneId!;
+      usePanesStore.getState().updateTabSession(paneId, tab.id, "session-subpane", activeTerminalPaneId);
+
+      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      expect(updatedTab.sessionId).toBe("session-subpane");
     });
   });
 

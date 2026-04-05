@@ -1,0 +1,119 @@
+import "@/i18n";
+import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import ProjectListView from "./ProjectListView";
+import { createTestWorkspace, createTestWorkspaceProject, resetTestDataCounter } from "@/test/utils/testData";
+import { useDialogStore, useProvidersStore, useSshMachinesStore } from "@/stores";
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openPath: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
+vi.mock("@/hooks/useCliTools", () => ({
+  useCliTools: () => ({
+    tools: [],
+  }),
+}));
+
+vi.mock("@/services/specService", () => ({
+  specService: {
+    list: vi.fn(async () => []),
+    create: vi.fn(async () => undefined),
+  },
+}));
+
+describe("ProjectListView", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetTestDataCounter();
+    useProvidersStore.setState({ providers: [] });
+    useSshMachinesStore.setState({ machines: [] });
+    useDialogStore.setState({
+      localHistoryOpen: false,
+      localHistoryProjectPath: "",
+      localHistoryFilePath: "",
+      todoOpen: false,
+      todoScope: "",
+      todoScopeRef: "",
+    });
+    Object.defineProperty(window.navigator, "platform", {
+      value: "Win32",
+      configurable: true,
+    });
+  });
+
+  it("WSL UNC 路径项目显示 WSL badge", () => {
+    const workspace = createTestWorkspace({
+      projects: [
+        createTestWorkspaceProject({
+          alias: "wsl-project",
+          path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo",
+        }),
+      ],
+    });
+
+    render(
+      <ProjectListView
+        projects={workspace.projects}
+        ws={workspace}
+        gitBranches={{}}
+        onOpenTerminal={vi.fn()}
+        onRemoveProject={vi.fn()}
+        onSetProjectAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onMigrateProject={vi.fn()}
+        onOpenWorktreeManager={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("wsl-project")).toBeVisible();
+    expect(screen.getByText("WSL")).toBeVisible();
+  });
+
+  it("本地项目和 SSH 项目保留原有 badge", () => {
+    const workspace = createTestWorkspace({
+      projects: [
+        createTestWorkspaceProject({
+          alias: "local-project",
+          path: "D:/workspace/local-project",
+        }),
+        createTestWorkspaceProject({
+          alias: "ssh-project",
+          path: "/ignored/for/ssh",
+          ssh: {
+            host: "devbox.local",
+            port: 22,
+            user: "dev",
+            remotePath: "/home/dev/repo",
+          },
+        }),
+      ],
+    });
+
+    render(
+      <ProjectListView
+        projects={workspace.projects}
+        ws={workspace}
+        gitBranches={{}}
+        onOpenTerminal={vi.fn()}
+        onRemoveProject={vi.fn()}
+        onSetProjectAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onMigrateProject={vi.fn()}
+        onOpenWorktreeManager={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("local-project")).toBeVisible();
+    expect(screen.getByText("LOCAL")).toBeVisible();
+    expect(screen.getByText("ssh-project")).toBeVisible();
+    expect(screen.getByText("SSH")).toBeVisible();
+  });
+});

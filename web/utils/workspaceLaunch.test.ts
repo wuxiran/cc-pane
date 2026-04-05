@@ -97,6 +97,52 @@ describe("workspaceLaunch", () => {
     expect(options?.path).toBe("D:/workspace-root");
   });
 
+  it("keeps Codex on local launch when workspace default environment is local", () => {
+    const workspace = createTestWorkspace({
+      path: "D:/workspace-root",
+      providerId: "provider-1",
+      defaultEnvironment: "local",
+    });
+
+    const { options, issue } = resolveWorkspaceLaunchOptions({
+      workspace,
+      cliTool: "codex",
+      machines: [],
+      platform: "windows",
+    });
+
+    expect(issue).toBeNull();
+    expect(options).toMatchObject({
+      path: "D:/workspace-root",
+      cliTool: "codex",
+    });
+    expect(options?.wsl).toBeUndefined();
+    expect(options?.providerId).toBeUndefined();
+  });
+
+  it("launches Codex through WSL when workspace default environment is wsl", () => {
+    const workspace = createTestWorkspace({
+      path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\workspace-root",
+      defaultEnvironment: "wsl",
+    });
+
+    const { options, issue } = resolveWorkspaceLaunchOptions({
+      workspace,
+      cliTool: "codex",
+      machines: [],
+      platform: "windows",
+    });
+
+    expect(issue).toBeNull();
+    expect(options).toMatchObject({
+      path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\workspace-root",
+      cliTool: "codex",
+      wsl: {
+        remotePath: "/home/dev/workspace-root",
+      },
+    });
+  });
+
   it("falls back to first project WSL path when workspace path is missing", () => {
     const workspace = createTestWorkspace({
       path: undefined,
@@ -148,7 +194,6 @@ describe("workspaceLaunch", () => {
     expect(options).toMatchObject({
       path: "ssh://dev@devbox.local/home/dev/workspace-ssh",
       workspaceName: "workspace-ssh",
-      providerId: "provider-1",
       cliTool: "codex",
       machineName: "Devbox",
       ssh: {
@@ -159,6 +204,7 @@ describe("workspaceLaunch", () => {
         identityFile: "~/.ssh/id_ed25519",
       },
     });
+    expect(options?.providerId).toBeUndefined();
   });
 
   it("falls back to first SSH project when workspace SSH config is absent", () => {
@@ -238,8 +284,24 @@ describe("workspaceLaunch", () => {
     );
   });
 
+  it("derives project WSL path from UNC WSL project path without persisted remote path", () => {
+    const workspace = createTestWorkspace({
+      path: undefined,
+    });
+    const project = createTestWorkspaceProject({
+      path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\workspace-root\\apps\\web",
+    });
+
+    expect(resolveWorkspaceProjectWslPath(workspace, project)).toBe(
+      "/home/dev/workspace-root/apps/web",
+    );
+  });
+
   it("classifies local, wsl, and ssh projects", () => {
     expect(getWorkspaceProjectKind(createTestWorkspaceProject())).toBe("local");
+    expect(getWorkspaceProjectKind(createTestWorkspaceProject({
+      path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo",
+    }))).toBe("wsl");
     expect(getWorkspaceProjectKind(createTestWorkspaceProject({
       wslRemotePath: "/home/dev/repo",
     }))).toBe("wsl");

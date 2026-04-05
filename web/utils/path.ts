@@ -29,9 +29,30 @@ export function getProjectName(path: string): string {
  */
 export function toWslPath(path?: string | null): string | null {
   if (!path) return null;
+  const wslUncRemotePath = getWslUncRemotePath(path);
+  if (wslUncRemotePath) return wslUncRemotePath;
   const match = path.match(/^([A-Za-z]):[\\/](.*)$/);
   if (!match) return null;
   const drive = match[1].toLowerCase();
   const rest = match[2].replace(/\\/g, "/").replace(/^\/+/, "");
   return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`;
+}
+
+/**
+ * 从 WSL UNC 路径中提取 Linux 远端路径
+ */
+export function getWslUncRemotePath(path?: string | null): string | null {
+  if (!path) return null;
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const match = normalized.match(/^\/\/(?:wsl(?:\.localhost)?|wsl\$)\/[^/]+(?:\/(.*))?$/i);
+  if (!match) return null;
+  const remotePath = match[1]?.replace(/^\/+/, "") ?? "";
+  return remotePath ? `/${remotePath}` : "/";
+}
+
+/**
+ * 判断路径是否为 Windows 下的 WSL UNC 路径。
+ */
+export function isWslUncPath(path?: string | null): boolean {
+  return getWslUncRemotePath(path) !== null;
 }

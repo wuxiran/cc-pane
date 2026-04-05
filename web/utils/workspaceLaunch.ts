@@ -7,7 +7,7 @@ import type {
   WorkspaceProject,
   WorkspaceLaunchEnvironment,
 } from "@/types";
-import { toWslPath } from "./path";
+import { isWslUncPath, toWslPath } from "./path";
 
 export type AppPlatform = "windows" | "macos" | "linux" | "unknown";
 export type WorkspaceProjectKind = "local" | "wsl" | "ssh";
@@ -53,7 +53,14 @@ export function getWorkspaceDefaultEnvironment(
 export function getWorkspaceProjectKind(project: WorkspaceProject): WorkspaceProjectKind {
   if (project.ssh) return "ssh";
   if (project.wslRemotePath?.trim()) return "wsl";
+  if (isWslUncPath(project.path)) return "wsl";
   return "local";
+}
+
+export function hasWorkspaceWslPath(workspace: Workspace): boolean {
+  if (isWslUncPath(workspace.path)) return true;
+  const rootProject = workspace.projects.find((project) => !project.ssh);
+  return rootProject ? getWorkspaceProjectKind(rootProject) === "wsl" : false;
 }
 
 export function resolveWorkspaceProjectWslPath(
@@ -151,10 +158,10 @@ export function resolveWorkspaceLaunchOptions(
 function resolveWorkspaceLaunchOptionsInternal(
   params: WorkspaceLaunchParams & { environment?: WorkspaceLaunchEnvironment },
 ): { options: OpenTerminalOptions | null; issue: WorkspaceLaunchIssue | null } {
-  const environment = params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
   const platform = params.platform ?? detectAppPlatform();
+  const environment = params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
   const { workspace, machines, cliTool, providerId } = params;
-  const effectiveProviderId = providerId ?? workspace.providerId;
+  const effectiveProviderId = cliTool === "codex" ? undefined : (providerId ?? workspace.providerId);
 
   switch (environment) {
     case "local": {

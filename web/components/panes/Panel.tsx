@@ -20,6 +20,29 @@ interface PanelProps {
   pane: PanelType;
 }
 
+function collectTerminalSessionIds(tab: Tab): string[] {
+  if (tab.contentType !== "terminal" || !tab.terminalRootPane) {
+    return tab.sessionId ? [tab.sessionId] : [];
+  }
+  return collectTerminalLeaves(tab.terminalRootPane)
+    .map((leaf) => leaf.sessionId)
+    .filter((sessionId): sessionId is string => Boolean(sessionId));
+}
+
+function collectTerminalLeaves(node: NonNullable<Tab["terminalRootPane"]>) {
+  if (node.type === "leaf") return [node];
+  return node.children.flatMap(collectTerminalLeaves);
+}
+
+function findActiveTerminalSessionId(tab: Tab): string | null {
+  if (tab.contentType !== "terminal" || !tab.terminalRootPane || !tab.activeTerminalPaneId) {
+    return tab.sessionId ?? null;
+  }
+  const activeLeaf = collectTerminalLeaves(tab.terminalRootPane)
+    .find((leaf) => leaf.id === tab.activeTerminalPaneId);
+  return activeLeaf?.sessionId ?? null;
+}
+
 export default memo(function Panel({ pane }: PanelProps) {
   const { t } = useTranslation("panes");
 
@@ -29,7 +52,7 @@ export default memo(function Panel({ pane }: PanelProps) {
   // Action 选择器合并 + useShallow：浅比较避免对象引用变化导致的重渲染
   const {
     selectTab, closeTab, togglePinTab, renameTab, addTab,
-    splitRight, splitDown, splitAndMoveTab,
+    splitRight, splitDown, splitAndMoveTab, splitTerminalPane, closeTerminalPane,
     closeTabsToLeft, closeTabsToRight, closeOtherTabs,
     setActivePane, updateTabSession, reconnectTab,
     setTabDisconnected, markTabPoppedOut, isTabPoppedOut,
@@ -42,6 +65,8 @@ export default memo(function Panel({ pane }: PanelProps) {
     splitRight: s.splitRight,
     splitDown: s.splitDown,
     splitAndMoveTab: s.splitAndMoveTab,
+    splitTerminalPane: s.splitTerminalPane,
+    closeTerminalPane: s.closeTerminalPane,
     closeTabsToLeft: s.closeTabsToLeft,
     closeTabsToRight: s.closeTabsToRight,
     closeOtherTabs: s.closeOtherTabs,
@@ -99,7 +124,12 @@ export default memo(function Panel({ pane }: PanelProps) {
   const doCloseTab = useCallback(
     (tabId: string) => {
       const tab = pane.tabs.find((t) => t.id === tabId);
-      if (tab?.sessionId) {
+      if (tab?.contentType === "terminal" && tab.terminalRootPane) {
+        const sessionIds = collectTerminalSessionIds(tab);
+        sessionIds.forEach((sessionId) => {
+          terminalService.killSession(sessionId).catch((e) => handleErrorSilent(e, "kill session"));
+        });
+      } else if (tab?.sessionId) {
         terminalService.killSession(tab.sessionId).catch((e) => handleErrorSilent(e, "kill session"));
       }
       closeTab(pane.id, tabId);
@@ -138,7 +168,10 @@ export default memo(function Panel({ pane }: PanelProps) {
           tabIds: dirtyTabs.map((t) => t.id),
           action: () => {
             tabsToClose.filter((t) => !t.pinned).forEach((t) => {
-              if (t.sessionId) terminalService.killSession(t.sessionId).catch((e) => handleErrorSilent(e, "kill session"));
+              const sessionIds = collectTerminalSessionIds(t);
+              sessionIds.forEach((sessionId) => {
+                terminalService.killSession(sessionId).catch((e) => handleErrorSilent(e, "kill session"));
+              });
             });
             action();
           },
@@ -146,7 +179,10 @@ export default memo(function Panel({ pane }: PanelProps) {
         return;
       }
       tabsToClose.filter((t) => !t.pinned).forEach((t) => {
-        if (t.sessionId) terminalService.killSession(t.sessionId).catch((e) => handleErrorSilent(e, "kill session"));
+        const sessionIds = collectTerminalSessionIds(t);
+        sessionIds.forEach((sessionId) => {
+          terminalService.killSession(sessionId).catch((e) => handleErrorSilent(e, "kill session"));
+        });
       });
       action();
     },
@@ -228,22 +264,47 @@ export default memo(function Panel({ pane }: PanelProps) {
     [pane.id, splitAndMoveTab]
   );
 
+  const handleSplitTerminalRight = useCallback((tabId: string) => {
+    const tab = pane.tabs.find((item) => item.id === tabId);
+    if (tab?.contentType !== "terminal" || !tab.activeTerminalPaneId) return;
+    splitTerminalPane(tabId, tab.activeTerminalPaneId, "right");
+  }, [pane.tabs, splitTerminalPane]);
+
+  const handleSplitTerminalDown = useCallback((tabId: string) => {
+    const tab = pane.tabs.find((item) => item.id === tabId);
+    if (tab?.contentType !== "terminal" || !tab.activeTerminalPaneId) return;
+    splitTerminalPane(tabId, tab.activeTerminalPaneId, "down");
+  }, [pane.tabs, splitTerminalPane]);
+
+  const handleCloseTerminalPane = useCallback((tabId: string) => {
+    const tab = pane.tabs.find((item) => item.id === tabId);
+    if (tab?.contentType !== "terminal" || !tab.activeTerminalPaneId) return;
+    const activeLeaf = tab.terminalRootPane
+      ? findActiveTerminalSessionId(tab)
+      : null;
+    if (activeLeaf) {
+      terminalService.killSession(activeLeaf).catch((e) => handleErrorSilent(e, "kill session"));
+    }
+    closeTerminalPane(tabId, tab.activeTerminalPaneId);
+  }, [closeTerminalPane, pane.tabs]);
+
   const handleFullscreen = useCallback(
     (tabId: string) => enterFullscreen(pane.id, tabId),
     [pane.id, enterFullscreen]
   );
 
   const handleSessionCreated = useCallback(
-    (tabId: string, sessionId: string) => updateTabSession(pane.id, tabId, sessionId),
+    (tabId: string, sessionId: string, terminalPaneId?: string) =>
+      updateTabSession(pane.id, tabId, sessionId, terminalPaneId),
     [pane.id, updateTabSession]
   );
 
   /** SSH 终端退出时标记 Tab 为断连状态 */
   const handleSessionExited = useCallback(
-    (tabId: string, _exitCode: number) => {
+    (tabId: string, _exitCode: number, terminalPaneId?: string) => {
       const tab = pane.tabs.find((t) => t.id === tabId);
       if (tab?.ssh) {
-        setTabDisconnected(pane.id, tabId, true);
+        setTabDisconnected(pane.id, tabId, true, terminalPaneId);
       }
     },
     [pane.id, pane.tabs, setTabDisconnected]
@@ -251,7 +312,7 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   /** SSH 断线重连：从 Tab 数据重建 session */
   const handleReconnect = useCallback(
-    (tabId: string) => reconnectTab(pane.id, tabId),
+    (tabId: string, terminalPaneId?: string) => reconnectTab(pane.id, tabId, terminalPaneId),
     [pane.id, reconnectTab]
   );
 
@@ -273,12 +334,13 @@ export default memo(function Panel({ pane }: PanelProps) {
   const handlePopOutTab = useCallback(
     async (tabId: string) => {
       const tab = pane.tabs.find((t) => t.id === tabId);
-      if (!tab || tab.contentType !== "terminal" || !tab.sessionId) return;
+      const sessionId = tab ? findActiveTerminalSessionId(tab) : null;
+      if (!tab || tab.contentType !== "terminal" || !sessionId) return;
       if (isTabPoppedOut(tabId)) return;
       const data: PopupTabData = {
         tabId,
         paneId: pane.id,
-        sessionId: tab.sessionId,
+        sessionId,
         projectPath: tab.projectPath,
         title: tab.title,
         workspaceName: tab.workspaceName,
@@ -288,8 +350,8 @@ export default memo(function Panel({ pane }: PanelProps) {
       try {
         // 先创建弹出窗口，成功后再断开主窗口 + 标记弹出
         await popOutTab(data);
-        terminalService.detachOutput(tab.sessionId);
-        terminalService.detachExit(tab.sessionId);
+        terminalService.detachOutput(sessionId);
+        terminalService.detachExit(sessionId);
         markTabPoppedOut(tabId);
       } catch (err) {
         console.error("Failed to pop out tab:", err);
@@ -300,11 +362,11 @@ export default memo(function Panel({ pane }: PanelProps) {
   );
 
   // 保存 terminal ref
-  const setTerminalRef = useCallback((tabId: string, ref: TerminalViewHandle | null) => {
+  const setTerminalRef = useCallback((tabKey: string, ref: TerminalViewHandle | null) => {
     if (ref) {
-      terminalRefs.current.set(tabId, ref);
+      terminalRefs.current.set(tabKey, ref);
     } else {
-      terminalRefs.current.delete(tabId);
+      terminalRefs.current.delete(tabKey);
     }
   }, []);
 
@@ -346,6 +408,9 @@ export default memo(function Panel({ pane }: PanelProps) {
             onFullscreen={handleFullscreen}
             onSplitAndMoveRight={handleSplitAndMoveRight}
             onSplitAndMoveDown={handleSplitAndMoveDown}
+            onSplitTerminalRight={handleSplitTerminalRight}
+            onSplitTerminalDown={handleSplitTerminalDown}
+            onCloseTerminalPane={handleCloseTerminalPane}
             onCloseTabsToLeft={handleCloseTabsToLeft}
             onCloseTabsToRight={handleCloseTabsToRight}
             onCloseOtherTabs={handleCloseOtherTabs}
@@ -369,10 +434,10 @@ export default memo(function Panel({ pane }: PanelProps) {
               isActive={tab.id === pane.activeTabId && isActivePane}
               paneId={pane.id}
               isPoppedOut={isTabPoppedOut(tab.id)}
-              onSessionCreated={(sid) => handleSessionCreated(tab.id, sid)}
-              onSessionExited={(code) => handleSessionExited(tab.id, code)}
-              onTerminalRef={(ref) => setTerminalRef(tab.id, ref)}
-              onReconnect={tab.ssh ? () => handleReconnect(tab.id) : undefined}
+              onSessionCreated={(sid, terminalPaneId) => handleSessionCreated(tab.id, sid, terminalPaneId)}
+              onSessionExited={(code, terminalPaneId) => handleSessionExited(tab.id, code, terminalPaneId)}
+              onTerminalRef={(terminalPaneId, ref) => setTerminalRef(`${tab.id}:${terminalPaneId}`, ref)}
+              onReconnect={tab.ssh ? (terminalPaneId) => handleReconnect(tab.id, terminalPaneId) : undefined}
             />
           </div>
         ))}

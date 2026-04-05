@@ -4,6 +4,7 @@ export {
   buildSshConnectionDisplayPath,
   buildSshDisplayPath,
   detectAppPlatform,
+  hasWorkspaceWslPath,
   getWorkspaceDefaultEnvironment,
   getWorkspaceEnvironmentIssue,
   getWorkspaceLaunchIssueKey,
