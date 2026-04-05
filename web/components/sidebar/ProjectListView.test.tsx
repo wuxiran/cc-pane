@@ -1,5 +1,6 @@
 import "@/i18n";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectListView from "./ProjectListView";
 import { createTestWorkspace, createTestWorkspaceProject, resetTestDataCounter } from "@/test/utils/testData";
@@ -18,7 +19,9 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/hooks/useCliTools", () => ({
   useCliTools: () => ({
-    tools: [],
+    tools: [
+      { id: "codex", displayName: "Codex" },
+    ],
   }),
 }));
 
@@ -115,5 +118,89 @@ describe("ProjectListView", () => {
     expect(screen.getByText("LOCAL")).toBeVisible();
     expect(screen.getByText("ssh-project")).toBeVisible();
     expect(screen.getByText("SSH")).toBeVisible();
+  });
+
+  it("默认环境为 local 时项目右键 Codex 走本地启动", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn();
+    const workspace = createTestWorkspace({
+      defaultEnvironment: "local",
+      path: "D:/workspace-root",
+      projects: [
+        createTestWorkspaceProject({
+          alias: "local-project",
+          path: "D:/workspace-root/apps/api",
+        }),
+      ],
+    });
+
+    render(
+      <ProjectListView
+        projects={workspace.projects}
+        ws={workspace}
+        gitBranches={{}}
+        onOpenTerminal={onOpenTerminal}
+        onRemoveProject={vi.fn()}
+        onSetProjectAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onMigrateProject={vi.fn()}
+        onOpenWorktreeManager={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText("local-project"));
+    await user.click(await screen.findByRole("menuitem", { name: "Codex" }));
+
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      path: "D:/workspace-root/apps/api",
+      workspacePath: "D:/workspace-root",
+      cliTool: "codex",
+    }));
+    expect(onOpenTerminal.mock.calls[0]?.[0]?.wsl).toBeUndefined();
+  });
+
+  it("默认环境为 wsl 时项目右键 Codex 自动走 WSL", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn();
+    const workspace = createTestWorkspace({
+      defaultEnvironment: "wsl",
+      path: "D:/workspace-root",
+      wsl: {
+        distro: "Ubuntu",
+        remotePath: "/mnt/d/workspace-root",
+      },
+      projects: [
+        createTestWorkspaceProject({
+          alias: "local-project",
+          path: "D:/workspace-root/apps/api",
+        }),
+      ],
+    });
+
+    render(
+      <ProjectListView
+        projects={workspace.projects}
+        ws={workspace}
+        gitBranches={{}}
+        onOpenTerminal={onOpenTerminal}
+        onRemoveProject={vi.fn()}
+        onSetProjectAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onMigrateProject={vi.fn()}
+        onOpenWorktreeManager={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText("local-project"));
+    await user.click(await screen.findByRole("menuitem", { name: "Codex" }));
+
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      path: "D:/workspace-root/apps/api",
+      workspacePath: "D:/workspace-root",
+      cliTool: "codex",
+      wsl: {
+        remotePath: "/mnt/d/workspace-root/apps/api",
+      },
+    }));
   });
 });

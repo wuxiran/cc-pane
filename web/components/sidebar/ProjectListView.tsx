@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { specService } from "@/services/specService";
 import { useCliTools } from "@/hooks/useCliTools";
 import {
   detectAppPlatform,
+  getWorkspaceDefaultEnvironment,
   getProjectName,
   getWorkspaceProjectKind,
   resolveWorkspaceProjectWslPath,
@@ -81,6 +82,7 @@ export default function ProjectListView({
   const onOpenTodo = useDialogStore((s) => s.openTodo);
   const [projectSpecs, setProjectSpecs] = useState<Record<string, SpecEntry[]>>({});
   const isWindows = detectAppPlatform() === "windows";
+  const defaultEnvironment = getWorkspaceDefaultEnvironment(ws);
 
   const handleLoadSpecs = useCallback(async (projectPath: string) => {
     try {
@@ -144,9 +146,19 @@ export default function ProjectListView({
           machineName: sshMachine?.name ?? project.alias,
         };
         const wslRemotePath = !isSsh ? resolveWorkspaceProjectWslPath(ws, project) : null;
-        const codexWslOpts = wslRemotePath
-          ? { ...terminalOpts, workspacePath: ws.path, cliTool: "codex" as const, wsl: { remotePath: wslRemotePath } }
-          : null;
+        const codexOpts: OpenTerminalOptions =
+          defaultEnvironment === "wsl" && wslRemotePath
+            ? {
+                ...terminalOpts,
+                workspacePath: ws.path,
+                cliTool: "codex",
+                wsl: { remotePath: wslRemotePath },
+              }
+            : {
+                ...terminalOpts,
+                workspacePath: ws.path,
+                cliTool: "codex",
+              };
         return (
         <div key={project.id}>
           <ContextMenu>
@@ -200,15 +212,10 @@ export default function ProjectListView({
                       ))}
                     </ContextMenuSubContent>
                   </ContextMenuSub>
-                ) : tool.id === "codex" && codexWslOpts ? (
-                  <Fragment key={tool.id}>
-                    <ContextMenuItem onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
-                      <Terminal /> {tool.displayName}
-                    </ContextMenuItem>
-                    <ContextMenuItem onClick={() => onOpenTerminal(codexWslOpts)}>
-                      <Terminal /> Codex (WSL)
-                    </ContextMenuItem>
-                  </Fragment>
+                ) : tool.id === "codex" ? (
+                  <ContextMenuItem key={tool.id} onClick={() => onOpenTerminal(codexOpts)}>
+                    <Terminal /> {tool.displayName}
+                  </ContextMenuItem>
                 ) : (
                   <ContextMenuItem key={tool.id} onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
                     <Terminal /> {tool.displayName}
