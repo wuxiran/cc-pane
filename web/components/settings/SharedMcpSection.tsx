@@ -10,11 +10,15 @@ import {
   Loader2,
   ToggleLeft,
   ToggleRight,
+  Copy,
+  Check,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useSharedMcpStore } from "@/stores";
 import type { SharedMcpServerInfo, SharedMcpServerStatus } from "@/types";
+import { mcpService } from "@/services";
 
 function statusLabel(status: SharedMcpServerStatus): string {
   if (status === "Running") return "Running";
@@ -32,6 +36,71 @@ function statusVariant(
   if (status === "Stopped") return "secondary";
   if (typeof status === "object" && "Failed" in status) return "destructive";
   return "outline";
+}
+
+function CcpanesMcpCard() {
+  const [info, setInfo] = useState<{ port: number | null; token: string } | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
+
+  useEffect(() => {
+    mcpService.getOrchestratorInfo().then(setInfo).catch(() => {});
+  }, []);
+
+  if (!info || !info.port) return null;
+
+  const url = `http://127.0.0.1:${info.port}/mcp?token=${info.token}`;
+
+  function copyText(text: string, setter: (v: boolean) => void) {
+    navigator.clipboard.writeText(text).then(() => {
+      setter(true);
+      setTimeout(() => setter(false), 1500);
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Zap size={14} className="text-primary shrink-0" />
+        <span className="text-xs font-medium">CC-Panes MCP (self)</span>
+        <Badge variant="secondary" className="text-[10px]">HTTP</Badge>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground w-10 shrink-0">URL</span>
+          <code className="flex-1 text-[10px] font-mono bg-muted rounded px-1.5 py-0.5 truncate">
+            {url}
+          </code>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-5 w-5 shrink-0"
+            onClick={() => copyText(url, setCopiedUrl)}
+            title="Copy URL"
+          >
+            {copiedUrl ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground w-10 shrink-0">Token</span>
+          <code className="flex-1 text-[10px] font-mono bg-muted rounded px-1.5 py-0.5 truncate">
+            {info.token}
+          </code>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-5 w-5 shrink-0"
+            onClick={() => copyText(info.token, setCopiedToken)}
+            title="Copy token"
+          >
+            {copiedToken ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function SharedMcpSection() {
@@ -124,6 +193,9 @@ export default function SharedMcpSection() {
 
   return (
     <div className="space-y-4">
+      {/* CC-Panes 自身 MCP 配置 */}
+      <CcpanesMcpCard />
+
       {/* 标题 + 操作 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

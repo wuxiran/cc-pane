@@ -1,6 +1,6 @@
 [package]
 name = "cc-panes"
-version = "0.9.31"
+version = "0.9.32"
 description = "CC-Panes - Multi-instance split-pane manager for Claude Code"
 authors = ["wuxiran"]
 license = "GPL-3.0"
@@ -49,7 +49,7 @@ axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 rand = "0.8"
-rmcp = { version = "1", features = ["server", "macros", "transport-streamable-http-server"] }
+rmcp = { version = "1.3", features = ["server", "macros", "transport-streamable-http-server"] }
 schemars = "1"
 nucleo-matcher = "0.3"
 xcap = "0.8"

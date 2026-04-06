@@ -31,6 +31,8 @@ impl CliTool {
 pub struct WslLaunchInfo {
     pub remote_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_remote_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub distro: Option<String>,
 }
 

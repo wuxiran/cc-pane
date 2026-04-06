@@ -538,13 +538,21 @@ impl TerminalService {
         host: &str,
         port: u16,
     ) -> Result<bool> {
+        // 优先用 curl：WSL mirror 模式下 bash /dev/tcp 对 127.0.0.1 有时会返回
+        // "Connection refused"，而 curl 走正常网络栈可以正常连接。
+        // fallback 到 /dev/tcp 保留对没有 curl 的极简环境的兼容。
         let script = format!(
-            "host={host}; port={port}; \
+            "if command -v curl >/dev/null 2>&1; then \
+curl -sf --connect-timeout 2 --max-time 3 http://{host}:{port}/api/health >/dev/null 2>&1; \
+else \
+host={host_esc}; port={port}; \
 if ! exec 3<>/dev/tcp/$host/$port 2>/dev/null; then exit 1; fi; \
 printf 'GET /api/health HTTP/1.1\\r\\nHost: %s:%s\\r\\nConnection: close\\r\\n\\r\\n' \"$host\" \"$port\" >&3; \
 if ! IFS= read -r -t 1 status <&3; then exit 1; fi; \
-case \"$status\" in HTTP/*' 200 '*) exit 0 ;; *) exit 1 ;; esac",
-            host = Self::shell_escape(host),
+case \"$status\" in HTTP/*' 200 '*) exit 0 ;; *) exit 1 ;; esac; \
+fi",
+            host = host,
+            host_esc = Self::shell_escape(host),
             port = port,
         );
 

@@ -315,6 +315,7 @@ function MainApp() {
 
   // 监听 Rust 侧 popup 窗口关闭通知（on_window_event 发射）
   useEffect(() => {
+    if (!isTauriReady()) return;
     let cancelled = false;
     let unlisten: (() => void) | null = null;
     listen<string>("popup-window-closing", (e) => {
@@ -343,6 +344,7 @@ function MainApp() {
 
   // Fallback: 监听 popup 窗口销毁事件，防止 reclaim 事件丢失
   useEffect(() => {
+    if (!isTauriReady()) return;
     let cancelled = false;
     let unlisten: (() => void) | null = null;
     listen<{ label: string }>("tauri://window-destroyed", (e) => {
