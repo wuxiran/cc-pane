@@ -110,7 +110,12 @@ export type {
   SharedMcpConfig,
 } from "./shared-mcp";
 export type { SavedSession } from "./session-restore";
-export type { WslDistro, WslDistroState } from "./wsl";
+export type {
+  WslDistro,
+  WslDistroState,
+  WslDetectionStatus,
+  WslDetectionResult,
+} from "./wsl";
 export type {
   TaskBindingStatus,
   TaskBinding,
@@ -119,4 +124,3 @@ export type {
   TaskBindingQuery,
   TaskBindingQueryResult,
 } from "./orchestrator";
-

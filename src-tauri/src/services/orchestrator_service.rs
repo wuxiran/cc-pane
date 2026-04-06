@@ -12,7 +12,7 @@
 use crate::models::todo::{
     CreateTodoRequest, TodoPriority, TodoQuery, TodoScope, TodoStatus, UpdateTodoRequest,
 };
-use crate::models::CliTool;
+use crate::models::{CliTool, WslLaunchInfo};
 use crate::services::{
     LaunchHistoryService, ProjectService, ProviderService, SkillService, SpecService,
     TerminalService, TodoService, WorkspaceService,
@@ -845,6 +845,11 @@ impl McpToolHandler {
             None
         };
         let initial_prompt = initial_prompt_owned.as_deref();
+        let wsl_info = resolve_wsl_launch_info(
+            &params.project_path,
+            ws_name.as_deref(),
+            &self.state.workspace_service,
+        );
 
         // 创建 PTY 会话（resume 时传 resume_id）
         let session_id = match self.state.terminal_service.create_session(
@@ -860,7 +865,7 @@ impl McpToolHandler {
             None,
             initial_prompt,
             None,
-            None,
+            wsl_info.as_ref(),
         ) {
             Ok(sid) => sid,
             Err(e) => {
@@ -1029,6 +1034,8 @@ impl McpToolHandler {
                             "id": p.id,
                             "path": p.path,
                             "alias": p.alias,
+                            "wslRemotePath": p.wsl_remote_path,
+                            "ssh": p.ssh,
                         })
                     })
                     .collect();
@@ -1038,6 +1045,9 @@ impl McpToolHandler {
                     "projects": projects,
                     "providerId": ws.provider_id,
                     "path": ws.path,
+                    "defaultEnvironment": ws.default_environment,
+                    "wsl": ws.wsl,
+                    "sshLaunch": ws.ssh_launch,
                     "pinned": ws.pinned,
                 })
                 .to_string()
@@ -1713,6 +1723,123 @@ impl ServerHandler for McpToolHandler {
     }
 }
 
+#[cfg_attr(not(any(test, target_os = "windows")), allow(dead_code))]
+fn parse_wsl_unc_path(path: &str) -> Option<(String, String)> {
+    let normalized = path.replace('\\', "/");
+    let trimmed = normalized.trim();
+    let rest = trimmed.strip_prefix("//")?;
+    let mut parts = rest.split('/').filter(|part| !part.is_empty());
+    let host = parts.next()?;
+    if !host.eq_ignore_ascii_case("wsl.localhost") && !host.eq_ignore_ascii_case("wsl$") {
+        return None;
+    }
+
+    let distro = parts.next()?.trim();
+    if distro.is_empty() {
+        return None;
+    }
+
+    let suffix = parts.collect::<Vec<_>>().join("/");
+    let remote_path = if suffix.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}", suffix)
+    };
+
+    Some((distro.to_string(), remote_path))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_path_to_wsl_path(path: &str) -> Option<String> {
+    let normalized = path.replace('\\', "/");
+    let normalized = normalized.strip_prefix("//?/").unwrap_or(&normalized);
+    let bytes = normalized.as_bytes();
+    if normalized.len() < 2 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' {
+        return None;
+    }
+
+    let suffix = normalized[2..].trim_start_matches('/');
+    if suffix.is_empty() {
+        return Some(format!("/mnt/{}", (bytes[0] as char).to_ascii_lowercase()));
+    }
+
+    Some(format!(
+        "/mnt/{}/{}",
+        (bytes[0] as char).to_ascii_lowercase(),
+        suffix
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_wsl_launch_info(
+    project_path: &str,
+    workspace_name: Option<&str>,
+    workspace_service: &WorkspaceService,
+) -> Option<WslLaunchInfo> {
+    let normalized_project_path = normalize_path(project_path);
+    let workspace = workspace_name
+        .and_then(|name| workspace_service.get_workspace(name).ok())
+        .or_else(|| {
+            workspace_service
+                .list_workspaces()
+                .ok()
+                .and_then(|workspaces| {
+                    workspaces.into_iter().find(|workspace| {
+                        workspace
+                            .projects
+                            .iter()
+                            .any(|project| normalize_path(&project.path) == normalized_project_path)
+                    })
+                })
+        });
+    let workspace_wsl = workspace
+        .as_ref()
+        .filter(|ws| ws.default_environment == crate::models::WorkspaceLaunchEnvironment::Wsl);
+
+    if let Some((distro, remote_path)) = parse_wsl_unc_path(project_path) {
+        return Some(WslLaunchInfo {
+            remote_path,
+            workspace_remote_path: workspace_wsl
+                .and_then(|ws| ws.wsl.as_ref())
+                .and_then(|cfg| cfg.remote_path.clone())
+                .filter(|path| !path.trim().is_empty()),
+            distro: Some(distro),
+        });
+    }
+
+    let workspace = workspace_wsl?;
+    let remote_path = workspace
+        .projects
+        .iter()
+        .find(|project| normalize_path(&project.path) == normalized_project_path)
+        .and_then(|project| project.wsl_remote_path.clone())
+        .filter(|path| !path.trim().is_empty())
+        .or_else(|| windows_path_to_wsl_path(project_path))?;
+
+    Some(WslLaunchInfo {
+        remote_path,
+        workspace_remote_path: workspace
+            .wsl
+            .as_ref()
+            .and_then(|cfg| cfg.remote_path.clone())
+            .filter(|path| !path.trim().is_empty()),
+        distro: workspace
+            .wsl
+            .as_ref()
+            .and_then(|cfg| cfg.distro.clone())
+            .filter(|distro| !distro.trim().is_empty()),
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn resolve_wsl_launch_info(
+    _project_path: &str,
+    _workspace_name: Option<&str>,
+    _workspace_service: &WorkspaceService,
+) -> Option<WslLaunchInfo> {
+    None
+}
+
 // ============ 路径白名单 ============
 
 /// 规范化路径（统一正斜杠、去尾部分隔符）用于白名单比较
@@ -1861,6 +1988,11 @@ async fn handle_launch_task(
         None
     };
     let initial_prompt = initial_prompt_owned.as_deref();
+    let wsl_info = resolve_wsl_launch_info(
+        &req.project_path,
+        req.workspace_name.as_deref(),
+        &state.workspace_service,
+    );
 
     let session_id = match state.terminal_service.create_session(
         &req.project_path,
@@ -1875,7 +2007,7 @@ async fn handle_launch_task(
         None,
         initial_prompt,
         None,
-        None,
+        wsl_info.as_ref(),
     ) {
         Ok(sid) => {
             info!(session_id = %sid, "REST::launch_task session created");
@@ -2382,6 +2514,7 @@ fn strip_unc_prefix(path: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::WorkspaceWslConfig;
 
     #[test]
     fn test_generate_token_length() {
@@ -2415,5 +2548,67 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "abc123".parse().unwrap());
         assert!(!verify_token(&headers, "abc123"));
+    }
+
+    #[test]
+    fn test_parse_wsl_unc_path_localhost() {
+        assert_eq!(
+            parse_wsl_unc_path(r"\\wsl.localhost\Ubuntu\home\dev\repo"),
+            Some(("Ubuntu".to_string(), "/home/dev/repo".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_wsl_unc_path_wsl_dollar_root() {
+        assert_eq!(
+            parse_wsl_unc_path(r"\\wsl$\Debian"),
+            Some(("Debian".to_string(), "/".to_string()))
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_resolve_wsl_launch_info_prefers_workspace_project_remote_path() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let service = WorkspaceService::new(dir.path().to_path_buf());
+
+        service
+            .create_workspace("ws-wsl", Some(r"D:\workspace"))
+            .expect("create workspace");
+        service
+            .add_project("ws-wsl", r"D:\workspace\repo")
+            .expect("add project");
+
+        let mut workspace = service.get_workspace("ws-wsl").expect("load workspace");
+        workspace.default_environment = crate::models::WorkspaceLaunchEnvironment::Wsl;
+        workspace.wsl = Some(WorkspaceWslConfig {
+            distro: Some("Ubuntu".to_string()),
+            remote_path: Some("/home/dev/workspace".to_string()),
+        });
+        workspace.projects[0].wsl_remote_path = Some("/home/dev/workspace/repo".to_string());
+        service
+            .write_workspace_json("ws-wsl", &workspace)
+            .expect("persist workspace");
+
+        let info = resolve_wsl_launch_info(r"D:\workspace\repo", Some("ws-wsl"), &service)
+            .expect("resolve wsl info");
+        assert_eq!(info.remote_path, "/home/dev/workspace/repo");
+        assert_eq!(
+            info.workspace_remote_path,
+            Some("/home/dev/workspace".to_string())
+        );
+        assert_eq!(info.distro, Some("Ubuntu".to_string()));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_resolve_wsl_launch_info_is_disabled_on_non_windows() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let service = WorkspaceService::new(dir.path().to_path_buf());
+
+        assert!(
+            resolve_wsl_launch_info(r"\\wsl.localhost\Ubuntu\home\dev\repo", None, &service,)
+                .is_none()
+        );
     }
 }

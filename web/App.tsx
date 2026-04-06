@@ -38,6 +38,7 @@ import {
   useActivityBarStore,
   useWorkspacesStore,
   useResourceStatsStore,
+  useEnvironmentStore,
 } from "@/stores";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
@@ -225,6 +226,7 @@ function MainApp() {
       }
       useTerminalStatusStore.getState().init();
       useResourceStatsStore.getState().init();
+      useEnvironmentStore.getState().init();
       // 应用启动后静默检查更新（仅写入 store，不弹窗）
       checkUpdateSilent().catch(console.error);
       // [暂时禁用] macOS 下 Dialog 按钮不可点击，暂停 onboarding 引导

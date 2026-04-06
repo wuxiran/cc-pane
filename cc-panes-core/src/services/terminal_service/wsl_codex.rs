@@ -4,6 +4,8 @@
 use super::cached_which;
 use super::TerminalService;
 use crate::models::{CliTool, WslLaunchInfo};
+#[cfg(windows)]
+use crate::utils::no_window_command;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -112,6 +114,39 @@ fn append_codex_resume_args(
 
 fn is_wsl_home_path(path: &str) -> bool {
     matches!(path.trim(), "~" | "~/")
+}
+
+fn parse_wsl_runtime_paths_output(output: &str) -> (String, String) {
+    let mut lines = output.lines().map(str::trim);
+    let codex_path = lines.next().unwrap_or_default().to_string();
+    let node_path = lines.next().unwrap_or_default().to_string();
+    (codex_path, node_path)
+}
+
+fn split_wsl_network_capture_output(output: &str) -> (Option<String>, Option<String>) {
+    const DEFAULT_MARKER: &str = "__CCPANES_DEFAULT_ROUTE__";
+    const RESOLV_MARKER: &str = "__CCPANES_RESOLV_CONF__";
+
+    let mut current = None::<&str>;
+    let mut default_lines = Vec::new();
+    let mut resolv_lines = Vec::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        match trimmed {
+            DEFAULT_MARKER => current = Some(DEFAULT_MARKER),
+            RESOLV_MARKER => current = Some(RESOLV_MARKER),
+            _ => match current {
+                Some(DEFAULT_MARKER) if !trimmed.is_empty() => default_lines.push(trimmed),
+                Some(RESOLV_MARKER) if !trimmed.is_empty() => resolv_lines.push(trimmed),
+                _ => {}
+            },
+        }
+    }
+
+    let default_route = (!default_lines.is_empty()).then(|| default_lines.join("\n"));
+    let resolv_conf = (!resolv_lines.is_empty()).then(|| resolv_lines.join("\n"));
+    (default_route, resolv_conf)
 }
 
 fn extract_ipv4_from_text(text: &str) -> Option<std::net::Ipv4Addr> {
@@ -488,7 +523,7 @@ impl TerminalService {
         distro: &str,
         script: &str,
     ) -> Result<String> {
-        let mut command = std::process::Command::new(wsl_path);
+        let mut command = no_window_command(wsl_path);
         command
             .arg("-d")
             .arg(distro)
@@ -556,7 +591,7 @@ fi",
             port = port,
         );
 
-        let mut command = std::process::Command::new(wsl_path);
+        let mut command = no_window_command(wsl_path);
         command
             .arg("-d")
             .arg(distro)
@@ -610,14 +645,19 @@ fi",
             }
         }
 
-        let default_gateway_output =
-            Self::run_wsl_shell_capture(wsl_path, distro, "ip route show default 2>/dev/null").ok();
-        let resolv_output = Self::run_wsl_shell_capture(
+        let network_output = Self::run_wsl_shell_capture(
             wsl_path,
             distro,
-            "grep '^nameserver ' /etc/resolv.conf 2>/dev/null",
+            "printf '__CCPANES_DEFAULT_ROUTE__\\n'; \
+ip route show default 2>/dev/null; \
+printf '__CCPANES_RESOLV_CONF__\\n'; \
+grep '^nameserver ' /etc/resolv.conf 2>/dev/null",
         )
         .ok();
+        let (default_gateway_output, resolv_output) = network_output
+            .as_deref()
+            .map(split_wsl_network_capture_output)
+            .unwrap_or((None, None));
 
         let host = Self::resolve_reachable_wsl_windows_host_with_probe(
             distro,
@@ -648,11 +688,14 @@ fi",
 
     #[cfg(windows)]
     pub(super) fn validate_wsl_codex_runtime(&self, wsl: &mut ResolvedWslLaunch) -> Result<()> {
-        let codex_path = Self::run_wsl_shell_capture(
+        let runtime_output = Self::run_wsl_shell_capture(
             &wsl.wsl_path,
             &wsl.distro,
-            "command -v codex 2>/dev/null || true",
+            "codex_path=$(command -v codex 2>/dev/null || true); \
+node_path=$(command -v node 2>/dev/null || true); \
+printf '%s\\n%s\\n' \"$codex_path\" \"$node_path\"",
         )?;
+        let (codex_path, node_path) = parse_wsl_runtime_paths_output(&runtime_output);
         if codex_path.is_empty() {
             return Err(anyhow!(
                 "{}: Codex CLI was not found inside WSL distro '{}'. Install Codex CLI in WSL and ensure `command -v codex` succeeds.",
@@ -669,12 +712,6 @@ fi",
                 codex_path
             ));
         }
-
-        let node_path = Self::run_wsl_shell_capture(
-            &wsl.wsl_path,
-            &wsl.distro,
-            "command -v node 2>/dev/null || true",
-        )?;
         if node_path.is_empty() || is_wsl_windows_shim_path(&node_path) {
             let detail = if node_path.is_empty() {
                 "node is not available in WSL PATH".to_string()
@@ -1130,7 +1167,8 @@ fi",
 mod tests {
     use super::{
         append_codex_resume_args, collect_wsl_windows_host_candidates, is_wsl_windows_shim_path,
-        select_reachable_wsl_windows_host_with_probe, TerminalService,
+        parse_wsl_runtime_paths_output, select_reachable_wsl_windows_host_with_probe,
+        split_wsl_network_capture_output, TerminalService,
     };
 
     #[test]
@@ -1173,6 +1211,31 @@ mod tests {
         assert!(is_wsl_windows_shim_path("codex.ps1"));
         assert!(is_wsl_windows_shim_path("codex.exe"));
         assert!(!is_wsl_windows_shim_path("/usr/local/bin/codex"));
+    }
+
+    #[test]
+    fn parse_wsl_runtime_paths_output_reads_codex_and_node_lines() {
+        let (codex_path, node_path) =
+            parse_wsl_runtime_paths_output("/usr/local/bin/codex\n/usr/bin/node\n");
+
+        assert_eq!(codex_path, "/usr/local/bin/codex");
+        assert_eq!(node_path, "/usr/bin/node");
+    }
+
+    #[test]
+    fn split_wsl_network_capture_output_reads_both_sections() {
+        let (default_route, resolv_conf) = split_wsl_network_capture_output(
+            "__CCPANES_DEFAULT_ROUTE__\n\
+default via 172.18.0.2 dev eth0\n\
+__CCPANES_RESOLV_CONF__\n\
+nameserver 10.255.255.254\n",
+        );
+
+        assert_eq!(
+            default_route.as_deref(),
+            Some("default via 172.18.0.2 dev eth0")
+        );
+        assert_eq!(resolv_conf.as_deref(), Some("nameserver 10.255.255.254"));
     }
 
     #[test]

@@ -15,12 +15,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
-import { discoverWslDistros } from "@/services/sshMachineService";
+import {
+  useEnvironmentStore,
+  useSshMachinesStore,
+  useWorkspacesStore,
+} from "@/stores";
 import type {
   Workspace,
   WorkspaceLaunchEnvironment,
-  WslDistro,
 } from "@/types";
 import {
   detectAppPlatform,
@@ -81,6 +83,8 @@ export default function WorkspaceEnvironmentPanel() {
   const saveWorkspace = useWorkspacesStore((s) => s.saveWorkspace);
   const machines = useSshMachinesStore((s) => s.machines);
   const loadMachines = useSshMachinesStore((s) => s.load);
+  const { distros: wslDistros, status: wslStatus, error: wslError } = useEnvironmentStore((s) => s.wsl);
+  const refreshWsl = useEnvironmentStore((s) => s.refreshWsl);
 
   const platform = useMemo(() => detectAppPlatform(), []);
   const isWindows = platform === "windows";
@@ -90,32 +94,11 @@ export default function WorkspaceEnvironmentPanel() {
   const [wslRemotePath, setWslRemotePath] = useState("");
   const [sshMachineId, setSshMachineId] = useState("");
   const [sshRemotePath, setSshRemotePath] = useState("");
-  const [wslDistros, setWslDistros] = useState<WslDistro[]>([]);
-  const [wslLoading, setWslLoading] = useState(false);
-  const [wslError, setWslError] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   useEffect(() => {
     loadMachines().catch(() => {});
   }, [loadMachines]);
-
-  const loadWslDistros = useCallback(async () => {
-    if (!isWindows) return;
-    setWslLoading(true);
-    setWslError(null);
-    try {
-      setWslDistros(await discoverWslDistros());
-    } catch (error) {
-      setWslDistros([]);
-      setWslError(getErrorMessage(error));
-    } finally {
-      setWslLoading(false);
-    }
-  }, [isWindows]);
-
-  useEffect(() => {
-    loadWslDistros().catch(() => {});
-  }, [loadWslDistros]);
 
   useEffect(() => {
     setLocalPath(workspace?.path ?? "");
@@ -442,10 +425,10 @@ export default function WorkspaceEnvironmentPanel() {
                     </label>
                     <button
                       className="inline-flex items-center gap-1 text-xs text-[var(--app-text-secondary)] hover:text-[var(--app-accent)]"
-                      onClick={() => loadWslDistros()}
+                      onClick={() => void refreshWsl()}
                       type="button"
                     >
-                      <RefreshCw className={`h-3 w-3 ${wslLoading ? "animate-spin" : ""}`} />
+                      <RefreshCw className={`h-3 w-3 ${wslStatus === "detecting" ? "animate-spin" : ""}`} />
                       {t("refresh", { ns: "sidebar", defaultValue: "刷新" })}
                     </button>
                   </div>

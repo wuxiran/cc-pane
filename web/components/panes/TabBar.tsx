@@ -267,7 +267,7 @@ function SortableTab({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
-        <ContextMenuItem onSelect={() => startRename(tab)}>
+        <ContextMenuItem onClick={() => startRename(tab)}>
           <Pencil /> {t("renameTab")}
         </ContextMenuItem>
         <ContextMenuItem inset onClick={() => onTogglePin(tab.id)}>

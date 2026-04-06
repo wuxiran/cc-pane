@@ -6,6 +6,7 @@
 mod inner {
     use crate::models::ssh_machine::SshMachine;
     use crate::models::wsl::{WslDistro, WslDistroState};
+    use crate::utils::{no_window_command, no_window_tokio_command};
     use anyhow::Result;
     use std::path::{Path, PathBuf};
     use tracing::{debug, warn};
@@ -54,7 +55,7 @@ mod inner {
             Err(_) => return Ok(None),
         };
 
-        let output = std::process::Command::new(&wsl_path)
+        let output = no_window_command(&wsl_path)
             .args(["--list", "--verbose"])
             .output()?;
 
@@ -78,7 +79,7 @@ mod inner {
     /// 检查远程目录是否存在。
     pub fn ensure_directory_exists(distro_name: &str, remote_path: &str) -> Result<bool> {
         let wsl_path = find_wsl_path()?;
-        let status = std::process::Command::new(&wsl_path)
+        let status = no_window_command(&wsl_path)
             .args(["-d", distro_name, "--", "test", "-d", remote_path])
             .status()?;
         Ok(status.success())
@@ -89,7 +90,7 @@ mod inner {
     }
 
     async fn load_distros(wsl_path: &Path) -> Result<Vec<(String, WslDistroState, u8, bool)>> {
-        let output = tokio::process::Command::new(wsl_path)
+        let output = no_window_tokio_command(wsl_path)
             .args(["--list", "--verbose"])
             .output()
             .await?;
@@ -158,7 +159,7 @@ mod inner {
     }
 
     async fn get_default_user(wsl_path: &Path, distro_name: &str) -> Option<String> {
-        let output = tokio::process::Command::new(wsl_path)
+        let output = no_window_tokio_command(wsl_path)
             .args(["-d", distro_name, "-e", "whoami"])
             .output()
             .await

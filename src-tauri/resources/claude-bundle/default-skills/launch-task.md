@@ -13,7 +13,7 @@
 | 工具 | 用途 |
 |------|------|
 | `list_projects` | 列出所有已注册项目 |
-| `launch_task` | 启动 Claude Code 实例 |
+| `launch_task` | 启动 Claude/Codex 实例 |
 | `get_task_status` | 查询任务状态 |
 | `get_session_status` | 查询终端会话状态 |
 
@@ -40,9 +40,18 @@
 调用 `{{mcp_server_name}}.launch_task`：
 - `projectPath`: 目标项目路径
 - `prompt`: 任务描述
+- `cliTool`（可选）: `claude` 或 `codex`
 - `title`（可选）: 自定义标签名
 
 > **长任务描述**：如果 prompt 内容较长（超过约 200 字），先将完整任务描述写入 `.ccpanes/prompts/<descriptive-name>.md` 文件，然后 prompt 只传短引用：`Read task from '<文件路径>' and execute it. Delete the file after reading.`
+
+### WSL 项目说明
+
+当目标项目路径为 WSL UNC 格式（如 `\\wsl.localhost\Ubuntu\home\user\repo`）时，
+`launch_task` 会自动检测并以 WSL 模式启动，无需额外参数。
+
+如果工作空间的 `defaultEnvironment` 为 `wsl`，即使项目路径是 Windows 本地路径，
+也会自动转换为 WSL 远端路径启动。
 
 ### 4. 确认
 
