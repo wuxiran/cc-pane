@@ -7,6 +7,7 @@ import {
 import {
   getWorkspaceEnvironmentIssue,
   getWorkspaceProjectKind,
+  resolveWorkspaceProjectLaunchOptions,
   resolveWorkspaceLaunchOptions,
   resolveWorkspaceProjectWslPath,
 } from "./workspaceLaunch";
@@ -335,5 +336,80 @@ describe("workspaceLaunch", () => {
         remotePath: "/home/dev/repo",
       },
     }))).toBe("ssh");
+  });
+
+  it("resolves project launch through WSL when workspace default environment is wsl", () => {
+    const workspace = createTestWorkspace({
+      path: "D:/workspace-root",
+      defaultEnvironment: "wsl",
+      wsl: { distro: "Ubuntu", remotePath: "/mnt/d/workspace-root" },
+    });
+    const project = createTestWorkspaceProject({
+      path: "D:/workspace-root/apps/api",
+    });
+
+    const { options, issue } = resolveWorkspaceProjectLaunchOptions({
+      workspace,
+      project,
+      cliTool: "claude",
+      machines: [],
+      platform: "windows",
+    });
+
+    expect(issue).toBeNull();
+    expect(options).toMatchObject({
+      path: "D:/workspace-root/apps/api",
+      cliTool: "claude",
+      wsl: {
+        distro: "Ubuntu",
+        remotePath: "/mnt/d/workspace-root/apps/api",
+      },
+    });
+    expect(options?.providerId).toBeUndefined();
+  });
+
+  it("returns a WSL issue instead of falling back locally when a project cannot be mapped", () => {
+    const workspace = createTestWorkspace({
+      path: undefined,
+      defaultEnvironment: "wsl",
+    });
+    const project = createTestWorkspaceProject({
+      path: "/tmp/project",
+    });
+
+    const { options, issue } = resolveWorkspaceProjectLaunchOptions({
+      workspace,
+      project,
+      cliTool: "claude",
+      machines: [],
+      platform: "windows",
+    });
+
+    expect(options).toBeNull();
+    expect(issue?.code).toBe("wsl_local_path_missing");
+  });
+
+  it("allows explicit provider selection for project launch in WSL mode", () => {
+    const workspace = createTestWorkspace({
+      path: "D:/workspace-root",
+      defaultEnvironment: "wsl",
+      wsl: { remotePath: "/mnt/d/workspace-root" },
+    });
+    const project = createTestWorkspaceProject({
+      path: "D:/workspace-root/apps/api",
+    });
+
+    const { options, issue } = resolveWorkspaceProjectLaunchOptions({
+      workspace,
+      project,
+      cliTool: "gemini",
+      providerId: "provider-gemini",
+      machines: [],
+      platform: "windows",
+    });
+
+    expect(issue).toBeNull();
+    expect(options?.providerId).toBe("provider-gemini");
+    expect(options?.wsl?.remotePath).toBe("/mnt/d/workspace-root/apps/api");
   });
 });

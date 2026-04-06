@@ -181,22 +181,16 @@ describe("WorkspaceItem", () => {
     expect(await screen.findByRole("menuitem", { name: "Claude" })).toBeVisible();
   });
 
-  it("opens Claude through WSL and hides workspace provider badge when default environment is wsl", async () => {
-    const user = userEvent.setup();
-    const { onOpenTerminal } = renderWorkspaceItem("wsl");
+  it("hides the workspace provider badge when default environment is wsl", () => {
+    renderWorkspaceItem("wsl");
 
     expect(screen.queryByText("Codex Provider")).not.toBeInTheDocument();
+  });
+
+  it("still shows Claude as a launch entry when default environment is wsl", async () => {
+    renderWorkspaceItem("wsl");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.click(await screen.findByRole("menuitem", { name: "Claude" }));
-
-    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
-      path: "D:/workspace-alpha",
-      cliTool: "claude",
-      wsl: {
-        remotePath: "/mnt/d/workspace-alpha",
-      },
-    }));
-    expect(onOpenTerminal.mock.calls[0]?.[0]?.providerId).toBeUndefined();
+    expect(await screen.findByRole("menuitem", { name: "Claude" })).toBeVisible();
   });
 });

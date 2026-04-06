@@ -207,21 +207,56 @@ describe("ProjectListView", () => {
       path: "D:/workspace-root/apps/api",
       workspacePath: "D:/workspace-root",
       cliTool: "codex",
-      wsl: {
+      wsl: expect.objectContaining({
         remotePath: "/mnt/d/workspace-root/apps/api",
-      },
+      }),
     }));
   });
 
-  it("默认环境为 wsl 时 Claude、Gemini、OpenCode 都走 WSL 且不显示 provider 入口", async () => {
-    const user = userEvent.setup();
-    const onOpenTerminal = vi.fn();
+  it("默认环境为 wsl 时 Claude、Gemini、OpenCode 仍显示 provider 子菜单入口", async () => {
     const workspace = createTestWorkspace({
       defaultEnvironment: "wsl",
       path: "D:/workspace-root",
       providerId: "provider-claude",
       wsl: {
         distro: "Ubuntu",
+        remotePath: "/mnt/d/workspace-root",
+      },
+      projects: [
+        createTestWorkspaceProject({
+          alias: "local-project",
+          path: "D:/workspace-root/apps/api",
+        }),
+      ],
+    });
+
+    render(
+      <ProjectListView
+        projects={workspace.projects}
+        ws={workspace}
+        gitBranches={{}}
+        onOpenTerminal={vi.fn()}
+        onRemoveProject={vi.fn()}
+        onSetProjectAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onMigrateProject={vi.fn()}
+        onOpenWorktreeManager={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText("local-project"));
+    expect(await screen.findByRole("menuitem", { name: "Claude" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Gemini" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "OpenCode" })).toBeVisible();
+  });
+
+  it("默认环境为 wsl 时项目默认打开终端也走 WSL", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn();
+    const workspace = createTestWorkspace({
+      defaultEnvironment: "wsl",
+      path: "D:/workspace-root",
+      wsl: {
         remotePath: "/mnt/d/workspace-root",
       },
       projects: [
@@ -247,26 +282,10 @@ describe("ProjectListView", () => {
     );
 
     fireEvent.contextMenu(screen.getByText("local-project"));
-    expect(screen.queryByText("Claude Provider")).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("menuitem", { name: "打开终端" }));
 
-    await user.click(await screen.findByRole("menuitem", { name: "Claude" }));
-    expect(onOpenTerminal.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
-      cliTool: "claude",
-      wsl: { remotePath: "/mnt/d/workspace-root/apps/api" },
-    }));
-    expect(onOpenTerminal.mock.calls.at(-1)?.[0]?.providerId).toBeUndefined();
-
-    fireEvent.contextMenu(screen.getByText("local-project"));
-    await user.click(await screen.findByRole("menuitem", { name: "Gemini" }));
-    expect(onOpenTerminal.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
-      cliTool: "gemini",
-      wsl: { remotePath: "/mnt/d/workspace-root/apps/api" },
-    }));
-
-    fireEvent.contextMenu(screen.getByText("local-project"));
-    await user.click(await screen.findByRole("menuitem", { name: "OpenCode" }));
-    expect(onOpenTerminal.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
-      cliTool: "opencode",
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      path: "D:/workspace-root/apps/api",
       wsl: { remotePath: "/mnt/d/workspace-root/apps/api" },
     }));
   });
