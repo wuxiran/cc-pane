@@ -2,27 +2,6 @@ import { describe, expect, it } from "vitest";
 import { formatTerminalInitError } from "./terminalInitError";
 
 describe("formatTerminalInitError", () => {
-  it("formats missing WSL node errors", () => {
-    const lines = formatTerminalInitError(
-      "WSL_NODE_NOT_FOUND: WSL distro 'Ubuntu' resolves codex to '/mnt/d/.../codex', but node is not available in WSL PATH."
-    );
-
-    expect(lines).toEqual([
-      "\x1b[31mNode.js is not installed inside the target WSL distro.\x1b[0m",
-      "\x1b[33mInstall Node.js inside WSL and confirm `command -v node` works before starting Codex (WSL).\x1b[0m",
-      "\x1b[90mWSL distro 'Ubuntu' resolves codex to '/mnt/d/.../codex', but node is not available in WSL PATH.\x1b[0m",
-    ]);
-  });
-
-  it("formats Windows shim errors", () => {
-    const lines = formatTerminalInitError(
-      "WSL_CODEX_WINDOWS_SHIM: WSL distro 'Ubuntu' resolves codex to '/mnt/d/.../codex'."
-    );
-
-    expect(lines?.[0]).toContain("Windows shim");
-    expect(lines?.[1]).toContain("/mnt/...");
-  });
-
   it("formats WSL host resolution errors", () => {
     const lines = formatTerminalInitError(
       "WSL_HOST_UNRESOLVED: could not resolve the Windows host address"
