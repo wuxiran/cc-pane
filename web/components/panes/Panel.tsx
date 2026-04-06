@@ -3,7 +3,7 @@ import { X, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { handleErrorSilent } from "@/utils";
-import type { Panel as PanelType, Tab } from "@/types";
+import type { Panel as PanelType, Tab, TerminalPaneNode, TerminalPaneLeaf } from "@/types";
 import { useShallow } from "zustand/react/shallow";
 import { usePanesStore, useFullscreenStore, useFileTreeStore } from "@/stores";
 import { terminalService, popOutTab } from "@/services";
@@ -29,7 +29,7 @@ function collectTerminalSessionIds(tab: Tab): string[] {
     .filter((sessionId): sessionId is string => Boolean(sessionId));
 }
 
-function collectTerminalLeaves(node: NonNullable<Tab["terminalRootPane"]>) {
+function collectTerminalLeaves(node: TerminalPaneNode): TerminalPaneLeaf[] {
   if (node.type === "leaf") return [node];
   return node.children.flatMap(collectTerminalLeaves);
 }

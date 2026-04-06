@@ -1628,9 +1628,8 @@ impl McpToolHandler {
         };
 
         match self.state.task_binding_service.create(req) {
-            Ok(binding) => serde_json::to_string(&binding).unwrap_or_else(|e| {
-                format!("错误: 序列化失败: {}", e)
-            }),
+            Ok(binding) => serde_json::to_string(&binding)
+                .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
             Err(e) => format!("错误: 创建 TaskBinding 失败: {}", e),
         }
     }
@@ -1658,9 +1657,8 @@ impl McpToolHandler {
         };
 
         match self.state.task_binding_service.update(&params.id, req) {
-            Ok(binding) => serde_json::to_string(&binding).unwrap_or_else(|e| {
-                format!("错误: 序列化失败: {}", e)
-            }),
+            Ok(binding) => serde_json::to_string(&binding)
+                .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
             Err(e) => format!("错误: 更新 TaskBinding 失败: {}", e),
         }
     }
@@ -1686,9 +1684,8 @@ impl McpToolHandler {
         };
 
         match self.state.task_binding_service.query(query) {
-            Ok(result) => serde_json::to_string(&result).unwrap_or_else(|e| {
-                format!("错误: 序列化失败: {}", e)
-            }),
+            Ok(result) => serde_json::to_string(&result)
+                .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
             Err(e) => format!("错误: 查询 TaskBindings 失败: {}", e),
         }
     }
@@ -2420,4 +2417,3 @@ mod tests {
         assert!(!verify_token(&headers, "abc123"));
     }
 }
-

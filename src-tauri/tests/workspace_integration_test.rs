@@ -2,7 +2,9 @@
 //!
 //! 测试 WorkspaceService 与文件系统 (workspace.json) 的端到端流程
 
-use cc_panes_lib::models::{WorkspaceLaunchEnvironment, WorkspaceSshLaunchConfig, WorkspaceWslConfig};
+use cc_panes_lib::models::{
+    WorkspaceLaunchEnvironment, WorkspaceSshLaunchConfig, WorkspaceWslConfig,
+};
 use cc_panes_lib::services::WorkspaceService;
 
 /// 创建临时目录和 WorkspaceService 实例
@@ -126,7 +128,9 @@ fn test_provider_binding() {
 fn test_workspace_environment_config_persistence() {
     let (_dir, service) = setup();
 
-    service.create_workspace("ws-env", Some("D:/workspace")).unwrap();
+    service
+        .create_workspace("ws-env", Some("D:/workspace"))
+        .unwrap();
     let mut ws = service.get_workspace("ws-env").unwrap();
     ws.default_environment = WorkspaceLaunchEnvironment::Ssh;
     ws.wsl = Some(WorkspaceWslConfig {

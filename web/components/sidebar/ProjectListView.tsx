@@ -75,10 +75,7 @@ export default function ProjectListView({
 }: ProjectListViewProps) {
   const { t } = useTranslation(["sidebar", "common", "spec"]);
   const providerList = useProvidersStore((s) => s.providers);
-  // 订阅 machines + findByConnection，确保 machines 变化时组件重渲染
   const sshMachines = useSshMachinesStore((s) => s.machines);
-  const findMachine = useSshMachinesStore((s) => s.findByConnection);
-  void sshMachines; // 仅用于触发重渲染，实际查找通过 findByConnection
   const { tools: cliTools } = useCliTools();
   const onOpenHistory = useDialogStore((s) => s.openLocalHistory);
   const onOpenTodo = useDialogStore((s) => s.openTodo);
@@ -157,13 +154,6 @@ export default function ProjectListView({
         const isSsh = !!project.ssh;
         const projectKind = getWorkspaceProjectKind(project);
         const displayName = project.alias || (isSsh ? getSshDisplayName(project.ssh!) : getProjectName(project.path));
-        const sshMachine = isSsh ? findMachine(project.ssh!.host, project.ssh!.port, project.ssh!.user) : undefined;
-        const terminalOpts: OpenTerminalOptions = {
-          path: project.path,
-          workspaceName: ws.name,
-          ssh: project.ssh,
-          machineName: sshMachine?.name ?? project.alias,
-        };
         const launchProject = (
           cliTool?: OpenTerminalOptions["cliTool"],
           providerId?: string,

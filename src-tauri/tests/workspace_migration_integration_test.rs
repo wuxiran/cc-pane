@@ -14,7 +14,13 @@ fn write_file(path: &Path, content: &str) {
     fs::write(path, content).expect("failed to write file");
 }
 
-fn setup() -> (tempfile::TempDir, WorkspaceService, PathBuf, PathBuf, PathBuf) {
+fn setup() -> (
+    tempfile::TempDir,
+    WorkspaceService,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+) {
     let temp = tempfile::tempdir().expect("failed to create tempdir");
     let workspaces_dir = temp.path().join("workspaces");
     let workspace_root = temp.path().join("workspace-root");
@@ -28,8 +34,14 @@ fn setup() -> (tempfile::TempDir, WorkspaceService, PathBuf, PathBuf, PathBuf) {
     create_dir(&external_root.join("src"));
 
     write_file(&workspace_root.join("CLAUDE.md"), "# Workspace");
-    write_file(&workspace_root.join("app/src/index.ts"), "console.log('app');");
-    write_file(&workspace_root.join("app/.git/HEAD"), "ref: refs/heads/main\n");
+    write_file(
+        &workspace_root.join("app/src/index.ts"),
+        "console.log('app');",
+    );
+    write_file(
+        &workspace_root.join("app/.git/HEAD"),
+        "ref: refs/heads/main\n",
+    );
     write_file(
         &workspace_root.join("app/node_modules/pkg/skip.txt"),
         "ignored",
@@ -38,7 +50,10 @@ fn setup() -> (tempfile::TempDir, WorkspaceService, PathBuf, PathBuf, PathBuf) {
         &workspace_root.join(".ccpanes/projects.csv"),
         "path,alias,branch,status\n",
     );
-    write_file(&external_root.join("src/lib.ts"), "export const lib = true;\n");
+    write_file(
+        &external_root.join("src/lib.ts"),
+        "export const lib = true;\n",
+    );
 
     let service = WorkspaceService::new(workspaces_dir);
     let workspace = service
@@ -54,16 +69,17 @@ fn setup() -> (tempfile::TempDir, WorkspaceService, PathBuf, PathBuf, PathBuf) {
         )
         .expect("failed to add internal project");
     service
-        .add_project(
-            &workspace.name,
-            external_root.to_string_lossy().as_ref(),
-        )
+        .add_project(&workspace.name, external_root.to_string_lossy().as_ref())
         .expect("failed to add external project");
 
     (temp, service, workspace_root, external_root, target_root)
 }
 
-fn get_project_id_by_path(service: &WorkspaceService, workspace_name: &str, project_path: &Path) -> String {
+fn get_project_id_by_path(
+    service: &WorkspaceService,
+    workspace_name: &str,
+    project_path: &Path,
+) -> String {
     service
         .get_workspace(workspace_name)
         .expect("workspace should exist")
@@ -93,7 +109,8 @@ fn preview_workspace_migration_builds_internal_and_external_paths() {
     assert!(plan
         .items
         .iter()
-        .any(|item| item.destination_path.ends_with("migrated-root\\app") || item.destination_path.ends_with("migrated-root/app")));
+        .any(|item| item.destination_path.ends_with("migrated-root\\app")
+            || item.destination_path.ends_with("migrated-root/app")));
     assert!(plan.items.iter().any(|item| item.external));
 }
 
@@ -152,9 +169,10 @@ fn execute_workspace_migration_copies_files_and_rolls_back() {
         .map(|project| project.path.clone())
         .collect();
     assert!(
-        migrated_workspace.projects.iter().any(|project| {
-            project.path == expected_external_path
-        }),
+        migrated_workspace
+            .projects
+            .iter()
+            .any(|project| { project.path == expected_external_path }),
         "unexpected migrated project paths: {:?}",
         migrated_paths
     );
@@ -213,7 +231,10 @@ fn execute_project_migration_copies_files_and_rolls_back_metadata() {
         .expect("project migration should succeed");
 
     let migrated_file = target_root.join("src").join("index.ts");
-    let skipped_file = target_root.join("node_modules").join("pkg").join("skip.txt");
+    let skipped_file = target_root
+        .join("node_modules")
+        .join("pkg")
+        .join("skip.txt");
     assert!(migrated_file.exists());
     assert!(!skipped_file.exists());
 
@@ -257,7 +278,8 @@ fn execute_project_migration_copies_files_and_rolls_back_metadata() {
 #[test]
 fn preview_project_migration_rejects_non_empty_target() {
     let (_temp, service, workspace_root, _external_root, target_root) = setup();
-    let project_id = get_project_id_by_path(&service, "migration-test", &workspace_root.join("app"));
+    let project_id =
+        get_project_id_by_path(&service, "migration-test", &workspace_root.join("app"));
     create_dir(&target_root);
     write_file(&target_root.join("existing.txt"), "occupied");
 

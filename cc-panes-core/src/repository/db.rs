@@ -192,11 +192,13 @@ impl Database {
 
         // WAL 模式：提升读写并发性能，减少写锁等待。
         // `journal_mode` pragma 会返回结果行，必须通过 query_row 读取。
-        conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get::<_, String>(0))
-            .map_err(|e| {
-                error!(err = %e, "Failed to enable WAL mode");
-                AppError::from(format!("Failed to enable WAL mode: {}", e))
-            })?;
+        conn.query_row("PRAGMA journal_mode = WAL", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|e| {
+            error!(err = %e, "Failed to enable WAL mode");
+            AppError::from(format!("Failed to enable WAL mode: {}", e))
+        })?;
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| {
                 error!(err = %e, "Failed to set synchronous pragma");

@@ -143,8 +143,8 @@ fn collect_wsl_windows_host_candidates(
 ) -> Vec<String> {
     let mut candidates = vec!["127.0.0.1".to_string()];
 
-    if let Some(candidate) = default_gateway_output
-        .and_then(|text| resolve_wsl_host_candidate_from_output(text, false))
+    if let Some(candidate) =
+        default_gateway_output.and_then(|text| resolve_wsl_host_candidate_from_output(text, false))
     {
         let candidate = candidate.to_string();
         if !candidates.contains(&candidate) {
@@ -581,7 +581,9 @@ fi",
         F: FnMut(&str) -> bool,
     {
         let candidates = collect_wsl_windows_host_candidates(default_gateway_output, resolv_output);
-        if let Some(host) = select_reachable_wsl_windows_host_with_probe(&candidates, |host| probe(host)) {
+        if let Some(host) =
+            select_reachable_wsl_windows_host_with_probe(&candidates, |host| probe(host))
+        {
             return Ok(host);
         }
 
@@ -622,7 +624,9 @@ fi",
             port,
             default_gateway_output.as_deref(),
             resolv_output.as_deref(),
-            |candidate| Self::probe_wsl_http_health(wsl_path, distro, candidate, port).unwrap_or(false),
+            |candidate| {
+                Self::probe_wsl_http_health(wsl_path, distro, candidate, port).unwrap_or(false)
+            },
         )?;
 
         if let Ok(mut cache) = self.wsl_windows_host_cache.lock() {
@@ -899,12 +903,16 @@ fi",
                 cli_args.push("--resume".to_string());
                 cli_args.push(resume_id.to_string());
             }
-            if workspace_remote_path.is_some() && workspace_remote_path != Some(wsl.remote_path.as_str()) {
+            if workspace_remote_path.is_some()
+                && workspace_remote_path != Some(wsl.remote_path.as_str())
+            {
                 cli_args.push("--add-dir".to_string());
                 cli_args.push(wsl.remote_path.clone());
             }
             if !skip_mcp {
-                if let Some(config_path) = self.write_wsl_claude_mcp_config(session_id, wsl, env_vars)? {
+                if let Some(config_path) =
+                    self.write_wsl_claude_mcp_config(session_id, wsl, env_vars)?
+                {
                     cli_args.push("--mcp-config".to_string());
                     cli_args.push(config_path);
                 }
@@ -1005,10 +1013,7 @@ fi",
             }
         });
 
-        std::fs::write(
-            &config_path,
-            serde_json::to_string_pretty(&config)?,
-        )?;
+        std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
 
         Ok(Some(wsl_config_path))
     }
@@ -1124,16 +1129,13 @@ fi",
 #[cfg(test)]
 mod tests {
     use super::{
-        append_codex_resume_args, collect_wsl_windows_host_candidates,
-        is_wsl_windows_shim_path, select_reachable_wsl_windows_host_with_probe, TerminalService,
+        append_codex_resume_args, collect_wsl_windows_host_candidates, is_wsl_windows_shim_path,
+        select_reachable_wsl_windows_host_with_probe, TerminalService,
     };
 
     #[test]
     fn append_codex_resume_args_keeps_prompt_after_resume_id() {
-        let mut args = vec![
-            "-C".to_string(),
-            "/workspace/project".to_string(),
-        ];
+        let mut args = vec!["-C".to_string(), "/workspace/project".to_string()];
 
         append_codex_resume_args(
             &mut args,
@@ -1248,14 +1250,13 @@ mod tests {
 
     #[test]
     fn candidate_selection_allows_non_loopback_addresses_when_probe_passes() {
-        let candidates = collect_wsl_windows_host_candidates(
-            Some("default via 172.18.0.2 dev eth5"),
-            None,
-        );
+        let candidates =
+            collect_wsl_windows_host_candidates(Some("default via 172.18.0.2 dev eth5"), None);
 
-        let selected =
-            select_reachable_wsl_windows_host_with_probe(&candidates, |candidate| candidate == "172.18.0.2")
-                .unwrap();
+        let selected = select_reachable_wsl_windows_host_with_probe(&candidates, |candidate| {
+            candidate == "172.18.0.2"
+        })
+        .unwrap();
 
         assert_eq!(selected, "172.18.0.2");
     }

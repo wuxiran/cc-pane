@@ -1,8 +1,8 @@
 use crate::models::{
     ProjectMigrationPlan, ProjectMigrationRequest, ProjectMigrationResult,
-    ProjectMigrationRollbackResult,
-    ScannedRepo, SshConnectionInfo, Workspace, WorkspaceMigrationPlan, WorkspaceMigrationRequest,
-    WorkspaceMigrationResult, WorkspaceMigrationRollbackResult, WorkspaceProject,
+    ProjectMigrationRollbackResult, ScannedRepo, SshConnectionInfo, Workspace,
+    WorkspaceMigrationPlan, WorkspaceMigrationRequest, WorkspaceMigrationResult,
+    WorkspaceMigrationRollbackResult, WorkspaceProject,
 };
 use crate::services::WorkspaceService;
 use crate::utils::{validate_path, validate_ssh_info, AppResult};
@@ -162,7 +162,9 @@ pub async fn preview_workspace_migration(
     let svc = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || svc.preview_workspace_migration(&request))
         .await
-        .map_err(|e| crate::utils::AppError::from(format!("Failed to preview workspace migration: {}", e)))?
+        .map_err(|e| {
+            crate::utils::AppError::from(format!("Failed to preview workspace migration: {}", e))
+        })?
         .map_err(Into::into)
 }
 
@@ -175,7 +177,9 @@ pub async fn execute_workspace_migration(
     let svc = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || svc.execute_workspace_migration(&request))
         .await
-        .map_err(|e| crate::utils::AppError::from(format!("Failed to execute workspace migration: {}", e)))?
+        .map_err(|e| {
+            crate::utils::AppError::from(format!("Failed to execute workspace migration: {}", e))
+        })?
         .map_err(Into::into)
 }
 
@@ -191,7 +195,9 @@ pub async fn rollback_workspace_migration(
         svc.rollback_workspace_migration(&workspace_name, &snapshot_id)
     })
     .await
-    .map_err(|e| crate::utils::AppError::from(format!("Failed to rollback workspace migration: {}", e)))?
+    .map_err(|e| {
+        crate::utils::AppError::from(format!("Failed to rollback workspace migration: {}", e))
+    })?
     .map_err(Into::into)
 }
 
@@ -208,7 +214,9 @@ pub async fn preview_project_migration(
     let svc = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || svc.preview_project_migration(&request))
         .await
-        .map_err(|e| crate::utils::AppError::from(format!("Failed to preview project migration: {}", e)))?
+        .map_err(|e| {
+            crate::utils::AppError::from(format!("Failed to preview project migration: {}", e))
+        })?
         .map_err(Into::into)
 }
 
@@ -225,7 +233,9 @@ pub async fn execute_project_migration(
     let svc = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || svc.execute_project_migration(&request))
         .await
-        .map_err(|e| crate::utils::AppError::from(format!("Failed to execute project migration: {}", e)))?
+        .map_err(|e| {
+            crate::utils::AppError::from(format!("Failed to execute project migration: {}", e))
+        })?
         .map_err(Into::into)
 }
 
@@ -245,6 +255,8 @@ pub async fn rollback_project_migration(
         svc.rollback_project_migration(&workspace_name, &snapshot_id)
     })
     .await
-    .map_err(|e| crate::utils::AppError::from(format!("Failed to rollback project migration: {}", e)))?
+    .map_err(|e| {
+        crate::utils::AppError::from(format!("Failed to rollback project migration: {}", e))
+    })?
     .map_err(Into::into)
 }

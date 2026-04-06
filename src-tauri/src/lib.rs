@@ -35,9 +35,9 @@ use commands::{
     create_popup_terminal_window,
     // Spec 命令
     create_spec,
-    create_terminal_session,
     // TaskBinding 命令
     create_task_binding,
+    create_terminal_session,
     // Todo 命令
     create_todo,
     create_workspace,
@@ -61,10 +61,12 @@ use commands::{
     enable_hooks,
     enter_fullscreen,
     enter_mini_mode,
-    find_task_binding_by_session,
+    execute_project_migration,
+    execute_workspace_migration,
     exit_fullscreen,
     exit_mini_mode,
     extract_last_prompt,
+    find_task_binding_by_session,
     format_memory_for_injection,
     fs_copy_entry,
     fs_create_directory,
@@ -103,7 +105,6 @@ use commands::{
     get_plan_content,
     get_popup_tab_data,
     get_project,
-    get_task_binding,
     get_provider,
     get_recent_changes,
     get_recent_journal,
@@ -116,6 +117,7 @@ use commands::{
     get_skill,
     get_spec_content,
     get_ssh_machine,
+    get_task_binding,
     get_terminal_output,
     get_terminal_replay_snapshot,
     get_todo,
@@ -181,6 +183,8 @@ use commands::{
     minimize_window,
     open_path_in_explorer,
     prepare_session_context,
+    preview_project_migration,
+    preview_workspace_migration,
     // Local History - 标签
     put_label,
     query_task_bindings,
@@ -199,12 +203,12 @@ use commands::{
     reorder_todos,
     reorder_workspaces,
     resize_terminal,
-    rollback_project_migration,
-    rollback_workspace_migration,
     respond_orchestrator_query,
     restart_shared_mcp_server,
     restore_file_version,
     restore_to_label,
+    rollback_project_migration,
+    rollback_workspace_migration,
     save_skill,
     save_spec_content,
     // Session Restore 命令
@@ -214,8 +218,6 @@ use commands::{
     // Process Monitor 命令
     scan_claude_processes,
     scan_workspace_directory,
-    preview_project_migration,
-    preview_workspace_migration,
     // Screenshot 命令
     screenshot_update_shortcut,
     // Memory 命令
@@ -238,12 +240,12 @@ use commands::{
     update_memory,
     update_project_alias,
     update_project_name,
-    update_task_binding,
     update_provider,
     update_settings,
     update_shared_mcp_global_config,
     update_spec,
     update_ssh_machine,
+    update_task_binding,
     update_todo,
     update_todo_subtask,
     update_workspace,
@@ -253,8 +255,6 @@ use commands::{
     update_workspace_provider,
     upsert_mcp_server,
     upsert_shared_mcp_server,
-    execute_project_migration,
-    execute_workspace_migration,
     write_terminal,
 };
 use repository::{

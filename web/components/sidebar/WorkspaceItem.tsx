@@ -26,7 +26,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useProvidersStore, useDialogStore, useSshMachinesStore } from "@/stores";
+import { useProvidersStore, useSshMachinesStore } from "@/stores";
 import { hooksService, type HookStatus } from "@/services";
 import { useCliTools } from "@/hooks/useCliTools";
 import {
