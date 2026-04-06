@@ -1,6 +1,8 @@
 {
   "ready": "准备就绪",
   "selectProject": "从左侧选择一个项目以启动终端",
+  "startingTerminal": "正在启动终端",
+  "startingTerminalHint": "请稍候，正在准备终端会话...",
   "backToTerminal": "返回终端",
   "todoLabel": "Todo - {{label}}",
   "todoListDefault": "TodoList",

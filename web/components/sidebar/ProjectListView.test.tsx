@@ -20,7 +20,10 @@ vi.mock("sonner", () => ({
 vi.mock("@/hooks/useCliTools", () => ({
   useCliTools: () => ({
     tools: [
+      { id: "claude", displayName: "Claude" },
       { id: "codex", displayName: "Codex" },
+      { id: "gemini", displayName: "Gemini" },
+      { id: "opencode", displayName: "OpenCode" },
     ],
   }),
 }));
@@ -36,7 +39,13 @@ describe("ProjectListView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetTestDataCounter();
-    useProvidersStore.setState({ providers: [] });
+    useProvidersStore.setState({
+      providers: [
+        { id: "provider-claude", name: "Claude Provider", providerType: "anthropic", isDefault: false },
+        { id: "provider-gemini", name: "Gemini Provider", providerType: "gemini", isDefault: false },
+        { id: "provider-opencode", name: "OpenCode Provider", providerType: "opencode", isDefault: false },
+      ],
+    });
     useSshMachinesStore.setState({ machines: [] });
     useDialogStore.setState({
       localHistoryOpen: false,
@@ -201,6 +210,64 @@ describe("ProjectListView", () => {
       wsl: {
         remotePath: "/mnt/d/workspace-root/apps/api",
       },
+    }));
+  });
+
+  it("默认环境为 wsl 时 Claude、Gemini、OpenCode 都走 WSL 且不显示 provider 入口", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn();
+    const workspace = createTestWorkspace({
+      defaultEnvironment: "wsl",
+      path: "D:/workspace-root",
+      providerId: "provider-claude",
+      wsl: {
+        distro: "Ubuntu",
+        remotePath: "/mnt/d/workspace-root",
+      },
+      projects: [
+        createTestWorkspaceProject({
+          alias: "local-project",
+          path: "D:/workspace-root/apps/api",
+        }),
+      ],
+    });
+
+    render(
+      <ProjectListView
+        projects={workspace.projects}
+        ws={workspace}
+        gitBranches={{}}
+        onOpenTerminal={onOpenTerminal}
+        onRemoveProject={vi.fn()}
+        onSetProjectAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onMigrateProject={vi.fn()}
+        onOpenWorktreeManager={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText("local-project"));
+    expect(screen.queryByText("Claude Provider")).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole("menuitem", { name: "Claude" }));
+    expect(onOpenTerminal.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      cliTool: "claude",
+      wsl: { remotePath: "/mnt/d/workspace-root/apps/api" },
+    }));
+    expect(onOpenTerminal.mock.calls.at(-1)?.[0]?.providerId).toBeUndefined();
+
+    fireEvent.contextMenu(screen.getByText("local-project"));
+    await user.click(await screen.findByRole("menuitem", { name: "Gemini" }));
+    expect(onOpenTerminal.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      cliTool: "gemini",
+      wsl: { remotePath: "/mnt/d/workspace-root/apps/api" },
+    }));
+
+    fireEvent.contextMenu(screen.getByText("local-project"));
+    await user.click(await screen.findByRole("menuitem", { name: "OpenCode" }));
+    expect(onOpenTerminal.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      cliTool: "opencode",
+      wsl: { remotePath: "/mnt/d/workspace-root/apps/api" },
     }));
   });
 });

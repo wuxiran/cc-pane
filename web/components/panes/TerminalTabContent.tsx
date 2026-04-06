@@ -36,10 +36,13 @@ export default memo(function TerminalTabContent({
   const { t } = useTranslation("panes");
   const setActiveTerminalPane = usePanesStore((s) => s.setActiveTerminalPane);
   const resizeTerminalPanes = usePanesStore((s) => s.resizeTerminalPanes);
+  const hasProjectPath = Boolean(tab.projectPath);
 
   const renderNode = useCallback((node: TerminalPaneNode): ReactNode => {
     if (node.type === "leaf") {
       const leaf = node;
+      const showPlaceholder = !leaf.sessionId && !leaf.restoring;
+      const isLaunching = showPlaceholder && hasProjectPath;
       return (
         <div
           key={leaf.id}
@@ -67,7 +70,7 @@ export default memo(function TerminalTabContent({
             onSessionExited={onSessionExited ? (code) => onSessionExited(code, leaf.id) : undefined}
             onReconnect={onReconnect ? () => onReconnect(leaf.id) : undefined}
           />
-          {!leaf.sessionId && !leaf.restoring ? (
+          {showPlaceholder ? (
             <div
               className="pointer-events-none absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"
               style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}
@@ -89,13 +92,13 @@ export default memo(function TerminalTabContent({
                     className="text-xs font-medium tracking-wide"
                     style={{ color: "rgba(255,255,255,0.84)" }}
                   >
-                    {t("ready")}
+                    {isLaunching ? t("startingTerminal") : t("ready")}
                   </span>
                   <span
                     className="text-[11px] leading-4"
                     style={{ color: "rgba(255,255,255,0.45)" }}
                   >
-                    {t("selectProject")}
+                    {isLaunching ? t("startingTerminalHint") : t("selectProject")}
                   </span>
                 </div>
               </div>
@@ -121,6 +124,7 @@ export default memo(function TerminalTabContent({
     );
   }, [
     isActive,
+    hasProjectPath,
     onReconnect,
     onSessionCreated,
     onSessionExited,
@@ -133,5 +137,26 @@ export default memo(function TerminalTabContent({
   ]);
 
   if (!tab.terminalRootPane) return null;
-  return <div className="h-full w-full min-h-0 min-w-0">{renderNode(tab.terminalRootPane)}</div>;
+  return (
+    <div
+      className="relative h-full w-full min-h-0 min-w-0 overflow-hidden"
+      style={{
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+        ["--splitview-line-inset-top" as string]: "calc(var(--notch-bar-height, 0px) + 10px)",
+        ["--splitview-line-inset-bottom" as string]: "10px",
+        ["--splitview-line-inset-left" as string]: "10px",
+        ["--splitview-line-inset-right" as string]: "10px",
+      }}
+    >
+      <div
+        className="pointer-events-none absolute left-0 right-0 z-[1]"
+        style={{
+          top: "var(--notch-bar-height, 0px)",
+          height: "1px",
+          background: "rgba(255,255,255,0.08)",
+        }}
+      />
+      {renderNode(tab.terminalRootPane)}
+    </div>
+  );
 });

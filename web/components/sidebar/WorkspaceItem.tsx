@@ -87,6 +87,7 @@ export default function WorkspaceItem({
   const rootProject = ws.projects.find((project) => !project.ssh);
   const rootPath = ws.path || rootProject?.path;
   const showWslBadge = hasWorkspaceWslPath(ws);
+  const defaultEnvironment = getWorkspaceDefaultEnvironment(ws);
   const boundProvider = ws.providerId
     ? providerList.find((provider) => provider.id === ws.providerId)
     : undefined;
@@ -191,7 +192,7 @@ export default function WorkspaceItem({
                   WSL
                 </span>
               ) : null}
-              {boundProvider ? (
+              {boundProvider && defaultEnvironment !== "wsl" ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium border bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-500/20 dark:text-slate-300 dark:border-slate-500/30">

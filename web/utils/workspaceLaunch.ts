@@ -35,6 +35,15 @@ interface WorkspaceLaunchParams {
   platform?: AppPlatform;
 }
 
+interface WorkspaceProjectLaunchParams {
+  workspace: Workspace;
+  project: WorkspaceProject;
+  cliTool?: CliTool;
+  providerId?: string;
+  machines: SshMachine[];
+  platform?: AppPlatform;
+}
+
 export function detectAppPlatform(): AppPlatform {
   if (typeof navigator === "undefined") return "unknown";
   const platform = navigator.platform.toLowerCase();
@@ -153,6 +162,122 @@ export function resolveWorkspaceLaunchOptions(
   params: WorkspaceLaunchParams & { environment?: WorkspaceLaunchEnvironment },
 ): { options: OpenTerminalOptions | null; issue: WorkspaceLaunchIssue | null } {
   return resolveWorkspaceLaunchOptionsInternal(params);
+}
+
+export function resolveWorkspaceProjectLaunchOptions(
+  params: WorkspaceProjectLaunchParams & { environment?: WorkspaceLaunchEnvironment },
+): { options: OpenTerminalOptions | null; issue: WorkspaceLaunchIssue | null } {
+  const platform = params.platform ?? detectAppPlatform();
+  const environment = params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
+  const { workspace, project, cliTool, providerId, machines } = params;
+
+  if (project.ssh) {
+    const machine = machines.find((item) =>
+      item.host === project.ssh!.host
+      && item.port === project.ssh!.port
+      && item.user === project.ssh!.user
+    );
+    return {
+      options: {
+        path: buildSshConnectionDisplayPath(project.ssh),
+        workspaceName: workspace.name,
+        providerId,
+        workspacePath: workspace.path,
+        cliTool,
+        ssh: { ...project.ssh },
+        machineName: machine?.name ?? project.alias,
+      },
+      issue: null,
+    };
+  }
+
+  switch (environment) {
+    case "local":
+      return {
+        options: {
+          path: project.path,
+          workspaceName: workspace.name,
+          providerId,
+          workspacePath: workspace.path,
+          cliTool,
+        },
+        issue: null,
+      };
+
+    case "wsl": {
+      if (platform !== "windows") {
+        return {
+          options: null,
+          issue: { environment, code: "wsl_unsupported" },
+        };
+      }
+      const remotePath = resolveWorkspaceProjectWslPath(workspace, project);
+      if (!remotePath) {
+        return {
+          options: null,
+          issue: workspace.path?.trim()
+            ? { environment, code: "wsl_path_missing" }
+            : { environment, code: "wsl_local_path_missing" },
+        };
+      }
+      return {
+        options: {
+          path: project.path,
+          workspaceName: workspace.name,
+          providerId,
+          workspacePath: workspace.path,
+          cliTool,
+          wsl: {
+            distro: workspace.wsl?.distro?.trim() || undefined,
+            remotePath,
+          },
+        },
+        issue: null,
+      };
+    }
+
+    case "ssh": {
+      const machineId = workspace.sshLaunch?.machineId?.trim();
+      const remotePath = workspace.sshLaunch?.remotePath?.trim();
+      if (!machineId) {
+        return {
+          options: null,
+          issue: { environment, code: "ssh_machine_missing" },
+        };
+      }
+      if (!remotePath) {
+        return {
+          options: null,
+          issue: { environment, code: "ssh_path_missing" },
+        };
+      }
+      const machine = machines.find((item) => item.id === machineId);
+      if (!machine) {
+        return {
+          options: null,
+          issue: { environment, code: "ssh_machine_not_found", detail: machineId },
+        };
+      }
+      return {
+        options: {
+          path: buildSshDisplayPath(machine, remotePath),
+          workspaceName: workspace.name,
+          providerId,
+          workspacePath: workspace.path,
+          cliTool,
+          ssh: {
+            host: machine.host,
+            port: machine.port,
+            user: machine.user,
+            remotePath,
+            identityFile: machine.identityFile,
+          },
+          machineName: machine.name,
+        },
+        issue: null,
+      };
+    }
+  }
 }
 
 function resolveWorkspaceLaunchOptionsInternal(

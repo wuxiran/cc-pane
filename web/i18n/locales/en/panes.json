@@ -1,6 +1,8 @@
 {
   "ready": "Ready",
   "selectProject": "Select a project from the sidebar to open a terminal",
+  "startingTerminal": "Launching terminal",
+  "startingTerminalHint": "Preparing the terminal session...",
   "backToTerminal": "Back to Terminal",
   "todoLabel": "Todo - {{label}}",
   "todoListDefault": "TodoList",

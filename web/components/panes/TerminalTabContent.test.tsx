@@ -31,7 +31,7 @@ function createTerminalTab(overrides?: Partial<Tab>): Tab {
 }
 
 describe("TerminalTabContent", () => {
-  it("shows ready overlay for a leaf without a session", () => {
+  it("shows launching overlay for a leaf without a session when a project is already selected", () => {
     render(
       <TerminalTabContent
         tab={createTerminalTab()}
@@ -42,7 +42,9 @@ describe("TerminalTabContent", () => {
       />
     );
 
-    expect(screen.getByText("准备就绪")).toBeVisible();
+    expect(screen.getByText("正在启动终端")).toBeVisible();
+    expect(screen.getByText("请稍候，正在准备终端会话...")).toBeVisible();
+    expect(screen.queryByText("从左侧选择一个项目以启动终端")).not.toBeInTheDocument();
   });
 
   it("hides ready overlay once the leaf has a session", () => {
@@ -85,5 +87,24 @@ describe("TerminalTabContent", () => {
     );
 
     expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
+  });
+
+  it("shows the select-project hint only for an empty terminal tab", () => {
+    render(
+      <TerminalTabContent
+        tab={createTerminalTab({
+          projectId: "",
+          projectPath: "",
+        })}
+        isActive
+        onSessionCreated={vi.fn()}
+        onSessionExited={vi.fn()}
+        onTerminalRef={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("准备就绪")).toBeVisible();
+    expect(screen.getByText("从左侧选择一个项目以启动终端")).toBeVisible();
+    expect(screen.queryByText("正在启动终端")).not.toBeInTheDocument();
   });
 });
