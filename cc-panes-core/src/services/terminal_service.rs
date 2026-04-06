@@ -481,9 +481,6 @@ pub struct TerminalService {
     app_paths: Arc<AppPaths>,
     /// Orchestrator 连接信息，setup 阶段设置
     orchestrator_info: Mutex<Option<OrchestratorInfo>>,
-    /// WSL 侧可用的 Windows host 缓存（按 distro + port 维度）
-    #[cfg_attr(not(windows), allow(dead_code))]
-    wsl_windows_host_cache: Mutex<HashMap<(String, u16), String>>,
     /// Spec 服务（终端启动时自动注入 active spec prompt）
     spec_service: Mutex<Option<Arc<SpecService>>>,
     /// CLI 工具适配器注册表
@@ -698,7 +695,6 @@ impl TerminalService {
             emitter: parking_lot::RwLock::new(None),
             app_paths,
             orchestrator_info: Mutex::new(None),
-            wsl_windows_host_cache: Mutex::new(HashMap::new()),
             spec_service: Mutex::new(None),
             cli_registry,
             shared_mcp_service: parking_lot::RwLock::new(None),
@@ -845,7 +841,6 @@ impl TerminalService {
             let (cmd, cmd_args) = match cli_tool {
                 CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
                 CliTool::Codex => {
-                    self.validate_wsl_codex_runtime(&mut resolved_wsl)?;
                     self.ensure_wsl_codex_mcp_registered(
                         &session_id,
                         &resolved_wsl,

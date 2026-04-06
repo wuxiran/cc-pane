@@ -4,18 +4,12 @@
 use super::cached_which;
 use super::TerminalService;
 use crate::models::{CliTool, WslLaunchInfo};
-#[cfg(windows)]
-use crate::utils::no_window_command;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 #[cfg(windows)]
 use tracing::{info, warn};
 
-pub(super) const WSL_ERROR_CODE_CODEX_NOT_FOUND: &str = "WSL_CODEX_NOT_FOUND";
-pub(super) const WSL_ERROR_CODE_CODEX_WINDOWS_SHIM: &str = "WSL_CODEX_WINDOWS_SHIM";
-pub(super) const WSL_ERROR_CODE_NODE_NOT_FOUND: &str = "WSL_NODE_NOT_FOUND";
-pub(super) const WSL_ERROR_CODE_HOST_UNRESOLVED: &str = "WSL_HOST_UNRESOLVED";
 pub(super) const WSL_BASH_EVAL_FLAG: &str = "-lic";
 pub(super) const WSL_PROXY_ENV_KEYS: [&str; 8] = [
     "HTTP_PROXY",
@@ -41,8 +35,6 @@ pub(super) struct ResolvedWslLaunch {
     pub(super) remote_path: String,
     pub(super) workspace_remote_path: Option<String>,
     pub(super) windows_host: Option<String>,
-    pub(super) native_codex_path: Option<String>,
-    pub(super) native_node_path: Option<String>,
 }
 
 fn is_wsl_proxy_env_key(key: &str) -> bool {
@@ -114,104 +106,6 @@ fn append_codex_resume_args(
 
 fn is_wsl_home_path(path: &str) -> bool {
     matches!(path.trim(), "~" | "~/")
-}
-
-fn parse_wsl_runtime_paths_output(output: &str) -> (String, String) {
-    let mut lines = output.lines().map(str::trim);
-    let codex_path = lines.next().unwrap_or_default().to_string();
-    let node_path = lines.next().unwrap_or_default().to_string();
-    (codex_path, node_path)
-}
-
-fn split_wsl_network_capture_output(output: &str) -> (Option<String>, Option<String>) {
-    const DEFAULT_MARKER: &str = "__CCPANES_DEFAULT_ROUTE__";
-    const RESOLV_MARKER: &str = "__CCPANES_RESOLV_CONF__";
-
-    let mut current = None::<&str>;
-    let mut default_lines = Vec::new();
-    let mut resolv_lines = Vec::new();
-
-    for line in output.lines() {
-        let trimmed = line.trim();
-        match trimmed {
-            DEFAULT_MARKER => current = Some(DEFAULT_MARKER),
-            RESOLV_MARKER => current = Some(RESOLV_MARKER),
-            _ => match current {
-                Some(DEFAULT_MARKER) if !trimmed.is_empty() => default_lines.push(trimmed),
-                Some(RESOLV_MARKER) if !trimmed.is_empty() => resolv_lines.push(trimmed),
-                _ => {}
-            },
-        }
-    }
-
-    let default_route = (!default_lines.is_empty()).then(|| default_lines.join("\n"));
-    let resolv_conf = (!resolv_lines.is_empty()).then(|| resolv_lines.join("\n"));
-    (default_route, resolv_conf)
-}
-
-fn extract_ipv4_from_text(text: &str) -> Option<std::net::Ipv4Addr> {
-    text.split(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
-        .find_map(|part| part.parse::<std::net::Ipv4Addr>().ok())
-}
-
-fn is_valid_wsl_host_candidate(candidate: std::net::Ipv4Addr) -> bool {
-    !candidate.is_loopback() && !candidate.is_unspecified()
-}
-
-pub(super) fn resolve_wsl_host_candidate_from_output(
-    text: &str,
-    require_private: bool,
-) -> Option<std::net::Ipv4Addr> {
-    let candidate = extract_ipv4_from_text(text)?;
-    if !is_valid_wsl_host_candidate(candidate) {
-        return None;
-    }
-    if require_private && !candidate.is_private() {
-        return None;
-    }
-    Some(candidate)
-}
-
-fn collect_wsl_windows_host_candidates(
-    default_gateway_output: Option<&str>,
-    resolv_output: Option<&str>,
-) -> Vec<String> {
-    let mut candidates = vec!["127.0.0.1".to_string()];
-
-    if let Some(candidate) =
-        default_gateway_output.and_then(|text| resolve_wsl_host_candidate_from_output(text, false))
-    {
-        let candidate = candidate.to_string();
-        if !candidates.contains(&candidate) {
-            candidates.push(candidate);
-        }
-    }
-
-    if let Some(candidate) =
-        resolv_output.and_then(|text| resolve_wsl_host_candidate_from_output(text, true))
-    {
-        let candidate = candidate.to_string();
-        if !candidates.contains(&candidate) {
-            candidates.push(candidate);
-        }
-    }
-
-    candidates
-}
-
-fn select_reachable_wsl_windows_host_with_probe<F>(
-    candidates: &[String],
-    mut probe: F,
-) -> Option<String>
-where
-    F: FnMut(&str) -> bool,
-{
-    for candidate in candidates {
-        if probe(candidate) {
-            return Some(candidate.clone());
-        }
-    }
-    None
 }
 
 #[cfg(windows)]
@@ -511,47 +405,6 @@ pub(super) fn build_wsl_codex_cli_overrides(
 
 impl TerminalService {
     #[cfg(windows)]
-    fn strip_proxy_env(command: &mut std::process::Command) {
-        for key in WSL_PROXY_ENV_KEYS {
-            command.env_remove(key);
-        }
-    }
-
-    #[cfg(windows)]
-    fn run_wsl_shell_capture(
-        wsl_path: &std::path::Path,
-        distro: &str,
-        script: &str,
-    ) -> Result<String> {
-        let mut command = no_window_command(wsl_path);
-        command
-            .arg("-d")
-            .arg(distro)
-            .arg("--")
-            .arg("bash")
-            .arg(WSL_BASH_EVAL_FLAG)
-            .arg(script);
-        Self::strip_proxy_env(&mut command);
-
-        let output = command.output()?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let detail = if stderr.is_empty() {
-                format!("exit code {}", output.status.code().unwrap_or(-1))
-            } else {
-                stderr
-            };
-            return Err(anyhow!(
-                "WSL command failed in distro '{}': {}",
-                distro,
-                detail
-            ));
-        }
-
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    }
-
-    #[cfg(windows)]
     fn prepare_wsl_codex_home_override(
         &self,
         _session_id: &str,
@@ -567,113 +420,13 @@ impl TerminalService {
     }
 
     #[cfg(windows)]
-    fn probe_wsl_http_health(
-        wsl_path: &std::path::Path,
-        distro: &str,
-        host: &str,
-        port: u16,
-    ) -> Result<bool> {
-        // 优先用 curl：WSL mirror 模式下 bash /dev/tcp 对 127.0.0.1 有时会返回
-        // "Connection refused"，而 curl 走正常网络栈可以正常连接。
-        // fallback 到 /dev/tcp 保留对没有 curl 的极简环境的兼容。
-        let script = format!(
-            "if command -v curl >/dev/null 2>&1; then \
-curl -sf --connect-timeout 2 --max-time 3 http://{host}:{port}/api/health >/dev/null 2>&1; \
-else \
-host={host_esc}; port={port}; \
-if ! exec 3<>/dev/tcp/$host/$port 2>/dev/null; then exit 1; fi; \
-printf 'GET /api/health HTTP/1.1\\r\\nHost: %s:%s\\r\\nConnection: close\\r\\n\\r\\n' \"$host\" \"$port\" >&3; \
-if ! IFS= read -r -t 1 status <&3; then exit 1; fi; \
-case \"$status\" in HTTP/*' 200 '*) exit 0 ;; *) exit 1 ;; esac; \
-fi",
-            host = host,
-            host_esc = Self::shell_escape(host),
-            port = port,
-        );
-
-        let mut command = no_window_command(wsl_path);
-        command
-            .arg("-d")
-            .arg(distro)
-            .arg("--")
-            .arg("bash")
-            .arg(WSL_BASH_EVAL_FLAG)
-            .arg(script);
-        Self::strip_proxy_env(&mut command);
-
-        let output = command.output()?;
-        Ok(output.status.success())
-    }
-
-    fn resolve_reachable_wsl_windows_host_with_probe<F>(
-        distro: &str,
-        port: u16,
-        default_gateway_output: Option<&str>,
-        resolv_output: Option<&str>,
-        mut probe: F,
-    ) -> Result<String>
-    where
-        F: FnMut(&str) -> bool,
-    {
-        let candidates = collect_wsl_windows_host_candidates(default_gateway_output, resolv_output);
-        if let Some(host) =
-            select_reachable_wsl_windows_host_with_probe(&candidates, |host| probe(host))
-        {
-            return Ok(host);
-        }
-
-        Err(anyhow!(
-            "{}: could not resolve a reachable Windows host for WSL distro '{}' on port {} (candidates: {})",
-            WSL_ERROR_CODE_HOST_UNRESOLVED,
-            distro,
-            port,
-            candidates.join(", ")
-        ))
-    }
-
-    #[cfg(windows)]
     pub(super) fn resolve_reachable_wsl_windows_host(
         &self,
-        wsl_path: &std::path::Path,
-        distro: &str,
-        port: u16,
+        _wsl_path: &std::path::Path,
+        _distro: &str,
+        _port: u16,
     ) -> Result<String> {
-        let cache_key = (distro.to_string(), port);
-        if let Ok(cache) = self.wsl_windows_host_cache.lock() {
-            if let Some(host) = cache.get(&cache_key) {
-                return Ok(host.clone());
-            }
-        }
-
-        let network_output = Self::run_wsl_shell_capture(
-            wsl_path,
-            distro,
-            "printf '__CCPANES_DEFAULT_ROUTE__\\n'; \
-ip route show default 2>/dev/null; \
-printf '__CCPANES_RESOLV_CONF__\\n'; \
-grep '^nameserver ' /etc/resolv.conf 2>/dev/null",
-        )
-        .ok();
-        let (default_gateway_output, resolv_output) = network_output
-            .as_deref()
-            .map(split_wsl_network_capture_output)
-            .unwrap_or((None, None));
-
-        let host = Self::resolve_reachable_wsl_windows_host_with_probe(
-            distro,
-            port,
-            default_gateway_output.as_deref(),
-            resolv_output.as_deref(),
-            |candidate| {
-                Self::probe_wsl_http_health(wsl_path, distro, candidate, port).unwrap_or(false)
-            },
-        )?;
-
-        if let Ok(mut cache) = self.wsl_windows_host_cache.lock() {
-            cache.insert(cache_key, host.clone());
-        }
-
-        Ok(host)
+        Ok("127.0.0.1".to_string())
     }
 
     #[cfg(not(windows))]
@@ -683,65 +436,6 @@ grep '^nameserver ' /etc/resolv.conf 2>/dev/null",
         _distro: &str,
         _port: u16,
     ) -> Result<String> {
-        Err(anyhow!("WSL launch is only supported on Windows"))
-    }
-
-    #[cfg(windows)]
-    pub(super) fn validate_wsl_codex_runtime(&self, wsl: &mut ResolvedWslLaunch) -> Result<()> {
-        let runtime_output = Self::run_wsl_shell_capture(
-            &wsl.wsl_path,
-            &wsl.distro,
-            "codex_path=$(command -v codex 2>/dev/null || true); \
-node_path=$(command -v node 2>/dev/null || true); \
-printf '%s\\n%s\\n' \"$codex_path\" \"$node_path\"",
-        )?;
-        let (codex_path, node_path) = parse_wsl_runtime_paths_output(&runtime_output);
-        if codex_path.is_empty() {
-            return Err(anyhow!(
-                "{}: Codex CLI was not found inside WSL distro '{}'. Install Codex CLI in WSL and ensure `command -v codex` succeeds.",
-                WSL_ERROR_CODE_CODEX_NOT_FOUND,
-                wsl.distro
-            ));
-        }
-
-        if is_wsl_windows_shim_path(&codex_path) {
-            return Err(anyhow!(
-                "{}: WSL distro '{}' resolves codex to '{}'. Install a native Linux Codex CLI inside WSL instead of using Windows shim scripts under /mnt or *.cmd/*.ps1/*.exe wrappers.",
-                WSL_ERROR_CODE_CODEX_WINDOWS_SHIM,
-                wsl.distro,
-                codex_path
-            ));
-        }
-        if node_path.is_empty() || is_wsl_windows_shim_path(&node_path) {
-            let detail = if node_path.is_empty() {
-                "node is not available in WSL PATH".to_string()
-            } else {
-                format!("node resolves to Windows path '{}'", node_path)
-            };
-            return Err(anyhow!(
-                "{}: WSL distro '{}' resolves codex to '{}', but {}. Install Node.js inside WSL before starting Codex (WSL).",
-                WSL_ERROR_CODE_NODE_NOT_FOUND,
-                wsl.distro,
-                codex_path,
-                detail
-            ));
-        }
-
-        info!(
-            distro = %wsl.distro,
-            codex_path = %codex_path,
-            node_path = %node_path,
-            "validate_wsl_codex_runtime: native WSL runtime ready"
-        );
-
-        wsl.native_codex_path = Some(codex_path);
-        wsl.native_node_path = Some(node_path);
-
-        Ok(())
-    }
-
-    #[cfg(not(windows))]
-    pub(super) fn validate_wsl_codex_runtime(&self, _wsl: &mut ResolvedWslLaunch) -> Result<()> {
         Err(anyhow!("WSL launch is only supported on Windows"))
     }
 
@@ -771,14 +465,6 @@ printf '%s\\n%s\\n' \"$codex_path\" \"$node_path\"",
             .or(crate::services::wsl_discovery_service::resolve_default_distro()?)
             .ok_or_else(|| anyhow!("No default WSL distro found"))?;
 
-        if !crate::services::wsl_discovery_service::ensure_directory_exists(&distro, remote_path)? {
-            return Err(anyhow!(
-                "WSL path does not exist in distro '{}': {}",
-                distro,
-                remote_path
-            ));
-        }
-
         let wsl_path = cached_which("wsl.exe")
             .or_else(|_| cached_which("wsl"))
             .map_err(|_| anyhow!("wsl.exe not found in PATH"))?;
@@ -791,8 +477,6 @@ printf '%s\\n%s\\n' \"$codex_path\" \"$node_path\"",
             remote_path: remote_path.to_string(),
             workspace_remote_path,
             windows_host: None,
-            native_codex_path: None,
-            native_node_path: None,
         })
     }
 
@@ -845,14 +529,6 @@ printf '%s\\n%s\\n' \"$codex_path\" \"$node_path\"",
             windows_host = %windows_host,
             "create_session: WSL Codex will inject ccpanes MCP via CLI config"
         );
-
-        if wsl.native_codex_path.is_none() {
-            warn!(
-                session_id = %session_id,
-                distro = %wsl.distro,
-                "create_session: native WSL Codex path not captured before MCP injection planning"
-            );
-        }
 
         Ok(())
     }
@@ -1076,13 +752,7 @@ printf '%s\\n%s\\n' \"$codex_path\" \"$node_path\"",
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
 
-        let codex_path = wsl.native_codex_path.as_ref().ok_or_else(|| {
-            anyhow!(
-                "{}: native Codex CLI path was not resolved for WSL distro '{}'.",
-                WSL_ERROR_CODE_CODEX_NOT_FOUND,
-                wsl.distro
-            )
-        })?;
+        let codex_path = "codex";
 
         let mut codex_args = Vec::new();
 
@@ -1165,11 +835,7 @@ printf '%s\\n%s\\n' \"$codex_path\" \"$node_path\"",
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        append_codex_resume_args, collect_wsl_windows_host_candidates, is_wsl_windows_shim_path,
-        parse_wsl_runtime_paths_output, select_reachable_wsl_windows_host_with_probe,
-        split_wsl_network_capture_output, TerminalService,
-    };
+    use super::{append_codex_resume_args, is_wsl_windows_shim_path};
 
     #[test]
     fn append_codex_resume_args_keeps_prompt_after_resume_id() {
@@ -1211,116 +877,5 @@ mod tests {
         assert!(is_wsl_windows_shim_path("codex.ps1"));
         assert!(is_wsl_windows_shim_path("codex.exe"));
         assert!(!is_wsl_windows_shim_path("/usr/local/bin/codex"));
-    }
-
-    #[test]
-    fn parse_wsl_runtime_paths_output_reads_codex_and_node_lines() {
-        let (codex_path, node_path) =
-            parse_wsl_runtime_paths_output("/usr/local/bin/codex\n/usr/bin/node\n");
-
-        assert_eq!(codex_path, "/usr/local/bin/codex");
-        assert_eq!(node_path, "/usr/bin/node");
-    }
-
-    #[test]
-    fn split_wsl_network_capture_output_reads_both_sections() {
-        let (default_route, resolv_conf) = split_wsl_network_capture_output(
-            "__CCPANES_DEFAULT_ROUTE__\n\
-default via 172.18.0.2 dev eth0\n\
-__CCPANES_RESOLV_CONF__\n\
-nameserver 10.255.255.254\n",
-        );
-
-        assert_eq!(
-            default_route.as_deref(),
-            Some("default via 172.18.0.2 dev eth0")
-        );
-        assert_eq!(resolv_conf.as_deref(), Some("nameserver 10.255.255.254"));
-    }
-
-    #[test]
-    fn collect_wsl_windows_host_candidates_prefers_localhost_then_fallbacks() {
-        let candidates = collect_wsl_windows_host_candidates(
-            Some("default via 172.18.0.2 dev eth5"),
-            Some("nameserver 10.255.255.254"),
-        );
-
-        assert_eq!(
-            candidates,
-            vec![
-                "127.0.0.1".to_string(),
-                "172.18.0.2".to_string(),
-                "10.255.255.254".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn localhost_is_preferred_when_probe_succeeds() {
-        let host = TerminalService::resolve_reachable_wsl_windows_host_with_probe(
-            "Ubuntu",
-            33031,
-            Some("default via 172.18.0.2 dev eth5"),
-            Some("nameserver 10.255.255.254"),
-            |candidate| candidate == "127.0.0.1",
-        )
-        .unwrap();
-
-        assert_eq!(host, "127.0.0.1");
-    }
-
-    #[test]
-    fn falls_back_to_default_route_when_localhost_is_unreachable() {
-        let host = TerminalService::resolve_reachable_wsl_windows_host_with_probe(
-            "Ubuntu",
-            33031,
-            Some("default via 172.18.0.2 dev eth5"),
-            Some("nameserver 10.255.255.254"),
-            |candidate| candidate == "172.18.0.2",
-        )
-        .unwrap();
-
-        assert_eq!(host, "172.18.0.2");
-    }
-
-    #[test]
-    fn falls_back_to_resolv_conf_when_other_candidates_fail() {
-        let host = TerminalService::resolve_reachable_wsl_windows_host_with_probe(
-            "Ubuntu",
-            33031,
-            Some("default via 172.18.0.2 dev eth5"),
-            Some("nameserver 10.255.255.254"),
-            |candidate| candidate == "10.255.255.254",
-        )
-        .unwrap();
-
-        assert_eq!(host, "10.255.255.254");
-    }
-
-    #[test]
-    fn returns_host_unresolved_when_all_candidates_fail() {
-        let err = TerminalService::resolve_reachable_wsl_windows_host_with_probe(
-            "Ubuntu",
-            33031,
-            Some("default via 172.18.0.2 dev eth5"),
-            Some("nameserver 10.255.255.254"),
-            |_candidate| false,
-        )
-        .unwrap_err();
-
-        assert!(err.to_string().contains("WSL_HOST_UNRESOLVED"));
-    }
-
-    #[test]
-    fn candidate_selection_allows_non_loopback_addresses_when_probe_passes() {
-        let candidates =
-            collect_wsl_windows_host_candidates(Some("default via 172.18.0.2 dev eth5"), None);
-
-        let selected = select_reachable_wsl_windows_host_with_probe(&candidates, |candidate| {
-            candidate == "172.18.0.2"
-        })
-        .unwrap();
-
-        assert_eq!(selected, "172.18.0.2");
     }
 }

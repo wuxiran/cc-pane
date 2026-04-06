@@ -18,24 +18,6 @@ export function formatTerminalInitError(errorMsg: string): string[] | null {
   const { code, detail } = splitErrorCode(errorMsg);
 
   switch (code) {
-    case "WSL_CODEX_NOT_FOUND":
-      return [
-        red("Codex CLI is not installed inside the target WSL distro."),
-        yellow("Open Ubuntu, install Codex CLI there, and confirm `command -v codex` works."),
-        ...(detail ? [gray(detail)] : []),
-      ];
-    case "WSL_CODEX_WINDOWS_SHIM":
-      return [
-        red("Codex (WSL) resolved to a Windows shim, which is not supported."),
-        yellow("Install Codex CLI inside WSL instead of using `/mnt/...`, `.cmd`, `.ps1`, or `.exe` wrappers."),
-        ...(detail ? [gray(detail)] : []),
-      ];
-    case "WSL_NODE_NOT_FOUND":
-      return [
-        red("Node.js is not installed inside the target WSL distro."),
-        yellow("Install Node.js inside WSL and confirm `command -v node` works before starting Codex (WSL)."),
-        ...(detail ? [gray(detail)] : []),
-      ];
     case "WSL_CODEX_CONFIG_MISSING":
       return [
         red("No usable Codex configuration was found for the target WSL launch."),
