@@ -874,6 +874,13 @@ impl TerminalService {
             }
         }
 
+        if let Some(token) = env_vars.get("CC_PANES_API_TOKEN") {
+            remote_parts.push(format!(
+                "export CC_PANES_API_TOKEN={}",
+                Self::shell_escape(token)
+            ));
+        }
+
         if wsl.remote_path != "~" && wsl.remote_path != "~/" {
             codex_args.push("-C".to_string());
             codex_args.push(wsl.remote_path.clone());
