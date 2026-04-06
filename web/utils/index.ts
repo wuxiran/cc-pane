@@ -4,11 +4,13 @@ export {
   buildSshConnectionDisplayPath,
   buildSshDisplayPath,
   detectAppPlatform,
+  hasWorkspaceWslPath,
   getWorkspaceDefaultEnvironment,
   getWorkspaceEnvironmentIssue,
   getWorkspaceLaunchIssueKey,
   getWorkspaceLaunchIssueValues,
   getWorkspaceProjectKind,
+  resolveWorkspaceProjectLaunchOptions,
   resolveWorkspaceProjectWslPath,
   resolveWorkspaceLaunchOptions,
 } from "./workspaceLaunch";

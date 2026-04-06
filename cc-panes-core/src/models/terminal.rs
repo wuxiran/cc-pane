@@ -8,6 +8,8 @@ pub enum CliTool {
     None,
     Claude,
     Codex,
+    Gemini,
+    Opencode,
 }
 
 impl CliTool {
@@ -17,6 +19,8 @@ impl CliTool {
             CliTool::None => "none",
             CliTool::Claude => "claude",
             CliTool::Codex => "codex",
+            CliTool::Gemini => "gemini",
+            CliTool::Opencode => "opencode",
         }
     }
 }
@@ -26,6 +30,8 @@ impl CliTool {
 #[serde(rename_all = "camelCase")]
 pub struct WslLaunchInfo {
     pub remote_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_remote_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub distro: Option<String>,
 }

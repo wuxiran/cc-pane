@@ -324,13 +324,13 @@
 /* SplitView 分隔条样式 */
 .splitview-sash {
   flex-shrink: 0;
-  background: var(--app-text-tertiary);
-  transition: background 0.15s;
+  position: relative;
+  background: transparent;
+  transition: opacity 0.15s ease, background 0.15s ease;
 }
 
 .splitview-sash:hover {
-  background: var(--app-accent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--app-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--app-accent) 8%, transparent);
 }
 
 /* 伪元素扩展拖拽热区 */
@@ -341,11 +341,25 @@
   z-index: 1;
 }
 
+.splitview-sash::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  background: color-mix(in srgb, var(--app-text-tertiary) 72%, transparent);
+  border-radius: 999px;
+  opacity: 0.8;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.splitview-sash:hover::after {
+  background: color-mix(in srgb, var(--app-accent) 68%, transparent);
+  opacity: 1;
+}
+
 .splitview-sash.vertical {
-  width: 4px;
-  min-width: 4px;
+  width: 3px;
+  min-width: 3px;
   cursor: col-resize;
-  position: relative;
 }
 
 .splitview-sash.vertical::before {
@@ -353,16 +367,31 @@
   right: -4px;
 }
 
+.splitview-sash.vertical::after {
+  width: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  top: var(--splitview-line-inset-top, var(--notch-bar-height, 40px));
+  bottom: var(--splitview-line-inset-bottom, 10px);
+}
+
 .splitview-sash.horizontal {
-  height: 4px;
-  min-height: 4px;
+  height: 3px;
+  min-height: 3px;
   cursor: row-resize;
-  position: relative;
 }
 
 .splitview-sash.horizontal::before {
   top: -4px;
   bottom: -4px;
+}
+
+.splitview-sash.horizontal::after {
+  height: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+  left: var(--splitview-line-inset-left, 10px);
+  right: var(--splitview-line-inset-right, 10px);
 }
 
 /* Activity Bar 样式 */

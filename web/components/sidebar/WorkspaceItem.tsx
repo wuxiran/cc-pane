@@ -4,7 +4,6 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import {
   ChevronRight,
-  FileText,
   Files,
   Folder,
   FolderOpen,
@@ -12,7 +11,6 @@ import {
   GitBranch,
   Globe,
   Settings2,
-  ShieldCheck,
   Terminal,
   Trash2,
 } from "lucide-react";
@@ -21,8 +19,6 @@ import {
   ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuRadioGroup,
-  ContextMenuRadioItem,
   ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
@@ -38,6 +34,7 @@ import {
   getWorkspaceDefaultEnvironment,
   getWorkspaceLaunchIssueKey,
   getWorkspaceLaunchIssueValues,
+  hasWorkspaceWslPath,
   resolveWorkspaceLaunchOptions,
 } from "@/utils";
 import type { OpenTerminalOptions, Workspace, WorkspaceLaunchEnvironment } from "@/types";
@@ -58,7 +55,6 @@ interface WorkspaceItemProps {
   onGitClone: (ws: Workspace) => void;
   onSetPath: (ws: Workspace) => void;
   onClearPath: (ws: Workspace) => void;
-  onSetProvider: (ws: Workspace, providerId: string | null) => void;
   onSetDefaultEnvironment: (ws: Workspace, environment: WorkspaceLaunchEnvironment) => void;
   onOpenInFileBrowser?: (path: string) => void;
 }
@@ -77,7 +73,6 @@ export default function WorkspaceItem({
   onGitClone,
   onSetPath,
   onClearPath,
-  onSetProvider,
   onSetDefaultEnvironment,
   onOpenInFileBrowser,
 }: WorkspaceItemProps) {
@@ -85,14 +80,14 @@ export default function WorkspaceItem({
   const providerList = useProvidersStore((s) => s.providers);
   const sshMachines = useSshMachinesStore((s) => s.machines);
   const { tools: cliTools } = useCliTools();
-  const onOpenJournal = useDialogStore((s) => s.openJournal);
-  const onOpenSessionCleaner = useDialogStore((s) => s.openSessionCleaner);
   const [hookStatuses, setHookStatuses] = useState<HookStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
 
   const displayName = ws.alias || ws.name;
   const rootProject = ws.projects.find((project) => !project.ssh);
   const rootPath = ws.path || rootProject?.path;
+  const showWslBadge = hasWorkspaceWslPath(ws);
+  const defaultEnvironment = getWorkspaceDefaultEnvironment(ws);
   const boundProvider = ws.providerId
     ? providerList.find((provider) => provider.id === ws.providerId)
     : undefined;
@@ -192,7 +187,12 @@ export default function WorkspaceItem({
             <div className="flex items-center gap-2">
               <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
               <span className="text-sm font-medium tracking-wide">{displayName}</span>
-              {boundProvider ? (
+              {showWslBadge ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30">
+                  WSL
+                </span>
+              ) : null}
+              {boundProvider && defaultEnvironment !== "wsl" ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium border bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-500/20 dark:text-slate-300 dark:border-slate-500/30">
@@ -218,9 +218,25 @@ export default function WorkspaceItem({
           </ContextMenuItem>
 
           {cliTools.map((tool) => {
+            if (tool.id === "codex") {
+              return (
+                <ContextMenuItem key={tool.id} onClick={() => openWorkspace(tool.id)}>
+                  <Terminal /> {tool.displayName}
+                </ContextMenuItem>
+              );
+            }
+
             const compatibleProviders = providerList.filter(
               (provider) => getCompatibleCliTool(provider.providerType) === tool.id,
             );
+            if (compatibleProviders.length === 0) {
+              return (
+                <ContextMenuItem key={tool.id} onClick={() => openWorkspace(tool.id)}>
+                  <Terminal /> {tool.displayName}
+                </ContextMenuItem>
+              );
+            }
+
             return (
               <ContextMenuSub key={tool.id}>
                 <ContextMenuSubTrigger>
@@ -228,12 +244,9 @@ export default function WorkspaceItem({
                 </ContextMenuSubTrigger>
                 <ContextMenuSubContent className="w-48">
                   <ContextMenuItem onClick={() => openWorkspace(tool.id)}>
-                    {t("useWorkspaceProvider")}
-                    {ws.providerId && boundProvider ? (
-                      <span className="ml-auto text-[10px] opacity-60">{boundProvider.name}</span>
-                    ) : null}
+                    {`（${t("default", { ns: "common", defaultValue: "默认" })}）`}
                   </ContextMenuItem>
-                  {compatibleProviders.length > 0 ? <ContextMenuSeparator /> : null}
+                  <ContextMenuSeparator />
                   {compatibleProviders.map((provider) => (
                     <ContextMenuItem
                       key={provider.id}
@@ -274,13 +287,6 @@ export default function WorkspaceItem({
             <Files /> {t("openInFileBrowser")}
           </ContextMenuItem>
 
-          <ContextMenuItem onClick={() => onOpenJournal(ws.name)}>
-            <FileText /> {t("sessionJournal")}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => onOpenSessionCleaner(ws.name)}>
-            <ShieldCheck /> {t("sessionCleaner")}
-          </ContextMenuItem>
-
           <ContextMenuSeparator />
 
           <ContextMenuSub>
@@ -309,27 +315,6 @@ export default function WorkspaceItem({
               <Settings2 /> {t("settings", { ns: "common" })}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-52">
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>Provider</ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-44">
-                  <ContextMenuRadioGroup value={ws.providerId ?? ""}>
-                    <ContextMenuRadioItem value="" onClick={() => onSetProvider(ws, null)}>
-                      {t("noProvider")}
-                    </ContextMenuRadioItem>
-                    {providerList.length > 0 ? <ContextMenuSeparator /> : null}
-                    {providerList.map((provider) => (
-                      <ContextMenuRadioItem
-                        key={provider.id}
-                        value={provider.id}
-                        onClick={() => onSetProvider(ws, provider.id)}
-                      >
-                        {provider.name}
-                      </ContextMenuRadioItem>
-                    ))}
-                  </ContextMenuRadioGroup>
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-
               <ContextMenuItem onClick={() => onSetPath(ws)}>
                 {t("setWorkspacePath")}
               </ContextMenuItem>

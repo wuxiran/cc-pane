@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
 import { markTabReclaimed } from "@/services";
-import TerminalView from "./TerminalView";
+import TerminalTabContent from "./TerminalTabContent";
 import type { TerminalViewHandle } from "./TerminalView";
 
 // 懒加载非终端组件
@@ -19,10 +19,10 @@ interface TabContentRendererProps {
   isActive: boolean;
   paneId: string;
   isPoppedOut?: boolean;
-  onSessionCreated: (sessionId: string) => void;
-  onSessionExited?: (exitCode: number) => void;
-  onTerminalRef: (ref: TerminalViewHandle | null) => void;
-  onReconnect?: () => Promise<string | null>;
+  onSessionCreated: (sessionId: string, terminalPaneId?: string) => void;
+  onSessionExited?: (exitCode: number, terminalPaneId?: string) => void;
+  onTerminalRef: (terminalPaneId: string, ref: TerminalViewHandle | null) => void;
+  onReconnect?: (terminalPaneId: string) => Promise<string | null>;
 }
 
 function LoadingFallback() {
@@ -85,26 +85,13 @@ export default memo(function TabContentRenderer({
         );
       }
       return (
-        <TerminalView
+        <TerminalTabContent
           key={tab.reclaimKey ?? 0}
-          ref={onTerminalRef}
-          sessionId={tab.sessionId}
-          projectPath={tab.projectPath}
+          tab={tab}
           isActive={isActive}
-          workspaceName={tab.workspaceName}
-          providerId={tab.providerId}
-          workspacePath={tab.workspacePath}
-          launchClaude={tab.launchClaude}
-          cliTool={tab.cliTool}
-          resumeId={tab.resumeId}
-          ssh={tab.ssh}
-          wsl={tab.wsl}
-          restoring={tab.restoring}
-          savedSessionId={tab.savedSessionId}
-          paneId={paneId}
-          tabId={tab.id}
           onSessionCreated={onSessionCreated}
           onSessionExited={onSessionExited}
+          onTerminalRef={onTerminalRef}
           onReconnect={onReconnect}
         />
       );
@@ -155,5 +142,3 @@ export default memo(function TabContentRenderer({
       return null;
   }
 });
-
-

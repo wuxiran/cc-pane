@@ -4,7 +4,7 @@ import { createPanel } from "./paneTreeHelpers";
 import {
   resetTestDataCounter,
 } from "@/test/utils/testData";
-import type { Panel, SplitPane } from "@/types";
+import type { Panel, SplitPane, Tab } from "@/types";
 
 describe("usePanesStore", () => {
   beforeEach(() => {
@@ -88,7 +88,7 @@ describe("usePanesStore", () => {
   });
 
   describe("closePane", () => {
-    it("关闭分屏中的一个面板后应保留退化 SplitPane（避免 remount）", () => {
+    it("关闭分屏中的一个面板后应折叠回存活面板", () => {
       const { rootPane, splitRight } = usePanesStore.getState();
       const originalPanelId = rootPane.id;
       splitRight(rootPane.id);
@@ -101,13 +101,33 @@ describe("usePanesStore", () => {
       usePanesStore.getState().closePane(activePaneId);
 
       const stateAfter = usePanesStore.getState();
-      // 保留退化 SplitPane（不折叠），避免存活终端 remount
-      expect(stateAfter.rootPane.type).toBe("split");
-      const split = stateAfter.rootPane as SplitPane;
-      expect(split.children).toHaveLength(1);
-      expect(split.children[0].id).toBe(originalPanelId);
+      expect(stateAfter.rootPane.type).toBe("panel");
+      expect(stateAfter.rootPane.id).toBe(originalPanelId);
       // activePaneId 应指向存活面板
       expect(stateAfter.activePaneId).toBe(originalPanelId);
+    });
+
+    it("关闭嵌套分屏中的一个面板后应清理退化 split 链", () => {
+      const store = usePanesStore.getState();
+      const firstPaneId = store.rootPane.id;
+      store.splitRight(firstPaneId);
+
+      const secondPaneId = usePanesStore.getState().activePaneId;
+      store.splitDown(secondPaneId);
+
+      const root = usePanesStore.getState().rootPane as SplitPane;
+      expect(root.type).toBe("split");
+
+      const nestedSplit = root.children.find((child) => child.id !== firstPaneId) as SplitPane;
+      const nestedActivePaneId = nestedSplit.children[1].id;
+
+      usePanesStore.getState().closePane(nestedActivePaneId);
+
+      const stateAfter = usePanesStore.getState();
+      expect(stateAfter.rootPane.type).toBe("split");
+      const normalizedRoot = stateAfter.rootPane as SplitPane;
+      expect(normalizedRoot.children).toHaveLength(2);
+      expect(normalizedRoot.children.every((child) => child.type === "panel")).toBe(true);
     });
 
     it("关闭根面板应重置为新空面板", () => {
@@ -249,6 +269,56 @@ describe("usePanesStore", () => {
 
       const tab = (usePanesStore.getState().rootPane as Panel).tabs[0];
       expect(tab.title).toBe("新名称");
+    });
+  });
+
+  describe("terminal subpanes", () => {
+    it("应拆分终端标签并创建新的活动子窗格", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+
+      const pane = usePanesStore.getState().rootPane as Panel;
+      const tab = pane.tabs[1];
+      const originalTerminalPaneId = tab.activeTerminalPaneId!;
+
+      usePanesStore.getState().splitTerminalPane(tab.id, originalTerminalPaneId, "right");
+
+      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      expect(updatedTab.terminalRootPane?.type).toBe("split");
+      expect(updatedTab.activeTerminalPaneId).not.toBe(originalTerminalPaneId);
+      expect(updatedTab.sessionId).toBeNull();
+    });
+
+    it("关闭活动子窗格后应保留另一个子窗格", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+
+      let tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
+
+      tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      const closingTerminalPaneId = tab.activeTerminalPaneId!;
+
+      usePanesStore.getState().closeTerminalPane(tab.id, closingTerminalPaneId);
+
+      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      expect(updatedTab.terminalRootPane?.type).toBe("leaf");
+      expect(updatedTab.activeTerminalPaneId).not.toBe(closingTerminalPaneId);
+    });
+
+    it("更新指定子窗格会话时应同步到活动标签镜像字段", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+
+      let tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
+
+      tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      const activeTerminalPaneId = tab.activeTerminalPaneId!;
+      usePanesStore.getState().updateTabSession(paneId, tab.id, "session-subpane", activeTerminalPaneId);
+
+      const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
+      expect(updatedTab.sessionId).toBe("session-subpane");
     });
   });
 

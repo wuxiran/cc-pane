@@ -32,6 +32,34 @@ export interface WslLaunchInfo {
   distro?: string;
 }
 
+export type TerminalPaneNode = TerminalPaneLeaf | TerminalPaneSplit;
+
+export interface TerminalPaneLeaf {
+  type: "leaf";
+  id: string;
+  sessionId: string | null;
+  resumeId?: string;
+  workspaceName?: string;
+  providerId?: string;
+  workspacePath?: string;
+  launchClaude?: boolean;
+  cliTool?: CliTool;
+  ssh?: import("./workspace").SshConnectionInfo;
+  wsl?: WslLaunchInfo;
+  machineName?: string;
+  disconnected?: boolean;
+  restoring?: boolean;
+  savedSessionId?: string;
+}
+
+export interface TerminalPaneSplit {
+  type: "split";
+  id: string;
+  direction: "horizontal" | "vertical";
+  children: TerminalPaneNode[];
+  sizes: number[];
+}
+
 /** 通用标签 */
 export interface Tab {
   id: string;
@@ -57,6 +85,8 @@ export interface Tab {
   disconnected?: boolean;
   restoring?: boolean;
   savedSessionId?: string;
+  terminalRootPane?: TerminalPaneNode;
+  activeTerminalPaneId?: string;
 }
 
 /** 终端会话状态 */

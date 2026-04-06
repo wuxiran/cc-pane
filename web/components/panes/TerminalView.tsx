@@ -707,7 +707,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
             // Clear restore metadata once the live session is ready.
             if (props.restoring && props.paneId && props.tabId) {
-              usePanesStore.getState().clearRestoring(props.paneId, props.tabId);
+              usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
               if (props.savedSessionId) {
                 sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
               }
@@ -831,7 +831,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             onSessionCreatedRef.current(sessionId);
             // Clear restoring state once the deferred session is live.
             if (props.paneId && props.tabId) {
-              usePanesStore.getState().clearRestoring(props.paneId, props.tabId);
+              usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
               if (props.savedSessionId) {
                 sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
               }
@@ -858,4 +858,3 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 );
 
 export default TerminalView;
-

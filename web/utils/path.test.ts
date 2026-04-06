@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getFileName, getDirName, getProjectName, toWslPath } from "./path";
+import { getFileName, getDirName, getProjectName, getWslUncRemotePath, isWslUncPath, toWslPath } from "./path";
 
 describe("getFileName", () => {
   it("正斜杠路径提取文件名", () => {
@@ -94,6 +94,14 @@ describe("toWslPath", () => {
     expect(toWslPath("D:\\workspace\\cc-book")).toBe("/mnt/d/workspace/cc-book");
   });
 
+  it("WSL localhost UNC 路径转为 Linux 路径", () => {
+    expect(toWslPath("\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo")).toBe("/home/dev/repo");
+  });
+
+  it("WSL $ UNC 路径转为 Linux 路径", () => {
+    expect(toWslPath("\\\\wsl$\\Ubuntu\\home\\dev\\repo")).toBe("/home/dev/repo");
+  });
+
   it("盘符根目录转为 WSL 路径", () => {
     expect(toWslPath("C:\\")).toBe("/mnt/c");
   });
@@ -104,5 +112,34 @@ describe("toWslPath", () => {
 
   it("空路径返回 null", () => {
     expect(toWslPath("")).toBeNull();
+  });
+});
+
+describe("getWslUncRemotePath", () => {
+  it("提取 WSL UNC 远端路径", () => {
+    expect(getWslUncRemotePath("\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo")).toBe("/home/dev/repo");
+  });
+
+  it("WSL UNC 根目录映射为 /", () => {
+    expect(getWslUncRemotePath("\\\\wsl.localhost\\Ubuntu\\")).toBe("/");
+  });
+
+  it("非 WSL UNC 路径返回 null", () => {
+    expect(getWslUncRemotePath("D:\\workspace\\repo")).toBeNull();
+  });
+});
+
+describe("isWslUncPath", () => {
+  it("识别 wsl.localhost UNC 路径", () => {
+    expect(isWslUncPath("\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo")).toBe(true);
+  });
+
+  it("识别 wsl$ UNC 路径", () => {
+    expect(isWslUncPath("\\\\wsl$\\Ubuntu\\home\\dev\\repo")).toBe(true);
+  });
+
+  it("忽略 Windows 本地路径和普通 Linux 路径", () => {
+    expect(isWslUncPath("D:\\workspace\\repo")).toBe(false);
+    expect(isWslUncPath("/home/dev/repo")).toBe(false);
   });
 });

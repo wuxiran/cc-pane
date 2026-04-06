@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
@@ -15,11 +15,15 @@ import { specService } from "@/services/specService";
 import { useCliTools } from "@/hooks/useCliTools";
 import {
   detectAppPlatform,
+  getWorkspaceLaunchIssueKey,
+  getWorkspaceLaunchIssueValues,
+  getWorkspaceDefaultEnvironment,
   getProjectName,
   getWorkspaceProjectKind,
-  resolveWorkspaceProjectWslPath,
+  resolveWorkspaceProjectLaunchOptions,
 } from "@/utils";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions, SpecEntry, SshConnectionInfo } from "@/types";
+import { getCompatibleCliTool } from "@/types/provider";
 
 interface ProjectListViewProps {
   projects: WorkspaceProject[];
@@ -80,6 +84,7 @@ export default function ProjectListView({
   const onOpenTodo = useDialogStore((s) => s.openTodo);
   const [projectSpecs, setProjectSpecs] = useState<Record<string, SpecEntry[]>>({});
   const isWindows = detectAppPlatform() === "windows";
+  const defaultEnvironment = getWorkspaceDefaultEnvironment(ws);
 
   const handleLoadSpecs = useCallback(async (projectPath: string) => {
     try {
@@ -129,6 +134,23 @@ export default function ProjectListView({
     }
   }, [t]);
 
+  const formatLaunchIssue = useCallback((
+    issue: NonNullable<ReturnType<typeof resolveWorkspaceProjectLaunchOptions>["issue"]>,
+  ) => {
+    return t(getWorkspaceLaunchIssueKey(issue), {
+      ...getWorkspaceLaunchIssueValues(issue),
+      defaultValue: {
+        local_path_missing: "Local launch requires a workspace path or a local project.",
+        wsl_unsupported: "WSL is only available on Windows.",
+        wsl_path_missing: "WSL launch requires a remote path.",
+        wsl_local_path_missing: "WSL launch requires a local anchor path or a WSL project.",
+        ssh_machine_missing: "SSH launch requires a selected machine.",
+        ssh_machine_not_found: "The saved SSH machine could not be found: {{machineId}}",
+        ssh_path_missing: "SSH launch requires a remote path.",
+      }[issue.code],
+    });
+  }, [t]);
+
   return (
     <div className="pl-4 pr-1 pb-2 flex flex-col gap-0.5">
       {projects.map((project) => {
@@ -139,21 +161,40 @@ export default function ProjectListView({
         const terminalOpts: OpenTerminalOptions = {
           path: project.path,
           workspaceName: ws.name,
-          providerId: ws.providerId,
           ssh: project.ssh,
           machineName: sshMachine?.name ?? project.alias,
         };
-        const wslRemotePath = !isSsh ? resolveWorkspaceProjectWslPath(ws, project) : null;
-        const codexWslOpts = wslRemotePath
-          ? { ...terminalOpts, workspacePath: ws.path, cliTool: "codex" as const, wsl: { remotePath: wslRemotePath } }
-          : null;
+        const launchProject = (
+          cliTool?: OpenTerminalOptions["cliTool"],
+          providerId?: string,
+          environment?: typeof defaultEnvironment,
+        ) => {
+          const { options, issue } = resolveWorkspaceProjectLaunchOptions({
+            workspace: ws,
+            project,
+            cliTool,
+            providerId,
+            environment,
+            machines: sshMachines,
+          });
+          if (!options || issue) {
+            toast.error(
+              formatLaunchIssue(issue ?? {
+                environment: environment ?? defaultEnvironment,
+                code: "local_path_missing",
+              }),
+            );
+            return;
+          }
+          onOpenTerminal(options);
+        };
         return (
         <div key={project.id}>
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
                 className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer rounded-lg transition-all text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-                onDoubleClick={() => isSsh ? onOpenTerminal(terminalOpts) : onOpenInFileBrowser?.(project.path)}
+                onDoubleClick={() => isSsh ? launchProject() : onOpenInFileBrowser?.(project.path)}
               >
                 {isSsh
                   ? <Globe size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
@@ -171,51 +212,41 @@ export default function ProjectListView({
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-48">
-              <ContextMenuItem onClick={() => onOpenTerminal(terminalOpts)}>
+              <ContextMenuItem onClick={() => launchProject()}>
                 <Terminal /> {t("openTerminal")}
               </ContextMenuItem>
               {/* CLI 工具（动态渲染） */}
-              {cliTools.map((tool) =>
-                tool.id === "claude" ? (
+              {cliTools.map((tool) => {
+                const compatibleProviders = providerList.filter(
+                  (provider) => getCompatibleCliTool(provider.providerType) === tool.id,
+                );
+
+                return tool.id !== "codex" && compatibleProviders.length > 0 ? (
                   <ContextMenuSub key={tool.id}>
                     <ContextMenuSubTrigger>
                       <Terminal /> {tool.displayName}
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent className="w-48">
-                      <ContextMenuItem onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
-                        {t("useWorkspaceProvider")}
-                        {ws.providerId && providerList.find(p => p.id === ws.providerId) && (
-                          <span className="ml-auto text-[10px] opacity-60">
-                            {providerList.find(p => p.id === ws.providerId)?.name}
-                          </span>
-                        )}
+                      <ContextMenuItem onClick={() => launchProject(tool.id)}>
+                        {`（${t("default", { ns: "common", defaultValue: "默认" })}）`}
                       </ContextMenuItem>
-                      {providerList.length > 0 && <ContextMenuSeparator />}
-                      {providerList.map((p) => (
+                      {compatibleProviders.length > 0 && <ContextMenuSeparator />}
+                      {compatibleProviders.map((p) => (
                         <ContextMenuItem
                           key={p.id}
-                          onClick={() => onOpenTerminal({ ...terminalOpts, providerId: p.id, workspacePath: ws.path, cliTool: tool.id })}
+                          onClick={() => launchProject(tool.id, p.id)}
                         >
                           {p.name}
                         </ContextMenuItem>
                       ))}
                     </ContextMenuSubContent>
                   </ContextMenuSub>
-                ) : tool.id === "codex" && codexWslOpts ? (
-                  <Fragment key={tool.id}>
-                    <ContextMenuItem onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
-                      <Terminal /> {tool.displayName}
-                    </ContextMenuItem>
-                    <ContextMenuItem onClick={() => onOpenTerminal(codexWslOpts)}>
-                      <Terminal /> Codex (WSL)
-                    </ContextMenuItem>
-                  </Fragment>
                 ) : (
-                  <ContextMenuItem key={tool.id} onClick={() => onOpenTerminal({ ...terminalOpts, workspacePath: ws.path, cliTool: tool.id })}>
+                  <ContextMenuItem key={tool.id} onClick={() => launchProject(tool.id)}>
                     <Terminal /> {tool.displayName}
                   </ContextMenuItem>
-                )
-              )}
+                );
+              })}
               {/* 本地项目专有菜单项 */}
               {!isSsh && (
                 <>
@@ -311,4 +342,3 @@ export default function ProjectListView({
     </div>
   );
 }
-

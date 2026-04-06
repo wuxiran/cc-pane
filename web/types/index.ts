@@ -12,6 +12,9 @@ export type {
   CliToolInfo,
   CliToolCapabilities,
   WslLaunchInfo,
+  TerminalPaneNode,
+  TerminalPaneLeaf,
+  TerminalPaneSplit,
   OpenTerminalOptions,
   Tab,
   TerminalSession,
@@ -116,5 +119,4 @@ export type {
   TaskBindingQuery,
   TaskBindingQueryResult,
 } from "./orchestrator";
-
 

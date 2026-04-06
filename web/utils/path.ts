@@ -38,6 +38,9 @@ export function toWslPath(path?: string | null): string | null {
   return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`;
 }
 
+/**
+ * 从 WSL UNC 路径中提取 Linux 远端路径
+ */
 export function getWslUncRemotePath(path?: string | null): string | null {
   if (!path) return null;
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -45,4 +48,11 @@ export function getWslUncRemotePath(path?: string | null): string | null {
   if (!match) return null;
   const remotePath = match[1]?.replace(/^\/+/, "") ?? "";
   return remotePath ? `/${remotePath}` : "/";
+}
+
+/**
+ * 判断路径是否为 Windows 下的 WSL UNC 路径。
+ */
+export function isWslUncPath(path?: string | null): boolean {
+  return getWslUncRemotePath(path) !== null;
 }

@@ -65,6 +65,9 @@ interface TabBarProps {
   onRename: (tabId: string, newTitle: string) => void;
   onSplitAndMoveRight: (tabId: string) => void;
   onSplitAndMoveDown: (tabId: string) => void;
+  onSplitTerminalRight: (tabId: string) => void;
+  onSplitTerminalDown: (tabId: string) => void;
+  onCloseTerminalPane: (tabId: string) => void;
   onCloseTabsToLeft: (tabId: string) => void;
   onCloseTabsToRight: (tabId: string) => void;
   onCloseOtherTabs: (tabId: string) => void;
@@ -97,6 +100,9 @@ function SortableTab({
   onSplitDown,
   onSplitAndMoveRight,
   onSplitAndMoveDown,
+  onSplitTerminalRight,
+  onSplitTerminalDown,
+  onCloseTerminalPane,
   onCloseTabsToLeft,
   onCloseTabsToRight,
   onCloseOtherTabs,
@@ -128,6 +134,9 @@ function SortableTab({
   onSplitDown: () => void;
   onSplitAndMoveRight: (tabId: string) => void;
   onSplitAndMoveDown: (tabId: string) => void;
+  onSplitTerminalRight: (tabId: string) => void;
+  onSplitTerminalDown: (tabId: string) => void;
+  onCloseTerminalPane: (tabId: string) => void;
   onCloseTabsToLeft: (tabId: string) => void;
   onCloseTabsToRight: (tabId: string) => void;
   onCloseOtherTabs: (tabId: string) => void;
@@ -148,10 +157,15 @@ function SortableTab({
   } = useSortable({
     id: tab.id,
     data: { type: "tab", paneId, tab },
+    disabled: editingTabId === tab.id,
   });
 
   const d = DENSITY[density];
   const active = tab.id === activeId;
+  const terminalLeafCount =
+    tab.contentType === "terminal" && tab.terminalRootPane
+      ? countTerminalLeaves(tab.terminalRootPane)
+      : 0;
 
   const showSeparator = index > 0
     && tab.id !== activeId
@@ -222,6 +236,7 @@ function SortableTab({
                   else if (e.key === "Escape") cancelRename();
                 }}
                 onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
               />
             ) : (
               <span
@@ -252,7 +267,7 @@ function SortableTab({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
-        <ContextMenuItem onClick={() => startRename(tab)}>
+        <ContextMenuItem onSelect={() => startRename(tab)}>
           <Pencil /> {t("renameTab")}
         </ContextMenuItem>
         <ContextMenuItem inset onClick={() => onTogglePin(tab.id)}>
@@ -276,11 +291,28 @@ function SortableTab({
         )}
         <ContextMenuSeparator />
         <ContextMenuItem onClick={onSplitRight}>
-          <PanelRight /> {t("splitRight")}
+          <PanelRight /> {t("splitPanelRight")}
         </ContextMenuItem>
         <ContextMenuItem onClick={onSplitDown}>
-          <PanelBottom /> {t("splitDown")}
+          <PanelBottom /> {t("splitPanelDown")}
         </ContextMenuItem>
+        {tab.contentType === "terminal" && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => onSplitTerminalRight(tab.id)}>
+              <PanelRight /> {t("splitRight")}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => onSplitTerminalDown(tab.id)}>
+              <PanelBottom /> {t("splitDown")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              disabled={terminalLeafCount <= 1}
+              onSelect={() => onCloseTerminalPane(tab.id)}
+            >
+              {t("closeTerminalPane")}
+            </ContextMenuItem>
+          </>
+        )}
         {tabs.length > 1 && (
           <>
             <ContextMenuItem onClick={() => onSplitAndMoveRight(tab.id)}>
@@ -344,6 +376,9 @@ export default memo(function TabBar({
   onRename,
   onSplitAndMoveRight,
   onSplitAndMoveDown,
+  onSplitTerminalRight,
+  onSplitTerminalDown,
+  onCloseTerminalPane,
   onCloseTabsToLeft,
   onCloseTabsToRight,
   onCloseOtherTabs,
@@ -424,6 +459,9 @@ export default memo(function TabBar({
               onSplitDown={onSplitDown}
               onSplitAndMoveRight={onSplitAndMoveRight}
               onSplitAndMoveDown={onSplitAndMoveDown}
+              onSplitTerminalRight={onSplitTerminalRight}
+              onSplitTerminalDown={onSplitTerminalDown}
+              onCloseTerminalPane={onCloseTerminalPane}
               onCloseTabsToLeft={onCloseTabsToLeft}
               onCloseTabsToRight={onCloseTabsToRight}
               onCloseOtherTabs={onCloseOtherTabs}
@@ -446,3 +484,9 @@ export default memo(function TabBar({
     </div>
   );
 });
+
+function countTerminalLeaves(node: Tab["terminalRootPane"]): number {
+  if (!node) return 0;
+  if (node.type === "leaf") return 1;
+  return node.children.reduce((total, child) => total + countTerminalLeaves(child), 0);
+}

@@ -24,7 +24,6 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   const removeProject = useWorkspacesStore((s) => s.removeProject);
   const updateProjectAlias = useWorkspacesStore((s) => s.updateProjectAlias);
   const updateWorkspaceAlias = useWorkspacesStore((s) => s.updateWorkspaceAlias);
-  const updateWorkspaceProvider = useWorkspacesStore((s) => s.updateWorkspaceProvider);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
 
   // Git 分支 & Worktree 缓存
@@ -307,19 +306,11 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
 
   function handleOpenWorkspace(ws: Workspace) {
     if (ws.projects.length === 0) return;
-    onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, providerId: ws.providerId, workspacePath: ws.path });
+    onOpenTerminal({ path: ws.projects[0].path, workspaceName: ws.name, workspacePath: ws.path });
   }
 
   function handleOpenProject(project: WorkspaceProject, ws?: Workspace) {
-    onOpenTerminal({ path: project.path, workspaceName: ws?.name, providerId: ws?.providerId, workspacePath: ws?.path });
-  }
-
-  async function handleSetWorkspaceProvider(ws: Workspace, providerId: string | null) {
-    try {
-      await updateWorkspaceProvider(ws.name, providerId);
-    } catch (e) {
-      toast.error(tNotify("setProviderFailed", { error: String(e) }));
-    }
+    onOpenTerminal({ path: project.path, workspaceName: ws?.name, workspacePath: ws?.path });
   }
 
   function handleOpenWorktree(path: string) {
@@ -352,7 +343,6 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     handleRenameWorkspace,
     handleDeleteWorkspace,
     handleSetWorkspaceAlias,
-    handleSetWorkspaceProvider,
     handleOpenWorkspace,
 
     // Project actions

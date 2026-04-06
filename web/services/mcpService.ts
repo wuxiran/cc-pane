@@ -46,4 +46,13 @@ export const mcpService = {
   async removeServer(projectPath: string, name: string): Promise<boolean> {
     return invoke<boolean>("remove_mcp_server", { projectPath, name });
   },
+
+  /** 获取 CC-Panes 自身 MCP Orchestrator 的连接信息（port + token） */
+  async getOrchestratorInfo(): Promise<{ port: number | null; token: string }> {
+    const [port, token] = await Promise.all([
+      invoke<number | null>("get_orchestrator_port"),
+      invoke<string>("get_orchestrator_token"),
+    ]);
+    return { port, token };
+  },
 };

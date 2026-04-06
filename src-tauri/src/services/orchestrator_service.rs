@@ -21,7 +21,7 @@ use crate::utils::AppPaths;
 use anyhow::Result;
 use axum::{
     extract::{DefaultBodyLimit, Json, Path as AxumPath, Request, State},
-    http::{HeaderMap, Method, StatusCode},
+    http::{self, HeaderMap, Method, StatusCode},
     middleware,
     response::IntoResponse,
     routing::{get, post},
@@ -411,6 +411,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/kill-session", post(handle_kill_session))
         .route("/api/health", get(handle_health))
         .nest_service("/mcp", mcp_service)
+        .layer(middleware::from_fn(inject_mcp_accept_headers))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             mcp_auth_middleware,
@@ -444,6 +445,28 @@ async fn mcp_auth_middleware(
                 Json(serde_json::json!({"error": "Invalid or missing Bearer token"})),
             )
                 .into_response();
+        }
+    }
+    next.run(request).await
+}
+
+/// 补全 Codex CLI 缺少的 Accept 头，避免 rmcp 1.3.0 对 POST /mcp 的 406 检查
+async fn inject_mcp_accept_headers(
+    mut request: Request,
+    next: middleware::Next,
+) -> axum::response::Response {
+    if request.uri().path().starts_with("/mcp") && request.method() == Method::POST {
+        let needs_injection = request
+            .headers()
+            .get(http::header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| !v.contains("application/json") || !v.contains("text/event-stream"))
+            .unwrap_or(true);
+        if needs_injection {
+            request.headers_mut().insert(
+                http::header::ACCEPT,
+                http::HeaderValue::from_static("application/json, text/event-stream"),
+            );
         }
     }
     next.run(request).await

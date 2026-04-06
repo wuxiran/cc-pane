@@ -21,9 +21,7 @@ use uuid::Uuid;
 
 mod wsl_codex;
 
-use self::wsl_codex::{
-    has_codex_auth_env, normalize_codex_env_vars, strip_wsl_proxy_env_vars, WSL_PROXY_ENV_KEYS,
-};
+use self::wsl_codex::{strip_wsl_proxy_env_vars, WSL_PROXY_ENV_KEYS};
 
 fn cached_which(name: &str) -> Result<PathBuf, which::Error> {
     use std::sync::OnceLock;
@@ -483,6 +481,9 @@ pub struct TerminalService {
     app_paths: Arc<AppPaths>,
     /// Orchestrator 连接信息，setup 阶段设置
     orchestrator_info: Mutex<Option<OrchestratorInfo>>,
+    /// WSL 侧可用的 Windows host 缓存（按 distro + port 维度）
+    #[cfg_attr(not(windows), allow(dead_code))]
+    wsl_windows_host_cache: Mutex<HashMap<(String, u16), String>>,
     /// Spec 服务（终端启动时自动注入 active spec prompt）
     spec_service: Mutex<Option<Arc<SpecService>>>,
     /// CLI 工具适配器注册表
@@ -697,6 +698,7 @@ impl TerminalService {
             emitter: parking_lot::RwLock::new(None),
             app_paths,
             orchestrator_info: Mutex::new(None),
+            wsl_windows_host_cache: Mutex::new(HashMap::new()),
             spec_service: Mutex::new(None),
             cli_registry,
             shared_mcp_service: parking_lot::RwLock::new(None),
@@ -747,7 +749,10 @@ impl TerminalService {
         let is_ssh = ssh.is_some();
         let mut env_vars = self.settings_service.get_proxy_env_vars();
         let provider_vars = self.provider_service.get_env_vars(provider_id);
-        env_vars.extend(provider_vars.clone());
+        let pure_wsl_codex_launch = wsl.is_some() && cli_tool == CliTool::Codex;
+        if !pure_wsl_codex_launch {
+            env_vars.extend(provider_vars.clone());
+        }
         let emitter = self.emitter.read().clone().ok_or_else(|| {
             anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)")
         })?;
@@ -805,30 +810,42 @@ impl TerminalService {
                 .collect::<Vec<_>>();
             strip_wsl_proxy_env_vars(&mut env_vars);
 
-            let mut resolved_wsl = self.resolve_wsl_launch(
-                wsl_info,
-                &session_id,
-                cli_tool == CliTool::Codex && !skip_mcp,
-            )?;
+            let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
+            if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !skip_mcp {
+                if let Some(port_value) = env_vars.get("CC_PANES_API_PORT") {
+                    match port_value.parse::<u16>() {
+                        Ok(port) => match self.resolve_reachable_wsl_windows_host(
+                            &resolved_wsl.wsl_path,
+                            &resolved_wsl.distro,
+                            port,
+                        ) {
+                            Ok(host) => {
+                                resolved_wsl.windows_host = Some(host);
+                            }
+                            Err(error) => {
+                                warn!(
+                                    distro = %resolved_wsl.distro,
+                                    port = %port,
+                                    error = %error,
+                                    "create_session: failed to resolve reachable Windows host for WSL MCP injection; continuing without MCP"
+                                );
+                            }
+                        },
+                        Err(error) => {
+                            warn!(
+                                port_value = %port_value,
+                                error = %error,
+                                "create_session: invalid orchestrator port for WSL MCP injection; continuing without MCP"
+                            );
+                        }
+                    }
+                }
+            }
 
             let (cmd, cmd_args) = match cli_tool {
                 CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
                 CliTool::Codex => {
                     self.validate_wsl_codex_runtime(&mut resolved_wsl)?;
-
-                    let mut auth_env = provider_vars.clone();
-                    normalize_codex_env_vars(&mut auth_env);
-                    if !has_codex_auth_env(&auth_env)
-                        && !resolved_wsl.has_local_codex_config
-                        && !resolved_wsl.has_local_codex_auth
-                    {
-                        return Err(anyhow!(
-                            "WSL_CODEX_CONFIG_MISSING: no workspace Provider auth was injected and WSL distro '{}' has neither '~/.codex/config.toml' nor '~/.codex/auth.json'. Bind a Provider or configure/sign in to Codex inside WSL first.",
-                            resolved_wsl.distro
-                        ));
-                    }
-
-                    normalize_codex_env_vars(&mut env_vars);
                     self.ensure_wsl_codex_mcp_registered(
                         &session_id,
                         &resolved_wsl,
@@ -843,12 +860,17 @@ impl TerminalService {
                         skip_mcp,
                     )?
                 }
-                other => {
-                    return Err(anyhow!(
-                        "WSL launch currently supports only the local shell and Codex. Requested tool: {:?}",
-                        other
-                    ));
-                }
+                CliTool::Claude | CliTool::Gemini | CliTool::Opencode => self
+                    .build_wsl_supported_cli_command(
+                        &resolved_wsl,
+                        cli_tool,
+                        &session_id,
+                        &env_vars,
+                        resume_id,
+                        append_system_prompt,
+                        initial_prompt,
+                        skip_mcp,
+                    )?,
             };
 
             info!(
@@ -1720,6 +1742,8 @@ impl TerminalService {
             CliTool::None => remote_parts.push("exec $SHELL -l".into()),
             CliTool::Claude => remote_parts.push("claude".into()),
             CliTool::Codex => remote_parts.push("codex --full-auto".into()),
+            CliTool::Gemini => remote_parts.push("gemini".into()),
+            CliTool::Opencode => remote_parts.push("opencode".into()),
         }
         args.push(remote_parts.join(" && "));
 
