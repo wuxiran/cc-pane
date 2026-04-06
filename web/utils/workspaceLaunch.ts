@@ -7,7 +7,7 @@ import type {
   WorkspaceProject,
   WorkspaceLaunchEnvironment,
 } from "@/types";
-import { toWslPath } from "./path";
+import { getWslUncRemotePath, toWslPath } from "./path";
 
 export type AppPlatform = "windows" | "macos" | "linux" | "unknown";
 export type WorkspaceProjectKind = "local" | "wsl" | "ssh";
@@ -53,6 +53,7 @@ export function getWorkspaceDefaultEnvironment(
 export function getWorkspaceProjectKind(project: WorkspaceProject): WorkspaceProjectKind {
   if (project.ssh) return "ssh";
   if (project.wslRemotePath?.trim()) return "wsl";
+  if (getWslUncRemotePath(project.path)) return "wsl";
   return "local";
 }
 

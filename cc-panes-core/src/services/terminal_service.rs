@@ -234,6 +234,16 @@ fn is_spinner_line(line: &str) -> bool {
         "Coalescing",
     ];
 
+    /*
+
+    let text = trimmed.trim_start_matches(|c: char| {
+        matches!(
+            c,
+            '✻' | '✽' | '✶' | '✢' | '●' | '·' | '*' | ' ' | '○' | '◉' | '◌'
+        )
+    });
+
+    */
     let text = trimmed.trim_start_matches(|c: char| {
         matches!(
             c,
@@ -243,6 +253,9 @@ fn is_spinner_line(line: &str) -> bool {
 
     SPINNER_WORDS.iter().any(|word| {
         if let Some(rest) = text.strip_prefix(word) {
+            /*
+            let rest = rest.trim_start_matches('…').trim_start_matches("...");
+            */
             let rest = rest.trim_start_matches('…').trim_start_matches("...");
             rest.is_empty() || rest.chars().all(|c| c.is_ascii_digit())
         } else {

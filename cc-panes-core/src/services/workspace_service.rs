@@ -835,6 +835,7 @@ impl WorkspaceService {
         #[cfg(not(target_os = "windows"))]
         let _ = requested_distro;
 
+
         match target_kind {
             WorkspaceMigrationTargetKind::Local => Ok(None),
             WorkspaceMigrationTargetKind::Wsl => {
