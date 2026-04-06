@@ -468,6 +468,9 @@ pub struct TerminalService {
     app_paths: Arc<AppPaths>,
     /// Orchestrator 连接信息，setup 阶段设置
     orchestrator_info: Mutex<Option<OrchestratorInfo>>,
+    /// WSL 侧可用的 Windows host 缓存（按 distro + port 维度）
+    #[cfg_attr(not(windows), allow(dead_code))]
+    wsl_windows_host_cache: Mutex<HashMap<(String, u16), String>>,
     /// Spec 服务（终端启动时自动注入 active spec prompt）
     spec_service: Mutex<Option<Arc<SpecService>>>,
     /// CLI 工具适配器注册表
@@ -682,6 +685,7 @@ impl TerminalService {
             emitter: parking_lot::RwLock::new(None),
             app_paths,
             orchestrator_info: Mutex::new(None),
+            wsl_windows_host_cache: Mutex::new(HashMap::new()),
             spec_service: Mutex::new(None),
             cli_registry,
             shared_mcp_service: parking_lot::RwLock::new(None),
@@ -793,11 +797,37 @@ impl TerminalService {
                 .collect::<Vec<_>>();
             strip_wsl_proxy_env_vars(&mut env_vars);
 
-            let mut resolved_wsl = self.resolve_wsl_launch(
-                wsl_info,
-                &session_id,
-                cli_tool == CliTool::Codex && !skip_mcp,
-            )?;
+            let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
+            if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !skip_mcp {
+                if let Some(port_value) = env_vars.get("CC_PANES_API_PORT") {
+                    match port_value.parse::<u16>() {
+                        Ok(port) => match self.resolve_reachable_wsl_windows_host(
+                            &resolved_wsl.wsl_path,
+                            &resolved_wsl.distro,
+                            port,
+                        ) {
+                            Ok(host) => {
+                                resolved_wsl.windows_host = Some(host);
+                            }
+                            Err(error) => {
+                                warn!(
+                                    distro = %resolved_wsl.distro,
+                                    port = %port,
+                                    error = %error,
+                                    "create_session: failed to resolve reachable Windows host for WSL MCP injection; continuing without MCP"
+                                );
+                            }
+                        },
+                        Err(error) => {
+                            warn!(
+                                port_value = %port_value,
+                                error = %error,
+                                "create_session: invalid orchestrator port for WSL MCP injection; continuing without MCP"
+                            );
+                        }
+                    }
+                }
+            }
 
             let (cmd, cmd_args) = match cli_tool {
                 CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
@@ -821,9 +851,12 @@ impl TerminalService {
                     .build_wsl_supported_cli_command(
                         &resolved_wsl,
                         cli_tool,
+                        &session_id,
+                        &env_vars,
                         resume_id,
                         append_system_prompt,
                         initial_prompt,
+                        skip_mcp,
                     )?,
             };
 
