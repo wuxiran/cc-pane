@@ -50,6 +50,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libgtk-3-dev patchelf libpipewire-0.3-dev
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -69,6 +74,14 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+      - name: Build hook binary
+        run: cargo build -p cc-panes-hook --release
+        shell: bash
+
+      - name: Copy hook binary
+        run: node scripts/copy-hook.cjs
+        shell: bash
 
       - name: Cargo check
         run: cargo check --workspace
