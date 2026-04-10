@@ -12,7 +12,7 @@ use tracing::debug;
 
 /// 创建终端会话
 #[tauri::command]
-pub fn create_terminal_session(
+pub async fn create_terminal_session(
     _app_handle: AppHandle,
     service: State<'_, Arc<TerminalService>>,
     request: CreateSessionRequest,
@@ -39,21 +39,27 @@ pub fn create_terminal_session(
         }
     }
 
-    Ok(service.create_session(
-        &request.project_path,
-        request.cols,
-        request.rows,
-        request.workspace_name.as_deref(),
-        request.provider_id.as_deref(),
-        request.workspace_path.as_deref(),
-        request.effective_cli_tool(),
-        request.resume_id.as_deref(),
-        request.skip_mcp,
-        request.append_system_prompt.as_deref(),
-        None,
-        request.ssh.as_ref(),
-        request.wsl.as_ref(),
-    )?)
+    let svc = service.inner().clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        svc.create_session(
+            &request.project_path,
+            request.cols,
+            request.rows,
+            request.workspace_name.as_deref(),
+            request.provider_id.as_deref(),
+            request.workspace_path.as_deref(),
+            request.effective_cli_tool(),
+            request.resume_id.as_deref(),
+            request.skip_mcp,
+            request.append_system_prompt.as_deref(),
+            None,
+            request.ssh.as_ref(),
+            request.wsl.as_ref(),
+        )
+    })
+    .await
+    .map_err(|e| AppError::from(e.to_string()))?;
+    Ok(result?)
 }
 
 /// 向终端写入数据

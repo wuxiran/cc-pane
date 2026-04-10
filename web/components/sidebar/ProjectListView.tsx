@@ -10,9 +10,8 @@ import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
   ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu";
-import { useProvidersStore, useDialogStore, useSshMachinesStore } from "@/stores";
+import { useDialogStore, useSshMachinesStore } from "@/stores";
 import { specService } from "@/services/specService";
-import { useCliTools } from "@/hooks/useCliTools";
 import {
   detectAppPlatform,
   getWorkspaceLaunchIssueKey,
@@ -23,7 +22,7 @@ import {
   resolveWorkspaceProjectLaunchOptions,
 } from "@/utils";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions, SpecEntry, SshConnectionInfo } from "@/types";
-import { getCompatibleCliTool } from "@/types/provider";
+import { buildSidebarCliLaunchItems } from "./launchMenu";
 
 interface ProjectListViewProps {
   projects: WorkspaceProject[];
@@ -74,9 +73,7 @@ export default function ProjectListView({
   onImportProject, onMigrateProject, onOpenWorktreeManager, onOpenInFileBrowser,
 }: ProjectListViewProps) {
   const { t } = useTranslation(["sidebar", "common", "spec"]);
-  const providerList = useProvidersStore((s) => s.providers);
   const sshMachines = useSshMachinesStore((s) => s.machines);
-  const { tools: cliTools } = useCliTools();
   const onOpenHistory = useDialogStore((s) => s.openLocalHistory);
   const onOpenTodo = useDialogStore((s) => s.openTodo);
   const [projectSpecs, setProjectSpecs] = useState<Record<string, SpecEntry[]>>({});
@@ -153,17 +150,24 @@ export default function ProjectListView({
       {projects.map((project) => {
         const isSsh = !!project.ssh;
         const projectKind = getWorkspaceProjectKind(project);
+        const showExplicitWslLaunch = isWindows
+          && defaultEnvironment === "wsl"
+          && !resolveWorkspaceProjectLaunchOptions({
+            workspace: ws,
+            project,
+            machines: sshMachines,
+            environment: "wsl",
+          }).issue;
+        const cliLaunchItems = buildSidebarCliLaunchItems(t, showExplicitWslLaunch);
         const displayName = project.alias || (isSsh ? getSshDisplayName(project.ssh!) : getProjectName(project.path));
         const launchProject = (
           cliTool?: OpenTerminalOptions["cliTool"],
-          providerId?: string,
           environment?: typeof defaultEnvironment,
         ) => {
           const { options, issue } = resolveWorkspaceProjectLaunchOptions({
             workspace: ws,
             project,
             cliTool,
-            providerId,
             environment,
             machines: sshMachines,
           });
@@ -201,48 +205,30 @@ export default function ProjectListView({
                 </span>
               </div>
             </ContextMenuTrigger>
-            <ContextMenuContent className="w-48">
+            <ContextMenuContent className="w-56">
               <ContextMenuItem onClick={() => launchProject()}>
                 <Terminal /> {t("openTerminal")}
               </ContextMenuItem>
-              {/* CLI 工具（动态渲染） */}
-              {cliTools.map((tool) => {
-                const compatibleProviders = providerList.filter(
-                  (provider) => getCompatibleCliTool(provider.providerType) === tool.id,
-                );
-
-                return tool.id !== "codex" && compatibleProviders.length > 0 ? (
-                  <ContextMenuSub key={tool.id}>
-                    <ContextMenuSubTrigger>
-                      <Terminal /> {tool.displayName}
-                    </ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="w-48">
-                      <ContextMenuItem onClick={() => launchProject(tool.id)}>
-                        {`（${t("default", { ns: "common", defaultValue: "默认" })}）`}
-                      </ContextMenuItem>
-                      {compatibleProviders.length > 0 && <ContextMenuSeparator />}
-                      {compatibleProviders.map((p) => (
-                        <ContextMenuItem
-                          key={p.id}
-                          onClick={() => launchProject(tool.id, p.id)}
-                        >
-                          {p.name}
-                        </ContextMenuItem>
-                      ))}
-                    </ContextMenuSubContent>
-                  </ContextMenuSub>
-                ) : (
-                  <ContextMenuItem key={tool.id} onClick={() => launchProject(tool.id)}>
-                    <Terminal /> {tool.displayName}
-                  </ContextMenuItem>
-                );
-              })}
+              {cliLaunchItems.map((item) => (
+                <ContextMenuItem
+                  key={item.key}
+                  onClick={() => launchProject(item.cliTool, item.environment)}
+                >
+                  <Terminal /> {item.label}
+                </ContextMenuItem>
+              ))}
+              <ContextMenuSeparator />
               {/* 本地项目专有菜单项 */}
               {!isSsh && (
                 <>
                   <ContextMenuItem onClick={() => handleRevealFolder(project.path)}>
                     <FolderOpen /> {t("openFolder")}
                   </ContextMenuItem>
+                  {onOpenInFileBrowser && (
+                    <ContextMenuItem onClick={() => onOpenInFileBrowser(project.path)}>
+                      <Files /> {t("openInFileBrowser")}
+                    </ContextMenuItem>
+                  )}
                   <ContextMenuSub>
                     <ContextMenuSubTrigger>
                       <Copy /> {t("copyPath")}
@@ -298,23 +284,16 @@ export default function ProjectListView({
                       )}
                     </ContextMenuSubContent>
                   </ContextMenuSub>
+                  <ContextMenuSeparator />
                 </>
               )}
-              <ContextMenuSeparator />
               <ContextMenuItem onClick={() => onSetProjectAlias(ws, project)}>
                 <Pencil /> {t("setAlias")}
               </ContextMenuItem>
+              <ContextMenuSeparator />
               <ContextMenuItem variant="destructive" onClick={() => onRemoveProject(ws, project)}>
                 <Trash2 /> {t("removeProject")}
               </ContextMenuItem>
-              {!isSsh && onOpenInFileBrowser && (
-                <>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem onClick={() => onOpenInFileBrowser(project.path)}>
-                    <Files /> {t("openInFileBrowser")}
-                  </ContextMenuItem>
-                </>
-              )}
             </ContextMenuContent>
           </ContextMenu>
         </div>

@@ -9,6 +9,8 @@ pub enum CliTool {
     Claude,
     Codex,
     Gemini,
+    Kimi,
+    Glm,
     Opencode,
 }
 
@@ -20,6 +22,8 @@ impl CliTool {
             CliTool::Claude => "claude",
             CliTool::Codex => "codex",
             CliTool::Gemini => "gemini",
+            CliTool::Kimi => "kimi",
+            CliTool::Glm => "glm",
             CliTool::Opencode => "opencode",
         }
     }

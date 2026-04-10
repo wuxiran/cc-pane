@@ -16,7 +16,7 @@ function getAccentColor(provider: Provider): string {
   const TYPE_COLORS: Record<ProviderType, string> = {
     anthropic: "#E8590C", bedrock: "#FF9900", vertex: "#4285F4",
     proxy: "#6366F1", config_profile: "#6B7280", open_ai: "#10A37F",
-    gemini: "#4285F4", opencode: "#8B5CF6",
+    gemini: "#4285F4", kimi: "#F97316", glm: "#2563EB", opencode: "#8B5CF6",
   };
   return TYPE_COLORS[provider.providerType] || "#6B7280";
 }

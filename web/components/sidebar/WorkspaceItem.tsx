@@ -28,7 +28,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useProvidersStore, useSshMachinesStore } from "@/stores";
 import { hooksService, type HookStatus } from "@/services";
-import { useCliTools } from "@/hooks/useCliTools";
 import {
   detectAppPlatform,
   getWorkspaceDefaultEnvironment,
@@ -38,8 +37,8 @@ import {
   resolveWorkspaceLaunchOptions,
 } from "@/utils";
 import type { OpenTerminalOptions, Workspace, WorkspaceLaunchEnvironment } from "@/types";
-import { getCompatibleCliTool } from "@/types/provider";
 import AddSshProjectDialog from "./AddSshProjectDialog";
+import { buildSidebarCliLaunchItems } from "./launchMenu";
 
 interface WorkspaceItemProps {
   ws: Workspace;
@@ -79,7 +78,6 @@ export default function WorkspaceItem({
   const { t } = useTranslation(["sidebar", "common"]);
   const providerList = useProvidersStore((s) => s.providers);
   const sshMachines = useSshMachinesStore((s) => s.machines);
-  const { tools: cliTools } = useCliTools();
   const [hookStatuses, setHookStatuses] = useState<HookStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
 
@@ -92,6 +90,14 @@ export default function WorkspaceItem({
     ? providerList.find((provider) => provider.id === ws.providerId)
     : undefined;
   const isWindows = detectAppPlatform() === "windows";
+  const showExplicitWslLaunch = isWindows
+    && defaultEnvironment === "wsl"
+    && !resolveWorkspaceLaunchOptions({
+      workspace: ws,
+      machines: sshMachines,
+      environment: "wsl",
+    }).issue;
+  const cliLaunchItems = buildSidebarCliLaunchItems(t, showExplicitWslLaunch);
 
   const formatLaunchIssue = useCallback((
     issue: NonNullable<ReturnType<typeof resolveWorkspaceLaunchOptions>["issue"]>,
@@ -110,18 +116,20 @@ export default function WorkspaceItem({
     });
   }, [t]);
 
-  const openWorkspace = useCallback((cliTool?: OpenTerminalOptions["cliTool"], providerId?: string) => {
+  const openWorkspace = useCallback((
+    cliTool?: OpenTerminalOptions["cliTool"],
+    environment?: WorkspaceLaunchEnvironment,
+  ) => {
     const { options, issue } = resolveWorkspaceLaunchOptions({
       workspace: ws,
       cliTool,
-      providerId,
       machines: sshMachines,
+      environment,
     });
     if (!options || issue) {
-      const currentEnvironment = getWorkspaceDefaultEnvironment(ws);
       toast.error(
         formatLaunchIssue(issue ?? {
-          environment: currentEnvironment,
+          environment: environment ?? getWorkspaceDefaultEnvironment(ws),
           code: "local_path_missing",
         }),
       );
@@ -212,68 +220,19 @@ export default function WorkspaceItem({
           </button>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-48">
+        <ContextMenuContent className="w-56">
           <ContextMenuItem onClick={() => openWorkspace()}>
             <Terminal /> {t("openTerminal")}
           </ContextMenuItem>
 
-          {cliTools.map((tool) => {
-            if (tool.id === "codex") {
-              return (
-                <ContextMenuItem key={tool.id} onClick={() => openWorkspace(tool.id)}>
-                  <Terminal /> {tool.displayName}
-                </ContextMenuItem>
-              );
-            }
-
-            const compatibleProviders = providerList.filter(
-              (provider) => getCompatibleCliTool(provider.providerType) === tool.id,
-            );
-            if (compatibleProviders.length === 0) {
-              return (
-                <ContextMenuItem key={tool.id} onClick={() => openWorkspace(tool.id)}>
-                  <Terminal /> {tool.displayName}
-                </ContextMenuItem>
-              );
-            }
-
-            return (
-              <ContextMenuSub key={tool.id}>
-                <ContextMenuSubTrigger>
-                  <Terminal /> {tool.displayName}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-48">
-                  <ContextMenuItem onClick={() => openWorkspace(tool.id)}>
-                    {`（${t("default", { ns: "common", defaultValue: "默认" })}）`}
-                  </ContextMenuItem>
-                  <ContextMenuSeparator />
-                  {compatibleProviders.map((provider) => (
-                    <ContextMenuItem
-                      key={provider.id}
-                      onClick={() => openWorkspace(tool.id, provider.id)}
-                    >
-                      {provider.name}
-                    </ContextMenuItem>
-                  ))}
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-            );
-          })}
-
-          {isWindows ? (
-            <>
-              <ContextMenuSeparator />
-              <ContextMenuCheckboxItem
-                checked={getWorkspaceDefaultEnvironment(ws) === "wsl"}
-                onClick={() => onSetDefaultEnvironment(
-                  ws,
-                  getWorkspaceDefaultEnvironment(ws) === "wsl" ? "local" : "wsl",
-                )}
-              >
-                {t("defaultOpenInWsl")}
-              </ContextMenuCheckboxItem>
-            </>
-          ) : null}
+          {cliLaunchItems.map((item) => (
+            <ContextMenuItem
+              key={item.key}
+              onClick={() => openWorkspace(item.cliTool, item.environment)}
+            >
+              <Terminal /> {item.label}
+            </ContextMenuItem>
+          ))}
 
           <ContextMenuSeparator />
 
@@ -298,7 +257,7 @@ export default function WorkspaceItem({
                 {t("importFromDir")}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => onScanImport(ws)}>
-                <FolderSearch /> {t("importFromDir")}
+                <FolderSearch /> {t("scanImportDirectory")}
               </ContextMenuItem>
               <ContextMenuItem onClick={() => onGitClone(ws)}>
                 <GitBranch /> {t("cloneFromGit")}
@@ -309,6 +268,8 @@ export default function WorkspaceItem({
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
+
+          <ContextMenuSeparator />
 
           <ContextMenuSub>
             <ContextMenuSubTrigger>
@@ -322,6 +283,17 @@ export default function WorkspaceItem({
                 <ContextMenuItem onClick={() => onClearPath(ws)}>
                   {t("clearWorkspacePath")}
                 </ContextMenuItem>
+              ) : null}
+              {isWindows ? (
+                <ContextMenuCheckboxItem
+                  checked={getWorkspaceDefaultEnvironment(ws) === "wsl"}
+                  onCheckedChange={() => onSetDefaultEnvironment(
+                    ws,
+                    getWorkspaceDefaultEnvironment(ws) === "wsl" ? "local" : "wsl",
+                  )}
+                >
+                  {t("defaultOpenInWsl")}
+                </ContextMenuCheckboxItem>
               ) : null}
 
               <ContextMenuSeparator />

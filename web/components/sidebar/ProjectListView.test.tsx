@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectListView from "./ProjectListView";
 import { createTestWorkspace, createTestWorkspaceProject, resetTestDataCounter } from "@/test/utils/testData";
-import { useDialogStore, useProvidersStore, useSshMachinesStore } from "@/stores";
+import { useDialogStore, useSshMachinesStore } from "@/stores";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openPath: vi.fn(),
@@ -15,17 +15,6 @@ vi.mock("sonner", () => ({
     error: vi.fn(),
     success: vi.fn(),
   },
-}));
-
-vi.mock("@/hooks/useCliTools", () => ({
-  useCliTools: () => ({
-    tools: [
-      { id: "claude", displayName: "Claude" },
-      { id: "codex", displayName: "Codex" },
-      { id: "gemini", displayName: "Gemini" },
-      { id: "opencode", displayName: "OpenCode" },
-    ],
-  }),
 }));
 
 vi.mock("@/services/specService", () => ({
@@ -39,13 +28,6 @@ describe("ProjectListView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetTestDataCounter();
-    useProvidersStore.setState({
-      providers: [
-        { id: "provider-claude", name: "Claude Provider", providerType: "anthropic", isDefault: false },
-        { id: "provider-gemini", name: "Gemini Provider", providerType: "gemini", isDefault: false },
-        { id: "provider-opencode", name: "OpenCode Provider", providerType: "opencode", isDefault: false },
-      ],
-    });
     useSshMachinesStore.setState({ machines: [] });
     useDialogStore.setState({
       localHistoryOpen: false,
@@ -129,12 +111,8 @@ describe("ProjectListView", () => {
     expect(screen.getByText("SSH")).toBeVisible();
   });
 
-  it("默认环境为 local 时项目右键 Codex 走本地启动", async () => {
-    const user = userEvent.setup();
-    const onOpenTerminal = vi.fn();
+  it("项目菜单直接显示 CLI 入口", async () => {
     const workspace = createTestWorkspace({
-      defaultEnvironment: "local",
-      path: "D:/workspace-root",
       projects: [
         createTestWorkspaceProject({
           alias: "local-project",
@@ -148,7 +126,7 @@ describe("ProjectListView", () => {
         projects={workspace.projects}
         ws={workspace}
         gitBranches={{}}
-        onOpenTerminal={onOpenTerminal}
+        onOpenTerminal={vi.fn()}
         onRemoveProject={vi.fn()}
         onSetProjectAlias={vi.fn()}
         onImportProject={vi.fn()}
@@ -158,17 +136,13 @@ describe("ProjectListView", () => {
     );
 
     fireEvent.contextMenu(screen.getByText("local-project"));
-    await user.click(await screen.findByRole("menuitem", { name: "Codex" }));
-
-    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
-      path: "D:/workspace-root/apps/api",
-      workspacePath: "D:/workspace-root",
-      cliTool: "codex",
-    }));
-    expect(onOpenTerminal.mock.calls[0]?.[0]?.wsl).toBeUndefined();
+    expect(await screen.findByRole("menuitem", { name: "Claude Code" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Codex CLI" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Kimi CLI" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "GLM CLI" })).toBeVisible();
   });
 
-  it("默认环境为 wsl 时项目右键 Codex 自动走 WSL", async () => {
+  it("默认环境为 wsl 时项目右键 Codex 普通项仍走本地启动", async () => {
     const user = userEvent.setup();
     const onOpenTerminal = vi.fn();
     const workspace = createTestWorkspace({
@@ -201,23 +175,20 @@ describe("ProjectListView", () => {
     );
 
     fireEvent.contextMenu(screen.getByText("local-project"));
-    await user.click(await screen.findByRole("menuitem", { name: "Codex" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Codex CLI" }));
 
     expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
       path: "D:/workspace-root/apps/api",
       workspacePath: "D:/workspace-root",
       cliTool: "codex",
-      wsl: expect.objectContaining({
-        remotePath: "/mnt/d/workspace-root/apps/api",
-      }),
     }));
+    expect(onOpenTerminal.mock.calls[0]?.[0]?.wsl).toBeUndefined();
   });
 
-  it("默认环境为 wsl 时 Claude、Gemini、OpenCode 仍显示 provider 子菜单入口", async () => {
+  it("默认环境为 wsl 时项目右键提供显式 WSL CLI 入口", async () => {
     const workspace = createTestWorkspace({
       defaultEnvironment: "wsl",
       path: "D:/workspace-root",
-      providerId: "provider-claude",
       wsl: {
         distro: "Ubuntu",
         remotePath: "/mnt/d/workspace-root",
@@ -245,9 +216,52 @@ describe("ProjectListView", () => {
     );
 
     fireEvent.contextMenu(screen.getByText("local-project"));
-    expect(await screen.findByRole("menuitem", { name: "Claude" })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: "Gemini" })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: "OpenCode" })).toBeVisible();
+    expect(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ })).toBeVisible();
+  });
+
+  it("默认环境为 wsl 时显式 WSL CLI 项才走 WSL", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn();
+    const workspace = createTestWorkspace({
+      defaultEnvironment: "wsl",
+      path: "D:/workspace-root",
+      wsl: {
+        distro: "Ubuntu",
+        remotePath: "/mnt/d/workspace-root",
+      },
+      projects: [
+        createTestWorkspaceProject({
+          alias: "local-project",
+          path: "D:/workspace-root/apps/api",
+        }),
+      ],
+    });
+
+    render(
+      <ProjectListView
+        projects={workspace.projects}
+        ws={workspace}
+        gitBranches={{}}
+        onOpenTerminal={onOpenTerminal}
+        onRemoveProject={vi.fn()}
+        onSetProjectAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onMigrateProject={vi.fn()}
+        onOpenWorktreeManager={vi.fn()}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText("local-project"));
+    await user.click(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ }));
+
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      path: "D:/workspace-root/apps/api",
+      workspacePath: "D:/workspace-root",
+      cliTool: "codex",
+      wsl: expect.objectContaining({
+        remotePath: "/mnt/d/workspace-root/apps/api",
+      }),
+    }));
   });
 
   it("默认环境为 wsl 时项目默认打开终端也走 WSL", async () => {

@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import type { SshConnectionInfo, WslLaunchInfo } from "@/types";
+import type { CliTool, SshConnectionInfo, WslLaunchInfo } from "@/types";
 
 interface PendingLaunch {
   path: string;
   workspaceName?: string;
   providerId: string;
   workspacePath?: string;
+  cliTool?: CliTool;
   ssh?: SshConnectionInfo;
   wsl?: WslLaunchInfo;
   machineName?: string;

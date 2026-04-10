@@ -57,7 +57,8 @@ pub struct LaunchTaskRequest {
     pub resume_id: Option<String>,
     /// 指定目标面板 ID（可选，不指定则使用活跃面板。通过 list_panes 获取可用面板）
     pub pane_id: Option<String>,
-    /// CLI 工具类型：`"claude"` | `"codex"`，默认 `"claude"`
+    /// CLI 工具类型：`"claude"` | `"codex"`，默认 `"claude"`。
+    /// 其他已注册工具请通过直接终端启动。
     pub cli_tool: Option<String>,
 }
 
@@ -131,6 +132,18 @@ pub struct OrchestratorOpenFileEvent {
     pub file_path: String,
     pub project_path: String,
     pub title: String,
+}
+
+fn parse_launch_cli_tool(cli_tool: Option<&str>) -> std::result::Result<CliTool, String> {
+    match cli_tool.unwrap_or("claude") {
+        "claude" => Ok(CliTool::Claude),
+        "codex" => Ok(CliTool::Codex),
+        "kimi" | "glm" | "gemini" | "opencode" => Err(format!(
+            "CLI tool '{}' is not supported by launch_task yet; use direct terminal launch instead",
+            cli_tool.unwrap_or("claude")
+        )),
+        other => Err(format!("Unknown cliTool '{}'", other)),
+    }
 }
 
 /// 编辑器关闭文件事件
@@ -497,7 +510,8 @@ struct McpLaunchTaskParams {
     /// 指定目标面板 ID（可选，不指定则使用活跃面板。通过 list_panes 获取可用面板）
     #[serde(rename = "paneId")]
     pane_id: Option<String>,
-    /// CLI 工具类型：`"claude"` | `"codex"`，默认 `"claude"`
+    /// CLI 工具类型：`"claude"` | `"codex"`，默认 `"claude"`。
+    /// 其他已注册工具请通过直接终端启动。
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
 }
@@ -830,9 +844,9 @@ impl McpToolHandler {
         let project_id = format!("orch-{}", uuid::Uuid::new_v4());
 
         // 解析 CLI 工具类型
-        let cli_tool = match params.cli_tool.as_deref() {
-            Some("codex") => CliTool::Codex,
-            _ => CliTool::Claude, // 默认 Claude
+        let cli_tool = match parse_launch_cli_tool(params.cli_tool.as_deref()) {
+            Ok(tool) => tool,
+            Err(error) => return format!("错误: {}", error),
         };
 
         // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
@@ -1974,9 +1988,14 @@ async fn handle_launch_task(
     let project_id = format!("orch-{}", uuid::Uuid::new_v4());
 
     // 解析 CLI 工具类型
-    let cli_tool = match req.cli_tool.as_deref() {
-        Some("codex") => CliTool::Codex,
-        _ => CliTool::Claude,
+    let cli_tool = match parse_launch_cli_tool(req.cli_tool.as_deref()) {
+        Ok(tool) => tool,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!(ApiError { error })),
+            );
+        }
     };
 
     // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
@@ -2514,7 +2533,6 @@ fn strip_unc_prefix(path: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::WorkspaceWslConfig;
 
     #[test]
     fn test_generate_token_length() {
@@ -2566,6 +2584,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_parse_launch_cli_tool_supported_values() {
+        assert_eq!(parse_launch_cli_tool(None).unwrap(), CliTool::Claude);
+        assert_eq!(
+            parse_launch_cli_tool(Some("codex")).unwrap(),
+            CliTool::Codex
+        );
+    }
+
+    #[test]
+    fn test_parse_launch_cli_tool_rejects_non_orchestrated_tools() {
+        let kimi = parse_launch_cli_tool(Some("kimi")).unwrap_err();
+        let glm = parse_launch_cli_tool(Some("glm")).unwrap_err();
+        assert!(kimi.contains("not supported by launch_task yet"));
+        assert!(glm.contains("not supported by launch_task yet"));
+    }
+
     #[cfg(target_os = "windows")]
     #[test]
     fn test_resolve_wsl_launch_info_prefers_workspace_project_remote_path() {
@@ -2581,7 +2616,7 @@ mod tests {
 
         let mut workspace = service.get_workspace("ws-wsl").expect("load workspace");
         workspace.default_environment = crate::models::WorkspaceLaunchEnvironment::Wsl;
-        workspace.wsl = Some(WorkspaceWslConfig {
+        workspace.wsl = Some(crate::models::WorkspaceWslConfig {
             distro: Some("Ubuntu".to_string()),
             remote_path: Some("/home/dev/workspace".to_string()),
         });

@@ -3,7 +3,14 @@
  */
 
 /** CLI 工具类型（已知值自动补全 + 允许任意字符串） */
-export type KnownCliTool = "none" | "claude" | "codex" | "gemini" | "opencode";
+export type KnownCliTool =
+  | "none"
+  | "claude"
+  | "codex"
+  | "gemini"
+  | "kimi"
+  | "glm"
+  | "opencode";
 export type CliTool = KnownCliTool | (string & {});
 
 /** CLI 工具元信息（来自 Rust cc-cli-adapters crate） */

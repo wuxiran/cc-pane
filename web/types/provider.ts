@@ -1,6 +1,16 @@
 import type { KnownCliTool } from "./terminal";
 
-export type ProviderType = "anthropic" | "bedrock" | "vertex" | "proxy" | "config_profile" | "open_ai" | "gemini" | "opencode";
+export type ProviderType =
+  | "anthropic"
+  | "bedrock"
+  | "vertex"
+  | "proxy"
+  | "config_profile"
+  | "open_ai"
+  | "gemini"
+  | "kimi"
+  | "glm"
+  | "opencode";
 
 export interface Provider {
   id: string;
@@ -23,6 +33,8 @@ export type ProviderTypeLabelKey =
   | "providerTypeConfigLabel"
   | "providerTypeOpenAILabel"
   | "providerTypeGeminiLabel"
+  | "providerTypeKimiLabel"
+  | "providerTypeGlmLabel"
   | "providerTypeOpenCodeLabel";
 
 export type ProviderTypeDescKey =
@@ -33,6 +45,8 @@ export type ProviderTypeDescKey =
   | "providerTypeConfigDesc"
   | "providerTypeOpenAIDesc"
   | "providerTypeGeminiDesc"
+  | "providerTypeKimiDesc"
+  | "providerTypeGlmDesc"
   | "providerTypeOpenCodeDesc";
 
 export const PROVIDER_TYPE_META: Record<
@@ -74,6 +88,16 @@ export const PROVIDER_TYPE_META: Record<
     descriptionKey: "providerTypeGeminiDesc",
     fields: ["apiKey", "baseUrl"],
   },
+  kimi: {
+    labelKey: "providerTypeKimiLabel",
+    descriptionKey: "providerTypeKimiDesc",
+    fields: ["apiKey", "baseUrl"],
+  },
+  glm: {
+    labelKey: "providerTypeGlmLabel",
+    descriptionKey: "providerTypeGlmDesc",
+    fields: ["apiKey", "baseUrl"],
+  },
   opencode: {
     labelKey: "providerTypeOpenCodeLabel",
     descriptionKey: "providerTypeOpenCodeDesc",
@@ -86,6 +110,8 @@ export function getCompatibleCliTool(providerType: ProviderType): KnownCliTool {
   switch (providerType) {
     case "open_ai": return "codex";
     case "gemini": return "gemini";
+    case "kimi": return "kimi";
+    case "glm": return "glm";
     case "opencode": return "opencode";
     default: return "claude";
   }
@@ -105,6 +131,10 @@ export function getCompatibleCliTools(providerType: ProviderType): KnownCliTool[
       return ["codex"];
     case "gemini":
       return ["gemini"];
+    case "kimi":
+      return ["kimi"];
+    case "glm":
+      return ["glm"];
     case "opencode":
       return ["opencode"];
   }
@@ -112,7 +142,18 @@ export function getCompatibleCliTools(providerType: ProviderType): KnownCliTool[
 
 /** 返回某个 CLI Tool Tab 兼容的 ProviderType 列表 */
 export function getProviderTypesForTab(tab: KnownCliTool): ProviderType[] {
-  const ALL: ProviderType[] = ["anthropic", "bedrock", "vertex", "proxy", "config_profile", "open_ai", "gemini", "opencode"];
+  const ALL: ProviderType[] = [
+    "anthropic",
+    "bedrock",
+    "vertex",
+    "proxy",
+    "config_profile",
+    "open_ai",
+    "gemini",
+    "kimi",
+    "glm",
+    "opencode",
+  ];
   return ALL.filter((pt) => getCompatibleCliTools(pt).includes(tab));
 }
 
@@ -121,6 +162,8 @@ export const CLI_TOOL_TABS = [
   { id: "claude" as const, labelKey: "tabClaude", accentColor: "#E8590C" },
   { id: "codex" as const, labelKey: "tabCodex", accentColor: "#10A37F" },
   { id: "gemini" as const, labelKey: "tabGemini", accentColor: "#4285F4" },
+  { id: "kimi" as const, labelKey: "tabKimi", accentColor: "#F97316" },
+  { id: "glm" as const, labelKey: "tabGlm", accentColor: "#2563EB" },
   { id: "opencode" as const, labelKey: "tabOpenCode", accentColor: "#8B5CF6" },
 ] as const;
 

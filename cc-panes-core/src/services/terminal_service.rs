@@ -8,7 +8,7 @@ use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{ProviderService, SettingsService, SpecService};
 use crate::utils::AppPaths;
 use anyhow::{anyhow, Result};
-use cc_cli_adapters::{CliAdapterContext, CliToolRegistry};
+use cc_cli_adapters::{CliAdapterContext, CliProvider, CliToolRegistry};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -22,6 +22,24 @@ use uuid::Uuid;
 mod wsl_codex;
 
 use self::wsl_codex::{strip_wsl_proxy_env_vars, WSL_PROXY_ENV_KEYS};
+
+fn to_cli_provider(provider: crate::models::provider::Provider) -> CliProvider {
+    CliProvider {
+        id: provider.id,
+        name: provider.name,
+        provider_type: serde_json::to_value(provider.provider_type)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_else(|| "unknown".to_string()),
+        api_key: provider.api_key,
+        base_url: provider.base_url,
+        region: provider.region,
+        project_id: provider.project_id,
+        aws_profile: provider.aws_profile,
+        config_dir: provider.config_dir,
+        is_default: provider.is_default,
+    }
+}
 
 fn cached_which(name: &str) -> Result<PathBuf, which::Error> {
     use std::sync::OnceLock;
@@ -745,6 +763,9 @@ impl TerminalService {
         let is_ssh = ssh.is_some();
         let mut env_vars = self.settings_service.get_proxy_env_vars();
         let provider_vars = self.provider_service.get_env_vars(provider_id);
+        let provider = provider_id
+            .and_then(|id| self.provider_service.get_provider(id))
+            .map(to_cli_provider);
         let pure_wsl_codex_launch = wsl.is_some() && cli_tool == CliTool::Codex;
         if !pure_wsl_codex_launch {
             env_vars.extend(provider_vars.clone());
@@ -866,6 +887,17 @@ impl TerminalService {
                         initial_prompt,
                         skip_mcp,
                     )?,
+                CliTool::Kimi | CliTool::Glm => self
+                    .build_wsl_supported_cli_command(
+                        &resolved_wsl,
+                        cli_tool,
+                        &session_id,
+                        &env_vars,
+                        resume_id,
+                        append_system_prompt,
+                        initial_prompt,
+                        skip_mcp,
+                    )?,
             };
 
             info!(
@@ -915,6 +947,7 @@ impl TerminalService {
                     session_id: session_id.clone(),
                     project_path: project_path.to_string(),
                     workspace_path: workspace_path.map(|s| s.to_string()),
+                    provider: provider.clone(),
                     resume_id: resume_id.map(|s| s.to_string()),
                     skip_mcp,
                     append_system_prompt: effective_prompt,
@@ -1738,6 +1771,8 @@ impl TerminalService {
             CliTool::Claude => remote_parts.push("claude".into()),
             CliTool::Codex => remote_parts.push("codex --full-auto".into()),
             CliTool::Gemini => remote_parts.push("gemini".into()),
+            CliTool::Kimi => remote_parts.push("kimi".into()),
+            CliTool::Glm => remote_parts.push("crush".into()),
             CliTool::Opencode => remote_parts.push("opencode".into()),
         }
         args.push(remote_parts.join(" && "));

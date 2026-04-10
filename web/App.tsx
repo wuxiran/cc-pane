@@ -631,7 +631,7 @@ function MainApp() {
         ssh: pendingLaunch.ssh,
         wsl: pendingLaunch.wsl,
         machineName: pendingLaunch.machineName,
-        cliTool: defaultTool,
+        cliTool: pendingLaunch.cliTool ?? defaultTool,
       });
       clearPendingLaunch();
     }

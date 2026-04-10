@@ -1,6 +1,6 @@
 {
   "name": "cc-panes",
-  "version": "0.9.35",
+  "version": "0.9.36",
   "description": "Multi-instance split-pane manager for Claude Code",
   "type": "module",
   "license": "GPL-3.0",

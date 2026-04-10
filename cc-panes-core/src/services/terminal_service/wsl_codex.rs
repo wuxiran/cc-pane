@@ -4,8 +4,12 @@
 use super::cached_which;
 use super::TerminalService;
 use crate::models::{CliTool, WslLaunchInfo};
+#[cfg(windows)]
+use crate::services::default_skill_service::{BUNDLED_NAMESPACE, VERSION_FILE_NAME};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
+#[cfg(windows)]
+use std::path::Path;
 use std::path::PathBuf;
 #[cfg(windows)]
 use tracing::{info, warn};
@@ -79,6 +83,174 @@ pub(super) fn is_wsl_windows_shim_path(path: &str) -> bool {
 
 pub(super) fn build_wsl_mcp_url(windows_host: &str, port: &str, token: &str) -> String {
     format!("http://{}:{}/mcp?token={}", windows_host, port, token)
+}
+
+fn shell_escape_posix(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(windows)]
+fn collect_wsl_claude_source_files(source_dir: &Path) -> Result<Vec<String>> {
+    let version_path = source_dir.join(VERSION_FILE_NAME);
+    if !version_path.is_file() {
+        return Err(anyhow!(
+            "Bundled Claude command source is missing version stamp: {}",
+            version_path.display()
+        ));
+    }
+
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(source_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
+                files.push(file_name.to_string());
+            }
+        }
+    }
+
+    files.sort();
+    if files.is_empty() {
+        return Err(anyhow!(
+            "Bundled Claude command source is empty: {}",
+            source_dir.display()
+        ));
+    }
+
+    Ok(files)
+}
+
+#[cfg(windows)]
+fn collect_wsl_codex_source_dirs(source_root: &Path) -> Result<Vec<String>> {
+    let version_path = source_root.join(VERSION_FILE_NAME);
+    if !version_path.is_file() {
+        return Err(anyhow!(
+            "Bundled Codex skill source is missing version stamp: {}",
+            version_path.display()
+        ));
+    }
+
+    let prefix = format!("{}-", BUNDLED_NAMESPACE);
+    let mut dirs = Vec::new();
+    for entry in std::fs::read_dir(source_root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let Some(dir_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !dir_name.starts_with(&prefix) || !path.join("SKILL.md").is_file() {
+            continue;
+        }
+        dirs.push(dir_name.to_string());
+    }
+
+    dirs.sort();
+    if dirs.is_empty() {
+        return Err(anyhow!(
+            "Bundled Codex skill source is empty: {}",
+            source_root.display()
+        ));
+    }
+
+    Ok(dirs)
+}
+
+#[cfg(windows)]
+fn build_wsl_claude_skill_sync_prelude(
+    source_wsl_path: &str,
+    file_names: &[String],
+) -> Vec<String> {
+    let mut commands = vec![
+        format!(
+            "CCPANES_WSL_CLAUDE_SRC={}",
+            shell_escape_posix(source_wsl_path)
+        ),
+        format!(
+            "CCPANES_WSL_CLAUDE_DST=\"$HOME/.claude/commands/{}\"",
+            BUNDLED_NAMESPACE
+        ),
+        format!(
+            "CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE={}",
+            shell_escape_posix(VERSION_FILE_NAME)
+        ),
+        "CCPANES_WSL_NEEDS_SYNC=0".to_string(),
+        "if [ ! -f \"$CCPANES_WSL_CLAUDE_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi".to_string(),
+        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ \"$(cat \"$CCPANES_WSL_CLAUDE_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\")\" != \"$(cat \"$CCPANES_WSL_CLAUDE_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\")\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi".to_string(),
+    ];
+
+    for file_name in file_names {
+        commands.push(format!(
+            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ ! -f \"$CCPANES_WSL_CLAUDE_DST/{}\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi",
+            file_name
+        ));
+    }
+
+    commands.push(
+        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CLAUDE_DST\"; fi"
+            .to_string(),
+    );
+    commands.push("if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then find \"$CCPANES_WSL_CLAUDE_DST\" -maxdepth 1 -type f -name '*.md' -delete; fi".to_string());
+    for file_name in file_names {
+        commands.push(format!(
+            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CLAUDE_SRC/{}\" \"$CCPANES_WSL_CLAUDE_DST/{}\"; fi",
+            file_name, file_name
+        ));
+    }
+    commands.push("if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CLAUDE_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" \"$CCPANES_WSL_CLAUDE_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\"; fi".to_string());
+
+    commands
+}
+
+#[cfg(windows)]
+fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String]) -> Vec<String> {
+    let mut commands = vec![
+        format!(
+            "CCPANES_WSL_CODEX_SRC={}",
+            shell_escape_posix(source_wsl_path)
+        ),
+        "CCPANES_WSL_CODEX_DST=\"$HOME/.codex/skills\"".to_string(),
+        format!(
+            "CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE={}",
+            shell_escape_posix(VERSION_FILE_NAME)
+        ),
+        "CCPANES_WSL_NEEDS_SYNC=0".to_string(),
+        "if [ ! -f \"$CCPANES_WSL_CODEX_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi".to_string(),
+        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ \"$(cat \"$CCPANES_WSL_CODEX_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\")\" != \"$(cat \"$CCPANES_WSL_CODEX_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\")\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi".to_string(),
+    ];
+
+    for dir_name in dir_names {
+        commands.push(format!(
+            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ ! -f \"$CCPANES_WSL_CODEX_DST/{}/SKILL.md\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi",
+            dir_name
+        ));
+    }
+
+    commands.push(
+        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CODEX_DST\"; fi"
+            .to_string(),
+    );
+    commands.push(format!(
+        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then find \"$CCPANES_WSL_CODEX_DST\" -maxdepth 1 -mindepth 1 -type d -name '{}-*' -exec rm -rf {{}} +; fi",
+        BUNDLED_NAMESPACE
+    ));
+    for dir_name in dir_names {
+        commands.push(format!(
+            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CODEX_DST/{}\"; fi",
+            dir_name
+        ));
+        commands.push(format!(
+            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CODEX_SRC/{}/SKILL.md\" \"$CCPANES_WSL_CODEX_DST/{}/SKILL.md\"; fi",
+            dir_name, dir_name
+        ));
+    }
+    commands.push("if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CODEX_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" \"$CCPANES_WSL_CODEX_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\"; fi".to_string());
+
+    commands
 }
 
 #[cfg(windows)]
@@ -420,6 +592,45 @@ impl TerminalService {
     }
 
     #[cfg(windows)]
+    fn build_wsl_claude_skill_sync_commands(&self) -> Result<Vec<String>> {
+        let source_dir = dirs::home_dir()
+            .ok_or_else(|| anyhow!("Failed to resolve Windows home directory"))?
+            .join(".claude")
+            .join("commands")
+            .join(BUNDLED_NAMESPACE);
+        let source_wsl_path = windows_path_to_wsl(&source_dir).ok_or_else(|| {
+            anyhow!(
+                "Failed to translate Claude bundled skill path to WSL path: {}",
+                source_dir.display()
+            )
+        })?;
+        let file_names = collect_wsl_claude_source_files(&source_dir)?;
+        Ok(build_wsl_claude_skill_sync_prelude(
+            &source_wsl_path,
+            &file_names,
+        ))
+    }
+
+    #[cfg(windows)]
+    fn build_wsl_codex_skill_sync_commands(&self) -> Result<Vec<String>> {
+        let source_root = dirs::home_dir()
+            .ok_or_else(|| anyhow!("Failed to resolve Windows home directory"))?
+            .join(".codex")
+            .join("skills");
+        let source_wsl_path = windows_path_to_wsl(&source_root).ok_or_else(|| {
+            anyhow!(
+                "Failed to translate Codex bundled skill path to WSL path: {}",
+                source_root.display()
+            )
+        })?;
+        let dir_names = collect_wsl_codex_source_dirs(&source_root)?;
+        Ok(build_wsl_codex_skill_sync_prelude(
+            &source_wsl_path,
+            &dir_names,
+        ))
+    }
+
+    #[cfg(windows)]
     pub(super) fn resolve_reachable_wsl_windows_host(
         &self,
         _wsl_path: &std::path::Path,
@@ -590,6 +801,8 @@ impl TerminalService {
         let command = match cli_tool {
             CliTool::Claude => "claude",
             CliTool::Gemini => "gemini",
+            CliTool::Kimi => "kimi",
+            CliTool::Glm => "crush",
             CliTool::Opencode => "opencode",
             other => {
                 return Err(anyhow!(
@@ -600,6 +813,16 @@ impl TerminalService {
         };
 
         let mut remote_parts = Vec::new();
+        if cli_tool == CliTool::Claude {
+            match self.build_wsl_claude_skill_sync_commands() {
+                Ok(mut commands) => remote_parts.append(&mut commands),
+                Err(error) => warn!(
+                    distro = %wsl.distro,
+                    error = %error,
+                    "build_wsl_supported_cli_command: failed to prepare bundled Claude skill sync; continuing without sync"
+                ),
+            }
+        }
         let workspace_remote_path = wsl
             .workspace_remote_path
             .as_deref()
@@ -636,6 +859,16 @@ impl TerminalService {
             }
             if let Some(prompt) = initial_prompt {
                 cli_args.push("--".to_string());
+                cli_args.push(prompt.to_string());
+            }
+        } else if cli_tool == CliTool::Kimi {
+            if workspace_remote_path.is_some()
+                && workspace_remote_path != Some(wsl.remote_path.as_str())
+            {
+                cli_args.push("--add-dir".to_string());
+                cli_args.push(wsl.remote_path.clone());
+            }
+            if let Some(prompt) = initial_prompt {
                 cli_args.push(prompt.to_string());
             }
         } else if let Some(prompt) = initial_prompt {
@@ -751,6 +984,14 @@ impl TerminalService {
         skip_mcp: bool,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
+        match self.build_wsl_codex_skill_sync_commands() {
+            Ok(mut commands) => remote_parts.append(&mut commands),
+            Err(error) => warn!(
+                distro = %wsl.distro,
+                error = %error,
+                "build_wsl_command: failed to prepare bundled Codex skill sync; continuing without sync"
+            ),
+        }
 
         let codex_path = "codex";
 
@@ -835,7 +1076,27 @@ impl TerminalService {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_codex_resume_args, is_wsl_windows_shim_path};
+    use super::{
+        append_codex_resume_args, build_wsl_claude_skill_sync_prelude,
+        build_wsl_codex_skill_sync_prelude, collect_wsl_claude_source_files,
+        collect_wsl_codex_source_dirs, is_wsl_windows_shim_path, VERSION_FILE_NAME,
+    };
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "cc-panes-wsl-codex-{}-{}",
+            name,
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn remove_dir(path: &Path) {
+        let _ = fs::remove_dir_all(path);
+    }
 
     #[test]
     fn append_codex_resume_args_keeps_prompt_after_resume_id() {
@@ -877,5 +1138,64 @@ mod tests {
         assert!(is_wsl_windows_shim_path("codex.ps1"));
         assert!(is_wsl_windows_shim_path("codex.exe"));
         assert!(!is_wsl_windows_shim_path("/usr/local/bin/codex"));
+    }
+
+    #[test]
+    fn collect_wsl_claude_source_files_requires_version_and_md_files() {
+        let root = unique_temp_dir("claude-source");
+        fs::write(root.join(VERSION_FILE_NAME), "1.0.0").unwrap();
+        fs::write(root.join("launch-task.md"), "body").unwrap();
+        fs::write(root.join("workspace.md"), "body").unwrap();
+
+        let files = collect_wsl_claude_source_files(&root).unwrap();
+        assert_eq!(files, vec!["launch-task.md", "workspace.md"]);
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn collect_wsl_codex_source_dirs_filters_to_bundled_dirs() {
+        let root = unique_temp_dir("codex-source");
+        fs::write(root.join(VERSION_FILE_NAME), "1.0.0").unwrap();
+        fs::create_dir_all(root.join("ccpanes-launch-task")).unwrap();
+        fs::write(root.join("ccpanes-launch-task").join("SKILL.md"), "body").unwrap();
+        fs::create_dir_all(root.join("user-skill")).unwrap();
+        fs::write(root.join("user-skill").join("SKILL.md"), "body").unwrap();
+
+        let dirs = collect_wsl_codex_source_dirs(&root).unwrap();
+        assert_eq!(dirs, vec!["ccpanes-launch-task"]);
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn build_wsl_claude_skill_sync_prelude_mentions_expected_targets() {
+        let commands = build_wsl_claude_skill_sync_prelude(
+            "/mnt/c/Users/test/.claude/commands/ccpanes",
+            &[String::from("launch-task.md")],
+        );
+
+        assert!(commands
+            .iter()
+            .any(|line| line.contains("$HOME/.claude/commands/ccpanes")));
+        assert!(commands
+            .iter()
+            .any(|line| line.contains("cp \"$CCPANES_WSL_CLAUDE_SRC/launch-task.md\"")));
+    }
+
+    #[test]
+    fn build_wsl_codex_skill_sync_prelude_copies_skill_dirs_only() {
+        let commands = build_wsl_codex_skill_sync_prelude(
+            "/mnt/c/Users/test/.codex/skills",
+            &[String::from("ccpanes-launch-task")],
+        );
+
+        assert!(commands
+            .iter()
+            .any(|line| line.contains("$HOME/.codex/skills")));
+        assert!(commands
+            .iter()
+            .any(|line| line.contains("find \"$CCPANES_WSL_CODEX_DST\"")));
+        assert!(commands.iter().any(
+            |line| line.contains("cp \"$CCPANES_WSL_CODEX_SRC/ccpanes-launch-task/SKILL.md\"")
+        ));
     }
 }

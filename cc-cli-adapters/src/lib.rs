@@ -9,11 +9,15 @@
 mod claude;
 mod codex;
 mod gemini;
+mod glm;
+mod kimi;
 mod opencode;
 
 pub use claude::ClaudeAdapter;
 pub use codex::CodexAdapter;
 pub use gemini::GeminiAdapter;
+pub use glm::GlmAdapter;
+pub use kimi::KimiAdapter;
 pub use opencode::OpenCodeAdapter;
 
 use anyhow::Result;
@@ -100,6 +104,11 @@ pub trait CliToolAdapter: Send + Sync {
         None
     }
 
+    /// 用户全局技能目录。None = 不支持技能注入
+    fn global_skills_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+
     /// 环境检测（默认实现: which + --version，带 5s 超时）
     fn detect(&self) -> CliToolInfo {
         let mut info = self.info().clone();
@@ -158,6 +167,7 @@ pub struct CliAdapterContext {
     pub session_id: String,
     pub project_path: String,
     pub workspace_path: Option<String>,
+    pub provider: Option<CliProvider>,
     pub resume_id: Option<String>,
     pub skip_mcp: bool,
     pub append_system_prompt: Option<String>,
@@ -173,6 +183,23 @@ pub struct CliAdapterContext {
     /// 非空时 generate_mcp_config 会跳过同名 stdio 配置并注入 HTTP 版本
     #[allow(dead_code)]
     pub shared_mcp_urls: HashMap<String, String>,
+}
+
+/// 供 adapter 使用的轻量 Provider 视图，避免依赖主 crate 类型
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CliProvider {
+    pub id: String,
+    pub name: String,
+    pub provider_type: String,
+    pub api_key: Option<String>,
+    pub base_url: Option<String>,
+    pub region: Option<String>,
+    pub project_id: Option<String>,
+    pub aws_profile: Option<String>,
+    pub config_dir: Option<String>,
+    #[serde(default)]
+    pub is_default: bool,
 }
 
 /// 命令构建结果
@@ -239,6 +266,18 @@ impl CliToolRegistry {
                 self.adapters
                     .get(id)
                     .and_then(|a| a.global_commands_dir().map(|dir| (id.clone(), dir)))
+            })
+            .collect()
+    }
+
+    /// 收集所有工具的全局技能目录（保持注册顺序，过滤 None）
+    pub fn global_skills_dirs(&self) -> Vec<(String, PathBuf)> {
+        self.order
+            .iter()
+            .filter_map(|id| {
+                self.adapters
+                    .get(id)
+                    .and_then(|a| a.global_skills_dir().map(|dir| (id.clone(), dir)))
             })
             .collect()
     }

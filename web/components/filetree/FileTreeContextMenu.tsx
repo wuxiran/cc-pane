@@ -191,22 +191,12 @@ export default function FileTreeContextMenu({
             </>
           )}
 
-          {node?.entry.isDir && (
+          {node?.entry.isDir && onOpenTerminal && (
             <>
-              <ContextMenuItem onClick={() => openDialog("newFile")}>
-                <FilePlus size={14} />
-                {t("sidebar:filetree.newFile")}
+              <ContextMenuItem onClick={handleOpenTerminal}>
+                <Terminal size={14} />
+                {t("sidebar:filetree.openInTerminal")}
               </ContextMenuItem>
-              <ContextMenuItem onClick={() => openDialog("newDir")}>
-                <FolderPlus size={14} />
-                {t("sidebar:filetree.newFolder")}
-              </ContextMenuItem>
-              {onOpenTerminal && (
-                <ContextMenuItem onClick={handleOpenTerminal}>
-                  <Terminal size={14} />
-                  {t("sidebar:filetree.openInTerminal")}
-                </ContextMenuItem>
-              )}
               <ContextMenuSeparator />
             </>
           )}
@@ -223,7 +213,23 @@ export default function FileTreeContextMenu({
             <FileSymlink size={14} />
             {t("sidebar:filetree.copyRelativePath")}
           </ContextMenuItem>
-          <ContextMenuSeparator />
+
+          {node?.entry.isDir && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={() => openDialog("newFile")}>
+                <FilePlus size={14} />
+                {t("sidebar:filetree.newFile")}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => openDialog("newDir")}>
+                <FolderPlus size={14} />
+                {t("sidebar:filetree.newFolder")}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          )}
+
+          {!node?.entry.isDir && <ContextMenuSeparator />}
 
           <ContextMenuItem onClick={() => openDialog("rename")}>
             <FileEdit size={14} />

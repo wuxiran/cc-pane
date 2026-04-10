@@ -860,6 +860,8 @@ pub fn run() {
         reg.register(Arc::new(cc_cli_adapters::ClaudeAdapter::new()));
         reg.register(Arc::new(cc_cli_adapters::CodexAdapter::new()));
         reg.register(Arc::new(cc_cli_adapters::GeminiAdapter::new()));
+        reg.register(Arc::new(cc_cli_adapters::KimiAdapter::new()));
+        reg.register(Arc::new(cc_cli_adapters::GlmAdapter::new()));
         reg.register(Arc::new(cc_cli_adapters::OpenCodeAdapter::new()));
         Arc::new(reg)
     };

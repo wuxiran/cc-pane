@@ -51,7 +51,7 @@ async function collectAppContext(): Promise<string> {
     `## 可用 Skill\n` +
     `- /ccbook:workspace — 工作空间管理（CRUD、项目管理）\n` +
     `- /ccbook:start — 启动会话\n` +
-    `- /ccbook:launch-task — 在指定项目中启动 Claude Code 执行任务\n` +
+    `- /ccbook:launch-task — 在指定项目中启动 Claude/Codex 执行任务\n` +
     `- /ccbook:check-backend — 后端代码检查\n` +
     `- /ccbook:check-frontend — 前端代码检查\n` +
     `- /ccbook:check-cross-layer — 跨层检查\n` +
@@ -63,10 +63,10 @@ async function collectAppContext(): Promise<string> {
 
   // 4. 系统提示
   const systemHint =
-    `你是 CC-Panes 的操控助手。CC-Panes 是一个 Claude Code 多实例分屏管理桌面应用。\n` +
+    `你是 CC-Panes 的操控助手。CC-Panes 是一个多 CLI 的多实例分屏管理桌面应用。\n` +
     `你可以使用上面列出的 /ccbook:* skill 来帮助用户管理工作空间、Todo、Plans 等。\n\n` +
     `你拥有 ccpanes MCP 工具（12 个），按类别分组：\n` +
-    `- 编排: launch_task（启动 Claude 实例）、list_projects（已注册项目）、get_task_status（任务状态）\n` +
+    `- 编排: launch_task（启动 Claude/Codex 实例）、list_projects（已注册项目）、get_task_status（任务状态）\n` +
     `- 工作空间: list_workspaces、get_workspace、create_workspace、add_project_to_workspace、scan_directory\n` +
     `- 待办: query_todos、create_todo、update_todo\n` +
     `- Skill: list_skills（查看项目可用命令模板）\n\n` +
@@ -74,7 +74,7 @@ async function collectAppContext(): Promise<string> {
     `- 用户给目录路径 → scan_directory 发现项目 → create_workspace → add_project_to_workspace → launch_task\n` +
     `- 用 create_todo 跟踪多 Agent 工作进度，用 update_todo 更新状态\n` +
     `- 用 list_skills 查看项目可用 Skill，指导子 Agent 使用合适的命令\n\n` +
-    `当用户需要在多个项目中并行执行任务时，使用 /ccbook:launch-task 启动新的 Claude Code 实例。\n` +
+    `当用户需要在多个项目中并行执行任务时，使用 /ccbook:launch-task 启动新的 Claude 或 Codex 实例。\n` +
     `请用中文回复。`;
 
   const contextBlock = sections.length > 0

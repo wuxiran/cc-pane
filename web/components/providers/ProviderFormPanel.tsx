@@ -76,6 +76,14 @@ function buildConfigJson(form: FormState): string {
       if (form.apiKey) env["GEMINI_API_KEY"] = form.apiKey;
       if (form.baseUrl) env["GEMINI_API_BASE"] = form.baseUrl;
       break;
+    case "kimi":
+      if (form.apiKey) env["KIMI_API_KEY"] = form.apiKey;
+      if (form.baseUrl) env["KIMI_BASE_URL"] = form.baseUrl;
+      break;
+    case "glm":
+      if (form.apiKey) env["ZAI_API_KEY"] = form.apiKey;
+      if (form.baseUrl) env["ZAI_BASE_URL"] = form.baseUrl;
+      break;
     case "opencode":
       if (form.apiKey) env["OPENAI_API_KEY"] = form.apiKey;
       if (form.baseUrl) env["OPENAI_BASE_URL"] = form.baseUrl;
@@ -104,6 +112,10 @@ function parseConfigJson(jsonStr: string, providerType: ProviderType): Partial<F
         return { apiKey: env["CODEX_API_KEY"] || "", baseUrl: env["OPENAI_BASE_URL"] || "" };
       case "gemini":
         return { apiKey: env["GEMINI_API_KEY"] || "", baseUrl: env["GEMINI_API_BASE"] || "" };
+      case "kimi":
+        return { apiKey: env["KIMI_API_KEY"] || "", baseUrl: env["KIMI_BASE_URL"] || "" };
+      case "glm":
+        return { apiKey: env["ZAI_API_KEY"] || "", baseUrl: env["ZAI_BASE_URL"] || "" };
       case "opencode":
         return { apiKey: env["OPENAI_API_KEY"] || "", baseUrl: env["OPENAI_BASE_URL"] || "" };
       default:
@@ -119,6 +131,8 @@ function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
   switch (tab) {
     case "codex": return "open_ai";
     case "gemini": return "gemini";
+    case "kimi": return "kimi";
+    case "glm": return "glm";
     case "opencode": return "opencode";
     default: return "anthropic";
   }

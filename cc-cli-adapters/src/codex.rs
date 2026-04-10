@@ -135,6 +135,10 @@ impl CliToolAdapter for CodexAdapter {
         &self.caps
     }
 
+    fn global_skills_dir(&self) -> Option<std::path::PathBuf> {
+        dirs::home_dir().map(|h| h.join(".codex").join("skills"))
+    }
+
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let path = which::which("codex").map_err(|_| anyhow!("codex CLI not found in PATH"))?;
         let codex_cmd = path.to_string_lossy().into_owned();

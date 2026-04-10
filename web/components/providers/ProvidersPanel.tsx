@@ -130,11 +130,12 @@ export default function ProvidersPanel({ compact }: Props = {}) {
       workspaceName: options.workspaceName,
       providerId,
       workspacePath: options.workspacePath,
+      cliTool: activeTab,
       ssh: options.ssh,
       wsl: options.wsl,
       machineName: options.machineName,
     });
-  }, [sshMachines, t]);
+  }, [activeTab, sshMachines, t]);
 
   const handleDuplicate = useCallback((p: Provider) => {
     const duplicated: Provider = {

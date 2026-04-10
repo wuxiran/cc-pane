@@ -1,6 +1,6 @@
 # Todo 驱动
 
-查询未完成的 Todo 待办，按 Todo 生成 prompt，批量启动 Claude 实例执行。
+查询未完成的 Todo 待办，按 Todo 生成 prompt，批量启动 Claude/Codex 实例执行。
 
 参数: $ARGUMENTS
 

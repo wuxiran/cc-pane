@@ -104,6 +104,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const isDisconnectedRef = useRef(false);
     const isReconnectingRef = useRef(false);
     const isSshRef = useRef(!!props.ssh);
+    const isUnmountedRef = useRef(false);
     // Delay PTY creation for inactive restored tabs until they become active.
     const deferredRestoreRef = useRef(false);
 
@@ -358,6 +359,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (!terminalRef.current) return;
 
       let isMounted = true;
+      isUnmountedRef.current = false;
       debugLog("mount", {
         restoring: props.restoring ?? false,
         savedSessionId: props.savedSessionId ?? null,
@@ -762,6 +764,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
       return () => {
         isMounted = false;
+        isUnmountedRef.current = true;
         cleanup();
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -773,75 +776,158 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         deferredRestore: deferredRestoreRef.current,
         trackedBuffer: trackedBufferTypeRef.current,
       });
-      if (props.isActive && fitAddonRef.current) {
+
+      let rafId: number | null = null;
+      let nestedRafId: number | null = null;
+      let activationCancelled = false;
+
+      const cancelScheduledRefit = () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        if (nestedRafId !== null) {
+          cancelAnimationFrame(nestedRafId);
+          nestedRafId = null;
+        }
+      };
+
+      const refitTerminal = (): Terminal | null => {
+        const term = terminalInstanceRef.current;
+        const fitAddon = fitAddonRef.current;
+        if (!term || !fitAddon) return null;
+        fitAddon.fit();
+        // Don't steal focus from input/textarea (e.g. tab rename input).
+        const active = document.activeElement;
+        if (!active || (active.tagName !== "INPUT" && active.tagName !== "TEXTAREA")) {
+          term.focus();
+        }
+        const { cols, rows } = term;
+        if (lastSizeRef.current?.cols !== cols || lastSizeRef.current?.rows !== rows) {
+          lastSizeRef.current = { cols, rows };
+          if (currentSessionIdRef.current) {
+            terminalService.resize({
+              sessionId: currentSessionIdRef.current,
+              cols,
+              rows,
+            });
+          }
+        }
+        return term;
+      };
+
+      const scheduleRefit = (onReady?: () => void) => {
         // Double-rAF waits for layout to settle after hidden-tab and split changes.
         // This keeps fit() accurate after display:none to flex transitions.
-        const rafId = requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (!fitAddonRef.current || !terminalInstanceRef.current) return;
-            fitAddonRef.current.fit();
-            terminalInstanceRef.current.focus();
-            // Keep PTY size aligned after refitting the terminal.
-            const { cols, rows } = terminalInstanceRef.current;
-            if (lastSizeRef.current?.cols !== cols || lastSizeRef.current?.rows !== rows) {
-              lastSizeRef.current = { cols, rows };
-              if (currentSessionIdRef.current) {
-                terminalService.resize({
-                  sessionId: currentSessionIdRef.current,
-                  cols,
-                  rows,
-                });
-              }
-            }
+        rafId = requestAnimationFrame(() => {
+          nestedRafId = requestAnimationFrame(() => {
+            rafId = null;
+            nestedRafId = null;
+            if (activationCancelled) return;
+            refitTerminal();
+            onReady?.();
           });
         });
-        return () => cancelAnimationFrame(rafId);
-      }
+      };
+
       // Create the deferred PTY once the restored tab becomes active.
       if (props.isActive && deferredRestoreRef.current) {
-        deferredRestoreRef.current = false;
-        const term = terminalInstanceRef.current;
-        if (!term || !props.projectPath) return;
+        if (!props.projectPath) return;
 
-        (async () => {
-          try {
-            await ensureListeners();
-            const effectiveResumeId = props.resumeId;
-            debugLog("session.deferred-restore.begin", {
-              resumeId: effectiveResumeId ?? null,
-            });
-            console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
-            const sessionId = await terminalService.createSession({
-              projectPath: props.projectPath,
-              cols: term.cols,
-              rows: term.rows,
-              workspaceName: props.workspaceName,
-              providerId: props.providerId,
-              workspacePath: props.workspacePath,
-              launchClaude: props.launchClaude,
-              cliTool: props.cliTool,
-              resumeId: effectiveResumeId,
-              ssh: props.ssh,
-              wsl: props.wsl,
-            });
-            currentSessionIdRef.current = sessionId;
-            debugLog("session.deferred-restore.end", {
-              createdSessionId: sessionId,
-            });
-            onSessionCreatedRef.current(sessionId);
-            // Clear restoring state once the deferred session is live.
-            if (props.paneId && props.tabId) {
-              usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
-              if (props.savedSessionId) {
-                sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
+        scheduleRefit(() => {
+          const term = terminalInstanceRef.current;
+          if (!term || isUnmountedRef.current) return;
+
+          deferredRestoreRef.current = false;
+
+          void (async () => {
+            try {
+              await ensureListeners();
+
+              let effectiveResumeId = props.resumeId;
+              if ((props.launchClaude || (props.cliTool && props.cliTool !== "none")) && effectiveResumeId) {
+                try {
+                  const statePath = props.workspacePath || props.projectPath;
+                  const state = await historyService.readSessionState(statePath);
+                  if (state?.claudeSessionId && state.claudeSessionId !== "new") {
+                    if (!effectiveResumeId || effectiveResumeId !== state.claudeSessionId) {
+                      console.info(
+                        `[TerminalView] Using session from session-state.json: ${state.claudeSessionId} (tab had: ${effectiveResumeId ?? "none"})`
+                      );
+                      effectiveResumeId = state.claudeSessionId;
+                    }
+                  }
+                } catch { /* Ignore missing session-state.json. */ }
               }
+
+              if (isUnmountedRef.current) return;
+
+              debugLog("session.deferred-restore.begin", {
+                resumeId: effectiveResumeId ?? null,
+              });
+              console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
+              const sessionId = await terminalService.createSession({
+                projectPath: props.projectPath,
+                cols: term.cols,
+                rows: term.rows,
+                workspaceName: props.workspaceName,
+                providerId: props.providerId,
+                workspacePath: props.workspacePath,
+                launchClaude: props.launchClaude,
+                cliTool: props.cliTool,
+                resumeId: effectiveResumeId,
+                skipMcp: props.skipMcp,
+                appendSystemPrompt: props.appendSystemPrompt,
+                ssh: props.ssh,
+                wsl: props.wsl,
+              });
+
+              if (isUnmountedRef.current) {
+                terminalService.killSession(sessionId).catch(console.error);
+                return;
+              }
+
+              currentSessionIdRef.current = sessionId;
+              debugLog("session.deferred-restore.end", {
+                createdSessionId: sessionId,
+              });
+              onSessionCreatedRef.current(sessionId);
+              if (effectiveResumeId && effectiveResumeId !== props.resumeId) {
+                usePanesStore.getState().updateTabClaudeSession(sessionId, effectiveResumeId);
+              }
+
+              // Clear restoring state once the deferred session is live.
+              if (props.paneId && props.tabId) {
+                usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
+                if (props.savedSessionId) {
+                  sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
+                }
+              }
+              await bindSessionCallbacks(sessionId);
+              if (isUnmountedRef.current) {
+                terminalService.detachOutput(sessionId);
+                terminalService.detachExit(sessionId);
+              }
+            } catch (err) {
+              if (isUnmountedRef.current) return;
+              console.error("[TerminalView] Deferred restore failed:", err);
+              term.writeln(`\x1b[31m--- Failed to restore session: ${getErrorMessage(err)} ---\x1b[0m`);
             }
-            await bindSessionCallbacks(sessionId);
-          } catch (err) {
-            console.error("[TerminalView] Deferred restore failed:", err);
-            term.writeln(`\x1b[31m--- Failed to restore session: ${getErrorMessage(err)} ---\x1b[0m`);
-          }
-        })();
+          })();
+        });
+
+        return () => {
+          activationCancelled = true;
+          cancelScheduledRefit();
+        };
+      }
+
+      if (props.isActive && fitAddonRef.current) {
+        scheduleRefit();
+        return () => {
+          activationCancelled = true;
+          cancelScheduledRefit();
+        };
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.isActive]);

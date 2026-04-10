@@ -273,21 +273,15 @@ function SortableTab({
         <ContextMenuItem inset onClick={() => onTogglePin(tab.id)}>
           {tab.pinned ? t("unpinTab") : t("pinTab")}
         </ContextMenuItem>
-        {tab.contentType === "editor" && tab.filePath && onRevealInExplorer && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => onRevealInExplorer(tab)}>
-              <FolderTree /> {t("revealInExplorer")}
-            </ContextMenuItem>
-          </>
-        )}
         {tab.contentType === "terminal" && tab.sessionId && onPopOutTab && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => onPopOutTab(tab.id)}>
-              <ExternalLink /> {t("popOutWindow")}
-            </ContextMenuItem>
-          </>
+          <ContextMenuItem onClick={() => onPopOutTab(tab.id)}>
+            <ExternalLink /> {t("popOutWindow")}
+          </ContextMenuItem>
+        )}
+        {tab.contentType === "editor" && tab.filePath && onRevealInExplorer && (
+          <ContextMenuItem onClick={() => onRevealInExplorer(tab)}>
+            <FolderTree /> {t("revealInExplorer")}
+          </ContextMenuItem>
         )}
         <ContextMenuSeparator />
         <ContextMenuItem onClick={onSplitRight}>
@@ -296,6 +290,16 @@ function SortableTab({
         <ContextMenuItem onClick={onSplitDown}>
           <PanelBottom /> {t("splitPanelDown")}
         </ContextMenuItem>
+        {tabs.length > 1 && (
+          <>
+            <ContextMenuItem onClick={() => onSplitAndMoveRight(tab.id)}>
+              <PanelRight /> {t("splitAndMoveRight")}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onSplitAndMoveDown(tab.id)}>
+              <PanelBottom /> {t("splitAndMoveDown")}
+            </ContextMenuItem>
+          </>
+        )}
         {tab.contentType === "terminal" && (
           <>
             <ContextMenuSeparator />
@@ -310,16 +314,6 @@ function SortableTab({
               onSelect={() => onCloseTerminalPane(tab.id)}
             >
               {t("closeTerminalPane")}
-            </ContextMenuItem>
-          </>
-        )}
-        {tabs.length > 1 && (
-          <>
-            <ContextMenuItem onClick={() => onSplitAndMoveRight(tab.id)}>
-              <PanelRight /> {t("splitAndMoveRight")}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => onSplitAndMoveDown(tab.id)}>
-              <PanelBottom /> {t("splitAndMoveDown")}
             </ContextMenuItem>
           </>
         )}

@@ -13,6 +13,8 @@ pub enum ProviderType {
     ConfigProfile,
     OpenAI,
     Gemini,
+    Kimi,
+    Glm,
     OpenCode,
 }
 
@@ -98,6 +100,22 @@ impl Provider {
                 }
                 if let Some(ref url) = self.base_url {
                     vars.insert("GEMINI_API_BASE".to_string(), url.clone());
+                }
+            }
+            ProviderType::Kimi => {
+                if let Some(ref key) = self.api_key {
+                    vars.insert("KIMI_API_KEY".to_string(), key.clone());
+                }
+                if let Some(ref url) = self.base_url {
+                    vars.insert("KIMI_BASE_URL".to_string(), url.clone());
+                }
+            }
+            ProviderType::Glm => {
+                if let Some(ref key) = self.api_key {
+                    vars.insert("ZAI_API_KEY".to_string(), key.clone());
+                }
+                if let Some(ref url) = self.base_url {
+                    vars.insert("ZAI_BASE_URL".to_string(), url.clone());
                 }
             }
             ProviderType::OpenCode => {
