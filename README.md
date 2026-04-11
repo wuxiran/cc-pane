@@ -222,3 +222,6 @@ This project is licensed under the [GNU General Public License v3.0](LICENSE).
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — AI coding assistant by Anthropic
 - [xterm.js](https://xtermjs.org/) — Terminal emulator for the web
 - [shadcn/ui](https://ui.shadcn.com/) — UI component library
+- [LINUX DO](https://linux.do/) — A sincere, friendly, united, and professional ideal community
+
+
