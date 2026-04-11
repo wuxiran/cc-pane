@@ -1,224 +1,269 @@
 # CC-Panes
 
-> Multi-instance split-pane manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — a cross-platform desktop app built with Tauri 2.
+> A local-first desktop workspace for AI coding CLIs, designed for multi-project, multi-pane, MCP-driven development on Windows and beyond.
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%202-FFC131?logo=tauri)](https://v2.tauri.app/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 
-[中文文档](README.zh-CN.md)
+[简体中文](README.zh-CN.md)
 
-<!--
 <p align="center">
-  <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes Main Interface" width="800" />
+  <img src="docs/assets/images/current-ui.png" alt="CC-Panes main interface" width="980" />
 </p>
--->
 
-## Download
+CC-Panes is not just a split terminal app. It is a desktop workbench for organizing AI coding sessions, projects, workspace metadata, local history, MCP automation, and cross-terminal collaboration in one place.
 
-Pre-built Windows installer is available on the [GitHub Releases](https://github.com/wuxiran/cc-pane/releases) page. Download the latest `.exe` installer and run it to get started.
+## Why CC-Panes
 
-> For other platforms, you can [build from source](#getting-started).
+Modern AI-assisted development often breaks down into the same pain points:
 
-## What is CC-Panes?
+- too many terminal windows, with no stable way to keep important sessions in view
+- repeated `cd` and launch steps across multiple repositories and environments
+- project folders slowly filling up with tool-specific metadata and temporary files
+- weak collaboration between concurrent CLI sessions
+- awkward Windows and WSL switching for mixed local and Linux-native workflows
 
-CC-Panes lets you run **multiple Claude Code CLI instances** side by side in a split-pane terminal layout. Organize your AI-powered development workflow with workspaces, projects, and tasks — all from a single desktop app.
+CC-Panes addresses those issues with a workspace-first design, multi-pane terminals, pinned tabs, project tools, and MCP-powered orchestration.
 
-## Features
+## What Makes It Different
 
-- **Split-Pane Terminal** — Run multiple terminals in flexible horizontal/vertical split layouts with drag-to-resize
-- **Workspace Management** — Organize projects into workspaces with pinning, hiding, and reordering
-- **Built-in Terminal** — Full-featured terminal (xterm.js + PTY) with multi-tab support
-- **Claude Code Integration** — Launch Claude Code sessions, resume conversations, manage providers, and self-dialogue mode
-- **Git Integration** — Branch status, pull/push/fetch/stash, worktree management, and git clone
-- **Session Management** — Track launch history with recent launches panel, clean broken sessions, and resume previous work
-- **Local History** — File version tracking with diff view, labels, branch-aware snapshots, and restore
-- **File Browser** — Project file tree with search, create, rename, delete, copy, and move operations
-- **Code Editor** — Monaco-based editor with 60+ language support, Markdown preview, and image preview
-- **Quick Search** — Global file search (Ctrl+K) across all workspace projects
-- **Screenshot** — Region capture with global shortcut, multi-monitor support, and clipboard copy
-- **Session Journal** — Workspace-level session logging
-- **Todo & Plans** — Task management with priorities, subtasks, and plan archiving
-- **Memory & Skills** — Manage Claude memories and custom skills per project
-- **MCP Server Config** — Configure MCP servers per project
-- **Hooks/Workflows** — Workspace-level hook system for automation
-- **Provider Management** — Multiple API provider support (Anthropic, Bedrock, Vertex, proxy, config profiles)
-- **Directory Scan Import** — Batch import Git repositories from a directory
-- **Theme Support** — Light/dark mode with glassmorphism design
-- **Borderless, Mini & Fullscreen** — Frameless window mode, compact mini view, and F11 fullscreen toggle
-- **System Tray** — Minimize to tray with status monitoring
-- **Desktop Notifications** — Session exit, waiting-for-input, and todo reminder alerts with debounce
-- **Keyboard Shortcuts** — Customizable shortcuts for all major actions
-- **i18n** — English and Chinese (Simplified) interface
+- Workspace-first project organization that helps keep source repositories clean
+- Multi-pane terminal layouts with tab pinning, splitting, and session recovery
+- Built-in launcher flows for supported AI coding CLIs
+- MCP-exposed terminal and workspace capabilities for AI-driven automation
+- WSL-aware project handling for mixed Windows and Linux development
+- Git, file browser, editor, local history, journal, todo, plans, specs, memories, and skills in one app
+
+## Interface Highlights
+
+### Workspace-first structure
+
+Keep the real code where it belongs, and place workspace metadata, prompts, docs, and automation context around it.
+
+<p align="center">
+  <img src="docs/assets/images/community/workspace-overview.png" alt="Workspace overview" width="760" />
+</p>
+
+Workspace metadata can also include AI-readable context such as `CLAUDE.md`:
+
+<p align="center">
+  <img src="docs/assets/images/community/workspace-claude-md.png" alt="Workspace CLAUDE.md example" width="760" />
+</p>
+
+### Pinned tabs and split panes
+
+Important sessions can be pinned, renamed, moved, or split into stable layouts so they are less likely to get lost in a busy workflow.
+
+<p align="center">
+  <img src="docs/assets/images/community/pin-menu.png" alt="Pinned tab menu" width="260" />
+</p>
+
+### Project launcher experience
+
+Projects can expose launch actions directly from the workspace UI, reducing repetitive terminal setup work.
+
+<p align="center">
+  <img src="docs/assets/images/community/cli-menu.png" alt="Project launcher menu" width="280" />
+</p>
+
+### MCP-powered operations
+
+CC-Panes exposes terminal and workspace actions through MCP-oriented services, making it possible to inspect sessions, write to them, launch tasks, manage todos, and work with open files programmatically.
+
+<p align="center">
+  <img src="docs/assets/images/community/mcp-overview.png" alt="MCP capability overview" width="980" />
+</p>
+
+### Plan-to-implementation workflows
+
+The workflow can bridge planning and execution across tools and panes, for example by using one session to plan and another to implement.
+
+<p align="center">
+  <img src="docs/assets/images/community/plan-to-codex.png" alt="Plan to Codex workflow" width="760" />
+</p>
+
+### WSL-aware workspaces
+
+Local and WSL projects can live under the same workspace, which is especially helpful for Windows-first setups that still rely on Linux-native tooling.
+
+<p align="center">
+  <img src="docs/assets/images/community/workspace-wsl.png" alt="Workspace with WSL projects" width="520" />
+</p>
+
+### Todo as part of the workflow
+
+Todo management is built into the product rather than treated as an external tool, making it easier to connect active sessions, task planning, and project execution.
+
+<p align="center">
+  <img src="docs/assets/images/community/todo-board.png" alt="Todo board" width="980" />
+</p>
+
+## Supported CLI Tools
+
+The repository currently includes a dedicated adapter layer in [`cc-cli-adapters/`](cc-cli-adapters/) and built-in adapters for:
+
+- `Claude Code`
+- `Codex CLI`
+- `Gemini CLI`
+- `OpenCode`
+
+Among them, Claude Code and Codex currently have the deepest integration paths in the codebase.
+
+## Core Feature Areas
+
+- Split-pane terminal management with drag resizing
+- Workspace and project organization, including SSH- and WSL-aware project flows
+- Launch history and session restore
+- Git integration with fetch, pull, push, stash, clone, and worktree management
+- File browser, Monaco editor, markdown preview, and image preview
+- Local history with diff, labels, branch-aware snapshots, and restore
+- Todo, plans, specs, memory, skills, and project workflow artifacts
+- Hooks, orchestrator services, MCP configuration, and shared MCP support
+- Tray mode, mini mode, fullscreen, notifications, screenshots, and shortcuts
+- English and Simplified Chinese UI
 
 ## Architecture
 
+CC-Panes is organized as a small monorepo around a Tauri desktop shell:
+
+- `web/`
+  React frontend with Zustand stores, xterm.js, Monaco, and Tauri invoke wrappers.
+- `src-tauri/`
+  Tauri application shell, native windowing, tray integration, screenshot flow, updater wiring, and IPC registration.
+- `cc-panes-core/`
+  Framework-independent business logic for terminals, workspaces, local history, providers, hooks, todo, plans, specs, SSH, settings, and MCP-related services.
+
+Supporting crates in the workspace include:
+
+- `cc-cli-adapters/`
+- `cc-memory/`
+- `cc-memory-mcp/`
+- `cc-panes-api/`
+- `cc-panes-web/`
+- `cc-panes-hook/`
+- `cc-notify/`
+
+## Repository Layout
+
+```text
+cc-pane/
+|-- web/                 # React frontend
+|-- src-tauri/           # Tauri shell and native integrations
+|-- cc-panes-core/       # Core domain logic
+|-- cc-cli-adapters/     # AI CLI adapters
+|-- cc-memory/           # Memory storage
+|-- cc-memory-mcp/       # Memory MCP server
+|-- cc-panes-api/        # HTTP/WebSocket adapter layer
+|-- cc-panes-web/        # Web terminal server
+|-- cc-panes-hook/       # Hook binary
+|-- cc-notify/           # Notification abstractions
+|-- docs/                # Docs and assets
+|-- scripts/             # Development helpers
+|-- package.json         # Frontend scripts
+`-- Cargo.toml           # Rust workspace
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  React Frontend                                             │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐  │
-│  │ Sidebar  │ │ Panes    │ │ Panels   │ │ UI Components │  │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └───────────────┘  │
-│       │             │            │                           │
-│  ┌────┴─────────────┴────────────┴────┐                     │
-│  │  Services (invoke) + Stores        │                     │
-│  └────────────────┬───────────────────┘                     │
-├───────────────────┼─────────────────────────────────────────┤
-│  Tauri IPC        │                                         │
-├───────────────────┼─────────────────────────────────────────┤
-│  Rust Backend     │                                         │
-│  ┌────────────────┴───────────────────┐                     │
-│  │  Commands → Services → Repository  │                     │
-│  └────────────────┬───────────────────┘                     │
-│  ┌────────────────┴───────────────────┐                     │
-│  │  SQLite / File System / PTY        │                     │
-│  └────────────────────────────────────┘                     │
-└─────────────────────────────────────────────────────────────┘
-```
+
+## Data Model
+
+CC-Panes revolves around a `workspace -> project -> task/session` model.
+
+- global app data is stored under `~/.cc-panes/` for release builds
+- development builds use `~/.cc-panes-dev/`
+- project-level workflow data lives under `<project>/.ccpanes/`
+
+Common project-level directories include:
+
+- `history/`
+- `journal/`
+- `plans/`
+- `prompts/`
+- `specs/`
+- `workflow.md`
 
 ## Tech Stack
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| Desktop Framework | Tauri 2 | Rust backend + system WebView |
-| Frontend | React 19 + TypeScript | UI components |
-| State Management | Zustand 5 + Immer | Immutable state updates |
-| UI Library | shadcn/ui + Radix UI | Component library |
-| Styling | Tailwind CSS 4 | Utility-first CSS |
-| Terminal | xterm.js + portable-pty | Frontend rendering + backend PTY |
-| Split Panes | Allotment | Resizable split layout |
-| Data Storage | SQLite (rusqlite) | Local persistence |
-| Icons | Lucide React | SVG icons |
-| Build Tool | Vite 6 | Frontend bundler |
+| Layer | Technology |
+| --- | --- |
+| Desktop shell | Tauri 2 |
+| Frontend | React 19 + TypeScript |
+| State management | Zustand 5 + Immer |
+| Styling | Tailwind CSS 4 |
+| UI primitives | shadcn/ui + Radix UI |
+| Terminal | xterm.js + portable-pty |
+| Editor | Monaco Editor |
+| Persistence | SQLite via `rusqlite` |
+| Build tooling | Vite 6 |
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 22+
 - [Rust](https://rustup.rs/) 1.83+
-- Platform-specific dependencies for [Tauri](https://v2.tauri.app/start/prerequisites/)
+- Platform-specific dependencies required by [Tauri 2](https://v2.tauri.app/start/prerequisites/)
 
 ## Getting Started
 
 ```bash
-# Clone the repository
 git clone https://github.com/wuxiran/cc-pane.git
 cd cc-pane
-
-# Install frontend dependencies
 npm install
-
-# Run in development mode (frontend + Rust backend)
 npm run tauri:dev
 ```
 
-## Build
+To build a production desktop package:
 
 ```bash
-# Build the production app
 npm run tauri build
 ```
 
-The built application will be in `src-tauri/target/release/bundle/`.
-
-## Development
+## Development Commands
 
 ```bash
-# Frontend type check
+# frontend
+npm run tauri:dev
+npm run test:run
 npx tsc --noEmit
 
-# Run frontend tests
-npm run test:run
-
-# Rust check
+# Rust workspace
 cargo check --workspace
-
-# Rust lint
-cargo clippy --workspace -- -D warnings
-
-# Rust format check
-cargo fmt --all -- --check
-
-# Run Rust tests
 cargo test --workspace
+cargo clippy --workspace -- -D warnings
+cargo fmt --all -- --check
 ```
 
-### Dev/Release Isolation
+## WSL Notes
 
-Dev and release builds are fully isolated via `cfg!(debug_assertions)` and can run simultaneously:
+For native Linux development inside WSL, prefer cloning the repository into the Linux filesystem instead of `/mnt/c/...` or `/mnt/d/...`.
 
-| | Dev (`npm run tauri:dev`) | Release (`npm run tauri build`) |
-|---|---|---|
-| Data directory | `~/.cc-panes-dev/` | `~/.cc-panes/` |
-| Identifier | `com.ccpanes.dev` | `com.ccpanes.app` |
-| Window title | CC-Panes [DEV] | CC-Panes |
-
-## Project Structure
-
-```
-cc-panes/
-├── web/                    # React frontend source
-│   ├── components/         # React components
-│   │   ├── panes/          # Split-pane terminal components
-│   │   ├── sidebar/        # Sidebar components
-│   │   ├── providers/      # Provider management UI
-│   │   └── ui/             # shadcn/ui base components
-│   ├── stores/             # Zustand state management
-│   ├── services/           # Frontend service layer (invoke wrappers)
-│   ├── hooks/              # Custom React hooks
-│   ├── types/              # TypeScript type definitions
-│   ├── i18n/               # Internationalization
-│   ├── lib/                # Shared frontend helpers
-│   └── utils/              # Utility functions
-│
-├── src-tauri/              # Tauri Rust backend
-│   └── src/
-│       ├── commands/        # Tauri IPC command handlers
-│       ├── services/        # Business logic layer
-│       ├── repository/      # Data access layer (SQLite)
-│       ├── models/          # Data models
-│       └── utils/           # Utilities (AppPaths, AppError)
-│
-├── cc-panes-*/             # Shared Rust workspace crates
-└── docs/                   # Architecture docs, examples, and assets
+```bash
+./scripts/setup-wsl-dev.sh
 ```
 
-Frontend imports use the `@/` alias, which resolves to `web/`.
+## Dev/Release Isolation
 
-<!--
-## Screenshots
+Development and release builds intentionally use different identifiers and data directories.
 
-<details>
-<summary>More screenshots</summary>
+| Mode | App identifier | Data directory |
+| --- | --- | --- |
+| Dev (`npm run tauri:dev`) | `com.ccpanes.dev` | `~/.cc-panes-dev/` |
+| Release (`npm run tauri build`) | `com.ccpanes.app` | `~/.cc-panes/` |
 
-| Split Pane Layout | Panel View |
-|:-:|:-:|
-| ![Split Pane](docs/assets/images/screenshot-no-layout.png) | ![Panel](docs/assets/images/screenshot-panel.png) |
+## Docs
 
-| Todo List | New UI |
-|:-:|:-:|
-| ![Todo](docs/assets/images/screenshot-todolist.png) | ![New UI](docs/assets/images/screenshot-new-ui.png) |
+The [`docs/`](docs/) directory contains implementation notes and design documents covering major subsystems such as:
 
-</details>
--->
-
-## Feedback
-
-Found a bug or have a suggestion? Join the WeChat group:
-
-<img src="docs/assets/images/wechat-group.png" alt="WeChat Group: cc-pane" width="200" />
+- workspace and project foundations
+- provider and platform adaptation
+- local history
+- skill system
+- memory system
+- GUI evolution and packaging
 
 ## Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).
-
-## Acknowledgments
-
-- [Tauri](https://tauri.app/) — Desktop application framework
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — AI coding assistant by Anthropic
-- [xterm.js](https://xtermjs.org/) — Terminal emulator for the web
-- [shadcn/ui](https://ui.shadcn.com/) — UI component library
