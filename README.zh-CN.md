@@ -1,6 +1,11 @@
 # CC-Panes
 
-> [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 多实例分屏管理器 — 基于 Tauri 2 的跨平台桌面应用。
+> 面向 Windows 与多 AI CLI 工作流的本地优先终端工作台。
+>
+> 在 Windows 上把多项目、多终端、多模型、多工作流，真正整理成一个可视化、可协作、可扩展的 AI 编程桌面。
+> 
+> CC-Panes 集合了 AI 编码会话、项目组织、Workspace 元数据、本地历史、MCP 自动化与跨终端协作整合到一起的桌面工作台。
+
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%202-FFC131?logo=tauri)](https://v2.tauri.app/)
@@ -9,50 +14,48 @@
 
 [English](README.md)
 
-<!--
-<p align="center">
-  <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes 主界面" width="800" />
-</p>
--->
-
 ## 下载
 
 Windows 安装包可在 [GitHub Releases](https://github.com/wuxiran/cc-pane/releases) 页面下载。下载最新的 `.exe` 安装程序即可使用。
 
 > 其他平台可[从源码构建](#快速开始)。
 
-## 什么是 CC-Panes？
+## 什么是 CC-Panes
 
-用 Claude Code 做开发的人应该都遇到过这个问题：项目一多，终端窗口满天飞，切来切去效率很低。想同时盯两个项目的 Claude 对话？基本靠手动排窗口。
+CC-Panes 是一个基于 **Tauri 2 + React 19 + Rust** 构建的桌面应用，围绕 AI 编程时代最常见的工作流来设计：
 
-CC-Panes 就是为了解决这个问题做的 — 一个专门管理多个 Claude Code CLI 实例的桌面应用。在一个窗口里**分屏并排运行多个 Claude Code 实例**，通过工作空间、项目和任务来组织你的 AI 驱动开发工作流，开箱即用。
+- 多项目 AI CLI 会话管理
+- Workspace 级项目组织
+- 可 Pin 的多标签分屏终端
+- MCP 驱动的跨终端协作
+- WSL / Windows 双环境适配
+- Todo / Plans / Skills / Memory / Spec 等工作流能力
+- 截图、文件浏览、Git、会话恢复等开发辅助能力
 
-## 功能特性
+简单来说：
 
-- **分屏终端** — 在灵活的水平/垂直分屏布局中运行多个终端，支持拖拽调整大小
-- **工作空间管理** — 将项目组织到工作空间中，支持置顶、隐藏和重新排序
-- **内置终端** — 全功能终端（xterm.js + PTY），支持多标签页
-- **Claude Code 集成** — 启动 Claude Code 会话、恢复对话、管理 Provider、自我对话模式
-- **Git 集成** — 分支状态、pull/push/fetch/stash、Worktree 管理和 git clone
-- **会话管理** — 追踪启动历史，最近启动面板、清理异常会话、恢复之前的工作
-- **本地历史** — 文件版本追踪，支持 diff 查看、标签、分支感知快照和还原
-- **文件浏览器** — 项目文件树浏览，支持搜索、创建、重命名、删除、复制和移动操作
-- **代码编辑器** — 基于 Monaco 的编辑器，支持 60+ 语言语法高亮、Markdown 预览和图片预览
-- **快速搜索** — 全局文件搜索（Ctrl+K），跨工作空间所有项目搜索
-- **截图** — 区域截图，支持全局快捷键、多显示器和剪贴板复制
-- **会话日志** — 工作空间级别的会话日志记录
-- **待办 & 计划** — 任务管理，支持优先级、子任务和计划归档
-- **Memory & Skills** — 按项目管理 Claude 记忆和自定义技能
-- **MCP 服务器配置** — 按项目配置 MCP 服务器
-- **Hooks/工作流** — 工作空间级别的 Hook 自动化系统
-- **Provider 管理** — 多 API Provider 支持（Anthropic、Bedrock、Vertex、代理、配置档案）
-- **目录扫描导入** — 从目录批量导入 Git 仓库
-- **主题支持** — 亮色/暗色模式，毛玻璃设计
-- **无边框、迷你 & 全屏模式** — 无边框窗口模式、紧凑迷你视图和 F11 全屏切换
-- **系统托盘** — 最小化到托盘，带状态监控
-- **桌面通知** — 会话退出、等待输入和待办提醒通知，支持防抖
-- **键盘快捷键** — 所有主要操作支持自定义快捷键
-- **国际化** — 中英文界面
+> **CC-Panes 是面向 AI 编程时代的 Workspace 化终端工作流平台。**
+
+## 为什么需要 CC-Panes
+
+### Windows AI 编程的痛点
+
+- 终端窗口多，找不到谁在跑什么
+- 手滑关掉重要标签页
+- 反复 `cd` 目录启动 Claude Code、Codex 等工具
+- 前后端项目来回切换窗口
+- 项目目录被 `.idea`、`.cursor`、`.claude` 等配置污染
+- Windows + WSL 混合开发路径割裂
+
+### 与普通终端的区别
+
+| 特性 | 普通终端 | CC-Panes |
+|------|----------|----------|
+| 组织方式 | 以窗口为中心 | **Workspace 为中心**，代码与配置分离 |
+| 标签管理 | 易丢失 | **可 Pin、可分屏**，布局稳定 |
+| CLI 启动 | 手动输入 | **统一入口**，一键启动 |
+| AI 协作 | 单会话 | **MCP 协议**，跨终端协作 |
+| 环境适配 | 割裂 | **Windows + WSL 原生双路径** |
 
 ## 架构
 
@@ -215,24 +218,134 @@ cc-panes/
 └── docs/                   # 设计文档、示例与文档资源
 ```
 
-前端导入统一使用 `@/` 别名，对应到 `web/` 目录。
 
-<!--
-## 截图
+## 界面亮点
 
-<details>
-<summary>更多截图</summary>
+### Workspace 优先的组织方式
 
-| 分屏布局 | 面板视图 |
-|:-:|:-:|
-| ![分屏](docs/assets/images/screenshot-no-layout.png) | ![面板](docs/assets/images/screenshot-panel.png) |
+真实代码仍然放在原来的目录里，而 AI 工作流相关的元数据、提示词、文档和运行上下文则可以统一沉淀到 Workspace。Workspace 里还可以保留 AI 可读的上下文文件，例如 `CLAUDE.md`。这样做能让 Git 仓库更干净、AI 配置更集中、多项目更容易统一组织。
 
-| 待办列表 | 新 UI |
-|:-:|:-:|
-| ![待办](docs/assets/images/screenshot-todolist.png) | ![新 UI](docs/assets/images/screenshot-new-ui.png) |
+<p align="center">
+  <img src="./docs/assets/images/community/workspace-overview.png" alt="Workspace 目录概览" width="760" />
+</p>
 
-</details>
--->
+<p align="center">
+  <img src="./docs/assets/images/community/workspace-claude-md.png" alt="Workspace 中的 CLAUDE.md" width="760" />
+</p>
+
+### 可 Pin 的标签页和分屏终端
+
+在 CC-Panes 里，终端标签页不只是能打开和关闭，还可以固定、改名、左右移动、拆分到右侧或下方，形成相对稳定的多面板布局。这意味着你不需要再担心“手误关掉正在跑任务的会话”。
+
+<p align="center">
+  <img src="./docs/assets/images/community/pin-menu.png" alt="标签页固定与拆分菜单" width="260" />
+</p>
+
+### 统一的项目启动入口
+
+左侧项目菜单不只是“打开目录”，还可以直接承载常用 AI CLI 的启动入口。对于前后端分离、多仓库协作、多环境切换的项目来说，这会显著减少重复操作。
+
+<p align="center">
+  <img src="./docs/assets/images/community/cli-menu.png" alt="项目启动菜单" width="280" />
+</p>
+
+### MCP：把终端与工作区能力直接交给 AI
+
+CC-Panes 很有辨识度的一点，是把大量终端和工作区操作暴露成了 **MCP（Model Context Protocol）能力**。这意味着 AI 不只是“看终端输出”，而是可以读取会话状态、向其他会话写入命令、创建工作区、导入项目、分发任务以及操作 Todo、文件和 Pane。
+
+<p align="center">
+  <img src="./docs/assets/images/community/mcp-overview.png" alt="MCP 服务能力概览" width="980" />
+</p>
+
+当前已覆盖的能力方向包括：
+
+- 任务管理
+- PTY 会话
+- 工作区管理
+- Todo
+- 任务绑定
+- 文件操作
+- Pane 管理
+- 历史记录
+
+### Plan -> Codex 的 Team 编程工作流
+
+CC-Panes 很适合“一个模型负责规划，另一个模型负责实现”的协作模式。典型流程是：
+
+- 先让 Claude 做 Plan
+- 再通过 `launch_task` 把任务分发给 Codex
+- 之后由 Claude 或其他会话继续监控与推进
+
+这不是简单地“开两个终端”，而是在构建一种可拆分的工作流：Plan 和 Implementation 分离，可扩展为多窗口并行执行，更接近“团队编程”而不是“单会话问答”。
+
+<p align="center">
+  <img src="./docs/assets/images/community/plan-to-codex.png" alt="Plan 到 Codex 的工作流" width="760" />
+</p>
+
+### WSL 不是附加项，而是核心场景之一
+
+很多人在 Windows 上做 AI 编程，最后都会进入 WSL 场景。CC-Panes 的做法是：为同一个工作区保留 Windows 路径，同时支持 WSL 路径映射，并在界面里直接区分本地项目和 WSL 项目。
+
+<p align="center">
+  <img src="./docs/assets/images/community/workspace-wsl.png" alt="Workspace 中的本地与 WSL 项目" width="520" />
+</p>
+
+<p align="center">
+  <img src="./docs/assets/images/community/self-dialogue.png" alt="WSL 与模型状态示意" width="760" />
+</p>
+
+这让下面这种混合开发方式更容易成立：
+
+- 在 WSL 中读写代码
+- 在 Windows 环境中编译、运行或调试
+- 在一个可视化工作台里统一管理全部会话
+
+### Todo 也是工作流的一部分
+
+Todo 面板不是简单的任务列表。它支持状态、优先级、范围过滤、右侧编辑，并与项目、标签和会话结合。配合 MCP 与计划流，它更像是 AI 编程工作流中的任务调度层。
+
+<p align="center">
+  <img src="./docs/assets/images/community/todo-board.png" alt="Todo 面板" width="980" />
+</p>
+
+## 适合谁用
+
+- Windows 上做多项目 AI 编程的开发者
+- 同时管理多个终端和 AI CLI 工具的用户
+- 希望 AI 工作流可协作、可拆分、可复用的团队
+- 对项目目录洁癖，不想被 AI 配置污染 Git 仓库的人
+
+**核心亮点：** Workspace 化管理、多 CLI 统一入口、Pin + 分屏布局、MCP 跨终端协作、Plan→Codex 任务分发、完整的 Todo/Specs/Skills/Memory 工作流。
+
+## 未来方向
+
+- SSH 远程项目支持
+- 会话恢复与持久化
+- MCP 自动化增强
+- Team 编程工作流完善
+- 多模型统一协作体验
+
+## 支持的 CLI 工具
+
+仓库中的 [`cc-cli-adapters/`](./cc-cli-adapters/) 已内建统一适配层，目前代码里已确认包含：
+
+- `Claude Code`
+- `Codex CLI`
+- `Gemini CLI`
+- `OpenCode`
+
+其中 Claude Code 与 Codex 当前集成深度最高。
+
+## 文档
+
+设计文档位于 [`docs/`](./docs/) 目录，包括：
+
+- Workspace 与项目基础模型
+- Provider 与平台适配
+- 本地历史
+- Skill 系统
+- Memory 系统
+- GUI 演进与打包发布
 
 ## 反馈
 
@@ -242,11 +355,11 @@ cc-panes/
 
 ## 贡献
 
-欢迎贡献！请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 了解贡献指南。
+欢迎贡献，建议先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解项目约定。
 
 ## 许可证
 
-本项目采用 [GNU 通用公共许可证 v3.0](LICENSE) 授权。
+本项目采用 [GNU 通用公共许可证 v3.0](./LICENSE) 开源。
 
 ## 致谢
 
