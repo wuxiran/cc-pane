@@ -347,10 +347,23 @@ Todo 面板不是简单的任务列表。它支持状态、优先级、范围过
 - Memory 系统
 - GUI 演进与打包发布
 
+## 反馈
+
+发现 Bug 或有建议？欢迎加入微信群交流：
+
+<img src="docs/assets/images/wechat-group.png" alt="微信群: cc-pane" width="200" />
+
 ## 贡献
 
 欢迎贡献，建议先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解项目约定。
 
 ## 许可证
 
-本项目采用 [GNU General Public License v3.0](./LICENSE) 开源。
+本项目采用 [GNU 通用公共许可证 v3.0](./LICENSE) 开源。
+
+## 致谢
+
+- [Tauri](https://tauri.app/) — 桌面应用框架
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — Anthropic 的 AI 编程助手
+- [xterm.js](https://xtermjs.org/) — Web 终端模拟器
+- [shadcn/ui](https://ui.shadcn.com/) — UI 组件库
