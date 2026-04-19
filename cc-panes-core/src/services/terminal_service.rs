@@ -5,7 +5,9 @@ use crate::models::{
     TerminalReplaySnapshot, WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
-use crate::services::{ProviderService, SettingsService, SpecService};
+use crate::services::{
+    ProjectCliHooksService, ProviderService, SettingsService, SpecService, SshCredentialService,
+};
 use crate::utils::AppPaths;
 use anyhow::{anyhow, Result};
 use cc_cli_adapters::{CliAdapterContext, CliProvider, CliToolRegistry};
@@ -503,8 +505,17 @@ pub struct TerminalService {
     spec_service: Mutex<Option<Arc<SpecService>>>,
     /// CLI 工具适配器注册表
     cli_registry: Arc<CliToolRegistry>,
+    /// 项目级 CLI hooks 服务
+    project_cli_hooks_service: Arc<ProjectCliHooksService>,
+    ssh_credential_service: Arc<SshCredentialService>,
     /// 共享 MCP 服务引用（setup 阶段注入）
     shared_mcp_service: parking_lot::RwLock<Option<Arc<crate::services::SharedMcpService>>>,
+}
+
+struct SshAuthRuntime {
+    prompt_buffer: String,
+    saved_password: String,
+    auto_response_sent: bool,
 }
 
 /// ConPTY style-only 空闲帧：\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l  (25 字节)
@@ -697,12 +708,23 @@ fn utf8_safe_process(buf: &[u8], carry: &mut Vec<u8>) -> Option<String> {
     Some(String::from_utf8_lossy(&combined).to_string())
 }
 
+fn normalize_prompt_text(data: &str) -> String {
+    strip_ansi(&data.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
+fn looks_like_ssh_password_prompt(prompt: &str) -> bool {
+    let lower = prompt.to_ascii_lowercase();
+    !lower.contains("passphrase") && (lower.ends_with("password:") || lower.ends_with("password: "))
+}
+
 impl TerminalService {
     pub fn new(
         settings_service: Arc<SettingsService>,
         provider_service: Arc<ProviderService>,
         app_paths: Arc<AppPaths>,
         cli_registry: Arc<CliToolRegistry>,
+        project_cli_hooks_service: Arc<ProjectCliHooksService>,
+        ssh_credential_service: Arc<SshCredentialService>,
     ) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -715,6 +737,8 @@ impl TerminalService {
             orchestrator_info: Mutex::new(None),
             spec_service: Mutex::new(None),
             cli_registry,
+            project_cli_hooks_service,
+            ssh_credential_service,
             shared_mcp_service: parking_lot::RwLock::new(None),
         }
     }
@@ -742,10 +766,45 @@ impl TerminalService {
         info!("[terminal] SharedMcpService injected");
     }
 
+    fn prepare_ssh_auth_runtime(
+        &self,
+        ssh: Option<&SshConnectionInfo>,
+    ) -> Result<Option<Arc<Mutex<SshAuthRuntime>>>> {
+        let Some(ssh) = ssh else {
+            return Ok(None);
+        };
+
+        let Some(machine_id) = ssh.machine_id.as_deref() else {
+            return Ok(None);
+        };
+
+        if ssh.auth_method != Some(crate::models::AuthMethod::Password) {
+            return Ok(None);
+        }
+
+        match self.ssh_credential_service.load_password(machine_id) {
+            Ok(Some(saved_password)) => Ok(Some(Arc::new(Mutex::new(SshAuthRuntime {
+                prompt_buffer: String::new(),
+                saved_password,
+                auto_response_sent: false,
+            })))),
+            Ok(None) => Ok(None),
+            Err(error) => {
+                warn!(
+                    machine_id = %machine_id,
+                    error = %error,
+                    "Failed to load stored SSH password; falling back to manual prompt"
+                );
+                Ok(None)
+            }
+        }
+    }
+
     /// 创建新的终端会话
     #[allow(clippy::too_many_arguments)]
     pub fn create_session(
         &self,
+        launch_id: Option<&str>,
         project_path: &str,
         cols: u16,
         rows: u16,
@@ -786,6 +845,30 @@ impl TerminalService {
         env_vars
             .entry("COLORTERM".to_string())
             .or_insert_with(|| "truecolor".to_string());
+        env_vars.insert("CC_PANES_PTY_SESSION_ID".to_string(), session_id.clone());
+        if let Some(launch_id) = launch_id {
+            env_vars.insert("CC_PANES_LAUNCH_ID".to_string(), launch_id.to_string());
+        }
+        env_vars.insert(
+            "CC_PANES_CLI_TOOL".to_string(),
+            cli_tool.as_id().to_string(),
+        );
+        let runtime_kind = if ssh.is_some() {
+            "ssh"
+        } else if wsl.is_some() {
+            "wsl"
+        } else {
+            "local"
+        };
+        env_vars.insert(
+            "CC_PANES_RUNTIME_KIND".to_string(),
+            runtime_kind.to_string(),
+        );
+        if let Some(wsl) = wsl {
+            if let Some(distro) = wsl.distro.as_deref().filter(|value| !value.trim().is_empty()) {
+                env_vars.insert("CC_PANES_WSL_DISTRO".to_string(), distro.to_string());
+            }
+        }
 
         // 解析 Shell 配置
         let shell_id = self.settings_service.get_settings().terminal.shell.clone();
@@ -798,6 +881,10 @@ impl TerminalService {
                 if let Some(info) = info_guard.as_ref() {
                     env_vars.insert("CC_PANES_API_PORT".to_string(), info.port.to_string());
                     env_vars.insert("CC_PANES_API_TOKEN".to_string(), info.token.clone());
+                    env_vars.insert(
+                        "CC_PANES_API_BASE_URL".to_string(),
+                        format!("http://127.0.0.1:{}", info.port),
+                    );
                 }
             }
         }
@@ -821,11 +908,28 @@ impl TerminalService {
                 Some(ws_path) => PathBuf::from(ws_path),
                 None => PathBuf::from(project_path),
             };
+            let cli_tool_id = cli_tool.as_id();
             let env_remove = WSL_PROXY_ENV_KEYS
                 .iter()
                 .map(|key| key.to_string())
                 .collect::<Vec<_>>();
             strip_wsl_proxy_env_vars(&mut env_vars);
+
+            if cli_tool_id != "none" {
+                let hooks_project_path = workspace_path.unwrap_or(project_path);
+                if let Err(error) = self
+                    .project_cli_hooks_service
+                    .sync_project_cli_hooks(hooks_project_path, cli_tool_id)
+                {
+                    warn!(
+                        session_id = %session_id,
+                        cli_tool = cli_tool_id,
+                        project_path = hooks_project_path,
+                        error = %error,
+                        "create_session: failed to sync project hooks before WSL launch; continuing"
+                    );
+                }
+            }
 
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
             if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !skip_mcp {
@@ -837,7 +941,13 @@ impl TerminalService {
                             port,
                         ) {
                             Ok(host) => {
-                                resolved_wsl.windows_host = Some(host);
+                                resolved_wsl.windows_host = Some(host.clone());
+                                if let Some(port_value) = env_vars.get("CC_PANES_API_PORT") {
+                                    env_vars.insert(
+                                        "CC_PANES_API_BASE_URL".to_string(),
+                                        format!("http://{}:{}", host, port_value),
+                                    );
+                                }
                             }
                             Err(error) => {
                                 warn!(
@@ -870,6 +980,7 @@ impl TerminalService {
                     )?;
                     self.build_wsl_command(
                         &resolved_wsl,
+                        &session_id,
                         &env_vars,
                         resume_id,
                         initial_prompt,
@@ -887,17 +998,16 @@ impl TerminalService {
                         initial_prompt,
                         skip_mcp,
                     )?,
-                CliTool::Kimi | CliTool::Glm => self
-                    .build_wsl_supported_cli_command(
-                        &resolved_wsl,
-                        cli_tool,
-                        &session_id,
-                        &env_vars,
-                        resume_id,
-                        append_system_prompt,
-                        initial_prompt,
-                        skip_mcp,
-                    )?,
+                CliTool::Kimi | CliTool::Glm => self.build_wsl_supported_cli_command(
+                    &resolved_wsl,
+                    cli_tool,
+                    &session_id,
+                    &env_vars,
+                    resume_id,
+                    append_system_prompt,
+                    initial_prompt,
+                    skip_mcp,
+                )?,
             };
 
             info!(
@@ -927,6 +1037,20 @@ impl TerminalService {
                     .cli_registry
                     .get(cli_tool_id)
                     .ok_or_else(|| anyhow!("Unknown CLI tool: {}", cli_tool_id))?;
+
+                let hooks_project_path = workspace_path.unwrap_or(project_path);
+                if let Err(error) = self
+                    .project_cli_hooks_service
+                    .sync_project_cli_hooks(hooks_project_path, cli_tool_id)
+                {
+                    warn!(
+                        session_id = %session_id,
+                        cli_tool = cli_tool_id,
+                        project_path = hooks_project_path,
+                        error = %error,
+                        "create_session: failed to sync project hooks before launch; continuing"
+                    );
+                }
 
                 // 自动注入 Spec prompt（仅 CLI 工具模式，且无显式 append_system_prompt 时）
                 let spec_prompt = if append_system_prompt.is_none() {
@@ -965,6 +1089,7 @@ impl TerminalService {
             (cwd, cmd, cmd_args, cmd_env_remove)
         };
         let launch_claude = cli_tool != CliTool::None;
+        let ssh_auth_runtime = self.prepare_ssh_auth_runtime(ssh)?;
 
         // 创建 PTY
         debug!(
@@ -1137,6 +1262,8 @@ impl TerminalService {
         let read_output_buffer = output_buffer.clone();
         let read_replay_buffer = replay_buffer.clone();
         let reader_pid = session_pid;
+        let read_sessions = Arc::clone(&self.sessions);
+        let read_ssh_auth_runtime = ssh_auth_runtime.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             let prev_status = Mutex::new(SessionStatus::Active);
@@ -1254,6 +1381,8 @@ impl TerminalService {
                             *prev = new_status;
                         }
 
+                        let normalized_prompt = normalize_prompt_text(&data);
+
                         // 追加到原始 VT 回放缓冲区
                         if let Ok(mut replay) = read_replay_buffer.lock() {
                             replay.push(&data);
@@ -1265,7 +1394,42 @@ impl TerminalService {
                         }
 
                         // 发送到批量合并线程（替代直接 emit，降低 IPC 频率）
-                        let _ = batch_tx.send(data);
+                        let _ = batch_tx.send(data.clone());
+
+                        if let Some(runtime) = read_ssh_auth_runtime.as_ref() {
+                            if let Ok(mut runtime) = runtime.lock() {
+                                runtime.prompt_buffer.push_str(&normalized_prompt);
+                                if runtime.prompt_buffer.len() > 512 {
+                                    let keep_from = runtime.prompt_buffer.len() - 512;
+                                    runtime.prompt_buffer.drain(..keep_from);
+                                }
+                                let last_line = runtime
+                                    .prompt_buffer
+                                    .rsplit('\n')
+                                    .next()
+                                    .map(|line| line.trim_end().to_string());
+                                if let Some(last_line) = last_line {
+                                    if !runtime.auto_response_sent
+                                        && looks_like_ssh_password_prompt(&last_line)
+                                    {
+                                        if let Ok(mut sessions) = read_sessions.lock() {
+                                            if let Some(session) = sessions.get_mut(&sid) {
+                                                if session
+                                                    .writer
+                                                    .write_all(runtime.saved_password.as_bytes())
+                                                    .and_then(|_| session.writer.write_all(b"\n"))
+                                                    .and_then(|_| session.writer.flush())
+                                                    .is_ok()
+                                                {
+                                                    runtime.auto_response_sent = true;
+                                                    runtime.prompt_buffer.clear();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // 发送状态事件（节流：仅在 status 变化或距上次发射 ≥2s 时发射）
                         let now_instant = Instant::now();
@@ -2324,5 +2488,23 @@ mod tests {
     fn test_detect_shells_not_empty() {
         let shells = detect_shells();
         assert!(!shells.is_empty(), "should detect at least one shell");
+    }
+
+    #[test]
+    fn test_detects_ssh_password_prompt() {
+        assert!(looks_like_ssh_password_prompt(
+            "dev@devbox.local's password: "
+        ));
+        assert!(!looks_like_ssh_password_prompt(
+            "Enter passphrase for key '/tmp/id_ed25519': "
+        ));
+    }
+
+    #[test]
+    fn test_normalize_prompt_text_strips_ansi() {
+        assert_eq!(
+            normalize_prompt_text("\x1b[31mPassword:\x1b[0m\r"),
+            "Password:\n"
+        );
     }
 }

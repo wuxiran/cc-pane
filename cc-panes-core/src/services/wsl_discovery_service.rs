@@ -230,8 +230,10 @@ mod inner {
                 user: Some("user".into()),
                 auth_method: Default::default(),
                 identity_file: None,
+                description: None,
                 default_path: None,
                 tags: vec![],
+                has_stored_password: false,
                 created_at: String::new(),
                 updated_at: String::new(),
             }];
@@ -250,8 +252,10 @@ mod inner {
                 user: None,
                 auth_method: Default::default(),
                 identity_file: None,
+                description: None,
                 default_path: None,
                 tags: vec!["wsl".into()],
+                has_stored_password: false,
                 created_at: String::new(),
                 updated_at: String::new(),
             }];
@@ -269,8 +273,10 @@ mod inner {
                 user: None,
                 auth_method: Default::default(),
                 identity_file: None,
+                description: None,
                 default_path: None,
                 tags: vec!["wsl".into()],
+                has_stored_password: false,
                 created_at: String::new(),
                 updated_at: String::new(),
             }];

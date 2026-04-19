@@ -6,11 +6,11 @@ export interface WorkspaceGroup {
 }
 
 /**
- * 将启动记录按工作空间名称分组，只保留有 claudeSessionId 的记录。
+ * 将启动记录按工作空间名称分组，只保留有 resumeSessionId 的记录。
  * 无 workspaceName 的归入"未分组"。
  */
 export function groupByWorkspace(records: LaunchRecord[], ungroupedLabel: string): WorkspaceGroup[] {
-  const filtered = records.filter(r => !!r.claudeSessionId);
+  const filtered = records.filter(r => !!r.resumeSessionId);
   const map = new Map<string, LaunchRecord[]>();
 
   for (const record of filtered) {

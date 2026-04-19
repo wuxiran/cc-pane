@@ -3,6 +3,7 @@ import { FolderOpen } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -85,7 +86,9 @@ export function ConfirmDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground py-2">{description}</p>
+        <DialogDescription className="py-2 text-sm text-muted-foreground">
+          {description}
+        </DialogDescription>
         <DialogFooter>
           <Button variant="secondary" onClick={() => setOpen(false)}>
             {t("cancel", { ns: "common" })}

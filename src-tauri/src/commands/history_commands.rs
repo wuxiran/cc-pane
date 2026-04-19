@@ -5,14 +5,17 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use tracing::debug;
 
 /// session-state.json 的结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionState {
-    pub claude_session_id: Option<String>,
+    #[serde(default, alias = "claudeSessionId")]
+    pub resume_session_id: Option<String>,
+    pub cli_tool: Option<String>,
+    pub runtime_kind: Option<String>,
     pub started_at: Option<String>,
     pub status: Option<String>,
     pub last_prompt: Option<String>,
@@ -25,6 +28,9 @@ pub fn add_launch_history(
     project_id: String,
     project_name: String,
     project_path: String,
+    cli_tool: Option<String>,
+    runtime_kind: Option<String>,
+    wsl_distro: Option<String>,
     workspace_name: Option<String>,
     workspace_path: Option<String>,
     launch_cwd: Option<String>,
@@ -35,6 +41,9 @@ pub fn add_launch_history(
         &project_id,
         &project_name,
         &project_path,
+        cli_tool.as_deref().unwrap_or("none"),
+        runtime_kind.as_deref().unwrap_or("local"),
+        wsl_distro.as_deref(),
         workspace_name.as_deref(),
         workspace_path.as_deref(),
         launch_cwd.as_deref(),
@@ -90,20 +99,20 @@ pub fn read_session_state(project_path: String) -> AppResult<Option<SessionState
 pub fn update_launch_session_id(
     service: State<'_, Arc<LaunchHistoryService>>,
     id: i64,
-    claude_session_id: String,
+    resume_session_id: String,
 ) -> AppResult<()> {
-    debug!(id = id, claude_session_id = %claude_session_id, "cmd::update_launch_session_id");
-    Ok(service.update_session_id(id, &claude_session_id)?)
+    debug!(id = id, resume_session_id = %resume_session_id, "cmd::update_launch_session_id");
+    Ok(service.update_session_id(id, &resume_session_id)?)
 }
 
 /// 更新已有会话记录的时间戳（resume 去重），返回记录 ID
 #[tauri::command]
 pub fn touch_launch_by_session(
     service: State<'_, Arc<LaunchHistoryService>>,
-    claude_session_id: String,
+    resume_session_id: String,
 ) -> AppResult<Option<i64>> {
-    debug!(claude_session_id = %claude_session_id, "cmd::touch_launch_by_session");
-    Ok(service.touch_by_session_id(&claude_session_id)?)
+    debug!(resume_session_id = %resume_session_id, "cmd::touch_launch_by_session");
+    Ok(service.touch_by_session_id(&resume_session_id)?)
 }
 
 /// 更新启动记录的最后 Prompt
@@ -117,10 +126,7 @@ pub fn update_launch_last_prompt(
     Ok(service.update_last_prompt(id, &last_prompt)?)
 }
 
-/// 从 ~/.claude/projects/ 扫描最近的 session ID
-/// after_ts: ISO 8601 时间戳，只返回在此时间之后修改的 session
-#[tauri::command]
-pub fn detect_claude_session(
+fn detect_claude_session_inner(
     project_path: String,
     workspace_path: Option<String>,
     after_ts: String,
@@ -191,6 +197,147 @@ pub fn detect_claude_session(
         project_path
     );
     Ok(None)
+}
+
+fn detect_resume_session_inner(
+    cli_tool: &str,
+    runtime_kind: Option<&str>,
+    wsl_distro: Option<&str>,
+    project_path: String,
+    workspace_path: Option<String>,
+    after_ts: String,
+) -> AppResult<Option<String>> {
+    match cli_tool {
+        "claude" => detect_claude_session_inner(project_path, workspace_path, after_ts),
+        "codex" => {
+            let after: DateTime<Utc> = DateTime::parse_from_rfc3339(&after_ts)
+                .map_err(|e| format!("Invalid timestamp: {}", e))?
+                .with_timezone(&Utc);
+
+            let mut paths_to_try = Vec::new();
+            if let Some(ref workspace_path) = workspace_path {
+                paths_to_try.push(workspace_path.as_str());
+            }
+            paths_to_try.push(project_path.as_str());
+
+            let runtime_kind = runtime_kind.unwrap_or("local");
+            if runtime_kind == "wsl" {
+                crate::services::codex_session_service::detect_wsl_session(
+                    &paths_to_try,
+                    after,
+                    wsl_distro,
+                )
+                .map_err(|e| e.into())
+            } else {
+                crate::services::codex_session_service::detect_session(&paths_to_try, after)
+                    .map_err(|e| e.into())
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
+/// 从 CLI 对应的本地会话目录中扫描最近的 session ID。
+/// after_ts: ISO 8601 时间戳，只返回在此时间之后修改的 session
+#[tauri::command]
+pub fn detect_resume_session(
+    cli_tool: String,
+    runtime_kind: Option<String>,
+    wsl_distro: Option<String>,
+    project_path: String,
+    workspace_path: Option<String>,
+    after_ts: String,
+) -> AppResult<Option<String>> {
+    detect_resume_session_inner(
+        &cli_tool,
+        runtime_kind.as_deref(),
+        wsl_distro.as_deref(),
+        project_path,
+        workspace_path,
+        after_ts,
+    )
+}
+
+/// 兼容旧前端：继续保留 Claude 专用命令。
+#[tauri::command]
+pub fn detect_claude_session(
+    project_path: String,
+    workspace_path: Option<String>,
+    after_ts: String,
+) -> AppResult<Option<String>> {
+    detect_claude_session_inner(project_path, workspace_path, after_ts)
+}
+
+/// 后端启动一个兜底回填任务，避免前端轮询 session 文件。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn start_launch_history_backfill(
+    app_handle: AppHandle,
+    service: State<'_, Arc<LaunchHistoryService>>,
+    launch_id: String,
+    pty_session_id: String,
+    cli_tool: String,
+    runtime_kind: String,
+    wsl_distro: Option<String>,
+    project_path: String,
+    workspace_path: Option<String>,
+    after_ts: Option<String>,
+) -> AppResult<()> {
+    let service = service.inner().clone();
+    let after_ts = after_ts.unwrap_or_else(|| Utc::now().to_rfc3339());
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..15 {
+            if let Ok(Some(record)) = service.find_by_launch_id(&launch_id) {
+                if record.resume_session_id.is_some() {
+                    return;
+                }
+            }
+
+            if let Ok(Some(resume_session_id)) = detect_resume_session_inner(
+                &cli_tool,
+                Some(&runtime_kind),
+                wsl_distro.as_deref(),
+                project_path.clone(),
+                workspace_path.clone(),
+                after_ts.clone(),
+            ) {
+                if let Ok(Some(record_id)) = service.update_session_started(
+                    &launch_id,
+                    &pty_session_id,
+                    &resume_session_id,
+                    &cli_tool,
+                    &runtime_kind,
+                    wsl_distro.as_deref(),
+                    workspace_path.as_deref(),
+                ) {
+                    if let Ok(Some(last_prompt)) = crate::services::extract_last_prompt(
+                        &cli_tool,
+                        Some(&runtime_kind),
+                        wsl_distro.as_deref(),
+                        &project_path,
+                        &resume_session_id,
+                    ) {
+                        let _ = service
+                            .update_last_prompt_by_pty_session_id(&pty_session_id, &last_prompt);
+                    }
+                    let _ = app_handle.emit(
+                        "history-updated",
+                        serde_json::json!({
+                            "source": "launch-backfill",
+                            "recordId": record_id,
+                            "launchId": launch_id,
+                            "ptySessionId": pty_session_id,
+                            "resumeSessionId": resume_session_id,
+                        }),
+                    );
+                }
+                return;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    });
+    Ok(())
 }
 
 /// 诊断命令：返回路径编码结果，用于 DevTools 验证

@@ -1,4 +1,4 @@
-use crate::models::ssh_machine::SshMachine;
+use crate::models::ssh_machine::{SshMachine, SshMachineUpsertRequest};
 use crate::services::{SshConnectivityResult, SshMachineService};
 use crate::utils::path_validator::validate_ssh_machine;
 use crate::utils::AppResult;
@@ -21,22 +21,32 @@ pub fn get_ssh_machine(
 
 #[tauri::command]
 pub fn add_ssh_machine(
-    machine: SshMachine,
+    request: SshMachineUpsertRequest,
     service: State<'_, Arc<SshMachineService>>,
-) -> AppResult<()> {
-    debug!(id = %machine.id, name = %machine.name, "cmd::add_ssh_machine");
-    validate_ssh_machine(&machine)?;
-    Ok(service.add(machine)?)
+) -> AppResult<SshMachine> {
+    debug!(
+        id = %request.machine.id,
+        name = %request.machine.name,
+        remember_password = request.remember_password,
+        "cmd::add_ssh_machine"
+    );
+    validate_ssh_machine(&request.machine)?;
+    Ok(service.add(request)?)
 }
 
 #[tauri::command]
 pub fn update_ssh_machine(
-    machine: SshMachine,
+    request: SshMachineUpsertRequest,
     service: State<'_, Arc<SshMachineService>>,
-) -> AppResult<()> {
-    debug!(id = %machine.id, "cmd::update_ssh_machine");
-    validate_ssh_machine(&machine)?;
-    Ok(service.update(machine)?)
+) -> AppResult<SshMachine> {
+    debug!(
+        id = %request.machine.id,
+        remember_password = request.remember_password,
+        clear_stored_password = request.clear_stored_password,
+        "cmd::update_ssh_machine"
+    );
+    validate_ssh_machine(&request.machine)?;
+    Ok(service.update(request)?)
 }
 
 #[tauri::command]

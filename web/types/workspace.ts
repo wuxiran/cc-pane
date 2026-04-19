@@ -1,3 +1,5 @@
+import type { AuthMethod } from "./ssh-machine";
+
 /** SSH 连接信息 */
 export interface SshConnectionInfo {
   host: string;
@@ -5,6 +7,8 @@ export interface SshConnectionInfo {
   user?: string;
   remotePath: string;
   identityFile?: string;
+  machineId?: string;
+  authMethod?: AuthMethod;
 }
 
 /** 工作空间默认运行环境 */

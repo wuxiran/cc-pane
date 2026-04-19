@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Sidebar from "@/components/Sidebar";
@@ -44,26 +44,30 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
-import { historyService, terminalService, localHistoryService, hooksService, checkUpdateSilent, markTabReclaimed as popupMarkReclaimed, getPoppedTabs, sessionRestoreService } from "@/services";
+import { historyService, terminalService, localHistoryService, checkUpdateSilent, markTabReclaimed as popupMarkReclaimed, getPoppedTabs, sessionRestoreService } from "@/services";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { isTauriReady, waitForTauri } from "@/utils";
 import { registerGlobalApi } from "@/utils/globalApi";
 import i18n from "@/i18n";
 import type { PaneNode, Panel as PanelType, OpenTerminalOptions, SavedSession } from "@/types";
 
-interface SessionTrackInfo {
-  recordId: number;
-  projectPath: string;
-  claudeSessionId?: string;
-}
-
 /** 递归遍历 pane 树，收集所有 Panel 节点 */
 function getAllPanels(pane: PaneNode): PanelType[] {
   if (pane.type === "panel") return [pane];
   return pane.children.flatMap(getAllPanels);
+}
+
+function resolveRuntimeKind(opts: Pick<OpenTerminalOptions, "ssh" | "wsl">): string {
+  if (opts.ssh) return "ssh";
+  if (opts.wsl) return "wsl";
+  return "local";
+}
+
+function getStateResumeSessionId(state: { resumeSessionId?: string } | null | undefined): string | undefined {
+  return state?.resumeSessionId;
 }
 
 export default function App() {
@@ -96,9 +100,6 @@ function MainApp() {
   // RecentFilesPicker 状态
   const [recentFilesOpen, setRecentFilesOpen] = useState(false);
   const closeRecentFiles = useCallback(() => setRecentFilesOpen(false), []);
-
-  // Session tracking map: ptySessionId -> { recordId, projectPath, claudeSessionId }
-  const sessionMapRef = useRef<Map<string, SessionTrackInfo>>(new Map());
 
   // Dialog 状态（从 store 读取）
   const settingsOpen = useDialogStore((s) => s.settingsOpen);
@@ -135,6 +136,57 @@ function MainApp() {
     registerGlobalApi();
   }, []);
 
+  // 保留 terminal-exit 的 Spec 收尾链路；历史卡片回填已迁到后端，不再在这里处理。
+  useEffect(() => {
+    if (!isTauriReady()) return;
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    getCurrentWebview().listen<{ sessionId: string }>("terminal-exit", async (event) => {
+      if (cancelled) return;
+      invoke("handle_terminal_exit_spec_by_session", {
+        sessionId: event.payload.sessionId,
+      }).catch((err: unknown) => console.warn("Spec exit handling failed:", err));
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // 统一桥接后端发来的 history-updated 事件，保持现有页面订阅方式不变。
+  useEffect(() => {
+    if (!isTauriReady()) return;
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    listen<{ ptySessionId?: string; resumeSessionId?: string }>("history-updated", (event) => {
+      if (cancelled) return;
+      const payload = event.payload ?? {};
+      if (payload.ptySessionId && payload.resumeSessionId) {
+        usePanesStore.getState().updateTabClaudeSession(
+          payload.ptySessionId,
+          payload.resumeSessionId,
+        );
+      }
+      window.dispatchEvent(new CustomEvent("cc-panes:history-updated"));
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   // 退出时保存终端会话元数据 + 周期性自动保存
   useEffect(() => {
     // 收集可恢复的 Tab 并转为 SavedSession
@@ -152,8 +204,8 @@ function MainApp() {
           workspacePath: tab.workspacePath,
           providerId: tab.providerId,
           cliTool: tab.cliTool || (tab.launchClaude ? "claude" : "none"),
+          runtimeKind: resolveRuntimeKind({ ssh: tab.ssh, wsl: tab.wsl }),
           resumeId: tab.resumeId,
-          claudeSessionId: undefined, // 退出时由兜底扫描填充
           sshConfig: tab.ssh ? JSON.stringify(tab.ssh) : undefined,
           customTitle: tab.title,
           createdAt: now,
@@ -174,14 +226,18 @@ function MainApp() {
         try {
           const sessions = collectSessions();
           if (sessions.length > 0) {
-            // 兜底扫描 Claude session ID
+            // 兜底扫描最新的 resume session ID
             for (const s of sessions) {
-              if ((s.cliTool === "claude" || s.cliTool === "codex") && !s.claudeSessionId) {
+              if ((s.cliTool === "claude" || s.cliTool === "codex") && !s.resumeId) {
                 try {
                   const statePath = s.workspacePath || s.projectPath;
                   const state = await historyService.readSessionState(statePath);
-                  if (state?.claudeSessionId) {
-                    s.claudeSessionId = state.claudeSessionId;
+                  const resumeSessionId = getStateResumeSessionId(state);
+                  if (resumeSessionId) {
+                    s.resumeId = resumeSessionId;
+                  }
+                  if (state?.runtimeKind) {
+                    s.runtimeKind = state.runtimeKind;
                   }
                 } catch { /* ignore */ }
               }
@@ -273,46 +329,6 @@ function MainApp() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  // 监听 terminal-exit 事件，提取 last prompt
-  useEffect(() => {
-    if (!isTauriReady()) return;
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    getCurrentWebview().listen<{ sessionId: string }>("terminal-exit", async (e) => {
-      if (cancelled) return;
-      const info = sessionMapRef.current.get(e.payload.sessionId);
-      if (info?.claudeSessionId) {
-        try {
-          const lastPrompt = await invoke<string | null>("extract_last_prompt", {
-            projectPath: info.projectPath,
-            sessionId: info.claudeSessionId,
-          });
-          if (lastPrompt) {
-            await historyService.updateLastPrompt(info.recordId, lastPrompt);
-          }
-        } catch (err) {
-          console.error("Failed to extract last prompt:", err);
-        }
-      }
-      // Spec: 终端退出时 sync_tasks → git diff → append_log
-      if (info?.projectPath) {
-        invoke("handle_terminal_exit_spec", { projectPath: info.projectPath })
-          .catch((err: unknown) => console.warn("Spec exit handling failed:", err));
-      }
-      sessionMapRef.current.delete(e.payload.sessionId);
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
   }, []);
 
   // 监听 Rust 侧 popup 窗口关闭通知（on_window_event 发射）
@@ -490,6 +506,7 @@ function MainApp() {
       // 兼容：如果有 resumeId 但没有指定 cliTool，跟随全局默认设置
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
       const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);
+      const runtimeKind = resolveRuntimeKind({ ssh, wsl });
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
       openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName });
@@ -507,108 +524,47 @@ function MainApp() {
               return existingId;
             }
             // 回退：无已有记录时创建新记录
-            return historyService.add(projectId, name, path, workspaceName, workspacePath, launchCwd, providerId).then((newId) => {
+            return historyService.add(
+              projectId,
+              name,
+              path,
+              effectiveCliTool ?? "none",
+              runtimeKind,
+              wsl?.distro,
+              workspaceName,
+              workspacePath,
+              launchCwd,
+              providerId,
+            ).then((newId) => {
               historyService.updateSessionId(newId, resumeId).then(() => {
                 window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
               }).catch(console.error);
               return newId;
             });
           })
-        : historyService.add(projectId, name, path, workspaceName, workspacePath, launchCwd, providerId);
+        : historyService.add(
+            projectId,
+            name,
+            path,
+            effectiveCliTool ?? "none",
+            runtimeKind,
+            wsl?.distro,
+            workspaceName,
+            workspacePath,
+            launchCwd,
+            providerId,
+          );
 
       recordPromise.then((recordId) => {
-        // 获取新创建 tab 的 ptySessionId 用于 tracking（等 store 更新后）
-        setTimeout(() => {
-          const state = usePanesStore.getState();
-          const allPanels = getAllPanels(state.rootPane);
-          for (const panel of allPanels) {
-            for (const tab of panel.tabs) {
-              if (tab.projectId === projectId && tab.sessionId) {
-                sessionMapRef.current.set(tab.sessionId, {
-                  recordId,
-                  projectPath: path,
-                  claudeSessionId: resumeId,
-                });
-              }
-            }
-          }
-        }, 500);
-
-        // 新启动 Claude（非 resume）时，轮询获取 claudeSessionId
-        // 方式 1：session-state.json（hook 写入）
-        // 方式 2：~/.claude/projects/ 扫描（无需 hook）
-        // 后台（document.hidden）时暂停轮询，减少 CPU 消耗
-        if (launchClaude && !resumeId) {
-          const startTime = new Date().toISOString();
-          let attempts = 0;
-          const maxAttempts = 15; // 30 秒（15 × 2s），两种检测方式足够
-          let resolved = false;
-          const updateSessionMap = (rid: number, sessionId: string) => {
-            for (const [ptyId, info] of sessionMapRef.current) {
-              if (info.recordId === rid) {
-                info.claudeSessionId = sessionId;
-                sessionMapRef.current.set(ptyId, info);
-              }
-            }
-          };
-          const interval = setInterval(async () => {
-            // 后台暂停：页面不可见时跳过本次轮询（不计入 attempts）
-            if (document.hidden) return;
-            attempts++;
-            if (attempts > maxAttempts || resolved) {
-              clearInterval(interval);
-              return;
-            }
-            try {
-              // 方式 1：session-state.json（hook 写入到 workspacePath || path）
-              const statePath = workspacePath ?? path;
-              const state = await historyService.readSessionState(statePath);
-              console.debug(`[session-detect] method1: pollPath=${statePath} result=${state?.claudeSessionId ?? "null"} attempt=${attempts}`);
-              if (state?.claudeSessionId) {
-                resolved = true;
-                clearInterval(interval);
-                const detectedSessionId = state.claudeSessionId;
-                await historyService.updateSessionId(recordId, detectedSessionId);
-                window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
-                updateSessionMap(recordId, detectedSessionId);
-                // 回写 store，确保 tab.resumeId 保持最新
-                for (const [ptyId, info] of sessionMapRef.current) {
-                  if (info.recordId === recordId) {
-                    usePanesStore.getState().updateTabClaudeSession(ptyId, detectedSessionId);
-                    break;
-                  }
-                }
-                return;
-              }
-              // 方式 2：~/.claude/projects/ 扫描（无需 hook）
-              const detectedId = await historyService.detectClaudeSession(path, workspacePath, startTime);
-              console.debug(`[session-detect] method2: projectPath=${path} wsPath=${workspacePath} after=${startTime} result=${detectedId ?? "null"} attempt=${attempts}`);
-              if (detectedId) {
-                resolved = true;
-                clearInterval(interval);
-                await historyService.updateSessionId(recordId, detectedId);
-                window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
-                updateSessionMap(recordId, detectedId);
-                // 回写 store，确保 tab.resumeId 保持最新
-                for (const [ptyId, info] of sessionMapRef.current) {
-                  if (info.recordId === recordId) {
-                    usePanesStore.getState().updateTabClaudeSession(ptyId, detectedId);
-                    break;
-                  }
-                }
-                return;
-              }
-            } catch (err) {
-              console.warn("[session-detect] polling error:", err);
-            }
-          }, 2000);
+        if (!resumeId) {
+          window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
         }
+        void recordId;
       }).catch(console.error);
 
       localHistoryService.initProjectHistory(path).catch(console.error);
       // CC 启动时自动创建项目快照，方便后续项目级恢复
       if (launchClaude || resumeId) {
-        hooksService.enableAll(workspacePath || path).catch(console.error);
         localHistoryService.createAutoLabel(
           workspacePath || path,
           `CC Session: ${new Date().toLocaleString()}`,

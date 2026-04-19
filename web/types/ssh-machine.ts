@@ -10,11 +10,20 @@ export interface SshMachine {
   user?: string;
   authMethod: AuthMethod;
   identityFile?: string;
+  description?: string;
   /** 默认远端工作目录（连接时自动 cd，为空则用 ~） */
   defaultPath?: string;
   tags: string[];
+  hasStoredPassword?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SshMachineUpsertRequest {
+  machine: SshMachine;
+  rememberPassword: boolean;
+  passwordInput?: string;
+  clearStoredPassword: boolean;
 }
 
 /** SSH 连通性检测结果 */

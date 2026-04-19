@@ -2,12 +2,17 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useWorkspacesStore, useSshMachinesStore } from "@/stores";
 import { getErrorMessage } from "@/utils";
+import type { SshMachine } from "@/types";
 
 interface AddSshProjectDialogProps {
   open: boolean;
@@ -16,7 +21,9 @@ interface AddSshProjectDialogProps {
 }
 
 export default function AddSshProjectDialog({
-  open, onOpenChange, workspaceName,
+  open,
+  onOpenChange,
+  workspaceName,
 }: AddSshProjectDialogProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const addSshProject = useWorkspacesStore((s) => s.addSshProject);
@@ -58,54 +65,77 @@ export default function AddSshProjectDialog({
     setIdentityFile("");
   }, []);
 
-  const handleMachineSelect = useCallback((machineId: string) => {
-    setSelectedMachineId(machineId);
-    if (!machineId) {
-      // 切回手动填写，清空连接字段
-      setHost("");
-      setPort("22");
-      setUser("");
-      setIdentityFile("");
-      return;
-    }
-    const m = machines.find((item) => String(item.id) === String(machineId));
-    if (!m) return;
-    setHost(m.host);
-    setPort(String(m.port));
-    setUser(m.user || "");
-    setIdentityFile(m.identityFile || "");
-    // remotePath 不填充 — 每个项目独有
-  }, [machines]);
+  const handleMachineSelect = useCallback(
+    (machineId: string) => {
+      setSelectedMachineId(machineId);
+      if (!machineId) {
+        // 切回手动填写，清空连接字段
+        setHost("");
+        setPort("22");
+        setUser("");
+        setIdentityFile("");
+        return;
+      }
+      const m = machines.find((item) => String(item.id) === String(machineId));
+      if (!m) return;
+      setHost(m.host);
+      setPort(String(m.port));
+      setUser(m.user || "");
+      setIdentityFile(m.identityFile || "");
+      // remotePath 不填充 — 每个项目独有
+    },
+    [machines],
+  );
 
-  const syncToSshMachines = useCallback(async (sshInfo: {
-    host: string; port: number; user?: string; identityFile?: string;
-  }) => {
-    try {
-      const existing = findByConnection(sshInfo.host, sshInfo.port, sshInfo.user);
-      if (existing) return;
+  const syncToSshMachines = useCallback(
+    async (sshInfo: {
+      host: string;
+      port: number;
+      user?: string;
+      identityFile?: string;
+    }): Promise<SshMachine | undefined> => {
+      try {
+        const existing = findByConnection(
+          sshInfo.host,
+          sshInfo.port,
+          sshInfo.user,
+        );
+        if (existing) return existing;
 
-      const baseName = sshInfo.user ? `${sshInfo.user}@${sshInfo.host}` : sshInfo.host;
-      const nameExists = useSshMachinesStore.getState().machines.some(
-        (m) => m.name.toLowerCase() === baseName.toLowerCase(),
-      );
-      const name = nameExists ? `${baseName}:${sshInfo.port}` : baseName;
+        const baseName = sshInfo.user
+          ? `${sshInfo.user}@${sshInfo.host}`
+          : sshInfo.host;
+        const nameExists = useSshMachinesStore
+          .getState()
+          .machines.some(
+            (m) => m.name.toLowerCase() === baseName.toLowerCase(),
+          );
+        const name = nameExists ? `${baseName}:${sshInfo.port}` : baseName;
 
-      await addMachine({
-        id: crypto.randomUUID(),
-        name,
-        host: sshInfo.host,
-        port: sshInfo.port,
-        user: sshInfo.user,
-        authMethod: sshInfo.identityFile ? "key" : "agent",
-        identityFile: sshInfo.identityFile,
-        tags: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-    } catch {
-      console.warn("Failed to sync SSH machine");
-    }
-  }, [findByConnection, addMachine]);
+        return await addMachine({
+          machine: {
+            id: crypto.randomUUID(),
+            name,
+            host: sshInfo.host,
+            port: sshInfo.port,
+            user: sshInfo.user,
+            authMethod: sshInfo.identityFile ? "key" : "agent",
+            identityFile: sshInfo.identityFile,
+            description: undefined,
+            tags: [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          rememberPassword: false,
+          clearStoredPassword: false,
+        });
+      } catch {
+        console.warn("Failed to sync SSH machine");
+        return undefined;
+      }
+    },
+    [findByConnection, addMachine],
+  );
 
   const handleSubmit = useCallback(async () => {
     // 前端验证
@@ -128,21 +158,33 @@ export default function AddSshProjectDialog({
       return;
     }
 
+    let machine: SshMachine | undefined;
+    if (isFromMachine) {
+      machine = machines.find(
+        (item) => String(item.id) === String(selectedMachineId),
+      );
+    } else {
+      machine = await syncToSshMachines({
+        host: host.trim(),
+        port: portNum,
+        user: user.trim() || undefined,
+        identityFile: identityFile.trim() || undefined,
+      });
+    }
+
     const sshInfo = {
       host: host.trim(),
       port: portNum,
       user: user.trim() || undefined,
       remotePath: remotePath.trim(),
       identityFile: identityFile.trim() || undefined,
+      machineId: machine?.id,
+      authMethod: machine?.authMethod,
     };
 
     setLoading(true);
     try {
       await addSshProject(workspaceName, sshInfo);
-      // 手动填写时，自动同步到 SSH Machines
-      if (!isFromMachine) {
-        await syncToSshMachines(sshInfo);
-      }
       toast.success(t("sshProjectAdded"));
       resetForm();
       onOpenChange(false);
@@ -151,10 +193,29 @@ export default function AddSshProjectDialog({
     } finally {
       setLoading(false);
     }
-  }, [host, port, user, remotePath, identityFile, workspaceName, addSshProject, isFromMachine, syncToSshMachines, t, resetForm, onOpenChange]);
+  }, [
+    host,
+    port,
+    user,
+    remotePath,
+    identityFile,
+    workspaceName,
+    addSshProject,
+    isFromMachine,
+    syncToSshMachines,
+    t,
+    resetForm,
+    onOpenChange,
+  ]);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) resetForm(); onOpenChange(v); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) resetForm();
+        onOpenChange(v);
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("addSshProject")}</DialogTitle>
@@ -177,7 +238,8 @@ export default function AddSshProjectDialog({
                 <option value="">{t("ssh.manualInput")}</option>
                 {machines.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} ({m.user ? `${m.user}@` : ""}{m.host}:{m.port})
+                    {m.name} ({m.user ? `${m.user}@` : ""}
+                    {m.host}:{m.port})
                   </option>
                 ))}
               </select>

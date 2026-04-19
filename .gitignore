@@ -71,6 +71,12 @@ coverage/
 
 # 测试构建目标
 target-test/
+src-tauri/target-test-run/
+target-package*/
+
+# 临时/锁文件
+.claude/scheduled_tasks.lock
+.tmp-wsl-codex-check.sh
 
 # TypeScript 构建缓存
 *.tsbuildinfo

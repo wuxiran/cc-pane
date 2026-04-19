@@ -17,7 +17,11 @@
 
 ## 下载
 
-Windows 安装包可在 [GitHub Releases](https://github.com/wuxiran/cc-pane/releases) 页面下载。下载最新的 `.exe` 安装程序即可使用。
+预构建安装包可在 [GitHub Releases](https://github.com/wuxiran/cc-pane/releases) 页面下载。
+
+- Windows: `x64`、`ARM64`
+- macOS: `Apple Silicon`、`Intel`
+- Linux: `amd64`
 
 > 其他平台可[从源码构建](#快速开始)。
 
@@ -149,6 +153,9 @@ npm run tauri:dev
 ```bash
 # 构建生产应用
 npm run tauri build
+
+# 在 Windows 主机上构建 Windows ARM64 安装包
+npm run tauri build -- --target aarch64-pc-windows-msvc
 ```
 
 构建产物位于 `src-tauri/target/release/bundle/`。

@@ -18,6 +18,9 @@ struct Migration {
 /// V2 = launch_history 添加 claude_session_id / last_prompt / workspace_name / workspace_path / launch_cwd
 /// V3 = todos 添加 my_day / my_day_date / reminder_at / recurrence
 /// V4 = todos 添加 todo_type
+/// V9 = launch_history/session_restore 统一 resume session 字段和运行环境
+/// V10 = launch_history 添加 pty_session_id
+/// V11 = launch_history 添加 wsl_distro
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -165,6 +168,39 @@ const MIGRATIONS: &[Migration] = &[
             CREATE INDEX IF NOT EXISTS idx_task_bindings_status ON task_bindings(status);
             CREATE INDEX IF NOT EXISTS idx_task_bindings_project ON task_bindings(project_path);
             CREATE INDEX IF NOT EXISTS idx_task_bindings_session ON task_bindings(session_id);
+        ",
+    },
+    Migration {
+        version: 9,
+        description: "launch_history/terminal_sessions: add unified resume session fields",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN resume_session_id TEXT;
+            ALTER TABLE launch_history ADD COLUMN cli_tool TEXT NOT NULL DEFAULT 'none';
+            ALTER TABLE launch_history ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'local';
+
+            UPDATE launch_history
+            SET resume_session_id = claude_session_id
+            WHERE resume_session_id IS NULL AND claude_session_id IS NOT NULL;
+
+            UPDATE launch_history
+            SET cli_tool = 'claude'
+            WHERE resume_session_id IS NOT NULL AND (cli_tool IS NULL OR cli_tool = '' OR cli_tool = 'none');
+
+            ALTER TABLE terminal_sessions ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'local';
+        ",
+    },
+    Migration {
+        version: 10,
+        description: "launch_history: add pty_session_id",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN pty_session_id TEXT;
+        ",
+    },
+    Migration {
+        version: 11,
+        description: "launch_history: add wsl_distro",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN wsl_distro TEXT;
         ",
     },
 ];

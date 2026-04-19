@@ -1291,7 +1291,7 @@ async fn rollback_to_version(
 - [ ] 潜意识层：config.toml 配置（retention_days / max_size_mb）
 - [ ] 潜意识层：回溯重提纯接口
 - [ ] 定时提纯（应用空闲 30 分钟触发）
-- [ ] cc-panes-hook 新增 Commands 枚举
+- [ ] cc-panes-cli-hook 新增 Commands 枚举
 
 ### P3：前端可视化（2-3 周）
 
@@ -1321,7 +1321,7 @@ async fn rollback_to_version(
 | `cc-memory/src/consolidation.rs` | 新建 | 睡眠提纯引擎 |
 | `cc-memory/Cargo.toml` | 扩展 | 新增 `aho-corasick = "1.1"` 依赖 |
 | `cc-memory-mcp/src/handler.rs` | 扩展 | 5 个新 tool 定义和处理 |
-| `cc-panes-hook/src/main.rs` | 扩展 | 新 Commands 枚举（context-snapshot, stop-snapshot） |
+| `cc-panes-cli-hook/src/main.rs` | 扩展 | 新 Commands 枚举（context-snapshot, stop-snapshot） |
 | `src-tauri/src/services/hooks_service.rs` | 扩展 | HOOK_DEFS 追加新 Hook 定义 |
 
 ---

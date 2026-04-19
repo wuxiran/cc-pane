@@ -1,4 +1,5 @@
 use crate::models::spec::*;
+use crate::services::LaunchHistoryService;
 use crate::services::SpecService;
 use crate::utils::AppResult;
 use std::sync::Arc;
@@ -79,16 +80,32 @@ pub fn handle_terminal_exit_spec(
     service: State<'_, Arc<SpecService>>,
     project_path: String,
 ) -> AppResult<()> {
+    handle_terminal_exit_spec_inner(service.inner().as_ref(), &project_path)
+}
+
+#[tauri::command]
+pub fn handle_terminal_exit_spec_by_session(
+    service: State<'_, Arc<SpecService>>,
+    launch_history: State<'_, Arc<LaunchHistoryService>>,
+    session_id: String,
+) -> AppResult<()> {
+    let Some(record) = launch_history.find_by_pty_session_id(&session_id)? else {
+        return Ok(());
+    };
+    handle_terminal_exit_spec_inner(service.inner().as_ref(), &record.project_path)
+}
+
+fn handle_terminal_exit_spec_inner(service: &SpecService, project_path: &str) -> AppResult<()> {
     debug!(project_path = %project_path, "cmd::handle_terminal_exit_spec");
 
     // 1. 查询 active spec
-    let active = match service.list_specs(&project_path, Some(SpecStatus::Active))? {
+    let active = match service.list_specs(project_path, Some(SpecStatus::Active))? {
         specs if specs.is_empty() => return Ok(()),
         mut specs => specs.remove(0),
     };
 
     // 2. sync_tasks（回收 AI 的 checkbox 改动）
-    if let Err(e) = service.sync_tasks(&project_path, &active.id) {
+    if let Err(e) = service.sync_tasks(project_path, &active.id) {
         warn!("[spec] sync_tasks on exit failed: {}", e);
     }
 
@@ -96,7 +113,7 @@ pub fn handle_terminal_exit_spec(
     let diff_output = match cc_panes_core::utils::output_with_timeout(
         std::process::Command::new("git")
             .args(["diff", "--stat", "HEAD"])
-            .current_dir(&project_path),
+            .current_dir(project_path),
         cc_panes_core::utils::GIT_LOCAL_TIMEOUT,
     ) {
         Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -114,7 +131,7 @@ pub fn handle_terminal_exit_spec(
 
     // 5. append_log
     info!("[spec] Appending git diff to spec log for {}", active.id);
-    if let Err(e) = service.append_log(&project_path, &active.id, &diff_output) {
+    if let Err(e) = service.append_log(project_path, &active.id, &diff_output) {
         warn!("[spec] append_log failed: {}", e);
     }
 

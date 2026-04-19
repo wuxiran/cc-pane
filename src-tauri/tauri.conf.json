@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "cc-panes",
-  "version": "0.9.36",
+  "version": "0.9.37",
   "identifier": "com.ccpanes.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:14200",
-    "beforeBuildCommand": "cargo build -p cc-panes-hook --release && node scripts/copy-hook.cjs && npm run build",
+    "beforeBuildCommand": "node scripts/build-hook.cjs && node scripts/copy-hook.cjs && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -38,7 +38,7 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "binaries/cc-panes-hook*",
+      "binaries/cc-panes-cli-hook*",
       "resources/claude-bundle/.claude/commands/ccbook/*",
       "resources/claude-bundle/.claude/agents/*",
       "resources/claude-bundle/CLAUDE.md",

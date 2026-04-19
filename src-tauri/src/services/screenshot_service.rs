@@ -1,6 +1,7 @@
 use crate::models::ScreenshotResult;
 use crate::utils::AppResult;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 use tracing::{error, warn};
 
 /// 内存中的截图结果（无文件 I/O）
@@ -98,12 +99,63 @@ impl ScreenshotService {
     }
 
     /// 从内存中的 RgbaImage 裁剪区域并保存为 PNG
+    fn build_result(path: &Path, width: u32, height: u32) -> ScreenshotResult {
+        ScreenshotResult {
+            file_path: path.to_string_lossy().to_string(),
+            width,
+            height,
+        }
+    }
+
+    fn save_image_to_dir(
+        img: &image::RgbaImage,
+        save_dir: &Path,
+        retention_days: u32,
+    ) -> AppResult<ScreenshotResult> {
+        std::fs::create_dir_all(save_dir)
+            .map_err(|e| format!("Failed to create screenshots dir: {}", e))?;
+
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+        let filename = format!("screenshot_{}.png", timestamp);
+        let file_path = save_dir.join(&filename);
+
+        img.save(&file_path)
+            .map_err(|e| format!("Failed to save screenshot: {}", e))?;
+
+        let result = Self::build_result(&file_path, img.width(), img.height());
+        let cleanup_dir = save_dir.to_path_buf();
+        std::thread::spawn(move || {
+            if let Err(e) = Self::cleanup_screenshots_in_dir(&cleanup_dir, retention_days) {
+                error!("Screenshot cleanup error: {}", e);
+            }
+        });
+
+        Ok(result)
+    }
+
+    pub fn save_terminal_paste_image(
+        img: &tauri::image::Image<'_>,
+        retention_days: u32,
+    ) -> AppResult<ScreenshotResult> {
+        let rgba = image::RgbaImage::from_raw(img.width(), img.height(), img.rgba().to_vec())
+            .ok_or_else(|| {
+                format!(
+                    "Clipboard image buffer size mismatch for {}x{} image",
+                    img.width(),
+                    img.height()
+                )
+            })?;
+
+        Self::save_image_to_dir(&rgba, &Self::screenshots_dir(), retention_days)
+    }
+
     pub fn save_cropped(
         img: &image::RgbaImage,
         x: u32,
         y: u32,
         w: u32,
         h: u32,
+        retention_days: u32,
     ) -> AppResult<ScreenshotResult> {
         if w == 0 || h == 0 {
             return Err("Crop region has zero width or height".into());
@@ -121,43 +173,13 @@ impl ScreenshotService {
         }
 
         let cropped = image::imageops::crop_imm(img, x, y, w, h).to_image();
-
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
-        let filename = format!("screenshot_{}.png", timestamp);
-        let save_dir = Self::screenshots_dir();
-        let file_path = save_dir.join(&filename);
-
-        cropped
-            .save(&file_path)
-            .map_err(|e| format!("Failed to save screenshot: {}", e))?;
-
-        let result = ScreenshotResult {
-            file_path: file_path.to_string_lossy().to_string(),
-            width: w,
-            height: h,
-        };
-
-        std::thread::spawn(move || {
-            if let Err(e) = Self::cleanup_old_screenshots(7) {
-                error!("Screenshot cleanup error: {}", e);
-            }
-        });
-
-        Ok(result)
+        Self::save_image_to_dir(&cropped, &Self::screenshots_dir(), retention_days)
     }
 
     /// 清理超过 retention_days 天的旧截图
-    pub fn cleanup_old_screenshots(retention_days: u32) -> AppResult<()> {
-        if retention_days == 0 {
-            return Ok(());
-        }
-
-        let dir = Self::screenshots_dir();
-        let cutoff = std::time::SystemTime::now()
-            - std::time::Duration::from_secs(retention_days as u64 * 86400);
-
-        let entries = std::fs::read_dir(&dir)
-            .map_err(|e| format!("Failed to read screenshots dir: {}", e))?;
+    fn cleanup_screenshots_before(dir: &Path, cutoff: SystemTime) -> AppResult<()> {
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| format!("Failed to read screenshots dir: {}", e))?;
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -174,5 +196,68 @@ impl ScreenshotService {
         }
 
         Ok(())
+    }
+
+    fn cleanup_screenshots_in_dir(dir: &Path, retention_days: u32) -> AppResult<()> {
+        if retention_days == 0 {
+            return Ok(());
+        }
+
+        let cutoff = SystemTime::now() - Duration::from_secs(retention_days as u64 * 86_400);
+        Self::cleanup_screenshots_before(dir, cutoff)
+    }
+
+    pub fn cleanup_old_screenshots(retention_days: u32) -> AppResult<()> {
+        Self::cleanup_screenshots_in_dir(&Self::screenshots_dir(), retention_days)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ScreenshotService;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn save_image_to_dir_writes_png_and_returns_dimensions() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let image =
+            image::RgbaImage::from_raw(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255]).expect("image");
+
+        let result = ScreenshotService::save_image_to_dir(&image, temp.path(), 0).expect("save");
+
+        assert!(result.file_path.ends_with(".png"));
+        assert_eq!(result.width, 2);
+        assert_eq!(result.height, 1);
+        assert!(
+            std::path::Path::new(&result.file_path).exists(),
+            "saved image should exist on disk"
+        );
+    }
+
+    #[test]
+    fn cleanup_screenshots_before_removes_png_files_older_than_cutoff() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let stale = temp.path().join("stale.png");
+        let note = temp.path().join("note.txt");
+
+        std::fs::write(&stale, b"png").expect("stale");
+        std::fs::write(&note, b"text").expect("note");
+
+        let future_cutoff = SystemTime::now() + Duration::from_secs(60);
+        ScreenshotService::cleanup_screenshots_before(temp.path(), future_cutoff).expect("cleanup");
+
+        assert!(!stale.exists());
+        assert!(note.exists());
+    }
+
+    #[test]
+    fn cleanup_screenshots_in_dir_keeps_png_files_when_retention_is_zero() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let png = temp.path().join("keep.png");
+        std::fs::write(&png, b"png").expect("png");
+
+        ScreenshotService::cleanup_screenshots_in_dir(temp.path(), 0).expect("cleanup");
+
+        assert!(png.exists());
     }
 }

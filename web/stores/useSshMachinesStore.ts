@@ -1,15 +1,19 @@
 import { create } from "zustand";
 import * as sshMachineService from "@/services/sshMachineService";
-import type { SshMachine } from "@/types";
+import type { SshMachine, SshMachineUpsertRequest } from "@/types";
 import { handleErrorSilent } from "@/utils";
 
 interface SshMachinesState {
   machines: SshMachine[];
   load: () => Promise<void>;
-  add: (machine: SshMachine) => Promise<void>;
-  update: (machine: SshMachine) => Promise<void>;
+  add: (request: SshMachineUpsertRequest) => Promise<SshMachine>;
+  update: (request: SshMachineUpsertRequest) => Promise<SshMachine>;
   remove: (id: string) => Promise<void>;
-  findByConnection: (host: string, port: number, user?: string) => SshMachine | undefined;
+  findByConnection: (
+    host: string,
+    port: number,
+    user?: string,
+  ) => SshMachine | undefined;
 }
 
 export const useSshMachinesStore = create<SshMachinesState>((set, get) => ({
@@ -24,14 +28,16 @@ export const useSshMachinesStore = create<SshMachinesState>((set, get) => ({
     }
   },
 
-  add: async (machine) => {
-    await sshMachineService.addSshMachine(machine);
+  add: async (request) => {
+    const machine = await sshMachineService.addSshMachine(request);
     await get().load();
+    return machine;
   },
 
-  update: async (machine) => {
-    await sshMachineService.updateSshMachine(machine);
+  update: async (request) => {
+    const machine = await sshMachineService.updateSshMachine(request);
     await get().load();
+    return machine;
   },
 
   remove: async (id) => {

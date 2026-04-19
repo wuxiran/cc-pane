@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { CliTool } from "@/types";
 
 export interface LaunchRecord {
   id: number;
@@ -6,7 +7,10 @@ export interface LaunchRecord {
   projectName: string;
   projectPath: string;
   launchedAt: string;
-  claudeSessionId?: string;
+  resumeSessionId?: string;
+  cliTool?: string;
+  runtimeKind?: string;
+  wslDistro?: string;
   lastPrompt?: string;
   workspaceName?: string;
   workspacePath?: string;
@@ -15,18 +19,35 @@ export interface LaunchRecord {
 }
 
 export interface SessionState {
-  claudeSessionId?: string;
+  resumeSessionId?: string;
+  cliTool?: string;
+  runtimeKind?: string;
+  wslDistro?: string;
   startedAt?: string;
   status?: string;
   lastPrompt?: string;
 }
 
 export const historyService = {
-  async add(projectId: string, projectName: string, projectPath: string, workspaceName?: string, workspacePath?: string, launchCwd?: string, providerId?: string): Promise<number> {
+  async add(
+    projectId: string,
+    projectName: string,
+    projectPath: string,
+    cliTool: string,
+    runtimeKind: string,
+    wslDistro?: string,
+    workspaceName?: string,
+    workspacePath?: string,
+    launchCwd?: string,
+    providerId?: string,
+  ): Promise<number> {
     return invoke("add_launch_history", {
       projectId,
       projectName,
       projectPath,
+      cliTool,
+      runtimeKind,
+      wslDistro: wslDistro ?? null,
       workspaceName: workspaceName ?? null,
       workspacePath: workspacePath ?? null,
       launchCwd: launchCwd ?? null,
@@ -50,23 +71,55 @@ export const historyService = {
     return invoke("read_session_state", { projectPath });
   },
 
-  async updateSessionId(id: number, claudeSessionId: string): Promise<void> {
-    await invoke("update_launch_session_id", { id, claudeSessionId });
+  async updateSessionId(id: number, resumeSessionId: string): Promise<void> {
+    await invoke("update_launch_session_id", { id, resumeSessionId });
   },
 
   async updateLastPrompt(id: number, lastPrompt: string): Promise<void> {
     await invoke("update_launch_last_prompt", { id, lastPrompt });
   },
 
-  async touchBySessionId(claudeSessionId: string): Promise<number | null> {
-    return invoke("touch_launch_by_session", { claudeSessionId });
+  async touchBySessionId(resumeSessionId: string): Promise<number | null> {
+    return invoke("touch_launch_by_session", { resumeSessionId });
   },
 
-  async detectClaudeSession(projectPath: string, workspacePath?: string, afterTs?: string): Promise<string | null> {
-    return invoke("detect_claude_session", {
+  async detectResumeSession(
+    cliTool: CliTool | string,
+    runtimeKind: string | undefined,
+    wslDistro: string | undefined,
+    projectPath: string,
+    workspacePath?: string,
+    afterTs?: string,
+  ): Promise<string | null> {
+    return invoke("detect_resume_session", {
+      cliTool,
+      runtimeKind: runtimeKind ?? null,
+      wslDistro: wslDistro ?? null,
       projectPath,
       workspacePath: workspacePath ?? null,
       afterTs: afterTs ?? new Date().toISOString(),
+    });
+  },
+
+  async startLaunchHistoryBackfill(
+    launchId: string,
+    ptySessionId: string,
+    cliTool: CliTool | string,
+    runtimeKind: string,
+    wslDistro: string | undefined,
+    projectPath: string,
+    workspacePath?: string,
+    afterTs?: string,
+  ): Promise<void> {
+    await invoke("start_launch_history_backfill", {
+      launchId,
+      ptySessionId,
+      cliTool,
+      runtimeKind,
+      wslDistro: wslDistro ?? null,
+      projectPath,
+      workspacePath: workspacePath ?? null,
+      afterTs: afterTs ?? null,
     });
   },
 };

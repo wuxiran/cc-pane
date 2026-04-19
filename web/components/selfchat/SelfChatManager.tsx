@@ -148,6 +148,7 @@ export default function SelfChatManager() {
             key={terminalKeyRef.current}
             ref={terminalRef}
             sessionId={activeSession.ptySessionId}
+            projectId={activeSession.id}
             projectPath={activeSession.appCwd}
             isActive={true}
             launchClaude={true}

@@ -15,12 +15,15 @@ describe("historyService", () => {
     it("应该调用 add_launch_history 命令并传递正确参数", async () => {
       mockTauriInvoke({ add_launch_history: undefined });
 
-      await historyService.add("proj-1", "My Project", "/path/to/project");
+      await historyService.add("proj-1", "My Project", "/path/to/project", "claude", "local");
 
       expect(invoke).toHaveBeenCalledWith("add_launch_history", {
         projectId: "proj-1",
         projectName: "My Project",
         projectPath: "/path/to/project",
+        cliTool: "claude",
+        runtimeKind: "local",
+        wslDistro: null,
         workspaceName: null,
         workspacePath: null,
         launchCwd: null,

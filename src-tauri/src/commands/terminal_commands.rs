@@ -42,6 +42,7 @@ pub async fn create_terminal_session(
     let svc = service.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         svc.create_session(
+            request.launch_id.as_deref(),
             &request.project_path,
             request.cols,
             request.rows,

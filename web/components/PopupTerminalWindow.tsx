@@ -60,6 +60,7 @@ export default function PopupTerminalWindow() {
     <div className="h-screen w-screen overflow-hidden" style={{ background: "#1a1a1a" }}>
       <TerminalView
         sessionId={tabData.sessionId}
+        projectId={tabData.tabId}
         projectPath={tabData.projectPath}
         isActive={true}
         workspaceName={tabData.workspaceName}

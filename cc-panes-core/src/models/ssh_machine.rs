@@ -25,13 +25,29 @@ pub struct SshMachine {
     pub auth_method: AuthMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identity_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// 默认远端工作目录（连接时自动 cd，为空则用 ~）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_path: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default, skip_serializing)]
+    pub has_stored_password: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshMachineUpsertRequest {
+    pub machine: SshMachine,
+    #[serde(default)]
+    pub remember_password: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password_input: Option<String>,
+    #[serde(default)]
+    pub clear_stored_password: bool,
 }
 
 fn default_port() -> u16 {

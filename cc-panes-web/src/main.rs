@@ -8,7 +8,10 @@ use std::sync::Arc;
 use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::{
     events::NoopNotifier,
-    services::{ProviderService, SettingsService, TerminalService},
+    services::{
+        ProjectCliHooksService, ProviderService, SettingsService, SshCredentialService,
+        TerminalService,
+    },
     utils::AppPaths,
 };
 use clap::Parser;
@@ -65,12 +68,16 @@ async fn main() -> anyhow::Result<()> {
     let settings_service = Arc::new(SettingsService::new());
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let cli_registry = Arc::new(CliToolRegistry::new());
+    let project_cli_hooks_service = Arc::new(ProjectCliHooksService::new(cli_registry.clone()));
+    let ssh_credential_service = Arc::new(SshCredentialService::new());
 
     let terminal_service = Arc::new(TerminalService::new(
         settings_service,
         provider_service,
         app_paths,
         cli_registry,
+        project_cli_hooks_service,
+        ssh_credential_service,
     ));
 
     // Set up event emitter for WebSocket routing

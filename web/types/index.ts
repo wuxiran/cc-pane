@@ -23,6 +23,10 @@ export type {
   ResizeRequest,
 } from "./terminal";
 export type {
+  ProjectCliHookStatus,
+  ProjectCliHookGroupStatus,
+} from "./project-hooks";
+export type {
   ProjectMigrationPlan,
   ProjectMigrationRequest,
   ProjectMigrationResult,
@@ -96,12 +100,19 @@ export type {
   FileContent,
   FileTreeNode,
 } from "./filesystem";
+export type { SelfChatStatus, SelfChatSession } from "./selfchat";
 export type {
-  SelfChatStatus,
-  SelfChatSession,
-} from "./selfchat";
-export type { SshMachine, AuthMethod, SshConnectivityResult } from "./ssh-machine";
-export type { ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats } from "./process";
+  SshMachine,
+  AuthMethod,
+  SshConnectivityResult,
+  SshMachineUpsertRequest,
+} from "./ssh-machine";
+export type {
+  ClaudeProcess,
+  ClaudeProcessType,
+  ProcessScanResult,
+  ResourceStats,
+} from "./process";
 export type {
   BridgeMode,
   SharedMcpServerConfig,

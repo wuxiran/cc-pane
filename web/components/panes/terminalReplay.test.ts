@@ -3,20 +3,13 @@ import { replayAttachedSession } from "./terminalReplay";
 import type { TerminalReplaySnapshot } from "@/services/terminalService";
 
 function createTerminal(bufferType: "normal" | "alternate" = "normal") {
-  const term = {
+  return {
     buffer: {
       active: {
         type: bufferType,
       },
     },
-    write: vi.fn((data: string, callback?: () => void) => {
-      if (data.includes("\x1b[?1049h")) {
-        term.buffer.active.type = "alternate";
-      }
-      callback?.();
-    }),
   };
-  return term;
 }
 
 let terminal = createTerminal();
@@ -27,16 +20,19 @@ describe("replayAttachedSession", () => {
     const debugLog = vi.fn();
     const syncTrackedBufferType = vi.fn();
 
+    const writeData = vi.fn().mockResolvedValue(undefined);
+
     const result = await replayAttachedSession({
       term: terminal,
       sessionId: "session-1",
       getReplaySnapshot: vi.fn().mockResolvedValue(null),
+      writeData,
       syncTrackedBufferType,
       debugLog,
     });
 
     expect(result).toBeNull();
-    expect(terminal.write).not.toHaveBeenCalled();
+    expect(writeData).not.toHaveBeenCalled();
     expect(syncTrackedBufferType).not.toHaveBeenCalled();
     expect(debugLog).toHaveBeenCalledWith("session.attach-existing.replay.skip", {
       attachSessionId: "session-1",
@@ -54,18 +50,18 @@ describe("replayAttachedSession", () => {
       bufferMode: "alternate",
     };
 
-    terminal.write = vi.fn((data: string, callback?: () => void) => {
+    const writeData = vi.fn(async (data: string) => {
       order.push("write");
       if (data.includes("\x1b[?1049h")) {
         terminal.buffer.active.type = "alternate";
       }
-      callback?.();
     });
 
     const result = await replayAttachedSession({
       term: terminal,
       sessionId: "session-2",
       getReplaySnapshot: vi.fn().mockResolvedValue(snapshot),
+      writeData,
       syncTrackedBufferType,
       debugLog,
     });
@@ -95,16 +91,19 @@ describe("replayAttachedSession", () => {
       bufferMode: "normal",
     };
 
+    const writeData = vi.fn().mockResolvedValue(undefined);
+
     const result = await replayAttachedSession({
       term: terminal,
       sessionId: "session-3",
       getReplaySnapshot: vi.fn().mockResolvedValue(snapshot),
+      writeData,
       syncTrackedBufferType,
       debugLog,
     });
 
     expect(result).toEqual(snapshot);
-    expect(terminal.write).not.toHaveBeenCalled();
+    expect(writeData).not.toHaveBeenCalled();
     expect(syncTrackedBufferType).not.toHaveBeenCalled();
     expect(debugLog).toHaveBeenCalledWith("session.attach-existing.replay.skip", {
       attachSessionId: "session-3",

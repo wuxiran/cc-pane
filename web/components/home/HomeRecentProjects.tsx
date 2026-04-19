@@ -1,8 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { FolderOpen, Play, RotateCcw, ChevronRight, Clock } from "lucide-react";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import type { LaunchRecord } from "@/services";
 import type { OpenTerminalOptions } from "@/types";
+import { buildLaunchRecordTerminalOptions } from "@/utils";
 
 interface HomeRecentProjectsProps {
   records: LaunchRecord[];
@@ -42,6 +44,8 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
   const { t } = useTranslation("home");
   const toggleView = useActivityBarStore((s) => s.toggleView);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const machines = useSshMachinesStore((state) => state.machines);
   const formatRelativeTime = useFormatRelativeTime();
 
   const uniqueRecords = deduplicateRecords(records).slice(0, 8);
@@ -179,20 +183,13 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
               >
                 <Play className="w-3.5 h-3.5" />
               </button>
-              {record.claudeSessionId && (
+              {record.resumeSessionId && (
                 <button
                   className="p-1.5 rounded-md cursor-pointer transition-colors hover:bg-[var(--app-hover)]"
                   style={{ color: "var(--app-accent)" }}
                   title={t("resume")}
                   onClick={() =>
-                    onOpenTerminal({
-                      path: record.projectPath,
-                      workspaceName: record.workspaceName,
-                      providerId: record.providerId,
-                      workspacePath: record.workspacePath,
-                      cliTool: "claude",
-                      resumeId: record.claudeSessionId,
-                    })
+                    onOpenTerminal(buildLaunchRecordTerminalOptions(record, workspaces, machines))
                   }
                 >
                   <RotateCcw className="w-3.5 h-3.5" />

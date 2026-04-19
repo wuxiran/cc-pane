@@ -3,8 +3,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectListView from "./ProjectListView";
-import { createTestWorkspace, createTestWorkspaceProject, resetTestDataCounter } from "@/test/utils/testData";
-import { useDialogStore, useSshMachinesStore } from "@/stores";
+import { createTestSettings, createTestWorkspace, createTestWorkspaceProject, resetTestDataCounter } from "@/test/utils/testData";
+import { useDialogStore, useSettingsStore, useSshMachinesStore } from "@/stores";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openPath: vi.fn(),
@@ -36,6 +36,10 @@ describe("ProjectListView", () => {
       todoOpen: false,
       todoScope: "",
       todoScopeRef: "",
+    });
+    useSettingsStore.setState({
+      settings: createTestSettings(),
+      loading: false,
     });
     Object.defineProperty(window.navigator, "platform", {
       value: "Win32",
@@ -262,6 +266,49 @@ describe("ProjectListView", () => {
         remotePath: "/mnt/d/workspace-root/apps/api",
       }),
     }));
+  });
+
+  it("does not render inline favorite launch buttons under project rows", () => {
+    useSettingsStore.setState({
+      settings: createTestSettings({
+        general: {
+          ...createTestSettings().general,
+          launchFavorites: ["terminal-default", "terminal-wsl"],
+        },
+      }),
+      loading: false,
+    });
+    const workspace = createTestWorkspace({
+      defaultEnvironment: "wsl",
+      path: "D:/workspace-root",
+      wsl: {
+        distro: "Ubuntu",
+        remotePath: "/mnt/d/workspace-root",
+      },
+      projects: [
+        createTestWorkspaceProject({
+          alias: "local-project",
+          path: "D:/workspace-root/apps/api",
+        }),
+      ],
+    });
+
+    render(
+      <ProjectListView
+        projects={workspace.projects}
+        ws={workspace}
+        gitBranches={{}}
+        onOpenTerminal={vi.fn()}
+        onRemoveProject={vi.fn()}
+        onSetProjectAlias={vi.fn()}
+        onImportProject={vi.fn()}
+        onMigrateProject={vi.fn()}
+        onOpenWorktreeManager={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText(/常用|Favorites/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /打开终端.*WSL|Open Terminal.*WSL/i })).not.toBeInTheDocument();
   });
 
   it("默认环境为 wsl 时项目默认打开终端也走 WSL", async () => {

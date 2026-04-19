@@ -14,8 +14,9 @@ use crate::models::todo::{
 };
 use crate::models::{CliTool, WslLaunchInfo};
 use crate::services::{
-    LaunchHistoryService, ProjectService, ProviderService, SkillService, SpecService,
-    TerminalService, TodoService, WorkspaceService,
+    LaunchHistoryService, NotificationRequest, NotificationService, ProjectService,
+    ProviderService, SettingsService, SkillService, SpecService, TerminalService, TodoService,
+    WorkspaceService,
 };
 use crate::utils::AppPaths;
 use anyhow::Result;
@@ -181,6 +182,8 @@ pub struct AppState {
     pub spec_service: Arc<SpecService>,
     pub skill_service: Arc<SkillService>,
     pub launch_history_service: Arc<LaunchHistoryService>,
+    pub notification_service: Arc<NotificationService>,
+    pub settings_service: Arc<SettingsService>,
     pub app_handle: AppHandle,
     pub app_paths: Arc<AppPaths>,
     pub tasks: Arc<Mutex<HashMap<String, TaskStatus>>>,
@@ -239,6 +242,8 @@ impl OrchestratorService {
         spec_service: Arc<SpecService>,
         skill_service: Arc<SkillService>,
         launch_history_service: Arc<LaunchHistoryService>,
+        notification_service: Arc<NotificationService>,
+        settings_service: Arc<SettingsService>,
         app_handle: AppHandle,
         app_paths: Arc<AppPaths>,
     ) -> Result<()> {
@@ -254,6 +259,8 @@ impl OrchestratorService {
             spec_service,
             skill_service,
             launch_history_service,
+            notification_service,
+            settings_service,
             app_handle,
             app_paths,
             tasks: Arc::new(Mutex::new(HashMap::new())),
@@ -422,6 +429,14 @@ fn build_router(state: AppState) -> Router {
         .route("/api/write-to-session", post(handle_write_to_session))
         .route("/api/submit-to-session", post(handle_submit_to_session))
         .route("/api/kill-session", post(handle_kill_session))
+        .route(
+            "/api/terminal/session-started",
+            post(handle_session_started),
+        )
+        .route(
+            "/api/notifications/trigger",
+            post(handle_trigger_notification),
+        )
         .route("/api/health", get(handle_health))
         .nest_service("/mcp", mcp_service)
         .layer(middleware::from_fn(inject_mcp_accept_headers))
@@ -683,7 +698,37 @@ struct McpGetSessionOutputParams {
     lines: Option<usize>,
 }
 
-// ---- Launch History / Claude Sessions MCP 参数 ----
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpTriggerNotificationParams {
+    kind: String,
+    title: String,
+    body: Option<String>,
+    source: Option<String>,
+    scope: Option<String>,
+    #[serde(rename = "dedupeKey")]
+    dedupe_key: Option<String>,
+    #[serde(rename = "onlyWhenUnfocused")]
+    only_when_unfocused: Option<bool>,
+    metadata: Option<serde_json::Value>,
+}
+
+impl From<McpTriggerNotificationParams> for NotificationRequest {
+    fn from(value: McpTriggerNotificationParams) -> Self {
+        Self {
+            kind: value.kind,
+            title: value.title,
+            body: value.body,
+            source: value.source,
+            scope: value.scope,
+            dedupe_key: value.dedupe_key,
+            only_when_unfocused: value.only_when_unfocused,
+            metadata: value.metadata,
+        }
+    }
+}
+
+// ---- Launch History / Resume Sessions MCP 参数 ----
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpListLaunchHistoryParams {
@@ -696,6 +741,24 @@ struct McpListLaunchHistoryParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpListClaudeSessionsParams {
+    /// 项目路径（可选，不传则返回所有项目的会话）
+    #[serde(rename = "projectPath")]
+    project_path: Option<String>,
+    /// 返回数量上限（默认 20）
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpListResumeSessionsParams {
+    /// CLI 工具类型：`"claude"` | `"codex"`，默认 `"claude"`
+    #[serde(rename = "cliTool")]
+    cli_tool: Option<String>,
+    /// 运行环境：`"local"` | `"wsl"`，默认 `"local"`
+    #[serde(rename = "runtimeKind")]
+    runtime_kind: Option<String>,
+    /// WSL distro 名称（可选，不传则使用默认 distro）
+    #[serde(rename = "wslDistro")]
+    wsl_distro: Option<String>,
     /// 项目路径（可选，不传则返回所有项目的会话）
     #[serde(rename = "projectPath")]
     project_path: Option<String>,
@@ -867,6 +930,7 @@ impl McpToolHandler {
 
         // 创建 PTY 会话（resume 时传 resume_id）
         let session_id = match self.state.terminal_service.create_session(
+            None,
             &params.project_path,
             120,
             30,
@@ -1519,6 +1583,28 @@ impl McpToolHandler {
         }
     }
 
+    /// 显式触发桌面通知。适用于 MCP、hooks 或脚本按需发送通知。
+    #[tool]
+    async fn trigger_notification(
+        &self,
+        Parameters(params): Parameters<McpTriggerNotificationParams>,
+    ) -> String {
+        let mut request: NotificationRequest = params.into();
+        if request.source.is_none() {
+            request.source = Some("mcp".to_string());
+        }
+        match self.state.notification_service.trigger(
+            &self.state.app_handle,
+            &self.state.settings_service,
+            request,
+        ) {
+            Ok(result) => serde_json::to_string(&result).unwrap_or_else(|_| {
+                "{\"sent\":false,\"skipped\":true,\"reason\":\"serialization_failed\"}".to_string()
+            }),
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
     /// 读取终端会话的最近输出内容（纯文本，ANSI 已剥离）。
     /// 用途：监控其他 Claude 实例进度、提取错误信息、判断任务完成状态。
     /// 已退出的会话在 5 分钟内仍可读取。
@@ -1553,11 +1639,11 @@ impl McpToolHandler {
         }
     }
 
-    // ============ Launch History / Claude Sessions Tools ============
+    // ============ Launch History / Resume Sessions Tools ============
 
-    /// 查询 CC-Panes 启动历史记录。返回 claudeSessionId（可用作 launch_task 的 resumeId）、
-    /// lastPrompt（上次任务描述）、projectPath、launchedAt 等信息。
-    /// 推荐 resume 流程：list_launch_history → 匹配 projectPath + 找到 claudeSessionId → launch_task(resumeId=claudeSessionId)
+    /// 查询 CC-Panes 启动历史记录。返回 resumeSessionId（可用作 launch_task 的 resumeId）、
+    /// cliTool、runtimeKind、lastPrompt、projectPath、launchedAt 等信息。
+    /// 推荐 resume 流程：list_launch_history → 匹配 projectPath + 找到 resumeSessionId/cliTool → launch_task(resumeId=resumeSessionId, cliTool=cliTool)
     #[tool]
     async fn list_launch_history(
         &self,
@@ -1585,7 +1671,10 @@ impl McpToolHandler {
                             "projectName": r.project_name,
                             "projectPath": r.project_path,
                             "launchedAt": r.launched_at,
-                            "claudeSessionId": r.claude_session_id,
+                            "resumeSessionId": r.resume_session_id,
+                            "cliTool": r.cli_tool,
+                            "runtimeKind": r.runtime_kind,
+                            "wslDistro": r.wsl_distro,
                             "lastPrompt": r.last_prompt,
                             "workspaceName": r.workspace_name,
                         })
@@ -1594,6 +1683,89 @@ impl McpToolHandler {
                 serde_json::json!({ "records": items, "total": items.len() }).to_string()
             }
             Err(e) => format!("错误: 查询启动历史失败: {}", e),
+        }
+    }
+
+    /// 查询指定 CLI 的历史会话列表（Claude/Codex）。
+    /// 返回 sessionId（可用作 launch_task 的 resumeId）、description、modifiedAt、projectPath、cliTool。
+    #[tool]
+    async fn list_resume_sessions(
+        &self,
+        Parameters(params): Parameters<McpListResumeSessionsParams>,
+    ) -> String {
+        let cli_tool = params.cli_tool.as_deref().unwrap_or("claude");
+        let runtime_kind = params.runtime_kind.as_deref().unwrap_or("local");
+        debug!(cli_tool, runtime_kind, project_path = ?params.project_path, "mcp::list_resume_sessions");
+        let limit = params.limit.unwrap_or(20).min(100);
+
+        let result: Result<Vec<serde_json::Value>, String> = match cli_tool {
+            "claude" => {
+                let sessions = if let Some(ref project_path) = params.project_path {
+                    crate::services::claude_session_service::list_sessions(project_path, limit)
+                } else {
+                    crate::services::claude_session_service::list_all_sessions(limit)
+                };
+                sessions.map(|items| {
+                    items
+                        .into_iter()
+                        .map(|session| {
+                            serde_json::json!({
+                                "sessionId": session.id,
+                                "projectPath": session.project_path,
+                                "modifiedAt": session.modified_at,
+                                "description": session.description,
+                                "cliTool": "claude",
+                            })
+                        })
+                        .collect()
+                })
+            }
+            "codex" => {
+                let sessions = if runtime_kind == "wsl" {
+                    if let Some(ref project_path) = params.project_path {
+                        crate::services::codex_session_service::list_wsl_sessions(
+                            project_path,
+                            limit,
+                            params.wsl_distro.as_deref(),
+                        )
+                    } else {
+                        crate::services::codex_session_service::list_all_wsl_sessions(
+                            limit,
+                            params.wsl_distro.as_deref(),
+                        )
+                    }
+                } else {
+                    if let Some(ref project_path) = params.project_path {
+                        crate::services::codex_session_service::list_sessions(project_path, limit)
+                    } else {
+                        crate::services::codex_session_service::list_all_sessions(limit)
+                    }
+                };
+                sessions.map(|items| {
+                    items
+                        .into_iter()
+                        .map(|session| {
+                            serde_json::json!({
+                                "sessionId": session.id,
+                                "projectPath": session.project_path,
+                                "modifiedAt": session.modified_at,
+                                "description": session.description,
+                                "cliTool": "codex",
+                                "runtimeKind": runtime_kind,
+                                "wslDistro": params.wsl_distro,
+                            })
+                        })
+                        .collect()
+                })
+            }
+            other => Err(format!("错误: 不支持的 cliTool: {}", other)),
+        };
+
+        match result {
+            Ok(sessions) => {
+                serde_json::json!({ "sessions": sessions, "total": sessions.len() }).to_string()
+            }
+            Err(error) => error,
         }
     }
 
@@ -1729,10 +1901,10 @@ impl ServerHandler for McpToolHandler {
                 "Skill: list_skills（查看项目可用命令模板）\n",
                 "文件: open_folder（导航文件浏览器）、open_file（编辑器打开文件）、close_file（关闭标签）、list_open_files（查询打开的文件）\n",
                 "面板: list_panes（查询当前面板布局和标签信息，返回 paneId 可用于 launch_task）\n",
-                "历史: list_launch_history（查询启动历史，含 claudeSessionId）、list_claude_sessions（查询 Claude 会话列表）\n",
+                "历史: list_launch_history（查询启动历史，含 resumeSessionId/cliTool）、list_resume_sessions（查询 Claude/Codex 会话列表）、list_claude_sessions（兼容旧流程）\n",
                 "典型编排流程: launch_task → get_session_status（等完成）→ get_session_output（读结果）\n",
                 "典型项目流程: scan_directory 发现项目 → create_workspace → add_project_to_workspace → launch_task\n",
-                "典型 resume 流程: list_launch_history(projectPath) → 找到 claudeSessionId → launch_task(projectPath, resumeId=claudeSessionId)",
+                "典型 resume 流程: list_launch_history(projectPath) → 找到 resumeSessionId + cliTool → launch_task(projectPath, resumeId=resumeSessionId, cliTool=cliTool)",
             ))
     }
 }
@@ -2014,6 +2186,7 @@ async fn handle_launch_task(
     );
 
     let session_id = match state.terminal_service.create_session(
+        None,
         &req.project_path,
         120,
         30,
@@ -2192,6 +2365,46 @@ struct SubmitToSessionRequest {
 #[serde(rename_all = "camelCase")]
 struct KillSessionRequest {
     session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TriggerNotificationRequest {
+    kind: String,
+    title: String,
+    body: Option<String>,
+    source: Option<String>,
+    scope: Option<String>,
+    dedupe_key: Option<String>,
+    only_when_unfocused: Option<bool>,
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStartedRequest {
+    launch_id: String,
+    pty_session_id: String,
+    resume_session_id: String,
+    cli_tool: String,
+    runtime_kind: String,
+    wsl_distro: Option<String>,
+    cwd: Option<String>,
+}
+
+impl From<TriggerNotificationRequest> for NotificationRequest {
+    fn from(value: TriggerNotificationRequest) -> Self {
+        Self {
+            kind: value.kind,
+            title: value.title,
+            body: value.body,
+            source: value.source,
+            scope: value.scope,
+            dedupe_key: value.dedupe_key,
+            only_when_unfocused: value.only_when_unfocused,
+            metadata: value.metadata,
+        }
+    }
 }
 
 // ---- PTY Control REST Handlers ----
@@ -2425,6 +2638,114 @@ async fn handle_kill_session(
                 })),
             )
         }
+    }
+}
+
+async fn handle_trigger_notification(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<TriggerNotificationRequest>,
+) -> impl IntoResponse {
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
+        );
+    }
+
+    if !check_rate_limit(&state.last_request_times) {
+        warn!("REST::trigger_notification rate limit exceeded");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!(ApiError {
+                error: "Rate limit exceeded".to_string()
+            })),
+        );
+    }
+
+    let mut request: NotificationRequest = req.into();
+    if request.source.is_none() {
+        request.source = Some("api".to_string());
+    }
+
+    match state
+        .notification_service
+        .trigger(&state.app_handle, &state.settings_service, request)
+    {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!(result))),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!(ApiError { error })),
+        ),
+    }
+}
+
+async fn handle_session_started(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<SessionStartedRequest>,
+) -> impl IntoResponse {
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
+        );
+    }
+
+    if !check_rate_limit(&state.last_request_times) {
+        warn!("REST::session_started rate limit exceeded");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!(ApiError {
+                error: "Rate limit exceeded".to_string()
+            })),
+        );
+    }
+
+    let update_result = state.launch_history_service.update_session_started(
+        &req.launch_id,
+        &req.pty_session_id,
+        &req.resume_session_id,
+        &req.cli_tool,
+        &req.runtime_kind,
+        req.wsl_distro.as_deref(),
+        req.cwd.as_deref(),
+    );
+
+    match update_result {
+        Ok(Some(record_id)) => {
+            let _ = state.app_handle.emit(
+                "history-updated",
+                serde_json::json!({
+                    "source": "session-started",
+                    "recordId": record_id,
+                    "launchId": req.launch_id,
+                    "ptySessionId": req.pty_session_id,
+                    "resumeSessionId": req.resume_session_id,
+                }),
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "recordId": record_id,
+                })),
+            )
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!(ApiError {
+                error: format!("Launch '{}' not found", req.launch_id)
+            })),
+        ),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!(ApiError { error })),
+        ),
     }
 }
 

@@ -23,6 +23,57 @@ use chrono::Local;
 #[derive(Debug, Deserialize)]
 struct HookInput {
     session_id: Option<String>,
+    cwd: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStartedRequest<'a> {
+    launch_id: &'a str,
+    pty_session_id: &'a str,
+    resume_session_id: &'a str,
+    cli_tool: &'a str,
+    runtime_kind: &'a str,
+    wsl_distro: Option<String>,
+    cwd: Option<String>,
+}
+
+fn detect_cli_tool() -> &'static str {
+    if let Ok(cli_tool) = std::env::var("CC_PANES_CLI_TOOL") {
+        match cli_tool.as_str() {
+            "codex" => return "codex",
+            "claude" => return "claude",
+            _ => {}
+        }
+    }
+
+    if std::env::var("CODEX_HOME").is_ok()
+        || std::env::var("CODEX_SANDBOX").is_ok()
+        || std::env::var("CODEX_REMOTE").is_ok()
+    {
+        "codex"
+    } else {
+        "claude"
+    }
+}
+
+fn detect_runtime_kind() -> &'static str {
+    if let Ok(runtime_kind) = std::env::var("CC_PANES_RUNTIME_KIND") {
+        match runtime_kind.as_str() {
+            "ssh" => return "ssh",
+            "wsl" => return "wsl",
+            "local" => return "local",
+            _ => {}
+        }
+    }
+
+    if std::env::var("SSH_CONNECTION").is_ok() || std::env::var("SSH_CLIENT").is_ok() {
+        "ssh"
+    } else if std::env::var("WSL_DISTRO_NAME").is_ok() {
+        "wsl"
+    } else {
+        "local"
+    }
 }
 
 /// SessionStart hook entry point.
@@ -34,11 +85,18 @@ pub fn run() {
     }
 
     // Read stdin early (can only be read once)
-    let session_id = read_session_id_from_stdin();
+    let hook_input = read_hook_input_from_stdin();
+    let session_id = hook_input
+        .as_ref()
+        .and_then(|input| input.session_id.as_ref())
+        .cloned();
 
-    let project_dir = std::env::var("CLAUDE_PROJECT_DIR")
+    let project_dir = hook_input
+        .as_ref()
+        .and_then(|input| input.cwd.as_ref())
         .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        .or_else(|| std::env::var("CLAUDE_PROJECT_DIR").ok().map(PathBuf::from))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let project_dir = project_dir.canonicalize().unwrap_or(project_dir);
 
     // Safety check
@@ -56,8 +114,13 @@ pub fn run() {
     match session_id {
         Some(ref id) => {
             eprintln!("[ccpanes-hook] session_id (stdin) = {}", id);
+            let cli_tool = detect_cli_tool();
+            let runtime_kind = detect_runtime_kind();
             let state = serde_json::json!({
-                "claudeSessionId": id,
+                "resumeSessionId": id,
+                "cliTool": cli_tool,
+                "runtimeKind": runtime_kind,
+                "wslDistro": std::env::var("CC_PANES_WSL_DISTRO").ok(),
                 "startedAt": Local::now().to_rfc3339(),
                 "status": "active"
             });
@@ -69,6 +132,14 @@ pub fn run() {
                     state_path.display()
                 ),
                 Err(e) => eprintln!("[ccpanes-hook] FAILED to write session-state.json: {}", e),
+            }
+            if let Err(error) = send_session_started(
+                id,
+                cli_tool,
+                runtime_kind,
+                project_dir.to_string_lossy().to_string(),
+            ) {
+                eprintln!("[ccpanes-hook] session-started API failed: {}", error);
             }
         }
         None => {
@@ -131,6 +202,55 @@ pub fn run() {
          Context loaded. Waiting for user input, then handle request per <workflow> guidelines.\n\
          </ready>"
     );
+}
+
+fn send_session_started(
+    resume_session_id: &str,
+    cli_tool: &str,
+    runtime_kind: &str,
+    cwd: String,
+) -> Result<(), String> {
+    let launch_id = std::env::var("CC_PANES_LAUNCH_ID")
+        .map_err(|_| "CC_PANES_LAUNCH_ID is missing".to_string())?;
+    let pty_session_id = std::env::var("CC_PANES_PTY_SESSION_ID")
+        .map_err(|_| "CC_PANES_PTY_SESSION_ID is missing".to_string())?;
+    let api_base_url = std::env::var("CC_PANES_API_BASE_URL")
+        .or_else(|_| {
+            std::env::var("CC_PANES_API_PORT").map(|port| format!("http://127.0.0.1:{}", port))
+        })
+        .map_err(|_| "CC_PANES_API_BASE_URL is missing".to_string())?;
+    let api_token = std::env::var("CC_PANES_API_TOKEN")
+        .map_err(|_| "CC_PANES_API_TOKEN is missing".to_string())?;
+
+    let request = SessionStartedRequest {
+        launch_id: &launch_id,
+        pty_session_id: &pty_session_id,
+        resume_session_id,
+        cli_tool,
+        runtime_kind,
+        wsl_distro: std::env::var("CC_PANES_WSL_DISTRO").ok(),
+        cwd: Some(cwd),
+    };
+    let payload = serde_json::to_vec(&request)
+        .map_err(|e| format!("encode session-started request failed: {}", e))?;
+    let url = format!(
+        "{}/api/terminal/session-started",
+        api_base_url.trim_end_matches('/')
+    );
+
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_millis(750)))
+        .build()
+        .new_agent();
+
+    agent
+        .post(&url)
+        .header("Authorization", &format!("Bearer {}", api_token))
+        .header("Content-Type", "application/json")
+        .send(payload.as_slice())
+        .map_err(|e| format!("request failed: {}", e))?;
+
+    Ok(())
 }
 
 fn get_git_branch(project_dir: &Path) -> String {
@@ -290,10 +410,13 @@ fn which_in_path(bin_name: &str) -> Option<String> {
     None
 }
 
-/// Read session_id from stdin JSON (Claude Code hook input).
-fn read_session_id_from_stdin() -> Option<String> {
+/// Read hook input from stdin JSON (Claude Code / Codex hook input).
+fn read_hook_input_from_stdin() -> Option<HookInput> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).ok()?;
-    let hook: HookInput = serde_json::from_str(&input).ok()?;
-    hook.session_id.filter(|s| !s.is_empty())
+    let mut hook: HookInput = serde_json::from_str(&input).ok()?;
+    if hook.session_id.as_deref().is_some_and(str::is_empty) {
+        hook.session_id = None;
+    }
+    Some(hook)
 }

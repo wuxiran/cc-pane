@@ -146,7 +146,7 @@ export default function ProjectListView({
   }, [t]);
 
   return (
-    <div className="pl-4 pr-1 pb-2 flex flex-col gap-0.5">
+    <div className="flex flex-col gap-1 px-3 pb-3 pt-2">
       {projects.map((project) => {
         const isSsh = !!project.ssh;
         const projectKind = getWorkspaceProjectKind(project);
@@ -187,22 +187,26 @@ export default function ProjectListView({
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
-                className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer rounded-lg transition-all text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-                onDoubleClick={() => isSsh ? launchProject() : onOpenInFileBrowser?.(project.path)}
+                className="rounded-xl border border-transparent px-3 py-2 transition-all text-[var(--app-text-secondary)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
               >
-                {isSsh
-                  ? <Globe size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
-                  : <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
-                }
-                <span className="flex-1 text-xs truncate">{displayName}</span>
-                {!isSsh && gitBranches[project.path] && (
-                  <span className="text-[10px] px-1 rounded shrink-0" style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}>
-                    {gitBranches[project.path]}
+                <div
+                  className="flex cursor-pointer items-center gap-2"
+                  onDoubleClick={() => isSsh ? launchProject() : onOpenInFileBrowser?.(project.path)}
+                >
+                  {isSsh
+                    ? <Globe size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
+                    : <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
+                  }
+                  <span className="flex-1 text-xs truncate">{displayName}</span>
+                  {!isSsh && gitBranches[project.path] && (
+                    <span className="text-[10px] px-1 rounded shrink-0" style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}>
+                      {gitBranches[project.path]}
+                    </span>
+                  )}
+                  <span className={projectBadgeClassName(projectKind)}>
+                    {projectKind.toUpperCase()}
                   </span>
-                )}
-                <span className={projectBadgeClassName(projectKind)}>
-                  {projectKind.toUpperCase()}
-                </span>
+                </div>
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-56">

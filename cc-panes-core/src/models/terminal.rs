@@ -44,6 +44,8 @@ pub struct WslLaunchInfo {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSessionRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_id: Option<String>,
     pub project_path: String,
     pub cols: u16,
     pub rows: u16,

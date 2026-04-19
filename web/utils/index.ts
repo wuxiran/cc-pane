@@ -14,6 +14,7 @@ export {
   resolveWorkspaceProjectWslPath,
   resolveWorkspaceLaunchOptions,
 } from "./workspaceLaunch";
+export { buildLaunchRecordTerminalOptions } from "./launchHistory";
 export { parseEnvLines, formatEnvLines } from "./env";
 export { handleError, handleErrorSilent } from "./errorHandler";
 export { translateError } from "./errorTranslation";

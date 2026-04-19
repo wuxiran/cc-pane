@@ -12,10 +12,20 @@ import {
   RefreshCw,
   Server,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { ConfirmDialog } from "@/components/sidebar/WorkspaceDialogs";
+import {
+  useDialogStore,
   useEnvironmentStore,
   useSshMachinesStore,
   useWorkspacesStore,
@@ -27,18 +37,26 @@ import type {
 import {
   detectAppPlatform,
   getErrorMessage,
-  getWorkspaceDefaultEnvironment,
   getWorkspaceEnvironmentIssue,
   getWorkspaceLaunchIssueKey,
   getWorkspaceLaunchIssueValues,
   toWslPath,
 } from "@/utils";
 
+type WorkspaceEnvironmentTranslator = TFunction<readonly ["sidebar", "common"]>;
+
+interface WorkspaceEnvironmentSnapshot {
+  defaultEnvironment: WorkspaceLaunchEnvironment;
+  localPath: string;
+  wslDistro: string;
+  wslRemotePath: string;
+  sshMachineId: string;
+  sshRemotePath: string;
+}
+
 function selectClassName() {
   return "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 }
-
-type WorkspaceEnvironmentTranslator = TFunction<readonly ["sidebar", "common"]>;
 
 function getEnvironmentLabel(
   t: WorkspaceEnvironmentTranslator,
@@ -74,43 +92,95 @@ function getIssueMessage(
 }
 
 function cardClassName(active: boolean) {
-  return `rounded-xl border p-4 ${active ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]" : "border-[var(--app-border)] bg-[var(--app-glass-bg)]"}`;
+  return `rounded-xl border p-4 transition-colors ${active ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]" : "border-[var(--app-border)] bg-[var(--app-glass-bg)]"}`;
+}
+
+function getInitialSnapshot(workspace: Workspace): WorkspaceEnvironmentSnapshot {
+  return {
+    defaultEnvironment: workspace.defaultEnvironment ?? "local",
+    localPath: workspace.path ?? "",
+    wslDistro: workspace.wsl?.distro ?? "",
+    wslRemotePath: workspace.wsl?.remotePath ?? "",
+    sshMachineId: workspace.sshLaunch?.machineId ?? "",
+    sshRemotePath: workspace.sshLaunch?.remotePath ?? "",
+  };
+}
+
+function snapshotsEqual(
+  left: WorkspaceEnvironmentSnapshot,
+  right: WorkspaceEnvironmentSnapshot,
+): boolean {
+  return left.defaultEnvironment === right.defaultEnvironment
+    && left.localPath === right.localPath
+    && left.wslDistro === right.wslDistro
+    && left.wslRemotePath === right.wslRemotePath
+    && left.sshMachineId === right.sshMachineId
+    && left.sshRemotePath === right.sshRemotePath;
+}
+
+function getDefaultActiveEnvironment(
+  environment: WorkspaceLaunchEnvironment,
+  isWindows: boolean,
+): WorkspaceLaunchEnvironment {
+  if (!isWindows && environment === "wsl") {
+    return "local";
+  }
+  return environment;
 }
 
 export default function WorkspaceEnvironmentPanel() {
   const { t } = useTranslation(["sidebar", "common"]);
-  const workspace = useWorkspacesStore((s) => s.selectedWorkspace());
-  const saveWorkspace = useWorkspacesStore((s) => s.saveWorkspace);
-  const machines = useSshMachinesStore((s) => s.machines);
-  const loadMachines = useSshMachinesStore((s) => s.load);
-  const { distros: wslDistros, status: wslStatus, error: wslError } = useEnvironmentStore((s) => s.wsl);
-  const refreshWsl = useEnvironmentStore((s) => s.refreshWsl);
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const saveWorkspace = useWorkspacesStore((state) => state.saveWorkspace);
+  const environmentOpen = useDialogStore((state) => state.workspaceEnvironmentOpen);
+  const environmentWorkspaceId = useDialogStore((state) => state.workspaceEnvironmentWorkspaceId);
+  const closeWorkspaceEnvironment = useDialogStore((state) => state.closeWorkspaceEnvironment);
+  const workspace = workspaces.find((item) => item.id === environmentWorkspaceId);
+
+  const machines = useSshMachinesStore((state) => state.machines);
+  const loadMachines = useSshMachinesStore((state) => state.load);
+  const { distros: wslDistros, status: wslStatus, error: wslError } = useEnvironmentStore((state) => state.wsl);
+  const refreshWsl = useEnvironmentStore((state) => state.refreshWsl);
 
   const platform = useMemo(() => detectAppPlatform(), []);
   const isWindows = platform === "windows";
 
+  const [defaultEnvironment, setDefaultEnvironment] = useState<WorkspaceLaunchEnvironment>("local");
+  const [activeEnvironment, setActiveEnvironment] = useState<WorkspaceLaunchEnvironment>("local");
   const [localPath, setLocalPath] = useState("");
   const [wslDistro, setWslDistro] = useState("");
   const [wslRemotePath, setWslRemotePath] = useState("");
   const [sshMachineId, setSshMachineId] = useState("");
   const [sshRemotePath, setSshRemotePath] = useState("");
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
 
   useEffect(() => {
+    if (!environmentOpen) return;
+    if (!workspace) {
+      closeWorkspaceEnvironment();
+      return;
+    }
+
     loadMachines().catch(() => {});
-  }, [loadMachines]);
-
-  useEffect(() => {
-    setLocalPath(workspace?.path ?? "");
-    setWslDistro(workspace?.wsl?.distro ?? "");
-    setWslRemotePath(workspace?.wsl?.remotePath ?? "");
-    setSshMachineId(workspace?.sshLaunch?.machineId ?? "");
-    setSshRemotePath(workspace?.sshLaunch?.remotePath ?? "");
-  }, [workspace]);
+    const initial = getInitialSnapshot(workspace);
+    setDefaultEnvironment(initial.defaultEnvironment);
+    setActiveEnvironment(getDefaultActiveEnvironment(initial.defaultEnvironment, isWindows));
+    setLocalPath(initial.localPath);
+    setWslDistro(initial.wslDistro);
+    setWslRemotePath(initial.wslRemotePath);
+    setSshMachineId(initial.sshMachineId);
+    setSshRemotePath(initial.sshRemotePath);
+  }, [
+    closeWorkspaceEnvironment,
+    environmentOpen,
+    isWindows,
+    loadMachines,
+    workspace?.id,
+  ]);
 
   const buildWorkspaceDraft = useCallback((
     source: Workspace,
-    overrides?: Partial<Workspace>,
   ): Workspace => {
     const nextPath = localPath.trim();
     const nextWslDistro = wslDistro.trim();
@@ -118,8 +188,9 @@ export default function WorkspaceEnvironmentPanel() {
     const nextSshMachineId = sshMachineId.trim();
     const nextSshRemotePath = sshRemotePath.trim();
 
-    const draft: Workspace = {
+    return {
       ...source,
+      defaultEnvironment,
       path: nextPath || undefined,
       wsl: nextWslDistro || nextWslRemotePath
         ? {
@@ -134,12 +205,14 @@ export default function WorkspaceEnvironmentPanel() {
           }
         : undefined,
     };
-
-    return {
-      ...draft,
-      ...overrides,
-    };
-  }, [localPath, sshMachineId, sshRemotePath, wslDistro, wslRemotePath]);
+  }, [
+    defaultEnvironment,
+    localPath,
+    sshMachineId,
+    sshRemotePath,
+    wslDistro,
+    wslRemotePath,
+  ]);
 
   const draftWorkspace = useMemo(
     () => (workspace ? buildWorkspaceDraft(workspace) : null),
@@ -170,86 +243,71 @@ export default function WorkspaceEnvironmentPanel() {
     };
   }, [draftWorkspace, machines, platform]);
 
-  const defaultEnvironment = draftWorkspace
-    ? getWorkspaceDefaultEnvironment(draftWorkspace)
-    : "local";
+  const currentDefaultIssue = useMemo(() => {
+    if (!draftWorkspace) return null;
+    return getWorkspaceEnvironmentIssue({
+      workspace: draftWorkspace,
+      machines,
+      platform,
+    });
+  }, [draftWorkspace, machines, platform]);
 
-  const persistWorkspace = useCallback(async (
-    key: string,
-    nextWorkspace: Workspace,
-    successMessage: string,
-  ) => {
-    setSavingKey(key);
-    try {
-      await saveWorkspace(nextWorkspace);
-      toast.success(successMessage);
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    } finally {
-      setSavingKey(null);
+  const visibleEnvironments = useMemo<WorkspaceLaunchEnvironment[]>(
+    () => (isWindows ? ["local", "wsl", "ssh"] : ["local", "ssh"]),
+    [isWindows],
+  );
+
+  const draftSnapshot = useMemo<WorkspaceEnvironmentSnapshot>(
+    () => ({
+      defaultEnvironment,
+      localPath,
+      wslDistro,
+      wslRemotePath,
+      sshMachineId,
+      sshRemotePath,
+    }),
+    [
+      defaultEnvironment,
+      localPath,
+      sshMachineId,
+      sshRemotePath,
+      wslDistro,
+      wslRemotePath,
+    ],
+  );
+
+  const isDirty = useMemo(() => {
+    if (!workspace) return false;
+    return !snapshotsEqual(draftSnapshot, getInitialSnapshot(workspace));
+  }, [draftSnapshot, workspace]);
+
+  const requestClose = useCallback(() => {
+    if (saving) return;
+    if (isDirty) {
+      setDiscardConfirmOpen(true);
+      return;
     }
-  }, [saveWorkspace]);
+    closeWorkspaceEnvironment();
+  }, [closeWorkspaceEnvironment, isDirty, saving]);
+
+  const handleSheetOpenChange = useCallback((nextOpen: boolean) => {
+    if (nextOpen) return;
+    requestClose();
+  }, [requestClose]);
 
   const handleBrowseLocalPath = useCallback(async () => {
     const selected = await open({
       directory: true,
       multiple: false,
-      title: t("selectWorkspaceRoot", { ns: "sidebar", defaultValue: "选择工作空间根目录" }),
+      title: t("selectWorkspaceRoot", {
+        ns: "sidebar",
+        defaultValue: "选择工作空间根目录",
+      }),
     });
     if (typeof selected === "string") {
       setLocalPath(selected);
     }
   }, [t]);
-
-  const handleSaveEnvironment = useCallback(async (environment: WorkspaceLaunchEnvironment) => {
-    if (!workspace) return;
-    const nextWorkspace = buildWorkspaceDraft(workspace);
-    const issue = getWorkspaceEnvironmentIssue({
-      workspace: nextWorkspace,
-      environment,
-      machines,
-      platform,
-    });
-    if (issue) {
-      toast.error(getIssueMessage(t, issue));
-      return;
-    }
-
-    await persistWorkspace(
-      environment,
-      nextWorkspace,
-      t("workspaceEnv.saved", {
-        ns: "sidebar",
-        defaultValue: "{{label}} 配置已保存",
-        label: getEnvironmentLabel(t, environment),
-      }),
-    );
-  }, [buildWorkspaceDraft, machines, persistWorkspace, platform, t, workspace]);
-
-  const handleSetDefaultEnvironment = useCallback(async (environment: WorkspaceLaunchEnvironment) => {
-    if (!workspace) return;
-    const nextWorkspace = buildWorkspaceDraft(workspace, { defaultEnvironment: environment });
-    const issue = getWorkspaceEnvironmentIssue({
-      workspace: nextWorkspace,
-      environment,
-      machines,
-      platform,
-    });
-    if (issue) {
-      toast.error(getIssueMessage(t, issue));
-      return;
-    }
-
-    await persistWorkspace(
-      `default-${environment}`,
-      nextWorkspace,
-      t("workspaceEnv.defaultSaved", {
-        ns: "sidebar",
-        defaultValue: "默认环境已切换为 {{label}}",
-        label: getEnvironmentLabel(t, environment),
-      }),
-    );
-  }, [buildWorkspaceDraft, machines, persistWorkspace, platform, t, workspace]);
 
   const handleUseLocalPathForWsl = useCallback(() => {
     const derived = toWslPath(localPath);
@@ -272,82 +330,34 @@ export default function WorkspaceEnvironmentPanel() {
     }
   }, [machines, sshRemotePath]);
 
-  if (!workspace || !draftWorkspace || !environmentIssues) {
-    return (
-      <div className="flex h-full flex-col border-l border-[var(--app-border)] bg-[var(--app-sidebar-bg)]">
-        <div className="border-b border-[var(--app-border)] px-4 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
-            {t("workspaceEnv.title", { ns: "sidebar", defaultValue: "运行环境" })}
-          </p>
-        </div>
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-sm text-[var(--app-text-secondary)]">
-          {t("workspaceEnv.empty", {
-            ns: "sidebar",
-            defaultValue: "在左侧选中一个工作空间后，这里会显示本机 / WSL / SSH 的独立配置。",
-          })}
-        </div>
-      </div>
-    );
-  }
+  const handleSave = useCallback(async () => {
+    if (!workspace || !draftWorkspace) return;
+    if (currentDefaultIssue) {
+      toast.error(getIssueMessage(t, currentDefaultIssue));
+      return;
+    }
 
-  const currentDefaultIssue = getWorkspaceEnvironmentIssue({
-    workspace: draftWorkspace,
-    machines,
-    platform,
-  });
-  const visibleEnvironments: WorkspaceLaunchEnvironment[] = isWindows
-    ? ["local", "wsl", "ssh"]
-    : ["local", "ssh"];
+    setSaving(true);
+    try {
+      await saveWorkspace(draftWorkspace);
+      toast.success(t("workspaceEnv.savedAll", {
+        ns: "sidebar",
+        defaultValue: "运行环境配置已保存",
+      }));
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }, [currentDefaultIssue, draftWorkspace, saveWorkspace, t, workspace]);
 
-  return (
-    <div className="flex h-full flex-col border-l border-[var(--app-border)] bg-[var(--app-sidebar-bg)]">
-      <div className="border-b border-[var(--app-border)] px-4 py-3">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
-          {t("workspaceEnv.title", { ns: "sidebar", defaultValue: "运行环境" })}
-        </p>
-        <p className="mt-1 text-sm font-semibold text-[var(--app-text-primary)]">
-          {workspace.alias || workspace.name}
-        </p>
-      </div>
+  const renderEnvironmentForm = () => {
+    if (!environmentIssues) return null;
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-glass-bg)] p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
-            {t("workspaceEnv.defaultLabel", { ns: "sidebar", defaultValue: "默认环境" })}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {visibleEnvironments.map((environment) => {
-              const issue = environmentIssues[environment];
-              const active = defaultEnvironment === environment;
-              return (
-                <Button
-                  key={environment}
-                  size="sm"
-                  variant={active ? "default" : "outline"}
-                  disabled={!!issue || savingKey?.startsWith("default-")}
-                  onClick={() => handleSetDefaultEnvironment(environment)}
-                >
-                  {getEnvironmentLabel(t, environment)}
-                </Button>
-              );
-            })}
-          </div>
-          {currentDefaultIssue ? (
-            <p className="mt-3 text-xs text-amber-500">
-              {getIssueMessage(t, currentDefaultIssue)}
-            </p>
-          ) : (
-            <p className="mt-3 text-xs text-[var(--app-text-secondary)]">
-              {t("workspaceEnv.defaultHint", {
-                ns: "sidebar",
-                defaultValue: "右键工作空间打开 Claude / Codex 时，会直接使用这里的默认环境。",
-              })}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-4 space-y-4">
-          <section className={cardClassName(defaultEnvironment === "local")}>
+    switch (activeEnvironment) {
+      case "local":
+        return (
+          <section className={cardClassName(true)}>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Laptop className="h-4 w-4 text-[var(--app-accent)]" />
@@ -361,7 +371,7 @@ export default function WorkspaceEnvironmentPanel() {
                   : t("workspaceEnv.ready", { ns: "sidebar", defaultValue: "已就绪" })}
               </Badge>
             </div>
-            <div className="mt-3 space-y-3">
+            <div className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs text-[var(--app-text-secondary)]">
                   {t("workspaceEnv.localPath", { ns: "sidebar", defaultValue: "工作空间路径" })}
@@ -387,113 +397,106 @@ export default function WorkspaceEnvironmentPanel() {
                 >
                   {t("workspaceEnv.clear", { ns: "sidebar", defaultValue: "清空" })}
                 </Button>
-                <Button
-                  size="sm"
-                  onClick={() => handleSaveEnvironment("local")}
-                  disabled={savingKey === "local"}
-                >
-                  {savingKey === "local" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {t("common:save", { defaultValue: "保存" })}
-                </Button>
               </div>
               {environmentIssues.local ? (
                 <p className="text-xs text-amber-500">{getIssueMessage(t, environmentIssues.local)}</p>
-              ) : null}
+              ) : (
+                <p className="text-xs text-[var(--app-text-secondary)]">
+                  {t("workspaceEnv.localHint", {
+                    ns: "sidebar",
+                    defaultValue: "本机环境用于直接在当前系统路径下打开工作空间。",
+                  })}
+                </p>
+              )}
             </div>
           </section>
-
-          {isWindows ? (
-            <section className={cardClassName(defaultEnvironment === "wsl")}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <MonitorSmartphone className="h-4 w-4 text-[var(--app-accent)]" />
-                  <p className="text-sm font-semibold text-[var(--app-text-primary)]">
-                    {t("workspaceEnv.wsl", { ns: "sidebar", defaultValue: "WSL" })}
-                  </p>
-                </div>
-                <Badge variant={environmentIssues.wsl ? "outline" : "secondary"}>
-                  {environmentIssues.wsl
-                    ? t("workspaceEnv.notReady", { ns: "sidebar", defaultValue: "未配置" })
-                    : t("workspaceEnv.ready", { ns: "sidebar", defaultValue: "已就绪" })}
-                </Badge>
+        );
+      case "wsl":
+        return (
+          <section className={cardClassName(true)}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <MonitorSmartphone className="h-4 w-4 text-[var(--app-accent)]" />
+                <p className="text-sm font-semibold text-[var(--app-text-primary)]">
+                  {t("workspaceEnv.wsl", { ns: "sidebar", defaultValue: "WSL" })}
+                </p>
               </div>
-              <div className="mt-3 space-y-3">
-                <div>
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <label className="block text-xs text-[var(--app-text-secondary)]">
-                      {t("workspaceEnv.wslDistro", { ns: "sidebar", defaultValue: "发行版" })}
-                    </label>
-                    <button
-                      className="inline-flex items-center gap-1 text-xs text-[var(--app-text-secondary)] hover:text-[var(--app-accent)]"
-                      onClick={() => void refreshWsl()}
-                      type="button"
-                    >
-                      <RefreshCw className={`h-3 w-3 ${wslStatus === "detecting" ? "animate-spin" : ""}`} />
-                      {t("refresh", { ns: "sidebar", defaultValue: "刷新" })}
-                    </button>
-                  </div>
-                  <select
-                    className={selectClassName()}
-                    value={wslDistro}
-                    onChange={(event) => setWslDistro(event.target.value)}
-                  >
-                    <option value="">
-                      {t("workspaceEnv.wslDefaultDistro", {
-                        ns: "sidebar",
-                        defaultValue: "使用系统默认发行版",
-                      })}
-                    </option>
-                    {wslDistros.map((distro) => (
-                      <option key={distro.name} value={distro.name}>
-                        {distro.name}
-                      </option>
-                    ))}
-                  </select>
-                  {wslError ? (
-                    <p className="mt-1 text-xs text-amber-500">{wslError}</p>
-                  ) : null}
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-[var(--app-text-secondary)]">
-                    {t("workspaceEnv.wslPath", { ns: "sidebar", defaultValue: "WSL 路径" })}
+              <Badge variant={environmentIssues.wsl ? "outline" : "secondary"}>
+                {environmentIssues.wsl
+                  ? t("workspaceEnv.notReady", { ns: "sidebar", defaultValue: "未配置" })
+                  : t("workspaceEnv.ready", { ns: "sidebar", defaultValue: "已就绪" })}
+              </Badge>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label className="block text-xs text-[var(--app-text-secondary)]">
+                    {t("workspaceEnv.wslDistro", { ns: "sidebar", defaultValue: "发行版" })}
                   </label>
-                  <Input
-                    value={wslRemotePath}
-                    onChange={(event) => setWslRemotePath(event.target.value)}
-                    placeholder="/mnt/d/project"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={handleUseLocalPathForWsl}>
-                    {t("workspaceEnv.useLocalMapping", {
-                      ns: "sidebar",
-                      defaultValue: "用本机路径推断",
-                    })}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => handleSaveEnvironment("wsl")}
-                    disabled={savingKey === "wsl"}
+                  <button
+                    className="inline-flex items-center gap-1 text-xs text-[var(--app-text-secondary)] hover:text-[var(--app-accent)]"
+                    onClick={() => void refreshWsl()}
+                    type="button"
                   >
-                    {savingKey === "wsl" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    {t("common:save", { defaultValue: "保存" })}
-                  </Button>
+                    <RefreshCw className={`h-3 w-3 ${wslStatus === "detecting" ? "animate-spin" : ""}`} />
+                    {t("refresh", { ns: "sidebar", defaultValue: "刷新" })}
+                  </button>
                 </div>
-                {environmentIssues.wsl ? (
-                  <p className="text-xs text-amber-500">{getIssueMessage(t, environmentIssues.wsl)}</p>
-                ) : (
-                  <p className="text-xs text-[var(--app-text-secondary)]">
-                    {t("workspaceEnv.wslHint", {
+                <select
+                  className={selectClassName()}
+                  value={wslDistro}
+                  onChange={(event) => setWslDistro(event.target.value)}
+                >
+                  <option value="">
+                    {t("workspaceEnv.wslDefaultDistro", {
                       ns: "sidebar",
-                      defaultValue: "Claude / Codex 以 WSL 打开工作空间时，会使用这里的发行版和路径。",
+                      defaultValue: "使用系统默认发行版",
                     })}
-                  </p>
-                )}
+                  </option>
+                  {wslDistros.map((distro) => (
+                    <option key={distro.name} value={distro.name}>
+                      {distro.name}
+                    </option>
+                  ))}
+                </select>
+                {wslError ? (
+                  <p className="mt-1 text-xs text-amber-500">{wslError}</p>
+                ) : null}
               </div>
-            </section>
-          ) : null}
-
-          <section className={cardClassName(defaultEnvironment === "ssh")}>
+              <div>
+                <label className="mb-1 block text-xs text-[var(--app-text-secondary)]">
+                  {t("workspaceEnv.wslPath", { ns: "sidebar", defaultValue: "WSL 路径" })}
+                </label>
+                <Input
+                  value={wslRemotePath}
+                  onChange={(event) => setWslRemotePath(event.target.value)}
+                  placeholder="/mnt/d/project"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={handleUseLocalPathForWsl}>
+                  {t("workspaceEnv.useLocalMapping", {
+                    ns: "sidebar",
+                    defaultValue: "用本机路径推断",
+                  })}
+                </Button>
+              </div>
+              {environmentIssues.wsl ? (
+                <p className="text-xs text-amber-500">{getIssueMessage(t, environmentIssues.wsl)}</p>
+              ) : (
+                <p className="text-xs text-[var(--app-text-secondary)]">
+                  {t("workspaceEnv.wslHint", {
+                    ns: "sidebar",
+                    defaultValue: "Claude / Codex 以 WSL 打开工作空间时，会使用这里的发行版和路径。",
+                  })}
+                </p>
+              )}
+            </div>
+          </section>
+        );
+      case "ssh":
+        return (
+          <section className={cardClassName(true)}>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Server className="h-4 w-4 text-[var(--app-accent)]" />
@@ -507,7 +510,7 @@ export default function WorkspaceEnvironmentPanel() {
                   : t("workspaceEnv.ready", { ns: "sidebar", defaultValue: "已就绪" })}
               </Badge>
             </div>
-            <div className="mt-3 space-y-3">
+            <div className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs text-[var(--app-text-secondary)]">
                   {t("workspaceEnv.sshMachine", { ns: "sidebar", defaultValue: "SSH 机器" })}
@@ -540,16 +543,6 @@ export default function WorkspaceEnvironmentPanel() {
                   placeholder="/home/dev/project"
                 />
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => handleSaveEnvironment("ssh")}
-                  disabled={savingKey === "ssh"}
-                >
-                  {savingKey === "ssh" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {t("common:save", { defaultValue: "保存" })}
-                </Button>
-              </div>
               {machines.length === 0 ? (
                 <p className="text-xs text-[var(--app-text-secondary)]">
                   {t("workspaceEnv.sshEmpty", {
@@ -571,8 +564,183 @@ export default function WorkspaceEnvironmentPanel() {
               )}
             </div>
           </section>
-        </div>
-      </div>
-    </div>
+        );
+    }
+  };
+
+  return (
+    <>
+      <Sheet open={environmentOpen && !!workspace} onOpenChange={handleSheetOpenChange}>
+        <SheetContent
+          side="right"
+          className="w-[560px] max-w-[92vw] gap-0 border-l p-0"
+        >
+          {workspace ? (
+            <>
+              <SheetHeader className="gap-2 border-b border-[var(--app-border)] px-5 py-4 pr-12">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
+                  {t("workspaceEnv.title", { ns: "sidebar", defaultValue: "运行环境" })}
+                </div>
+                <SheetTitle className="text-base text-[var(--app-text-primary)]">
+                  {workspace.alias || workspace.name}
+                </SheetTitle>
+                <SheetDescription className="text-xs text-[var(--app-text-secondary)]">
+                  {t("workspaceEnv.sheetHint", {
+                    ns: "sidebar",
+                    defaultValue: "统一管理当前工作空间的本机、WSL 和 SSH 启动配置。",
+                  })}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-glass-bg)] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
+                    {t("workspaceEnv.defaultLabel", { ns: "sidebar", defaultValue: "默认环境" })}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {visibleEnvironments.map((environment) => {
+                      const issue = environmentIssues?.[environment];
+                      const active = defaultEnvironment === environment;
+                      return (
+                        <Button
+                          key={environment}
+                          size="sm"
+                          variant={active ? "default" : "outline"}
+                          disabled={saving || !!issue}
+                          onClick={() => setDefaultEnvironment(environment)}
+                        >
+                          {getEnvironmentLabel(t, environment)}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  {currentDefaultIssue ? (
+                    <p className="mt-3 text-xs text-amber-500">
+                      {getIssueMessage(t, currentDefaultIssue)}
+                    </p>
+                  ) : (
+                    <p className="mt-3 text-xs text-[var(--app-text-secondary)]">
+                      {t("workspaceEnv.defaultHint", {
+                        ns: "sidebar",
+                        defaultValue: "右键工作空间打开 Claude / Codex 时，会直接使用这里的默认环境。",
+                      })}
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
+                    {t("workspaceEnv.environments", {
+                      ns: "sidebar",
+                      defaultValue: "环境配置",
+                    })}
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    {visibleEnvironments.map((environment) => {
+                      const issue = environmentIssues?.[environment];
+                      const selected = activeEnvironment === environment;
+                      const isDefault = defaultEnvironment === environment;
+                      return (
+                        <button
+                          key={environment}
+                          type="button"
+                          className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                            selected
+                              ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
+                              : "border-[var(--app-border)] bg-[var(--app-glass-bg)] hover:border-[var(--app-accent)]/50"
+                          }`}
+                          onClick={() => setActiveEnvironment(environment)}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-[var(--app-text-primary)]">
+                                  {getEnvironmentLabel(t, environment)}
+                                </span>
+                                {isDefault ? (
+                                  <Badge variant="secondary">
+                                    {t("workspaceEnv.defaultTag", {
+                                      ns: "sidebar",
+                                      defaultValue: "默认",
+                                    })}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="mt-1 text-xs text-[var(--app-text-secondary)]">
+                                {issue
+                                  ? getIssueMessage(t, issue)
+                                  : t("workspaceEnv.readyHint", {
+                                      ns: "sidebar",
+                                      defaultValue: "配置完整，可直接用于启动。",
+                                    })}
+                              </p>
+                            </div>
+                            <Badge variant={issue ? "outline" : "secondary"}>
+                              {issue
+                                ? t("workspaceEnv.notReady", { ns: "sidebar", defaultValue: "未配置" })
+                                : t("workspaceEnv.ready", { ns: "sidebar", defaultValue: "已就绪" })}
+                            </Badge>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  {renderEnvironmentForm()}
+                </div>
+              </div>
+
+              <SheetFooter className="border-t border-[var(--app-border)] bg-[var(--app-sidebar-bg)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-[var(--app-text-secondary)]">
+                  {isDirty
+                    ? t("workspaceEnv.unsaved", {
+                        ns: "sidebar",
+                        defaultValue: "有未保存的修改。",
+                      })
+                    : t("workspaceEnv.savedState", {
+                        ns: "sidebar",
+                        defaultValue: "当前配置已和磁盘同步。",
+                      })}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" onClick={requestClose}>
+                    {t("common:close", { defaultValue: "关闭" })}
+                  </Button>
+                  <Button
+                    onClick={() => void handleSave()}
+                    disabled={saving || !isDirty || !!currentDefaultIssue}
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {t("workspaceEnv.saveAll", {
+                      ns: "sidebar",
+                      defaultValue: "保存更改",
+                    })}
+                  </Button>
+                </div>
+              </SheetFooter>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      <ConfirmDialog
+        open={discardConfirmOpen}
+        setOpen={setDiscardConfirmOpen}
+        title={t("workspaceEnv.discardTitle", {
+          ns: "sidebar",
+          defaultValue: "放弃未保存的更改？",
+        })}
+        description={t("workspaceEnv.discardDescription", {
+          ns: "sidebar",
+          defaultValue: "当前工作空间的运行环境配置尚未保存，关闭后这些修改会丢失。",
+        })}
+        onConfirm={() => {
+          setDiscardConfirmOpen(false);
+          closeWorkspaceEnvironment();
+        }}
+      />
+    </>
   );
 }

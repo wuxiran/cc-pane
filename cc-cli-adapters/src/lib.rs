@@ -23,7 +23,7 @@ pub use opencode::OpenCodeAdapter;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -109,6 +109,28 @@ pub trait CliToolAdapter: Send + Sync {
         None
     }
 
+    /// 项目级 hooks 定义。默认不支持
+    fn project_hooks(&self) -> Vec<ProjectHookDefinition> {
+        Vec::new()
+    }
+
+    /// 读取某个项目下的 hooks 当前状态。
+    /// 默认返回空数组，表示该工具不支持项目级 hooks。
+    fn get_project_hook_statuses(&self, _project_path: &Path) -> Result<Vec<ProjectHookStatus>> {
+        Ok(Vec::new())
+    }
+
+    /// 将目标 hook 状态同步到项目配置中。
+    /// `hook_binary_path` 在所有 hook 都关闭时可以为 None。
+    fn sync_project_hooks(
+        &self,
+        _project_path: &Path,
+        _hook_binary_path: Option<&Path>,
+        _desired: &HashMap<String, bool>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     /// 环境检测（默认实现: which + --version，带 5s 超时）
     fn detect(&self) -> CliToolInfo {
         let mut info = self.info().clone();
@@ -122,6 +144,7 @@ pub trait CliToolAdapter: Send + Sync {
                 info.installed = false;
             }
         }
+        info.capabilities = Some(self.capabilities().clone());
         info
     }
 }
@@ -141,6 +164,8 @@ pub struct CliToolInfo {
     pub installed: bool,
     pub version: Option<String>,
     pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<CliToolCapabilities>,
 }
 
 /// 能力声明（前端据此决定 UI 展示）
@@ -157,9 +182,30 @@ pub struct CliToolCapabilities {
     pub supports_system_prompt: bool,
     /// 支持 --add-dir
     pub supports_workspace: bool,
+    /// 支持项目级 hooks 配置
+    pub supports_project_hooks: bool,
     /// 兼容的 Provider 类型列表
     #[serde(default)]
     pub compatible_provider_types: Vec<String>,
+}
+
+/// 项目级 hook 定义
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectHookDefinition {
+    pub name: String,
+    pub label: String,
+}
+
+/// 某项目下 hook 的状态
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectHookStatus {
+    pub name: String,
+    pub label: String,
+    pub enabled: bool,
+    pub supported: bool,
+    pub reason: Option<String>,
 }
 
 /// 构建命令的上下文（扁平字段，避免依赖主 crate 类型）

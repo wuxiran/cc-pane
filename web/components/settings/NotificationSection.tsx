@@ -8,7 +8,7 @@ interface NotificationSectionProps {
 }
 
 export default function NotificationSection({ value, onChange }: NotificationSectionProps) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation(["settings", "dialogs"]);
 
   function update<K extends keyof NotificationSettings>(key: K, v: NotificationSettings[K]) {
     onChange({ ...value, [key]: v });

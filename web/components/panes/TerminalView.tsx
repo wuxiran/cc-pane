@@ -3,7 +3,8 @@ import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { writeText as tauriWriteText, readText as tauriReadText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText as tauriWriteText } from "@tauri-apps/plugin-clipboard-manager";
+import { toast } from "sonner";
 import { terminalService, historyService, sessionRestoreService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
@@ -12,6 +13,9 @@ import { shouldTerminalHandleKey, useShortcutsStore, useSettingsStore, usePanesS
 import { isDragging } from "@/stores/splitDragState";
 import { replayAttachedSession } from "./terminalReplay";
 import { formatTerminalInitError } from "./terminalInitError";
+import { buildCursorPositionReport } from "./terminalCpr";
+import { resolveTerminalPastePayload } from "./terminalClipboard";
+import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import "@xterm/xterm/css/xterm.css";
 
 /** Cache the Windows build number once per renderer process. */
@@ -31,6 +35,7 @@ async function getCachedBuildNumber(): Promise<number> {
 import type { CliTool, SshConnectionInfo, WslLaunchInfo } from "@/types";
 
 const TERMINAL_DEBUG = import.meta.env.DEV;
+const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
 const ALTERNATE_BUFFER_SEQUENCE = /\x1b\[\?(1049|1047|47)(h|l)/g;
 
 interface AlternateBufferTransition {
@@ -53,8 +58,18 @@ function resolveCliTool(cliTool?: CliTool, launchClaude?: boolean): string {
   return cliTool ?? (launchClaude ? "claude" : "none");
 }
 
+function resolveRuntimeKind(
+  ssh?: SshConnectionInfo,
+  wsl?: WslLaunchInfo,
+): "local" | "wsl" | "ssh" {
+  if (ssh) return "ssh";
+  if (wsl) return "wsl";
+  return "local";
+}
+
 interface TerminalViewProps {
   sessionId: string | null;
+  projectId: string;
   projectPath: string;
   isActive: boolean;
   workspaceName?: string;
@@ -99,6 +114,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null);
     const lastContainerSizeRef = useRef<{ width: number; height: number } | null>(null);
     const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
+    const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null);
+    const parserDisposableRefs = useRef<IDisposable[]>([]);
+    const writeFlowControlRef = useRef<ReturnType<typeof createTerminalWriteFlowControl> | null>(null);
+    const atlasResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastDevicePixelRatioRef = useRef(
+      typeof window !== "undefined" ? window.devicePixelRatio : 1
+    );
 
     // Track SSH reconnect state.
     const isDisconnectedRef = useRef(false);
@@ -156,6 +178,44 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       });
     }, [debugLog]);
 
+    const writeTerminalData = useCallback(async (
+      data: string,
+      onWritten?: () => void,
+    ) => {
+      const flowControl = writeFlowControlRef.current;
+      if (!flowControl) {
+        throw new Error("Terminal write flow control is not initialized");
+      }
+      await flowControl.write(data, onWritten);
+    }, []);
+
+    const scheduleTextureAtlasRefresh = useCallback((reason: string) => {
+      if (!IS_WINDOWS || !props.isActive) return;
+      if (atlasResetTimerRef.current) {
+        clearTimeout(atlasResetTimerRef.current);
+      }
+      atlasResetTimerRef.current = setTimeout(() => {
+        atlasResetTimerRef.current = null;
+        const term = terminalInstanceRef.current;
+        if (!term || !webglAddonRef.current) return;
+
+        lastDevicePixelRatioRef.current = window.devicePixelRatio;
+        debugLog("webgl.texture-atlas.clear", {
+          reason,
+          dpr: lastDevicePixelRatioRef.current,
+        });
+        try {
+          term.clearTextureAtlas();
+          term.refresh(0, Math.max(0, term.rows - 1));
+        } catch (error) {
+          debugLog("webgl.texture-atlas.clear.fail", {
+            reason,
+            error: getErrorMessage(error),
+          });
+        }
+      }, 225);
+    }, [debugLog, props.isActive]);
+
     // Expose imperative helpers to parent panes.
     useImperativeHandle(ref, () => ({
       focus: () => terminalInstanceRef.current?.focus(),
@@ -190,15 +250,33 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         clearTimeout(resizeTimerRef.current);
         resizeTimerRef.current = null;
       }
+      if (atlasResetTimerRef.current) {
+        clearTimeout(atlasResetTimerRef.current);
+        atlasResetTimerRef.current = null;
+      }
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
+      }
+      if (parserDisposableRefs.current.length > 0) {
+        for (const disposable of parserDisposableRefs.current) {
+          try {
+            disposable.dispose();
+          } catch {
+            // Safe to ignore if parser handler was already disposed.
+          }
+        }
+        parserDisposableRefs.current = [];
       }
 
       // Remove the wheel handler before disposing xterm.
       if (wheelHandlerRef.current && terminalInstanceRef.current?.element) {
         terminalInstanceRef.current.element.removeEventListener('wheel', wheelHandlerRef.current);
         wheelHandlerRef.current = null;
+      }
+      if (pasteHandlerRef.current && terminalInstanceRef.current?.textarea) {
+        terminalInstanceRef.current.textarea.removeEventListener('paste', pasteHandlerRef.current, true);
+        pasteHandlerRef.current = null;
       }
 
       // Dispose addons before the terminal instance.
@@ -208,6 +286,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       terminalInstanceRef.current = null;
       webglAddonRef.current = null;
       fitAddonRef.current = null;
+      writeFlowControlRef.current?.reset();
+      writeFlowControlRef.current = null;
       lastContainerSizeRef.current = null;
       trackedBufferTypeRef.current = "unknown";
       lastWheelDecisionRef.current = null;
@@ -279,7 +359,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           return;
         }
 
-        term.write(data, () => {
+        void writeTerminalData(data, () => {
           if (transitions.length > 0) {
             debugLog("output.alternate-sequence.applied", {
               bindSessionId: sessionId,
@@ -290,6 +370,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           syncTrackedBufferType(
             transitions.length > 0 ? "output.alternate-sequence" : "output.write"
           );
+        }).catch((error) => {
+          debugLog("output.write.failed", {
+            bindSessionId: sessionId,
+            dataLength: data.length,
+            error: getErrorMessage(error),
+          });
         });
       });
       await terminalService.registerExit(sessionId, (exitCode) => {
@@ -298,7 +384,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       debugLog("session.bind-callbacks.end", {
         bindSessionId: sessionId,
       });
-    }, [debugLog, handleSessionExit, syncTrackedBufferType]);
+    }, [debugLog, handleSessionExit, syncTrackedBufferType, writeTerminalData]);
 
     /** Attempt to reconnect an SSH-backed session. */
     const doReconnect = useCallback(async () => {
@@ -420,12 +506,43 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         term.loadAddon(fit);
 
         term.open(terminalRef.current);
+        writeFlowControlRef.current = createTerminalWriteFlowControl(term, {
+          enabled: IS_WINDOWS,
+        });
         trackedBufferTypeRef.current = term.buffer.active.type;
         debugLog("xterm.ready", {
           scrollback,
           fontFamily,
           initialBuffer: term.buffer.active.type,
+          writeFlowControl: IS_WINDOWS ? "enabled" : "disabled",
         });
+
+        const handleCursorPositionReport = (prefix?: string) => (params: (number | number[])[]) => {
+          const sessionId = currentSessionIdRef.current;
+          if (!sessionId) return false;
+          const response = buildCursorPositionReport(
+            params,
+            prefix,
+            term.buffer.active.cursorX,
+            term.buffer.active.cursorY,
+          );
+          if (!response) return false;
+
+          debugLog("terminal.cpr.reply", {
+            sessionId,
+            prefix: prefix ?? "",
+            params,
+            response,
+          });
+          void terminalService.write(sessionId, response).catch((error) => {
+            console.warn("[TerminalView] Failed to send CPR response:", error);
+          });
+          return true;
+        };
+        parserDisposableRefs.current = [
+          term.parser.registerCsiHandler({ final: "n" }, handleCursorPositionReport()),
+          term.parser.registerCsiHandler({ prefix: "?", final: "n" }, handleCursorPositionReport("?")),
+        ];
 
         // Use Unicode 11 widths so CJK and emoji render correctly.
         const unicode11 = new Unicode11Addon();
@@ -458,9 +575,46 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             setFocused(false);
             debugLog("textarea.blur", {});
           });
+
+          const pasteHandler = (e: ClipboardEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+
+            void resolveTerminalPastePayload(e.clipboardData)
+              .then((payload) => {
+                if (payload.kind === "image" || payload.kind === "text") {
+                  debugLog("clipboard.paste", {
+                    kind: payload.kind,
+                    textLength: payload.text.length,
+                  });
+                  term.paste(payload.text);
+                  return;
+                }
+
+                if (payload.kind === "error") {
+                  debugLog("clipboard.paste.failed", {
+                    reason: payload.reason,
+                    error: payload.error,
+                  });
+                  toast.error(`Paste failed: ${payload.error}`);
+                }
+              })
+              .catch((error) => {
+                const message = getErrorMessage(error);
+                debugLog("clipboard.paste.failed", {
+                  reason: "unexpected-error",
+                  error: message,
+                });
+                toast.error(`Paste failed: ${message}`);
+              });
+          };
+
+          textarea.addEventListener('paste', pasteHandler, true);
+          pasteHandlerRef.current = pasteHandler;
         }
 
-        // Intercept clipboard shortcuts while still allowing terminal keys through.
+        // Intercept copy shortcuts while allowing native paste events through.
         term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
           if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !e.altKey) {
             // Copy the selection on Ctrl+C; otherwise let the terminal handle SIGINT.
@@ -475,15 +629,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 return false;
               }
               return true;
-            }
-            // Read the clipboard explicitly on Ctrl+V to avoid duplicate paste events.
-            if (e.key === 'v' || e.key === 'V') {
-              e.preventDefault();
-              // Prefer the Web API and fall back to the Tauri clipboard plugin.
-              navigator.clipboard.readText()
-                .then((text) => { if (text) term.paste(text); })
-                .catch(() => tauriReadText().then((text) => { if (text) term.paste(text); }).catch(() => {}));
-              return false;
             }
           }
           return shouldTerminalHandleKey(e);
@@ -631,6 +776,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   term,
                   sessionId,
                   getReplaySnapshot: (attachSessionId) => terminalService.getReplaySnapshot(attachSessionId),
+                  writeData: (data) => writeTerminalData(data),
                   syncTrackedBufferType,
                   debugLog,
                 });
@@ -648,12 +794,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   // When workspacePath exists, session-state.json is stored under that location.
                   const statePath = props.workspacePath || props.projectPath;
                   const state = await historyService.readSessionState(statePath);
-                  if (state?.claudeSessionId && state.claudeSessionId !== "new") {
-                    if (!effectiveResumeId || effectiveResumeId !== state.claudeSessionId) {
+                  if (state?.resumeSessionId && state.resumeSessionId !== "new") {
+                    if (!effectiveResumeId || effectiveResumeId !== state.resumeSessionId) {
                       console.info(
-                        `[TerminalView] Using session from session-state.json: ${state.claudeSessionId} (tab had: ${effectiveResumeId ?? "none"})`
+                        `[TerminalView] Using session from session-state.json: ${state.resumeSessionId} (tab had: ${effectiveResumeId ?? "none"})`
                       );
-                      effectiveResumeId = state.claudeSessionId;
+                      effectiveResumeId = state.resumeSessionId;
                     }
                   }
                 } catch { /* Ignore missing session-state.json. */ }
@@ -662,10 +808,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               console.info(
                 `[TerminalView] Creating new session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, resumeId=${effectiveResumeId ?? "none"}`
               );
+              const backfillStartTime = new Date().toISOString();
               debugLog("session.create.begin", {
                 resumeId: effectiveResumeId ?? null,
               });
               sessionId = await terminalService.createSession({
+                launchId: props.projectId,
                 projectPath: props.projectPath,
                 cols: term.cols,
                 rows: term.rows,
@@ -684,6 +832,22 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 createdSessionId: sessionId,
               });
               console.info(`[TerminalView] Session created: ${sessionId}`);
+              if (!effectiveResumeId) {
+                const cliTool = resolveCliTool(props.cliTool, props.launchClaude);
+                if (cliTool !== "none") {
+                  const runtimeKind = resolveRuntimeKind(props.ssh, props.wsl);
+                  historyService.startLaunchHistoryBackfill(
+                    props.projectId,
+                    sessionId,
+                    cliTool,
+                    runtimeKind,
+                    props.wsl?.distro,
+                    props.wsl?.remotePath ?? props.projectPath,
+                    runtimeKind === "wsl" ? undefined : props.workspacePath,
+                    backfillStartTime,
+                  ).catch(console.error);
+                }
+              }
             }
 
             if (!isMounted) {
@@ -770,6 +934,26 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    useEffect(() => {
+      if (!IS_WINDOWS) return;
+
+      const handleWindowResize = () => {
+        scheduleTextureAtlasRefresh("window.resize");
+      };
+      const handleWindowFocus = () => {
+        if (window.devicePixelRatio !== lastDevicePixelRatioRef.current) {
+          scheduleTextureAtlasRefresh("window.focus.dpr-change");
+        }
+      };
+
+      window.addEventListener("resize", handleWindowResize);
+      window.addEventListener("focus", handleWindowFocus);
+      return () => {
+        window.removeEventListener("resize", handleWindowResize);
+        window.removeEventListener("focus", handleWindowFocus);
+      };
+    }, [scheduleTextureAtlasRefresh]);
+
     // Refit on activation and create deferred PTYs for restored tabs.
     useEffect(() => {
       debugLog("active.effect", {
@@ -849,12 +1033,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 try {
                   const statePath = props.workspacePath || props.projectPath;
                   const state = await historyService.readSessionState(statePath);
-                  if (state?.claudeSessionId && state.claudeSessionId !== "new") {
-                    if (!effectiveResumeId || effectiveResumeId !== state.claudeSessionId) {
+                  if (state?.resumeSessionId && state.resumeSessionId !== "new") {
+                    if (!effectiveResumeId || effectiveResumeId !== state.resumeSessionId) {
                       console.info(
-                        `[TerminalView] Using session from session-state.json: ${state.claudeSessionId} (tab had: ${effectiveResumeId ?? "none"})`
+                        `[TerminalView] Using session from session-state.json: ${state.resumeSessionId} (tab had: ${effectiveResumeId ?? "none"})`
                       );
-                      effectiveResumeId = state.claudeSessionId;
+                      effectiveResumeId = state.resumeSessionId;
                     }
                   }
                 } catch { /* Ignore missing session-state.json. */ }
@@ -866,7 +1050,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 resumeId: effectiveResumeId ?? null,
               });
               console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
+              const backfillStartTime = new Date().toISOString();
               const sessionId = await terminalService.createSession({
+                launchId: props.projectId,
                 projectPath: props.projectPath,
                 cols: term.cols,
                 rows: term.rows,
@@ -892,6 +1078,22 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 createdSessionId: sessionId,
               });
               onSessionCreatedRef.current(sessionId);
+              if (!effectiveResumeId) {
+                const cliTool = resolveCliTool(props.cliTool, props.launchClaude);
+                if (cliTool !== "none") {
+                  const runtimeKind = resolveRuntimeKind(props.ssh, props.wsl);
+                  historyService.startLaunchHistoryBackfill(
+                    props.projectId,
+                    sessionId,
+                    cliTool,
+                    runtimeKind,
+                    props.wsl?.distro,
+                    props.wsl?.remotePath ?? props.projectPath,
+                    runtimeKind === "wsl" ? undefined : props.workspacePath,
+                    backfillStartTime,
+                  ).catch(console.error);
+                }
+              }
               if (effectiveResumeId && effectiveResumeId !== props.resumeId) {
                 usePanesStore.getState().updateTabClaudeSession(sessionId, effectiveResumeId);
               }

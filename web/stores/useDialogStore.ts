@@ -60,6 +60,12 @@ interface DialogState {
   openOnboarding: () => void;
   closeOnboarding: () => void;
 
+  // Workspace Environment
+  workspaceEnvironmentOpen: boolean;
+  workspaceEnvironmentWorkspaceId: string;
+  openWorkspaceEnvironment: (workspaceId: string) => void;
+  closeWorkspaceEnvironment: () => void;
+
   // Pending Launch（Settings → App 跨组件启动传递）
   pendingLaunch: PendingLaunch | null;
   setPendingLaunch: (launch: PendingLaunch) => void;
@@ -114,6 +120,20 @@ export const useDialogStore = create<DialogState>((set) => ({
   onboardingOpen: false,
   openOnboarding: () => set({ onboardingOpen: true }),
   closeOnboarding: () => set({ onboardingOpen: false }),
+
+  // Workspace Environment
+  workspaceEnvironmentOpen: false,
+  workspaceEnvironmentWorkspaceId: "",
+  openWorkspaceEnvironment: (workspaceId) =>
+    set({
+      workspaceEnvironmentOpen: true,
+      workspaceEnvironmentWorkspaceId: workspaceId,
+    }),
+  closeWorkspaceEnvironment: () =>
+    set({
+      workspaceEnvironmentOpen: false,
+      workspaceEnvironmentWorkspaceId: "",
+    }),
 
   // Pending Launch
   pendingLaunch: null,

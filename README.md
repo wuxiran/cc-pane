@@ -17,7 +17,11 @@
 
 ## Download
 
-Pre-built Windows installer is available on the [GitHub Releases](https://github.com/wuxiran/cc-pane/releases) page. Download the latest `.exe` installer and run it to get started.
+Pre-built installers are available on the [GitHub Releases](https://github.com/wuxiran/cc-pane/releases) page.
+
+- Windows: `x64`, `ARM64`
+- macOS: `Apple Silicon`, `Intel`
+- Linux: `amd64`
 
 > For other platforms, you can [build from source](#getting-started).
 
@@ -117,6 +121,9 @@ npm run tauri:dev
 ```bash
 # Build the production app
 npm run tauri build
+
+# Build the Windows ARM64 installer on a Windows host
+npm run tauri build -- --target aarch64-pc-windows-msvc
 ```
 
 The built application will be in `src-tauri/target/release/bundle/`.

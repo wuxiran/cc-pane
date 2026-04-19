@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { settingsService } from "@/services";
 import type { AppSettings } from "@/types";
 import { handleErrorSilent } from "@/utils";
+import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
 
 interface SettingsState {
   settings: AppSettings | null;
@@ -90,6 +91,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       searchScope: "Workspace",
       onboardingCompleted: false,
       defaultCliTool: "claude",
+      launchFavorites: getDefaultSidebarFavoriteLaunchActionIds(),
+      hideNonFavoriteLaunchActions: false,
     },
     notification: {
       enabled: true,

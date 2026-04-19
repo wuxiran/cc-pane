@@ -103,10 +103,24 @@ pub struct GeneralSettings {
     /// 默认 CLI 工具（用于自我对话等场景）: "claude" | "codex"
     #[serde(default = "default_cli_tool")]
     pub default_cli_tool: String,
+    /// 页面顶部显示的常用启动项
+    #[serde(default = "default_launch_favorites")]
+    pub launch_favorites: Vec<String>,
+    /// 工作空间右键菜单中隐藏非常用启动项
+    #[serde(default)]
+    pub hide_non_favorite_launch_actions: bool,
 }
 
 fn default_cli_tool() -> String {
     "claude".to_string()
+}
+
+fn default_launch_favorites() -> Vec<String> {
+    vec![
+        "terminal-default".to_string(),
+        "claude-local".to_string(),
+        "codex-local".to_string(),
+    ]
 }
 
 fn default_log_level() -> String {
@@ -214,6 +228,8 @@ impl Default for GeneralSettings {
             log_level: default_log_level(),
             onboarding_completed: false,
             default_cli_tool: default_cli_tool(),
+            launch_favorites: default_launch_favorites(),
+            hide_non_favorite_launch_actions: false,
         }
     }
 }

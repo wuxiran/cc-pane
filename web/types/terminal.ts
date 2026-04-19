@@ -21,6 +21,7 @@ export interface CliToolInfo {
   installed: boolean;
   version: string | null;
   path: string | null;
+  capabilities?: CliToolCapabilities | null;
 }
 
 /** CLI 工具能力声明 */
@@ -30,6 +31,7 @@ export interface CliToolCapabilities {
   supportsMcp: boolean;
   supportsSystemPrompt: boolean;
   supportsWorkspace: boolean;
+  supportsProjectHooks: boolean;
   compatibleProviderTypes: string[];
 }
 
@@ -107,6 +109,7 @@ export interface TerminalSession {
 
 /** 创建终端会话请求 */
 export interface CreateSessionRequest {
+  launchId?: string;
   projectPath: string;
   cols: number;
   rows: number;

@@ -5,6 +5,7 @@ import type { ActivityView } from "@/stores/useActivityBarStore";
 import { historyService, localHistoryService } from "@/services";
 import { waitForTauri } from "@/utils";
 import ExplorerView from "@/components/sidebar/ExplorerView";
+import WorkspaceEnvironmentPanel from "@/components/sidebar/WorkspaceEnvironmentPanel";
 import SessionsView from "@/components/sidebar/SessionsView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
@@ -138,6 +139,8 @@ export default function Sidebar({
           <OrchestratorView onOpenTerminal={onOpenTerminal} />
         )}
       </div>
+
+      <WorkspaceEnvironmentPanel />
 
       {/* 右边界 resize sash */}
       <div

@@ -12,8 +12,8 @@ export interface SavedSession {
   workspacePath?: string;
   providerId?: string;
   cliTool: string;
+  runtimeKind?: string;
   resumeId?: string;
-  claudeSessionId?: string;
   sshConfig?: string;
   customTitle?: string;
   createdAt: string;

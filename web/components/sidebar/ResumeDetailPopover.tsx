@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 interface ResumeDetailPopoverProps {
   record: LaunchRecord;
-  onResume: (path: string, resumeId: string, workspacePath?: string, launchCwd?: string, workspaceName?: string, providerId?: string) => void;
+  onResume: (record: LaunchRecord) => void;
   onDelete: (id: number) => void;
   children: React.ReactNode;
 }
@@ -16,7 +16,7 @@ interface ResumeDetailPopoverProps {
 export default function ResumeDetailPopover({ record, onResume, onDelete, children }: ResumeDetailPopoverProps) {
   const { t } = useTranslation("sidebar");
 
-  const sessionId = record.claudeSessionId ?? "";
+  const sessionId = record.resumeSessionId ?? "";
   const truncatedId = sessionId.length > 16 ? `${sessionId.slice(0, 8)}...${sessionId.slice(-8)}` : sessionId;
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -31,8 +31,8 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
 
   const handleResume = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (record.claudeSessionId) {
-      onResume(record.projectPath, record.claudeSessionId, record.workspacePath, record.launchCwd, record.workspaceName, record.providerId);
+    if (record.resumeSessionId) {
+      onResume(record);
     }
   };
 

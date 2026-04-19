@@ -20,10 +20,10 @@ pub struct SavedSession {
     pub provider_id: Option<String>,
     /// CLI 工具类型: "none" | "claude" | "codex" | ...
     pub cli_tool: String,
+    /// 运行环境: "local" | "wsl" | "ssh"
+    pub runtime_kind: Option<String>,
     /// Tab 持久化的 resume ID
     pub resume_id: Option<String>,
-    /// 退出时检测到的 Claude session ID
-    pub claude_session_id: Option<String>,
     /// SSH 连接配置 JSON
     pub ssh_config: Option<String>,
     /// 自定义标题

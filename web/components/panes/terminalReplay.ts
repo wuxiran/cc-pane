@@ -1,7 +1,6 @@
 import type { TerminalReplaySnapshot } from "@/services/terminalService";
 
 interface ReplayTerminal {
-  write: (data: string, callback?: () => void) => void;
   buffer: {
     active: {
       type: "normal" | "alternate";
@@ -14,20 +13,16 @@ interface ReplayAttachedSessionOptions {
   term: ReplayTerminal;
   sessionId: string;
   getReplaySnapshot: (sessionId: string) => Promise<TerminalReplaySnapshot | null>;
+  writeData: (data: string) => Promise<void>;
   syncTrackedBufferType: (reason: string) => void;
   debugLog: ReplayLogger;
-}
-
-function writeTerminal(term: ReplayTerminal, data: string): Promise<void> {
-  return new Promise((resolve) => {
-    term.write(data, () => resolve());
-  });
 }
 
 export async function replayAttachedSession({
   term,
   sessionId,
   getReplaySnapshot,
+  writeData,
   syncTrackedBufferType,
   debugLog,
 }: ReplayAttachedSessionOptions): Promise<TerminalReplaySnapshot | null> {
@@ -56,7 +51,7 @@ export async function replayAttachedSession({
     dataLength: snapshot.data.length,
   });
 
-  await writeTerminal(term, snapshot.data);
+  await writeData(snapshot.data);
   syncTrackedBufferType("session.attach-existing.replay");
 
   debugLog("session.attach-existing.replay.end", {

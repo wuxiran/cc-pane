@@ -20,7 +20,7 @@ const DENSITY = {
   normal: {
     barPadding: 'px-2 pt-1',
     tabHeight: 'h-[34px]', tabPadding: 'px-3',
-    tabRadius: 'rounded-t-[8px]', tabMaxW: 'max-w-[200px]',
+    tabRadius: 'rounded-t-[8px]', tabMaxW: 'max-w-[200px]', tabMinW: 'min-w-[120px]',
     inactiveRadius: 'rounded-t-[6px]', inactiveMargin: 'mx-0.5',
     fontSize: 'text-[13px]', titleMaxW: 'max-w-[120px]',
     closeBtnSize: 'w-[22px] h-[22px]', closeIconSize: 13,
@@ -30,7 +30,7 @@ const DENSITY = {
   compact: {
     barPadding: 'px-1.5 pt-0.5',
     tabHeight: 'h-[28px]', tabPadding: 'px-2.5',
-    tabRadius: 'rounded-t-[6px]', tabMaxW: 'max-w-[200px]',
+    tabRadius: 'rounded-t-[6px]', tabMaxW: 'max-w-[200px]', tabMinW: 'min-w-[108px]',
     inactiveRadius: 'rounded-t-[5px]', inactiveMargin: 'mx-0.5',
     fontSize: 'text-[12px]', titleMaxW: 'max-w-[100px]',
     closeBtnSize: 'w-[18px] h-[18px]', closeIconSize: 11,
@@ -40,7 +40,7 @@ const DENSITY = {
   dense: {
     barPadding: 'px-1 pt-0.5',
     tabHeight: 'h-[24px]', tabPadding: 'px-2',
-    tabRadius: 'rounded-t-[6px]', tabMaxW: 'max-w-[160px]',
+    tabRadius: 'rounded-t-[6px]', tabMaxW: 'max-w-[160px]', tabMinW: 'min-w-[92px]',
     inactiveRadius: 'rounded-t-[5px]', inactiveMargin: 'mx-0.5',
     fontSize: 'text-[11px]', titleMaxW: 'max-w-[80px]',
     closeBtnSize: 'w-[16px] h-[16px]', closeIconSize: 10,
@@ -111,6 +111,7 @@ function SortableTab({
   activeTabBg,
   activeTabFg,
   getStatus,
+  registerTabNode,
   t,
 }: {
   tab: Tab;
@@ -145,6 +146,7 @@ function SortableTab({
   activeTabBg?: string;
   activeTabFg?: string;
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
+  registerTabNode: (tabId: string, node: HTMLDivElement | null) => void;
   t: TFunction<"panes">;
 }) {
   const {
@@ -181,11 +183,15 @@ function SortableTab({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          ref={setNodeRef}
+          ref={(node) => {
+            setNodeRef(node);
+            registerTabNode(tab.id, node);
+          }}
           style={style}
           {...attributes}
           {...listeners}
-          className="relative flex items-center h-full group"
+          data-tab-id={tab.id}
+          className="relative flex shrink-0 items-center h-full group"
         >
           {/* 竖线分隔符 */}
           {showSeparator && (
@@ -197,7 +203,7 @@ function SortableTab({
 
           {/* 标签主体 */}
           <div
-            className={`relative flex items-center gap-1.5 ${d.tabHeight} ${d.tabPadding} ${d.tabMaxW}
+            className={`relative flex shrink-0 items-center gap-1.5 ${d.tabHeight} ${d.tabPadding} ${d.tabMaxW} ${d.tabMinW}
               cursor-pointer select-none transition-colors ${d.fontSize} font-medium
               ${active
                 ? `${d.tabRadius} z-20`
@@ -241,7 +247,13 @@ function SortableTab({
             ) : (
               <span
                 className={`${d.titleMaxW} truncate`}
-                onDoubleClick={(e) => {
+                onPointerDown={(e) => {
+                  if (e.detail > 1) {
+                    e.stopPropagation();
+                  }
+                }}
+                onDoubleClickCapture={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   startRename(tab);
                 }}
@@ -387,6 +399,8 @@ export default memo(function TabBar({
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const editInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const tabNodeRefs = useRef(new Map<string, HTMLDivElement>());
 
   // 标签重命名
   const startRename = useCallback((tab: Tab) => {
@@ -422,13 +436,34 @@ export default memo(function TabBar({
   const density: Density = tabs.length <= 3 ? 'normal' : tabs.length <= 6 ? 'compact' : 'dense';
   const d = DENSITY[density];
 
+  const registerTabNode = useCallback((tabId: string, node: HTMLDivElement | null) => {
+    if (node) {
+      tabNodeRefs.current.set(tabId, node);
+      return;
+    }
+    tabNodeRefs.current.delete(tabId);
+  }, []);
+
+  useEffect(() => {
+    const activeTabNode = tabNodeRefs.current.get(activeId);
+    if (!activeTabNode || !scrollContainerRef.current) return;
+    if (typeof activeTabNode.scrollIntoView !== "function") return;
+    activeTabNode.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [activeId, tabs.length]);
+
   return (
     <div
-      className={`flex items-start ${d.barPadding} overflow-x-auto no-scrollbar transition-colors`}
+      ref={scrollContainerRef}
+      data-testid="pane-tabbar-scroll"
+      className={`${d.barPadding} min-w-0 overflow-x-auto no-scrollbar transition-colors`}
       style={{ background: "transparent" }}
     >
       <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
-        <div className="flex items-start flex-1">
+        <div data-testid="pane-tabbar-items" className="inline-flex min-w-max items-start">
           {tabs.map((tab, index) => (
             <SortableTab
               key={tab.id}
@@ -464,11 +499,12 @@ export default memo(function TabBar({
               activeTabBg={activeTabBg}
               activeTabFg={activeTabFg}
               getStatus={getStatus}
+              registerTabNode={registerTabNode}
               t={t}
             />
           ))}
           <button
-            className={`${d.addBtn} rounded-lg transition-colors text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]`}
+            className={`${d.addBtn} shrink-0 rounded-lg transition-colors text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]`}
             onClick={onAdd}
           >
             <Plus className={d.addIcon} />

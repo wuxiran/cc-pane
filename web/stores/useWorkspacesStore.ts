@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Workspace, WorkspaceProject, SshConnectionInfo } from "@/types";
 import * as workspaceService from "@/services/workspaceService";
+import { detectAppPlatform } from "@/utils";
 
 interface WorkspacesState {
   workspaces: Workspace[];
@@ -29,6 +30,65 @@ interface WorkspacesState {
   reorder: (orderedNames: string[]) => Promise<void>;
   expandWorkspace: (id: string | null) => void;
   expandProject: (id: string | null) => void;
+}
+
+function normalizeProjectPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return detectAppPlatform() === "windows"
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+function mergeWorkspaceProject(
+  projects: WorkspaceProject[],
+  nextProject: WorkspaceProject,
+): WorkspaceProject[] {
+  const normalizedNextPath = normalizeProjectPath(nextProject.path);
+  let replaced = false;
+
+  const merged = projects.map((project) => {
+    const sameProject = project.id === nextProject.id
+      || normalizeProjectPath(project.path) === normalizedNextPath;
+    if (!sameProject) {
+      return project;
+    }
+    replaced = true;
+    return nextProject;
+  });
+
+  return replaced ? merged : [...projects, nextProject];
+}
+
+function mergeWorkspace(
+  workspaces: Workspace[],
+  nextWorkspace: Workspace,
+): Workspace[] {
+  let replaced = false;
+
+  const merged = workspaces.map((workspace) => {
+    const sameWorkspace = workspace.id === nextWorkspace.id
+      || workspace.name === nextWorkspace.name;
+    if (!sameWorkspace) {
+      return workspace;
+    }
+    replaced = true;
+    return nextWorkspace;
+  });
+
+  return replaced ? merged : [...merged, nextWorkspace];
+}
+
+function reorderWorkspaceList(
+  workspaces: Workspace[],
+  orderedNames: string[],
+): Workspace[] {
+  const workspaceMap = new Map(workspaces.map((workspace) => [workspace.name, workspace]));
+  const ordered = orderedNames
+    .map((name) => workspaceMap.get(name))
+    .filter((workspace): workspace is Workspace => workspace !== undefined);
+  const orderedSet = new Set(orderedNames);
+  const remaining = workspaces.filter((workspace) => !orderedSet.has(workspace.name));
+  return [...ordered, ...remaining];
 }
 
 export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
@@ -73,7 +133,7 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
 
   create: async (name, path) => {
     const ws = await workspaceService.createWorkspace(name, path);
-    set((state) => ({ workspaces: [...state.workspaces, ws] }));
+    set((state) => ({ workspaces: mergeWorkspace(state.workspaces, ws) }));
     return ws;
   },
 
@@ -101,7 +161,7 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     set((state) => ({
       workspaces: state.workspaces.map((ws) =>
         ws.name === workspaceName
-          ? { ...ws, projects: [...ws.projects, project] }
+          ? { ...ws, projects: mergeWorkspaceProject(ws.projects, project) }
           : ws
       ),
     }));
@@ -113,7 +173,7 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     set((state) => ({
       workspaces: state.workspaces.map((ws) =>
         ws.name === workspaceName
-          ? { ...ws, projects: [...ws.projects, project] }
+          ? { ...ws, projects: mergeWorkspaceProject(ws.projects, project) }
           : ws
       ),
     }));
@@ -206,17 +266,16 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   },
 
   reorder: async (orderedNames) => {
-    await workspaceService.reorderWorkspaces(orderedNames);
-    set((state) => {
-      const wsMap = new Map(state.workspaces.map((ws) => [ws.name, ws]));
-      const ordered = orderedNames
-        .map((name) => wsMap.get(name))
-        .filter((ws): ws is Workspace => ws !== undefined);
-      // 追加未在 orderedNames 中的工作空间
-      const orderedSet = new Set(orderedNames);
-      const remaining = state.workspaces.filter((ws) => !orderedSet.has(ws.name));
-      return { workspaces: [...ordered, ...remaining] };
+    const previousWorkspaces = get().workspaces;
+    set({
+      workspaces: reorderWorkspaceList(previousWorkspaces, orderedNames),
     });
+    try {
+      await workspaceService.reorderWorkspaces(orderedNames);
+    } catch (error) {
+      set({ workspaces: previousWorkspaces });
+      throw error;
+    }
   },
 
   expandWorkspace: (id) => {

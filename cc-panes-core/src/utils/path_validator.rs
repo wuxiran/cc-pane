@@ -490,6 +490,8 @@ mod tests {
             user: Some("deploy".to_string()),
             remote_path: "/home/deploy/project".to_string(),
             identity_file: None,
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_ok());
     }
@@ -503,6 +505,8 @@ mod tests {
             user: None,
             remote_path: "/tmp".to_string(),
             identity_file: None,
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_err());
     }
@@ -516,6 +520,8 @@ mod tests {
             user: None,
             remote_path: "relative/path".to_string(),
             identity_file: None,
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_err());
     }
@@ -529,6 +535,8 @@ mod tests {
             user: None,
             remote_path: "/tmp".to_string(),
             identity_file: None,
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_err());
     }
@@ -542,6 +550,8 @@ mod tests {
             user: None,
             remote_path: "/tmp".to_string(),
             identity_file: Some("/home/user/.ssh/id;rm -rf /".to_string()),
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_err());
     }
@@ -555,6 +565,8 @@ mod tests {
             user: None,
             remote_path: "/tmp".to_string(),
             identity_file: Some("/home/user/../../../etc/shadow".to_string()),
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_err());
     }
@@ -568,6 +580,8 @@ mod tests {
             user: None,
             remote_path: "/tmp".to_string(),
             identity_file: Some("~/.ssh/id_rsa".to_string()),
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_ok());
     }
@@ -581,6 +595,8 @@ mod tests {
             user: None,
             remote_path: "/tmp/$(whoami)".to_string(),
             identity_file: None,
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_err());
     }
@@ -594,6 +610,8 @@ mod tests {
             user: None,
             remote_path: "/tmp".to_string(),
             identity_file: None,
+            machine_id: None,
+            auth_method: None,
         };
         assert!(validate_ssh_info(&info).is_err());
     }

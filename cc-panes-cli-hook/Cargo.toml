@@ -1,11 +1,11 @@
 [package]
-name = "cc-panes-hook"
+name = "cc-panes-cli-hook"
 version = "0.94.0"
 edition = "2021"
-description = "Claude Code hook binary for CC-Panes"
+description = "Shared CLI hook runner for CC-Panes"
 
 [[bin]]
-name = "cc-panes-hook"
+name = "cc-panes-cli-hook"
 path = "src/main.rs"
 
 [dependencies]
@@ -14,3 +14,5 @@ serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
 chrono = "0.4"
+ureq = "3"
+url = "2"

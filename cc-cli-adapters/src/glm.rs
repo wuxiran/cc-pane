@@ -23,6 +23,7 @@ impl GlmAdapter {
                 installed: false,
                 version: None,
                 path: None,
+                capabilities: None,
             },
             caps: CliToolCapabilities {
                 supports_provider: true,
@@ -30,6 +31,7 @@ impl GlmAdapter {
                 supports_mcp: false,
                 supports_system_prompt: false,
                 supports_workspace: true,
+                supports_project_hooks: false,
                 compatible_provider_types: vec!["glm".into()],
             },
         }
@@ -57,6 +59,10 @@ impl CliToolAdapter for GlmAdapter {
         let adapter_root = ctx.data_dir.join("cli-adapters").join("glm");
         let config_path = adapter_root.join("crush.json");
         let data_path = adapter_root.join("data");
+        let launch_cwd = ctx
+            .workspace_path
+            .clone()
+            .unwrap_or_else(|| ctx.project_path.clone());
 
         std::fs::create_dir_all(&data_path)?;
         if !config_path.exists() {
@@ -85,15 +91,33 @@ impl CliToolAdapter for GlmAdapter {
             }
         }
 
+        let mut args = vec![
+            "--cwd".to_string(),
+            launch_cwd,
+            "--data-dir".to_string(),
+            data_path.to_string_lossy().into_owned(),
+        ];
+
+        if let Some(resume_id) = ctx.resume_id.as_ref() {
+            args.push("--session".to_string());
+            args.push(resume_id.clone());
+        }
+
+        if let Some(prompt) = ctx.initial_prompt.as_ref() {
+            args.push("run".to_string());
+            args.push(prompt.clone());
+        }
+
         info!(
             session_id = %ctx.session_id,
             command = %crush_cmd,
+            args = ?args,
             "glm: building command"
         );
 
         Ok(CliCommandResult {
             command: crush_cmd,
-            args: vec![],
+            args,
             env_remove: vec![],
             env_inject,
         })

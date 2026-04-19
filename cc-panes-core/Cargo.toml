@@ -34,6 +34,7 @@ rand = "0.8"
 sysinfo = "0.33"
 tracing = "0.1"
 log = "0.4"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 [dev-dependencies]
 tempfile = "3"
 

@@ -37,7 +37,7 @@ pub use history::{
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 pub use project::Project;
 pub use screenshot::ScreenshotResult;
-pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig};
+pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,
     TerminalReplaySnapshot, WslLaunchInfo,

@@ -15,6 +15,8 @@ use std::path::PathBuf;
 use tracing::{info, warn};
 
 pub(super) const WSL_BASH_EVAL_FLAG: &str = "-lic";
+#[cfg(windows)]
+pub(super) const WSL_BASH_LOGIN_FLAG: &str = "-l";
 pub(super) const WSL_PROXY_ENV_KEYS: [&str; 8] = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -87,6 +89,27 @@ pub(super) fn build_wsl_mcp_url(windows_host: &str, port: &str, token: &str) -> 
 
 fn shell_escape_posix(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn sanitize_wsl_script_component(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "session".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn render_wsl_launch_script(commands: &[String]) -> String {
+    let mut script = String::from("#!/usr/bin/env bash\nset -e\n");
+    for command in commands {
+        script.push_str(command);
+        script.push('\n');
+    }
+    script
 }
 
 #[cfg(windows)]
@@ -587,6 +610,52 @@ impl TerminalService {
     }
 
     #[cfg(windows)]
+    fn write_wsl_launch_script(
+        &self,
+        session_id: &str,
+        label: &str,
+        commands: &[String],
+    ) -> Result<String> {
+        let script_dir = self.app_paths.data_dir().join("wsl-launch");
+        std::fs::create_dir_all(&script_dir)?;
+
+        let file_name = format!(
+            "{}-{}.sh",
+            sanitize_wsl_script_component(label),
+            sanitize_wsl_script_component(session_id)
+        );
+        let script_path = script_dir.join(file_name);
+        std::fs::write(&script_path, render_wsl_launch_script(commands))?;
+
+        windows_path_to_wsl(&script_path).ok_or_else(|| {
+            anyhow!(
+                "Failed to translate WSL launch script path to WSL path: {}",
+                script_path.display()
+            )
+        })
+    }
+
+    #[cfg(windows)]
+    fn build_wsl_script_command(
+        &self,
+        wsl: &ResolvedWslLaunch,
+        session_id: &str,
+        label: &str,
+        commands: Vec<String>,
+    ) -> Result<(String, Vec<String>)> {
+        let script_path = self.write_wsl_launch_script(session_id, label, &commands)?;
+        let args = vec![
+            "-d".to_string(),
+            wsl.distro.clone(),
+            "--".to_string(),
+            "bash".to_string(),
+            WSL_BASH_LOGIN_FLAG.to_string(),
+            script_path,
+        ];
+        Ok((wsl.wsl_path.to_string_lossy().into_owned(), args))
+    }
+
+    #[cfg(windows)]
     pub(super) fn build_wsl_codex_home_override_prelude(_wsl: &ResolvedWslLaunch) -> Vec<String> {
         Vec::new()
     }
@@ -871,6 +940,17 @@ impl TerminalService {
             if let Some(prompt) = initial_prompt {
                 cli_args.push(prompt.to_string());
             }
+        } else if cli_tool == CliTool::Glm {
+            cli_args.push("--cwd".to_string());
+            cli_args.push(launch_cwd.to_string());
+            if let Some(resume_id) = resume_id {
+                cli_args.push("--session".to_string());
+                cli_args.push(resume_id.to_string());
+            }
+            if let Some(prompt) = initial_prompt {
+                cli_args.push("run".to_string());
+                cli_args.push(prompt.to_string());
+            }
         } else if let Some(prompt) = initial_prompt {
             cli_args.push(prompt.to_string());
         }
@@ -886,16 +966,7 @@ impl TerminalService {
             format!("exec {} {}", command, escaped_cli_args)
         });
 
-        let args = vec![
-            "-d".to_string(),
-            wsl.distro.clone(),
-            "--".to_string(),
-            "bash".to_string(),
-            WSL_BASH_EVAL_FLAG.to_string(),
-            remote_parts.join(" && "),
-        ];
-
-        Ok((wsl.wsl_path.to_string_lossy().into_owned(), args))
+        self.build_wsl_script_command(wsl, session_id, command, remote_parts)
     }
 
     #[cfg(not(windows))]
@@ -978,6 +1049,7 @@ impl TerminalService {
     pub(super) fn build_wsl_command(
         &self,
         wsl: &ResolvedWslLaunch,
+        session_id: &str,
         env_vars: &HashMap<String, String>,
         resume_id: Option<&str>,
         initial_prompt: Option<&str>,
@@ -1049,22 +1121,14 @@ impl TerminalService {
             escaped_codex_args
         ));
 
-        let args = vec![
-            "-d".to_string(),
-            wsl.distro.clone(),
-            "--".to_string(),
-            "bash".to_string(),
-            WSL_BASH_EVAL_FLAG.to_string(),
-            remote_parts.join(" && "),
-        ];
-
-        Ok((wsl.wsl_path.to_string_lossy().into_owned(), args))
+        self.build_wsl_script_command(wsl, session_id, "codex", remote_parts)
     }
 
     #[cfg(not(windows))]
     pub(super) fn build_wsl_command(
         &self,
         _wsl: &ResolvedWslLaunch,
+        _session_id: &str,
         _env_vars: &HashMap<String, String>,
         _resume_id: Option<&str>,
         _initial_prompt: Option<&str>,
@@ -1076,10 +1140,11 @@ impl TerminalService {
 
 #[cfg(test)]
 mod tests {
+    use super::{append_codex_resume_args, is_wsl_windows_shim_path, render_wsl_launch_script};
+    #[cfg(windows)]
     use super::{
-        append_codex_resume_args, build_wsl_claude_skill_sync_prelude,
-        build_wsl_codex_skill_sync_prelude, collect_wsl_claude_source_files,
-        collect_wsl_codex_source_dirs, is_wsl_windows_shim_path, VERSION_FILE_NAME,
+        build_wsl_claude_skill_sync_prelude, build_wsl_codex_skill_sync_prelude,
+        collect_wsl_claude_source_files, collect_wsl_codex_source_dirs, VERSION_FILE_NAME,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -1141,6 +1206,20 @@ mod tests {
     }
 
     #[test]
+    fn render_wsl_launch_script_keeps_each_command_on_its_own_line() {
+        let script = render_wsl_launch_script(&[
+            "export TOKEN='secret'".to_string(),
+            "exec codex '-C' '/mnt/d/repo'".to_string(),
+        ]);
+
+        assert_eq!(
+            script,
+            "#!/usr/bin/env bash\nset -e\nexport TOKEN='secret'\nexec codex '-C' '/mnt/d/repo'\n"
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
     fn collect_wsl_claude_source_files_requires_version_and_md_files() {
         let root = unique_temp_dir("claude-source");
         fs::write(root.join(VERSION_FILE_NAME), "1.0.0").unwrap();
@@ -1153,6 +1232,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn collect_wsl_codex_source_dirs_filters_to_bundled_dirs() {
         let root = unique_temp_dir("codex-source");
         fs::write(root.join(VERSION_FILE_NAME), "1.0.0").unwrap();
@@ -1167,6 +1247,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn build_wsl_claude_skill_sync_prelude_mentions_expected_targets() {
         let commands = build_wsl_claude_skill_sync_prelude(
             "/mnt/c/Users/test/.claude/commands/ccpanes",
@@ -1175,13 +1256,14 @@ mod tests {
 
         assert!(commands
             .iter()
-            .any(|line| line.contains("$HOME/.claude/commands/ccpanes")));
+            .any(|line: &String| line.contains("$HOME/.claude/commands/ccpanes")));
         assert!(commands
             .iter()
-            .any(|line| line.contains("cp \"$CCPANES_WSL_CLAUDE_SRC/launch-task.md\"")));
+            .any(|line: &String| line.contains("cp \"$CCPANES_WSL_CLAUDE_SRC/launch-task.md\"")));
     }
 
     #[test]
+    #[cfg(windows)]
     fn build_wsl_codex_skill_sync_prelude_copies_skill_dirs_only() {
         let commands = build_wsl_codex_skill_sync_prelude(
             "/mnt/c/Users/test/.codex/skills",
@@ -1190,12 +1272,11 @@ mod tests {
 
         assert!(commands
             .iter()
-            .any(|line| line.contains("$HOME/.codex/skills")));
+            .any(|line: &String| line.contains("$HOME/.codex/skills")));
         assert!(commands
             .iter()
-            .any(|line| line.contains("find \"$CCPANES_WSL_CODEX_DST\"")));
-        assert!(commands.iter().any(
-            |line| line.contains("cp \"$CCPANES_WSL_CODEX_SRC/ccpanes-launch-task/SKILL.md\"")
-        ));
+            .any(|line: &String| line.contains("find \"$CCPANES_WSL_CODEX_DST\"")));
+        assert!(commands.iter().any(|line: &String| line
+            .contains("cp \"$CCPANES_WSL_CODEX_SRC/ccpanes-launch-task/SKILL.md\"")));
     }
 }

@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SshMachine, SshConnectivityResult, WslDistro } from "@/types";
+import type {
+  SshMachine,
+  SshConnectivityResult,
+  SshMachineUpsertRequest,
+  WslDistro,
+} from "@/types";
 
 export async function listSshMachines(): Promise<SshMachine[]> {
   return invoke<SshMachine[]>("list_ssh_machines");
@@ -9,12 +14,16 @@ export async function getSshMachine(id: string): Promise<SshMachine | null> {
   return invoke<SshMachine | null>("get_ssh_machine", { id });
 }
 
-export async function addSshMachine(machine: SshMachine): Promise<void> {
-  return invoke("add_ssh_machine", { machine });
+export async function addSshMachine(
+  request: SshMachineUpsertRequest,
+): Promise<SshMachine> {
+  return invoke<SshMachine>("add_ssh_machine", { request });
 }
 
-export async function updateSshMachine(machine: SshMachine): Promise<void> {
-  return invoke("update_ssh_machine", { machine });
+export async function updateSshMachine(
+  request: SshMachineUpsertRequest,
+): Promise<SshMachine> {
+  return invoke<SshMachine>("update_ssh_machine", { request });
 }
 
 export async function removeSshMachine(id: string): Promise<void> {
@@ -22,7 +31,7 @@ export async function removeSshMachine(id: string): Promise<void> {
 }
 
 export async function checkSshConnectivity(
-  id: string
+  id: string,
 ): Promise<SshConnectivityResult> {
   return invoke<SshConnectivityResult>("check_ssh_connectivity", { id });
 }

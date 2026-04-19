@@ -28,7 +28,7 @@
 
 - `src-tauri/src/commands/skill_commands.rs` — Skill Tauri 命令接口
 - `src-tauri/src/services/skill_service.rs` — Skill 业务逻辑
-- `src-tauri/src/commands/hooks_commands.rs` — Hooks Tauri 命令接口
+- `src-tauri/src/commands/project_hooks_commands.rs` — 项目 Hooks Tauri 命令接口
 - `src-tauri/src/services/hooks_service.rs` — Hooks 业务逻辑
 
 **前端:**

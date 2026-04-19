@@ -76,11 +76,11 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Build hook binary
-        run: cargo build -p cc-panes-hook --release
+        run: node scripts/build-hook.cjs --release
         shell: bash
 
       - name: Copy hook binary
-        run: node scripts/copy-hook.cjs
+        run: node scripts/copy-hook.cjs --release
         shell: bash
 
       - name: Cargo check

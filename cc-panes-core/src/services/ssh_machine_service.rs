@@ -1,9 +1,12 @@
-use crate::models::ssh_machine::{AuthMethod, SshMachine, SshMachineConfig};
+use crate::models::ssh_machine::{
+    AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest,
+};
+use crate::services::SshCredentialService;
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use tracing::debug;
+use std::sync::{Arc, Mutex};
+use tracing::{debug, warn};
 
 /// SSH 连通性检测结果
 #[derive(Debug, Clone, Serialize)]
@@ -18,15 +21,22 @@ pub struct SshConnectivityResult {
 pub struct SshMachineService {
     config_path: PathBuf,
     config: Mutex<SshMachineConfig>,
+    credential_service: Arc<SshCredentialService>,
 }
 
 impl SshMachineService {
-    pub fn new(config_path: PathBuf) -> Self {
+    pub fn new(config_path: PathBuf, credential_service: Arc<SshCredentialService>) -> Self {
         let config = Self::load_from_file(&config_path).unwrap_or_default();
         Self {
             config_path,
             config: Mutex::new(config),
+            credential_service,
         }
+    }
+
+    #[cfg(test)]
+    fn new_with_memory_credentials(config_path: PathBuf) -> Self {
+        Self::new(config_path, Arc::new(SshCredentialService::new_memory()))
     }
 
     fn load_from_file(path: &Path) -> Result<SshMachineConfig> {
@@ -55,6 +65,9 @@ impl SshMachineService {
             .unwrap_or_else(|e| e.into_inner())
             .machines
             .clone()
+            .into_iter()
+            .map(|machine| self.hydrate_machine(machine))
+            .collect()
     }
 
     /// 获取指定 SSH 机器
@@ -66,10 +79,12 @@ impl SshMachineService {
             .iter()
             .find(|m| m.id == id)
             .cloned()
+            .map(|machine| self.hydrate_machine(machine))
     }
 
     /// 添加 SSH 机器（name 去重校验，大小写不敏感）
-    pub fn add(&self, machine: SshMachine) -> Result<()> {
+    pub fn add(&self, request: SshMachineUpsertRequest) -> Result<SshMachine> {
+        let machine = request.machine.clone();
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
         if config
@@ -80,16 +95,28 @@ impl SshMachineService {
             anyhow::bail!("SSH machine with name '{}' already exists", machine.name);
         }
 
-        // 先写文件再提交内存，避免保存失败后内存状态脏
-        let mut new_config = config.clone();
-        new_config.machines.push(machine);
+        self.validate_password_request(&machine, &request, false)?;
+
+        let previous = config.clone();
+        let mut new_config = previous.clone();
+        new_config.machines.push(machine.clone());
         self.save_to_file(&new_config)?;
+        if let Err(error) = self.apply_secret_update(&machine, &request) {
+            warn!(
+                machine_id = %machine.id,
+                error = %error,
+                "Rolling back SSH machine add after credential update failure"
+            );
+            let _ = self.save_to_file(&previous);
+            return Err(error);
+        }
         *config = new_config;
-        Ok(())
+        Ok(self.hydrate_machine(machine))
     }
 
     /// 更新 SSH 机器
-    pub fn update(&self, machine: SshMachine) -> Result<()> {
+    pub fn update(&self, request: SshMachineUpsertRequest) -> Result<SshMachine> {
+        let machine = request.machine.clone();
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
         let pos = config
@@ -98,7 +125,6 @@ impl SshMachineService {
             .position(|m| m.id == machine.id)
             .with_context(|| format!("SSH machine '{}' not found", machine.id))?;
 
-        // 检查名称是否与其他机器重复（大小写不敏感）
         if config
             .machines
             .iter()
@@ -107,12 +133,23 @@ impl SshMachineService {
             anyhow::bail!("SSH machine with name '{}' already exists", machine.name);
         }
 
-        // 先写文件再提交内存
-        let mut new_config = config.clone();
-        new_config.machines[pos] = machine;
+        self.validate_password_request(&machine, &request, true)?;
+
+        let previous = config.clone();
+        let mut new_config = previous.clone();
+        new_config.machines[pos] = machine.clone();
         self.save_to_file(&new_config)?;
+        if let Err(error) = self.apply_secret_update(&machine, &request) {
+            warn!(
+                machine_id = %machine.id,
+                error = %error,
+                "Rolling back SSH machine update after credential update failure"
+            );
+            let _ = self.save_to_file(&previous);
+            return Err(error);
+        }
         *config = new_config;
-        Ok(())
+        Ok(self.hydrate_machine(machine))
     }
 
     /// 删除 SSH 机器（检查 ID 存在性）
@@ -127,9 +164,72 @@ impl SshMachineService {
             anyhow::bail!("SSH machine '{}' not found", id);
         }
 
-        // 先写文件再提交内存
         self.save_to_file(&new_config)?;
+        self.credential_service.delete_password(id)?;
         *config = new_config;
+        Ok(())
+    }
+
+    fn hydrate_machine(&self, mut machine: SshMachine) -> SshMachine {
+        machine.has_stored_password = match self.credential_service.has_password(&machine.id) {
+            Ok(has_password) => has_password,
+            Err(error) => {
+                warn!(
+                    machine_id = %machine.id,
+                    error = %error,
+                    "Failed to determine whether SSH machine has a stored password"
+                );
+                false
+            }
+        };
+        machine
+    }
+
+    fn validate_password_request(
+        &self,
+        machine: &SshMachine,
+        request: &SshMachineUpsertRequest,
+        is_update: bool,
+    ) -> Result<()> {
+        if machine.auth_method != AuthMethod::Password || !request.remember_password {
+            return Ok(());
+        }
+
+        let password_input = request.password_input.as_deref().unwrap_or("").trim();
+        if !password_input.is_empty() {
+            return Ok(());
+        }
+
+        if is_update && self.credential_service.has_password(&machine.id)? {
+            return Ok(());
+        }
+
+        anyhow::bail!(
+            "Password is required to save this SSH machine in the system credential store"
+        );
+    }
+
+    fn apply_secret_update(
+        &self,
+        machine: &SshMachine,
+        request: &SshMachineUpsertRequest,
+    ) -> Result<()> {
+        if request.clear_stored_password || machine.auth_method != AuthMethod::Password {
+            self.credential_service.delete_password(&machine.id)?;
+        }
+
+        if machine.auth_method == AuthMethod::Password && request.remember_password {
+            if let Some(password) = request
+                .password_input
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                self.credential_service
+                    .store_password(&machine.id, password)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -158,7 +258,6 @@ impl SshMachineService {
             .get(id)
             .with_context(|| format!("SSH machine '{}' not found", id))?;
 
-        // 输入校验：防止 host/user/identityFile 被 SSH 解析为选项
         Self::validate_ssh_field(&machine.host, "host")?;
         if let Some(ref u) = machine.user {
             Self::validate_ssh_field(u, "user")?;
@@ -170,38 +269,27 @@ impl SshMachineService {
         }
 
         let ssh_path = which::which("ssh").map_err(|_| anyhow::anyhow!("ssh not found in PATH"))?;
-
-        // 临时 known_hosts 文件（NUL on Windows, /dev/null on Unix）
         let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
 
         let mut args = Vec::new();
-
-        // 连接超时
         args.extend(["-o", "ConnectTimeout=5"]);
-
-        // 统一使用 BatchMode=yes：禁止所有交互提示（含 password 模式）
-        // 这意味着 password 模式仅测试 TCP reachability + SSH 握手，不测试密码认证
         args.extend(["-o", "BatchMode=yes"]);
 
-        // 使用临时 known_hosts 文件：连通性检测不应修改用户的 known_hosts
         let known_hosts_opt = format!("UserKnownHostsFile={}", null_path);
         args.extend(["-o", "StrictHostKeyChecking=no"]);
         args.extend(["-o", &known_hosts_opt]);
 
-        // 端口
         let port_str = machine.port.to_string();
         if machine.port != 22 {
             args.extend(["-p", &port_str]);
         }
 
-        // 身份文件
         if let Some(ref id_file) = machine.identity_file {
             if machine.auth_method == AuthMethod::Key {
                 args.extend(["-i", id_file]);
             }
         }
 
-        // 目标：使用 -- 分隔选项和目标，防止 user@host 被解析为选项
         args.push("--");
         let target = match &machine.user {
             Some(u) => format!("{}@{}", u, machine.host),
@@ -223,23 +311,128 @@ impl SshMachineService {
         let latency = start.elapsed().as_millis() as u64;
 
         if output.status.success() {
-            Ok(SshConnectivityResult {
+            return Ok(SshConnectivityResult {
                 reachable: true,
                 message: format!("Connected in {}ms", latency),
                 latency_ms: Some(latency),
-            })
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let msg = stderr
-                .lines()
-                .next()
-                .unwrap_or("Connection failed")
-                .to_string();
-            Ok(SshConnectivityResult {
-                reachable: false,
-                message: msg,
-                latency_ms: None,
-            })
+            });
         }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if machine.auth_method == AuthMethod::Password && Self::looks_like_auth_challenge(&stderr) {
+            return Ok(SshConnectivityResult {
+                reachable: true,
+                message: "SSH host reachable; password/MFA were not validated in connectivity test"
+                    .to_string(),
+                latency_ms: Some(latency),
+            });
+        }
+
+        let msg = stderr
+            .lines()
+            .next()
+            .unwrap_or("Connection failed")
+            .to_string();
+        Ok(SshConnectivityResult {
+            reachable: false,
+            message: msg,
+            latency_ms: None,
+        })
+    }
+
+    fn looks_like_auth_challenge(stderr: &str) -> bool {
+        let lower = stderr.to_ascii_lowercase();
+        lower.contains("permission denied")
+            || lower.contains("password:")
+            || lower.contains("keyboard-interactive")
+            || lower.contains("verification code")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn fixture_machine(id: &str, auth_method: AuthMethod) -> SshMachine {
+        SshMachine {
+            id: id.to_string(),
+            name: format!("machine-{}", id),
+            host: "devbox.local".to_string(),
+            port: 22,
+            user: Some("dev".to_string()),
+            auth_method,
+            identity_file: None,
+            description: Some("notes".to_string()),
+            default_path: Some("~/projects".to_string()),
+            tags: vec!["prod".to_string()],
+            has_stored_password: false,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    fn fixture_request(machine: SshMachine) -> SshMachineUpsertRequest {
+        SshMachineUpsertRequest {
+            machine,
+            remember_password: false,
+            password_input: None,
+            clear_stored_password: false,
+        }
+    }
+
+    #[test]
+    fn add_hydrates_has_stored_password_and_keeps_secret_out_of_file() {
+        let dir = tempdir().expect("tempdir");
+        let service =
+            SshMachineService::new_with_memory_credentials(dir.path().join("ssh-machines.json"));
+
+        let mut request = fixture_request(fixture_machine("m1", AuthMethod::Password));
+        request.remember_password = true;
+        request.password_input = Some("secret".to_string());
+
+        let saved = service.add(request).expect("add machine");
+        assert!(saved.has_stored_password);
+
+        let content =
+            std::fs::read_to_string(dir.path().join("ssh-machines.json")).expect("config file");
+        assert!(content.contains("\"description\": \"notes\""));
+        assert!(!content.contains("secret"));
+        assert!(!content.contains("hasStoredPassword"));
+    }
+
+    #[test]
+    fn update_can_clear_stored_password() {
+        let dir = tempdir().expect("tempdir");
+        let service =
+            SshMachineService::new_with_memory_credentials(dir.path().join("ssh-machines.json"));
+
+        let mut add_request = fixture_request(fixture_machine("m1", AuthMethod::Password));
+        add_request.remember_password = true;
+        add_request.password_input = Some("secret".to_string());
+        service.add(add_request).expect("seed machine");
+
+        let mut update_request = fixture_request(fixture_machine("m1", AuthMethod::Password));
+        update_request.clear_stored_password = true;
+        let updated = service.update(update_request).expect("update machine");
+        assert!(!updated.has_stored_password);
+    }
+
+    #[test]
+    fn remove_deletes_stored_password() {
+        let dir = tempdir().expect("tempdir");
+        let service =
+            SshMachineService::new_with_memory_credentials(dir.path().join("ssh-machines.json"));
+
+        let mut add_request = fixture_request(fixture_machine("m1", AuthMethod::Password));
+        add_request.remember_password = true;
+        add_request.password_input = Some("secret".to_string());
+        service.add(add_request).expect("seed machine");
+
+        service.remove("m1").expect("remove machine");
+        assert!(!service
+            .credential_service
+            .has_password("m1")
+            .expect("credential lookup"));
     }
 }

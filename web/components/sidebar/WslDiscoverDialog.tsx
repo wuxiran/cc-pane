@@ -3,11 +3,19 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Loader2, Star, Check } from "lucide-react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useSshMachinesStore } from "@/stores";
 import { discoverWslDistros } from "@/services/sshMachineService";
 import { getErrorMessage } from "@/utils";
@@ -40,7 +48,10 @@ const STATE_LABEL_KEYS: Record<WslDistro["state"], string> = {
   unknown: "ssh.wsl.stateUnknown",
 };
 
-export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDialogProps) {
+export default function WslDiscoverDialog({
+  open,
+  onOpenChange,
+}: WslDiscoverDialogProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const addMachine = useSshMachinesStore((s) => s.add);
 
@@ -68,7 +79,7 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
         const autoSelect = new Set(
           result
             .filter((d) => !d.alreadyImported && d.state !== "installing")
-            .map((d) => d.name)
+            .map((d) => d.name),
         );
         setSelected(autoSelect);
       })
@@ -81,7 +92,9 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
         if (!cancelled) setLoading(false);
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   const toggleSelect = useCallback((name: string) => {
@@ -98,7 +111,7 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
 
   const handleImport = useCallback(async () => {
     const toImport = distros.filter(
-      (d) => selected.has(d.name) && !d.alreadyImported
+      (d) => selected.has(d.name) && !d.alreadyImported,
     );
     if (toImport.length === 0) return;
 
@@ -115,13 +128,18 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
           port: 22,
           user: distro.defaultUser ?? undefined,
           authMethod: "password",
+          description: `Imported from WSL distro ${distro.name}`,
           tags: ["wsl"],
           createdAt: now,
           updatedAt: now,
         };
 
         try {
-          await addMachine(machine);
+          await addMachine({
+            machine,
+            rememberPassword: false,
+            clearStoredPassword: false,
+          });
           successCount++;
         } catch (e) {
           toast.error(
@@ -129,7 +147,7 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
               defaultValue: "Failed to import {{name}}: {{error}}",
               name: distro.name,
               error: getErrorMessage(e),
-            })
+            }),
           );
         }
       }
@@ -139,7 +157,7 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
           t("ssh.wsl.imported", {
             defaultValue: "{{count}} WSL distro(s) imported",
             count: successCount,
-          })
+          }),
         );
       }
 
@@ -150,7 +168,7 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
   }, [distros, selected, addMachine, onOpenChange, t]);
 
   const selectableCount = distros.filter(
-    (d) => !d.alreadyImported && selected.has(d.name)
+    (d) => !d.alreadyImported && selected.has(d.name),
   ).length;
 
   return (
@@ -158,16 +176,26 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>
-            {t("ssh.wsl.discoverTitle", { defaultValue: "Discover WSL Distros" })}
+            {t("ssh.wsl.discoverTitle", {
+              defaultValue: "Discover WSL Distros",
+            })}
           </DialogTitle>
         </DialogHeader>
 
         <div className="py-2">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-8">
-              <Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--app-text-muted)" }} />
-              <span className="text-sm" style={{ color: "var(--app-text-muted)" }}>
-                {t("ssh.wsl.discovering", { defaultValue: "Scanning for WSL distributions..." })}
+              <Loader2
+                className="w-5 h-5 animate-spin"
+                style={{ color: "var(--app-text-muted)" }}
+              />
+              <span
+                className="text-sm"
+                style={{ color: "var(--app-text-muted)" }}
+              >
+                {t("ssh.wsl.discovering", {
+                  defaultValue: "Scanning for WSL distributions...",
+                })}
               </span>
             </div>
           ) : error ? (
@@ -177,7 +205,9 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
           ) : distros.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-sm" style={{ color: "var(--app-text-muted)" }}>
-                {t("ssh.wsl.noDistros", { defaultValue: "No WSL distributions found" })}
+                {t("ssh.wsl.noDistros", {
+                  defaultValue: "No WSL distributions found",
+                })}
               </p>
             </div>
           ) : (
@@ -203,7 +233,10 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium truncate" style={{ color: "var(--app-text-primary)" }}>
+                        <span
+                          className="text-sm font-medium truncate"
+                          style={{ color: "var(--app-text-primary)" }}
+                        >
                           {distro.name}
                         </span>
                         {distro.isDefault && (
@@ -212,7 +245,11 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
                               <Star className="w-3 h-3 shrink-0 fill-yellow-400 text-yellow-400" />
                             </TooltipTrigger>
                             <TooltipContent side="right">
-                              <p>{t("ssh.wsl.defaultDistro", { defaultValue: "Default distro" })}</p>
+                              <p>
+                                {t("ssh.wsl.defaultDistro", {
+                                  defaultValue: "Default distro",
+                                })}
+                              </p>
                             </TooltipContent>
                           </Tooltip>
                         )}
@@ -222,7 +259,11 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
                               <Check className="w-3.5 h-3.5 shrink-0 text-green-500" />
                             </TooltipTrigger>
                             <TooltipContent side="right">
-                              <p>{t("ssh.wsl.alreadyImported", { defaultValue: "Already imported" })}</p>
+                              <p>
+                                {t("ssh.wsl.alreadyImported", {
+                                  defaultValue: "Already imported",
+                                })}
+                              </p>
                             </TooltipContent>
                           </Tooltip>
                         )}
@@ -232,13 +273,21 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
                           variant="secondary"
                           className={`text-[10px] px-1.5 py-0 h-4 leading-none ${stateBadgeVariant(distro.state)}`}
                         >
-                          {t(STATE_LABEL_KEYS[distro.state], { defaultValue: distro.state })}
+                          {t(STATE_LABEL_KEYS[distro.state], {
+                            defaultValue: distro.state,
+                          })}
                         </Badge>
-                        <span className="text-[10px]" style={{ color: "var(--app-text-muted)" }}>
+                        <span
+                          className="text-[10px]"
+                          style={{ color: "var(--app-text-muted)" }}
+                        >
                           WSL{distro.wslVersion}
                         </span>
                         {distro.defaultUser && (
-                          <span className="text-[10px]" style={{ color: "var(--app-text-muted)" }}>
+                          <span
+                            className="text-[10px]"
+                            style={{ color: "var(--app-text-muted)" }}
+                          >
                             {distro.defaultUser}@localhost
                           </span>
                         )}
@@ -252,9 +301,13 @@ export default function WslDiscoverDialog({ open, onOpenChange }: WslDiscoverDia
 
           {/* 底部提示：非加载、非错误状态时显示 */}
           {!loading && !error && (
-            <p className="text-[11px] mt-3 px-1" style={{ color: "var(--app-text-muted)" }}>
+            <p
+              className="text-[11px] mt-3 px-1"
+              style={{ color: "var(--app-text-muted)" }}
+            >
               {t("ssh.wsl.sshdHint", {
-                defaultValue: "Tip: WSL distros need an SSH server (sshd) running to connect.",
+                defaultValue:
+                  "Tip: WSL distros need an SSH server (sshd) running to connect.",
               })}
             </p>
           )}

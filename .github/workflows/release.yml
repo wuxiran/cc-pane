@@ -56,6 +56,10 @@ jobs:
           - platform: windows-latest
             label: windows-latest
             args: --bundles nsis
+          - platform: windows-latest
+            label: windows-arm64
+            args: --bundles nsis --target aarch64-pc-windows-msvc
+            rust_target: aarch64-pc-windows-msvc
           - platform: macos-latest
             label: macos-arm64
             args: --bundles dmg

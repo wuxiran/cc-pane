@@ -53,12 +53,8 @@ use commands::{
     delete_todo_subtask,
     delete_workspace,
     detect_claude_session,
-    disable_hook,
-    disable_hooks,
+    detect_resume_session,
     discover_wsl_distros,
-    enable_all_hooks,
-    enable_hook,
-    enable_hooks,
     enter_fullscreen,
     enter_mini_mode,
     execute_project_migration,
@@ -92,7 +88,6 @@ use commands::{
     get_git_file_statuses,
     get_git_status,
     get_history_config,
-    get_hooks_status,
     get_journal_index,
     // 日志命令
     get_log_dir,
@@ -105,6 +100,7 @@ use commands::{
     get_plan_content,
     get_popup_tab_data,
     get_project,
+    get_project_cli_hooks,
     get_provider,
     get_recent_changes,
     get_recent_journal,
@@ -136,6 +132,7 @@ use commands::{
     git_stash,
     git_stash_pop,
     handle_terminal_exit_spec,
+    handle_terminal_exit_spec_by_session,
     import_shared_mcp_from_claude,
     init_ccpanes,
     // Local History 命令
@@ -143,8 +140,6 @@ use commands::{
     is_fullscreen,
     // Worktree 命令
     is_git_repo,
-    // Hooks 命令
-    is_hooks_enabled,
     kill_claude_process,
     kill_claude_processes,
     kill_terminal,
@@ -219,11 +214,14 @@ use commands::{
     scan_claude_processes,
     scan_workspace_directory,
     // Screenshot 命令
+    screenshot_save_clipboard_image,
     screenshot_update_shortcut,
     // Memory 命令
     search_memory,
     set_decorations,
     set_default_provider,
+    set_project_cli_hook_enabled,
+    start_launch_history_backfill,
     start_shared_mcp_server,
     stop_project_history,
     stop_shared_mcp_server,
@@ -234,6 +232,7 @@ use commands::{
     toggle_todo_my_day,
     toggle_todo_subtask,
     touch_launch_by_session,
+    trigger_notification,
     update_history_config,
     update_launch_last_prompt,
     update_launch_session_id,
@@ -262,12 +261,12 @@ use repository::{
     TodoRepository,
 };
 use services::{
-    FileSystemService, HistoryService, HooksService, JournalService, LaunchHistoryService,
-    McpConfigService, MemoryService, NotificationService, OrchestratorService, PlanService,
-    ProcessMonitorService, ProjectService, ProviderService, ScreenshotService,
-    SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
-    SshMachineService, TaskBindingService, TerminalService, TodoService, WorkspaceService,
-    WorktreeService,
+    FileSystemService, HistoryService, JournalService, LaunchHistoryService, McpConfigService,
+    MemoryService, NotificationService, OrchestratorService, PlanService, ProcessMonitorService,
+    ProjectCliHooksService, ProjectContextService, ProjectService, ProviderService,
+    ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService, SkillService,
+    SpecService, SshCredentialService, SshMachineService, TaskBindingService, TerminalService,
+    TodoService, WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -317,7 +316,7 @@ static CAPTURING: AtomicBool = AtomicBool::new(false);
 /// 触发截图流程：SetWindowDisplayAffinity 方案
 /// Windows: 设置 WDA_EXCLUDEFROMCAPTURE → xcap 截屏 → 选区 → 裁剪保存 → 恢复 WDA_NONE
 /// 非 Windows: Tauri hide → 截屏 → 选区 → 裁剪保存 → Tauri show
-pub fn trigger_screenshot(app: &tauri::AppHandle) {
+pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<SettingsService>) {
     use std::time::Instant;
 
     if CAPTURING
@@ -358,6 +357,7 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
 
     #[allow(unused_variables)]
     let app = app.clone();
+    let retention_days = settings_service.get_settings().screenshot.retention_days;
     std::thread::spawn(move || {
         // Drop guard: 确保 CAPTURING 在 panic 或提前返回时也能重置
         struct CapturingGuard;
@@ -421,7 +421,14 @@ pub fn trigger_screenshot(app: &tauri::AppHandle) {
                 "[screenshot] +{}ms: image ready in memory",
                 t0.elapsed().as_millis()
             );
-            match ScreenshotService::save_cropped(&capture.image, rect.x, rect.y, rect.w, rect.h) {
+            match ScreenshotService::save_cropped(
+                &capture.image,
+                rect.x,
+                rect.y,
+                rect.w,
+                rect.h,
+                retention_days,
+            ) {
                 Ok(result) => {
                     #[cfg(target_os = "windows")]
                     copy_to_clipboard_win32(&result.file_path);
@@ -845,7 +852,7 @@ pub fn run() {
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let project_service = Arc::new(ProjectService::new(project_repo));
     let history_service = Arc::new(HistoryService::new());
-    let hooks_service = Arc::new(HooksService::new());
+    let project_context_service = Arc::new(ProjectContextService::new());
     let journal_service = Arc::new(JournalService::new(app_paths.workspaces_dir()));
     let worktree_service = Arc::new(WorktreeService::new());
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
@@ -865,11 +872,15 @@ pub fn run() {
         reg.register(Arc::new(cc_cli_adapters::OpenCodeAdapter::new()));
         Arc::new(reg)
     };
+    let project_cli_hooks_service = Arc::new(ProjectCliHooksService::new(cli_registry.clone()));
+    let ssh_credential_service = Arc::new(SshCredentialService::new());
     let terminal_service = Arc::new(TerminalService::new(
         settings_service.clone(),
         provider_service.clone(),
         app_paths.clone(),
         cli_registry.clone(),
+        project_cli_hooks_service.clone(),
+        ssh_credential_service.clone(),
     ));
     // 注入 Spec 服务到 Terminal 服务（终端启动时自动注入 spec prompt）
     terminal_service.set_spec_service(spec_service.clone());
@@ -883,6 +894,7 @@ pub fn run() {
 
     let ssh_machine_service = Arc::new(SshMachineService::new(
         app_paths.data_dir().join("ssh-machines.json"),
+        ssh_credential_service.clone(),
     ));
 
     let process_monitor_service = Arc::new(ProcessMonitorService::new());
@@ -930,7 +942,8 @@ pub fn run() {
         .manage(terminal_service)
         .manage(launch_history_service)
         .manage(history_service)
-        .manage(hooks_service)
+        .manage(project_cli_hooks_service)
+        .manage(project_context_service)
         .manage(journal_service)
         .manage(worktree_service)
         .manage(workspace_service)
@@ -1021,10 +1034,12 @@ pub fn run() {
                 term_svc.set_emitter(tauri_emitter.clone());
                 let notif_svc = app.state::<Arc<NotificationService>>();
                 let settings_svc = app.state::<Arc<SettingsService>>();
+                let launch_history_svc = app.state::<Arc<LaunchHistoryService>>();
                 term_svc.set_notifier(Arc::new(TauriSessionNotifier::new(
                     app_handle.clone(),
                     notif_svc.inner().clone(),
                     settings_svc.inner().clone(),
+                    launch_history_svc.inner().clone(),
                 )));
 
                 // ---- 启动 workspace 目录监控 ----
@@ -1048,13 +1063,14 @@ pub fn run() {
                         shortcut_str.parse::<tauri_plugin_global_shortcut::Shortcut>()
                     {
                         let app_handle = app.handle().clone();
+                        let settings_service = settings_svc.inner().clone();
                         if let Err(e) =
                             app.global_shortcut()
                                 .on_shortcut(shortcut, move |_app, _sc, event| {
                                     if event.state
                                         == tauri_plugin_global_shortcut::ShortcutState::Pressed
                                     {
-                                        trigger_screenshot(&app_handle);
+                                        trigger_screenshot(&app_handle, settings_service.clone());
                                     }
                                 })
                         {
@@ -1081,6 +1097,8 @@ pub fn run() {
                 let spec_svc = app.state::<Arc<SpecService>>();
                 let skill_svc = app.state::<Arc<SkillService>>();
                 let lh_svc = app.state::<Arc<LaunchHistoryService>>();
+                let notif_svc = app.state::<Arc<NotificationService>>();
+                let settings_svc = app.state::<Arc<SettingsService>>();
                 let paths = app.state::<Arc<AppPaths>>();
                 if let Err(e) = orch_svc.start(
                     term_svc.inner().clone(),
@@ -1092,6 +1110,8 @@ pub fn run() {
                     spec_svc.inner().clone(),
                     skill_svc.inner().clone(),
                     lh_svc.inner().clone(),
+                    notif_svc.inner().clone(),
+                    settings_svc.inner().clone(),
                     app.handle().clone(),
                     paths.inner().clone(),
                 ) {
@@ -1352,6 +1372,8 @@ pub fn run() {
             update_launch_last_prompt,
             touch_launch_by_session,
             detect_claude_session,
+            detect_resume_session,
+            start_launch_history_backfill,
             debug_encode_path,
             // Local History 命令
             init_project_history,
@@ -1383,13 +1405,8 @@ pub fn run() {
             list_file_versions_by_branch,
             list_worktree_recent_changes,
             // Hooks 命令
-            is_hooks_enabled,
-            enable_hooks,
-            disable_hooks,
-            get_hooks_status,
-            enable_hook,
-            disable_hook,
-            enable_all_hooks,
+            get_project_cli_hooks,
+            set_project_cli_hook_enabled,
             get_workflow,
             save_workflow,
             init_ccpanes,
@@ -1432,6 +1449,7 @@ pub fn run() {
             migrate_data_dir,
             generate_claude_md,
             get_log_dir,
+            trigger_notification,
             // Provider 命令
             list_providers,
             get_provider,
@@ -1467,6 +1485,7 @@ pub fn run() {
             delete_spec,
             sync_spec_tasks,
             handle_terminal_exit_spec,
+            handle_terminal_exit_spec_by_session,
             // MCP 配置命令
             list_mcp_servers,
             get_mcp_server,
@@ -1494,6 +1513,7 @@ pub fn run() {
             fs_move_entry,
             fs_get_entry_info,
             // Screenshot 命令
+            screenshot_save_clipboard_image,
             screenshot_update_shortcut,
             // Orchestrator 命令
             get_orchestrator_port,

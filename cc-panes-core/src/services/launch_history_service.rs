@@ -18,6 +18,9 @@ impl LaunchHistoryService {
         project_id: &str,
         project_name: &str,
         project_path: &str,
+        cli_tool: &str,
+        runtime_kind: &str,
+        wsl_distro: Option<&str>,
         workspace_name: Option<&str>,
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
@@ -27,6 +30,9 @@ impl LaunchHistoryService {
             project_id,
             project_name,
             project_path,
+            cli_tool,
+            runtime_kind,
+            wsl_distro,
             workspace_name,
             workspace_path,
             launch_cwd,
@@ -49,8 +55,30 @@ impl LaunchHistoryService {
     }
 
     /// 更新 Claude Session ID
-    pub fn update_session_id(&self, id: i64, claude_session_id: &str) -> Result<(), String> {
-        self.repo.update_session_id(id, claude_session_id)
+    pub fn update_session_id(&self, id: i64, resume_session_id: &str) -> Result<(), String> {
+        self.repo.update_session_id(id, resume_session_id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_session_started(
+        &self,
+        launch_id: &str,
+        pty_session_id: &str,
+        resume_session_id: &str,
+        cli_tool: &str,
+        runtime_kind: &str,
+        wsl_distro: Option<&str>,
+        launch_cwd: Option<&str>,
+    ) -> Result<Option<i64>, String> {
+        self.repo.update_session_started(
+            launch_id,
+            pty_session_id,
+            resume_session_id,
+            cli_tool,
+            runtime_kind,
+            wsl_distro,
+            launch_cwd,
+        )
     }
 
     /// 更新最后 Prompt
@@ -58,9 +86,32 @@ impl LaunchHistoryService {
         self.repo.update_last_prompt(id, last_prompt)
     }
 
+    pub fn update_last_prompt_by_pty_session_id(
+        &self,
+        pty_session_id: &str,
+        last_prompt: &str,
+    ) -> Result<Option<i64>, String> {
+        self.repo
+            .update_last_prompt_by_pty_session_id(pty_session_id, last_prompt)
+    }
+
     /// 更新已有会话记录的时间戳，返回记录 ID（不存在则返回 None）
-    pub fn touch_by_session_id(&self, claude_session_id: &str) -> Result<Option<i64>, String> {
-        self.repo.touch_by_session_id(claude_session_id)
+    pub fn touch_by_session_id(&self, resume_session_id: &str) -> Result<Option<i64>, String> {
+        self.repo.touch_by_session_id(resume_session_id)
+    }
+
+    pub fn find_by_pty_session_id(
+        &self,
+        pty_session_id: &str,
+    ) -> Result<Option<crate::repository::LaunchRecord>, String> {
+        self.repo.find_by_pty_session_id(pty_session_id)
+    }
+
+    pub fn find_by_launch_id(
+        &self,
+        launch_id: &str,
+    ) -> Result<Option<crate::repository::LaunchRecord>, String> {
+        self.repo.find_by_launch_id(launch_id)
     }
 
     /// 删除单条启动记录

@@ -4,6 +4,7 @@ fn main() {
     // 确保 claude-bundle 目录结构存在（dev 模式下创建占位文件）
     // Release 构建时 copy-hook.cjs 会用真实内容覆盖
     ensure_bundled_claude_config();
+    ensure_hook_binary_placeholder();
 
     tauri_build::build();
 }
@@ -30,5 +31,18 @@ fn ensure_bundled_claude_config() {
     let claude_md = Path::new("resources/claude-bundle/CLAUDE.md");
     if !claude_md.exists() {
         std::fs::write(claude_md, "# placeholder for dev build").ok();
+    }
+}
+
+/// 确保 bundle.resources 中引用的 hook 二进制 glob 在 dev/check 模式也能匹配到
+fn ensure_hook_binary_placeholder() {
+    let binaries_dir = Path::new("binaries");
+    if !binaries_dir.exists() {
+        std::fs::create_dir_all(binaries_dir).ok();
+    }
+
+    let placeholder = binaries_dir.join("cc-panes-cli-hook.placeholder");
+    if !placeholder.exists() {
+        std::fs::write(placeholder, "placeholder for dev build").ok();
     }
 }

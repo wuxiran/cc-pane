@@ -72,6 +72,10 @@ export interface GeneralSettings {
   onboardingCompleted: boolean;
   /** 默认 CLI 工具（自我对话、resume 回退等场景） */
   defaultCliTool: string;
+  /** 页面顶部显示的常用启动项 */
+  launchFavorites: string[];
+  /** 工作空间右键菜单中隐藏非常用启动项 */
+  hideNonFavoriteLaunchActions: boolean;
 }
 
 /** 环境检测原始结果（来自 Rust check_environment 命令） */

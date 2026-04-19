@@ -116,6 +116,8 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       searchScope: "Workspace",
       onboardingCompleted: false,
       defaultCliTool: "claude",
+      launchFavorites: ["terminal-default", "claude-local", "codex-local"],
+      hideNonFavoriteLaunchActions: false,
     },
     notification: {
       enabled: true,

@@ -46,9 +46,7 @@ describe("workspaceLaunch", () => {
   it("falls back to first local project when workspace path is missing", () => {
     const workspace = createTestWorkspace({
       path: undefined,
-      projects: [
-        createTestWorkspaceProject({ path: "D:/repo/app" }),
-      ],
+      projects: [createTestWorkspaceProject({ path: "D:/repo/app" })],
     });
 
     const { options, issue } = resolveWorkspaceLaunchOptions({
@@ -226,6 +224,8 @@ describe("workspaceLaunch", () => {
         user: "dev",
         remotePath: "/home/dev/workspace-ssh",
         identityFile: "~/.ssh/id_ed25519",
+        machineId: "machine-1",
+        authMethod: "key",
       },
     });
   });
@@ -242,6 +242,8 @@ describe("workspaceLaunch", () => {
             user: "dev",
             remotePath: "/home/dev/fallback",
             identityFile: "~/.ssh/id_ed25519",
+            machineId: "machine-1",
+            authMethod: "key",
           },
         }),
       ],
@@ -261,6 +263,8 @@ describe("workspaceLaunch", () => {
       ssh: {
         host: "devbox.local",
         remotePath: "/home/dev/fallback",
+        machineId: "machine-1",
+        authMethod: "key",
       },
     });
   });
@@ -322,20 +326,32 @@ describe("workspaceLaunch", () => {
 
   it("classifies local, wsl, and ssh projects", () => {
     expect(getWorkspaceProjectKind(createTestWorkspaceProject())).toBe("local");
-    expect(getWorkspaceProjectKind(createTestWorkspaceProject({
-      path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo",
-    }))).toBe("wsl");
-    expect(getWorkspaceProjectKind(createTestWorkspaceProject({
-      wslRemotePath: "/home/dev/repo",
-    }))).toBe("wsl");
-    expect(getWorkspaceProjectKind(createTestWorkspaceProject({
-      ssh: {
-        host: "devbox.local",
-        port: 22,
-        user: "dev",
-        remotePath: "/home/dev/repo",
-      },
-    }))).toBe("ssh");
+    expect(
+      getWorkspaceProjectKind(
+        createTestWorkspaceProject({
+          path: "\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo",
+        }),
+      ),
+    ).toBe("wsl");
+    expect(
+      getWorkspaceProjectKind(
+        createTestWorkspaceProject({
+          wslRemotePath: "/home/dev/repo",
+        }),
+      ),
+    ).toBe("wsl");
+    expect(
+      getWorkspaceProjectKind(
+        createTestWorkspaceProject({
+          ssh: {
+            host: "devbox.local",
+            port: 22,
+            user: "dev",
+            remotePath: "/home/dev/repo",
+          },
+        }),
+      ),
+    ).toBe("ssh");
   });
 
   it("resolves project launch through WSL when workspace default environment is wsl", () => {

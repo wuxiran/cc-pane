@@ -14,6 +14,7 @@ vi.mock("@/services/workspaceService", () => ({
   deleteWorkspace: vi.fn(),
   saveWorkspace: vi.fn(),
   addWorkspaceProject: vi.fn(),
+  addSshProject: vi.fn(),
   removeWorkspaceProject: vi.fn(),
   updateWorkspaceAlias: vi.fn(),
   updateWorkspaceProjectAlias: vi.fn(),
@@ -27,6 +28,10 @@ describe("useWorkspacesStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetTestDataCounter();
+    Object.defineProperty(window.navigator, "platform", {
+      value: "Win32",
+      configurable: true,
+    });
     useWorkspacesStore.setState({
       workspaces: [],
       expandedWorkspaceId: null,
@@ -92,6 +97,27 @@ describe("useWorkspacesStore", () => {
       expect(state.workspaces).toHaveLength(1);
       expect(state.workspaces[0].id).toBe(newWs.id);
     });
+
+    it("应在同名 workspace 已存在时进行合并而不是重复追加", async () => {
+      const existingWorkspace = createTestWorkspace({
+        id: "ws-existing",
+        name: "new-workspace",
+        path: "D:/old-workspace",
+      });
+      const freshWorkspace = createTestWorkspace({
+        id: "ws-fresh",
+        name: "new-workspace",
+        path: "D:/new-workspace",
+      });
+      useWorkspacesStore.setState({ workspaces: [existingWorkspace] });
+      vi.mocked(workspaceService.createWorkspace).mockResolvedValue(freshWorkspace);
+
+      await useWorkspacesStore.getState().create("new-workspace", "D:/new-workspace");
+
+      const state = useWorkspacesStore.getState();
+      expect(state.workspaces).toHaveLength(1);
+      expect(state.workspaces[0]).toEqual(freshWorkspace);
+    });
   });
 
   describe("create", () => {
@@ -152,6 +178,73 @@ describe("useWorkspacesStore", () => {
       const updatedWs = state.workspaces.find((w) => w.name === "my-ws")!;
       expect(updatedWs.projects).toHaveLength(1);
       expect(updatedWs.projects[0].id).toBe(newProject.id);
+    });
+
+    it("应在同路径项目已存在时进行合并而不是重复追加", async () => {
+      const existingProject = createTestWorkspaceProject({
+        id: "proj-existing",
+        path: "D:/Repo/App",
+      });
+      const ws = createTestWorkspace({
+        name: "my-ws",
+        projects: [existingProject],
+      });
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      const newProject = createTestWorkspaceProject({
+        id: "proj-fresh",
+        path: "d:\\repo\\app\\",
+      });
+      vi.mocked(workspaceService.addWorkspaceProject).mockResolvedValue(newProject);
+
+      await useWorkspacesStore.getState().addProject("my-ws", "D:/Repo/App");
+
+      const updatedWs = useWorkspacesStore.getState().workspaces.find((w) => w.name === "my-ws")!;
+      expect(updatedWs.projects).toHaveLength(1);
+      expect(updatedWs.projects[0]).toEqual(newProject);
+    });
+  });
+
+  describe("addSshProject", () => {
+    it("应在同路径 SSH 项目已存在时进行合并而不是重复追加", async () => {
+      const existingProject = createTestWorkspaceProject({
+        id: "proj-existing",
+        path: "ssh://dev@example.com/home/dev/repo",
+        ssh: {
+          host: "example.com",
+          port: 22,
+          user: "dev",
+          remotePath: "/home/dev/repo",
+        },
+      });
+      const ws = createTestWorkspace({
+        name: "my-ws",
+        projects: [existingProject],
+      });
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      const freshProject = createTestWorkspaceProject({
+        id: "proj-fresh",
+        path: "SSH://DEV@EXAMPLE.COM/HOME/DEV/REPO",
+        ssh: {
+          host: "example.com",
+          port: 22,
+          user: "dev",
+          remotePath: "/home/dev/repo",
+        },
+      });
+      vi.mocked(workspaceService.addSshProject).mockResolvedValue(freshProject);
+
+      await useWorkspacesStore.getState().addSshProject("my-ws", {
+        host: "example.com",
+        port: 22,
+        user: "dev",
+        remotePath: "/home/dev/repo",
+      });
+
+      const updatedWs = useWorkspacesStore.getState().workspaces.find((w) => w.name === "my-ws")!;
+      expect(updatedWs.projects).toHaveLength(1);
+      expect(updatedWs.projects[0]).toEqual(freshProject);
     });
   });
 
@@ -264,6 +357,43 @@ describe("useWorkspacesStore", () => {
 
       const names = useWorkspacesStore.getState().workspaces.map((w) => w.name);
       expect(names).toEqual(["ws-2", "ws-1", "ws-3"]);
+    });
+
+    it("reorder 应先乐观更新本地顺序，再调用持久化接口", async () => {
+      const ws1 = createTestWorkspace({ name: "ws-1" });
+      const ws2 = createTestWorkspace({ name: "ws-2" });
+      const ws3 = createTestWorkspace({ name: "ws-3" });
+      useWorkspacesStore.setState({ workspaces: [ws1, ws2, ws3] });
+      vi.mocked(workspaceService.reorderWorkspaces).mockResolvedValue();
+
+      const reorderPromise = useWorkspacesStore.getState().reorder(["ws-3", "ws-1", "ws-2"]);
+
+      expect(useWorkspacesStore.getState().workspaces.map((workspace) => workspace.name)).toEqual([
+        "ws-3",
+        "ws-1",
+        "ws-2",
+      ]);
+
+      await reorderPromise;
+      expect(workspaceService.reorderWorkspaces).toHaveBeenCalledWith(["ws-3", "ws-1", "ws-2"]);
+    });
+
+    it("reorder 失败时应回滚本地顺序", async () => {
+      const ws1 = createTestWorkspace({ name: "ws-1" });
+      const ws2 = createTestWorkspace({ name: "ws-2" });
+      const ws3 = createTestWorkspace({ name: "ws-3" });
+      useWorkspacesStore.setState({ workspaces: [ws1, ws2, ws3] });
+      vi.mocked(workspaceService.reorderWorkspaces).mockRejectedValue(new Error("boom"));
+
+      await expect(
+        useWorkspacesStore.getState().reorder(["ws-3", "ws-1", "ws-2"]),
+      ).rejects.toThrow("boom");
+
+      expect(useWorkspacesStore.getState().workspaces.map((workspace) => workspace.name)).toEqual([
+        "ws-1",
+        "ws-2",
+        "ws-3",
+      ]);
     });
   });
 

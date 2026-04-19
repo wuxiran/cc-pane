@@ -50,6 +50,7 @@ pub async fn create_session(
     let session_id = state
         .terminal_service
         .create_session(
+            None, // launch_id
             cwd,
             cols,
             rows,

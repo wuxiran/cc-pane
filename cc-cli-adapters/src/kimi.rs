@@ -25,6 +25,7 @@ impl KimiAdapter {
                 installed: false,
                 version: None,
                 path: None,
+                capabilities: None,
             },
             caps: CliToolCapabilities {
                 supports_provider: true,
@@ -32,6 +33,7 @@ impl KimiAdapter {
                 supports_mcp: false,
                 supports_system_prompt: false,
                 supports_workspace: true,
+                supports_project_hooks: false,
                 compatible_provider_types: vec!["kimi".into()],
             },
         }

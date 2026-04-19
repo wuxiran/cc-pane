@@ -1,20 +1,24 @@
 import { useState, useMemo } from "react";
 import { Trash2, Play, ChevronDown, ChevronRight, Info, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { formatRelativeTime } from "@/utils";
+import { formatRelativeTime, buildLaunchRecordTerminalOptions } from "@/utils";
 import { groupByWorkspace } from "@/utils/groupLaunches";
 import ResumeDetailPopover from "@/components/sidebar/ResumeDetailPopover";
 import type { LaunchRecord } from "@/services";
+import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
+import type { OpenTerminalOptions } from "@/types";
 
 interface RecentLaunchesProps {
   launchHistory: LaunchRecord[];
-  onOpenTerminal: (path: string, resumeId?: string, workspacePath?: string, launchCwd?: string, workspaceName?: string, providerId?: string) => void;
+  onOpenTerminal: (opts: OpenTerminalOptions) => void;
   onClearHistory: () => void;
   onDeleteRecord: (id: number) => void;
 }
 
 export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearHistory, onDeleteRecord }: RecentLaunchesProps) {
   const { t } = useTranslation("sidebar");
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const machines = useSshMachinesStore((state) => state.machines);
 
   const ungroupedLabel = t("ungrouped");
   const groups = useMemo(() => groupByWorkspace(launchHistory, ungroupedLabel), [launchHistory, ungroupedLabel]);
@@ -34,8 +38,8 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
     });
   };
 
-  const handleResume = (path: string, resumeId: string, workspacePath?: string, launchCwd?: string, workspaceName?: string, providerId?: string) => {
-    onOpenTerminal(path, resumeId, workspacePath, launchCwd, workspaceName, providerId);
+  const handleResume = (record: LaunchRecord) => {
+    onOpenTerminal(buildLaunchRecordTerminalOptions(record, workspaces, machines));
   };
 
   // 无可恢复会话
@@ -111,14 +115,14 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                 tabIndex={0}
                 className="w-full group flex items-center justify-between px-3 pl-7 py-2 mb-0.5 rounded-xl transition-all duration-300 border border-transparent cursor-pointer text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                 onClick={() => {
-                  if (!record.claudeSessionId) return;
-                  handleResume(record.projectPath, record.claudeSessionId, record.workspacePath, record.launchCwd, record.workspaceName, record.providerId);
+                  if (!record.resumeSessionId) return;
+                  handleResume(record);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    if (!record.claudeSessionId) return;
-                    handleResume(record.projectPath, record.claudeSessionId, record.workspacePath, record.launchCwd, record.workspaceName, record.providerId);
+                    if (!record.resumeSessionId) return;
+                    handleResume(record);
                   }
                 }}
               >
@@ -129,7 +133,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                       {record.projectName}
                     </span>
                     <span className="text-[9px] font-mono truncate block max-w-[140px] text-[var(--app-text-tertiary)]">
-                      {record.claudeSessionId?.slice(0, 8)}…
+                      {record.resumeSessionId?.slice(0, 8)}…
                     </span>
                     {record.lastPrompt && (
                       <span className="text-[10px] truncate block max-w-[120px] text-[var(--app-text-tertiary)]">

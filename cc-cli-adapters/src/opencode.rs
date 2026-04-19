@@ -23,6 +23,7 @@ impl OpenCodeAdapter {
                 installed: false,
                 version: None,
                 path: None,
+                capabilities: None,
             },
             caps: CliToolCapabilities {
                 supports_provider: true,
@@ -30,6 +31,7 @@ impl OpenCodeAdapter {
                 supports_mcp: false,
                 supports_system_prompt: false,
                 supports_workspace: false,
+                supports_project_hooks: false,
                 compatible_provider_types: vec![
                     "open_ai".into(),
                     "opencode".into(),

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ButtonHTMLAttributes } from "react";
 import { useTranslation } from "react-i18next";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
@@ -10,7 +10,9 @@ import {
   FolderSearch,
   GitBranch,
   Globe,
+  GripVertical,
   Settings2,
+  Star,
   Terminal,
   Trash2,
 } from "lucide-react";
@@ -26,8 +28,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useProvidersStore, useSshMachinesStore } from "@/stores";
-import { hooksService, type HookStatus } from "@/services";
+import { useProvidersStore, useSettingsStore, useSshMachinesStore } from "@/stores";
+import { projectCliHooksService } from "@/services";
 import {
   detectAppPlatform,
   getWorkspaceDefaultEnvironment,
@@ -36,9 +38,20 @@ import {
   hasWorkspaceWslPath,
   resolveWorkspaceLaunchOptions,
 } from "@/utils";
-import type { OpenTerminalOptions, Workspace, WorkspaceLaunchEnvironment } from "@/types";
+import type {
+  OpenTerminalOptions,
+  ProjectCliHookGroupStatus,
+  ProjectCliHookStatus,
+  Workspace,
+  WorkspaceLaunchEnvironment,
+} from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
-import { buildSidebarCliLaunchItems } from "./launchMenu";
+import {
+  buildSidebarCliLaunchItems,
+  buildSidebarLaunchActions,
+  filterSidebarFavoriteLaunchActions,
+  getDefaultSidebarFavoriteLaunchActionIds,
+} from "./launchMenu";
 
 interface WorkspaceItemProps {
   ws: Workspace;
@@ -54,8 +67,9 @@ interface WorkspaceItemProps {
   onGitClone: (ws: Workspace) => void;
   onSetPath: (ws: Workspace) => void;
   onClearPath: (ws: Workspace) => void;
-  onSetDefaultEnvironment: (ws: Workspace, environment: WorkspaceLaunchEnvironment) => void;
+  onOpenEnvironment: (ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
+  dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
 }
 
 export default function WorkspaceItem({
@@ -72,13 +86,17 @@ export default function WorkspaceItem({
   onGitClone,
   onSetPath,
   onClearPath,
-  onSetDefaultEnvironment,
+  onOpenEnvironment,
   onOpenInFileBrowser,
+  dragHandleProps,
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const providerList = useProvidersStore((s) => s.providers);
+  const settings = useSettingsStore((s) => s.settings);
+  const favoriteLaunchIds = useSettingsStore((s) => s.settings?.general.launchFavorites ?? getDefaultSidebarFavoriteLaunchActionIds());
+  const saveSettings = useSettingsStore((s) => s.saveSettings);
   const sshMachines = useSshMachinesStore((s) => s.machines);
-  const [hookStatuses, setHookStatuses] = useState<HookStatus[]>([]);
+  const [hookGroups, setHookGroups] = useState<ProjectCliHookGroupStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
 
   const displayName = ws.alias || ws.name;
@@ -98,6 +116,13 @@ export default function WorkspaceItem({
       environment: "wsl",
     }).issue;
   const cliLaunchItems = buildSidebarCliLaunchItems(t, showExplicitWslLaunch);
+  const favoriteLaunchActions = filterSidebarFavoriteLaunchActions(
+    buildSidebarLaunchActions(t, showExplicitWslLaunch),
+    favoriteLaunchIds,
+  );
+  const allLaunchActions = buildSidebarLaunchActions(t, showExplicitWslLaunch);
+  const hideNonFavoriteLaunchActions = settings?.general.hideNonFavoriteLaunchActions ?? false;
+  const shouldHideNonFavoriteLaunchActions = hideNonFavoriteLaunchActions && favoriteLaunchActions.length > 0;
 
   const formatLaunchIssue = useCallback((
     issue: NonNullable<ReturnType<typeof resolveWorkspaceLaunchOptions>["issue"]>,
@@ -141,21 +166,17 @@ export default function WorkspaceItem({
   const fetchHookStatuses = useCallback(async () => {
     if (!rootPath) return;
     try {
-      const statuses = await hooksService.getStatus(rootPath);
-      setHookStatuses(statuses);
+      const statuses = await projectCliHooksService.getStatus(rootPath);
+      setHookGroups(statuses);
     } catch {
-      setHookStatuses([]);
+      setHookGroups([]);
     }
   }, [rootPath]);
 
-  const handleToggleHook = useCallback(async (hook: HookStatus) => {
+  const handleToggleHook = useCallback(async (cliTool: string, hook: ProjectCliHookStatus) => {
     if (!rootPath) return;
     try {
-      if (hook.enabled) {
-        await hooksService.disableHook(rootPath, hook.name);
-      } else {
-        await hooksService.enableHook(rootPath, hook.name);
-      }
+      await projectCliHooksService.setHookEnabled(rootPath, cliTool, hook.name, !hook.enabled);
       await fetchHookStatuses();
     } catch (error) {
       toast.error(t("hookOperationFailed", { error }));
@@ -171,7 +192,41 @@ export default function WorkspaceItem({
     }
   }, [rootPath, t]);
 
-  function getHookLabel(hook: HookStatus): string {
+  const handleToggleHideNonFavoriteLaunchActions = useCallback(async (checked: boolean) => {
+    if (!settings) return;
+    try {
+      await saveSettings({
+        ...settings,
+        general: {
+          ...settings.general,
+          hideNonFavoriteLaunchActions: checked,
+        },
+      });
+    } catch (error) {
+      toast.error(t("operationFailed", { ns: "settings", error: String(error) }));
+    }
+  }, [saveSettings, settings, t]);
+
+  const handleToggleFavoriteLaunchAction = useCallback(async (actionId: string, checked: boolean) => {
+    if (!settings) return;
+    const nextFavorites = checked
+      ? [...favoriteLaunchIds, actionId]
+      : favoriteLaunchIds.filter((id) => id !== actionId);
+
+    try {
+      await saveSettings({
+        ...settings,
+        general: {
+          ...settings.general,
+          launchFavorites: nextFavorites,
+        },
+      });
+    } catch (error) {
+      toast.error(t("operationFailed", { ns: "settings", error: String(error) }));
+    }
+  }, [favoriteLaunchIds, saveSettings, settings, t]);
+
+  function getHookLabel(hook: Pick<ProjectCliHookStatus, "name" | "label">): string {
     const labels: Record<string, string> = {
       "session-inject": t("hookSessionInject"),
       "plan-archive": t("hookPlanArchive"),
@@ -183,7 +238,10 @@ export default function WorkspaceItem({
     <div>
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <button
+          <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={expanded}
             className={`w-full group flex items-center justify-between px-3 py-2.5 mb-1 rounded-xl transition-all duration-300 ${
               expanded
                 ? "border border-[var(--app-border)] text-[var(--app-accent)]"
@@ -191,8 +249,28 @@ export default function WorkspaceItem({
             }`}
             style={expanded ? { background: "var(--app-hover)" } : undefined}
             onClick={() => onExpand(ws.id)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onExpand(ws.id);
+              }
+            }}
           >
             <div className="flex items-center gap-2">
+              {dragHandleProps ? (
+                <button
+                  type="button"
+                  aria-label={t("workspaceReorderHandle", {
+                    defaultValue: "拖动排序工作空间",
+                  })}
+                  className="flex h-5 w-5 items-center justify-center rounded-sm text-[var(--app-text-tertiary)] opacity-0 transition-opacity cursor-grab group-hover:opacity-70 hover:text-[var(--app-text-secondary)]"
+                  onClick={(event) => event.stopPropagation()}
+                  {...dragHandleProps}
+                >
+                  <GripVertical className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
               <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
               <span className="text-sm font-medium tracking-wide">{displayName}</span>
               {showWslBadge ? (
@@ -217,24 +295,78 @@ export default function WorkspaceItem({
             >
               {ws.projects.length}
             </span>
-          </button>
+          </div>
         </ContextMenuTrigger>
 
         <ContextMenuContent className="w-56">
-          <ContextMenuItem onClick={() => openWorkspace()}>
-            <Terminal /> {t("openTerminal")}
-          </ContextMenuItem>
-
-          {cliLaunchItems.map((item) => (
-            <ContextMenuItem
-              key={item.key}
-              onClick={() => openWorkspace(item.cliTool, item.environment)}
-            >
-              <Terminal /> {item.label}
-            </ContextMenuItem>
-          ))}
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <Star /> {t("favoriteLaunches", { defaultValue: "常用" })}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-60">
+              <ContextMenuItem disabled>
+                {t("favoriteLaunchRun", { defaultValue: "启动" })}
+              </ContextMenuItem>
+              {favoriteLaunchActions.length > 0 ? (
+                favoriteLaunchActions.map((action) => (
+                  <ContextMenuItem
+                    key={`favorite-${action.id}`}
+                    onClick={() => openWorkspace(action.cliTool, action.environment)}
+                  >
+                    <Terminal /> {action.label}
+                  </ContextMenuItem>
+                ))
+              ) : (
+                <ContextMenuItem disabled>
+                  {t("favoriteLaunchEmpty", { defaultValue: "暂无常用项" })}
+                </ContextMenuItem>
+              )}
+              <ContextMenuSeparator />
+              <ContextMenuItem disabled>
+                {t("favoriteLaunchManage", { defaultValue: "显示在常用" })}
+              </ContextMenuItem>
+              {allLaunchActions.map((action) => (
+                <ContextMenuCheckboxItem
+                  key={`favorite-toggle-${action.id}`}
+                  checked={favoriteLaunchIds.includes(action.id)}
+                  onCheckedChange={(checked) => void handleToggleFavoriteLaunchAction(action.id, checked === true)}
+                >
+                  {t("favoriteLaunchToggleLabel", {
+                    label: action.label,
+                    defaultValue: `显示 ${action.label}`,
+                  })}
+                </ContextMenuCheckboxItem>
+              ))}
+              <ContextMenuSeparator />
+              <ContextMenuCheckboxItem
+                checked={hideNonFavoriteLaunchActions}
+                onCheckedChange={(checked) => void handleToggleHideNonFavoriteLaunchActions(checked === true)}
+              >
+                {t("hideNonFavoriteLaunchActions", { defaultValue: "隐藏非常用菜单" })}
+              </ContextMenuCheckboxItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
 
           <ContextMenuSeparator />
+
+          {!shouldHideNonFavoriteLaunchActions ? (
+            <>
+              <ContextMenuItem onClick={() => openWorkspace()}>
+                <Terminal /> {t("openTerminal")}
+              </ContextMenuItem>
+
+              {cliLaunchItems.map((item) => (
+                <ContextMenuItem
+                  key={item.key}
+                  onClick={() => openWorkspace(item.cliTool, item.environment)}
+                >
+                  <Terminal /> {item.label}
+                </ContextMenuItem>
+              ))}
+
+              <ContextMenuSeparator />
+            </>
+          ) : null}
 
           <ContextMenuItem disabled={!rootPath} onClick={handleRevealFolder}>
             <FolderOpen /> {t("openFolder")}
@@ -284,17 +416,9 @@ export default function WorkspaceItem({
                   {t("clearWorkspacePath")}
                 </ContextMenuItem>
               ) : null}
-              {isWindows ? (
-                <ContextMenuCheckboxItem
-                  checked={getWorkspaceDefaultEnvironment(ws) === "wsl"}
-                  onCheckedChange={() => onSetDefaultEnvironment(
-                    ws,
-                    getWorkspaceDefaultEnvironment(ws) === "wsl" ? "local" : "wsl",
-                  )}
-                >
-                  {t("defaultOpenInWsl")}
-                </ContextMenuCheckboxItem>
-              ) : null}
+              <ContextMenuItem onClick={() => onOpenEnvironment(ws)}>
+                <Terminal /> {t("workspaceEnv.title", { defaultValue: "运行环境" })}...
+              </ContextMenuItem>
 
               <ContextMenuSeparator />
 
@@ -311,17 +435,32 @@ export default function WorkspaceItem({
                 <ContextMenuSubTrigger onPointerEnter={() => fetchHookStatuses()}>
                   {t("hooks")}
                 </ContextMenuSubTrigger>
-                <ContextMenuSubContent>
-                  {hookStatuses.map((hook) => (
-                    <ContextMenuCheckboxItem
-                      key={hook.name}
-                      checked={hook.enabled}
-                      onClick={() => handleToggleHook(hook)}
-                    >
-                      {getHookLabel(hook)}
-                    </ContextMenuCheckboxItem>
+                <ContextMenuSubContent className="w-52">
+                  {hookGroups.map((group) => (
+                    <ContextMenuSub key={group.cliTool}>
+                      <ContextMenuSubTrigger>{group.label}</ContextMenuSubTrigger>
+                      <ContextMenuSubContent className="w-56">
+                        {group.hooks.map((hook) => (
+                          <ContextMenuCheckboxItem
+                            key={hook.name}
+                            checked={hook.enabled}
+                            disabled={!hook.supported}
+                            onClick={() => hook.supported && handleToggleHook(group.cliTool, hook)}
+                          >
+                            {hook.supported
+                              ? getHookLabel(hook)
+                              : `${getHookLabel(hook)} (${t("hookUnavailable")})`}
+                          </ContextMenuCheckboxItem>
+                        ))}
+                        {group.reason ? (
+                          <ContextMenuItem disabled>
+                            {t("hookUnavailableReason", { reason: group.reason })}
+                          </ContextMenuItem>
+                        ) : null}
+                      </ContextMenuSubContent>
+                    </ContextMenuSub>
                   ))}
-                  {hookStatuses.length === 0 ? (
+                  {hookGroups.length === 0 ? (
                     <ContextMenuItem disabled>Loading...</ContextMenuItem>
                   ) : null}
                 </ContextMenuSubContent>
@@ -337,7 +476,11 @@ export default function WorkspaceItem({
         </ContextMenuContent>
       </ContextMenu>
 
-      {expanded ? children : null}
+      {expanded ? (
+        <div className="mx-3 mb-2 overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-glass-bg)]">
+          {children}
+        </div>
+      ) : null}
 
       <AddSshProjectDialog
         open={sshDialogOpen}

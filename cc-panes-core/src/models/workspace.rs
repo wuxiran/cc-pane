@@ -1,3 +1,4 @@
+use crate::models::ssh_machine::AuthMethod;
 use serde::{Deserialize, Serialize};
 
 /// 工作空间默认运行环境
@@ -267,6 +268,10 @@ pub struct SshConnectionInfo {
     pub remote_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_method: Option<AuthMethod>,
 }
 
 #[cfg(test)]

@@ -59,7 +59,9 @@ export function getWorkspaceDefaultEnvironment(
   return workspace.defaultEnvironment ?? "local";
 }
 
-export function getWorkspaceProjectKind(project: WorkspaceProject): WorkspaceProjectKind {
+export function getWorkspaceProjectKind(
+  project: WorkspaceProject,
+): WorkspaceProjectKind {
   if (project.ssh) return "ssh";
   if (project.wslRemotePath?.trim()) return "wsl";
   if (isWslUncPath(project.path)) return "wsl";
@@ -106,18 +108,27 @@ export function resolveWorkspaceProjectWslPath(
     return toWslPath(project.path);
   }
 
-  const relativePath = normalizedProjectPath.slice(normalizedLocalRoot.length + 1);
+  const relativePath = normalizedProjectPath.slice(
+    normalizedLocalRoot.length + 1,
+  );
   return joinLinuxPath(remoteRoot, relativePath);
 }
 
-export function buildSshDisplayPath(machine: SshMachine, remotePath: string): string {
+export function buildSshDisplayPath(
+  machine: SshMachine,
+  remotePath: string,
+): string {
   const userPart = machine.user ? `${machine.user}@` : "";
   const portPart = machine.port !== 22 ? `:${machine.port}` : "";
-  const normalizedPath = remotePath.startsWith("/") ? remotePath : `/${remotePath}`;
+  const normalizedPath = remotePath.startsWith("/")
+    ? remotePath
+    : `/${remotePath}`;
   return `ssh://${userPart}${machine.host}${portPart}${normalizedPath}`;
 }
 
-export function buildSshConnectionDisplayPath(connection: SshConnectionInfo): string {
+export function buildSshConnectionDisplayPath(
+  connection: SshConnectionInfo,
+): string {
   const userPart = connection.user ? `${connection.user}@` : "";
   const portPart = connection.port !== 22 ? `:${connection.port}` : "";
   const normalizedPath = connection.remotePath.startsWith("/")
@@ -126,7 +137,9 @@ export function buildSshConnectionDisplayPath(connection: SshConnectionInfo): st
   return `ssh://${userPart}${connection.host}${portPart}${normalizedPath}`;
 }
 
-export function getWorkspaceLaunchIssueKey(issue: WorkspaceLaunchIssue): string {
+export function getWorkspaceLaunchIssueKey(
+  issue: WorkspaceLaunchIssue,
+): string {
   switch (issue.code) {
     case "local_path_missing":
       return "workspaceEnv.issue.localPathMissing";
@@ -145,7 +158,9 @@ export function getWorkspaceLaunchIssueKey(issue: WorkspaceLaunchIssue): string 
   }
 }
 
-export function getWorkspaceLaunchIssueValues(issue: WorkspaceLaunchIssue): Record<string, string> {
+export function getWorkspaceLaunchIssueValues(
+  issue: WorkspaceLaunchIssue,
+): Record<string, string> {
   if (issue.code === "ssh_machine_not_found") {
     return { machineId: issue.detail ?? "" };
   }
@@ -165,17 +180,21 @@ export function resolveWorkspaceLaunchOptions(
 }
 
 export function resolveWorkspaceProjectLaunchOptions(
-  params: WorkspaceProjectLaunchParams & { environment?: WorkspaceLaunchEnvironment },
+  params: WorkspaceProjectLaunchParams & {
+    environment?: WorkspaceLaunchEnvironment;
+  },
 ): { options: OpenTerminalOptions | null; issue: WorkspaceLaunchIssue | null } {
   const platform = params.platform ?? detectAppPlatform();
-  const environment = params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
+  const environment =
+    params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
   const { workspace, project, cliTool, providerId, machines } = params;
 
   if (project.ssh) {
-    const machine = machines.find((item) =>
-      item.host === project.ssh!.host
-      && item.port === project.ssh!.port
-      && item.user === project.ssh!.user
+    const machine = machines.find(
+      (item) =>
+        item.host === project.ssh!.host &&
+        item.port === project.ssh!.port &&
+        item.user === project.ssh!.user,
     );
     return {
       options: {
@@ -184,7 +203,11 @@ export function resolveWorkspaceProjectLaunchOptions(
         providerId,
         workspacePath: workspace.path,
         cliTool,
-        ssh: { ...project.ssh },
+        ssh: {
+          ...project.ssh,
+          machineId: project.ssh.machineId ?? machine?.id,
+          authMethod: project.ssh.authMethod ?? machine?.authMethod,
+        },
         machineName: machine?.name ?? project.alias,
       },
       issue: null,
@@ -255,7 +278,11 @@ export function resolveWorkspaceProjectLaunchOptions(
       if (!machine) {
         return {
           options: null,
-          issue: { environment, code: "ssh_machine_not_found", detail: machineId },
+          issue: {
+            environment,
+            code: "ssh_machine_not_found",
+            detail: machineId,
+          },
         };
       }
       return {
@@ -271,6 +298,8 @@ export function resolveWorkspaceProjectLaunchOptions(
             user: machine.user,
             remotePath,
             identityFile: machine.identityFile,
+            machineId: machine.id,
+            authMethod: machine.authMethod,
           },
           machineName: machine.name,
         },
@@ -284,7 +313,8 @@ function resolveWorkspaceLaunchOptionsInternal(
   params: WorkspaceLaunchParams & { environment?: WorkspaceLaunchEnvironment },
 ): { options: OpenTerminalOptions | null; issue: WorkspaceLaunchIssue | null } {
   const platform = params.platform ?? detectAppPlatform();
-  const environment = params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
+  const environment =
+    params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
   const { workspace, machines, cliTool, providerId } = params;
   const effectiveProviderId = providerId;
 
@@ -304,7 +334,9 @@ function resolveWorkspaceLaunchOptionsInternal(
         };
       }
 
-      const fallbackProject = workspace.projects.find((project) => !project.ssh);
+      const fallbackProject = workspace.projects.find(
+        (project) => !project.ssh,
+      );
       if (fallbackProject) {
         return {
           options: {
@@ -334,7 +366,8 @@ function resolveWorkspaceLaunchOptionsInternal(
 
       const localPath = workspace.path?.trim();
       const workspaceRemotePath =
-        workspace.wsl?.remotePath?.trim() || (localPath ? toWslPath(localPath) ?? undefined : undefined);
+        workspace.wsl?.remotePath?.trim() ||
+        (localPath ? (toWslPath(localPath) ?? undefined) : undefined);
       if (localPath && workspaceRemotePath) {
         return {
           options: {
@@ -366,7 +399,10 @@ function resolveWorkspaceLaunchOptionsInternal(
             cliTool,
             wsl: {
               distro: workspace.wsl?.distro?.trim() || undefined,
-              remotePath: resolveWorkspaceProjectWslPath(workspace, fallbackProject)!,
+              remotePath: resolveWorkspaceProjectWslPath(
+                workspace,
+                fallbackProject,
+              )!,
             },
           },
           issue: null,
@@ -400,6 +436,8 @@ function resolveWorkspaceLaunchOptionsInternal(
                 user: machine.user,
                 remotePath,
                 identityFile: machine.identityFile,
+                machineId: machine.id,
+                authMethod: machine.authMethod,
               },
               machineName: machine.name,
             },
@@ -408,12 +446,15 @@ function resolveWorkspaceLaunchOptionsInternal(
         }
       }
 
-      const fallbackProject = workspace.projects.find((project) => !!project.ssh);
+      const fallbackProject = workspace.projects.find(
+        (project) => !!project.ssh,
+      );
       if (fallbackProject?.ssh) {
-        const machine = machines.find((item) =>
-          item.host === fallbackProject.ssh!.host
-          && item.port === fallbackProject.ssh!.port
-          && item.user === fallbackProject.ssh!.user
+        const machine = machines.find(
+          (item) =>
+            item.host === fallbackProject.ssh!.host &&
+            item.port === fallbackProject.ssh!.port &&
+            item.user === fallbackProject.ssh!.user,
         );
         return {
           options: {
@@ -422,7 +463,11 @@ function resolveWorkspaceLaunchOptionsInternal(
             providerId: effectiveProviderId,
             workspacePath: workspace.path,
             cliTool,
-            ssh: { ...fallbackProject.ssh },
+            ssh: {
+              ...fallbackProject.ssh,
+              machineId: fallbackProject.ssh.machineId ?? machine?.id,
+              authMethod: fallbackProject.ssh.authMethod ?? machine?.authMethod,
+            },
             machineName: machine?.name ?? fallbackProject.alias,
           },
           issue: null,

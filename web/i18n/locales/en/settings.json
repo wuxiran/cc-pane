@@ -66,7 +66,6 @@
   "notifyOnExit": "Notify on task exit",
   "notifyOnWaitingInput": "Notify when waiting for input",
   "notifyOnlyUnfocused": "Notify only when window is unfocused",
-
   "providerTitle": "Provider Management",
   "providerDesc": "Manage AI Provider configurations. After binding a Provider to a workspace, the corresponding environment variables will be injected when opening a terminal.",
   "noProviders": "No Providers yet, click the button below to add one",

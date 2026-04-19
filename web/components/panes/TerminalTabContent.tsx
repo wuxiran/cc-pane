@@ -52,6 +52,7 @@ export default memo(function TerminalTabContent({
           <TerminalView
             ref={(ref) => onTerminalRef(leaf.id, ref)}
             sessionId={leaf.sessionId}
+            projectId={tab.projectId}
             projectPath={tab.projectPath}
             isActive={isActive && tab.activeTerminalPaneId === leaf.id}
             workspaceName={leaf.workspaceName}
