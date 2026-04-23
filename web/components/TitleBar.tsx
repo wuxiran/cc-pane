@@ -20,6 +20,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
   return (
     <div
       className="relative flex items-center h-[32px] shrink-0 select-none z-10"
+      data-tauri-drag-region=""
       style={{
         paddingLeft: isMac ? 78 : 12,
         paddingRight: 12,
@@ -27,7 +28,8 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
         borderBottom: "1px solid var(--app-border)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
-      }}
+        WebkitAppRegion: "drag",
+      } as React.CSSProperties}
     >
       {/* 顶部高光线 */}
       <div
@@ -49,11 +51,10 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
       {/* 中间：拖拽区 */}
       <div
-        className="flex-1 h-full flex items-center justify-center cursor-grab"
-        data-tauri-drag-region=""
-        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        data-testid="titlebar-drag-spacer"
+        className="flex-1 h-full cursor-grab"
         onMouseDown={(e) => {
-          if (e.button === 0) {
+          if (e.button === 0 && e.target === e.currentTarget) {
             e.preventDefault();
             startDrag();
           }

@@ -78,4 +78,55 @@ describe("historyService", () => {
       expect(invoke).toHaveBeenCalledWith("clear_launch_history");
     });
   });
+
+  describe("resume 相关命令", () => {
+    it("应该调用 detect_resume_session 并传递运行环境参数", async () => {
+      mockTauriInvoke({ detect_resume_session: "resume-123" });
+
+      const result = await historyService.detectResumeSession(
+        "codex",
+        "wsl",
+        "Ubuntu",
+        "/project/path",
+        "/workspace/path",
+        "2026-04-20T00:00:00.000Z",
+      );
+
+      expect(invoke).toHaveBeenCalledWith("detect_resume_session", {
+        cliTool: "codex",
+        runtimeKind: "wsl",
+        wslDistro: "Ubuntu",
+        projectPath: "/project/path",
+        workspacePath: "/workspace/path",
+        afterTs: "2026-04-20T00:00:00.000Z",
+      });
+      expect(result).toBe("resume-123");
+    });
+
+    it("应该调用 start_launch_history_backfill 并传递 PTY 与 launch 元数据", async () => {
+      mockTauriInvoke({ start_launch_history_backfill: undefined });
+
+      await historyService.startLaunchHistoryBackfill(
+        "launch-1",
+        "pty-1",
+        "claude",
+        "local",
+        undefined,
+        "/project/path",
+        "/workspace/path",
+        "2026-04-20T00:00:00.000Z",
+      );
+
+      expect(invoke).toHaveBeenCalledWith("start_launch_history_backfill", {
+        launchId: "launch-1",
+        ptySessionId: "pty-1",
+        cliTool: "claude",
+        runtimeKind: "local",
+        wslDistro: null,
+        projectPath: "/project/path",
+        workspacePath: "/workspace/path",
+        afterTs: "2026-04-20T00:00:00.000Z",
+      });
+    });
+  });
 });

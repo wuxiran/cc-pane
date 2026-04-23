@@ -7,11 +7,11 @@
   "author": "wuxiran",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wuxiran/cc-panes.git"
+    "url": "https://github.com/wuxiran/cc-pane.git"
   },
-  "homepage": "https://github.com/wuxiran/cc-panes",
+  "homepage": "https://github.com/wuxiran/cc-pane",
   "bugs": {
-    "url": "https://github.com/wuxiran/cc-panes/issues"
+    "url": "https://github.com/wuxiran/cc-pane/issues"
   },
   "keywords": [
     "claude-code",

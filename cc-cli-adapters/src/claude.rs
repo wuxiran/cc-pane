@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tracing::{info, warn};
 
 const HOOK_BINARY_NAME: &str = "cc-panes-cli-hook";
@@ -313,6 +314,133 @@ impl ClaudeAdapter {
                 .unwrap_or(false)
         })
     }
+
+    fn resolve_claude_path() -> Result<PathBuf> {
+        #[cfg(not(windows))]
+        {
+            which::which("claude").map_err(|_| anyhow!("claude CLI not found in PATH"))
+        }
+
+        #[cfg(windows)]
+        {
+            if let Ok(path) = which::which("claude") {
+                return Ok(path);
+            }
+
+            if let Some(path) = Self::find_windows_claude_path() {
+                return Ok(path);
+            }
+
+            Err(anyhow!("claude CLI not found in PATH"))
+        }
+    }
+
+    #[cfg(windows)]
+    fn find_windows_claude_path() -> Option<PathBuf> {
+        let mut dirs = Vec::new();
+
+        if let Some(home) = dirs::home_dir() {
+            dirs.push(home.join(".local").join("bin"));
+            dirs.push(home.join("AppData").join("Roaming").join("npm"));
+            dirs.push(home.join("scoop").join("shims"));
+        }
+
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            dirs.push(PathBuf::from(app_data).join("npm"));
+        }
+
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            dirs.push(
+                PathBuf::from(local_app_data)
+                    .join("Microsoft")
+                    .join("WinGet")
+                    .join("Links"),
+            );
+        }
+
+        if let Ok(scoop_root) = std::env::var("SCOOP") {
+            dirs.push(PathBuf::from(scoop_root).join("shims"));
+        }
+
+        if let Ok(path_var) = std::env::var("PATH") {
+            dirs.extend(std::env::split_paths(&path_var));
+        }
+
+        let extensions = Self::windows_executable_extensions();
+        Self::find_executable_in_dirs("claude", &dirs, &extensions)
+    }
+
+    fn find_executable_in_dirs(
+        executable: &str,
+        dirs: &[PathBuf],
+        extensions: &[String],
+    ) -> Option<PathBuf> {
+        let has_extension = Path::new(executable).extension().is_some();
+        let mut seen = Vec::new();
+
+        for dir in dirs {
+            if dir.as_os_str().is_empty() || !dir.is_dir() {
+                continue;
+            }
+
+            let normalized = dir.to_string_lossy().to_ascii_lowercase();
+            if seen.iter().any(|value| value == &normalized) {
+                continue;
+            }
+            seen.push(normalized);
+
+            let direct = dir.join(executable);
+            if direct.is_file() {
+                return Some(direct);
+            }
+
+            if has_extension {
+                continue;
+            }
+
+            for extension in extensions {
+                let candidate = dir.join(format!("{}{}", executable, extension));
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+
+        None
+    }
+
+    #[cfg(windows)]
+    fn windows_executable_extensions() -> Vec<String> {
+        let from_env = std::env::var("PATHEXT")
+            .ok()
+            .map(|value| {
+                value
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| {
+                        if value.starts_with('.') {
+                            value.to_ascii_lowercase()
+                        } else {
+                            format!(".{}", value.to_ascii_lowercase())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let defaults = [".exe", ".cmd", ".bat", ".com"];
+        let mut ordered = Vec::new();
+        for value in from_env
+            .into_iter()
+            .chain(defaults.into_iter().map(str::to_string))
+        {
+            if !ordered.iter().any(|existing| existing == &value) {
+                ordered.push(value);
+            }
+        }
+        ordered
+    }
 }
 
 impl Default for ClaudeAdapter {
@@ -328,6 +456,23 @@ impl CliToolAdapter for ClaudeAdapter {
 
     fn capabilities(&self) -> &CliToolCapabilities {
         &self.caps
+    }
+
+    fn detect(&self) -> CliToolInfo {
+        let mut info = self.info().clone();
+        match Self::resolve_claude_path() {
+            Ok(path) => {
+                info.installed = true;
+                info.path = Some(path.to_string_lossy().into_owned());
+                info.version =
+                    crate::run_with_timeout(&path, &info.version_args, Duration::from_secs(5));
+            }
+            Err(_) => {
+                info.installed = false;
+            }
+        }
+        info.capabilities = Some(self.capabilities().clone());
+        info
     }
 
     fn global_commands_dir(&self) -> Option<std::path::PathBuf> {
@@ -417,7 +562,7 @@ impl CliToolAdapter for ClaudeAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let path = which::which("claude").map_err(|_| anyhow!("claude CLI not found in PATH"))?;
+        let path = Self::resolve_claude_path()?;
         let mut args = Vec::new();
 
         // Resume
@@ -485,6 +630,7 @@ impl CliToolAdapter for ClaudeAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     #[test]
@@ -522,5 +668,48 @@ mod tests {
         assert!(!plan.enabled);
         assert!(session.supported);
         assert!(plan.supported);
+    }
+
+    #[test]
+    fn find_executable_in_dirs_uses_extension_candidates() {
+        let dir = tempdir().unwrap();
+        let executable = dir.path().join("claude.cmd");
+        fs::write(&executable, "echo hi").unwrap();
+
+        let resolved = ClaudeAdapter::find_executable_in_dirs(
+            "claude",
+            &[dir.path().to_path_buf()],
+            &[String::from(".cmd"), String::from(".exe")],
+        );
+
+        assert_eq!(resolved.as_deref(), Some(executable.as_path()));
+    }
+
+    #[test]
+    fn find_executable_in_dirs_skips_duplicate_directories() {
+        let dir = tempdir().unwrap();
+        let executable = dir.path().join("claude.exe");
+        fs::write(&executable, "binary").unwrap();
+
+        let dirs = vec![dir.path().to_path_buf(), PathBuf::from(dir.path())];
+        let resolved =
+            ClaudeAdapter::find_executable_in_dirs("claude", &dirs, &[String::from(".exe")]);
+
+        assert_eq!(resolved.as_deref(), Some(executable.as_path()));
+    }
+
+    #[test]
+    fn find_executable_in_dirs_respects_existing_extension() {
+        let dir = tempdir().unwrap();
+        let executable = dir.path().join("claude.exe");
+        fs::write(&executable, "binary").unwrap();
+
+        let resolved = ClaudeAdapter::find_executable_in_dirs(
+            "claude.exe",
+            &[dir.path().to_path_buf()],
+            &[String::from(".cmd")],
+        );
+
+        assert_eq!(resolved.as_deref(), Some(executable.as_path()));
     }
 }
