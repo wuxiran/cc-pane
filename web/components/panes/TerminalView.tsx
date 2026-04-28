@@ -15,6 +15,8 @@ import { replayAttachedSession } from "./terminalReplay";
 import { formatTerminalInitError } from "./terminalInitError";
 import { buildCursorPositionReport } from "./terminalCpr";
 import { isTerminalPasteShortcut, resolveTerminalPastePayload } from "./terminalClipboard";
+import { applyTerminalDisplayOptions, resolveTerminalDisplayOptions } from "./terminalOptions";
+import { resolveTerminalWheelMode } from "./terminalWheel";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import "@xterm/xterm/css/xterm.css";
 
@@ -136,6 +138,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const debugInstanceIdRef = useRef(`term-${Math.random().toString(36).slice(2, 8)}`);
     const trackedBufferTypeRef = useRef<"unknown" | "normal" | "alternate">("unknown");
     const lastWheelDecisionRef = useRef<string | null>(null);
+    const terminalSettings = useSettingsStore((s) => s.settings?.terminal);
 
     const debugLog = useCallback((event: string, payload: Record<string, unknown> = {}) => {
       if (!TERMINAL_DEBUG) return;
@@ -271,7 +274,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
       // Remove the wheel handler before disposing xterm.
       if (wheelHandlerRef.current && terminalInstanceRef.current?.element) {
-        terminalInstanceRef.current.element.removeEventListener('wheel', wheelHandlerRef.current);
+        terminalInstanceRef.current.element.removeEventListener('wheel', wheelHandlerRef.current, true);
         wheelHandlerRef.current = null;
       }
       if (pasteHandlerRef.current && terminalInstanceRef.current?.textarea) {
@@ -460,16 +463,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         if (!isMounted || !terminalRef.current) return;
 
-        const termSettings = useSettingsStore.getState().settings?.terminal;
-        const scrollback = termSettings?.scrollback ?? 1000;
-        const fontFamily = termSettings?.fontFamily || 'Consolas, "Courier New", "Microsoft YaHei Mono", "Noto Sans Mono CJK SC", "PingFang SC", monospace';
+        const displayOptions = resolveTerminalDisplayOptions(
+          useSettingsStore.getState().settings?.terminal
+        );
 
         const term = new Terminal({
           allowProposedApi: true,
-          cursorBlink: true,
-          fontSize: 14,
-          scrollback,
-          fontFamily,
+          ...displayOptions,
           ...(navigator.platform.startsWith('Win') && buildNumber && buildNumber > 0 && {
             windowsPty: {
               backend: 'conpty' as const,
@@ -511,8 +511,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
         trackedBufferTypeRef.current = term.buffer.active.type;
         debugLog("xterm.ready", {
-          scrollback,
-          fontFamily,
+          fontSize: displayOptions.fontSize,
+          fontFamily: displayOptions.fontFamily,
+          cursorStyle: displayOptions.cursorStyle,
+          cursorBlink: displayOptions.cursorBlink,
+          scrollback: displayOptions.scrollback,
           initialBuffer: term.buffer.active.type,
           writeFlowControl: IS_WINDOWS ? "enabled" : "disabled",
         });
@@ -698,19 +701,37 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
         observer.observe(terminalRef.current);
 
-        // Convert wheel events into arrow keys while the alternate buffer is active.
+        // Let normal scrollback use browser scrolling before xterm mouse reporting can cancel it.
+        // Alternate-buffer apps still receive arrow keys for wheel navigation.
         const wheelHandler = (e: WheelEvent) => {
-          const bufferType = term.buffer.active.type;
-          const decision = bufferType === "alternate" ? "alternate-handle" : "normal-bypass";
+          const buffer = term.buffer.active;
+          const bufferType = buffer.type;
+          const wheelMode = resolveTerminalWheelMode({
+            bufferType,
+            baseY: buffer.baseY,
+          });
+          const decision =
+            wheelMode === "browser-history"
+              ? "normal-browser-history"
+              : wheelMode === "alternate-app"
+                ? "alternate-handle"
+                : "normal-bypass";
           if (lastWheelDecisionRef.current !== decision) {
             lastWheelDecisionRef.current = decision;
             debugLog("wheel.mode", {
               bufferType,
+              baseY: buffer.baseY,
               decision,
               deltaMode: e.deltaMode,
             });
           }
-          if (bufferType !== 'alternate') return;
+
+          if (wheelMode === "browser-history") {
+            e.stopImmediatePropagation();
+            return;
+          }
+
+          if (wheelMode !== "alternate-app") return;
           e.preventDefault();
           e.stopPropagation();
           const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 40));
@@ -719,7 +740,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             terminalService.write(currentSessionIdRef.current, arrow.repeat(lines));
           }
         };
-        term.element?.addEventListener('wheel', wheelHandler, { passive: false });
+        term.element?.addEventListener('wheel', wheelHandler, { passive: false, capture: true });
         wheelHandlerRef.current = wheelHandler;
 
         terminalInstanceRef.current = term;
@@ -958,6 +979,51 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         window.removeEventListener("focus", handleWindowFocus);
       };
     }, [scheduleTextureAtlasRefresh]);
+
+    useEffect(() => {
+      const term = terminalInstanceRef.current;
+      if (!term) return;
+
+      const displayOptions = resolveTerminalDisplayOptions(terminalSettings);
+      const changed = applyTerminalDisplayOptions(term, displayOptions);
+      if (!changed) return;
+
+      debugLog("settings.terminal.applied", {
+        fontSize: displayOptions.fontSize,
+        fontFamily: displayOptions.fontFamily,
+        cursorStyle: displayOptions.cursorStyle,
+        cursorBlink: displayOptions.cursorBlink,
+        scrollback: displayOptions.scrollback,
+      });
+
+      let cancelled = false;
+      const rafId = requestAnimationFrame(() => {
+        if (cancelled || isUnmountedRef.current) return;
+        const currentTerm = terminalInstanceRef.current;
+        const fitAddon = fitAddonRef.current;
+        if (!currentTerm || !fitAddon) return;
+
+        fitAddon.fit();
+        currentTerm.refresh(0, Math.max(0, currentTerm.rows - 1));
+        scheduleTextureAtlasRefresh("terminal-settings");
+
+        const { cols, rows } = currentTerm;
+        if (lastSizeRef.current?.cols === cols && lastSizeRef.current?.rows === rows) return;
+        lastSizeRef.current = { cols, rows };
+        if (currentSessionIdRef.current) {
+          terminalService.resize({
+            sessionId: currentSessionIdRef.current,
+            cols,
+            rows,
+          });
+        }
+      });
+
+      return () => {
+        cancelled = true;
+        cancelAnimationFrame(rafId);
+      };
+    }, [debugLog, scheduleTextureAtlasRefresh, terminalSettings]);
 
     // Refit on activation and create deferred PTYs for restored tabs.
     useEffect(() => {
