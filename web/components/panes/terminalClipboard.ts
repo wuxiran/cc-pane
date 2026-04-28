@@ -19,6 +19,13 @@ export function clipboardHasImage(clipboardData?: DataTransfer | null): boolean 
   );
 }
 
+export function isTerminalPasteShortcut(e: KeyboardEvent): boolean {
+  if (e.type !== "keydown") return false;
+  if (e.altKey) return false;
+  if (!e.ctrlKey && !e.metaKey) return false;
+  return e.key.toLowerCase() === "v";
+}
+
 export async function readClipboardText(textHint?: string | null): Promise<string> {
   if (textHint) return textHint;
 

@@ -14,7 +14,7 @@ import { isDragging } from "@/stores/splitDragState";
 import { replayAttachedSession } from "./terminalReplay";
 import { formatTerminalInitError } from "./terminalInitError";
 import { buildCursorPositionReport } from "./terminalCpr";
-import { resolveTerminalPastePayload } from "./terminalClipboard";
+import { isTerminalPasteShortcut, resolveTerminalPastePayload } from "./terminalClipboard";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import "@xterm/xterm/css/xterm.css";
 
@@ -616,6 +616,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         // Intercept copy shortcuts while allowing native paste events through.
         term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+          if (isTerminalPasteShortcut(e)) {
+            // Do not preventDefault here; WebView must dispatch paste to the hidden textarea.
+            return false;
+          }
+
           if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !e.altKey) {
             // Copy the selection on Ctrl+C; otherwise let the terminal handle SIGINT.
             if (!e.shiftKey && (e.key === 'c' || e.key === 'C')) {

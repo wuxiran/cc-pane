@@ -17,6 +17,7 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
 
 import {
   clipboardHasImage,
+  isTerminalPasteShortcut,
   resolveTerminalPastePayload,
 } from "./terminalClipboard";
 
@@ -31,6 +32,26 @@ function createClipboardData({
     items,
     getData: vi.fn((type: string) => (type === "text/plain" ? text : "")),
   } as unknown as DataTransfer;
+}
+
+function createKeyboardEvent(
+  key: string,
+  options: {
+    ctrlKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    metaKey?: boolean;
+  } = {}
+): KeyboardEvent {
+  return new KeyboardEvent("keydown", {
+    key,
+    ctrlKey: options.ctrlKey ?? false,
+    shiftKey: options.shiftKey ?? false,
+    altKey: options.altKey ?? false,
+    metaKey: options.metaKey ?? false,
+    bubbles: true,
+    cancelable: true,
+  });
 }
 
 describe("terminalClipboard", () => {
@@ -67,6 +88,14 @@ describe("terminalClipboard", () => {
         })
       )
     ).toBe(false);
+  });
+
+  it("identifies native paste shortcuts that should bypass xterm key handling", () => {
+    expect(isTerminalPasteShortcut(createKeyboardEvent("v", { ctrlKey: true }))).toBe(true);
+    expect(isTerminalPasteShortcut(createKeyboardEvent("V", { ctrlKey: true, shiftKey: true }))).toBe(true);
+    expect(isTerminalPasteShortcut(createKeyboardEvent("v", { metaKey: true }))).toBe(true);
+    expect(isTerminalPasteShortcut(createKeyboardEvent("v", { ctrlKey: true, altKey: true }))).toBe(false);
+    expect(isTerminalPasteShortcut(createKeyboardEvent("c", { ctrlKey: true }))).toBe(false);
   });
 
   it("prefers clipboard images and returns the saved file path", async () => {
