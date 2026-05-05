@@ -63,7 +63,7 @@ impl PlanService {
             .collect();
 
         // 按归档时间倒序
-        entries.sort_by(|a, b| b.archived_at.cmp(&a.archived_at));
+        entries.sort_by_cached_key(|entry| std::cmp::Reverse(entry.archived_at.clone()));
 
         Ok(entries)
     }

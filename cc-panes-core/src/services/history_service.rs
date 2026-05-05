@@ -867,7 +867,8 @@ impl HistoryService {
 
         if !worktrees_dir.exists() {
             // 排序后截断
-            all_changes.sort_by(|a, b| b.change.timestamp.cmp(&a.change.timestamp));
+            all_changes
+                .sort_by_cached_key(|change| std::cmp::Reverse(change.change.timestamp.clone()));
             all_changes.truncate(limit);
             return Ok(all_changes);
         }
@@ -916,7 +917,7 @@ impl HistoryService {
         }
 
         // 按时间倒序排序，截断到 limit
-        all_changes.sort_by(|a, b| b.change.timestamp.cmp(&a.change.timestamp));
+        all_changes.sort_by_cached_key(|change| std::cmp::Reverse(change.change.timestamp.clone()));
         all_changes.truncate(limit);
         Ok(all_changes)
     }

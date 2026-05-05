@@ -52,16 +52,11 @@ impl<'a> ReportGenerator<'a> {
             "fact",
             "plan",
         ];
-        entries.sort_by(|a, b| {
-            let a_idx = order
+        entries.sort_by_key(|entry| {
+            order
                 .iter()
-                .position(|&x| x == a.category)
-                .unwrap_or(order.len());
-            let b_idx = order
-                .iter()
-                .position(|&x| x == b.category)
-                .unwrap_or(order.len());
-            a_idx.cmp(&b_idx)
+                .position(|&category| category == entry.category)
+                .unwrap_or(order.len())
         });
 
         Ok(DailyReport {

@@ -81,7 +81,7 @@ impl SessionRestoreService {
                 }
             }
         }
-        snapshots.sort_by(|left, right| right.saved_at.cmp(&left.saved_at));
+        snapshots.sort_by_cached_key(|snapshot| std::cmp::Reverse(snapshot.saved_at.clone()));
         Ok(snapshots)
     }
 

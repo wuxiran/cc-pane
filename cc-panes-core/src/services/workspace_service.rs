@@ -1825,7 +1825,7 @@ impl WorkspaceService {
         }
 
         let mut result: Vec<ScannedRepo> = repo_map.into_values().collect();
-        result.sort_by(|a, b| a.main_path.cmp(&b.main_path));
+        result.sort_by_key(|repo| repo.main_path.clone());
         Ok(result)
     }
 

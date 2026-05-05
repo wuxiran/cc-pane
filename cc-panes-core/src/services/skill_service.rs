@@ -77,7 +77,7 @@ impl SkillService {
             }
         }
 
-        skills.sort_by(|a, b| a.name.cmp(&b.name));
+        skills.sort_by_key(|skill| skill.name.clone());
         Ok(skills)
     }
 

@@ -150,7 +150,7 @@ pub fn scan_broken_sessions(project_path: Option<String>) -> AppResult<Vec<Broke
     }
 
     // 按 thinking_blocks 降序排序
-    results.sort_by(|a, b| b.thinking_blocks.cmp(&a.thinking_blocks));
+    results.sort_by_key(|result| std::cmp::Reverse(result.thinking_blocks));
     Ok(results)
 }
 
