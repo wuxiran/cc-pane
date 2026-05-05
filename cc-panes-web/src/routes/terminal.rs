@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use cc_panes_core::models::CliTool;
+use cc_panes_core::models::{CliTool, LaunchProviderSelection};
 use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
@@ -56,7 +56,10 @@ pub async fn create_session(
             rows,
             None, // workspace_name
             None, // provider_id
+            LaunchProviderSelection::Inherit,
+            None, // launch_profile_id
             None, // workspace_path
+            None, // workspace_snapshot_id
             CliTool::None,
             None, // resume_id
             true, // skip_mcp

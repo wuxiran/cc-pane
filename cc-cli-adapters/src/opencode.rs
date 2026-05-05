@@ -36,6 +36,7 @@ impl OpenCodeAdapter {
                     "open_ai".into(),
                     "opencode".into(),
                     "anthropic".into(),
+                    "config_profile".into(),
                 ],
             },
         }

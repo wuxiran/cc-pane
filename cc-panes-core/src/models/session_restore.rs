@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedSession {
+    /// Workspace Session ID owned by CC-Panes.
+    #[serde(default)]
+    pub workspace_snapshot_id: Option<String>,
     /// 原始 PTY session ID
     pub session_id: String,
     /// 前端 Tab ID
@@ -18,6 +21,12 @@ pub struct SavedSession {
     pub workspace_path: Option<String>,
     /// Provider ID
     pub provider_id: Option<String>,
+    /// Provider selection mode: inherit / explicit / none
+    #[serde(default)]
+    pub provider_selection: Option<String>,
+    /// Launch Profile ID
+    #[serde(default)]
+    pub launch_profile_id: Option<String>,
     /// CLI 工具类型: "none" | "claude" | "codex" | ...
     pub cli_tool: String,
     /// 运行环境: "local" | "wsl" | "ssh"

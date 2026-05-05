@@ -237,4 +237,20 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     accentColor: "#6366F1",
     order: 62,
   },
+
+  // ========== Cursor Tab ==========
+
+  // --- official ---
+  {
+    id: "cursor_official",
+    nameKey: "presetCursorName",
+    descKey: "presetCursorDesc",
+    category: "official",
+    providerType: "cursor",
+    defaults: {},
+    userFields: ["apiKey"],
+    website: "https://docs.cursor.com/en/cli/reference/authentication",
+    accentColor: "#111827",
+    order: 70,
+  },
 ];

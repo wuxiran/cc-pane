@@ -1,5 +1,6 @@
 pub mod filesystem;
 mod history;
+pub mod launch_profile;
 pub mod process_info;
 mod project;
 pub mod provider;
@@ -13,6 +14,7 @@ pub mod task_binding;
 mod terminal;
 pub mod todo;
 mod workspace;
+pub mod workspace_snapshot;
 pub mod wsl;
 
 pub use history::{
@@ -34,9 +36,16 @@ pub use history::{
     VersionsMetadata,
     WorktreeRecentChange,
 };
+pub use launch_profile::{
+    LaunchProfile, LaunchProfileConfig, LaunchProfileDraft, LaunchProfileMcpMode,
+    LaunchProfileMcpPolicy, LaunchProfilePreviewRequest, LaunchProfileResolution,
+    LaunchProfileSkillMode, LaunchProfileSkillPolicy, LaunchProviderSelection, ResolvedMcpServer,
+    ResolvedSkill, SharedMcpUrls,
+};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 pub use project::Project;
 pub use screenshot::ScreenshotResult;
+pub use session_restore::SavedSession;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,
@@ -50,4 +59,5 @@ pub use workspace::{
     WorkspaceMigrationStatus, WorkspaceMigrationTargetKind, WorkspaceProject,
     WorkspaceSshLaunchConfig, WorkspaceWslConfig,
 };
+pub use workspace_snapshot::{WorkspaceSnapshot, WorkspaceSnapshotEntry};
 pub use wsl::{WslDistro, WslDistroState};

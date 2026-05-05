@@ -28,12 +28,6 @@ pub(super) const WSL_PROXY_ENV_KEYS: [&str; 8] = [
     "no_proxy",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct SensitiveEnvVarSummary {
-    pub(super) present: bool,
-    pub(super) len: usize,
-}
-
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedWslLaunch {
     pub(super) wsl_path: PathBuf,
@@ -53,38 +47,18 @@ pub(super) fn strip_wsl_proxy_env_vars(env_vars: &mut HashMap<String, String>) {
     env_vars.retain(|key, _| !is_wsl_proxy_env_key(key));
 }
 
-pub(super) fn summarize_sensitive_env_var(
-    env_vars: &HashMap<String, String>,
-    key: &str,
-) -> SensitiveEnvVarSummary {
-    match env_vars.get(key) {
-        Some(value) => SensitiveEnvVarSummary {
-            present: true,
-            len: value.len(),
-        },
-        None => SensitiveEnvVarSummary {
-            present: false,
-            len: 0,
-        },
-    }
-}
-
-pub(super) fn collect_env_key_names(env_vars: &HashMap<String, String>) -> Vec<String> {
-    let mut keys: Vec<String> = env_vars.keys().cloned().collect();
-    keys.sort();
-    keys
-}
-
-pub(super) fn is_wsl_windows_shim_path(path: &str) -> bool {
-    let lowered = path.trim().to_ascii_lowercase();
-    lowered.starts_with("/mnt/")
-        || lowered.ends_with(".cmd")
-        || lowered.ends_with(".ps1")
-        || lowered.ends_with(".exe")
-}
-
 pub(super) fn build_wsl_mcp_url(windows_host: &str, port: &str, token: &str) -> String {
     format!("http://{}:{}/mcp?token={}", windows_host, port, token)
+}
+
+#[cfg(windows)]
+fn rewrite_local_mcp_url_for_wsl(url: &str, windows_host: &str) -> String {
+    for prefix in ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"] {
+        if let Some(rest) = url.strip_prefix(prefix) {
+            return format!("http://{}:{}", windows_host, rest);
+        }
+    }
+    url.to_string()
 }
 
 fn shell_escape_posix(value: &str) -> String {
@@ -110,6 +84,48 @@ fn render_wsl_launch_script(commands: &[String]) -> String {
         script.push('\n');
     }
     script
+}
+
+#[cfg(windows)]
+fn push_wsl_env_exports(remote_parts: &mut Vec<String>, env_vars: &HashMap<String, String>) {
+    let mut keys = env_vars.keys().collect::<Vec<_>>();
+    keys.sort();
+    for key in keys {
+        if TerminalService::is_valid_env_key(key) {
+            if let Some(value) = env_vars.get(key) {
+                remote_parts.push(format!(
+                    "export {}={}",
+                    key,
+                    TerminalService::shell_escape(value)
+                ));
+            }
+        } else {
+            warn!("Skipping WSL env var with invalid key: {}", key);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn push_wsl_ccpanes_env_exports(
+    remote_parts: &mut Vec<String>,
+    env_vars: &HashMap<String, String>,
+) {
+    let mut keys = env_vars
+        .keys()
+        .filter(|key| key.starts_with("CC_PANES_"))
+        .collect::<Vec<_>>();
+    keys.sort();
+    for key in keys {
+        if TerminalService::is_valid_env_key(key) {
+            if let Some(value) = env_vars.get(key) {
+                remote_parts.push(format!(
+                    "export {}={}",
+                    key,
+                    TerminalService::shell_escape(value)
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -236,7 +252,7 @@ fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String
             "CCPANES_WSL_CODEX_SRC={}",
             shell_escape_posix(source_wsl_path)
         ),
-        "CCPANES_WSL_CODEX_DST=\"$HOME/.codex/skills\"".to_string(),
+        "CCPANES_WSL_CODEX_DST=\"${CODEX_HOME:-$HOME/.codex}/skills\"".to_string(),
         format!(
             "CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE={}",
             shell_escape_posix(VERSION_FILE_NAME)
@@ -299,6 +315,64 @@ fn append_codex_resume_args(
     }
 }
 
+fn push_codex_developer_instructions_arg(
+    codex_args: &mut Vec<String>,
+    append_system_prompt: Option<&str>,
+) {
+    let Some(prompt) = append_system_prompt
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+    else {
+        return;
+    };
+
+    codex_args.push("-c".to_string());
+    codex_args.push(format!(
+        "developer_instructions={}",
+        format_toml_value_for_cli(&toml::Value::String(prompt.to_string()))
+    ));
+}
+
+fn push_wsl_codex_mcp_isolation_prelude(
+    remote_parts: &mut Vec<String>,
+    disable_unlisted_mcp_servers: bool,
+    session_id: &str,
+    selected_mcp_config_toml: &str,
+) {
+    if !disable_unlisted_mcp_servers {
+        return;
+    }
+
+    let session_id = sanitize_wsl_script_component(session_id);
+    let heredoc = format!("CCPANES_CODEX_MCP_{}", session_id);
+    remote_parts.push("CCPANES_CODEX_REAL_HOME=\"${CODEX_HOME:-$HOME/.codex}\"".to_string());
+    remote_parts.push(format!(
+        "export CODEX_HOME=\"$HOME/.cache/cc-panes/codex-home/{}\"",
+        session_id
+    ));
+    remote_parts.push("rm -rf \"$CODEX_HOME\"".to_string());
+    remote_parts.push("mkdir -p \"$CODEX_HOME\"".to_string());
+    remote_parts.push(
+        r#"if [ -f "$CCPANES_CODEX_REAL_HOME/config.toml" ]; then
+  awk 'BEGIN{skip=0} /^\[(mcp_servers|plugins|marketplaces)(\.|\])/{skip=1; next} /^\[/{skip=0} !skip{print}' "$CCPANES_CODEX_REAL_HOME/config.toml" > "$CODEX_HOME/config.toml"
+else
+  : > "$CODEX_HOME/config.toml"
+fi"#
+        .to_string(),
+    );
+    remote_parts.push(
+        "for CCPANES_CODEX_LINK_NAME in auth.json AGENTS.md prompts rules; do if [ -e \"$CCPANES_CODEX_REAL_HOME/$CCPANES_CODEX_LINK_NAME\" ]; then ln -sn \"$CCPANES_CODEX_REAL_HOME/$CCPANES_CODEX_LINK_NAME\" \"$CODEX_HOME/$CCPANES_CODEX_LINK_NAME\"; fi; done".to_string(),
+    );
+    if !selected_mcp_config_toml.trim().is_empty() {
+        remote_parts.push(format!(
+            "cat >> \"$CODEX_HOME/config.toml\" <<'{}'\n{}\n{}",
+            heredoc,
+            selected_mcp_config_toml.trim_end(),
+            heredoc
+        ));
+    }
+}
+
 fn is_wsl_home_path(path: &str) -> bool {
     matches!(path.trim(), "~" | "~/")
 }
@@ -325,150 +399,6 @@ pub(super) fn windows_path_to_wsl(path: &std::path::Path) -> Option<String> {
     ))
 }
 
-#[cfg(windows)]
-fn rewrite_windows_path_string_for_wsl(input: &str) -> Option<String> {
-    let bytes = input.as_bytes();
-    let looks_windows_path = input.starts_with("\\\\?\\")
-        || (input.len() >= 3
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && (bytes[2] == b'\\' || bytes[2] == b'/'));
-    if !looks_windows_path {
-        return None;
-    }
-
-    windows_path_to_wsl(std::path::Path::new(input))
-}
-
-#[cfg(windows)]
-fn rewrite_toml_value_for_wsl(value: toml::Value) -> toml::Value {
-    match value {
-        toml::Value::String(text) => rewrite_windows_path_string_for_wsl(&text)
-            .map(toml::Value::String)
-            .unwrap_or(toml::Value::String(text)),
-        toml::Value::Array(items) => {
-            toml::Value::Array(items.into_iter().map(rewrite_toml_value_for_wsl).collect())
-        }
-        toml::Value::Table(table) => toml::Value::Table(
-            table
-                .into_iter()
-                .map(|(key, value)| (key, rewrite_toml_value_for_wsl(value)))
-                .collect(),
-        ),
-        other => other,
-    }
-}
-
-#[cfg(windows)]
-fn is_wsl_compatible_mcp_command(command: &str) -> bool {
-    let lowered = command.trim().to_ascii_lowercase();
-    if lowered.is_empty() {
-        return false;
-    }
-
-    !(lowered == "cmd"
-        || lowered == "cmd.exe"
-        || lowered == "powershell"
-        || lowered == "powershell.exe"
-        || lowered == "pwsh.exe"
-        || lowered.ends_with(".exe")
-        || lowered.ends_with(".cmd")
-        || lowered.ends_with(".ps1"))
-}
-
-#[cfg(windows)]
-fn sanitize_wsl_mcp_servers(value: toml::Value) -> Option<toml::Value> {
-    let toml::Value::Table(servers) = value else {
-        return None;
-    };
-
-    let mut sanitized = toml::map::Map::new();
-    for (name, server) in servers {
-        if name.eq_ignore_ascii_case("ccpanes") {
-            continue;
-        }
-
-        let server = rewrite_toml_value_for_wsl(server);
-        let keep = match &server {
-            toml::Value::Table(table) => {
-                if table.contains_key("url") {
-                    true
-                } else {
-                    table
-                        .get("command")
-                        .and_then(toml::Value::as_str)
-                        .map(is_wsl_compatible_mcp_command)
-                        .unwrap_or(false)
-                }
-            }
-            _ => false,
-        };
-
-        if keep {
-            sanitized.insert(name, server);
-        }
-    }
-
-    if sanitized.is_empty() {
-        None
-    } else {
-        Some(toml::Value::Table(sanitized))
-    }
-}
-
-#[cfg(windows)]
-fn sanitize_wsl_codex_config_root(
-    root: toml::map::Map<String, toml::Value>,
-) -> toml::map::Map<String, toml::Value> {
-    let mut sanitized = toml::map::Map::new();
-    for (key, value) in root {
-        match key.as_str() {
-            "windows" | "projects" => {}
-            "mcp_servers" => {
-                if let Some(servers) = sanitize_wsl_mcp_servers(value) {
-                    sanitized.insert(key, servers);
-                }
-            }
-            _ => {
-                sanitized.insert(key, rewrite_toml_value_for_wsl(value));
-            }
-        }
-    }
-
-    sanitized
-}
-
-#[cfg(windows)]
-pub(super) fn parse_wsl_codex_config_content(
-    content: &str,
-) -> Result<Option<toml::map::Map<String, toml::Value>>> {
-    if content.trim().is_empty() {
-        return Ok(None);
-    }
-
-    let parsed: toml::Value = toml::from_str(content)?;
-    let toml::Value::Table(root) = parsed else {
-        return Ok(None);
-    };
-
-    let sanitized = sanitize_wsl_codex_config_root(root);
-    if sanitized.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(sanitized))
-    }
-}
-
-#[cfg(windows)]
-fn serialize_wsl_codex_config_root(root: toml::map::Map<String, toml::Value>) -> Result<String> {
-    if root.is_empty() {
-        Ok(String::new())
-    } else {
-        Ok(toml::to_string_pretty(&toml::Value::Table(root))?)
-    }
-}
-
-#[cfg(windows)]
 fn is_simple_toml_key_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment
@@ -476,7 +406,6 @@ fn is_simple_toml_key_segment(segment: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
 }
 
-#[cfg(windows)]
 fn format_toml_key_segment_for_cli(segment: &str) -> String {
     if is_simple_toml_key_segment(segment) {
         segment.to_string()
@@ -487,7 +416,6 @@ fn format_toml_key_segment_for_cli(segment: &str) -> String {
     }
 }
 
-#[cfg(windows)]
 pub(super) fn format_toml_value_for_cli(value: &toml::Value) -> String {
     match value {
         toml::Value::String(text) => serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into()),
@@ -520,95 +448,7 @@ pub(super) fn format_toml_value_for_cli(value: &toml::Value) -> String {
     }
 }
 
-#[cfg(windows)]
-fn should_skip_wsl_codex_cli_override(path: &[String]) -> bool {
-    matches!(
-        path,
-        [single] if single == "approval_policy" || single == "sandbox_mode"
-    )
-}
-
-#[cfg(windows)]
-fn table_requires_inline_wsl_override(
-    path: &[String],
-    table: &toml::map::Map<String, toml::Value>,
-) -> bool {
-    path.iter()
-        .any(|segment| !is_simple_toml_key_segment(segment))
-        || table
-            .keys()
-            .any(|segment| !is_simple_toml_key_segment(segment))
-}
-
-#[cfg(windows)]
-fn collect_wsl_codex_cli_overrides(
-    path: &mut Vec<String>,
-    value: &toml::Value,
-    overrides: &mut Vec<String>,
-) {
-    match value {
-        toml::Value::Table(table) => {
-            if !path.is_empty() && table_requires_inline_wsl_override(path, table) {
-                if should_skip_wsl_codex_cli_override(path) {
-                    return;
-                }
-
-                let key = path
-                    .iter()
-                    .map(|segment| format_toml_key_segment_for_cli(segment))
-                    .collect::<Vec<_>>()
-                    .join(".");
-                overrides.push(format!("{}={}", key, format_toml_value_for_cli(value)));
-                return;
-            }
-
-            for (key, child) in table {
-                path.push(key.clone());
-                collect_wsl_codex_cli_overrides(path, child, overrides);
-                path.pop();
-            }
-        }
-        _ => {
-            if should_skip_wsl_codex_cli_override(path) {
-                return;
-            }
-
-            let key = path
-                .iter()
-                .map(|segment| format_toml_key_segment_for_cli(segment))
-                .collect::<Vec<_>>()
-                .join(".");
-            overrides.push(format!("{}={}", key, format_toml_value_for_cli(value)));
-        }
-    }
-}
-
-#[cfg(windows)]
-pub(super) fn build_wsl_codex_cli_overrides(
-    root: &toml::map::Map<String, toml::Value>,
-) -> Vec<String> {
-    let mut overrides = Vec::new();
-    let mut path = Vec::new();
-    for (key, value) in root {
-        path.push(key.clone());
-        collect_wsl_codex_cli_overrides(&mut path, value, &mut overrides);
-        path.pop();
-    }
-    overrides.sort();
-    overrides
-}
-
 impl TerminalService {
-    #[cfg(windows)]
-    fn prepare_wsl_codex_home_override(
-        &self,
-        _session_id: &str,
-        _wsl_path: &std::path::Path,
-        _distro: &str,
-    ) -> Result<(Option<()>, bool, bool)> {
-        Ok((None, false, false))
-    }
-
     #[cfg(windows)]
     fn write_wsl_launch_script(
         &self,
@@ -653,11 +493,6 @@ impl TerminalService {
             script_path,
         ];
         Ok((wsl.wsl_path.to_string_lossy().into_owned(), args))
-    }
-
-    #[cfg(windows)]
-    pub(super) fn build_wsl_codex_home_override_prelude(_wsl: &ResolvedWslLaunch) -> Vec<String> {
-        Vec::new()
     }
 
     #[cfg(windows)]
@@ -723,7 +558,7 @@ impl TerminalService {
     pub(super) fn resolve_wsl_launch(
         &self,
         wsl: &WslLaunchInfo,
-        session_id: &str,
+        _session_id: &str,
     ) -> Result<ResolvedWslLaunch> {
         let remote_path = wsl.remote_path.trim();
         if remote_path.is_empty() {
@@ -748,8 +583,6 @@ impl TerminalService {
         let wsl_path = cached_which("wsl.exe")
             .or_else(|_| cached_which("wsl"))
             .map_err(|_| anyhow!("wsl.exe not found in PATH"))?;
-
-        let _ = self.prepare_wsl_codex_home_override(session_id, &wsl_path, &distro)?;
 
         Ok(ResolvedWslLaunch {
             wsl_path,
@@ -862,6 +695,7 @@ impl TerminalService {
         cli_tool: CliTool,
         session_id: &str,
         env_vars: &HashMap<String, String>,
+        provider_env: &HashMap<String, String>,
         resume_id: Option<&str>,
         append_system_prompt: Option<&str>,
         initial_prompt: Option<&str>,
@@ -873,6 +707,7 @@ impl TerminalService {
             CliTool::Kimi => "kimi",
             CliTool::Glm => "crush",
             CliTool::Opencode => "opencode",
+            CliTool::Cursor => "cursor-agent",
             other => {
                 return Err(anyhow!(
                     "WSL generic launch does not support CLI tool {:?}",
@@ -882,6 +717,8 @@ impl TerminalService {
         };
 
         let mut remote_parts = Vec::new();
+        push_wsl_env_exports(&mut remote_parts, provider_env);
+        push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
         if cli_tool == CliTool::Claude {
             match self.build_wsl_claude_skill_sync_commands() {
                 Ok(mut commands) => remote_parts.append(&mut commands),
@@ -951,6 +788,14 @@ impl TerminalService {
                 cli_args.push("run".to_string());
                 cli_args.push(prompt.to_string());
             }
+        } else if cli_tool == CliTool::Cursor {
+            if let Some(resume_id) = resume_id {
+                cli_args.push("--resume".to_string());
+                cli_args.push(resume_id.to_string());
+            }
+            if let Some(prompt) = initial_prompt {
+                cli_args.push(prompt.to_string());
+            }
         } else if let Some(prompt) = initial_prompt {
             cli_args.push(prompt.to_string());
         }
@@ -977,6 +822,7 @@ impl TerminalService {
         _cli_tool: CliTool,
         _session_id: &str,
         _env_vars: &HashMap<String, String>,
+        _provider_env: &HashMap<String, String>,
         _resume_id: Option<&str>,
         _append_system_prompt: Option<&str>,
         _initial_prompt: Option<&str>,
@@ -1047,16 +893,31 @@ impl TerminalService {
     }
 
     #[cfg(windows)]
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn build_wsl_command(
         &self,
         wsl: &ResolvedWslLaunch,
         session_id: &str,
         env_vars: &HashMap<String, String>,
+        provider_env: &HashMap<String, String>,
         resume_id: Option<&str>,
+        append_system_prompt: Option<&str>,
         initial_prompt: Option<&str>,
         skip_mcp: bool,
+        shared_mcp_urls: &HashMap<String, String>,
+        _allowed_mcp_server_ids: &[String],
+        disable_unlisted_mcp_servers: bool,
+        selected_mcp_config_toml: &str,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
+        push_wsl_env_exports(&mut remote_parts, provider_env);
+        push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
+        push_wsl_codex_mcp_isolation_prelude(
+            &mut remote_parts,
+            disable_unlisted_mcp_servers,
+            session_id,
+            selected_mcp_config_toml,
+        );
         match self.build_wsl_codex_skill_sync_commands() {
             Ok(mut commands) => remote_parts.append(&mut commands),
             Err(error) => warn!(
@@ -1087,6 +948,17 @@ impl TerminalService {
                     "mcp_servers.ccpanes.bearer_token_env_var={}",
                     format_toml_value_for_cli(&toml::Value::String("CC_PANES_API_TOKEN".into()))
                 ));
+                codex_args.push("-c".to_string());
+                codex_args.push("mcp_servers.ccpanes.enabled=true".to_string());
+                for (name, url) in shared_mcp_urls {
+                    let mcp_url = rewrite_local_mcp_url_for_wsl(url, windows_host);
+                    codex_args.push("-c".to_string());
+                    codex_args.push(format!(
+                        "mcp_servers.{}.url={}",
+                        format_toml_key_segment_for_cli(name),
+                        format_toml_value_for_cli(&toml::Value::String(mcp_url))
+                    ));
+                }
             } else {
                 warn!(
                     distro = %wsl.distro,
@@ -1096,6 +968,9 @@ impl TerminalService {
                     "build_wsl_command: skipping ccpanes MCP CLI override because WSL MCP context is incomplete"
                 );
             }
+        } else {
+            codex_args.push("-c".to_string());
+            codex_args.push("mcp_servers.ccpanes.enabled=false".to_string());
         }
 
         if let Some(token) = env_vars.get("CC_PANES_API_TOKEN") {
@@ -1109,6 +984,7 @@ impl TerminalService {
             codex_args.push("-C".to_string());
             codex_args.push(wsl.remote_path.clone());
         }
+        push_codex_developer_instructions_arg(&mut codex_args, append_system_prompt);
         append_codex_resume_args(&mut codex_args, resume_id, initial_prompt);
 
         let escaped_codex_args = codex_args
@@ -1126,14 +1002,21 @@ impl TerminalService {
     }
 
     #[cfg(not(windows))]
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn build_wsl_command(
         &self,
         _wsl: &ResolvedWslLaunch,
         _session_id: &str,
         _env_vars: &HashMap<String, String>,
+        _provider_env: &HashMap<String, String>,
         _resume_id: Option<&str>,
+        _append_system_prompt: Option<&str>,
         _initial_prompt: Option<&str>,
         _skip_mcp: bool,
+        _shared_mcp_urls: &HashMap<String, String>,
+        _allowed_mcp_server_ids: &[String],
+        _disable_unlisted_mcp_servers: bool,
+        _selected_mcp_config_toml: &str,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }
@@ -1141,7 +1024,10 @@ impl TerminalService {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_codex_resume_args, is_wsl_windows_shim_path, render_wsl_launch_script};
+    use super::{
+        append_codex_resume_args, push_codex_developer_instructions_arg,
+        push_wsl_codex_mcp_isolation_prelude, render_wsl_launch_script,
+    };
     #[cfg(windows)]
     use super::{
         build_wsl_claude_skill_sync_prelude, build_wsl_codex_skill_sync_prelude,
@@ -1196,14 +1082,43 @@ mod tests {
     }
 
     #[test]
-    fn windows_shim_paths_are_rejected_for_wsl_runtime() {
-        assert!(is_wsl_windows_shim_path(
-            "/mnt/c/Users/test/AppData/Roaming/npm/codex"
-        ));
-        assert!(is_wsl_windows_shim_path("codex.cmd"));
-        assert!(is_wsl_windows_shim_path("codex.ps1"));
-        assert!(is_wsl_windows_shim_path("codex.exe"));
-        assert!(!is_wsl_windows_shim_path("/usr/local/bin/codex"));
+    fn codex_developer_instructions_arg_precedes_resume_and_prompt() {
+        let mut args = vec!["-C".to_string(), "/workspace/project".to_string()];
+
+        push_codex_developer_instructions_arg(&mut args, Some("profile skill"));
+        append_codex_resume_args(&mut args, Some("session-123"), Some("continue"));
+
+        assert_eq!(
+            args,
+            vec![
+                "-C",
+                "/workspace/project",
+                "-c",
+                "developer_instructions=\"profile skill\"",
+                "resume",
+                "session-123",
+                "continue",
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_mcp_isolation_prelude_uses_isolated_codex_home() {
+        let mut commands = Vec::new();
+
+        push_wsl_codex_mcp_isolation_prelude(
+            &mut commands,
+            true,
+            "session-123",
+            "[mcp_servers.fetch]\ncommand = \"uvx\"",
+        );
+        let script = render_wsl_launch_script(&commands);
+
+        assert!(
+            script.contains("export CODEX_HOME=\"$HOME/.cache/cc-panes/codex-home/session-123\"")
+        );
+        assert!(script.contains("(mcp_servers|plugins|marketplaces)"));
+        assert!(script.contains("[mcp_servers.fetch]\ncommand = \"uvx\""));
     }
 
     #[test]

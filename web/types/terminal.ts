@@ -1,3 +1,5 @@
+import type { LaunchProviderSelection } from "./launch-profile";
+
 /**
  * 标签与终端相关类型定义
  */
@@ -10,7 +12,8 @@ export type KnownCliTool =
   | "gemini"
   | "kimi"
   | "glm"
-  | "opencode";
+  | "opencode"
+  | "cursor";
 export type CliTool = KnownCliTool | (string & {});
 
 /** CLI 工具元信息（来自 Rust cc-cli-adapters crate） */
@@ -46,11 +49,16 @@ export type TerminalPaneNode = TerminalPaneLeaf | TerminalPaneSplit;
 export interface TerminalPaneLeaf {
   type: "leaf";
   id: string;
+  /** Live PTY session id owned by CC-Panes. */
   sessionId: string | null;
+  /** Agent conversation resume id, e.g. Claude/Codex resume UUID. */
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
   workspacePath?: string;
+  workspaceSnapshotId?: string;
   launchClaude?: boolean;
   cliTool?: CliTool;
   ssh?: import("./workspace").SshConnectionInfo;
@@ -76,13 +84,18 @@ export interface Tab {
   contentType: "terminal" | "mcp-config" | "skill-manager" | "memory-manager" | "file-explorer" | "editor";
   projectId: string;
   projectPath: string;
+  /** Live PTY session id owned by CC-Panes. */
   sessionId: string | null;
   pinned?: boolean;
   minimized?: boolean;
+  /** Agent conversation resume id, e.g. Claude/Codex resume UUID. */
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
   workspacePath?: string;
+  workspaceSnapshotId?: string;
   launchClaude?: boolean;
   cliTool?: CliTool;
   filePath?: string;
@@ -115,7 +128,10 @@ export interface CreateSessionRequest {
   rows: number;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
   workspacePath?: string;
+  workspaceSnapshotId?: string;
   launchClaude?: boolean;
   cliTool?: CliTool;
   resumeId?: string;
@@ -130,7 +146,10 @@ export interface OpenTerminalOptions {
   path: string;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
   workspacePath?: string;
+  workspaceSnapshotId?: string;
   cliTool?: CliTool;
   resumeId?: string;
   ssh?: import("./workspace").SshConnectionInfo;

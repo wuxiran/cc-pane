@@ -88,6 +88,9 @@ function buildConfigJson(form: FormState): string {
       if (form.apiKey) env["OPENAI_API_KEY"] = form.apiKey;
       if (form.baseUrl) env["OPENAI_BASE_URL"] = form.baseUrl;
       break;
+    case "cursor":
+      if (form.apiKey) env["CURSOR_API_KEY"] = form.apiKey;
+      break;
     default:
       break;
   }
@@ -118,6 +121,8 @@ function parseConfigJson(jsonStr: string, providerType: ProviderType): Partial<F
         return { apiKey: env["ZAI_API_KEY"] || "", baseUrl: env["ZAI_BASE_URL"] || "" };
       case "opencode":
         return { apiKey: env["OPENAI_API_KEY"] || "", baseUrl: env["OPENAI_BASE_URL"] || "" };
+      case "cursor":
+        return { apiKey: env["CURSOR_API_KEY"] || "" };
       default:
         return null;
     }
@@ -134,6 +139,7 @@ function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
     case "kimi": return "kimi";
     case "glm": return "glm";
     case "opencode": return "opencode";
+    case "cursor": return "cursor";
     default: return "anthropic";
   }
 }

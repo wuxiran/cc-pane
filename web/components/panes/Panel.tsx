@@ -239,9 +239,11 @@ export default memo(function Panel({ pane }: PanelProps) {
       projectPath: "",
       workspaceName: activeTab?.workspaceName,
       providerId: activeTab?.providerId,
+      providerSelection: activeTab?.providerSelection,
+      launchProfileId: activeTab?.launchProfileId,
       workspacePath: activeTab?.workspacePath,
     }),
-    [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.workspacePath]
+    [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.providerSelection, activeTab?.launchProfileId, activeTab?.workspacePath]
   );
 
   const handleSplitRight = useCallback(
@@ -345,6 +347,8 @@ export default memo(function Panel({ pane }: PanelProps) {
         title: tab.title,
         workspaceName: tab.workspaceName,
         providerId: tab.providerId,
+        providerSelection: tab.providerSelection,
+        launchProfileId: tab.launchProfileId,
         workspacePath: tab.workspacePath,
       };
       try {

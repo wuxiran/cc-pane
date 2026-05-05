@@ -36,5 +36,18 @@
   "revealInExplorer": "Reveal in File Tree",
   "popOutWindow": "Pop Out to Window",
   "poppedOutPlaceholder": "Popped out to a separate window. Close the window to reclaim.",
-  "reclaimTab": "Reclaim"
+  "reclaimTab": "Reclaim",
+  "voiceStartRecording": "Voice input",
+  "voiceStopRecording": "Stop recording",
+  "voiceTranscribing": "Transcribing",
+  "voiceNoSession": "Terminal session is not ready",
+  "voiceUnavailable": "This pane is unavailable",
+  "voiceEnableInSettings": "Enable voice input in Settings first",
+  "voiceApiKeyMissing": "Configure the current voice service API key first",
+  "voiceRecorderUnsupported": "Recording is not supported by this WebView",
+  "voiceBusyElsewhere": "Another pane is recording",
+  "voiceEmptyAudio": "No audio was recorded",
+  "voiceEmptyTranscript": "Transcript is empty",
+  "voiceInserted": "Inserted into terminal",
+  "voiceFailed": "Voice input failed: {{error}}"
 }

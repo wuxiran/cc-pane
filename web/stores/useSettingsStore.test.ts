@@ -110,10 +110,10 @@ describe("useSettingsStore", () => {
       expect(defaults.notification.enabled).toBe(true);
     });
 
-    it("快捷键绑定应有 23 个", () => {
+    it("快捷键绑定应有 24 个", () => {
       const defaults = useSettingsStore.getState().getDefaults();
       const bindingCount = Object.keys(defaults.shortcuts.bindings).length;
-      expect(bindingCount).toBe(23);
+      expect(bindingCount).toBe(24);
     });
 
     it("应包含关键快捷键定义", () => {
@@ -129,6 +129,7 @@ describe("useSettingsStore", () => {
       expect(bindings["focus-pane-right"]).toBe("Alt+Right");
       expect(bindings["focus-pane-up"]).toBe("Alt+Up");
       expect(bindings["focus-pane-down"]).toBe("Alt+Down");
+      expect(bindings["voice-input"]).toBe("Ctrl+Alt+M");
     });
   });
 });

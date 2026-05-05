@@ -39,6 +39,8 @@ pub struct WorkspaceProject {
     pub path: String,
     pub alias: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wsl_remote_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh: Option<SshConnectionInfo>,
@@ -56,6 +58,8 @@ pub struct Workspace {
     pub projects: Vec<WorkspaceProject>,
     #[serde(default)]
     pub provider_id: Option<String>,
+    #[serde(default)]
+    pub launch_profile_id: Option<String>,
     #[serde(default)]
     pub path: Option<String>,
     #[serde(default)]
@@ -212,6 +216,7 @@ impl Workspace {
             created_at: chrono::Utc::now().to_rfc3339(),
             projects: Vec::new(),
             provider_id: None,
+            launch_profile_id: None,
             path,
             default_environment: WorkspaceLaunchEnvironment::Local,
             wsl: None,
@@ -229,6 +234,7 @@ impl WorkspaceProject {
             id: uuid::Uuid::new_v4().to_string(),
             path,
             alias: None,
+            launch_profile_id: None,
             wsl_remote_path: None,
             ssh: None,
         }

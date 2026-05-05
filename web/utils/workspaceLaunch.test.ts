@@ -117,6 +117,7 @@ describe("workspaceLaunch", () => {
     });
     expect(options?.wsl).toBeUndefined();
     expect(options?.providerId).toBeUndefined();
+    expect(options?.launchProfileId).toBeUndefined();
   });
 
   it("does not inherit the workspace provider for Claude by default", () => {
@@ -139,6 +140,7 @@ describe("workspaceLaunch", () => {
       cliTool: "claude",
     });
     expect(options?.providerId).toBeUndefined();
+    expect(options?.launchProfileId).toBeUndefined();
   });
 
   it("launches Codex through WSL when workspace default environment is wsl", () => {
@@ -427,5 +429,44 @@ describe("workspaceLaunch", () => {
     expect(issue).toBeNull();
     expect(options?.providerId).toBe("provider-gemini");
     expect(options?.wsl?.remotePath).toBe("/mnt/d/workspace-root/apps/api");
+  });
+
+  it("passes providerSelection=none through workspace launches", () => {
+    const workspace = createTestWorkspace({
+      path: "D:/workspace-root",
+      providerId: "workspace-provider",
+      defaultEnvironment: "local",
+    });
+
+    const { options, issue } = resolveWorkspaceLaunchOptions({
+      workspace,
+      cliTool: "claude",
+      providerSelection: "none",
+      machines: [],
+      platform: "windows",
+    });
+
+    expect(issue).toBeNull();
+    expect(options?.providerId).toBeUndefined();
+    expect(options?.providerSelection).toBe("none");
+  });
+
+  it("allows explicit launch profile selection to override workspace binding", () => {
+    const workspace = createTestWorkspace({
+      path: "D:/workspace-root",
+      launchProfileId: "workspace-profile",
+      defaultEnvironment: "local",
+    });
+
+    const { options, issue } = resolveWorkspaceLaunchOptions({
+      workspace,
+      cliTool: "codex",
+      launchProfileId: "selected-profile",
+      machines: [],
+      platform: "windows",
+    });
+
+    expect(issue).toBeNull();
+    expect(options?.launchProfileId).toBe("selected-profile");
   });
 });

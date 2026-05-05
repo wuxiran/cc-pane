@@ -28,6 +28,9 @@ describe("historyService", () => {
         workspacePath: null,
         launchCwd: null,
         providerId: null,
+        providerSelection: null,
+        launchProfileId: null,
+        workspaceSnapshotId: null,
       });
     });
   });

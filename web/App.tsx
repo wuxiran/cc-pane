@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from "react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Sidebar from "@/components/Sidebar";
 import TitleBar from "@/components/TitleBar";
@@ -37,8 +37,10 @@ import {
   useSettingsStore,
   useActivityBarStore,
   useWorkspacesStore,
+  useLaunchProfilesStore,
   useResourceStatsStore,
   useEnvironmentStore,
+  useVoiceInputStore,
 } from "@/stores";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
@@ -54,7 +56,7 @@ import { playNotificationSound } from "@/utils/notificationSound";
 import { findPaneFocusTarget, readPaneFocusRects, type PaneFocusDirection } from "@/utils/paneFocus";
 import { registerGlobalApi } from "@/utils/globalApi";
 import i18n from "@/i18n";
-import type { PaneNode, Panel as PanelType, OpenTerminalOptions, SavedSession } from "@/types";
+import type { PaneNode, Panel as PanelType, OpenTerminalOptions, SavedSession, TerminalPaneLeaf, TerminalPaneNode } from "@/types";
 
 /** 递归遍历 pane 树，收集所有 Panel 节点 */
 function getAllPanels(pane: PaneNode): PanelType[] {
@@ -62,14 +64,28 @@ function getAllPanels(pane: PaneNode): PanelType[] {
   return pane.children.flatMap(getAllPanels);
 }
 
+function findTerminalLeaf(node: TerminalPaneNode, paneId: string): TerminalPaneLeaf | null {
+  if (node.type === "leaf") return node.id === paneId ? node : null;
+  for (const child of node.children) {
+    const found = findTerminalLeaf(child, paneId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function firstTerminalLeaf(node: TerminalPaneNode): TerminalPaneLeaf | null {
+  if (node.type === "leaf") return node;
+  for (const child of node.children) {
+    const found = firstTerminalLeaf(child);
+    if (found) return found;
+  }
+  return null;
+}
+
 function resolveRuntimeKind(opts: Pick<OpenTerminalOptions, "ssh" | "wsl">): string {
   if (opts.ssh) return "ssh";
   if (opts.wsl) return "wsl";
   return "local";
-}
-
-function getStateResumeSessionId(state: { resumeSessionId?: string } | null | undefined): string | undefined {
-  return state?.resumeSessionId;
 }
 
 export default function App() {
@@ -197,7 +213,7 @@ function MainApp() {
       if (cancelled) return;
       const payload = event.payload ?? {};
       if (payload.ptySessionId && payload.resumeSessionId) {
-        usePanesStore.getState().updateTabClaudeSession(
+        usePanesStore.getState().updateTabAgentResumeId(
           payload.ptySessionId,
           payload.resumeSessionId,
         );
@@ -225,6 +241,7 @@ function MainApp() {
       return tabs
         .filter(({ tab }) => tab.contentType === "terminal" && tab.projectPath)
         .map(({ tab, paneId }) => ({
+          workspaceSnapshotId: tab.workspaceSnapshotId,
           sessionId: tab.sessionId || tab.savedSessionId || tab.id,
           tabId: tab.id,
           paneId,
@@ -232,6 +249,8 @@ function MainApp() {
           workspaceName: tab.workspaceName,
           workspacePath: tab.workspacePath,
           providerId: tab.providerId,
+          providerSelection: tab.providerSelection,
+          launchProfileId: tab.launchProfileId,
           cliTool: tab.cliTool || (tab.launchClaude ? "claude" : "none"),
           runtimeKind: resolveRuntimeKind({ ssh: tab.ssh, wsl: tab.wsl }),
           resumeId: tab.resumeId,
@@ -255,22 +274,6 @@ function MainApp() {
         try {
           const sessions = collectSessions();
           if (sessions.length > 0) {
-            // 兜底扫描最新的 resume session ID
-            for (const s of sessions) {
-              if ((s.cliTool === "claude" || s.cliTool === "codex") && !s.resumeId) {
-                try {
-                  const statePath = s.workspacePath || s.projectPath;
-                  const state = await historyService.readSessionState(statePath);
-                  const resumeSessionId = getStateResumeSessionId(state);
-                  if (resumeSessionId) {
-                    s.resumeId = resumeSessionId;
-                  }
-                  if (state?.runtimeKind) {
-                    s.runtimeKind = state.runtimeKind;
-                  }
-                } catch { /* ignore */ }
-              }
-            }
             await sessionRestoreService.save(sessions);
             console.info(`[SessionRestore] Saved ${sessions.length} sessions on close`);
           }
@@ -312,6 +315,7 @@ function MainApp() {
       useTerminalStatusStore.getState().init();
       useResourceStatsStore.getState().init();
       useEnvironmentStore.getState().init();
+      useLaunchProfilesStore.getState().load().catch(console.error);
       // 应用启动后静默检查更新（仅写入 store，不弹窗）
       checkUpdateSilent().catch(console.error);
       // [暂时禁用] macOS 下 Dialog 按钮不可点击，暂停 onboarding 引导
@@ -437,6 +441,32 @@ function MainApp() {
         s.setActivePane(targetPaneId);
       }
     };
+    const requestVoiceInput = () => {
+      const s = usePanesStore.getState();
+      const pane = s.findPaneById(s.activePaneId);
+      if (!pane || pane.type !== "panel") {
+        toast.error(i18n.t("voiceUnavailable", { ns: "panes" }));
+        return;
+      }
+      const tab = pane.tabs.find((item) => item.id === pane.activeTabId);
+      if (!tab || tab.contentType !== "terminal" || !tab.terminalRootPane) {
+        toast.error(i18n.t("voiceUnavailable", { ns: "panes" }));
+        return;
+      }
+      const activeLeaf = tab.activeTerminalPaneId
+        ? findTerminalLeaf(tab.terminalRootPane, tab.activeTerminalPaneId)
+        : null;
+      const leaf = activeLeaf ?? firstTerminalLeaf(tab.terminalRootPane);
+      if (!leaf?.sessionId) {
+        toast.error(i18n.t("voiceNoSession", { ns: "panes" }));
+        return;
+      }
+      if (leaf.disconnected || leaf.restoring) {
+        toast.error(i18n.t("voiceUnavailable", { ns: "panes" }));
+        return;
+      }
+      useVoiceInputStore.getState().requestToggle(`${leaf.id}:${leaf.sessionId}`);
+    };
     register({
       id: "toggle-sidebar",
       label: i18n.t("toggle-sidebar", { ns: "shortcuts" }),
@@ -534,6 +564,11 @@ function MainApp() {
       handler: () => useMiniModeStore.getState().toggleMiniMode(),
     });
     register({
+      id: "voice-input",
+      label: i18n.t("voice-input", { ns: "shortcuts" }),
+      handler: requestVoiceInput,
+    });
+    register({
       id: "show-explorer",
       label: "Explorer",
       handler: () => useActivityBarStore.getState().toggleView("explorer"),
@@ -564,14 +599,15 @@ function MainApp() {
   // 打开终端
   const handleOpenTerminal = useCallback(
     (opts: OpenTerminalOptions) => {
-      const { path, workspaceName, providerId, workspacePath, resumeId, ssh, wsl, machineName } = opts;
+      const { path, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, resumeId, ssh, wsl, machineName } = opts;
       // 兼容：如果有 resumeId 但没有指定 cliTool，跟随全局默认设置
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
       const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);
       const runtimeKind = resolveRuntimeKind({ ssh, wsl });
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
-      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName });
+      const workspaceSnapshotId = opts.workspaceSnapshotId ?? `ws-snapshot-${crypto.randomUUID()}`;
+      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName, workspaceSnapshotId });
       const name = path.split(/[/\\]/).pop() || path;
 
       // SSH 项目：launchCwd 用 display path
@@ -597,6 +633,9 @@ function MainApp() {
               workspacePath,
               launchCwd,
               providerId,
+              providerSelection,
+              workspaceSnapshotId,
+              launchProfileId,
             ).then((newId) => {
               historyService.updateSessionId(newId, resumeId).then(() => {
                 window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
@@ -615,6 +654,9 @@ function MainApp() {
             workspacePath,
             launchCwd,
             providerId,
+            providerSelection,
+            workspaceSnapshotId,
+            launchProfileId,
           );
 
       recordPromise.then((recordId) => {
@@ -645,6 +687,8 @@ function MainApp() {
         path: pendingLaunch.path,
         workspaceName: pendingLaunch.workspaceName,
         providerId: pendingLaunch.providerId,
+        providerSelection: pendingLaunch.providerSelection,
+        launchProfileId: pendingLaunch.launchProfileId,
         workspacePath: pendingLaunch.workspacePath,
         ssh: pendingLaunch.ssh,
         wsl: pendingLaunch.wsl,

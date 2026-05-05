@@ -7,6 +7,7 @@ export interface AppSettings {
   general: GeneralSettings;
   notification: NotificationSettings;
   screenshot: ScreenshotSettings;
+  voice: VoiceSettings;
 }
 
 /** 代理设置 */
@@ -101,6 +102,21 @@ export interface EnvironmentInfo extends EnvironmentInfoRaw {
 export interface ScreenshotSettings {
   shortcut: string;
   retentionDays: number;
+}
+
+/** 语音输入设置 */
+export interface VoiceSettings {
+  enabled: boolean;
+  provider: "dashscope" | "mimo";
+  dashscopeApiKey: string;
+  region: "cn" | "intl";
+  model: string;
+  mimoApiKey: string;
+  mimoBaseUrl: string;
+  mimoModel: string;
+  language: string | null;
+  enableItn: boolean;
+  maxRecordSeconds: number;
 }
 
 /** 数据目录信息 */

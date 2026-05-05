@@ -9,7 +9,14 @@ import { terminalService, historyService, sessionRestoreService } from "@/servic
 import { ensureListeners } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
 import { devDebugLog } from "@/utils/devLogger";
-import { shouldTerminalHandleKey, useShortcutsStore, useSettingsStore, usePanesStore, useThemeStore } from "@/stores";
+import {
+  TERMINAL_LAYOUT_CHANGED_EVENT,
+  shouldTerminalHandleKey,
+  useShortcutsStore,
+  useSettingsStore,
+  usePanesStore,
+  useThemeStore,
+} from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
 import { replayAttachedSession } from "./terminalReplay";
 import { formatTerminalInitError } from "./terminalInitError";
@@ -54,13 +61,12 @@ async function getCachedBuildNumber(): Promise<number> {
   return buildNumberPromise;
 }
 
-import type { CliTool, SshConnectionInfo, TerminalRendererMode, WslLaunchInfo } from "@/types";
+import type { CliTool, CreateSessionRequest, SshConnectionInfo, TerminalRendererMode, WslLaunchInfo } from "@/types";
 
 const TERMINAL_DEBUG = import.meta.env.DEV;
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 const DEFAULT_TERMINAL_SCROLLBACK = 20_000;
-const TERMINAL_LAYOUT_CHANGED_EVENT = "cc-panes:terminal-layout-changed";
 
 function resolveCliTool(cliTool?: CliTool, launchClaude?: boolean): string {
   return cliTool ?? (launchClaude ? "claude" : "none");
@@ -116,7 +122,10 @@ interface TerminalViewProps {
   isActive: boolean;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: CreateSessionRequest["providerSelection"];
+  launchProfileId?: string;
   workspacePath?: string;
+  workspaceSnapshotId?: string;
   launchClaude?: boolean;
   cliTool?: CliTool;
   resumeId?: string;
@@ -180,6 +189,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const debugInstanceIdRef = useRef(`term-${Math.random().toString(36).slice(2, 8)}`);
     const trackedBufferTypeRef = useRef<"unknown" | "normal" | "alternate">("unknown");
     const lastWheelDecisionRef = useRef<string | null>(null);
+    const lastDragFitAtRef = useRef(0);
     const isActiveRef = useRef(props.isActive);
     const terminalRendererMode = useSettingsStore((s) => s.settings?.terminal.rendererMode ?? "auto");
     const terminalRendererModeRef = useRef<TerminalRendererMode>(terminalRendererMode);
@@ -322,8 +332,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           event instanceof CustomEvent && typeof event.detail?.reason === "string"
             ? event.detail.reason
             : "layout";
-        debugLog("layout-change.refit.schedule", { reason });
-        layoutSchedulerRef.current?.schedule(`layout-change.${reason}`);
+        debugLog("layout-change.refit.flush", { reason });
+        layoutSchedulerRef.current?.flush(`layout-change.${reason}`, { force: true });
       };
 
       window.addEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, handleLayoutChanged);
@@ -896,15 +906,27 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
         onDataDisposableRef.current = onDataDisposable;
 
-        // Debounce fit/resize work and ignore tiny layout jitter while dragging.
+        // Keep pane dragging responsive without fitting on every pointer move.
         const MIN_CONTAINER_CHANGE = 5;
+        const DRAG_CONTAINER_CHANGE = 20;
+        const DRAG_FIT_INTERVAL_MS = 80;
         const observer = new ResizeObserver((entries) => {
           if (!isMounted) return;
-          if (isDragging()) return; // Skip resize work entirely while pane dragging is active.
           const entry = entries[0];
           if (!entry) return;
 
           const { width, height } = entry.contentRect;
+          if (isDragging()) {
+            const now = performance.now();
+            if (now - lastDragFitAtRef.current < DRAG_FIT_INTERVAL_MS) return;
+            lastDragFitAtRef.current = now;
+            layoutSchedulerRef.current?.flush("resize-observer.drag.fit", {
+              containerSize: { width, height },
+              minContainerDelta: DRAG_CONTAINER_CHANGE,
+            });
+            return;
+          }
+
           layoutSchedulerRef.current?.schedule("resize-observer.fit", {
             delayMs: 150,
             containerSize: { width, height },
@@ -1015,23 +1037,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 });
               }
             } else {
-              // Create a brand-new backend session.
-              // Restored tabs may hold a stale resume id, so reload the latest one from session-state.json.
-              if ((props.launchClaude || (props.cliTool && props.cliTool !== "none")) && !props.sessionId && effectiveResumeId) {
-                try {
-                  // When workspacePath exists, session-state.json is stored under that location.
-                  const statePath = props.workspacePath || props.projectPath;
-                  const state = await historyService.readSessionState(statePath);
-                  if (state?.resumeSessionId && state.resumeSessionId !== "new") {
-                    if (!effectiveResumeId || effectiveResumeId !== state.resumeSessionId) {
-                      console.info(
-                        `[TerminalView] Using session from session-state.json: ${state.resumeSessionId} (tab had: ${effectiveResumeId ?? "none"})`
-                      );
-                      effectiveResumeId = state.resumeSessionId;
-                    }
-                  }
-                } catch { /* Ignore missing session-state.json. */ }
-              }
+              // Create a brand-new backend session. Agent resume IDs must come
+              // from the tab/snapshot/history chain, not directory-level legacy state.
 
               console.info(
                 `[TerminalView] Creating new session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, resumeId=${effectiveResumeId ?? "none"}`
@@ -1047,7 +1054,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 rows: term.rows,
                 workspaceName: props.workspaceName,
                 providerId: props.providerId,
+                providerSelection: props.providerSelection,
+                launchProfileId: props.launchProfileId,
                 workspacePath: props.workspacePath,
+                workspaceSnapshotId: props.workspaceSnapshotId,
                 launchClaude: props.launchClaude,
                 cliTool: props.cliTool,
                 resumeId: effectiveResumeId,
@@ -1095,7 +1105,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               onSessionCreatedRef.current(sessionId);
               // Persist the corrected resume id back into the tab state.
               if (effectiveResumeId && effectiveResumeId !== props.resumeId) {
-                usePanesStore.getState().updateTabClaudeSession(sessionId, effectiveResumeId);
+                usePanesStore.getState().updateTabAgentResumeId(sessionId, effectiveResumeId);
               }
             }
 
@@ -1223,21 +1233,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             try {
               await ensureListeners();
 
-              let effectiveResumeId = props.resumeId;
-              if ((props.launchClaude || (props.cliTool && props.cliTool !== "none")) && effectiveResumeId) {
-                try {
-                  const statePath = props.workspacePath || props.projectPath;
-                  const state = await historyService.readSessionState(statePath);
-                  if (state?.resumeSessionId && state.resumeSessionId !== "new") {
-                    if (!effectiveResumeId || effectiveResumeId !== state.resumeSessionId) {
-                      console.info(
-                        `[TerminalView] Using session from session-state.json: ${state.resumeSessionId} (tab had: ${effectiveResumeId ?? "none"})`
-                      );
-                      effectiveResumeId = state.resumeSessionId;
-                    }
-                  }
-                } catch { /* Ignore missing session-state.json. */ }
-              }
+              const effectiveResumeId = props.resumeId;
 
               if (isUnmountedRef.current) return;
 
@@ -1253,7 +1249,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 rows: term.rows,
                 workspaceName: props.workspaceName,
                 providerId: props.providerId,
+                providerSelection: props.providerSelection,
+                launchProfileId: props.launchProfileId,
                 workspacePath: props.workspacePath,
+                workspaceSnapshotId: props.workspaceSnapshotId,
                 launchClaude: props.launchClaude,
                 cliTool: props.cliTool,
                 resumeId: effectiveResumeId,
@@ -1290,7 +1289,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 }
               }
               if (effectiveResumeId && effectiveResumeId !== props.resumeId) {
-                usePanesStore.getState().updateTabClaudeSession(sessionId, effectiveResumeId);
+                usePanesStore.getState().updateTabAgentResumeId(sessionId, effectiveResumeId);
               }
 
               // Clear restoring state once the deferred session is live.

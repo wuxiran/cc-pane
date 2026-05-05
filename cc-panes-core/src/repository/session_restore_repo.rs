@@ -22,23 +22,27 @@ impl SessionRestoreRepository {
         let mut stmt = conn
             .prepare(
                 "INSERT INTO terminal_sessions (
-                    session_id, tab_id, pane_id, project_path,
-                    workspace_name, workspace_path, provider_id, cli_tool,
+                    session_id, workspace_session_id, workspace_snapshot_id, tab_id, pane_id, project_path,
+                    workspace_name, workspace_path, provider_id, provider_selection, launch_profile_id, cli_tool,
                     runtime_kind, resume_id, ssh_config, custom_title,
                     created_at, saved_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             )
             .map_err(|e| format!("Failed to prepare insert: {}", e))?;
 
         for s in sessions {
             stmt.execute(rusqlite::params![
                 s.session_id,
+                s.workspace_snapshot_id,
+                s.workspace_snapshot_id,
                 s.tab_id,
                 s.pane_id,
                 s.project_path,
                 s.workspace_name,
                 s.workspace_path,
                 s.provider_id,
+                s.provider_selection,
+                s.launch_profile_id,
                 s.cli_tool,
                 s.runtime_kind,
                 s.resume_id,
@@ -62,7 +66,8 @@ impl SessionRestoreRepository {
         let mut stmt = conn
             .prepare(
                 "SELECT session_id, tab_id, pane_id, project_path,
-                        workspace_name, workspace_path, provider_id, cli_tool,
+                        COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id,
+                        workspace_name, workspace_path, provider_id, provider_selection, launch_profile_id, cli_tool,
                         runtime_kind, COALESCE(resume_id, claude_session_id) AS resume_id,
                         ssh_config, custom_title,
                         created_at, saved_at
@@ -77,16 +82,19 @@ impl SessionRestoreRepository {
                     tab_id: row.get(1)?,
                     pane_id: row.get(2)?,
                     project_path: row.get(3)?,
-                    workspace_name: row.get(4)?,
-                    workspace_path: row.get(5)?,
-                    provider_id: row.get(6)?,
-                    cli_tool: row.get(7)?,
-                    runtime_kind: row.get(8)?,
-                    resume_id: row.get(9)?,
-                    ssh_config: row.get(10)?,
-                    custom_title: row.get(11)?,
-                    created_at: row.get(12)?,
-                    saved_at: row.get(13)?,
+                    workspace_snapshot_id: row.get(4)?,
+                    workspace_name: row.get(5)?,
+                    workspace_path: row.get(6)?,
+                    provider_id: row.get(7)?,
+                    provider_selection: row.get(8)?,
+                    launch_profile_id: row.get(9)?,
+                    cli_tool: row.get(10)?,
+                    runtime_kind: row.get(11)?,
+                    resume_id: row.get(12)?,
+                    ssh_config: row.get(13)?,
+                    custom_title: row.get(14)?,
+                    created_at: row.get(15)?,
+                    saved_at: row.get(16)?,
                     has_output: false, // 由 service 层根据文件是否存在设置
                 })
             })
@@ -122,6 +130,7 @@ mod tests {
 
         let sessions = vec![
             SavedSession {
+                workspace_snapshot_id: None,
                 session_id: "s1".into(),
                 tab_id: "t1".into(),
                 pane_id: "p1".into(),
@@ -129,6 +138,8 @@ mod tests {
                 workspace_name: Some("ws1".into()),
                 workspace_path: None,
                 provider_id: None,
+                provider_selection: Some("none".into()),
+                launch_profile_id: Some("profile-1".into()),
                 cli_tool: "claude".into(),
                 runtime_kind: Some("local".into()),
                 resume_id: Some("r1".into()),
@@ -139,6 +150,7 @@ mod tests {
                 has_output: false,
             },
             SavedSession {
+                workspace_snapshot_id: None,
                 session_id: "s2".into(),
                 tab_id: "t2".into(),
                 pane_id: "p1".into(),
@@ -146,6 +158,8 @@ mod tests {
                 workspace_name: None,
                 workspace_path: None,
                 provider_id: None,
+                provider_selection: None,
+                launch_profile_id: None,
                 cli_tool: "none".into(),
                 runtime_kind: Some("local".into()),
                 resume_id: None,
@@ -162,6 +176,8 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].session_id, "s1");
         assert_eq!(loaded[0].cli_tool, "claude");
+        assert_eq!(loaded[0].launch_profile_id, Some("profile-1".into()));
+        assert_eq!(loaded[0].provider_selection, Some("none".into()));
         assert_eq!(loaded[1].custom_title, Some("My Shell".into()));
     }
 
@@ -171,6 +187,7 @@ mod tests {
         let repo = SessionRestoreRepository::new(db);
 
         let session = SavedSession {
+            workspace_snapshot_id: None,
             session_id: "s1".into(),
             tab_id: "t1".into(),
             pane_id: "p1".into(),
@@ -178,6 +195,8 @@ mod tests {
             workspace_name: None,
             workspace_path: None,
             provider_id: None,
+            provider_selection: None,
+            launch_profile_id: None,
             cli_tool: "none".into(),
             runtime_kind: Some("local".into()),
             resume_id: None,
@@ -200,6 +219,7 @@ mod tests {
         let repo = SessionRestoreRepository::new(db);
 
         let session = SavedSession {
+            workspace_snapshot_id: None,
             session_id: "s1".into(),
             tab_id: "t1".into(),
             pane_id: "p1".into(),
@@ -207,6 +227,8 @@ mod tests {
             workspace_name: None,
             workspace_path: None,
             provider_id: None,
+            provider_selection: None,
+            launch_profile_id: None,
             cli_tool: "none".into(),
             runtime_kind: Some("local".into()),
             resume_id: None,

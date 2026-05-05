@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Settings, Globe, Terminal, Keyboard, Info, Cloud, Bell, Camera, Share2 } from "lucide-react";
+import { Settings, Globe, Terminal, Keyboard, Info, Cloud, Bell, Camera, Share2, Mic } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import ShortcutsSection from "./settings/ShortcutsSection";
 import AboutSection from "./settings/AboutSection";
 import ScreenshotSection from "./settings/ScreenshotSection";
 import SharedMcpSection from "./settings/SharedMcpSection";
+import VoiceSection from "./settings/VoiceSection";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -42,6 +43,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     { id: "provider", label: t("provider"), icon: Cloud },
     { id: "proxy", label: t("proxy"), icon: Globe },
     { id: "terminal", label: t("terminal"), icon: Terminal },
+    { id: "voice", label: t("voice"), icon: Mic },
     { id: "shortcuts", label: t("shortcuts"), icon: Keyboard },
     { id: "shared-mcp", label: "Shared MCP", icon: Share2 },
     ...(!isMac ? [{ id: "screenshot", label: t("screenshot"), icon: Camera }] : []),
@@ -114,6 +116,9 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             )}
             {activeSection === "terminal" && (
               <TerminalSection value={draft.terminal} onChange={(v) => setDraft({ ...draft, terminal: v })} />
+            )}
+            {activeSection === "voice" && (
+              <VoiceSection value={draft.voice} onChange={(v) => setDraft({ ...draft, voice: v })} />
             )}
             {activeSection === "shortcuts" && (
               <ShortcutsSection value={draft.shortcuts} onChange={(v) => setDraft({ ...draft, shortcuts: v })} />

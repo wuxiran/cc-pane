@@ -20,7 +20,7 @@ import {
 } from "@/stores";
 import { isTauriReady } from "@/utils";
 
-import type { CliTool } from "@/types";
+import type { CliTool, LaunchProviderSelection } from "@/types";
 
 interface OrchestratorLaunchPayload {
   taskId: string;
@@ -29,6 +29,7 @@ interface OrchestratorLaunchPayload {
   projectId: string;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
   workspacePath?: string;
   title?: string;
   resumeId?: string;  // 对应 Rust OrchestratorLaunchEvent.resume_id
@@ -53,6 +54,7 @@ export function useOrchestratorListener() {
             projectId,
             workspaceName,
             providerId,
+            providerSelection,
             workspacePath,
             title,
             paneId: targetPaneId,
@@ -91,6 +93,7 @@ export function useOrchestratorListener() {
             resumeId: event.payload.resumeId,
             workspaceName,
             providerId,
+            providerSelection,
             workspacePath,
             cliTool: resolvedCliTool,
             customTitle: title,

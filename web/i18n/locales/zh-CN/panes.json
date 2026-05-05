@@ -36,5 +36,18 @@
   "revealInExplorer": "在文件树中显示",
   "popOutWindow": "弹出为独立窗口",
   "poppedOutPlaceholder": "已弹出为独立窗口，关闭窗口后自动回收",
-  "reclaimTab": "回收"
+  "reclaimTab": "回收",
+  "voiceStartRecording": "语音输入",
+  "voiceStopRecording": "停止录音",
+  "voiceTranscribing": "正在识别",
+  "voiceNoSession": "终端会话未就绪",
+  "voiceUnavailable": "当前窗格暂不可用",
+  "voiceEnableInSettings": "请先在设置中启用语音输入",
+  "voiceApiKeyMissing": "请先配置当前语音服务的 API Key",
+  "voiceRecorderUnsupported": "当前 WebView 不支持录音",
+  "voiceBusyElsewhere": "另一个窗格正在录音",
+  "voiceEmptyAudio": "没有录到音频",
+  "voiceEmptyTranscript": "识别结果为空",
+  "voiceInserted": "已写入终端",
+  "voiceFailed": "语音输入失败: {{error}}"
 }

@@ -8,7 +8,11 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tracing::debug;
 
-/// session-state.json 的结构
+/// Legacy directory-level session-state.json structure.
+///
+/// This file is kept for backward-compatible diagnostics/import paths only. It
+/// is not the primary restore source; frontend restore should use the tab,
+/// workspace snapshot, and launch history chain for exact agent resume IDs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionState {
@@ -35,6 +39,9 @@ pub fn add_launch_history(
     workspace_path: Option<String>,
     launch_cwd: Option<String>,
     provider_id: Option<String>,
+    provider_selection: Option<String>,
+    launch_profile_id: Option<String>,
+    workspace_snapshot_id: Option<String>,
 ) -> AppResult<i64> {
     debug!(project_name = %project_name, project_path = %project_path, "cmd::add_launch_history");
     Ok(service.add(
@@ -48,6 +55,9 @@ pub fn add_launch_history(
         workspace_path.as_deref(),
         launch_cwd.as_deref(),
         provider_id.as_deref(),
+        provider_selection.as_deref(),
+        launch_profile_id.as_deref(),
+        workspace_snapshot_id.as_deref(),
     )?)
 }
 
@@ -74,7 +84,10 @@ pub fn clear_launch_history(service: State<'_, Arc<LaunchHistoryService>>) -> Ap
     Ok(service.clear()?)
 }
 
-/// 读取项目的 session-state.json
+/// Legacy API: read a project's .ccpanes/session-state.json.
+///
+/// Do not use this as the main restore path. The file is directory-scoped and
+/// may not identify the exact tab/snapshot/agent conversation being restored.
 #[tauri::command]
 pub fn read_session_state(project_path: String) -> AppResult<Option<SessionState>> {
     let state_path = PathBuf::from(&project_path)

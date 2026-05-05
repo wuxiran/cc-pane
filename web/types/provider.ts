@@ -10,7 +10,8 @@ export type ProviderType =
   | "gemini"
   | "kimi"
   | "glm"
-  | "opencode";
+  | "opencode"
+  | "cursor";
 
 export interface Provider {
   id: string;
@@ -35,7 +36,8 @@ export type ProviderTypeLabelKey =
   | "providerTypeGeminiLabel"
   | "providerTypeKimiLabel"
   | "providerTypeGlmLabel"
-  | "providerTypeOpenCodeLabel";
+  | "providerTypeOpenCodeLabel"
+  | "providerTypeCursorLabel";
 
 export type ProviderTypeDescKey =
   | "providerTypeAnthropicDesc"
@@ -47,7 +49,8 @@ export type ProviderTypeDescKey =
   | "providerTypeGeminiDesc"
   | "providerTypeKimiDesc"
   | "providerTypeGlmDesc"
-  | "providerTypeOpenCodeDesc";
+  | "providerTypeOpenCodeDesc"
+  | "providerTypeCursorDesc";
 
 export const PROVIDER_TYPE_META: Record<
   ProviderType,
@@ -103,6 +106,11 @@ export const PROVIDER_TYPE_META: Record<
     descriptionKey: "providerTypeOpenCodeDesc",
     fields: ["apiKey", "baseUrl"],
   },
+  cursor: {
+    labelKey: "providerTypeCursorLabel",
+    descriptionKey: "providerTypeCursorDesc",
+    fields: ["apiKey"],
+  },
 };
 
 /** Provider 类型与 CLI 工具的兼容映射（单值版本，兼容旧调用） */
@@ -113,6 +121,7 @@ export function getCompatibleCliTool(providerType: ProviderType): KnownCliTool {
     case "kimi": return "kimi";
     case "glm": return "glm";
     case "opencode": return "opencode";
+    case "cursor": return "cursor";
     default: return "claude";
   }
 }
@@ -137,6 +146,8 @@ export function getCompatibleCliTools(providerType: ProviderType): KnownCliTool[
       return ["glm"];
     case "opencode":
       return ["opencode"];
+    case "cursor":
+      return ["cursor"];
   }
 }
 
@@ -153,6 +164,7 @@ export function getProviderTypesForTab(tab: KnownCliTool): ProviderType[] {
     "kimi",
     "glm",
     "opencode",
+    "cursor",
   ];
   return ALL.filter((pt) => getCompatibleCliTools(pt).includes(tab));
 }
@@ -165,6 +177,7 @@ export const CLI_TOOL_TABS = [
   { id: "kimi" as const, labelKey: "tabKimi", accentColor: "#F97316" },
   { id: "glm" as const, labelKey: "tabGlm", accentColor: "#2563EB" },
   { id: "opencode" as const, labelKey: "tabOpenCode", accentColor: "#8B5CF6" },
+  { id: "cursor" as const, labelKey: "tabCursor", accentColor: "#111827" },
 ] as const;
 
 export type PresetCategory = "official" | "cloud" | "proxy_intl" | "openai_compat" | "domestic";

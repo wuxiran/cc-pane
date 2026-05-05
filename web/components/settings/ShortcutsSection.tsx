@@ -25,6 +25,7 @@ const actionI18nKeys: Record<string, string> = {
   "next-tab": "next-tab",
   "prev-tab": "prev-tab",
   "toggle-mini-mode": "toggle-mini-mode",
+  "voice-input": "voice-input",
 };
 
 export default function ShortcutsSection({ value, onChange }: ShortcutsSectionProps) {

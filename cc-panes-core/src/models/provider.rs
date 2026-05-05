@@ -15,6 +15,8 @@ pub enum ProviderType {
     Gemini,
     Kimi,
     Glm,
+    Cursor,
+    #[serde(rename = "opencode", alias = "open_code")]
     OpenCode,
 }
 
@@ -116,6 +118,11 @@ impl Provider {
                 }
                 if let Some(ref url) = self.base_url {
                     vars.insert("ZAI_BASE_URL".to_string(), url.clone());
+                }
+            }
+            ProviderType::Cursor => {
+                if let Some(ref key) = self.api_key {
+                    vars.insert("CURSOR_API_KEY".to_string(), key.clone());
                 }
             }
             ProviderType::OpenCode => {

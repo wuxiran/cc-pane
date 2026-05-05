@@ -89,4 +89,36 @@ describe("terminal layout scheduler", () => {
     expect(fitAddon.fit).not.toHaveBeenCalled();
     expect(scheduler.hasPendingLayout()).toBe(true);
   });
+
+  it("can force a layout even when the container delta is below the jitter threshold", () => {
+    const host = createRenderableHost();
+    const term = { cols: 80, rows: 24 } as Terminal;
+    const fitAddon = { fit: vi.fn() } as unknown as FitAddon;
+    const scheduler = createTerminalLayoutScheduler({
+      getTerminal: () => term,
+      getFitAddon: () => fitAddon,
+      getHost: () => host,
+      getSessionId: () => "session-1",
+      isActive: () => true,
+      repaint: vi.fn(),
+      resizeBackend: vi.fn(),
+      logger: vi.fn(),
+    });
+
+    scheduler.flush("first", {
+      containerSize: { width: 640, height: 360 },
+      minContainerDelta: 5,
+    });
+    scheduler.flush("jitter", {
+      containerSize: { width: 642, height: 362 },
+      minContainerDelta: 5,
+    });
+    scheduler.flush("forced", {
+      force: true,
+      containerSize: { width: 643, height: 363 },
+      minContainerDelta: 5,
+    });
+
+    expect(fitAddon.fit).toHaveBeenCalledTimes(2);
+  });
 });

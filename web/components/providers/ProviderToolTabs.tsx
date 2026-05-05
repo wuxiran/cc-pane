@@ -15,7 +15,7 @@ export default function ProviderToolTabs({ activeTab, onTabChange, providerCount
   const { getToolById } = useCliTools();
 
   return (
-    <div className={`flex ${compact ? "gap-1" : "gap-1.5"}`}>
+    <div className={`flex ${compact ? "gap-1" : "gap-2"}`}>
       {CLI_TOOL_TABS.map((tab) => {
         const isActive = activeTab === tab.id;
         const count = providerCounts[tab.id] ?? 0;
@@ -27,17 +27,18 @@ export default function ProviderToolTabs({ activeTab, onTabChange, providerCount
             key={tab.id}
             type="button"
             className={`
-              inline-flex items-center gap-1.5 rounded-lg transition-all text-xs font-medium
-              ${compact ? "px-2.5 py-1.5" : "px-3 py-2"}
+              inline-flex items-center rounded-lg transition-all font-semibold
+              ${compact ? "gap-1.5 px-2.5 py-1.5 text-xs" : "h-10 gap-2 px-4 text-sm"}
               ${isActive
                 ? "shadow-sm"
                 : "hover:bg-[var(--app-hover)]"
               }
             `}
             style={{
-              background: isActive ? `${tab.accentColor}18` : "transparent",
+              background: isActive ? `${tab.accentColor}22` : "var(--app-content)",
               color: isActive ? tab.accentColor : "var(--app-text-secondary)",
-              border: isActive ? `1px solid ${tab.accentColor}40` : "1px solid transparent",
+              border: isActive ? `1px solid ${tab.accentColor}66` : "1px solid var(--app-border)",
+              boxShadow: isActive ? `0 0 0 1px ${tab.accentColor}22 inset` : undefined,
             }}
             onClick={() => onTabChange(tab.id)}
           >

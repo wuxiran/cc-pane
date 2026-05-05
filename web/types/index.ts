@@ -48,6 +48,20 @@ export type {
 export type { Provider, ProviderType } from "./provider";
 export { PROVIDER_TYPE_META } from "./provider";
 export type {
+  LaunchProfile,
+  LaunchProfileDraft,
+  LaunchProfileMcpMode,
+  LaunchProfileMcpPolicy,
+  LaunchProfilePreviewRequest,
+  LaunchProfileResolution,
+  LaunchProfileRuntime,
+  LaunchProfileSkillMode,
+  LaunchProfileSkillPolicy,
+  LaunchProviderSelection,
+  ResolvedMcpServer,
+  ResolvedSkill,
+} from "./launch-profile";
+export type {
   AppSettings,
   ProxySettings,
   ThemeSettings,
@@ -62,6 +76,7 @@ export type {
   ShellInfo,
   SearchScope,
   ScreenshotSettings,
+  VoiceSettings,
   EnvironmentInfo,
 } from "./settings";
 export type {
@@ -122,6 +137,11 @@ export type {
   SharedMcpConfig,
 } from "./shared-mcp";
 export type { SavedSession } from "./session-restore";
+export type {
+  WorkspaceSnapshot,
+  WorkspaceSnapshotEntry,
+  WorkspaceSnapshotSummary,
+} from "./workspace-snapshot";
 export type {
   WslDistro,
   WslDistroState,

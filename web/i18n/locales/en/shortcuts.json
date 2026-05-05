@@ -13,5 +13,6 @@
   "next-tab": "Next Tab",
   "prev-tab": "Previous Tab",
   "toggle-mini-mode": "Toggle Mini Mode",
+  "voice-input": "Voice Input",
   "switch-tab": "Switch to Tab {{index}}"
 }

@@ -76,6 +76,13 @@ fn detect_runtime_kind() -> &'static str {
     }
 }
 
+fn load_launch_profile_skills() -> Option<String> {
+    std::env::var("CC_PANES_LAUNCH_PROFILE_SKILLS")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 /// SessionStart hook entry point.
 /// Reads hook JSON from stdin and outputs structured context to stdout.
 pub fn run() {
@@ -110,7 +117,10 @@ pub fn run() {
 
     let ccpanes_dir = project_dir.join(".ccpanes");
 
-    // Write session-state.json with session_id from stdin
+    // Legacy compatibility: write directory-level session-state.json with the
+    // agent resume id from stdin. This remains for older diagnostics/import
+    // paths only; CC-Panes restore should prefer exact tab/snapshot/history
+    // state and must not treat this directory-scoped file as authoritative.
     match session_id {
         Some(ref id) => {
             eprintln!("[ccpanes-hook] session_id (stdin) = {}", id);
@@ -155,28 +165,34 @@ pub fn run() {
          </ccpanes-context>\n"
     );
 
-    // 2. Current state (dynamic)
+    // 2. Launch profile session skills
+    if let Some(profile_skills) = load_launch_profile_skills() {
+        println!("{}", profile_skills);
+        println!();
+    }
+
+    // 3. Current state (dynamic)
     println!("<current-state>");
     println!("Time: {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     println!("Branch: {}", get_git_branch(&project_dir));
     println!("Git status:\n{}", get_git_status(&project_dir));
     println!("</current-state>\n");
 
-    // 3. Workspace context
+    // 4. Workspace context
     if let Some(ws_claude_md) = find_workspace_claude_md(&project_dir) {
         println!("<workspace-context>");
         println!("{}", ws_claude_md);
         println!("</workspace-context>\n");
     }
 
-    // 4. Memory context (high importance)
+    // 5. Memory context (high importance)
     if let Some(memory) = load_memory_context(&project_dir) {
         println!("<memory-context>");
         println!("{}", memory);
         println!("</memory-context>\n");
     }
 
-    // 5. Workflow guide
+    // 6. Workflow guide
     let workflow_path = ccpanes_dir.join("workflow.md");
     if workflow_path.exists() {
         if let Ok(content) = fs::read_to_string(&workflow_path) {
@@ -186,7 +202,7 @@ pub fn run() {
         }
     }
 
-    // 6. Recent sessions
+    // 7. Recent sessions
     let journal_index = ccpanes_dir.join("journal").join("index.md");
     if journal_index.exists() {
         if let Ok(content) = fs::read_to_string(&journal_index) {
@@ -196,7 +212,7 @@ pub fn run() {
         }
     }
 
-    // 7. Ready prompt
+    // 8. Ready prompt
     println!(
         "<ready>\n\
          Context loaded. Waiting for user input, then handle request per <workflow> guidelines.\n\

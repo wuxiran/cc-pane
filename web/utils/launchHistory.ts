@@ -36,6 +36,7 @@ export function buildLaunchRecordTerminalOptions(
     path: record.projectPath,
     workspaceName: record.workspaceName,
     providerId: record.providerId,
+    providerSelection: record.providerSelection,
     workspacePath: record.launchCwd ?? record.workspacePath,
     cliTool,
     resumeId: record.resumeSessionId,
@@ -77,6 +78,7 @@ export function buildLaunchRecordTerminalOptions(
     project,
     cliTool,
     providerId: record.providerId,
+    providerSelection: record.providerSelection,
     machines,
     environment,
   });

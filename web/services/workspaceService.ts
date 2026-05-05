@@ -96,6 +96,17 @@ export async function updateWorkspaceProvider(
   });
 }
 
+export async function updateWorkspaceLaunchProfile(
+  workspaceName: string,
+  launchProfileId: string | null
+): Promise<void> {
+  const workspace = await getWorkspace(workspaceName);
+  await saveWorkspace(workspaceName, {
+    ...workspace,
+    launchProfileId: launchProfileId ?? undefined,
+  });
+}
+
 export async function updateWorkspacePath(
   workspaceName: string,
   path: string | null

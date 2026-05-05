@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { sharedMcpService } from "@/services";
-import type { SharedMcpServerInfo, SharedMcpConfig } from "@/types";
+import type { SharedMcpServerInfo, SharedMcpConfig, SharedMcpServerConfig } from "@/types";
 
 interface SharedMcpState {
   servers: SharedMcpServerInfo[];
@@ -12,6 +12,7 @@ interface SharedMcpState {
   startServer: (name: string) => Promise<void>;
   stopServer: (name: string) => Promise<void>;
   restartServer: (name: string) => Promise<void>;
+  upsertServer: (name: string, config: SharedMcpServerConfig) => Promise<void>;
   toggleShared: (name: string, shared: boolean) => Promise<void>;
   removeServer: (name: string) => Promise<void>;
   importFromClaude: () => Promise<string[]>;
@@ -53,6 +54,12 @@ export const useSharedMcpStore = create<SharedMcpState>((set, get) => ({
   async restartServer(name: string) {
     await sharedMcpService.restartServer(name);
     await get().fetchStatus();
+  },
+
+  async upsertServer(name: string, config: SharedMcpServerConfig) {
+    await sharedMcpService.upsertServer(name, config);
+    await get().fetchStatus();
+    await get().fetchConfig();
   },
 
   async toggleShared(name: string, shared: boolean) {

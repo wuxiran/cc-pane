@@ -3,6 +3,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { LaunchProviderSelection } from "@/types";
 
 export interface PopupTabData {
   tabId: string;
@@ -12,6 +13,8 @@ export interface PopupTabData {
   title: string;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
   workspacePath?: string;
 }
 

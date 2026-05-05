@@ -8,6 +8,7 @@
 
 mod claude;
 mod codex;
+mod cursor;
 mod gemini;
 mod glm;
 mod kimi;
@@ -15,6 +16,7 @@ mod opencode;
 
 pub use claude::ClaudeAdapter;
 pub use codex::CodexAdapter;
+pub use cursor::CursorAdapter;
 pub use gemini::GeminiAdapter;
 pub use glm::GlmAdapter;
 pub use kimi::KimiAdapter;
@@ -31,15 +33,17 @@ use std::time::Duration;
 ///
 /// 独立于 cc-panes-core，避免循环依赖。
 pub fn no_window_command(program: &str) -> std::process::Command {
-    let cmd = std::process::Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        let mut cmd = cmd;
+        let mut cmd = std::process::Command::new(program);
         cmd.creation_flags(0x08000000);
-        return cmd;
+        cmd
     }
-    cmd
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new(program)
+    }
 }
 
 /// 带超时执行子进程，返回 stdout（超时或失败返回 None）
@@ -229,6 +233,14 @@ pub struct CliAdapterContext {
     /// 非空时 generate_mcp_config 会跳过同名 stdio 配置并注入 HTTP 版本
     #[allow(dead_code)]
     pub shared_mcp_urls: HashMap<String, String>,
+    /// 运行配置允许保留的 MCP server id。
+    /// Codex 需要这个列表来禁用用户 config.toml 中未被本次运行配置选中的 MCP。
+    #[allow(dead_code)]
+    pub allowed_mcp_server_ids: Vec<String>,
+    /// 为 true 时，Codex 启动会把 config.toml 里不在 allowed_mcp_server_ids 的 MCP
+    /// 通过 per-launch override 显式 disabled，避免运行配置筛选后仍继承用户全局 MCP。
+    #[allow(dead_code)]
+    pub disable_unlisted_mcp_servers: bool,
 }
 
 /// 供 adapter 使用的轻量 Provider 视图，避免依赖主 crate 类型

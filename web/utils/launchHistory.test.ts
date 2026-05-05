@@ -35,7 +35,7 @@ describe("launchHistory", () => {
   });
 
   it("falls back to the recorded launch metadata for local sessions", () => {
-    const record = createRecord({ runtimeKind: "local" });
+    const record = createRecord({ runtimeKind: "local", providerSelection: "none" });
 
     const options = buildLaunchRecordTerminalOptions(record, [], []);
 
@@ -44,6 +44,7 @@ describe("launchHistory", () => {
       workspaceName: record.workspaceName,
       workspacePath: record.launchCwd,
       cliTool: "codex",
+      providerSelection: "none",
       resumeId: "resume-1",
     });
   });

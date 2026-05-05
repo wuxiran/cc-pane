@@ -19,12 +19,15 @@ pub struct AppSettings {
     pub notification: NotificationSettings,
     #[serde(default)]
     pub screenshot: ScreenshotSettings,
+    #[serde(default)]
+    pub voice: VoiceSettings,
 }
 
 impl AppSettings {
     pub fn merge_missing_defaults(&mut self) {
         self.terminal.merge_missing_defaults();
         self.shortcuts.merge_missing_defaults();
+        self.voice.merge_missing_defaults();
     }
 }
 
@@ -175,6 +178,90 @@ pub struct ScreenshotSettings {
     pub retention_days: u32,
 }
 
+/// 语音输入设置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceSettings {
+    #[serde(default = "default_voice_provider")]
+    pub provider: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub dashscope_api_key: String,
+    /// Qwen-ASR OpenAI 兼容 API 地域: "cn" | "intl"
+    #[serde(default = "default_voice_region")]
+    pub region: String,
+    #[serde(default = "default_voice_model")]
+    pub model: String,
+    #[serde(default)]
+    pub mimo_api_key: String,
+    #[serde(default = "default_voice_mimo_base_url")]
+    pub mimo_base_url: String,
+    #[serde(default = "default_voice_mimo_model")]
+    pub mimo_model: String,
+    /// 可选语种；为空时交给模型自动识别
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub enable_itn: bool,
+    #[serde(default = "default_voice_max_record_seconds")]
+    pub max_record_seconds: u32,
+}
+
+impl VoiceSettings {
+    pub fn merge_missing_defaults(&mut self) {
+        if !matches!(self.provider.as_str(), "dashscope" | "mimo") {
+            self.provider = default_voice_provider();
+        }
+        if !matches!(self.region.as_str(), "cn" | "intl") {
+            self.region = default_voice_region();
+        }
+        if self.model.trim().is_empty() {
+            self.model = default_voice_model();
+        }
+        if self.mimo_base_url.trim().is_empty() {
+            self.mimo_base_url = default_voice_mimo_base_url();
+        } else {
+            self.mimo_base_url = self.mimo_base_url.trim().trim_end_matches('/').to_string();
+        }
+        if self.mimo_model.trim().is_empty() {
+            self.mimo_model = default_voice_mimo_model();
+        }
+        if let Some(language) = self.language.as_ref() {
+            if language.trim().is_empty() {
+                self.language = None;
+            }
+        }
+        if !(1..=300).contains(&self.max_record_seconds) {
+            self.max_record_seconds = default_voice_max_record_seconds();
+        }
+    }
+}
+
+fn default_voice_provider() -> String {
+    "dashscope".to_string()
+}
+
+fn default_voice_region() -> String {
+    "cn".to_string()
+}
+
+fn default_voice_model() -> String {
+    "qwen3-asr-flash".to_string()
+}
+
+fn default_voice_mimo_base_url() -> String {
+    "https://api.xiaomimimo.com/v1".to_string()
+}
+
+fn default_voice_mimo_model() -> String {
+    "mimo-v2.5".to_string()
+}
+
+fn default_voice_max_record_seconds() -> u32 {
+    60
+}
+
 // ---- 默认值实现 ----
 
 impl Default for ProxySettings {
@@ -231,6 +318,7 @@ impl Default for ShortcutSettings {
         bindings.insert("next-tab".to_string(), "Ctrl+Tab".to_string());
         bindings.insert("prev-tab".to_string(), "Ctrl+Shift+Tab".to_string());
         bindings.insert("toggle-mini-mode".to_string(), "Ctrl+M".to_string());
+        bindings.insert("voice-input".to_string(), "Ctrl+Alt+M".to_string());
         for i in 1..=9 {
             bindings.insert(format!("switch-tab-{}", i), format!("Ctrl+{}", i));
         }
@@ -258,6 +346,24 @@ impl Default for ScreenshotSettings {
                 "Ctrl+Shift+S".to_string()
             },
             retention_days: 7,
+        }
+    }
+}
+
+impl Default for VoiceSettings {
+    fn default() -> Self {
+        Self {
+            provider: default_voice_provider(),
+            enabled: false,
+            dashscope_api_key: String::new(),
+            region: default_voice_region(),
+            model: default_voice_model(),
+            mimo_api_key: String::new(),
+            mimo_base_url: default_voice_mimo_base_url(),
+            mimo_model: default_voice_mimo_model(),
+            language: None,
+            enable_itn: false,
+            max_record_seconds: default_voice_max_record_seconds(),
         }
     }
 }
@@ -338,6 +444,7 @@ mod tests {
             bindings.get("focus-pane-down"),
             Some(&"Alt+Down".to_string())
         );
+        assert_eq!(bindings.get("voice-input"), Some(&"Ctrl+Alt+M".to_string()));
     }
 
     #[test]
@@ -408,5 +515,32 @@ mod tests {
         settings.merge_missing_defaults();
 
         assert_eq!(settings.renderer_mode, "auto");
+    }
+
+    #[test]
+    fn voice_merge_missing_defaults_normalizes_invalid_values() {
+        let mut settings = VoiceSettings {
+            provider: "unknown".to_string(),
+            enabled: true,
+            dashscope_api_key: "sk-test".to_string(),
+            region: "invalid".to_string(),
+            model: String::new(),
+            mimo_api_key: "mimo-test".to_string(),
+            mimo_base_url: " https://api.xiaomimimo.com/v1/ ".to_string(),
+            mimo_model: String::new(),
+            language: Some(" ".to_string()),
+            enable_itn: true,
+            max_record_seconds: 999,
+        };
+
+        settings.merge_missing_defaults();
+
+        assert_eq!(settings.provider, "dashscope");
+        assert_eq!(settings.region, "cn");
+        assert_eq!(settings.model, "qwen3-asr-flash");
+        assert_eq!(settings.mimo_base_url, "https://api.xiaomimimo.com/v1");
+        assert_eq!(settings.mimo_model, "mimo-v2.5");
+        assert_eq!(settings.language, None);
+        assert_eq!(settings.max_record_seconds, 60);
     }
 }

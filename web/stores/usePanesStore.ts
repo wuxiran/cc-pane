@@ -24,7 +24,7 @@ function generateId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-const TERMINAL_LAYOUT_CHANGED_EVENT = "cc-panes:terminal-layout-changed";
+export const TERMINAL_LAYOUT_CHANGED_EVENT = "cc-panes:terminal-layout-changed";
 
 function notifyTerminalLayoutChanged(reason: string): void {
   if (typeof window === "undefined") return;
@@ -67,7 +67,10 @@ interface CreateTabOptions {
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: Tab["providerSelection"];
+  launchProfileId?: string;
   workspacePath?: string;
+  workspaceSnapshotId?: string;
   cliTool?: CliTool;
   customTitle?: string;
   ssh?: SshConnectionInfo;
@@ -76,7 +79,7 @@ interface CreateTabOptions {
 }
 
 function createTab(opts: CreateTabOptions): Tab {
-  const { projectId, projectPath, sessionId, resumeId, workspaceName, providerId, workspacePath, cliTool, customTitle, ssh, wsl, machineName } = opts;
+  const { projectId, projectPath, sessionId, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName } = opts;
   let title: string;
   if (customTitle) {
     title = customTitle;
@@ -106,7 +109,10 @@ function createTab(opts: CreateTabOptions): Tab {
     resumeId,
     workspaceName,
     providerId,
+    providerSelection,
+    launchProfileId,
     workspacePath,
+    workspaceSnapshotId,
     cliTool,
     launchClaude: (cliTool && cliTool !== "none") || undefined,
     ssh,
@@ -124,7 +130,10 @@ function createTab(opts: CreateTabOptions): Tab {
     resumeId: terminalLeaf.resumeId,
     workspaceName: terminalLeaf.workspaceName,
     providerId: terminalLeaf.providerId,
+    providerSelection: terminalLeaf.providerSelection,
+    launchProfileId: terminalLeaf.launchProfileId,
     workspacePath: terminalLeaf.workspacePath,
+    workspaceSnapshotId: terminalLeaf.workspaceSnapshotId,
     cliTool: terminalLeaf.cliTool,
     launchClaude: terminalLeaf.launchClaude,
     ssh: terminalLeaf.ssh,
@@ -191,7 +200,10 @@ function syncTabTerminalState(tab: Tab): void {
       resumeId: tab.resumeId,
       workspaceName: tab.workspaceName,
       providerId: tab.providerId,
+      providerSelection: tab.providerSelection,
+      launchProfileId: tab.launchProfileId,
       workspacePath: tab.workspacePath,
+      workspaceSnapshotId: tab.workspaceSnapshotId,
       cliTool: tab.cliTool,
       launchClaude: tab.launchClaude,
       ssh: tab.ssh,
@@ -218,7 +230,10 @@ function syncTabTerminalState(tab: Tab): void {
   tab.resumeId = activeLeaf.resumeId;
   tab.workspaceName = activeLeaf.workspaceName;
   tab.providerId = activeLeaf.providerId;
+  tab.providerSelection = activeLeaf.providerSelection;
+  tab.launchProfileId = activeLeaf.launchProfileId;
   tab.workspacePath = activeLeaf.workspacePath;
+  tab.workspaceSnapshotId = activeLeaf.workspaceSnapshotId;
   tab.cliTool = activeLeaf.cliTool;
   tab.launchClaude = activeLeaf.launchClaude;
   tab.ssh = activeLeaf.ssh;
@@ -321,7 +336,10 @@ interface ClosedTabSnapshot {
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  providerSelection?: Tab["providerSelection"];
+  launchProfileId?: string;
   workspacePath?: string;
+  workspaceSnapshotId?: string;
   launchClaude?: boolean;
   cliTool?: CliTool;
   ssh?: SshConnectionInfo;
@@ -382,6 +400,8 @@ interface PanesState {
   markTabPoppedOut: (tabId: string) => void;
   markTabReclaimed: (tabId: string) => void;
   isTabPoppedOut: (tabId: string) => boolean;
+  updateTabAgentResumeId: (ptySessionId: string, agentResumeId: string) => void;
+  /** @deprecated Use updateTabAgentResumeId; kept for persisted callers and older UI code. */
   updateTabClaudeSession: (ptySessionId: string, claudeSessionId: string) => void;
   setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean, terminalPaneId?: string) => void;
   reconnectTab: (paneId: string, tabId: string, terminalPaneId?: string) => Promise<string | null>;
@@ -504,7 +524,10 @@ export const usePanesStore = create<PanesState>()(
             resumeId: t.resumeId,
             workspaceName: t.workspaceName,
             providerId: t.providerId,
+            providerSelection: t.providerSelection,
+            launchProfileId: t.launchProfileId,
             workspacePath: t.workspacePath,
+            workspaceSnapshotId: t.workspaceSnapshotId,
             launchClaude: t.launchClaude,
             cliTool: t.cliTool,
             ssh: t.ssh,
@@ -796,7 +819,10 @@ export const usePanesStore = create<PanesState>()(
             resumeId: snapTab.resumeId,
             workspaceName: snapTab.workspaceName,
             providerId: snapTab.providerId,
+            providerSelection: snapTab.providerSelection,
+            launchProfileId: snapTab.launchProfileId,
             workspacePath: snapTab.workspacePath,
+            workspaceSnapshotId: snapTab.workspaceSnapshotId,
             launchClaude: snapTab.launchClaude,
             cliTool: snapTab.cliTool,
             ssh: snapTab.ssh,
@@ -1051,7 +1077,7 @@ export const usePanesStore = create<PanesState>()(
       notifyTerminalLayoutChanged("terminal.resize");
     },
 
-    updateTabClaudeSession: (ptySessionId, claudeSessionId) => {
+    updateTabAgentResumeId: (ptySessionId, agentResumeId) => {
       set((state) => {
         const update = (node: PaneNode): boolean => {
           if (node.type === "panel") {
@@ -1059,13 +1085,13 @@ export const usePanesStore = create<PanesState>()(
               if (tab.contentType === "terminal" && tab.terminalRootPane) {
                 for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
                   if (leaf.sessionId === ptySessionId) {
-                    leaf.resumeId = claudeSessionId;
+                    leaf.resumeId = agentResumeId;
                     syncTabTerminalState(tab);
                     return true;
                   }
                 }
               } else if (tab.sessionId === ptySessionId) {
-                tab.resumeId = claudeSessionId;
+                tab.resumeId = agentResumeId;
                 return true;
               }
             }
@@ -1078,6 +1104,10 @@ export const usePanesStore = create<PanesState>()(
         };
         update(state.rootPane);
       });
+    },
+
+    updateTabClaudeSession: (ptySessionId, claudeSessionId) => {
+      get().updateTabAgentResumeId(ptySessionId, claudeSessionId);
     },
 
     openProjectInPane: (paneId, opts) => {
@@ -1198,7 +1228,10 @@ export const usePanesStore = create<PanesState>()(
         resumeId: lastClosed.resumeId,
         workspaceName: lastClosed.workspaceName,
         providerId: lastClosed.providerId,
+        providerSelection: lastClosed.providerSelection,
+        launchProfileId: lastClosed.launchProfileId,
         workspacePath: lastClosed.workspacePath,
+        workspaceSnapshotId: lastClosed.workspaceSnapshotId,
         cliTool: lastClosed.cliTool,
         ssh: lastClosed.ssh,
         wsl: lastClosed.wsl,
@@ -1409,7 +1442,10 @@ export const usePanesStore = create<PanesState>()(
           rows: 24,
           workspaceName: leaf?.workspaceName ?? tab.workspaceName,
           providerId: leaf?.providerId ?? tab.providerId,
+          providerSelection: leaf?.providerSelection ?? tab.providerSelection,
+          launchProfileId: leaf?.launchProfileId ?? tab.launchProfileId,
           workspacePath: leaf?.workspacePath ?? tab.workspacePath,
+          workspaceSnapshotId: leaf?.workspaceSnapshotId ?? tab.workspaceSnapshotId,
           cliTool: leaf?.cliTool ?? tab.cliTool,
           ssh: leaf?.ssh ?? tab.ssh,
           wsl: leaf?.wsl ?? tab.wsl,

@@ -65,6 +65,8 @@ export default function PopupTerminalWindow() {
         isActive={true}
         workspaceName={tabData.workspaceName}
         providerId={tabData.providerId}
+        providerSelection={tabData.providerSelection}
+        launchProfileId={tabData.launchProfileId}
         workspacePath={tabData.workspacePath}
         onSessionCreated={handleSessionCreated}
       />

@@ -5,10 +5,10 @@ use crate::{
     ProjectHookDefinition, ProjectHookStatus,
 };
 use anyhow::{anyhow, Result};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn};
+use tracing::info;
 
 const HOOK_BINARY_NAME: &str = "cc-panes-cli-hook";
 const LEGACY_HOOK_BINARY_NAME: &str = "cc-panes-hook";
@@ -77,93 +77,140 @@ impl CodexAdapter {
                 supports_system_prompt: true,
                 supports_workspace: true,
                 supports_project_hooks: true,
-                compatible_provider_types: vec!["openai".into(), "custom".into()],
+                compatible_provider_types: vec!["open_ai".into(), "config_profile".into()],
             },
         }
     }
 
-    /// 注册 CC-Panes MCP 服务器到 Codex 全局配置（幂等：已存在则覆盖）
-    fn register_codex_mcp(&self, ctx: &CliAdapterContext, codex_cmd: &str) {
-        let port = match ctx.orchestrator_port {
-            Some(p) => p,
-            None => {
-                warn!(
-                    session_id = %ctx.session_id,
-                    "[codex] No orchestrator info, skipping MCP"
-                );
-                return;
-            }
-        };
-        let token = match ctx.orchestrator_token.as_ref() {
-            Some(t) => t,
-            None => {
-                warn!(
-                    session_id = %ctx.session_id,
-                    "[codex] No orchestrator token, skipping MCP"
-                );
-                return;
-            }
-        };
+    fn is_simple_toml_key_segment(segment: &str) -> bool {
+        !segment.is_empty()
+            && segment
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    }
 
-        // 健康检查
-        let check_addr = format!("127.0.0.1:{}", port);
-        if let Ok(addr) = check_addr.parse() {
-            if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200))
-                .is_err()
-            {
-                warn!(
-                    session_id = %ctx.session_id,
-                    "[codex] Orchestrator not reachable at {}, skipping MCP",
-                    check_addr
-                );
-                return;
-            }
+    fn format_toml_key_segment_for_cli(segment: &str) -> String {
+        if Self::is_simple_toml_key_segment(segment) {
+            segment.to_string()
         } else {
-            warn!(
-                session_id = %ctx.session_id,
-                "[codex] Invalid address: {}, skipping MCP",
-                check_addr
-            );
+            serde_json::to_string(segment).unwrap_or_else(|_| {
+                format!("\"{}\"", segment.replace('\\', "\\\\").replace('"', "\\\""))
+            })
+        }
+    }
+
+    fn format_toml_string_for_cli(value: &str) -> String {
+        serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+    }
+
+    fn push_mcp_url_override(args: &mut Vec<String>, name: &str, url: &str) {
+        args.push("-c".to_string());
+        args.push(format!(
+            "mcp_servers.{}.url={}",
+            Self::format_toml_key_segment_for_cli(name),
+            Self::format_toml_string_for_cli(url)
+        ));
+    }
+
+    fn push_mcp_bearer_env_override(args: &mut Vec<String>, name: &str, env_var: &str) {
+        args.push("-c".to_string());
+        args.push(format!(
+            "mcp_servers.{}.bearer_token_env_var={}",
+            Self::format_toml_key_segment_for_cli(name),
+            Self::format_toml_string_for_cli(env_var)
+        ));
+    }
+
+    fn push_mcp_enabled_override(args: &mut Vec<String>, name: &str, enabled: bool) {
+        args.push("-c".to_string());
+        args.push(format!(
+            "mcp_servers.{}.enabled={}",
+            Self::format_toml_key_segment_for_cli(name),
+            enabled
+        ));
+    }
+
+    fn push_developer_instructions_override(args: &mut Vec<String>, prompt: &str) {
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
             return;
         }
+        args.push("-c".to_string());
+        args.push(format!(
+            "developer_instructions={}",
+            Self::format_toml_string_for_cli(prompt)
+        ));
+    }
 
-        // 注册（已存在则覆盖，天然幂等）
-        let url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
-        match crate::no_window_command(codex_cmd)
-            .args([
-                "mcp",
-                "add",
-                "ccpanes",
-                "--url",
-                &url,
-                "--bearer-token-env-var",
-                "CC_PANES_API_TOKEN",
-            ])
-            .output()
+    fn push_mcp_overrides(&self, args: &mut Vec<String>, ctx: &CliAdapterContext) {
+        if let (Some(port), Some(token)) = (ctx.orchestrator_port, ctx.orchestrator_token.as_ref())
         {
-            Ok(output) if output.status.success() => {
-                info!(
-                    session_id = %ctx.session_id,
-                    "[codex] Registered ccpanes MCP: port={}",
-                    port
-                );
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!(
-                    session_id = %ctx.session_id,
-                    "[codex] codex mcp add failed: {}",
-                    stderr
-                );
-            }
-            Err(e) => {
-                warn!(
-                    session_id = %ctx.session_id,
-                    "[codex] Failed to run codex mcp add: {}",
-                    e
-                );
+            let url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
+            Self::push_mcp_url_override(args, "ccpanes", &url);
+            Self::push_mcp_bearer_env_override(args, "ccpanes", "CC_PANES_API_TOKEN");
+            Self::push_mcp_enabled_override(args, "ccpanes", true);
+        }
+
+        for (name, url) in &ctx.shared_mcp_urls {
+            Self::push_mcp_url_override(args, name, url);
+        }
+
+        info!(
+            session_id = %ctx.session_id,
+            shared_mcp = ctx.shared_mcp_urls.len(),
+            "codex: MCP configured via per-launch CLI overrides"
+        );
+    }
+
+    fn configured_mcp_server_names_from_config_path(path: &Path) -> BTreeSet<String> {
+        let Ok(content) = fs::read_to_string(path) else {
+            return BTreeSet::new();
+        };
+        let Ok(root) = content.parse::<toml::Value>() else {
+            return BTreeSet::new();
+        };
+        root.get("mcp_servers")
+            .and_then(toml::Value::as_table)
+            .map(|servers| servers.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    fn configured_mcp_server_names() -> BTreeSet<String> {
+        let Some(home) = dirs::home_dir() else {
+            return BTreeSet::new();
+        };
+        Self::configured_mcp_server_names_from_config_path(&home.join(".codex").join("config.toml"))
+    }
+
+    fn push_mcp_isolation_overrides_for_names(
+        args: &mut Vec<String>,
+        allowed_server_ids: &[String],
+        configured_server_names: BTreeSet<String>,
+    ) {
+        let allowed = allowed_server_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        let mut server_names = configured_server_names;
+        server_names.extend(allowed_server_ids.iter().cloned());
+        server_names.insert("ccpanes".to_string());
+
+        for name in server_names {
+            if !allowed.contains(name.as_str()) {
+                Self::push_mcp_enabled_override(args, &name, false);
             }
         }
+    }
+
+    fn push_mcp_isolation_overrides(args: &mut Vec<String>, ctx: &CliAdapterContext) {
+        if !ctx.disable_unlisted_mcp_servers {
+            return;
+        }
+        Self::push_mcp_isolation_overrides_for_names(
+            args,
+            &ctx.allowed_mcp_server_ids,
+            Self::configured_mcp_server_names(),
+        );
     }
 
     fn project_codex_dir(project_path: &Path) -> PathBuf {
@@ -454,17 +501,24 @@ impl CliToolAdapter for CodexAdapter {
         let path = which::which("codex").map_err(|_| anyhow!("codex CLI not found in PATH"))?;
         let codex_cmd = path.to_string_lossy().into_owned();
 
-        // MCP 注入（失败不阻塞启动）
+        let mut args = Vec::new();
+
+        // MCP 注入使用 Codex 的 per-launch -c override，避免写入用户全局 config.toml。
         if ctx.skip_mcp {
             info!(
                 session_id = %ctx.session_id,
-                "codex: skip_mcp=true, skipping Codex MCP registration"
+                "codex: skip_mcp=true, skipping Codex MCP overrides"
             );
+            Self::push_mcp_enabled_override(&mut args, "ccpanes", false);
         } else {
-            self.register_codex_mcp(ctx, &codex_cmd);
+            self.push_mcp_overrides(&mut args, ctx);
         }
 
-        let mut args = Vec::new();
+        if let Some(ref prompt) = ctx.append_system_prompt {
+            Self::push_developer_instructions_override(&mut args, prompt);
+        }
+
+        Self::push_mcp_isolation_overrides(&mut args, ctx);
 
         // Resume: codex resume <id>
         if let Some(ref rid) = ctx.resume_id {
@@ -540,5 +594,71 @@ mod tests {
         assert!(statuses
             .iter()
             .all(|status| status.reason.as_deref() == Some(DOT_CODEX_FILE_CONFLICT)));
+    }
+
+    #[test]
+    fn mcp_overrides_use_codex_toml_dotted_keys() {
+        let mut args = Vec::new();
+
+        CodexAdapter::push_mcp_url_override(&mut args, "context 7", "http://127.0.0.1:3100/mcp");
+        CodexAdapter::push_mcp_bearer_env_override(&mut args, "ccpanes", "CC_PANES_API_TOKEN");
+        CodexAdapter::push_mcp_enabled_override(&mut args, "ccpanes", false);
+
+        assert_eq!(
+            args,
+            vec![
+                "-c",
+                "mcp_servers.\"context 7\".url=\"http://127.0.0.1:3100/mcp\"",
+                "-c",
+                "mcp_servers.ccpanes.bearer_token_env_var=\"CC_PANES_API_TOKEN\"",
+                "-c",
+                "mcp_servers.ccpanes.enabled=false",
+            ]
+        );
+    }
+
+    #[test]
+    fn developer_instructions_override_uses_codex_cli_config() {
+        let mut args = Vec::new();
+
+        CodexAdapter::push_developer_instructions_override(
+            &mut args,
+            "CC-Panes launch profile skill",
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                "-c",
+                "developer_instructions=\"CC-Panes launch profile skill\""
+            ]
+        );
+    }
+
+    #[test]
+    fn mcp_isolation_disables_configured_servers_outside_allowlist() {
+        let mut args = Vec::new();
+        let configured = BTreeSet::from([
+            "ccpanes".to_string(),
+            "fetch".to_string(),
+            "chrome-devtools-windows".to_string(),
+            "Desktop Commander".to_string(),
+        ]);
+
+        CodexAdapter::push_mcp_isolation_overrides_for_names(
+            &mut args,
+            &["ccpanes".to_string(), "fetch".to_string()],
+            configured,
+        );
+
+        assert_eq!(
+            args,
+            vec![
+                "-c",
+                "mcp_servers.\"Desktop Commander\".enabled=false",
+                "-c",
+                "mcp_servers.chrome-devtools-windows.enabled=false",
+            ]
+        );
     }
 }

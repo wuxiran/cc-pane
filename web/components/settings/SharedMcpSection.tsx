@@ -6,6 +6,7 @@ import {
   Square,
   RotateCw,
   Trash2,
+  SquarePen,
   Download,
   Loader2,
   ToggleLeft,
@@ -13,12 +14,38 @@ import {
   Copy,
   Check,
   Zap,
+  Plus,
+  Save,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useSharedMcpStore } from "@/stores";
-import type { SharedMcpServerInfo, SharedMcpServerStatus } from "@/types";
+import type { BridgeMode, SharedMcpServerConfig, SharedMcpServerInfo, SharedMcpServerStatus } from "@/types";
 import { mcpService } from "@/services";
+import { formatEnvLines, parseEnvLines } from "@/utils";
+
+interface FormState {
+  name: string;
+  command: string;
+  args: string;
+  env: string;
+  shared: boolean;
+  port: string;
+  bridgeMode: BridgeMode;
+}
+
+const emptyForm: FormState = {
+  name: "",
+  command: "",
+  args: "",
+  env: "",
+  shared: true,
+  port: "",
+  bridgeMode: "mcp-proxy",
+};
 
 function statusLabel(status: SharedMcpServerStatus): string {
   if (status === "Running") return "Running";
@@ -105,16 +132,21 @@ function CcpanesMcpCard() {
 
 export default function SharedMcpSection() {
   const servers = useSharedMcpStore((s) => s.servers);
+  const config = useSharedMcpStore((s) => s.config);
   const fetchStatus = useSharedMcpStore((s) => s.fetchStatus);
   const fetchConfig = useSharedMcpStore((s) => s.fetchConfig);
   const startServer = useSharedMcpStore((s) => s.startServer);
   const stopServer = useSharedMcpStore((s) => s.stopServer);
   const restartServer = useSharedMcpStore((s) => s.restartServer);
+  const upsertServer = useSharedMcpStore((s) => s.upsertServer);
   const toggleShared = useSharedMcpStore((s) => s.toggleShared);
   const removeServer = useSharedMcpStore((s) => s.removeServer);
   const importFromClaude = useSharedMcpStore((s) => s.importFromClaude);
 
   const [importing, setImporting] = useState(false);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>({ ...emptyForm });
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     fetchStatus();
@@ -140,6 +172,95 @@ export default function SharedMcpSection() {
       toast.error(`Import failed: ${String(e)}`);
     } finally {
       setImporting(false);
+    }
+  }
+
+  function nextAvailablePort(currentName?: string): number {
+    const rangeStart = config?.portRangeStart ?? 3100;
+    const rangeEnd = config?.portRangeEnd ?? 3199;
+    const used = new Set(
+      servers
+        .filter((server) => server.name !== currentName)
+        .map((server) => server.config.port),
+    );
+    for (let port = rangeStart; port <= rangeEnd; port += 1) {
+      if (!used.has(port)) return port;
+    }
+    return rangeStart;
+  }
+
+  function resetForm() {
+    setEditing(false);
+    setEditingName(null);
+    setForm({ ...emptyForm });
+  }
+
+  function handleNew() {
+    setEditingName(null);
+    setForm({
+      ...emptyForm,
+      port: String(nextAvailablePort()),
+    });
+    setEditing(true);
+  }
+
+  function handleEdit(server: SharedMcpServerInfo) {
+    setEditingName(server.name);
+    setForm({
+      name: server.name,
+      command: server.config.command,
+      args: server.config.args.join(" "),
+      env: formatEnvLines(server.config.env),
+      shared: server.config.shared,
+      port: String(server.config.port),
+      bridgeMode: server.config.bridgeMode,
+    });
+    setEditing(true);
+  }
+
+  async function handleSave() {
+    const name = form.name.trim();
+    const command = form.command.trim();
+    const port = Number.parseInt(form.port, 10);
+
+    if (!name || !command) {
+      toast.error("MCP 名称和命令不能为空");
+      return;
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      toast.error("端口必须是 1-65535 之间的数字");
+      return;
+    }
+
+    const duplicate = servers.some((server) => server.name !== editingName && server.name === name);
+    if (duplicate) {
+      toast.error("MCP 名称已存在");
+      return;
+    }
+    const portDuplicate = servers.some((server) => server.name !== editingName && server.config.port === port);
+    if (portDuplicate) {
+      toast.error("端口已被其他共享 MCP 使用");
+      return;
+    }
+
+    const updated: SharedMcpServerConfig = {
+      command,
+      args: form.args.trim() ? form.args.trim().split(/\s+/) : [],
+      env: parseEnvLines(form.env),
+      shared: form.shared,
+      port,
+      bridgeMode: form.bridgeMode,
+    };
+
+    try {
+      if (editingName && editingName !== name) {
+        await removeServer(editingName);
+      }
+      await upsertServer(name, updated);
+      toast.success(editingName ? "共享 MCP 已更新" : "共享 MCP 已新增");
+      resetForm();
+    } catch (e) {
+      toast.error(`保存失败: ${String(e)}`);
     }
   }
 
@@ -182,6 +303,7 @@ export default function SharedMcpSection() {
     try {
       await removeServer(name);
       toast.success(`Removed ${name}`);
+      if (editingName === name) resetForm();
     } catch (e) {
       toast.error(`Remove failed: ${String(e)}`);
     }
@@ -199,41 +321,142 @@ export default function SharedMcpSection() {
       {/* 标题 + 操作 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium">Shared MCP Servers</h3>
+          <h3 className="text-sm font-medium">共享 MCP</h3>
           <Badge variant="secondary" className="text-xs">
             {runningCount}/{servers.length}
           </Badge>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleImport}
-          disabled={importing}
-        >
-          {importing ? (
-            <Loader2 size={14} className="mr-1 animate-spin" />
-          ) : (
-            <Download size={14} className="mr-1" />
-          )}
-          Import from .claude.json
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={handleNew}>
+            <Plus size={14} className="mr-1" />
+            新增
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleImport}
+            disabled={importing}
+          >
+            {importing ? (
+              <Loader2 size={14} className="mr-1 animate-spin" />
+            ) : (
+              <Download size={14} className="mr-1" />
+            )}
+            导入 MCP 配置
+          </Button>
+        </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Share stateless MCP servers across Claude instances via HTTP, reducing
-        process count by ~60%.
+        当前支持从 Claude 配置导入 stdio MCP 启动命令；CC-Panes 会桥接为 HTTP，并在启动时按当前 CLI 的 MCP 规则注入。
       </p>
 
+      {editing && (
+        <div className="rounded-lg border-2 border-primary/30 bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-sm font-medium">
+              {editingName ? "编辑共享 MCP" : "新增共享 MCP"}
+            </h4>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={resetForm}>
+              <X size={14} />
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs">名称</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="context7"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">命令</Label>
+              <Input
+                value={form.command}
+                onChange={(e) => setForm({ ...form, command: e.target.value })}
+                placeholder="npx"
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">参数</Label>
+              <Input
+                value={form.args}
+                onChange={(e) => setForm({ ...form, args: e.target.value })}
+                placeholder="-y @upstash/context7-mcp"
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">端口</Label>
+                <Input
+                  value={form.port}
+                  onChange={(e) => setForm({ ...form, port: e.target.value })}
+                  placeholder="3100"
+                  className="h-8 text-sm font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">桥接</Label>
+                <select
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={form.bridgeMode}
+                  onChange={(e) => setForm({ ...form, bridgeMode: e.target.value as BridgeMode })}
+                >
+                  <option value="mcp-proxy">mcp-proxy</option>
+                  <option value="native-http">native-http</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs">环境变量</Label>
+            <textarea
+              value={form.env}
+              onChange={(e) => setForm({ ...form, env: e.target.value })}
+              placeholder="KEY=VALUE"
+              className="h-20 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.shared}
+                onChange={(e) => setForm({ ...form, shared: e.target.checked })}
+              />
+              启用共享
+            </label>
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" onClick={resetForm}>
+                <X size={14} className="mr-1" />
+                取消
+              </Button>
+              <Button size="sm" onClick={handleSave}>
+                <Save size={14} className="mr-1" />
+                保存
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 服务器列表 */}
-      {servers.length === 0 ? (
+      {servers.length === 0 && !editing ? (
         <div className="text-center py-12 text-muted-foreground">
           <ServerOff size={28} className="mx-auto mb-3 opacity-40" />
-          <p className="text-xs">No shared MCP servers configured</p>
+          <p className="text-xs">还没有共享 MCP</p>
           <p className="text-xs mt-1">
-            Click &quot;Import from .claude.json&quot; to get started
+            可以新增，或从已有 MCP 配置导入
           </p>
         </div>
-      ) : (
+      ) : servers.length > 0 ? (
         <div className="space-y-2">
           {servers.map((server) => (
             <ServerRow
@@ -244,10 +467,11 @@ export default function SharedMcpSection() {
               onRestart={handleRestart}
               onToggleShared={handleToggleShared}
               onRemove={handleRemove}
+              onEdit={handleEdit}
             />
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -259,6 +483,7 @@ function ServerRow({
   onRestart,
   onToggleShared,
   onRemove,
+  onEdit,
 }: {
   server: SharedMcpServerInfo;
   onStart: (name: string) => void;
@@ -266,6 +491,7 @@ function ServerRow({
   onRestart: (name: string) => void;
   onToggleShared: (name: string, enabled: boolean) => void;
   onRemove: (name: string) => void;
+  onEdit: (server: SharedMcpServerInfo) => void;
 }) {
   const isRunning = server.status === "Running";
   const isStopped = server.status === "Stopped";
@@ -340,6 +566,15 @@ function ServerRow({
             </Button>
           </>
         )}
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7"
+          onClick={() => onEdit(server)}
+          title="Edit"
+        >
+          <SquarePen size={13} />
+        </Button>
         <Button
           size="icon"
           variant="ghost"

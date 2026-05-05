@@ -375,6 +375,7 @@ impl WorkspaceService {
             id: uuid::Uuid::new_v4().to_string(),
             path: display_path,
             alias: None,
+            launch_profile_id: None,
             wsl_remote_path: None,
             ssh: Some(ssh_info),
         };

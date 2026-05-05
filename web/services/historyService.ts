@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CliTool } from "@/types";
+import type { CliTool, LaunchProviderSelection } from "@/types";
 
 export interface LaunchRecord {
   id: number;
@@ -16,6 +16,9 @@ export interface LaunchRecord {
   workspacePath?: string;
   launchCwd?: string;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
+  workspaceSnapshotId?: string;
 }
 
 export interface SessionState {
@@ -40,6 +43,9 @@ export const historyService = {
     workspacePath?: string,
     launchCwd?: string,
     providerId?: string,
+    providerSelection?: LaunchProviderSelection,
+    workspaceSnapshotId?: string,
+    launchProfileId?: string,
   ): Promise<number> {
     return invoke("add_launch_history", {
       projectId,
@@ -52,6 +58,9 @@ export const historyService = {
       workspacePath: workspacePath ?? null,
       launchCwd: launchCwd ?? null,
       providerId: providerId ?? null,
+      providerSelection: providerSelection ?? null,
+      launchProfileId: launchProfileId ?? null,
+      workspaceSnapshotId: workspaceSnapshotId ?? null,
     });
   },
 

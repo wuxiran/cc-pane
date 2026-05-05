@@ -21,6 +21,9 @@ struct Migration {
 /// V9 = launch_history/session_restore 统一 resume session 字段和运行环境
 /// V10 = launch_history 添加 pty_session_id
 /// V11 = launch_history 添加 wsl_distro
+/// V12 = workspace snapshot identity on launch/restore records
+/// V14 = LaunchProfile identity on launch/restore records
+/// V15 = Provider selection mode on launch/restore records
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -201,6 +204,56 @@ const MIGRATIONS: &[Migration] = &[
         description: "launch_history: add wsl_distro",
         up_sql: "
             ALTER TABLE launch_history ADD COLUMN wsl_distro TEXT;
+        ",
+    },
+    Migration {
+        version: 12,
+        description: "workspace state identity on launch/restore records",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN workspace_session_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN workspace_session_id TEXT;
+            CREATE INDEX IF NOT EXISTS idx_launch_history_workspace_session
+                ON launch_history(workspace_session_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace_session
+                ON terminal_sessions(workspace_session_id);
+        ",
+    },
+    Migration {
+        version: 13,
+        description: "rename workspace session identity to workspace snapshot identity",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN workspace_snapshot_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN workspace_snapshot_id TEXT;
+            UPDATE launch_history
+            SET workspace_snapshot_id = workspace_session_id
+            WHERE workspace_snapshot_id IS NULL AND workspace_session_id IS NOT NULL;
+            UPDATE terminal_sessions
+            SET workspace_snapshot_id = workspace_session_id
+            WHERE workspace_snapshot_id IS NULL AND workspace_session_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_launch_history_workspace_snapshot
+                ON launch_history(workspace_snapshot_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace_snapshot
+                ON terminal_sessions(workspace_snapshot_id);
+        ",
+    },
+    Migration {
+        version: 14,
+        description: "launch profile identity on launch/restore records",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN launch_profile_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN launch_profile_id TEXT;
+            CREATE INDEX IF NOT EXISTS idx_launch_history_launch_profile
+                ON launch_history(launch_profile_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_launch_profile
+                ON terminal_sessions(launch_profile_id);
+        ",
+    },
+    Migration {
+        version: 15,
+        description: "launch/restore records: add provider selection mode",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN provider_selection TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN provider_selection TEXT;
         ",
     },
 ];

@@ -36,6 +36,7 @@ export interface WorkspaceProject {
   id: string;
   path: string;
   alias?: string;
+  launchProfileId?: string;
   wslRemotePath?: string;
   ssh?: SshConnectionInfo;
 }
@@ -47,6 +48,7 @@ export interface Workspace {
   createdAt: string;
   projects: WorkspaceProject[];
   providerId?: string;
+  launchProfileId?: string;
   path?: string;
   defaultEnvironment?: WorkspaceLaunchEnvironment;
   wsl?: WorkspaceWslConfig;

@@ -130,6 +130,19 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       shortcut: "Ctrl+Shift+S",
       retentionDays: 7,
     },
+    voice: {
+      enabled: false,
+      provider: "dashscope",
+      dashscopeApiKey: "",
+      region: "cn",
+      model: "qwen3-asr-flash",
+      mimoApiKey: "",
+      mimoBaseUrl: "https://api.xiaomimimo.com/v1",
+      mimoModel: "mimo-v2.5",
+      language: null,
+      enableItn: false,
+      maxRecordSeconds: 60,
+    },
     ...overrides,
   };
 }

@@ -32,7 +32,7 @@ impl GlmAdapter {
                 supports_system_prompt: false,
                 supports_workspace: true,
                 supports_project_hooks: false,
-                compatible_provider_types: vec!["glm".into()],
+                compatible_provider_types: vec!["glm".into(), "config_profile".into()],
             },
         }
     }

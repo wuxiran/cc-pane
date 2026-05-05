@@ -12,11 +12,15 @@
 use crate::models::todo::{
     CreateTodoRequest, TodoPriority, TodoQuery, TodoScope, TodoStatus, UpdateTodoRequest,
 };
-use crate::models::{CliTool, WslLaunchInfo};
+use crate::models::{
+    CliTool, LaunchProfile, LaunchProfileDraft, LaunchProfileMcpMode, LaunchProfileMcpPolicy,
+    LaunchProfilePreviewRequest, LaunchProfileResolution, LaunchProfileSkillMode,
+    LaunchProfileSkillPolicy, LaunchProviderSelection, Workspace, WslLaunchInfo,
+};
 use crate::services::{
-    LaunchHistoryService, NotificationRequest, NotificationService, ProjectService,
-    ProviderService, SettingsService, SkillService, SpecService, TerminalService, TodoService,
-    WorkspaceService,
+    LaunchHistoryService, LaunchProfileService, NotificationRequest, NotificationService,
+    ProjectService, ProviderService, SettingsService, SharedMcpService, SkillService, SpecService,
+    TerminalService, TodoService, WorkspaceService,
 };
 use crate::utils::AppPaths;
 use anyhow::Result;
@@ -28,6 +32,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use cc_panes_core::models::shared_mcp::{BridgeMode, SharedMcpConfig, SharedMcpServerConfig};
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
@@ -35,7 +40,7 @@ use rmcp::{
     tool, tool_handler, tool_router, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -51,6 +56,7 @@ pub struct LaunchTaskRequest {
     /// 要注入的 prompt（任务描述）。resume 时可不传。
     pub prompt: Option<String>,
     pub provider_id: Option<String>,
+    pub provider_selection: Option<String>,
     pub workspace_name: Option<String>,
     pub workspace_path: Option<String>,
     pub title: Option<String>,
@@ -112,6 +118,7 @@ pub struct OrchestratorLaunchEvent {
     pub project_id: String,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    pub provider_selection: Option<String>,
     pub workspace_path: Option<String>,
     pub title: Option<String>,
     pub resume_id: Option<String>,
@@ -139,11 +146,50 @@ fn parse_launch_cli_tool(cli_tool: Option<&str>) -> std::result::Result<CliTool,
     match cli_tool.unwrap_or("claude") {
         "claude" => Ok(CliTool::Claude),
         "codex" => Ok(CliTool::Codex),
-        "kimi" | "glm" | "gemini" | "opencode" => Err(format!(
+        "kimi" | "glm" | "gemini" | "opencode" | "cursor" => Err(format!(
             "CLI tool '{}' is not supported by launch_task yet; use direct terminal launch instead",
             cli_tool.unwrap_or("claude")
         )),
         other => Err(format!("Unknown cliTool '{}'", other)),
+    }
+}
+
+fn parse_provider_selection(
+    provider_selection: Option<&str>,
+) -> std::result::Result<LaunchProviderSelection, String> {
+    match provider_selection.unwrap_or("inherit") {
+        "inherit" => Ok(LaunchProviderSelection::Inherit),
+        "explicit" => Ok(LaunchProviderSelection::Explicit),
+        "none" => Ok(LaunchProviderSelection::None),
+        other => Err(format!("Unknown providerSelection '{}'", other)),
+    }
+}
+
+fn parse_runtime_mcp_mode(mode: Option<&str>) -> std::result::Result<LaunchProfileMcpMode, String> {
+    match mode.unwrap_or("default") {
+        "default" => Ok(LaunchProfileMcpMode::Default),
+        "custom" => Ok(LaunchProfileMcpMode::Custom),
+        "disabled" => Ok(LaunchProfileMcpMode::Disabled),
+        other => Err(format!("Unknown mcpPolicy.mode '{}'", other)),
+    }
+}
+
+fn parse_runtime_skill_mode(
+    mode: Option<&str>,
+) -> std::result::Result<LaunchProfileSkillMode, String> {
+    match mode.unwrap_or("core") {
+        "core" => Ok(LaunchProfileSkillMode::Core),
+        "custom" => Ok(LaunchProfileSkillMode::Custom),
+        "disabled" => Ok(LaunchProfileSkillMode::Disabled),
+        other => Err(format!("Unknown skillPolicy.mode '{}'", other)),
+    }
+}
+
+fn parse_bridge_mode(mode: Option<&str>) -> std::result::Result<BridgeMode, String> {
+    match mode.unwrap_or("mcp-proxy") {
+        "mcp-proxy" | "mcpProxy" => Ok(BridgeMode::McpProxy),
+        "native-http" | "nativeHttp" => Ok(BridgeMode::NativeHttp),
+        other => Err(format!("Unknown sharedMcpServers[].bridgeMode '{}'", other)),
     }
 }
 
@@ -175,6 +221,8 @@ pub struct AppState {
     pub token: String,
     pub terminal_service: Arc<TerminalService>,
     pub provider_service: Arc<ProviderService>,
+    pub launch_profile_service: Arc<LaunchProfileService>,
+    pub shared_mcp_service: Arc<SharedMcpService>,
     pub project_service: Arc<ProjectService>,
     pub workspace_service: Arc<WorkspaceService>,
     pub todo_service: Arc<TodoService>,
@@ -235,6 +283,8 @@ impl OrchestratorService {
         &self,
         terminal_service: Arc<TerminalService>,
         provider_service: Arc<ProviderService>,
+        launch_profile_service: Arc<LaunchProfileService>,
+        shared_mcp_service: Arc<SharedMcpService>,
         project_service: Arc<ProjectService>,
         workspace_service: Arc<WorkspaceService>,
         todo_service: Arc<TodoService>,
@@ -252,6 +302,8 @@ impl OrchestratorService {
             token: self.token.clone(),
             terminal_service,
             provider_service,
+            launch_profile_service,
+            shared_mcp_service,
             project_service,
             workspace_service,
             todo_service,
@@ -514,6 +566,9 @@ struct McpLaunchTaskParams {
     /// 可选的 Provider ID
     #[serde(rename = "providerId")]
     provider_id: Option<String>,
+    /// Provider 选择模式：inherit / explicit / none
+    #[serde(rename = "providerSelection")]
+    provider_selection: Option<String>,
     /// 自定义标签名（不指定则使用默认 "${目录名} (Claude)"）
     title: Option<String>,
     /// 工作空间名称（自动解析 workspace_path 和 provider）
@@ -783,7 +838,7 @@ struct McpCreateTaskBindingParams {
     /// 工作空间名称
     #[serde(rename = "workspaceName")]
     workspace_name: Option<String>,
-    /// CLI 工具类型：claude/codex/gemini/opencode
+    /// CLI 工具类型：claude/codex/gemini/opencode/cursor
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
 }
@@ -822,6 +877,378 @@ struct McpQueryTaskBindingsParams {
     limit: Option<u32>,
 }
 
+// ============ Runtime Config MCP 参数 ============
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpRuntimeMcpPolicyParams {
+    /// MCP 模式：default / custom / disabled
+    mode: Option<String>,
+    /// custom 模式下启用的 MCP server ID/name
+    enabled_server_ids: Option<Vec<String>>,
+    /// default/custom 模式下禁用的 MCP server ID/name
+    disabled_server_ids: Option<Vec<String>>,
+    /// 是否注入 CC-Panes 自身 orchestrator MCP
+    include_ccpanes_mcp: Option<bool>,
+    /// 是否注入共享 MCP server
+    include_shared_mcp: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpRuntimeSkillPolicyParams {
+    /// Skill 模式：core / custom / disabled
+    mode: Option<String>,
+    /// custom 模式下启用的 Skill ID
+    enabled_skill_ids: Option<Vec<String>>,
+    /// core/custom 模式下禁用的 Skill ID
+    disabled_skill_ids: Option<Vec<String>>,
+    /// 是否启用工作空间项目 Skill
+    include_project_skills: Option<bool>,
+    /// Skill 注入目标，当前主要使用 session
+    target: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpRuntimeSharedMcpServerParams {
+    /// 共享 MCP server 名称，也是运行配置中引用的 server ID
+    name: String,
+    /// 原始启动命令，如 npx
+    command: String,
+    /// 命令参数，如 ["-y", "@upstash/context7-mcp"]
+    args: Option<Vec<String>>,
+    /// 环境变量
+    env: Option<HashMap<String, String>>,
+    /// 是否作为共享 MCP 启用，默认 true
+    shared: Option<bool>,
+    /// 指定端口；不传则复用同名 server 端口或从共享 MCP 端口池分配
+    port: Option<u16>,
+    /// 桥接模式：mcp-proxy / native-http
+    bridge_mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpCreateRuntimeConfigParams {
+    /// 可选：指定已有运行配置 ID 时更新该配置
+    profile_id: Option<String>,
+    /// 运行配置名称
+    name: String,
+    /// 可选别名；不传时后端会默认使用 name
+    alias: Option<String>,
+    /// 描述
+    description: Option<String>,
+    /// 绑定 Provider ID
+    provider_id: Option<String>,
+    /// 适用 CLI 工具，如 ["claude"] 或 ["codex"]；不传表示全部
+    target_tools: Option<Vec<String>>,
+    /// 适用运行时：local / wsl / ssh；不传表示全部
+    target_runtime: Option<String>,
+    /// MCP 策略
+    mcp_policy: Option<McpRuntimeMcpPolicyParams>,
+    /// Skill 策略
+    skill_policy: Option<McpRuntimeSkillPolicyParams>,
+    /// 可选：同时创建/更新共享 MCP server
+    shared_mcp_servers: Option<Vec<McpRuntimeSharedMcpServerParams>>,
+    /// 是否立即启动 sharedMcpServers 中声明的 server，默认 false
+    start_shared_mcp_servers: Option<bool>,
+    /// 可选：绑定目标工作空间
+    workspace_name: Option<String>,
+    /// 可选：绑定目标项目 ID
+    project_id: Option<String>,
+    /// 可选：绑定目标项目路径
+    project_path: Option<String>,
+    /// 是否将该运行配置设为工作空间默认配置，默认 false
+    bind_to_workspace: Option<bool>,
+    /// 是否将该运行配置设为项目配置，默认 false
+    bind_to_project: Option<bool>,
+    /// 是否设为系统默认运行配置，默认 false
+    set_default: Option<bool>,
+    /// name/alias 已存在时是否更新已有配置，默认 false
+    overwrite_existing: Option<bool>,
+    /// 只返回计划，不写入配置文件或启动进程
+    dry_run: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpRuntimeConfigResult {
+    profile: Option<LaunchProfile>,
+    planned_draft: Option<LaunchProfileDraft>,
+    resolution: Option<LaunchProfileResolution>,
+    created_profile: bool,
+    updated_profile: bool,
+    planned_mcp_servers: Vec<String>,
+    upserted_mcp_servers: Vec<String>,
+    started_mcp_servers: Vec<String>,
+    bound_workspace: Option<String>,
+    bound_project: Option<String>,
+    warnings: Vec<String>,
+    dry_run: bool,
+}
+
+fn trim_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn required_trimmed(value: &str, field: &str) -> std::result::Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        Err(format!("{} cannot be empty", field))
+    } else {
+        Ok(trimmed.to_string())
+    }
+}
+
+fn clean_string_list(values: Option<&[String]>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut cleaned = Vec::new();
+    for value in values.into_iter().flatten() {
+        let value = value.trim();
+        if !value.is_empty() && seen.insert(value.to_string()) {
+            cleaned.push(value.to_string());
+        }
+    }
+    cleaned
+}
+
+fn clean_target_tools(values: Option<&[String]>) -> Vec<String> {
+    clean_string_list(values)
+        .into_iter()
+        .map(|tool| tool.to_ascii_lowercase())
+        .collect()
+}
+
+fn normalize_target_runtime(value: Option<String>) -> std::result::Result<Option<String>, String> {
+    let Some(runtime) = trim_optional_string(value).map(|value| value.to_ascii_lowercase()) else {
+        return Ok(None);
+    };
+    if runtime == "all" {
+        return Ok(None);
+    }
+    if matches!(runtime.as_str(), "local" | "wsl" | "ssh") {
+        Ok(Some(runtime))
+    } else {
+        Err(format!(
+            "Unknown targetRuntime '{}'; expected local, wsl, ssh, or all",
+            runtime
+        ))
+    }
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn build_runtime_mcp_policy(
+    params: Option<&McpRuntimeMcpPolicyParams>,
+    shared_server_names: &[String],
+    warnings: &mut Vec<String>,
+) -> std::result::Result<LaunchProfileMcpPolicy, String> {
+    let mut policy = LaunchProfileMcpPolicy::default();
+
+    if let Some(params) = params {
+        policy.mode = parse_runtime_mcp_mode(params.mode.as_deref())?;
+        policy.enabled_server_ids = clean_string_list(params.enabled_server_ids.as_deref());
+        policy.disabled_server_ids = clean_string_list(params.disabled_server_ids.as_deref());
+        if let Some(value) = params.include_ccpanes_mcp {
+            policy.include_ccpanes_mcp = value;
+        }
+        if let Some(value) = params.include_shared_mcp {
+            policy.include_shared_mcp = value;
+        }
+    }
+
+    if !shared_server_names.is_empty() {
+        if policy.mode == LaunchProfileMcpMode::Disabled {
+            warnings.push(
+                "sharedMcpServers were configured, but mcpPolicy.mode is disabled".to_string(),
+            );
+        } else {
+            if policy.mode == LaunchProfileMcpMode::Default {
+                policy.mode = LaunchProfileMcpMode::Custom;
+            }
+            policy.include_shared_mcp = true;
+            for name in shared_server_names {
+                push_unique(&mut policy.enabled_server_ids, name.clone());
+            }
+        }
+    }
+
+    Ok(policy)
+}
+
+fn build_runtime_skill_policy(
+    params: Option<&McpRuntimeSkillPolicyParams>,
+) -> std::result::Result<LaunchProfileSkillPolicy, String> {
+    let mut policy = LaunchProfileSkillPolicy::default();
+
+    if let Some(params) = params {
+        policy.mode = parse_runtime_skill_mode(params.mode.as_deref())?;
+        policy.enabled_skill_ids = clean_string_list(params.enabled_skill_ids.as_deref());
+        policy.disabled_skill_ids = clean_string_list(params.disabled_skill_ids.as_deref());
+        if let Some(value) = params.include_project_skills {
+            policy.include_project_skills = value;
+        }
+        if let Some(target) = trim_optional_string(params.target.clone()) {
+            policy.target = target;
+        }
+    }
+
+    Ok(policy)
+}
+
+fn validate_runtime_shared_port(
+    name: &str,
+    port: u16,
+    config: &SharedMcpConfig,
+    claimed_ports: &HashMap<u16, String>,
+) -> std::result::Result<(), String> {
+    for (existing_name, server) in &config.servers {
+        if existing_name != name && server.port == port {
+            return Err(format!(
+                "Port {} is already used by shared MCP server '{}'",
+                port, existing_name
+            ));
+        }
+    }
+    if let Some(owner) = claimed_ports.get(&port) {
+        if owner != name {
+            return Err(format!(
+                "Port {} is already claimed by shared MCP server '{}'",
+                port, owner
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn allocate_runtime_shared_port(
+    config: &SharedMcpConfig,
+    claimed_ports: &HashMap<u16, String>,
+) -> std::result::Result<u16, String> {
+    for port in config.port_range_start..=config.port_range_end {
+        let used_by_config = config.servers.values().any(|server| server.port == port);
+        if !used_by_config && !claimed_ports.contains_key(&port) {
+            return Ok(port);
+        }
+    }
+    Err(format!(
+        "No free shared MCP port in {}..={}",
+        config.port_range_start, config.port_range_end
+    ))
+}
+
+fn build_runtime_shared_mcp_servers(
+    params: &[McpRuntimeSharedMcpServerParams],
+    config: &SharedMcpConfig,
+) -> std::result::Result<Vec<(String, SharedMcpServerConfig)>, String> {
+    let mut seen_names = HashSet::new();
+    let mut claimed_ports: HashMap<u16, String> = HashMap::new();
+    let mut servers = Vec::new();
+
+    for param in params {
+        let name = required_trimmed(&param.name, "sharedMcpServers[].name")?;
+        if !seen_names.insert(name.clone()) {
+            return Err(format!(
+                "sharedMcpServers contains duplicate server name '{}'",
+                name
+            ));
+        }
+
+        let command = required_trimmed(&param.command, "sharedMcpServers[].command")?;
+        let port = if let Some(port) = param.port {
+            validate_runtime_shared_port(&name, port, config, &claimed_ports)?;
+            port
+        } else if let Some(existing) = config.servers.get(&name) {
+            validate_runtime_shared_port(&name, existing.port, config, &claimed_ports)?;
+            existing.port
+        } else {
+            allocate_runtime_shared_port(config, &claimed_ports)?
+        };
+
+        let bridge_mode = parse_bridge_mode(param.bridge_mode.as_deref())?;
+        let server = SharedMcpServerConfig {
+            command,
+            args: param.args.clone().unwrap_or_default(),
+            env: param.env.clone().unwrap_or_default(),
+            shared: param.shared.unwrap_or(true),
+            port,
+            bridge_mode,
+        };
+        claimed_ports.insert(port, name.clone());
+        servers.push((name, server));
+    }
+
+    Ok(servers)
+}
+
+fn runtime_profile_matches_key(profile: &LaunchProfile, name: &str, alias: Option<&str>) -> bool {
+    let alias = alias.unwrap_or(name);
+    profile.name == name
+        || profile.name == alias
+        || profile.alias.as_deref() == Some(name)
+        || profile.alias.as_deref() == Some(alias)
+}
+
+fn find_runtime_project_index(
+    workspace: &Workspace,
+    project_id: Option<&str>,
+    project_path: Option<&str>,
+) -> std::result::Result<Option<usize>, String> {
+    let project_id = project_id.map(str::trim).filter(|value| !value.is_empty());
+    let project_path = project_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if project_id.is_none() && project_path.is_none() {
+        return Ok(None);
+    }
+
+    let by_id = project_id.and_then(|id| {
+        workspace
+            .projects
+            .iter()
+            .position(|project| project.id == id)
+    });
+    if let Some(id) = project_id {
+        if by_id.is_none() {
+            return Err(format!(
+                "Project id '{}' was not found in workspace '{}'",
+                id, workspace.name
+            ));
+        }
+    }
+
+    let by_path = project_path.and_then(|path| {
+        let normalized_path = normalize_path(path);
+        workspace
+            .projects
+            .iter()
+            .position(|project| normalize_path(&project.path) == normalized_path)
+    });
+    if let Some(path) = project_path {
+        if by_path.is_none() {
+            return Err(format!(
+                "Project path '{}' was not found in workspace '{}'",
+                path, workspace.name
+            ));
+        }
+    }
+
+    if let (Some(left), Some(right)) = (by_id, by_path) {
+        if left != right {
+            return Err("projectId and projectPath point to different projects".to_string());
+        }
+    }
+
+    Ok(by_id.or(by_path))
+}
+
 /// MCP 工具处理器
 #[derive(Clone)]
 struct McpToolHandler {
@@ -856,6 +1283,272 @@ impl McpToolHandler {
             warn!("[mcp] spec sync_tasks post-hook failed: {}", e);
         }
     }
+
+    fn create_runtime_config_impl(
+        &self,
+        params: McpCreateRuntimeConfigParams,
+    ) -> std::result::Result<McpRuntimeConfigResult, String> {
+        let dry_run = params.dry_run.unwrap_or(false);
+        let mut warnings = Vec::new();
+
+        let name = required_trimmed(&params.name, "name")?;
+        let alias = trim_optional_string(params.alias.clone());
+        let provider_id = trim_optional_string(params.provider_id.clone());
+        if let Some(provider_id) = provider_id.as_deref() {
+            if self
+                .state
+                .provider_service
+                .get_provider(provider_id)
+                .is_none()
+            {
+                return Err(format!("Provider '{}' was not found", provider_id));
+            }
+        }
+
+        let shared_config = self.state.shared_mcp_service.get_config();
+        let shared_servers = build_runtime_shared_mcp_servers(
+            params.shared_mcp_servers.as_deref().unwrap_or_default(),
+            &shared_config,
+        )?;
+        let shared_server_names = shared_servers
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+
+        let mcp_policy = build_runtime_mcp_policy(
+            params.mcp_policy.as_ref(),
+            &shared_server_names,
+            &mut warnings,
+        )?;
+        let skill_policy = build_runtime_skill_policy(params.skill_policy.as_ref())?;
+        let draft = LaunchProfileDraft {
+            name: Some(name.clone()),
+            alias: alias.clone(),
+            description: trim_optional_string(params.description.clone()),
+            provider_id: provider_id.clone(),
+            target_tools: clean_target_tools(params.target_tools.as_deref()),
+            target_runtime: normalize_target_runtime(params.target_runtime.clone())?,
+            mcp_policy,
+            skill_policy,
+            is_default: params.set_default.unwrap_or(false),
+        };
+
+        let profiles = self.state.launch_profile_service.list_profiles();
+        let requested_profile_id = trim_optional_string(params.profile_id.clone());
+        let overwrite_existing = params.overwrite_existing.unwrap_or(false);
+        let target_profile_id = if let Some(profile_id) = requested_profile_id {
+            if profiles.iter().all(|profile| profile.id != profile_id) {
+                return Err(format!("Launch profile '{}' was not found", profile_id));
+            }
+            Some(profile_id)
+        } else if overwrite_existing {
+            profiles
+                .iter()
+                .find(|profile| runtime_profile_matches_key(profile, &name, alias.as_deref()))
+                .map(|profile| profile.id.clone())
+        } else {
+            None
+        };
+
+        if let Some(conflict) = profiles.iter().find(|profile| {
+            runtime_profile_matches_key(profile, &name, alias.as_deref())
+                && target_profile_id.as_deref() != Some(profile.id.as_str())
+        }) {
+            return Err(format!(
+                "Launch profile '{}' already exists as '{}'; pass profileId or overwriteExisting=true",
+                name, conflict.id
+            ));
+        }
+
+        let bind_workspace = params.bind_to_workspace.unwrap_or(false);
+        let bind_project = params.bind_to_project.unwrap_or(false);
+        let mut workspace_for_binding = if bind_workspace || bind_project {
+            let workspace_name =
+                trim_optional_string(params.workspace_name.clone()).ok_or_else(|| {
+                    "workspaceName is required when binding a runtime config".to_string()
+                })?;
+            Some(
+                self.state
+                    .workspace_service
+                    .get_workspace(&workspace_name)
+                    .map_err(|error| {
+                        format!("Failed to load workspace '{}': {}", workspace_name, error)
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        let project_index = if bind_project {
+            let workspace = workspace_for_binding
+                .as_ref()
+                .expect("workspace exists when bindProject is true");
+            let index = find_runtime_project_index(
+                workspace,
+                params.project_id.as_deref(),
+                params.project_path.as_deref(),
+            )?
+            .ok_or_else(|| {
+                "projectId or projectPath is required when bindToProject=true".to_string()
+            })?;
+            Some(index)
+        } else {
+            None
+        };
+        let bound_workspace = bind_workspace
+            .then(|| {
+                workspace_for_binding
+                    .as_ref()
+                    .map(|workspace| workspace.name.clone())
+            })
+            .flatten();
+        let bound_project = project_index.and_then(|index| {
+            workspace_for_binding
+                .as_ref()
+                .map(|workspace| workspace.projects[index].id.clone())
+        });
+
+        if dry_run {
+            warnings
+                .push("dryRun=true; no files were changed and no MCP server was started".into());
+            return Ok(McpRuntimeConfigResult {
+                profile: None,
+                planned_draft: Some(draft),
+                resolution: None,
+                created_profile: false,
+                updated_profile: false,
+                planned_mcp_servers: shared_server_names,
+                upserted_mcp_servers: Vec::new(),
+                started_mcp_servers: Vec::new(),
+                bound_workspace,
+                bound_project,
+                warnings,
+                dry_run,
+            });
+        }
+
+        let mut upserted_mcp_servers = Vec::new();
+        for (name, server) in &shared_servers {
+            self.state
+                .shared_mcp_service
+                .upsert_server(name, server.clone())
+                .map_err(|error| {
+                    format!("Failed to upsert shared MCP server '{}': {}", name, error)
+                })?;
+            upserted_mcp_servers.push(name.clone());
+        }
+
+        let mut started_mcp_servers = Vec::new();
+        if params.start_shared_mcp_servers.unwrap_or(false) {
+            for name in &upserted_mcp_servers {
+                match self.state.shared_mcp_service.start_server(name) {
+                    Ok(()) => started_mcp_servers.push(name.clone()),
+                    Err(error) if error.contains("already running") => {
+                        warnings.push(format!("Shared MCP server '{}' is already running", name));
+                    }
+                    Err(error) => warnings.push(format!(
+                        "Failed to start shared MCP server '{}': {}",
+                        name, error
+                    )),
+                }
+            }
+        }
+
+        let (profile, created_profile, updated_profile) =
+            if let Some(profile_id) = target_profile_id {
+                let profile = self
+                    .state
+                    .launch_profile_service
+                    .update_profile(&profile_id, draft.clone())
+                    .map_err(|error| {
+                        format!(
+                            "Failed to update launch profile '{}': {}",
+                            profile_id, error
+                        )
+                    })?;
+                (profile, false, true)
+            } else {
+                let profile = self
+                    .state
+                    .launch_profile_service
+                    .create_profile(draft.clone())
+                    .map_err(|error| format!("Failed to create launch profile: {}", error))?;
+                (profile, true, false)
+            };
+
+        if let Some(workspace) = workspace_for_binding.as_mut() {
+            if bind_workspace {
+                workspace.launch_profile_id = Some(profile.id.clone());
+            }
+            if let Some(index) = project_index {
+                workspace.projects[index].launch_profile_id = Some(profile.id.clone());
+            }
+            self.state
+                .workspace_service
+                .write_workspace_json(&workspace.name, workspace)
+                .map_err(|error| {
+                    format!(
+                        "Failed to bind launch profile to workspace '{}': {}",
+                        workspace.name, error
+                    )
+                })?;
+        }
+
+        let resolution = self.resolve_runtime_profile_preview(
+            &profile,
+            params.workspace_name.as_deref(),
+            bound_project
+                .as_deref()
+                .or_else(|| params.project_id.as_deref()),
+            provider_id.as_deref(),
+        );
+
+        Ok(McpRuntimeConfigResult {
+            profile: Some(profile),
+            planned_draft: None,
+            resolution: Some(resolution),
+            created_profile,
+            updated_profile,
+            planned_mcp_servers: shared_server_names,
+            upserted_mcp_servers,
+            started_mcp_servers,
+            bound_workspace,
+            bound_project,
+            warnings,
+            dry_run,
+        })
+    }
+
+    fn resolve_runtime_profile_preview(
+        &self,
+        profile: &LaunchProfile,
+        workspace_name: Option<&str>,
+        project_id: Option<&str>,
+        provider_id: Option<&str>,
+    ) -> LaunchProfileResolution {
+        let request = LaunchProfilePreviewRequest {
+            profile_id: Some(profile.id.clone()),
+            use_system_default: false,
+            workspace_name: workspace_name.map(str::to_string),
+            project_id: project_id.map(str::to_string),
+            provider_id: provider_id.map(str::to_string),
+            provider_selection: LaunchProviderSelection::Inherit,
+            cli_tool: profile.target_tools.first().cloned(),
+            runtime_kind: profile.target_runtime.clone(),
+        };
+
+        self.state.launch_profile_service.resolve_profile(
+            &request,
+            &self
+                .state
+                .workspace_service
+                .list_workspaces()
+                .unwrap_or_default(),
+            &self.state.provider_service.list_providers(),
+            &self.state.shared_mcp_service.get_config(),
+            &self.state.shared_mcp_service.get_running_servers_urls(),
+        )
+    }
 }
 
 #[tool_router]
@@ -882,19 +1575,21 @@ impl McpToolHandler {
             return format!("错误: 项目路径 '{}' 未注册", params.project_path);
         }
 
-        // 工作空间解析：workspace_name → workspace_path + provider_id
+        let provider_selection =
+            match parse_provider_selection(params.provider_selection.as_deref()) {
+                Ok(selection) => selection,
+                Err(error) => return format!("错误: {}", error),
+            };
+
+        // 工作空间解析：workspace_name → workspace_path；Provider 继承由 TerminalService 统一解析
         let mut ws_name: Option<String> = params.workspace_name.clone();
         let mut ws_path: Option<String> = None;
-        let mut provider_id = params.provider_id.clone();
 
         if let Some(ref name) = ws_name {
             match self.state.workspace_service.get_workspace(name) {
                 Ok(ws) => {
                     ws_path = ws.path.clone();
-                    if provider_id.is_none() {
-                        provider_id = ws.provider_id.clone();
-                    }
-                    debug!(workspace = %name, path = ?ws_path, provider = ?provider_id, "mcp::launch_task resolved workspace");
+                    debug!(workspace = %name, path = ?ws_path, "mcp::launch_task resolved workspace");
                 }
                 Err(e) => {
                     warn!(workspace = %name, err = %e, "mcp::launch_task workspace not found, ignoring");
@@ -935,8 +1630,11 @@ impl McpToolHandler {
             120,
             30,
             ws_name.as_deref(),
-            provider_id.as_deref(),
+            params.provider_id.as_deref(),
+            provider_selection,
+            None,
             ws_path.as_deref(),
+            None,
             cli_tool,
             params.resume_id.as_deref(),
             false,
@@ -975,7 +1673,8 @@ impl McpToolHandler {
             project_path: params.project_path.clone(),
             project_id,
             workspace_name: ws_name,
-            provider_id,
+            provider_id: params.provider_id.clone(),
+            provider_selection: params.provider_selection.clone(),
             workspace_path: ws_path,
             title: params.title.clone(),
             resume_id: params.resume_id.clone(),
@@ -993,6 +1692,20 @@ impl McpToolHandler {
             "status": "launching"
         })
         .to_string()
+    }
+
+    /// 创建或更新运行配置。可同时创建共享 MCP server，并可绑定到 workspace/project。
+    #[tool]
+    async fn create_runtime_config(
+        &self,
+        Parameters(params): Parameters<McpCreateRuntimeConfigParams>,
+    ) -> String {
+        info!(name = %params.name, dry_run = params.dry_run.unwrap_or(false), "mcp::create_runtime_config");
+        match self.create_runtime_config_impl(params) {
+            Ok(result) => serde_json::to_string_pretty(&result)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
+            Err(error) => format!("错误: {}", error),
+        }
     }
 
     /// 列出所有已注册的项目（DB 项目 + 工作空间项目）
@@ -1898,6 +2611,7 @@ impl ServerHandler for McpToolHandler {
                 "工作空间: list_workspaces、get_workspace、create_workspace、add_project_to_workspace、scan_directory\n",
                 "待办: query_todos、create_todo、update_todo\n",
                 "编排任务: create_task_binding、update_task_binding、query_task_bindings\n",
+                "运行配置: create_runtime_config（创建/更新运行配置，可选创建共享 MCP，并绑定 workspace/project）\n",
                 "Skill: list_skills（查看项目可用命令模板）\n",
                 "文件: open_folder（导航文件浏览器）、open_file（编辑器打开文件）、close_file（关闭标签）、list_open_files（查询打开的文件）\n",
                 "面板: list_panes（查询当前面板布局和标签信息，返回 paneId 可用于 launch_task）\n",
@@ -2169,6 +2883,32 @@ async fn handle_launch_task(
             );
         }
     };
+    let provider_selection = match parse_provider_selection(req.provider_selection.as_deref()) {
+        Ok(selection) => selection,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!(ApiError { error })),
+            );
+        }
+    };
+
+    let mut workspace_name = req.workspace_name.clone();
+    let mut workspace_path = req.workspace_path.clone();
+    if let Some(ref name) = workspace_name {
+        match state.workspace_service.get_workspace(name) {
+            Ok(ws) => {
+                if workspace_path.is_none() {
+                    workspace_path = ws.path.clone();
+                }
+                debug!(workspace = %name, path = ?workspace_path, "REST::launch_task resolved workspace");
+            }
+            Err(error) => {
+                warn!(workspace = %name, err = %error, "REST::launch_task workspace not found, ignoring");
+                workspace_name = None;
+            }
+        }
+    }
 
     // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
     // 安全网：长 prompt 自动外部化为文件，避免终端黑屏
@@ -2181,7 +2921,7 @@ async fn handle_launch_task(
     let initial_prompt = initial_prompt_owned.as_deref();
     let wsl_info = resolve_wsl_launch_info(
         &req.project_path,
-        req.workspace_name.as_deref(),
+        workspace_name.as_deref(),
         &state.workspace_service,
     );
 
@@ -2190,9 +2930,12 @@ async fn handle_launch_task(
         &req.project_path,
         120,
         30,
-        req.workspace_name.as_deref(),
+        workspace_name.as_deref(),
         req.provider_id.as_deref(),
-        req.workspace_path.as_deref(),
+        provider_selection,
+        None,
+        workspace_path.as_deref(),
+        None,
         cli_tool,
         req.resume_id.as_deref(),
         false,
@@ -2236,9 +2979,10 @@ async fn handle_launch_task(
         session_id: session_id.clone(),
         project_path: req.project_path.clone(),
         project_id,
-        workspace_name: req.workspace_name.clone(),
+        workspace_name,
         provider_id: req.provider_id.clone(),
-        workspace_path: req.workspace_path.clone(),
+        provider_selection: req.provider_selection.clone(),
+        workspace_path,
         title: req.title.clone(),
         resume_id: req.resume_id.clone(),
         pane_id: req.pane_id.clone(),
@@ -2920,6 +3664,66 @@ mod tests {
         let glm = parse_launch_cli_tool(Some("glm")).unwrap_err();
         assert!(kimi.contains("not supported by launch_task yet"));
         assert!(glm.contains("not supported by launch_task yet"));
+    }
+
+    #[test]
+    fn test_parse_runtime_config_modes() {
+        assert_eq!(
+            parse_runtime_mcp_mode(Some("custom")).unwrap(),
+            LaunchProfileMcpMode::Custom
+        );
+        assert_eq!(
+            parse_runtime_skill_mode(Some("disabled")).unwrap(),
+            LaunchProfileSkillMode::Disabled
+        );
+        assert_eq!(
+            parse_bridge_mode(Some("nativeHttp")).unwrap(),
+            BridgeMode::NativeHttp
+        );
+        assert!(parse_runtime_mcp_mode(Some("unknown")).is_err());
+    }
+
+    #[test]
+    fn test_build_runtime_shared_mcp_servers_allocates_and_reuses_ports() {
+        let mut config = SharedMcpConfig::default();
+        config.servers.insert(
+            "context7".into(),
+            SharedMcpServerConfig {
+                command: "npx".into(),
+                args: vec!["-y".into(), "@upstash/context7-mcp".into()],
+                env: HashMap::new(),
+                shared: true,
+                port: 3100,
+                bridge_mode: BridgeMode::McpProxy,
+            },
+        );
+        let params = vec![
+            McpRuntimeSharedMcpServerParams {
+                name: "context7".into(),
+                command: "npx".into(),
+                args: Some(vec!["-y".into(), "@upstash/context7-mcp".into()]),
+                env: None,
+                shared: None,
+                port: None,
+                bridge_mode: None,
+            },
+            McpRuntimeSharedMcpServerParams {
+                name: "playwright".into(),
+                command: "npx".into(),
+                args: Some(vec!["-y".into(), "@playwright/mcp".into()]),
+                env: None,
+                shared: None,
+                port: None,
+                bridge_mode: None,
+            },
+        ];
+
+        let servers = build_runtime_shared_mcp_servers(&params, &config).unwrap();
+
+        assert_eq!(servers[0].0, "context7");
+        assert_eq!(servers[0].1.port, 3100);
+        assert_eq!(servers[1].0, "playwright");
+        assert_eq!(servers[1].1.port, 3101);
     }
 
     #[cfg(target_os = "windows")]

@@ -6,6 +6,7 @@ import { usePanesStore } from "@/stores";
 import SplitView from "./SplitView";
 import TerminalView from "./TerminalView";
 import type { TerminalViewHandle } from "./TerminalView";
+import VoiceInputButton from "./VoiceInputButton";
 
 interface TerminalTabContentProps {
   tab: Tab;
@@ -57,7 +58,10 @@ export default memo(function TerminalTabContent({
             isActive={isActive && tab.activeTerminalPaneId === leaf.id}
             workspaceName={leaf.workspaceName}
             providerId={leaf.providerId}
+            providerSelection={leaf.providerSelection}
+            launchProfileId={leaf.launchProfileId}
             workspacePath={leaf.workspacePath}
+            workspaceSnapshotId={leaf.workspaceSnapshotId}
             launchClaude={leaf.launchClaude}
             cliTool={leaf.cliTool}
             resumeId={leaf.resumeId}
@@ -71,6 +75,13 @@ export default memo(function TerminalTabContent({
             onSessionExited={onSessionExited ? (code) => onSessionExited(code, leaf.id) : undefined}
             onReconnect={onReconnect ? () => onReconnect(leaf.id) : undefined}
           />
+          {leaf.sessionId ? (
+            <VoiceInputButton
+              sessionId={leaf.sessionId}
+              paneId={leaf.id}
+              disabled={Boolean(leaf.disconnected || leaf.restoring)}
+            />
+          ) : null}
           {showPlaceholder ? (
             <div
               className="pointer-events-none absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"

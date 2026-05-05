@@ -70,7 +70,7 @@ pub fn get_data_dir_info(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<DataD
 /// 迁移数据目录
 ///
 /// 1. 验证目标路径可写
-/// 2. 复制 data.db, providers.json, workspaces/
+/// 2. 复制当前兼容核心文件：data.db, providers.json, workspaces/
 /// 3. 校验文件大小一致
 /// 4. 更新 config.toml 中的 data_dir
 /// 5. 不删除旧数据
@@ -334,15 +334,37 @@ pub fn generate_claude_md(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<()> 
 
 ```
 {data_dir}
-├── CLAUDE.md            ← 本文件
-├── data.db              ← SQLite 数据库（项目、Todo、启动历史）
-├── providers.json       ← API Provider 配置
-└── workspaces/          ← 工作空间配置目录
-    └── <name>/
-        ├── workspace.json   ← 工作空间配置
-        └── .ccpanes/
-            └── journal/     ← 会话日志
+├── CLAUDE.md               ← 本文件，自我说明文档
+├── data.db                 ← SQLite 数据库（项目、Todo、启动历史等）
+├── providers.json          ← 当前 Provider 配置 source of truth
+├── launch-profiles.json    ← 当前 Launch Profile 配置 source of truth
+├── memory.db               ← 当前 Memory source of truth（DB-first）
+├── shared-mcp.json         ← 当前 Shared MCP 配置 source of truth
+├── workspaces/             ← 用户级工作空间控制目录
+│   └── <workspace-id-or-name>/
+│       ├── workspace.json   ← 工作空间配置；workspace 可不绑定实体路径
+│       └── snapshots/
+│           └── <snapshot-id>/
+│               └── snapshot.json
+├── launch-profiles/        ← Launch Profile 目标目录，预留给后续文件化结构
+├── memory/                 ← Memory Markdown-first 目标目录（后续迁移；当前仍 DB-first）
+├── mcp/                    ← MCP 目标目录；shared-mcp.json 暂未迁移
+├── skills/
+│   ├── user/               ← 用户级 Skill 目标目录
+│   └── builtin/            ← 内置 Skill 目标目录
+├── sessions/               ← 当前终端输出兼容目录
+└── runtime/
+    └── sessions/           ← 运行期会话文件目标目录
 ```
+
+## App Home 兼容边界
+
+- `~/.cc-panes`（dev 为 `~/.cc-panes-dev`）是用户级控制中心，workspace 元数据应优先落在 `workspaces/`，workspace 可以没有实体路径。
+- 当前 Provider 仍读写根目录 `providers.json`；后续如目录化，需要先做无破坏迁移和 legacy fallback。
+- 当前 Launch Profile 仍读写根目录 `launch-profiles.json`；`launch-profiles/` 已预创建作为后续目标目录。
+- 当前 Shared MCP 仍读写根目录 `shared-mcp.json`；`mcp/` 已预创建作为后续目标目录。
+- 当前 Memory 仍以 `memory.db` / SQLite / FTS 为 source of truth；`memory/` 只是后续 Markdown-first 迁移目标，现阶段不要手工把 Markdown 当成权威数据。
+- Project 侧 `.ccpanes`、`.claude/settings.local.json`、`.claude/commands` 仍存在 legacy/显式功能路径；默认控制中心方向是不主动污染项目目录。
 
 ## 当前工作空间
 
@@ -376,7 +398,7 @@ pub fn generate_claude_md(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<()> 
 - `alias` — 可选显示别名
 - `projects` — 项目列表，每个项目有 id、path（绝对路径）、alias
 - `providerId` — 绑定的 API Provider ID（对应 providers.json 中的 id）
-- `path` — 工作空间绑定的根路径（用于目录扫描导入项目）
+- `path` — 可选工作空间实体根路径；为空时表示虚拟工作空间，仅由 App Home 管理
 
 ### providers.json
 

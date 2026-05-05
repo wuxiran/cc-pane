@@ -28,7 +28,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useProvidersStore, useSettingsStore, useSshMachinesStore } from "@/stores";
+import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore } from "@/stores";
 import { projectCliHooksService } from "@/services";
 import {
   detectAppPlatform,
@@ -39,6 +39,8 @@ import {
   resolveWorkspaceLaunchOptions,
 } from "@/utils";
 import type {
+  LaunchProfile,
+  LaunchProfileRuntime,
   OpenTerminalOptions,
   ProjectCliHookGroupStatus,
   ProjectCliHookStatus,
@@ -51,6 +53,7 @@ import {
   buildSidebarLaunchActions,
   filterSidebarFavoriteLaunchActions,
   getDefaultSidebarFavoriteLaunchActionIds,
+  type SidebarCliLaunchItem,
 } from "./launchMenu";
 
 interface WorkspaceItemProps {
@@ -96,6 +99,7 @@ export default function WorkspaceItem({
   const favoriteLaunchIds = useSettingsStore((s) => s.settings?.general.launchFavorites ?? getDefaultSidebarFavoriteLaunchActionIds());
   const saveSettings = useSettingsStore((s) => s.saveSettings);
   const sshMachines = useSshMachinesStore((s) => s.machines);
+  const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
   const [hookGroups, setHookGroups] = useState<ProjectCliHookGroupStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
 
@@ -123,7 +127,6 @@ export default function WorkspaceItem({
   const allLaunchActions = buildSidebarLaunchActions(t, showExplicitWslLaunch);
   const hideNonFavoriteLaunchActions = settings?.general.hideNonFavoriteLaunchActions ?? false;
   const shouldHideNonFavoriteLaunchActions = hideNonFavoriteLaunchActions && favoriteLaunchActions.length > 0;
-
   const formatLaunchIssue = useCallback((
     issue: NonNullable<ReturnType<typeof resolveWorkspaceLaunchOptions>["issue"]>,
   ) => {
@@ -144,10 +147,12 @@ export default function WorkspaceItem({
   const openWorkspace = useCallback((
     cliTool?: OpenTerminalOptions["cliTool"],
     environment?: WorkspaceLaunchEnvironment,
+    launchProfileId?: string,
   ) => {
     const { options, issue } = resolveWorkspaceLaunchOptions({
       workspace: ws,
       cliTool,
+      launchProfileId,
       machines: sshMachines,
       environment,
     });
@@ -162,6 +167,109 @@ export default function WorkspaceItem({
     }
     onOpenTerminal(options);
   }, [formatLaunchIssue, onOpenTerminal, sshMachines, ws]);
+
+  const profileDisplayName = useCallback((profile: Pick<LaunchProfile, "name" | "alias">) => {
+    return profile.alias || profile.name;
+  }, []);
+
+  const profileMatchesCli = useCallback((profile: LaunchProfile, cliTool: NonNullable<OpenTerminalOptions["cliTool"]>) => {
+    return profile.targetTools.length === 0 || profile.targetTools.includes(cliTool);
+  }, []);
+
+  const profileMatchesRuntime = useCallback((profile: LaunchProfile, environment: WorkspaceLaunchEnvironment) => {
+    return !profile.targetRuntime || profile.targetRuntime === environment;
+  }, []);
+
+  const runtimeLabel = useCallback((runtime?: LaunchProfileRuntime) => {
+    if (runtime === "wsl") return "WSL";
+    if (runtime === "ssh") return "SSH";
+    if (runtime === "local") return t("launchProfileRuntimeLocal", { defaultValue: "本机" });
+    return t("launchProfileRuntimeAll", { defaultValue: "全部位置" });
+  }, [t]);
+
+  const renderCliLaunchMenuItem = useCallback((item: SidebarCliLaunchItem, keyPrefix: string) => {
+    const boundProfile = ws.launchProfileId
+      ? launchProfiles.find((profile) => profile.id === ws.launchProfileId)
+      : undefined;
+    const boundProfileName = ws.launchProfileId
+      ? profileDisplayName(boundProfile ?? { name: ws.launchProfileId, alias: null })
+      : t("launchProfileUnbound", { defaultValue: "未绑定" });
+    const boundProfileMatchesTarget = boundProfile
+      ? profileMatchesCli(boundProfile, item.cliTool) && profileMatchesRuntime(boundProfile, item.environment)
+      : false;
+    const boundProfileStatusLabel = boundProfileMatchesTarget
+      ? boundProfileName
+      : `${boundProfileName} (${t("launchProfileBindingMismatch", { defaultValue: "不适用于当前入口" })})`;
+    const selectableProfiles = launchProfiles
+      .filter((profile) => profileMatchesCli(profile, item.cliTool))
+      .filter((profile) => profileMatchesRuntime(profile, item.environment));
+    const incompatibleRuntimeProfileCount = launchProfiles
+      .filter((profile) => profileMatchesCli(profile, item.cliTool))
+      .filter((profile) => !profileMatchesRuntime(profile, item.environment)).length;
+    const defaultActionLabel = ws.launchProfileId && boundProfileMatchesTarget
+      ? t("launchProfileUseWorkspaceBinding", {
+        profile: boundProfileName,
+        defaultValue: `使用工作空间绑定：${boundProfileName}`,
+      })
+      : ws.launchProfileId
+        ? t("launchProfileUseDefaultBindingMismatch", {
+          profile: boundProfileName,
+          runtime: runtimeLabel(item.environment),
+          defaultValue: `使用默认运行配置（${boundProfileName} 不适用于 ${runtimeLabel(item.environment)}）`,
+        })
+        : t("launchProfileUseDefault", { defaultValue: "使用默认运行配置" });
+
+    return (
+      <ContextMenuSub key={`${keyPrefix}-${item.key}`}>
+        <ContextMenuSubTrigger>
+          <Terminal /> {item.label}
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-80">
+          <ContextMenuItem disabled>
+            {t("launchProfileWorkspaceBinding", {
+              profile: boundProfileStatusLabel,
+              defaultValue: `工作空间绑定：${boundProfileStatusLabel}`,
+            })}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => openWorkspace(item.cliTool, item.environment)}>
+            <Terminal /> {defaultActionLabel}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem disabled>
+            {t("launchProfileChoose", { defaultValue: "指定运行配置" })}
+          </ContextMenuItem>
+          {selectableProfiles.length > 0 ? (
+            selectableProfiles.map((profile) => (
+              <ContextMenuItem
+                key={profile.id}
+                onClick={() => openWorkspace(item.cliTool, item.environment, profile.id)}
+              >
+                <Terminal /> {profileDisplayName(profile)}
+                <span className="ml-auto text-[11px] opacity-70">
+                  {profile.id === ws.launchProfileId
+                    ? t("launchProfileBoundBadge", { defaultValue: "已绑定" })
+                    : runtimeLabel(profile.targetRuntime ?? null)}
+                </span>
+              </ContextMenuItem>
+            ))
+          ) : (
+            <ContextMenuItem disabled>
+              {t("launchProfileEmptyForCli", { defaultValue: "当前 CLI 暂无其他运行配置" })}
+            </ContextMenuItem>
+          )}
+          {incompatibleRuntimeProfileCount > 0 ? (
+            <ContextMenuItem disabled>
+              {t("launchProfileHiddenByRuntime", {
+                count: incompatibleRuntimeProfileCount,
+                runtime: runtimeLabel(item.environment),
+                defaultValue: `${incompatibleRuntimeProfileCount} 个配置不适用于 ${runtimeLabel(item.environment)}`,
+              })}
+            </ContextMenuItem>
+          ) : null}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+    );
+  }, [launchProfiles, openWorkspace, profileDisplayName, profileMatchesCli, profileMatchesRuntime, runtimeLabel, t, ws.launchProfileId]);
 
   const fetchHookStatuses = useCallback(async () => {
     if (!rootPath) return;
@@ -299,32 +407,41 @@ export default function WorkspaceItem({
         </ContextMenuTrigger>
 
         <ContextMenuContent className="w-56">
+          <ContextMenuItem disabled>
+            <Star /> {t("favoriteLaunches", { defaultValue: "常用" })}
+          </ContextMenuItem>
+          {favoriteLaunchActions.length > 0 ? (
+            favoriteLaunchActions.map((action) => {
+              if (action.kind === "cli" && action.cliTool && action.environment) {
+                return renderCliLaunchMenuItem({
+                  key: action.id,
+                  cliTool: action.cliTool,
+                  environment: action.environment,
+                  label: action.label,
+                }, "favorite");
+              }
+              return (
+                <ContextMenuItem
+                  key={`favorite-${action.id}`}
+                  onClick={() => openWorkspace(action.cliTool, action.environment)}
+                >
+                  <Terminal /> {action.label}
+                </ContextMenuItem>
+              );
+            })
+          ) : (
+            <ContextMenuItem disabled>
+              {t("favoriteLaunchEmpty", { defaultValue: "暂无常用项" })}
+            </ContextMenuItem>
+          )}
+
+          <ContextMenuSeparator />
+
           <ContextMenuSub>
             <ContextMenuSubTrigger>
-              <Star /> {t("favoriteLaunches", { defaultValue: "常用" })}
+              <Star /> {t("favoriteLaunchManage", { defaultValue: "显示在常用" })}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-60">
-              <ContextMenuItem disabled>
-                {t("favoriteLaunchRun", { defaultValue: "启动" })}
-              </ContextMenuItem>
-              {favoriteLaunchActions.length > 0 ? (
-                favoriteLaunchActions.map((action) => (
-                  <ContextMenuItem
-                    key={`favorite-${action.id}`}
-                    onClick={() => openWorkspace(action.cliTool, action.environment)}
-                  >
-                    <Terminal /> {action.label}
-                  </ContextMenuItem>
-                ))
-              ) : (
-                <ContextMenuItem disabled>
-                  {t("favoriteLaunchEmpty", { defaultValue: "暂无常用项" })}
-                </ContextMenuItem>
-              )}
-              <ContextMenuSeparator />
-              <ContextMenuItem disabled>
-                {t("favoriteLaunchManage", { defaultValue: "显示在常用" })}
-              </ContextMenuItem>
               {allLaunchActions.map((action) => (
                 <ContextMenuCheckboxItem
                   key={`favorite-toggle-${action.id}`}
@@ -355,14 +472,7 @@ export default function WorkspaceItem({
                 <Terminal /> {t("openTerminal")}
               </ContextMenuItem>
 
-              {cliLaunchItems.map((item) => (
-                <ContextMenuItem
-                  key={item.key}
-                  onClick={() => openWorkspace(item.cliTool, item.environment)}
-                >
-                  <Terminal /> {item.label}
-                </ContextMenuItem>
-              ))}
+              {cliLaunchItems.map((item) => renderCliLaunchMenuItem(item, "launch"))}
 
               <ContextMenuSeparator />
             </>

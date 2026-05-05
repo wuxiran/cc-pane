@@ -33,6 +33,7 @@ const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   { id: "kimi", labelKey: "cliToolKimi" },
   { id: "glm", labelKey: "cliToolGlm" },
   { id: "opencode", labelKey: "cliToolOpenCode" },
+  { id: "cursor", labelKey: "cliToolCursor" },
 ];
 
 export function getDefaultSidebarFavoriteLaunchActionIds(): SidebarLaunchActionId[] {

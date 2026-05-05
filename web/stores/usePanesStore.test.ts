@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { usePanesStore } from "./usePanesStore";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
 import { createPanel } from "./paneTreeHelpers";
 import {
   resetTestDataCounter,
@@ -166,6 +166,23 @@ describe("usePanesStore", () => {
 
       const split = usePanesStore.getState().rootPane as SplitPane;
       expect(split.sizes).toEqual([30, 70]);
+    });
+
+    it("应通知终端布局变化", async () => {
+      const dispatchEvent = vi.spyOn(window, "dispatchEvent");
+      const { rootPane, splitRight } = usePanesStore.getState();
+      splitRight(rootPane.id);
+      dispatchEvent.mockClear();
+
+      const splitId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().resizePanes(splitId, [35, 65]);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+
+      expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+        type: TERMINAL_LAYOUT_CHANGED_EVENT,
+        detail: { reason: "pane.resize" },
+      }));
+      dispatchEvent.mockRestore();
     });
   });
 

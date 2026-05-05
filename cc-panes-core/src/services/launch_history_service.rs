@@ -25,6 +25,9 @@ impl LaunchHistoryService {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        provider_selection: Option<&str>,
+        launch_profile_id: Option<&str>,
+        workspace_snapshot_id: Option<&str>,
     ) -> Result<i64, String> {
         self.repo.add(
             project_id,
@@ -37,6 +40,9 @@ impl LaunchHistoryService {
             workspace_path,
             launch_cwd,
             provider_id,
+            provider_selection,
+            launch_profile_id,
+            workspace_snapshot_id,
         )
     }
 

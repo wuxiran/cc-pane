@@ -13,6 +13,7 @@ export interface TerminalLayoutRequestOptions {
   delayMs?: number;
   containerSize?: TerminalContainerSize;
   minContainerDelta?: number;
+  force?: boolean;
   onAfterLayout?: (term: Terminal) => void;
 }
 
@@ -100,7 +101,7 @@ export function createTerminalLayoutScheduler({
   };
 
   const shouldSkipContainerDelta = (options: TerminalLayoutRequestOptions): boolean => {
-    if (!options.containerSize || !options.minContainerDelta) return false;
+    if (options.force || !options.containerSize || !options.minContainerDelta) return false;
     const size = options.containerSize;
     if (!lastContainerSize) {
       lastContainerSize = size;

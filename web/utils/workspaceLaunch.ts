@@ -6,6 +6,7 @@ import type {
   Workspace,
   WorkspaceProject,
   WorkspaceLaunchEnvironment,
+  LaunchProviderSelection,
 } from "@/types";
 import { isWslUncPath, toWslPath } from "./path";
 
@@ -31,6 +32,8 @@ interface WorkspaceLaunchParams {
   workspace: Workspace;
   cliTool?: CliTool;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
   machines: SshMachine[];
   platform?: AppPlatform;
 }
@@ -40,6 +43,8 @@ interface WorkspaceProjectLaunchParams {
   project: WorkspaceProject;
   cliTool?: CliTool;
   providerId?: string;
+  providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
   machines: SshMachine[];
   platform?: AppPlatform;
 }
@@ -187,7 +192,8 @@ export function resolveWorkspaceProjectLaunchOptions(
   const platform = params.platform ?? detectAppPlatform();
   const environment =
     params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
-  const { workspace, project, cliTool, providerId, machines } = params;
+  const { workspace, project, cliTool, providerId, providerSelection, machines } = params;
+  const launchProfileId = params.launchProfileId ?? project.launchProfileId ?? workspace.launchProfileId;
 
   if (project.ssh) {
     const machine = machines.find(
@@ -201,6 +207,8 @@ export function resolveWorkspaceProjectLaunchOptions(
         path: buildSshConnectionDisplayPath(project.ssh),
         workspaceName: workspace.name,
         providerId,
+        providerSelection,
+        launchProfileId,
         workspacePath: workspace.path,
         cliTool,
         ssh: {
@@ -221,6 +229,8 @@ export function resolveWorkspaceProjectLaunchOptions(
           path: project.path,
           workspaceName: workspace.name,
           providerId,
+          providerSelection,
+          launchProfileId,
           workspacePath: workspace.path,
           cliTool,
         },
@@ -248,6 +258,8 @@ export function resolveWorkspaceProjectLaunchOptions(
           path: project.path,
           workspaceName: workspace.name,
           providerId,
+          providerSelection,
+          launchProfileId,
           workspacePath: workspace.path,
           cliTool,
           wsl: {
@@ -290,6 +302,8 @@ export function resolveWorkspaceProjectLaunchOptions(
           path: buildSshDisplayPath(machine, remotePath),
           workspaceName: workspace.name,
           providerId,
+          providerSelection,
+          launchProfileId,
           workspacePath: workspace.path,
           cliTool,
           ssh: {
@@ -315,8 +329,9 @@ function resolveWorkspaceLaunchOptionsInternal(
   const platform = params.platform ?? detectAppPlatform();
   const environment =
     params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
-  const { workspace, machines, cliTool, providerId } = params;
+  const { workspace, machines, cliTool, providerId, providerSelection } = params;
   const effectiveProviderId = providerId;
+  const launchProfileId = params.launchProfileId ?? workspace.launchProfileId;
 
   switch (environment) {
     case "local": {
@@ -327,6 +342,8 @@ function resolveWorkspaceLaunchOptionsInternal(
             path: localPath,
             workspaceName: workspace.name,
             providerId: effectiveProviderId,
+            providerSelection,
+            launchProfileId,
             workspacePath: workspace.path,
             cliTool,
           },
@@ -343,6 +360,8 @@ function resolveWorkspaceLaunchOptionsInternal(
             path: fallbackProject.path,
             workspaceName: workspace.name,
             providerId: effectiveProviderId,
+            providerSelection,
+            launchProfileId,
             workspacePath: workspace.path,
             cliTool,
           },
@@ -374,6 +393,8 @@ function resolveWorkspaceLaunchOptionsInternal(
             path: localPath,
             workspaceName: workspace.name,
             providerId: effectiveProviderId,
+            providerSelection,
+            launchProfileId,
             workspacePath: workspace.path,
             cliTool,
             wsl: {
@@ -395,6 +416,8 @@ function resolveWorkspaceLaunchOptionsInternal(
             path: fallbackProject.path,
             workspaceName: workspace.name,
             providerId: effectiveProviderId,
+            providerSelection,
+            launchProfileId,
             workspacePath: workspace.path,
             cliTool,
             wsl: {
@@ -428,6 +451,8 @@ function resolveWorkspaceLaunchOptionsInternal(
               path: buildSshDisplayPath(machine, remotePath),
               workspaceName: workspace.name,
               providerId: effectiveProviderId,
+              providerSelection,
+              launchProfileId,
               workspacePath: workspace.path,
               cliTool,
               ssh: {
@@ -461,6 +486,8 @@ function resolveWorkspaceLaunchOptionsInternal(
             path: buildSshConnectionDisplayPath(fallbackProject.ssh),
             workspaceName: workspace.name,
             providerId: effectiveProviderId,
+            providerSelection,
+            launchProfileId,
             workspacePath: workspace.path,
             cliTool,
             ssh: {

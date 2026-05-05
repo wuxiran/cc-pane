@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::launch_profile::LaunchProviderSelection;
+
 /// CLI 工具类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -12,6 +14,7 @@ pub enum CliTool {
     Kimi,
     Glm,
     Opencode,
+    Cursor,
 }
 
 impl CliTool {
@@ -25,6 +28,7 @@ impl CliTool {
             CliTool::Kimi => "kimi",
             CliTool::Glm => "glm",
             CliTool::Opencode => "opencode",
+            CliTool::Cursor => "cursor",
         }
     }
 }
@@ -51,7 +55,11 @@ pub struct CreateSessionRequest {
     pub rows: u16,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    #[serde(default)]
+    pub provider_selection: LaunchProviderSelection,
+    pub launch_profile_id: Option<String>,
     pub workspace_path: Option<String>,
+    pub workspace_snapshot_id: Option<String>,
     #[serde(default)]
     pub launch_claude: bool,
     #[serde(default)]

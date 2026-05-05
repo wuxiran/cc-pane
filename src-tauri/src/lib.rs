@@ -32,6 +32,7 @@ use commands::{
     compress_history,
     copy_skill,
     create_auto_label,
+    create_launch_profile,
     create_popup_terminal_window,
     // Spec 命令
     create_spec,
@@ -44,6 +45,7 @@ use commands::{
     debug_encode_path,
     delete_label,
     delete_launch_history,
+    delete_launch_profile,
     delete_memory,
     delete_plan,
     delete_skill,
@@ -52,6 +54,7 @@ use commands::{
     delete_todo,
     delete_todo_subtask,
     delete_workspace,
+    delete_workspace_snapshot,
     detect_claude_session,
     detect_resume_session,
     discover_wsl_distros,
@@ -89,6 +92,7 @@ use commands::{
     get_git_status,
     get_history_config,
     get_journal_index,
+    get_launch_profile,
     // 日志命令
     get_log_dir,
     get_mcp_server,
@@ -125,6 +129,7 @@ use commands::{
     get_windows_build_number,
     get_workflow,
     get_workspace,
+    get_workspace_snapshot,
     git_clone,
     git_fetch,
     git_pull,
@@ -154,6 +159,7 @@ use commands::{
     list_file_versions_by_branch,
     list_labels,
     list_launch_history,
+    list_launch_profiles,
     // MCP 配置命令
     list_mcp_servers,
     list_memories,
@@ -167,6 +173,7 @@ use commands::{
     list_specs,
     // SSH Machine 命令
     list_ssh_machines,
+    list_workspace_snapshots,
     // Workspace 命令
     list_workspaces,
     list_worktree_recent_changes,
@@ -178,6 +185,7 @@ use commands::{
     minimize_window,
     open_path_in_explorer,
     prepare_session_context,
+    preview_launch_profile_resolution,
     preview_project_migration,
     preview_workspace_migration,
     // Local History - 标签
@@ -220,6 +228,7 @@ use commands::{
     // Memory 命令
     search_memory,
     set_decorations,
+    set_default_launch_profile,
     set_default_provider,
     set_project_cli_hook_enabled,
     start_launch_history_backfill,
@@ -233,9 +242,11 @@ use commands::{
     toggle_todo_my_day,
     toggle_todo_subtask,
     touch_launch_by_session,
+    transcribe_voice_input,
     trigger_notification,
     update_history_config,
     update_launch_last_prompt,
+    update_launch_profile,
     update_launch_session_id,
     update_memory,
     update_project_alias,
@@ -262,12 +273,12 @@ use repository::{
     TodoRepository,
 };
 use services::{
-    FileSystemService, HistoryService, JournalService, LaunchHistoryService, McpConfigService,
-    MemoryService, NotificationService, OrchestratorService, PlanService, ProcessMonitorService,
-    ProjectCliHooksService, ProjectContextService, ProjectService, ProviderService,
-    ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService, SkillService,
-    SpecService, SshCredentialService, SshMachineService, TaskBindingService, TerminalService,
-    TodoService, WorkspaceService, WorktreeService,
+    FileSystemService, HistoryService, JournalService, LaunchHistoryService, LaunchProfileService,
+    McpConfigService, MemoryService, NotificationService, OrchestratorService, PlanService,
+    ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
+    ProviderService, ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService,
+    SkillService, SpecService, SshCredentialService, SshMachineService, TaskBindingService,
+    TerminalService, TodoService, WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -858,6 +869,8 @@ pub fn run() {
     let worktree_service = Arc::new(WorktreeService::new());
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
+    let launch_profile_service =
+        Arc::new(LaunchProfileService::new(app_paths.launch_profiles_path()));
     let notification_service = Arc::new(NotificationService::new());
     let mcp_config_service = Arc::new(McpConfigService::new());
     let skill_service = Arc::new(SkillService::new());
@@ -871,6 +884,7 @@ pub fn run() {
         reg.register(Arc::new(cc_cli_adapters::KimiAdapter::new()));
         reg.register(Arc::new(cc_cli_adapters::GlmAdapter::new()));
         reg.register(Arc::new(cc_cli_adapters::OpenCodeAdapter::new()));
+        reg.register(Arc::new(cc_cli_adapters::CursorAdapter::new()));
         Arc::new(reg)
     };
     let project_cli_hooks_service = Arc::new(ProjectCliHooksService::new(cli_registry.clone()));
@@ -885,6 +899,8 @@ pub fn run() {
     ));
     // 注入 Spec 服务到 Terminal 服务（终端启动时自动注入 spec prompt）
     terminal_service.set_spec_service(spec_service.clone());
+    terminal_service.set_launch_profile_service(launch_profile_service.clone());
+    terminal_service.set_workspace_service(workspace_service.clone());
 
     let memory_service = Arc::new(
         MemoryService::new(app_paths.data_dir().join("memory.db")).unwrap_or_else(|e| {
@@ -950,6 +966,7 @@ pub fn run() {
         .manage(workspace_service)
         .manage(settings_service)
         .manage(provider_service)
+        .manage(launch_profile_service)
         .manage(notification_service)
         .manage(todo_service)
         .manage(task_binding_service)
@@ -1091,6 +1108,8 @@ pub fn run() {
                 let orch_svc = app.state::<Arc<OrchestratorService>>();
                 let term_svc = app.state::<Arc<TerminalService>>();
                 let prov_svc = app.state::<Arc<ProviderService>>();
+                let launch_profile_svc = app.state::<Arc<LaunchProfileService>>();
+                let shared_mcp_svc = app.state::<Arc<SharedMcpService>>();
                 let proj_svc = app.state::<Arc<ProjectService>>();
                 let ws_svc_orch = app.state::<Arc<WorkspaceService>>();
                 let todo_svc = app.state::<Arc<TodoService>>();
@@ -1104,6 +1123,8 @@ pub fn run() {
                 if let Err(e) = orch_svc.start(
                     term_svc.inner().clone(),
                     prov_svc.inner().clone(),
+                    launch_profile_svc.inner().clone(),
+                    shared_mcp_svc.inner().clone(),
                     proj_svc.inner().clone(),
                     ws_svc_orch.inner().clone(),
                     todo_svc.inner().clone(),
@@ -1446,12 +1467,20 @@ pub fn run() {
             get_settings,
             update_settings,
             test_proxy,
+            transcribe_voice_input,
             get_data_dir_info,
             migrate_data_dir,
             generate_claude_md,
             get_log_dir,
             trigger_notification,
             // Provider 命令
+            list_launch_profiles,
+            get_launch_profile,
+            create_launch_profile,
+            update_launch_profile,
+            delete_launch_profile,
+            set_default_launch_profile,
+            preview_launch_profile_resolution,
             list_providers,
             get_provider,
             get_default_provider,
@@ -1568,7 +1597,10 @@ pub fn run() {
             load_terminal_sessions,
             clear_terminal_sessions,
             load_session_output,
-            clear_session_output
+            clear_session_output,
+            list_workspace_snapshots,
+            get_workspace_snapshot,
+            delete_workspace_snapshot
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

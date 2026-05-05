@@ -177,6 +177,7 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
                     path: record.projectPath,
                     workspaceName: record.workspaceName,
                     providerId: record.providerId,
+                    providerSelection: record.providerSelection,
                     workspacePath: record.workspacePath,
                   })
                 }

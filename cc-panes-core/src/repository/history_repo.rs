@@ -22,6 +22,9 @@ pub struct LaunchRecord {
     pub workspace_path: Option<String>,
     pub launch_cwd: Option<String>,
     pub provider_id: Option<String>,
+    pub provider_selection: Option<String>,
+    pub launch_profile_id: Option<String>,
+    pub workspace_snapshot_id: Option<String>,
 }
 
 pub struct HistoryRepository {
@@ -47,6 +50,9 @@ impl HistoryRepository {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        provider_selection: Option<&str>,
+        launch_profile_id: Option<&str>,
+        workspace_snapshot_id: Option<&str>,
     ) -> Result<i64, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let now = Utc::now().to_rfc3339();
@@ -54,8 +60,8 @@ impl HistoryRepository {
         conn.execute(
             "INSERT INTO launch_history (
                 project_id, project_name, project_path, launched_at,
-                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 project_id,
                 project_name,
@@ -67,7 +73,11 @@ impl HistoryRepository {
                 workspace_name,
                 workspace_path,
                 launch_cwd,
-                provider_id
+                provider_id,
+                provider_selection,
+                launch_profile_id,
+                workspace_snapshot_id,
+                workspace_snapshot_id
             ],
         )
         .map_err(|e| {
@@ -98,7 +108,10 @@ impl HistoryRepository {
                     workspace_name,
                     workspace_path,
                     launch_cwd,
-                    provider_id
+                    provider_id,
+                    provider_selection,
+                    launch_profile_id,
+                    COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id
                  FROM launch_history
                  ORDER BY launched_at DESC
                  LIMIT ?1",
@@ -126,6 +139,9 @@ impl HistoryRepository {
                     workspace_path: row.get(12)?,
                     launch_cwd: row.get(13)?,
                     provider_id: row.get(14)?,
+                    provider_selection: row.get(15)?,
+                    launch_profile_id: row.get(16)?,
+                    workspace_snapshot_id: row.get(17)?,
                 })
             })
             .map_err(|e| {
@@ -163,7 +179,10 @@ impl HistoryRepository {
                     workspace_name,
                     workspace_path,
                     launch_cwd,
-                    provider_id \
+                    provider_id, \
+                    provider_selection, \
+                    launch_profile_id, \
+                    COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id \
                  FROM launch_history \
                  WHERE LOWER(REPLACE(project_path, '\\', '/')) = LOWER(REPLACE(?1, '\\', '/')) \
                  ORDER BY launched_at DESC LIMIT ?2",
@@ -191,6 +210,9 @@ impl HistoryRepository {
                     workspace_path: row.get(12)?,
                     launch_cwd: row.get(13)?,
                     provider_id: row.get(14)?,
+                    provider_selection: row.get(15)?,
+                    launch_profile_id: row.get(16)?,
+                    workspace_snapshot_id: row.get(17)?,
                 })
             })
             .map_err(|e| {
@@ -339,7 +361,10 @@ impl HistoryRepository {
                     workspace_name,
                     workspace_path,
                     launch_cwd,
-                    provider_id
+                    provider_id,
+                    provider_selection,
+                    launch_profile_id,
+                    COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id
                  FROM launch_history
                  WHERE pty_session_id = ?1
                  ORDER BY launched_at DESC
@@ -367,6 +392,9 @@ impl HistoryRepository {
                 workspace_path: row.get(12)?,
                 launch_cwd: row.get(13)?,
                 provider_id: row.get(14)?,
+                provider_selection: row.get(15)?,
+                launch_profile_id: row.get(16)?,
+                workspace_snapshot_id: row.get(17)?,
             })
         });
 
@@ -399,7 +427,10 @@ impl HistoryRepository {
                     workspace_name,
                     workspace_path,
                     launch_cwd,
-                    provider_id
+                    provider_id,
+                    provider_selection,
+                    launch_profile_id,
+                    COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id
                  FROM launch_history
                  WHERE project_id = ?1
                  ORDER BY launched_at DESC
@@ -427,6 +458,9 @@ impl HistoryRepository {
                 workspace_path: row.get(12)?,
                 launch_cwd: row.get(13)?,
                 provider_id: row.get(14)?,
+                provider_selection: row.get(15)?,
+                launch_profile_id: row.get(16)?,
+                workspace_snapshot_id: row.get(17)?,
             })
         });
 

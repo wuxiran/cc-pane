@@ -3,38 +3,77 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Plus, Zap, Wrench, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useProvidersStore, useWorkspacesStore, useDialogStore, useSshMachinesStore } from "@/stores";
+import {
+  useDialogStore,
+  usePanesStore,
+  useProvidersStore,
+  useSettingsStore,
+  useSshMachinesStore,
+  useWorkspacesStore,
+} from "@/stores";
 import ProviderCard from "./ProviderCard";
 import ProviderFormPanel from "./ProviderFormPanel";
 import ProviderToolTabs from "./ProviderToolTabs";
+import LaunchProfilesPanel from "./LaunchProfilesPanel";
 import type { Provider, ProviderPreset } from "@/types/provider";
 import { getCompatibleCliTools, CLI_TOOL_TABS } from "@/types/provider";
-import type { KnownCliTool } from "@/types/terminal";
+import type { KnownCliTool, Tab } from "@/types/terminal";
+import type { LaunchProfileRuntime, Workspace } from "@/types";
 import { PROVIDER_PRESETS, PRESET_CATEGORIES } from "@/constants/providerPresets";
 import {
+  getWorkspaceDefaultEnvironment,
   getWorkspaceLaunchIssueKey,
   getWorkspaceLaunchIssueValues,
   resolveWorkspaceLaunchOptions,
 } from "@/utils";
 
 type PanelView = "list" | "preset_pick" | "form";
+type TopView = "providers" | "profiles";
 
 interface Props {
   compact?: boolean;
 }
 
+const LAUNCH_TOOL_IDS = new Set<string>(CLI_TOOL_TABS.map((tab) => tab.id));
+
+function coerceLaunchTool(tool?: string | null): KnownCliTool | null {
+  if (!tool || tool === "none") return null;
+  return LAUNCH_TOOL_IDS.has(tool) ? (tool as KnownCliTool) : null;
+}
+
+function inferLaunchRuntime(tab: Tab | null, workspace?: Workspace | null): LaunchProfileRuntime {
+  if (tab?.ssh) return "ssh";
+  if (tab?.wsl) return "wsl";
+  if (tab?.contentType === "terminal" && (tab.projectPath || tab.sessionId || tab.resumeId || tab.workspacePath)) {
+    return "local";
+  }
+  return workspace ? getWorkspaceDefaultEnvironment(workspace) : null;
+}
+
 export default function ProvidersPanel({ compact }: Props = {}) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
+  const activePane = usePanesStore((s) => s.activePane());
+  const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace());
+  const defaultCliTool = useSettingsStore((s) => s.settings?.general.defaultCliTool);
   const sshMachines = useSshMachinesStore((s) => s.machines);
   const loadProviders = useProvidersStore((s) => s.loadProviders);
   const removeProvider = useProvidersStore((s) => s.removeProvider);
   const setDefault = useProvidersStore((s) => s.setDefault);
+  const activeTerminalTab = activePane?.tabs.find((tab) => tab.id === activePane.activeTabId) ?? null;
+  const launchDefaults = useMemo(() => ({
+    tool: coerceLaunchTool(activeTerminalTab?.cliTool ? String(activeTerminalTab.cliTool) : null)
+      ?? (activeTerminalTab?.launchClaude ? "claude" : null)
+      ?? coerceLaunchTool(defaultCliTool)
+      ?? "claude",
+    runtime: inferLaunchRuntime(activeTerminalTab, selectedWorkspace),
+  }), [activeTerminalTab, defaultCliTool, selectedWorkspace]);
 
   const [view, setView] = useState<PanelView>("list");
+  const [topView, setTopView] = useState<TopView>("profiles");
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
-  const [activeTab, setActiveTab] = useState<KnownCliTool>("claude");
+  const [activeTab, setActiveTab] = useState<KnownCliTool>(() => launchDefaults.tool);
 
   useEffect(() => { loadProviders(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -129,6 +168,8 @@ export default function ProvidersPanel({ compact }: Props = {}) {
       path: options.path,
       workspaceName: options.workspaceName,
       providerId,
+      providerSelection: "explicit",
+      launchProfileId: options.launchProfileId,
       workspacePath: options.workspacePath,
       cliTool: activeTab,
       ssh: options.ssh,
@@ -269,6 +310,28 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   }
 
   // ── List view (default) ──
+  if (topView === "profiles") {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <div
+          className={`flex items-center gap-2 shrink-0 ${compact ? "px-4 py-3" : "px-6 py-4"}`}
+          style={{ borderBottom: "1px solid var(--app-border)" }}
+        >
+          <Button size="sm" variant="default">运行配置</Button>
+          <Button size="sm" variant="outline" onClick={() => setTopView("providers")}>Provider 凭证</Button>
+        </div>
+        <div className="flex-1 min-h-0">
+          <LaunchProfilesPanel
+            compact={compact}
+            initialTool={activeTab}
+            initialRuntime={launchDefaults.runtime}
+            onActiveToolChange={setActiveTab}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -278,9 +341,8 @@ export default function ProvidersPanel({ compact }: Props = {}) {
       >
         <div className="flex items-center gap-2">
           <Zap size={compact ? 16 : 20} style={{ color: "var(--app-accent)" }} />
-          <span className={`font-semibold ${compact ? "text-sm" : "text-base"}`} style={{ color: "var(--app-text-primary)" }}>
-            Providers
-          </span>
+          <Button size="sm" variant="outline" onClick={() => setTopView("profiles")}>运行配置</Button>
+          <Button size="sm" variant="default">Provider 凭证</Button>
         </div>
         <Button size="sm" onClick={() => setView("preset_pick")}>
           <Plus size={16} className="mr-1.5" />

@@ -70,8 +70,10 @@ impl ClaudeAdapter {
                 supports_project_hooks: true,
                 compatible_provider_types: vec![
                     "anthropic".into(),
-                    "openrouter".into(),
-                    "custom".into(),
+                    "bedrock".into(),
+                    "vertex".into(),
+                    "proxy".into(),
+                    "config_profile".into(),
                 ],
             },
         }

@@ -1,17 +1,19 @@
 use crate::constants::events as EV;
 use crate::events::{EventEmitter, SessionNotifier};
+use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
-    CliTool, SshConnectionInfo, TerminalBufferMode, TerminalExit, TerminalOutput,
-    TerminalReplaySnapshot, WslLaunchInfo,
+    CliTool, LaunchProfile, LaunchProfileMcpMode, LaunchProviderSelection, SshConnectionInfo,
+    TerminalBufferMode, TerminalExit, TerminalOutput, TerminalReplaySnapshot, WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{
-    ProjectCliHooksService, ProviderService, SettingsService, SpecService, SshCredentialService,
+    LaunchProfileService, ProjectCliHooksService, ProviderService, SettingsService, SpecService,
+    SshCredentialService, WorkspaceService,
 };
 use crate::utils::AppPaths;
 use anyhow::{anyhow, Result};
 use cc_cli_adapters::{CliAdapterContext, CliProvider, CliToolRegistry};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -57,6 +59,132 @@ fn cached_which(name: &str) -> Result<PathBuf, which::Error> {
     let result = which::which(name);
     map.insert(name.to_string(), result.as_ref().ok().cloned());
     result
+}
+
+fn merge_session_prompts(parts: impl IntoIterator<Item = Option<String>>) -> Option<String> {
+    let merged = parts
+        .into_iter()
+        .flatten()
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+
+fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
+    profile
+        .map(|profile| match profile.mcp_policy.mode {
+            LaunchProfileMcpMode::Disabled | LaunchProfileMcpMode::Custom => true,
+            LaunchProfileMcpMode::Default => {
+                !profile.mcp_policy.enabled_server_ids.is_empty()
+                    || !profile.mcp_policy.disabled_server_ids.is_empty()
+                    || !profile.mcp_policy.include_ccpanes_mcp
+                    || !profile.mcp_policy.include_shared_mcp
+            }
+        })
+        .unwrap_or(false)
+}
+
+fn allowed_mcp_server_ids_for_profile(
+    profile: Option<&LaunchProfile>,
+    shared_mcp_config: &SharedMcpConfig,
+) -> Vec<String> {
+    let Some(profile) = profile else {
+        return Vec::new();
+    };
+    if profile.mcp_policy.mode == LaunchProfileMcpMode::Disabled {
+        return Vec::new();
+    }
+
+    let mut allowed = HashSet::new();
+    if profile.mcp_policy.include_ccpanes_mcp {
+        allowed.insert("ccpanes".to_string());
+    }
+
+    if profile.mcp_policy.include_shared_mcp {
+        match profile.mcp_policy.mode {
+            LaunchProfileMcpMode::Custom => {
+                allowed.extend(profile.mcp_policy.enabled_server_ids.iter().cloned());
+            }
+            LaunchProfileMcpMode::Default => {
+                let disabled = profile
+                    .mcp_policy
+                    .disabled_server_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<HashSet<_>>();
+                allowed.extend(
+                    shared_mcp_config
+                        .servers
+                        .keys()
+                        .filter(|name| !disabled.contains(name.as_str()))
+                        .cloned(),
+                );
+                allowed.extend(profile.mcp_policy.enabled_server_ids.iter().cloned());
+            }
+            LaunchProfileMcpMode::Disabled => {}
+        }
+    }
+
+    let mut allowed = allowed.into_iter().collect::<Vec<_>>();
+    allowed.sort();
+    allowed
+}
+
+fn selected_shared_mcp_config_toml_for_codex(
+    allowed_mcp_server_ids: &[String],
+    shared_mcp_config: &SharedMcpConfig,
+) -> String {
+    let allowed = allowed_mcp_server_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut servers = toml::map::Map::new();
+
+    for (name, config) in &shared_mcp_config.servers {
+        if !allowed.contains(name.as_str()) {
+            continue;
+        }
+
+        let mut server = toml::map::Map::new();
+        server.insert(
+            "command".to_string(),
+            toml::Value::String(config.command.clone()),
+        );
+        server.insert(
+            "args".to_string(),
+            toml::Value::Array(
+                config
+                    .args
+                    .iter()
+                    .cloned()
+                    .map(toml::Value::String)
+                    .collect(),
+            ),
+        );
+        if !config.env.is_empty() {
+            let env = config
+                .env
+                .iter()
+                .map(|(key, value)| (key.clone(), toml::Value::String(value.clone())))
+                .collect::<toml::map::Map<_, _>>();
+            server.insert("env".to_string(), toml::Value::Table(env));
+        }
+        servers.insert(name.clone(), toml::Value::Table(server));
+    }
+
+    if servers.is_empty() {
+        return String::new();
+    }
+
+    let mut root = toml::map::Map::new();
+    root.insert("mcp_servers".to_string(), toml::Value::Table(servers));
+    toml::to_string_pretty(&toml::Value::Table(root)).unwrap_or_default()
 }
 
 /// 进程级 which 结果缓存，避免每次调用遍历 PATH（macOS 含网络路径时可能阻塞 3-10 秒）
@@ -510,6 +638,8 @@ pub struct TerminalService {
     ssh_credential_service: Arc<SshCredentialService>,
     /// 共享 MCP 服务引用（setup 阶段注入）
     shared_mcp_service: parking_lot::RwLock<Option<Arc<crate::services::SharedMcpService>>>,
+    launch_profile_service: parking_lot::RwLock<Option<Arc<LaunchProfileService>>>,
+    workspace_service: parking_lot::RwLock<Option<Arc<WorkspaceService>>>,
 }
 
 struct SshAuthRuntime {
@@ -807,6 +937,8 @@ impl TerminalService {
             project_cli_hooks_service,
             ssh_credential_service,
             shared_mcp_service: parking_lot::RwLock::new(None),
+            launch_profile_service: parking_lot::RwLock::new(None),
+            workspace_service: parking_lot::RwLock::new(None),
         }
     }
 
@@ -831,6 +963,16 @@ impl TerminalService {
     pub fn set_shared_mcp_service(&self, service: Arc<crate::services::SharedMcpService>) {
         *self.shared_mcp_service.write() = Some(service);
         info!("[terminal] SharedMcpService injected");
+    }
+
+    pub fn set_launch_profile_service(&self, service: Arc<LaunchProfileService>) {
+        *self.launch_profile_service.write() = Some(service);
+        info!("[terminal] LaunchProfileService injected");
+    }
+
+    pub fn set_workspace_service(&self, service: Arc<WorkspaceService>) {
+        *self.workspace_service.write() = Some(service);
+        info!("[terminal] WorkspaceService injected");
     }
 
     fn prepare_ssh_auth_runtime(
@@ -877,7 +1019,10 @@ impl TerminalService {
         rows: u16,
         workspace_name: Option<&str>,
         provider_id: Option<&str>,
+        provider_selection: LaunchProviderSelection,
+        launch_profile_id: Option<&str>,
         workspace_path: Option<&str>,
+        workspace_snapshot_id: Option<&str>,
         cli_tool: CliTool,
         resume_id: Option<&str>,
         skip_mcp: bool,
@@ -887,11 +1032,83 @@ impl TerminalService {
         wsl: Option<&WslLaunchInfo>,
     ) -> Result<String> {
         let is_ssh = ssh.is_some();
+        let resolved_workspace = workspace_name.and_then(|name| {
+            self.workspace_service
+                .read()
+                .as_ref()
+                .and_then(|svc| svc.get_workspace(name).ok())
+        });
+        let runtime_kind = if ssh.is_some() {
+            "ssh"
+        } else if wsl.is_some() {
+            "wsl"
+        } else {
+            "local"
+        };
+        let resolved_profile = self.launch_profile_service.read().as_ref().and_then(|svc| {
+            svc.resolve_launch_profile(
+                launch_profile_id,
+                resolved_workspace.as_ref(),
+                None,
+                Some(cli_tool.as_id()),
+                Some(runtime_kind),
+            )
+        });
+        let profile_provider_id = resolved_profile
+            .as_ref()
+            .and_then(|profile| profile.provider_id.as_deref());
+        let requested_provider_id = provider_id.filter(|id| !id.trim().is_empty());
+        let effective_provider_id = match provider_selection {
+            LaunchProviderSelection::None => None,
+            LaunchProviderSelection::Explicit => requested_provider_id,
+            LaunchProviderSelection::Inherit => requested_provider_id.or(profile_provider_id),
+        };
         let mut env_vars = self.settings_service.get_proxy_env_vars();
-        let provider_vars = self.provider_service.get_env_vars(provider_id);
-        let provider = provider_id
+        let provider_vars = self.provider_service.get_env_vars(effective_provider_id);
+        let provider = effective_provider_id
             .and_then(|id| self.provider_service.get_provider(id))
             .map(to_cli_provider);
+        let effective_skip_mcp =
+            LaunchProfileService::should_skip_mcp_for_profile(resolved_profile.as_ref(), skip_mcp);
+        let shared_mcp_service = self.shared_mcp_service.read().clone();
+        let shared_mcp_config = shared_mcp_service
+            .as_ref()
+            .map(|svc| svc.get_config())
+            .unwrap_or_default();
+        let effective_shared_mcp_urls = if effective_skip_mcp {
+            HashMap::new()
+        } else {
+            let shared_mcp_urls = shared_mcp_service
+                .as_ref()
+                .map(|svc| svc.get_running_servers_urls())
+                .unwrap_or_default();
+            self.launch_profile_service
+                .read()
+                .as_ref()
+                .map(|svc| {
+                    svc.resolve_shared_mcp_urls_for_profile(
+                        launch_profile_id,
+                        resolved_workspace.as_ref(),
+                        Some(cli_tool.as_id()),
+                        Some(runtime_kind),
+                        shared_mcp_urls.clone(),
+                    )
+                })
+                .unwrap_or(shared_mcp_urls)
+        };
+        let allowed_mcp_server_ids =
+            allowed_mcp_server_ids_for_profile(resolved_profile.as_ref(), &shared_mcp_config);
+        let disable_unlisted_mcp_servers = launch_profile_isolates_mcp(resolved_profile.as_ref());
+        let selected_mcp_config_toml =
+            selected_shared_mcp_config_toml_for_codex(&allowed_mcp_server_ids, &shared_mcp_config);
+        let sync_project_hooks =
+            LaunchProfileService::should_sync_project_hooks_for_profile(resolved_profile.as_ref());
+        let profile_skill_prompt =
+            LaunchProfileService::session_skill_prompt_for_profile(resolved_profile.as_ref());
+        let launch_append_system_prompt = merge_session_prompts([
+            append_system_prompt.map(str::to_string),
+            profile_skill_prompt.clone(),
+        ]);
         let pure_wsl_codex_launch = wsl.is_some() && cli_tool == CliTool::Codex;
         if !pure_wsl_codex_launch {
             env_vars.extend(provider_vars.clone());
@@ -913,6 +1130,12 @@ impl TerminalService {
             .entry("COLORTERM".to_string())
             .or_insert_with(|| "truecolor".to_string());
         env_vars.insert("CC_PANES_PTY_SESSION_ID".to_string(), session_id.clone());
+        if let Some(workspace_snapshot_id) = workspace_snapshot_id {
+            env_vars.insert(
+                "CC_PANES_WORKSPACE_SNAPSHOT_ID".to_string(),
+                workspace_snapshot_id.to_string(),
+            );
+        }
         if let Some(launch_id) = launch_id {
             env_vars.insert("CC_PANES_LAUNCH_ID".to_string(), launch_id.to_string());
         }
@@ -920,17 +1143,13 @@ impl TerminalService {
             "CC_PANES_CLI_TOOL".to_string(),
             cli_tool.as_id().to_string(),
         );
-        let runtime_kind = if ssh.is_some() {
-            "ssh"
-        } else if wsl.is_some() {
-            "wsl"
-        } else {
-            "local"
-        };
         env_vars.insert(
             "CC_PANES_RUNTIME_KIND".to_string(),
             runtime_kind.to_string(),
         );
+        if let Some(prompt) = profile_skill_prompt.as_ref() {
+            env_vars.insert("CC_PANES_LAUNCH_PROFILE_SKILLS".to_string(), prompt.clone());
+        }
         if let Some(wsl) = wsl {
             if let Some(distro) = wsl
                 .distro
@@ -988,22 +1207,31 @@ impl TerminalService {
 
             if cli_tool_id != "none" {
                 let hooks_project_path = workspace_path.unwrap_or(project_path);
-                if let Err(error) = self
-                    .project_cli_hooks_service
-                    .sync_project_cli_hooks(hooks_project_path, cli_tool_id)
-                {
-                    warn!(
+                if sync_project_hooks {
+                    if let Err(error) = self
+                        .project_cli_hooks_service
+                        .sync_project_cli_hooks(hooks_project_path, cli_tool_id)
+                    {
+                        warn!(
+                            session_id = %session_id,
+                            cli_tool = cli_tool_id,
+                            project_path = hooks_project_path,
+                            error = %error,
+                            "create_session: failed to sync project hooks before WSL launch; continuing"
+                        );
+                    }
+                } else {
+                    info!(
                         session_id = %session_id,
                         cli_tool = cli_tool_id,
                         project_path = hooks_project_path,
-                        error = %error,
-                        "create_session: failed to sync project hooks before WSL launch; continuing"
+                        "create_session: launch profile disabled WSL project skill hook sync"
                     );
                 }
             }
 
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
-            if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !skip_mcp {
+            if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !effective_skip_mcp {
                 if let Some(port_value) = env_vars.get("CC_PANES_API_PORT") {
                     match port_value.parse::<u16>() {
                         Ok(port) => match self.resolve_reachable_wsl_windows_host(
@@ -1047,37 +1275,45 @@ impl TerminalService {
                         &session_id,
                         &resolved_wsl,
                         &env_vars,
-                        skip_mcp,
+                        effective_skip_mcp,
                     )?;
                     self.build_wsl_command(
                         &resolved_wsl,
                         &session_id,
                         &env_vars,
+                        &provider_vars,
                         resume_id,
+                        launch_append_system_prompt.as_deref(),
                         initial_prompt,
-                        skip_mcp,
+                        effective_skip_mcp,
+                        &effective_shared_mcp_urls,
+                        &allowed_mcp_server_ids,
+                        disable_unlisted_mcp_servers,
+                        &selected_mcp_config_toml,
                     )?
                 }
-                CliTool::Claude | CliTool::Gemini | CliTool::Opencode => self
+                CliTool::Claude | CliTool::Gemini | CliTool::Opencode | CliTool::Cursor => self
                     .build_wsl_supported_cli_command(
                         &resolved_wsl,
                         cli_tool,
                         &session_id,
                         &env_vars,
+                        &provider_vars,
                         resume_id,
-                        append_system_prompt,
+                        launch_append_system_prompt.as_deref(),
                         initial_prompt,
-                        skip_mcp,
+                        effective_skip_mcp,
                     )?,
                 CliTool::Kimi | CliTool::Glm => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
                     cli_tool,
                     &session_id,
                     &env_vars,
+                    &provider_vars,
                     resume_id,
-                    append_system_prompt,
+                    launch_append_system_prompt.as_deref(),
                     initial_prompt,
-                    skip_mcp,
+                    effective_skip_mcp,
                 )?,
             };
 
@@ -1110,47 +1346,53 @@ impl TerminalService {
                     .ok_or_else(|| anyhow!("Unknown CLI tool: {}", cli_tool_id))?;
 
                 let hooks_project_path = workspace_path.unwrap_or(project_path);
-                if let Err(error) = self
-                    .project_cli_hooks_service
-                    .sync_project_cli_hooks(hooks_project_path, cli_tool_id)
-                {
-                    warn!(
+                if sync_project_hooks {
+                    if let Err(error) = self
+                        .project_cli_hooks_service
+                        .sync_project_cli_hooks(hooks_project_path, cli_tool_id)
+                    {
+                        warn!(
+                            session_id = %session_id,
+                            cli_tool = cli_tool_id,
+                            project_path = hooks_project_path,
+                            error = %error,
+                            "create_session: failed to sync project hooks before launch; continuing"
+                        );
+                    }
+                } else {
+                    info!(
                         session_id = %session_id,
                         cli_tool = cli_tool_id,
                         project_path = hooks_project_path,
-                        error = %error,
-                        "create_session: failed to sync project hooks before launch; continuing"
+                        "create_session: launch profile disabled project skill hook sync"
                     );
                 }
 
-                // 自动注入 Spec prompt（仅 CLI 工具模式，且无显式 append_system_prompt 时）
-                let spec_prompt = if append_system_prompt.is_none() {
+                // 自动注入 Spec prompt（仅 CLI 工具模式，且无显式 prompt/运行配置 Skill 时）
+                let spec_prompt = if launch_append_system_prompt.is_none() {
                     self.generate_spec_prompt(project_path)
                 } else {
                     None
                 };
-                let effective_prompt = append_system_prompt.map(|s| s.to_string()).or(spec_prompt);
+                let effective_prompt =
+                    merge_session_prompts([launch_append_system_prompt.clone(), spec_prompt]);
 
                 let orch_info = self.orchestrator_info.lock().ok().and_then(|g| g.clone());
-                let shared_mcp_urls = self
-                    .shared_mcp_service
-                    .read()
-                    .as_ref()
-                    .map(|svc| svc.get_running_servers_urls())
-                    .unwrap_or_default();
                 let ctx = CliAdapterContext {
                     session_id: session_id.clone(),
                     project_path: project_path.to_string(),
                     workspace_path: workspace_path.map(|s| s.to_string()),
                     provider: provider.clone(),
                     resume_id: resume_id.map(|s| s.to_string()),
-                    skip_mcp,
+                    skip_mcp: effective_skip_mcp,
                     append_system_prompt: effective_prompt,
                     initial_prompt: initial_prompt.map(|s| s.to_string()),
                     orchestrator_port: orch_info.as_ref().map(|i| i.port),
                     orchestrator_token: orch_info.as_ref().map(|i| i.token.clone()),
                     data_dir: self.app_paths.data_dir().to_path_buf(),
-                    shared_mcp_urls,
+                    shared_mcp_urls: effective_shared_mcp_urls,
+                    allowed_mcp_server_ids,
+                    disable_unlisted_mcp_servers,
                 };
 
                 let result = adapter.build_command(&ctx)?;
@@ -2006,6 +2248,7 @@ impl TerminalService {
             CliTool::Kimi => remote_parts.push("kimi".into()),
             CliTool::Glm => remote_parts.push("crush".into()),
             CliTool::Opencode => remote_parts.push("opencode".into()),
+            CliTool::Cursor => remote_parts.push("cursor-agent".into()),
         }
         args.push(remote_parts.join(" && "));
 
@@ -2190,10 +2433,56 @@ pub fn get_windows_build_number() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::shared_mcp::{BridgeMode, SharedMcpServerConfig};
 
     #[test]
     fn test_infer_status_empty() {
         assert_eq!(infer_status(""), SessionStatus::Active);
+    }
+
+    #[test]
+    fn selected_shared_mcp_config_toml_for_codex_only_includes_allowed_servers() {
+        let mut shared_mcp = SharedMcpConfig::default();
+        shared_mcp.servers.insert(
+            "fetch".to_string(),
+            SharedMcpServerConfig {
+                command: "uvx".to_string(),
+                args: vec!["mcp-server-fetch".to_string()],
+                env: HashMap::new(),
+                shared: true,
+                port: 3104,
+                bridge_mode: BridgeMode::McpProxy,
+            },
+        );
+        shared_mcp.servers.insert(
+            "Playwright".to_string(),
+            SharedMcpServerConfig {
+                command: "npx".to_string(),
+                args: vec!["-y".to_string(), "@playwright/mcp@latest".to_string()],
+                env: HashMap::new(),
+                shared: true,
+                port: 3101,
+                bridge_mode: BridgeMode::McpProxy,
+            },
+        );
+
+        let config_toml =
+            selected_shared_mcp_config_toml_for_codex(&["fetch".to_string()], &shared_mcp);
+        let parsed = config_toml.parse::<toml::Value>().unwrap();
+        let servers = parsed
+            .get("mcp_servers")
+            .and_then(toml::Value::as_table)
+            .unwrap();
+
+        assert_eq!(servers.len(), 1);
+        assert_eq!(
+            servers
+                .get("fetch")
+                .and_then(|server| server.get("command"))
+                .and_then(toml::Value::as_str),
+            Some("uvx")
+        );
+        assert!(!servers.contains_key("Playwright"));
     }
 
     #[test]

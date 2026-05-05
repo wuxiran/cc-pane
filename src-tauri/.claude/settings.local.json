@@ -5,7 +5,7 @@
         "hooks": [
           {
             "async": true,
-            "command": "\"D:\\\\04_workspace_rust\\\\cc-book\\\\target\\\\debug\\\\binaries\\\\cc-panes-hook.exe\" plan-archive",
+            "command": "\"D:\\\\04_workspace_rust\\\\cc-book\\\\target\\\\debug\\\\binaries\\\\cc-panes-cli-hook.exe\" plan-archive",
             "timeout": 5,
             "type": "command"
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "async": true,
-            "command": "\"D:\\\\04_workspace_rust\\\\cc-book\\\\target\\\\debug\\\\binaries\\\\cc-panes-hook.exe\" session-start",
+            "command": "\"D:\\\\04_workspace_rust\\\\cc-book\\\\target\\\\debug\\\\binaries\\\\cc-panes-cli-hook.exe\" session-start",
             "timeout": 10,
             "type": "command"
           }

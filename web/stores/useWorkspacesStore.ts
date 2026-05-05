@@ -23,6 +23,7 @@ interface WorkspacesState {
   updateProjectAlias: (workspaceName: string, projectId: string, alias: string | null) => Promise<void>;
   updateWorkspaceAlias: (workspaceName: string, alias: string | null) => Promise<void>;
   updateWorkspaceProvider: (workspaceName: string, providerId: string | null) => Promise<void>;
+  updateWorkspaceLaunchProfile: (workspaceName: string, launchProfileId: string | null) => Promise<void>;
   updateWorkspacePath: (workspaceName: string, path: string | null) => Promise<void>;
   saveWorkspace: (workspace: Workspace) => Promise<void>;
   updatePinned: (name: string, pinned: boolean) => Promise<void>;
@@ -224,6 +225,17 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
       workspaces: state.workspaces.map((ws) =>
         ws.name === workspaceName
           ? { ...ws, providerId: providerId ?? undefined }
+          : ws
+      ),
+    }));
+  },
+
+  updateWorkspaceLaunchProfile: async (workspaceName, launchProfileId) => {
+    await workspaceService.updateWorkspaceLaunchProfile(workspaceName, launchProfileId);
+    set((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.name === workspaceName
+          ? { ...ws, launchProfileId: launchProfileId ?? undefined }
           : ws
       ),
     }));
