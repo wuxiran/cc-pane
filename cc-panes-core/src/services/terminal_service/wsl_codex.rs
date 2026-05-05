@@ -1189,7 +1189,7 @@ mod tests {
 
         assert!(commands
             .iter()
-            .any(|line: &String| line.contains("$HOME/.codex/skills")));
+            .any(|line: &String| line.contains("${CODEX_HOME:-$HOME/.codex}/skills")));
         assert!(commands
             .iter()
             .any(|line: &String| line.contains("find \"$CCPANES_WSL_CODEX_DST\"")));
