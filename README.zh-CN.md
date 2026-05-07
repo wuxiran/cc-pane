@@ -1,274 +1,245 @@
 # CC-Panes
 
-> [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 多实例分屏管理器 — 基于 Tauri 2 的跨平台桌面应用。
+> 面向 AI Coding 重度用户的多实例分屏工作台，以 Claude Code 为核心，同时支持 Codex、Gemini、Kimi、GLM、OpenCode、Cursor 等 CLI 工作流。
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-[![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%202-FFC131?logo=tauri)](https://v2.tauri.app/)
-[![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript)](https://www.typescriptlang.org/)
+[![Latest Release](https://img.shields.io/github/v/release/wuxiran/cc-pane?display_name=tag&sort=semver)](https://github.com/wuxiran/cc-pane/releases/latest)
+[![CI](https://github.com/wuxiran/cc-pane/actions/workflows/ci.yml/badge.svg)](https://github.com/wuxiran/cc-pane/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri)](https://tauri.app/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
+[![Rust](https://img.shields.io/badge/Rust-1.83+-000000?logo=rust)](https://www.rust-lang.org/)
 
-[English](README.md)
+[下载最新版](https://github.com/wuxiran/cc-pane/releases/latest) · [English README](README.md) · [反馈问题](https://github.com/wuxiran/cc-pane/issues)
 
-<!--
 <p align="center">
-  <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes 主界面" width="800" />
+  <img src="docs/assets/images/current-ui.png" alt="CC-Panes 深色工作区界面" width="920" />
 </p>
--->
+
+CC-Panes 是一个桌面端 AI 编程控制台。它把项目、终端、启动配置、Provider、Todo、文件浏览、Git 状态、本地历史、会话恢复放到同一个工作台里，方便你同时推进多个 AI Coding 任务。
+
+它不是单纯的终端壳子，而是给 Claude Code、Codex、Gemini 等 CLI 工作流补上项目组织、并行编排、上下文恢复和桌面工具链。
+
+## 它解决什么
+
+- 多个 AI 会话并排运行，不再在一堆终端窗口里切来切去。
+- 工作区、项目、任务、Todo、历史会话统一管理。
+- 从应用内恢复历史 Claude/Codex/Gemini 会话，不用手动找命令。
+- 启动时选择 Provider、配置档、运行环境、Skill 策略和项目上下文。
+- 内置文件浏览、代码编辑、本地历史、Git 工具，减少来回切 IDE。
+- 截图、语音输入、通知、托盘、快捷键、小窗模式适合长时间工作流。
+
+## 截图
+
+| 多 Pane 工作区 | 终端主工作区 |
+| --- | --- |
+| <img src="docs/assets/images/screenshot-new-ui.png" alt="CC-Panes 多 Pane 终端布局" width="440" /> | <img src="docs/assets/images/screenshot-panel.png" alt="CC-Panes 终端面板" width="440" /> |
+
+| Todo 与任务管理 | 浅色工作区 |
+| --- | --- |
+| <img src="docs/assets/images/screenshot-todolist.png" alt="CC-Panes Todo 和任务面板" width="440" /> | <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes 浅色工作区" width="440" /> |
+
+## 核心能力
+
+**多实例终端**
+
+- 基于 xterm.js 和 portable-pty 的真实 PTY 终端。
+- 支持分屏、Tab、多 Pane 布局和终端尺寸同步。
+- 可启动 Claude Code、Codex、Gemini、Kimi、GLM、OpenCode、Cursor。
+- 记录启动历史，支持按项目恢复历史会话。
+
+**工作区和项目**
+
+- 工作区、项目树、置顶、隐藏、排序、扫描、导入、新建项目。
+- 每个项目拥有独立的启动历史、任务、Todo、MCP 配置和元数据。
+- 内置文件浏览器，支持搜索、新建、重命名、删除、复制、移动和打开编辑器。
+- Monaco 编辑器、Markdown 预览、图片预览。
+
+**启动配置和 Provider**
+
+- Launch Profile 管理 CLI、运行环境、Provider、Skill 和环境变量组合。
+- Provider 支持 Anthropic、Bedrock、Vertex、OpenAI 兼容代理、Gemini、Kimi、GLM、OpenCode、Cursor 和本地配置档。
+- 启动时可以选择继承 Provider、显式指定 Provider，或不注入 Provider。
+- 内置 Claude Code commands、agents、hooks 和 CC-Panes skills，适合编排式任务流。
+
+**Git、本地历史和审查**
+
+- Git 分支状态、fetch、pull、push、stash、clone、worktree 辅助能力。
+- 分支感知的本地历史快照、标签和 diff 视图。
+- 可对比并恢复本地文件版本。
+
+**桌面工作流**
+
+- 开发版和发布版的数据目录、应用标识、快捷键和窗口标题相互隔离。
+- 全局截图快捷键、区域截图、多显示器支持。
+- 托盘、通知、语音输入、小窗模式、全屏聚焦、快捷键配置。
+- 已发布 Windows、macOS、Linux 安装包。
 
 ## 下载
 
-预构建安装包可在 [GitHub Releases](https://github.com/wuxiran/cc-pane/releases) 页面下载。
+预编译安装包在 [最新版 Release](https://github.com/wuxiran/cc-pane/releases/latest) 页面发布。
 
-- Windows: `x64`、`ARM64`
-- macOS: `Apple Silicon`、`Intel`
-- Linux: `amd64`
+- Windows: `*_x64-setup.exe` 或 `*_arm64-setup.exe`
+- macOS: `*_aarch64.dmg` 或 `*_x64.dmg`
+- Linux: `*_amd64.deb` 或 `*_amd64.AppImage`
 
-> 其他平台可[从源码构建](#快速开始)。
+## 从源码运行
 
-## 什么是 CC-Panes？
+### 环境要求
 
-用 Claude Code 做开发的人应该都遇到过这个问题：项目一多，终端窗口满天飞，切来切去效率很低。想同时盯两个项目的 Claude 对话？基本靠手动排窗口。
+- Node.js 22+
+- Rust 1.83+
+- 平台对应的 [Tauri 2 环境依赖](https://tauri.app/start/prerequisites/)
+- 你希望由 CC-Panes 启动的 Claude Code、Codex、Gemini 或其他 CLI
 
-CC-Panes 就是为了解决这个问题做的 — 一个专门管理多个 Claude Code CLI 实例的桌面应用。在一个窗口里**分屏并排运行多个 Claude Code 实例**，通过工作空间、项目和任务来组织你的 AI 驱动开发工作流，开箱即用。
-
-## 功能特性
-
-- **分屏终端** — 在灵活的水平/垂直分屏布局中运行多个终端，支持拖拽调整大小
-- **工作空间管理** — 将项目组织到工作空间中，支持置顶、隐藏和重新排序
-- **内置终端** — 全功能终端（xterm.js + PTY），支持多标签页
-- **Claude Code 集成** — 启动 Claude Code 会话、恢复对话、管理 Provider、自我对话模式
-- **Git 集成** — 分支状态、pull/push/fetch/stash、Worktree 管理和 git clone
-- **会话管理** — 追踪启动历史，最近启动面板、清理异常会话、恢复之前的工作
-- **本地历史** — 文件版本追踪，支持 diff 查看、标签、分支感知快照和还原
-- **文件浏览器** — 项目文件树浏览，支持搜索、创建、重命名、删除、复制和移动操作
-- **代码编辑器** — 基于 Monaco 的编辑器，支持 60+ 语言语法高亮、Markdown 预览和图片预览
-- **快速搜索** — 全局文件搜索（Ctrl+K），跨工作空间所有项目搜索
-- **截图** — 区域截图，支持全局快捷键、多显示器和剪贴板复制
-- **会话日志** — 工作空间级别的会话日志记录
-- **待办 & 计划** — 任务管理，支持优先级、子任务和计划归档
-- **Memory & Skills** — 按项目管理 Claude 记忆和自定义技能
-- **MCP 服务器配置** — 按项目配置 MCP 服务器
-- **Hooks/工作流** — 工作空间级别的 Hook 自动化系统
-- **Provider 管理** — 多 API Provider 支持（Anthropic、Bedrock、Vertex、代理、配置档案）
-- **目录扫描导入** — 从目录批量导入 Git 仓库
-- **主题支持** — 亮色/暗色模式，毛玻璃设计
-- **无边框、迷你 & 全屏模式** — 无边框窗口模式、紧凑迷你视图和 F11 全屏切换
-- **系统托盘** — 最小化到托盘，带状态监控
-- **桌面通知** — 会话退出、等待输入和待办提醒通知，支持防抖
-- **键盘快捷键** — 所有主要操作支持自定义快捷键
-- **国际化** — 中英文界面
-
-## 架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  React 前端                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐  │
-│  │ 侧边栏   │ │ 分屏面板  │ │ 功能面板  │ │ UI 组件       │  │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └───────────────┘  │
-│       │             │            │                           │
-│  ┌────┴─────────────┴────────────┴────┐                     │
-│  │  Services (invoke) + Stores        │                     │
-│  └────────────────┬───────────────────┘                     │
-├───────────────────┼─────────────────────────────────────────┤
-│  Tauri IPC        │                                         │
-├───────────────────┼─────────────────────────────────────────┤
-│  Rust 后端        │                                         │
-│  ┌────────────────┴───────────────────┐                     │
-│  │  Commands → Services → Repository  │                     │
-│  └────────────────┬───────────────────┘                     │
-│  ┌────────────────┴───────────────────┐                     │
-│  │  SQLite / 文件系统 / PTY           │                     │
-│  └────────────────────────────────────┘                     │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## 技术栈
-
-| 层次 | 技术 | 用途 |
-|------|------|------|
-| 桌面框架 | Tauri 2 | Rust 后端 + 系统 WebView |
-| 前端 | React 19 + TypeScript | UI 组件 |
-| 状态管理 | Zustand 5 + Immer | 不可变状态更新 |
-| UI 库 | shadcn/ui + Radix UI | 组件库 |
-| 样式 | Tailwind CSS 4 | 原子化 CSS |
-| 终端 | xterm.js + portable-pty | 前端渲染 + 后端 PTY |
-| 分屏 | Allotment | 可拖拽分屏布局 |
-| 数据存储 | SQLite (rusqlite) | 本地持久化 |
-| 图标 | Lucide React | SVG 图标 |
-| 构建工具 | Vite 6 | 前端构建 |
-
-## 环境要求
-
-- [Node.js](https://nodejs.org/) 22+
-- [Rust](https://rustup.rs/) 1.83+
-- [Tauri](https://v2.tauri.app/start/prerequisites/) 所需的平台特定依赖
-
-## 快速开始
+### 安装并启动
 
 ```bash
-# 克隆仓库
 git clone https://github.com/wuxiran/cc-pane.git
 cd cc-pane
-
-# 安装前端依赖
 npm install
-
-# 以开发模式运行（前端 + Rust 后端）
 npm run tauri:dev
 ```
 
-### WSL 原生开发
-
-如果你想在 WSL 里作为 Linux 原生应用开发，而不是继续使用 `/mnt/d/...` 这种 Windows 挂载路径，推荐这样做：
-
-```bash
-# 1) 把仓库放到 WSL Linux 文件系统
-mkdir -p ~/workspace
-cd ~/workspace
-git clone https://github.com/wuxiran/cc-pane.git cc-book
-cd cc-book
-
-# 2) 安装 Tauri/Linux 依赖
-./scripts/setup-wsl-dev.sh
-
-# 3) 安装前端依赖
-npm install
-
-# 4) 验证 Rust 工作区
-cargo check --workspace
-
-# 5) 启动开发环境（需要 WSLg / Linux 图形环境）
-npm run tauri:dev
-```
-
-注意事项：
-
-- 不要把 WSL 原生主开发仓库放在 `/mnt/c/...`、`/mnt/d/...` 这类挂载路径下，文件监听和构建性能都会更差
-- 如果 `cargo` / `npm` 下载失败，先检查 `HTTP_PROXY` / `HTTPS_PROXY` 是否仍然指向有效代理
-- 本仓库默认将 Cargo 构建输出放在仓库内的 `target/` 目录，避免绑定 Windows 专属路径
+开发版使用 `src-tauri/tauri.dev.conf.json`，数据目录为 `~/.cc-panes-dev/`。
 
 ## 构建
 
-```bash
-# 构建生产应用
-npm run tauri build
+只构建前端：
 
-# 在 Windows 主机上构建 Windows ARM64 安装包
-npm run tauri build -- --target aarch64-pc-windows-msvc
+```bash
+npm run build
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`。
-
-## 开发
+构建桌面发布包：
 
 ```bash
-# 前端类型检查
+cargo build -p cc-panes-cli-hook --release
+node scripts/copy-hook.cjs
+npm run tauri build
+```
+
+## 检查命令
+
+前端：
+
+```bash
 npx tsc --noEmit
-
-# 运行前端测试
 npm run test:run
+```
 
-# Rust 检查
-cargo check --workspace
+Rust：
 
-# Rust lint
-cargo clippy --workspace -- -D warnings
-
-# Rust 格式化检查
+```bash
 cargo fmt --all -- --check
-
-# 运行 Rust 测试
+cargo check --workspace
+cargo clippy --workspace -- -D warnings
 cargo test --workspace
 ```
 
-### Dev/Release 隔离
+## WSL 原生开发
 
-Dev 和 Release 构建通过 `cfg!(debug_assertions)` 完全隔离，可同时运行互不冲突：
+如果在 WSL 中开发 CC-Panes，可以把终端强制到 WSL 原生模式：
 
-| | Dev (`npm run tauri:dev`) | Release (`npm run tauri build`) |
-|---|---|---|
-| 数据目录 | `~/.cc-panes-dev/` | `~/.cc-panes/` |
-| 标识符 | `com.ccpanes.dev` | `com.ccpanes.app` |
-| 窗口标题 | CC-Panes [DEV] | CC-Panes |
+```bash
+CCPANES_TERMINAL_BACKEND=wsl npm run tauri:dev
+```
+
+这会让内置终端直接运行 WSL 的默认 shell，适合在 Linux 工具链里开发和调试。
+
+## 架构
+
+CC-Panes 使用分层桌面架构：
+
+```text
+React Component
+  -> Zustand Store
+  -> Frontend Service
+  -> Tauri IPC Command
+  -> Rust Service
+  -> Repository
+  -> SQLite / File System / PTY
+```
+
+| 层级 | 技术 | 作用 |
+| --- | --- | --- |
+| 桌面框架 | Tauri 2 | Rust 后端 + 系统 WebView |
+| 前端 | React 19、TypeScript 5.6、Vite 6 | 应用界面 |
+| 状态管理 | Zustand 5、Immer | 可预测的状态更新 |
+| UI | shadcn/ui、Radix UI、Tailwind CSS 4 | 组件和样式 |
+| 终端 | xterm.js、portable-pty | 终端渲染和 PTY 管理 |
+| 存储 | SQLite、rusqlite | 本地持久化 |
+| 测试 | Vitest、jsdom、Rust test | 前后端验证 |
 
 ## 项目结构
 
-```
-cc-panes/
-├── web/                    # React 前端源码
-│   ├── components/         # React 组件
-│   │   ├── panes/          # 分屏终端组件
-│   │   ├── sidebar/        # 侧边栏组件
-│   │   ├── providers/      # Provider 管理 UI
-│   │   └── ui/             # shadcn/ui 基础组件
-│   ├── stores/             # Zustand 状态管理
-│   ├── services/           # 前端服务层（invoke 封装）
-│   ├── hooks/              # 自定义 React Hooks
-│   ├── types/              # TypeScript 类型定义
-│   ├── i18n/               # 国际化
-│   ├── lib/                # 前端共享辅助
-│   └── utils/              # 工具函数
-│
-├── src-tauri/              # Tauri Rust 后端
-│   └── src/
-│       ├── commands/        # Tauri IPC 命令处理
-│       ├── services/        # 业务逻辑层
-│       ├── repository/      # 数据访问层（SQLite）
-│       ├── models/          # 数据模型
-│       └── utils/           # 工具（AppPaths, AppError）
-│
-├── cc-panes-*/             # 共享 Rust workspace crates
-└── docs/                   # 设计文档、示例与文档资源
+```text
+cc-pane/
+├── web/                  # React 前端
+│   ├── components/       # UI、Pane、侧边栏、设置
+│   ├── stores/           # Zustand 状态
+│   ├── services/         # Tauri invoke 封装
+│   ├── hooks/            # React Hooks
+│   ├── types/            # TypeScript 类型
+│   └── i18n/             # 国际化
+├── src-tauri/            # Tauri 入口、命令、服务、仓储
+├── cc-panes-core/        # 框架无关核心逻辑
+├── cc-panes-api/         # HTTP/WebSocket API 适配
+├── cc-panes-web/         # Web 终端服务
+├── cc-cli-adapters/      # Claude/Codex/Gemini 等 CLI 适配层
+├── cc-memory/            # 本地 Memory 系统
+├── cc-memory-mcp/        # Memory MCP Server
+├── cc-notify/            # 通知模块
+├── docs/                 # 文档和截图
+└── scripts/              # 构建和工具脚本
 ```
 
-前端导入统一使用 `@/` 别名，对应到 `web/` 目录。
+前端使用 `@/` 路径别名，对应 `web/` 目录。
 
-<!--
-## 截图
+## 开发版和发布版隔离
 
-<details>
-<summary>更多截图</summary>
+| | 开发版 | 发布版 |
+| --- | --- | --- |
+| 命令 | `npm run tauri:dev` | `npm run tauri build` |
+| 数据目录 | `~/.cc-panes-dev/` | `~/.cc-panes/` |
+| 应用标识 | `com.ccpanes.dev` | `com.ccpanes.app` |
+| 窗口标题 | `CC-Panes [DEV]` | `CC-Panes` |
+| 截图快捷键 | `Ctrl+Alt+Shift+S` | `Ctrl+Shift+S` |
 
-| 分屏布局 | 面板视图 |
-|:-:|:-:|
-| ![分屏](docs/assets/images/screenshot-no-layout.png) | ![面板](docs/assets/images/screenshot-panel.png) |
-
-| 待办列表 | 新 UI |
-|:-:|:-:|
-| ![待办](docs/assets/images/screenshot-todolist.png) | ![新 UI](docs/assets/images/screenshot-new-ui.png) |
-
-</details>
--->
+涉及 Windows 桌面行为时，需要在 Windows 主机验证。WSL 或 Linux 环境可以做代码和预检，但不能证明 WebView2、托盘、全局快捷键、截图、更新器、安装器或 Windows PTY 行为。
 
 ## 反馈
 
-发现 Bug 或有建议？欢迎加入微信群交流：
+- GitHub Issues: <https://github.com/wuxiran/cc-pane/issues>
+- GitHub Discussions: <https://github.com/wuxiran/cc-pane/discussions>
 
-<table>
-  <tr>
-    <td align="center">
-      <strong>群聊: 夜猫疯的编程开发群</strong><br />
-      <img src="docs/assets/images/wechat-group-nightcat-dev.png" alt="微信群: 夜猫疯的编程开发群" width="200" />
-    </td>
-    <td align="center">
-      <strong>群聊: cc-pane</strong><br />
-      <img src="docs/assets/images/wechat-group-cc-pane.png" alt="微信群: cc-pane" width="200" />
-    </td>
-  </tr>
-</table>
+微信群：
 
-## 贡献
+<p>
+  <img src="docs/assets/images/wechat-group-nightcat-dev.png" alt="NightCat Dev 微信群" width="220" />
+  <img src="docs/assets/images/wechat-group-cc-pane.png" alt="CC-Panes 微信群" width="220" />
+</p>
 
-欢迎贡献！请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 了解贡献指南。
+## 参与贡献
 
-## 许可证
+欢迎提交 Issue 和 PR。较大的功能改动建议先开 Issue 对齐范围和设计。
 
-本项目采用 [GNU 通用公共许可证 v3.0](LICENSE) 授权。
+提交信息使用 Conventional Commits：
+
+```text
+feat: add launch profile import
+fix: repair Windows PTY resize handling
+docs: update README screenshots
+```
+
+## License
+
+本项目使用 [GPL-3.0](LICENSE) 协议。
 
 ## 致谢
 
-- [Tauri](https://tauri.app/) — 桌面应用框架
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — Anthropic 的 AI 编程助手
-- [xterm.js](https://xtermjs.org/) — Web 终端模拟器
-- [shadcn/ui](https://ui.shadcn.com/) — UI 组件库
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [Tauri](https://tauri.app/)
+- [xterm.js](https://xtermjs.org/)
+- [portable-pty](https://github.com/wez/wezterm/tree/main/pty)
+- [Allotment](https://github.com/johnwalley/allotment)
+- [shadcn/ui](https://ui.shadcn.com/)
