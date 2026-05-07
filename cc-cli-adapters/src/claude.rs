@@ -444,6 +444,72 @@ impl ClaudeAdapter {
         }
         ordered
     }
+
+    #[cfg(any(windows, test))]
+    fn is_windows_batch_file(path: &Path) -> bool {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| {
+                let ext = ext.to_ascii_lowercase();
+                ext == "cmd" || ext == "bat"
+            })
+            .unwrap_or(false)
+    }
+
+    #[cfg(any(windows, test))]
+    fn claude_cli_js_for_npm_shim(shim_path: &Path) -> Option<PathBuf> {
+        let dir = shim_path.parent()?;
+        let cli_js = dir
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code")
+            .join("cli.js");
+
+        cli_js.is_file().then_some(cli_js)
+    }
+
+    #[cfg(any(windows, test))]
+    fn node_for_npm_shim(shim_path: &Path) -> Option<PathBuf> {
+        let dir = shim_path.parent()?;
+        let adjacent_node = dir.join("node.exe");
+        if adjacent_node.is_file() {
+            return Some(adjacent_node);
+        }
+
+        #[cfg(windows)]
+        {
+            which::which("node").ok()
+        }
+        #[cfg(not(windows))]
+        {
+            None
+        }
+    }
+
+    #[cfg(any(windows, test))]
+    fn windows_npm_shim_invocation(path: &Path, args: Vec<String>) -> (String, Vec<String>) {
+        if !Self::is_windows_batch_file(path) {
+            return (path.to_string_lossy().into_owned(), args);
+        }
+
+        match (
+            Self::node_for_npm_shim(path),
+            Self::claude_cli_js_for_npm_shim(path),
+        ) {
+            (Some(node), Some(cli_js)) => {
+                let mut effective_args = vec![cli_js.to_string_lossy().into_owned()];
+                effective_args.extend(args);
+                (node.to_string_lossy().into_owned(), effective_args)
+            }
+            _ => {
+                warn!(
+                    command = %path.display(),
+                    "claude: Windows npm shim detected but node/cli.js could not be resolved; launching shim directly"
+                );
+                (path.to_string_lossy().into_owned(), args)
+            }
+        }
+    }
 }
 
 impl Default for ClaudeAdapter {
@@ -614,15 +680,21 @@ impl CliToolAdapter for ClaudeAdapter {
             args.push(prompt.clone());
         }
 
+        #[cfg(windows)]
+        let (command, args) = Self::windows_npm_shim_invocation(&path, args);
+
+        #[cfg(not(windows))]
+        let command = path.to_string_lossy().into_owned();
+
         info!(
             session_id = %ctx.session_id,
-            command = %path.display(),
+            command = %command,
             args = ?args,
             "claude: build_command result"
         );
 
         Ok(CliCommandResult {
-            command: path.to_string_lossy().into_owned(),
+            command,
             args,
             env_remove: vec!["CLAUDECODE".to_string()],
             env_inject: HashMap::new(),
@@ -714,5 +786,48 @@ mod tests {
         );
 
         assert_eq!(resolved.as_deref(), Some(executable.as_path()));
+    }
+
+    #[test]
+    fn windows_npm_shim_invocation_runs_node_directly() {
+        let dir = tempdir().unwrap();
+        let node_dir = dir.path().join("Program Files").join("nodejs");
+        let package_dir = node_dir
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code");
+        fs::create_dir_all(&package_dir).unwrap();
+
+        let shim = node_dir.join("claude.cmd");
+        let node = node_dir.join("node.exe");
+        let cli_js = package_dir.join("cli.js");
+        fs::write(&shim, "@echo off").unwrap();
+        fs::write(&node, "node").unwrap();
+        fs::write(&cli_js, "console.log('claude')").unwrap();
+
+        let (command, args) = ClaudeAdapter::windows_npm_shim_invocation(
+            &shim,
+            vec!["--resume".into(), "session id with spaces".into()],
+        );
+
+        assert_eq!(command, node.to_string_lossy());
+        assert_eq!(
+            args,
+            vec![
+                cli_js.to_string_lossy().into_owned(),
+                "--resume".to_string(),
+                "session id with spaces".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_npm_shim_invocation_leaves_non_batch_command_unchanged() {
+        let command = PathBuf::from(r"C:\Tools\claude.exe");
+        let (resolved_command, args) =
+            ClaudeAdapter::windows_npm_shim_invocation(&command, vec!["--version".into()]);
+
+        assert_eq!(resolved_command, command.to_string_lossy());
+        assert_eq!(args, vec!["--version".to_string()]);
     }
 }
