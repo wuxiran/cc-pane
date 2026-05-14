@@ -23,7 +23,7 @@ describe("terminal input trace", () => {
     expect(isMacPlatform("Linux x86_64")).toBe(false);
   });
 
-  it("requires dev mode, macOS, and an enabled storage flag", () => {
+  it("requires dev mode and an enabled storage flag", () => {
     expect(isTerminalInputTraceEnabled({
       isDev: true,
       isMac: true,
@@ -43,7 +43,7 @@ describe("terminal input trace", () => {
       isDev: true,
       isMac: false,
       storage: storageWith("1"),
-    })).toBe(false);
+    })).toBe(true);
     expect(isTerminalInputTraceEnabled({
       isDev: true,
       isMac: true,
@@ -123,9 +123,17 @@ describe("terminal input trace", () => {
     });
 
     expect(trace.enabled).toBe(true);
-    expect(logger).toHaveBeenCalledWith("input-trace.enabled", {
-      valueLength: 0,
-    });
+    expect(logger).toHaveBeenCalledWith("input-trace.enabled", expect.objectContaining({
+      textarea: expect.objectContaining({
+        valueLength: 0,
+        value: {
+          text: "",
+          length: 0,
+          codePoints: [],
+          truncated: false,
+        },
+      }),
+    }));
 
     textarea.value = "!";
     textarea.dispatchEvent(new KeyboardEvent("keydown", {
@@ -152,7 +160,15 @@ describe("terminal input trace", () => {
       code: "Digit1",
       keyCode: 49,
       shiftKey: true,
-      valueLength: 1,
+      textarea: expect.objectContaining({
+        valueLength: 1,
+        value: {
+          text: "!",
+          length: 1,
+          codePoints: ["21"],
+          truncated: false,
+        },
+      }),
     }));
     expect(logger).toHaveBeenCalledWith("input-trace.beforeinput", expect.objectContaining({
       inputType: "insertText",
@@ -163,7 +179,9 @@ describe("terminal input trace", () => {
         truncated: false,
       },
       isComposing: true,
-      valueLength: 1,
+      textarea: expect.objectContaining({
+        valueLength: 1,
+      }),
     }));
     expect(logger).toHaveBeenCalledWith("input-trace.compositionend", expect.objectContaining({
       data: {
@@ -172,16 +190,21 @@ describe("terminal input trace", () => {
         codePoints: ["21"],
         truncated: false,
       },
-      valueLength: 1,
+      textarea: expect.objectContaining({
+        valueLength: 1,
+      }),
     }));
-    expect(logger).toHaveBeenCalledWith("input-trace.onData", {
+    expect(logger).toHaveBeenCalledWith("input-trace.onData", expect.objectContaining({
       data: {
         text: "!",
         length: 1,
         codePoints: ["21"],
         truncated: false,
       },
-    });
+      textarea: expect.objectContaining({
+        valueLength: 1,
+      }),
+    }));
   });
 
   it("removes listeners on dispose", () => {
