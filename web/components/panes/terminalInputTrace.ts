@@ -16,6 +16,7 @@ export interface TerminalInputTraceController {
 interface TerminalInputTraceOptions {
   textarea?: HTMLTextAreaElement | null;
   isDev: boolean;
+  /** Kept for older call sites; tracing is platform-independent when enabled. */
   isMac: boolean;
   logger: TerminalInputTraceLogger;
   storage?: TraceStorage | null;
@@ -36,14 +37,13 @@ function getDefaultStorage(): TraceStorage | null {
 
 export function isTerminalInputTraceEnabled({
   isDev,
-  isMac,
   storage = getDefaultStorage(),
 }: {
   isDev: boolean;
   isMac: boolean;
   storage?: TraceStorage | null;
 }): boolean {
-  if (!isDev || !isMac || !storage) return false;
+  if (!isDev || !storage) return false;
   try {
     const value = storage.getItem(TERMINAL_INPUT_TRACE_STORAGE_KEY);
     return value === "1" || value === "true";
@@ -70,6 +70,25 @@ export function summarizeTerminalInputData(value: string | null | undefined): Re
   };
 }
 
+function getNavigatorDiagnostics(): Record<string, unknown> {
+  if (typeof navigator === "undefined") return {};
+  return {
+    platform: navigator.platform,
+    userAgent: navigator.userAgent,
+    language: navigator.language,
+    languages: navigator.languages,
+  };
+}
+
+function textareaPayload(textarea: HTMLTextAreaElement): Record<string, unknown> {
+  return {
+    value: summarizeTerminalInputData(textarea.value),
+    valueLength: textarea.value.length,
+    selectionStart: textarea.selectionStart,
+    selectionEnd: textarea.selectionEnd,
+  };
+}
+
 function keyboardPayload(event: KeyboardEvent, textarea: HTMLTextAreaElement): Record<string, unknown> {
   return {
     type: event.type,
@@ -83,8 +102,10 @@ function keyboardPayload(event: KeyboardEvent, textarea: HTMLTextAreaElement): R
     shiftKey: event.shiftKey,
     altKey: event.altKey,
     metaKey: event.metaKey,
+    composed: event.composed,
+    isTrusted: event.isTrusted,
     defaultPrevented: event.defaultPrevented,
-    valueLength: textarea.value.length,
+    textarea: textareaPayload(textarea),
   };
 }
 
@@ -94,8 +115,10 @@ function inputPayload(event: InputEvent, textarea: HTMLTextAreaElement): Record<
     inputType: event.inputType,
     data: summarizeTerminalInputData(event.data),
     isComposing: event.isComposing,
+    composed: event.composed,
+    isTrusted: event.isTrusted,
     defaultPrevented: event.defaultPrevented,
-    valueLength: textarea.value.length,
+    textarea: textareaPayload(textarea),
   };
 }
 
@@ -103,8 +126,10 @@ function compositionPayload(event: CompositionEvent, textarea: HTMLTextAreaEleme
   return {
     type: event.type,
     data: summarizeTerminalInputData(event.data),
+    composed: event.composed,
+    isTrusted: event.isTrusted,
     defaultPrevented: event.defaultPrevented,
-    valueLength: textarea.value.length,
+    textarea: textareaPayload(textarea),
   };
 }
 
@@ -132,6 +157,13 @@ export function attachTerminalInputTrace(
   }
 
   const cleanups: Array<() => void> = [];
+  let sequence = 0;
+  const log = (event: string, payload: Record<string, unknown> = {}) => {
+    logger(event, {
+      seq: ++sequence,
+      ...payload,
+    });
+  };
 
   const addListener = <K extends keyof HTMLElementEventMap>(
     type: K,
@@ -142,29 +174,30 @@ export function attachTerminalInputTrace(
   };
 
   addListener("keydown", (event) => {
-    logger("input-trace.keydown", keyboardPayload(event as KeyboardEvent, textarea));
+    log("input-trace.keydown", keyboardPayload(event as KeyboardEvent, textarea));
   });
   addListener("keypress", (event) => {
-    logger("input-trace.keypress", keyboardPayload(event as KeyboardEvent, textarea));
+    log("input-trace.keypress", keyboardPayload(event as KeyboardEvent, textarea));
   });
   addListener("beforeinput", (event) => {
-    logger("input-trace.beforeinput", inputPayload(event as InputEvent, textarea));
+    log("input-trace.beforeinput", inputPayload(event as InputEvent, textarea));
   });
   addListener("input", (event) => {
-    logger("input-trace.input", inputPayload(event as InputEvent, textarea));
+    log("input-trace.input", inputPayload(event as InputEvent, textarea));
   });
   addListener("compositionstart", (event) => {
-    logger("input-trace.compositionstart", compositionPayload(event as CompositionEvent, textarea));
+    log("input-trace.compositionstart", compositionPayload(event as CompositionEvent, textarea));
   });
   addListener("compositionupdate", (event) => {
-    logger("input-trace.compositionupdate", compositionPayload(event as CompositionEvent, textarea));
+    log("input-trace.compositionupdate", compositionPayload(event as CompositionEvent, textarea));
   });
   addListener("compositionend", (event) => {
-    logger("input-trace.compositionend", compositionPayload(event as CompositionEvent, textarea));
+    log("input-trace.compositionend", compositionPayload(event as CompositionEvent, textarea));
   });
 
-  logger("input-trace.enabled", {
-    valueLength: textarea.value.length,
+  log("input-trace.enabled", {
+    textarea: textareaPayload(textarea),
+    navigator: getNavigatorDiagnostics(),
   });
 
   return {
@@ -173,11 +206,12 @@ export function attachTerminalInputTrace(
       while (cleanups.length > 0) {
         cleanups.pop()?.();
       }
-      logger("input-trace.disposed", {});
+      log("input-trace.disposed", {});
     },
     onData: (data: string) => {
-      logger("input-trace.onData", {
+      log("input-trace.onData", {
         data: summarizeTerminalInputData(data),
+        textarea: textareaPayload(textarea),
       });
     },
   };

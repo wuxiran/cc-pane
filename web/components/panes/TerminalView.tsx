@@ -34,6 +34,7 @@ import {
 import { formatTerminalFilePaths, resolveTerminalPastePayload } from "./terminalClipboard";
 import { isDropInsideTerminalHost } from "./terminalDrop";
 import { attachTerminalInputTrace } from "./terminalInputTrace";
+import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
 import { isTerminalPasteShortcut } from "./terminalKeyboard";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import {
@@ -168,6 +169,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null);
     const dragDropUnlistenRef = useRef<(() => void) | null>(null);
     const inputTraceRef = useRef<ReturnType<typeof attachTerminalInputTrace> | null>(null);
+    const imeGuardRef = useRef<ReturnType<typeof attachTerminalImeGuard> | null>(null);
     const parserDisposableRefs = useRef<IDisposable[]>([]);
     const writeFlowControlRef = useRef<ReturnType<typeof createTerminalWriteFlowControl> | null>(null);
     const atlasResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -390,6 +392,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       }
       inputTraceRef.current?.dispose();
       inputTraceRef.current = null;
+      imeGuardRef.current?.dispose();
+      imeGuardRef.current = null;
 
       // Remove the wheel handler before disposing xterm.
       if (wheelHandlerRef.current && terminalInstanceRef.current?.element) {
@@ -817,6 +821,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             isMac: IS_MAC,
             logger: debugLog,
           });
+          imeGuardRef.current = attachTerminalImeGuard({
+            textarea,
+            terminal: term,
+            enabled: isLinuxWebKitImeEnvironment(),
+            logger: debugLog,
+          });
         }
 
         try {
@@ -857,6 +867,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         // Intercept paste so file clipboard data can be resolved through the Tauri backend.
         term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+          if (!imeGuardRef.current?.handleKeyEvent(e)) {
+            return false;
+          }
+
           if (isTerminalPasteShortcut(e, IS_MAC)) {
             e.preventDefault();
             e.stopPropagation();
