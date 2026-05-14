@@ -33,6 +33,7 @@ import {
 } from "./terminalBufferMode";
 import { formatTerminalFilePaths, resolveTerminalPastePayload } from "./terminalClipboard";
 import { isDropInsideTerminalHost } from "./terminalDrop";
+import { attachTerminalImeGuard } from "./terminalImeGuard";
 import { attachTerminalInputTrace } from "./terminalInputTrace";
 import { isTerminalPasteShortcut } from "./terminalKeyboard";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
@@ -66,6 +67,7 @@ import type { CliTool, CreateSessionRequest, SshConnectionInfo, TerminalRenderer
 const TERMINAL_DEBUG = import.meta.env.DEV;
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+const IS_LINUX = typeof navigator !== "undefined" && /Linux/.test(navigator.platform);
 const DEFAULT_TERMINAL_SCROLLBACK = 20_000;
 
 function resolveCliTool(cliTool?: CliTool, launchClaude?: boolean): string {
@@ -167,6 +169,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
     const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null);
     const dragDropUnlistenRef = useRef<(() => void) | null>(null);
+    const imeGuardRef = useRef<ReturnType<typeof attachTerminalImeGuard> | null>(null);
     const inputTraceRef = useRef<ReturnType<typeof attachTerminalInputTrace> | null>(null);
     const parserDisposableRefs = useRef<IDisposable[]>([]);
     const writeFlowControlRef = useRef<ReturnType<typeof createTerminalWriteFlowControl> | null>(null);
@@ -390,6 +393,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       }
       inputTraceRef.current?.dispose();
       inputTraceRef.current = null;
+      imeGuardRef.current?.dispose();
+      imeGuardRef.current = null;
 
       // Remove the wheel handler before disposing xterm.
       if (wheelHandlerRef.current && terminalInstanceRef.current?.element) {
@@ -811,6 +816,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
           textarea.addEventListener('paste', pasteHandler, true);
           pasteHandlerRef.current = pasteHandler;
+          imeGuardRef.current = attachTerminalImeGuard({
+            textarea,
+            enabled: IS_LINUX,
+            logger: debugLog,
+          });
           inputTraceRef.current = attachTerminalInputTrace({
             textarea,
             isDev: TERMINAL_DEBUG,
@@ -892,16 +902,18 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // Forward terminal input, with Enter-to-reconnect handling for SSH disconnects.
         const onDataDisposable = term.onData((data) => {
           inputTraceRef.current?.onData(data);
+          const filteredData = imeGuardRef.current?.filterData(data) ?? data;
+          if (!filteredData) return;
           // Only Enter should trigger reconnect while disconnected.
           if (isDisconnectedRef.current) {
-            if (!isReconnectingRef.current && (data === "\r" || data === "\n")) {
+            if (!isReconnectingRef.current && (filteredData === "\r" || filteredData === "\n")) {
               doReconnect();
             }
             return;
           }
           const sessionId = currentSessionIdRef.current;
           if (sessionId) {
-            terminalService.write(sessionId, data);
+            terminalService.write(sessionId, filteredData);
           }
         });
         onDataDisposableRef.current = onDataDisposable;
