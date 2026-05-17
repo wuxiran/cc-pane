@@ -26,6 +26,7 @@ const BUILTIN_SKILLS = [
   "ccpanes-dispatch-todos",
   "ccpanes-spec",
   "ccpanes-plantocodex",
+  "ccpanes-memory-dual-write",
 ];
 
 const MCP_MODE_LABELS: Record<LaunchProfileDraft["mcpPolicy"]["mode"], string> = {

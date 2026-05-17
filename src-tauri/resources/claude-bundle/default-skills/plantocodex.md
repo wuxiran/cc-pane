@@ -52,7 +52,9 @@ mcp__ccpanes__register_plan_worker(
 
 ## Phase 4: 监控
 
-**worker_report**（默认）：worker 完成时主动调 `update_task_binding` 上报；leader 只在用户问/超时时调 `reconcile_plan_collaboration(leaderId)` 看状态。**不要频繁拉终端输出**。
+**worker_report**（默认）：worker 完成时主动调
+`update_task_binding(id: <workerId>, status: "completed"|"failed", progress: 100, completionSummary: "...")`
+上报；leader 只在用户问/超时时调 `reconcile_plan_collaboration(leaderId)` 看状态。**不要频繁拉终端输出**。
 
 **leader_poll**：循环 `reconcile_plan_collaboration` 看 `isLive`/`status`，只在状态终结或用户要详情时 `get_session_output(sessionId, lines: 200)`。
 

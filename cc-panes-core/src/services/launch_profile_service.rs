@@ -1168,6 +1168,7 @@ fn core_skill_ids() -> Vec<ResolvedSkill> {
         "ccpanes-dispatch-todos",
         "ccpanes-spec",
         "ccpanes-plantocodex",
+        "ccpanes-memory-dual-write",
     ]
     .into_iter()
     .map(|name| ResolvedSkill {
@@ -1439,6 +1440,10 @@ mod tests {
             .skills
             .iter()
             .any(|skill| skill.id == "builtin:ccpanes-workspace"));
+        assert!(resolution
+            .skills
+            .iter()
+            .any(|skill| skill.id == "builtin:ccpanes-memory-dual-write"));
         assert!(!resolution.skills.is_empty());
     }
 

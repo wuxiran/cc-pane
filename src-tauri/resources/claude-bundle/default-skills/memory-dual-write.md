@@ -9,27 +9,43 @@
 - 稳定的用户偏好、角色、项目背景
 - 值得未来会话参考的设计决定
 
-## 上下文环境变量
+## 上下文获取（必须）
 
-`CC_PANES_PROJECT_PATH`、`CC_PANES_WORKSPACE_NAME`、`CC_PANES_CLI_TOOL`
+调用前先用 Bash 读 env：
+
+```bash
+echo "$CC_PANES_PROJECT_PATH"
+echo "$CC_PANES_WORKSPACE_NAME"
+echo "$CC_PANES_CLI_TOOL"
+```
+
+这三个值由 {{app_name}} 在启动 CLI 时注入。**全部读不到就不要写记忆**——说明当前不在 {{app_name}} 管控环境，写入会成 stale 数据污染共享池。
+
+## 去重检查（写入前）
+
+先调 `cc-memory.memory_search(query: <title 关键词>, limit: 3)` 看是否已有相同/近似条目：
+
+- 已有且需要更新 → 用 `memory_update`
+- 已有且不需要变更 → 跳过
+- 没有 → 进入写入
 
 ## 写入
 
 ```
 cc-memory.memory_add(
-  title: "<一句话摘要 ≤200 字>",
+  title: "<≤200 字摘要>",
   content: "<完整内容>",
-  project_path: "<$CC_PANES_PROJECT_PATH>",
   scope: "project" | "workspace" | "global",
+  project_path: "<上一步读到的 CC_PANES_PROJECT_PATH 真实值>",  // scope=project/session 必填
+  workspace_name: "<上一步读到的 CC_PANES_WORKSPACE_NAME 真实值>",  // scope=workspace/project/session 必填
   category: "decision" | "lesson" | "preference" | "pattern" | "fact" | "plan",
   importance: 1-5,
   tags: ["..."]
 )
 ```
 
-- **importance ≥ 4 才会在下次会话自动召回**（写到值得跨会话用的内容请打 4-5）
-- `scope=workspace` 时附 `workspace_name`
-- 跨项目通用的偏好/角色信息用 `scope=global`（不传 path/name）
+- `scope=global` 时**省略** `project_path` / `workspace_name`（跨项目通用偏好/角色信息）
+- **importance ≥ 4 才会在下次会话自动召回**，跨会话有价值的内容打 4-5
 
 ## 检索
 

@@ -1195,8 +1195,15 @@ impl TerminalService {
         // 解析 Shell 配置
         let shell_id = self.settings_service.get_settings().terminal.shell.clone();
 
-        env_vars.insert("CC_PANES_PROJECT_PATH".to_string(), project_path.to_string());
-        if let Some(name) = workspace_name {
+        env_vars.insert(
+            "CC_PANES_PROJECT_PATH".to_string(),
+            project_path.to_string(),
+        );
+        let canonical_workspace_name = resolved_workspace
+            .as_ref()
+            .map(|w| w.name.as_str())
+            .or(workspace_name);
+        if let Some(name) = canonical_workspace_name {
             if !name.trim().is_empty() {
                 env_vars.insert("CC_PANES_WORKSPACE_NAME".to_string(), name.to_string());
             }
@@ -1214,6 +1221,39 @@ impl TerminalService {
                     );
                 }
             }
+        }
+
+        // WSL 透传：把 CC_PANES_* env 通过 WSLENV 暴露给 WSL 子进程
+        // （Windows env 默认不进 WSL，必须列出 key；纯字符串用裸 key 即可，无需 /p）
+        if wsl.is_some() {
+            let mut wsl_keys: Vec<&str> = vec![
+                "CC_PANES_CLI_TOOL",
+                "CC_PANES_PROJECT_PATH",
+                "CC_PANES_PTY_SESSION_ID",
+                "CC_PANES_RUNTIME_KIND",
+                "CC_PANES_WORKSPACE_NAME",
+            ];
+            if env_vars.contains_key("CC_PANES_API_TOKEN") {
+                wsl_keys.extend([
+                    "CC_PANES_API_BASE_URL",
+                    "CC_PANES_API_PORT",
+                    "CC_PANES_API_TOKEN",
+                ]);
+            }
+            if env_vars.contains_key("CC_PANES_LAUNCH_ID") {
+                wsl_keys.push("CC_PANES_LAUNCH_ID");
+            }
+            if env_vars.contains_key("CC_PANES_WORKSPACE_SNAPSHOT_ID") {
+                wsl_keys.push("CC_PANES_WORKSPACE_SNAPSHOT_ID");
+            }
+            let injected = wsl_keys.join(":");
+            let merged = match env_vars.get("WSLENV") {
+                Some(existing) if !existing.is_empty() => {
+                    format!("{}:{}", existing, injected)
+                }
+                _ => injected,
+            };
+            env_vars.insert("WSLENV".to_string(), merged);
         }
 
         // SSH 模式 vs 本地模式分支
