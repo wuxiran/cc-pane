@@ -1,84 +1,36 @@
-# 启动任务
+---
+name: ccpanes-launch-task
+description: Launch a new Claude or Codex CLI session in a {{app_name}}-managed project. Use when the user says "启动 Claude/Codex"、"开个新窗口"、"在 X 项目跑个任务"、"分屏"、"new session"、"open a Codex in"、"run this in another instance"。Also use when user wants to dispatch a long-form prompt to a fresh CLI instead of doing it inline. Supports local / WSL / SSH runtimes via `runtimeKind`.
+---
 
-在 {{app_name}} 管理的项目中启动新的 Claude/Codex 实例。
+# 启动任务
 
 参数: $ARGUMENTS
 
----
-
-## MCP 工具
-
-使用 `{{mcp_server_name}}` MCP 服务器的以下工具：
-
-| 工具 | 用途 |
-|------|------|
-| `list_projects` | 列出所有已注册项目 |
-| `launch_task` | 启动 Claude/Codex 实例 |
-| `get_task_status` | 查询任务状态 |
-| `get_session_status` | 查询终端会话状态 |
-
----
-
 ## 流程
 
-### 1. 确定目标项目
+1. **确定项目** — 解析 `$ARGUMENTS`。未指定时调用 `{{mcp_server_name}}.list_projects` 让用户选。
+2. **确定 prompt** — 从 `$ARGUMENTS` 提取；超过 200 字时先写到 `.ccpanes/prompts/<name>.md`，prompt 改为 `Read task from '<path>' and execute it. Delete the file after reading.`（避免长 prompt 黑屏）。
+3. **启动** — 调用 `{{mcp_server_name}}.launch_task`：
+   - `projectPath`、`prompt` 必填
+   - `cliTool`: `claude` / `codex`（可选）
+   - `runtimeKind`: `local` / `wsl` / `ssh`（可选，优先级高于 workspace 默认环境）
+   - `title`（可选）
+4. **回报** — 返回 `taskId` / `sessionId`；可选 `get_task_status` 确认。
 
-解析 `$ARGUMENTS`，提取项目路径或关键词。
+## WSL 项目
 
-若未指定项目：
-1. 调用 `{{mcp_server_name}}.list_projects` 获取项目列表
-2. 展示列表供用户选择
+- 路径为 `\\wsl.localhost\...` UNC 时自动按 WSL 启动，无需参数。
+- workspace `defaultEnvironment=wsl` 时，Windows 路径会自动转换为 WSL 远端路径。
+- 用户明确"在 Windows 本机"时传 `runtimeKind: "local"` 覆盖。
+- resume 历史会话时若不传 `runtimeKind`，优先使用历史的 runtimeKind，避免被 workspace 默认覆盖。
 
-### 2. 确定任务内容
-
-从 `$ARGUMENTS` 中提取 prompt 内容。
-
-若未指定 prompt，询问用户要执行什么任务。
-
-### 3. 启动
-
-调用 `{{mcp_server_name}}.launch_task`：
-- `projectPath`: 目标项目路径
-- `prompt`: 任务描述
-- `cliTool`（可选）: `claude` 或 `codex`
-- `runtimeKind`（可选）: `local` / `wsl` / `ssh`，本次启动显式环境，优先级高于 workspace 默认环境
-- `title`（可选）: 自定义标签名
-
-> **长任务描述**：如果 prompt 内容较长（超过约 200 字），先将完整任务描述写入 `.ccpanes/prompts/<descriptive-name>.md` 文件，然后 prompt 只传短引用：`Read task from '<文件路径>' and execute it. Delete the file after reading.`
-
-### WSL 项目说明
-
-当目标项目路径为 WSL UNC 格式（如 `\\wsl.localhost\Ubuntu\home\user\repo`）时，
-`launch_task` 会自动检测并以 WSL 模式启动，无需额外参数。
-
-如果工作空间的 `defaultEnvironment` 为 `wsl`，即使项目路径是 Windows 本地路径，
-也会自动转换为 WSL 远端路径启动。
-
-如果用户明确要求在 Windows 本机启动，传 `runtimeKind: "local"`。例如同一个 workspace 默认是 WSL，但本次要启动本机 Claude：
-
-```
-{{mcp_server_name}}.launch_task(
-  projectPath: "I:\\vms-workspace",
-  runtimeKind: "local",
-  cliTool: "claude",
-  prompt: "..."
-)
-```
-
-resume 历史会话时，如果没有传 `runtimeKind`，会优先使用历史记录中的 runtimeKind，避免 local 会话被 workspace 默认 WSL 覆盖。
-
-### 4. 确认
-
-返回的 `taskId` 和 `sessionId` 报告给用户。
-
-可选：调用 `{{mcp_server_name}}.get_task_status` 确认启动成功。
-
----
+详细环境分支与路径转换见 `launch-task.reference.md`（仅在出现非常规路径时阅读）。
 
 ## 示例
 
 ```
 /ccpanes:launch-task 在 /path/to/project 中修复登录 bug
 /ccpanes:launch-task projectPath=/home/user/app prompt="添加单元测试"
-/ccpanes:launch-task               # 交互式选择项目和任务
+/ccpanes:launch-task                       # 交互式
 ```

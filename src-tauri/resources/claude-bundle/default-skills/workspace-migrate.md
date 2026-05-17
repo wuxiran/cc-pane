@@ -1,80 +1,46 @@
-# 工作空间迁移
+---
+name: ccpanes-workspace-migrate
+description: Guide the user through {{app_name}}'s built-in "Migrate Workspace" UI flow — moving a workspace from one local directory to another, or from local to WSL. Use when the user says "迁移工作空间"、"换到 WSL"、"搬目录"、"move my workspace"、"migrate to WSL"、"换位置". This skill does NOT execute migration directly (it's a UI-driven feature); it tells the user where to click and what to verify.
+---
 
-通过 {{app_name}} 内置的“迁移工作空间”能力，把一个工作空间从当前本机目录迁移到新的本机目录，或迁移到 WSL 目录。
+# 工作空间迁移
 
 参数: $ARGUMENTS
 
----
-
 ## 适用范围
 
-- v1 支持:
-  - `local -> local`
-  - `local -> wsl`
-- v1 不支持:
-  - `local -> ssh`
-  - 删除原 Windows 副本
-  - 自动双向同步
+| 支持 | 不支持（v1） |
+|---|---|
+| local → local | local → ssh |
+| local → wsl | 删除原 Windows 副本 |
+|  | 自动双向同步 |
 
----
+## 固定四步流程
 
-## 固定流程
+预检 → 复制 → 校验 → 切换。**校验失败前不切换入口**。
 
-迁移必须走这四步:
+## UI 操作（{{app_name}} 左侧工作空间树）
 
-1. 预检
-2. 复制
-3. 校验
-4. 切换
-
-校验失败前，不切换工作空间入口。
-
----
-
-## UI 操作
-
-在 {{app_name}} 左侧工作空间树里：
-
-1. 右键目标工作空间
-2. 点击 `迁移工作空间...`
-3. 选择目标环境和目标根目录
-4. 先执行预检
-5. 确认预览结果后执行迁移
-6. 如需恢复，仅回滚工作空间配置，不删除目标副本
-
----
+1. 右键目标 workspace → `迁移工作空间...`
+2. 选目标环境 + 目标根目录
+3. 跑预检 → 预览结果
+4. 确认后执行迁移
+5. 失败 → 仅回滚 workspace 配置，不删目标副本
 
 ## 迁移规则
 
-- 工作空间根目录会整体复制
-- `workspace.path` 外的本地项目会被放到 `externals/...`
-- 以下目录默认排除:
-  - `node_modules`
-  - `target`
-  - `.venv`
-  - `.next`
-  - `dist`
-  - `build`
-  - `.turbo`
-  - `.cache`
-  - `__pycache__`
-- 不删除源目录
+- workspace 根目录整体复制
+- `workspace.path` 外的本地项目 → 放到 `externals/...`
+- 默认排除：`node_modules` / `target` / `.venv` / `.next` / `dist` / `build` / `.turbo` / `.cache` / `__pycache__`
+- 源目录**不删**
 
----
+## 结果
 
-## 结果说明
-
-- 迁移到 WSL 后:
-  - 默认环境切到 `wsl`
-  - 工作空间会记录新的 WSL 根目录
-  - Windows 本机路径仍保留，用于过渡
-- 迁移到本机新目录后:
-  - 工作空间本机路径会切到新目录
-
----
+- 迁到 WSL：默认环境切到 `wsl`，记录新 WSL 根目录；Windows 路径保留供过渡。
+- 迁到本机新目录：workspace 本机路径更新。
 
 ## 建议
 
-- 先迁一个小工作空间验证流程
-- 大工作空间迁移前先确认目标目录为空
-- 迁移完成后优先从工作空间右键打开 Claude / Codex 验证路径是否正确
+- 先迁小 workspace 验证流程
+- 大 workspace 前确认目标目录为空
+- 迁完后用 workspace 右键打开 Claude/Codex 验证路径

@@ -1,82 +1,36 @@
-# 会话浏览
+---
+name: ccpanes-browse-sessions
+description: Inspect live {{app_name}} terminal sessions — list active tabs, read recent output, look up launch history or past Claude sessions. Use when the user asks "看下其他实例"、"那个会话跑到哪了"、"另一个窗口的输出"、"上次启动了什么"、"列出会话"、"check the other tab"、"what did session X say"、"show launch history". For resuming a session, hand off to launch-task.
+---
 
-列出 {{app_name}} 中所有终端标签页的状态，读取指定标签的上下文和输出内容。
+# 会话浏览
 
 参数: $ARGUMENTS
 
----
+## 决策树（按用户问的内容选工具）
 
-## MCP 工具
+| 用户在问什么 | 调用 |
+|---|---|
+| 当前有哪些活跃会话 | `list_sessions` |
+| 某会话当前状态（Active/Idle/Exited） | `get_session_status(sessionId)` |
+| 某会话最近输出/错误 | `get_session_output(sessionId, lines: 100-500)` |
+| 历史启动过什么任务 | `list_launch_history(projectPath?, limit)` |
+| 找到一个想 resume 的 Claude 会话 | `list_claude_sessions(projectPath?)` → 然后交给 launch-task 的 resume |
 
-使用 `{{mcp_server_name}}` MCP 服务器的以下工具：
-
-| 工具 | 用途 |
-|------|------|
-| `list_sessions` | 列出所有活跃终端会话 |
-| `get_session_status` | 查询指定会话状态 |
-| `get_session_output` | 读取会话输出内容 |
-| `list_launch_history` | 查询启动历史 |
-| `list_claude_sessions` | 查询 Claude 历史会话 |
-
----
-
-## 子命令
-
-解析 `$ARGUMENTS`，执行对应操作：
-
-### `list` / 无参数 — 列出所有活跃会话
-
-调用 `{{mcp_server_name}}.list_sessions`，以表格展示：
-
-| 列 | 说明 |
-|----|------|
-| sessionId | 会话 ID |
-| status | Active / Idle / WaitingInput / Exited |
-| lastOutputAt | 最后输出时间 |
-
-### `status <sessionId>` — 查看会话详细状态
-
-调用 `{{mcp_server_name}}.get_session_status`（参数: `sessionId`）。
-
-### `read <sessionId> [lines]` — 读取会话输出
-
-调用 `{{mcp_server_name}}.get_session_output`：
-- `sessionId`: 目标会话
-- `lines`（可选）: 返回最近 N 行，默认 100
-
-展示输出内容，高亮错误信息。
-
-### `history [projectPath]` — 查看启动历史
-
-调用 `{{mcp_server_name}}.list_launch_history`：
-- `projectPath`（可选）: 按项目筛选
-- `limit`: 默认 20
-
-展示历史记录，包含 prompt 摘要和时间。
-
-### `claude-sessions [projectPath]` — 查看 Claude 历史会话
-
-调用 `{{mcp_server_name}}.list_claude_sessions`：
-- `projectPath`（可选）: 按项目筛选
-- `limit`: 默认 20
-
----
-
-## 示例
+## 子命令快捷映射
 
 ```
-/ccpanes:browse-sessions                       # 列出所有活跃会话
-/ccpanes:browse-sessions list                  # 同上
-/ccpanes:browse-sessions status abc123         # 查看会话状态
-/ccpanes:browse-sessions read abc123 50        # 读取最近 50 行输出
-/ccpanes:browse-sessions history               # 查看启动历史
-/ccpanes:browse-sessions history /path/to/proj # 按项目筛选
+list / 无参         → list_sessions（表：sessionId / status / lastOutputAt）
+status <id>         → get_session_status
+read <id> [lines]   → get_session_output（默认 100）
+history [path]      → list_launch_history
+claude-sessions     → list_claude_sessions
 ```
-
----
 
 ## 典型用途
 
-1. **监控其他实例进度**: list → read 查看输出
-2. **调试失败任务**: history 找到会话 → read 查看错误
-3. **恢复中断会话**: claude-sessions 找到会话 ID → 用 launch-task 的 resume 功能恢复
+1. 监控并行 worker：`list` → 看哪些 Idle → `read` 看结果
+2. 调试失败：`history` 找到 sessionId → `read` 看错误
+3. 恢复中断：`claude-sessions` → 拿到 sessionId → `/ccpanes:launch-task resume <id>`
+
+读 output 时高亮错误行（包含 "error" / "panic" / "FAIL"），给用户摘要而不是全文。

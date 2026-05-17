@@ -408,6 +408,12 @@ impl DefaultSkillService {
     }
 
     fn build_codex_skill_markdown(namespace: &str, skill_name: &str, content: &str) -> String {
+        let trimmed = content.trim_start();
+        if trimmed.starts_with("---\n") || trimmed.starts_with("---\r\n") {
+            let mut out = trimmed.trim_end().to_string();
+            out.push('\n');
+            return out;
+        }
         let dir_name = Self::build_codex_skill_dir_name(namespace, skill_name);
         let title = Self::extract_primary_title(content, skill_name);
         let description = format!("CC-Panes bundled skill: {}", title);
@@ -487,6 +493,21 @@ mod tests {
         assert!(markdown.starts_with("---\nname: 'ccpanes-launch-task'\n"));
         assert!(markdown.contains("description: 'CC-Panes bundled skill: 启动任务'"));
         assert!(markdown.ends_with("# 启动任务\n\nBody\n"));
+    }
+
+    #[test]
+    fn test_build_codex_skill_markdown_passes_through_existing_frontmatter() {
+        let raw = "---\nname: ccpanes-launch-task\ndescription: Launch a new Claude session.\n---\n\n# 启动任务\n\nBody";
+        let markdown = DefaultSkillService::build_codex_skill_markdown(
+            "ccpanes",
+            "launch-task",
+            raw,
+        );
+
+        // 已有 frontmatter 时直接透传，不再追加第二层
+        assert!(markdown.starts_with("---\nname: ccpanes-launch-task\n"));
+        assert_eq!(markdown.matches("---\n").count(), 2);
+        assert!(markdown.ends_with("Body\n"));
     }
 
     #[test]

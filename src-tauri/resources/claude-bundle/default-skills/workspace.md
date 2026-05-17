@@ -1,76 +1,36 @@
-# 工作空间管理
+---
+name: ccpanes-workspace
+description: Manage {{app_name}} workspaces via MCP — list / show / create workspace, add project, scan a directory to bulk-import Git repos. Use when user says "工作空间"、"新建 workspace"、"扫一下这个目录"、"把项目加进来"、"workspace list"、"import projects"、"scan for repos"。Destructive operations (delete workspace / remove project) must be done in the {{app_name}} UI, not via this skill.
+---
 
-通过 MCP 工具管理 {{app_name}} 的工作空间：创建、查看、添加项目、扫描导入。
+# 工作空间管理
 
 参数: $ARGUMENTS
 
----
+## 决策树
 
-## MCP 工具
+| 用户在做什么 | 调用 |
+|---|---|
+| 看有哪些工作空间 | `list_workspaces` |
+| 看某个工作空间的项目 | `get_workspace(workspaceName)` |
+| 新建工作空间 | `create_workspace(name, path?)` |
+| 把已有项目加进去 | `add_project_to_workspace(workspaceName, projectPath)` |
+| 一个目录里有一堆 git repo，批量导入 | `scan_directory(path)` → 确认 → `create_workspace` + 循环 `add_project_to_workspace` |
+| 列出所有已注册项目 | `list_projects` |
 
-使用 `{{mcp_server_name}}` MCP 服务器的以下工具：
-
-| 工具 | 用途 |
-|------|------|
-| `list_workspaces` | 列出所有工作空间 |
-| `get_workspace` | 查看工作空间详情 |
-| `create_workspace` | 创建新工作空间 |
-| `add_project_to_workspace` | 添加项目到工作空间 |
-| `scan_directory` | 扫描目录发现 Git 仓库 |
-| `list_projects` | 列出所有已注册项目 |
-
----
-
-## 子命令
-
-解析 `$ARGUMENTS`，执行对应操作：
-
-### `list` — 列出所有工作空间
-
-调用 `{{mcp_server_name}}.list_workspaces`，以表格形式展示。
-
-### `show <name>` — 查看工作空间详情
-
-调用 `{{mcp_server_name}}.get_workspace`（参数: `workspaceName`）。
-
-### `create <name> [--path <path>]` — 创建工作空间
-
-调用 `{{mcp_server_name}}.create_workspace`（参数: `name`, `path`）。
-
-### `add <workspace> <project-path>` — 添加项目
-
-调用 `{{mcp_server_name}}.add_project_to_workspace`（参数: `workspaceName`, `projectPath`）。
-
-### `scan <directory>` — 扫描并批量导入
-
-1. 调用 `{{mcp_server_name}}.scan_directory`（参数: `path`）发现 Git 仓库
-2. 展示发现的仓库列表
-3. 询问用户是否创建工作空间并导入
-4. 若确认：
-   - 调用 `create_workspace` 创建工作空间
-   - 逐个调用 `add_project_to_workspace` 添加项目
-
-### `projects` — 列出所有项目
-
-调用 `{{mcp_server_name}}.list_projects`，以表格形式展示。
-
----
-
-## 示例
+## 子命令快捷映射
 
 ```
-/ccpanes:workspace list
-/ccpanes:workspace show my-workspace
-/ccpanes:workspace create my-project --path /home/user/projects
-/ccpanes:workspace add my-workspace /home/user/app
-/ccpanes:workspace scan /home/user/projects
-/ccpanes:workspace projects
-/ccpanes:workspace           # 显示帮助
+list                            → list_workspaces
+show <name>                     → get_workspace
+create <name> [--path <p>]      → create_workspace
+add <ws> <project>              → add_project_to_workspace
+scan <dir>                      → scan_directory + 询问 + 批量 add
+projects                        → list_projects
 ```
-
----
 
 ## 注意
 
-- 破坏性操作（删除工作空间/移除项目）需在 {{app_name}} UI 中手动执行
-- 修改会通过文件系统监控自动同步到 {{app_name}} UI
+- 删除工作空间 / 移除项目 / 重命名 → 让用户在 {{app_name}} UI 操作，**不要试图通过 MCP 完成**。
+- 文件系统变更会被 {{app_name}} 自动监听同步。
+- 迁移工作空间到新目录或 WSL → 用 `workspace-migrate` skill。
