@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
-import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution } from "@/types";
+import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Provider } from "@/types";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 
 vi.mock("sonner", () => ({
@@ -67,6 +67,36 @@ function renderPanelWithExternalSkills(onSave: (draft: LaunchProfileDraft) => vo
   render(<LaunchProfilesPanel initialTool="claude" />);
 }
 
+function renderKimiPanel(onSave: (draft: LaunchProfileDraft) => void) {
+  const kimiProvider: Provider = {
+    id: "kimi-provider",
+    name: "Kimi API",
+    providerType: "kimi",
+    apiKey: "test-key",
+    baseUrl: "https://api.moonshot.cn/v1",
+    isDefault: false,
+  };
+
+  mockTauriInvoke({
+    list_launch_profiles: [],
+    list_providers: [kimiProvider],
+    list_workspaces: [],
+    get_shared_mcp_status: [],
+    list_skill_market_entries: [],
+    list_user_skills: [],
+    list_external_skills: [],
+    list_cli_tools: [],
+    preview_launch_profile_resolution: emptyResolution,
+    create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
+      const draft = args?.draft as LaunchProfileDraft;
+      onSave(draft);
+      return savedProfileFromDraft(draft);
+    },
+  });
+
+  render(<LaunchProfilesPanel initialTool="kimi" />);
+}
+
 describe("LaunchProfilesPanel external skills", () => {
   beforeEach(() => {
     resetTauriInvoke();
@@ -112,6 +142,28 @@ describe("LaunchProfilesPanel external skills", () => {
     await waitFor(() => {
       expect(savedDraft?.skillPolicy.mode).toBe("custom");
       expect(savedDraft?.skillPolicy.enabledSkillIds).toContain("claude:rust-patterns");
+    });
+  });
+
+  it("saves native Kimi config mode and blocks explicit Provider selection", async () => {
+    const user = userEvent.setup();
+    let savedDraft: LaunchProfileDraft | null = null;
+    renderKimiPanel((draft) => {
+      savedDraft = draft;
+    });
+
+    await user.click(await screen.findByRole("button", { name: /复制为运行配置/ }));
+
+    const providerSelect = screen.getByLabelText("Provider") as HTMLSelectElement;
+    expect(providerSelect.disabled).toBe(true);
+    expect(screen.getByText(/Kimi 显式 Provider 暂未支持完整模型配置/)).toBeTruthy();
+
+    await user.selectOptions(screen.getByLabelText("Kimi 配置来源"), "native");
+    await user.click(screen.getByRole("button", { name: /保存为运行配置/ }));
+
+    await waitFor(() => {
+      expect(savedDraft?.providerId).toBeNull();
+      expect(savedDraft?.adapterOptions?.kimiConfigMode).toBe("native");
     });
   });
 });

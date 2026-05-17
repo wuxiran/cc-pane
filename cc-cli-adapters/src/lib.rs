@@ -218,6 +218,8 @@ pub struct CliAdapterContext {
     pub project_path: String,
     pub workspace_path: Option<String>,
     pub provider: Option<CliProvider>,
+    /// Per-launch adapter options keyed by CLI tool specific option names.
+    pub adapter_options: HashMap<String, serde_json::Value>,
     pub resume_id: Option<String>,
     pub skip_mcp: bool,
     pub append_system_prompt: Option<String>,

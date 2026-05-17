@@ -1723,6 +1723,7 @@ impl McpToolHandler {
             alias: alias.clone(),
             description: trim_optional_string(params.description.clone()),
             provider_id: provider_id.clone(),
+            adapter_options: HashMap::new(),
             target_tools: clean_target_tools(params.target_tools.as_deref()),
             target_runtime: normalize_target_runtime(params.target_runtime.clone())?,
             mcp_policy,

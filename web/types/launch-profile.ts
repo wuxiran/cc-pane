@@ -5,6 +5,12 @@ export type LaunchProfileMcpMode = "default" | "custom" | "disabled";
 export type LaunchProfileSkillMode = "core" | "custom" | "disabled";
 export type LaunchProviderSelection = "inherit" | "explicit" | "none";
 export type LaunchProfileRuntime = WorkspaceLaunchEnvironment | null;
+export type KimiConfigMode = "managed" | "native";
+
+export interface LaunchProfileAdapterOptions {
+  kimiConfigMode?: KimiConfigMode;
+  [key: string]: unknown;
+}
 
 export interface LaunchProfileMcpPolicy {
   mode: LaunchProfileMcpMode;
@@ -39,6 +45,7 @@ export interface LaunchProfile {
   alias?: string | null;
   description?: string | null;
   providerId?: string | null;
+  adapterOptions?: LaunchProfileAdapterOptions;
   targetTools: string[];
   targetRuntime?: LaunchProfileRuntime;
   mcpPolicy: LaunchProfileMcpPolicy;
@@ -103,6 +110,7 @@ export function defaultLaunchProfileDraft(provider?: Provider | null): LaunchPro
     alias: provider ? `${provider.name} 运行配置` : "新运行配置",
     description: "",
     providerId: provider?.id ?? null,
+    adapterOptions: {},
     targetTools: [],
     targetRuntime: null,
     mcpPolicy: {

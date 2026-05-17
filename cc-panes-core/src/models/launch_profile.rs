@@ -12,6 +12,8 @@ pub struct LaunchProfile {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub adapter_options: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub target_tools: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -37,6 +39,8 @@ pub struct LaunchProfileDraft {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub adapter_options: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub target_tools: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

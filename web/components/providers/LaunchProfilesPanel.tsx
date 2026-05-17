@@ -4,7 +4,7 @@ import { Cable, KeyRound, Layers3, Link2, Pencil, Plus, Save, Settings2, Sparkle
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLaunchProfilesStore, usePanesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
-import type { DiscoveredExternalSkill, InstalledUserSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
+import type { DiscoveredExternalSkill, InstalledUserSkill, KimiConfigMode, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
 import { cn } from "@/lib/utils";
 import ProviderToolTabs from "./ProviderToolTabs";
 import SharedMcpSection from "@/components/settings/SharedMcpSection";
@@ -39,6 +39,11 @@ const SKILL_MODE_LABELS: Record<LaunchProfileDraft["skillPolicy"]["mode"], strin
   core: "默认组合",
   custom: "自定义选择",
   disabled: "不注入",
+};
+
+const KIMI_CONFIG_MODE_LABELS: Record<KimiConfigMode, string> = {
+  managed: "CC-Panes 隔离配置",
+  native: "本机 Kimi 配置 (~/.kimi)",
 };
 
 type ExternalSkillSourceKind = "claude" | "codex" | "plugin";
@@ -88,6 +93,10 @@ function launchEnvironmentLabel(targetTools: string[], fallbackTool: KnownCliToo
 
 function runtimeLabel(runtime?: LaunchProfileRuntime): string {
   return runtime ? RUNTIME_LABELS[runtime] : "全部位置";
+}
+
+function kimiConfigMode(options?: LaunchProfileDraft["adapterOptions"]): KimiConfigMode {
+  return options?.kimiConfigMode === "native" ? "native" : "managed";
 }
 
 function isSharedMcpServerSelected(policy: LaunchProfileDraft["mcpPolicy"], name: string): boolean {
@@ -193,6 +202,7 @@ function systemDefaultLaunchProfileDraft(tool: KnownCliTool, runtime: LaunchProf
     alias: `${toolLabel(tool)} 系统默认配置`,
     description: "不注入 Provider，尊重 CLI 自身配置、CC Switch live config 和用户环境；CC-Panes 只附加自己的 MCP 与 Skill 能力。",
     providerId: null,
+    adapterOptions: {},
     targetTools: [tool],
     targetRuntime: runtime,
     mcpPolicy: {
@@ -223,6 +233,7 @@ function toDraft(profile: LaunchProfile): LaunchProfileDraft {
     alias: profile.alias ?? profile.name,
     description: profile.description ?? "",
     providerId: profile.providerId ?? null,
+    adapterOptions: { ...(profile.adapterOptions ?? {}) },
     targetTools: profile.targetTools,
     targetRuntime: profile.targetRuntime ?? null,
     mcpPolicy: profile.mcpPolicy,
@@ -439,7 +450,8 @@ export default function LaunchProfilesPanel({
   );
   const isSystemDefaultSelected = selectedId === SYSTEM_DEFAULT_PROFILE_ID;
   const isNewProfile = selectedId === null;
-  const providerDisabled = isSystemDefaultSelected;
+  const currentKimiConfigMode = kimiConfigMode(draft.adapterOptions);
+  const providerDisabled = isSystemDefaultSelected || activeTool === "kimi";
   const filteredProfiles = useMemo(() => {
     const compatible = profiles.filter((profile) => profileMatchesTool(profile, activeTool));
     if (!workspaceContext) return compatible;
@@ -549,7 +561,10 @@ export default function LaunchProfilesPanel({
         ...draft,
         name: draft.name?.trim() || alias,
         alias,
-        providerId: isSystemDefaultSelected ? null : draft.providerId,
+        providerId: isSystemDefaultSelected || activeTool === "kimi" ? null : draft.providerId,
+        adapterOptions: activeTool === "kimi"
+          ? { ...(draft.adapterOptions ?? {}), kimiConfigMode: currentKimiConfigMode }
+          : draft.adapterOptions ?? {},
         isDefault: isSystemDefaultSelected ? true : draft.isDefault,
         targetTools: [activeTool],
         targetRuntime: draft.targetRuntime ?? null,
@@ -576,7 +591,7 @@ export default function LaunchProfilesPanel({
     } catch (error) {
       toast.error(`保存失败: ${String(error)}`);
     }
-  }, [activeTool, createProfile, draft, isSystemDefaultSelected, selectedProfile, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
+  }, [activeTool, createProfile, currentKimiConfigMode, draft, isSystemDefaultSelected, selectedProfile, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedProfile || isSystemDefaultSelected) return;
@@ -671,6 +686,16 @@ export default function LaunchProfilesPanel({
         },
       };
     });
+  };
+  const setKimiConfigMode = (mode: KimiConfigMode) => {
+    setDraft((current) => ({
+      ...current,
+      providerId: null,
+      adapterOptions: {
+        ...(current.adapterOptions ?? {}),
+        kimiConfigMode: mode,
+      },
+    }));
   };
   const toggleServer = (name: string) => {
     setDraft((current) => {
@@ -1317,6 +1342,25 @@ export default function LaunchProfilesPanel({
                   </select>
                 </Field>
               </div>
+              {activeTool === "kimi" && (
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <Field label="Kimi 配置来源">
+                    <select
+                      className={inputClass}
+                      value={currentKimiConfigMode}
+                      onChange={(event) => setKimiConfigMode(event.target.value as KimiConfigMode)}
+                    >
+                      <option value="managed">{KIMI_CONFIG_MODE_LABELS.managed}</option>
+                      <option value="native">{KIMI_CONFIG_MODE_LABELS.native}</option>
+                    </select>
+                  </Field>
+                  <div className="rounded-md border border-amber-500/30 px-3 py-2 text-xs leading-5 text-amber-600">
+                    {currentKimiConfigMode === "native"
+                      ? "使用 ~/.kimi 登录态；启动时不传 --config-file，也不注入 KIMI_SHARE_DIR。"
+                      : "Kimi 显式 Provider 暂未支持完整模型配置；Provider 选择已禁用。"}
+                  </div>
+                </div>
+              )}
               <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <Field label="适用 CLI">
                   <div className={cn(inputClass, "flex items-center")}>
