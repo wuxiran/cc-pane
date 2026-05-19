@@ -153,6 +153,10 @@ export function _resetListenersForTest(): void {
 export const terminalService = {
   /** 创建终端会话 */
   async createSession(request: CreateSessionRequest): Promise<string> {
+    // providerSelection 可选字段序列化为 null 会导致 Rust serde 反序列化失败
+    if (!request.providerSelection) {
+      request.providerSelection = "inherit";
+    }
     return invoke<string>("create_terminal_session", { request });
   },
 
