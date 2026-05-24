@@ -1,12 +1,18 @@
 import "@/i18n";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Tab } from "@/types";
 import TerminalTabContent from "./TerminalTabContent";
 
 vi.mock("./TerminalView", () => ({
-  default: vi.fn(() => <div data-testid="terminal-view" />),
+  default: vi.fn((props: { onRestoreLaunchState?: (state: string) => void }) => (
+    <button
+      data-testid="terminal-view"
+      onClick={() => props.onRestoreLaunchState?.("queued")}
+      onDoubleClick={() => props.onRestoreLaunchState?.("failed")}
+    />
+  )),
 }));
 
 vi.mock("./SplitView", () => ({
@@ -31,12 +37,13 @@ function createTerminalTab(overrides?: Partial<Tab>): Tab {
   };
 }
 
-function renderTerminalTabContent(tab: Tab) {
+function renderTerminalTabContent(tab: Tab, options?: { isVisible?: boolean; isActive?: boolean }) {
   render(
     <TooltipProvider>
       <TerminalTabContent
         tab={tab}
-        isActive
+        isVisible={options?.isVisible ?? true}
+        isActive={options?.isActive ?? true}
         onSessionCreated={vi.fn()}
         onSessionExited={vi.fn()}
         onTerminalRef={vi.fn()}
@@ -69,7 +76,7 @@ describe("TerminalTabContent", () => {
     expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
   });
 
-  it("hides ready overlay while a leaf is restoring", () => {
+  it("shows restoring overlay while a visible leaf is restoring", () => {
     renderTerminalTabContent(
       createTerminalTab({
         terminalRootPane: {
@@ -81,7 +88,44 @@ describe("TerminalTabContent", () => {
       }),
     );
 
+    expect(screen.getByText("正在恢复会话")).toBeVisible();
+    expect(screen.getByText("正在启动保存的终端会话...")).toBeVisible();
     expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
+  });
+
+  it("shows waiting overlay for a hidden restoring leaf", () => {
+    renderTerminalTabContent(
+      createTerminalTab({
+        terminalRootPane: {
+          type: "leaf",
+          id: "leaf-1",
+          sessionId: null,
+          restoring: true,
+        },
+      }),
+      { isVisible: false, isActive: false },
+    );
+
+    expect(screen.getByText("等待恢复")).toBeVisible();
+    expect(screen.getByText("切换到此标签后启动保存的会话")).toBeVisible();
+  });
+
+  it("shows queued restore state reported by the terminal view", () => {
+    renderTerminalTabContent(
+      createTerminalTab({
+        terminalRootPane: {
+          type: "leaf",
+          id: "leaf-1",
+          sessionId: null,
+          restoring: true,
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId("terminal-view"));
+
+    expect(screen.getByText("排队恢复中")).toBeVisible();
+    expect(screen.getByText("等待其他终端完成启动...")).toBeVisible();
   });
 
   it("shows the select-project hint only for an empty terminal tab", () => {

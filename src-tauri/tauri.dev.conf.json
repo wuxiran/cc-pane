@@ -1,6 +1,16 @@
 {
   "identifier": "com.ccpanes.dev",
   "app": {
-    "windows": [{ "title": "CC-Panes [DEV]", "decorations": false }]
+    "windows": [
+      {
+        "title": "CC-Panes [DEV]",
+        "width": 1920,
+        "height": 1200,
+        "minWidth": 1080,
+        "minHeight": 720,
+        "center": true,
+        "decorations": false
+      }
+    ]
   }
 }

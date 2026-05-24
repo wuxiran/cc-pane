@@ -31,7 +31,5 @@ pub fn query_usage_stats(
 #[tauri::command]
 pub async fn refresh_usage_stats(service: State<'_, Arc<UsageStatsService>>) -> AppResult<()> {
     let svc = service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || svc.refresh_usage_stats())
-        .await
-        .map_err(|e| crate::utils::error::AppError::from(e.to_string()))?
+    svc.refresh_usage_stats().await
 }

@@ -169,6 +169,12 @@ export interface TerminalOutput {
   data: string;
 }
 
+/** 最近终端输出快照 */
+export interface TerminalSessionOutput {
+  sessionId: string;
+  lines: string[];
+}
+
 /** 终端调整大小请求 */
 export interface ResizeRequest {
   sessionId: string;

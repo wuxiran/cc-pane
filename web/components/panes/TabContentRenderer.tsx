@@ -16,6 +16,7 @@ const EditorView = lazy(() => import("@/components/editor/EditorView"));
 
 interface TabContentRendererProps {
   tab: Tab;
+  isVisible: boolean;
   isActive: boolean;
   paneId: string;
   isPoppedOut?: boolean;
@@ -35,6 +36,7 @@ function LoadingFallback() {
 
 export default memo(function TabContentRenderer({
   tab,
+  isVisible,
   isActive,
   paneId,
   isPoppedOut,
@@ -88,6 +90,7 @@ export default memo(function TabContentRenderer({
         <TerminalTabContent
           key={tab.reclaimKey ?? 0}
           tab={tab}
+          isVisible={isVisible}
           isActive={isActive}
           onSessionCreated={onSessionCreated}
           onSessionExited={onSessionExited}

@@ -20,6 +20,7 @@ import {
   useEditorTabsStore,
 } from "@/stores";
 import { isTauriReady } from "@/utils";
+import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 
 import type { CliTool, LaunchProviderSelection, SshConnectionInfo, WslLaunchInfo } from "@/types";
 
@@ -235,12 +236,14 @@ export function useOrchestratorListener() {
           const panesStore = usePanesStore.getState();
           const panels = panesStore.allPanels();
           const activePaneId = panesStore.activePaneId;
+          const tabNumbers = computeGlobalTabNumbers(panesStore.rootPane);
           const panes = panels.map((p) => ({
             paneId: p.id,
             tabCount: p.tabs.length,
             isActive: p.id === activePaneId,
             tabs: p.tabs.map((t) => ({
               id: t.id,
+              displayNumber: tabNumbers.get(t.id) ?? null,
               title: t.title,
               contentType: t.contentType,
               projectPath: t.projectPath,

@@ -45,6 +45,11 @@ import {
   createTerminalRendererController,
   type TerminalRendererController,
 } from "./terminalRendererController";
+import {
+  isRestoreLaunchCancelled,
+  terminalRestoreLaunchQueue,
+  type RestoreLaunchState,
+} from "./terminalRestoreQueue";
 import { resolveTerminalRendererModeForSession } from "./terminalRenderer";
 import { getTerminalTheme, type TerminalThemePalette } from "./terminalTheme";
 import "@xterm/xterm/css/xterm.css";
@@ -142,6 +147,9 @@ interface TerminalViewProps {
   sessionId: string | null;
   projectId: string;
   projectPath: string;
+  /** Whether this tab is the selected tab in its panel and is visible on screen. */
+  isVisible?: boolean;
+  /** Whether this terminal belongs to the currently focused pane. */
   isActive: boolean;
   workspaceName?: string;
   providerId?: string;
@@ -164,6 +172,7 @@ interface TerminalViewProps {
   paneId?: string;
   /** Tab id used to clear restoring state after recovery finishes. */
   tabId?: string;
+  onRestoreLaunchState?: (state: RestoreLaunchState) => void;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
   /** Optional SSH reconnect callback for disconnected sessions. */
@@ -209,7 +218,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const isReconnectingRef = useRef(false);
     const isSshRef = useRef(!!props.ssh);
     const isUnmountedRef = useRef(false);
-    // Delay PTY creation for inactive restored tabs until they become active.
+    // Delay PTY creation for hidden restored tabs until they become visible.
     const deferredRestoreRef = useRef(false);
 
     const onSessionCreatedRef = useRef(props.onSessionCreated);
@@ -220,6 +229,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const lastWheelDecisionRef = useRef<string | null>(null);
     const lastDragFitAtRef = useRef(0);
     const isActiveRef = useRef(props.isActive);
+    const isVisibleRef = useRef(props.isVisible ?? props.isActive);
     const terminalRendererMode = useSettingsStore((s) => s.settings?.terminal.rendererMode ?? "auto");
     const effectiveCliTool = resolveCliTool(props.cliTool, props.launchClaude);
     const resolveRendererMode = useCallback((mode: TerminalRendererMode) => {
@@ -354,6 +364,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       onSessionExitedRef.current = props.onSessionExited;
       onReconnectRef.current = props.onReconnect;
       isActiveRef.current = props.isActive;
+      isVisibleRef.current = props.isVisible ?? props.isActive;
     });
 
     useEffect(() => {
@@ -1057,9 +1068,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 console.warn("[TerminalView] Failed to load restored output:", err);
               }
 
-              // Inactive restored tabs only replay saved output; PTY creation waits until activation.
-              // The live session is created later when the tab becomes active again.
-              if (!props.isActive) {
+              // Hidden restored tabs only replay saved output; PTY creation waits until the
+              // tab becomes visible. A visible tab in an unfocused split pane should still resume.
+              // The live session is created later when the tab becomes visible again.
+              if (!(props.isVisible ?? props.isActive)) {
                 debugLog("session.restore.defer", {
                   savedSessionId: props.savedSessionId,
                 });
@@ -1108,7 +1120,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               debugLog("session.create.begin", {
                 resumeId: effectiveResumeId ?? null,
               });
-              sessionId = await terminalService.createSession({
+              const launchSession = () => terminalService.createSession({
                 launchId: props.projectId,
                 projectPath: props.projectPath,
                 cols: term.cols,
@@ -1127,6 +1139,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 ssh: props.ssh,
                 wsl: props.wsl,
               });
+              sessionId = props.restoring
+                ? await terminalRestoreLaunchQueue.run(launchSession, {
+                    isCancelled: () => !isMounted || !isVisibleRef.current,
+                    onState: props.onRestoreLaunchState,
+                  })
+                : await launchSession();
+              props.onRestoreLaunchState?.("idle");
               debugLog("session.create.end", {
                 createdSessionId: sessionId,
               });
@@ -1192,6 +1211,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
           } catch (error) {
             if (!isMounted) return;
+            if (isRestoreLaunchCancelled(error)) {
+              deferredRestoreRef.current = true;
+              props.onRestoreLaunchState?.("idle");
+              return;
+            }
+            if (props.restoring) {
+              props.onRestoreLaunchState?.("failed");
+            }
             console.error(
               `[TerminalView] FAILED to init session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, error=`,
               error
@@ -1289,7 +1316,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
       const scheduleRefit = (onReady?: (term: Terminal) => void) => {
         layoutSchedulerRef.current?.schedule("active.refit", {
-          focusIfSafe: true,
+          focusIfSafe: props.isActive,
           onAfterLayout: (term) => {
             if (activationCancelled) return;
             onReady?.(term);
@@ -1297,8 +1324,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
       };
 
-      // Create the deferred PTY once the restored tab becomes active.
-      if (props.isActive && deferredRestoreRef.current) {
+      // Create the deferred PTY once the restored tab becomes visible. It may be
+      // visible in an unfocused split pane, so focus and visibility stay separate.
+      if ((props.isVisible ?? props.isActive) && deferredRestoreRef.current) {
         if (!props.projectPath) return;
 
         scheduleRefit((term) => {
@@ -1319,7 +1347,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               });
               console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
               const backfillStartTime = new Date().toISOString();
-              const sessionId = await terminalService.createSession({
+              const launchSession = () => terminalService.createSession({
                 launchId: props.projectId,
                 projectPath: props.projectPath,
                 cols: term.cols,
@@ -1338,6 +1366,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 ssh: props.ssh,
                 wsl: props.wsl,
               });
+              const sessionId = await terminalRestoreLaunchQueue.run(launchSession, {
+                isCancelled: () => isUnmountedRef.current || activationCancelled || !isVisibleRef.current,
+                onState: props.onRestoreLaunchState,
+              });
+              props.onRestoreLaunchState?.("idle");
 
               if (isUnmountedRef.current) {
                 terminalService.killSession(sessionId).catch(console.error);
@@ -1383,6 +1416,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }
             } catch (err) {
               if (isUnmountedRef.current) return;
+              if (isRestoreLaunchCancelled(err)) {
+                deferredRestoreRef.current = true;
+                props.onRestoreLaunchState?.("idle");
+                return;
+              }
+              props.onRestoreLaunchState?.("failed");
               console.error("[TerminalView] Deferred restore failed:", err);
               term.writeln(`\x1b[31m--- Failed to restore session: ${getErrorMessage(err)} ---\x1b[0m`);
             }
@@ -1403,7 +1442,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         };
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.isActive]);
+    }, [props.isActive, props.isVisible]);
 
     return (
       <div

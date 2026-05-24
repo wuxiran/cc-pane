@@ -1,4 +1,6 @@
-use cc_cli_adapters::{CliToolAdapter, CliToolRegistry, ProjectHookDefinition, ProjectHookStatus};
+use cc_cli_adapters::{
+    CliToolAdapter, CliToolRegistry, CodexAdapter, ProjectHookDefinition, ProjectHookStatus,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -61,7 +63,7 @@ impl ProjectCliHooksService {
             .map_err(|e| format!("Failed to write cli-hooks.json: {}", e))
     }
 
-    fn get_hook_binary_path() -> Result<PathBuf, String> {
+    pub fn get_hook_binary_path() -> Result<PathBuf, String> {
         if let Ok(explicit) = std::env::var("CC_PANES_CLI_HOOK_BINARY") {
             let path = PathBuf::from(explicit);
             if path.exists() {
@@ -306,11 +308,60 @@ impl ProjectCliHooksService {
         self.sync_project_cli_hooks_for_state(project_path, cli_tool, &state)
     }
 
+    pub fn sync_project_cli_hooks_with_binary(
+        &self,
+        project_path: &str,
+        cli_tool: &str,
+        hook_binary_path: &Path,
+    ) -> Result<(), String> {
+        let project_path = Path::new(project_path);
+        let state = Self::read_state(project_path)?;
+        self.sync_project_cli_hooks_for_state_with_binary(
+            project_path,
+            cli_tool,
+            &state,
+            Some(hook_binary_path),
+        )
+    }
+
+    pub fn sync_wsl_codex_project_hooks(
+        &self,
+        state_project_path: &str,
+        target_project_path: &str,
+        wsl_hook_binary_path: &Path,
+    ) -> Result<(), String> {
+        let state = Self::read_state(Path::new(state_project_path))?;
+        let session_enabled = state
+            .tools
+            .get("codex")
+            .and_then(|tool_state| tool_state.get("session-inject").copied())
+            .unwrap_or(true);
+        let desired = HashMap::from([("session-inject".to_string(), session_enabled)]);
+
+        CodexAdapter::new()
+            .sync_project_hooks_for_wsl_launch(
+                Path::new(target_project_path),
+                wsl_hook_binary_path,
+                &desired,
+            )
+            .map_err(|e| e.to_string())
+    }
+
     fn sync_project_cli_hooks_for_state(
         &self,
         project_path: &Path,
         cli_tool: &str,
         state: &StoredProjectCliHooks,
+    ) -> Result<(), String> {
+        self.sync_project_cli_hooks_for_state_with_binary(project_path, cli_tool, state, None)
+    }
+
+    fn sync_project_cli_hooks_for_state_with_binary(
+        &self,
+        project_path: &Path,
+        cli_tool: &str,
+        state: &StoredProjectCliHooks,
+        hook_binary_override: Option<&Path>,
     ) -> Result<(), String> {
         let adapter = self.get_supported_adapter(cli_tool)?;
         let hook_statuses = adapter
@@ -330,7 +381,10 @@ impl ProjectCliHooksService {
         }
 
         let hook_binary_path = if desired.values().any(|enabled| *enabled) {
-            Some(Self::get_hook_binary_path()?)
+            match hook_binary_override {
+                Some(path) => Some(path.to_path_buf()),
+                None => Some(Self::get_hook_binary_path()?),
+            }
         } else {
             None
         };

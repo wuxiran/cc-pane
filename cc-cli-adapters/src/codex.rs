@@ -7,8 +7,8 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 use tracing::info;
 
 const HOOK_BINARY_NAME: &str = "cc-panes-cli-hook";
@@ -189,6 +189,93 @@ impl CodexAdapter {
         Self::configured_mcp_server_names_from_config_path(&home.join(".codex").join("config.toml"))
     }
 
+    fn real_codex_home() -> Option<PathBuf> {
+        env::var_os("CODEX_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
+    }
+
+    fn isolated_codex_home(session_id: &str) -> Option<PathBuf> {
+        dirs::home_dir().map(|home| {
+            home.join(".cache")
+                .join("cc-panes")
+                .join("codex-home")
+                .join(session_id)
+        })
+    }
+
+    fn sanitized_config_toml(content: &str) -> String {
+        let Ok(toml::Value::Table(mut table)) = content.parse::<toml::Value>() else {
+            return String::new();
+        };
+        table.remove("mcp_servers");
+        table.remove("plugins");
+        table.remove("marketplaces");
+        toml::to_string_pretty(&toml::Value::Table(table)).unwrap_or_default()
+    }
+
+    fn copy_file_if_exists(src: &Path, dst: &Path) -> Result<()> {
+        if !src.is_file() {
+            return Ok(());
+        }
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(src, dst)?;
+        Ok(())
+    }
+
+    fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+        if !src.is_dir() {
+            return Ok(());
+        }
+        fs::create_dir_all(dst)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            let child_src = entry.path();
+            let child_dst = dst.join(entry.file_name());
+            if file_type.is_dir() {
+                Self::copy_dir_recursive(&child_src, &child_dst)?;
+            } else if file_type.is_file() {
+                fs::copy(&child_src, &child_dst)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn prepare_isolated_codex_home(ctx: &CliAdapterContext) -> Result<Option<PathBuf>> {
+        let Some(real_home) = Self::real_codex_home() else {
+            return Ok(None);
+        };
+        let Some(isolated_home) = Self::isolated_codex_home(&ctx.session_id) else {
+            return Ok(None);
+        };
+
+        if isolated_home.exists() {
+            fs::remove_dir_all(&isolated_home)?;
+        }
+        fs::create_dir_all(&isolated_home)?;
+
+        let real_config = real_home.join("config.toml");
+        let isolated_config = isolated_home.join("config.toml");
+        if let Ok(content) = fs::read_to_string(&real_config) {
+            fs::write(&isolated_config, Self::sanitized_config_toml(&content))?;
+        } else {
+            fs::write(&isolated_config, "")?;
+        }
+
+        for file_name in ["auth.json", "AGENTS.md"] {
+            Self::copy_file_if_exists(&real_home.join(file_name), &isolated_home.join(file_name))?;
+        }
+        for dir_name in ["prompts", "rules", "skills"] {
+            Self::copy_dir_recursive(&real_home.join(dir_name), &isolated_home.join(dir_name))?;
+        }
+
+        Ok(Some(isolated_home))
+    }
+
     fn push_mcp_isolation_overrides_for_names(
         args: &mut Vec<String>,
         allowed_server_ids: &[String],
@@ -232,17 +319,21 @@ impl CodexAdapter {
         Self::project_codex_dir(project_path).join("hooks.json")
     }
 
-    fn project_unsupported_reason(project_path: &Path) -> Option<String> {
-        if cfg!(windows) {
-            return Some(TOOL_UNSUPPORTED_ON_WINDOWS.to_string());
-        }
-
+    fn project_path_conflict_reason(project_path: &Path) -> Option<String> {
         let codex_path = project_path.join(".codex");
         if codex_path.is_file() {
             return Some(DOT_CODEX_FILE_CONFLICT.to_string());
         }
 
         None
+    }
+
+    fn project_unsupported_reason(project_path: &Path) -> Option<String> {
+        if cfg!(windows) {
+            return Some(TOOL_UNSUPPORTED_ON_WINDOWS.to_string());
+        }
+
+        Self::project_path_conflict_reason(project_path)
     }
 
     fn build_hook_command(binary_path: &Path, def: &HookDef) -> String {
@@ -389,6 +480,86 @@ impl CodexAdapter {
         features_table.insert("codex_hooks".to_string(), toml::Value::Boolean(true));
         Self::write_config_toml(project_path, &config)
     }
+
+    fn sync_project_hooks_inner(
+        &self,
+        project_path: &Path,
+        hook_binary_path: Option<&Path>,
+        desired: &HashMap<String, bool>,
+        allow_windows_host: bool,
+    ) -> Result<()> {
+        let unsupported = if allow_windows_host {
+            Self::project_path_conflict_reason(project_path)
+        } else {
+            Self::project_unsupported_reason(project_path)
+        };
+        if let Some(reason) = unsupported {
+            return Err(anyhow!(reason));
+        }
+
+        let session_enabled = desired.get("session-inject").copied().unwrap_or(true);
+        if session_enabled && hook_binary_path.is_none() {
+            return Err(anyhow!("cc-panes-cli-hook binary not found"));
+        }
+
+        Self::ensure_codex_hooks_feature(project_path)?;
+
+        let mut hooks_json = Self::read_hooks_json(project_path)?;
+        let hooks_root = hooks_json
+            .as_object_mut()
+            .ok_or_else(|| anyhow!("Codex hooks.json root must be a JSON object"))?
+            .entry("hooks")
+            .or_insert_with(|| serde_json::json!({}));
+        let hooks_obj = hooks_root
+            .as_object_mut()
+            .ok_or_else(|| anyhow!("Codex hooks field must be a JSON object"))?;
+
+        for def in HOOK_DEFS {
+            if !def.supported {
+                Self::remove_hook_entries(hooks_obj, def.event);
+                continue;
+            }
+
+            if desired.get(def.name).copied().unwrap_or(true) {
+                let command = Self::build_hook_command(
+                    hook_binary_path.expect("checked above when session hook enabled"),
+                    def,
+                );
+                let entry = serde_json::json!({
+                    "matcher": def.matcher,
+                    "hooks": [{
+                        "type": "command",
+                        "command": command,
+                        "timeout": def.timeout,
+                        "statusMessage": "Loading CC-Panes context"
+                    }]
+                });
+                Self::merge_hook_entry(hooks_obj, def.event, entry);
+            } else {
+                Self::remove_hook_entries(hooks_obj, def.event);
+            }
+        }
+
+        hooks_obj.retain(|_, value| {
+            value
+                .as_array()
+                .map(|items| !items.is_empty())
+                .unwrap_or(true)
+        });
+        Self::write_hooks_json(project_path, &hooks_json)
+    }
+
+    /// Sync hooks for a Codex process that will run inside WSL while the
+    /// CC-Panes host is Windows. The project path is still written by the host,
+    /// but the hook command itself must be executable from WSL.
+    pub fn sync_project_hooks_for_wsl_launch(
+        &self,
+        project_path: &Path,
+        hook_binary_path: &Path,
+        desired: &HashMap<String, bool>,
+    ) -> Result<()> {
+        self.sync_project_hooks_inner(project_path, Some(hook_binary_path), desired, true)
+    }
 }
 
 impl Default for CodexAdapter {
@@ -448,60 +619,7 @@ impl CliToolAdapter for CodexAdapter {
         hook_binary_path: Option<&Path>,
         desired: &HashMap<String, bool>,
     ) -> Result<()> {
-        if let Some(reason) = Self::project_unsupported_reason(project_path) {
-            return Err(anyhow!(reason));
-        }
-
-        let session_enabled = desired.get("session-inject").copied().unwrap_or(true);
-        if session_enabled && hook_binary_path.is_none() {
-            return Err(anyhow!("cc-panes-cli-hook binary not found"));
-        }
-
-        Self::ensure_codex_hooks_feature(project_path)?;
-
-        let mut hooks_json = Self::read_hooks_json(project_path)?;
-        let hooks_root = hooks_json
-            .as_object_mut()
-            .ok_or_else(|| anyhow!("Codex hooks.json root must be a JSON object"))?
-            .entry("hooks")
-            .or_insert_with(|| serde_json::json!({}));
-        let hooks_obj = hooks_root
-            .as_object_mut()
-            .ok_or_else(|| anyhow!("Codex hooks field must be a JSON object"))?;
-
-        for def in HOOK_DEFS {
-            if !def.supported {
-                Self::remove_hook_entries(hooks_obj, def.event);
-                continue;
-            }
-
-            if desired.get(def.name).copied().unwrap_or(true) {
-                let command = Self::build_hook_command(
-                    hook_binary_path.expect("checked above when session hook enabled"),
-                    def,
-                );
-                let entry = serde_json::json!({
-                    "matcher": def.matcher,
-                    "hooks": [{
-                        "type": "command",
-                        "command": command,
-                        "timeout": def.timeout,
-                        "statusMessage": "Loading CC-Panes context"
-                    }]
-                });
-                Self::merge_hook_entry(hooks_obj, def.event, entry);
-            } else {
-                Self::remove_hook_entries(hooks_obj, def.event);
-            }
-        }
-
-        hooks_obj.retain(|_, value| {
-            value
-                .as_array()
-                .map(|items| !items.is_empty())
-                .unwrap_or(true)
-        });
-        Self::write_hooks_json(project_path, &hooks_json)
+        self.sync_project_hooks_inner(project_path, hook_binary_path, desired, false)
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
@@ -509,6 +627,17 @@ impl CliToolAdapter for CodexAdapter {
         let codex_cmd = path.to_string_lossy().into_owned();
 
         let mut args = Vec::new();
+        let mut env_inject = HashMap::new();
+
+        // Keep every CC-Panes local Codex PTY isolated from the global TUI state.
+        // We copy auth/config basics but intentionally do not copy sessions, so a new
+        // launch cannot replay an old queued prompt from the same project directory.
+        if let Some(codex_home) = Self::prepare_isolated_codex_home(ctx)? {
+            env_inject.insert(
+                "CODEX_HOME".to_string(),
+                codex_home.to_string_lossy().into_owned(),
+            );
+        }
 
         // MCP 注入使用 Codex 的 per-launch -c override，避免写入用户全局 config.toml。
         if ctx.skip_mcp {
@@ -542,7 +671,7 @@ impl CliToolAdapter for CodexAdapter {
             command: codex_cmd,
             args,
             env_remove: vec![],
-            env_inject: HashMap::new(),
+            env_inject,
         })
     }
 
@@ -634,6 +763,29 @@ mod tests {
         assert_eq!(plan.reason.as_deref(), Some(PLAN_ARCHIVE_UNSUPPORTED));
     }
 
+    #[test]
+    fn sync_project_hooks_for_wsl_launch_writes_wsl_command() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path();
+        let hook_binary = PathBuf::from(
+            "/mnt/c/Users/wuxiran/AppData/Local/cc-panes/binaries/cc-panes-cli-hook.exe",
+        );
+
+        let adapter = CodexAdapter::new();
+        let desired = HashMap::from([("session-inject".to_string(), true)]);
+
+        adapter
+            .sync_project_hooks_for_wsl_launch(project_path, &hook_binary, &desired)
+            .unwrap();
+
+        let config = fs::read_to_string(project_path.join(".codex").join("config.toml")).unwrap();
+        let hooks = fs::read_to_string(project_path.join(".codex").join("hooks.json")).unwrap();
+
+        assert!(config.contains("codex_hooks = true"));
+        assert!(hooks.contains("/mnt/c/Users/wuxiran"));
+        assert!(hooks.contains("session-init"));
+    }
+
     #[cfg(windows)]
     #[test]
     fn project_hooks_report_windows_unsupported_reason() {
@@ -711,6 +863,68 @@ mod tests {
                 "developer_instructions=\"CC-Panes launch profile skill\""
             ]
         );
+    }
+
+    #[test]
+    fn sanitized_config_removes_runtime_mcp_sections() {
+        let sanitized = CodexAdapter::sanitized_config_toml(
+            r#"
+model = "gpt-5"
+
+[model_providers.local]
+name = "local"
+
+[mcp_servers.fetch]
+command = "npx"
+
+[plugins.example]
+enabled = true
+
+[marketplaces.default]
+url = "https://example.com"
+"#,
+        );
+
+        assert!(sanitized.contains("model = \"gpt-5\""));
+        assert!(sanitized.contains("[model_providers.local]"));
+        assert!(!sanitized.contains("mcp_servers"));
+        assert!(!sanitized.contains("plugins"));
+        assert!(!sanitized.contains("marketplaces"));
+    }
+
+    #[test]
+    fn isolated_codex_home_copy_skips_sessions() {
+        let real = tempdir().unwrap();
+        let isolated = tempdir().unwrap();
+        fs::write(real.path().join("auth.json"), "{}").unwrap();
+        fs::create_dir_all(real.path().join("skills").join("tool")).unwrap();
+        fs::write(
+            real.path().join("skills").join("tool").join("SKILL.md"),
+            "skill",
+        )
+        .unwrap();
+        fs::create_dir_all(real.path().join("sessions")).unwrap();
+        fs::write(real.path().join("sessions").join("old.jsonl"), "old").unwrap();
+
+        CodexAdapter::copy_file_if_exists(
+            &real.path().join("auth.json"),
+            &isolated.path().join("auth.json"),
+        )
+        .unwrap();
+        CodexAdapter::copy_dir_recursive(
+            &real.path().join("skills"),
+            &isolated.path().join("skills"),
+        )
+        .unwrap();
+
+        assert!(isolated.path().join("auth.json").is_file());
+        assert!(isolated
+            .path()
+            .join("skills")
+            .join("tool")
+            .join("SKILL.md")
+            .is_file());
+        assert!(!isolated.path().join("sessions").exists());
     }
 
     #[test]

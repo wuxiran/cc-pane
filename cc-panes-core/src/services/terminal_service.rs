@@ -10,6 +10,7 @@ use crate::services::{
     LaunchProfileService, ProjectCliHooksService, ProviderService, SettingsService, SpecService,
     SshCredentialService, WorkspaceService,
 };
+use crate::utils::error::{AppError, AppResult};
 use crate::utils::AppPaths;
 use anyhow::{anyhow, Result};
 use cc_cli_adapters::{CliAdapterContext, CliProvider, CliToolRegistry};
@@ -25,7 +26,7 @@ use uuid::Uuid;
 
 mod wsl_codex;
 
-use self::wsl_codex::{strip_wsl_proxy_env_vars, WSL_PROXY_ENV_KEYS};
+use self::wsl_codex::{strip_wsl_proxy_env_vars, windows_path_to_wsl, WSL_PROXY_ENV_KEYS};
 
 fn to_cli_provider(provider: crate::models::provider::Provider) -> CliProvider {
     CliProvider {
@@ -362,6 +363,13 @@ pub struct SessionStatusInfo {
     pub status: SessionStatus,
     pub last_output_at: u64, // 毫秒时间戳
     pub pid: Option<u32>,    // PTY 根进程 PID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_tool_use_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_tool_summary: Option<String>,
+    pub updated_at: u64,
 }
 
 // ============ 输出缓冲区 ============
@@ -662,6 +670,7 @@ impl ReplayBuffer {
 
 /// 终端会话
 struct TerminalSession {
+    launch_id: Option<String>,
     process: Arc<dyn PtyProcess>,
     writer_tx: mpsc::Sender<WriterCommand>,
     status: Arc<Mutex<SessionStatus>>,
@@ -712,6 +721,8 @@ pub struct TerminalService {
     shared_mcp_service: parking_lot::RwLock<Option<Arc<crate::services::SharedMcpService>>>,
     launch_profile_service: parking_lot::RwLock<Option<Arc<LaunchProfileService>>>,
     workspace_service: parking_lot::RwLock<Option<Arc<WorkspaceService>>>,
+    /// fix(C2) review: 每个 session 独立串行化 submit_to_session 的文本+Enter 组合写入。
+    submit_mutexes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 struct SshAuthRuntime {
@@ -736,6 +747,7 @@ const LIVE_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
 const DEAD_OUTPUT_MAX_LINES: usize = 20_000;
 const DEAD_OUTPUT_MAX_BYTES: usize = 10 * 1024 * 1024;
 const DEAD_REPLAY_MAX_BYTES: usize = 4 * 1024 * 1024;
+const SUBMIT_TEXT_MAX_BYTES: usize = 256 * 1024;
 
 fn spawn_terminal_writer(
     session_id: String,
@@ -974,6 +986,46 @@ fn looks_like_ssh_password_prompt(prompt: &str) -> bool {
     !lower.contains("passphrase") && (lower.ends_with("password:") || lower.ends_with("password: "))
 }
 
+fn current_epoch_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn build_session_status_info(
+    session_id: String,
+    status: SessionStatus,
+    last_output_at: u64,
+    pid: Option<u32>,
+    state_machine: Option<&Arc<crate::services::SessionStateMachine>>,
+) -> SessionStatusInfo {
+    let snapshot = state_machine.and_then(|sm| sm.snapshot(&session_id));
+    SessionStatusInfo {
+        session_id,
+        status,
+        last_output_at,
+        pid,
+        current_tool_name: snapshot
+            .as_ref()
+            .and_then(|entry| entry.current_tool_name.clone()),
+        current_tool_use_id: snapshot
+            .as_ref()
+            .and_then(|entry| entry.current_tool_use_id.clone()),
+        current_tool_summary: snapshot
+            .as_ref()
+            .and_then(|entry| entry.current_tool_summary.clone()),
+        updated_at: snapshot
+            .as_ref()
+            .map(|entry| entry.updated_at)
+            .unwrap_or(last_output_at),
+    }
+}
+
+fn should_apply_pty_status_fallback(hook_active: bool, current: SessionStatus) -> bool {
+    !hook_active && !matches!(current, SessionStatus::Exited | SessionStatus::Error)
+}
+
 fn append_ssh_session_options(args: &mut Vec<String>) {
     for option in [
         "ConnectTimeout=10",
@@ -1012,6 +1064,7 @@ impl TerminalService {
             shared_mcp_service: parking_lot::RwLock::new(None),
             launch_profile_service: parking_lot::RwLock::new(None),
             workspace_service: parking_lot::RwLock::new(None),
+            submit_mutexes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -1101,6 +1154,7 @@ impl TerminalService {
         skip_mcp: bool,
         append_system_prompt: Option<&str>,
         initial_prompt: Option<&str>,
+        extra_env: Option<&HashMap<String, String>>,
         ssh: Option<&SshConnectionInfo>,
         wsl: Option<&WslLaunchInfo>,
     ) -> Result<String> {
@@ -1188,6 +1242,15 @@ impl TerminalService {
         let pure_wsl_codex_launch = wsl.is_some() && cli_tool == CliTool::Codex;
         if !pure_wsl_codex_launch {
             env_vars.extend(provider_vars.clone());
+        }
+        if let Some(extra_env) = extra_env {
+            for (key, value) in extra_env {
+                if Self::is_valid_env_key(key) {
+                    env_vars.insert(key.clone(), value.clone());
+                } else {
+                    warn!("Skipping runner env var with invalid key: {}", key);
+                }
+            }
         }
         let emitter = self.emitter.read().clone().ok_or_else(|| {
             anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)")
@@ -1336,14 +1399,58 @@ impl TerminalService {
                 .map(|key| key.to_string())
                 .collect::<Vec<_>>();
             strip_wsl_proxy_env_vars(&mut env_vars);
+            let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
 
             if cli_tool_id != "none" {
                 let hooks_project_path = workspace_path.unwrap_or(project_path);
                 if sync_project_hooks {
-                    if let Err(error) = self
-                        .project_cli_hooks_service
-                        .sync_project_cli_hooks(hooks_project_path, cli_tool_id)
-                    {
+                    let hook_sync_result = if cli_tool == CliTool::Codex {
+                        let hook_binary =
+                            ProjectCliHooksService::get_hook_binary_path().and_then(|path| {
+                                windows_path_to_wsl(&path)
+                                    .map(PathBuf::from)
+                                    .ok_or_else(|| {
+                                        format!(
+                                            "Failed to translate hook binary path to WSL path: {}",
+                                            path.display()
+                                        )
+                                    })
+                            });
+                        match hook_binary {
+                            Ok(wsl_hook_binary) => {
+                                self.project_cli_hooks_service.sync_wsl_codex_project_hooks(
+                                    hooks_project_path,
+                                    project_path,
+                                    &wsl_hook_binary,
+                                )
+                            }
+                            Err(error) => Err(error),
+                        }
+                    } else {
+                        let hook_binary =
+                            ProjectCliHooksService::get_hook_binary_path().and_then(|path| {
+                                windows_path_to_wsl(&path)
+                                    .map(PathBuf::from)
+                                    .ok_or_else(|| {
+                                        format!(
+                                            "Failed to translate hook binary path to WSL path: {}",
+                                            path.display()
+                                        )
+                                    })
+                            });
+                        match hook_binary {
+                            Ok(wsl_hook_binary) => self
+                                .project_cli_hooks_service
+                                .sync_project_cli_hooks_with_binary(
+                                    hooks_project_path,
+                                    cli_tool_id,
+                                    &wsl_hook_binary,
+                                ),
+                            Err(error) => Err(error),
+                        }
+                    };
+
+                    if let Err(error) = hook_sync_result {
                         warn!(
                             session_id = %session_id,
                             cli_tool = cli_tool_id,
@@ -1362,7 +1469,6 @@ impl TerminalService {
                 }
             }
 
-            let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
             if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !effective_skip_mcp {
                 if let Some(port_value) = env_vars.get("CC_PANES_API_PORT") {
                     match port_value.parse::<u16>() {
@@ -1618,6 +1724,7 @@ impl TerminalService {
             sessions.insert(
                 session_id.clone(),
                 TerminalSession {
+                    launch_id: launch_id.map(str::to_string),
                     process,
                     writer_tx,
                     status: status.clone(),
@@ -1827,11 +1934,9 @@ impl TerminalService {
                                 warn!("read_status lock poisoned, using fallback value");
                                 e.into_inner()
                             });
-                            if !hook_active
-                                && matches!(*s, SessionStatus::Active | SessionStatus::Initializing)
-                            {
-                                // ANSI 兜底只覆盖 legacy/启动态，避免 30s 后把 hook 主导的
-                                // ToolRunning/Thinking/WaitingInput 等细分状态打回 active/idle。
+                            if should_apply_pty_status_fallback(hook_active, *s) {
+                                // Hook 静默后重新允许 PTY 推断接管。否则 Codex 这类只暴露
+                                // 部分 hook 事件的 CLI 会在一次 waiting-input 后永久卡住状态。
                                 *s = inferred;
                             }
                             *s
@@ -1849,7 +1954,7 @@ impl TerminalService {
                             {
                                 read_notifier.notify_waiting_input(&sid);
                             }
-                            *prev = new_status.clone();
+                            *prev = new_status;
                         }
 
                         let normalized_prompt = normalize_prompt_text(&data);
@@ -1905,24 +2010,22 @@ impl TerminalService {
                             >= std::time::Duration::from_secs(2);
 
                         if status_changed || time_elapsed {
-                            let status_for_emit = new_status.clone();
+                            let status_for_emit = new_status;
                             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                let now_ms = current_epoch_millis();
                                 let _ = read_emitter.emit(
                                     EV::TERMINAL_STATUS,
-                                    serde_json::to_value(&SessionStatusInfo {
-                                        session_id: sid.clone(),
-                                        status: status_for_emit,
-                                        last_output_at: std::time::SystemTime::now()
-                                            .duration_since(std::time::UNIX_EPOCH)
-                                            .unwrap_or_default()
-                                            .as_millis()
-                                            as u64,
-                                        pid: Some(reader_pid),
-                                    })
+                                    serde_json::to_value(build_session_status_info(
+                                        sid.clone(),
+                                        status_for_emit,
+                                        now_ms,
+                                        Some(reader_pid),
+                                        read_state_machine.as_ref(),
+                                    ))
                                     .unwrap_or_default(),
                                 );
                             }));
-                            last_emitted_status = new_status.clone();
+                            last_emitted_status = new_status;
                             last_status_emit_time = now_instant;
                         }
                     }
@@ -1998,15 +2101,13 @@ impl TerminalService {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let _ = wait_emitter.emit(
                     EV::TERMINAL_STATUS,
-                    serde_json::to_value(&SessionStatusInfo {
-                        session_id: sid.clone(),
-                        status: SessionStatus::Exited,
-                        last_output_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64,
-                        pid: Some(wait_pid),
-                    })
+                    serde_json::to_value(build_session_status_info(
+                        sid.clone(),
+                        SessionStatus::Exited,
+                        current_epoch_millis(),
+                        Some(wait_pid),
+                        wait_state_machine.as_ref(),
+                    ))
                     .unwrap_or_default(),
                 );
             }));
@@ -2042,6 +2143,16 @@ impl TerminalService {
         Ok(session_id)
     }
 
+    pub fn find_session_id_by_launch_id(&self, launch_id: &str) -> Option<String> {
+        if launch_id.trim().is_empty() {
+            return None;
+        }
+        let sessions = self.sessions.lock().ok()?;
+        sessions.iter().find_map(|(session_id, session)| {
+            (session.launch_id.as_deref() == Some(launch_id)).then(|| session_id.clone())
+        })
+    }
+
     /// 获取所有会话状态
     ///
     /// 附带清理过期 dead_buffers（搭便车，前端周期性调用此方法）
@@ -2058,11 +2169,7 @@ impl TerminalService {
         Ok(sessions
             .iter()
             .map(|(id, session)| {
-                let status = session
-                    .status
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone();
+                let status = *session.status.lock().unwrap_or_else(|e| e.into_inner());
                 let elapsed = session
                     .last_output_at
                     .lock()
@@ -2078,16 +2185,17 @@ impl TerminalService {
                     other => other,
                 };
 
-                SessionStatusInfo {
-                    session_id: id.clone(),
-                    status: adjusted_status,
-                    last_output_at: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64
-                        - elapsed.as_millis() as u64,
-                    pid: Some(session.process.pid()),
-                }
+                build_session_status_info(
+                    id.clone(),
+                    adjusted_status,
+                    current_epoch_millis().saturating_sub(elapsed.as_millis() as u64),
+                    Some(session.process.pid()),
+                    self.state_machine
+                        .lock()
+                        .ok()
+                        .and_then(|guard| guard.as_ref().cloned())
+                        .as_ref(),
+                )
             })
             .collect())
     }
@@ -2101,11 +2209,7 @@ impl TerminalService {
         sessions
             .values()
             .filter_map(|session| {
-                let status = session
-                    .status
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone();
+                let status = *session.status.lock().unwrap_or_else(|e| e.into_inner());
                 if status != SessionStatus::Exited {
                     Some(session.process.pid())
                 } else {
@@ -2144,6 +2248,43 @@ impl TerminalService {
         Ok(())
     }
 
+    fn submit_mutex_for_session(&self, session_id: &str) -> AppResult<Arc<Mutex<()>>> {
+        let mut mutexes = self
+            .submit_mutexes
+            .lock()
+            .map_err(|_| AppError::from("submit mutexes lock poisoned"))?;
+        Ok(mutexes
+            .entry(session_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone())
+    }
+
+    /// 原子提交一条用户消息：清洗换行后写入文本，短延迟，再单独发送 Enter。
+    pub fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()> {
+        if text.len() > SUBMIT_TEXT_MAX_BYTES {
+            // fix(H1) review: submit 文本后端限制 256KB。
+            return Err(AppError::from(format!(
+                "submit_to_session text must be <= {} bytes",
+                SUBMIT_TEXT_MAX_BYTES
+            )));
+        }
+
+        let clean_text = text.replace(['\r', '\n'], "");
+        let text_len = clean_text.len();
+        let mutex = self.submit_mutex_for_session(session_id)?;
+        let _guard = mutex
+            .lock()
+            .map_err(|_| AppError::from("submit session lock poisoned"))?;
+
+        // fix(C2) review: 持有 per-session 锁覆盖“写文本 + sleep + 写 Enter”的完整序列。
+        self.write(session_id, &clean_text)
+            .map_err(AppError::from)?;
+        let delay_ms = std::cmp::min(200 + (text_len as u64 / 512) * 30, 5000);
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        self.write(session_id, "\r").map_err(AppError::from)?;
+        Ok(())
+    }
+
     /// 调整终端大小
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {
         let sessions = self
@@ -2159,16 +2300,20 @@ impl TerminalService {
     }
 
     /// 关闭终端会话
-    pub fn kill(&self, session_id: &str) -> Result<()> {
+    pub fn kill(&self, session_id: &str) -> AppResult<()> {
         debug!(session_id = %session_id, "Terminal kill requested");
         // 在 sessions lock 外 drop session，避免进程终止阻塞全局会话锁
         let session = {
             let mut sessions = self
                 .sessions
                 .lock()
-                .map_err(|_| anyhow!("sessions lock poisoned"))?;
+                .map_err(|_| AppError::from("sessions lock poisoned"))?;
             sessions.remove(session_id)
         }; // sessions lock 在此释放
+        if let Ok(mut submit_mutexes) = self.submit_mutexes.lock() {
+            // fix(C2) review: session kill 时清理 submit mutex，避免长期残留。
+            submit_mutexes.remove(session_id);
+        }
 
         if let Some(session) = session {
             // 保存 output_buffer 到 dead_buffers，供事后读取
@@ -2207,7 +2352,11 @@ impl TerminalService {
             // session 在此 drop，不再持有 sessions lock
             Ok(())
         } else {
-            Err(anyhow!("Session not found: {}", session_id))
+            // fix(H2) review: kill 缺失 session 返回 typed NotFound，由命令层判定幂等成功。
+            Err(AppError::NotFound(format!(
+                "Session not found: {}",
+                session_id
+            )))
         }
     }
 
@@ -2469,7 +2618,7 @@ impl TerminalService {
             };
             // 写入 status Mutex（沿用 PTY read 线程的 lock 模式）
             if let Ok(mut s) = session.status.lock() {
-                *s = new_status.clone();
+                *s = new_status;
             }
             session.process.pid()
         };
@@ -2479,15 +2628,17 @@ impl TerminalService {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let _ = emitter.emit(
                     EV::TERMINAL_STATUS,
-                    serde_json::to_value(&SessionStatusInfo {
-                        session_id: session_id.to_string(),
-                        status: new_status,
-                        last_output_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64,
-                        pid: Some(pid),
-                    })
+                    serde_json::to_value(build_session_status_info(
+                        session_id.to_string(),
+                        new_status,
+                        current_epoch_millis(),
+                        Some(pid),
+                        self.state_machine
+                            .lock()
+                            .ok()
+                            .and_then(|guard| guard.as_ref().cloned())
+                            .as_ref(),
+                    ))
                     .unwrap_or_default(),
                 );
             }));
@@ -2660,10 +2811,154 @@ pub fn get_windows_build_number() -> u32 {
 mod tests {
     use super::*;
     use crate::models::shared_mcp::{BridgeMode, SharedMcpServerConfig};
+    use crate::services::{ProjectCliHooksService, ProviderService, SettingsService};
+    use crate::utils::AppPaths;
+    use std::io;
+
+    struct FakePtyProcess;
+
+    impl PtyProcess for FakePtyProcess {
+        fn resize(&self, _cols: u16, _rows: u16) -> Result<()> {
+            Ok(())
+        }
+
+        fn pid(&self) -> u32 {
+            1
+        }
+
+        fn wait(&self) -> Result<std::process::ExitStatus> {
+            Err(anyhow!("fake process does not wait"))
+        }
+
+        fn kill(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    struct RecordingWriter {
+        writes: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(String::from_utf8_lossy(buf).to_string());
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn terminal_service_for_test() -> (Arc<TerminalService>, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let app_paths = Arc::new(AppPaths::new(Some(
+            temp_dir.path().to_string_lossy().to_string(),
+        )));
+        let cli_registry = Arc::new(CliToolRegistry::new());
+        let service = Arc::new(TerminalService::new(
+            Arc::new(SettingsService::new()),
+            Arc::new(ProviderService::new(app_paths.providers_path())),
+            app_paths,
+            cli_registry.clone(),
+            Arc::new(ProjectCliHooksService::new(cli_registry)),
+            Arc::new(SshCredentialService::new_memory()),
+        ));
+        (service, temp_dir)
+    }
+
+    fn install_recording_session(
+        service: &TerminalService,
+        session_id: &str,
+        writes: Arc<Mutex<Vec<String>>>,
+    ) {
+        let writer_tx =
+            spawn_terminal_writer(session_id.to_string(), Box::new(RecordingWriter { writes }));
+        service
+            .sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                session_id.to_string(),
+                TerminalSession {
+                    launch_id: None,
+                    process: Arc::new(FakePtyProcess),
+                    writer_tx,
+                    status: Arc::new(Mutex::new(SessionStatus::Idle)),
+                    last_output_at: Arc::new(Mutex::new(Instant::now())),
+                    cancelled: Arc::new(AtomicBool::new(false)),
+                    output_buffer: Arc::new(Mutex::new(OutputBuffer::new(10, 1024))),
+                    replay_buffer: Arc::new(Mutex::new(ReplayBuffer::new(1024))),
+                },
+            );
+    }
 
     #[test]
     fn test_infer_status_empty() {
         assert_eq!(infer_status(""), SessionStatus::Active);
+    }
+
+    #[test]
+    fn pty_fallback_recovers_stale_non_terminal_status_when_hooks_are_silent() {
+        assert!(should_apply_pty_status_fallback(
+            false,
+            SessionStatus::WaitingInput
+        ));
+        assert!(should_apply_pty_status_fallback(
+            false,
+            SessionStatus::ToolRunning
+        ));
+        assert!(!should_apply_pty_status_fallback(
+            true,
+            SessionStatus::WaitingInput
+        ));
+        assert!(!should_apply_pty_status_fallback(
+            false,
+            SessionStatus::Exited
+        ));
+        assert!(!should_apply_pty_status_fallback(
+            false,
+            SessionStatus::Error
+        ));
+    }
+
+    #[test]
+    fn submit_to_session_serializes_text_and_enter_per_session() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session(&service, "session-1", writes.clone());
+
+        let first = {
+            let service = service.clone();
+            thread::spawn(move || service.submit_text_to_session("session-1", "alpha"))
+        };
+        let second = {
+            let service = service.clone();
+            thread::spawn(move || service.submit_text_to_session("session-1", "beta"))
+        };
+
+        first
+            .join()
+            .expect("first submit thread")
+            .expect("first submit");
+        second
+            .join()
+            .expect("second submit thread")
+            .expect("second submit");
+
+        let writes = writes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        // fix(C2) review: 并发 submit 不能交错成 text/text/Enter/Enter。
+        assert!(
+            writes == vec!["alpha", "\r", "beta", "\r"]
+                || writes == vec!["beta", "\r", "alpha", "\r"],
+            "unexpected submit write order: {writes:?}"
+        );
     }
 
     #[test]

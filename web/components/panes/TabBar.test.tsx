@@ -120,9 +120,31 @@ describe("TabBar", () => {
     const itemsContainer = screen.getByTestId("pane-tabbar-items");
 
     expect(scrollContainer.className).toContain("overflow-x-auto");
+    expect(scrollContainer.className).toContain("cc-tabbar-scroll");
+    expect(scrollContainer.className).not.toContain("no-scrollbar");
     expect(itemsContainer.className).toContain("inline-flex");
     expect(itemsContainer.className).toContain("min-w-max");
     expect(itemsContainer.className).not.toContain("flex-1");
+  });
+
+  it("maps mouse wheel movement to horizontal tab scrolling", () => {
+    renderTabBar({
+      tabs: [
+        makeTab("tab-1", "Alpha"),
+        makeTab("tab-2", "Beta"),
+        makeTab("tab-3", "Gamma"),
+        makeTab("tab-4", "Delta"),
+      ],
+    });
+
+    const scrollContainer = screen.getByTestId("pane-tabbar-scroll");
+    Object.defineProperty(scrollContainer, "clientWidth", { configurable: true, value: 120 });
+    Object.defineProperty(scrollContainer, "scrollWidth", { configurable: true, value: 420 });
+    scrollContainer.scrollLeft = 0;
+
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
+
+    expect(scrollContainer.scrollLeft).toBe(80);
   });
 
   it("scrolls the active tab into view when the active tab changes", () => {

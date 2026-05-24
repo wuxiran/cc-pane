@@ -28,13 +28,26 @@ window.addEventListener("unhandledrejection", (e) => {
   logError(`[UNHANDLED REJECTION] ${errorToString(e.reason)}`).catch(() => {});
 });
 
-try {
-  ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
-} catch (e) {
+async function renderRoot() {
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  const root = ReactDOM.createRoot(document.getElementById("root")!);
+
+  if (mode === "ccchan") {
+    const { CCChanApp } = await import("./ccchan/CCChanApp");
+    root.render(<CCChanApp />);
+  } else if (mode === "popup") {
+    const { default: PopupTerminalWindow } = await import("@/components/PopupTerminalWindow");
+    root.render(<PopupTerminalWindow />);
+  } else {
+    root.render(<App />);
+  }
+}
+
+renderRoot().catch((e) => {
   console.error("[RENDER CRASH]", e);
   logError(`[RENDER CRASH] ${errorToString(e)}`).catch(() => {});
   const root = document.getElementById("root");
   if (root) {
     root.innerHTML = `<pre style="color:red;padding:20px;font-size:13px;">Render crash: ${e instanceof Error ? e.stack : e}</pre>`;
   }
-}
+});

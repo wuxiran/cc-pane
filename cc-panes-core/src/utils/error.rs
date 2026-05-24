@@ -1,4 +1,5 @@
-use serde::Serialize;
+use serde::ser::SerializeMap;
+use serde::{Serialize, Serializer};
 use std::collections::HashMap;
 
 /// 统一应用错误类型
@@ -9,28 +10,35 @@ use std::collections::HashMap;
 ///
 /// 前端 `translateError()` 会读取 `code` 字段查找 i18n 翻译，
 /// `params` 用于翻译模板中的插值（如 `{{name}}`、`{{path}}`）。
-#[derive(Debug, Serialize)]
-pub struct AppError {
-    /// 错误码，对应前端 `errors.json` 中的 key（如 "WORKSPACE_NOT_FOUND"）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
-
-    /// 错误消息（开发调试用，前端优先使用 code 对应的 i18n 翻译）
-    pub message: String,
-
-    /// i18n 插值参数（如 `{ "name": "my-workspace" }`）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<HashMap<String, String>>,
+#[derive(Debug, Clone)]
+pub enum AppError {
+    Message {
+        /// 错误码，对应前端 `errors.json` 中的 key（如 "WORKSPACE_NOT_FOUND"）
+        code: Option<String>,
+        /// 错误消息（开发调试用，前端优先使用 code 对应的 i18n 翻译）
+        message: String,
+        /// i18n 插值参数（如 `{ "name": "my-workspace" }`）
+        params: Option<HashMap<String, String>>,
+    },
+    NotFound(String),
 }
 
 impl AppError {
+    fn message_error(
+        code: Option<String>,
+        message: impl Into<String>,
+        params: Option<HashMap<String, String>>,
+    ) -> Self {
+        Self::Message {
+            code,
+            message: message.into(),
+            params,
+        }
+    }
+
     /// 创建带错误码的结构化错误
     pub fn coded(code: &str, message: impl Into<String>) -> Self {
-        Self {
-            code: Some(code.to_string()),
-            message: message.into(),
-            params: None,
-        }
+        Self::message_error(Some(code.to_string()), message, None)
     }
 
     /// 创建带错误码和 i18n 参数的结构化错误
@@ -39,71 +47,85 @@ impl AppError {
         message: impl Into<String>,
         params: HashMap<String, String>,
     ) -> Self {
-        Self {
-            code: Some(code.to_string()),
-            message: message.into(),
-            params: Some(params),
+        Self::message_error(Some(code.to_string()), message, Some(params))
+    }
+
+    pub fn code(&self) -> Option<&str> {
+        match self {
+            Self::Message { code, .. } => code.as_deref(),
+            Self::NotFound(_) => Some("NOT_FOUND"),
         }
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Message { message, .. } => message,
+            Self::NotFound(message) => message,
+        }
+    }
+
+    pub fn params(&self) -> Option<&HashMap<String, String>> {
+        match self {
+            Self::Message { params, .. } => params.as_ref(),
+            Self::NotFound(_) => None,
+        }
+    }
+}
+
+impl Serialize for AppError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(code) = self.code() {
+            map.serialize_entry("code", code)?;
+        }
+        map.serialize_entry("message", self.message())?;
+        if let Some(params) = self.params() {
+            map.serialize_entry("params", params)?;
+        }
+        map.end()
     }
 }
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(ref code) = self.code {
-            write!(f, "[{}] {}", code, self.message)
+        if let Some(code) = self.code() {
+            write!(f, "[{}] {}", code, self.message())
         } else {
-            write!(f, "{}", self.message)
+            write!(f, "{}", self.message())
         }
     }
 }
 
 impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
-        Self {
-            code: None,
-            message: err.to_string(),
-            params: None,
-        }
+        Self::message_error(None, err.to_string(), None)
     }
 }
 
 impl From<String> for AppError {
     fn from(msg: String) -> Self {
-        Self {
-            code: None,
-            message: msg,
-            params: None,
-        }
+        Self::message_error(None, msg, None)
     }
 }
 
 impl From<&str> for AppError {
     fn from(msg: &str) -> Self {
-        Self {
-            code: None,
-            message: msg.to_string(),
-            params: None,
-        }
+        Self::message_error(None, msg, None)
     }
 }
 
 impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
-        Self {
-            code: None,
-            message: err.to_string(),
-            params: None,
-        }
+        Self::message_error(None, err.to_string(), None)
     }
 }
 
 impl From<rusqlite::Error> for AppError {
     fn from(err: rusqlite::Error) -> Self {
-        Self {
-            code: None,
-            message: err.to_string(),
-            params: None,
-        }
+        Self::message_error(None, err.to_string(), None)
     }
 }
 

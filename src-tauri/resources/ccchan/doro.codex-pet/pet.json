@@ -1,0 +1,17 @@
+{
+  "id": "doro.codex-pet",
+  "displayName": "Doro",
+  "description": "A tiny white chibi pet with pink hair, purple eyes, and a side rose ribbon. Codex-pet standard atlas.",
+  "spritesheetPath": "spritesheet.webp",
+  "atlas": { "cellW": 192, "cellH": 208, "cols": 8, "rows": 9 },
+  "animations": {
+    "idle":     { "row": 0, "frames": 6, "fps": 2 },
+    "walking":  { "row": 1, "frames": 8, "fps": 8 },
+    "thinking": { "row": 8, "frames": 6, "fps": 8 },
+    "waiting":  { "row": 6, "frames": 6, "fps": 6 },
+    "working":  { "row": 7, "frames": 6, "fps": 12 },
+    "happy":    { "row": 3, "frames": 4, "fps": 10 },
+    "sad":      { "row": 5, "frames": 8, "fps": 6 },
+    "jumping":  { "row": 4, "frames": 5, "fps": 6 }
+  }
+}

@@ -1,8 +1,11 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { TerminalStatusType, TerminalStatusInfo } from "@/types";
 import { killedSessions } from "@/services/terminalService";
+
+const STATUS_REFRESH_INTERVAL_MS = 15000;
 
 interface TerminalStatusState {
   statusMap: Map<string, TerminalStatusInfo>;
@@ -11,6 +14,7 @@ interface TerminalStatusState {
   _initialized: boolean;
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
   removeSession: (sessionId: string) => void;
+  refreshLiveStatuses: () => Promise<void>;
   init: () => Promise<void>;
   cleanup: () => void;
 }
@@ -34,14 +38,41 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
     });
   },
 
+  refreshLiveStatuses: async () => {
+    try {
+      const statuses = await invoke<TerminalStatusInfo[]>("get_all_terminal_status");
+      if (!Array.isArray(statuses)) return;
+      set({
+        statusMap: new Map(
+          statuses
+            .filter((info) => !killedSessions.has(info.sessionId))
+            .map((info) => [info.sessionId, info]),
+        ),
+      });
+    } catch {
+      // Best effort only. Live terminal events still update the map.
+    }
+  },
+
   init: async () => {
     if (get()._initialized) return;
     set({ _initialized: true });
 
+    await get().refreshLiveStatuses();
+
     const unlistenFn = await getCurrentWebview().listen<TerminalStatusInfo>("terminal-status", (event) => {
       if (killedSessions.has(event.payload.sessionId)) return;
       const current = get().statusMap.get(event.payload.sessionId);
-      if (current && current.status === event.payload.status) return;
+      if (
+        current &&
+        current.status === event.payload.status &&
+        current.updatedAt === event.payload.updatedAt &&
+        current.currentToolName === event.payload.currentToolName &&
+        current.currentToolUseId === event.payload.currentToolUseId &&
+        current.currentToolSummary === event.payload.currentToolSummary
+      ) {
+        return;
+      }
       set((state) => {
         const newMap = new Map(state.statusMap);
         newMap.set(event.payload.sessionId, event.payload);
@@ -64,7 +95,8 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
         }
         return changed ? { statusMap: newMap } : state;
       });
-    }, 15000);
+      void get().refreshLiveStatuses();
+    }, STATUS_REFRESH_INTERVAL_MS);
     set({ _idleCheckInterval: interval });
   },
 

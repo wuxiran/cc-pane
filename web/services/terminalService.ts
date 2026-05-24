@@ -9,7 +9,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import type { CreateSessionRequest, ResizeRequest, EnvironmentInfo } from "@/types";
+import type {
+  CreateSessionRequest,
+  ResizeRequest,
+  EnvironmentInfo,
+  TerminalSessionOutput,
+} from "@/types";
 import type { EnvironmentInfoRaw } from "@/types/settings";
 import { usageStatsService } from "./usageStatsService";
 import { devDebugLog } from "@/utils/devLogger";
@@ -59,6 +64,14 @@ function countTerminalInputChars(data: string): number {
     }
   }
   return count;
+}
+
+function assertCreateSessionRequest(
+  request: CreateSessionRequest | null | undefined,
+): asserts request is CreateSessionRequest {
+  if (!request || typeof request !== "object") {
+    throw new Error("create_terminal_session requires a non-null request");
+  }
 }
 
 // ── 模块级状态：单例监听器 ──────────────────────────────────
@@ -171,7 +184,8 @@ export function _resetListenersForTest(): void {
 
 export const terminalService = {
   /** 创建终端会话 */
-  async createSession(request: CreateSessionRequest): Promise<string> {
+  async createSession(request: CreateSessionRequest | null | undefined): Promise<string> {
+    assertCreateSessionRequest(request);
     return invoke<string>("create_terminal_session", { request });
   },
 
@@ -198,6 +212,21 @@ export const terminalService = {
   /** 关闭终端会话 */
   async kill(sessionId: string): Promise<void> {
     return invoke("kill_terminal", { sessionId });
+  },
+
+  /** 幂等关闭终端会话：不存在或已退出也视为成功 */
+  async killIdempotent(sessionId: string): Promise<void> {
+    return invoke("kill_terminal_idempotent", { sessionId });
+  },
+
+  /** 向会话提交文本并自动发送 Enter */
+  async submitToSession(sessionId: string, text: string): Promise<void> {
+    return invoke("submit_to_session", { sessionId, text });
+  },
+
+  /** 读取最近 N 行纯文本输出 */
+  async getRecentOutput(sessionId: string, lines = 200): Promise<TerminalSessionOutput> {
+    return invoke<TerminalSessionOutput>("get_terminal_recent_output", { sessionId, lines });
   },
 
   async getReplaySnapshot(sessionId: string): Promise<TerminalReplaySnapshot | null> {

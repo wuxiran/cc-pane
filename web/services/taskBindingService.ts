@@ -6,6 +6,7 @@ import type {
   TaskBinding,
   CreateTaskBindingRequest,
   UpdateTaskBindingRequest,
+  TaskBindingPatch,
   TaskBindingQuery,
   TaskBindingQueryResult,
   RegisterPlanLeaderRequest,
@@ -35,9 +36,20 @@ export const taskBindingService = {
     return invoke<TaskBinding>("update_task_binding", { id, request });
   },
 
+  /** Merge-patch 更新；metadata 会在 Rust 端深合并 */
+  async updatePatch(id: string, patch: TaskBindingPatch): Promise<TaskBinding> {
+    return invoke<TaskBinding>("update_task_binding_patch", { id, patch });
+  },
+
   /** 删除编排任务 */
   async delete(id: string): Promise<boolean> {
     return invoke<boolean>("delete_task_binding", { id });
+  },
+
+  /** 原子级联删除编排任务 */
+  async deleteCascade(id: string): Promise<boolean> {
+    // fix(H3) review: leader 级联删除只发一次 Tauri command，由后端事务保证原子性。
+    return invoke<boolean>("delete_task_binding_cascade", { id });
   },
 
   /** 查询编排任务列表 */

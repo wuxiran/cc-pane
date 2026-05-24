@@ -1,6 +1,6 @@
 ---
 name: ccpanes-memory-dual-write
-description: Mirror long-term memory writes into the {{app_name}} shared pool via `cc-memory` MCP so Claude and Codex see the same memory across instances. Use when the user says "记住"、"以后都这样"、"别忘了"、"remember that"、"don't forget"、corrects you (feedback), states a stable preference, or makes a design decision worth recalling next session. Skip when all three env vars `CC_PANES_PROJECT_PATH` / `CC_PANES_WORKSPACE_NAME` / `CC_PANES_CLI_TOOL` are missing — that means the CLI is not under {{app_name}} control and writes would pollute the pool.
+description: Mirror long-term memory writes into the {{app_name}} shared pool via the built-in `ccpanes` MCP memory tools so Claude and Codex see the same memory across instances. Use when the user says "记住"、"以后都这样"、"别忘了"、"remember that"、"don't forget"、corrects you (feedback), states a stable preference, or makes a design decision worth recalling next session. Skip when all three env vars `CC_PANES_PROJECT_PATH` / `CC_PANES_WORKSPACE_NAME` / `CC_PANES_CLI_TOOL` are missing — that means the CLI is not under {{app_name}} control and writes would pollute the pool.
 ---
 
 # 双写记忆
@@ -24,7 +24,7 @@ echo "$CC_PANES_CLI_TOOL"
 
 ## 去重（写入前）
 
-`cc-memory.memory_search(query: <title 关键词>, limit: 3)`：
+`{{mcp_server_name}}.memory_search(query: <title 关键词>, limit: 3)`：
 
 - 有近似条目 → `memory_update`
 - 已有相同 → 跳过
@@ -33,7 +33,7 @@ echo "$CC_PANES_CLI_TOOL"
 ## 写入
 
 ```
-cc-memory.memory_add(
+{{mcp_server_name}}.memory_add(
   title:        "<≤200 字摘要>",
   content:      "<完整内容>",
   scope:        "project" | "workspace" | "global",
@@ -50,7 +50,7 @@ cc-memory.memory_add(
 
 ## 检索
 
-`cc-memory.memory_search(query, scope, min_importance, limit)` 默认按当前 project 过滤。
+`{{mcp_server_name}}.memory_search(query, scope, min_importance, limit)` 默认按当前 project 过滤。
 
 ## 失败兜底
 

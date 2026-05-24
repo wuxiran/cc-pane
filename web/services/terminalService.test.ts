@@ -8,6 +8,37 @@ describe("terminalService", () => {
     resetTauriInvoke();
   });
 
+  describe("createSession", () => {
+    it("calls create_terminal_session with a request object", async () => {
+      mockTauriInvoke({ create_terminal_session: "session-1" });
+
+      const result = await terminalService.createSession({
+        projectPath: "/tmp/project",
+        cols: 80,
+        rows: 24,
+        cliTool: "claude",
+      });
+
+      expect(invoke).toHaveBeenCalledWith("create_terminal_session", {
+        request: {
+          projectPath: "/tmp/project",
+          cols: 80,
+          rows: 24,
+          cliTool: "claude",
+        },
+      });
+      expect(result).toBe("session-1");
+    });
+
+    it("rejects a null request before invoking Tauri", async () => {
+      await expect(
+        terminalService.createSession(null),
+      ).rejects.toThrow("create_terminal_session requires a non-null request");
+
+      expect(invoke).not.toHaveBeenCalled();
+    });
+  });
+
   describe("getReplaySnapshot", () => {
     it("calls get_terminal_replay_snapshot and returns the snapshot", async () => {
       const snapshot = {

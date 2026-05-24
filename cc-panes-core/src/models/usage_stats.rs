@@ -21,10 +21,7 @@ impl UsageTotals {
     }
 
     pub fn token_total(&self) -> u64 {
-        self.token_input
-            + self.token_output
-            + self.token_cache_read
-            + self.token_cache_creation
+        self.token_input + self.token_output + self.token_cache_read + self.token_cache_creation
     }
 }
 

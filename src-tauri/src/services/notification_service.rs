@@ -1,11 +1,11 @@
-use crate::services::SettingsService;
+use crate::services::{SettingsService, TaskBindingService};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +20,8 @@ pub struct NotificationRequest {
     pub scope: Option<String>,
     #[serde(default)]
     pub dedupe_key: Option<String>,
+    #[serde(default)]
+    pub group_key: Option<String>,
     #[serde(default)]
     pub only_when_unfocused: Option<bool>,
     #[serde(default)]
@@ -60,6 +62,7 @@ struct PreparedNotificationRequest {
     source: Option<String>,
     scope: Option<String>,
     dedupe_key: Option<String>,
+    group_key: Option<String>,
     only_when_unfocused: Option<bool>,
     metadata: Option<serde_json::Value>,
 }
@@ -72,6 +75,7 @@ struct NotificationSentEvent<'a> {
     source: Option<&'a str>,
     scope: Option<&'a str>,
     dedupe_key: Option<&'a str>,
+    group_key: Option<&'a str>,
 }
 
 /// 通知服务 - 管理显式触发的桌面通知与去重
@@ -132,6 +136,7 @@ impl NotificationService {
                 source: request.source.as_deref(),
                 scope: request.scope.as_deref(),
                 dedupe_key: request.dedupe_key.as_deref(),
+                group_key: request.group_key.as_deref(),
             },
         );
         Ok(NotificationTriggerResult::sent())
@@ -144,12 +149,16 @@ impl NotificationService {
         settings_svc: &Arc<SettingsService>,
         session_id: &str,
         exit_code: i32,
+        group_key: Option<String>,
     ) {
         let settings = settings_svc.get_settings().notification;
         if !settings.enabled || !settings.on_exit {
             return;
         }
         if settings.only_when_unfocused && self.is_window_focused(app) {
+            return;
+        }
+        if self.is_task_muted(app, session_id) {
             return;
         }
         if !self.check_dedupe(&format!("session_exit:{session_id}")) {
@@ -174,6 +183,7 @@ impl NotificationService {
                     source: Some("terminal"),
                     scope: Some("session"),
                     dedupe_key: Some(&format!("session_exit:{session_id}")),
+                    group_key: group_key.as_deref(),
                 },
             );
         }
@@ -185,12 +195,16 @@ impl NotificationService {
         app: &AppHandle,
         settings_svc: &Arc<SettingsService>,
         session_id: &str,
+        group_key: Option<String>,
     ) {
         let settings = settings_svc.get_settings().notification;
         if !settings.enabled || !settings.on_waiting_input {
             return;
         }
         if settings.only_when_unfocused && self.is_window_focused(app) {
+            return;
+        }
+        if self.is_task_muted(app, session_id) {
             return;
         }
         if !self.check_dedupe(&format!("session_waiting_input:{session_id}")) {
@@ -214,6 +228,7 @@ impl NotificationService {
                     source: Some("terminal"),
                     scope: Some("session"),
                     dedupe_key: Some(&format!("session_waiting_input:{session_id}")),
+                    group_key: group_key.as_deref(),
                 },
             );
         }
@@ -247,12 +262,16 @@ impl NotificationService {
         session_id: &str,
         turn_seq: u64,
         summary: Option<&str>,
+        group_key: Option<String>,
     ) {
         let settings = settings_svc.get_settings().notification;
         if !settings.enabled || !settings.on_waiting_input {
             return;
         }
         if settings.only_when_unfocused && self.is_window_focused(app) {
+            return;
+        }
+        if self.is_task_muted(app, session_id) {
             return;
         }
         let dedupe_key = format!("turn_end:{session_id}:{turn_seq}");
@@ -275,6 +294,7 @@ impl NotificationService {
                     source: Some("hook"),
                     scope: Some("session"),
                     dedupe_key: Some(&dedupe_key),
+                    group_key: group_key.as_deref(),
                 },
             );
         }
@@ -286,12 +306,16 @@ impl NotificationService {
         settings_svc: &Arc<SettingsService>,
         session_id: &str,
         error_type: Option<&str>,
+        group_key: Option<String>,
     ) {
         let settings = settings_svc.get_settings().notification;
         if !settings.enabled || !settings.on_exit {
             return;
         }
         if settings.only_when_unfocused && self.is_window_focused(app) {
+            return;
+        }
+        if self.is_task_muted(app, session_id) {
             return;
         }
         let etype = error_type.unwrap_or("unknown");
@@ -310,11 +334,13 @@ impl NotificationService {
                     source: Some("hook"),
                     scope: Some("session"),
                     dedupe_key: Some(&dedupe_key),
+                    group_key: group_key.as_deref(),
                 },
             );
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn notify_slow_tool(
         &self,
         app: &AppHandle,
@@ -323,12 +349,16 @@ impl NotificationService {
         tool_name: &str,
         tool_use_id: Option<&str>,
         seconds: u64,
+        group_key: Option<String>,
     ) {
         let settings = settings_svc.get_settings().notification;
         if !settings.enabled || !settings.on_waiting_input {
             return;
         }
         if settings.only_when_unfocused && self.is_window_focused(app) {
+            return;
+        }
+        if self.is_task_muted(app, session_id) {
             return;
         }
         let suffix = tool_use_id.unwrap_or("none");
@@ -350,6 +380,7 @@ impl NotificationService {
                     source: Some("hook"),
                     scope: Some("session"),
                     dedupe_key: Some(&dedupe_key),
+                    group_key: group_key.as_deref(),
                 },
             );
         }
@@ -395,6 +426,10 @@ impl NotificationService {
                 .dedupe_key
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty()),
+            group_key: request
+                .group_key
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
             only_when_unfocused: request.only_when_unfocused,
             metadata: request.metadata,
         })
@@ -418,6 +453,25 @@ impl NotificationService {
         }
         map.insert(dedupe_key.to_string(), Instant::now());
         true
+    }
+
+    fn is_task_muted(&self, app: &AppHandle, session_id: &str) -> bool {
+        let Some(task_binding_service) = app.try_state::<Arc<TaskBindingService>>() else {
+            return false;
+        };
+
+        match task_binding_service.find_by_session_id(session_id) {
+            Ok(Some(binding)) => task_metadata_muted(&binding.metadata),
+            Ok(None) => false,
+            Err(error) => {
+                warn!(
+                    session_id = %session_id,
+                    err = %error,
+                    "Failed to load TaskBinding notification metadata; continuing notification"
+                );
+                false
+            }
+        }
     }
 
     fn send_notification(
@@ -445,9 +499,19 @@ impl NotificationService {
                 "source": event.source,
                 "scope": event.scope,
                 "dedupeKey": event.dedupe_key,
+                "groupKey": event.group_key,
             }),
         );
     }
+}
+
+fn task_metadata_muted(metadata: &Option<serde_json::Value>) -> bool {
+    metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("ui"))
+        .and_then(|ui| ui.get("muted"))
+        .and_then(|muted| muted.as_bool())
+        == Some(true)
 }
 
 impl Default for NotificationService {
@@ -469,6 +533,7 @@ mod tests {
             source: Some(" cli ".to_string()),
             scope: Some(" project ".to_string()),
             dedupe_key: Some(" session:123 ".to_string()),
+            group_key: Some(" group:1 ".to_string()),
             only_when_unfocused: Some(true),
             metadata: Some(serde_json::json!({ "taskId": "1" })),
         })
@@ -480,6 +545,7 @@ mod tests {
         assert_eq!(normalized.source.as_deref(), Some("cli"));
         assert_eq!(normalized.scope.as_deref(), Some("project"));
         assert_eq!(normalized.dedupe_key.as_deref(), Some("session:123"));
+        assert_eq!(normalized.group_key.as_deref(), Some("group:1"));
         assert_eq!(normalized.only_when_unfocused, Some(true));
     }
 
@@ -492,6 +558,7 @@ mod tests {
             source: None,
             scope: None,
             dedupe_key: None,
+            group_key: None,
             only_when_unfocused: None,
             metadata: None,
         });
@@ -504,5 +571,19 @@ mod tests {
         assert!(service.check_dedupe("session:1"));
         assert!(!service.check_dedupe("session:1"));
         assert!(service.check_dedupe("session:2"));
+    }
+
+    #[test]
+    fn task_metadata_muted_only_skips_explicit_true() {
+        assert!(task_metadata_muted(&Some(serde_json::json!({
+            "ui": { "muted": true }
+        }))));
+        assert!(!task_metadata_muted(&Some(serde_json::json!({
+            "ui": { "muted": false }
+        }))));
+        assert!(!task_metadata_muted(&Some(serde_json::json!({
+            "ui": { "muted": "true" }
+        }))));
+        assert!(!task_metadata_muted(&None));
     }
 }

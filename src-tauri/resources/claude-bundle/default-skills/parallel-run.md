@@ -33,6 +33,7 @@ description: Split a larger task into independent subtasks, launch them as paral
 
 - 子任务**必须独立**——同一文件并发改会冲突。
 - 同一 git repo 内并行时提醒 git 冲突风险。
+- 代码型/编译型 worker 默认 ≤2 个——Rust/Java 等编译进程吃满 CPU+内存，多 worker 同时 `cargo build` / `mvn package` 会爆。更高并发需手动控制。
 - 轮询间隔 ≥ 20 秒，避免过频。
 - 单个 worker 长时间 stalled 时提示用户介入。
 

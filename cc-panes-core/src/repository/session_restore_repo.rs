@@ -14,7 +14,7 @@ impl SessionRestoreRepository {
 
     /// 保存所有会话（事务：先清空再批量插入）
     pub fn save_sessions(&self, sessions: &[SavedSession]) -> Result<(), String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
 
         conn.execute("DELETE FROM terminal_sessions", [])
             .map_err(|e| format!("Failed to clear terminal_sessions: {}", e))?;
@@ -62,7 +62,7 @@ impl SessionRestoreRepository {
 
     /// 加载所有已保存的会话
     pub fn load_sessions(&self) -> Result<Vec<SavedSession>, String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
                 "SELECT session_id, tab_id, pane_id, project_path,
@@ -112,7 +112,7 @@ impl SessionRestoreRepository {
 
     /// 清空所有已保存的会话
     pub fn clear_sessions(&self) -> Result<(), String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM terminal_sessions", [])
             .map_err(|e| format!("Failed to clear terminal_sessions: {}", e))?;
         Ok(())

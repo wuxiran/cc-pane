@@ -10,13 +10,25 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tracing::debug;
 
+fn is_idempotent_kill_error(error: &AppError) -> bool {
+    // fix(H2) review: typed NotFound replaces fragile string-only not-found detection.
+    matches!(error, AppError::NotFound(_))
+        || error
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("already exited")
+}
+
 /// 创建终端会话
 #[tauri::command]
 pub async fn create_terminal_session(
     _app_handle: AppHandle,
     service: State<'_, Arc<TerminalService>>,
-    request: CreateSessionRequest,
+    request: Option<CreateSessionRequest>,
 ) -> AppResult<String> {
+    let request = request
+        .ok_or_else(|| AppError::from("create_terminal_session requires a non-null request"))?;
+
     debug!(
         project_path = %request.project_path,
         ssh = request.ssh.is_some(),
@@ -56,6 +68,7 @@ pub async fn create_terminal_session(
             request.resume_id.as_deref(),
             request.skip_mcp,
             request.append_system_prompt.as_deref(),
+            None,
             None,
             request.ssh.as_ref(),
             request.wsl.as_ref(),
@@ -98,7 +111,44 @@ pub async fn kill_terminal(
     let result = tauri::async_runtime::spawn_blocking(move || svc.kill(&session_id))
         .await
         .map_err(|e| AppError::from(e.to_string()))?;
-    Ok(result?)
+    result
+}
+
+/// 幂等关闭终端会话：不存在或已退出都视为成功。
+#[tauri::command]
+pub async fn kill_terminal_idempotent(
+    service: State<'_, Arc<TerminalService>>,
+    session_id: String,
+) -> AppResult<()> {
+    debug!(session_id = %session_id, "cmd::kill_terminal_idempotent");
+    let svc = service.inner().clone();
+    let sid = session_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || svc.kill(&sid))
+        .await
+        .map_err(|e| AppError::from(e.to_string()))?;
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if is_idempotent_kill_error(&error) => Ok(()),
+        Err(error) => Err(AppError::from(error.to_string())),
+    }
+}
+
+/// 提交文本到会话：先写文本，短暂等待后单独发送 Enter。
+#[tauri::command]
+pub async fn submit_to_session(
+    service: State<'_, Arc<TerminalService>>,
+    session_id: String,
+    text: String,
+) -> AppResult<()> {
+    debug!(session_id = %session_id, text_len = text.len(), "cmd::submit_to_session");
+    let svc = service.inner().clone();
+    let sid = session_id.clone();
+    // fix(C2) review: TerminalService 持有 per-session submit mutex 串行化文本+Enter。
+    tauri::async_runtime::spawn_blocking(move || svc.submit_text_to_session(&sid, &text))
+        .await
+        .map_err(|e| AppError::from(e.to_string()))?
+        .map_err(|e| AppError::from(e.to_string()))?;
+    Ok(())
 }
 
 /// 获取所有终端状态
@@ -175,6 +225,17 @@ pub fn get_terminal_output(
     Ok(service.get_session_output(&session_id, lines.unwrap_or(0))?)
 }
 
+/// 读取终端会话最近 N 行输出。
+#[tauri::command]
+pub fn get_terminal_recent_output(
+    service: State<'_, Arc<TerminalService>>,
+    session_id: String,
+    lines: Option<usize>,
+) -> AppResult<SessionOutput> {
+    debug!(session_id = %session_id, "cmd::get_terminal_recent_output");
+    Ok(service.get_session_output(&session_id, lines.unwrap_or(0))?)
+}
+
 /// 获取 attach-existing 所需的原始 VT replay 快照
 #[tauri::command]
 pub fn get_terminal_replay_snapshot(
@@ -183,4 +244,16 @@ pub fn get_terminal_replay_snapshot(
 ) -> AppResult<Option<TerminalReplaySnapshot>> {
     debug!(session_id = %session_id, "cmd::get_terminal_replay_snapshot");
     Ok(service.get_session_replay_snapshot(&session_id)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kill_terminal_idempotent_treats_missing_session_as_success() {
+        let error = AppError::NotFound("Session not found: missing".into());
+
+        assert!(is_idempotent_kill_error(&error));
+    }
 }

@@ -173,4 +173,8 @@ export interface TerminalStatusInfo {
   status: TerminalStatusType;
   lastOutputAt: number;
   pid?: number;
+  currentToolName?: string;
+  currentToolUseId?: string;
+  currentToolSummary?: string;
+  updatedAt: number;
 }

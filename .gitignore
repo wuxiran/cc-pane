@@ -52,8 +52,12 @@ ref/
 .claude/worktrees/
 .codex-*.log
 
-# 误生成的 Windows 盘符路径镜像
+# 误生成的 Windows 盘符路径镜像（ASCII 冒号 + 全角冒号）
 src-tauri/[A-Za-z]:/
+src-tauri/[A-Za-z]：/
+
+# Dev 调试日志（运行时生成，不入库）
+dev.log
 
 # Claude 本地设置（不提交个人权限配置）
 .claude/settings.local.json

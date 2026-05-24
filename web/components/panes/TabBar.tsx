@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
-import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink } from "lucide-react";
+import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -21,9 +21,9 @@ const DENSITY = {
   normal: {
     barPadding: 'px-2 pt-1',
     tabHeight: 'h-[34px]', tabPadding: 'px-3',
-    tabRadius: 'rounded-t-[8px]', tabMaxW: 'max-w-[200px]', tabMinW: 'min-w-[120px]',
+    tabRadius: 'rounded-t-[8px]', tabMaxW: 'max-w-[180px]', tabMinW: 'min-w-[112px]',
     inactiveRadius: 'rounded-t-[6px]', inactiveMargin: 'mx-0.5',
-    fontSize: 'text-[13px]', titleMaxW: 'max-w-[120px]',
+    fontSize: 'text-[13px]', titleMaxW: 'max-w-[108px]',
     closeBtnSize: 'w-[22px] h-[22px]', closeIconSize: 13,
     separatorH: 'h-5',
     statusSize: 6, pinSize: 12, addBtn: 'p-2', addIcon: 'w-4 h-4',
@@ -31,9 +31,9 @@ const DENSITY = {
   compact: {
     barPadding: 'px-1.5 pt-0.5',
     tabHeight: 'h-[28px]', tabPadding: 'px-2.5',
-    tabRadius: 'rounded-t-[6px]', tabMaxW: 'max-w-[200px]', tabMinW: 'min-w-[108px]',
+    tabRadius: 'rounded-t-[6px]', tabMaxW: 'max-w-[156px]', tabMinW: 'min-w-[94px]',
     inactiveRadius: 'rounded-t-[5px]', inactiveMargin: 'mx-0.5',
-    fontSize: 'text-[12px]', titleMaxW: 'max-w-[100px]',
+    fontSize: 'text-[12px]', titleMaxW: 'max-w-[76px]',
     closeBtnSize: 'w-[18px] h-[18px]', closeIconSize: 11,
     separatorH: 'h-4',
     statusSize: 5, pinSize: 10, addBtn: 'p-1.5', addIcon: 'w-3.5 h-3.5',
@@ -41,9 +41,9 @@ const DENSITY = {
   dense: {
     barPadding: 'px-1 pt-0.5',
     tabHeight: 'h-[24px]', tabPadding: 'px-2',
-    tabRadius: 'rounded-t-[6px]', tabMaxW: 'max-w-[160px]', tabMinW: 'min-w-[92px]',
+    tabRadius: 'rounded-t-[6px]', tabMaxW: 'max-w-[132px]', tabMinW: 'min-w-[74px]',
     inactiveRadius: 'rounded-t-[5px]', inactiveMargin: 'mx-0.5',
-    fontSize: 'text-[11px]', titleMaxW: 'max-w-[80px]',
+    fontSize: 'text-[11px]', titleMaxW: 'max-w-[54px]',
     closeBtnSize: 'w-[16px] h-[16px]', closeIconSize: 10,
     separatorH: 'h-3',
     statusSize: 4, pinSize: 10, addBtn: 'p-1', addIcon: 'w-3 h-3',
@@ -56,6 +56,7 @@ interface TabBarProps {
   paneId: string;
   tabs: Tab[];
   activeId: string;
+  tabNumbers?: Map<string, string>;
   onSelect: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onTogglePin: (tabId: string) => void;
@@ -379,6 +380,7 @@ export default memo(function TabBar({
   paneId,
   tabs,
   activeId,
+  tabNumbers: providedTabNumbers,
   onSelect,
   onClose,
   onTogglePin,
@@ -408,6 +410,8 @@ export default memo(function TabBar({
   const editInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const tabNodeRefs = useRef(new Map<string, HTMLDivElement>());
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
 
   // 标签重命名
   const startRename = useCallback((tab: Tab) => {
@@ -448,9 +452,8 @@ export default memo(function TabBar({
   const density: Density = tabs.length <= 3 ? 'normal' : tabs.length <= 6 ? 'compact' : 'dense';
   const d = DENSITY[density];
 
-  // 计算层级编号 (#1, #1.1, #2.1.1, …)。
-  // 纯函数，随 tabs 数组的顺序与 parentTabId 变化而重算 —— 无须持久化。
-  const tabNumbers = useMemo(() => computeTabNumbers(tabs), [tabs]);
+  const localTabNumbers = useMemo(() => computeTabNumbers(tabs), [tabs]);
+  const tabNumbers = providedTabNumbers ?? localTabNumbers;
 
   const registerTabNode = useCallback((tabId: string, node: HTMLDivElement | null) => {
     if (node) {
@@ -459,6 +462,43 @@ export default memo(function TabBar({
     }
     tabNodeRefs.current.delete(tabId);
   }, []);
+
+  const updateScrollAffordance = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) {
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
+      return;
+    }
+
+    const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+    setCanScrollLeft(el.scrollLeft > 1);
+    setCanScrollRight(el.scrollLeft < maxScrollLeft - 1);
+  }, []);
+
+  const scrollTabs = useCallback((direction: -1 | 1) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollBy({
+      left: direction * Math.max(180, Math.floor(el.clientWidth * 0.75)),
+      behavior: "smooth",
+    });
+    window.requestAnimationFrame(updateScrollAffordance);
+  }, [updateScrollAffordance]);
+
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+    if (maxScrollLeft <= 0) return;
+
+    const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+
+    event.preventDefault();
+    el.scrollLeft = Math.max(0, Math.min(maxScrollLeft, el.scrollLeft + delta));
+    updateScrollAffordance();
+  }, [updateScrollAffordance]);
 
   useEffect(() => {
     const activeTabNode = tabNodeRefs.current.get(activeId);
@@ -469,65 +509,113 @@ export default memo(function TabBar({
       block: "nearest",
       inline: "nearest",
     });
-  }, [activeId, tabs.length]);
+    window.requestAnimationFrame(updateScrollAffordance);
+  }, [activeId, tabs.length, updateScrollAffordance]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    updateScrollAffordance();
+    el.addEventListener("scroll", updateScrollAffordance, { passive: true });
+    window.addEventListener("resize", updateScrollAffordance);
+
+    const resizeObserver = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(updateScrollAffordance)
+      : null;
+    resizeObserver?.observe(el);
+
+    return () => {
+      el.removeEventListener("scroll", updateScrollAffordance);
+      window.removeEventListener("resize", updateScrollAffordance);
+      resizeObserver?.disconnect();
+    };
+  }, [tabs.length, updateScrollAffordance]);
 
   return (
-    <div
-      ref={scrollContainerRef}
-      data-testid="pane-tabbar-scroll"
-      className={`${d.barPadding} min-w-0 overflow-x-auto no-scrollbar transition-colors`}
-      style={{ background: "transparent" }}
-    >
-      <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
-        <div data-testid="pane-tabbar-items" className="inline-flex min-w-max items-start">
-          {tabs.map((tab, index) => (
-            <SortableTab
-              key={tab.id}
-              tab={tab}
-              index={index}
-              paneId={paneId}
-              activeId={activeId}
-              tabs={tabs}
-              density={density}
-              editingTabId={editingTabId}
-              editingTitle={editingTitle}
-              setEditingTitle={setEditingTitle}
-              editInputRef={editInputRef}
-              confirmRename={confirmRename}
-              cancelRename={cancelRename}
-              startRename={startRename}
-              onSelect={onSelect}
-              onClose={onClose}
-              onTogglePin={onTogglePin}
-              onFullscreen={onFullscreen}
-              onSplitRight={onSplitRight}
-              onSplitDown={onSplitDown}
-              onSplitAndMoveRight={onSplitAndMoveRight}
-              onSplitAndMoveDown={onSplitAndMoveDown}
-              onSplitTerminalRight={onSplitTerminalRight}
-              onSplitTerminalDown={onSplitTerminalDown}
-              onCloseTerminalPane={onCloseTerminalPane}
-              onCloseTabsToLeft={onCloseTabsToLeft}
-              onCloseTabsToRight={onCloseTabsToRight}
-              onCloseOtherTabs={onCloseOtherTabs}
-              onRevealInExplorer={onRevealInExplorer}
-              onPopOutTab={onPopOutTab}
-              activeTabBg={activeTabBg}
-              activeTabFg={activeTabFg}
-              getStatus={getStatus}
-              registerTabNode={registerTabNode}
-              displayNumber={tabNumbers.get(tab.id)}
-              t={t}
-            />
-          ))}
-          <button
-            className={`${d.addBtn} shrink-0 rounded-lg transition-colors text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]`}
-            onClick={onAdd}
-          >
-            <Plus className={d.addIcon} />
-          </button>
-        </div>
-      </SortableContext>
+    <div className="flex min-w-0 items-stretch">
+      {canScrollLeft && (
+        <button
+          type="button"
+          aria-label={t("scrollTabsLeft", { defaultValue: "Scroll tabs left" })}
+          className="flex w-6 shrink-0 items-center justify-center border-r transition-colors hover:bg-[var(--app-hover)]"
+          style={{ borderColor: "var(--app-border)", color: "var(--app-icon-inactive)" }}
+          onClick={() => scrollTabs(-1)}
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </button>
+      )}
+      <div
+        ref={scrollContainerRef}
+        data-testid="pane-tabbar-scroll"
+        className={`${d.barPadding} cc-tabbar-scroll min-w-0 flex-1 overflow-x-auto overflow-y-hidden transition-colors`}
+        style={{ background: "transparent" }}
+        onWheel={handleWheel}
+      >
+        <SortableContext items={tabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
+          <div data-testid="pane-tabbar-items" className="inline-flex min-w-max items-start">
+            {tabs.map((tab, index) => (
+              <SortableTab
+                key={tab.id}
+                tab={tab}
+                index={index}
+                paneId={paneId}
+                activeId={activeId}
+                tabs={tabs}
+                density={density}
+                editingTabId={editingTabId}
+                editingTitle={editingTitle}
+                setEditingTitle={setEditingTitle}
+                editInputRef={editInputRef}
+                confirmRename={confirmRename}
+                cancelRename={cancelRename}
+                startRename={startRename}
+                onSelect={onSelect}
+                onClose={onClose}
+                onTogglePin={onTogglePin}
+                onFullscreen={onFullscreen}
+                onSplitRight={onSplitRight}
+                onSplitDown={onSplitDown}
+                onSplitAndMoveRight={onSplitAndMoveRight}
+                onSplitAndMoveDown={onSplitAndMoveDown}
+                onSplitTerminalRight={onSplitTerminalRight}
+                onSplitTerminalDown={onSplitTerminalDown}
+                onCloseTerminalPane={onCloseTerminalPane}
+                onCloseTabsToLeft={onCloseTabsToLeft}
+                onCloseTabsToRight={onCloseTabsToRight}
+                onCloseOtherTabs={onCloseOtherTabs}
+                onRevealInExplorer={onRevealInExplorer}
+                onPopOutTab={onPopOutTab}
+                activeTabBg={activeTabBg}
+                activeTabFg={activeTabFg}
+                getStatus={getStatus}
+                registerTabNode={registerTabNode}
+                displayNumber={tabNumbers.get(tab.id)}
+                t={t}
+              />
+            ))}
+            <button
+              type="button"
+              aria-label="New tab"
+              className={`${d.addBtn} shrink-0 rounded-lg transition-colors text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]`}
+              onClick={onAdd}
+            >
+              <Plus className={d.addIcon} />
+            </button>
+          </div>
+        </SortableContext>
+      </div>
+      {canScrollRight && (
+        <button
+          type="button"
+          aria-label={t("scrollTabsRight", { defaultValue: "Scroll tabs right" })}
+          className="flex w-6 shrink-0 items-center justify-center border-l transition-colors hover:bg-[var(--app-hover)]"
+          style={{ borderColor: "var(--app-border)", color: "var(--app-icon-inactive)" }}
+          onClick={() => scrollTabs(1)}
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 });

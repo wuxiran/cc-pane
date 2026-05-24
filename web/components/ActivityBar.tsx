@@ -8,17 +8,23 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useActivityBarStore, type ActivityView } from "@/stores/useActivityBarStore";
-import { useDialogStore } from "@/stores";
+import { useDialogStore, useOrchestratorStore } from "@/stores";
+
+type ActivityBadge = number | { tone: "red" | "blue"; value?: number };
 
 interface ActivityBarIconProps {
   icon: React.ReactNode;
   label: string;
   active: boolean;
   onClick: () => void;
-  badge?: number;
+  badge?: ActivityBadge;
 }
 
 function ActivityBarIcon({ icon, label, active, onClick, badge }: ActivityBarIconProps) {
+  const badgeValue = typeof badge === "number" ? badge : badge?.value;
+  const showBadge = typeof badge === "number" ? badge > 0 : badge != null;
+  const badgeTone = typeof badge === "number" ? "blue" : badge?.tone;
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -36,13 +42,13 @@ function ActivityBarIcon({ icon, label, active, onClick, badge }: ActivityBarIco
         >
           {icon}
           {/* Badge */}
-          {badge != null && badge > 0 && (
+          {showBadge && (
             <span
               className={`absolute top-[4px] right-[4px] min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
-                badge > 50 ? "bg-red-500" : "bg-[var(--app-accent)]"
+                badgeTone === "red" ? "bg-red-500" : "bg-[var(--app-accent)]"
               }`}
             >
-              {badge > 999 ? "999+" : badge}
+              {badgeValue != null && badgeValue > 0 ? (badgeValue > 999 ? "999+" : badgeValue) : ""}
             </span>
           )}
         </button>
@@ -60,26 +66,44 @@ export default function ActivityBar() {
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const toggleView = useActivityBarStore((s) => s.toggleView);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
+  const orchestrationOverlayOpen = useActivityBarStore((s) => s.orchestrationOverlayOpen);
   const toggleTodoMode = useActivityBarStore((s) => s.toggleTodoMode);
   const toggleSelfChatMode = useActivityBarStore((s) => s.toggleSelfChatMode);
   const toggleHomeMode = useActivityBarStore((s) => s.toggleHomeMode);
   const toggleProvidersMode = useActivityBarStore((s) => s.toggleProvidersMode);
   const openSettings = useDialogStore((s) => s.openSettings);
+  const orchestrationFailed = useOrchestratorStore((s) =>
+    s.bindings.some((binding) => binding.status === "failed")
+  );
+  const orchestrationActiveCount = useOrchestratorStore((s) =>
+    s.bindings.filter((binding) => binding.status === "running" || binding.status === "waiting")
+      .length
+  );
 
   const isHomeActive = appViewMode === "home";
 
   const isViewActive = (view: ActivityView) => {
+    if (view === "orchestration") return orchestrationOverlayOpen;
     if (view === "files") return appViewMode === "files";
     return activeView === view && sidebarVisible && appViewMode !== "files";
   };
 
-  const viewItems: { view: ActivityView; icon: React.ReactNode; label: string; badge?: number }[] = [
+  const viewItems: { view: ActivityView; icon: React.ReactNode; label: string; badge?: ActivityBadge }[] = [
     { view: "explorer", icon: <FolderTree className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("workspaces") },
     { view: "files", icon: <Files className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("fileBrowser", { defaultValue: "Files" }) },
     { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches") },
     // { view: "process", icon: <Activity className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("processMonitor", { defaultValue: "Processes" }), badge: processCount }, // 已禁用（macOS 卡顿排查）
     { view: "ssh", icon: <Server className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("sshMachines", { defaultValue: "SSH Machines" }) },
-    { view: "orchestration", icon: <Workflow className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("orchestration", { defaultValue: "Orchestration" }) },
+    {
+      view: "orchestration",
+      icon: <Workflow className="w-[22px] h-[22px]" strokeWidth={1.5} />,
+      label: t("orchestration", { defaultValue: "Orchestration" }),
+      badge: orchestrationFailed
+        ? { tone: "red" }
+        : orchestrationActiveCount > 0
+          ? { tone: "blue", value: orchestrationActiveCount }
+          : undefined,
+    },
   ];
 
   return (

@@ -52,6 +52,7 @@ impl SessionNotifier for TauriSessionNotifier {
             &self.app_handle,
             &self.settings_service,
             session_id,
+            None,
         );
     }
 
@@ -61,6 +62,7 @@ impl SessionNotifier for TauriSessionNotifier {
             &self.settings_service,
             session_id,
             exit_code,
+            None,
         );
 
         let record = self

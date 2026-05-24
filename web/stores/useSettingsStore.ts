@@ -3,6 +3,8 @@ import { settingsService } from "@/services";
 import type { AppSettings } from "@/types";
 import { handleErrorSilent } from "@/utils";
 import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
+import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
+import type { CCChanSettings } from "@/ccchan/types";
 
 const defaultCloseToTray = () => {
   if (typeof navigator === "undefined") {
@@ -19,6 +21,19 @@ interface SettingsState {
   getDefaults: () => AppSettings;
 }
 
+type AppSettingsWithCCChan = AppSettings & { ccchan: CCChanSettings };
+
+function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
+  const maybeWithCCChan = settings as Partial<AppSettingsWithCCChan>;
+  return {
+    ...settings,
+    ccchan: {
+      ...DEFAULT_CCCHAN_SETTINGS,
+      ...maybeWithCCChan.ccchan,
+    },
+  };
+}
+
 export const useSettingsStore = create<SettingsState>((set) => ({
   settings: null,
   loading: false,
@@ -27,7 +42,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set({ loading: true });
     try {
       const settings = await settingsService.getSettings();
-      set({ settings });
+      set({ settings: withCCChanSettings(settings) });
     } catch (e) {
       handleErrorSilent(e, "load settings");
     } finally {
@@ -37,15 +52,16 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   saveSettings: async (newSettings) => {
     try {
-      await settingsService.updateSettings(newSettings);
-      set({ settings: newSettings });
+      const normalized = withCCChanSettings(newSettings);
+      await settingsService.updateSettings(normalized);
+      set({ settings: normalized });
     } catch (e) {
       handleErrorSilent(e, "save settings");
       throw e;
     }
   },
 
-  getDefaults: () => ({
+  getDefaults: () => withCCChanSettings({
     proxy: {
       enabled: false,
       proxyType: "http",

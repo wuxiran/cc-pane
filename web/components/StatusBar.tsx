@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle, Eye, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip,
@@ -15,6 +16,7 @@ import {
   useTerminalStatusStore,
   useUpdateStore,
 } from "@/stores";
+import { useCCChanStore } from "@/stores/useCCChanStore";
 import { triggerUpdate } from "@/services";
 import { useWindowControl } from "@/hooks/useWindowControl";
 import { isBusyStatus } from "@/types";
@@ -29,12 +31,19 @@ export default function StatusBar() {
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
+  const ccChanVisible = useCCChanStore((s) => s.settings.windowVisible);
+  const loadCCChan = useCCChanStore((s) => s.load);
+  const setCCChanVisible = useCCChanStore((s) => s.setWindowVisible);
   const [updating, setUpdating] = useState(false);
   const { isPinned, togglePin } = useWindowControl();
 
   const activeWorkspace = selectedWorkspace();
   let activeCount = 0;
   statusMap.forEach((info) => { if (isBusyStatus(info.status)) activeCount++; });
+
+  useEffect(() => {
+    void loadCCChan();
+  }, [loadCCChan]);
 
   const handleUpdate = async () => {
     setUpdating(true);
@@ -52,6 +61,16 @@ export default function StatusBar() {
     if (store.settings) {
       const updated = { ...store.settings, general: { ...store.settings.general, language: nextLang } };
       store.saveSettings(updated).catch((e) => handleErrorSilent(e, "save settings"));
+    }
+  }
+
+  async function handleToggleCCChan() {
+    const nextVisible = !useCCChanStore.getState().settings.windowVisible;
+    try {
+      await invoke(nextVisible ? "show_ccchan" : "hide_ccchan");
+      setCCChanVisible(nextVisible);
+    } catch (e) {
+      handleErrorSilent(e, "toggle ccchan");
     }
   }
 
@@ -166,6 +185,23 @@ export default function StatusBar() {
 
         {/* 分隔线 */}
         <div className="w-px h-3 mx-1" style={{ background: "var(--app-border)" }} />
+
+        {/* cc酱 浮窗 */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={`p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] ${
+                ccChanVisible ? "text-[var(--app-accent)]" : ""
+              }`}
+              onClick={() => void handleToggleCCChan()}
+            >
+              {ccChanVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>{ccChanVisible ? "隐藏 cc酱" : "显示 cc酱"}</p>
+          </TooltipContent>
+        </Tooltip>
 
         {/* 语言切换 */}
         <Tooltip>

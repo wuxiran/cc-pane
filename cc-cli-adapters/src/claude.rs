@@ -591,6 +591,19 @@ impl ClaudeAdapter {
     }
 
     #[cfg(any(windows, test))]
+    fn claude_native_binary_for_npm_shim(shim_path: &Path) -> Option<PathBuf> {
+        let dir = shim_path.parent()?;
+        let exe = dir
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code")
+            .join("bin")
+            .join("claude.exe");
+
+        exe.is_file().then_some(exe)
+    }
+
+    #[cfg(any(windows, test))]
     fn node_for_npm_shim(shim_path: &Path) -> Option<PathBuf> {
         let dir = shim_path.parent()?;
         let adjacent_node = dir.join("node.exe");
@@ -612,6 +625,15 @@ impl ClaudeAdapter {
     fn windows_npm_shim_invocation(path: &Path, args: Vec<String>) -> (String, Vec<String>) {
         if !Self::is_windows_batch_file(path) {
             return (path.to_string_lossy().into_owned(), args);
+        }
+
+        if let Some(exe) = Self::claude_native_binary_for_npm_shim(path) {
+            info!(
+                shim = %path.display(),
+                command = %exe.display(),
+                "claude: Windows npm shim resolved to packaged native binary"
+            );
+            return (exe.to_string_lossy().into_owned(), args);
         }
 
         match (
@@ -1019,6 +1041,31 @@ mod tests {
                 "session id with spaces".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn windows_npm_shim_invocation_prefers_packaged_native_binary() {
+        let dir = tempdir().unwrap();
+        let node_dir = dir.path().join("Program Files").join("nodejs");
+        let package_dir = node_dir
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code");
+        let bin_dir = package_dir.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let shim = node_dir.join("claude.cmd");
+        let exe = bin_dir.join("claude.exe");
+        fs::write(&shim, "@echo off").unwrap();
+        fs::write(&exe, "binary").unwrap();
+
+        let (command, args) = ClaudeAdapter::windows_npm_shim_invocation(
+            &shim,
+            vec!["--resume".into(), "session-id".into()],
+        );
+
+        assert_eq!(command, exe.to_string_lossy());
+        assert_eq!(args, vec!["--resume".to_string(), "session-id".to_string()]);
     }
 
     #[test]

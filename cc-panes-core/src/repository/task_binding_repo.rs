@@ -273,6 +273,65 @@ impl TaskBindingRepository {
         Ok(affected > 0)
     }
 
+    /// 单事务删除指定 TaskBinding 及所有后代，返回已删除 id 列表。
+    pub fn delete_cascade(&self, id: &str) -> Result<Vec<String>, String> {
+        // fix(H3) review: 递归级联删除必须在后端事务内完成，避免前端多请求半删除。
+        let mut conn = self.db.connection().map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+        let ids = {
+            let mut stmt = tx
+                .prepare(
+                    "WITH RECURSIVE descendants(id) AS (
+                        SELECT id FROM task_bindings WHERE id = ?1
+                        UNION ALL
+                        SELECT child.id
+                        FROM task_bindings child
+                        INNER JOIN descendants parent ON child.parent_id = parent.id
+                     )
+                     SELECT id FROM descendants",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(params![id], |row| row.get::<_, String>(0))
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
+        };
+
+        if ids.is_empty() {
+            tx.commit().map_err(|e| e.to_string())?;
+            return Ok(Vec::new());
+        }
+
+        let affected = tx
+            .execute(
+                "WITH RECURSIVE descendants(id) AS (
+                    SELECT id FROM task_bindings WHERE id = ?1
+                    UNION ALL
+                    SELECT child.id
+                    FROM task_bindings child
+                    INNER JOIN descendants parent ON child.parent_id = parent.id
+                 )
+                 DELETE FROM task_bindings WHERE id IN (SELECT id FROM descendants)",
+                params![id],
+            )
+            .map_err(|e| {
+                error!(table = "task_bindings", id = %id, err = %e, "SQL cascade delete failed");
+                e.to_string()
+            })?;
+        if affected != ids.len() {
+            warn!(
+                id = %id,
+                expected = ids.len(),
+                affected,
+                "task_bindings cascade delete count mismatch"
+            );
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(ids)
+    }
+
     /// 查询 TaskBindings
     pub fn query(&self, query: &TaskBindingQuery) -> Result<TaskBindingQueryResult, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;

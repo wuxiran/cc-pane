@@ -6,6 +6,7 @@ pub mod plan;
 pub mod process_info;
 mod project;
 pub mod provider;
+pub mod runner;
 pub mod screenshot;
 pub mod session_restore;
 pub mod settings;
@@ -48,6 +49,11 @@ pub use launch_profile::{
 };
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 pub use project::Project;
+pub use runner::{
+    PortClaim, PortConflict, PortReservation, RunnerInstance, RunnerInstanceStatus,
+    RunnerLaunchPlan, RunnerLaunchSuggestedAction, RunnerProfile, RunnerProfileDraft,
+    RunnerStartResult, RunnerStartStatus,
+};
 pub use screenshot::ScreenshotResult;
 pub use session_restore::SavedSession;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};

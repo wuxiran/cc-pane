@@ -353,7 +353,7 @@ mod tests {
             ..Default::default()
         };
         let err = service.create_todo(req).unwrap_err();
-        assert_eq!(err.code.as_deref(), Some(EC::TODO_TITLE_EMPTY));
+        assert_eq!(err.code(), Some(EC::TODO_TITLE_EMPTY));
     }
 
     #[test]
@@ -366,7 +366,7 @@ mod tests {
             ..Default::default()
         };
         let err = service.create_todo(req).unwrap_err();
-        assert_eq!(err.code.as_deref(), Some(EC::TODO_SCOPE_REF_REQUIRED));
+        assert_eq!(err.code(), Some(EC::TODO_SCOPE_REF_REQUIRED));
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod tests {
     fn test_add_subtask_to_nonexistent_todo_fails() {
         let service = setup();
         let err = service.add_subtask("nonexistent", "子任务").unwrap_err();
-        assert_eq!(err.code.as_deref(), Some(EC::TODO_NOT_FOUND));
+        assert_eq!(err.code(), Some(EC::TODO_NOT_FOUND));
     }
 
     #[test]

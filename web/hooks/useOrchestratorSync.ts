@@ -1,32 +1,38 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useOrchestratorStore, useTerminalStatusStore } from "@/stores";
-import { isBusyStatus } from "@/types";
+import {
+  useOrchestratorStore,
+  useWorkspacesStore,
+} from "@/stores";
+import type { TaskBindingChangedEvent } from "@/types";
 
 /**
- * 编排同步 Hook — 桥接终端状态与 TaskBinding
- *
- * 状态映射：
- * - Active → running, progress: 50
- * - WaitingInput → waiting, progress: 30
- * - Exited(0) → completed, progress: 100
- * - Exited(!0) → failed
+ * 编排同步 Hook — 事件增量更新 TaskBinding，并保留轮询兜底。
  */
 export default function useOrchestratorSync() {
   const updateBySessionId = useOrchestratorStore((s) => s.updateBySessionId);
   const loadBindings = useOrchestratorStore((s) => s.loadBindings);
-  const statusMap = useTerminalStatusStore((s) => s.statusMap);
-  const prevStatusRef = useRef<Map<string, string>>(new Map());
+  const applyChangedEvent = useOrchestratorStore((s) => s.applyChangedEvent);
+  const selectedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
 
-  // 监听 terminal-exit 事件
   useEffect(() => {
     let cancelled = false;
+    const unlisteners: Array<() => void> = [];
 
-    const setup = async () => {
-      const unlisten = await getCurrentWebview().listen<{
-        sessionId: string;
-        exitCode?: number;
-      }>("terminal-exit", async (event) => {
+    getCurrentWebview()
+      .listen<TaskBindingChangedEvent>("task-binding-changed", (event) => {
+        if (cancelled) return;
+        applyChangedEvent(event.payload);
+      })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlisteners.push(unlisten);
+      });
+
+    // fix(C4) review: terminal-status 只由 useTerminalStatusStore 全局订阅，这里避免二次订阅。
+
+    getCurrentWebview()
+      .listen<{ sessionId: string; exitCode?: number }>("terminal-exit", async (event) => {
         if (cancelled) return;
         const { sessionId, exitCode } = event.payload;
         const code = exitCode ?? 0;
@@ -45,53 +51,29 @@ export default function useOrchestratorSync() {
             });
           }
         } catch {
-          // 静默失败 — session 可能没有关联 TaskBinding
+          // Session may not be associated with a TaskBinding.
         }
+      })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlisteners.push(unlisten);
       });
-
-      return unlisten;
-    };
-
-    let unlistenFn: (() => void) | null = null;
-    setup().then((fn) => {
-      if (!cancelled) {
-        unlistenFn = fn;
-      } else {
-        fn();
-      }
-    });
 
     return () => {
       cancelled = true;
-      unlistenFn?.();
+      for (const unlisten of unlisteners) unlisten();
     };
-  }, [updateBySessionId]);
+  }, [applyChangedEvent, updateBySessionId]);
 
-  // 监听终端状态变化，自动更新运行中任务
   useEffect(() => {
-    const prev = prevStatusRef.current;
-
-    for (const [sessionId, info] of statusMap) {
-      const prevStatus = prev.get(sessionId);
-      if (prevStatus === info.status) continue;
-
-      prev.set(sessionId, info.status);
-
-      // 状态映射
-      if (isBusyStatus(info.status)) {
-        updateBySessionId(sessionId, { status: "running", progress: 50 }).catch(() => {});
-      } else if (info.status === "waitingInput") {
-        updateBySessionId(sessionId, { status: "waiting", progress: 30 }).catch(() => {});
-      }
-    }
-  }, [statusMap, updateBySessionId]);
-
-  // 面板打开时定期刷新列表
-  useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = window.setInterval(() => {
       loadBindings();
-    }, 10000); // 每 10 秒刷新
+    }, 10000);
 
-    return () => clearInterval(interval);
+    return () => window.clearInterval(interval);
   }, [loadBindings]);
+
+  useEffect(() => {
+    loadBindings();
+  }, [loadBindings, selectedWorkspaceId]);
 }

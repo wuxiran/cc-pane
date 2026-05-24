@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -29,7 +29,7 @@ struct HookInput {
     cwd: Option<String>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionStartedRequest<'a> {
     launch_id: &'a str,
@@ -39,6 +39,16 @@ struct SessionStartedRequest<'a> {
     runtime_kind: &'a str,
     wsl_distro: Option<String>,
     cwd: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryRecallRequest<'a> {
+    workspace_name: Option<&'a str>,
+    project_path: &'a str,
+    alt_project_path: Option<&'a str>,
+    min_importance: u8,
+    limit: u32,
 }
 
 fn detect_cli_tool() -> &'static str {
@@ -210,7 +220,11 @@ fn run_inner(hook_input: Option<HookInput>) {
     }
 
     // 5. Memory context (high importance)
-    if let Some(memory) = load_memory_context(&project_dir) {
+    // Prefer the CC-Panes Orchestrator API so recall is invisible to the user and
+    // backed by the same memory.db used by the in-process MCP tools.
+    if let Some(memory) =
+        fetch_memory_recall_context(&project_dir).or_else(|| load_memory_context(&project_dir))
+    {
         println!("<memory-context>");
         println!("{}", memory);
         println!("</memory-context>\n");
@@ -298,6 +312,68 @@ fn send_session_started(
         .map_err(|e| format!("request failed: {}", e))?;
 
     Ok(())
+}
+
+/// 从 cc-pane 主进程做无感 Memory recall。
+///
+/// 任何失败（无 env / 调用错误 / 无数据）都返回 None，session_start 主路径不受影响。
+fn fetch_memory_recall_context(project_dir: &Path) -> Option<String> {
+    let api_base_url = std::env::var("CC_PANES_API_BASE_URL")
+        .or_else(|_| {
+            std::env::var("CC_PANES_API_PORT").map(|port| format!("http://127.0.0.1:{}", port))
+        })
+        .ok()?;
+    let api_token = std::env::var("CC_PANES_API_TOKEN").ok()?;
+
+    let cwd_path = project_dir.to_string_lossy().to_string();
+    let env_project_path = std::env::var("CC_PANES_PROJECT_PATH")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let project_path = env_project_path.as_deref().unwrap_or(&cwd_path);
+    let alt_project_path =
+        if normalize_path(project_path) == normalize_path(&cwd_path) || project_path == cwd_path {
+            None
+        } else {
+            Some(cwd_path.as_str())
+        };
+    let workspace_name = std::env::var("CC_PANES_WORKSPACE_NAME")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let request = MemoryRecallRequest {
+        workspace_name: workspace_name.as_deref(),
+        project_path,
+        alt_project_path,
+        min_importance: 4,
+        limit: 5,
+    };
+    let payload = serde_json::to_vec(&request).ok()?;
+    let url = format!("{}/api/memory/recall", api_base_url.trim_end_matches('/'));
+
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_millis(750)))
+        .build()
+        .new_agent();
+
+    let resp_body = agent
+        .post(&url)
+        .header("Authorization", &format!("Bearer {}", api_token))
+        .header("Content-Type", "application/json")
+        .send(payload.as_slice())
+        .ok()?
+        .body_mut()
+        .read_to_string()
+        .ok()?;
+
+    let value: serde_json::Value = serde_json::from_str(&resp_body).ok()?;
+    let context = value.get("context")?.as_str()?.trim();
+    if context.is_empty() {
+        None
+    } else {
+        Some(context.to_string())
+    }
 }
 
 /// 从 cc-pane 主进程取最近 1 条 plan 标签，拼成可注入到 system prompt 的 XML 块。

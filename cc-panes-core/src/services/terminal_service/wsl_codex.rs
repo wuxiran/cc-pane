@@ -399,6 +399,11 @@ pub(super) fn windows_path_to_wsl(path: &std::path::Path) -> Option<String> {
     ))
 }
 
+#[cfg(not(windows))]
+pub(super) fn windows_path_to_wsl(_path: &std::path::Path) -> Option<String> {
+    None
+}
+
 fn is_simple_toml_key_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment

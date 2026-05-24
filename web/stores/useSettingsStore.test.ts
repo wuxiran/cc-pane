@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useSettingsStore } from "./useSettingsStore";
+import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
 import { settingsService } from "@/services";
 import { createTestSettings, resetTestDataCounter } from "@/test/utils/testData";
 
@@ -36,7 +37,7 @@ describe("useSettingsStore", () => {
       await useSettingsStore.getState().loadSettings();
 
       const state = useSettingsStore.getState();
-      expect(state.settings).toEqual(mockSettings);
+      expect(state.settings).toEqual({ ...mockSettings, ccchan: DEFAULT_CCCHAN_SETTINGS });
       expect(state.loading).toBe(false);
     });
 
@@ -78,8 +79,9 @@ describe("useSettingsStore", () => {
       await useSettingsStore.getState().saveSettings(newSettings);
 
       const state = useSettingsStore.getState();
-      expect(state.settings).toEqual(newSettings);
-      expect(settingsService.updateSettings).toHaveBeenCalledWith(newSettings);
+      const normalizedSettings = { ...newSettings, ccchan: DEFAULT_CCCHAN_SETTINGS };
+      expect(state.settings).toEqual(normalizedSettings);
+      expect(settingsService.updateSettings).toHaveBeenCalledWith(normalizedSettings);
     });
 
     it("保存失败时应抛异常", async () => {

@@ -1,5 +1,6 @@
 use crate::models::{
-    UsageDayPoint, UsageEntry, UsageQueryResult, UsageStatsDelta, UsageTotals,
+    UsageDayPoint, UsageEntry, UsageQueryResult, UsageStatsDelta, UsageTotals, WslDistro,
+    WslDistroState,
 };
 use crate::repository::UsageStatsRepository;
 use crate::services::{claude_session_service, codex_session_service, LaunchHistoryService};
@@ -12,10 +13,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::time::{sleep, Duration};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 const GLOBAL_WORKSPACE: &str = "_global";
 const UNKNOWN_CLI: &str = "unknown";
+const USAGE_SCAN_INTERVAL_SECS: u64 = 300;
+const WSL_DISCOVERY_REFRESH_TICKS: u32 = 10;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct UsageKey {
@@ -24,23 +27,35 @@ struct UsageKey {
     workspace_name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ScanRoot {
+    cli: &'static str,
+    path: PathBuf,
+    origin: ScanOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ScanOrigin {
+    Native,
+    Wsl { distro: String },
+}
+
 pub struct UsageStatsService {
     repo: Arc<UsageStatsRepository>,
     launch_history: Arc<LaunchHistoryService>,
     pending_inputs: Mutex<HashMap<UsageKey, u64>>,
+    wsl_distros: Mutex<Vec<WslDistro>>,
     background_started: AtomicBool,
     scan_running: AtomicBool,
 }
 
 impl UsageStatsService {
-    pub fn new(
-        repo: Arc<UsageStatsRepository>,
-        launch_history: Arc<LaunchHistoryService>,
-    ) -> Self {
+    pub fn new(repo: Arc<UsageStatsRepository>, launch_history: Arc<LaunchHistoryService>) -> Self {
         Self {
             repo,
             launch_history,
             pending_inputs: Mutex::new(HashMap::new()),
+            wsl_distros: Mutex::new(Vec::new()),
             background_started: AtomicBool::new(false),
             scan_running: AtomicBool::new(false),
         }
@@ -55,8 +70,17 @@ impl UsageStatsService {
             return;
         }
 
+        let handle = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle,
+            Err(error) => {
+                self.background_started.store(false, Ordering::SeqCst);
+                warn!(err = %error, "Usage stats background tasks require a Tokio runtime");
+                return;
+            }
+        };
+
         let flush_service = self.clone();
-        tokio::spawn(async move {
+        handle.spawn(async move {
             loop {
                 sleep(Duration::from_secs(30)).await;
                 let svc = flush_service.clone();
@@ -69,11 +93,17 @@ impl UsageStatsService {
         });
 
         let scan_service = self.clone();
-        tokio::spawn(async move {
-            scan_service.refresh_usage_stats_logged();
+        handle.spawn(async move {
+            scan_service.refresh_wsl_distros().await;
+            scan_service.refresh_usage_stats_from_cache_logged();
+            let mut tick = 0u32;
             loop {
-                sleep(Duration::from_secs(300)).await;
-                scan_service.refresh_usage_stats_logged();
+                sleep(Duration::from_secs(USAGE_SCAN_INTERVAL_SECS)).await;
+                tick = tick.wrapping_add(1);
+                if tick.is_multiple_of(WSL_DISCOVERY_REFRESH_TICKS) {
+                    scan_service.refresh_wsl_distros().await;
+                }
+                scan_service.refresh_usage_stats_from_cache_logged();
             }
         });
     }
@@ -125,12 +155,19 @@ impl UsageStatsService {
             })
             .collect::<Vec<_>>();
         self.repo
-            .upsert_deltas(&deltas)
+            .upsert_pty_inputs(&deltas)
             .map_err(AppError::from)?;
         Ok(())
     }
 
-    pub fn refresh_usage_stats(&self) -> AppResult<()> {
+    pub async fn refresh_usage_stats(self: Arc<Self>) -> AppResult<()> {
+        self.refresh_wsl_distros().await;
+        tokio::task::spawn_blocking(move || self.refresh_usage_stats_from_cache())
+            .await
+            .map_err(|e| AppError::from(e.to_string()))?
+    }
+
+    fn refresh_usage_stats_from_cache(&self) -> AppResult<()> {
         if self
             .scan_running
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -210,35 +247,72 @@ impl UsageStatsService {
         })
     }
 
-    fn refresh_usage_stats_logged(&self) {
-        if let Err(error) = self.refresh_usage_stats() {
+    fn refresh_usage_stats_from_cache_logged(&self) {
+        if let Err(error) = self.refresh_usage_stats_from_cache() {
             warn!(err = %error, "Usage stats refresh failed");
         }
     }
 
-    fn scan_all_usage_files(&self) -> Result<()> {
-        let home = dirs::home_dir().context("Failed to resolve home directory")?;
-        let claude_root = home.join(".claude").join("projects");
-        for path in collect_jsonl_files(&claude_root) {
-            if let Err(error) = self.scan_file("claude", &path) {
-                warn!(path = %path.display(), err = %error, "Failed to scan Claude usage file");
+    async fn refresh_wsl_distros(&self) {
+        #[cfg(target_os = "windows")]
+        {
+            match crate::services::wsl_discovery_service::discover(&[]).await {
+                Ok(distros) => match self.wsl_distros.lock() {
+                    Ok(mut guard) => {
+                        *guard = distros;
+                    }
+                    Err(_) => warn!("Usage stats WSL distro cache lock poisoned"),
+                },
+                Err(error) => warn!(err = %error, "Failed to discover WSL distros for usage stats"),
             }
         }
 
-        let codex_root = home.join(".codex").join("sessions");
-        for path in collect_jsonl_files(&codex_root) {
-            if let Err(error) = self.scan_file("codex", &path) {
-                warn!(path = %path.display(), err = %error, "Failed to scan Codex usage file");
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Ok(mut guard) = self.wsl_distros.lock() {
+                guard.clear();
             }
+        }
+    }
+
+    fn scan_all_usage_files(&self) -> Result<()> {
+        let wsl_distros = self
+            .wsl_distros
+            .lock()
+            .map(|guard| guard.clone())
+            .map_err(|_| anyhow!("Usage stats WSL distro cache lock poisoned"))?;
+        for root in collect_scan_roots(&wsl_distros) {
+            self.scan_root(&root);
         }
         Ok(())
     }
 
+    fn scan_root(&self, root: &ScanRoot) {
+        let paths = collect_jsonl_files(&root.path);
+        info!(
+            cli = root.cli,
+            origin = ?root.origin,
+            path = %root.path.display(),
+            file_count = paths.len(),
+            "Scanning usage stats root"
+        );
+        for path in paths {
+            if let Err(error) = self.scan_file(root.cli, &path) {
+                warn!(
+                    cli = root.cli,
+                    origin = ?root.origin,
+                    path = %path.display(),
+                    err = %error,
+                    "Failed to scan usage file"
+                );
+            }
+        }
+    }
+
     fn scan_file(&self, cli_tool: &str, path: &Path) -> Result<()> {
         let path_string = path.to_string_lossy().to_string();
-        let metadata = fs::metadata(path).with_context(|| {
-            format!("Failed to read usage jsonl metadata: {}", path.display())
-        })?;
+        let metadata = fs::metadata(path)
+            .with_context(|| format!("Failed to read usage jsonl metadata: {}", path.display()))?;
         let len = metadata.len();
         let mtime_ms = modified_mtime_ms(&metadata);
         let state = self
@@ -246,30 +320,42 @@ impl UsageStatsService {
             .get_scan_state(&path_string)
             .map_err(|e| anyhow!(e))
             .with_context(|| format!("Failed to read scan state: {}", path.display()))?;
-        let from_offset = state
-            .map(|state| state.last_byte_offset)
-            .filter(|offset| *offset <= len)
-            .unwrap_or(0);
 
-        let (entries, new_offset) = match cli_tool {
-            "claude" => claude_session_service::read_session_usage(path, from_offset),
-            "codex" => codex_session_service::read_session_usage(path, from_offset),
-            _ => Ok((Vec::new(), from_offset)),
+        // 优化：mtime + size 都没变 → 文件未动，跳过 IO
+        if let Some(ref s) = state {
+            if s.last_mtime_ms == mtime_ms && s.last_byte_offset == len {
+                return Ok(());
+            }
+        }
+
+        // 全文件重读 + REPLACE 该文件该 date 的累计行（幂等）。
+        // 不再用增量 byte_offset，因为 REPLACE 语义要求 deltas 是"文件当前完整状态的聚合"。
+        let (entries, _) = match cli_tool {
+            "claude" => claude_session_service::read_session_usage(path, 0),
+            "codex" => codex_session_service::read_session_usage(path, 0),
+            _ => Ok((Vec::new(), 0)),
         }
         .map_err(|e| anyhow!(e))
         .with_context(|| format!("Failed to parse usage jsonl: {}", path.display()))?;
+
+        // 先删该文件所有 date 行，再插新的 → 防止文件被截断/某 date 被删后 stale 数据残留
+        self.repo
+            .delete_jsonl_stats(&path_string)
+            .map_err(|e| anyhow!(e))
+            .context("Failed to clear previous usage stats for file")?;
 
         if !entries.is_empty() {
             let workspace = self.resolve_session_workspace(cli_tool, path);
             let deltas = aggregate_entries(cli_tool, &workspace, entries);
             self.repo
-                .upsert_deltas(&deltas)
+                .upsert_jsonl_stats_batch(&path_string, &deltas)
                 .map_err(|e| anyhow!(e))
                 .context("Failed to upsert usage stats")?;
         }
 
+        // scan_state 现在只是 "mtime + size 缓存"，下次靠它跳过未变文件
         self.repo
-            .upsert_scan_state(&path_string, new_offset, mtime_ms)
+            .upsert_scan_state(&path_string, len, mtime_ms)
             .map_err(|e| anyhow!(e))
             .context("Failed to update usage scan state")?;
         Ok(())
@@ -350,6 +436,75 @@ fn aggregate_entries(
     by_date.into_values().collect()
 }
 
+fn collect_scan_roots(wsl_distros: &[WslDistro]) -> Vec<ScanRoot> {
+    let mut roots = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        collect_home_scan_roots(&home, ScanOrigin::Native, &mut roots);
+    }
+
+    for distro in wsl_distros {
+        if distro.state != WslDistroState::Running {
+            continue;
+        }
+
+        let distro_name = distro.name.trim();
+        let Some(user) = distro
+            .default_user
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if distro_name.is_empty() {
+            continue;
+        }
+
+        let wsl_home = PathBuf::from(format!(r"\\wsl$\{}\home\{}", distro_name, user));
+        collect_home_scan_roots(
+            &wsl_home,
+            ScanOrigin::Wsl {
+                distro: distro_name.to_string(),
+            },
+            &mut roots,
+        );
+    }
+
+    roots
+}
+
+fn collect_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<ScanRoot>) {
+    roots.push(ScanRoot {
+        cli: "claude",
+        path: home.join(".claude").join("projects"),
+        origin: origin.clone(),
+    });
+    roots.push(ScanRoot {
+        cli: "codex",
+        path: home.join(".codex").join("sessions"),
+        origin: origin.clone(),
+    });
+    collect_codex_home_scan_roots(home, origin, roots);
+}
+
+fn collect_codex_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<ScanRoot>) {
+    let codex_home_root = home.join(".cache").join("cc-panes").join("codex-home");
+    let Ok(entries) = fs::read_dir(codex_home_root) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path().join(".codex").join("sessions");
+        if path.is_dir() {
+            roots.push(ScanRoot {
+                cli: "codex",
+                path,
+                origin: origin.clone(),
+            });
+        }
+    }
+}
+
 fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     collect_jsonl_files_inner(root, &mut files);
@@ -383,7 +538,8 @@ fn session_id_for_path(cli_tool: &str, path: &Path) -> Option<String> {
 }
 
 fn file_stem(path: &Path) -> Option<String> {
-    path.file_stem().map(|value| value.to_string_lossy().to_string())
+    path.file_stem()
+        .map(|value| value.to_string_lossy().to_string())
 }
 
 fn normalize_cli(cli_tool: &str, fallback: &str) -> String {
@@ -445,7 +601,20 @@ fn should_count_input_char(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::count_input_chars;
+    use super::{collect_codex_home_scan_roots, collect_scan_roots, count_input_chars, ScanOrigin};
+    use crate::models::{WslDistro, WslDistroState};
+    use std::fs;
+
+    fn wsl_distro(name: &str, state: WslDistroState, default_user: Option<&str>) -> WslDistro {
+        WslDistro {
+            name: name.to_string(),
+            state,
+            wsl_version: 2,
+            is_default: false,
+            default_user: default_user.map(str::to_string),
+            already_imported: false,
+        }
+    }
 
     #[test]
     fn count_plain_ascii() {
@@ -466,5 +635,81 @@ mod tests {
     fn strip_control_chars_except_tab() {
         assert_eq!(count_input_chars("a\x03b"), 2);
         assert_eq!(count_input_chars("a\tb"), 3);
+    }
+
+    #[test]
+    fn collect_scan_roots_windows_only() {
+        let roots = collect_scan_roots(&[]);
+
+        assert!(roots.len() >= 2);
+        assert!(roots.iter().any(|root| root.cli == "claude"));
+        assert!(roots.iter().any(|root| root.cli == "codex"));
+        assert!(roots.iter().all(|root| root.origin == ScanOrigin::Native));
+    }
+
+    #[test]
+    fn collect_scan_roots_with_wsl() {
+        let roots = collect_scan_roots(&[
+            wsl_distro("Ubuntu", WslDistroState::Running, Some("alice")),
+            wsl_distro("NoUser", WslDistroState::Running, None),
+        ]);
+
+        assert!(roots.len() >= 4);
+        let wsl_roots = roots
+            .iter()
+            .filter(|root| matches!(root.origin, ScanOrigin::Wsl { .. }))
+            .collect::<Vec<_>>();
+        assert_eq!(wsl_roots.len(), 2);
+        assert!(wsl_roots.iter().any(|root| {
+            let path = root.path.to_string_lossy().replace('\\', "/");
+            root.cli == "claude"
+                && path.contains("//wsl$/Ubuntu/home/alice")
+                && path.contains(".claude/projects")
+        }));
+        assert!(wsl_roots.iter().any(|root| {
+            let path = root.path.to_string_lossy().replace('\\', "/");
+            root.cli == "codex"
+                && path.contains("//wsl$/Ubuntu/home/alice")
+                && path.contains(".codex/sessions")
+        }));
+    }
+
+    #[test]
+    fn collect_scan_roots_skips_stopped() {
+        let roots =
+            collect_scan_roots(&[wsl_distro("Ubuntu", WslDistroState::Stopped, Some("alice"))]);
+
+        assert!(roots.len() >= 2);
+        assert!(roots.iter().all(|root| root.origin == ScanOrigin::Native));
+    }
+
+    #[test]
+    fn collect_codex_home_scan_roots_discovers_isolated_sessions() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let sessions = temp
+            .path()
+            .join(".cache")
+            .join("cc-panes")
+            .join("codex-home")
+            .join("session-123")
+            .join(".codex")
+            .join("sessions");
+        fs::create_dir_all(&sessions).expect("create isolated sessions dir");
+        fs::create_dir_all(
+            temp.path()
+                .join(".cache")
+                .join("cc-panes")
+                .join("codex-home")
+                .join("session-without-codex"),
+        )
+        .expect("create unrelated isolated dir");
+
+        let mut roots = Vec::new();
+        collect_codex_home_scan_roots(temp.path(), ScanOrigin::Native, &mut roots);
+
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].cli, "codex");
+        assert_eq!(roots[0].path, sessions);
+        assert_eq!(roots[0].origin, ScanOrigin::Native);
     }
 }

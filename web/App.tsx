@@ -20,6 +20,7 @@ import SelfChatPanel from "@/components/SelfChatPanel";
 import { SelfChatManager } from "@/components/selfchat";
 import { HomeDashboard } from "@/components/home";
 import { ProvidersPanel } from "@/components/providers";
+import OrchestrationOverlay from "@/components/orchestration/OrchestrationOverlay";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
 import OnboardingGuide from "@/components/OnboardingGuide";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -33,6 +34,7 @@ import {
   useShortcutsStore,
   useMiniModeStore,
   useTerminalStatusStore,
+  useNotificationStore,
   useDialogStore,
   useSettingsStore,
   useActivityBarStore,
@@ -46,6 +48,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
+import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import { historyService, terminalService, localHistoryService, checkUpdateSilent, markTabReclaimed as popupMarkReclaimed, getPoppedTabs, sessionRestoreService } from "@/services";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
@@ -112,8 +115,16 @@ function MainApp() {
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const activeView = useActivityBarStore((s) => s.activeView);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
+  const orchestrationOverlayOpen = useActivityBarStore((s) => s.orchestrationOverlayOpen);
+  const closeOrchestrationOverlay = useActivityBarStore((s) => s.closeOrchestrationOverlay);
 
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
+  const showOrchestrationOverlay =
+    orchestrationOverlayOpen ||
+    appViewMode === "orchestration" ||
+    (activeView === "orchestration" && sidebarVisible);
+  const effectiveAppViewMode = appViewMode === "orchestration" ? "panes" : appViewMode;
+  const shouldShowSidebar = sidebarVisible && activeView !== "orchestration";
 
   // RecentFilesPicker 状态
   const [recentFilesOpen, setRecentFilesOpen] = useState(false);
@@ -148,6 +159,9 @@ function MainApp() {
 
   // 监听 Orchestrator 编排事件（自我对话 Claude 启动新任务）
   useOrchestratorListener();
+
+  // fix(M4) review: Orchestrator 同步提升到 App 顶层，全局只挂一次。
+  useOrchestratorSync();
 
   // 后端桌面通知成功发出时，播放应用内提示音补足系统通知静音场景。
   useEffect(() => {
@@ -313,6 +327,7 @@ function MainApp() {
         i18n.changeLanguage(lang);
       }
       useTerminalStatusStore.getState().init();
+      useNotificationStore.getState().init().catch(console.error);
       useResourceStatsStore.getState().init();
       useEnvironmentStore.getState().init();
       useLaunchProfilesStore.getState().load().catch(console.error);
@@ -329,6 +344,7 @@ function MainApp() {
     return () => {
       cancelled = true;
       useTerminalStatusStore.getState().cleanup();
+      useNotificationStore.getState().cleanup();
       useResourceStatsStore.getState().cleanup();
     };
   }, []);
@@ -754,30 +770,30 @@ function MainApp() {
             {/* 主区域：ActivityBar | Sidebar/Todo | 主内容区 */}
             <div className="flex-1 flex overflow-hidden relative z-[1]">
               <ActivityBar />
-              {appViewMode === "home" ? (
+              {effectiveAppViewMode === "home" ? (
                 /* 首页仪表盘：占满 ActivityBar 右侧所有空间 */
                 <div className="flex-1 overflow-hidden">
                   <HomeDashboard onOpenTerminal={handleOpenTerminal} />
                 </div>
-              ) : appViewMode === "todo" ? (
+              ) : effectiveAppViewMode === "todo" ? (
                 /* Todo 全屏模式：占满 ActivityBar 右侧所有空间 */
                 <div className="flex-1 overflow-hidden">
                   <TodoManager scope="" scopeRef="" />
                 </div>
-              ) : appViewMode === "selfchat" ? (
+              ) : effectiveAppViewMode === "selfchat" ? (
                 /* Self-Chat 全屏模式 */
                 <div className="flex-1 overflow-hidden">
                   <SelfChatManager />
                 </div>
-              ) : appViewMode === "providers" ? (
+              ) : effectiveAppViewMode === "providers" ? (
                 /* Providers 全屏模式 */
                 <div className="flex-1 overflow-hidden">
                   <ProvidersPanel />
                 </div>
-              ) : appViewMode === "files" ? (
+              ) : effectiveAppViewMode === "files" ? (
                 /* Files 模式：侧边栏（文件浏览器）+ 文件编辑面板 */
                 <>
-                  {sidebarVisible && (
+                  {shouldShowSidebar && (
                     <Sidebar
                       activeView={activeView}
                       onOpenTerminal={handleOpenTerminal}
@@ -790,7 +806,7 @@ function MainApp() {
               ) : (
                 <>
                   {/* 侧边栏 */}
-                  {sidebarVisible && (
+                  {shouldShowSidebar && (
                     <Sidebar
                       activeView={activeView}
                       onOpenTerminal={handleOpenTerminal}
@@ -803,6 +819,9 @@ function MainApp() {
                     </DndPaneProvider>
                   </div>
                 </>
+              )}
+              {showOrchestrationOverlay && (
+                <OrchestrationOverlay onClose={closeOrchestrationOverlay} />
               )}
             </div>
             <StatusBar />

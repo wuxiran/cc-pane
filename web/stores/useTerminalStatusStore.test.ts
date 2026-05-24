@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import type { TerminalStatusInfo } from "@/types";
@@ -7,6 +8,7 @@ describe("useTerminalStatusStore", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    vi.mocked(invoke).mockReset();
     // 重置 store 到初始状态
     useTerminalStatusStore.setState({
       statusMap: new Map(),
@@ -38,6 +40,7 @@ describe("useTerminalStatusStore", () => {
         sessionId: "session-1",
         status: "active",
         lastOutputAt: Date.now(),
+        updatedAt: Date.now(),
       };
       const map = new Map<string, TerminalStatusInfo>();
       map.set("session-1", info);
@@ -55,11 +58,13 @@ describe("useTerminalStatusStore", () => {
         sessionId: "session-1",
         status: "active",
         lastOutputAt: Date.now(),
+        updatedAt: Date.now(),
       });
       map.set("session-2", {
         sessionId: "session-2",
         status: "idle",
         lastOutputAt: Date.now(),
+        updatedAt: Date.now(),
       });
       useTerminalStatusStore.setState({ statusMap: map });
 
@@ -89,6 +94,31 @@ describe("useTerminalStatusStore", () => {
       expect(useTerminalStatusStore.getState()._idleCheckInterval).not.toBeNull();
     });
 
+    it("初始化时应以后端 live sessions 替换本地残留状态", async () => {
+      const stale: TerminalStatusInfo = {
+        sessionId: "stale-session",
+        status: "error",
+        lastOutputAt: 1000,
+        updatedAt: 1000,
+      };
+      const live: TerminalStatusInfo = {
+        sessionId: "live-session",
+        status: "waitingInput",
+        lastOutputAt: 2000,
+        updatedAt: 2000,
+      };
+      useTerminalStatusStore.setState({
+        statusMap: new Map([[stale.sessionId, stale]]),
+      });
+      vi.mocked(invoke).mockResolvedValue([live]);
+
+      await useTerminalStatusStore.getState().init();
+
+      const map = useTerminalStatusStore.getState().statusMap;
+      expect(map.has("stale-session")).toBe(false);
+      expect(map.get("live-session")).toEqual(live);
+    });
+
     it("重复调用 init 不应重复注册", async () => {
       await useTerminalStatusStore.getState().init();
       await useTerminalStatusStore.getState().init();
@@ -114,6 +144,7 @@ describe("useTerminalStatusStore", () => {
           sessionId: "session-1",
           status: "active",
           lastOutputAt: 1000,
+          updatedAt: 1000,
         },
       });
 
@@ -132,16 +163,19 @@ describe("useTerminalStatusStore", () => {
         sessionId: "session-old",
         status: "active",
         lastOutputAt: now - 31000, // 超过 30 秒
+        updatedAt: now - 31000,
       });
       map.set("session-recent", {
         sessionId: "session-recent",
         status: "active",
         lastOutputAt: now - 5000, // 5 秒前，未超时
+        updatedAt: now - 5000,
       });
       map.set("session-idle", {
         sessionId: "session-idle",
         status: "idle",
         lastOutputAt: now - 60000, // 已经是 idle，不变
+        updatedAt: now - 60000,
       });
       useTerminalStatusStore.setState({ statusMap: map });
 

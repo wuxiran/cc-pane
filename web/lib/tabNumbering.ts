@@ -25,7 +25,7 @@
  *   regardless. Any tab the DFS can't reach from ROOT gets appended at the
  *   top level with a trailing number, ensuring every tab still gets a label.
  */
-import type { Tab } from "@/types";
+import type { PaneNode, Tab } from "@/types";
 
 const ROOT = "";
 
@@ -79,4 +79,13 @@ export function computeTabNumbers(tabs: Tab[]): Map<string, string> {
   }
 
   return result;
+}
+
+export function computeGlobalTabNumbers(rootPane: PaneNode): Map<string, string> {
+  return computeTabNumbers(collectTabsInPaneOrder(rootPane));
+}
+
+function collectTabsInPaneOrder(node: PaneNode): Tab[] {
+  if (node.type === "panel") return node.tabs;
+  return node.children.flatMap(collectTabsInPaneOrder);
 }

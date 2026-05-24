@@ -1,22 +1,43 @@
+use crate::events::EventEmitter;
 use crate::models::task_binding::*;
 use crate::repository::TaskBindingRepository;
 use crate::utils::error::{AppError, AppResult};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
+
+const TASK_BINDING_CHANGED_EVENT: &str = "task-binding-changed";
+const TASK_BINDING_PATCH_MAX_BYTES: usize = 64 * 1024;
+const TASK_BINDING_MERGE_PATCH_MAX_DEPTH: usize = 16;
 
 /// TaskBinding 业务逻辑层
 pub struct TaskBindingService {
     repo: Arc<TaskBindingRepository>,
+    emitter: parking_lot::RwLock<Option<Arc<dyn EventEmitter>>>,
 }
 
 impl TaskBindingService {
     pub fn new(repo: Arc<TaskBindingRepository>) -> Self {
-        Self { repo }
+        Self {
+            repo,
+            emitter: parking_lot::RwLock::new(None),
+        }
+    }
+
+    pub fn set_emitter(&self, emitter: Arc<dyn EventEmitter>) {
+        *self.emitter.write() = Some(emitter);
     }
 
     /// 创建 TaskBinding
     pub fn create(&self, req: CreateTaskBindingRequest) -> AppResult<TaskBinding> {
+        self.create_with_emit(req, true)
+    }
+
+    fn create_with_emit(
+        &self,
+        req: CreateTaskBindingRequest,
+        emit: bool,
+    ) -> AppResult<TaskBinding> {
         debug!("svc::create_task_binding");
         let title = req.title.trim().to_string();
         if title.is_empty() {
@@ -55,6 +76,9 @@ impl TaskBindingService {
         };
 
         self.repo.insert(&binding)?;
+        if emit {
+            self.emit_changed(TaskBindingChangeOp::Create, &binding.id, Some(&binding));
+        }
         Ok(binding)
     }
 
@@ -69,7 +93,16 @@ impl TaskBindingService {
     }
 
     /// 更新 TaskBinding
-    pub fn update(&self, id: &str, mut req: UpdateTaskBindingRequest) -> AppResult<TaskBinding> {
+    pub fn update(&self, id: &str, req: UpdateTaskBindingRequest) -> AppResult<TaskBinding> {
+        self.update_with_emit(id, req, true)
+    }
+
+    fn update_with_emit(
+        &self,
+        id: &str,
+        mut req: UpdateTaskBindingRequest,
+        emit: bool,
+    ) -> AppResult<TaskBinding> {
         debug!("svc::update_task_binding");
         if let Some(ref title) = req.title {
             if title.trim().is_empty() {
@@ -89,14 +122,48 @@ impl TaskBindingService {
         }
 
         self.repo.update(id, &req)?;
-        self.repo
+        let binding = self
             .get(id)?
-            .ok_or_else(|| AppError::from(format!("TaskBinding '{}' not found", id)))
+            .ok_or_else(|| AppError::from(format!("TaskBinding '{}' not found", id)))?;
+        if emit {
+            self.emit_changed(TaskBindingChangeOp::Update, id, Some(&binding));
+        }
+        Ok(binding)
+    }
+
+    /// JSON merge-patch style update. Only `metadata` is deeply merged; other
+    /// fields follow UpdateTaskBindingRequest's existing "present means update"
+    /// semantics.
+    pub fn update_patch(&self, id: &str, patch: serde_json::Value) -> AppResult<TaskBinding> {
+        let existing = self
+            .repo
+            .get(id)?
+            .ok_or_else(|| AppError::from(format!("TaskBinding '{}' not found", id)))?;
+        let mut req = task_binding_patch_to_update_request(&existing, patch)?;
+        if req.normalized_plan_path.is_none() {
+            req.normalized_plan_path = req.plan_path.as_deref().map(normalize_plan_path);
+        }
+        self.update(id, req)
     }
 
     /// 删除 TaskBinding
     pub fn delete(&self, id: &str) -> AppResult<bool> {
-        Ok(self.repo.delete(id)?)
+        let deleted = self.repo.delete(id)?;
+        if deleted {
+            self.emit_changed(TaskBindingChangeOp::Delete, id, None);
+        }
+        Ok(deleted)
+    }
+
+    /// 原子级联删除 TaskBinding 及所有后代。
+    pub fn delete_cascade(&self, id: &str) -> AppResult<bool> {
+        // fix(H3) review: 级联删除在后端单事务内完成，避免前端多次删除的半失败状态。
+        let deleted_ids = self.repo.delete_cascade(id)?;
+        let deleted = !deleted_ids.is_empty();
+        for deleted_id in deleted_ids {
+            self.emit_changed(TaskBindingChangeOp::Delete, &deleted_id, None);
+        }
+        Ok(deleted)
     }
 
     /// 查询 TaskBindings
@@ -125,7 +192,7 @@ impl TaskBindingService {
             .repo
             .find_leader_by_plan(&normalized_plan_path, Some(&project_path))?
         {
-            return self.update(
+            let binding = self.update_with_emit(
                 &existing.id,
                 UpdateTaskBindingRequest {
                     title: req.title,
@@ -140,36 +207,47 @@ impl TaskBindingService {
                     metadata: req.metadata,
                     ..Default::default()
                 },
-            );
+                false,
+            )?;
+            // fix(M1) review: register 中间 update 静默，只发最终 Register 事件。
+            self.emit_changed(TaskBindingChangeOp::Register, &binding.id, Some(&binding));
+            return Ok(binding);
         }
 
         let title = req
             .title
             .unwrap_or_else(|| format!("Plan: {}", plan_file_name(&plan_path)));
-        let created = self.create(CreateTaskBindingRequest {
-            title,
-            role: Some(TaskBindingRole::Leader),
-            parent_id: None,
-            plan_path: Some(plan_path),
-            normalized_plan_path: Some(normalized_plan_path),
-            prompt: req.prompt,
-            session_id: req.session_id,
-            resume_id: req.resume_id,
-            pane_id: req.pane_id,
-            tab_id: req.tab_id,
-            todo_id: None,
-            project_path,
-            workspace_name: req.workspace_name,
-            cli_tool: req.cli_tool.or_else(|| Some("claude".to_string())),
-            metadata: req.metadata,
-        })?;
-        self.update(
+        let created = self.create_with_emit(
+            CreateTaskBindingRequest {
+                title,
+                role: Some(TaskBindingRole::Leader),
+                parent_id: None,
+                plan_path: Some(plan_path),
+                normalized_plan_path: Some(normalized_plan_path),
+                prompt: req.prompt,
+                session_id: req.session_id,
+                resume_id: req.resume_id,
+                pane_id: req.pane_id,
+                tab_id: req.tab_id,
+                todo_id: None,
+                project_path,
+                workspace_name: req.workspace_name,
+                cli_tool: req.cli_tool.or_else(|| Some("claude".to_string())),
+                metadata: req.metadata,
+            },
+            false,
+        )?;
+        let binding = self.update_with_emit(
             &created.id,
             UpdateTaskBindingRequest {
                 status: Some(TaskBindingStatus::Running),
                 ..Default::default()
             },
-        )
+            false,
+        )?;
+        // fix(M1) review: register create/update 静默，只发最终 Register 事件。
+        self.emit_changed(TaskBindingChangeOp::Register, &binding.id, Some(&binding));
+        Ok(binding)
     }
 
     pub fn register_plan_worker(&self, req: RegisterPlanWorkerRequest) -> AppResult<TaskBinding> {
@@ -194,7 +272,7 @@ impl TaskBindingService {
             &req.session_id,
             req.resume_id.as_deref(),
         )? {
-            return self.update(
+            let binding = self.update_with_emit(
                 &existing.id,
                 UpdateTaskBindingRequest {
                     title: Some(title),
@@ -211,33 +289,44 @@ impl TaskBindingService {
                     metadata: req.metadata,
                     ..Default::default()
                 },
-            );
+                false,
+            )?;
+            // fix(M1) review: worker register 中间 update 静默，只发最终 Register 事件。
+            self.emit_changed(TaskBindingChangeOp::Register, &binding.id, Some(&binding));
+            return Ok(binding);
         }
 
-        let created = self.create(CreateTaskBindingRequest {
-            title,
-            role: Some(TaskBindingRole::Worker),
-            parent_id: Some(leader.id),
-            plan_path: Some(plan_path),
-            normalized_plan_path: Some(normalized_plan_path),
-            prompt: req.prompt,
-            session_id: Some(req.session_id),
-            resume_id: req.resume_id,
-            pane_id: req.pane_id,
-            tab_id: req.tab_id,
-            todo_id: None,
-            project_path: req.project_path,
-            workspace_name: req.workspace_name,
-            cli_tool: Some(cli_tool),
-            metadata: req.metadata,
-        })?;
-        self.update(
+        let created = self.create_with_emit(
+            CreateTaskBindingRequest {
+                title,
+                role: Some(TaskBindingRole::Worker),
+                parent_id: Some(leader.id),
+                plan_path: Some(plan_path),
+                normalized_plan_path: Some(normalized_plan_path),
+                prompt: req.prompt,
+                session_id: Some(req.session_id),
+                resume_id: req.resume_id,
+                pane_id: req.pane_id,
+                tab_id: req.tab_id,
+                todo_id: None,
+                project_path: req.project_path,
+                workspace_name: req.workspace_name,
+                cli_tool: Some(cli_tool),
+                metadata: req.metadata,
+            },
+            false,
+        )?;
+        let binding = self.update_with_emit(
             &created.id,
             UpdateTaskBindingRequest {
                 status: Some(TaskBindingStatus::Running),
                 ..Default::default()
             },
-        )
+            false,
+        )?;
+        // fix(M1) review: worker register create/update 静默，只发最终 Register 事件。
+        self.emit_changed(TaskBindingChangeOp::Register, &binding.id, Some(&binding));
+        Ok(binding)
     }
 
     /// Backward-compatible wrapper for callers still using the old child name.
@@ -274,35 +363,39 @@ impl TaskBindingService {
         let leader = self.resolve_leader(&key)?;
         let workers = self.repo.find_workers_of(&leader.id)?;
 
+        let mut reconciled_ids = Vec::new();
         for binding in std::iter::once(&leader).chain(workers.iter()) {
             let Some(session_id) = binding.session_id.as_deref() else {
                 continue;
             };
             let live = live_map.get(session_id);
             if let Some(live) = live {
-                if live.pane_id != binding.pane_id || live.tab_id != binding.tab_id {
-                    self.repo.update(
+                if (live.pane_id != binding.pane_id || live.tab_id != binding.tab_id)
+                    && self.repo.update(
                         &binding.id,
                         &UpdateTaskBindingRequest {
                             pane_id: live.pane_id.clone(),
                             tab_id: live.tab_id.clone(),
                             ..Default::default()
                         },
-                    )?;
+                    )?
+                {
+                    reconciled_ids.push(binding.id.clone());
                 }
                 continue;
             }
 
             if binding.role == TaskBindingRole::Worker
                 && binding.status == TaskBindingStatus::Running
-            {
-                self.repo.update(
+                && self.repo.update(
                     &binding.id,
                     &UpdateTaskBindingRequest {
                         status: Some(TaskBindingStatus::Waiting),
                         ..Default::default()
                     },
-                )?;
+                )?
+            {
+                reconciled_ids.push(binding.id.clone());
             }
         }
 
@@ -311,6 +404,14 @@ impl TaskBindingService {
             .get(&leader.id)?
             .ok_or_else(|| AppError::from("Plan leader disappeared during reconcile"))?;
         let refreshed_workers = self.repo.find_workers_of(&refreshed_leader.id)?;
+        if !reconciled_ids.is_empty() {
+            // fix(M1) review: reconcile 批量更新后只发一次 Reconcile 事件，避免事件风暴。
+            self.emit_changed(
+                TaskBindingChangeOp::Reconcile,
+                &refreshed_leader.id,
+                Some(&refreshed_leader),
+            );
+        }
         Ok(collaboration_from_bindings(
             refreshed_leader,
             refreshed_workers,
@@ -348,6 +449,41 @@ impl TaskBindingService {
                     key.plan_path.as_deref().unwrap_or(&normalized_plan_path)
                 ))
             })
+    }
+
+    fn emit_changed(&self, op: TaskBindingChangeOp, id: &str, binding: Option<&TaskBinding>) {
+        let Some(emitter) = self.emitter.read().as_ref().cloned() else {
+            return;
+        };
+        let mut payload = serde_json::json!({
+            "op": op.as_str(),
+            "id": id,
+        });
+        if let Some(binding) = binding {
+            payload["binding"] = serde_json::to_value(binding).unwrap_or(serde_json::Value::Null);
+        }
+        let _ = emitter.emit(TASK_BINDING_CHANGED_EVENT, payload);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TaskBindingChangeOp {
+    Create,
+    Update,
+    Delete,
+    Register,
+    Reconcile,
+}
+
+impl TaskBindingChangeOp {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "create",
+            Self::Update => "update",
+            Self::Delete => "delete",
+            Self::Register => "register",
+            Self::Reconcile => "reconcile",
+        }
     }
 }
 
@@ -413,6 +549,98 @@ fn clean_optional(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn task_binding_patch_to_update_request(
+    existing: &TaskBinding,
+    patch: serde_json::Value,
+) -> AppResult<UpdateTaskBindingRequest> {
+    let patch_len = serde_json::to_vec(&patch)
+        .map_err(|error| AppError::from(format!("Invalid TaskBinding patch: {}", error)))?
+        .len();
+    if patch_len > TASK_BINDING_PATCH_MAX_BYTES {
+        return Err(AppError::from(format!(
+            "TaskBinding patch must be <= {} bytes",
+            TASK_BINDING_PATCH_MAX_BYTES
+        )));
+    }
+
+    let patch_object = patch
+        .as_object()
+        .ok_or_else(|| AppError::from("TaskBinding patch must be a JSON object"))?;
+
+    let mut request_object = serde_json::Map::new();
+    // fix(C1) review: patch 字段白名单，只允许 UI 安全字段，关键绑定字段静默丢弃并记录 warn。
+    for (key, value) in patch_object {
+        match key.as_str() {
+            "title" | "status" | "progress" | "completionSummary" | "exitCode" | "sortOrder"
+            | "metadata" | "prompt" => {
+                request_object.insert(key.clone(), value.clone());
+            }
+            "role" | "parentId" | "planPath" | "normalizedPlanPath" | "resumeId" | "sessionId"
+            | "paneId" | "tabId" => {
+                warn!(field = %key, "Dropping protected TaskBinding patch field");
+            }
+            _ => {
+                warn!(field = %key, "Dropping unsupported TaskBinding patch field");
+            }
+        }
+    }
+    let metadata_patch = request_object.remove("metadata");
+    let mut request: UpdateTaskBindingRequest =
+        serde_json::from_value(serde_json::Value::Object(request_object))
+            .map_err(|error| AppError::from(format!("Invalid TaskBinding patch: {}", error)))?;
+
+    if let Some(metadata_patch) = metadata_patch {
+        let mut metadata = existing
+            .metadata
+            .clone()
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+        // fix(H1) review: merge-patch 递归深度限制，防止极深 JSON 占用栈/CPU。
+        apply_json_merge_patch(&mut metadata, metadata_patch, 0)?;
+        request.metadata = Some(metadata);
+    }
+
+    Ok(request)
+}
+
+fn apply_json_merge_patch(
+    target: &mut serde_json::Value,
+    patch: serde_json::Value,
+    depth: usize,
+) -> AppResult<()> {
+    if depth > TASK_BINDING_MERGE_PATCH_MAX_DEPTH {
+        return Err(AppError::from(format!(
+            "TaskBinding metadata patch depth must be <= {}",
+            TASK_BINDING_MERGE_PATCH_MAX_DEPTH
+        )));
+    }
+
+    match patch {
+        serde_json::Value::Object(patch_object) => {
+            if !target.is_object() {
+                *target = serde_json::Value::Object(serde_json::Map::new());
+            }
+            let Some(target_object) = target.as_object_mut() else {
+                return Ok(());
+            };
+            for (key, value) in patch_object {
+                if value.is_null() {
+                    target_object.remove(&key);
+                } else {
+                    apply_json_merge_patch(
+                        target_object.entry(key).or_insert(serde_json::Value::Null),
+                        value,
+                        depth + 1,
+                    )?;
+                }
+            }
+        }
+        other => {
+            *target = other;
+        }
+    }
+    Ok(())
 }
 
 pub fn normalize_plan_path(path: &str) -> String {
@@ -543,6 +771,121 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn update_patch_deep_merges_metadata_without_dropping_siblings() {
+        let service = service();
+        let binding = service
+            .create(CreateTaskBindingRequest {
+                title: "Worker".into(),
+                role: Some(TaskBindingRole::Worker),
+                parent_id: None,
+                plan_path: None,
+                normalized_plan_path: None,
+                prompt: None,
+                session_id: None,
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                todo_id: None,
+                project_path: "D:/repo".into(),
+                workspace_name: None,
+                cli_tool: Some("codex".into()),
+                metadata: Some(serde_json::json!({
+                    "monitorMode": "worker_report",
+                    "ui": {
+                        "muted": false,
+                        "retryOf": "old"
+                    }
+                })),
+            })
+            .expect("create");
+
+        let updated = service
+            .update_patch(
+                &binding.id,
+                serde_json::json!({
+                    "metadata": {
+                        "ui": {
+                            "muted": true,
+                            "retryOf": null
+                        }
+                    }
+                }),
+            )
+            .expect("patch");
+
+        let metadata = updated.metadata.expect("metadata");
+        assert_eq!(metadata["monitorMode"], "worker_report");
+        assert_eq!(metadata["ui"]["muted"], true);
+        assert!(metadata["ui"].get("retryOf").is_none());
+    }
+
+    #[test]
+    fn update_patch_ignores_protected_binding_fields() {
+        let service = service();
+        let binding = service
+            .create(CreateTaskBindingRequest {
+                title: "Worker".into(),
+                role: Some(TaskBindingRole::Worker),
+                parent_id: Some("leader-1".into()),
+                plan_path: Some("D:/repo/.claude/plans/plan.md".into()),
+                normalized_plan_path: Some("d:/repo/.claude/plans/plan.md".into()),
+                prompt: Some("old prompt".into()),
+                session_id: Some("pty-old".into()),
+                resume_id: Some("resume-old".into()),
+                pane_id: Some("pane-old".into()),
+                tab_id: Some("tab-old".into()),
+                todo_id: None,
+                project_path: "D:/repo".into(),
+                workspace_name: None,
+                cli_tool: Some("codex".into()),
+                metadata: Some(serde_json::json!({ "ui": { "muted": false } })),
+            })
+            .expect("create");
+
+        let updated = service
+            .update_patch(
+                &binding.id,
+                serde_json::json!({
+                    "title": "Allowed title",
+                    "prompt": "allowed prompt",
+                    "status": "running",
+                    "progress": 42,
+                    "role": "leader",
+                    "parentId": "leader-2",
+                    "planPath": "D:/other/plan.md",
+                    "normalizedPlanPath": "d:/other/plan.md",
+                    "resumeId": "resume-new",
+                    "sessionId": "pty-new",
+                    "paneId": "pane-new",
+                    "tabId": "tab-new",
+                    "metadata": { "ui": { "muted": true } }
+                }),
+            )
+            .expect("patch");
+
+        // fix(C1) review: 允许字段生效，role/parent/session/pane/tab/plan 等关键字段被忽略。
+        assert_eq!(updated.title, "Allowed title");
+        assert_eq!(updated.prompt.as_deref(), Some("allowed prompt"));
+        assert_eq!(updated.status, TaskBindingStatus::Running);
+        assert_eq!(updated.progress, 42);
+        assert_eq!(updated.role, TaskBindingRole::Worker);
+        assert_eq!(updated.parent_id.as_deref(), Some("leader-1"));
+        assert_eq!(
+            updated.plan_path.as_deref(),
+            Some("D:/repo/.claude/plans/plan.md")
+        );
+        assert_eq!(
+            updated.normalized_plan_path.as_deref(),
+            Some("d:/repo/.claude/plans/plan.md")
+        );
+        assert_eq!(updated.session_id.as_deref(), Some("pty-old"));
+        assert_eq!(updated.resume_id.as_deref(), Some("resume-old"));
+        assert_eq!(updated.pane_id.as_deref(), Some("pane-old"));
+        assert_eq!(updated.tab_id.as_deref(), Some("tab-old"));
+        assert_eq!(updated.metadata.unwrap()["ui"]["muted"], true);
     }
 
     #[test]

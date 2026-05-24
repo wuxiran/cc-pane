@@ -27,6 +27,11 @@ export interface TaskBinding {
   updatedAt: string;
 }
 
+export interface TaskBindingNode extends TaskBinding {
+  children: TaskBindingNode[];
+  depth: number;
+}
+
 export interface CreateTaskBindingRequest {
   title: string;
   role?: TaskBindingRole;
@@ -62,6 +67,29 @@ export interface UpdateTaskBindingRequest {
   exitCode?: number;
   sortOrder?: number;
   metadata?: unknown;
+}
+
+// fix(C1) review: patch 类型只暴露后端白名单字段，关键绑定字段必须走受控路径。
+export type TaskBindingPatch = Partial<
+  Pick<
+    UpdateTaskBindingRequest,
+    | "title"
+    | "status"
+    | "progress"
+    | "completionSummary"
+    | "exitCode"
+    | "sortOrder"
+    | "metadata"
+    | "prompt"
+  >
+>;
+
+export type TaskBindingChangedOp = "create" | "update" | "delete" | "register" | "reconcile";
+
+export interface TaskBindingChangedEvent {
+  op: TaskBindingChangedOp;
+  id: string;
+  binding?: TaskBinding;
 }
 
 export interface TaskBindingQuery {

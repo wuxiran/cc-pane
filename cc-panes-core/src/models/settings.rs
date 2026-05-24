@@ -25,6 +25,8 @@ pub struct AppSettings {
     pub screenshot: ScreenshotSettings,
     #[serde(default)]
     pub voice: VoiceSettings,
+    #[serde(default)]
+    pub ccchan: CCChanSettings,
 }
 
 impl AppSettings {
@@ -32,6 +34,7 @@ impl AppSettings {
         self.terminal.merge_missing_defaults();
         self.shortcuts.merge_missing_defaults();
         self.voice.merge_missing_defaults();
+        self.ccchan.merge_missing_defaults();
     }
 }
 
@@ -260,6 +263,48 @@ impl VoiceSettings {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CCChanSettings {
+    #[serde(default = "default_ccchan_ai_engine")]
+    pub ai_engine: String,
+    #[serde(default = "default_ccchan_pet_id")]
+    pub default_pet_id: String,
+    #[serde(default = "default_true")]
+    pub auto_start: bool,
+    #[serde(default = "default_true")]
+    pub sound_enabled: bool,
+    #[serde(default = "default_true")]
+    pub window_visible: bool,
+    #[serde(default)]
+    pub window_x: Option<f64>,
+    #[serde(default)]
+    pub window_y: Option<f64>,
+}
+
+impl CCChanSettings {
+    pub fn merge_missing_defaults(&mut self) {
+        if !matches!(self.ai_engine.as_str(), "claude" | "codex") {
+            self.ai_engine = default_ccchan_ai_engine();
+        }
+        if self.default_pet_id.trim().is_empty() {
+            self.default_pet_id = default_ccchan_pet_id();
+        }
+    }
+}
+
+fn default_ccchan_ai_engine() -> String {
+    "claude".to_string()
+}
+
+fn default_ccchan_pet_id() -> String {
+    "doro.codex-pet".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
 fn default_voice_provider() -> String {
     "dashscope".to_string()
 }
@@ -387,6 +432,20 @@ impl Default for VoiceSettings {
             language: None,
             enable_itn: false,
             max_record_seconds: default_voice_max_record_seconds(),
+        }
+    }
+}
+
+impl Default for CCChanSettings {
+    fn default() -> Self {
+        Self {
+            ai_engine: default_ccchan_ai_engine(),
+            default_pet_id: default_ccchan_pet_id(),
+            auto_start: true,
+            sound_enabled: true,
+            window_visible: true,
+            window_x: None,
+            window_y: None,
         }
     }
 }

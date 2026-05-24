@@ -216,7 +216,8 @@ fn read_usage_entries(
     let mut file = File::open(jsonl_path).map_err(|e| e.to_string())?;
     let len = file.metadata().map_err(|e| e.to_string())?.len();
     let start = from_byte_offset.min(len);
-    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(start))
+        .map_err(|e| e.to_string())?;
 
     let mut reader = BufReader::new(file);
     let mut offset = start;
@@ -224,7 +225,9 @@ fn read_usage_entries(
 
     loop {
         let mut buf = Vec::new();
-        let read = reader.read_until(b'\n', &mut buf).map_err(|e| e.to_string())?;
+        let read = reader
+            .read_until(b'\n', &mut buf)
+            .map_err(|e| e.to_string())?;
         if read == 0 {
             break;
         }
@@ -279,9 +282,12 @@ fn usage_date(json: &Value) -> String {
 }
 
 fn parse_local_date(timestamp: &str) -> Option<String> {
-    DateTime::parse_from_rfc3339(timestamp)
-        .ok()
-        .map(|dt| dt.with_timezone(&Local).date_naive().format("%Y-%m-%d").to_string())
+    DateTime::parse_from_rfc3339(timestamp).ok().map(|dt| {
+        dt.with_timezone(&Local)
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string()
+    })
 }
 
 fn number_field(value: &Value, names: &[&str]) -> u64 {

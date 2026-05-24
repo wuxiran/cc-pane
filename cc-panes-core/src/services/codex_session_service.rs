@@ -207,7 +207,8 @@ pub fn read_session_usage(
     let mut file = File::open(jsonl_path).map_err(|e| e.to_string())?;
     let len = file.metadata().map_err(|e| e.to_string())?.len();
     let start = from_byte_offset.min(len);
-    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(start))
+        .map_err(|e| e.to_string())?;
 
     let mut reader = BufReader::new(file);
     let mut offset = start;
@@ -215,7 +216,9 @@ pub fn read_session_usage(
 
     loop {
         let mut buf = Vec::new();
-        let read = reader.read_until(b'\n', &mut buf).map_err(|e| e.to_string())?;
+        let read = reader
+            .read_until(b'\n', &mut buf)
+            .map_err(|e| e.to_string())?;
         if read == 0 {
             break;
         }
@@ -259,15 +262,14 @@ fn extract_codex_usage(json: &Value) -> Option<UsageEntry> {
             .and_then(|value| value.as_str())
             == Some("token_count")
     {
-        let usage = json
-            .get("payload")?
-            .get("info")?
-            .get("last_token_usage")?;
+        let usage = json.get("payload")?.get("info")?.get("last_token_usage")?;
         return Some(UsageEntry {
             date: usage_date(json),
-            token_input: number_field(usage, &["input_tokens"]),
-            token_output: number_field(usage, &["output_tokens"]),
-            token_cache_read: number_field(usage, &["cached_input_tokens", "cache_read_input_tokens"]),
+            token_input: number_field(usage, &["input_tokens", "prompt_tokens"]),
+            token_output: number_field(usage, &["output_tokens", "completion_tokens"]),
+            // OpenAI Responses API: cached tokens 在 input_tokens_details.cached_tokens 嵌套
+            // 顶层字段是历史/其他变体的兼容
+            token_cache_read: cache_read_tokens(usage),
             token_cache_creation: number_field(usage, &["cache_creation_input_tokens"]),
         });
     }
@@ -279,7 +281,11 @@ fn extract_codex_usage(json: &Value) -> Option<UsageEntry> {
     let payload = json.get("payload")?;
     let usage = payload
         .get("usage")
-        .or_else(|| payload.get("response").and_then(|response| response.get("usage")))
+        .or_else(|| {
+            payload
+                .get("response")
+                .and_then(|response| response.get("usage"))
+        })
         .or_else(|| payload.get("payload").and_then(|inner| inner.get("usage")))?;
 
     Some(UsageEntry {
@@ -304,9 +310,12 @@ fn usage_date(json: &Value) -> String {
 }
 
 fn parse_local_date(timestamp: &str) -> Option<String> {
-    DateTime::parse_from_rfc3339(timestamp)
-        .ok()
-        .map(|dt| dt.with_timezone(&Local).date_naive().format("%Y-%m-%d").to_string())
+    DateTime::parse_from_rfc3339(timestamp).ok().map(|dt| {
+        dt.with_timezone(&Local)
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string()
+    })
 }
 
 fn number_field(value: &Value, names: &[&str]) -> u64 {

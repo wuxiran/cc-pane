@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "screenshot", "popup-*"],
+  "windows": ["main", "screenshot", "popup-*", "ccchan"],
   "permissions": [
     "core:default",
     "opener:default",

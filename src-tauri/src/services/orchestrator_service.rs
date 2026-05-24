@@ -20,9 +20,10 @@ use crate::models::{
     WorkspaceLaunchEnvironment, WslLaunchInfo,
 };
 use crate::services::{
-    ExternalSkillRegistry, LaunchHistoryService, LaunchProfileService, NotificationRequest,
-    NotificationService, ProjectService, ProviderService, SettingsService, SharedMcpService,
-    SkillService, SpecService, SshMachineService, TerminalService, TodoService, WorkspaceService,
+    ExternalSkillRegistry, LaunchHistoryService, LaunchProfileService, MemoryService,
+    NotificationRequest, NotificationService, ProjectService, ProviderService, SettingsService,
+    SharedMcpService, SkillService, SpecService, SshMachineService, TerminalService, TodoService,
+    WorkspaceService,
 };
 use crate::utils::{validate_command, validate_mcp_name, validate_path, AppPaths};
 use anyhow::Result;
@@ -34,11 +35,18 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use cc_memory::models::{
+    MemoryCategory, MemoryQuery, MemoryScope, StoreMemoryRequest, UpdateMemoryRequest,
+};
 use cc_panes_core::models::shared_mcp::{
     BridgeMode, SharedMcpConfig, SharedMcpServerConfig, SharedMcpServerStatus,
 };
+use cc_panes_core::models::{
+    PortReservation, RunnerInstance, RunnerInstanceStatus, RunnerProfile, RunnerStartResult,
+    RunnerStartStatus,
+};
 use cc_panes_core::services::mcp_config_service::McpServerConfig;
-use cc_panes_core::services::terminal_service::SessionStatus;
+use cc_panes_core::services::terminal_service::{SessionStatus, SessionStatusInfo};
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
@@ -47,7 +55,9 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info, warn};
@@ -189,6 +199,19 @@ fn parse_provider_selection(
     }
 }
 
+fn parse_memory_scope(scope: Option<&str>) -> std::result::Result<Option<MemoryScope>, String> {
+    scope
+        .map(|value| {
+            MemoryScope::parse(value).ok_or_else(|| {
+                format!(
+                    "Unknown memory scope '{}'; expected global, workspace, project, or session",
+                    value
+                )
+            })
+        })
+        .transpose()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LaunchRuntimeKind {
     Local,
@@ -285,6 +308,26 @@ pub struct ApiError {
 
 // ============ 共享状态 ============
 
+/// Per-profile start locks prevent duplicate runner launches between the
+/// active-instance check and PTY/session registration.
+#[derive(Default)]
+pub struct StartLocks {
+    locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+}
+
+impl StartLocks {
+    async fn acquire(&self, profile_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self.locks.lock().await;
+            locks
+                .entry(profile_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        lock.lock_owned().await
+    }
+}
+
 /// axum 路由共享状态
 #[derive(Clone)]
 pub struct AppState {
@@ -298,6 +341,7 @@ pub struct AppState {
     pub workspace_service: Arc<WorkspaceService>,
     pub ssh_machine_service: Arc<SshMachineService>,
     pub todo_service: Arc<TodoService>,
+    pub memory_service: Arc<MemoryService>,
     pub task_binding_service: Arc<crate::services::TaskBindingService>,
     pub spec_service: Arc<SpecService>,
     pub skill_service: Arc<SkillService>,
@@ -306,6 +350,9 @@ pub struct AppState {
     pub notification_service: Arc<NotificationService>,
     pub settings_service: Arc<SettingsService>,
     pub plan_archive_service: Arc<crate::services::PlanArchiveService>,
+    /// Runner Registry：项目运行实例 + 端口/PID 跟踪
+    pub runner_service: Arc<cc_panes_core::services::RunnerService>,
+    pub start_locks: Arc<StartLocks>,
     /// hook 驱动的会话状态机（阶段 2.2 引入）
     pub session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
     pub app_handle: AppHandle,
@@ -374,6 +421,7 @@ impl OrchestratorService {
         workspace_service: Arc<WorkspaceService>,
         ssh_machine_service: Arc<SshMachineService>,
         todo_service: Arc<TodoService>,
+        memory_service: Arc<MemoryService>,
         task_binding_service: Arc<crate::services::TaskBindingService>,
         spec_service: Arc<SpecService>,
         skill_service: Arc<SkillService>,
@@ -382,6 +430,8 @@ impl OrchestratorService {
         notification_service: Arc<NotificationService>,
         settings_service: Arc<SettingsService>,
         plan_archive_service: Arc<crate::services::PlanArchiveService>,
+        runner_service: Arc<cc_panes_core::services::RunnerService>,
+        start_locks: Arc<StartLocks>,
         app_handle: AppHandle,
         app_paths: Arc<AppPaths>,
     ) -> Result<()> {
@@ -397,6 +447,7 @@ impl OrchestratorService {
             workspace_service,
             ssh_machine_service,
             todo_service,
+            memory_service,
             task_binding_service,
             spec_service,
             skill_service,
@@ -405,6 +456,8 @@ impl OrchestratorService {
             notification_service,
             settings_service,
             plan_archive_service,
+            runner_service,
+            start_locks,
             session_state_machine: self.session_state_machine.clone(),
             app_handle,
             app_paths,
@@ -426,6 +479,7 @@ impl OrchestratorService {
             let notif_svc = state.notification_service.clone();
             let settings_svc = state.settings_service.clone();
             let term_svc = state.terminal_service.clone();
+            let runner_svc_listener = state.runner_service.clone();
             let state_machine_for_timer = state.session_state_machine.clone();
             state.session_state_machine.subscribe(Arc::new(
                 move |transition: &cc_panes_core::services::StateTransition| {
@@ -444,6 +498,7 @@ impl OrchestratorService {
                                 &transition.pty_session_id,
                                 transition.turn_seq,
                                 None, // 摘要在未来阶段从 transcript 读取
+                                None,
                             );
                         }
                         SessionStatus::WaitingInput => {
@@ -452,6 +507,7 @@ impl OrchestratorService {
                                 &app_handle_for_listener,
                                 &settings_svc,
                                 &transition.pty_session_id,
+                                None,
                             );
                         }
                         SessionStatus::Error => {
@@ -460,10 +516,20 @@ impl OrchestratorService {
                                 &settings_svc,
                                 &transition.pty_session_id,
                                 transition.error_type.as_deref(),
+                                None,
                             );
                         }
                         SessionStatus::Exited => {
                             if transition.trigger_event == "pty-exit" {
+                                if let Err(e) = runner_svc_listener
+                                    .mark_exited_by_session(&transition.pty_session_id, None)
+                                {
+                                    tracing::warn!(
+                                        session_id = %transition.pty_session_id,
+                                        err = %e,
+                                        "runner mark_exited_by_session failed for pty-exit"
+                                    );
+                                }
                                 return;
                             }
                             // 通过 SessionEnd hook 进入 → 默认 exit_code = 0
@@ -473,7 +539,20 @@ impl OrchestratorService {
                                 &settings_svc,
                                 &transition.pty_session_id,
                                 0,
+                                None,
                             );
+                            // Runner Registry：若该 session 关联了 active runner instance，
+                            // 把它从 running 标记为 exited（避免下次 plan_runner_launch 把它
+                            // 误算成"自身上次残留"）
+                            if let Err(e) = runner_svc_listener
+                                .mark_exited_by_session(&transition.pty_session_id, Some(0))
+                            {
+                                tracing::debug!(
+                                    session_id = %transition.pty_session_id,
+                                    err = %e,
+                                    "runner mark_exited_by_session failed"
+                                );
+                            }
                         }
                         // ============ 阶段 2.7：长工具 60s timer ============
                         //
@@ -510,6 +589,7 @@ impl OrchestratorService {
                                     &tool_name,
                                     tool_use_id.as_deref(),
                                     60,
+                                    None,
                                 );
                             });
                         }
@@ -689,6 +769,7 @@ fn build_router(state: AppState) -> Router {
             post(handle_trigger_notification),
         )
         .route("/api/hook-event", post(handle_hook_event))
+        .route("/api/memory/recall", post(handle_memory_recall))
         .route("/api/plan/tag", post(handle_plan_tag))
         .route("/api/plan/recent", get(handle_plan_recent))
         .route("/api/plan/search", post(handle_plan_search))
@@ -883,6 +964,148 @@ struct McpUpdateTodoParams {
     description: Option<String>,
 }
 
+// ---- Memory MCP 参数 ----
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpMemorySearchParams {
+    /// 搜索关键词。兼容 query/search 两个字段。
+    #[serde(alias = "search")]
+    query: Option<String>,
+    /// 作用域：global, workspace, project, session
+    scope: Option<String>,
+    /// 类别：decision, lesson, preference, pattern, fact, plan 或自定义字符串
+    category: Option<String>,
+    /// 最低重要度：1-5
+    #[serde(rename = "minImportance", alias = "min_importance")]
+    min_importance: Option<u8>,
+    /// 工作空间名称
+    #[serde(rename = "workspaceName", alias = "workspace_name")]
+    workspace_name: Option<String>,
+    /// 项目路径
+    #[serde(rename = "projectPath", alias = "project_path")]
+    project_path: Option<String>,
+    /// 会话 ID
+    #[serde(rename = "sessionId", alias = "session_id")]
+    session_id: Option<String>,
+    /// 标签过滤
+    tags: Option<Vec<String>>,
+    /// 排序：relevance, created_at, updated_at, importance
+    #[serde(rename = "sortBy", alias = "sort_by")]
+    sort_by: Option<String>,
+    /// 返回数量上限
+    limit: Option<u32>,
+    /// 分页偏移
+    offset: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpMemoryAddParams {
+    /// 短标题（最多 200 字符）
+    title: String,
+    /// 记忆正文
+    content: String,
+    /// 作用域：global, workspace, project, session；默认 project
+    scope: Option<String>,
+    /// 类别：decision, lesson, preference, pattern, fact, plan 或自定义字符串；默认 fact
+    category: Option<String>,
+    /// 重要度：1-5；importance >= 4 才会作为核心记忆优先召回
+    importance: Option<u8>,
+    /// 工作空间名称；workspace/project 作用域建议填写
+    #[serde(rename = "workspaceName", alias = "workspace_name")]
+    workspace_name: Option<String>,
+    /// 项目路径；project 作用域必填
+    #[serde(rename = "projectPath", alias = "project_path")]
+    project_path: Option<String>,
+    /// 会话 ID；session 作用域必填
+    #[serde(rename = "sessionId", alias = "session_id")]
+    session_id: Option<String>,
+    /// 标签
+    tags: Option<Vec<String>>,
+    /// 来源；默认 mcp
+    source: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpMemoryUpdateParams {
+    /// Memory ID
+    id: String,
+    /// 新标题
+    title: Option<String>,
+    /// 新正文
+    content: Option<String>,
+    /// 新类别
+    category: Option<String>,
+    /// 新重要度：1-5
+    importance: Option<u8>,
+    /// 新标签列表
+    tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpMemoryIdParams {
+    /// Memory ID
+    id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpMemoryStatsParams {
+    /// 工作空间名称
+    #[serde(rename = "workspaceName", alias = "workspace_name")]
+    workspace_name: Option<String>,
+    /// 项目路径
+    #[serde(rename = "projectPath", alias = "project_path")]
+    project_path: Option<String>,
+}
+
+impl McpMemorySearchParams {
+    fn into_query(self) -> std::result::Result<MemoryQuery, String> {
+        Ok(MemoryQuery {
+            search: self.query.filter(|value| !value.trim().is_empty()),
+            scope: parse_memory_scope(self.scope.as_deref())?,
+            category: self.category.as_deref().map(MemoryCategory::parse),
+            min_importance: self.min_importance,
+            workspace_name: self.workspace_name,
+            project_path: self.project_path,
+            session_id: self.session_id,
+            tags: self.tags,
+            from_date: None,
+            to_date: None,
+            sort_by: self.sort_by,
+            limit: self.limit,
+            offset: self.offset,
+        })
+    }
+}
+
+impl McpMemoryAddParams {
+    fn into_request(self) -> std::result::Result<StoreMemoryRequest, String> {
+        Ok(StoreMemoryRequest {
+            title: self.title,
+            content: self.content,
+            scope: parse_memory_scope(self.scope.as_deref())?,
+            category: self.category.as_deref().map(MemoryCategory::parse),
+            importance: self.importance,
+            workspace_name: self.workspace_name,
+            project_path: self.project_path,
+            session_id: self.session_id,
+            tags: self.tags,
+            source: Some(self.source.unwrap_or_else(|| "mcp".to_string())),
+        })
+    }
+}
+
+impl McpMemoryUpdateParams {
+    fn into_request(self) -> UpdateMemoryRequest {
+        UpdateMemoryRequest {
+            title: self.title,
+            content: self.content,
+            category: self.category.as_deref().map(MemoryCategory::parse),
+            importance: self.importance,
+            tags: self.tags,
+        }
+    }
+}
+
 // ---- Skill MCP 参数 ----
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -982,11 +1205,134 @@ struct McpTriggerNotificationParams {
     scope: Option<String>,
     #[serde(rename = "dedupeKey")]
     dedupe_key: Option<String>,
+    #[serde(rename = "groupKey")]
+    group_key: Option<String>,
     #[serde(rename = "onlyWhenUnfocused")]
     only_when_unfocused: Option<bool>,
     #[serde(default)]
     #[schemars(schema_with = "notification_metadata_schema")]
     metadata: Option<serde_json::Value>,
+}
+
+// ============ Runner Registry Params ============
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpListRunnerProfilesParams {
+    /// 项目绝对路径
+    project_path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpUpsertRunnerProfileParams {
+    /// 启动配置 ID（提供则更新，缺省则新建）
+    #[serde(default)]
+    id: Option<String>,
+    /// 项目绝对路径
+    project_path: String,
+    /// 可选：所属工作空间名
+    #[serde(default)]
+    workspace_name: Option<String>,
+    /// 配置名（如 "frontend dev"）
+    name: String,
+    /// 启动命令（如 "npm run dev"）
+    command: String,
+    /// 工作目录
+    cwd: String,
+    /// local / wsl / ssh
+    runtime_kind: String,
+    /// WSL distro 名（runtime_kind=wsl 时必填）
+    #[serde(default)]
+    wsl_distro: Option<String>,
+    /// SSH machine ID（runtime_kind=ssh 时必填）
+    #[serde(default)]
+    ssh_machine_id: Option<String>,
+    /// 额外环境变量
+    #[serde(default)]
+    env: std::collections::HashMap<String, String>,
+    /// 期望监听的端口（用于启动前预演冲突）
+    #[serde(default)]
+    expected_ports: Vec<u16>,
+    /// 工具提示：npm / cargo / mvn / sh / docker（元信息）
+    #[serde(default)]
+    tool_hint: Option<String>,
+}
+
+impl From<McpUpsertRunnerProfileParams> for cc_panes_core::models::RunnerProfileDraft {
+    fn from(p: McpUpsertRunnerProfileParams) -> Self {
+        Self {
+            id: p.id,
+            project_path: p.project_path,
+            workspace_name: p.workspace_name,
+            name: p.name,
+            command: p.command,
+            cwd: p.cwd,
+            runtime_kind: p.runtime_kind,
+            wsl_distro: p.wsl_distro,
+            ssh_machine_id: p.ssh_machine_id,
+            env: p.env,
+            expected_ports: p.expected_ports,
+            tool_hint: p.tool_hint,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpDeleteRunnerProfileParams {
+    /// 启动配置 ID
+    id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpPlanRunnerLaunchParams {
+    /// 启动配置 ID
+    profile_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpStartRunnerParams {
+    /// 启动配置 ID
+    profile_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpWorkspacePortReservationsParams {
+    /// 工作空间名称
+    workspace_name: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpListActiveRunnersParams {
+    /// 可选：按项目路径过滤
+    #[serde(default)]
+    project_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpListPortConflictsParams {
+    /// 要查询的端口列表
+    ports: Vec<u16>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpKillRunnerPidParams {
+    /// 目标 PID
+    pid: u32,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpStopRunnerParams {
+    /// 运行实例 ID
+    instance_id: String,
 }
 
 impl From<McpTriggerNotificationParams> for NotificationRequest {
@@ -998,6 +1344,7 @@ impl From<McpTriggerNotificationParams> for NotificationRequest {
             source: value.source,
             scope: value.scope,
             dedupe_key: value.dedupe_key,
+            group_key: value.group_key,
             only_when_unfocused: value.only_when_unfocused,
             metadata: value.metadata,
         }
@@ -1130,6 +1477,19 @@ struct McpUpdateTaskBindingParams {
     #[serde(default)]
     #[schemars(schema_with = "notification_metadata_schema")]
     metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpDeleteTaskBindingParams {
+    /// TaskBinding ID
+    id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpFindTaskBindingBySessionParams {
+    /// 关联终端会话 ID
+    #[serde(rename = "sessionId")]
+    session_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2251,6 +2611,7 @@ impl McpToolHandler {
             false,
             None,
             initial_prompt,
+            None,
             runtime.ssh.as_ref(),
             runtime.wsl.as_ref(),
         ) {
@@ -2324,16 +2685,20 @@ impl McpToolHandler {
         // caller_launch_id 由 URL query 注入；外部 Claude Code 或 REST 直连时为
         // None，结果落到顶层。
         let parent_session_id = caller_launch_id.and_then(|caller_launch_id| {
-            match self
+            if let Some(session_id) = self
                 .state
-                .launch_history_service
-                .find_by_launch_id(&caller_launch_id)
+                .terminal_service
+                .find_session_id_by_launch_id(&caller_launch_id)
             {
+                return Some(session_id);
+            }
+
+            match self.state.launch_history_service.find_by_launch_id(&caller_launch_id) {
                 Ok(Some(rec)) => rec.pty_session_id,
                 Ok(None) => {
                     debug!(
                         caller_launch_id = %caller_launch_id,
-                        "mcp::launch_task: caller launch_id has no matching history record yet"
+                        "mcp::launch_task: caller launch_id has no live session or history record yet"
                     );
                     None
                 }
@@ -2671,6 +3036,83 @@ impl McpToolHandler {
         }
     }
 
+    /// 搜索 CC-Panes Memory。默认返回当前 memory.db 中匹配项；可按 scope/project/workspace/importance 过滤。
+    #[tool]
+    async fn memory_search(&self, Parameters(params): Parameters<McpMemorySearchParams>) -> String {
+        debug!("mcp::memory_search");
+        let query = match params.into_query() {
+            Ok(query) => query,
+            Err(error) => return format!("错误: {}", error),
+        };
+        match self.state.memory_service.search(query) {
+            Ok(result) => serde_json::to_string(&result)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
+            Err(error) => format!("错误: 搜索 Memory 失败: {}", error),
+        }
+    }
+
+    /// 写入一条 CC-Panes Memory。用于保存稳定偏好、决策、经验、事实或计划。
+    #[tool]
+    async fn memory_add(&self, Parameters(params): Parameters<McpMemoryAddParams>) -> String {
+        info!(title = %params.title, "mcp::memory_add");
+        let request = match params.into_request() {
+            Ok(request) => request,
+            Err(error) => return format!("错误: {}", error),
+        };
+        match self.state.memory_service.store(request) {
+            Ok(memory) => serde_json::to_string(&memory)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
+            Err(error) => format!("错误: 写入 Memory 失败: {}", error),
+        }
+    }
+
+    /// 读取一条 CC-Panes Memory。
+    #[tool]
+    async fn memory_get(&self, Parameters(params): Parameters<McpMemoryIdParams>) -> String {
+        debug!(id = %params.id, "mcp::memory_get");
+        match self.state.memory_service.get(&params.id) {
+            Ok(memory) => serde_json::to_string(&memory)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
+            Err(error) => format!("错误: 读取 Memory 失败: {}", error),
+        }
+    }
+
+    /// 更新一条 CC-Panes Memory。
+    #[tool]
+    async fn memory_update(&self, Parameters(params): Parameters<McpMemoryUpdateParams>) -> String {
+        info!(id = %params.id, "mcp::memory_update");
+        let id = params.id.clone();
+        let request = params.into_request();
+        match self.state.memory_service.update(&id, request) {
+            Ok(updated) => serde_json::json!({ "id": id, "updated": updated }).to_string(),
+            Err(error) => format!("错误: 更新 Memory 失败: {}", error),
+        }
+    }
+
+    /// 删除一条 CC-Panes Memory（软删除）。
+    #[tool]
+    async fn memory_delete(&self, Parameters(params): Parameters<McpMemoryIdParams>) -> String {
+        info!(id = %params.id, "mcp::memory_delete");
+        match self.state.memory_service.delete(&params.id) {
+            Ok(deleted) => serde_json::json!({ "id": params.id, "deleted": deleted }).to_string(),
+            Err(error) => format!("错误: 删除 Memory 失败: {}", error),
+        }
+    }
+
+    /// 获取 CC-Panes Memory 统计。
+    #[tool]
+    async fn memory_stats(&self, Parameters(params): Parameters<McpMemoryStatsParams>) -> String {
+        debug!("mcp::memory_stats");
+        match self.state.memory_service.stats(
+            params.workspace_name.as_deref(),
+            params.project_path.as_deref(),
+        ) {
+            Ok(stats) => serde_json::to_string(&stats)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
+            Err(error) => format!("错误: 获取 Memory 统计失败: {}", error),
+        }
+    }
+
     /// 列出所有已注册的项目（DB 项目 + 工作空间项目）
     #[tool]
     async fn list_projects(&self) -> String {
@@ -2728,15 +3170,18 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpGetTaskStatusParams>,
     ) -> String {
         debug!(task_id = %params.task_id, "mcp::get_task_status");
-        let tasks = self.state.tasks.lock().unwrap_or_else(|e| e.into_inner());
-        match tasks.get(&params.task_id) {
-            Some(status) => serde_json::json!({
-                "taskId": status.task_id,
-                "sessionId": status.session_id,
-                "status": status.status,
-                "error": status.error,
-            })
-            .to_string(),
+        let mut tasks = self.state.tasks.lock().unwrap_or_else(|e| e.into_inner());
+        match tasks.get_mut(&params.task_id) {
+            Some(status) => {
+                refresh_task_status(status, &self.state.terminal_service);
+                serde_json::json!({
+                    "taskId": status.task_id,
+                    "sessionId": status.session_id,
+                    "status": status.status,
+                    "error": status.error,
+                })
+                .to_string()
+            }
             None => {
                 format!("错误: 任务 '{}' 不存在", params.task_id)
             }
@@ -3124,7 +3569,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 查询当前所有面板信息（ID、标签数量、活跃标签等），可用于 launch_task 的 paneId 参数
+    /// 查询当前所有面板信息（ID、稳定显示编号、标签数量、活跃标签等），可用于 launch_task 的 paneId 参数
     #[tool]
     async fn list_panes(&self) -> String {
         debug!("mcp::list_panes");
@@ -3444,12 +3889,10 @@ impl McpToolHandler {
                             params.wsl_distro.as_deref(),
                         )
                     }
+                } else if let Some(ref project_path) = params.project_path {
+                    crate::services::codex_session_service::list_sessions(project_path, limit)
                 } else {
-                    if let Some(ref project_path) = params.project_path {
-                        crate::services::codex_session_service::list_sessions(project_path, limit)
-                    } else {
-                        crate::services::codex_session_service::list_all_sessions(limit)
-                    }
+                    crate::services::codex_session_service::list_all_sessions(limit)
                 };
                 sessions.map(|items| {
                     items
@@ -3595,6 +4038,42 @@ impl McpToolHandler {
                     .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
             }
             Err(e) => format!("错误: 更新 TaskBinding 失败: {}", e),
+        }
+    }
+
+    /// 删除指定 TaskBinding。
+    #[tool]
+    async fn delete_task_binding(
+        &self,
+        Parameters(params): Parameters<McpDeleteTaskBindingParams>,
+    ) -> String {
+        info!(id = %params.id, "mcp::delete_task_binding");
+        match self.state.task_binding_service.delete(&params.id) {
+            Ok(deleted) => serde_json::json!({
+                "success": true,
+                "deleted": deleted,
+                "id": params.id,
+            })
+            .to_string(),
+            Err(e) => format!("错误: 删除 TaskBinding 失败: {}", e),
+        }
+    }
+
+    /// 根据终端会话 ID 查找 TaskBinding。
+    #[tool]
+    async fn find_task_binding_by_session(
+        &self,
+        Parameters(params): Parameters<McpFindTaskBindingBySessionParams>,
+    ) -> String {
+        debug!(session_id = %params.session_id, "mcp::find_task_binding_by_session");
+        match self
+            .state
+            .task_binding_service
+            .find_by_session_id(&params.session_id)
+        {
+            Ok(binding) => serde_json::to_string(&binding)
+                .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
+            Err(e) => format!("错误: 查询 TaskBinding 失败: {}", e),
         }
     }
 
@@ -3880,6 +4359,370 @@ impl McpToolHandler {
             Err(e) => format!("错误: 更新 plan archived 失败: {}", e),
         }
     }
+
+    // ============ Runner Registry Tools ============
+    //
+    // 设计原则：工具只暴露状态 + 提供原子操作；冲突处理决策由 skill 编排（clean-launch.md）。
+    // 端口/PID 跟踪本身在后端服务做（hook 周期扫描 + 显式登记），MCP 工具只读+写少量动作。
+
+    /// 列出某项目下的所有启动配置（按 last_started_at 倒序）
+    #[tool]
+    async fn list_runner_profiles(
+        &self,
+        Parameters(params): Parameters<McpListRunnerProfilesParams>,
+    ) -> String {
+        debug!(project = %params.project_path, "mcp::list_runner_profiles");
+        match self
+            .state
+            .runner_service
+            .list_profiles(&params.project_path)
+        {
+            Ok(profiles) => serde_json::json!({ "profiles": profiles }).to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 创建或更新启动配置（id 为空 = 创建；否则按 id 更新）
+    #[tool]
+    async fn upsert_runner_profile(
+        &self,
+        Parameters(params): Parameters<McpUpsertRunnerProfileParams>,
+    ) -> String {
+        debug!(name = %params.name, "mcp::upsert_runner_profile");
+        match self.state.runner_service.upsert_profile(params.into()) {
+            Ok(profile) => serde_json::to_string(&profile)
+                .unwrap_or_else(|e| format!("错误: 序列化失败 {}", e)),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 删除启动配置
+    #[tool]
+    async fn delete_runner_profile(
+        &self,
+        Parameters(params): Parameters<McpDeleteRunnerProfileParams>,
+    ) -> String {
+        debug!(id = %params.id, "mcp::delete_runner_profile");
+        match self.state.runner_service.delete_profile(&params.id) {
+            Ok(()) => serde_json::json!({ "deleted": true }).to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 启动前预演：返回该 profile 的 expected_ports 当前占用情况和处理建议
+    #[tool]
+    async fn plan_runner_launch(
+        &self,
+        Parameters(params): Parameters<McpPlanRunnerLaunchParams>,
+    ) -> String {
+        debug!(profile_id = %params.profile_id, "mcp::plan_runner_launch");
+        match self.state.runner_service.plan_launch(&params.profile_id) {
+            Ok(plan) => {
+                serde_json::to_string(&plan).unwrap_or_else(|e| format!("错误: 序列化失败 {}", e))
+            }
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 启动 runner profile：可复用 running instance、端口冲突阻断、或创建新 PTY 并提交命令。
+    #[tool]
+    async fn start_runner(&self, Parameters(params): Parameters<McpStartRunnerParams>) -> String {
+        debug!(profile_id = %params.profile_id, "mcp::start_runner");
+        match start_runner_coordinator(&params.profile_id, &self.state, &self.state.start_locks)
+            .await
+        {
+            Ok(result) => {
+                serde_json::to_string(&result).unwrap_or_else(|e| format!("错误: 序列化失败 {}", e))
+            }
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 列出 workspace 内所有 runner profile 的 expected_ports 预留情况。
+    #[tool]
+    async fn list_workspace_port_reservations(
+        &self,
+        Parameters(params): Parameters<McpWorkspacePortReservationsParams>,
+    ) -> String {
+        debug!(workspace = %params.workspace_name, "mcp::list_workspace_port_reservations");
+        match self
+            .state
+            .runner_service
+            .list_profiles_by_workspace(&params.workspace_name)
+        {
+            Ok(profiles) => {
+                let reservations = profiles
+                    .into_iter()
+                    .map(|profile| PortReservation {
+                        profile_id: profile.id,
+                        profile_name: profile.name,
+                        project_path: profile.project_path,
+                        workspace_name: profile.workspace_name,
+                        expected_ports: profile.expected_ports,
+                    })
+                    .collect::<Vec<_>>();
+                serde_json::to_string(&reservations)
+                    .unwrap_or_else(|e| format!("错误: 序列化失败 {}", e))
+            }
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 查询当前所有活跃运行实例（可按项目过滤）
+    #[tool]
+    async fn list_active_runners(
+        &self,
+        Parameters(params): Parameters<McpListActiveRunnersParams>,
+    ) -> String {
+        debug!("mcp::list_active_runners");
+        match self
+            .state
+            .runner_service
+            .list_active_instances(params.project_path.as_deref())
+        {
+            Ok(instances) => serde_json::json!({ "instances": instances }).to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 查询指定端口的当前占用情况
+    #[tool]
+    async fn list_port_conflicts(
+        &self,
+        Parameters(params): Parameters<McpListPortConflictsParams>,
+    ) -> String {
+        debug!(ports = ?params.ports, "mcp::list_port_conflicts");
+        match self
+            .state
+            .runner_service
+            .find_conflicts(&params.ports, None)
+        {
+            Ok(conflicts) => serde_json::json!({ "conflicts": conflicts }).to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 按 PID 杀进程（用于 skill 决定杀某个具体端口占用方）
+    #[tool]
+    async fn kill_runner_pid(
+        &self,
+        Parameters(params): Parameters<McpKillRunnerPidParams>,
+    ) -> String {
+        debug!(pid = params.pid, "mcp::kill_runner_pid");
+        match cc_panes_core::services::ProcessMonitorService::new().kill_process(params.pid) {
+            Ok(killed) => serde_json::json!({ "killed": killed }).to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 停止一个运行实例（杀其根进程树）
+    #[tool]
+    async fn stop_runner(&self, Parameters(params): Parameters<McpStopRunnerParams>) -> String {
+        debug!(instance_id = %params.instance_id, "mcp::stop_runner");
+        match self.state.runner_service.kill_instance(&params.instance_id) {
+            Ok(killed) => serde_json::json!({ "killed": killed }).to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+}
+
+trait RunnerTerminal {
+    fn create_shell_session(
+        &self,
+        profile: &RunnerProfile,
+        runtime: &ResolvedLaunchRuntime,
+    ) -> std::result::Result<String, String>;
+    fn submit_text_to_session<'a>(
+        &'a self,
+        session_id: &'a str,
+        text: &'a str,
+    ) -> Pin<Box<dyn Future<Output = std::result::Result<(), String>> + Send + 'a>>;
+    fn get_all_status(&self) -> std::result::Result<Vec<SessionStatusInfo>, String>;
+    fn kill_session(&self, session_id: &str) -> std::result::Result<(), String>;
+}
+
+impl RunnerTerminal for Arc<TerminalService> {
+    fn create_shell_session(
+        &self,
+        profile: &RunnerProfile,
+        runtime: &ResolvedLaunchRuntime,
+    ) -> std::result::Result<String, String> {
+        self.create_session(
+            None,
+            &profile.cwd,
+            120,
+            30,
+            profile.workspace_name.as_deref(),
+            None,
+            LaunchProviderSelection::None,
+            None,
+            None,
+            None,
+            CliTool::None,
+            None,
+            true,
+            None,
+            None,
+            Some(&profile.env),
+            runtime.ssh.as_ref(),
+            runtime.wsl.as_ref(),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    fn submit_text_to_session<'a>(
+        &'a self,
+        session_id: &'a str,
+        text: &'a str,
+    ) -> Pin<Box<dyn Future<Output = std::result::Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            submit_text_to_session(self, session_id, text)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn get_all_status(&self) -> std::result::Result<Vec<SessionStatusInfo>, String> {
+        TerminalService::get_all_status(self).map_err(|e| e.to_string())
+    }
+
+    fn kill_session(&self, session_id: &str) -> std::result::Result<(), String> {
+        self.kill(session_id).map_err(|e| e.to_string())
+    }
+}
+
+async fn start_runner_coordinator(
+    profile_id: &str,
+    app_state: &AppState,
+    start_locks: &StartLocks,
+) -> std::result::Result<RunnerStartResult, String> {
+    let profile = app_state
+        .runner_service
+        .get_profile(profile_id)?
+        .ok_or_else(|| format!("RunnerProfile not found: {}", profile_id))?;
+    let runtime = resolve_launch_runtime(
+        &profile.cwd,
+        profile.workspace_name.as_deref(),
+        Some(profile.runtime_kind.as_str()),
+        None,
+        app_state,
+    )?;
+
+    start_runner_coordinator_with_terminal(
+        profile,
+        app_state.runner_service.as_ref(),
+        &app_state.terminal_service,
+        &runtime,
+        start_locks,
+    )
+    .await
+}
+
+async fn start_runner_coordinator_with_terminal<T: RunnerTerminal + ?Sized>(
+    profile: RunnerProfile,
+    runner_service: &cc_panes_core::services::RunnerService,
+    terminal: &T,
+    runtime: &ResolvedLaunchRuntime,
+    start_locks: &StartLocks,
+) -> std::result::Result<RunnerStartResult, String> {
+    let _guard = start_locks.acquire(&profile.id).await;
+
+    let active_instances = runner_service.list_active_by_profile(&profile.id)?;
+    for instance in active_instances {
+        if is_runner_instance_alive(terminal, &instance)? {
+            return Ok(RunnerStartResult {
+                status: RunnerStartStatus::Reused,
+                instance_id: Some(instance.id),
+                session_id: instance.session_id,
+                launch_plan: None,
+            });
+        }
+
+        runner_service.mark_instance_exited(&instance.id, None, RunnerInstanceStatus::Exited)?;
+    }
+
+    let plan = runner_service.plan_launch(&profile.id)?;
+    if !plan.conflicts.is_empty() {
+        return Ok(RunnerStartResult {
+            status: RunnerStartStatus::Blocked,
+            instance_id: None,
+            session_id: None,
+            launch_plan: Some(plan),
+        });
+    }
+
+    let session_id = terminal.create_shell_session(&profile, runtime)?;
+    let root_pid = match wait_for_session_root_pid(terminal, &session_id).await? {
+        Some(pid) => pid,
+        None => {
+            let _ = terminal.kill_session(&session_id);
+            return Err(format!(
+                "Failed to resolve root pid for runner session {}",
+                session_id
+            ));
+        }
+    };
+
+    let instance = runner_service.register_instance(
+        Some(&profile.id),
+        &profile.project_path,
+        profile.workspace_name.as_deref(),
+        Some(&session_id),
+        root_pid,
+        runtime.kind.as_str(),
+        &profile.command,
+        &profile.cwd,
+    )?;
+
+    if let Err(error) = terminal
+        .submit_text_to_session(&session_id, &profile.command)
+        .await
+    {
+        let _ = terminal.kill_session(&session_id);
+        let _ =
+            runner_service.mark_instance_exited(&instance.id, None, RunnerInstanceStatus::Exited);
+        return Err(format!("Failed to submit runner command: {}", error));
+    }
+
+    Ok(RunnerStartResult {
+        status: RunnerStartStatus::Launched,
+        instance_id: Some(instance.id),
+        session_id: Some(session_id),
+        launch_plan: None,
+    })
+}
+
+fn is_runner_instance_alive<T: RunnerTerminal + ?Sized>(
+    terminal: &T,
+    instance: &RunnerInstance,
+) -> std::result::Result<bool, String> {
+    let Some(session_id) = instance.session_id.as_deref() else {
+        return Ok(false);
+    };
+    let statuses = terminal.get_all_status()?;
+    Ok(statuses.iter().any(|status| {
+        status.session_id == session_id
+            && status.pid == Some(instance.root_pid)
+            && !status.status.is_terminal()
+    }))
+}
+
+async fn wait_for_session_root_pid<T: RunnerTerminal + ?Sized>(
+    terminal: &T,
+    session_id: &str,
+) -> std::result::Result<Option<u32>, String> {
+    for _ in 0..10 {
+        let statuses = terminal.get_all_status()?;
+        if let Some(pid) = statuses
+            .iter()
+            .find(|status| status.session_id == session_id)
+            .and_then(|status| status.pid)
+        {
+            return Ok(Some(pid));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    Ok(None)
 }
 
 async fn collect_plan_live_sessions(
@@ -4549,6 +5392,7 @@ async fn handle_launch_task(
         false,
         None,
         initial_prompt,
+        None,
         runtime.ssh.as_ref(),
         runtime.wsl.as_ref(),
     ) {
@@ -4701,9 +5545,12 @@ async fn handle_task_status(
         );
     }
 
-    let tasks = state.tasks.lock().unwrap_or_else(|e| e.into_inner());
-    match tasks.get(&task_id) {
-        Some(status) => (StatusCode::OK, Json(serde_json::json!(status))),
+    let mut tasks = state.tasks.lock().unwrap_or_else(|e| e.into_inner());
+    match tasks.get_mut(&task_id) {
+        Some(status) => {
+            refresh_task_status(status, &state.terminal_service);
+            (StatusCode::OK, Json(serde_json::json!(status)))
+        }
         None => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!(ApiError {
@@ -4744,6 +5591,7 @@ struct TriggerNotificationRequest {
     source: Option<String>,
     scope: Option<String>,
     dedupe_key: Option<String>,
+    group_key: Option<String>,
     only_when_unfocused: Option<bool>,
     metadata: Option<serde_json::Value>,
 }
@@ -4769,6 +5617,7 @@ impl From<TriggerNotificationRequest> for NotificationRequest {
             source: value.source,
             scope: value.scope,
             dedupe_key: value.dedupe_key,
+            group_key: value.group_key,
             only_when_unfocused: value.only_when_unfocused,
             metadata: value.metadata,
         }
@@ -5148,6 +5997,76 @@ fn parse_cc_pane_event(name: &str) -> Option<cc_cli_adapters::CcPaneEvent> {
     })
 }
 
+async fn handle_memory_recall(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<MemoryRecallBody>,
+) -> impl IntoResponse {
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
+        );
+    }
+    if !check_rate_limit(&state.last_request_times) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!(ApiError {
+                error: "Rate limit exceeded".to_string()
+            })),
+        );
+    }
+
+    let mut project_paths = Vec::new();
+    if !req.project_path.trim().is_empty() {
+        project_paths.push(req.project_path.trim().to_string());
+    }
+    if let Some(alt) = req.alt_project_path.as_deref().map(str::trim) {
+        if !alt.is_empty() && !project_paths.iter().any(|path| path == alt) {
+            project_paths.push(alt.to_string());
+        }
+    }
+    if project_paths.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!(ApiError {
+                error: "projectPath is required".to_string()
+            })),
+        );
+    }
+
+    let min_importance = req.min_importance.unwrap_or(4).clamp(1, 5);
+    let limit = req.limit.unwrap_or(5).clamp(1, 20);
+    match state.memory_service.recall_for_session_start(
+        req.workspace_name.as_deref(),
+        &project_paths,
+        min_importance,
+        limit,
+    ) {
+        Ok(memories) => {
+            let ids: Vec<String> = memories.iter().map(|memory| memory.id.clone()).collect();
+            let count = ids.len();
+            let context = state.memory_service.format_recall_for_injection(&memories);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "context": context,
+                    "ids": ids,
+                    "count": count,
+                })),
+            )
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!(ApiError {
+                error: e.to_string()
+            })),
+        ),
+    }
+}
+
 async fn handle_session_started(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -5216,6 +6135,18 @@ async fn handle_session_started(
 }
 
 // ============ Plan-as-memory handlers ============
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryRecallBody {
+    workspace_name: Option<String>,
+    project_path: String,
+    alt_project_path: Option<String>,
+    #[serde(default)]
+    min_importance: Option<u8>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -5304,9 +6235,14 @@ async fn handle_plan_tag(
         archived_path: req.archived_path.clone(),
         tag: req.tag,
     };
+    let mut memory_req = upsert_req.clone();
+    memory_req.tag.clamp();
 
     match state.plan_archive_service.upsert_plan(upsert_req) {
         Ok(plan_id) => {
+            if let Err(e) = record_plan_as_memory(&state, plan_id, &memory_req) {
+                warn!(plan_id, err = %e, "plan-as-memory dual write failed");
+            }
             let _ = state.app_handle.emit(
                 "plan-recorded",
                 serde_json::json!({
@@ -5325,6 +6261,123 @@ async fn handle_plan_tag(
                 error: e.to_string()
             })),
         ),
+    }
+}
+
+fn record_plan_as_memory(
+    state: &AppState,
+    plan_id: i64,
+    plan: &cc_panes_core::models::plan::UpsertPlanRequest,
+) -> Result<(), String> {
+    let plan_id_tag = format!("plan-id:{}", plan_id);
+    let title = plan
+        .tag
+        .intent
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|intent| limit_chars(&format!("Plan: {}", intent), 200))
+        .unwrap_or_else(|| format!("Plan {}", plan_id));
+    let content = format_plan_memory_content(plan_id, plan);
+    let mut tags = vec![
+        "plan".to_string(),
+        "plan-as-memory".to_string(),
+        plan_id_tag.clone(),
+    ];
+    for tag in &plan.tag.tags {
+        let trimmed = tag.trim();
+        if !trimmed.is_empty() && !tags.iter().any(|existing| existing == trimmed) {
+            tags.push(trimmed.to_string());
+        }
+    }
+    let importance = match plan.tag.risk.as_deref() {
+        Some("high") => 5,
+        Some("med") => 4,
+        Some("low") => 3,
+        _ => 4,
+    };
+
+    let existing = state.memory_service.search(MemoryQuery {
+        scope: Some(MemoryScope::Project),
+        project_path: Some(plan.project_path.clone()),
+        tags: Some(vec![plan_id_tag]),
+        limit: Some(1),
+        ..Default::default()
+    })?;
+
+    if let Some(memory) = existing.items.first() {
+        state.memory_service.update(
+            &memory.id,
+            UpdateMemoryRequest {
+                title: Some(title),
+                content: Some(content),
+                category: Some(MemoryCategory::Plan),
+                importance: Some(importance),
+                tags: Some(tags),
+            },
+        )?;
+        return Ok(());
+    }
+
+    state.memory_service.store(StoreMemoryRequest {
+        title,
+        content,
+        scope: Some(MemoryScope::Project),
+        category: Some(MemoryCategory::Plan),
+        importance: Some(importance),
+        workspace_name: plan.workspace_name.clone(),
+        project_path: Some(plan.project_path.clone()),
+        session_id: plan.session_id.clone(),
+        tags: Some(tags),
+        source: Some("plan_archive".to_string()),
+    })?;
+
+    Ok(())
+}
+
+fn format_plan_memory_content(
+    plan_id: i64,
+    plan: &cc_panes_core::models::plan::UpsertPlanRequest,
+) -> String {
+    let mut lines = vec![format!("Plan record id: {}", plan_id)];
+    if let Some(intent) = plan.tag.intent.as_deref().map(str::trim) {
+        if !intent.is_empty() {
+            lines.push(format!("Intent: {}", intent));
+        }
+    }
+    if !plan.tag.tags.is_empty() {
+        lines.push(format!("Tags: {}", plan.tag.tags.join(", ")));
+    }
+    if !plan.tag.scope.is_empty() {
+        lines.push(format!("Scope: {}", plan.tag.scope.join(", ")));
+    }
+    if let Some(risk) = plan.tag.risk.as_deref().map(str::trim) {
+        if !risk.is_empty() {
+            lines.push(format!("Risk: {}", risk));
+        }
+    }
+    if let Some(followups) = plan.tag.followups.as_deref().map(str::trim) {
+        if !followups.is_empty() {
+            lines.push(format!("Followups: {}", followups));
+        }
+    }
+    lines.push(format!("Original plan path: {}", plan.plan_path));
+    lines.push(format!("Archived plan path: {}", plan.archived_path));
+    lines.join("\n")
+}
+
+fn limit_chars(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        value.to_string()
+    } else {
+        let mut out = String::new();
+        for ch in value.chars() {
+            if out.len() + ch.len_utf8() > max_bytes {
+                break;
+            }
+            out.push(ch);
+        }
+        out
     }
 }
 
@@ -5437,9 +6490,58 @@ fn generate_token() -> String {
 fn cleanup_stale_tasks(tasks: &mut HashMap<String, TaskStatus>) {
     let ttl = std::time::Duration::from_secs(30 * 60);
     tasks.retain(|_, t| {
-        let is_terminal = matches!(t.status.as_str(), "completed" | "error" | "timeout");
+        let is_terminal = matches!(
+            t.status.as_str(),
+            "completed" | "error" | "timeout" | "exited"
+        );
         !(is_terminal && t.created_at.elapsed() > ttl)
     });
+}
+
+fn task_status_from_session_status(
+    status: cc_panes_core::services::terminal_service::SessionStatus,
+) -> &'static str {
+    use cc_panes_core::services::terminal_service::SessionStatus;
+
+    match status {
+        SessionStatus::Initializing => "launching",
+        SessionStatus::Thinking | SessionStatus::ToolRunning | SessionStatus::Compacting => {
+            "running"
+        }
+        SessionStatus::Active => "running",
+        SessionStatus::WaitingInput => "waitingInput",
+        SessionStatus::Idle => "idle",
+        SessionStatus::Error => "error",
+        SessionStatus::Exited => "exited",
+    }
+}
+
+fn refresh_task_status(task: &mut TaskStatus, terminal_service: &TerminalService) {
+    let Ok(statuses) = terminal_service.get_all_status() else {
+        return;
+    };
+
+    match statuses
+        .iter()
+        .find(|status| status.session_id == task.session_id)
+    {
+        Some(status) => {
+            task.status = task_status_from_session_status(status.status).to_string();
+            if status.status == cc_panes_core::services::terminal_service::SessionStatus::Error
+                && task.error.is_none()
+            {
+                task.error = Some("session reported error".to_string());
+            }
+        }
+        None if !matches!(
+            task.status.as_str(),
+            "completed" | "error" | "timeout" | "exited"
+        ) =>
+        {
+            task.status = "exited".to_string();
+        }
+        None => {}
+    }
 }
 
 /// 长 prompt 阈值（字节）。超过此长度的 prompt 将被写入文件，用短引用替代。
@@ -5812,6 +6914,412 @@ mod tests {
                 "old={old:?} new={new:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_task_status_from_session_status_maps_live_states() {
+        use cc_panes_core::services::terminal_service::SessionStatus;
+
+        assert_eq!(
+            task_status_from_session_status(SessionStatus::Initializing),
+            "launching"
+        );
+        assert_eq!(
+            task_status_from_session_status(SessionStatus::ToolRunning),
+            "running"
+        );
+        assert_eq!(
+            task_status_from_session_status(SessionStatus::WaitingInput),
+            "waitingInput"
+        );
+        assert_eq!(
+            task_status_from_session_status(SessionStatus::Exited),
+            "exited"
+        );
+    }
+
+    #[test]
+    fn test_cleanup_stale_tasks_removes_exited_tasks() {
+        let mut tasks = HashMap::from([(
+            "task-1".to_string(),
+            TaskStatus {
+                task_id: "task-1".to_string(),
+                session_id: "session-1".to_string(),
+                status: "exited".to_string(),
+                error: None,
+                created_at: std::time::Instant::now() - std::time::Duration::from_secs(31 * 60),
+            },
+        )]);
+
+        cleanup_stale_tasks(&mut tasks);
+
+        assert!(tasks.is_empty());
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeTerminal {
+        state: Arc<Mutex<FakeTerminalState>>,
+    }
+
+    #[derive(Default)]
+    struct FakeTerminalState {
+        statuses: Vec<SessionStatusInfo>,
+        created_sessions: Vec<String>,
+        submitted: Vec<(String, String)>,
+        killed: Vec<String>,
+        next_pid: Option<u32>,
+        pid_after_polls: usize,
+        get_status_calls: usize,
+    }
+
+    impl FakeTerminal {
+        fn with_next_pid(pid: Option<u32>) -> Self {
+            let fake = Self::default();
+            fake.state.lock().unwrap().next_pid = pid;
+            fake
+        }
+
+        fn with_pid_after_polls(pid: u32, polls: usize) -> Self {
+            let fake = Self::with_next_pid(Some(pid));
+            fake.state.lock().unwrap().pid_after_polls = polls;
+            fake
+        }
+
+        fn add_status(&self, session_id: &str, pid: Option<u32>, status: SessionStatus) {
+            self.state.lock().unwrap().statuses.push(SessionStatusInfo {
+                session_id: session_id.to_string(),
+                status,
+                last_output_at: 0,
+                pid,
+                current_tool_name: None,
+                current_tool_use_id: None,
+                current_tool_summary: None,
+                updated_at: 0,
+            });
+        }
+
+        fn created_count(&self) -> usize {
+            self.state.lock().unwrap().created_sessions.len()
+        }
+
+        fn submitted_count(&self) -> usize {
+            self.state.lock().unwrap().submitted.len()
+        }
+
+        fn killed_count(&self) -> usize {
+            self.state.lock().unwrap().killed.len()
+        }
+    }
+
+    impl RunnerTerminal for FakeTerminal {
+        fn create_shell_session(
+            &self,
+            _profile: &RunnerProfile,
+            _runtime: &ResolvedLaunchRuntime,
+        ) -> std::result::Result<String, String> {
+            let mut state = self.state.lock().unwrap();
+            let session_id = format!("session-{}", state.created_sessions.len() + 1);
+            let pid = if state.pid_after_polls == 0 {
+                state.next_pid
+            } else {
+                None
+            };
+            state.created_sessions.push(session_id.clone());
+            state.statuses.push(SessionStatusInfo {
+                session_id: session_id.clone(),
+                status: SessionStatus::Initializing,
+                last_output_at: 0,
+                pid,
+                current_tool_name: None,
+                current_tool_use_id: None,
+                current_tool_summary: None,
+                updated_at: 0,
+            });
+            Ok(session_id)
+        }
+
+        fn submit_text_to_session<'a>(
+            &'a self,
+            session_id: &'a str,
+            text: &'a str,
+        ) -> Pin<Box<dyn Future<Output = std::result::Result<(), String>> + Send + 'a>> {
+            Box::pin(async move {
+                self.state
+                    .lock()
+                    .unwrap()
+                    .submitted
+                    .push((session_id.to_string(), text.to_string()));
+                Ok(())
+            })
+        }
+
+        fn get_all_status(&self) -> std::result::Result<Vec<SessionStatusInfo>, String> {
+            let mut state = self.state.lock().unwrap();
+            state.get_status_calls += 1;
+            if state.pid_after_polls > 0 && state.get_status_calls >= state.pid_after_polls {
+                let next_pid = state.next_pid;
+                for status in &mut state.statuses {
+                    if status.pid.is_none() {
+                        status.pid = next_pid;
+                    }
+                }
+            }
+            Ok(state.statuses.clone())
+        }
+
+        fn kill_session(&self, session_id: &str) -> std::result::Result<(), String> {
+            self.state
+                .lock()
+                .unwrap()
+                .killed
+                .push(session_id.to_string());
+            Ok(())
+        }
+    }
+
+    fn make_runner_service() -> cc_panes_core::services::RunnerService {
+        let db = Arc::new(cc_panes_core::repository::Database::new_fallback().expect("db"));
+        let repo = Arc::new(cc_panes_core::repository::RunnerRepository::new(db));
+        let monitor = Arc::new(cc_panes_core::services::ProcessMonitorService::new());
+        cc_panes_core::services::RunnerService::new(repo, monitor)
+    }
+
+    fn runner_draft(
+        profile_id: Option<String>,
+        name: &str,
+        expected_ports: Vec<u16>,
+    ) -> cc_panes_core::models::RunnerProfileDraft {
+        cc_panes_core::models::RunnerProfileDraft {
+            id: profile_id,
+            project_path: "/tmp/cc-panes-runner-project".to_string(),
+            workspace_name: Some("runner-ws".to_string()),
+            name: name.to_string(),
+            command: "sleep 5".to_string(),
+            cwd: "/tmp/cc-panes-runner-project".to_string(),
+            runtime_kind: "local".to_string(),
+            wsl_distro: None,
+            ssh_machine_id: None,
+            env: HashMap::new(),
+            expected_ports,
+            tool_hint: Some("sh".to_string()),
+        }
+    }
+
+    fn local_runtime() -> ResolvedLaunchRuntime {
+        ResolvedLaunchRuntime {
+            kind: LaunchRuntimeKind::Local,
+            source: "test",
+            notice: None,
+            wsl: None,
+            ssh: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn start_runner_returns_reused_when_alive_instance_exists() {
+        let service = make_runner_service();
+        let profile = service
+            .upsert_profile(runner_draft(None, "dev", vec![]))
+            .expect("profile");
+        let instance = service
+            .register_instance(
+                Some(&profile.id),
+                &profile.project_path,
+                profile.workspace_name.as_deref(),
+                Some("session-live"),
+                4242,
+                "local",
+                &profile.command,
+                &profile.cwd,
+            )
+            .expect("instance");
+        let terminal = FakeTerminal::default();
+        terminal.add_status("session-live", Some(4242), SessionStatus::Active);
+        let locks = StartLocks::default();
+
+        let result = start_runner_coordinator_with_terminal(
+            profile,
+            &service,
+            &terminal,
+            &local_runtime(),
+            &locks,
+        )
+        .await
+        .expect("start runner");
+
+        assert_eq!(result.status, RunnerStartStatus::Reused);
+        assert_eq!(result.instance_id.as_deref(), Some(instance.id.as_str()));
+        assert_eq!(result.session_id.as_deref(), Some("session-live"));
+        assert_eq!(terminal.created_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn start_runner_returns_blocked_when_port_conflict() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let service = make_runner_service();
+        let profile = service
+            .upsert_profile(runner_draft(None, "dev", vec![port]))
+            .expect("profile");
+        let terminal = FakeTerminal::with_next_pid(Some(5151));
+        let locks = StartLocks::default();
+
+        let result = start_runner_coordinator_with_terminal(
+            profile,
+            &service,
+            &terminal,
+            &local_runtime(),
+            &locks,
+        )
+        .await
+        .expect("start runner");
+
+        assert_eq!(result.status, RunnerStartStatus::Blocked);
+        let plan = result.launch_plan.expect("launch plan");
+        assert!(plan.conflicts.iter().any(|conflict| conflict.port == port));
+        assert_eq!(terminal.created_count(), 0);
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn start_runner_launches_when_clean() {
+        let service = make_runner_service();
+        let profile = service
+            .upsert_profile(runner_draft(None, "dev", vec![]))
+            .expect("profile");
+        let terminal = FakeTerminal::with_next_pid(Some(7777));
+        let locks = StartLocks::default();
+
+        let result = start_runner_coordinator_with_terminal(
+            profile.clone(),
+            &service,
+            &terminal,
+            &local_runtime(),
+            &locks,
+        )
+        .await
+        .expect("start runner");
+
+        assert_eq!(result.status, RunnerStartStatus::Launched);
+        assert_eq!(result.session_id.as_deref(), Some("session-1"));
+        assert_eq!(terminal.created_count(), 1);
+        assert_eq!(terminal.submitted_count(), 1);
+        let active = service.list_active_by_profile(&profile.id).expect("active");
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].root_pid, 7777);
+        assert_eq!(active[0].session_id.as_deref(), Some("session-1"));
+    }
+
+    #[tokio::test]
+    async fn start_runner_concurrent_same_profile_serializes() {
+        let service = make_runner_service();
+        let profile = service
+            .upsert_profile(runner_draft(None, "dev", vec![]))
+            .expect("profile");
+        let terminal = FakeTerminal::with_pid_after_polls(8888, 1);
+        let locks = StartLocks::default();
+        let runtime = local_runtime();
+
+        let (first, second) = tokio::join!(
+            start_runner_coordinator_with_terminal(
+                profile.clone(),
+                &service,
+                &terminal,
+                &runtime,
+                &locks,
+            ),
+            start_runner_coordinator_with_terminal(
+                profile.clone(),
+                &service,
+                &terminal,
+                &runtime,
+                &locks,
+            )
+        );
+
+        let mut statuses = vec![first.unwrap().status, second.unwrap().status];
+        statuses.sort_by_key(|status| match status {
+            RunnerStartStatus::Launched => 0,
+            RunnerStartStatus::Reused => 1,
+            RunnerStartStatus::Blocked => 2,
+        });
+        assert_eq!(
+            statuses,
+            vec![RunnerStartStatus::Launched, RunnerStartStatus::Reused]
+        );
+        assert_eq!(terminal.created_count(), 1);
+        assert_eq!(
+            service.list_active_by_profile(&profile.id).unwrap().len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn start_runner_dead_instance_cleared_and_relaunches() {
+        let service = make_runner_service();
+        let profile = service
+            .upsert_profile(runner_draft(None, "dev", vec![]))
+            .expect("profile");
+        let stale = service
+            .register_instance(
+                Some(&profile.id),
+                &profile.project_path,
+                profile.workspace_name.as_deref(),
+                Some("session-stale"),
+                1000,
+                "local",
+                &profile.command,
+                &profile.cwd,
+            )
+            .expect("stale");
+        let terminal = FakeTerminal::with_next_pid(Some(2000));
+        let locks = StartLocks::default();
+
+        let result = start_runner_coordinator_with_terminal(
+            profile.clone(),
+            &service,
+            &terminal,
+            &local_runtime(),
+            &locks,
+        )
+        .await
+        .expect("start runner");
+
+        assert_eq!(result.status, RunnerStartStatus::Launched);
+        let stale_after = service
+            .list_active_instances(None)
+            .unwrap()
+            .into_iter()
+            .any(|instance| instance.id == stale.id);
+        assert!(!stale_after);
+        assert_eq!(terminal.created_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn start_runner_pid_resolve_failure_rolls_back() {
+        let service = make_runner_service();
+        let profile = service
+            .upsert_profile(runner_draft(None, "dev", vec![]))
+            .expect("profile");
+        let terminal = FakeTerminal::with_next_pid(None);
+        let locks = StartLocks::default();
+
+        let error = start_runner_coordinator_with_terminal(
+            profile.clone(),
+            &service,
+            &terminal,
+            &local_runtime(),
+            &locks,
+        )
+        .await
+        .expect_err("pid resolve should fail");
+
+        assert!(error.contains("Failed to resolve root pid"));
+        assert_eq!(terminal.killed_count(), 1);
+        assert!(service
+            .list_active_by_profile(&profile.id)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

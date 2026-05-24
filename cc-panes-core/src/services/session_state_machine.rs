@@ -33,8 +33,12 @@ pub struct SessionStateEntry {
     pub status: SessionStatus,
     /// 当前 ToolRunning 时的工具名（仅 ToolRunning 状态有意义）
     pub current_tool_name: Option<String>,
+    /// 当前 ToolRunning 的简短摘要，用于前端活动徽章展示。
+    pub current_tool_summary: Option<String>,
     /// 最后一次收到 hook 事件的时间（用于 2.8 ANSI 推断降级判定）
     pub last_hook_event_at: Instant,
+    /// 最近一次状态机更新的 epoch 毫秒时间戳。
+    pub updated_at: u64,
     /// 当前 ToolRunning 工具的 tool_use_id（用于长工具 timer 与通知 dedupe）
     pub current_tool_use_id: Option<String>,
     /// 当前轮序号（每个 TurnEnd 自增；用于通知 dedupe_key）
@@ -48,7 +52,9 @@ impl SessionStateEntry {
         Self {
             status: SessionStatus::Initializing,
             current_tool_name: None,
+            current_tool_summary: None,
             last_hook_event_at: Instant::now(),
+            updated_at: current_epoch_millis(),
             current_tool_use_id: None,
             turn_seq: 0,
             task_binding_id: None,
@@ -121,6 +127,7 @@ impl SessionStateMachine {
             entry.task_binding_id = Some(id);
         }
         entry.last_hook_event_at = Instant::now();
+        entry.updated_at = current_epoch_millis();
 
         // 状态转移表（§4.2）
         let (next, tool_use_id_change, tool_name_change) = match event {
@@ -131,14 +138,17 @@ impl SessionStateMachine {
             CcPaneEvent::ToolBefore(_) => {
                 let tool_name = extract_tool_name(payload).unwrap_or_else(|| "tool".into());
                 let tool_use_id = extract_tool_use_id(payload);
+                let tool_summary = extract_tool_summary(payload);
                 entry.current_tool_use_id = tool_use_id.clone();
                 entry.current_tool_name = Some(tool_name.clone());
+                entry.current_tool_summary = tool_summary;
                 (SessionStatus::ToolRunning, tool_use_id, Some(tool_name))
             }
             CcPaneEvent::ToolAfter(_) => {
                 // 工具结束 → 回到 Thinking（如果之前是 ToolRunning），否则保持不变
                 let was_tool_use_id = entry.current_tool_use_id.take();
                 entry.current_tool_name = None;
+                entry.current_tool_summary = None;
                 if matches!(from, SessionStatus::ToolRunning) {
                     (SessionStatus::Thinking, was_tool_use_id, None)
                 } else {
@@ -148,15 +158,30 @@ impl SessionStateMachine {
             CcPaneEvent::TurnEnd => {
                 entry.turn_seq += 1;
                 entry.current_tool_name = None;
+                entry.current_tool_summary = None;
                 (SessionStatus::Idle, None, None)
             }
-            CcPaneEvent::BeforeCompact => (SessionStatus::Compacting, None, None),
+            CcPaneEvent::BeforeCompact => {
+                entry.current_tool_name = None;
+                entry.current_tool_summary = None;
+                (SessionStatus::Compacting, None, None)
+            }
             CcPaneEvent::WaitingInput => {
                 let tool_use_id = extract_tool_use_id(payload);
+                entry.current_tool_name = None;
+                entry.current_tool_summary = None;
                 (SessionStatus::WaitingInput, tool_use_id, None)
             }
-            CcPaneEvent::Error => (SessionStatus::Error, None, None),
-            CcPaneEvent::SessionEnd => (SessionStatus::Exited, None, None),
+            CcPaneEvent::Error => {
+                entry.current_tool_name = None;
+                entry.current_tool_summary = None;
+                (SessionStatus::Error, None, None)
+            }
+            CcPaneEvent::SessionEnd => {
+                entry.current_tool_name = None;
+                entry.current_tool_summary = None;
+                (SessionStatus::Exited, None, None)
+            }
         };
 
         entry.status = next;
@@ -220,6 +245,10 @@ impl SessionStateMachine {
             return;
         }
         entry.status = SessionStatus::Exited;
+        entry.current_tool_name = None;
+        entry.current_tool_summary = None;
+        entry.current_tool_use_id = None;
+        entry.updated_at = current_epoch_millis();
         let task_binding_id = entry.task_binding_id.clone();
         let turn_seq = entry.turn_seq;
         drop(entries);
@@ -295,11 +324,69 @@ fn extract_tool_use_id(payload: &serde_json::Value) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn extract_tool_summary(payload: &serde_json::Value) -> Option<String> {
+    for key in ["tool_summary", "input_summary", "summary"] {
+        if let Some(summary) = payload.get(key).and_then(|v| v.as_str()) {
+            return trim_tool_summary(summary);
+        }
+    }
+
+    let input = payload.get("tool_input").or_else(|| payload.get("input"))?;
+    if let Some(object) = input.as_object() {
+        for key in [
+            "file_path",
+            "path",
+            "command",
+            "pattern",
+            "url",
+            "query",
+            "prompt",
+            "description",
+        ] {
+            if let Some(value) = object.get(key).and_then(summary_value_to_string) {
+                return trim_tool_summary(&value);
+            }
+        }
+        if let Some((_, value)) = object.iter().next() {
+            return summary_value_to_string(value).and_then(|value| trim_tool_summary(&value));
+        }
+    }
+
+    summary_value_to_string(input).and_then(|value| trim_tool_summary(&value))
+}
+
+fn summary_value_to_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(value) => Some(value.clone()),
+        serde_json::Value::Number(value) => Some(value.to_string()),
+        serde_json::Value::Bool(value) => Some(value.to_string()),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            serde_json::to_string(value).ok()
+        }
+    }
+}
+
+fn trim_tool_summary(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.chars().take(40).collect())
+}
+
 fn extract_error_type(payload: &serde_json::Value) -> Option<String> {
     payload
         .get("error_type")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+fn current_epoch_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn cc_pane_event_name(event: &CcPaneEvent) -> &'static str {
@@ -358,6 +445,7 @@ mod tests {
         // 工具名存储在 snapshot 里
         let snap = sm.snapshot(sid).unwrap();
         assert_eq!(snap.current_tool_name.as_deref(), Some("Edit"));
+        assert_eq!(snap.current_tool_summary, None);
         let (_, s) = sm.on_event(
             sid,
             &CcPaneEvent::ToolAfter(ToolMatcher::any()),
@@ -367,6 +455,7 @@ mod tests {
         assert_eq!(s, SessionStatus::Thinking);
         let snap = sm.snapshot(sid).unwrap();
         assert!(snap.current_tool_name.is_none());
+        assert!(snap.current_tool_summary.is_none());
     }
 
     #[test]
@@ -462,6 +551,31 @@ mod tests {
         assert_eq!(
             sm.snapshot(sid).unwrap().current_tool_use_id.as_deref(),
             Some("tu-2")
+        );
+    }
+
+    #[test]
+    fn tool_before_captures_summary_from_tool_input() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-7";
+        sm.on_event(
+            sid,
+            &CcPaneEvent::ToolBefore(ToolMatcher::any()),
+            None,
+            &json!({
+                "tool_name": "Edit",
+                "tool_use_id": "tu-1",
+                "tool_input": {
+                    "file_path": "/tmp/a-very-long-file-name-that-will-be-trimmed.rs"
+                }
+            }),
+        );
+
+        let snap = sm.snapshot(sid).unwrap();
+        assert_eq!(snap.current_tool_name.as_deref(), Some("Edit"));
+        assert_eq!(
+            snap.current_tool_summary.as_deref(),
+            Some("/tmp/a-very-long-file-name-that-will-be-")
         );
     }
 }

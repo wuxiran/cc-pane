@@ -41,12 +41,32 @@ pub fn update_task_binding(
 }
 
 #[tauri::command]
+pub fn update_task_binding_patch(
+    service: State<'_, Arc<TaskBindingService>>,
+    id: String,
+    patch: serde_json::Value,
+) -> AppResult<TaskBinding> {
+    debug!(id = %id, "cmd::update_task_binding_patch");
+    service.update_patch(&id, patch)
+}
+
+#[tauri::command]
 pub fn delete_task_binding(
     service: State<'_, Arc<TaskBindingService>>,
     id: String,
 ) -> AppResult<bool> {
     debug!(id = %id, "cmd::delete_task_binding");
     service.delete(&id)
+}
+
+#[tauri::command]
+pub fn delete_task_binding_cascade(
+    service: State<'_, Arc<TaskBindingService>>,
+    id: String,
+) -> AppResult<bool> {
+    debug!(id = %id, "cmd::delete_task_binding_cascade");
+    // fix(H3) review: 前端只发一次命令，后端原子删除自身与所有后代。
+    service.delete_cascade(&id)
 }
 
 #[tauri::command]

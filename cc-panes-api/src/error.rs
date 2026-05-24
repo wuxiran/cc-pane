@@ -19,8 +19,8 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = StatusCode::INTERNAL_SERVER_ERROR;
         let body = serde_json::json!({
-            "error": self.0.message,
-            "code": self.0.code,
+            "error": self.0.message(),
+            "code": self.0.code(),
         });
         (status, axum::Json(body)).into_response()
     }

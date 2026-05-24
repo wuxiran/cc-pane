@@ -1,3 +1,7 @@
+#[path = "commands/ccchan_commands.rs"]
+mod ccchan_commands;
+#[path = "services/ccchan_service.rs"]
+mod ccchan_service;
 mod commands;
 pub mod constants;
 pub mod emitter;
@@ -7,6 +11,12 @@ pub mod repository;
 pub mod services;
 pub mod utils;
 
+use ccchan_commands::{
+    get_ccchan_pets, get_ccchan_settings, hide_ccchan, move_ccchan_window, resize_ccchan_for_chat,
+    resize_ccchan_for_menu, save_ccchan_settings, send_to_ccchan, show_ccchan, start_ccchan_chat,
+    stop_ccchan_chat,
+};
+use ccchan_service::{CCChanService, CcChanSessionNotifier};
 use commands::{
     // Journal 命令
     add_journal_session,
@@ -51,6 +61,7 @@ use commands::{
     delete_skill,
     delete_spec,
     delete_task_binding,
+    delete_task_binding_cascade,
     delete_todo,
     delete_todo_subtask,
     delete_workspace,
@@ -120,6 +131,7 @@ use commands::{
     get_ssh_machine,
     get_task_binding,
     get_terminal_output,
+    get_terminal_recent_output,
     get_terminal_replay_snapshot,
     get_todo,
     get_todo_stats,
@@ -151,6 +163,7 @@ use commands::{
     kill_claude_process,
     kill_claude_processes,
     kill_terminal,
+    kill_terminal_idempotent,
     list_all_claude_sessions,
     list_claude_sessions,
     list_cli_tools,
@@ -202,6 +215,8 @@ use commands::{
     read_config_dir_info,
     read_session_state,
     reconcile_plan_collaboration,
+    record_terminal_input,
+    refresh_usage_stats,
     register_plan_child,
     register_plan_leader,
     register_plan_worker,
@@ -222,9 +237,22 @@ use commands::{
     restart_shared_mcp_server,
     restore_file_version,
     restore_to_label,
-    refresh_usage_stats,
     rollback_project_migration,
     rollback_workspace_migration,
+    // Runner Registry 命令
+    runner_delete_profile,
+    runner_get_profile,
+    runner_kill_instance,
+    runner_kill_pid,
+    runner_list_active_instances,
+    runner_list_port_conflicts,
+    runner_list_profiles,
+    runner_mark_instance_exited,
+    runner_plan_launch,
+    runner_refresh_port_claims,
+    runner_register_for_session,
+    runner_register_implicit_instance,
+    runner_upsert_profile,
     save_skill,
     save_spec_content,
     // Session Restore 命令
@@ -248,6 +276,7 @@ use commands::{
     stop_project_history,
     stop_shared_mcp_server,
     store_memory,
+    submit_to_session,
     sync_spec_tasks,
     test_proxy,
     toggle_always_on_top,
@@ -269,6 +298,7 @@ use commands::{
     update_spec,
     update_ssh_machine,
     update_task_binding,
+    update_task_binding_patch,
     update_todo,
     update_todo_subtask,
     update_workspace,
@@ -278,7 +308,6 @@ use commands::{
     update_workspace_provider,
     upsert_mcp_server,
     upsert_shared_mcp_server,
-    record_terminal_input,
     write_terminal,
 };
 use repository::{
@@ -292,14 +321,14 @@ use services::{
     ProjectCliHooksService, ProjectContextService, ProjectService, ProviderService,
     ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService,
     SkillMarketService, SkillService, SpecService, SshCredentialService, SshMachineService,
-    TaskBindingService, TerminalService, TodoService, UsageStatsService, WorkspaceService,
-    WorktreeService,
+    StartLocks, TaskBindingService, TerminalService, TodoService, UsageStatsService,
+    WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -920,6 +949,10 @@ pub fn run() {
         external_skill_registry.clone(),
     ));
     let notification_service = Arc::new(NotificationService::new());
+    let ccchan_service = Arc::new(CCChanService::new(
+        settings_service.clone(),
+        app_paths.clone(),
+    ));
     let mcp_config_service = Arc::new(McpConfigService::new());
     let skill_service = Arc::new(SkillService::new());
     let skill_market_service = Arc::new(SkillMarketService::new(
@@ -957,6 +990,12 @@ pub fn run() {
 
     let process_monitor_service = Arc::new(ProcessMonitorService::new());
 
+    let runner_repository = Arc::new(cc_panes_core::repository::RunnerRepository::new(db.clone()));
+    let runner_service = Arc::new(cc_panes_core::services::RunnerService::new(
+        runner_repository,
+        process_monitor_service.clone(),
+    ));
+
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
 
     let session_restore_service =
@@ -964,6 +1003,7 @@ pub fn run() {
 
     let popup_data_store = commands::PopupDataStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new());
+    let start_locks = Arc::new(StartLocks::default());
     boot_mark!("all services created");
 
     // 保存引用用于退出时清理
@@ -1011,6 +1051,7 @@ pub fn run() {
         .manage(provider_service)
         .manage(launch_profile_service)
         .manage(notification_service)
+        .manage(ccchan_service)
         .manage(todo_service)
         .manage(task_binding_service)
         .manage(spec_service)
@@ -1024,6 +1065,8 @@ pub fn run() {
         .manage(memory_service)
         .manage(ssh_machine_service)
         .manage(process_monitor_service)
+        .manage(runner_service)
+        .manage(start_locks)
         .manage(shared_mcp_service.clone())
         .manage(session_restore_service)
         .manage(popup_data_store)
@@ -1103,15 +1146,30 @@ pub fn run() {
                 // 注入到 TerminalService
                 let term_svc = app.state::<Arc<TerminalService>>();
                 term_svc.set_emitter(tauri_emitter.clone());
+                let tb_svc = app.state::<Arc<TaskBindingService>>();
+                tb_svc.set_emitter(tauri_emitter.clone());
                 let notif_svc = app.state::<Arc<NotificationService>>();
                 let settings_svc = app.state::<Arc<SettingsService>>();
                 let launch_history_svc = app.state::<Arc<LaunchHistoryService>>();
-                term_svc.set_notifier(Arc::new(TauriSessionNotifier::new(
-                    app_handle.clone(),
-                    notif_svc.inner().clone(),
-                    settings_svc.inner().clone(),
-                    launch_history_svc.inner().clone(),
+                let ccchan_svc = app.state::<Arc<CCChanService>>();
+                ccchan_svc.set_app_handle(app_handle.clone());
+                let base_notifier: Arc<dyn cc_panes_core::events::SessionNotifier> =
+                    Arc::new(TauriSessionNotifier::new(
+                        app_handle.clone(),
+                        notif_svc.inner().clone(),
+                        settings_svc.inner().clone(),
+                        launch_history_svc.inner().clone(),
+                    ));
+                term_svc.set_notifier(Arc::new(CcChanSessionNotifier::new(
+                    base_notifier,
+                    ccchan_svc.inner().clone(),
                 )));
+
+                if ccchan_svc.settings().window_visible {
+                    if let Err(error) = ccchan_svc.show_window(&app_handle) {
+                        warn!("[ccchan] failed to show startup window: {}", error);
+                    }
+                }
 
                 // ---- 启动 workspace 目录监控 ----
                 let ws_svc = app.state::<Arc<WorkspaceService>>();
@@ -1168,6 +1226,7 @@ pub fn run() {
                 let ws_svc_orch = app.state::<Arc<WorkspaceService>>();
                 let ssh_machine_svc = app.state::<Arc<SshMachineService>>();
                 let todo_svc = app.state::<Arc<TodoService>>();
+                let memory_svc = app.state::<Arc<MemoryService>>();
                 let tb_svc = app.state::<Arc<TaskBindingService>>();
                 let spec_svc = app.state::<Arc<SpecService>>();
                 let skill_svc = app.state::<Arc<SkillService>>();
@@ -1176,6 +1235,8 @@ pub fn run() {
                 let notif_svc = app.state::<Arc<NotificationService>>();
                 let settings_svc = app.state::<Arc<SettingsService>>();
                 let plan_archive_svc = app.state::<Arc<PlanArchiveService>>();
+                let runner_svc = app.state::<Arc<cc_panes_core::services::RunnerService>>();
+                let start_locks = app.state::<Arc<StartLocks>>();
                 let paths = app.state::<Arc<AppPaths>>();
                 if let Err(e) = orch_svc.start(
                     term_svc.inner().clone(),
@@ -1187,6 +1248,7 @@ pub fn run() {
                     ws_svc_orch.inner().clone(),
                     ssh_machine_svc.inner().clone(),
                     todo_svc.inner().clone(),
+                    memory_svc.inner().clone(),
                     tb_svc.inner().clone(),
                     spec_svc.inner().clone(),
                     skill_svc.inner().clone(),
@@ -1195,6 +1257,8 @@ pub fn run() {
                     notif_svc.inner().clone(),
                     settings_svc.inner().clone(),
                     plan_archive_svc.inner().clone(),
+                    runner_svc.inner().clone(),
+                    start_locks.inner().clone(),
                     app.handle().clone(),
                     paths.inner().clone(),
                 ) {
@@ -1283,9 +1347,12 @@ pub fn run() {
             info!("[boot] resource monitor DISABLED (macOS perf test)");
 
             // ---- Usage stats background jobs ----
+            // 必须在 tokio runtime 内调（内部用 tokio::spawn），否则 panic "no reactor running"
             {
                 let svc = app.state::<Arc<UsageStatsService>>().inner().clone();
-                svc.start_background_tasks();
+                tauri::async_runtime::spawn(async move {
+                    svc.start_background_tasks();
+                });
             }
             info!(
                 "[boot] +{}ms: usage stats background jobs started",
@@ -1430,12 +1497,15 @@ pub fn run() {
             write_terminal,
             resize_terminal,
             kill_terminal,
+            kill_terminal_idempotent,
+            submit_to_session,
             get_all_terminal_status,
             get_available_shells,
             get_windows_build_number,
             check_environment,
             list_cli_tools,
             get_terminal_output,
+            get_terminal_recent_output,
             get_terminal_replay_snapshot,
             record_terminal_input,
             query_usage_stats,
@@ -1454,6 +1524,17 @@ pub fn run() {
             get_app_cwd,
             create_popup_terminal_window,
             get_popup_tab_data,
+            show_ccchan,
+            hide_ccchan,
+            resize_ccchan_for_chat,
+            resize_ccchan_for_menu,
+            move_ccchan_window,
+            start_ccchan_chat,
+            send_to_ccchan,
+            stop_ccchan_chat,
+            get_ccchan_pets,
+            get_ccchan_settings,
+            save_ccchan_settings,
             // Git 命令
             get_git_branch,
             get_git_status,
@@ -1648,7 +1729,9 @@ pub fn run() {
             get_task_binding,
             find_task_binding_by_session,
             update_task_binding,
+            update_task_binding_patch,
             delete_task_binding,
+            delete_task_binding_cascade,
             query_task_bindings,
             register_plan_leader,
             register_plan_worker,
@@ -1679,6 +1762,20 @@ pub fn run() {
             kill_claude_process,
             kill_claude_processes,
             get_resource_stats,
+            // Runner Registry 命令
+            runner_list_profiles,
+            runner_get_profile,
+            runner_upsert_profile,
+            runner_delete_profile,
+            runner_plan_launch,
+            runner_list_active_instances,
+            runner_list_port_conflicts,
+            runner_refresh_port_claims,
+            runner_register_for_session,
+            runner_mark_instance_exited,
+            runner_kill_instance,
+            runner_kill_pid,
+            runner_register_implicit_instance,
             // 共享 MCP 命令
             get_shared_mcp_config,
             get_shared_mcp_status,

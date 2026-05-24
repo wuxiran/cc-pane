@@ -34,5 +34,31 @@
   "justNow": "刚刚",
   "minutesAgo": "{{count}}分钟前",
   "hoursAgo": "{{count}}小时前",
-  "daysAgo": "{{count}}天前"
+  "daysAgo": "{{count}}天前",
+  "usage": {
+    "title": "用量趋势",
+    "rangeToday": "今天",
+    "range24h": "24小时",
+    "range7d": "7天",
+    "range30d": "30天",
+    "range90d": "90天",
+    "allWorkspaces": "全部工作空间",
+    "unmatchedSessions": "未匹配会话",
+    "refresh": "刷新用量统计",
+    "loading": "正在加载用量统计...",
+    "noData": "暂无用量数据",
+    "needLongerRange": "切换到 7天 / 30天 / 90天 可查看趋势曲线",
+    "inputChars": "输入字符",
+    "claudeTokens": "Claude Tokens",
+    "codexTokens": "Codex Tokens",
+    "claudeHitRate": "Claude 缓存命中率",
+    "codexHitRate": "Codex 缓存命中率",
+    "tokenChartTitle": "Token 趋势",
+    "charsChartTitle": "字符输入趋势",
+    "hitRateHelpClaude": "Claude 公式：cache_read / (input + cache_read + cache_creation)",
+    "hitRateHelpCodex": "Codex 公式：cache_read / input_tokens（OpenAI 的 input 已包含 cached 子集）",
+    "claudeChars": "Claude 字符",
+    "codexChars": "Codex 字符",
+    "unknownChars": "其他字符"
+  }
 }

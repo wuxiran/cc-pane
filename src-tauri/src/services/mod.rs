@@ -11,7 +11,7 @@ mod skill_market_service;
 
 pub use notification_service::NotificationService;
 pub use notification_service::{NotificationRequest, NotificationTriggerResult};
-pub use orchestrator_service::OrchestratorService;
+pub use orchestrator_service::{OrchestratorService, StartLocks};
 pub use screenshot_service::{CaptureResult, ScreenshotService};
 pub use session_prompt_service::extract_last_prompt;
 pub use skill_market_service::{SkillMarketEntry, SkillMarketService};

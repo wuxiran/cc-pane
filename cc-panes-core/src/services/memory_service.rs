@@ -95,6 +95,97 @@ impl MemoryService {
             .get_project_summary(project_path, min_importance, limit)
     }
 
+    /// 会话启动时的无感召回：按 project → workspace → global 顺序取高重要度记忆。
+    ///
+    /// 这里不要求 agent 或用户显式调用 `memory_search`；hook 通过 Orchestrator API
+    /// 调这个方法，把结果直接注入到启动上下文。
+    pub fn recall_for_session_start(
+        &self,
+        workspace_name: Option<&str>,
+        project_paths: &[String],
+        min_importance: u8,
+        limit: u32,
+    ) -> Result<Vec<Memory>, String> {
+        let min_importance = min_importance.clamp(1, 5);
+        let limit = limit.clamp(1, 20);
+        let mut memories = Vec::new();
+        let mut seen = HashSet::new();
+
+        let mut clean_project_paths = Vec::new();
+        for path in project_paths {
+            let trimmed = path.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !clean_project_paths
+                .iter()
+                .any(|existing: &String| existing == trimmed)
+            {
+                clean_project_paths.push(trimmed.to_string());
+            }
+        }
+
+        for project_path in clean_project_paths {
+            collect_memory_query(
+                &self.core,
+                MemoryQuery {
+                    scope: Some(MemoryScope::Project),
+                    project_path: Some(project_path),
+                    min_importance: Some(min_importance),
+                    sort_by: Some("importance".to_string()),
+                    limit: Some(limit),
+                    ..Default::default()
+                },
+                &mut seen,
+                &mut memories,
+            )?;
+            if memories.len() >= limit as usize {
+                memories.truncate(limit as usize);
+                return Ok(memories);
+            }
+        }
+
+        if let Some(workspace_name) = workspace_name.map(str::trim).filter(|s| !s.is_empty()) {
+            collect_memory_query(
+                &self.core,
+                MemoryQuery {
+                    scope: Some(MemoryScope::Workspace),
+                    workspace_name: Some(workspace_name.to_string()),
+                    min_importance: Some(min_importance),
+                    sort_by: Some("importance".to_string()),
+                    limit: Some(limit),
+                    ..Default::default()
+                },
+                &mut seen,
+                &mut memories,
+            )?;
+            if memories.len() >= limit as usize {
+                memories.truncate(limit as usize);
+                return Ok(memories);
+            }
+        }
+
+        collect_memory_query(
+            &self.core,
+            MemoryQuery {
+                scope: Some(MemoryScope::Global),
+                min_importance: Some(min_importance),
+                sort_by: Some("importance".to_string()),
+                limit: Some(limit),
+                ..Default::default()
+            },
+            &mut seen,
+            &mut memories,
+        )?;
+        memories.truncate(limit as usize);
+        Ok(memories)
+    }
+
+    /// 格式化无感召回结果。返回空串表示没有可注入内容。
+    pub fn format_recall_for_injection(&self, memories: &[Memory]) -> String {
+        format_recalled_memories_markdown(memories)
+    }
+
     // ============ Tauri 特有方法 ============
 
     /// 准备会话上下文：合并指定 Memory + 项目核心 Memory，写入 CLAUDE.local.md
@@ -155,6 +246,21 @@ impl MemoryService {
     }
 }
 
+fn collect_memory_query(
+    core: &CoreMemoryService,
+    query: MemoryQuery,
+    seen: &mut HashSet<String>,
+    memories: &mut Vec<Memory>,
+) -> Result<(), String> {
+    let result = core.search(query)?;
+    for memory in result.items {
+        if seen.insert(memory.id.clone()) {
+            memories.push(memory);
+        }
+    }
+    Ok(())
+}
+
 /// 将 Memory 列表格式化为 Markdown
 fn format_memories_markdown(memories: &[Memory]) -> String {
     let mut md = String::from("# Session Context (Auto-generated)\n\n");
@@ -175,6 +281,67 @@ fn format_memories_markdown(memories: &[Memory]) -> String {
     }
 
     md
+}
+
+fn format_recalled_memories_markdown(memories: &[Memory]) -> String {
+    if memories.is_empty() {
+        return String::new();
+    }
+
+    const MAX_TOTAL_CHARS: usize = 6000;
+    const MAX_CONTENT_CHARS: usize = 1200;
+
+    let mut md = String::from("# CC-Panes Auto Memory Recall\n\n");
+    md.push_str(
+        "These memories were recalled automatically. Use them silently as background context.\n\n",
+    );
+
+    for memory in memories {
+        let header = format!(
+            "## {} [{}/{}/importance:{}]\n\n",
+            truncate_context_text(&memory.title, 160),
+            memory.scope,
+            memory.category,
+            memory.importance
+        );
+        if md.chars().count() + header.chars().count() >= MAX_TOTAL_CHARS {
+            break;
+        }
+        md.push_str(&header);
+
+        let remaining = MAX_TOTAL_CHARS.saturating_sub(md.chars().count());
+        if remaining <= 16 {
+            break;
+        }
+        let content_budget = MAX_CONTENT_CHARS.min(remaining.saturating_sub(16));
+        md.push_str(&truncate_context_text(&memory.content, content_budget));
+        md.push_str("\n\n");
+
+        if !memory.tags.is_empty() && md.chars().count() < MAX_TOTAL_CHARS {
+            let tags = memory.tags.join(", ");
+            let line = format!("Tags: {}\n\n", truncate_context_text(&tags, 240));
+            if md.chars().count() + line.chars().count() < MAX_TOTAL_CHARS {
+                md.push_str(&line);
+            }
+        }
+    }
+
+    md.trim_end().to_string()
+}
+
+fn truncate_context_text(value: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    if value.chars().count() <= max_chars {
+        value.to_string()
+    } else if max_chars <= 3 {
+        value.chars().take(max_chars).collect()
+    } else {
+        let mut out: String = value.chars().take(max_chars - 3).collect();
+        out.push_str("...");
+        out
+    }
 }
 
 /// 确保 .gitignore 包含 CLAUDE.local.md
@@ -321,6 +488,57 @@ mod tests {
             .prepare_session_context("/nonexistent/path", &[])
             .unwrap();
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_recall_for_session_start_prefers_scoped_memories() {
+        let service = setup();
+
+        service
+            .store(StoreMemoryRequest {
+                title: "Project Decision".to_string(),
+                content: "Use the project-specific launch chain.".to_string(),
+                scope: Some(MemoryScope::Project),
+                category: Some(MemoryCategory::Decision),
+                importance: Some(5),
+                project_path: Some("/repo".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        service
+            .store(StoreMemoryRequest {
+                title: "Workspace Pattern".to_string(),
+                content: "Keep workspace tasks scoped.".to_string(),
+                scope: Some(MemoryScope::Workspace),
+                category: Some(MemoryCategory::Pattern),
+                importance: Some(4),
+                workspace_name: Some("cc-book".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        service
+            .store(StoreMemoryRequest {
+                title: "Low Importance".to_string(),
+                content: "Should not be recalled.".to_string(),
+                scope: Some(MemoryScope::Global),
+                importance: Some(2),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let memories = service
+            .recall_for_session_start(Some("cc-book"), &["/repo".to_string()], 4, 5)
+            .unwrap();
+
+        assert_eq!(memories.len(), 2);
+        assert_eq!(memories[0].title, "Project Decision");
+        assert_eq!(memories[1].title, "Workspace Pattern");
+
+        let rendered = service.format_recall_for_injection(&memories);
+        assert!(rendered.contains("CC-Panes Auto Memory Recall"));
+        assert!(rendered.contains("Use them silently"));
+        assert!(rendered.contains("Project Decision"));
+        assert!(!rendered.contains("Low Importance"));
     }
 
     #[test]

@@ -27,6 +27,8 @@ struct Migration {
 /// V16 = task_bindings plan collaboration leader/worker fields
 /// V17 = plans + plan_recall_dedup (plan-as-memory with recall stats)
 /// V18 = usage_stats + usage_scan_state
+/// V19 = usage_stats per-source-path schema
+/// V20 = runner registry (runner_profiles + runner_instances + port_claims)
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -345,6 +347,100 @@ const MIGRATIONS: &[Migration] = &[
             );
         ",
     },
+    Migration {
+        version: 19,
+        description: "usage_stats: per-source-path schema (idempotent jsonl rescan)",
+        up_sql: "
+            DROP TABLE IF EXISTS usage_stats;
+            CREATE TABLE usage_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                cli_tool TEXT NOT NULL,
+                workspace_name TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                char_count INTEGER NOT NULL DEFAULT 0,
+                token_input INTEGER NOT NULL DEFAULT 0,
+                token_output INTEGER NOT NULL DEFAULT 0,
+                token_cache_read INTEGER NOT NULL DEFAULT 0,
+                token_cache_creation INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                UNIQUE(date, cli_tool, workspace_name, source_path)
+            );
+            CREATE INDEX idx_usage_stats_date ON usage_stats(date);
+            CREATE INDEX idx_usage_stats_workspace_date
+                ON usage_stats(workspace_name, date);
+
+            -- 清空 scan_state 触发所有 jsonl 重扫一次；新表 INSERT OR REPLACE 幂等，不会重复累加
+            DELETE FROM usage_scan_state;
+        ",
+    },
+    Migration {
+        version: 20,
+        description: "runner registry: profiles + instances + port_claims",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS runner_profiles (
+                id TEXT PRIMARY KEY,
+                project_path TEXT NOT NULL,
+                workspace_name TEXT,
+                name TEXT NOT NULL,
+                command TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                runtime_kind TEXT NOT NULL,
+                wsl_distro TEXT,
+                ssh_machine_id TEXT,
+                env_json TEXT,
+                expected_ports_json TEXT,
+                tool_hint TEXT,
+                last_started_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(project_path, name)
+            );
+
+            CREATE TABLE IF NOT EXISTS runner_instances (
+                id TEXT PRIMARY KEY,
+                profile_id TEXT,
+                project_path TEXT NOT NULL,
+                workspace_name TEXT,
+                session_id TEXT,
+                root_pid INTEGER NOT NULL,
+                runtime_kind TEXT NOT NULL,
+                command TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                exited_at TEXT,
+                exit_code INTEGER,
+                status TEXT NOT NULL DEFAULT 'running',
+                metadata TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS port_claims (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                instance_id TEXT REFERENCES runner_instances(id) ON DELETE CASCADE,
+                pid INTEGER NOT NULL,
+                port INTEGER NOT NULL,
+                protocol TEXT NOT NULL,
+                listen_addr TEXT,
+                detected_at TEXT NOT NULL,
+                UNIQUE(pid, port, protocol)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runner_profiles_project
+                ON runner_profiles(project_path);
+            CREATE INDEX IF NOT EXISTS idx_runner_profiles_last_started
+                ON runner_profiles(project_path, last_started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_runner_instances_project
+                ON runner_instances(project_path);
+            CREATE INDEX IF NOT EXISTS idx_runner_instances_status
+                ON runner_instances(status);
+            CREATE INDEX IF NOT EXISTS idx_runner_instances_session
+                ON runner_instances(session_id);
+            CREATE INDEX IF NOT EXISTS idx_port_claims_port
+                ON port_claims(port);
+            CREATE INDEX IF NOT EXISTS idx_port_claims_instance
+                ON port_claims(instance_id);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -584,6 +680,9 @@ mod tests {
             "usage_stats",
             "usage_scan_state",
             "schema_migrations",
+            "runner_profiles",
+            "runner_instances",
+            "port_claims",
         ];
         for table in &tables {
             let exists: bool = conn

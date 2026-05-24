@@ -8,6 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import { usePanesStore, useFullscreenStore, useFileTreeStore } from "@/stores";
 import { terminalService, popOutTab } from "@/services";
 import type { PopupTabData } from "@/services/popupWindowService";
+import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -48,6 +49,7 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   // Data 选择器：值变化时触发重渲染
   const activePaneId = usePanesStore((s) => s.activePaneId);
+  const rootPane = usePanesStore((s) => s.rootPane);
 
   // Action 选择器合并 + useShallow：浅比较避免对象引用变化导致的重渲染
   const {
@@ -102,6 +104,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     () => pane.tabs.find((t) => t.id === pane.activeTabId),
     [pane.tabs, pane.activeTabId]
   );
+  const tabNumbers = useMemo(() => computeGlobalTabNumbers(rootPane), [rootPane]);
 
   // 全屏时 ESC 退出
   useEffect(() => {
@@ -403,6 +406,7 @@ export default memo(function Panel({ pane }: PanelProps) {
             paneId={pane.id}
             tabs={pane.tabs}
             activeId={pane.activeTabId}
+            tabNumbers={tabNumbers}
             onSelect={handleSelectTab}
             onClose={handleCloseTab}
             onTogglePin={handleTogglePin}
@@ -436,6 +440,7 @@ export default memo(function Panel({ pane }: PanelProps) {
           >
             <TabContentRenderer
               tab={tab}
+              isVisible={tab.id === pane.activeTabId}
               isActive={tab.id === pane.activeTabId && isActivePane}
               paneId={pane.id}
               isPoppedOut={isTabPoppedOut(tab.id)}

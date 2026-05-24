@@ -1,10 +1,11 @@
 import { useEffect, useCallback } from "react";
-import { Workflow, RefreshCw } from "lucide-react";
-import { useOrchestratorStore } from "@/stores";
+import { Workflow, RefreshCw, Maximize2 } from "lucide-react";
+import { useActivityBarStore, useOrchestratorStore } from "@/stores";
 import { useTranslation } from "react-i18next";
+import OrchestratorFilterBar from "./OrchestratorFilterBar";
 import OrchestratorTaskCard from "./OrchestratorTaskCard";
+import OrchestratorTaskTree from "./OrchestratorTaskTree";
 import OrchestratorInput from "./OrchestratorInput";
-import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import type { OpenTerminalOptions } from "@/types";
 
 interface OrchestratorViewProps {
@@ -16,11 +17,10 @@ export default function OrchestratorView({ onOpenTerminal: _onOpenTerminal }: Or
   const bindings = useOrchestratorStore((s) => s.bindings);
   const loading = useOrchestratorStore((s) => s.loading);
   const filterTab = useOrchestratorStore((s) => s.filterTab);
+  const viewType = useOrchestratorStore((s) => s.viewType);
   const loadBindings = useOrchestratorStore((s) => s.loadBindings);
   const setFilterTab = useOrchestratorStore((s) => s.setFilterTab);
-
-  // 启用终端状态同步
-  useOrchestratorSync();
+  const setViewType = useOrchestratorStore((s) => s.setViewType);
 
   useEffect(() => {
     loadBindings();
@@ -49,6 +49,13 @@ export default function OrchestratorView({ onOpenTerminal: _onOpenTerminal }: Or
         </span>
         <button
           className="ml-auto p-1 rounded hover:bg-[var(--app-hover)] transition-colors"
+          onClick={() => useActivityBarStore.getState().openOrchestrationOverlay()}
+          title="Open overlay"
+        >
+          <Maximize2 className="w-3.5 h-3.5" style={{ color: "var(--app-text-tertiary)" }} />
+        </button>
+        <button
+          className="p-1 rounded hover:bg-[var(--app-hover)] transition-colors"
           onClick={handleRefresh}
           title={t("refresh", { ns: "common", defaultValue: "Refresh" })}
         >
@@ -76,8 +83,29 @@ export default function OrchestratorView({ onOpenTerminal: _onOpenTerminal }: Or
         ))}
       </div>
 
+      <OrchestratorFilterBar />
+
+      <div
+        className="flex shrink-0 items-center justify-end gap-1 px-3 py-1"
+        style={{ borderBottom: "1px solid var(--app-border)" }}
+      >
+        {(["list", "tree"] as const).map((type) => (
+          <button
+            key={type}
+            className="rounded px-2 py-0.5 text-[11px] capitalize transition-colors"
+            style={{
+              background: viewType === type ? "var(--app-accent)" : "transparent",
+              color: viewType === type ? "white" : "var(--app-text-secondary)",
+            }}
+            onClick={() => setViewType(type)}
+          >
+            {type}
+          </button>
+        ))}
+      </div>
+
       {/* 任务列表 */}
-      <div className="flex-1 overflow-y-auto px-2 py-1">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
         {bindings.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-8 gap-2">
             <Workflow className="w-8 h-8" style={{ color: "var(--app-text-tertiary)", opacity: 0.5 }} />
@@ -86,12 +114,16 @@ export default function OrchestratorView({ onOpenTerminal: _onOpenTerminal }: Or
             </span>
           </div>
         )}
-        {bindings.map((binding) => (
-          <OrchestratorTaskCard
-            key={binding.id}
-            binding={binding}
-          />
-        ))}
+        {viewType === "tree" ? (
+          <OrchestratorTaskTree />
+        ) : (
+          bindings.map((binding) => (
+            <OrchestratorTaskCard
+              key={binding.id}
+              binding={binding}
+            />
+          ))
+        )}
       </div>
 
       {/* 底部对话输入 */}

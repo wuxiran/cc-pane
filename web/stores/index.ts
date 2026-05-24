@@ -26,7 +26,8 @@ export {
 } from "./useShortcutsStore";
 export type { ShortcutAction } from "./useShortcutsStore";
 export { useFileTreeStore } from "./useFileTreeStore";
-export { useActivityBarStore, type ActivityView } from "./useActivityBarStore";
+export { useActivityBarStore, type ActivityView, type AppViewMode } from "./useActivityBarStore";
+export { useNotificationStore } from "./useNotificationStore";
 export { useSelfChatStore } from "./useSelfChatStore";
 export { useFileBrowserStore } from "./useFileBrowserStore";
 export { useEditorTabsStore, type EditorTab } from "./useEditorTabsStore";
@@ -35,6 +36,7 @@ export { useSshMachinesStore } from "./useSshMachinesStore";
 export { useEnvironmentStore } from "./useEnvironmentStore";
 export { useProcessMonitorStore } from "./useProcessMonitorStore";
 export { useResourceStatsStore } from "./useResourceStatsStore";
+export { useRunnerStore } from "./useRunnerStore";
 export { useUsageStatsStore } from "./useUsageStatsStore";
 export { useSharedMcpStore } from "./useSharedMcpStore";
 export { useOrchestratorStore } from "./useOrchestratorStore";

@@ -87,17 +87,19 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
         />
       </div>
 
-      <div className="relative w-full max-w-[1320px] mx-auto px-6 2xl:px-8 pt-8 pb-12 space-y-6">
+      <div className="relative w-full max-w-[1480px] mx-auto px-6 2xl:px-8 pt-8 pb-12 space-y-6">
         <HomeHeader version={version} />
         <HomeQuickActions onNewTerminal={handleNewTerminal} />
-        <HomeRecentProjects records={records} onOpenTerminal={onOpenTerminal} />
 
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.15fr)_minmax(380px,0.85fr)] gap-4">
-          <HomeActiveSessions />
+        {/* 第二行：统计（左大） + 开发环境（右小） — 首屏可见 */}
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.5fr)] gap-4 items-start">
+          <HomeUsageStats />
           <HomeEnvironment />
         </div>
 
-        <HomeUsageStats />
+        <HomeRecentProjects records={records} onOpenTerminal={onOpenTerminal} />
+
+        <HomeActiveSessions />
 
         <HomeShortcuts />
 

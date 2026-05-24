@@ -13,7 +13,7 @@ impl SpecRepository {
 
     /// 插入 Spec 记录
     pub fn insert(&self, entry: &SpecEntry) -> Result<(), String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO specs (id, project_path, title, file_name, status, todo_id, created_at, updated_at, archived_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -35,7 +35,7 @@ impl SpecRepository {
 
     /// 根据 ID 获取 Spec
     pub fn get(&self, id: &str) -> Result<Option<SpecEntry>, String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, project_path, title, file_name, status, todo_id, created_at, updated_at, archived_at
@@ -60,7 +60,7 @@ impl SpecRepository {
         project_path: &str,
         status: Option<&SpecStatus>,
     ) -> Result<Vec<SpecEntry>, String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
 
         let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match status {
             Some(s) => (
@@ -142,7 +142,7 @@ impl SpecRepository {
             params.len()
         );
 
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
         let rows = conn
             .execute(
                 &sql,
@@ -158,7 +158,7 @@ impl SpecRepository {
 
     /// 取消项目中所有 active spec（用于激活新 spec 前）
     pub fn deactivate_all(&self, project_path: &str) -> Result<(), String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
         conn.execute(
             "UPDATE specs SET status = 'draft', updated_at = ?1 WHERE project_path = ?2 AND status = 'active'",
             rusqlite::params![chrono::Utc::now().to_rfc3339(), project_path],
@@ -169,7 +169,7 @@ impl SpecRepository {
 
     /// 获取项目的 active spec
     pub fn get_active(&self, project_path: &str) -> Result<Option<SpecEntry>, String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
                 "SELECT id, project_path, title, file_name, status, todo_id, created_at, updated_at, archived_at
@@ -192,7 +192,7 @@ impl SpecRepository {
 
     /// 删除 Spec 记录
     pub fn delete(&self, id: &str) -> Result<bool, String> {
-        let conn = self.db.connection().map_err(|e| e.message)?;
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
         let rows = conn
             .execute("DELETE FROM specs WHERE id = ?1", rusqlite::params![id])
             .map_err(|e| format!("Failed to delete spec: {}", e))?;

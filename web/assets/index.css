@@ -146,6 +146,10 @@
   --app-warning: #d97706;
   --app-warning-bg: rgba(245, 158, 11, 0.05);
   --app-input-bg: #F3F4F6;
+  /* fix(M2) review: 编排状态色统一走 CSS 变量，避免组件硬编码 hex。 */
+  --app-status-success: #1a7f37;
+  --app-status-warning: #bf8700;
+  --app-status-danger: #CF222E;
 
   /* TitleBar 高光线 */
   --app-titlebar-highlight: none;
@@ -275,6 +279,10 @@
   --app-warning: #D29922;
   --app-warning-bg: rgba(210, 153, 34, 0.1);
   --app-input-bg: rgba(255, 255, 255, 0.05);
+  /* fix(M2) review: Dark 使用 GitHub Dark 状态配色。 */
+  --app-status-success: #3FB950;
+  --app-status-warning: #D29922;
+  --app-status-danger: #F85149;
 
   /* TitleBar 高光线 */
   --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.08) 20%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.08) 80%, transparent);
@@ -536,6 +544,29 @@
 /* no-scrollbar 隐藏滚动条 */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Pane tab strip: keep the horizontal overflow discoverable. */
+.cc-tabbar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--app-border) 75%, transparent) transparent;
+}
+
+.cc-tabbar-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.cc-tabbar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cc-tabbar-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-border) 75%, transparent);
+}
+
+.cc-tabbar-scroll:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--app-text-tertiary) 70%, transparent);
+}
 
 /* Home Dashboard — hover styles */
 .home-quick-action:hover {

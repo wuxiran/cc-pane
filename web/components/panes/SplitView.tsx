@@ -46,7 +46,7 @@ export default function SplitView({
       if (!container) return;
 
       const panes = container.querySelectorAll<HTMLElement>(
-        "[data-splitview-pane]"
+        ":scope > [data-splitview-pane]"
       );
       if (panes.length < index + 2) return;
 

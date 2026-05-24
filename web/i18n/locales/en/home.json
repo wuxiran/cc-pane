@@ -34,5 +34,31 @@
   "justNow": "Just now",
   "minutesAgo": "{{count}}m ago",
   "hoursAgo": "{{count}}h ago",
-  "daysAgo": "{{count}}d ago"
+  "daysAgo": "{{count}}d ago",
+  "usage": {
+    "title": "Usage Trends",
+    "rangeToday": "Today",
+    "range24h": "24h",
+    "range7d": "7d",
+    "range30d": "30d",
+    "range90d": "90d",
+    "allWorkspaces": "All workspaces",
+    "unmatchedSessions": "Unmatched sessions",
+    "refresh": "Refresh usage stats",
+    "loading": "Loading usage stats...",
+    "noData": "No usage data yet",
+    "needLongerRange": "Switch to 7d / 30d / 90d to see the trend curve",
+    "inputChars": "Input chars",
+    "claudeTokens": "Claude tokens",
+    "codexTokens": "Codex tokens",
+    "claudeHitRate": "Claude cache hit",
+    "codexHitRate": "Codex cache hit",
+    "tokenChartTitle": "Token trends",
+    "charsChartTitle": "Input chars trend",
+    "hitRateHelpClaude": "Claude formula: cache_read / (input + cache_read + cache_creation)",
+    "hitRateHelpCodex": "Codex formula: cache_read / input_tokens (OpenAI: input already contains cached subset)",
+    "claudeChars": "Claude chars",
+    "codexChars": "Codex chars",
+    "unknownChars": "Other chars"
+  }
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Settings, Globe, Terminal, Keyboard, Info, Cloud, Bell, Camera, Share2, Mic } from "lucide-react";
+import { Settings, Globe, Terminal, Keyboard, Info, Cloud, Bell, Camera, Share2, Mic, Bot } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,9 @@ import AboutSection from "./settings/AboutSection";
 import ScreenshotSection from "./settings/ScreenshotSection";
 import SharedMcpSection from "./settings/SharedMcpSection";
 import VoiceSection from "./settings/VoiceSection";
+import CCChanSettings from "./settings/CCChanSettings";
+import { DEFAULT_CCCHAN_SETTINGS, useCCChanStore } from "@/stores/useCCChanStore";
+import type { CCChanSettings as CCChanSettingsValue } from "@/ccchan/types";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -33,7 +36,20 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   const saveSettings = useSettingsStore((s) => s.saveSettings);
   const getDefaults = useSettingsStore((s) => s.getDefaults);
 
-  const [draft, setDraft] = useState<AppSettings>(getDefaults());
+  type SettingsDraft = AppSettings & { ccchan: CCChanSettingsValue };
+
+  function withCCChanDraft(value: AppSettings): SettingsDraft {
+    const maybeWithCCChan = value as Partial<SettingsDraft>;
+    return {
+      ...value,
+      ccchan: {
+        ...DEFAULT_CCCHAN_SETTINGS,
+        ...maybeWithCCChan.ccchan,
+      },
+    };
+  }
+
+  const [draft, setDraft] = useState<SettingsDraft>(() => withCCChanDraft(getDefaults()));
   const [activeSection, setActiveSection] = useState("general");
 
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
@@ -44,6 +60,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     { id: "proxy", label: t("proxy"), icon: Globe },
     { id: "terminal", label: t("terminal"), icon: Terminal },
     { id: "voice", label: t("voice"), icon: Mic },
+    { id: "ccchan", label: "cc酱", icon: Bot },
     { id: "shortcuts", label: t("shortcuts"), icon: Keyboard },
     { id: "shared-mcp", label: "Shared MCP", icon: Share2 },
     ...(!isMac ? [{ id: "screenshot", label: t("screenshot"), icon: Camera }] : []),
@@ -53,12 +70,13 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   // 打开时同步设置
   useEffect(() => {
     if (open && settings) {
-      setDraft(JSON.parse(JSON.stringify(settings)));
+      setDraft(withCCChanDraft(JSON.parse(JSON.stringify(settings))));
     }
   }, [open, settings]);
 
   async function handleSave() {
     try {
+      await useCCChanStore.getState().saveSettings(draft.ccchan);
       await saveSettings(draft);
       toast.success(t("saved"));
       onOpenChange(false);
@@ -68,7 +86,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   }
 
   function handleReset() {
-    setDraft(getDefaults());
+    setDraft(withCCChanDraft(getDefaults()));
     toast.info(t("resetDone"));
   }
 
@@ -119,6 +137,9 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             )}
             {activeSection === "voice" && (
               <VoiceSection value={draft.voice} onChange={(v) => setDraft({ ...draft, voice: v })} />
+            )}
+            {activeSection === "ccchan" && (
+              <CCChanSettings value={draft.ccchan} onChange={(v) => setDraft({ ...draft, ccchan: v })} />
             )}
             {activeSection === "shortcuts" && (
               <ShortcutsSection value={draft.shortcuts} onChange={(v) => setDraft({ ...draft, shortcuts: v })} />

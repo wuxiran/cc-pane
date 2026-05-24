@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeTabNumbers } from "./tabNumbering";
-import type { Tab } from "@/types";
+import { computeGlobalTabNumbers, computeTabNumbers } from "./tabNumbering";
+import type { PaneNode, Tab } from "@/types";
 
 function tab(id: string, parentTabId?: string): Tab {
   return {
@@ -11,6 +11,25 @@ function tab(id: string, parentTabId?: string): Tab {
     projectPath: "/",
     sessionId: null,
     parentTabId,
+  };
+}
+
+function panel(id: string, tabs: Tab[]): PaneNode {
+  return {
+    type: "panel",
+    id,
+    activeTabId: tabs[0]?.id ?? "",
+    tabs,
+  };
+}
+
+function split(children: PaneNode[]): PaneNode {
+  return {
+    type: "split",
+    id: "split",
+    direction: "horizontal",
+    children,
+    sizes: children.map(() => 100 / children.length),
   };
 }
 
@@ -103,5 +122,29 @@ describe("computeTabNumbers", () => {
     // The exact numbers don't matter — only that both are top-level strings.
     expect(result.get("a")).toMatch(/^\d+$/);
     expect(result.get("b")).toMatch(/^\d+$/);
+  });
+
+  it("numbers top-level tabs globally across panes", () => {
+    const result = computeGlobalTabNumbers(split([
+      panel("p1", [tab("a")]),
+      panel("p2", [tab("b")]),
+      panel("p3", [tab("c")]),
+    ]));
+
+    expect(result.get("a")).toBe("1");
+    expect(result.get("b")).toBe("2");
+    expect(result.get("c")).toBe("3");
+  });
+
+  it("keeps child numbering when parent and child are in different panes", () => {
+    const result = computeGlobalTabNumbers(split([
+      panel("p1", [tab("parent")]),
+      panel("p2", [tab("child", "parent")]),
+      panel("p3", [tab("sibling")]),
+    ]));
+
+    expect(result.get("parent")).toBe("1");
+    expect(result.get("child")).toBe("1.1");
+    expect(result.get("sibling")).toBe("2");
   });
 });

@@ -20,6 +20,7 @@ export type {
   TerminalSession,
   CreateSessionRequest,
   TerminalOutput,
+  TerminalSessionOutput,
   ResizeRequest,
 } from "./terminal";
 export type {
@@ -161,8 +162,12 @@ export type {
   TaskBindingStatus,
   TaskBindingRole,
   TaskBinding,
+  TaskBindingNode,
   CreateTaskBindingRequest,
   UpdateTaskBindingRequest,
+  TaskBindingPatch,
+  TaskBindingChangedOp,
+  TaskBindingChangedEvent,
   TaskBindingQuery,
   TaskBindingQueryResult,
   RegisterPlanLeaderRequest,

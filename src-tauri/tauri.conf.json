@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "cc-panes",
-  "version": "0.9.41",
+  "version": "0.9.42",
   "identifier": "com.ccpanes.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,9 +13,28 @@
     "windows": [
       {
         "title": "CC-Panes",
-        "width": 1200,
-        "height": 800,
+        "width": 1920,
+        "height": 1200,
+        "minWidth": 1080,
+        "minHeight": 720,
+        "center": true,
         "decorations": false
+      },
+      {
+        "label": "ccchan",
+        "title": "cc酱",
+        "url": "index.html?mode=ccchan",
+        "visible": false,
+        "width": 120,
+        "height": 120,
+        "x": -9999,
+        "y": -9999,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
       }
     ],
     "security": {
@@ -41,6 +60,7 @@
       "binaries/cc-panes-cli-hook*",
       "resources/claude-bundle/.claude/commands/ccbook/*",
       "resources/claude-bundle/.claude/agents/*",
+      "resources/ccchan/**/*",
       "resources/claude-bundle/CLAUDE.md",
       "resources/claude-bundle/default-skills/*"
     ],
