@@ -10,7 +10,7 @@ use cc_panes_core::{
     events::NoopNotifier,
     services::{
         ProjectCliHooksService, ProviderService, SettingsService, SshCredentialService,
-        TerminalService,
+        TerminalService, UserEnvironmentService,
     },
     utils::AppPaths,
 };
@@ -70,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
     let cli_registry = Arc::new(CliToolRegistry::new());
     let project_cli_hooks_service = Arc::new(ProjectCliHooksService::new(cli_registry.clone()));
     let ssh_credential_service = Arc::new(SshCredentialService::new());
+    let user_environment_service = Arc::new(UserEnvironmentService::new(app_paths.clone()));
 
     let terminal_service = Arc::new(TerminalService::new(
         settings_service,
@@ -78,6 +79,7 @@ async fn main() -> anyhow::Result<()> {
         cli_registry,
         project_cli_hooks_service,
         ssh_credential_service,
+        user_environment_service,
     ));
 
     // Set up event emitter for WebSocket routing

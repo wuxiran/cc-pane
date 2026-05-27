@@ -8,7 +8,7 @@ use crate::models::{
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{
     LaunchProfileService, ProjectCliHooksService, ProviderService, SettingsService, SpecService,
-    SshCredentialService, WorkspaceService,
+    SshCredentialService, UserEnvironmentService, WorkspaceService,
 };
 use crate::utils::AppPaths;
 use anyhow::{anyhow, Result};
@@ -665,6 +665,7 @@ pub struct TerminalService {
     /// 项目级 CLI hooks 服务
     project_cli_hooks_service: Arc<ProjectCliHooksService>,
     ssh_credential_service: Arc<SshCredentialService>,
+    user_environment_service: Arc<UserEnvironmentService>,
     /// 共享 MCP 服务引用（setup 阶段注入）
     shared_mcp_service: parking_lot::RwLock<Option<Arc<crate::services::SharedMcpService>>>,
     launch_profile_service: parking_lot::RwLock<Option<Arc<LaunchProfileService>>>,
@@ -962,6 +963,7 @@ impl TerminalService {
         cli_registry: Arc<CliToolRegistry>,
         project_cli_hooks_service: Arc<ProjectCliHooksService>,
         ssh_credential_service: Arc<SshCredentialService>,
+        user_environment_service: Arc<UserEnvironmentService>,
     ) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -976,6 +978,7 @@ impl TerminalService {
             cli_registry,
             project_cli_hooks_service,
             ssh_credential_service,
+            user_environment_service,
             shared_mcp_service: parking_lot::RwLock::new(None),
             launch_profile_service: parking_lot::RwLock::new(None),
             workspace_service: parking_lot::RwLock::new(None),
@@ -1103,7 +1106,12 @@ impl TerminalService {
             LaunchProviderSelection::Explicit => requested_provider_id,
             LaunchProviderSelection::Inherit => requested_provider_id.or(profile_provider_id),
         };
-        let mut env_vars = self.settings_service.get_proxy_env_vars();
+        let mut env_vars = if ssh.is_none() && wsl.is_none() {
+            self.user_environment_service.resolved_env()
+        } else {
+            HashMap::new()
+        };
+        env_vars.extend(self.settings_service.get_proxy_env_vars());
         let provider_vars = self.provider_service.get_env_vars(effective_provider_id);
         let provider = effective_provider_id
             .and_then(|id| self.provider_service.get_provider(id))
@@ -1435,6 +1443,7 @@ impl TerminalService {
                     orchestrator_port: orch_info.as_ref().map(|i| i.port),
                     orchestrator_token: orch_info.as_ref().map(|i| i.token.clone()),
                     data_dir: self.app_paths.data_dir().to_path_buf(),
+                    path_env: env_vars.get("PATH").cloned(),
                     shared_mcp_urls: effective_shared_mcp_urls,
                     allowed_mcp_server_ids,
                     disable_unlisted_mcp_servers,
@@ -1467,6 +1476,7 @@ impl TerminalService {
             command,
             args,
             env: env_vars,
+            clear_env: !is_ssh && wsl.is_none(),
             env_remove,
         };
 

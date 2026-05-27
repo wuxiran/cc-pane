@@ -524,7 +524,8 @@ impl CliToolAdapter for CodexAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let path = which::which("codex").map_err(|_| anyhow!("codex CLI not found in PATH"))?;
+        let path = crate::resolve_executable("codex", ctx.path_env.as_deref())
+            .map_err(|_| anyhow!("codex CLI not found in PATH"))?;
         let codex_cmd = path.to_string_lossy().into_owned();
 
         let mut args = Vec::new();
@@ -731,6 +732,7 @@ mod tests {
             orchestrator_port: None,
             orchestrator_token: None,
             data_dir: PathBuf::from("/tmp/cc-panes"),
+            path_env: None,
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,

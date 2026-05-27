@@ -25,6 +25,7 @@ mod ssh_machine_service;
 mod task_binding_service;
 pub mod terminal_service;
 mod todo_service;
+mod user_environment_service;
 mod user_skill_service;
 mod workspace_service;
 mod worktree_service;
@@ -56,6 +57,10 @@ pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use task_binding_service::TaskBindingService;
 pub use terminal_service::{OrchestratorInfo, SessionStatusInfo, ShellInfo, TerminalService};
 pub use todo_service::TodoService;
+pub use user_environment_service::{
+    apply_env_to_process, EnvOverlayConfig, PathOverlay, ResolvedUserEnvironment, ShellEnvMode,
+    UserEnvironmentService,
+};
 pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillService};
 pub use workspace_service::WorkspaceService;
 pub use worktree_service::{WorktreeInfo, WorktreeService};

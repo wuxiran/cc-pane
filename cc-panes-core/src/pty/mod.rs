@@ -20,6 +20,7 @@ pub struct PtyConfig {
     pub command: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
+    pub clear_env: bool,
     /// 需要从继承环境中移除的变量名列表
     pub env_remove: Vec<String>,
 }
@@ -142,6 +143,9 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     };
 
     cmd.cwd(&config.cwd);
+    if config.clear_env {
+        cmd.env_clear();
+    }
     for key in &config.env_remove {
         cmd.env_remove(key);
     }

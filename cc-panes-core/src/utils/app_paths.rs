@@ -62,6 +62,24 @@ impl AppPaths {
         self.data_dir.join("providers.json")
     }
 
+    /// CC-Panes environment overlay file.
+    pub fn env_overlay_path(&self) -> PathBuf {
+        let local_overlay = self.config_dir.join("env.toml");
+        if local_overlay.exists() {
+            return local_overlay;
+        }
+
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".cc-panes")
+            .join("env.toml")
+    }
+
+    /// Cached resolved environment snapshot.
+    pub fn env_cache_path(&self) -> PathBuf {
+        self.data_dir.join("cached_env.json")
+    }
+
     /// launch profiles 目标目录（后续版本使用；当前仍兼容根目录 launch-profiles.json）
     pub fn launch_profiles_dir(&self) -> PathBuf {
         self.data_dir.join("launch-profiles")

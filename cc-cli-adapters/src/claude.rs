@@ -317,10 +317,14 @@ impl ClaudeAdapter {
         })
     }
 
-    fn resolve_claude_path() -> Result<PathBuf> {
+    fn resolve_claude_path(path_env: Option<&str>) -> Result<PathBuf> {
+        #[cfg(windows)]
+        let _ = path_env;
+
         #[cfg(not(windows))]
         {
-            which::which("claude").map_err(|_| anyhow!("claude CLI not found in PATH"))
+            crate::resolve_executable("claude", path_env)
+                .map_err(|_| anyhow!("claude CLI not found in PATH"))
         }
 
         #[cfg(windows)]
@@ -529,7 +533,7 @@ impl CliToolAdapter for ClaudeAdapter {
 
     fn detect(&self) -> CliToolInfo {
         let mut info = self.info().clone();
-        match Self::resolve_claude_path() {
+        match Self::resolve_claude_path(None) {
             Ok(path) => {
                 info.installed = true;
                 info.path = Some(path.to_string_lossy().into_owned());
@@ -635,7 +639,7 @@ impl CliToolAdapter for ClaudeAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let path = Self::resolve_claude_path()?;
+        let path = Self::resolve_claude_path(ctx.path_env.as_deref())?;
         let mut args = Vec::new();
 
         // Resume

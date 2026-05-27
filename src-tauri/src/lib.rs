@@ -289,7 +289,7 @@ use services::{
     ProjectContextService, ProjectService, ProviderService, ScreenshotService,
     SessionRestoreService, SettingsService, SharedMcpService, SkillMarketService, SkillService,
     SpecService, SshCredentialService, SshMachineService, TaskBindingService, TerminalService,
-    TodoService, WorkspaceService, WorktreeService,
+    TodoService, UserEnvironmentService, WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -551,218 +551,6 @@ fn copy_to_clipboard_win32(text: &str) {
 
 // ============ 辅助函数 ============
 
-/// Strip ANSI escape sequences from a string.
-/// Handles CSI sequences like `\x1b[31m`, `\x1b[0m`, etc.
-#[cfg(not(target_os = "windows"))]
-fn strip_ansi_escapes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // consume '[' if present
-            if let Some(next) = chars.next() {
-                if next == '[' {
-                    // consume until a letter (the terminator)
-                    for sc in chars.by_ref() {
-                        if sc.is_ascii_alphabetic() {
-                            break;
-                        }
-                    }
-                }
-                // else: lone ESC + non-'[', skip both
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
-/// 获取 PATH 缓存文件路径
-#[cfg(not(target_os = "windows"))]
-fn get_path_cache_file() -> String {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    home.join(crate::utils::APP_DIR_NAME)
-        .join("cached_path")
-        .to_string_lossy()
-        .to_string()
-}
-
-/// 写 PATH 缓存文件（确保父目录存在）
-#[cfg(not(target_os = "windows"))]
-fn write_path_cache(file: &str, path: &str) -> std::io::Result<()> {
-    let p = std::path::Path::new(file);
-    if let Some(parent) = p.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(file, path)
-}
-
-/// 从 shell 解析 PATH（10 秒超时）
-#[cfg(not(target_os = "windows"))]
-fn resolve_path_from_shell(shell: &str) -> Option<String> {
-    let child = std::process::Command::new(shell)
-        .args(["-ilc", "echo $PATH"])
-        .env("CCPANES_RESOLVING_ENVIRONMENT", "1")
-        .env("ZSH_TMUX_AUTOSTART", "false")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .ok()?;
-
-    let child_pid = child.id();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
-    });
-
-    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
-        Ok(Ok(output)) if output.status.success() => {
-            let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let path = strip_ansi_escapes(&raw);
-            if path.is_empty() {
-                None
-            } else {
-                Some(path)
-            }
-        }
-        _ => {
-            eprintln!("[boot] shell timed out or failed, killing pid={child_pid}");
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(child_pid as i32, libc::SIGKILL);
-            }
-            None
-        }
-    }
-}
-
-/// well-known paths fallback：扫描常见目录，存在才加入
-#[cfg(not(target_os = "windows"))]
-fn build_fallback_path() -> String {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-    let home_str = home.to_string_lossy();
-
-    let mut dirs: Vec<String> = Vec::new();
-
-    // 用户级工具目录
-    let user_dirs = [
-        format!("{home_str}/.cargo/bin"),
-        format!("{home_str}/.local/bin"),
-    ];
-    for d in &user_dirs {
-        if std::path::Path::new(d).is_dir() {
-            dirs.push(d.clone());
-        }
-    }
-
-    // nvm：找最新的 node 版本目录
-    let nvm_dir = std::env::var("NVM_DIR").unwrap_or_else(|_| format!("{home_str}/.nvm"));
-    let nvm_versions = std::path::Path::new(&nvm_dir).join("versions/node");
-    if nvm_versions.is_dir() {
-        if let Ok(mut entries) = std::fs::read_dir(&nvm_versions) {
-            let mut latest: Option<std::path::PathBuf> = None;
-            while let Some(Ok(e)) = entries.next() {
-                let p = e.path();
-                if p.is_dir() {
-                    // 取字典序最大的版本（v20 > v18 等）
-                    if latest.as_ref().is_none_or(|l| p > *l) {
-                        latest = Some(p);
-                    }
-                }
-            }
-            if let Some(node_dir) = latest {
-                let bin = node_dir.join("bin");
-                if bin.is_dir() {
-                    dirs.push(bin.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    // 系统级目录
-    let system_dirs = [
-        "/opt/homebrew/bin",
-        "/opt/homebrew/sbin",
-        "/usr/local/bin",
-        "/usr/local/sbin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-        "/opt/local/bin",
-    ];
-    for d in &system_dirs {
-        if std::path::Path::new(d).is_dir() {
-            dirs.push(d.to_string());
-        }
-    }
-
-    // 追加当前 PATH 去重
-    if let Ok(current) = std::env::var("PATH") {
-        for entry in current.split(':') {
-            if !entry.is_empty() && !dirs.contains(&entry.to_string()) {
-                dirs.push(entry.to_string());
-            }
-        }
-    }
-
-    dirs.join(":")
-}
-
-/// 后台刷新 PATH 缓存 + 更新当前进程 PATH
-#[cfg(not(target_os = "windows"))]
-fn refresh_path_cache(cache_file: &str) {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    if let Some(path) = resolve_path_from_shell(&shell) {
-        let _ = write_path_cache(cache_file, &path);
-        unsafe {
-            std::env::set_var("PATH", &path);
-        }
-        eprintln!(
-            "[boot/bg] PATH cache refreshed + process PATH updated ({} entries)",
-            path.split(':').count()
-        );
-    }
-}
-
-/// 两层 PATH 加载：缓存 → well-known fallback（shell 全走后台）
-#[cfg(not(target_os = "windows"))]
-fn load_full_path() {
-    let cache_file = get_path_cache_file();
-
-    // 1. 尝试读缓存
-    if let Ok(cached) = std::fs::read_to_string(&cache_file) {
-        let cached = cached.trim().to_string();
-        if !cached.is_empty() {
-            eprintln!(
-                "[boot] PATH loaded from cache ({} entries)",
-                cached.split(':').count()
-            );
-            unsafe {
-                std::env::set_var("PATH", &cached);
-            }
-            let cache_file_bg = cache_file.clone();
-            std::thread::spawn(move || refresh_path_cache(&cache_file_bg));
-            return;
-        }
-    }
-
-    // 2. 无缓存：立即用 well-known paths（纯 fs 扫描，<1ms）
-    let path = build_fallback_path();
-    eprintln!(
-        "[boot] PATH set from well-known paths ({} entries), shell refresh in background",
-        path.split(':').count()
-    );
-    unsafe {
-        std::env::set_var("PATH", &path);
-    }
-
-    // 后台 spawn shell 刷新缓存 + 更新当前进程 PATH
-    std::thread::spawn(move || refresh_path_cache(&cache_file));
-}
-
 // ============ 应用入口 ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -811,13 +599,6 @@ pub fn run() {
     }
     boot_mark!("panic hook installed");
 
-    // 0.5 macOS/Linux: 两层 PATH 加载（缓存 → well-known fallback，shell 全走后台）
-    #[cfg(not(target_os = "windows"))]
-    {
-        load_full_path();
-    }
-    boot_mark!("PATH loaded");
-
     // 1. 先加载设置，取得 data_dir + log_level
     let settings_service = Arc::new(SettingsService::new());
     let settings = settings_service.get_settings();
@@ -845,6 +626,14 @@ pub fn run() {
     // 2. 构造路径管理器
     let app_paths = Arc::new(AppPaths::new(data_dir));
     boot_mark!("app_paths initialized");
+
+    let user_environment_service = Arc::new(UserEnvironmentService::new(app_paths.clone()));
+    let resolved_env = user_environment_service.apply_to_process();
+    boot_mark!(
+        "user environment loaded ({} vars, shell_resolved={})",
+        resolved_env.env.len(),
+        resolved_env.shell_resolved
+    );
 
     // 3. 各服务用 app_paths 初始化
     boot_mark!("initializing database...");
@@ -914,6 +703,7 @@ pub fn run() {
         cli_registry.clone(),
         project_cli_hooks_service.clone(),
         ssh_credential_service.clone(),
+        user_environment_service.clone(),
     ));
     // 注入 Spec 服务到 Terminal 服务（终端启动时自动注入 spec prompt）
     terminal_service.set_spec_service(spec_service.clone());
@@ -975,6 +765,7 @@ pub fn run() {
         .manage(app_paths)
         .manage(project_service)
         .manage(terminal_service)
+        .manage(user_environment_service)
         .manage(launch_history_service)
         .manage(history_service)
         .manage(project_cli_hooks_service)
