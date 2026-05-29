@@ -137,23 +137,19 @@ describe("WorkspaceItem", () => {
     });
   });
 
-  it("shows the workspace environment entry inside settings", async () => {
-    const user = userEvent.setup();
+  it("shows the workspace environment entry directly in the workspace context menu", async () => {
     renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
 
-    await user.hover(await screen.findByRole("menuitem", { name: /设置|Settings/ }));
-    expect(await screen.findByRole("menuitem", { name: /运行环境/i })).toBeVisible();
+    expect(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i })).toBeVisible();
   });
 
-  it("opens the workspace environment sheet from settings", async () => {
-    const user = userEvent.setup();
+  it("opens the workspace environment sheet from the workspace context menu", async () => {
     const { onOpenEnvironment, ws } = renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover(await screen.findByRole("menuitem", { name: /设置|Settings/ }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /运行环境/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i }));
 
     expect(onOpenEnvironment).toHaveBeenCalledWith(ws);
   });
@@ -195,7 +191,7 @@ describe("WorkspaceItem", () => {
     const { onOpenTerminal } = renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover((await screen.findAllByRole("menuitem", { name: "Codex CLI" }))[0]);
+    await user.hover((await screen.findAllByRole("menuitem", { name: /Codex CLI.*(Local|本机)/ }))[0]);
     fireEvent.click(await screen.findByRole("menuitem", { name: /使用默认运行配置|Launch with Default Profile/i }));
 
     expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
@@ -240,7 +236,7 @@ describe("WorkspaceItem", () => {
     expect(screen.queryByRole("menuitem", { name: "Gemini CLI" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Kimi CLI" })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "打开终端" })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: "Codex CLI" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: /Codex CLI.*(Local|本机)/ })).toBeVisible();
   });
 
   it("supports terminal WSL as a workspace favorite launch action in the context menu", async () => {
@@ -267,7 +263,7 @@ describe("WorkspaceItem", () => {
     }));
   });
 
-  it("opens Codex locally even when the workspace default environment is wsl", async () => {
+  it("opens Codex with the workspace default environment", async () => {
     const user = userEvent.setup();
     const { onOpenTerminal } = renderWorkspaceItem("wsl");
 
@@ -279,8 +275,10 @@ describe("WorkspaceItem", () => {
     expect(call).toEqual(expect.objectContaining({
       path: "D:/workspace-alpha",
       cliTool: "codex",
+      wsl: {
+        remotePath: "/mnt/d/workspace-alpha",
+      },
     }));
-    expect(call?.wsl).toBeUndefined();
     expect(call?.providerId).toBeUndefined();
     expect(call?.launchProfileId).toBeUndefined();
   });
@@ -294,7 +292,7 @@ describe("WorkspaceItem", () => {
     expect(screen.getByRole("menuitem", { name: /Claude Code.*WSL/ })).toBeVisible();
   });
 
-  it("opens Codex through WSL only when choosing the explicit WSL entry", async () => {
+  it("opens Codex through WSL when choosing the explicit WSL entry", async () => {
     const user = userEvent.setup();
     const { onOpenTerminal } = renderWorkspaceItem("wsl");
 
@@ -371,6 +369,60 @@ describe("WorkspaceItem", () => {
 
     expect(await screen.findByRole("menuitem", { name: /Codex Local/ })).toBeVisible();
     expect(screen.queryByRole("menuitem", { name: /Codex WSL/ })).not.toBeInTheDocument();
+  });
+
+  it("filters default Codex profiles with the workspace Codex CLI default environment", async () => {
+    const user = userEvent.setup();
+    useLaunchProfilesStore.setState({
+      profiles: [
+        createLaunchProfile({ id: "profile-codex-local", name: "Codex Local", targetRuntime: "local" }),
+        createLaunchProfile({ id: "profile-codex-wsl", name: "Codex WSL", targetRuntime: "wsl" }),
+      ],
+      loading: false,
+    });
+    renderWorkspaceItem("local", false, {
+      cliEnvironmentDefaults: {
+        codex: "wsl",
+      },
+    });
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await user.hover((await screen.findAllByRole("menuitem", { name: "Codex CLI" }))[0]);
+
+    expect(await screen.findByRole("menuitem", { name: /Codex WSL/ })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: /Codex Local/ })).not.toBeInTheDocument();
+  });
+
+  it("uses the Codex CLI default environment for favorite default actions", async () => {
+    const user = userEvent.setup();
+    useSettingsStore.setState({
+      settings: createTestSettings({
+        general: {
+          ...createTestSettings().general,
+          launchFavorites: ["codex-default"],
+          hideNonFavoriteLaunchActions: true,
+        },
+      }),
+      loading: false,
+    });
+    useLaunchProfilesStore.setState({
+      profiles: [
+        createLaunchProfile({ id: "profile-codex-local", name: "Codex Local", targetRuntime: "local" }),
+        createLaunchProfile({ id: "profile-codex-wsl", name: "Codex WSL", targetRuntime: "wsl" }),
+      ],
+      loading: false,
+    });
+    renderWorkspaceItem("local", false, {
+      cliEnvironmentDefaults: {
+        codex: "wsl",
+      },
+    });
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await user.hover(await screen.findByRole("menuitem", { name: "Codex CLI" }));
+
+    expect(await screen.findByRole("menuitem", { name: /Codex WSL/ })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: /Codex Local/ })).not.toBeInTheDocument();
   });
 
   it("launches a wsl-specific Codex profile from the WSL menu", async () => {

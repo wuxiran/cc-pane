@@ -241,12 +241,30 @@ fn parse_launch_runtime_kind(value: &str) -> std::result::Result<LaunchRuntimeKi
     }
 }
 
-fn workspace_runtime_kind(workspace: &Workspace) -> LaunchRuntimeKind {
-    match workspace.default_environment {
+fn workspace_environment_to_runtime_kind(
+    environment: WorkspaceLaunchEnvironment,
+) -> LaunchRuntimeKind {
+    match environment {
         WorkspaceLaunchEnvironment::Local => LaunchRuntimeKind::Local,
         WorkspaceLaunchEnvironment::Wsl => LaunchRuntimeKind::Wsl,
         WorkspaceLaunchEnvironment::Ssh => LaunchRuntimeKind::Ssh,
     }
+}
+
+fn workspace_runtime_kind(workspace: &Workspace) -> LaunchRuntimeKind {
+    workspace_environment_to_runtime_kind(workspace.default_environment)
+}
+
+fn cli_workspace_default(workspace: &Workspace, cli_tool: &str) -> Option<LaunchRuntimeKind> {
+    workspace
+        .cli_environment_defaults
+        .as_ref()?
+        .get(cli_tool)
+        .map(workspace_environment_to_runtime_kind)
+}
+
+fn effective_cli_default_key(cli_tool: Option<&str>) -> &str {
+    cli_tool.unwrap_or("claude")
 }
 
 #[derive(Debug, Clone)]
@@ -1550,7 +1568,7 @@ struct McpRegisterPlanLeaderParams {
     prompt: Option<String>,
     /// leader 的 PTY session ID
     #[serde(rename = "sessionId")]
-    session_id: Option<String>,
+    session_id: String,
     /// leader 的 Claude/Codex resume ID
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
@@ -2266,6 +2284,8 @@ impl McpToolHandler {
             provider_id: provider_id.clone(),
             target_tools: clean_target_tools(params.target_tools.as_deref()),
             target_runtime: normalize_target_runtime(params.target_runtime.clone())?,
+            // YOLO 仅通过受控的 UI launch profile 启用，不经 MCP 播种危险 profile。
+            yolo_mode: false,
             mcp_policy,
             skill_policy,
             is_default: params.set_default.unwrap_or(false),
@@ -2583,6 +2603,7 @@ impl McpToolHandler {
         let runtime = match resolve_launch_runtime(
             &params.project_path,
             ws_name.as_deref(),
+            params.cli_tool.as_deref(),
             params.runtime_kind.as_deref(),
             params.resume_id.as_deref(),
             &self.state,
@@ -3245,6 +3266,7 @@ impl McpToolHandler {
                     "providerId": ws.provider_id,
                     "path": ws.path,
                     "defaultEnvironment": ws.default_environment,
+                    "cliEnvironmentDefaults": ws.cli_environment_defaults,
                     "wsl": ws.wsl,
                     "sshLaunch": ws.ssh_launch,
                     "pinned": ws.pinned,
@@ -4172,7 +4194,7 @@ impl McpToolHandler {
             project_path: params.project_path,
             title: params.title,
             prompt: params.prompt,
-            session_id: params.session_id,
+            session_id: Some(params.session_id),
             resume_id: params.resume_id,
             pane_id: params.pane_id,
             tab_id: params.tab_id,
@@ -4603,6 +4625,7 @@ async fn start_runner_coordinator(
     let runtime = resolve_launch_runtime(
         &profile.cwd,
         profile.workspace_name.as_deref(),
+        None,
         Some(profile.runtime_kind.as_str()),
         None,
         app_state,
@@ -5032,9 +5055,11 @@ fn runtime_notice(
     workspace: Option<&Workspace>,
     kind: LaunchRuntimeKind,
     source: &'static str,
+    cli_tool: Option<&str>,
 ) -> Option<String> {
     let workspace = workspace?;
     let default = workspace_runtime_kind(workspace);
+    let cli_tool = cli_tool.unwrap_or("claude");
     if source == "explicit" && default != kind {
         return Some(format!(
             "workspace '{}' 默认是 {}，本次按显式 runtimeKind='{}' 启动。",
@@ -5051,6 +5076,19 @@ fn runtime_notice(
             kind.as_str()
         ));
     }
+    if source == "path" && kind == LaunchRuntimeKind::Wsl {
+        return Some(format!(
+            "workspace '{}' 项目路径是 WSL UNC，已按 WSL 启动；如需 Windows local 请传 runtimeKind='local'。",
+            workspace.name
+        ));
+    }
+    if source == "cli_workspace_default" && kind == LaunchRuntimeKind::Wsl {
+        return Some(format!(
+            "workspace '{}' 中 {} 默认是 WSL，未传 runtimeKind，已按 WSL 启动；如需 Windows local 请传 runtimeKind='local'。",
+            workspace.name,
+            cli_tool
+        ));
+    }
     if source == "workspace_default" && kind == LaunchRuntimeKind::Wsl {
         return Some(format!(
             "workspace '{}' 默认是 WSL，未传 runtimeKind，已按 WSL 启动；如需 Windows local，请传 runtimeKind='local'。",
@@ -5063,15 +5101,21 @@ fn runtime_notice(
 fn select_launch_runtime_kind(
     explicit_runtime: Option<LaunchRuntimeKind>,
     history_runtime: Option<LaunchRuntimeKind>,
+    cli_default: Option<LaunchRuntimeKind>,
     path_runtime: Option<LaunchRuntimeKind>,
     workspace_default: Option<LaunchRuntimeKind>,
 ) -> (LaunchRuntimeKind, &'static str) {
+    // 优先级：explicit > history > path/UNC > cli_workspace_default > workspace_default。
+    // path（WSL UNC 推断）必须高于 per-CLI 默认，避免 WSL UNC 项目被 CLI 默认 local
+    // 错误覆盖；只有显式 runtimeKind 能压过 UNC 推断。
     if let Some(runtime) = explicit_runtime {
         (runtime, "explicit")
     } else if let Some(runtime) = history_runtime {
         (runtime, "history")
     } else if let Some(runtime) = path_runtime {
         (runtime, "path")
+    } else if let Some(runtime) = cli_default {
+        (runtime, "cli_workspace_default")
     } else if let Some(runtime) = workspace_default {
         (runtime, "workspace_default")
     } else {
@@ -5082,10 +5126,12 @@ fn select_launch_runtime_kind(
 fn resolve_launch_runtime(
     project_path: &str,
     workspace_name: Option<&str>,
+    cli_tool: Option<&str>,
     requested_runtime: Option<&str>,
     resume_id: Option<&str>,
     state: &AppState,
 ) -> std::result::Result<ResolvedLaunchRuntime, String> {
+    let effective_cli = effective_cli_default_key(cli_tool);
     let workspace =
         find_workspace_for_launch(project_path, workspace_name, &state.workspace_service);
     let explicit_runtime = requested_runtime
@@ -5118,11 +5164,19 @@ fn resolve_launch_runtime(
     } else {
         None
     };
+    let cli_default = if explicit_runtime.is_none() && history_runtime.is_none() {
+        workspace
+            .as_ref()
+            .and_then(|workspace| cli_workspace_default(workspace, effective_cli))
+    } else {
+        None
+    };
     let workspace_default = workspace.as_ref().map(workspace_runtime_kind);
 
     let (kind, source) = select_launch_runtime_kind(
         explicit_runtime,
         history_runtime,
+        cli_default,
         path_runtime,
         workspace_default,
     );
@@ -5139,6 +5193,15 @@ fn resolve_launch_runtime(
                     .map(|ws| format!(
                         "workspace '{}' 默认是 WSL，但无法解析 WSL 路径。请选择 local，或配置 WSL 路径。",
                         ws.name
+                    ))
+                    .unwrap_or_else(|| "无法解析 WSL 路径。".to_string()),
+                "cli_workspace_default" => workspace
+                    .as_ref()
+                    .map(|ws| format!(
+                        "workspace '{}' 的 {} 默认为 WSL，但缺少 WSL 远端路径配置。请在工作空间设置中为 WSL 配置 remotePath，或修改 {} 的默认环境。",
+                        ws.name,
+                        effective_cli,
+                        effective_cli
                     ))
                     .unwrap_or_else(|| "无法解析 WSL 路径。".to_string()),
                 _ => "无法解析 WSL 路径。".to_string(),
@@ -5164,6 +5227,15 @@ fn resolve_launch_runtime(
                         ws.name
                     ))
                     .unwrap_or_else(|| "无法解析 SSH 连接。".to_string()),
+                "cli_workspace_default" => workspace
+                    .as_ref()
+                    .map(|ws| format!(
+                        "workspace '{}' 的 {} 默认为 SSH，但 SSH 配置不完整。请在工作空间设置中补齐 SSH machineId/remotePath，或修改 {} 的默认环境。",
+                        ws.name,
+                        effective_cli,
+                        effective_cli
+                    ))
+                    .unwrap_or_else(|| "无法解析 SSH 连接。".to_string()),
                 _ => "无法解析 SSH 连接。".to_string(),
             });
         }
@@ -5175,7 +5247,7 @@ fn resolve_launch_runtime(
     Ok(ResolvedLaunchRuntime {
         kind,
         source,
-        notice: runtime_notice(workspace.as_ref(), kind, source),
+        notice: runtime_notice(workspace.as_ref(), kind, source, Some(effective_cli)),
         wsl,
         ssh,
     })
@@ -5363,6 +5435,7 @@ async fn handle_launch_task(
     let runtime = match resolve_launch_runtime(
         &req.project_path,
         workspace_name.as_deref(),
+        req.cli_tool.as_deref(),
         req.runtime_kind.as_deref(),
         req.resume_id.as_deref(),
         &state,
@@ -6841,6 +6914,7 @@ fn strip_unc_prefix(path: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::WorkspaceCliEnvironmentDefaults;
 
     #[test]
     fn test_generate_token_length() {
@@ -7562,6 +7636,7 @@ mod tests {
             Some(LaunchRuntimeKind::Local),
             None,
             None,
+            None,
             Some(LaunchRuntimeKind::Wsl),
         );
 
@@ -7573,11 +7648,115 @@ mod tests {
         let selected = select_launch_runtime_kind(
             None,
             Some(LaunchRuntimeKind::Local),
-            None,
+            Some(LaunchRuntimeKind::Wsl),
+            Some(LaunchRuntimeKind::Ssh),
             Some(LaunchRuntimeKind::Wsl),
         );
 
         assert_eq!(selected, (LaunchRuntimeKind::Local, "history"));
+    }
+
+    #[test]
+    fn test_launch_runtime_path_overrides_cli_default() {
+        let selected = select_launch_runtime_kind(
+            None,
+            None,
+            Some(LaunchRuntimeKind::Local),
+            Some(LaunchRuntimeKind::Wsl),
+            Some(LaunchRuntimeKind::Wsl),
+        );
+
+        // path（WSL UNC）优先于 per-CLI 默认；只有显式 runtimeKind 能压过它。
+        assert_eq!(selected, (LaunchRuntimeKind::Wsl, "path"));
+    }
+
+    #[test]
+    fn test_launch_runtime_cli_default_overrides_workspace_default_without_path() {
+        let selected = select_launch_runtime_kind(
+            None,
+            None,
+            Some(LaunchRuntimeKind::Local),
+            None,
+            Some(LaunchRuntimeKind::Wsl),
+        );
+
+        // 无 path 推断时，per-CLI 默认仍胜过 workspace 默认。
+        assert_eq!(
+            selected,
+            (LaunchRuntimeKind::Local, "cli_workspace_default")
+        );
+    }
+
+    #[test]
+    fn test_launch_runtime_path_overrides_workspace_default_when_cli_default_missing() {
+        let selected = select_launch_runtime_kind(
+            None,
+            None,
+            None,
+            Some(LaunchRuntimeKind::Wsl),
+            Some(LaunchRuntimeKind::Local),
+        );
+
+        assert_eq!(selected, (LaunchRuntimeKind::Wsl, "path"));
+    }
+
+    #[test]
+    fn test_cli_workspace_default_handles_missing_and_matching_values() {
+        let mut workspace = Workspace::new("ws".to_string(), Some("D:/ws".to_string()));
+        assert_eq!(cli_workspace_default(&workspace, "codex"), None);
+
+        workspace.cli_environment_defaults = Some(WorkspaceCliEnvironmentDefaults {
+            claude: Some(WorkspaceLaunchEnvironment::Local),
+            codex: None,
+        });
+
+        assert_eq!(cli_workspace_default(&workspace, "gemini"), None);
+        assert_eq!(cli_workspace_default(&workspace, "codex"), None);
+        assert_eq!(
+            cli_workspace_default(&workspace, "claude"),
+            Some(LaunchRuntimeKind::Local)
+        );
+    }
+
+    #[test]
+    fn test_effective_cli_default_key_uses_claude_when_missing() {
+        assert_eq!(effective_cli_default_key(None), "claude");
+        assert_eq!(effective_cli_default_key(Some("codex")), "codex");
+    }
+
+    #[test]
+    fn test_runtime_notice_for_cli_workspace_default_wsl() {
+        let mut workspace = Workspace::new("ws".to_string(), Some("D:/ws".to_string()));
+        workspace.cli_environment_defaults = Some(WorkspaceCliEnvironmentDefaults {
+            claude: None,
+            codex: Some(WorkspaceLaunchEnvironment::Wsl),
+        });
+
+        let notice = runtime_notice(
+            Some(&workspace),
+            LaunchRuntimeKind::Wsl,
+            "cli_workspace_default",
+            Some("codex"),
+        )
+        .expect("notice");
+
+        assert!(notice.contains("codex 默认是 WSL"));
+    }
+
+    #[test]
+    fn test_runtime_notice_for_path_wsl_unc() {
+        let workspace = Workspace::new("ws".to_string(), Some("D:/ws".to_string()));
+
+        // M5 后，WSL UNC 路径优先于 CLI 的 local 默认，source 为 "path"。
+        let notice = runtime_notice(
+            Some(&workspace),
+            LaunchRuntimeKind::Wsl,
+            "path",
+            Some("claude"),
+        )
+        .expect("notice");
+
+        assert!(notice.contains("项目路径是 WSL UNC"));
     }
 
     #[cfg(target_os = "windows")]

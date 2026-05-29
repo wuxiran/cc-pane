@@ -32,6 +32,7 @@ import {
 } from "@/stores";
 import type {
   Workspace,
+  WorkspaceCliEnvironmentDefaults,
   WorkspaceLaunchEnvironment,
 } from "@/types";
 import {
@@ -44,14 +45,34 @@ import {
 } from "@/utils";
 
 type WorkspaceEnvironmentTranslator = TFunction<readonly ["sidebar", "common"]>;
+type CliDefaultEnvironment = WorkspaceLaunchEnvironment | "inherit";
 
 interface WorkspaceEnvironmentSnapshot {
   defaultEnvironment: WorkspaceLaunchEnvironment;
+  claudeDefault: CliDefaultEnvironment;
+  codexDefault: CliDefaultEnvironment;
   localPath: string;
   wslDistro: string;
   wslRemotePath: string;
   sshMachineId: string;
   sshRemotePath: string;
+}
+
+function cliDefaultToEnvironment(
+  value: CliDefaultEnvironment,
+): WorkspaceLaunchEnvironment | undefined {
+  return value === "inherit" ? undefined : value;
+}
+
+function buildCliEnvironmentDefaults(
+  claudeDefault: CliDefaultEnvironment,
+  codexDefault: CliDefaultEnvironment,
+): WorkspaceCliEnvironmentDefaults | undefined {
+  const defaults: WorkspaceCliEnvironmentDefaults = {
+    claude: cliDefaultToEnvironment(claudeDefault),
+    codex: cliDefaultToEnvironment(codexDefault),
+  };
+  return defaults.claude || defaults.codex ? defaults : undefined;
 }
 
 function selectClassName() {
@@ -98,6 +119,8 @@ function cardClassName(active: boolean) {
 function getInitialSnapshot(workspace: Workspace): WorkspaceEnvironmentSnapshot {
   return {
     defaultEnvironment: workspace.defaultEnvironment ?? "local",
+    claudeDefault: workspace.cliEnvironmentDefaults?.claude ?? "inherit",
+    codexDefault: workspace.cliEnvironmentDefaults?.codex ?? "inherit",
     localPath: workspace.path ?? "",
     wslDistro: workspace.wsl?.distro ?? "",
     wslRemotePath: workspace.wsl?.remotePath ?? "",
@@ -111,6 +134,8 @@ function snapshotsEqual(
   right: WorkspaceEnvironmentSnapshot,
 ): boolean {
   return left.defaultEnvironment === right.defaultEnvironment
+    && left.claudeDefault === right.claudeDefault
+    && left.codexDefault === right.codexDefault
     && left.localPath === right.localPath
     && left.wslDistro === right.wslDistro
     && left.wslRemotePath === right.wslRemotePath
@@ -131,6 +156,7 @@ function getDefaultActiveEnvironment(
 export default function WorkspaceEnvironmentPanel() {
   const { t } = useTranslation(["sidebar", "common"]);
   const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const refreshWorkspace = useWorkspacesStore((state) => state.refreshWorkspace);
   const saveWorkspace = useWorkspacesStore((state) => state.saveWorkspace);
   const environmentOpen = useDialogStore((state) => state.workspaceEnvironmentOpen);
   const environmentWorkspaceId = useDialogStore((state) => state.workspaceEnvironmentWorkspaceId);
@@ -147,6 +173,8 @@ export default function WorkspaceEnvironmentPanel() {
 
   const [defaultEnvironment, setDefaultEnvironment] = useState<WorkspaceLaunchEnvironment>("local");
   const [activeEnvironment, setActiveEnvironment] = useState<WorkspaceLaunchEnvironment>("local");
+  const [claudeDefault, setClaudeDefault] = useState<CliDefaultEnvironment>("inherit");
+  const [codexDefault, setCodexDefault] = useState<CliDefaultEnvironment>("inherit");
   const [localPath, setLocalPath] = useState("");
   const [wslDistro, setWslDistro] = useState("");
   const [wslRemotePath, setWslRemotePath] = useState("");
@@ -166,6 +194,8 @@ export default function WorkspaceEnvironmentPanel() {
     const initial = getInitialSnapshot(workspace);
     setDefaultEnvironment(initial.defaultEnvironment);
     setActiveEnvironment(getDefaultActiveEnvironment(initial.defaultEnvironment, isWindows));
+    setClaudeDefault(initial.claudeDefault);
+    setCodexDefault(initial.codexDefault);
     setLocalPath(initial.localPath);
     setWslDistro(initial.wslDistro);
     setWslRemotePath(initial.wslRemotePath);
@@ -187,10 +217,15 @@ export default function WorkspaceEnvironmentPanel() {
     const nextWslRemotePath = wslRemotePath.trim();
     const nextSshMachineId = sshMachineId.trim();
     const nextSshRemotePath = sshRemotePath.trim();
+    const cliEnvironmentDefaults = buildCliEnvironmentDefaults(
+      claudeDefault,
+      codexDefault,
+    );
 
     return {
       ...source,
       defaultEnvironment,
+      cliEnvironmentDefaults,
       path: nextPath || undefined,
       wsl: nextWslDistro || nextWslRemotePath
         ? {
@@ -206,6 +241,8 @@ export default function WorkspaceEnvironmentPanel() {
         : undefined,
     };
   }, [
+    claudeDefault,
+    codexDefault,
     defaultEnvironment,
     localPath,
     sshMachineId,
@@ -252,6 +289,16 @@ export default function WorkspaceEnvironmentPanel() {
     });
   }, [draftWorkspace, machines, platform]);
 
+  const cliDefaultIssues = useMemo(() => {
+    if (!environmentIssues) return { claude: null, codex: null };
+    return {
+      claude: claudeDefault === "inherit" ? null : environmentIssues[claudeDefault],
+      codex: codexDefault === "inherit" ? null : environmentIssues[codexDefault],
+    };
+  }, [claudeDefault, codexDefault, environmentIssues]);
+
+  const currentCliDefaultIssue = cliDefaultIssues.claude ?? cliDefaultIssues.codex;
+
   const visibleEnvironments = useMemo<WorkspaceLaunchEnvironment[]>(
     () => (isWindows ? ["local", "wsl", "ssh"] : ["local", "ssh"]),
     [isWindows],
@@ -260,6 +307,8 @@ export default function WorkspaceEnvironmentPanel() {
   const draftSnapshot = useMemo<WorkspaceEnvironmentSnapshot>(
     () => ({
       defaultEnvironment,
+      claudeDefault,
+      codexDefault,
       localPath,
       wslDistro,
       wslRemotePath,
@@ -267,6 +316,8 @@ export default function WorkspaceEnvironmentPanel() {
       sshRemotePath,
     }),
     [
+      claudeDefault,
+      codexDefault,
       defaultEnvironment,
       localPath,
       sshMachineId,
@@ -336,10 +387,18 @@ export default function WorkspaceEnvironmentPanel() {
       toast.error(getIssueMessage(t, currentDefaultIssue));
       return;
     }
+    if (currentCliDefaultIssue) {
+      toast.error(t("workspaceEnv.cliDefaults.invalidConfig", {
+        ns: "sidebar",
+        defaultValue: "CLI 默认环境有未完成配置，请先补齐配置或改为继承默认环境。",
+      }));
+      return;
+    }
 
     setSaving(true);
     try {
-      await saveWorkspace(draftWorkspace);
+      const latestWorkspace = await refreshWorkspace(workspace.id);
+      await saveWorkspace(buildWorkspaceDraft(latestWorkspace ?? workspace));
       toast.success(t("workspaceEnv.savedAll", {
         ns: "sidebar",
         defaultValue: "运行环境配置已保存",
@@ -349,7 +408,73 @@ export default function WorkspaceEnvironmentPanel() {
     } finally {
       setSaving(false);
     }
-  }, [currentDefaultIssue, draftWorkspace, saveWorkspace, t, workspace]);
+  }, [
+    buildWorkspaceDraft,
+    currentCliDefaultIssue,
+    currentDefaultIssue,
+    draftWorkspace,
+    refreshWorkspace,
+    saveWorkspace,
+    t,
+    workspace,
+  ]);
+
+  const renderCliDefaultRow = (
+    cliLabel: string,
+    value: CliDefaultEnvironment,
+    onChange: (nextValue: CliDefaultEnvironment) => void,
+  ) => {
+    if (!environmentIssues) return null;
+    const choices: CliDefaultEnvironment[] = ["inherit", ...visibleEnvironments];
+    const selectedIssue = value === "inherit" ? null : environmentIssues[value];
+    const currentDefaultLabel = getEnvironmentLabel(t, defaultEnvironment);
+    const inheritLabel = t("workspaceEnv.cliDefaults.inheritWith", {
+      ns: "sidebar",
+      environment: currentDefaultLabel,
+      defaultValue: `继承默认（${currentDefaultLabel}）`,
+    });
+
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-[var(--app-text-secondary)]">
+          {cliLabel}
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {choices.map((choice) => {
+            const issue = choice === "inherit" ? null : environmentIssues[choice];
+            const checked = value === choice;
+            const label = choice === "inherit"
+              ? inheritLabel
+              : getEnvironmentLabel(t, choice);
+            return (
+              <label
+                key={choice}
+                className={`flex min-h-9 items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+                  checked
+                    ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
+                    : "border-[var(--app-border)] bg-transparent text-[var(--app-text-secondary)]"
+                } ${issue || saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+              >
+                <input
+                  aria-label={`${cliLabel}: ${label}`}
+                  checked={checked}
+                  className="h-3.5 w-3.5"
+                  disabled={saving || !!issue}
+                  name={`workspace-cli-default-${cliLabel}`}
+                  onChange={() => onChange(choice)}
+                  type="radio"
+                />
+                <span>{label}</span>
+              </label>
+            );
+          })}
+        </div>
+        {selectedIssue ? (
+          <p className="text-xs text-amber-500">{getIssueMessage(t, selectedIssue)}</p>
+        ) : null}
+      </div>
+    );
+  };
 
   const renderEnvironmentForm = () => {
     if (!environmentIssues) return null;
@@ -626,6 +751,41 @@ export default function WorkspaceEnvironmentPanel() {
                       })}
                     </p>
                   )}
+                </div>
+
+                <div className="mt-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-glass-bg)] p-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
+                      {t("workspaceEnv.cliDefaults.title", {
+                        ns: "sidebar",
+                        defaultValue: "CLI 默认环境",
+                      })}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--app-text-secondary)]">
+                      {t("workspaceEnv.cliDefaults.description", {
+                        ns: "sidebar",
+                        defaultValue: "仅影响 Claude / Codex 启动，终端继续使用工作空间默认环境。",
+                      })}
+                    </p>
+                  </div>
+                  <div className="mt-4 space-y-4">
+                    {renderCliDefaultRow(
+                      t("workspaceEnv.cliDefaults.claude", {
+                        ns: "sidebar",
+                        defaultValue: "Claude Code",
+                      }),
+                      claudeDefault,
+                      setClaudeDefault,
+                    )}
+                    {renderCliDefaultRow(
+                      t("workspaceEnv.cliDefaults.codex", {
+                        ns: "sidebar",
+                        defaultValue: "Codex CLI",
+                      }),
+                      codexDefault,
+                      setCodexDefault,
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-4">

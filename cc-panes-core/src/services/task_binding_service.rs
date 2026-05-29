@@ -187,6 +187,11 @@ impl TaskBindingService {
         if project_path.is_empty() {
             return Err(AppError::from("projectPath cannot be empty"));
         }
+        let session_id = clean_optional(req.session_id).ok_or_else(|| {
+            AppError::from(
+                "Plan leader requires sessionId; read CC_PANES_PTY_SESSION_ID from the current CC-Panes-launched session before calling register_plan_leader",
+            )
+        })?;
 
         if let Some(existing) = self
             .repo
@@ -200,7 +205,7 @@ impl TaskBindingService {
                     plan_path: Some(plan_path),
                     normalized_plan_path: Some(normalized_plan_path),
                     prompt: req.prompt,
-                    session_id: req.session_id,
+                    session_id: Some(session_id),
                     resume_id: req.resume_id,
                     pane_id: req.pane_id,
                     tab_id: req.tab_id,
@@ -225,7 +230,7 @@ impl TaskBindingService {
                 plan_path: Some(plan_path),
                 normalized_plan_path: Some(normalized_plan_path),
                 prompt: req.prompt,
-                session_id: req.session_id,
+                session_id: Some(session_id),
                 resume_id: req.resume_id,
                 pane_id: req.pane_id,
                 tab_id: req.tab_id,
@@ -750,6 +755,28 @@ mod tests {
         assert_eq!(second.title, "Second");
         assert_eq!(second.session_id.as_deref(), Some("pty-2"));
         assert_eq!(second.resume_id.as_deref(), Some("resume-2"));
+    }
+
+    #[test]
+    fn test_register_leader_requires_session_id() {
+        let service = service();
+        let error = service
+            .register_plan_leader(RegisterPlanLeaderRequest {
+                plan_path: r"D:\repo\.claude\plans\plan.md".into(),
+                project_path: "D:/repo".into(),
+                title: Some("Leader".into()),
+                prompt: None,
+                session_id: Some("   ".into()),
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                workspace_name: None,
+                cli_tool: None,
+                metadata: None,
+            })
+            .expect_err("leader registration without sessionId should fail");
+
+        assert!(error.to_string().contains("requires sessionId"));
     }
 
     #[test]

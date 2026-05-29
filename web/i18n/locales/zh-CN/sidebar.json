@@ -240,6 +240,7 @@
   "ssh.wsl.importFailed": "导入 {{name}} 失败: {{error}}",
   "providers": "供应商",
   "workspaceEnv.title": "运行环境",
+  "workspaceEnv.edit": "编辑运行环境",
   "workspaceEnv.local": "本机",
   "workspaceEnv.wsl": "WSL",
   "workspaceEnv.ssh": "SSH",
@@ -273,5 +274,11 @@
   "workspaceEnv.discardTitle": "放弃未保存的更改？",
   "workspaceEnv.discardDescription": "当前工作空间的运行环境配置尚未保存，关闭后这些修改会丢失。",
   "workspaceEnv.defaultHint": "右键工作空间打开 Claude / Codex 时，会直接使用这里的默认环境。",
+  "workspaceEnv.cliDefaults.title": "CLI 默认环境",
+  "workspaceEnv.cliDefaults.description": "仅影响 Claude / Codex 启动，终端继续使用工作空间默认环境。",
+  "workspaceEnv.cliDefaults.claude": "Claude Code",
+  "workspaceEnv.cliDefaults.codex": "Codex CLI",
+  "workspaceEnv.cliDefaults.inheritWith": "继承默认（{{environment}}）",
+  "workspaceEnv.cliDefaults.invalidConfig": "CLI 默认环境有未完成配置，请先补齐配置或改为继承默认环境。",
   "workspaceEnv.launchThisTime": "本次选择环境"
 }

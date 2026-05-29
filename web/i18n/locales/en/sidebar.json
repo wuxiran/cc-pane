@@ -240,6 +240,7 @@
   "ssh.wsl.importFailed": "Failed to import {{name}}: {{error}}",
   "providers": "Providers",
   "workspaceEnv.title": "Environment",
+  "workspaceEnv.edit": "Edit Environment",
   "workspaceEnv.local": "Local",
   "workspaceEnv.wsl": "WSL",
   "workspaceEnv.ssh": "SSH",
@@ -273,5 +274,11 @@
   "workspaceEnv.discardTitle": "Discard unsaved changes?",
   "workspaceEnv.discardDescription": "This workspace environment configuration has unsaved changes. Closing now will lose them.",
   "workspaceEnv.defaultHint": "Right-click workspace launches for Claude / Codex use this default environment.",
+  "workspaceEnv.cliDefaults.title": "CLI Default Environment",
+  "workspaceEnv.cliDefaults.description": "Only affects Claude / Codex launches. Terminal still uses the workspace default environment.",
+  "workspaceEnv.cliDefaults.claude": "Claude Code",
+  "workspaceEnv.cliDefaults.codex": "Codex CLI",
+  "workspaceEnv.cliDefaults.inheritWith": "Inherit Default ({{environment}})",
+  "workspaceEnv.cliDefaults.invalidConfig": "A CLI default environment is not fully configured. Complete it or switch back to inherit default.",
   "workspaceEnv.launchThisTime": "Choose Environment For This Launch"
 }

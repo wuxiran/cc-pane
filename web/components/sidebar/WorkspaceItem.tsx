@@ -36,6 +36,7 @@ import {
   getWorkspaceLaunchIssueKey,
   getWorkspaceLaunchIssueValues,
   hasWorkspaceWslPath,
+  resolveCliEnvironmentDefault,
   resolveWorkspaceLaunchOptions,
 } from "@/utils";
 import type {
@@ -53,6 +54,7 @@ import {
   buildSidebarLaunchActions,
   filterSidebarFavoriteLaunchActions,
   getDefaultSidebarFavoriteLaunchActionIds,
+  normalizeSidebarFavoriteLaunchActionIds,
   type SidebarCliLaunchItem,
 } from "./launchMenu";
 
@@ -96,7 +98,9 @@ export default function WorkspaceItem({
   const { t } = useTranslation(["sidebar", "common"]);
   const providerList = useProvidersStore((s) => s.providers);
   const settings = useSettingsStore((s) => s.settings);
-  const favoriteLaunchIds = useSettingsStore((s) => s.settings?.general.launchFavorites ?? getDefaultSidebarFavoriteLaunchActionIds());
+  const favoriteLaunchIds = useSettingsStore((s) => normalizeSidebarFavoriteLaunchActionIds(
+    s.settings?.general.launchFavorites ?? getDefaultSidebarFavoriteLaunchActionIds(),
+  ));
   const saveSettings = useSettingsStore((s) => s.saveSettings);
   const sshMachines = useSshMachinesStore((s) => s.machines);
   const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
@@ -161,9 +165,13 @@ export default function WorkspaceItem({
       environment,
     });
     if (!options || issue) {
+      const fallbackEnvironment =
+        environment
+        ?? resolveCliEnvironmentDefault(ws, cliTool)
+        ?? getWorkspaceDefaultEnvironment(ws);
       toast.error(
         formatLaunchIssue(issue ?? {
-          environment: environment ?? getWorkspaceDefaultEnvironment(ws),
+          environment: fallbackEnvironment,
           code: "local_path_missing",
         }),
       );
@@ -192,6 +200,10 @@ export default function WorkspaceItem({
   }, [t]);
 
   const renderCliLaunchMenuItem = useCallback((item: SidebarCliLaunchItem, keyPrefix: string) => {
+    const effectiveEnvironment =
+      item.environment
+      ?? resolveCliEnvironmentDefault(ws, item.cliTool)
+      ?? defaultEnvironment;
     const boundProfile = ws.launchProfileId
       ? launchProfiles.find((profile) => profile.id === ws.launchProfileId)
       : undefined;
@@ -199,17 +211,17 @@ export default function WorkspaceItem({
       ? profileDisplayName(boundProfile ?? { name: ws.launchProfileId, alias: null })
       : t("launchProfileUnbound", { defaultValue: "未绑定" });
     const boundProfileMatchesTarget = boundProfile
-      ? profileMatchesCli(boundProfile, item.cliTool) && profileMatchesRuntime(boundProfile, item.environment)
+      ? profileMatchesCli(boundProfile, item.cliTool) && profileMatchesRuntime(boundProfile, effectiveEnvironment)
       : false;
     const boundProfileStatusLabel = boundProfileMatchesTarget
       ? boundProfileName
       : `${boundProfileName} (${t("launchProfileBindingMismatch", { defaultValue: "不适用于当前入口" })})`;
     const selectableProfiles = launchProfiles
       .filter((profile) => profileMatchesCli(profile, item.cliTool))
-      .filter((profile) => profileMatchesRuntime(profile, item.environment));
+      .filter((profile) => profileMatchesRuntime(profile, effectiveEnvironment));
     const incompatibleRuntimeProfileCount = launchProfiles
       .filter((profile) => profileMatchesCli(profile, item.cliTool))
-      .filter((profile) => !profileMatchesRuntime(profile, item.environment)).length;
+      .filter((profile) => !profileMatchesRuntime(profile, effectiveEnvironment)).length;
     const defaultActionLabel = ws.launchProfileId && boundProfileMatchesTarget
       ? t("launchProfileUseWorkspaceBinding", {
         profile: boundProfileName,
@@ -218,8 +230,8 @@ export default function WorkspaceItem({
       : ws.launchProfileId
         ? t("launchProfileUseDefaultBindingMismatch", {
           profile: boundProfileName,
-          runtime: runtimeLabel(item.environment),
-          defaultValue: `使用默认运行配置（${boundProfileName} 不适用于 ${runtimeLabel(item.environment)}）`,
+          runtime: runtimeLabel(effectiveEnvironment),
+          defaultValue: `使用默认运行配置（${boundProfileName} 不适用于 ${runtimeLabel(effectiveEnvironment)}）`,
         })
         : t("launchProfileUseDefault", { defaultValue: "使用默认运行配置" });
 
@@ -265,15 +277,15 @@ export default function WorkspaceItem({
             <ContextMenuItem disabled>
               {t("launchProfileHiddenByRuntime", {
                 count: incompatibleRuntimeProfileCount,
-                runtime: runtimeLabel(item.environment),
-                defaultValue: `${incompatibleRuntimeProfileCount} 个配置不适用于 ${runtimeLabel(item.environment)}`,
+                runtime: runtimeLabel(effectiveEnvironment),
+                defaultValue: `${incompatibleRuntimeProfileCount} 个配置不适用于 ${runtimeLabel(effectiveEnvironment)}`,
               })}
             </ContextMenuItem>
           ) : null}
         </ContextMenuSubContent>
       </ContextMenuSub>
     );
-  }, [launchProfiles, openWorkspace, profileDisplayName, profileMatchesCli, profileMatchesRuntime, runtimeLabel, t, ws.launchProfileId]);
+  }, [defaultEnvironment, launchProfiles, openWorkspace, profileDisplayName, profileMatchesCli, profileMatchesRuntime, runtimeLabel, t, ws]);
 
   const fetchHookStatuses = useCallback(async () => {
     if (!rootPath) return;
@@ -416,7 +428,7 @@ export default function WorkspaceItem({
           </ContextMenuItem>
           {favoriteLaunchActions.length > 0 ? (
             favoriteLaunchActions.map((action) => {
-              if (action.kind === "cli" && action.cliTool && action.environment) {
+              if (action.kind === "cli" && action.cliTool) {
                 return renderCliLaunchMenuItem({
                   key: action.id,
                   cliTool: action.cliTool,
@@ -499,6 +511,12 @@ export default function WorkspaceItem({
             </>
           ) : null}
 
+          <ContextMenuItem onClick={() => onOpenEnvironment(ws)}>
+            <Settings2 /> {t("workspaceEnv.edit", { defaultValue: "编辑运行环境" })}
+          </ContextMenuItem>
+
+          <ContextMenuSeparator />
+
           <ContextMenuItem disabled={!rootPath} onClick={handleRevealFolder}>
             <FolderOpen /> {t("openFolder")}
           </ContextMenuItem>
@@ -547,9 +565,6 @@ export default function WorkspaceItem({
                   {t("clearWorkspacePath")}
                 </ContextMenuItem>
               ) : null}
-              <ContextMenuItem onClick={() => onOpenEnvironment(ws)}>
-                <Terminal /> {t("workspaceEnv.title", { defaultValue: "运行环境" })}...
-              </ContextMenuItem>
 
               <ContextMenuSeparator />
 

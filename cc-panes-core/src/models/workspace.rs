@@ -11,6 +11,26 @@ pub enum WorkspaceLaunchEnvironment {
     Ssh,
 }
 
+/// 工作空间级 CLI 默认运行环境
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceCliEnvironmentDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude: Option<WorkspaceLaunchEnvironment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex: Option<WorkspaceLaunchEnvironment>,
+}
+
+impl WorkspaceCliEnvironmentDefaults {
+    pub fn get(&self, cli_tool: &str) -> Option<WorkspaceLaunchEnvironment> {
+        match cli_tool {
+            "claude" => self.claude,
+            "codex" => self.codex,
+            _ => None,
+        }
+    }
+}
+
 /// 工作空间级 WSL 启动配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -64,6 +84,8 @@ pub struct Workspace {
     pub path: Option<String>,
     #[serde(default)]
     pub default_environment: WorkspaceLaunchEnvironment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_environment_defaults: Option<WorkspaceCliEnvironmentDefaults>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wsl: Option<WorkspaceWslConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -219,6 +241,7 @@ impl Workspace {
             launch_profile_id: None,
             path,
             default_environment: WorkspaceLaunchEnvironment::Local,
+            cli_environment_defaults: None,
             wsl: None,
             ssh_launch: None,
             pinned: false,
@@ -282,7 +305,7 @@ pub struct SshConnectionInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{Workspace, WorkspaceLaunchEnvironment};
+    use super::{Workspace, WorkspaceCliEnvironmentDefaults, WorkspaceLaunchEnvironment};
 
     #[test]
     fn deserialize_workspace_uses_local_environment_by_default() {
@@ -299,7 +322,52 @@ mod tests {
             workspace.default_environment,
             WorkspaceLaunchEnvironment::Local
         );
+        assert!(workspace.cli_environment_defaults.is_none());
         assert!(workspace.wsl.is_none());
         assert!(workspace.ssh_launch.is_none());
+    }
+
+    #[test]
+    fn deserialize_workspace_partial_cli_environment_defaults() {
+        let json = r#"{
+            "id": "ws-1",
+            "name": "workspace-1",
+            "createdAt": "2026-04-02T00:00:00Z",
+            "projects": [],
+            "cliEnvironmentDefaults": {
+                "codex": "wsl"
+            }
+        }"#;
+
+        let workspace: Workspace =
+            serde_json::from_str(json).expect("workspace should deserialize");
+        let defaults = workspace
+            .cli_environment_defaults
+            .expect("cli defaults should deserialize");
+        assert_eq!(defaults.claude, None);
+        assert_eq!(defaults.codex, Some(WorkspaceLaunchEnvironment::Wsl));
+    }
+
+    #[test]
+    fn serialize_workspace_skips_empty_cli_environment_defaults() {
+        let workspace = Workspace::new("workspace-1".to_string(), None);
+
+        let value = serde_json::to_value(&workspace).expect("serialize workspace");
+
+        assert!(value.get("cliEnvironmentDefaults").is_none());
+    }
+
+    #[test]
+    fn serialize_workspace_skips_empty_cli_entries() {
+        let mut workspace = Workspace::new("workspace-1".to_string(), None);
+        workspace.cli_environment_defaults = Some(WorkspaceCliEnvironmentDefaults {
+            claude: Some(WorkspaceLaunchEnvironment::Wsl),
+            codex: None,
+        });
+
+        let value = serde_json::to_value(&workspace).expect("serialize workspace");
+
+        assert_eq!(value["cliEnvironmentDefaults"]["claude"], "wsl");
+        assert!(value["cliEnvironmentDefaults"].get("codex").is_none());
     }
 }

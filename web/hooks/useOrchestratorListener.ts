@@ -137,8 +137,9 @@ export function useOrchestratorListener() {
             customTitle: title,
             parentTabId,
           });
-          if (event.payload.notice) {
-            toast.info(event.payload.notice);
+          const notice = event.payload.notice?.trim();
+          if (notice) {
+            toast.info(notice);
           }
         }
       )

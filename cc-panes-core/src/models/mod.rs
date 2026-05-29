@@ -68,10 +68,10 @@ pub use usage_stats::{
 pub use workspace::{
     ProjectMigrationPlan, ProjectMigrationRequest, ProjectMigrationResult,
     ProjectMigrationRollbackResult, ScannedRepo, ScannedWorktree, SshConnectionInfo, Workspace,
-    WorkspaceLaunchEnvironment, WorkspaceMigrationItem, WorkspaceMigrationPlan,
-    WorkspaceMigrationRequest, WorkspaceMigrationResult, WorkspaceMigrationRollbackResult,
-    WorkspaceMigrationStatus, WorkspaceMigrationTargetKind, WorkspaceProject,
-    WorkspaceSshLaunchConfig, WorkspaceWslConfig,
+    WorkspaceCliEnvironmentDefaults, WorkspaceLaunchEnvironment, WorkspaceMigrationItem,
+    WorkspaceMigrationPlan, WorkspaceMigrationRequest, WorkspaceMigrationResult,
+    WorkspaceMigrationRollbackResult, WorkspaceMigrationStatus, WorkspaceMigrationTargetKind,
+    WorkspaceProject, WorkspaceSshLaunchConfig, WorkspaceWslConfig,
 };
 pub use workspace_snapshot::{WorkspaceSnapshot, WorkspaceSnapshotEntry};
 pub use wsl::{WslDistro, WslDistroState};

@@ -64,6 +64,15 @@ export function getWorkspaceDefaultEnvironment(
   return workspace.defaultEnvironment ?? "local";
 }
 
+export function resolveCliEnvironmentDefault(
+  workspace: Workspace,
+  cliTool: CliTool | undefined,
+): WorkspaceLaunchEnvironment | undefined {
+  if (cliTool === "claude") return workspace.cliEnvironmentDefaults?.claude;
+  if (cliTool === "codex") return workspace.cliEnvironmentDefaults?.codex;
+  return undefined;
+}
+
 export function getWorkspaceProjectKind(
   project: WorkspaceProject,
 ): WorkspaceProjectKind {
@@ -190,8 +199,6 @@ export function resolveWorkspaceProjectLaunchOptions(
   },
 ): { options: OpenTerminalOptions | null; issue: WorkspaceLaunchIssue | null } {
   const platform = params.platform ?? detectAppPlatform();
-  const environment =
-    params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
   const { workspace, project, cliTool, providerId, providerSelection, machines } = params;
   const launchProfileId = params.launchProfileId ?? project.launchProfileId ?? workspace.launchProfileId;
 
@@ -221,6 +228,11 @@ export function resolveWorkspaceProjectLaunchOptions(
       issue: null,
     };
   }
+
+  const environment =
+    params.environment
+    ?? resolveCliEnvironmentDefault(workspace, cliTool)
+    ?? getWorkspaceDefaultEnvironment(workspace);
 
   switch (environment) {
     case "local":
@@ -328,7 +340,9 @@ function resolveWorkspaceLaunchOptionsInternal(
 ): { options: OpenTerminalOptions | null; issue: WorkspaceLaunchIssue | null } {
   const platform = params.platform ?? detectAppPlatform();
   const environment =
-    params.environment ?? getWorkspaceDefaultEnvironment(params.workspace);
+    params.environment
+    ?? resolveCliEnvironmentDefault(params.workspace, params.cliTool)
+    ?? getWorkspaceDefaultEnvironment(params.workspace);
   const { workspace, machines, cliTool, providerId, providerSelection } = params;
   const effectiveProviderId = providerId;
   const launchProfileId = params.launchProfileId ?? workspace.launchProfileId;

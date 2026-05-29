@@ -184,10 +184,13 @@ fn default_close_to_tray() -> bool {
 }
 
 fn default_launch_favorites() -> Vec<String> {
+    // 与前端 launchMenu.ts getDefaultSidebarFavoriteLaunchActionIds() 对齐。
+    // 旧值 claude-local/codex-local 仅由前端 normalizeSidebarFavoriteLaunchActionIds()
+    // 作为 legacy 兜底迁移，不再作为后端默认。
     vec![
         "terminal-default".to_string(),
-        "claude-local".to_string(),
-        "codex-local".to_string(),
+        "claude-default".to_string(),
+        "codex-default".to_string(),
     ]
 }
 

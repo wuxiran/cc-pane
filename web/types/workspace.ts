@@ -14,6 +14,13 @@ export interface SshConnectionInfo {
 /** 工作空间默认运行环境 */
 export type WorkspaceLaunchEnvironment = "local" | "wsl" | "ssh";
 
+export type CliEnvironmentKey = "claude" | "codex";
+
+export interface WorkspaceCliEnvironmentDefaults {
+  claude?: WorkspaceLaunchEnvironment;
+  codex?: WorkspaceLaunchEnvironment;
+}
+
 /** 工作空间迁移目标类型 */
 export type WorkspaceMigrationTargetKind = "local" | "wsl" | "ssh";
 
@@ -51,6 +58,7 @@ export interface Workspace {
   launchProfileId?: string;
   path?: string;
   defaultEnvironment?: WorkspaceLaunchEnvironment;
+  cliEnvironmentDefaults?: WorkspaceCliEnvironmentDefaults;
   wsl?: WorkspaceWslConfig;
   sshLaunch?: WorkspaceSshLaunchConfig;
   pinned?: boolean;

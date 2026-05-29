@@ -2,12 +2,14 @@ import "@/i18n";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { useDialogStore, useEnvironmentStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import * as workspaceService from "@/services/workspaceService";
 import { createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
 import WorkspaceEnvironmentPanel from "./WorkspaceEnvironmentPanel";
 
 vi.mock("@/services/workspaceService", () => ({
+  getWorkspace: vi.fn(),
   saveWorkspace: vi.fn(),
 }));
 
@@ -69,9 +71,15 @@ describe("WorkspaceEnvironmentPanel", () => {
       wsl: baseWslState,
       _initialized: true,
     });
+    vi.mocked(workspaceService.getWorkspace).mockImplementation(async (name: string) => {
+      const workspace = useWorkspacesStore.getState().workspaces.find((item) => item.name === name);
+      if (!workspace) throw new Error(`Workspace not found: ${name}`);
+      return workspace;
+    });
+    vi.mocked(workspaceService.saveWorkspace).mockResolvedValue();
   });
 
-  it("saves the full workspace draft through the store", async () => {
+  it("re-fetches and saves the full workspace draft through the store", async () => {
     const user = userEvent.setup();
     const workspace = createTestWorkspace({
       id: "ws-1",
@@ -109,7 +117,10 @@ describe("WorkspaceEnvironmentPanel", () => {
       workspaceEnvironmentOpen: true,
       workspaceEnvironmentWorkspaceId: workspace.id,
     });
-    vi.mocked(workspaceService.saveWorkspace).mockResolvedValue();
+    vi.mocked(workspaceService.getWorkspace).mockResolvedValue({
+      ...workspace,
+      providerId: "provider-latest",
+    });
 
     renderPanel();
 
@@ -119,8 +130,10 @@ describe("WorkspaceEnvironmentPanel", () => {
 
     await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
 
+    expect(workspaceService.getWorkspace).toHaveBeenCalledWith("workspace-alpha");
     expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("workspace-alpha", {
       ...workspace,
+      providerId: "provider-latest",
       path: "D:/workspace-alpha-next",
       defaultEnvironment: "local",
       wsl: {
@@ -132,6 +145,131 @@ describe("WorkspaceEnvironmentPanel", () => {
         remotePath: "/home/dev/workspace-alpha",
       },
     });
+  });
+
+  it("shows CLI defaults with inherit labels", async () => {
+    const workspace = createTestWorkspace({
+      id: "ws-1",
+      name: "workspace-alpha",
+      path: "D:/workspace-alpha",
+      defaultEnvironment: "local",
+    });
+
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useDialogStore.setState({
+      workspaceEnvironmentOpen: true,
+      workspaceEnvironmentWorkspaceId: workspace.id,
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText(/CLI 默认环境|CLI Default Environment/i)).toBeVisible();
+    expect(screen.getByRole("radio", { name: /Claude Code: (继承默认|Inherit Default)/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Codex CLI: (继承默认|Inherit Default)/i })).toBeChecked();
+  });
+
+  it("saves a Claude CLI default environment", async () => {
+    const user = userEvent.setup();
+    const workspace = createTestWorkspace({
+      id: "ws-1",
+      name: "workspace-alpha",
+      path: "D:/workspace-alpha",
+      defaultEnvironment: "local",
+    });
+
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useDialogStore.setState({
+      workspaceEnvironmentOpen: true,
+      workspaceEnvironmentWorkspaceId: workspace.id,
+    });
+
+    renderPanel();
+
+    await user.click(await screen.findByRole("radio", { name: /^Claude Code: WSL$/i }));
+    await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
+
+    expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("workspace-alpha", expect.objectContaining({
+      cliEnvironmentDefaults: {
+        claude: "wsl",
+        codex: undefined,
+      },
+    }));
+  });
+
+  it("omits CLI defaults when both tools inherit", async () => {
+    const user = userEvent.setup();
+    const workspace = createTestWorkspace({
+      id: "ws-1",
+      name: "workspace-alpha",
+      path: "D:/workspace-alpha",
+      defaultEnvironment: "local",
+      cliEnvironmentDefaults: {
+        claude: "wsl",
+      },
+    });
+
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useDialogStore.setState({
+      workspaceEnvironmentOpen: true,
+      workspaceEnvironmentWorkspaceId: workspace.id,
+    });
+
+    renderPanel();
+
+    await user.click(await screen.findByRole("radio", { name: /Claude Code: (继承默认|Inherit Default)/i }));
+    await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
+
+    expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("workspace-alpha", expect.objectContaining({
+      cliEnvironmentDefaults: undefined,
+    }));
+  });
+
+  it("disables invalid concrete CLI default choices", async () => {
+    const workspace = createTestWorkspace({
+      id: "ws-1",
+      name: "workspace-alpha",
+      path: undefined,
+      projects: [],
+      defaultEnvironment: "local",
+    });
+
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useDialogStore.setState({
+      workspaceEnvironmentOpen: true,
+      workspaceEnvironmentWorkspaceId: workspace.id,
+    });
+
+    renderPanel();
+
+    expect(await screen.findByRole("radio", { name: /^Claude Code: WSL$/i })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /^Codex CLI: WSL$/i })).toBeDisabled();
+  });
+
+  it("blocks save and shows a toast when a CLI default is not configured", async () => {
+    const user = userEvent.setup();
+    const workspace = createTestWorkspace({
+      id: "ws-1",
+      name: "workspace-alpha",
+      path: "/tmp/workspace-alpha",
+      defaultEnvironment: "local",
+      cliEnvironmentDefaults: {
+        claude: "wsl",
+      },
+    });
+
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useDialogStore.setState({
+      workspaceEnvironmentOpen: true,
+      workspaceEnvironmentWorkspaceId: workspace.id,
+    });
+
+    renderPanel();
+
+    await user.click(await screen.findByRole("radio", { name: /^Codex CLI: Local$|^Codex CLI: 本机$/i }));
+    await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
+
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/CLI 默认环境|CLI default environment/i));
+    expect(workspaceService.saveWorkspace).not.toHaveBeenCalled();
   });
 
   it("shows a discard confirmation when closing with unsaved changes", async () => {

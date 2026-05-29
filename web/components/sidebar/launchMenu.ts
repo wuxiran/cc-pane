@@ -7,6 +7,7 @@ export type SidebarLaunchActionId =
   | "terminal-local"
   | "terminal-wsl"
   | "terminal-ssh"
+  | `${SidebarLaunchCliTool}-default`
   | `${SidebarLaunchCliTool}-local`
   | `${SidebarLaunchCliTool}-wsl`
   | `${SidebarLaunchCliTool}-ssh`;
@@ -22,7 +23,7 @@ export interface SidebarLaunchAction {
 export interface SidebarCliLaunchItem {
   key: string;
   cliTool: SidebarLaunchCliTool;
-  environment: SidebarLaunchActionEnvironment;
+  environment?: SidebarLaunchActionEnvironment;
   label: string;
 }
 
@@ -39,8 +40,20 @@ const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   { id: "cursor", labelKey: "cliToolCursor" },
 ];
 
+const LEGACY_DEFAULT_FAVORITES = ["terminal-default", "claude-local", "codex-local"];
+
 export function getDefaultSidebarFavoriteLaunchActionIds(): SidebarLaunchActionId[] {
-  return ["terminal-default", "claude-local", "codex-local"];
+  return ["terminal-default", "claude-default", "codex-default"];
+}
+
+export function normalizeSidebarFavoriteLaunchActionIds(favoriteIds: string[]): string[] {
+  if (
+    favoriteIds.length === LEGACY_DEFAULT_FAVORITES.length
+    && favoriteIds.every((id, index) => id === LEGACY_DEFAULT_FAVORITES[index])
+  ) {
+    return getDefaultSidebarFavoriteLaunchActionIds();
+  }
+  return favoriteIds;
 }
 
 export function buildSidebarLaunchActions(
@@ -95,11 +108,21 @@ export function buildSidebarLaunchActions(
   for (const tool of SIDEBAR_LAUNCH_CLI_TOOLS) {
     const label = t(tool.labelKey, { ns: "sidebar" });
     actions.push({
+      id: `${tool.id}-default`,
+      kind: "cli",
+      cliTool: tool.id,
+      label,
+    });
+    actions.push({
       id: `${tool.id}-local`,
       kind: "cli",
       cliTool: tool.id,
       environment: "local",
-      label,
+      label: t("cliLocalVariant", {
+        ns: "sidebar",
+        label,
+        defaultValue: `${label} (Local)`,
+      }),
     });
     if (includeWslVariant) {
       actions.push({
@@ -137,7 +160,7 @@ export function filterSidebarFavoriteLaunchActions(
   favoriteIds: string[],
 ): SidebarLaunchAction[] {
   const actionMap = new Map(actions.map((action) => [action.id, action]));
-  return favoriteIds
+  return normalizeSidebarFavoriteLaunchActionIds(favoriteIds)
     .map((favoriteId) => actionMap.get(favoriteId as SidebarLaunchActionId))
     .filter((action): action is SidebarLaunchAction => action !== undefined);
 }
@@ -148,8 +171,8 @@ export function buildSidebarCliLaunchItems(
   includeSshVariant = false,
 ): SidebarCliLaunchItem[] {
   return buildSidebarLaunchActions(t, includeWslVariant, includeSshVariant)
-    .filter((action): action is SidebarLaunchAction & { cliTool: SidebarLaunchCliTool; environment: SidebarLaunchActionEnvironment } =>
-      action.kind === "cli" && !!action.cliTool && !!action.environment,
+    .filter((action): action is SidebarLaunchAction & { cliTool: SidebarLaunchCliTool } =>
+      action.kind === "cli" && !!action.cliTool,
     )
     .map((action) => ({
       key: action.id,

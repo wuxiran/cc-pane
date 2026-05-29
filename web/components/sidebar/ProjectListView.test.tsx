@@ -146,7 +146,7 @@ describe("ProjectListView", () => {
     expect(screen.getByRole("menuitem", { name: "GLM CLI" })).toBeVisible();
   });
 
-  it("默认环境为 wsl 时项目右键 Codex 普通项仍走本地启动", async () => {
+  it("默认环境为 wsl 时项目右键 Codex 普通项跟随默认环境", async () => {
     const user = userEvent.setup();
     const onOpenTerminal = vi.fn();
     const workspace = createTestWorkspace({
@@ -185,8 +185,10 @@ describe("ProjectListView", () => {
       path: "D:/workspace-root/apps/api",
       workspacePath: "D:/workspace-root",
       cliTool: "codex",
+      wsl: expect.objectContaining({
+        remotePath: "/mnt/d/workspace-root/apps/api",
+      }),
     }));
-    expect(onOpenTerminal.mock.calls[0]?.[0]?.wsl).toBeUndefined();
   });
 
   it("默认环境为 wsl 时项目右键提供显式 WSL CLI 入口", async () => {
@@ -223,7 +225,7 @@ describe("ProjectListView", () => {
     expect(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ })).toBeVisible();
   });
 
-  it("默认环境为 wsl 时显式 WSL CLI 项才走 WSL", async () => {
+  it("默认环境为 wsl 时显式 WSL CLI 项也走 WSL", async () => {
     const user = userEvent.setup();
     const onOpenTerminal = vi.fn();
     const workspace = createTestWorkspace({

@@ -10,6 +10,7 @@ export {
   getWorkspaceLaunchIssueKey,
   getWorkspaceLaunchIssueValues,
   getWorkspaceProjectKind,
+  resolveCliEnvironmentDefault,
   resolveWorkspaceProjectLaunchOptions,
   resolveWorkspaceProjectWslPath,
   resolveWorkspaceLaunchOptions,

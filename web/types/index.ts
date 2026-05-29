@@ -33,6 +33,8 @@ export type {
   ProjectMigrationResult,
   ProjectMigrationRollbackResult,
   Workspace,
+  CliEnvironmentKey,
+  WorkspaceCliEnvironmentDefaults,
   WorkspaceLaunchEnvironment,
   WorkspaceMigrationItem,
   WorkspaceMigrationPlan,

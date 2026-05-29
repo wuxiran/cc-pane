@@ -25,6 +25,7 @@ interface WorkspacesState {
   updateWorkspaceProvider: (workspaceName: string, providerId: string | null) => Promise<void>;
   updateWorkspaceLaunchProfile: (workspaceName: string, launchProfileId: string | null) => Promise<void>;
   updateWorkspacePath: (workspaceName: string, path: string | null) => Promise<void>;
+  refreshWorkspace: (workspaceId: string) => Promise<Workspace | undefined>;
   saveWorkspace: (workspace: Workspace) => Promise<void>;
   updatePinned: (name: string, pinned: boolean) => Promise<void>;
   updateHidden: (name: string, hidden: boolean) => Promise<void>;
@@ -248,6 +249,19 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         ws.name === workspaceName ? { ...ws, path: path ?? undefined } : ws
       ),
     }));
+  },
+
+  refreshWorkspace: async (workspaceId) => {
+    let workspace = get().workspaces.find((ws) => ws.id === workspaceId);
+    if (!workspace) {
+      await get().load();
+      workspace = get().workspaces.find((ws) => ws.id === workspaceId);
+    }
+    if (!workspace) return undefined;
+
+    const refreshed = await workspaceService.getWorkspace(workspace.name);
+    set((state) => ({ workspaces: mergeWorkspace(state.workspaces, refreshed) }));
+    return refreshed;
   },
 
   saveWorkspace: async (workspace) => {
