@@ -333,6 +333,10 @@ fn push_codex_developer_instructions_arg(
     ));
 }
 
+fn push_codex_yolo_mode_arg(codex_args: &mut Vec<String>) {
+    codex_args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+}
+
 fn push_wsl_codex_mcp_isolation_prelude(
     remote_parts: &mut Vec<String>,
     disable_unlisted_mcp_servers: bool,
@@ -706,6 +710,7 @@ impl TerminalService {
         append_system_prompt: Option<&str>,
         initial_prompt: Option<&str>,
         skip_mcp: bool,
+        yolo_mode: bool,
     ) -> Result<(String, Vec<String>)> {
         let command = match cli_tool {
             CliTool::Claude => "claude",
@@ -768,6 +773,9 @@ impl TerminalService {
             if let Some(prompt) = append_system_prompt {
                 cli_args.push("--append-system-prompt".to_string());
                 cli_args.push(prompt.to_string());
+            }
+            if yolo_mode {
+                cli_args.push("--dangerously-skip-permissions".to_string());
             }
             if let Some(prompt) = initial_prompt {
                 cli_args.push("--".to_string());
@@ -833,6 +841,7 @@ impl TerminalService {
         _append_system_prompt: Option<&str>,
         _initial_prompt: Option<&str>,
         _skip_mcp: bool,
+        _yolo_mode: bool,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }
@@ -922,6 +931,7 @@ impl TerminalService {
         _allowed_mcp_server_ids: &[String],
         disable_unlisted_mcp_servers: bool,
         selected_mcp_config_toml: &str,
+        yolo_mode: bool,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
         push_wsl_env_exports(&mut remote_parts, provider_env);
@@ -1003,6 +1013,9 @@ impl TerminalService {
             codex_args.push(wsl.remote_path.clone());
         }
         push_codex_developer_instructions_arg(&mut codex_args, append_system_prompt);
+        if yolo_mode {
+            push_codex_yolo_mode_arg(&mut codex_args);
+        }
         append_codex_resume_args(&mut codex_args, resume_id, initial_prompt);
 
         let escaped_codex_args = codex_args
@@ -1035,6 +1048,7 @@ impl TerminalService {
         _allowed_mcp_server_ids: &[String],
         _disable_unlisted_mcp_servers: bool,
         _selected_mcp_config_toml: &str,
+        _yolo_mode: bool,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }
@@ -1043,7 +1057,7 @@ impl TerminalService {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_codex_resume_args, push_codex_developer_instructions_arg,
+        append_codex_resume_args, push_codex_developer_instructions_arg, push_codex_yolo_mode_arg,
         push_wsl_codex_mcp_isolation_prelude, render_wsl_launch_script,
     };
     #[cfg(windows)]
@@ -1113,6 +1127,26 @@ mod tests {
                 "/workspace/project",
                 "-c",
                 "developer_instructions=\"profile skill\"",
+                "resume",
+                "session-123",
+                "continue",
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_yolo_arg_precedes_resume_and_prompt() {
+        let mut args = vec!["-C".to_string(), "/workspace/project".to_string()];
+
+        push_codex_yolo_mode_arg(&mut args);
+        append_codex_resume_args(&mut args, Some("session-123"), Some("continue"));
+
+        assert_eq!(
+            args,
+            vec![
+                "-C",
+                "/workspace/project",
+                "--dangerously-bypass-approvals-and-sandbox",
                 "resume",
                 "session-123",
                 "continue",

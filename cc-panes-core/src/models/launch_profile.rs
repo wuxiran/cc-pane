@@ -17,6 +17,8 @@ pub struct LaunchProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_runtime: Option<String>,
     #[serde(default)]
+    pub yolo_mode: bool,
+    #[serde(default)]
     pub mcp_policy: LaunchProfileMcpPolicy,
     #[serde(default)]
     pub skill_policy: LaunchProfileSkillPolicy,
@@ -41,6 +43,8 @@ pub struct LaunchProfileDraft {
     pub target_tools: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_runtime: Option<String>,
+    #[serde(default)]
+    pub yolo_mode: bool,
     #[serde(default)]
     pub mcp_policy: LaunchProfileMcpPolicy,
     #[serde(default)]

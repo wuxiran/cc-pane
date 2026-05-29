@@ -41,6 +41,7 @@ export interface LaunchProfile {
   providerId?: string | null;
   targetTools: string[];
   targetRuntime?: LaunchProfileRuntime;
+  yoloMode?: boolean;
   mcpPolicy: LaunchProfileMcpPolicy;
   skillPolicy: LaunchProfileSkillPolicy;
   isDefault: boolean;
@@ -105,6 +106,7 @@ export function defaultLaunchProfileDraft(provider?: Provider | null): LaunchPro
     providerId: provider?.id ?? null,
     targetTools: [],
     targetRuntime: null,
+    yoloMode: false,
     mcpPolicy: {
       mode: "default",
       enabledServerIds: [],

@@ -205,6 +205,7 @@ impl LaunchProfileService {
             provider_id: draft.provider_id,
             target_tools: Self::normalize_target_tools(draft.target_tools),
             target_runtime: Self::normalize_runtime(draft.target_runtime),
+            yolo_mode: draft.yolo_mode,
             mcp_policy: draft.mcp_policy,
             skill_policy: draft.skill_policy,
             is_default: draft.is_default,
@@ -268,6 +269,7 @@ impl LaunchProfileService {
         next.provider_id = draft.provider_id;
         next.target_tools = target_tools;
         next.target_runtime = target_runtime;
+        next.yolo_mode = draft.yolo_mode;
         next.mcp_policy = draft.mcp_policy;
         next.skill_policy = draft.skill_policy;
         next.is_default = draft.is_default;
@@ -1262,6 +1264,7 @@ mod tests {
                 provider_id: Some("profile-provider".into()),
                 target_tools: Vec::new(),
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: false,
@@ -1307,6 +1310,7 @@ mod tests {
                 provider_id: Some("profile-provider".into()),
                 target_tools: Vec::new(),
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: false,
@@ -1348,6 +1352,7 @@ mod tests {
                 provider_id: Some("profile-provider".into()),
                 target_tools: Vec::new(),
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: true,
@@ -1459,6 +1464,7 @@ mod tests {
                 provider_id: Some("claude-provider".into()),
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: true,
@@ -1472,6 +1478,7 @@ mod tests {
                 provider_id: Some("codex-provider".into()),
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: true,
@@ -1541,6 +1548,7 @@ mod tests {
                 provider_id: Some("codex-local-provider".into()),
                 target_tools: vec!["codex".into()],
                 target_runtime: Some("local".into()),
+                yolo_mode: true,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: true,
@@ -1554,6 +1562,7 @@ mod tests {
                 provider_id: Some("codex-wsl-provider".into()),
                 target_tools: vec!["codex".into()],
                 target_runtime: Some("wsl".into()),
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: true,
@@ -1601,6 +1610,10 @@ mod tests {
             local_resolution.provider_id.as_deref(),
             Some("codex-local-provider")
         );
+        assert!(service
+            .list_profiles()
+            .iter()
+            .any(|profile| profile.name == "Codex Local Default" && profile.yolo_mode));
         assert_eq!(
             wsl_resolution.provider_id.as_deref(),
             Some("codex-wsl-provider")
@@ -1626,6 +1639,7 @@ mod tests {
                 provider_id: Some("claude-provider".into()),
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: false,
@@ -1639,6 +1653,7 @@ mod tests {
                 provider_id: Some("codex-provider".into()),
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: Default::default(),
                 is_default: true,
@@ -1682,6 +1697,7 @@ mod tests {
                 provider_id: None,
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: crate::models::launch_profile::LaunchProfileMcpPolicy {
                     mode: LaunchProfileMcpMode::Disabled,
                     ..Default::default()
@@ -1735,6 +1751,7 @@ mod tests {
                 provider_id: None,
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: crate::models::launch_profile::LaunchProfileSkillPolicy {
                     mode: LaunchProfileSkillMode::Core,
@@ -1789,6 +1806,7 @@ mod tests {
                 provider_id: None,
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: crate::models::launch_profile::LaunchProfileSkillPolicy {
                     mode: LaunchProfileSkillMode::Custom,
@@ -1865,6 +1883,7 @@ mod tests {
                 provider_id: None,
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: crate::models::launch_profile::LaunchProfileSkillPolicy {
                     mode: LaunchProfileSkillMode::Custom,
@@ -1923,6 +1942,7 @@ mod tests {
                 provider_id: None,
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: crate::models::launch_profile::LaunchProfileSkillPolicy {
                     include_external_claude_skills: false,
@@ -1973,6 +1993,7 @@ mod tests {
                 provider_id: None,
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: crate::models::launch_profile::LaunchProfileSkillPolicy {
                     mode: LaunchProfileSkillMode::Custom,
@@ -2028,6 +2049,7 @@ mod tests {
                 provider_id: None,
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: crate::models::launch_profile::LaunchProfileSkillPolicy {
                     disabled_skill_ids: vec!["claude:frontend-ui".into()],
@@ -2085,6 +2107,7 @@ mod tests {
                 provider_id: None,
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
+                yolo_mode: false,
                 mcp_policy: Default::default(),
                 skill_policy: crate::models::launch_profile::LaunchProfileSkillPolicy {
                     mode: LaunchProfileSkillMode::Custom,

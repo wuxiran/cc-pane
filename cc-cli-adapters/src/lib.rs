@@ -240,6 +240,8 @@ pub struct CliAdapterContext {
     pub provider: Option<CliProvider>,
     pub resume_id: Option<String>,
     pub skip_mcp: bool,
+    /// 本次启动是否启用 YOLO 模式（绕过 CLI 权限确认/沙箱提示）。
+    pub yolo_mode: bool,
     pub append_system_prompt: Option<String>,
     /// 初始用户 prompt（作为 CLI 位置参数传递，显示为首条用户消息）
     pub initial_prompt: Option<String>,

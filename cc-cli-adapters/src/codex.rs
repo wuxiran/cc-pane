@@ -145,6 +145,10 @@ impl CodexAdapter {
         ));
     }
 
+    fn push_yolo_mode_arg(args: &mut Vec<String>) {
+        args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+    }
+
     fn push_mcp_overrides(&self, args: &mut Vec<String>, ctx: &CliAdapterContext) {
         if let (Some(port), Some(token)) = (ctx.orchestrator_port, ctx.orchestrator_token.as_ref())
         {
@@ -466,7 +470,7 @@ impl CodexAdapter {
         Ok(())
     }
 
-    fn ensure_codex_hooks_feature(project_path: &Path) -> Result<()> {
+    fn ensure_hooks_feature(project_path: &Path) -> Result<()> {
         let mut config = Self::read_config_toml(project_path)?;
         let table = config
             .as_table_mut()
@@ -477,6 +481,11 @@ impl CodexAdapter {
         let features_table = features
             .as_table_mut()
             .ok_or_else(|| anyhow!("Codex config [features] must be a TOML table"))?;
+        // Dual-write both the new `hooks` key and the legacy `codex_hooks` key.
+        // Codex >= 0.135 reads `hooks`; older builds still read `codex_hooks`.
+        // Writing both keeps hooks firing across supported Codex versions until a
+        // minimum Codex version is enforced (neither key is rejected by --strict-config).
+        features_table.insert("hooks".to_string(), toml::Value::Boolean(true));
         features_table.insert("codex_hooks".to_string(), toml::Value::Boolean(true));
         Self::write_config_toml(project_path, &config)
     }
@@ -502,7 +511,7 @@ impl CodexAdapter {
             return Err(anyhow!("cc-panes-cli-hook binary not found"));
         }
 
-        Self::ensure_codex_hooks_feature(project_path)?;
+        Self::ensure_hooks_feature(project_path)?;
 
         let mut hooks_json = Self::read_hooks_json(project_path)?;
         let hooks_root = hooks_json
@@ -656,6 +665,10 @@ impl CliToolAdapter for CodexAdapter {
 
         Self::push_mcp_isolation_overrides(&mut args, ctx);
 
+        if ctx.yolo_mode {
+            Self::push_yolo_mode_arg(&mut args);
+        }
+
         // Resume: codex resume <id>
         if let Some(ref rid) = ctx.resume_id {
             args.push("resume".to_string());
@@ -744,6 +757,7 @@ mod tests {
         let config = fs::read_to_string(project_path.join(".codex").join("config.toml")).unwrap();
         let hooks = fs::read_to_string(project_path.join(".codex").join("hooks.json")).unwrap();
 
+        assert!(config.contains("hooks = true"));
         assert!(config.contains("codex_hooks = true"));
         assert!(hooks.contains("SessionStart"));
         assert!(hooks.contains("session-init"));
@@ -781,9 +795,39 @@ mod tests {
         let config = fs::read_to_string(project_path.join(".codex").join("config.toml")).unwrap();
         let hooks = fs::read_to_string(project_path.join(".codex").join("hooks.json")).unwrap();
 
+        assert!(config.contains("hooks = true"));
         assert!(config.contains("codex_hooks = true"));
         assert!(hooks.contains("/mnt/c/Users/wuxiran"));
         assert!(hooks.contains("session-init"));
+    }
+
+    #[test]
+    fn sync_project_hooks_dual_writes_hooks_and_legacy_codex_hooks_feature() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path();
+        let hook_binary = PathBuf::from(
+            "/mnt/c/Users/wuxiran/AppData/Local/cc-panes/binaries/cc-panes-cli-hook.exe",
+        );
+        let codex_dir = project_path.join(".codex");
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(
+            codex_dir.join("config.toml"),
+            "[features]\ncodex_hooks = true\n",
+        )
+        .unwrap();
+
+        let adapter = CodexAdapter::new();
+        let desired = HashMap::from([("session-inject".to_string(), true)]);
+
+        adapter
+            .sync_project_hooks_for_wsl_launch(project_path, &hook_binary, &desired)
+            .unwrap();
+
+        let config = fs::read_to_string(codex_dir.join("config.toml")).unwrap();
+        // Dual-write: keep the legacy codex_hooks key and add the new hooks key,
+        // so hooks fire on both current and older Codex CLIs.
+        assert!(config.contains("hooks = true"));
+        assert!(config.contains("codex_hooks = true"));
     }
 
     #[cfg(windows)]
@@ -862,6 +906,18 @@ mod tests {
                 "-c",
                 "developer_instructions=\"CC-Panes launch profile skill\""
             ]
+        );
+    }
+
+    #[test]
+    fn yolo_mode_arg_uses_codex_bypass_flag() {
+        let mut args = Vec::new();
+
+        CodexAdapter::push_yolo_mode_arg(&mut args);
+
+        assert_eq!(
+            args,
+            vec!["--dangerously-bypass-approvals-and-sandbox".to_string()]
         );
     }
 

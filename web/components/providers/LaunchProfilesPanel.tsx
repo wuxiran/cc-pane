@@ -189,6 +189,7 @@ function systemDefaultLaunchProfileDraft(tool: KnownCliTool, runtime: LaunchProf
     providerId: null,
     targetTools: [tool],
     targetRuntime: runtime,
+    yoloMode: false,
     mcpPolicy: {
       mode: "default",
       enabledServerIds: [],
@@ -219,6 +220,7 @@ function toDraft(profile: LaunchProfile): LaunchProfileDraft {
     providerId: profile.providerId ?? null,
     targetTools: profile.targetTools,
     targetRuntime: profile.targetRuntime ?? null,
+    yoloMode: profile.yoloMode ?? false,
     mcpPolicy: profile.mcpPolicy,
     skillPolicy: profile.skillPolicy,
     isDefault: profile.isDefault,
@@ -319,6 +321,8 @@ export default function LaunchProfilesPanel({
   const [externalSkills, setExternalSkills] = useState<DiscoveredExternalSkill[]>([]);
   const [skillMarketLoading, setSkillMarketLoading] = useState(false);
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
+  // YOLO（权限绕过）是危险操作：开启需二次确认，避免误触。
+  const [yoloConfirmOpen, setYoloConfirmOpen] = useState(false);
   const workspaceContext = useMemo(
     () => workspaceFilterName === WORKSPACE_FILTER_ALL
       ? null
@@ -1344,6 +1348,81 @@ export default function LaunchProfilesPanel({
                     onChange={(event) => setDraft({ ...draft, description: event.target.value })}
                   />
                 </Field>
+              </div>
+            </Section>
+
+            <Section
+              title="权限"
+              description="设置当前运行配置的 CLI 权限策略。"
+              icon={<Sparkles size={16} />}
+            >
+              <label
+                className={cn(
+                  "flex items-start gap-3 rounded-md border px-3 py-2 text-sm transition-colors",
+                  draft.yoloMode ? "border-destructive/60 bg-destructive/10" : "border-border",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={draft.yoloMode ?? false}
+                  onChange={(event) => {
+                    if (event.target.checked) {
+                      // 开启 = 危险操作：先弹二次确认，确认前不写入 draft
+                      setYoloConfirmOpen(true);
+                    } else {
+                      setYoloConfirmOpen(false);
+                      setDraft({ ...draft, yoloMode: false });
+                    }
+                  }}
+                />
+                <span className="min-w-0">
+                  <span className="block font-medium">
+                    YOLO mode
+                    {draft.yoloMode ? (
+                      <span className="ml-2 align-middle text-[11px] font-semibold text-destructive">
+                        ⚠ 已绕过权限确认
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="block text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+                    仅本次启动追加 CLI bypass 参数，不写入 Claude/Codex 用户配置。
+                  </span>
+                </span>
+              </label>
+
+              {yoloConfirmOpen && !draft.yoloMode ? (
+                <div className="mt-2 rounded-md border border-destructive/60 bg-destructive/10 px-3 py-2 text-xs leading-5">
+                  <p className="font-medium text-destructive">确认开启 YOLO？</p>
+                  <p className="mt-1" style={{ color: "var(--app-text-tertiary)" }}>
+                    会让本配置启动的 CLI 跳过权限 / 沙箱确认（Claude：--dangerously-skip-permissions，Codex：bypass approvals and sandbox），可能在无人确认下执行危险命令。仅在你完全信任该工作区时开启。
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        setDraft({ ...draft, yoloMode: true });
+                        setYoloConfirmOpen(false);
+                      }}
+                    >
+                      确认开启
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setYoloConfirmOpen(false)}
+                    >
+                      取消
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-3 text-[11px] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
+                Claude 使用 skip permissions；Codex 使用 bypass approvals and sandbox。其他 CLI 会保存此标记，但不会追加未知参数。
               </div>
             </Section>
 

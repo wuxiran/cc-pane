@@ -149,6 +149,10 @@ impl ClaudeAdapter {
         }
     }
 
+    fn push_yolo_mode_arg(args: &mut Vec<String>) {
+        args.push("--dangerously-skip-permissions".to_string());
+    }
+
     /// 生成 MCP 配置文件，返回路径
     /// 配置 CC-Panes 的 Streamable HTTP MCP 端点 + 用户全局 MCP 服务器
     fn generate_mcp_config(&self, ctx: &CliAdapterContext) -> Option<String> {
@@ -822,6 +826,10 @@ impl CliToolAdapter for ClaudeAdapter {
             args.push(prompt.clone());
         }
 
+        if ctx.yolo_mode {
+            Self::push_yolo_mode_arg(&mut args);
+        }
+
         // 位置参数：初始用户 prompt（必须在所有 --option 之后）
         // 使用 `--` 分隔符防止 prompt 被误解析为 flag 值
         if let Some(ref prompt) = ctx.initial_prompt {
@@ -1076,6 +1084,15 @@ mod tests {
 
         assert_eq!(resolved_command, command.to_string_lossy());
         assert_eq!(args, vec!["--version".to_string()]);
+    }
+
+    #[test]
+    fn yolo_mode_arg_uses_claude_skip_permissions_flag() {
+        let mut args = Vec::new();
+
+        ClaudeAdapter::push_yolo_mode_arg(&mut args);
+
+        assert_eq!(args, vec!["--dangerously-skip-permissions".to_string()]);
     }
 
     // ============ cc-pane 抽象事件映射测试 ============

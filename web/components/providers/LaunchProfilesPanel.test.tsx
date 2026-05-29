@@ -114,4 +114,23 @@ describe("LaunchProfilesPanel external skills", () => {
       expect(savedDraft?.skillPolicy.enabledSkillIds).toContain("claude:rust-patterns");
     });
   });
+
+  it("saves yolo mode on the launch profile draft", async () => {
+    const user = userEvent.setup();
+    let savedDraft: LaunchProfileDraft | null = null;
+    renderPanelWithExternalSkills((draft) => {
+      savedDraft = draft;
+    });
+
+    await screen.findByText("YOLO mode");
+    await user.click(screen.getByRole("checkbox", { name: /YOLO mode/ }));
+    // 开启 YOLO 是危险操作，需点"确认开启"二次确认后才写入 draft
+    await user.click(await screen.findByRole("button", { name: /确认开启/ }));
+    const saveButtons = screen.getAllByRole("button", { name: /保存默认/ });
+    await user.click(saveButtons[saveButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(savedDraft?.yoloMode).toBe(true);
+    });
+  });
 });

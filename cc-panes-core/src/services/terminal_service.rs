@@ -1230,6 +1230,10 @@ impl TerminalService {
             selected_shared_mcp_config_toml_for_codex(&allowed_mcp_server_ids, &shared_mcp_config);
         let sync_project_hooks =
             LaunchProfileService::should_sync_project_hooks_for_profile(resolved_profile.as_ref());
+        let effective_yolo_mode = resolved_profile
+            .as_ref()
+            .map(|profile| profile.yolo_mode)
+            .unwrap_or(false);
         let profile_skill_prompt = self
             .launch_profile_service
             .read()
@@ -1379,7 +1383,8 @@ impl TerminalService {
             // SSH 模式：cwd 用本机 home dir，命令通过 ssh 连接远程
             // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            let (cmd, cmd_args) = self.build_ssh_command(ssh_info, cli_tool, &provider_vars)?;
+            let (cmd, cmd_args) =
+                self.build_ssh_command(ssh_info, cli_tool, &provider_vars, effective_yolo_mode)?;
             info!(
                 session_id = %session_id,
                 host = %ssh_info.host,
@@ -1528,6 +1533,7 @@ impl TerminalService {
                         &allowed_mcp_server_ids,
                         disable_unlisted_mcp_servers,
                         &selected_mcp_config_toml,
+                        effective_yolo_mode,
                     )?
                 }
                 CliTool::Claude | CliTool::Gemini | CliTool::Opencode | CliTool::Cursor => self
@@ -1541,6 +1547,7 @@ impl TerminalService {
                         launch_append_system_prompt.as_deref(),
                         initial_prompt,
                         effective_skip_mcp,
+                        effective_yolo_mode,
                     )?,
                 CliTool::Kimi | CliTool::Glm => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
@@ -1552,6 +1559,7 @@ impl TerminalService {
                     launch_append_system_prompt.as_deref(),
                     initial_prompt,
                     effective_skip_mcp,
+                    effective_yolo_mode,
                 )?,
             };
 
@@ -1623,6 +1631,7 @@ impl TerminalService {
                     provider: provider.clone(),
                     resume_id: resume_id.map(|s| s.to_string()),
                     skip_mcp: effective_skip_mcp,
+                    yolo_mode: effective_yolo_mode,
                     append_system_prompt: effective_prompt,
                     initial_prompt: initial_prompt.map(|s| s.to_string()),
                     orchestrator_port: orch_info.as_ref().map(|i| i.port),
@@ -2518,6 +2527,29 @@ impl TerminalService {
         chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
     }
 
+    /// 远端 CLI 启动命令（含 YOLO 语义）。
+    ///
+    /// SSH 下 Codex 的语义需特别注意：
+    /// - 非 YOLO：`codex --full-auto`（自动批准，但仍受沙箱约束）。
+    /// - YOLO：`codex --dangerously-bypass-approvals-and-sandbox`（绕过审批与沙箱，
+    ///   已蕴含 full-auto 行为，故有意不叠加 `--full-auto`）。
+    ///
+    /// Claude：非 YOLO 不加标志；YOLO 加 `--dangerously-skip-permissions`。
+    fn ssh_remote_cli_command(cli_tool: CliTool, yolo_mode: bool) -> &'static str {
+        match cli_tool {
+            CliTool::None => "exec $SHELL -l",
+            CliTool::Claude if yolo_mode => "claude --dangerously-skip-permissions",
+            CliTool::Claude => "claude",
+            CliTool::Codex if yolo_mode => "codex --dangerously-bypass-approvals-and-sandbox",
+            CliTool::Codex => "codex --full-auto",
+            CliTool::Gemini => "gemini",
+            CliTool::Kimi => "kimi",
+            CliTool::Glm => "crush",
+            CliTool::Opencode => "opencode",
+            CliTool::Cursor => "cursor-agent",
+        }
+    }
+
     /// 构建 SSH 命令
     ///
     /// 生成 `ssh -tt [keepalive opts] [-p port] [-i identity_file] [user@]host 'export K=V && ... && cd path && cli_tool'`
@@ -2526,6 +2558,7 @@ impl TerminalService {
         ssh: &SshConnectionInfo,
         cli_tool: CliTool,
         provider_env: &HashMap<String, String>,
+        yolo_mode: bool,
     ) -> Result<(String, Vec<String>)> {
         let ssh_path = cached_which("ssh").map_err(|_| anyhow!("ssh not found in PATH"))?;
 
@@ -2564,16 +2597,7 @@ impl TerminalService {
             let escaped_path = Self::shell_escape(&ssh.remote_path);
             remote_parts.push(format!("cd {}", escaped_path));
         }
-        match cli_tool {
-            CliTool::None => remote_parts.push("exec $SHELL -l".into()),
-            CliTool::Claude => remote_parts.push("claude".into()),
-            CliTool::Codex => remote_parts.push("codex --full-auto".into()),
-            CliTool::Gemini => remote_parts.push("gemini".into()),
-            CliTool::Kimi => remote_parts.push("kimi".into()),
-            CliTool::Glm => remote_parts.push("crush".into()),
-            CliTool::Opencode => remote_parts.push("opencode".into()),
-            CliTool::Cursor => remote_parts.push("cursor-agent".into()),
-        }
+        remote_parts.push(Self::ssh_remote_cli_command(cli_tool, yolo_mode).to_string());
         args.push(remote_parts.join(" && "));
 
         Ok((ssh_path.to_string_lossy().into_owned(), args))
@@ -2814,6 +2838,37 @@ mod tests {
     use crate::services::{ProjectCliHooksService, ProviderService, SettingsService};
     use crate::utils::AppPaths;
     use std::io;
+
+    #[test]
+    fn ssh_remote_cli_command_applies_yolo_and_codex_semantics() {
+        // Claude：非 YOLO 不加标志；YOLO 加 skip-permissions。
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Claude, false),
+            "claude"
+        );
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Claude, true),
+            "claude --dangerously-skip-permissions"
+        );
+        // Codex：非 YOLO 用 --full-auto；YOLO 换成 bypass（已蕴含 full-auto，故有意不叠加）。
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Codex, false),
+            "codex --full-auto"
+        );
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Codex, true),
+            "codex --dangerously-bypass-approvals-and-sandbox"
+        );
+        // None 走交互 shell；YOLO 对其他 CLI 不追加未知参数。
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::None, false),
+            "exec $SHELL -l"
+        );
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Gemini, true),
+            "gemini"
+        );
+    }
 
     struct FakePtyProcess;
 
