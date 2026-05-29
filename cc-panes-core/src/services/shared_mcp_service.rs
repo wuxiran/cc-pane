@@ -518,6 +518,33 @@ impl SharedMcpService {
 
     // ========== 内部工具 ==========
 
+    fn build_mcp_proxy_invocation(config: &SharedMcpServerConfig) -> (String, Vec<String>) {
+        let mut proxy_args = vec![
+            "-y".to_string(),
+            "mcp-proxy".to_string(),
+            "--port".to_string(),
+            config.port.to_string(),
+            "--".to_string(),
+            config.command.clone(),
+        ];
+        proxy_args.extend(config.args.iter().cloned());
+
+        #[cfg(windows)]
+        {
+            let mut args = vec!["/c".to_string(), "npx".to_string()];
+            args.extend(proxy_args);
+            (
+                std::env::var("ComSpec").unwrap_or_else(|_| "cmd".to_string()),
+                args,
+            )
+        }
+
+        #[cfg(not(windows))]
+        {
+            ("npx".to_string(), proxy_args)
+        }
+    }
+
     /// 启动 server 子进程
     fn spawn_server_process(
         &self,
@@ -525,19 +552,7 @@ impl SharedMcpService {
         config: &SharedMcpServerConfig,
     ) -> Result<std::process::Child, String> {
         let (command, args) = match config.bridge_mode {
-            BridgeMode::McpProxy => {
-                // npx -y mcp-proxy --port PORT -- CMD ARGS
-                let mut proxy_args = vec![
-                    "-y".to_string(),
-                    "mcp-proxy".to_string(),
-                    "--port".to_string(),
-                    config.port.to_string(),
-                    "--".to_string(),
-                    config.command.clone(),
-                ];
-                proxy_args.extend(config.args.iter().cloned());
-                ("npx".to_string(), proxy_args)
-            }
+            BridgeMode::McpProxy => Self::build_mcp_proxy_invocation(config),
             BridgeMode::NativeHttp => {
                 // 直接启动，通过环境变量设置 HTTP 模式
                 (config.command.clone(), config.args.clone())
@@ -600,6 +615,34 @@ mod tests {
         assert!(config.servers.is_empty());
         assert_eq!(config.port_range_start, 3100);
         assert_eq!(config.port_range_end, 3199);
+    }
+
+    #[test]
+    fn mcp_proxy_invocation_wraps_npx_on_windows() {
+        let server = SharedMcpServerConfig {
+            command: "cmd".into(),
+            args: vec!["/c".into(), "npx".into(), "-y".into(), "tool".into()],
+            env: HashMap::new(),
+            shared: true,
+            port: 3100,
+            bridge_mode: BridgeMode::McpProxy,
+        };
+
+        let (command, args) = SharedMcpService::build_mcp_proxy_invocation(&server);
+
+        if cfg!(windows) {
+            assert!(command.to_ascii_lowercase().contains("cmd"));
+            assert_eq!(args[0], "/c");
+            assert_eq!(args[1], "npx");
+            assert_eq!(args[2], "-y");
+            assert_eq!(args[3], "mcp-proxy");
+        } else {
+            assert_eq!(command, "npx");
+            assert_eq!(args[0], "-y");
+            assert_eq!(args[1], "mcp-proxy");
+        }
+        assert!(args.contains(&"--".to_string()));
+        assert!(args.contains(&"tool".to_string()));
     }
 
     #[test]
