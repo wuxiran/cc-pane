@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { handleErrorSilent } from "@/utils";
 import type { Panel as PanelType, Tab, TerminalPaneNode, TerminalPaneLeaf } from "@/types";
 import { useShallow } from "zustand/react/shallow";
-import { usePanesStore, useFullscreenStore, useFileTreeStore } from "@/stores";
+import { useDialogStore, usePanesStore, useFullscreenStore, useFileTreeStore, useWorkspacesStore } from "@/stores";
 import { terminalService, popOutTab } from "@/services";
 import type { PopupTabData } from "@/services/popupWindowService";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
@@ -50,6 +50,8 @@ export default memo(function Panel({ pane }: PanelProps) {
   // Data 选择器：值变化时触发重渲染
   const activePaneId = usePanesStore((s) => s.activePaneId);
   const rootPane = usePanesStore((s) => s.rootPane);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const openWorkspaceEnvironment = useDialogStore((s) => s.openWorkspaceEnvironment);
 
   // Action 选择器合并 + useShallow：浅比较避免对象引用变化导致的重渲染
   const {
@@ -335,6 +337,32 @@ export default memo(function Panel({ pane }: PanelProps) {
     []
   );
 
+  const getWorkspaceForTab = useCallback((tab: Tab) => {
+    if (tab.workspaceName) {
+      return workspaces.find((workspace) => workspace.name === tab.workspaceName);
+    }
+
+    if (!tab.projectPath) return undefined;
+    const normalizedTabPath = tab.projectPath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    return workspaces.find((workspace) =>
+      workspace.path?.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === normalizedTabPath
+      || workspace.projects.some((project) =>
+        project.path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase() === normalizedTabPath
+      )
+    );
+  }, [workspaces]);
+
+  const canEditWorkspaceEnvironment = useCallback(
+    (tab: Tab) => Boolean(getWorkspaceForTab(tab)),
+    [getWorkspaceForTab],
+  );
+
+  const handleEditWorkspaceEnvironment = useCallback((tab: Tab) => {
+    const workspace = getWorkspaceForTab(tab);
+    if (!workspace) return;
+    openWorkspaceEnvironment(workspace.id);
+  }, [getWorkspaceForTab, openWorkspaceEnvironment]);
+
   // 弹出标签为独立窗口
   const handlePopOutTab = useCallback(
     async (tabId: string) => {
@@ -425,6 +453,8 @@ export default memo(function Panel({ pane }: PanelProps) {
             onCloseOtherTabs={handleCloseOtherTabs}
             onRevealInExplorer={handleRevealInExplorer}
             onPopOutTab={handlePopOutTab}
+            canEditWorkspaceEnvironment={canEditWorkspaceEnvironment}
+            onEditWorkspaceEnvironment={handleEditWorkspaceEnvironment}
           />
         </div>
 

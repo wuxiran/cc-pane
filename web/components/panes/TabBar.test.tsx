@@ -35,11 +35,15 @@ function renderTabBar({
   activeId = tabs[0]?.id ?? "",
   onRename = vi.fn(),
   onFullscreen = vi.fn(),
+  onEditWorkspaceEnvironment,
+  canEditWorkspaceEnvironment,
 }: {
   tabs?: Tab[];
   activeId?: string;
   onRename?: (tabId: string, newTitle: string) => void;
   onFullscreen?: (tabId: string) => void;
+  onEditWorkspaceEnvironment?: (tab: Tab) => void;
+  canEditWorkspaceEnvironment?: (tab: Tab) => boolean;
 } = {}) {
   return render(
     <DndContext>
@@ -63,6 +67,8 @@ function renderTabBar({
         onCloseTabsToLeft={vi.fn()}
         onCloseTabsToRight={vi.fn()}
         onCloseOtherTabs={vi.fn()}
+        onEditWorkspaceEnvironment={onEditWorkspaceEnvironment}
+        canEditWorkspaceEnvironment={canEditWorkspaceEnvironment}
       />
     </DndContext>
   );
@@ -104,6 +110,25 @@ describe("TabBar", () => {
 
     expect(onFullscreen).not.toHaveBeenCalled();
     expect(onRename).toHaveBeenCalledWith("tab-1", "Gamma");
+  });
+
+  it("opens the workspace environment editor from a tab context menu", async () => {
+    const user = userEvent.setup();
+    const tab = {
+      ...makeTab("tab-1", "Alpha"),
+      workspaceName: "workspace-alpha",
+    };
+    const onEditWorkspaceEnvironment = vi.fn();
+    renderTabBar({
+      tabs: [tab],
+      onEditWorkspaceEnvironment,
+      canEditWorkspaceEnvironment: () => true,
+    });
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    await user.click(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i }));
+
+    expect(onEditWorkspaceEnvironment).toHaveBeenCalledWith(tab);
   });
 
   it("uses a horizontally scrollable max-content tab strip for overflow", () => {

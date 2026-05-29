@@ -21,6 +21,7 @@
   "closePanel": "Close Panel",
   "closeTerminalPane": "Terminal · Close Pane",
   "renameTab": "Rename",
+  "editWorkspaceEnvironment": "Edit Environment",
   "unpinTab": "Unpin",
   "pinTab": "Pin Tab",
   "minimizeTab": "Minimize",

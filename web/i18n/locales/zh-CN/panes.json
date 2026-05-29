@@ -21,6 +21,7 @@
   "closePanel": "关闭面板",
   "closeTerminalPane": "终端 · 关闭窗格",
   "renameTab": "重命名",
+  "editWorkspaceEnvironment": "编辑运行环境",
   "unpinTab": "取消固定",
   "pinTab": "固定标签",
   "minimizeTab": "最小化",

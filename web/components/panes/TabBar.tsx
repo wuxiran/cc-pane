@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
-import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -75,6 +75,8 @@ interface TabBarProps {
   onCloseOtherTabs: (tabId: string) => void;
   onRevealInExplorer?: (tab: Tab) => void;
   onPopOutTab?: (tabId: string) => void;
+  onEditWorkspaceEnvironment?: (tab: Tab) => void;
+  canEditWorkspaceEnvironment?: (tab: Tab) => boolean;
   activeTabBg?: string;
   activeTabFg?: string;
 }
@@ -110,6 +112,8 @@ function SortableTab({
   onCloseOtherTabs,
   onRevealInExplorer,
   onPopOutTab,
+  onEditWorkspaceEnvironment,
+  canEditWorkspaceEnvironment,
   activeTabFg,
   getStatus,
   registerTabNode,
@@ -145,6 +149,8 @@ function SortableTab({
   onCloseOtherTabs: (tabId: string) => void;
   onRevealInExplorer?: (tab: Tab) => void;
   onPopOutTab?: (tabId: string) => void;
+  onEditWorkspaceEnvironment?: (tab: Tab) => void;
+  canEditWorkspaceEnvironment?: (tab: Tab) => boolean;
   activeTabBg?: string;
   activeTabFg?: string;
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
@@ -303,6 +309,11 @@ function SortableTab({
             <FolderTree /> {t("revealInExplorer")}
           </ContextMenuItem>
         )}
+        {onEditWorkspaceEnvironment && canEditWorkspaceEnvironment?.(tab) ? (
+          <ContextMenuItem onClick={() => onEditWorkspaceEnvironment(tab)}>
+            <Settings2 /> {t("editWorkspaceEnvironment")}
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuSeparator />
         <ContextMenuItem onClick={onSplitRight}>
           <PanelRight /> {t("splitPanelRight")}
@@ -399,6 +410,8 @@ export default memo(function TabBar({
   onCloseOtherTabs,
   onRevealInExplorer,
   onPopOutTab,
+  onEditWorkspaceEnvironment,
+  canEditWorkspaceEnvironment,
   activeTabBg,
   activeTabFg,
 }: TabBarProps) {
@@ -586,6 +599,8 @@ export default memo(function TabBar({
                 onCloseOtherTabs={onCloseOtherTabs}
                 onRevealInExplorer={onRevealInExplorer}
                 onPopOutTab={onPopOutTab}
+                onEditWorkspaceEnvironment={onEditWorkspaceEnvironment}
+                canEditWorkspaceEnvironment={canEditWorkspaceEnvironment}
                 activeTabBg={activeTabBg}
                 activeTabFg={activeTabFg}
                 getStatus={getStatus}
