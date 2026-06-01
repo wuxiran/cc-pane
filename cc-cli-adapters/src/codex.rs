@@ -187,10 +187,12 @@ impl CodexAdapter {
     }
 
     fn configured_mcp_server_names() -> BTreeSet<String> {
-        let Some(home) = dirs::home_dir() else {
+        // 用 effective CODEX_HOME（尊重用户自定义 CODEX_HOME 环境变量），而非硬编码 ~/.codex，
+        // 确保禁用列表枚举的是 Codex 实际加载的 config。
+        let Some(home) = Self::real_codex_home() else {
             return BTreeSet::new();
         };
-        Self::configured_mcp_server_names_from_config_path(&home.join(".codex").join("config.toml"))
+        Self::configured_mcp_server_names_from_config_path(&home.join("config.toml"))
     }
 
     fn real_codex_home() -> Option<PathBuf> {
@@ -200,84 +202,73 @@ impl CodexAdapter {
             .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
     }
 
-    fn isolated_codex_home(session_id: &str) -> Option<PathBuf> {
-        dirs::home_dir().map(|home| {
-            home.join(".cache")
-                .join("cc-panes")
-                .join("codex-home")
-                .join(session_id)
-        })
+    /// 旧隔离目录根：历史上 CC-Panes 把 Codex 关进 `~/.cache/cc-panes/codex-home/{sessionId}`，
+    /// 现已去隔离（直用真实 ~/.codex），此根仅用于一次性迁移旧会话历史。
+    fn legacy_isolated_home_root() -> Option<PathBuf> {
+        dirs::home_dir().map(|home| home.join(".cache").join("cc-panes").join("codex-home"))
     }
 
-    fn sanitized_config_toml(content: &str) -> String {
-        let Ok(toml::Value::Table(mut table)) = content.parse::<toml::Value>() else {
-            return String::new();
+    /// 一次性把旧隔离目录里的会话历史救回真实 ~/.codex/sessions，让旧对话能 resume。
+    ///
+    /// 旧隔离目录结构为 `<root>/<sessionId>/sessions/YYYY/MM/DD/rollout-*.jsonl`。
+    /// 按原相对路径补齐到真实 home 的 sessions 下（目标已存在则跳过，绝不覆盖）。
+    /// best-effort：任何步骤失败都不阻断启动；用 marker 文件避免每次启动重扫。
+    fn migrate_legacy_isolated_sessions() {
+        let Some(root) = Self::legacy_isolated_home_root() else {
+            return;
         };
-        table.remove("mcp_servers");
-        table.remove("plugins");
-        table.remove("marketplaces");
-        toml::to_string_pretty(&toml::Value::Table(table)).unwrap_or_default()
+        let marker = root.parent().map(|p| p.join(".codex-home-migrated"));
+        if let Some(ref m) = marker {
+            if m.exists() {
+                return;
+            }
+        }
+        let Some(real_home) = Self::real_codex_home() else {
+            return;
+        };
+        let real_sessions = real_home.join("sessions");
+
+        let Ok(entries) = fs::read_dir(&root) else {
+            // 根不存在（从未隔离过）也算"已迁移"，写 marker 避免反复 read_dir。
+            if let Some(ref m) = marker {
+                let _ = fs::write(m, "");
+            }
+            return;
+        };
+
+        for entry in entries.flatten() {
+            let src_sessions = entry.path().join("sessions");
+            if !src_sessions.is_dir() {
+                continue;
+            }
+            Self::copy_sessions_tree(&src_sessions, &real_sessions);
+        }
+
+        if let Some(ref m) = marker {
+            let _ = fs::write(m, "");
+        }
     }
 
-    fn copy_file_if_exists(src: &Path, dst: &Path) -> Result<()> {
-        if !src.is_file() {
-            return Ok(());
+    /// 递归拷贝 sessions 子树，目标已存在的文件跳过（不覆盖真实历史）。best-effort。
+    fn copy_sessions_tree(src: &Path, dst: &Path) {
+        let Ok(entries) = fs::read_dir(src) else {
+            return;
+        };
+        if fs::create_dir_all(dst).is_err() {
+            return;
         }
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::copy(src, dst)?;
-        Ok(())
-    }
-
-    fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-        if !src.is_dir() {
-            return Ok(());
-        }
-        fs::create_dir_all(dst)?;
-        for entry in fs::read_dir(src)? {
-            let entry = entry?;
-            let file_type = entry.file_type()?;
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
             let child_src = entry.path();
             let child_dst = dst.join(entry.file_name());
             if file_type.is_dir() {
-                Self::copy_dir_recursive(&child_src, &child_dst)?;
-            } else if file_type.is_file() {
-                fs::copy(&child_src, &child_dst)?;
+                Self::copy_sessions_tree(&child_src, &child_dst);
+            } else if file_type.is_file() && !child_dst.exists() {
+                let _ = fs::copy(&child_src, &child_dst);
             }
         }
-        Ok(())
-    }
-
-    fn prepare_isolated_codex_home(ctx: &CliAdapterContext) -> Result<Option<PathBuf>> {
-        let Some(real_home) = Self::real_codex_home() else {
-            return Ok(None);
-        };
-        let Some(isolated_home) = Self::isolated_codex_home(&ctx.session_id) else {
-            return Ok(None);
-        };
-
-        if isolated_home.exists() {
-            fs::remove_dir_all(&isolated_home)?;
-        }
-        fs::create_dir_all(&isolated_home)?;
-
-        let real_config = real_home.join("config.toml");
-        let isolated_config = isolated_home.join("config.toml");
-        if let Ok(content) = fs::read_to_string(&real_config) {
-            fs::write(&isolated_config, Self::sanitized_config_toml(&content))?;
-        } else {
-            fs::write(&isolated_config, "")?;
-        }
-
-        for file_name in ["auth.json", "AGENTS.md"] {
-            Self::copy_file_if_exists(&real_home.join(file_name), &isolated_home.join(file_name))?;
-        }
-        for dir_name in ["prompts", "rules", "skills"] {
-            Self::copy_dir_recursive(&real_home.join(dir_name), &isolated_home.join(dir_name))?;
-        }
-
-        Ok(Some(isolated_home))
     }
 
     fn push_mcp_isolation_overrides_for_names(
@@ -636,17 +627,13 @@ impl CliToolAdapter for CodexAdapter {
         let codex_cmd = path.to_string_lossy().into_owned();
 
         let mut args = Vec::new();
-        let mut env_inject = HashMap::new();
+        let env_inject = HashMap::new();
 
-        // Keep every CC-Panes local Codex PTY isolated from the global TUI state.
-        // We copy auth/config basics but intentionally do not copy sessions, so a new
-        // launch cannot replay an old queued prompt from the same project directory.
-        if let Some(codex_home) = Self::prepare_isolated_codex_home(ctx)? {
-            env_inject.insert(
-                "CODEX_HOME".to_string(),
-                codex_home.to_string_lossy().into_owned(),
-            );
-        }
+        // 不隔离 CODEX_HOME：Codex 直接使用真实 ~/.codex（与 Claude 一致），
+        // 这样 `codex resume <id>` 能命中真实 sessions、ccswitch 换 provider 后历史不丢。
+        // MCP 隔离改由 per-launch `-c` override 完成（见下），无需复制/sanitize home。
+        // 一次性把历史遗留的隔离会话救回真实 home（带 marker，幂等、best-effort）。
+        Self::migrate_legacy_isolated_sessions();
 
         // MCP 注入使用 Codex 的 per-launch -c override，避免写入用户全局 config.toml。
         if ctx.skip_mcp {
@@ -922,65 +909,33 @@ mod tests {
     }
 
     #[test]
-    fn sanitized_config_removes_runtime_mcp_sections() {
-        let sanitized = CodexAdapter::sanitized_config_toml(
-            r#"
-model = "gpt-5"
-
-[model_providers.local]
-name = "local"
-
-[mcp_servers.fetch]
-command = "npx"
-
-[plugins.example]
-enabled = true
-
-[marketplaces.default]
-url = "https://example.com"
-"#,
-        );
-
-        assert!(sanitized.contains("model = \"gpt-5\""));
-        assert!(sanitized.contains("[model_providers.local]"));
-        assert!(!sanitized.contains("mcp_servers"));
-        assert!(!sanitized.contains("plugins"));
-        assert!(!sanitized.contains("marketplaces"));
-    }
-
-    #[test]
-    fn isolated_codex_home_copy_skips_sessions() {
+    fn copy_sessions_tree_migrates_by_relative_path_and_skips_existing() {
+        let legacy = tempdir().unwrap();
         let real = tempdir().unwrap();
-        let isolated = tempdir().unwrap();
-        fs::write(real.path().join("auth.json"), "{}").unwrap();
-        fs::create_dir_all(real.path().join("skills").join("tool")).unwrap();
-        fs::write(
-            real.path().join("skills").join("tool").join("SKILL.md"),
-            "skill",
-        )
-        .unwrap();
-        fs::create_dir_all(real.path().join("sessions")).unwrap();
-        fs::write(real.path().join("sessions").join("old.jsonl"), "old").unwrap();
 
-        CodexAdapter::copy_file_if_exists(
-            &real.path().join("auth.json"),
-            &isolated.path().join("auth.json"),
-        )
-        .unwrap();
-        CodexAdapter::copy_dir_recursive(
-            &real.path().join("skills"),
-            &isolated.path().join("skills"),
-        )
-        .unwrap();
+        // 旧隔离目录的 sessions 子树：sessions/2026/05/30/rollout-a.jsonl
+        let leg_day = legacy.path().join("2026").join("05").join("30");
+        fs::create_dir_all(&leg_day).unwrap();
+        fs::write(leg_day.join("rollout-a.jsonl"), "legacy-a").unwrap();
+        fs::write(leg_day.join("rollout-b.jsonl"), "legacy-b").unwrap();
 
-        assert!(isolated.path().join("auth.json").is_file());
-        assert!(isolated
-            .path()
-            .join("skills")
-            .join("tool")
-            .join("SKILL.md")
-            .is_file());
-        assert!(!isolated.path().join("sessions").exists());
+        // 真实 home 已存在同相对路径的 rollout-b（内容不同），迁移须跳过、不覆盖
+        let real_day = real.path().join("2026").join("05").join("30");
+        fs::create_dir_all(&real_day).unwrap();
+        fs::write(real_day.join("rollout-b.jsonl"), "REAL-b").unwrap();
+
+        CodexAdapter::copy_sessions_tree(legacy.path(), real.path());
+
+        // 新文件按原相对路径补齐
+        assert_eq!(
+            fs::read_to_string(real_day.join("rollout-a.jsonl")).unwrap(),
+            "legacy-a"
+        );
+        // 已存在的不被覆盖
+        assert_eq!(
+            fs::read_to_string(real_day.join("rollout-b.jsonl")).unwrap(),
+            "REAL-b"
+        );
     }
 
     #[test]

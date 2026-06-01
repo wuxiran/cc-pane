@@ -487,6 +487,12 @@ fn collect_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<Scan
     collect_codex_home_scan_roots(home, origin, roots);
 }
 
+/// 扫描旧隔离目录（legacy）的会话作为用量统计来源。
+///
+/// 历史上 CC-Panes 把 Codex 关进 `~/.cache/cc-panes/codex-home/<sessionId>`，其 sessions
+/// 子目录就是 `<sessionId>/sessions`（**不是** `<sessionId>/.codex/sessions`——原代码路径
+/// 拼错导致一直扫不到）。现已去隔离、不再新建此目录，但旧目录里仍有历史 jsonl，保留扫描
+/// 以免丢失既往用量统计。真实 `~/.codex/sessions` 已在 collect_scan_roots 中单独纳入。
 fn collect_codex_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<ScanRoot>) {
     let codex_home_root = home.join(".cache").join("cc-panes").join("codex-home");
     let Ok(entries) = fs::read_dir(codex_home_root) else {
@@ -494,7 +500,7 @@ fn collect_codex_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Ve
     };
 
     for entry in entries.flatten() {
-        let path = entry.path().join(".codex").join("sessions");
+        let path = entry.path().join("sessions");
         if path.is_dir() {
             roots.push(ScanRoot {
                 cli: "codex",
@@ -684,15 +690,15 @@ mod tests {
     }
 
     #[test]
-    fn collect_codex_home_scan_roots_discovers_isolated_sessions() {
+    fn collect_codex_home_scan_roots_discovers_legacy_isolated_sessions() {
         let temp = tempfile::tempdir().expect("temp dir");
+        // 旧隔离目录的真实结构：<sessionId>/sessions（不是 <sessionId>/.codex/sessions）。
         let sessions = temp
             .path()
             .join(".cache")
             .join("cc-panes")
             .join("codex-home")
             .join("session-123")
-            .join(".codex")
             .join("sessions");
         fs::create_dir_all(&sessions).expect("create isolated sessions dir");
         fs::create_dir_all(
@@ -700,7 +706,7 @@ mod tests {
                 .join(".cache")
                 .join("cc-panes")
                 .join("codex-home")
-                .join("session-without-codex"),
+                .join("session-without-sessions"),
         )
         .expect("create unrelated isolated dir");
 

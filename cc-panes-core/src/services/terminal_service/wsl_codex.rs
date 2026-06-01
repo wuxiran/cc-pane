@@ -273,10 +273,9 @@ fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String
         "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CODEX_DST\"; fi"
             .to_string(),
     );
-    commands.push(format!(
-        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then find \"$CCPANES_WSL_CODEX_DST\" -maxdepth 1 -mindepth 1 -type d -name '{}-*' -exec rm -rf {{}} +; fi",
-        BUNDLED_NAMESPACE
-    ));
+    // 去隔离后 $CCPANES_WSL_CODEX_DST 指向真实 ~/.codex/skills，绝不能像旧隔离目录那样
+    // `find ... -name 'ccpanes-*' -exec rm -rf` 批量删 —— 会误删用户自建的同前缀 skill。
+    // 改为只 upsert 内置 skill（下方 mkdir+cp 覆盖各 SKILL.md）；残留的旧内置目录无害。
     for dir_name in dir_names {
         commands.push(format!(
             "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CODEX_DST/{}\"; fi",
@@ -337,44 +336,71 @@ fn push_codex_yolo_mode_arg(codex_args: &mut Vec<String>) {
     codex_args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
 }
 
+/// 生成 WSL Codex 的 MCP 禁用前导脚本（**不再隔离 CODEX_HOME**）。
+///
+/// 去隔离后 Codex 直接使用真实 `~/.codex`，`codex resume <id>` 能命中真实历史、
+/// ccswitch 换 provider 后历史不丢。原先靠"复制+sanitize config 到隔离 home"实现的
+/// 「关闭用户全局未列出的 MCP」改为 per-launch `-c mcp_servers.<name>.enabled=false`：
+///
+/// - 关哪些必须知道真实 config 里有哪些 server，而真实 config 在 WSL 内 —— 实测
+///   `codex -c mcp_servers.X.enabled=false` 逐个禁用有效，整表 `mcp_servers={}` 无效，
+///   故保留一小段最小 shell：grep 出 `[mcp_servers.NAME]` 顶层段名，对不在 allowed
+///   集合里的 NAME 追加 `-c mcp_servers.NAME.enabled=false` 到 `$CCPANES_CODEX_MCP_DISABLE`，
+///   在 codex 调用处展开。allowed 名单由 Rust 侧传入（已转义）。
+/// - plugins 是 stable feature（默认开），用 `--disable plugins` 顶层 flag 关闭（见 build）；
+///   marketplaces 非 config section、实测用户 config 无此段，无需处理。
 fn push_wsl_codex_mcp_isolation_prelude(
     remote_parts: &mut Vec<String>,
     disable_unlisted_mcp_servers: bool,
-    session_id: &str,
-    selected_mcp_config_toml: &str,
+    allowed_mcp_server_ids: &[String],
 ) {
+    // 始终初始化，确保 codex 调用处展开 $CCPANES_CODEX_MCP_DISABLE 时变量已绑定。
+    remote_parts.push("CCPANES_CODEX_MCP_DISABLE=\"\"".to_string());
+
     if !disable_unlisted_mcp_servers {
         return;
     }
 
-    let session_id = sanitize_wsl_script_component(session_id);
-    let heredoc = format!("CCPANES_CODEX_MCP_{}", session_id);
+    // allowed 集合：每行一个名字（含 ccpanes/shared 由调用方负责加入），供 grep -Fxq 精确匹配。
+    let mut allowed = allowed_mcp_server_ids.to_vec();
+    allowed.push("ccpanes".to_string());
+    let allowed_lines = allowed.join("\n");
+
+    // 枚举真实 ~/.codex/config.toml 的 [mcp_servers.NAME]（仅顶层段，排除 .env/.args 子表），
+    // 对不在 allowed 里的 NAME 追加 -c 禁用。CCPANES_CODEX_REAL_HOME 尊重用户 CODEX_HOME。
     remote_parts.push("CCPANES_CODEX_REAL_HOME=\"${CODEX_HOME:-$HOME/.codex}\"".to_string());
     remote_parts.push(format!(
-        "export CODEX_HOME=\"$HOME/.cache/cc-panes/codex-home/{}\"",
-        session_id
+        "CCPANES_CODEX_ALLOWED={}",
+        shell_escape_posix(&allowed_lines)
     ));
-    remote_parts.push("rm -rf \"$CODEX_HOME\"".to_string());
-    remote_parts.push("mkdir -p \"$CODEX_HOME\"".to_string());
     remote_parts.push(
         r#"if [ -f "$CCPANES_CODEX_REAL_HOME/config.toml" ]; then
-  awk 'BEGIN{skip=0} /^\[(mcp_servers|plugins|marketplaces)(\.|\])/{skip=1; next} /^\[/{skip=0} !skip{print}' "$CCPANES_CODEX_REAL_HOME/config.toml" > "$CODEX_HOME/config.toml"
-else
-  : > "$CODEX_HOME/config.toml"
+  for CCPANES_MCP_NAME in $(grep -oE '^\[mcp_servers\.[^].]+\]' "$CCPANES_CODEX_REAL_HOME/config.toml" | sed -E 's/^\[mcp_servers\.([^].]+)\]$/\1/' | sort -u); do
+    if ! printf '%s\n' "$CCPANES_CODEX_ALLOWED" | grep -Fxq "$CCPANES_MCP_NAME"; then
+      CCPANES_CODEX_MCP_DISABLE="$CCPANES_CODEX_MCP_DISABLE -c mcp_servers.$CCPANES_MCP_NAME.enabled=false"
+    fi
+  done
 fi"#
         .to_string(),
     );
-    remote_parts.push(
-        "for CCPANES_CODEX_LINK_NAME in auth.json AGENTS.md prompts rules; do if [ -e \"$CCPANES_CODEX_REAL_HOME/$CCPANES_CODEX_LINK_NAME\" ]; then ln -sn \"$CCPANES_CODEX_REAL_HOME/$CCPANES_CODEX_LINK_NAME\" \"$CODEX_HOME/$CCPANES_CODEX_LINK_NAME\"; fi; done".to_string(),
-    );
-    if !selected_mcp_config_toml.trim().is_empty() {
-        remote_parts.push(format!(
-            "cat >> \"$CODEX_HOME/config.toml\" <<'{}'\n{}\n{}",
-            heredoc,
-            selected_mcp_config_toml.trim_end(),
-            heredoc
-        ));
+}
+
+/// 把 `selected_shared_mcp_config_toml_for_codex` 产出的 TOML（`{mcp_servers:{NAME:{...}}}`）
+/// 解析回 `(name, value)` 列表，供 build_wsl_command 逐个转成内联表 `-c`。空串返回空列表。
+fn parse_selected_mcp_servers(selected_mcp_config_toml: &str) -> Vec<(String, toml::Value)> {
+    if selected_mcp_config_toml.trim().is_empty() {
+        return Vec::new();
     }
+    let Ok(toml::Value::Table(root)) = selected_mcp_config_toml.parse::<toml::Value>() else {
+        return Vec::new();
+    };
+    let Some(toml::Value::Table(servers)) = root.get("mcp_servers") else {
+        return Vec::new();
+    };
+    servers
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
 }
 
 fn is_wsl_home_path(path: &str) -> bool {
@@ -928,7 +954,7 @@ impl TerminalService {
         initial_prompt: Option<&str>,
         skip_mcp: bool,
         shared_mcp_urls: &HashMap<String, String>,
-        _allowed_mcp_server_ids: &[String],
+        allowed_mcp_server_ids: &[String],
         disable_unlisted_mcp_servers: bool,
         selected_mcp_config_toml: &str,
         yolo_mode: bool,
@@ -939,8 +965,7 @@ impl TerminalService {
         push_wsl_codex_mcp_isolation_prelude(
             &mut remote_parts,
             disable_unlisted_mcp_servers,
-            session_id,
-            selected_mcp_config_toml,
+            allowed_mcp_server_ids,
         );
         match self.build_wsl_codex_skill_sync_commands() {
             Ok(mut commands) => remote_parts.append(&mut commands),
@@ -987,6 +1012,25 @@ impl TerminalService {
                         format_toml_value_for_cli(&toml::Value::String(mcp_url))
                     ));
                 }
+
+                // 注入 allowed 的共享 MCP（command/args/env 型）——去隔离后不再写隔离 config，
+                // 改为每个 server 一条内联表 -c mcp_servers.NAME={command=...,args=[...],env={...}}。
+                // 实测 codex 接受内联表 -c，等价于原先追加到隔离 config 的效果。
+                for (name, value) in parse_selected_mcp_servers(selected_mcp_config_toml) {
+                    codex_args.push("-c".to_string());
+                    codex_args.push(format!(
+                        "mcp_servers.{}={}",
+                        format_toml_key_segment_for_cli(&name),
+                        format_toml_value_for_cli(&value)
+                    ));
+                }
+
+                // 关闭用户全局未列出的 plugins（plugins 是 stable feature，默认开）。
+                // marketplaces 非 config section、用户 config 通常无此段，无需处理。
+                if disable_unlisted_mcp_servers {
+                    codex_args.push("--disable".to_string());
+                    codex_args.push("plugins".to_string());
+                }
             } else {
                 warn!(
                     distro = %wsl.distro,
@@ -1023,8 +1067,10 @@ impl TerminalService {
             .map(|arg| Self::shell_escape(arg))
             .collect::<Vec<_>>()
             .join(" ");
+        // $CCPANES_CODEX_MCP_DISABLE 由 prelude 填充为「-c mcp_servers.X.enabled=false ...」，
+        // 需未转义地展开（多个 token），且必须在 resume 子命令之前 → 紧跟 codex 之后。
         remote_parts.push(format!(
-            "exec {} {}",
+            "exec {} $CCPANES_CODEX_MCP_DISABLE {}",
             Self::shell_escape(codex_path),
             escaped_codex_args
         ));
@@ -1057,8 +1103,8 @@ impl TerminalService {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_codex_resume_args, push_codex_developer_instructions_arg, push_codex_yolo_mode_arg,
-        push_wsl_codex_mcp_isolation_prelude, render_wsl_launch_script,
+        append_codex_resume_args, parse_selected_mcp_servers, push_codex_developer_instructions_arg,
+        push_codex_yolo_mode_arg, push_wsl_codex_mcp_isolation_prelude, render_wsl_launch_script,
     };
     #[cfg(windows)]
     use super::{
@@ -1155,22 +1201,49 @@ mod tests {
     }
 
     #[test]
-    fn codex_mcp_isolation_prelude_uses_isolated_codex_home() {
+    fn codex_mcp_isolation_prelude_no_longer_isolates_home_and_disables_unlisted() {
         let mut commands = Vec::new();
 
         push_wsl_codex_mcp_isolation_prelude(
             &mut commands,
             true,
-            "session-123",
-            "[mcp_servers.fetch]\ncommand = \"uvx\"",
+            &["allowedserver".to_string()],
         );
         let script = render_wsl_launch_script(&commands);
 
-        assert!(
-            script.contains("export CODEX_HOME=\"$HOME/.cache/cc-panes/codex-home/session-123\"")
-        );
-        assert!(script.contains("(mcp_servers|plugins|marketplaces)"));
-        assert!(script.contains("[mcp_servers.fetch]\ncommand = \"uvx\""));
+        // 去隔离：不再 export 隔离 CODEX_HOME、不再 rm -rf、不再 sanitize 拷 config。
+        assert!(!script.contains("export CODEX_HOME=\"$HOME/.cache/cc-panes/codex-home"));
+        assert!(!script.contains("rm -rf \"$CODEX_HOME\""));
+        assert!(!script.contains("(mcp_servers|plugins|marketplaces)"));
+        // 改为：初始化禁用变量 + 枚举真实 config 对非 allowed server 追加 -c enabled=false。
+        assert!(script.contains("CCPANES_CODEX_MCP_DISABLE=\"\""));
+        assert!(script.contains("CCPANES_CODEX_REAL_HOME=\"${CODEX_HOME:-$HOME/.codex}\""));
+        assert!(script.contains("mcp_servers.$CCPANES_MCP_NAME.enabled=false"));
+        // allowed 名单写入 shell（含传入的 allowedserver + 隐式 ccpanes）。
+        assert!(script.contains("allowedserver"));
+        assert!(script.contains("ccpanes"));
+    }
+
+    #[test]
+    fn codex_mcp_isolation_prelude_disabled_only_inits_empty_var() {
+        let mut commands = Vec::new();
+        push_wsl_codex_mcp_isolation_prelude(&mut commands, false, &[]);
+        let script = render_wsl_launch_script(&commands);
+        // 未开隔离：只初始化空变量，不枚举、不禁用。
+        assert!(script.contains("CCPANES_CODEX_MCP_DISABLE=\"\""));
+        assert!(!script.contains("mcp_servers.$CCPANES_MCP_NAME.enabled=false"));
+    }
+
+    #[test]
+    fn parse_selected_mcp_servers_extracts_named_servers() {
+        let toml = "[mcp_servers.fetch]\ncommand = \"uvx\"\nargs = [\"x\"]\n";
+        let servers = parse_selected_mcp_servers(toml);
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].0, "fetch");
+        assert!(servers[0].1.get("command").is_some());
+        // 空串/无 mcp_servers 返回空。
+        assert!(parse_selected_mcp_servers("").is_empty());
+        assert!(parse_selected_mcp_servers("model = \"x\"").is_empty());
     }
 
     #[test]
@@ -1241,9 +1314,14 @@ mod tests {
         assert!(commands
             .iter()
             .any(|line: &String| line.contains("${CODEX_HOME:-$HOME/.codex}/skills")));
-        assert!(commands
+        // 去隔离后目标是真实 ~/.codex/skills：绝不能批量删 ccpanes-* 目录（会误删用户自建）。
+        assert!(!commands
             .iter()
             .any(|line: &String| line.contains("find \"$CCPANES_WSL_CODEX_DST\"")));
+        // 仍正常 upsert 内置 skill。
+        assert!(commands
+            .iter()
+            .any(|line: &String| line.contains("mkdir -p \"$CCPANES_WSL_CODEX_DST/ccpanes-launch-task\"")));
         assert!(commands.iter().any(|line: &String| line
             .contains("cp \"$CCPANES_WSL_CODEX_SRC/ccpanes-launch-task/SKILL.md\"")));
     }

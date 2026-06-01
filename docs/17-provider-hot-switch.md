@@ -18,7 +18,7 @@
 ## 已评审决议（WSL Codex 同行评审吸收）
 
 - **回滚策略 + 状态同步**：选 A 原子双 PTY 替换 + `switch_session_provider` 同步 `TaskBinding / LaunchHistory / SavedSession`。kill 后失败再重连的方案被否决。
-- **UI 入口 + Codex CODEX_HOME**：选 A，Provider 菜单挂在 Pane chrome/notch（与 Tab 标题/close 同条带），右键不侵入 xterm；Codex 的 isolated CODEX_HOME 按 `resume_id` 稳定建目录，切 provider 时复用同一目录避免 resume 历史查不到。
+- **UI 入口 + Codex CODEX_HOME**：选 A，Provider 菜单挂在 Pane chrome/notch（与 Tab 标题/close 同条带），右键不侵入 xterm。**Codex 不再隔离 CODEX_HOME**（去隔离已落地，见下方「⚠ 已被去隔离方案取代」注记）：直接用真实 `~/.codex`，切 provider 时同 `resume_id` 天然命中真实历史，无需隔离目录。
 - **依赖注入 + 安全范围**：Tauri command 层同时注入 `TerminalService` 和 `TaskBindingService`，`TerminalService` 不持有 binding 依赖；默认只允许同 **trust level** 切换（"官方 Anthropic ↔ 官方 Anthropic"、"第三方代理 ↔ 第三方代理"），跨 trust 必须用户在 Provider 设置里显式打开"允许跨信任级切换"开关 + 切换时强二次确认。
 - **强制采纳的修复**（reviewer 明确指出，无替代方案）：
   - 加 `KillReason::ProviderSwitch`，软重启时不触发 `session-killed` → `closeTabBySessionId`
@@ -50,7 +50,7 @@
 ### 关键约束
 
 - **新 sessionId 必须先 spawn 成功再用**：原子双 PTY 替换的核心；spawn 失败旧 PTY 不动，对用户无感。
-- **resume_id 复用 + Codex CODEX_HOME 按 resume_id 稳定**：Claude Code 把会话存本地 `~/.claude/projects/`；Codex isolated CODEX_HOME 默认按 sessionId 建目录会让换 sessionId 后查不到 resume 历史，必须改为按 resume_id 建目录（无 resume_id 时退回 sessionId）。
+- **resume_id 复用 + Codex 用真实 `~/.codex`（不隔离 home）**：Claude Code 把会话存本地 `~/.claude/projects/`；Codex 历史存 `~/.codex/sessions/`。**Codex 不再隔离 CODEX_HOME**（去隔离已在「Codex resume 修复」中落地，见下方注记）——直接用真实 `~/.codex`，切 provider 后新 sessionId 仍 `codex resume <resume_id>` 命中真实历史，无需按 resume_id 建隔离目录。
 - **trust level 二元分类**：`trust_level: "official" | "third_party"`，加到 `Provider` 模型上。Anthropic / Bedrock / Vertex / OpenAI 直连官方 = official；ConfigProfile / Proxy / 其他第三方兼容 = third_party。默认只允许同 trust level 切换。
 - **switch lock**：后端按 `session_id` 维度的 Mutex，禁止并发切换。
 - **TerminalService 不持有 TaskBindingService**：依赖注入在 Tauri command 层完成。
@@ -116,13 +116,10 @@ pub async fn switch_session_provider(
 
 `switch_locks` 加在 `TerminalService` 上：`Arc<Mutex<HashSet<String>>>`（session_id 进集合 = 锁中）。
 
-**5. Codex isolated CODEX_HOME 按 resume_id 稳定**
+**5. Codex 用真实 `~/.codex`（去隔离，已落地）**
 
-`cc-cli-adapters\src\codex.rs::prepare_isolated_codex_home` 当前按 sessionId 建目录。改为：
-- 有 `resume_id` → 目录名用 `cdx-{resume_id_hash}`
-- 无 `resume_id` → 退回 `cdx-{session_id}`
-
-WSL Codex 路径 `terminal_service\wsl_codex.rs` 同步逻辑。这样 switch 时新 sessionId 但同 resume_id 会指到同一 CODEX_HOME。
+> ⚠ **此项原计划"按 resume_id 命名隔离 CODEX_HOME"，已被「Codex resume 去隔离」方案取代。**
+> `prepare_isolated_codex_home` / WSL 的 `export CODEX_HOME` 隔离逻辑**已删除**：Codex 现直接用真实 `~/.codex`（与 Claude 一致），`codex resume <resume_id>` 天然命中真实 `~/.codex/sessions`，切 provider 后 sessionId 变化也不影响。MCP 隔离改由 per-launch `-c mcp_servers.<name>.enabled=false` / 内联表 `-c` / `--disable plugins` 实现（本地 `push_mcp_isolation_overrides`、WSL `push_wsl_codex_mcp_isolation_prelude`）。**不要再为 provider 切换重新引入隔离目录。**
 
 **6. SSH 路径补 `--resume`**
 
@@ -216,15 +213,15 @@ switchSessionProvider(args: {
 - **WSL distro 缺失**：快照 `wsl.distro` 为 None 时复用 create_session 默认逻辑。
 - **SSH 身份切换**：只切 Provider，SSH 连接信息（host/identity）保持不变。
 - **dev/release 隔离**：所有路径已通过 `AppPaths` 抽象。
-- **Codex CODEX_HOME 迁移**：旧 sessionId 目录在 ProviderSwitch kill 时不能删（按 sessionId 命名的目录可能被其他 session 占用）；按 resume_id 命名后切换天然指到同一目录，新旧不冲突。`prepare_isolated_codex_home` 内部要处理"目录已存在"是正常情况。
+- **Codex 历史延续（去隔离后天然成立）**：Codex 用真实 `~/.codex`，切 provider 后新 sessionId 仍 `codex resume <resume_id>` 命中同一份 `~/.codex/sessions`，无隔离目录、无需迁移/复用逻辑。
 
 ## 关键文件清单
 
 修改：
 - `cc-panes-core\src\models\provider.rs` — 加 `ProviderTrustLevel`、默认映射
 - `cc-panes-core\src\services\terminal_service.rs` — `TerminalSession` 加快照字段；`KillReason` 枚举；`switch_session_provider`；`switch_locks`；`kill_with_reason`
-- `cc-panes-core\src\services\terminal_service\wsl_codex.rs` — CODEX_HOME 路径按 resume_id 稳定
-- `cc-cli-adapters\src\codex.rs` — `prepare_isolated_codex_home` 按 resume_id 命名
+- `cc-panes-core\src\services\terminal_service\wsl_codex.rs` — 去隔离（不再 export 隔离 CODEX_HOME）；MCP 隔离改 per-launch `-c`
+- `cc-cli-adapters\src\codex.rs` — 去隔离（删 `prepare_isolated_codex_home`，直用真实 `~/.codex`）
 - `cc-panes-core\src\services\terminal_service.rs` — `build_ssh_command` 补 `--resume` 透传
 - `src-tauri\src\commands\terminal_commands.rs` — `switch_session_provider` Tauri command（双 State 注入）
 - `src-tauri\src\lib.rs` — 注册 invoke_handler
@@ -252,7 +249,7 @@ switchSessionProvider(args: {
 - `switch_concurrent_same_session_blocked` — 同 session 第二次 switch 在第一次完成前 → Conflict
 - `switch_preserves_resume_id` — 新 ctx.resume_id 等于旧 resume_id
 - `switch_kill_reason_provider_switch_no_session_killed_event` — 监听 emitter，确认不发 `session-killed`
-- `switch_wsl_codex_codex_home_stable_by_resume_id` — 同 resume_id 切换两次，`prepare_isolated_codex_home` 返回同一路径
+- `switch_codex_resume_hits_real_home` — 切 provider 后新 sessionId 仍能 `codex resume <resume_id>` 命中真实 `~/.codex/sessions`（去隔离后天然成立）
 
 **前端单元测试**（Vitest）：
 - `usePanesStore` 收到 `session-replaced` 事件按 leaf id + oldSessionId 双条件迁移；不匹配的 leaf 不动
@@ -263,7 +260,7 @@ switchSessionProvider(args: {
 
 1. **Local Claude + 同 trust**: 启 Claude tab 绑 Anthropic 官方 → Pane chrome 显 "Claude · Anthropic" → 点击 → 菜单里只看到官方类 provider（Bedrock/Vertex 等同 trust） → 选 Vertex → ~300ms 切换 → Tab 不闪关 → "你之前问的什么"得到正确回答（resume 生效）。
 2. **跨 trust 拦截**: 同上但用户没开 allow_cross_trust → 菜单里看不到 Proxy / 第三方代理 → 末尾 "允许跨信任级切换..." 弹 confirm → 同意后菜单展开 → 选第三方 → confirm dialog 再次警告 → 切换成功 → 验证 Pane chrome 上 third_party 角标 ⚠ 显示。
-3. **WSL Codex 切 provider + CODEX_HOME 复用**: 启 WSL Codex tab → 切到另一个 OpenAI 兼容 provider → 验证 `~/.codex/cdx-<resume_hash>` 目录被复用，conversations 历史可查询；切换后第二次再切回也命中同一目录。
+3. **WSL Codex 切 provider + 历史延续**: 启 WSL Codex tab → 切到另一个 OpenAI 兼容 provider → 验证切换后 `codex resume <resume_id>` 命中真实 `~/.codex/sessions`、conversations 历史可查询（去隔离后无 `cdx-*` 目录）。
 4. **WSL Claude**: WSL Claude tab 切 provider → WSLENV 透传仍正常 → 对话延续。
 5. **SSH Claude + resume**: SSH Claude tab 切 provider → 验证 `build_ssh_command` 拼了 `--resume <id>`（看日志或 ps）→ 远程 claude 进程实际跑 `--resume` 且对话延续。
 6. **原子失败 + 旧 session 保留**: mock 一个不存在的 provider config → 触发 `spawn_pty` 失败 → 验证 sonner toast 报错 → **旧 session 不变**，仍可正常用。
@@ -290,5 +287,5 @@ cargo test --workspace
 
 1. **Slice 1 — Provider 模型与 trust level**：`ProviderTrustLevel` 枚举、默认映射、`getCompatibleProvidersForLeaf` helper、TS 类型、前端"允许跨信任级"开关 UI。不引入切换功能，仅打基础。
 2. **Slice 2 — 后端原子双 PTY + KillReason + switch_locks**：`TerminalSession` 补字段、`KillReason::ProviderSwitch`、`switch_session_provider` 主体、`switch_locks`、`session-replaced` 事件、Tauri command 双 State 注入。覆盖 Local runtime + 单元测试。
-3. **Slice 3 — WSL / SSH / Codex CODEX_HOME 收尾**：CODEX_HOME 按 resume_id 命名、`build_ssh_command` 补 `--resume`、WSL Codex / SSH 路径手动 E2E。
+3. **Slice 3 — WSL / SSH 收尾**：Codex 去隔离（直用真实 `~/.codex`，不再按 resume_id 建隔离目录）、`build_ssh_command` 补 `--resume`、WSL Codex / SSH 路径手动 E2E。
 4. **Slice 4 — Pane chrome UI 入口 + 双条件迁移 + 状态同步**：Panel.tsx Provider 标识 + DropdownMenu、usePanesStore 监听、SavedSession 立即收集触发、TaskBinding / LaunchHistory command 层同步、i18n、E2E 走通。
