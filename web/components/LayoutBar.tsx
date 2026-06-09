@@ -10,11 +10,6 @@ import { collectTerminalLeaves, collectTerminalSessionIdsFromTree, collectTermin
 import InlineRename from "@/components/ui/InlineRename";
 import { Button } from "@/components/ui/button";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -91,8 +86,8 @@ export default function LayoutBar() {
   const deleteLayout = usePanesStore((s) => s.deleteLayout);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
-  const toggleHomeMode = useActivityBarStore((s) => s.toggleHomeMode);
 
+  const rootRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoveringRef = useRef(false);
   const editingIdRef = useRef<string | null>(null);
@@ -131,6 +126,15 @@ export default function LayoutBar() {
     }
   }
 
+  function closeSelector() {
+    clearCloseTimer();
+    editingIdRef.current = null;
+    contextMenuOpenRef.current = false;
+    setOpen(false);
+    setEditingId(null);
+    setEditingName("");
+  }
+
   function openSelector() {
     hoveringRef.current = true;
     clearCloseTimer();
@@ -141,24 +145,13 @@ export default function LayoutBar() {
     clearCloseTimer();
     closeTimerRef.current = setTimeout(() => {
       if (hoveringRef.current || editingIdRef.current || contextMenuOpenRef.current) return;
-      setOpen(false);
-      setEditingId(null);
-      setEditingName("");
+      closeSelector();
     }, 180);
   }
 
   function scheduleClose() {
     hoveringRef.current = false;
     queueClose();
-  }
-
-  function handlePopoverOpenChange(nextOpen: boolean) {
-    if (nextOpen) {
-      openSelector();
-      return;
-    }
-    if (editingIdRef.current || contextMenuOpenRef.current) return;
-    setOpen(false);
   }
 
   function handleContextMenuOpenChange(nextOpen: boolean) {
@@ -174,6 +167,32 @@ export default function LayoutBar() {
   useEffect(() => {
     return () => clearCloseTimer();
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      const root = rootRef.current;
+      const target = event.target;
+      if (!root || !(target instanceof Node) || root.contains(target) || contextMenuOpenRef.current) {
+        return;
+      }
+      closeSelector();
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !editingIdRef.current && !contextMenuOpenRef.current) {
+        closeSelector();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
 
   function confirmRename() {
     if (editingId && editingName.trim()) {
@@ -196,9 +215,7 @@ export default function LayoutBar() {
     if (deletingLastLayout) return;
     editingIdRef.current = null;
     contextMenuOpenRef.current = false;
-    setOpen(false);
-    setEditingId(null);
-    setEditingName("");
+    closeSelector();
     setDeleteSummary(summarizeLayoutDelete(layout));
   }
 
@@ -242,45 +259,47 @@ export default function LayoutBar() {
   }
 
   return (
-    <div className="flex items-center justify-center pb-2 pt-0.5" onMouseEnter={openSelector} onMouseLeave={scheduleClose}>
-      <Popover open={open} onOpenChange={handlePopoverOpenChange}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label={t("layoutSwitcher")}
-            className={`relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl transition-all duration-200 hover:scale-105 ${
-              active
-                ? "text-[var(--primary-foreground)]"
-                : "text-[var(--app-accent)] hover:bg-[var(--app-activity-item-hover)]"
-            }`}
-            style={{
-              background: active ? "var(--app-accent)" : "var(--app-activity-bar-bg)",
-              border: `1px solid ${active ? "var(--app-accent)" : "var(--app-activity-border)"}`,
-              boxShadow: active
-                ? "0 2px 8px color-mix(in srgb, var(--app-accent) 40%, transparent)"
-                : "none",
-            }}
-            onClick={toggleHomeMode}
-          >
-            <Command className="h-[14px] w-[14px]" />
-            <span className="absolute -right-[4px] -top-[4px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--app-accent)] px-[3px] text-[9px] font-bold leading-none text-white ring-1 ring-[var(--app-activity-bar-bg)]">
-              {layouts.length > 99 ? "99+" : layouts.length}
-            </span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          side="right"
-          align="start"
-          sideOffset={10}
-          className="w-64 p-2"
+    <div
+      ref={rootRef}
+      className="relative flex items-center justify-center pb-2 pt-0.5"
+      onMouseEnter={openSelector}
+      onMouseLeave={scheduleClose}
+    >
+      <button
+        type="button"
+        aria-label={t("layoutSwitcher")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl transition-all duration-200 hover:scale-105 ${
+          active
+            ? "text-[var(--primary-foreground)]"
+            : "text-[var(--app-accent)] hover:bg-[var(--app-activity-item-hover)]"
+        }`}
+        style={{
+          background: active ? "var(--app-accent)" : "var(--app-activity-bar-bg)",
+          border: `1px solid ${active ? "var(--app-accent)" : "var(--app-activity-border)"}`,
+          boxShadow: active
+            ? "0 2px 8px color-mix(in srgb, var(--app-accent) 40%, transparent)"
+            : "none",
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          openSelector();
+        }}
+      >
+        <Command className="h-[14px] w-[14px]" />
+        <span className="absolute -right-[4px] -top-[4px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--app-accent)] px-[3px] text-[9px] font-bold leading-none text-white ring-1 ring-[var(--app-activity-bar-bg)]">
+          {layouts.length > 99 ? "99+" : layouts.length}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label={t("layouts")}
+          className="absolute left-[calc(100%+10px)] top-0 z-50 w-64 rounded-md border p-2 shadow-md outline-none"
           onMouseEnter={openSelector}
           onMouseLeave={scheduleClose}
-          onInteractOutside={(event) => {
-            if (editingIdRef.current || contextMenuOpenRef.current) {
-              event.preventDefault();
-            }
-          }}
-          onOpenAutoFocus={(event) => event.preventDefault()}
           style={{
             background: "var(--app-panel-bg)",
             borderColor: "var(--app-border)",
@@ -380,8 +399,8 @@ export default function LayoutBar() {
               );
             })}
           </div>
-        </PopoverContent>
-      </Popover>
+        </div>
+      )}
 
       <Dialog open={deleteSummary !== null} onOpenChange={(open) => !open && setDeleteSummary(null)}>
         <DialogContent className="sm:max-w-md">

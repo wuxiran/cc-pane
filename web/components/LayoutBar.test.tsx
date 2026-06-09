@@ -48,6 +48,17 @@ describe("LayoutBar", () => {
     resetStores();
   });
 
+  it("点击布局按钮只打开选择器，不切换 home/panes 主视图", async () => {
+    const user = userEvent.setup();
+    useActivityBarStore.setState({ appViewMode: "home" });
+    render(<LayoutBar />);
+
+    await user.click(screen.getByRole("button", { name: /布局|Layout/i }));
+
+    expect(await screen.findByRole("dialog", { name: /布局|Layouts/i })).toBeInTheDocument();
+    expect(useActivityBarStore.getState().appViewMode).toBe("home");
+  });
+
   it("右键重命名后保持编辑态并提交新布局名", async () => {
     const user = userEvent.setup();
     render(<LayoutBar />);
