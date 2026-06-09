@@ -107,18 +107,15 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     const ws = currentWorkspaces.find((w) => w.id === expandedWorkspaceId);
     if (!ws) return;
     for (const project of ws.projects) {
-      setGitBranches((prev) => {
-        if (project.path in prev) return prev;
+      // 在 state updater 外部检查是否需要获取
+      if (!(project.path in gitBranches)) {
         fetchGitBranch(project.path).then((branch) => {
           setGitBranches((p) => ({ ...p, [project.path]: branch }));
         });
-        return prev;
-      });
-      setWorktreeCache((prev) => {
-        if (project.path in prev) return prev;
+      }
+      if (!(project.path in worktreeCache)) {
         fetchWorktrees(project.path);
-        return prev;
-      });
+      }
     }
   }, [expandedWorkspaceId, fetchGitBranch, fetchWorktrees]);
 
