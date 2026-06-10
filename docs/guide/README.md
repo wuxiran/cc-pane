@@ -47,6 +47,7 @@ CC-Panes 是一个面向 AI Coding 重度用户的多实例分屏工作台，以
 
 - ✅ [附录 A：数据存在哪 / 备份与排障](appendix-a-data-and-troubleshooting.md)
 - ✅ [附录 B：快捷键速查](appendix-b-shortcuts.md)
+- ✅ [附录 C：常见问题（FAQ）](appendix-c-faq.md)
 
 ---
 

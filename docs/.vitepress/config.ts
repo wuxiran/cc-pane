@@ -69,6 +69,7 @@ export default defineConfig({
         items: [
           { text: "附录 A · 数据与排障", link: "/guide/appendix-a-data-and-troubleshooting" },
           { text: "附录 B · 快捷键速查", link: "/guide/appendix-b-shortcuts" },
+          { text: "附录 C · 常见问题", link: "/guide/appendix-c-faq" },
         ],
       },
     ],
