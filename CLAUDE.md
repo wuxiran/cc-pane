@@ -271,6 +271,8 @@ npm run tauri build
 
 ## 文档引用
 
+> 面向**使用者**的操作手册（怎么用）见 [`docs/guide/`](docs/guide/README.md)。下表是面向**开发者**的设计文档（怎么设计 / 实现）。
+
 详细设计文档位于 `docs/` 目录：
 
 | 文档 | 内容 |

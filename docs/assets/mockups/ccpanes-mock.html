@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CC-Panes UI Mock</title>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --bg0: #0b0e14;
+    --bg1: #0f131b;
+    --activity-bg: rgba(255,255,255,0.025);
+    --sidebar-bg: rgba(255,255,255,0.035);
+    --border: rgba(255,255,255,0.07);
+    --border-soft: rgba(255,255,255,0.05);
+    --accent: #3b82f6;
+    --accent-soft: rgba(59,130,246,0.16);
+    --txt: #e6e8ec;
+    --txt2: #9aa3af;
+    --txt3: #6b7280;
+    --term-bg: #07090d;
+    --green: #22c55e;
+    --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+    background: radial-gradient(1200px 800px at 20% -10%, #141a26 0%, var(--bg0) 55%), var(--bg1);
+    color: var(--txt);
+    overflow: hidden;
+  }
+  .app { display: flex; height: 100vh; width: 100vw; }
+
+  /* ---------- ActivityBar ---------- */
+  .activity {
+    width: 56px; flex: none; height: 100%;
+    background: var(--activity-bg);
+    border-right: 1px solid var(--border);
+    backdrop-filter: blur(18px);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 8px 0; gap: 6px;
+  }
+  .layoutbar {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--txt2); width: 100%;
+  }
+  .layoutbar .lg { width: 22px; height: 22px; }
+  .layoutbar .lname { font-size: 9px; color: var(--txt3); }
+  .sep { width: 24px; height: 1px; background: var(--border); margin: 6px 0; }
+  .ico {
+    position: relative; width: 40px; height: 40px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--txt3); cursor: default;
+  }
+  .ico svg { width: 22px; height: 22px; stroke-width: 1.5; }
+  .ico.active { color: var(--accent); background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px rgba(59,130,246,0.25); }
+  .ico .badge {
+    position: absolute; top: 4px; right: 4px; min-width: 14px; height: 14px;
+    padding: 0 3px; border-radius: 999px; background: var(--accent);
+    color: #fff; font-size: 9px; font-weight: 700; line-height: 14px;
+  }
+  .ico .badge.red { background: #ef4444; }
+  .spacer { flex: 1; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 260px; flex: none; height: 100%;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+  }
+  .side-actions { display: flex; gap: 8px; padding: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 30px; padding: 0 12px; border-radius: 8px; font-size: 12.5px;
+    border: 1px solid var(--border); color: var(--txt); background: rgba(255,255,255,0.03);
+  }
+  .btn svg { width: 15px; height: 15px; }
+  .btn.primary { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; }
+  .side-title {
+    font-size: 11px; letter-spacing: .06em; color: var(--txt3);
+    text-transform: uppercase; padding: 8px 14px 6px;
+  }
+  .ws { padding: 0 8px; }
+  .ws-node {
+    display: flex; align-items: center; gap: 8px; height: 32px;
+    padding: 0 8px; border-radius: 8px; font-size: 13px; color: var(--txt);
+  }
+  .ws-node svg { width: 16px; height: 16px; color: var(--txt2); }
+  .ws-node.head { font-weight: 600; }
+  .proj {
+    display: flex; align-items: center; gap: 8px; height: 30px;
+    margin-left: 14px; padding: 0 8px; border-radius: 8px;
+    font-size: 12.5px; color: var(--txt2);
+  }
+  .proj svg.gi { width: 15px; height: 15px; color: var(--txt3); }
+  .proj .pname { flex: 1; }
+  .proj .play { width: 15px; height: 15px; color: var(--txt3); opacity: .8; }
+  .proj.active { background: var(--accent-soft); color: var(--txt); }
+  .proj.active svg.gi { color: var(--accent); }
+  .side-empty { color: var(--txt3); font-size: 12.5px; text-align: center; padding: 28px 12px; }
+  .side-foot { margin-top: auto; border-top: 1px solid var(--border-soft); padding: 10px 14px; }
+  .side-foot .row { display: flex; align-items: center; gap: 8px; color: var(--txt2); font-size: 12.5px; height: 26px; }
+  .side-foot .row svg { width: 15px; height: 15px; }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; }
+  .topbar {
+    height: 38px; flex: none; display: flex; align-items: center;
+    padding: 0 12px; gap: 10px; border-bottom: 1px solid var(--border-soft);
+  }
+  .topbar .title { font-size: 12.5px; color: var(--txt2); font-weight: 600; }
+  .topbar .right { margin-left: auto; display: flex; gap: 14px; color: var(--txt3); }
+  .topbar .right svg { width: 16px; height: 16px; }
+
+  .work { flex: 1; min-height: 0; padding: 8px; }
+  .panes { height: 100%; display: flex; gap: 8px; }
+  .pane { flex: 1; min-width: 0; display: flex; flex-direction: column;
+    border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden;
+    background: rgba(0,0,0,0.25); }
+  .pane.focused { border-color: rgba(59,130,246,0.4); box-shadow: 0 0 0 1px rgba(59,130,246,0.25); }
+  .tabbar {
+    height: 36px; flex: none; display: flex; align-items: center; gap: 6px;
+    padding: 0 8px; border-bottom: 1px solid var(--border-soft);
+    background: rgba(255,255,255,0.02);
+  }
+  .tab {
+    display: inline-flex; align-items: center; gap: 7px; height: 26px;
+    padding: 0 10px; border-radius: 7px; font-size: 12.5px; color: var(--txt2);
+  }
+  .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .tab .dot.amber { background: var(--amber); }
+  .tab.active { background: rgba(255,255,255,0.06); color: var(--txt); }
+  .tab .x { color: var(--txt3); font-size: 12px; }
+  .tab-actions { margin-left: auto; display: flex; gap: 8px; color: var(--txt3); }
+  .tab-actions svg { width: 15px; height: 15px; }
+
+  .term { flex: 1; min-height: 0; background: var(--term-bg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.55; color: #cdd3da; padding: 12px 14px; overflow: hidden; }
+  .term .muted { color: #6b7280; }
+  .term .g { color: #34d399; }
+  .term .b { color: #60a5fa; }
+  .term .y { color: #fbbf24; }
+  .term .p { color: #c084fc; }
+  .term .box { color: #5b6472; }
+  .cursor { display: inline-block; width: 7px; height: 15px; background: #cdd3da;
+    vertical-align: -2px; animation: bl 1s steps(1) infinite; }
+  @keyframes bl { 50% { opacity: 0; } }
+
+  /* empty state */
+  .empty { flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; color: var(--txt3); }
+  .empty .circle { width: 96px; height: 96px; border-radius: 50%;
+    background: rgba(59,130,246,0.08); display: flex; align-items: center; justify-content: center; }
+  .empty .circle svg { width: 40px; height: 40px; color: var(--accent); stroke-width: 1.5; }
+  .empty h2 { font-size: 18px; color: var(--txt); }
+  .empty p { font-size: 13px; }
+  .kbd { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; }
+  .kbd b { font-family: ui-monospace, Consolas, monospace; font-weight: 600;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+    border-radius: 6px; padding: 2px 8px; font-size: 12px; color: var(--txt); }
+
+  /* scene visibility */
+  .panes { display: none; }
+  body[data-scene="empty"] #scene-empty { display: flex; }
+  body[data-scene="single"] #scene-single { display: flex; }
+  body[data-scene="split"] #scene-split { display: flex; }
+  body[data-scene="empty"] .proj-list { display: none; }
+  body[data-scene="empty"] .ws-filled { display: none; }
+  body:not([data-scene="empty"]) .ws-empty { display: none; }
+</style>
+</head>
+<body data-scene="single">
+  <div class="app">
+    <!-- ActivityBar -->
+    <div class="activity">
+      <div class="layoutbar">
+        <i data-lucide="layout-grid" class="lg"></i>
+        <span class="lname">布局</span>
+      </div>
+      <div class="sep"></div>
+      <div class="ico" title="自我对话"><i data-lucide="bot"></i></div>
+      <div class="ico active" title="工作空间"><i data-lucide="folder-tree"></i></div>
+      <div class="ico" title="文件"><i data-lucide="files"></i></div>
+      <div class="ico" title="最近启动"><i data-lucide="history"></i></div>
+      <div class="ico" title="SSH 机器"><i data-lucide="server"></i></div>
+      <div class="ico" title="编排"><i data-lucide="workflow"></i><span class="badge">2</span></div>
+      <div class="ico" title="供应商"><i data-lucide="zap"></i></div>
+      <div class="ico" title="TodoList"><i data-lucide="list-todo"></i></div>
+      <div class="spacer"></div>
+      <div class="ico" title="设置"><i data-lucide="settings"></i></div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="side-actions">
+        <span class="btn primary"><i data-lucide="folder-input"></i>导入项目</span>
+        <span class="btn"><i data-lucide="folder-plus"></i>新建项目</span>
+      </div>
+      <div class="side-title">工作空间</div>
+      <div class="ws">
+        <!-- empty -->
+        <div class="ws-empty side-empty">暂无工作空间</div>
+        <!-- filled -->
+        <div class="ws-filled">
+          <div class="ws-node head"><i data-lucide="chevron-down"></i><i data-lucide="folder-open"></i><span>公司后端</span></div>
+          <div class="proj-list">
+            <div class="proj active"><i data-lucide="git-branch" class="gi"></i><span class="pname">user-service</span><i data-lucide="play" class="play"></i></div>
+            <div class="proj"><i data-lucide="git-branch" class="gi"></i><span class="pname">order-service</span><i data-lucide="play" class="play"></i></div>
+            <div class="proj"><i data-lucide="git-branch" class="gi"></i><span class="pname">common-lib</span><i data-lucide="play" class="play"></i></div>
+          </div>
+          <div class="ws-node head" style="margin-top:6px"><i data-lucide="chevron-right"></i><i data-lucide="folder"></i><span>我的开源项目</span></div>
+        </div>
+      </div>
+      <div class="side-foot">
+        <div class="side-title" style="padding:0 0 6px">工具</div>
+        <div class="row"><i data-lucide="history"></i><span>文件历史</span></div>
+        <div class="row"><i data-lucide="check-square"></i><span>TodoList</span></div>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+      <div class="topbar">
+        <span class="title">CC-Panes</span>
+        <span class="right">
+          <i data-lucide="pin"></i><i data-lucide="minus"></i><i data-lucide="moon"></i><i data-lucide="settings"></i>
+        </span>
+      </div>
+      <div class="work">
+
+        <!-- SCENE: empty -->
+        <div class="panes" id="scene-empty">
+          <div class="pane">
+            <div class="tabbar">
+              <span class="tab active"><span class="dot"></span>Terminal<span class="x">×</span></span>
+              <span class="tab-actions"><i data-lucide="panel-right"></i><i data-lucide="panel-bottom"></i></span>
+            </div>
+            <div class="empty">
+              <div class="circle"><i data-lucide="terminal"></i></div>
+              <h2>准备就绪</h2>
+              <p>从左侧选择一个项目以启动终端</p>
+              <div class="kbd"><b>Ctrl</b> + <b>T</b> &nbsp;新建标签</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SCENE: single -->
+        <div class="panes" id="scene-single">
+          <div class="pane focused">
+            <div class="tabbar">
+              <span class="tab active"><span class="dot"></span>user-service · claude<span class="x">×</span></span>
+              <span class="tab"><span class="dot amber"></span>order-service</span>
+              <span class="tab-actions"><i data-lucide="plus"></i><i data-lucide="panel-right"></i><i data-lucide="panel-bottom"></i></span>
+            </div>
+            <div class="term">
+<span class="muted">user@host</span>:<span class="b">~/code/user-service</span>$ claude<br/>
+<br/>
+<span class="box">╭──────────────────────────────────────────────╮</span><br/>
+<span class="box">│</span> <span class="p">✻</span> <b>Welcome to Claude Code</b>                       <span class="box">│</span><br/>
+<span class="box">│</span>   <span class="muted">/help 查看命令 · cwd: ~/code/user-service</span>     <span class="box">│</span><br/>
+<span class="box">╰──────────────────────────────────────────────╯</span><br/>
+<br/>
+<span class="g">&gt;</span> 帮我看看登录接口为什么偶尔返回 500<br/>
+<br/>
+<span class="p">●</span> 我先看一下 <span class="b">auth</span> 模块的请求处理链路…<br/>
+<span class="muted">  ⎿ 读取 src/auth/login.rs (128 lines)</span><br/>
+<span class="muted">  ⎿ 读取 src/auth/session.rs (94 lines)</span><br/>
+<br/>
+<span class="p">●</span> 找到了:<span class="y">session.rs:47</span> 在并发刷新时可能拿到空会话,<br/>
+  导致解包 panic 被上层兜成 500。我来修…<br/>
+<br/>
+<span class="g">&gt;</span> <span class="cursor"></span><br/>
+            </div>
+          </div>
+        </div>
+
+        <!-- SCENE: split -->
+        <div class="panes" id="scene-split">
+          <div class="pane focused">
+            <div class="tabbar">
+              <span class="tab active"><span class="dot"></span>user-service · claude<span class="x">×</span></span>
+              <span class="tab-actions"><i data-lucide="panel-right"></i><i data-lucide="panel-bottom"></i></span>
+            </div>
+            <div class="term">
+<span class="muted">user@host</span>:<span class="b">~/code/user-service</span>$ claude<br/>
+<br/>
+<span class="p">●</span> 已定位并修复 <span class="b">session.rs</span> 的并发刷新问题,<br/>
+  补了空会话保护 + 单测。<br/>
+<span class="muted">  ⎿ 编辑 src/auth/session.rs</span><br/>
+<span class="muted">  ⎿ 新增 tests/session_refresh.rs</span><br/>
+<br/>
+<span class="g">&gt;</span> 跑一下测试确认<br/>
+<br/>
+<span class="p">●</span> <span class="g">cargo test</span> 通过:<span class="g">42 passed</span>;0 failed<br/>
+<br/>
+<span class="g">&gt;</span> <span class="cursor"></span><br/>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="tabbar">
+              <span class="tab active"><span class="dot"></span>dev server<span class="x">×</span></span>
+              <span class="tab-actions"><i data-lucide="panel-right"></i><i data-lucide="panel-bottom"></i></span>
+            </div>
+            <div class="term">
+<span class="muted">user@host</span>:<span class="b">~/code/user-service</span>$ cargo watch -x run<br/>
+<span class="muted">[Running 'cargo run']</span><br/>
+<span class="g">   Compiling</span> user-service v0.3.1<br/>
+<span class="g">    Finished</span> dev <span class="muted">in 4.21s</span><br/>
+<span class="g">     Running</span> `target/debug/user-service`<br/>
+<br/>
+<span class="b">INFO</span> server listening on <span class="y">127.0.0.1:8080</span><br/>
+<span class="b">INFO</span> db pool ready (8 conns)<br/>
+<span class="b">INFO</span> POST /auth/login <span class="g">200</span> <span class="muted">12ms</span><br/>
+<span class="b">INFO</span> POST /auth/login <span class="g">200</span> <span class="muted">9ms</span><br/>
+<span class="muted">watching for changes…</span> <span class="cursor"></span><br/>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+  function applyScene() {
+    var h = (location.hash || '#single').slice(1);
+    if (['empty','single','split'].indexOf(h) === -1) h = 'single';
+    document.body.setAttribute('data-scene', h);
+    if (window.lucide) lucide.createIcons();
+  }
+  window.addEventListener('hashchange', applyScene);
+  window.addEventListener('DOMContentLoaded', applyScene);
+  applyScene();
+</script>
+</body>
+</html>

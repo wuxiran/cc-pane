@@ -9,7 +9,7 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.83+-000000?logo=rust)](https://www.rust-lang.org/)
 
-[Download](https://github.com/wuxiran/cc-pane/releases/latest) · [中文文档](README.zh-CN.md) · [Report an Issue](https://github.com/wuxiran/cc-pane/issues)
+[Download](https://github.com/wuxiran/cc-pane/releases/latest) · [中文文档](README.zh-CN.md) · [📖 User Guide](docs/guide/README.md) · [Report an Issue](https://github.com/wuxiran/cc-pane/issues)
 
 <p align="center">
   <img src="docs/assets/images/current-ui.png" alt="CC-Panes dark workspace with project sidebar and terminal panes" width="920" />

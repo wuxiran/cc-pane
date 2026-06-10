@@ -9,7 +9,7 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Rust-1.83+-000000?logo=rust)](https://www.rust-lang.org/)
 
-[下载最新版](https://github.com/wuxiran/cc-pane/releases/latest) · [English README](README.md) · [反馈问题](https://github.com/wuxiran/cc-pane/issues)
+[下载最新版](https://github.com/wuxiran/cc-pane/releases/latest) · [English README](README.md) · [📖 使用手册](docs/guide/README.md) · [反馈问题](https://github.com/wuxiran/cc-pane/issues)
 
 <p align="center">
   <img src="docs/assets/images/current-ui.png" alt="CC-Panes 深色工作区界面" width="920" />
