@@ -28,7 +28,10 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci
+        # 用 npm install 而非 npm ci：项目 package-lock 与 package.json 存在历史
+        # 不同步（react 18 相关条目缺失），npm ci 会严格报错；npm install 容错并就地解析，
+        # 仅用于本文档站构建，不改动仓库内的 lock 文件。
+        run: npm install --no-audit --no-fund
       - name: Build VitePress site
         run: npm run docs:build
       - uses: actions/configure-pages@v5
