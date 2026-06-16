@@ -7,6 +7,7 @@ import ActivityBar from "@/components/ActivityBar";
 import StatusBar from "@/components/StatusBar";
 import MiniView from "@/components/MiniView";
 import { PaneContainer } from "@/components/panes";
+import StarredPanel from "@/components/panes/StarredPanel";
 import DndPaneProvider from "@/components/panes/DndPaneProvider";
 import { FileEditorPanel } from "@/components/editor";
 import SettingsPanel from "@/components/SettingsPanel";
@@ -855,7 +856,11 @@ function MainApp() {
                               className="h-full w-full"
                               style={{ display: isCurrent ? "block" : "none" }}
                             >
-                              <PaneContainer pane={isCurrent ? rootPane : layout.rootPane} />
+                              {layout.kind === "starred" ? (
+                                <StarredPanel />
+                              ) : (
+                                <PaneContainer pane={isCurrent ? rootPane : layout.rootPane} />
+                              )}
                             </div>
                           </LayoutVisibilityContext.Provider>
                         );

@@ -7,15 +7,26 @@ import type { LayoutEntry, Panel, PaneNode, Tab, TerminalPaneLeaf, TerminalPaneS
 
 function resetPanesStore() {
   const rootPane = createPanel();
+  const starredRootPane = createPanel();
   usePanesStore.setState({
     rootPane,
     activePaneId: rootPane.id,
-    layouts: [{
-      id: "layout-1",
-      name: "布局 1",
-      rootPane,
-      activePaneId: rootPane.id,
-    }],
+    layouts: [
+      {
+        id: "layout-1",
+        name: "布局 1",
+        kind: "normal",
+        rootPane,
+        activePaneId: rootPane.id,
+      },
+      {
+        id: "layout-starred",
+        name: "星标",
+        kind: "starred",
+        rootPane: starredRootPane,
+        activePaneId: starredRootPane.id,
+      },
+    ],
     currentLayoutId: "layout-1",
     closedTabs: [],
     poppedOutTabs: new Set<string>(),
@@ -95,6 +106,13 @@ function hiddenLayout() {
   return usePanesStore.getState().layouts.find((layout) => layout.id === "layout-hidden")!;
 }
 
+function normalLayoutIds() {
+  return usePanesStore.getState()
+    .layouts
+    .filter((layout) => layout.kind !== "starred")
+    .map((layout) => layout.id);
+}
+
 describe("usePanesStore layouts", () => {
   beforeEach(() => {
     resetTauriInvoke();
@@ -114,9 +132,9 @@ describe("usePanesStore layouts", () => {
 
     const state = usePanesStore.getState();
     expect(state.currentLayoutId).toBe(id);
-    expect(state.layouts).toHaveLength(2);
-    expect(state.layouts[1].name).toBe("第二布局");
-    expect(state.rootPane).toBe(state.layouts[1].rootPane);
+    expect(state.layouts.filter((layout) => layout.kind !== "starred")).toHaveLength(2);
+    expect(state.layouts.find((layout) => layout.id === id)?.name).toBe("第二布局");
+    expect(state.rootPane).toBe(state.layouts.find((layout) => layout.id === id)?.rootPane);
     expect(state.rootPane).not.toBe(previousRoot);
     expect(state.layouts[0].rootPane).toBe(previousRoot);
   });
@@ -161,7 +179,7 @@ describe("usePanesStore layouts", () => {
       state.layouts.push(layout2);
     });
 
-    usePanesStore.getState().switchLayoutByIndex(1);
+    usePanesStore.getState().switchLayoutByIndex(2);
 
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-2");
   });
@@ -185,7 +203,7 @@ describe("usePanesStore layouts", () => {
     usePanesStore.getState().reorderLayouts(0, 2);
 
     const state = usePanesStore.getState();
-    expect(state.layouts.map((layout) => layout.id)).toEqual(["layout-2", "layout-3", "layout-1"]);
+    expect(state.layouts.map((layout) => layout.id)).toEqual(["layout-starred", "layout-2", "layout-1", "layout-3"]);
     expect(state.currentLayoutId).toBe("layout-1");
     expect(state.rootPane).toBe(currentRoot);
   });
@@ -212,7 +230,7 @@ describe("usePanesStore layouts", () => {
       state.layouts.push(layout2, layout3);
     });
 
-    usePanesStore.getState().reorderLayouts(2, 0);
+    usePanesStore.getState().reorderLayouts(3, 0);
     usePanesStore.getState().switchLayoutByIndex(0);
 
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-3");
@@ -228,12 +246,12 @@ describe("usePanesStore layouts", () => {
 
     usePanesStore.getState().deleteLayout("layout-3");
 
-    expect(usePanesStore.getState().layouts.map((layout) => layout.id)).toEqual(["layout-1", "layout-2"]);
+    expect(normalLayoutIds()).toEqual(["layout-1", "layout-2"]);
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-2");
 
     usePanesStore.getState().deleteLayout("layout-1");
     usePanesStore.getState().deleteLayout("layout-2");
-    expect(usePanesStore.getState().layouts).toHaveLength(1);
+    expect(normalLayoutIds()).toHaveLength(1);
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-2");
   });
 
@@ -245,6 +263,49 @@ describe("usePanesStore layouts", () => {
 
     expect(usePanesStore.getState().allPanels()).toHaveLength(1);
     expect(usePanesStore.getState().allPanelsAcrossLayouts()).toHaveLength(2);
+  });
+
+  it("默认带星标布局，但跨布局 pane 遍历只返回真实布局", () => {
+    const state = usePanesStore.getState();
+
+    expect(state.layouts.some((layout) => layout.kind === "starred" && layout.name === "星标")).toBe(true);
+    expect(state.allPanelsAcrossLayouts()).toHaveLength(1);
+    expect(state.listLayouts().some((layout) => layout.kind === "starred")).toBe(false);
+  });
+
+  it("toggleStarTab 后 starredTabs 返回原 tab 位置并可切回原布局", () => {
+    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
+    usePanesStore.setState((state) => {
+      state.layouts.push(hidden);
+    });
+    usePanesStore.getState().switchLayout("layout-hidden");
+
+    usePanesStore.getState().toggleStarTab("hidden-tab");
+    usePanesStore.getState().switchLayout("layout-1");
+    const opened = usePanesStore.getState().openStarredTab("hidden-tab");
+
+    const shortcuts = usePanesStore.getState().starredTabs();
+    expect(shortcuts).toHaveLength(1);
+    expect(shortcuts[0].layoutId).toBe("layout-hidden");
+    expect(shortcuts[0].paneId).toBe(hidden.rootPane.id);
+    expect(opened).toBe(true);
+    expect(usePanesStore.getState().currentLayoutId).toBe("layout-hidden");
+    expect(panel(usePanesStore.getState().rootPane).activeTabId).toBe("hidden-tab");
+  });
+
+  it("删除星标布局不会删除真实布局或原 tab，重新打星会恢复星标布局", () => {
+    const tab = panel(usePanesStore.getState().rootPane).tabs[0];
+
+    usePanesStore.getState().deleteLayout("layout-starred");
+    expect(usePanesStore.getState().layouts.some((layout) => layout.kind === "starred")).toBe(false);
+    expect(usePanesStore.getState().layouts.some((layout) => layout.id === "layout-1")).toBe(true);
+
+    usePanesStore.getState().toggleStarTab(tab.id);
+
+    const state = usePanesStore.getState();
+    expect(state.layouts.some((layout) => layout.kind === "starred")).toBe(true);
+    expect(panel(state.rootPane).tabs[0].id).toBe(tab.id);
+    expect(state.starredTabs().map((item) => item.tab.id)).toEqual([tab.id]);
   });
 
   it("moveTabToLayoutPane 能把当前布局 tab 发送到隐藏布局窗格且不切换布局", () => {
@@ -421,8 +482,9 @@ describe("usePanesStore layouts", () => {
     expect(migrated.rootPane).toBeUndefined();
     expect(migrated.activePaneId).toBeUndefined();
     const layouts = migrated.layouts as LayoutEntry[];
-    expect(layouts).toHaveLength(1);
+    expect(layouts.filter((layout) => layout.kind !== "starred")).toHaveLength(1);
     expect(layouts[0].name).toBe("布局 1");
+    expect(layouts[0].kind).toBe("normal");
     expect(layouts[0].rootPane).toBe(rootPane);
     expect(migrated.currentLayoutId).toBe(layouts[0].id);
   });
@@ -453,9 +515,11 @@ describe("usePanesStore layouts", () => {
       currentState,
     ) as typeof currentState;
 
-    expect(merged.layouts).toHaveLength(1);
-    expect(merged.currentLayoutId).toBe(merged.layouts[0].id);
-    expect(merged.rootPane).toBe(merged.layouts[0].rootPane);
+    const mergedNormalLayouts = merged.layouts.filter((layout) => layout.kind !== "starred");
+    expect(mergedNormalLayouts).toHaveLength(1);
+    expect(merged.layouts.some((layout) => layout.kind === "starred")).toBe(true);
+    expect(merged.currentLayoutId).toBe(mergedNormalLayouts[0].id);
+    expect(merged.rootPane).toBe(mergedNormalLayouts[0].rootPane);
 
     const rootPane = createPanel(makeTerminalTab("persisted-tab", "old-session"));
     const restored = usePanesStore.persist.getOptions().merge?.(

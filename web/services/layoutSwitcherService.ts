@@ -4,6 +4,7 @@ import type { LayoutSwitcherSettings } from "@/types";
 export interface LayoutSwitcherLayoutSnapshot {
   id: string;
   name: string;
+  kind?: "normal" | "starred";
   paneSessionIds: string[][];
 }
 

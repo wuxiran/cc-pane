@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { emitTo, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Check, X } from "lucide-react";
+import { Check, Star, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import StatusIndicator from "@/components/StatusIndicator";
 import { layoutSwitcherService, type LayoutSwitcherSnapshot } from "@/services/layoutSwitcherService";
@@ -176,10 +176,16 @@ export default function LayoutSwitcherWindow() {
               onClick={() => void emitTo("main", SWITCH_EVENT, { layoutId: layout.id }).catch(() => {})}
             >
               <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                {selected ? <Check className="h-3.5 w-3.5" /> : null}
+                {selected ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : layout.kind === "starred" ? (
+                  <Star className="h-3.5 w-3.5" fill="currentColor" style={{ color: "var(--app-accent)" }} />
+                ) : null}
               </span>
               <span className="min-w-0 flex-1 truncate">{layout.name}</span>
-              <PaneStatusDots paneSessionIds={layout.paneSessionIds} statusMap={statusMap} />
+              {layout.kind === "starred" ? null : (
+                <PaneStatusDots paneSessionIds={layout.paneSessionIds} statusMap={statusMap} />
+              )}
             </button>
           );
         })}

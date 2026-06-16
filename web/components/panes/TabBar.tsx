@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
-import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2 } from "lucide-react";
+import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -76,6 +76,7 @@ interface TabBarProps {
   onSelect: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onTogglePin: (tabId: string) => void;
+  onToggleStar: (tabId: string) => void;
   onAdd: () => void;
   onSplitRight: () => void;
   onSplitDown: () => void;
@@ -118,6 +119,7 @@ function SortableTab({
   onSelect,
   onClose,
   onTogglePin,
+  onToggleStar,
   onFullscreen,
   onSplitRight,
   onSplitDown,
@@ -159,6 +161,7 @@ function SortableTab({
   onSelect: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onTogglePin: (tabId: string) => void;
+  onToggleStar: (tabId: string) => void;
   onFullscreen: (tabId: string) => void;
   onSplitRight: () => void;
   onSplitDown: () => void;
@@ -288,6 +291,15 @@ function SortableTab({
         {tab.pinned && (
           <Pin size={d.pinSize} className="shrink-0 opacity-60 rotate-45" style={{ color: "var(--app-accent)" }} onDoubleClick={(e) => e.stopPropagation()} />
         )}
+        {tab.starred && (
+          <Star
+            size={d.pinSize}
+            className="shrink-0 opacity-80"
+            fill="currentColor"
+            style={{ color: "var(--app-accent)" }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          />
+        )}
         {isEditing ? (
           <InlineRename
             value={editingTitle}
@@ -359,6 +371,9 @@ function SortableTab({
         </ContextMenuItem>
         <ContextMenuItem inset onClick={() => onTogglePin(tab.id)}>
           {tab.pinned ? t("unpinTab") : t("pinTab")}
+        </ContextMenuItem>
+        <ContextMenuItem inset onClick={() => onToggleStar(tab.id)}>
+          {tab.starred ? t("unstarTab") : t("starTab")}
         </ContextMenuItem>
         {tab.contentType === "terminal" && tab.sessionId && onPopOutTab && (
           <ContextMenuItem onClick={() => onPopOutTab(tab.id)}>
@@ -507,6 +522,7 @@ export default memo(function TabBar({
   onSelect,
   onClose,
   onTogglePin,
+  onToggleStar,
   onAdd,
   onSplitRight,
   onSplitDown,
@@ -685,6 +701,7 @@ export default memo(function TabBar({
                 onSelect={onSelect}
                 onClose={onClose}
                 onTogglePin={onTogglePin}
+                onToggleStar={onToggleStar}
                 onFullscreen={onFullscreen}
                 onSplitRight={onSplitRight}
                 onSplitDown={onSplitDown}

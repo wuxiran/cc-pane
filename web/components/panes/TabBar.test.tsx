@@ -58,6 +58,7 @@ function renderTabBar({
         onSelect={vi.fn()}
         onClose={vi.fn()}
         onTogglePin={vi.fn()}
+        onToggleStar={vi.fn()}
         onAdd={vi.fn()}
         onSplitRight={vi.fn()}
         onSplitDown={vi.fn()}
@@ -241,6 +242,7 @@ describe("TabBar", () => {
           onSelect={vi.fn()}
           onClose={vi.fn()}
           onTogglePin={vi.fn()}
+          onToggleStar={vi.fn()}
           onAdd={vi.fn()}
           onSplitRight={vi.fn()}
           onSplitDown={vi.fn()}

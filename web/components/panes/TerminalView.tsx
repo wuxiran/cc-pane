@@ -79,6 +79,9 @@ const MIN_TERMINAL_FONT_SIZE = 10;
 const MAX_TERMINAL_FONT_SIZE = 32;
 const DEFAULT_TERMINAL_FONT_FAMILY = '"Maple Mono NF CN", "Maple Mono", "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, "Sarasa Mono SC", "Microsoft YaHei UI", "PingFang SC", monospace';
 const DEFAULT_TERMINAL_SCROLLBACK = 20_000;
+const WEBGL_HEARTBEAT_INTERVAL_MS = 30_000;
+const WEBGL_SLEEP_GAP_MS = 75_000;
+const WEBGL_RECOVERY_PROMOTION_WINDOW_MS = 12_000;
 
 type TerminalCursorStyle = "block" | "underline" | "bar";
 
@@ -212,9 +215,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const parserDisposableRefs = useRef<IDisposable[]>([]);
     const writeFlowControlRef = useRef<ReturnType<typeof createTerminalWriteFlowControl> | null>(null);
     const atlasResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const webglHeartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastDevicePixelRatioRef = useRef(
       typeof window !== "undefined" ? window.devicePixelRatio : 1
     );
+    const lastWebglHeartbeatAtRef = useRef(Date.now());
+    const lastWebglRecoveryAtRef = useRef(0);
+    const webglRecoveryStreakRef = useRef(0);
 
     // Track SSH reconnect state.
     const isDisconnectedRef = useRef(false);
@@ -340,23 +347,58 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       await flowControl.write(data, onWritten);
     }, []);
 
-    const scheduleTextureAtlasRefresh = useCallback((reason: string) => {
-      if (!IS_WINDOWS || !props.isActive) return;
+    const shouldRunWebglRecovery = useCallback(() => {
+      const renderer = rendererControllerRef.current;
+      return Boolean(
+        IS_WINDOWS &&
+        renderer?.getActiveRenderer() === "webgl" &&
+        isActiveRef.current &&
+        isVisibleRef.current &&
+        layoutActiveRef.current
+      );
+    }, []);
+
+    const scheduleWebglRecovery = useCallback((reason: string, options: { forceRecreate?: boolean } = {}) => {
+      if (!shouldRunWebglRecovery()) return;
       if (atlasResetTimerRef.current) {
         clearTimeout(atlasResetTimerRef.current);
       }
       atlasResetTimerRef.current = setTimeout(() => {
         atlasResetTimerRef.current = null;
+        if (!shouldRunWebglRecovery()) return;
 
         lastDevicePixelRatioRef.current = window.devicePixelRatio;
-        debugLog("webgl.texture-atlas.clear", {
+        const now = Date.now();
+        const elapsedSinceRecovery = now - lastWebglRecoveryAtRef.current;
+        webglRecoveryStreakRef.current =
+          elapsedSinceRecovery <= WEBGL_RECOVERY_PROMOTION_WINDOW_MS
+            ? webglRecoveryStreakRef.current + 1
+            : 1;
+        lastWebglRecoveryAtRef.current = now;
+
+        const controller = rendererControllerRef.current;
+        const shouldRecreate = options.forceRecreate || webglRecoveryStreakRef.current >= 3;
+        if (shouldRecreate && controller?.recreateWebgl(`webgl.recovery.${reason}`)) {
+          debugLog("webgl.renderer.recreate", {
+            reason,
+            streak: webglRecoveryStreakRef.current,
+            forced: Boolean(options.forceRecreate),
+            dpr: lastDevicePixelRatioRef.current,
+          });
+          layoutSchedulerRef.current?.schedule(`webgl.renderer.recreate.${reason}`, { force: true });
+          return;
+        }
+
+        const didClear = controller?.clearTextureAtlas(`webgl.texture-atlas.${reason}`) ?? false;
+        debugLog("webgl.texture-atlas.recover", {
           reason,
+          didClear,
+          streak: webglRecoveryStreakRef.current,
           dpr: lastDevicePixelRatioRef.current,
         });
-        rendererControllerRef.current?.clearTextureAtlas(`webgl.texture-atlas.${reason}`);
         layoutSchedulerRef.current?.schedule(`webgl.texture-atlas.${reason}`);
       }, 225);
-    }, [debugLog, props.isActive]);
+    }, [debugLog, shouldRunWebglRecovery]);
 
     // Expose imperative helpers to parent panes.
     useImperativeHandle(ref, () => ({
@@ -421,6 +463,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (atlasResetTimerRef.current) {
         clearTimeout(atlasResetTimerRef.current);
         atlasResetTimerRef.current = null;
+      }
+      if (webglHeartbeatTimerRef.current) {
+        clearInterval(webglHeartbeatTimerRef.current);
+        webglHeartbeatTimerRef.current = null;
       }
       layoutSchedulerRef.current?.dispose();
       layoutSchedulerRef.current = null;
@@ -1299,22 +1345,50 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     useEffect(() => {
       if (!IS_WINDOWS) return;
 
+      lastWebglHeartbeatAtRef.current = Date.now();
       const handleWindowResize = () => {
-        scheduleTextureAtlasRefresh("window.resize");
+        scheduleWebglRecovery("window.resize");
       };
       const handleWindowFocus = () => {
         if (window.devicePixelRatio !== lastDevicePixelRatioRef.current) {
-          scheduleTextureAtlasRefresh("window.focus.dpr-change");
+          scheduleWebglRecovery("window.focus.dpr-change");
+          return;
+        }
+        scheduleWebglRecovery("window.focus");
+      };
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === "visible") {
+          scheduleWebglRecovery("document.visible");
         }
       };
 
       window.addEventListener("resize", handleWindowResize);
       window.addEventListener("focus", handleWindowFocus);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      webglHeartbeatTimerRef.current = setInterval(() => {
+        const now = Date.now();
+        const elapsed = now - lastWebglHeartbeatAtRef.current;
+        lastWebglHeartbeatAtRef.current = now;
+        if (!shouldRunWebglRecovery()) return;
+
+        if (elapsed > WEBGL_SLEEP_GAP_MS) {
+          scheduleWebglRecovery("heartbeat.resume-gap", { forceRecreate: true });
+          return;
+        }
+
+        rendererControllerRef.current?.repaint("webgl.heartbeat");
+      }, WEBGL_HEARTBEAT_INTERVAL_MS);
+
       return () => {
         window.removeEventListener("resize", handleWindowResize);
         window.removeEventListener("focus", handleWindowFocus);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        if (webglHeartbeatTimerRef.current) {
+          clearInterval(webglHeartbeatTimerRef.current);
+          webglHeartbeatTimerRef.current = null;
+        }
       };
-    }, [scheduleTextureAtlasRefresh]);
+    }, [scheduleWebglRecovery, shouldRunWebglRecovery]);
 
     // Refit on activation and create deferred PTYs for restored tabs.
     useEffect(() => {

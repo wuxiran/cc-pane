@@ -32,9 +32,10 @@ function buildSnapshot(): LayoutSwitcherSnapshot {
     layouts: state.layouts.map((layout) => ({
       id: layout.id,
       name: layout.name,
-      paneSessionIds: paneSessionIds(
-        layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane,
-      ),
+      kind: layout.kind,
+      paneSessionIds: layout.kind === "starred"
+        ? []
+        : paneSessionIds(layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane),
     })),
   };
 }

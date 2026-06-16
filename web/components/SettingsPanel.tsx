@@ -92,7 +92,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent resizable className="w-[680px] h-[520px] max-w-[95vw] max-h-[90vh] !p-0 flex flex-col overflow-hidden">
+      <DialogContent resizable className="w-[880px] h-[640px] max-w-[95vw] max-h-[90vh] !p-0 flex flex-col overflow-hidden">
         <DialogHeader className="px-5 pt-4 pb-3" style={{ borderBottom: "1px solid var(--app-border)" }}>
           <DialogTitle>{t("title")}</DialogTitle>
         </DialogHeader>

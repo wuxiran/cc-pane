@@ -22,15 +22,26 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
 
 function resetStores() {
   const rootPane = createPanel();
+  const starredRootPane = createPanel();
   usePanesStore.setState({
     rootPane,
     activePaneId: rootPane.id,
-    layouts: [{
-      id: "layout-1",
-      name: "布局 1",
-      rootPane,
-      activePaneId: rootPane.id,
-    }],
+    layouts: [
+      {
+        id: "layout-1",
+        name: "布局 1",
+        kind: "normal",
+        rootPane,
+        activePaneId: rootPane.id,
+      },
+      {
+        id: "layout-starred",
+        name: "星标",
+        kind: "starred",
+        rootPane: starredRootPane,
+        activePaneId: starredRootPane.id,
+      },
+    ],
     currentLayoutId: "layout-1",
     closedTabs: [],
     poppedOutTabs: new Set<string>(),
@@ -47,6 +58,7 @@ function addSecondLayout() {
   const current = usePanesStore.getState();
   const rootPane = current.rootPane;
   const secondRootPane = createPanel();
+  const starredRootPane = createPanel();
   usePanesStore.setState({
     rootPane,
     activePaneId: rootPane.id,
@@ -54,14 +66,23 @@ function addSecondLayout() {
       {
         id: "layout-1",
         name: "布局 1",
+        kind: "normal",
         rootPane,
         activePaneId: rootPane.id,
       },
       {
         id: "layout-2",
         name: "布局 2",
+        kind: "normal",
         rootPane: secondRootPane,
         activePaneId: secondRootPane.id,
+      },
+      {
+        id: "layout-starred",
+        name: "星标",
+        kind: "starred",
+        rootPane: starredRootPane,
+        activePaneId: starredRootPane.id,
       },
     ],
     currentLayoutId: "layout-1",

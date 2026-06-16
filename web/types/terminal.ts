@@ -89,6 +89,7 @@ export interface Tab {
   /** Live PTY session id owned by CC-Panes. */
   sessionId: string | null;
   pinned?: boolean;
+  starred?: boolean;
   minimized?: boolean;
   /** Agent conversation resume id, e.g. Claude/Codex resume UUID. */
   resumeId?: string;

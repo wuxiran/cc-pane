@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SyntheticEvent } from "react";
-import { Check, Command, Pin, Plus, Trash2 } from "lucide-react";
+import { Check, Command, Pin, Plus, Star, Trash2 } from "lucide-react";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -59,6 +59,15 @@ function layoutRowStyle(selected: boolean): React.CSSProperties {
 }
 
 function summarizeLayoutDelete(layout: LayoutEntry): DeleteSummary {
+  if (layout.kind === "starred") {
+    return {
+      layout,
+      sessionIds: [],
+      poppedTabIds: [],
+      sshCount: 0,
+      restoringCount: 0,
+    };
+  }
   const tabs = collectTerminalTabs(layout.rootPane);
   const poppedTabs = getPoppedTabs();
   const poppedTabIds = tabs
@@ -160,6 +169,7 @@ function SortableLayoutRow({
   selectLayout,
   requestDelete,
   deletingLastLayout,
+  isStarredLayout,
   handleContextMenuOpenChange,
   statusMap,
   onMouseEnter,
@@ -177,6 +187,7 @@ function SortableLayoutRow({
   selectLayout: (layoutId: string) => void;
   requestDelete: (layout: LayoutEntry) => void;
   deletingLastLayout: boolean;
+  isStarredLayout: boolean;
   handleContextMenuOpenChange: (open: boolean) => void;
   statusMap: Map<string, TerminalStatusInfo>;
   onMouseEnter: () => void;
@@ -254,14 +265,20 @@ function SortableLayoutRow({
           onDoubleClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            startRename(layout);
+            if (!isStarredLayout) {
+              startRename(layout);
+            }
           }}
         >
           <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-            {selected ? <Check className="h-3.5 w-3.5" /> : null}
+            {selected ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : isStarredLayout ? (
+              <Star className="h-3.5 w-3.5" fill="currentColor" style={{ color: "var(--app-accent)" }} />
+            ) : null}
           </span>
           <span className="min-w-0 flex-1 truncate">{layout.name}</span>
-          <LayoutStatusDots rootPane={rootPane} statusMap={statusMap} />
+          {isStarredLayout ? null : <LayoutStatusDots rootPane={rootPane} statusMap={statusMap} />}
           <button
             type="button"
             aria-label={deletingLastLayout ? t("cannotDeleteLastLayout") : t("deleteLayout")}
@@ -279,9 +296,11 @@ function SortableLayoutRow({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="z-[120] w-44">
-        <ContextMenuItem onClick={() => startRename(layout)}>
-          {t("renameLayout")}
-        </ContextMenuItem>
+        {!isStarredLayout ? (
+          <ContextMenuItem onClick={() => startRename(layout)}>
+            {t("renameLayout")}
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuItem
           variant="destructive"
           disabled={deletingLastLayout}
@@ -321,7 +340,8 @@ export default function LayoutBar() {
   const [editingName, setEditingName] = useState("");
   const [deleteSummary, setDeleteSummary] = useState<DeleteSummary | null>(null);
 
-  const deletingLastLayout = layouts.length <= 1;
+  const normalLayoutCount = layouts.filter((layout) => layout.kind !== "starred").length;
+  const deletingLastLayout = normalLayoutCount <= 1;
   const active = open;
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -343,6 +363,7 @@ export default function LayoutBar() {
   }, [deleteSummary, t]);
 
   function startRename(layout: LayoutEntry) {
+    if (layout.kind === "starred") return;
     clearCloseTimer();
     editingIdRef.current = layout.id;
     setEditingId(layout.id);
@@ -488,10 +509,15 @@ export default function LayoutBar() {
   }
 
   function requestDelete(layout: LayoutEntry) {
-    if (deletingLastLayout) return;
+    if (layout.kind !== "starred" && deletingLastLayout) return;
     editingIdRef.current = null;
     contextMenuOpenRef.current = false;
     closeSelector();
+    if (layout.kind === "starred") {
+      deleteLayout(layout.id);
+      toast.success(t("layoutDeleted", { name: layout.name }));
+      return;
+    }
     setDeleteSummary(summarizeLayoutDelete(layout));
   }
 
@@ -631,7 +657,8 @@ export default function LayoutBar() {
                     startRename={startRename}
                     selectLayout={selectLayout}
                     requestDelete={requestDelete}
-                    deletingLastLayout={deletingLastLayout}
+                    deletingLastLayout={layout.kind !== "starred" && deletingLastLayout}
+                    isStarredLayout={layout.kind === "starred"}
                     handleContextMenuOpenChange={handleContextMenuOpenChange}
                     statusMap={statusMap}
                     onMouseEnter={openSelector}

@@ -269,6 +269,7 @@ type TabDraft = Draft<Tab>;
 
 interface TabAcrossLayoutsLocation {
   layoutId: string;
+  layoutName: string;
   tree: PaneNode;
   panel: Panel;
   tab: Tab;
@@ -282,19 +283,98 @@ interface PaneAcrossLayoutsLocation {
 
 interface DraftTabAcrossLayoutsLocation {
   layoutId: string;
+  layoutName: string;
   tree: PaneNodeDraft;
   panel: PanelDraft;
   tab: TabDraft;
 }
+
+export interface StarredTabShortcut {
+  layoutId: string;
+  layoutName: string;
+  paneId: string;
+  tab: Tab;
+}
+
+export const STARRED_LAYOUT_NAME = "星标";
 
 function createDefaultLayout(name = "布局 1"): LayoutEntry {
   const rootPane = createPanel();
   return {
     id: generateId("layout"),
     name,
+    kind: "normal",
     rootPane,
     activePaneId: rootPane.id,
   };
+}
+
+function createStarredLayout(): LayoutEntry {
+  const rootPane = createPanel();
+  return {
+    id: generateId("layout"),
+    name: STARRED_LAYOUT_NAME,
+    kind: "starred",
+    rootPane,
+    activePaneId: rootPane.id,
+  };
+}
+
+function isStarredLayout(layout: Pick<LayoutEntry, "kind">): boolean {
+  return layout.kind === "starred";
+}
+
+function isNormalLayout(layout: Pick<LayoutEntry, "kind">): boolean {
+  return !isStarredLayout(layout);
+}
+
+function ensureStarredLayout(layouts: LayoutEntry[]): LayoutEntry[] {
+  const normalLayouts = layouts.filter(isNormalLayout);
+  const nextLayouts = normalLayouts.length > 0 ? layouts : [createDefaultLayout(), ...layouts];
+  const firstStarred = nextLayouts.find(isStarredLayout);
+  const deduped = firstStarred
+    ? nextLayouts.filter((layout) => !isStarredLayout(layout) || layout.id === firstStarred.id)
+    : [...nextLayouts, createStarredLayout()];
+
+  for (const layout of deduped) {
+    if (isStarredLayout(layout)) {
+      layout.name = STARRED_LAYOUT_NAME;
+    } else if (!layout.kind) {
+      layout.kind = "normal";
+    }
+  }
+
+  return deduped;
+}
+
+function ensureStarredLayoutInDraft(state: PanesDraft): string {
+  const existing = state.layouts.find(isStarredLayout);
+  if (existing) {
+    existing.name = STARRED_LAYOUT_NAME;
+    return existing.id;
+  }
+  const layout = createStarredLayout();
+  state.layouts.push(layout);
+  return layout.id;
+}
+
+function firstNormalLayout(layouts: LayoutEntry[]): LayoutEntry | undefined {
+  return layouts.find(isNormalLayout);
+}
+
+function activeLayout(state: PanesState | PanesDraft): LayoutEntry | LayoutDraft | undefined {
+  return state.layouts.find((layout) => layout.id === state.currentLayoutId);
+}
+
+function activateFirstNormalLayout(state: PanesDraft): boolean {
+  const current = activeLayout(state);
+  if (current && isNormalLayout(current)) return true;
+  const normal = firstNormalLayout(state.layouts);
+  if (!normal) return false;
+  state.currentLayoutId = normal.id;
+  state.rootPane = normal.rootPane;
+  state.activePaneId = normal.activePaneId;
+  return true;
 }
 
 function nextLayoutName(layouts: Array<Pick<LayoutEntry, "name">>): string {
@@ -310,8 +390,10 @@ function layoutTree(
   state: PanesState | PanesDraft,
   layoutId: string
 ): PaneNode | PaneNodeDraft | null {
+  const layout = state.layouts.find((item) => item.id === layoutId);
+  if (!layout || isStarredLayout(layout)) return null;
   if (layoutId === state.currentLayoutId) return state.rootPane;
-  return state.layouts.find((layout) => layout.id === layoutId)?.rootPane ?? null;
+  return layout.rootPane;
 }
 
 function eachLayoutTree(state: PanesState, fn: (layout: LayoutEntry, tree: PaneNode) => void): void;
@@ -324,6 +406,7 @@ function eachLayoutTree(
   fn: (layout: LayoutEntry | LayoutDraft, tree: PaneNode | PaneNodeDraft) => void
 ): void {
   for (const layout of state.layouts) {
+    if (isStarredLayout(layout)) continue;
     const tree = layoutTree(state, layout.id);
     if (tree) {
       fn(layout, tree);
@@ -344,6 +427,7 @@ function findTabAcrossLayouts(
     if (location) {
       found = {
         layoutId: layout.id,
+        layoutName: layout.name,
         tree,
         panel: location.panel,
         tab: location.tab,
@@ -362,6 +446,7 @@ function findTabBySessionAcrossLayouts(state: PanesState, sessionId: string): Ta
       if (tab) {
         found = {
           layoutId: layout.id,
+          layoutName: layout.name,
           tree,
           panel,
           tab,
@@ -390,31 +475,37 @@ function findPaneAcrossLayouts(state: PanesState, paneId: string): PaneAcrossLay
 }
 
 function syncWorkingCopyToCurrentLayout(state: PanesDraft): void {
-  const current = state.layouts.find((layout) => layout.id === state.currentLayoutId);
-  if (!current) return;
+  const current = activeLayout(state);
+  if (!current || isStarredLayout(current)) return;
   current.rootPane = state.rootPane;
   current.activePaneId = state.activePaneId;
 }
 
-function projectedLayouts(state: Pick<PanesState, "layouts" | "currentLayoutId" | "rootPane" | "activePaneId">): LayoutEntry[] {
+function projectedLayouts(
+  state: Pick<PanesState, "layouts" | "currentLayoutId" | "rootPane" | "activePaneId">,
+  options: { includeStarred?: boolean } = {},
+): LayoutEntry[] {
   const layouts = Array.isArray(state.layouts) ? state.layouts : [];
   if (layouts.length === 0) {
     return [{
       id: state.currentLayoutId || generateId("layout"),
       name: "布局 1",
+      kind: "normal",
       rootPane: state.rootPane,
       activePaneId: state.activePaneId,
     }];
   }
-  return layouts.map((layout) => (
-    layout.id === state.currentLayoutId
+  return layouts
+    .filter((layout) => options.includeStarred || isNormalLayout(layout))
+    .map((layout) => (
+      layout.id === state.currentLayoutId && isNormalLayout(layout)
       ? {
           ...layout,
           rootPane: state.rootPane,
           activePaneId: state.activePaneId,
         }
       : layout
-  ));
+    ));
 }
 
 function ensureLayoutState(
@@ -430,11 +521,12 @@ function ensureLayoutState(
       ))
     : [];
 
-  const layouts = validLayouts.length > 0
+  const layouts = ensureStarredLayout(validLayouts.length > 0
     ? validLayouts
-    : [createDefaultLayout()];
+    : [createDefaultLayout()]);
 
   for (const layout of layouts) {
+    if (isStarredLayout(layout)) continue;
     cleanRehydratedPanes(layout.rootPane);
     const active = findPane(layout.rootPane, layout.activePaneId);
     if (active?.type !== "panel") {
@@ -442,10 +534,10 @@ function ensureLayoutState(
     }
   }
 
-  const currentLayoutId = layouts.some((layout) => layout.id === partial.currentLayoutId)
+  const currentLayoutId = layouts.some((layout) => layout.id === partial.currentLayoutId && isNormalLayout(layout))
     ? partial.currentLayoutId!
-    : layouts[0].id;
-  const current = layouts.find((layout) => layout.id === currentLayoutId) ?? layouts[0];
+    : firstNormalLayout(layouts)!.id;
+  const current = layouts.find((layout) => layout.id === currentLayoutId) ?? firstNormalLayout(layouts)!;
 
   return {
     layouts,
@@ -654,6 +746,7 @@ interface PanesState {
   switchLayout: (id: string) => void;
   switchLayoutByIndex: (index: number) => void;
   reorderLayouts: (fromIndex: number, toIndex: number) => void;
+  ensureStarredLayout: () => string;
   listLayouts: () => LayoutEntry[];
 
   // Pane layout
@@ -667,6 +760,9 @@ interface PanesState {
   addTab: (paneId: string, opts: CreateTabOptions) => void;
   closeTab: (paneId: string, tabId: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;
+  toggleStarTab: (tabId: string) => void;
+  starredTabs: () => StarredTabShortcut[];
+  openStarredTab: (tabId: string) => boolean;
   renameTab: (paneId: string, tabId: string, newTitle: string) => void;
   reorderTabs: (paneId: string, fromIndex: number, toIndex: number) => void;
   moveTab: (fromPaneId: string, toPaneId: string, tabId: string, toIndex?: number) => void;
@@ -724,9 +820,11 @@ const initialPanel = createPanel();
 const initialLayout: LayoutEntry = {
   id: generateId("layout"),
   name: "布局 1",
+  kind: "normal",
   rootPane: initialPanel,
   activePaneId: initialPanel.id,
 };
+const initialStarredLayout = createStarredLayout();
 
 /** Clean non-restorable runtime state after layout rehydration. */
 function cleanRehydratedPanes(node: PaneNode) {
@@ -760,7 +858,7 @@ export const usePanesStore = create<PanesState>()(
   immer((set, get) => ({
     rootPane: initialPanel,
     activePaneId: initialPanel.id,
-    layouts: [initialLayout],
+    layouts: [initialLayout, initialStarredLayout],
     currentLayoutId: initialLayout.id,
     closedTabs: [],
     poppedOutTabs: new Set<string>(),
@@ -776,6 +874,7 @@ export const usePanesStore = create<PanesState>()(
     },
 
     activePane: () => {
+      if (activeLayout(get())?.kind === "starred") return null;
       const pane = findPane(get().rootPane, get().activePaneId);
       return pane?.type === "panel" ? pane : null;
     },
@@ -793,13 +892,20 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         syncWorkingCopyToCurrentLayout(state);
         const rootPane = createPanel();
+        const normalLayouts = state.layouts.filter(isNormalLayout);
         const layout: LayoutEntry = {
           id,
-          name: (name?.trim() || nextLayoutName(state.layouts)),
+          name: (name?.trim() || nextLayoutName(normalLayouts)),
+          kind: "normal",
           rootPane,
           activePaneId: rootPane.id,
         };
-        state.layouts.push(layout);
+        const starredIndex = state.layouts.findIndex(isStarredLayout);
+        if (starredIndex >= 0) {
+          state.layouts.splice(starredIndex, 0, layout);
+        } else {
+          state.layouts.push(layout);
+        }
         state.currentLayoutId = id;
         state.rootPane = rootPane;
         state.activePaneId = rootPane.id;
@@ -814,24 +920,31 @@ export const usePanesStore = create<PanesState>()(
       if (!trimmed) return;
       set((state) => {
         const layout = state.layouts.find((item) => item.id === id);
-        if (!layout) return;
+        if (!layout || isStarredLayout(layout)) return;
         layout.name = trimmed;
       });
     },
 
     deleteLayout: (id) => {
       set((state) => {
-        if (state.layouts.length <= 1) return;
         const index = state.layouts.findIndex((layout) => layout.id === id);
         if (index === -1) return;
+        const deletingLayout = state.layouts[index];
+        const deletingStarred = isStarredLayout(deletingLayout);
+        if (!deletingStarred && state.layouts.filter(isNormalLayout).length <= 1) return;
 
         syncWorkingCopyToCurrentLayout(state);
         const deletingCurrent = state.currentLayoutId === id;
         state.layouts.splice(index, 1);
 
         if (deletingCurrent) {
-          const nextIndex = Math.max(0, index - 1);
-          const nextLayout = state.layouts[Math.min(nextIndex, state.layouts.length - 1)];
+          const normalLayouts = state.layouts.filter(isNormalLayout);
+          const previousNormal = normalLayouts
+            .slice()
+            .reverse()
+            .find((layout) => state.layouts.indexOf(layout) < index);
+          const nextLayout = previousNormal ?? normalLayouts[0];
+          if (!nextLayout) return;
           state.currentLayoutId = nextLayout.id;
           state.rootPane = nextLayout.rootPane;
           state.activePaneId = nextLayout.activePaneId;
@@ -869,6 +982,16 @@ export const usePanesStore = create<PanesState>()(
         const [moved] = state.layouts.splice(fromIndex, 1);
         state.layouts.splice(toIndex, 0, moved);
       });
+    },
+
+    ensureStarredLayout: () => {
+      const existing = get().layouts.find(isStarredLayout);
+      if (existing) return existing.id;
+      let id = "";
+      set((state) => {
+        id = ensureStarredLayoutInDraft(state);
+      });
+      return id;
     },
 
     listLayouts: () => projectedLayouts(get()),
@@ -1011,7 +1134,8 @@ export const usePanesStore = create<PanesState>()(
 
     addTab: (paneId, opts) => {
       set((state) => {
-        const pane = findPane(state.rootPane, paneId);
+        if (!activateFirstNormalLayout(state)) return;
+        const pane = findPane(state.rootPane, paneId) ?? findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
 
         const newTab = createTab(opts);
@@ -1027,6 +1151,44 @@ export const usePanesStore = create<PanesState>()(
         const tab = pane.tabs.find((t) => t.id === tabId);
         if (tab) tab.pinned = !tab.pinned;
       });
+    },
+
+    toggleStarTab: (tabId) => {
+      set((state) => {
+        const location = findTabAcrossLayouts(state, tabId);
+        if (!location) return;
+        location.tab.starred = !location.tab.starred;
+        if (location.tab.starred) {
+          ensureStarredLayoutInDraft(state);
+        }
+      });
+    },
+
+    starredTabs: () => {
+      const shortcuts: StarredTabShortcut[] = [];
+      eachLayoutTree(get(), (layout, tree) => {
+        for (const panel of collectPanels(tree)) {
+          for (const tab of panel.tabs) {
+            if (tab.starred) {
+              shortcuts.push({
+                layoutId: layout.id,
+                layoutName: layout.name,
+                paneId: panel.id,
+                tab,
+              });
+            }
+          }
+        }
+      });
+      return shortcuts;
+    },
+
+    openStarredTab: (tabId) => {
+      const location = findTabAcrossLayouts(get(), tabId);
+      if (!location) return false;
+      get().switchLayout(location.layoutId);
+      get().selectTab(location.panel.id, tabId);
+      return true;
     },
 
     renameTab: (paneId, tabId, newTitle) => {
@@ -1133,7 +1295,7 @@ export const usePanesStore = create<PanesState>()(
         syncWorkingCopyToCurrentLayout(state);
 
         const targetLayout = state.layouts.find((layout) => layout.id === toLayoutId);
-        if (!targetLayout) return;
+        if (!targetLayout || isStarredLayout(targetLayout)) return;
 
         const targetTree = layoutTree(state, toLayoutId);
         if (!targetTree) return;
@@ -1624,14 +1786,15 @@ export const usePanesStore = create<PanesState>()(
     openProjectInPane: (paneId, opts) => {
       const { projectId, resumeId, cliTool } = opts;
       set((state) => {
-        const pane = findPane(state.rootPane, paneId);
+        if (!activateFirstNormalLayout(state)) return;
+        const pane = findPane(state.rootPane, paneId) ?? findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
 
         if (resumeId || (cliTool && cliTool !== "none")) {
           const newTab = createTab(opts);
           pane.tabs.push(newTab);
           pane.activeTabId = newTab.id;
-          state.activePaneId = paneId;
+          state.activePaneId = pane.id;
           return;
         }
 
@@ -1653,11 +1816,17 @@ export const usePanesStore = create<PanesState>()(
             pane.activeTabId = newTab.id;
           }
         }
-        state.activePaneId = paneId;
+        state.activePaneId = pane.id;
       });
     },
 
     openProject: (opts) => {
+      if (activeLayout(get())?.kind === "starred") {
+        const normal = firstNormalLayout(get().layouts);
+        if (normal) {
+          get().switchLayout(normal.id);
+        }
+      }
       const active = get().activePane();
       if (active) {
         get().openProjectInPane(active.id, opts);
@@ -2112,6 +2281,7 @@ export const usePanesStore = create<PanesState>()(
         state.layouts = [{
           id: generateId("layout"),
           name: "布局 1",
+          kind: "normal",
           rootPane,
           activePaneId,
         }];
@@ -2122,7 +2292,7 @@ export const usePanesStore = create<PanesState>()(
       return state;
     },
     partialize: (state) => ({
-      layouts: projectedLayouts(state),
+      layouts: projectedLayouts(state, { includeStarred: true }),
       currentLayoutId: state.currentLayoutId,
       // poppedOutTabs is runtime-only; popped windows do not survive restart.
     }),

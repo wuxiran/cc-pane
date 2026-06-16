@@ -17,6 +17,7 @@ export interface TerminalRendererDiagnostics {
   atlasClearCount: number;
   atlasChangeCount: number;
   atlasCanvasCount: number;
+  webglRecreateCount: number;
   lastError: string | null;
   lastDevicePixelRatio: number;
 }
@@ -26,6 +27,7 @@ export interface TerminalRendererController {
   dispose: () => void;
   repaint: (reason: string) => void;
   clearTextureAtlas: (reason: string) => boolean;
+  recreateWebgl: (reason: string) => boolean;
   getDiagnostics: () => TerminalRendererDiagnostics;
   getActiveRenderer: () => ActiveTerminalRenderer;
 }
@@ -56,6 +58,7 @@ export function createTerminalRendererController({
   let atlasClearCount = 0;
   let atlasChangeCount = 0;
   let atlasCanvasCount = 0;
+  let webglRecreateCount = 0;
   let lastError: string | null = null;
   let lastDevicePixelRatio = getDevicePixelRatio();
 
@@ -67,6 +70,7 @@ export function createTerminalRendererController({
     atlasClearCount,
     atlasChangeCount,
     atlasCanvasCount,
+    webglRecreateCount,
     lastError,
     lastDevicePixelRatio,
   });
@@ -133,6 +137,18 @@ export function createTerminalRendererController({
         });
       }
     });
+  };
+
+  const refreshAfterRendererRecovery = (reason: string) => {
+    try {
+      term.refresh(0, Math.max(0, term.rows - 1));
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      logger("renderer.webgl.recovery.refresh.fail", {
+        reason,
+        error: lastError,
+      });
+    }
   };
 
   const enableWebgl = () => {
@@ -226,6 +242,34 @@ export function createTerminalRendererController({
     }
   };
 
+  const recreateWebgl = (reason: string): boolean => {
+    if (disposed || decision.renderer !== "webgl" || !webglAddon) return false;
+
+    try {
+      disposeWebgl(`recreate.${reason}`);
+      enableWebgl();
+      webglRecreateCount += 1;
+      refreshAfterRendererRecovery(reason);
+      logger("renderer.webgl.recreated", {
+        reason,
+        ...getDiagnostics(),
+      });
+      onRendererChanged(`webgl.recreated.${reason}`, getDiagnostics());
+      return true;
+    } catch (error) {
+      disposeWebgl(`recreate-failed.${reason}`);
+      lastError = error instanceof Error ? error.message : String(error);
+      activeRenderer = "dom";
+      logger("renderer.webgl.recreate.fail", {
+        reason,
+        ...getDiagnostics(),
+        error: lastError,
+      });
+      onRendererChanged(`webgl.recreate-failed.${reason}`, getDiagnostics());
+      return false;
+    }
+  };
+
   return {
     configure,
     dispose: () => {
@@ -234,6 +278,7 @@ export function createTerminalRendererController({
     },
     repaint,
     clearTextureAtlas,
+    recreateWebgl,
     getDiagnostics,
     getActiveRenderer: () => activeRenderer,
   };

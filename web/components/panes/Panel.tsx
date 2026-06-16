@@ -48,7 +48,7 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   // Action 选择器合并 + useShallow：浅比较避免对象引用变化导致的重渲染
   const {
-    selectTab, closeTab, togglePinTab, renameTab, addTab,
+    selectTab, closeTab, togglePinTab, toggleStarTab, renameTab, addTab,
     splitRight, splitDown, splitAndMoveTab, splitTerminalPane, closeTerminalPane,
     moveTab, moveTabToLayoutPane,
     closeTabsToLeft, closeTabsToRight, closeOtherTabs,
@@ -58,6 +58,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     selectTab: s.selectTab,
     closeTab: s.closeTab,
     togglePinTab: s.togglePinTab,
+    toggleStarTab: s.toggleStarTab,
     renameTab: s.renameTab,
     addTab: s.addTab,
     splitRight: s.splitRight,
@@ -115,7 +116,7 @@ export default memo(function Panel({ pane }: PanelProps) {
   }, [allPanels, rootPane, pane.id, t]);
   const layoutMoveTargets = useMemo(() => {
     return layouts
-      .filter((layout) => layout.id !== currentLayoutId)
+      .filter((layout) => layout.id !== currentLayoutId && layout.kind !== "starred")
       .map((layout, layoutIndex) => ({
         id: layout.id,
         label: layout.name || `${t("layout")} ${layoutIndex + 1}`,
@@ -253,6 +254,11 @@ export default memo(function Panel({ pane }: PanelProps) {
   const handleTogglePin = useCallback(
     (tabId: string) => togglePinTab(pane.id, tabId),
     [pane.id, togglePinTab]
+  );
+
+  const handleToggleStar = useCallback(
+    (tabId: string) => toggleStarTab(tabId),
+    [toggleStarTab]
   );
 
   const handleRename = useCallback(
@@ -471,6 +477,7 @@ export default memo(function Panel({ pane }: PanelProps) {
             onSelect={handleSelectTab}
             onClose={handleCloseTab}
             onTogglePin={handleTogglePin}
+            onToggleStar={handleToggleStar}
             onRename={handleRename}
             onAdd={handleAddTab}
             onSplitRight={handleSplitRight}

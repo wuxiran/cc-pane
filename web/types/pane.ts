@@ -29,6 +29,7 @@ export interface SplitPane {
 export interface LayoutEntry {
   id: string;
   name: string;
+  kind?: "normal" | "starred";
   rootPane: PaneNode;
   activePaneId: string;
 }

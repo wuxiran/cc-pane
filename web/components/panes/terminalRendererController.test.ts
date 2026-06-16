@@ -108,4 +108,46 @@ describe("terminal renderer controller", () => {
     expect(term.clearTextureAtlas).toHaveBeenCalledOnce();
     expect(controller.getDiagnostics().atlasClearCount).toBe(1);
   });
+
+  it("recreates the WebGL addon without replacing the terminal", () => {
+    const term = createMockTerminal();
+    const onRendererChanged = vi.fn();
+    const controller = createTerminalRendererController({
+      term,
+      logger: vi.fn(),
+      onRendererChanged,
+    });
+
+    controller.configure("webgl");
+
+    expect(controller.recreateWebgl("atlas.stale")).toBe(true);
+
+    expect(webglMock.instances).toHaveLength(2);
+    expect(webglMock.instances[0].dispose).toHaveBeenCalledOnce();
+    expect(term.loadAddon).toHaveBeenCalledTimes(2);
+    expect(term.refresh).toHaveBeenCalledWith(0, 23);
+    expect(controller.getDiagnostics()).toMatchObject({
+      activeRenderer: "webgl",
+      webglRecreateCount: 1,
+    });
+    expect(onRendererChanged).toHaveBeenLastCalledWith(
+      "webgl.recreated.atlas.stale",
+      expect.objectContaining({ activeRenderer: "webgl" }),
+    );
+  });
+
+  it("skips WebGL recreation when the active renderer is DOM", () => {
+    const term = createMockTerminal();
+    const controller = createTerminalRendererController({
+      term,
+      logger: vi.fn(),
+      onRendererChanged: vi.fn(),
+    });
+
+    controller.configure("dom");
+
+    expect(controller.recreateWebgl("atlas.stale")).toBe(false);
+    expect(term.loadAddon).not.toHaveBeenCalled();
+    expect(controller.getDiagnostics().webglRecreateCount).toBe(0);
+  });
 });
