@@ -9,8 +9,8 @@ use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::{
     events::NoopNotifier,
     services::{
-        ProjectCliHooksService, ProviderService, SettingsService, SshCredentialService,
-        TerminalService,
+        InProcessTerminalBackend, ProjectCliHooksService, ProviderService, SettingsService,
+        SshCredentialService, TerminalBackend, TerminalService,
     },
     utils::AppPaths,
 };
@@ -84,9 +84,11 @@ async fn main() -> anyhow::Result<()> {
     let ws_emitter = Arc::new(WsEmitter::new());
     terminal_service.set_emitter(ws_emitter.clone());
     terminal_service.set_notifier(Arc::new(NoopNotifier));
+    let terminal_backend: Arc<dyn TerminalBackend> =
+        Arc::new(InProcessTerminalBackend::new(terminal_service.clone()));
 
     let state = AppState {
-        terminal_service,
+        terminal_backend,
         ws_emitter,
         default_cwd: cwd_str.clone(),
     };

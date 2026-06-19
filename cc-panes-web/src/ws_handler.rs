@@ -50,7 +50,7 @@ async fn handle_ws(socket: WebSocket, session_id: String, state: AppState) {
             Message::Binary(data) => {
                 // Treat binary as raw terminal input
                 if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    let _ = state.terminal_service.write(&session_id, &text);
+                    let _ = state.terminal_backend.write(&session_id, &text);
                 }
             }
             Message::Close(_) => break,
@@ -72,12 +72,18 @@ fn handle_client_message(text: &str, session_id: &str, state: &AppState) -> anyh
     match msg_type {
         "input" => {
             let data = msg.get("data").and_then(|v| v.as_str()).unwrap_or("");
-            state.terminal_service.write(session_id, data)?;
+            state
+                .terminal_backend
+                .write(session_id, data)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
         }
         "resize" => {
             let cols = msg.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
             let rows = msg.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
-            state.terminal_service.resize(session_id, cols, rows)?;
+            state
+                .terminal_backend
+                .resize(session_id, cols, rows)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
         }
         other => {
             error!(msg_type = other, "Unknown WS message type");

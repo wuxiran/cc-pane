@@ -15,6 +15,20 @@ pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
         .route("/api/sessions", post(terminal::create_session))
         .route("/api/sessions", get(terminal::list_sessions))
+        .route(
+            "/api/sessions/{id}/status",
+            get(terminal::get_session_status),
+        )
+        .route(
+            "/api/sessions/{id}/output",
+            get(terminal::get_session_output),
+        )
+        .route(
+            "/api/sessions/{id}/snapshot",
+            get(terminal::get_session_snapshot),
+        )
+        .route("/api/sessions/{id}/write", post(terminal::write_session))
+        .route("/api/sessions/{id}/submit", post(terminal::submit_session))
         .route("/api/sessions/{id}/resize", post(terminal::resize_session))
         .route("/api/sessions/{id}", delete(terminal::kill_session));
 

@@ -68,7 +68,7 @@ pub async fn create_terminal_session(
             request.resume_id.as_deref(),
             request.skip_mcp,
             request.append_system_prompt.as_deref(),
-            None,
+            request.initial_prompt.as_deref(),
             None,
             request.ssh.as_ref(),
             request.wsl.as_ref(),
