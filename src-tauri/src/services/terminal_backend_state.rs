@@ -165,6 +165,10 @@ mod tests {
             Ok(Vec::new())
         }
 
+        fn get_session_status(&self, _session_id: &str) -> AppResult<Option<SessionStatusInfo>> {
+            Ok(None)
+        }
+
         fn get_session_output(&self, session_id: &str, _lines: usize) -> AppResult<SessionOutput> {
             Ok(SessionOutput {
                 session_id: session_id.to_string(),

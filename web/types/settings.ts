@@ -183,6 +183,7 @@ export interface TerminalStatusInfo {
   status: TerminalStatusType;
   lastOutputAt: number;
   pid?: number;
+  exitCode?: number;
   currentToolName?: string;
   currentToolUseId?: string;
   currentToolSummary?: string;

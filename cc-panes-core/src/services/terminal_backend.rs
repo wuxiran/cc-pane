@@ -20,6 +20,7 @@ pub trait TerminalBackend: Send + Sync {
     fn resize(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()>;
     fn kill(&self, session_id: &str) -> AppResult<()>;
     fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>>;
+    fn get_session_status(&self, session_id: &str) -> AppResult<Option<SessionStatusInfo>>;
     fn get_session_output(&self, session_id: &str, lines: usize) -> AppResult<SessionOutput>;
     fn get_session_replay_snapshot(
         &self,
@@ -95,6 +96,10 @@ impl TerminalBackend for TerminalService {
         TerminalService::get_all_status(self).map_err(AppError::from)
     }
 
+    fn get_session_status(&self, session_id: &str) -> AppResult<Option<SessionStatusInfo>> {
+        TerminalService::get_session_status(self, session_id).map_err(AppError::from)
+    }
+
     fn get_session_output(&self, session_id: &str, lines: usize) -> AppResult<SessionOutput> {
         TerminalService::get_session_output(self, session_id, lines).map_err(AppError::from)
     }
@@ -134,6 +139,10 @@ impl TerminalBackend for InProcessTerminalBackend {
 
     fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
         <TerminalService as TerminalBackend>::get_all_status(self.service.as_ref())
+    }
+
+    fn get_session_status(&self, session_id: &str) -> AppResult<Option<SessionStatusInfo>> {
+        <TerminalService as TerminalBackend>::get_session_status(self.service.as_ref(), session_id)
     }
 
     fn get_session_output(&self, session_id: &str, lines: usize) -> AppResult<SessionOutput> {
@@ -178,6 +187,10 @@ impl TerminalBackend for DaemonTerminalBackend {
 
     fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
         self.client.list_sessions()
+    }
+
+    fn get_session_status(&self, session_id: &str) -> AppResult<Option<SessionStatusInfo>> {
+        self.client.get_session_status(session_id)
     }
 
     fn get_session_output(&self, session_id: &str, lines: usize) -> AppResult<SessionOutput> {
@@ -296,14 +309,15 @@ mod tests {
     #[test]
     fn daemon_backend_maps_status_output_and_snapshot_payloads() {
         let status_body =
-            r#"[{"sessionId":"s1","status":"idle","lastOutputAt":10,"pid":42,"updatedAt":20}]"#;
+            r#"[{"sessionId":"s1","status":"exited","lastOutputAt":10,"pid":42,"exitCode":7,"updatedAt":20}]"#;
         let (addr, _) = spawn_response_server(http_json_response("200 OK", status_body));
         let backend = backend_for(addr);
 
         let statuses = backend.get_all_status().expect("statuses");
 
         assert_eq!(statuses.len(), 1);
-        assert_eq!(statuses[0].status, SessionStatus::Idle);
+        assert_eq!(statuses[0].status, SessionStatus::Exited);
+        assert_eq!(statuses[0].exit_code, Some(7));
 
         let output_body = r#"{"sessionId":"s1","lines":["ready"]}"#;
         let (addr, _) = spawn_response_server(http_json_response("200 OK", output_body));

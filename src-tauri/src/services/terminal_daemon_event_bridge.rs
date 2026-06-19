@@ -142,15 +142,13 @@ impl TerminalDaemonEventBridge {
         session_id: &str,
         backend: Arc<dyn TerminalBackend>,
     ) -> anyhow::Result<PollStatus> {
-        let statuses = tauri::async_runtime::spawn_blocking(move || backend.get_all_status())
+        let sid = session_id.to_string();
+        let status = tauri::async_runtime::spawn_blocking(move || backend.get_session_status(&sid))
             .await
             .map_err(|error| anyhow::anyhow!(error.to_string()))?
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
 
-        let Some(status) = statuses
-            .into_iter()
-            .find(|status| status.session_id == session_id)
-        else {
+        let Some(status) = status else {
             self.emit_terminal_status_once(synthesized_exited_status(session_id))?;
             self.emit_terminal_exit_once(session_id, -1)?;
             return Ok(PollStatus::Done);
@@ -162,7 +160,7 @@ impl TerminalDaemonEventBridge {
         }
 
         if status.status.is_terminal() {
-            self.emit_terminal_exit_once(session_id, -1)?;
+            self.emit_terminal_exit_once(session_id, status.exit_code.unwrap_or(-1))?;
             return Ok(PollStatus::Done);
         }
 
@@ -257,6 +255,7 @@ fn same_status_payload(left: &SessionStatusInfo, right: &SessionStatusInfo) -> b
         && left.status == right.status
         && left.last_output_at == right.last_output_at
         && left.pid == right.pid
+        && left.exit_code == right.exit_code
         && left.current_tool_name == right.current_tool_name
         && left.current_tool_use_id == right.current_tool_use_id
         && left.current_tool_summary == right.current_tool_summary
@@ -270,6 +269,7 @@ fn synthesized_exited_status(session_id: &str) -> SessionStatusInfo {
         status: SessionStatus::Exited,
         last_output_at: now,
         pid: None,
+        exit_code: None,
         current_tool_name: None,
         current_tool_use_id: None,
         current_tool_summary: None,
@@ -294,6 +294,7 @@ mod tests {
             status,
             last_output_at: updated_at,
             pid: Some(42),
+            exit_code: None,
             current_tool_name: None,
             current_tool_use_id: None,
             current_tool_summary: None,
@@ -320,8 +321,14 @@ mod tests {
         let first = status("s1", SessionStatus::Active, 10);
         let same = status("s1", SessionStatus::Active, 10);
         let changed = status("s1", SessionStatus::Exited, 11);
+        let mut changed_exit_code = changed.clone();
+        changed_exit_code.updated_at = first.updated_at;
+        changed_exit_code.last_output_at = first.last_output_at;
+        changed_exit_code.status = first.status;
+        changed_exit_code.exit_code = Some(7);
 
         assert!(same_status_payload(&first, &same));
         assert!(!same_status_payload(&first, &changed));
+        assert!(!same_status_payload(&first, &changed_exit_code));
     }
 }

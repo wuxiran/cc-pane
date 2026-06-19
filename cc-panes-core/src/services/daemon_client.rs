@@ -113,8 +113,18 @@ impl TerminalDaemonClient {
         self.get_json("/api/sessions", true)
     }
 
-    pub fn get_session_status(&self, session_id: &str) -> AppResult<SessionStatusInfo> {
-        self.get_json(&session_path(session_id, "/status"), true)
+    pub fn get_session_status(&self, session_id: &str) -> AppResult<Option<SessionStatusInfo>> {
+        let response = self.request("GET", &session_path(session_id, "/status"), true, None)?;
+        let (status, body) = split_http_response(&response)?;
+        if status == 404 {
+            return Ok(None);
+        }
+        if !(200..300).contains(&status) {
+            return Err(daemon_http_error(status, body));
+        }
+        let status =
+            serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))?;
+        Ok(Some(status))
     }
 
     pub fn write_session(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -544,14 +554,16 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].status, SessionStatus::Idle);
 
-        let status_body = r#"{"sessionId":"session-1","status":"toolRunning","lastOutputAt":10,"pid":42,"updatedAt":20}"#;
+        let status_body = r#"{"sessionId":"session-1","status":"exited","lastOutputAt":10,"pid":42,"exitCode":7,"updatedAt":20}"#;
         let (addr, _) = spawn_response_server(http_json_response("200 OK", status_body));
         let client = TerminalDaemonClient::new(addr.to_string(), "secret")
             .with_timeout(Duration::from_secs(1));
         let status = client
             .get_session_status("session-1")
-            .expect("session status");
-        assert_eq!(status.status, SessionStatus::ToolRunning);
+            .expect("session status")
+            .expect("status exists");
+        assert_eq!(status.status, SessionStatus::Exited);
+        assert_eq!(status.exit_code, Some(7));
 
         let output_body = r#"{"sessionId":"session-1","lines":["ready"]}"#;
         let (addr, rx) = spawn_response_server(http_json_response("200 OK", output_body));

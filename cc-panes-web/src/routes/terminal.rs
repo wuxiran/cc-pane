@@ -161,7 +161,7 @@ pub async fn get_session_status(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<SessionStatusInfo>, (StatusCode, String)> {
-    let statuses = state.terminal_backend.get_all_status().map_err(|e| {
+    let status = state.terminal_backend.get_session_status(&id).map_err(|e| {
         tracing::error!(error = %e, "Failed to get session status");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -169,9 +169,7 @@ pub async fn get_session_status(
         )
     })?;
 
-    statuses
-        .into_iter()
-        .find(|status| status.session_id == id)
+    status
         .map(Json)
         .ok_or((StatusCode::NOT_FOUND, "Session not found".to_string()))
 }
@@ -343,11 +341,19 @@ mod tests {
                 status: SessionStatus::Idle,
                 last_output_at: 100,
                 pid: Some(42),
+                exit_code: None,
                 current_tool_name: None,
                 current_tool_use_id: None,
                 current_tool_summary: None,
                 updated_at: 120,
             }])
+        }
+
+        fn get_session_status(&self, session_id: &str) -> AppResult<Option<SessionStatusInfo>> {
+            Ok(self
+                .get_all_status()?
+                .into_iter()
+                .find(|status| status.session_id == session_id))
         }
 
         fn get_session_output(&self, session_id: &str, lines: usize) -> AppResult<SessionOutput> {

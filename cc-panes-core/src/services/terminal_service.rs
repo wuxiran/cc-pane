@@ -365,6 +365,8 @@ pub struct SessionStatusInfo {
     pub last_output_at: u64, // 毫秒时间戳
     pub pid: Option<u32>,    // PTY 根进程 PID
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_tool_use_id: Option<String>,
@@ -675,6 +677,7 @@ struct TerminalSession {
     process: Arc<dyn PtyProcess>,
     writer_tx: mpsc::Sender<WriterCommand>,
     status: Arc<Mutex<SessionStatus>>,
+    exit_code: Arc<Mutex<Option<i32>>>,
     last_output_at: Arc<Mutex<Instant>>,
     /// reader 线程取消标志：kill() 设置为 true，reader 线程检查后退出
     cancelled: Arc<AtomicBool>,
@@ -695,6 +698,9 @@ struct DeadBufferEntry {
     output_buffer: Arc<Mutex<OutputBuffer>>,
     replay_buffer: Arc<Mutex<ReplayBuffer>>,
     created_at: Instant,
+    exit_code: Arc<Mutex<Option<i32>>>,
+    pid: Option<u32>,
+    last_output_at: u64,
 }
 
 /// 终端服务 - 管理多个 PTY 会话
@@ -999,6 +1005,7 @@ fn build_session_status_info(
     status: SessionStatus,
     last_output_at: u64,
     pid: Option<u32>,
+    exit_code: Option<i32>,
     state_machine: Option<&Arc<crate::services::SessionStateMachine>>,
 ) -> SessionStatusInfo {
     let snapshot = state_machine.and_then(|sm| sm.snapshot(&session_id));
@@ -1007,6 +1014,7 @@ fn build_session_status_info(
         status,
         last_output_at,
         pid,
+        exit_code,
         current_tool_name: snapshot
             .as_ref()
             .and_then(|entry| entry.current_tool_name.clone()),
@@ -1746,6 +1754,7 @@ impl TerminalService {
 
         // 状态追踪
         let status = Arc::new(Mutex::new(SessionStatus::Active));
+        let exit_code = Arc::new(Mutex::new(None));
         let last_output_at = Arc::new(Mutex::new(Instant::now()));
         let cancelled = Arc::new(AtomicBool::new(false));
         let output_buffer = Arc::new(Mutex::new(OutputBuffer::new(
@@ -1781,6 +1790,7 @@ impl TerminalService {
                     process,
                     writer_tx,
                     status: status.clone(),
+                    exit_code: exit_code.clone(),
                     last_output_at: last_output_at.clone(),
                     cancelled: cancelled.clone(),
                     output_buffer: output_buffer.clone(),
@@ -2094,6 +2104,7 @@ impl TerminalService {
                                         status_for_emit,
                                         now_ms,
                                         Some(reader_pid),
+                                        None,
                                         read_state_machine.as_ref(),
                                     ))
                                     .unwrap_or_default(),
@@ -2128,6 +2139,7 @@ impl TerminalService {
         let wait_pid = session_pid;
         let wait_resume_diag = resume_diag;
         let wait_output_buffer = output_buffer.clone();
+        let wait_exit_code = exit_code.clone();
         let wait_spawned_at = Instant::now();
         let wait_state_machine = self
             .state_machine
@@ -2135,7 +2147,7 @@ impl TerminalService {
             .ok()
             .and_then(|g| g.as_ref().cloned());
         thread::spawn(move || {
-            let exit_code = match process_for_wait.wait() {
+            let process_exit_code = match process_for_wait.wait() {
                 Ok(status) => {
                     if status.success() {
                         0
@@ -2145,14 +2157,17 @@ impl TerminalService {
                 }
                 Err(_) => -1,
             };
-            info!(session_id = %sid, exit_code, "PTY process exited");
+            if let Ok(mut stored_exit_code) = wait_exit_code.lock() {
+                *stored_exit_code = Some(process_exit_code);
+            }
+            info!(session_id = %sid, exit_code = process_exit_code, "PTY process exited");
 
             // resume 启动失败取证：resume 会话在 120s 内退出（ConPTY exit code 不可靠，
             // 时间窗 + 错误特征匹配是主信号）。tail 可能含用户 prompt/模型输出，
             // 仅在命中错误特征或非零退出时记录，且限 20 行。
             if let Some((resume_id, cli_tool_id, command_line)) = wait_resume_diag.as_ref() {
                 let elapsed = wait_spawned_at.elapsed();
-                if exit_code != 0 || elapsed < std::time::Duration::from_secs(120) {
+                if process_exit_code != 0 || elapsed < std::time::Duration::from_secs(120) {
                     let tail = wait_output_buffer
                         .lock()
                         .map(|buf| buf.get_recent(20))
@@ -2168,12 +2183,12 @@ impl TerminalService {
                     .iter()
                     .find(|pattern| joined.contains(*pattern))
                     .copied();
-                    let include_tail = matched_pattern.is_some() || exit_code != 0;
+                    let include_tail = matched_pattern.is_some() || process_exit_code != 0;
                     warn!(
                         session_id = %sid,
                         resume_id = %resume_id,
                         cli_tool = %cli_tool_id,
-                        exit_code,
+                        exit_code = process_exit_code,
                         elapsed_ms = elapsed.as_millis() as u64,
                         matched_pattern = ?matched_pattern,
                         command = %command_line,
@@ -2196,7 +2211,7 @@ impl TerminalService {
             }
 
             // 发送退出通知
-            wait_notifier.notify_session_exited(&sid, exit_code);
+            wait_notifier.notify_session_exited(&sid, process_exit_code);
             wait_notifier.cleanup_session(&sid);
 
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2204,7 +2219,7 @@ impl TerminalService {
                     EV::TERMINAL_EXIT,
                     serde_json::to_value(&TerminalExit {
                         session_id: sid.clone(),
-                        exit_code,
+                        exit_code: process_exit_code,
                     })
                     .unwrap_or_default(),
                 );
@@ -2219,6 +2234,7 @@ impl TerminalService {
                         SessionStatus::Exited,
                         current_epoch_millis(),
                         Some(wait_pid),
+                        Some(process_exit_code),
                         wait_state_machine.as_ref(),
                     ))
                     .unwrap_or_default(),
@@ -2231,6 +2247,7 @@ impl TerminalService {
             if let Ok(mut sessions) = sessions_for_wait.lock() {
                 // 移除前保存 output_buffer 到 dead_buffers，供事后读取
                 if let Some(session) = sessions.remove(&sid) {
+                    let exit_code = Arc::clone(&session.exit_code);
                     // 会话退出后仍保留足够输出供用户回看，5 分钟后清理。
                     if let Ok(mut buf) = session.output_buffer.lock() {
                         buf.shrink(DEAD_OUTPUT_MAX_LINES, DEAD_OUTPUT_MAX_BYTES);
@@ -2245,6 +2262,9 @@ impl TerminalService {
                                 output_buffer: session.output_buffer,
                                 replay_buffer: session.replay_buffer,
                                 created_at: Instant::now(),
+                                exit_code,
+                                pid: Some(wait_pid),
+                                last_output_at: current_epoch_millis(),
                             },
                         );
                     }
@@ -2303,6 +2323,11 @@ impl TerminalService {
                     adjusted_status,
                     current_epoch_millis().saturating_sub(elapsed.as_millis() as u64),
                     Some(session.process.pid()),
+                    session
+                        .exit_code
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .to_owned(),
                     self.state_machine
                         .lock()
                         .ok()
@@ -2311,6 +2336,64 @@ impl TerminalService {
                 )
             })
             .collect())
+    }
+
+    /// 获取单个会话状态；退出后 5 分钟内可从 dead buffer 查询最终状态。
+    pub fn get_session_status(&self, session_id: &str) -> Result<Option<SessionStatusInfo>> {
+        if let Ok(sessions) = self.sessions.lock() {
+            if let Some(session) = sessions.get(session_id) {
+                let status = *session.status.lock().unwrap_or_else(|e| e.into_inner());
+                let elapsed = session
+                    .last_output_at
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .elapsed();
+                let adjusted_status = match status {
+                    SessionStatus::Active if elapsed.as_secs() > 8 => SessionStatus::Idle,
+                    other => other,
+                };
+                return Ok(Some(build_session_status_info(
+                    session_id.to_string(),
+                    adjusted_status,
+                    current_epoch_millis().saturating_sub(elapsed.as_millis() as u64),
+                    Some(session.process.pid()),
+                    session
+                        .exit_code
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .to_owned(),
+                    self.state_machine
+                        .lock()
+                        .ok()
+                        .and_then(|guard| guard.as_ref().cloned())
+                        .as_ref(),
+                )));
+            }
+        }
+
+        let mut dead = self
+            .dead_buffers
+            .lock()
+            .map_err(|_| anyhow!("dead_buffers lock poisoned"))?;
+        dead.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
+        Ok(dead.get(session_id).map(|entry| {
+            build_session_status_info(
+                session_id.to_string(),
+                SessionStatus::Exited,
+                entry.last_output_at,
+                entry.pid,
+                entry
+                    .exit_code
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .to_owned(),
+                self.state_machine
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.as_ref().cloned())
+                    .as_ref(),
+            )
+        }))
     }
 
     /// 返回所有活跃（非 Exited）session 的根 PID
@@ -2444,6 +2527,9 @@ impl TerminalService {
                         output_buffer: Arc::clone(&session.output_buffer),
                         replay_buffer: Arc::clone(&session.replay_buffer),
                         created_at: Instant::now(),
+                        exit_code: Arc::clone(&session.exit_code),
+                        pid: Some(session.process.pid()),
+                        last_output_at: current_epoch_millis(),
                     },
                 );
             }
@@ -2761,6 +2847,7 @@ impl TerminalService {
                         new_status,
                         current_epoch_millis(),
                         Some(pid),
+                        None,
                         self.state_machine
                             .lock()
                             .ok()
@@ -3047,6 +3134,7 @@ mod tests {
                     process: Arc::new(FakePtyProcess),
                     writer_tx,
                     status: Arc::new(Mutex::new(SessionStatus::Idle)),
+                    exit_code: Arc::new(Mutex::new(None)),
                     last_output_at: Arc::new(Mutex::new(Instant::now())),
                     cancelled: Arc::new(AtomicBool::new(false)),
                     output_buffer: Arc::new(Mutex::new(OutputBuffer::new(10, 1024))),
