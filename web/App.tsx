@@ -346,6 +346,17 @@ function MainApp() {
         i18n.changeLanguage(lang);
       }
       useTerminalStatusStore.getState().init();
+      terminalService.getAllStatus()
+        .then((statuses) => {
+          if (cancelled) return;
+          const restored = usePanesStore.getState().restoreLiveDaemonSessions(statuses);
+          if (restored > 0) {
+            console.info(`[SessionRestore] Reattached ${restored} live daemon session(s)`);
+          }
+        })
+        .catch((error) => {
+          console.warn("[SessionRestore] Failed to restore live daemon sessions:", error);
+        });
       useNotificationStore.getState().init().catch(console.error);
       useResourceStatsStore.getState().init();
       useEnvironmentStore.getState().init();

@@ -381,6 +381,67 @@ describe("usePanesStore layouts", () => {
     expect(hiddenLeaf.savedSessionId).toBeUndefined();
   });
 
+  it("restoreLiveDaemonSessions 能把隐藏布局 restoring tab 重新接回 live daemon session", () => {
+    const tab = makeTerminalTab("hidden-tab");
+    const leaf = tab.terminalRootPane as TerminalPaneLeaf;
+    leaf.sessionId = null;
+    leaf.restoring = true;
+    leaf.savedSessionId = "daemon-live";
+    tab.sessionId = null;
+    tab.restoring = true;
+    tab.savedSessionId = "daemon-live";
+    usePanesStore.setState((state) => {
+      state.layouts.push(makeLayout("layout-hidden", "隐藏", tab));
+    });
+
+    const restored = usePanesStore.getState().restoreLiveDaemonSessions([{
+      sessionId: "daemon-live",
+      status: "active",
+      lastOutputAt: 10,
+      updatedAt: 10,
+    }]);
+
+    const hiddenTab = panel(hiddenLayout().rootPane).tabs[0];
+    const hiddenLeaf = hiddenTab.terminalRootPane as TerminalPaneLeaf;
+    expect(restored).toBe(1);
+    expect(hiddenLeaf.sessionId).toBe("daemon-live");
+    expect(hiddenTab.sessionId).toBe("daemon-live");
+    expect(hiddenLeaf.restoring).toBe(false);
+    expect(hiddenLeaf.savedSessionId).toBeUndefined();
+  });
+
+  it("restoreLiveDaemonSessions 恢复非 active terminal pane 时不误切 tab 级 session", () => {
+    const tab = makeSplitTerminalTab("hidden-tab");
+    const root = tab.terminalRootPane as TerminalPaneSplit;
+    const left = root.children[0] as TerminalPaneLeaf;
+    const right = root.children[1] as TerminalPaneLeaf;
+    right.sessionId = null;
+    right.restoring = true;
+    right.savedSessionId = "daemon-right";
+    usePanesStore.setState((state) => {
+      state.layouts.push(makeLayout("layout-hidden", "隐藏", tab));
+    });
+
+    const restored = usePanesStore.getState().restoreLiveDaemonSessions([{
+      sessionId: "daemon-right",
+      status: "thinking",
+      lastOutputAt: 10,
+      updatedAt: 10,
+    }]);
+
+    const hiddenTab = panel(hiddenLayout().rootPane).tabs[0];
+    const hiddenRoot = hiddenTab.terminalRootPane as TerminalPaneSplit;
+    const hiddenLeft = hiddenRoot.children[0] as TerminalPaneLeaf;
+    const hiddenRight = hiddenRoot.children[1] as TerminalPaneLeaf;
+    expect(restored).toBe(1);
+    expect(hiddenRight.sessionId).toBe("daemon-right");
+    expect(hiddenRight.restoring).toBe(false);
+    expect(hiddenRight.savedSessionId).toBeUndefined();
+    expect(hiddenLeft.sessionId).toBe("session-left");
+    expect(hiddenTab.sessionId).toBe(left.sessionId);
+    expect(hiddenTab.activeTerminalPaneId).toBe(left.id);
+  });
+
   it("setTabDisconnected、reconnectTab、setTabDirty 能回写隐藏布局", async () => {
     mockTauriInvoke({ create_terminal_session: "session-reconnected" });
     const tab = makeTerminalTab("hidden-tab");

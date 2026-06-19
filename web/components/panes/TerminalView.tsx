@@ -113,6 +113,16 @@ function resolveRuntimeKind(
   return "local";
 }
 
+async function findLiveSavedSessionId(savedSessionId?: string): Promise<string | null> {
+  if (!savedSessionId) return null;
+  const statuses = await terminalService.getAllStatus();
+  return statuses.some((status) => (
+    status.sessionId === savedSessionId && status.status !== "exited"
+  ))
+    ? savedSessionId
+    : null;
+}
+
 function writeTerminalReply(
   sessionId: string | null,
   response: string,
@@ -1112,8 +1122,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           try {
             await ensureListeners();
 
+            const liveSavedSessionId = props.sessionId
+              ? null
+              : await findLiveSavedSessionId(props.restoring ? props.savedSessionId : undefined);
+
             // Replay persisted output before deciding whether to create a live PTY.
-            if (props.restoring && props.savedSessionId) {
+            if (props.restoring && props.savedSessionId && !liveSavedSessionId) {
               try {
                 const lines = await sessionRestoreService.loadOutput(props.savedSessionId);
                 if (lines && lines.length > 0) {
@@ -1137,14 +1151,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
             let sessionId: string;
             let effectiveResumeId = pickCreateSessionResumeId(props);
+            const attachSessionId = props.sessionId ?? liveSavedSessionId;
 
-            if (props.sessionId) {
+            if (attachSessionId) {
               debugLog("session.attach-existing", {
-                attachSessionId: props.sessionId,
+                attachSessionId,
+                source: props.sessionId ? "prop-session-id" : "live-saved-session",
                 note: "reusing existing PTY session with replay snapshot when available",
               });
-              console.info(`[TerminalView] Reconnecting to existing session: ${props.sessionId}`);
-              sessionId = props.sessionId;
+              console.info(`[TerminalView] Reconnecting to existing session: ${attachSessionId}`);
+              sessionId = attachSessionId;
               try {
                 await replayAttachedSession({
                   term,
@@ -1159,7 +1175,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 });
               } catch (error) {
                 debugLog("session.attach-existing.replay.fail", {
-                  attachSessionId: props.sessionId,
+                  attachSessionId,
                   error: getErrorMessage(error),
                 });
               }
@@ -1232,7 +1248,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
 
             if (!isMounted) {
-              if (!props.sessionId) {
+              if (!attachSessionId) {
                 console.warn(`[TerminalView] Component unmounted during init, killing session: ${sessionId}`);
                 terminalService.killSession(sessionId).catch(console.error);
               }
@@ -1269,7 +1285,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
 
             // Keep PTY size aligned when attaching to an existing session.
-            if (props.sessionId) {
+            if (attachSessionId) {
               terminalService.resize({ sessionId, cols: term.cols, rows: term.rows });
             }
           } catch (error) {
@@ -1435,6 +1451,37 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               const effectiveResumeId = pickCreateSessionResumeId(props);
 
               if (isUnmountedRef.current) return;
+
+              const liveSavedSessionId = await findLiveSavedSessionId(props.savedSessionId);
+              if (liveSavedSessionId) {
+                currentSessionIdRef.current = liveSavedSessionId;
+                debugLog("session.deferred-restore.attach-existing", {
+                  attachSessionId: liveSavedSessionId,
+                });
+                props.onRestoreLaunchState?.("idle");
+                onSessionCreatedRef.current(liveSavedSessionId);
+                await replayAttachedSession({
+                  term,
+                  sessionId: liveSavedSessionId,
+                  getReplaySnapshot: (attachSessionId) => terminalService.getReplaySnapshot(attachSessionId),
+                  writeData: (data) => {
+                    const renderedData = renderTerminalData(data);
+                    return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
+                  },
+                  syncTrackedBufferType,
+                  debugLog,
+                });
+                if (props.paneId && props.tabId) {
+                  usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
+                  sessionRestoreService.clearOutput(liveSavedSessionId).catch(console.error);
+                }
+                await bindSessionCallbacks(liveSavedSessionId);
+                if (isUnmountedRef.current) {
+                  terminalService.detachOutput(liveSavedSessionId);
+                  terminalService.detachExit(liveSavedSessionId);
+                }
+                return;
+              }
 
               debugLog("session.deferred-restore.begin", {
                 resumeId: effectiveResumeId ?? null,

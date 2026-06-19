@@ -13,6 +13,7 @@ import type {
   CreateSessionRequest,
   ResizeRequest,
   EnvironmentInfo,
+  TerminalStatusInfo,
   TerminalSessionOutput,
 } from "@/types";
 import type { EnvironmentInfoRaw } from "@/types/settings";
@@ -235,6 +236,10 @@ export const terminalService = {
   /** 读取最近 N 行纯文本输出 */
   async getRecentOutput(sessionId: string, lines = 200): Promise<TerminalSessionOutput> {
     return invoke<TerminalSessionOutput>("get_terminal_recent_output", { sessionId, lines });
+  },
+
+  async getAllStatus(): Promise<TerminalStatusInfo[]> {
+    return invoke<TerminalStatusInfo[]>("get_all_terminal_status");
   },
 
   async getReplaySnapshot(sessionId: string): Promise<TerminalReplaySnapshot | null> {

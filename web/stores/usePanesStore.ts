@@ -20,6 +20,7 @@ import type {
   TerminalPaneNode,
   TerminalPaneLeaf,
   TerminalPaneSplit,
+  TerminalStatusInfo,
 } from "@/types";
 
 // 生成唯一 ID
@@ -810,6 +811,7 @@ interface PanesState {
   setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean, terminalPaneId?: string) => void;
   reconnectTab: (paneId: string, tabId: string, terminalPaneId?: string) => Promise<string | null>;
   closeTabBySessionId: (sessionId: string) => void;
+  restoreLiveDaemonSessions: (statuses: TerminalStatusInfo[]) => number;
   /** Clear restoring metadata after a terminal tab finishes recovery. */
   clearRestoring: (paneId: string, tabId: string, terminalPaneId?: string) => void;
   /** Collect terminal tabs that can be restored after restart. */
@@ -2192,6 +2194,43 @@ export const usePanesStore = create<PanesState>()(
           }
         });
       });
+    },
+
+    restoreLiveDaemonSessions: (statuses) => {
+      const liveSessionIds = new Set(
+        statuses
+          .filter((status) => status.status !== "exited")
+          .map((status) => status.sessionId)
+      );
+      if (liveSessionIds.size === 0) return 0;
+
+      let restored = 0;
+      set((state) => {
+        eachLayoutTree(state, (_layout, tree) => {
+          for (const panel of collectPanels(tree)) {
+            for (const tab of panel.tabs) {
+              if (tab.contentType !== "terminal" || !tab.terminalRootPane) continue;
+              let changed = false;
+              for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
+                const savedSessionId = leaf.savedSessionId;
+                if (!leaf.restoring || !savedSessionId || !liveSessionIds.has(savedSessionId)) {
+                  continue;
+                }
+                leaf.sessionId = savedSessionId;
+                leaf.restoring = false;
+                leaf.savedSessionId = undefined;
+                changed = true;
+                restored += 1;
+              }
+              if (changed) {
+                syncTabTerminalState(tab);
+              }
+            }
+          }
+        });
+      });
+
+      return restored;
     },
 
     clearRestoring: (_paneId, tabId, terminalPaneId) => {
