@@ -1037,6 +1037,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-panes-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cc-panes-web"
 version = "0.1.0"
 dependencies = [

@@ -4,6 +4,7 @@ members = [
     "src-tauri",
     "cc-panes-core",
     "cc-panes-api",
+    "cc-panes-daemon",
     "cc-panes-cli-hook",
     "cc-panes-web",
     "cc-memory",
