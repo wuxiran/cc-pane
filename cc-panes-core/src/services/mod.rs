@@ -66,7 +66,7 @@ pub use spec_service::SpecService;
 pub use ssh_credential_service::SshCredentialService;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use task_binding_service::TaskBindingService;
-pub use terminal_backend::{InProcessTerminalBackend, TerminalBackend};
+pub use terminal_backend::{DaemonTerminalBackend, InProcessTerminalBackend, TerminalBackend};
 pub use terminal_service::{OrchestratorInfo, SessionStatusInfo, ShellInfo, TerminalService};
 pub use todo_service::TodoService;
 pub use usage_stats_service::UsageStatsService;

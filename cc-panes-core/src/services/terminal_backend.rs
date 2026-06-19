@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::models::{CreateSessionRequest, TerminalReplaySnapshot};
+use crate::services::daemon_client::TerminalDaemonClient;
 use crate::services::terminal_service::SessionOutput;
 use crate::services::terminal_service::TerminalService;
 use crate::services::SessionStatusInfo;
@@ -31,9 +32,20 @@ pub struct InProcessTerminalBackend {
     service: Arc<TerminalService>,
 }
 
+#[derive(Clone)]
+pub struct DaemonTerminalBackend {
+    client: TerminalDaemonClient,
+}
+
 impl InProcessTerminalBackend {
     pub fn new(service: Arc<TerminalService>) -> Self {
         Self { service }
+    }
+}
+
+impl DaemonTerminalBackend {
+    pub fn new(client: TerminalDaemonClient) -> Self {
+        Self { client }
     }
 }
 
@@ -140,5 +152,192 @@ impl TerminalBackend for InProcessTerminalBackend {
             self.service.as_ref(),
             session_id,
         )
+    }
+}
+
+impl TerminalBackend for DaemonTerminalBackend {
+    fn create_session(&self, request: CreateSessionRequest) -> AppResult<String> {
+        self.client.create_session(request)
+    }
+
+    fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
+        self.client.write_session(session_id, data)
+    }
+
+    fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()> {
+        self.client.submit_text_to_session(session_id, text)
+    }
+
+    fn resize(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
+        self.client.resize_session(session_id, cols, rows)
+    }
+
+    fn kill(&self, session_id: &str) -> AppResult<()> {
+        self.client.kill_session(session_id)
+    }
+
+    fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
+        self.client.list_sessions()
+    }
+
+    fn get_session_output(&self, session_id: &str, lines: usize) -> AppResult<SessionOutput> {
+        self.client.get_session_output(session_id, lines)
+    }
+
+    fn get_session_replay_snapshot(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<TerminalReplaySnapshot>> {
+        self.client.get_session_replay_snapshot(session_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpListener};
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    use crate::models::{CliTool, TerminalBufferMode};
+    use crate::services::terminal_service::SessionStatus;
+
+    use super::*;
+
+    fn http_json_response(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    }
+
+    fn spawn_response_server(response: String) -> (SocketAddr, mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let addr = listener.local_addr().expect("local addr");
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept client");
+            let mut request_bytes = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            loop {
+                let n = stream.read(&mut chunk).expect("read request");
+                if n == 0 {
+                    break;
+                }
+                request_bytes.extend_from_slice(&chunk[..n]);
+                if request_bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request_bytes).expect("utf8 request");
+            tx.send(request).ok();
+            stream
+                .write_all(response.as_bytes())
+                .expect("write response");
+        });
+        (addr, rx)
+    }
+
+    fn backend_for(addr: SocketAddr) -> DaemonTerminalBackend {
+        DaemonTerminalBackend::new(
+            TerminalDaemonClient::new(addr.to_string(), "secret")
+                .with_timeout(Duration::from_secs(1)),
+        )
+    }
+
+    fn create_request() -> CreateSessionRequest {
+        CreateSessionRequest {
+            launch_id: None,
+            project_path: "/repo".to_string(),
+            cols: 120,
+            rows: 30,
+            workspace_name: None,
+            provider_id: None,
+            provider_selection: Default::default(),
+            launch_profile_id: None,
+            workspace_path: None,
+            workspace_snapshot_id: None,
+            launch_claude: false,
+            cli_tool: CliTool::None,
+            resume_id: None,
+            skip_mcp: false,
+            append_system_prompt: None,
+            initial_prompt: None,
+            ssh: None,
+            wsl: None,
+        }
+    }
+
+    #[test]
+    fn daemon_backend_maps_terminal_operations_to_client() {
+        let (addr, rx) =
+            spawn_response_server(http_json_response("201 Created", r#"{"sessionId":"s1"}"#));
+        let backend = backend_for(addr);
+
+        let session_id = backend.create_session(create_request()).expect("create");
+
+        assert_eq!(session_id, "s1");
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/sessions HTTP/1.1"));
+
+        let (addr, rx) = spawn_response_server(
+            "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n".to_string(),
+        );
+        let backend = backend_for(addr);
+
+        backend.write("s1", "abc").expect("write");
+
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/sessions/s1/write HTTP/1.1"));
+    }
+
+    #[test]
+    fn daemon_backend_maps_status_output_and_snapshot_payloads() {
+        let status_body =
+            r#"[{"sessionId":"s1","status":"idle","lastOutputAt":10,"pid":42,"updatedAt":20}]"#;
+        let (addr, _) = spawn_response_server(http_json_response("200 OK", status_body));
+        let backend = backend_for(addr);
+
+        let statuses = backend.get_all_status().expect("statuses");
+
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].status, SessionStatus::Idle);
+
+        let output_body = r#"{"sessionId":"s1","lines":["ready"]}"#;
+        let (addr, _) = spawn_response_server(http_json_response("200 OK", output_body));
+        let backend = backend_for(addr);
+
+        let output = backend.get_session_output("s1", 20).expect("output");
+
+        assert_eq!(output.session_id, "s1");
+        assert_eq!(output.lines, vec!["ready"]);
+
+        let snapshot_body = r#"{"data":"\u001b[2J","bufferMode":"normal"}"#;
+        let (addr, _) = spawn_response_server(http_json_response("200 OK", snapshot_body));
+        let backend = backend_for(addr);
+
+        let snapshot = backend
+            .get_session_replay_snapshot("s1")
+            .expect("snapshot")
+            .expect("some snapshot");
+
+        assert_eq!(snapshot.buffer_mode, TerminalBufferMode::Normal);
+    }
+
+    #[test]
+    fn daemon_backend_maps_missing_snapshot_to_none() {
+        let (addr, _) = spawn_response_server(http_json_response(
+            "404 Not Found",
+            r#"{"code":"NOT_FOUND","message":"Session not found"}"#,
+        ));
+        let backend = backend_for(addr);
+
+        let snapshot = backend
+            .get_session_replay_snapshot("missing")
+            .expect("result");
+
+        assert!(snapshot.is_none());
     }
 }

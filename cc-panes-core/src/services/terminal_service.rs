@@ -314,7 +314,7 @@ fn resolve_shell(shell_id: Option<&str>) -> (String, Vec<String>) {
 /// **工具名不放在枚举里**：序列化为对象会破坏前端协议。工具名由 `SessionStateMachine`
 /// 单独维护在 `SessionStateEntry::current_tool_name`，前端通过 SessionStatusInfo 的扩展字段
 /// （如果需要）单独获取。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionStatus {
     /// 启动中（hook 还没上报第一个事件）
@@ -357,7 +357,7 @@ impl SessionStatus {
 }
 
 /// 终端会话状态信息
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatusInfo {
     pub session_id: String,
@@ -401,7 +401,7 @@ struct ReplayBuffer {
 }
 
 /// 读取终端输出的返回类型
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionOutput {
     pub session_id: String,
