@@ -25,6 +25,7 @@
     "dev": "vite",
     "build": "vite build",
     "clean:local": "node scripts/clean-local.mjs",
+    "smoke:daemon-web": "node scripts/smoke-daemon-web.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
