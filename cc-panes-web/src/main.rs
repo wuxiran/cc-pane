@@ -9,13 +9,14 @@ use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::{
     events::NoopNotifier,
     repository::{
-        Database, ProjectRepository, SpecRepository, TaskBindingRepository, TodoRepository,
+        Database, HistoryRepository, ProjectRepository, SpecRepository, TaskBindingRepository,
+        TodoRepository,
     },
     services::{
-        DaemonTerminalBackend, FileSystemService, InProcessTerminalBackend, ProjectCliHooksService,
-        ProjectService, ProviderService, SettingsService, SpecService, SshCredentialService,
-        TaskBindingService, TerminalBackend, TerminalDaemonClient, TerminalService, TodoService,
-        WorkspaceService,
+        DaemonTerminalBackend, FileSystemService, InProcessTerminalBackend, LaunchHistoryService,
+        ProjectCliHooksService, ProjectService, ProviderService, SessionRestoreService,
+        SettingsService, SpecService, SshCredentialService, TaskBindingService, TerminalBackend,
+        TerminalDaemonClient, TerminalService, TodoService, WorkspaceService,
     },
     utils::AppPaths,
 };
@@ -79,12 +80,15 @@ async fn main() -> anyhow::Result<()> {
     let project_repo = Arc::new(ProjectRepository::new(database.clone()));
     let todo_repo = Arc::new(TodoRepository::new(database.clone()));
     let spec_repo = Arc::new(SpecRepository::new(database.clone()));
-    let task_binding_repo = Arc::new(TaskBindingRepository::new(database));
+    let task_binding_repo = Arc::new(TaskBindingRepository::new(database.clone()));
+    let history_repo = Arc::new(HistoryRepository::new(database.clone()));
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
     let project_service = Arc::new(ProjectService::new(project_repo));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
+    let session_restore_service = Arc::new(SessionRestoreService::new(database, app_paths.clone()));
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let settings_service = Arc::new(SettingsService::new());
     let filesystem_service = Arc::new(FileSystemService::new());
@@ -108,6 +112,8 @@ async fn main() -> anyhow::Result<()> {
         todo_service,
         spec_service,
         task_binding_service,
+        launch_history_service,
+        session_restore_service,
         ws_emitter,
         default_cwd: cwd_str.clone(),
         output_mode: backend_state.output_mode,

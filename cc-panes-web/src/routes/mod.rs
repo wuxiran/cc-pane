@@ -1,3 +1,4 @@
+pub mod history;
 pub mod resources;
 pub mod static_files;
 pub mod terminal;
@@ -33,6 +34,94 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/sessions/{id}/submit", post(terminal::submit_session))
         .route("/api/sessions/{id}/resize", post(terminal::resize_session))
         .route("/api/sessions/{id}", delete(terminal::kill_session))
+        .route("/api/launch-history", get(history::list_launch_history))
+        .route("/api/launch-history", post(history::add_launch_history))
+        .route("/api/launch-history", delete(history::clear_launch_history))
+        .route(
+            "/api/launch-history/by-pty",
+            get(history::find_launch_history_by_pty_session),
+        )
+        .route(
+            "/api/launch-history/by-resume",
+            get(history::find_launch_history_by_resume_session),
+        )
+        .route(
+            "/api/launch-history/by-launch",
+            get(history::find_launch_history_by_launch_id),
+        )
+        .route(
+            "/api/launch-history/touch-by-session",
+            post(history::touch_launch_by_session),
+        )
+        .route(
+            "/api/launch-history/by-pty/resume",
+            patch(history::update_launch_resume_by_pty),
+        )
+        .route(
+            "/api/launch-history/by-pty/last-prompt",
+            patch(history::update_launch_last_prompt_by_pty),
+        )
+        .route(
+            "/api/launch-history/session-started",
+            patch(history::update_launch_session_started),
+        )
+        .route(
+            "/api/launch-history/session-started/upsert",
+            put(history::upsert_launch_session_started),
+        )
+        .route(
+            "/api/launch-history/{id}",
+            delete(history::delete_launch_history),
+        )
+        .route(
+            "/api/launch-history/{id}/session-id",
+            patch(history::update_launch_session_id),
+        )
+        .route(
+            "/api/launch-history/{id}/resume-source",
+            patch(history::update_launch_resume_source),
+        )
+        .route(
+            "/api/launch-history/{id}/last-prompt",
+            patch(history::update_launch_last_prompt),
+        )
+        .route("/api/session-state", get(history::read_session_state))
+        .route(
+            "/api/terminal-sessions",
+            get(history::load_terminal_sessions),
+        )
+        .route(
+            "/api/terminal-sessions",
+            put(history::save_terminal_sessions),
+        )
+        .route(
+            "/api/terminal-sessions",
+            delete(history::clear_terminal_sessions),
+        )
+        .route(
+            "/api/terminal-sessions/{session_id}/output",
+            get(history::load_session_output),
+        )
+        .route(
+            "/api/terminal-sessions/{session_id}/output",
+            post(history::save_session_output),
+        )
+        .route(
+            "/api/terminal-sessions/{session_id}/output",
+            delete(history::clear_session_output),
+        )
+        .route(
+            "/api/workspace-snapshots/{workspace_id}",
+            get(history::list_workspace_snapshots),
+        )
+        .route(
+            "/api/workspace-snapshots/{workspace_id}/{snapshot_id}",
+            get(history::get_workspace_snapshot),
+        )
+        .route(
+            "/api/workspace-snapshots/{workspace_id}/{snapshot_id}",
+            delete(history::delete_workspace_snapshot),
+        )
         .route("/api/workspaces", get(resources::list_workspaces))
         .route("/api/workspaces", post(resources::create_workspace))
         .route(

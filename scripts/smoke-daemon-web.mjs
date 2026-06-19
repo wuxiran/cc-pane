@@ -4,6 +4,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { verifyWebHistoryApis } from "./smoke-daemon-web-history.mjs";
+
 const TOKEN = "ccpanes-smoke-token";
 const DAEMON_RUNTIME_PREFIX = "cc-panes-daemon-smoke-runtime-";
 const DAEMON_DATA_PREFIX = "cc-panes-daemon-smoke-data-";
@@ -674,6 +676,15 @@ async function main() {
     });
     await verifyWebResourceApis(webBaseUrl, webWorkspaceDir);
     await verifyWebWorkflowApis(webBaseUrl, webWorkspaceDir);
+    await verifyWebHistoryApis({
+      webBaseUrl,
+      rootDir: webWorkspaceDir,
+      requestJson,
+      requestNoContent,
+      assertEquals,
+      fail,
+      log,
+    });
 
     await requestNoContent(daemonBaseUrl, "/api/daemon/shutdown", {
       method: "POST",

@@ -285,9 +285,9 @@ mod tests {
     use cc_panes_core::{
         models::{TerminalBufferMode, WslLaunchInfo},
         services::{
-            terminal_service::SessionStatus, FileSystemService, ProjectService, ProviderService,
-            SettingsService, SpecService, TaskBindingService, TerminalBackend, TodoService,
-            WorkspaceService,
+            terminal_service::SessionStatus, FileSystemService, LaunchHistoryService,
+            ProjectService, ProviderService, SessionRestoreService, SettingsService, SpecService,
+            TaskBindingService, TerminalBackend, TodoService, WorkspaceService,
         },
         utils::{AppPaths, AppResult},
     };
@@ -412,7 +412,10 @@ mod tests {
             database.clone(),
         ));
         let task_binding_repo = Arc::new(cc_panes_core::repository::TaskBindingRepository::new(
-            database,
+            database.clone(),
+        ));
+        let history_repo = Arc::new(cc_panes_core::repository::HistoryRepository::new(
+            database.clone(),
         ));
         let todo_service = Arc::new(TodoService::new(todo_repo));
         AppState {
@@ -425,6 +428,11 @@ mod tests {
             todo_service: todo_service.clone(),
             spec_service: Arc::new(SpecService::new(spec_repo, todo_service)),
             task_binding_service: Arc::new(TaskBindingService::new(task_binding_repo)),
+            launch_history_service: Arc::new(LaunchHistoryService::new(history_repo)),
+            session_restore_service: Arc::new(SessionRestoreService::new(
+                database,
+                Arc::new(app_paths),
+            )),
             ws_emitter: Arc::new(WsEmitter::new()),
             default_cwd: "/default/project".to_string(),
             output_mode: crate::state::TerminalOutputMode::Emitter,

@@ -13,12 +13,14 @@ use cc_panes_core::{
         TerminalBufferMode,
     },
     repository::{
-        Database, ProjectRepository, SpecRepository, TaskBindingRepository, TodoRepository,
+        Database, HistoryRepository, ProjectRepository, SpecRepository, TaskBindingRepository,
+        TodoRepository,
     },
     services::{
         terminal_service::{SessionOutput, SessionStatus},
-        FileSystemService, ProjectService, ProviderService, SettingsService, SpecService,
-        TaskBindingService, TerminalBackend, TodoService, WorkspaceService,
+        FileSystemService, LaunchHistoryService, ProjectService, ProviderService,
+        SessionRestoreService, SettingsService, SpecService, TaskBindingService, TerminalBackend,
+        TodoService, WorkspaceService,
     },
     utils::{AppPaths, AppResult},
 };
@@ -111,7 +113,8 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
     let project_repo = Arc::new(ProjectRepository::new(db.clone()));
     let todo_repo = Arc::new(TodoRepository::new(db.clone()));
     let spec_repo = Arc::new(SpecRepository::new(db.clone()));
-    let task_binding_repo = Arc::new(TaskBindingRepository::new(db));
+    let task_binding_repo = Arc::new(TaskBindingRepository::new(db.clone()));
+    let history_repo = Arc::new(HistoryRepository::new(db.clone()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let state = AppState {
         terminal_backend: Arc::new(NoopTerminalBackend),
@@ -123,6 +126,8 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         todo_service: todo_service.clone(),
         spec_service: Arc::new(SpecService::new(spec_repo, todo_service)),
         task_binding_service: Arc::new(TaskBindingService::new(task_binding_repo)),
+        launch_history_service: Arc::new(LaunchHistoryService::new(history_repo)),
+        session_restore_service: Arc::new(SessionRestoreService::new(db, Arc::new(app_paths))),
         ws_emitter: Arc::new(WsEmitter::new()),
         default_cwd: root.to_string_lossy().to_string(),
         output_mode: TerminalOutputMode::Emitter,
