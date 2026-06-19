@@ -381,6 +381,7 @@ mod tests {
             terminal_backend: backend,
             ws_emitter: Arc::new(WsEmitter::new()),
             default_cwd: "/default/project".to_string(),
+            output_mode: crate::state::TerminalOutputMode::Emitter,
         }
     }
 

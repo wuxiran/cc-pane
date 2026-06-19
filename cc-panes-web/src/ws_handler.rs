@@ -6,9 +6,10 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
+use tokio::time::{self, Duration};
 use tracing::{debug, error, warn};
 
-use crate::state::AppState;
+use crate::state::{AppState, TerminalOutputMode};
 
 /// Upgrade HTTP to WebSocket for a terminal session.
 pub async fn ws_upgrade(
@@ -30,14 +31,49 @@ async fn handle_ws(socket: WebSocket, session_id: String, state: AppState) {
 
     // Task: forward terminal output → WebSocket client
     let sid_clone = session_id.clone();
-    let send_task = tokio::spawn(async move {
-        while let Some(msg) = output_rx.recv().await {
-            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
-                break;
+    let send_task = match state.output_mode {
+        TerminalOutputMode::Emitter => tokio::spawn(async move {
+            while let Some(msg) = output_rx.recv().await {
+                if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                    break;
+                }
             }
+            debug!(session_id = sid_clone, "WS send task ended");
+        }),
+        TerminalOutputMode::Polling => {
+            let backend = state.terminal_backend.clone();
+            tokio::spawn(async move {
+                let mut last_snapshot = String::new();
+                let mut interval = time::interval(Duration::from_millis(100));
+                loop {
+                    interval.tick().await;
+                    match backend.get_session_replay_snapshot(&sid_clone) {
+                        Ok(Some(snapshot)) => {
+                            if let Some(data) =
+                                replay_snapshot_delta(&last_snapshot, &snapshot.data)
+                            {
+                                last_snapshot = snapshot.data;
+                                let msg = serde_json::json!({
+                                    "type": "output",
+                                    "data": data,
+                                })
+                                .to_string();
+                                if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(error) => {
+                            warn!(session_id = sid_clone, error = %error, "WS polling output failed");
+                            break;
+                        }
+                    }
+                }
+                debug!(session_id = sid_clone, "WS polling send task ended");
+            })
         }
-        debug!(session_id = sid_clone, "WS send task ended");
-    });
+    };
 
     // Main loop: receive from WebSocket client → terminal
     while let Some(Ok(msg)) = ws_rx.next().await {
@@ -90,4 +126,38 @@ fn handle_client_message(text: &str, session_id: &str, state: &AppState) -> anyh
         }
     }
     Ok(())
+}
+
+fn replay_snapshot_delta(previous: &str, current: &str) -> Option<String> {
+    if current.is_empty() {
+        return None;
+    }
+    if previous.is_empty() {
+        return Some(current.to_string());
+    }
+    if current == previous {
+        return None;
+    }
+    if let Some(delta) = current.strip_prefix(previous) {
+        return Some(delta.to_string());
+    }
+    Some(current.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replay_snapshot_delta;
+
+    #[test]
+    fn replay_snapshot_delta_returns_only_new_suffix() {
+        assert_eq!(
+            replay_snapshot_delta("\u{1b}[2Jready", "\u{1b}[2Jready\nnext"),
+            Some("\nnext".to_string())
+        );
+        assert_eq!(replay_snapshot_delta("same", "same"), None);
+        assert_eq!(
+            replay_snapshot_delta("old prefix", "new buffer"),
+            Some("new buffer".to_string())
+        );
+    }
 }
