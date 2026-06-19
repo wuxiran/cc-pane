@@ -7,6 +7,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use tokio::time::{self, Duration};
+use tokio_tungstenite::connect_async;
 use tracing::{debug, error, warn};
 
 use crate::state::{AppState, TerminalOutputMode};
@@ -43,6 +44,47 @@ async fn handle_ws(socket: WebSocket, session_id: String, state: AppState) {
         TerminalOutputMode::Polling => {
             let backend = state.terminal_backend.clone();
             tokio::spawn(async move {
+                if let Some(url) = backend.event_stream_url(&sid_clone) {
+                    match connect_async(&url).await {
+                        Ok((mut daemon_ws, _)) => {
+                            while let Some(message) = daemon_ws.next().await {
+                                match message {
+                                    Ok(message) if message.is_text() => match message.to_text() {
+                                        Ok(text) => {
+                                            if ws_tx
+                                                .send(Message::Text(text.to_string().into()))
+                                                .await
+                                                .is_err()
+                                            {
+                                                break;
+                                            }
+                                        }
+                                        Err(error) => {
+                                            warn!(
+                                                session_id = sid_clone,
+                                                error = %error,
+                                                "WS daemon stream text decode failed"
+                                            );
+                                            break;
+                                        }
+                                    },
+                                    Ok(message) if message.is_close() => break,
+                                    Ok(_) => {}
+                                    Err(error) => {
+                                        warn!(session_id = sid_clone, error = %error, "WS daemon stream failed");
+                                        break;
+                                    }
+                                }
+                            }
+                            debug!(session_id = sid_clone, "WS daemon stream send task ended");
+                            return;
+                        }
+                        Err(error) => {
+                            warn!(session_id = sid_clone, error = %error, "WS daemon stream connect failed; falling back to polling");
+                        }
+                    }
+                }
+
                 let mut last_snapshot = String::new();
                 let mut interval = time::interval(Duration::from_millis(100));
                 loop {
