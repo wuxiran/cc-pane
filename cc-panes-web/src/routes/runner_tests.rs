@@ -12,7 +12,7 @@ use cc_panes_core::{
     },
     services::{
         terminal_service::{SessionOutput, SessionStatus},
-        FileSystemService, HistoryService, LaunchHistoryService, McpConfigService,
+        FileSystemService, HistoryService, LaunchHistoryService, McpConfigService, PlanService,
         ProcessMonitorService, ProjectService, ProviderService, RunnerService,
         SessionRestoreService, SettingsService, SharedMcpService, SpecService,
         SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend, TodoService,
@@ -169,6 +169,7 @@ fn test_state(name: &str, pid: Option<u32>) -> (AppState, std::path::PathBuf) {
         mcp_config_service: Arc::new(McpConfigService::new()),
         shared_mcp_service: Arc::new(SharedMcpService::new(&app_paths)),
         skill_service: Arc::new(cc_panes_core::services::SkillService::new()),
+        plan_service: Arc::new(PlanService::new()),
         external_skill_registry: Arc::new(cc_panes_core::services::ExternalSkillRegistry::new(
             Arc::new(cc_cli_adapters::CliToolRegistry::new()),
         )),

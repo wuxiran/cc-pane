@@ -10,6 +10,7 @@ import { verifyWebLaunchProfileApis } from "./smoke-daemon-web-launch-profiles.m
 import { verifyWebLocalHistoryApis } from "./smoke-daemon-web-local-history.mjs";
 import { verifyWebMemoryApis } from "./smoke-daemon-web-memory.mjs";
 import { verifyWebMcpApis } from "./smoke-daemon-web-mcp.mjs";
+import { verifyWebPlanApis } from "./smoke-daemon-web-plans.mjs";
 import { verifyWebRunnerApis } from "./smoke-daemon-web-runner.mjs";
 import { verifyWebSkillsApis } from "./smoke-daemon-web-skills.mjs";
 import { verifyWebSshMachineApis } from "./smoke-daemon-web-ssh-machines.mjs";
@@ -771,6 +772,15 @@ async function main() {
       webBaseUrl,
       rootDir: webWorkspaceDir,
       requestJson,
+      assertEquals,
+      fail,
+      log,
+    });
+    await verifyWebPlanApis({
+      webBaseUrl,
+      rootDir: webWorkspaceDir,
+      requestJson,
+      requestNoContent,
       assertEquals,
       fail,
       log,

@@ -4,6 +4,7 @@ pub mod launch_profiles;
 pub mod local_history;
 pub mod mcp;
 pub mod memory;
+pub mod plans;
 pub mod resources;
 pub mod runner;
 pub mod skills;
@@ -256,6 +257,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/memories/{id}", get(memory::get_memory))
         .route("/api/memories/{id}", patch(memory::update_memory))
         .route("/api/memories/{id}", delete(memory::delete_memory))
+        .route("/api/plans", get(plans::list_plans))
+        .route("/api/plans/{file_name}", get(plans::get_plan_content))
+        .route("/api/plans/{file_name}", delete(plans::delete_plan))
         .route("/api/mcp/servers", get(mcp::list_mcp_servers))
         .route("/api/mcp/servers", put(mcp::upsert_mcp_server))
         .route("/api/mcp/servers", delete(mcp::remove_mcp_server))

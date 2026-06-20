@@ -14,7 +14,7 @@ use cc_panes_core::{
     },
     services::{
         DaemonTerminalBackend, FileSystemService, HistoryService, InProcessTerminalBackend,
-        LaunchHistoryService, LaunchProfileService, McpConfigService, MemoryService,
+        LaunchHistoryService, LaunchProfileService, McpConfigService, MemoryService, PlanService,
         ProcessMonitorService, ProjectCliHooksService, ProjectService, ProviderService,
         RunnerService, SessionRestoreService, SettingsService, SharedMcpService, SkillService,
         SpecService, SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend,
@@ -107,6 +107,7 @@ async fn main() -> anyhow::Result<()> {
     let mcp_config_service = Arc::new(McpConfigService::new());
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
     let skill_service = Arc::new(SkillService::new());
+    let plan_service = Arc::new(PlanService::new());
     let cli_registry = Arc::new(CliToolRegistry::new());
     let ssh_credential_service = Arc::new(SshCredentialService::new());
     let ssh_machine_service = Arc::new(SshMachineService::new(
@@ -173,6 +174,7 @@ async fn main() -> anyhow::Result<()> {
         mcp_config_service,
         shared_mcp_service,
         skill_service,
+        plan_service,
         external_skill_registry,
         user_skill_service,
         usage_stats_service,

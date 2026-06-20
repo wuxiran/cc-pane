@@ -1,24 +1,20 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
 use cc_panes_core::{
-    models::{
-        LaunchProfileDraft, LaunchProfileMcpPolicy, LaunchProfileSkillPolicy,
-        LaunchProviderSelection, TerminalBufferMode,
-    },
     repository::{
         Database, HistoryRepository, ProjectRepository, RunnerRepository, SpecRepository,
         TaskBindingRepository, TodoRepository, UsageStatsRepository,
     },
     services::{
         terminal_service::{SessionOutput, SessionStatus},
-        FileSystemService, HistoryService, LaunchHistoryService, McpConfigService, PlanService,
-        ProcessMonitorService, ProjectService, ProviderService, RunnerService,
-        SessionRestoreService, SettingsService, SharedMcpService, SpecService,
+        FileSystemService, HistoryService, LaunchHistoryService, LaunchProfileService,
+        McpConfigService, PlanService, ProcessMonitorService, ProjectService, ProviderService,
+        RunnerService, SessionRestoreService, SettingsService, SharedMcpService, SpecService,
         SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend, TodoService,
         UsageStatsService, WorkspaceService, WorktreeService,
     },
@@ -91,7 +87,7 @@ impl TerminalBackend for NoopTerminalBackend {
     ) -> AppResult<Option<cc_panes_core::models::TerminalReplaySnapshot>> {
         Ok(Some(cc_panes_core::models::TerminalReplaySnapshot {
             data: String::new(),
-            buffer_mode: TerminalBufferMode::Normal,
+            buffer_mode: cc_panes_core::models::TerminalBufferMode::Normal,
         }))
     }
 }
@@ -102,7 +98,7 @@ fn test_dir(name: &str) -> std::path::PathBuf {
         .expect("system clock")
         .as_millis();
     let path = std::env::temp_dir().join(format!(
-        "cc-panes-web-launch-profiles-{name}-{millis}-{}",
+        "cc-panes-web-plans-{name}-{millis}-{}",
         std::process::id()
     ));
     std::fs::create_dir_all(&path).expect("create temp dir");
@@ -128,21 +124,19 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
     let external_skill_registry = Arc::new(cc_panes_core::services::ExternalSkillRegistry::new(
         Arc::new(cc_cli_adapters::CliToolRegistry::new()),
     ));
-    let launch_profile_service = Arc::new(
-        cc_panes_core::services::LaunchProfileService::new_with_external_skill_registry(
-            app_paths.launch_profiles_path(),
-            external_skill_registry.clone(),
-        ),
-    );
-    let usage_stats_service = Arc::new(UsageStatsService::new(
-        usage_stats_repo,
-        launch_history_service.clone(),
+    let launch_profile_service = Arc::new(LaunchProfileService::new_with_external_skill_registry(
+        app_paths.launch_profiles_path(),
+        external_skill_registry.clone(),
     ));
     let memory_service =
         Arc::new(cc_panes_core::services::MemoryService::new_memory().expect("memory"));
     let ssh_machine_service = Arc::new(SshMachineService::new(
         app_paths.data_dir().join("ssh-machines.json"),
         Arc::new(SshCredentialService::new_memory()),
+    ));
+    let usage_stats_service = Arc::new(UsageStatsService::new(
+        usage_stats_repo,
+        launch_history_service.clone(),
     ));
     let state = AppState {
         terminal_backend: Arc::new(NoopTerminalBackend),
@@ -182,114 +176,74 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
     (state, root)
 }
 
-fn draft(name: &str, is_default: bool) -> LaunchProfileDraft {
-    LaunchProfileDraft {
-        name: Some(name.to_string()),
-        alias: Some(format!("{name} alias")),
-        description: Some("Launch profile test".to_string()),
-        provider_id: None,
-        target_tools: vec!["codex".to_string()],
-        target_runtime: Some("local".to_string()),
-        yolo_mode: false,
-        mcp_policy: LaunchProfileMcpPolicy::default(),
-        skill_policy: LaunchProfileSkillPolicy::default(),
-        is_default,
-    }
-}
-
 #[tokio::test]
-async fn launch_profile_routes_manage_crud_and_defaults() {
-    let (state, _root) = test_state("crud");
+async fn plan_routes_list_read_and_delete_archived_plans() {
+    let (state, root) = test_state("crud");
+    let project = root.join("project");
+    let plans = project.join(".ccpanes").join("plans");
+    std::fs::create_dir_all(&plans).expect("plans dir");
+    let file_name = "abcd1234_20260620_101112_web-plan.md";
+    std::fs::write(plans.join(file_name), "# Web Plan\n\nContent").expect("write plan");
 
-    let (status, Json(created)) =
-        create_launch_profile(State(state.clone()), Json(draft("Codex Local", true)))
-            .await
-            .expect("create launch profile");
-    assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(created.name, "Codex Local");
-    assert!(created.is_default);
-
-    let Json(listed) = list_launch_profiles(State(state.clone()))
+    let query = PlansQuery {
+        project_path: project.to_string_lossy().to_string(),
+    };
+    let Json(listed) = list_plans(State(state.clone()), Query(query))
         .await
-        .expect("list launch profiles");
+        .expect("list plans");
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].id, created.id);
+    assert_eq!(listed[0].file_name, file_name);
+    assert_eq!(listed[0].session_id, "abcd1234");
+    assert_eq!(listed[0].archived_at, "2026-06-20T10:11:12");
 
-    let Json(found) = get_launch_profile(State(state.clone()), Path(created.id.clone()))
-        .await
-        .expect("get launch profile");
-    assert_eq!(
-        found.expect("profile").alias.as_deref(),
-        Some("Codex Local alias")
-    );
-
-    let Json(updated) = update_launch_profile(
+    let Json(content) = get_plan_content(
         State(state.clone()),
-        Path(created.id.clone()),
-        Json(LaunchProfileDraft {
-            name: Some("Codex Strict".to_string()),
-            ..draft("Codex Local", false)
+        Path(file_name.to_string()),
+        Query(PlansQuery {
+            project_path: project.to_string_lossy().to_string(),
         }),
     )
     .await
-    .expect("update launch profile");
-    assert_eq!(updated.name, "Codex Strict");
-    assert!(!updated.is_default);
+    .expect("get plan content");
+    assert!(content.contains("Web Plan"));
 
-    let status = set_default_launch_profile(State(state.clone()), Path(created.id.clone()))
-        .await
-        .expect("set default launch profile");
+    let status = delete_plan(
+        State(state.clone()),
+        Path(file_name.to_string()),
+        Query(PlansQuery {
+            project_path: project.to_string_lossy().to_string(),
+        }),
+    )
+    .await
+    .expect("delete plan");
     assert_eq!(status, StatusCode::NO_CONTENT);
 
-    let Json(defaulted) = get_launch_profile(State(state.clone()), Path(created.id.clone()))
-        .await
-        .expect("get defaulted launch profile");
-    assert!(defaulted.expect("profile").is_default);
-
-    let status = delete_launch_profile(State(state.clone()), Path(created.id.clone()))
-        .await
-        .expect("delete launch profile");
-    assert_eq!(status, StatusCode::NO_CONTENT);
-
-    let Json(listed) = list_launch_profiles(State(state))
-        .await
-        .expect("list after delete");
+    let Json(listed) = list_plans(
+        State(state),
+        Query(PlansQuery {
+            project_path: project.to_string_lossy().to_string(),
+        }),
+    )
+    .await
+    .expect("list after delete");
     assert!(listed.is_empty());
 }
 
 #[tokio::test]
-async fn launch_profile_preview_resolves_created_profile() {
-    let (state, _root) = test_state("preview");
+async fn plan_routes_reject_path_traversal_file_names() {
+    let (state, root) = test_state("validation");
+    let project = root.join("project");
+    std::fs::create_dir_all(project.join(".ccpanes").join("plans")).expect("plans dir");
 
-    let (_status, Json(created)) =
-        create_launch_profile(State(state.clone()), Json(draft("Codex Local", true)))
-            .await
-            .expect("create launch profile");
-
-    let Json(resolution) = preview_launch_profile_resolution(
+    let err = get_plan_content(
         State(state),
-        Json(LaunchProfilePreviewRequest {
-            profile_id: Some(created.id),
-            use_system_default: false,
-            workspace_name: None,
-            project_id: None,
-            provider_id: None,
-            provider_selection: LaunchProviderSelection::Inherit,
-            cli_tool: Some("codex".to_string()),
-            runtime_kind: Some("local".to_string()),
+        Path("../secret.md".to_string()),
+        Query(PlansQuery {
+            project_path: project.to_string_lossy().to_string(),
         }),
     )
     .await
-    .expect("preview launch profile");
-
-    assert_eq!(resolution.profile_name.as_deref(), Some("Codex Local"));
-    assert!(!resolution.degraded);
-    assert!(resolution
-        .mcp_servers
-        .iter()
-        .any(|server| server.id == "ccpanes"));
-    assert!(resolution
-        .skills
-        .iter()
-        .any(|skill| skill.id == "builtin:ccpanes-launch-task"));
+    .expect_err("path traversal should fail");
+    assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    assert!(err.1.contains("Invalid file name"));
 }
