@@ -18,9 +18,9 @@ use cc_panes_core::{
     },
     services::{
         terminal_service::{SessionOutput, SessionStatus},
-        FileSystemService, LaunchHistoryService, ProjectService, ProviderService,
+        FileSystemService, HistoryService, LaunchHistoryService, ProjectService, ProviderService,
         SessionRestoreService, SettingsService, SpecService, TaskBindingService, TerminalBackend,
-        TodoService, WorkspaceService,
+        TodoService, WorkspaceService, WorktreeService,
     },
     utils::{AppPaths, AppResult},
 };
@@ -128,6 +128,8 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         task_binding_service: Arc::new(TaskBindingService::new(task_binding_repo)),
         launch_history_service: Arc::new(LaunchHistoryService::new(history_repo)),
         session_restore_service: Arc::new(SessionRestoreService::new(db, Arc::new(app_paths))),
+        history_service: Arc::new(HistoryService::new()),
+        worktree_service: Arc::new(WorktreeService::new()),
         ws_emitter: Arc::new(WsEmitter::new()),
         default_cwd: root.to_string_lossy().to_string(),
         output_mode: TerminalOutputMode::Emitter,

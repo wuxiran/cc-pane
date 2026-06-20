@@ -13,10 +13,11 @@ use cc_panes_core::{
         TodoRepository,
     },
     services::{
-        DaemonTerminalBackend, FileSystemService, InProcessTerminalBackend, LaunchHistoryService,
-        ProjectCliHooksService, ProjectService, ProviderService, SessionRestoreService,
-        SettingsService, SpecService, SshCredentialService, TaskBindingService, TerminalBackend,
-        TerminalDaemonClient, TerminalService, TodoService, WorkspaceService,
+        DaemonTerminalBackend, FileSystemService, HistoryService, InProcessTerminalBackend,
+        LaunchHistoryService, ProjectCliHooksService, ProjectService, ProviderService,
+        SessionRestoreService, SettingsService, SpecService, SshCredentialService,
+        TaskBindingService, TerminalBackend, TerminalDaemonClient, TerminalService, TodoService,
+        WorkspaceService, WorktreeService,
     },
     utils::AppPaths,
 };
@@ -89,6 +90,8 @@ async fn main() -> anyhow::Result<()> {
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let session_restore_service = Arc::new(SessionRestoreService::new(database, app_paths.clone()));
+    let history_service = Arc::new(HistoryService::new());
+    let worktree_service = Arc::new(WorktreeService::new());
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let settings_service = Arc::new(SettingsService::new());
     let filesystem_service = Arc::new(FileSystemService::new());
@@ -114,6 +117,8 @@ async fn main() -> anyhow::Result<()> {
         task_binding_service,
         launch_history_service,
         session_restore_service,
+        history_service,
+        worktree_service,
         ws_emitter,
         default_cwd: cwd_str.clone(),
         output_mode: backend_state.output_mode,

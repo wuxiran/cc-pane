@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { verifyWebGitApis } from "./smoke-daemon-web-git.mjs";
 import { verifyWebHistoryApis } from "./smoke-daemon-web-history.mjs";
 
 const TOKEN = "ccpanes-smoke-token";
@@ -677,6 +678,15 @@ async function main() {
     await verifyWebResourceApis(webBaseUrl, webWorkspaceDir);
     await verifyWebWorkflowApis(webBaseUrl, webWorkspaceDir);
     await verifyWebHistoryApis({
+      webBaseUrl,
+      rootDir: webWorkspaceDir,
+      requestJson,
+      requestNoContent,
+      assertEquals,
+      fail,
+      log,
+    });
+    await verifyWebGitApis({
       webBaseUrl,
       rootDir: webWorkspaceDir,
       requestJson,

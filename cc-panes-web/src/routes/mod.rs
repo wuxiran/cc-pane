@@ -1,3 +1,4 @@
+pub mod git;
 pub mod history;
 pub mod resources;
 pub mod static_files;
@@ -122,6 +123,19 @@ pub fn build_router(state: AppState) -> Router {
             "/api/workspace-snapshots/{workspace_id}/{snapshot_id}",
             delete(history::delete_workspace_snapshot),
         )
+        .route("/api/git/branch", get(git::get_git_branch))
+        .route("/api/git/status", get(git::get_git_status))
+        .route("/api/git/file-statuses", get(git::get_git_file_statuses))
+        .route("/api/git/pull", post(git::git_pull))
+        .route("/api/git/push", post(git::git_push))
+        .route("/api/git/fetch", post(git::git_fetch))
+        .route("/api/git/stash", post(git::git_stash))
+        .route("/api/git/stash-pop", post(git::git_stash_pop))
+        .route("/api/git/clone", post(git::git_clone))
+        .route("/api/worktrees/is-git-repo", get(git::is_git_repo))
+        .route("/api/worktrees", get(git::list_worktrees))
+        .route("/api/worktrees", post(git::add_worktree))
+        .route("/api/worktrees", delete(git::remove_worktree))
         .route("/api/workspaces", get(resources::list_workspaces))
         .route("/api/workspaces", post(resources::create_workspace))
         .route(

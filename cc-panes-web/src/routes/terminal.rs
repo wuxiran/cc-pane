@@ -285,9 +285,10 @@ mod tests {
     use cc_panes_core::{
         models::{TerminalBufferMode, WslLaunchInfo},
         services::{
-            terminal_service::SessionStatus, FileSystemService, LaunchHistoryService,
-            ProjectService, ProviderService, SessionRestoreService, SettingsService, SpecService,
-            TaskBindingService, TerminalBackend, TodoService, WorkspaceService,
+            terminal_service::SessionStatus, FileSystemService, HistoryService,
+            LaunchHistoryService, ProjectService, ProviderService, SessionRestoreService,
+            SettingsService, SpecService, TaskBindingService, TerminalBackend, TodoService,
+            WorkspaceService, WorktreeService,
         },
         utils::{AppPaths, AppResult},
     };
@@ -433,6 +434,8 @@ mod tests {
                 database,
                 Arc::new(app_paths),
             )),
+            history_service: Arc::new(HistoryService::new()),
+            worktree_service: Arc::new(WorktreeService::new()),
             ws_emitter: Arc::new(WsEmitter::new()),
             default_cwd: "/default/project".to_string(),
             output_mode: crate::state::TerminalOutputMode::Emitter,
