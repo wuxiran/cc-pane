@@ -136,7 +136,10 @@ describe("workspaceService", () => {
   describe("addWorkspaceProject", () => {
     it("应该调用 add_workspace_project 命令并返回工作空间项目", async () => {
       const project = createTestWorkspaceProject();
-      mockTauriInvoke({ add_workspace_project: project });
+      mockTauriInvoke({
+        add_workspace_project: project,
+        init_project_history: undefined,
+      });
 
       const result = await addWorkspaceProject("ws-1", "/path/to/project");
 

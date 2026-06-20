@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { apiDelete, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
 import type {
   SshMachine,
   SshConnectivityResult,
@@ -7,36 +7,54 @@ import type {
 } from "@/types";
 
 export async function listSshMachines(): Promise<SshMachine[]> {
-  return invoke<SshMachine[]>("list_ssh_machines");
+  return invokeOrApi<SshMachine[]>("list_ssh_machines", undefined, () =>
+    apiGet<SshMachine[]>("/api/ssh-machines"),
+  );
 }
 
 export async function getSshMachine(id: string): Promise<SshMachine | null> {
-  return invoke<SshMachine | null>("get_ssh_machine", { id });
+  return invokeOrApi<SshMachine | null>("get_ssh_machine", { id }, () =>
+    apiGet<SshMachine | null>(`/api/ssh-machines/${encodeURIComponent(id)}`),
+  );
 }
 
 export async function addSshMachine(
   request: SshMachineUpsertRequest,
 ): Promise<SshMachine> {
-  return invoke<SshMachine>("add_ssh_machine", { request });
+  return invokeOrApi<SshMachine>("add_ssh_machine", { request }, () =>
+    apiJson<SshMachine>("/api/ssh-machines", "POST", request),
+  );
 }
 
 export async function updateSshMachine(
   request: SshMachineUpsertRequest,
 ): Promise<SshMachine> {
-  return invoke<SshMachine>("update_ssh_machine", { request });
+  return invokeOrApi<SshMachine>("update_ssh_machine", { request }, () =>
+    apiJson<SshMachine>("/api/ssh-machines", "PUT", request),
+  );
 }
 
 export async function removeSshMachine(id: string): Promise<void> {
-  return invoke("remove_ssh_machine", { id });
+  return invokeOrApi<void>("remove_ssh_machine", { id }, () =>
+    apiDelete(`/api/ssh-machines/${encodeURIComponent(id)}`),
+  );
 }
 
 export async function checkSshConnectivity(
   id: string,
 ): Promise<SshConnectivityResult> {
-  return invoke<SshConnectivityResult>("check_ssh_connectivity", { id });
+  return invokeOrApi<SshConnectivityResult>("check_ssh_connectivity", { id }, () =>
+    apiJson<SshConnectivityResult>(
+      `/api/ssh-machines/${encodeURIComponent(id)}/check`,
+      "POST",
+    ),
+  );
 }
 
 /** 发现已安装的 WSL 分发版（仅 Windows，其他平台返回空数组） */
 export async function discoverWslDistros(): Promise<WslDistro[]> {
-  return invoke<WslDistro[]>("discover_wsl_distros");
+  if (!isTauriRuntime()) {
+    return [];
+  }
+  return invokeOrApi<WslDistro[]>("discover_wsl_distros", undefined, async () => []);
 }
