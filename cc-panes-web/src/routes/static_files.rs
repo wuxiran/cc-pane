@@ -57,10 +57,28 @@ fn file_response(path: &str, bytes: impl Into<Cow<'static, [u8]>>) -> Response {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, mime.as_ref())],
+        [
+            (header::CONTENT_TYPE, mime.as_ref()),
+            (header::CACHE_CONTROL, cache_control_for(path)),
+        ],
         bytes.into().into_owned(),
     )
         .into_response()
+}
+
+/// Decide the caching policy for a served asset.
+///
+/// Vite emits content-hashed files under `assets/` (e.g. `assets/main.abc123.js`):
+/// their name changes whenever the content does, so they can be cached forever.
+/// The entry HTML and any other non-hashed root files must always be revalidated,
+/// otherwise a browser keeps serving a stale `index.html` after an app upgrade and
+/// loads the previous build.
+fn cache_control_for(path: &str) -> &'static str {
+    if path.starts_with("assets/") {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    }
 }
 
 fn dist_roots() -> Vec<PathBuf> {
