@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Command, ArrowUpCircle, CheckCircle2 } from "lucide-react";
+import { ArrowUpCircle, CheckCircle2 } from "lucide-react";
 import { useUpdateStore } from "@/stores";
 import { triggerUpdate } from "@/services";
+import logoUrl from "@/assets/logo.svg";
 
 interface HomeHeaderProps {
   version: string;
@@ -25,22 +26,13 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
     <div className="flex items-center justify-between gap-5 px-1">
       <div className="flex items-center gap-5 min-w-0">
         {/* Logo 图标 */}
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 relative ring-1 ring-[color-mix(in_srgb,var(--primary-foreground)_10%,transparent)] shadow-lg"
-          style={{
-            background: "linear-gradient(135deg, var(--app-accent), color-mix(in srgb, var(--app-accent) 60%, black))",
-            boxShadow: "0 10px 28px color-mix(in srgb, var(--app-accent) 20%, transparent)",
-          }}
-        >
-          <Command className="w-8 h-8" style={{ color: "var(--primary-foreground)" }} />
-          {/* 光晕 */}
-          <div
-            className="absolute inset-0 rounded-2xl opacity-50"
-            style={{
-              background: "radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--primary-foreground) 20%, transparent), transparent 60%)",
-            }}
-          />
-        </div>
+        <img
+          src={logoUrl}
+          alt="CC-Panes"
+          className="w-16 h-16 rounded-2xl shrink-0 shadow-lg"
+          style={{ boxShadow: "0 10px 28px color-mix(in srgb, var(--app-accent) 20%, transparent)" }}
+          draggable={false}
+        />
 
         {/* 文字区域 */}
         <div className="min-w-0">
