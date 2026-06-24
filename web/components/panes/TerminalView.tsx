@@ -5,6 +5,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { writeText as tauriWriteText } from "@tauri-apps/plugin-clipboard-manager";
+import { info as logInfo } from "@tauri-apps/plugin-log";
 import { toast } from "sonner";
 import { terminalService, historyService, sessionRestoreService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
@@ -20,6 +21,7 @@ import {
   useSettingsStore,
   usePanesStore,
   useThemeStore,
+  useTerminalStatusStore,
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
 import { replayAttachedSession } from "./terminalReplay";
@@ -327,14 +329,15 @@ function resolveRuntimeKind(
   return "local";
 }
 
-async function findLiveSavedSessionId(savedSessionId?: string): Promise<string | null> {
+function findLiveSavedSessionId(savedSessionId?: string): string | null {
   if (!savedSessionId) return null;
-  const statuses = await terminalService.getAllStatus();
-  return statuses.some((status) => (
-    status.sessionId === savedSessionId && status.status !== "exited"
-  ))
-    ? savedSessionId
-    : null;
+  // 读共享状态缓存（useTerminalStatusStore，由 terminal-status 事件 + 定时刷新维护），
+  // 不再每个 tab 各发一次 getAllStatus IPC。重启时几十个 tab 同时挂载会并发打几十次
+  // get_all_terminal_status，把后端拖住，让后续 tab 卡在进启动队列前的这个 await，
+  // 导致"放约 10 个就停"的恢复 stall。同步读内存 map 不会 hang，也消除了 IPC 扇出。
+  // 缓存里没有（冷启动未命中）→ 视为非 live → 走 relaunch（队列），功能不丢。
+  const info = useTerminalStatusStore.getState().statusMap.get(savedSessionId);
+  return info && info.status !== "exited" ? savedSessionId : null;
 }
 
 function writeTerminalReply(
@@ -460,6 +463,31 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const isUnmountedRef = useRef(false);
     // Delay PTY creation for hidden restored tabs until they become visible.
     const deferredRestoreRef = useRef(false);
+    // True once this terminal has been mounted while its layout was inactive (hidden).
+    // More robust hand-off signal than deferredRestoreRef: it is set purely from the
+    // layoutActive prop, independent of whether the init effect reached its defer branch.
+    const everHiddenRef = useRef(false);
+    // Guards against double-launching the same tab from both the init-effect restore
+    // path (current layout) and the activation fallback (previously-hidden layout).
+    const restoreLaunchStartedRef = useRef(false);
+    // Release-visible restore trace (lands in cc-panes.log, unlike dev-only debugLog).
+    const logRestoreEvent = useCallback((event: string, extra: Record<string, unknown> = {}) => {
+      void logInfo(
+        `[layout-restore] ${event} ${JSON.stringify({
+          tabId: props.tabId ?? null,
+          paneId: props.paneId ?? null,
+          project: props.projectPath ?? null,
+          layoutActive: props.layoutActive ?? true,
+          restoring: props.restoring ?? false,
+          everHidden: everHiddenRef.current,
+          deferred: deferredRestoreRef.current,
+          hasSession: Boolean(currentSessionIdRef.current),
+          launchStarted: restoreLaunchStartedRef.current,
+          ...extra,
+        })}`,
+      ).catch(() => {});
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.tabId, props.paneId, props.projectPath, props.layoutActive, props.restoring]);
 
     const onSessionCreatedRef = useRef(props.onSessionCreated);
     const onSessionExitedRef = useRef(props.onSessionExited);
@@ -647,6 +675,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       isActiveRef.current = props.isActive;
       isVisibleRef.current = props.isVisible ?? props.isActive;
       layoutActiveRef.current = props.layoutActive ?? true;
+      if (props.layoutActive === false) {
+        everHiddenRef.current = true;
+      }
     });
 
     useEffect(() => {
@@ -1566,8 +1597,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 debugLog("session.create.deferred-layout-hidden", {
                   restoring: props.restoring ?? false,
                 });
+                logRestoreEvent("init.deferred-layout-hidden");
                 return;
               }
+
+              // Init effect owns this terminal's restore (current/active layout); mark it
+              // so the activation fallback below never double-launches the same tab.
+              restoreLaunchStartedRef.current = true;
 
               // Create a brand-new backend session. Resume id comes only from the
               // tab/snapshot/props chain (never directory-level launch history).
@@ -1672,6 +1708,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             if (!isMounted) return;
             if (isRestoreLaunchCancelled(error)) {
               deferredRestoreRef.current = true;
+              restoreLaunchStartedRef.current = false;
               props.onRestoreLaunchState?.("idle");
               return;
             }
@@ -1812,11 +1849,24 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
       };
 
-      // Create the deferred PTY once the layout is active. It may be hidden in a
-      // background tab within the same layout; those restoring tabs still launch.
-      if ((props.layoutActive ?? true) && deferredRestoreRef.current) {
+      // Create the deferred PTY once the layout is active. This covers terminals that
+      // were mounted while their layout was hidden (non-current layouts), whose restore
+      // is intentionally deferred until the layout is switched to. `everHiddenRef` is a
+      // robust hand-off signal (set purely from layoutActive) so this fires even if the
+      // init effect did not reach its defer branch; `restoreLaunchStartedRef` + the live
+      // session check prevent double-launching a tab the init effect already owns.
+      const needsDeferredRestore =
+        (props.layoutActive ?? true) &&
+        !currentSessionIdRef.current &&
+        !restoreLaunchStartedRef.current &&
+        (deferredRestoreRef.current || (everHiddenRef.current && props.restoring === true));
+      if (!currentSessionIdRef.current && (everHiddenRef.current || deferredRestoreRef.current || props.restoring)) {
+        logRestoreEvent("activation.effect", { needsDeferredRestore });
+      }
+      if (needsDeferredRestore) {
         if (!props.projectPath) return;
 
+        restoreLaunchStartedRef.current = true;
         scheduleRefit((term) => {
           if (isUnmountedRef.current) return;
 
@@ -1866,6 +1916,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               debugLog("session.deferred-restore.begin", {
                 resumeId: effectiveResumeId ?? null,
               });
+              logRestoreEvent("activation.create.begin", { resumeId: effectiveResumeId ?? null });
               console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
               const backfillStartTime = new Date().toISOString();
               const launchSession = () => terminalService.createSession({
@@ -1902,6 +1953,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               debugLog("session.deferred-restore.end", {
                 createdSessionId: sessionId,
               });
+              logRestoreEvent("activation.create.end", { createdSessionId: sessionId });
               onSessionCreatedRef.current(sessionId);
               if (!effectiveResumeId) {
                 if (cliTool !== "none") {
@@ -1934,10 +1986,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               if (isUnmountedRef.current) return;
               if (isRestoreLaunchCancelled(err)) {
                 deferredRestoreRef.current = true;
+                restoreLaunchStartedRef.current = false;
+                logRestoreEvent("activation.create.cancelled");
                 props.onRestoreLaunchState?.("idle");
                 return;
               }
+              restoreLaunchStartedRef.current = false;
               props.onRestoreLaunchState?.("failed");
+              logRestoreEvent("activation.create.failed", { error: getErrorMessage(err) });
               console.error("[TerminalView] Deferred restore failed:", err);
               term.writeln(`\x1b[31m--- Failed to restore session: ${getErrorMessage(err)} ---\x1b[0m`);
             }

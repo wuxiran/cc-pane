@@ -57,6 +57,7 @@ import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
 import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import useLayoutSwitcherSync from "@/hooks/useLayoutSwitcherSync";
 import { historyService, terminalService, localHistoryService, checkUpdateSilent, markTabReclaimed as popupMarkReclaimed, getPoppedTabs, sessionRestoreService, layoutSnapshotService, providerService } from "@/services";
+import { terminalRestoreLaunchQueue } from "@/components/panes/terminalRestoreQueue";
 import { waitForTauri } from "@/utils";
 import { getCurrentWindowIfTauri, invokeIfTauri, isTauriRuntime, listenIfTauri, listenWebviewIfTauri } from "@/services/runtime";
 import { playNotificationSound } from "@/utils/notificationSound";
@@ -140,8 +141,63 @@ async function applySharedLayoutSnapshot(): Promise<boolean> {
   return applied;
 }
 
+// 后台逐步恢复"非当前布局"里还没有活会话的终端 tab。当前布局由其已挂载的 TerminalView 负责恢复，
+// 这里只补其他布局：经限流队列逐个 createSession，再把新会话写成该 leaf 的可重连 savedSession +
+// 标记 live，用户切到该布局时 TerminalView 的 deferred 重恢复会命中并 reattach（不重建、不双开）。
+async function runBackgroundLayoutRestore(): Promise<void> {
+  const store = usePanesStore.getState();
+  const currentLayoutId = store.currentLayoutId;
+  const targets = store.getRestorableTabs().filter(
+    ({ tab, layoutId }) =>
+      layoutId !== currentLayoutId &&
+      tab.contentType === "terminal" &&
+      !!tab.projectPath &&
+      !tab.sessionId,
+  );
+  if (targets.length === 0) return;
+  console.info(`[BackgroundRestore] scheduling ${targets.length} tab(s) across other layouts`);
+  for (const { tab } of targets) {
+    void terminalRestoreLaunchQueue
+      .run(async () => {
+        // 出队时重检：已被恢复 / 该布局已变成当前(交给前台) → 跳过，避免重复建会话。
+        const live = usePanesStore.getState();
+        const fresh = live.getRestorableTabs().find((entry) => entry.tab.id === tab.id);
+        if (!fresh || fresh.tab.sessionId || fresh.layoutId === live.currentLayoutId) {
+          return null;
+        }
+        const sessionId = await terminalService.createSession({
+          launchId: tab.projectId,
+          projectPath: tab.projectPath,
+          cols: 80,
+          rows: 24,
+          workspaceName: tab.workspaceName,
+          providerId: tab.providerId,
+          providerSelection: tab.providerSelection,
+          launchProfileId: tab.launchProfileId,
+          workspacePath: tab.workspacePath,
+          workspaceSnapshotId: tab.workspaceSnapshotId,
+          launchClaude: tab.launchClaude,
+          cliTool: tab.cliTool,
+          resumeId: tab.resumeId,
+          ssh: tab.ssh,
+          wsl: tab.wsl,
+        });
+        useTerminalStatusStore.getState().markSessionLive(sessionId);
+        usePanesStore.getState().setBackgroundRestoreSession(tab.id, sessionId);
+        return sessionId;
+      })
+      .catch((error) => {
+        console.warn(`[BackgroundRestore] failed for tab ${tab.id}:`, error);
+      });
+  }
+}
+
 async function restoreLiveDaemonSessionsFromBackend(): Promise<number> {
-  const statuses = await terminalService.getAllStatus();
+  // 用一次共享刷新预热 useTerminalStatusStore.statusMap：各 TerminalView 的
+  // findLiveSavedSessionId 直接读这个缓存，避免每个 tab 各自再发 getAllStatus，
+  // 否则重启时几十个 tab 并发打 IPC 会把后端拖住、导致恢复 stall。
+  await useTerminalStatusStore.getState().refreshLiveStatuses();
+  const statuses = Array.from(useTerminalStatusStore.getState().statusMap.values());
   return usePanesStore.getState().restoreLiveDaemonSessions(statuses);
 }
 
@@ -266,6 +322,11 @@ function useSharedLayoutSnapshotSync() {
         .catch((error) => {
           console.warn("[SessionRestore] Failed to restore live daemon sessions:", error);
         });
+      // 当前布局恢复发起后，稍等再后台逐步恢复其他布局（活跃布局优先，共享队列自然排在其后）。
+      setTimeout(() => {
+        if (cancelled) return;
+        void runBackgroundLayoutRestore();
+      }, 3_000);
     });
     return () => {
       cancelled = true;

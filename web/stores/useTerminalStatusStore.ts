@@ -13,6 +13,7 @@ interface TerminalStatusState {
   _initialized: boolean;
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
   removeSession: (sessionId: string) => void;
+  markSessionLive: (sessionId: string) => void;
   refreshLiveStatuses: () => Promise<void>;
   init: () => Promise<void>;
   cleanup: () => void;
@@ -33,6 +34,22 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
     set((state) => {
       const newMap = new Map(state.statusMap);
       newMap.delete(sessionId);
+      return { statusMap: newMap };
+    });
+  },
+
+  markSessionLive: (sessionId) => {
+    // 后台恢复新建会话后立即把它标记为 live，避免等下一次刷新/事件之前
+    // findLiveSavedSessionId 读不到该会话而误判为非 live。
+    set((state) => {
+      if (state.statusMap.has(sessionId)) return state;
+      const newMap = new Map(state.statusMap);
+      newMap.set(sessionId, {
+        sessionId,
+        status: "idle",
+        lastOutputAt: Date.now(),
+        updatedAt: Date.now(),
+      });
       return { statusMap: newMap };
     });
   },

@@ -818,7 +818,8 @@ interface PanesState {
   /** Clear restoring metadata after a terminal tab finishes recovery. */
   clearRestoring: (paneId: string, tabId: string, terminalPaneId?: string) => void;
   /** Collect terminal tabs that can be restored after restart. */
-  getRestorableTabs: () => Array<{ tab: Tab; paneId: string }>;
+  getRestorableTabs: () => Array<{ tab: Tab; paneId: string; layoutId: string }>;
+  setBackgroundRestoreSession: (tabId: string, savedSessionId: string) => void;
 }
 
 const initialPanel = createPanel();
@@ -2323,17 +2324,33 @@ export const usePanesStore = create<PanesState>()(
         });
       });
 
-      const result: Array<{ tab: Tab; paneId: string }> = [];
-      eachLayoutTree(get(), (_layout, tree) => {
+      const result: Array<{ tab: Tab; paneId: string; layoutId: string }> = [];
+      eachLayoutTree(get(), (layout, tree) => {
         for (const panel of collectPanels(tree)) {
           for (const tab of panel.tabs) {
             if (tab.contentType === "terminal" && tab.projectPath) {
-              result.push({ tab, paneId: panel.id });
+              result.push({ tab, paneId: panel.id, layoutId: layout.id });
             }
           }
         }
       });
       return result;
+    },
+
+    setBackgroundRestoreSession: (tabId, savedSessionId) => {
+      set((state) => {
+        const location = findTabAcrossLayouts(state, tabId);
+        const tab = location?.tab;
+        if (!tab || tab.contentType !== "terminal" || !tab.terminalRootPane) return;
+        const leaf = findTerminalPane(tab.terminalRootPane, tab.activeTerminalPaneId ?? "");
+        if (leaf?.type !== "leaf") return;
+        // 后台已为该 tab 建好会话：写成"可重连的 savedSession"并保持 restoring，
+        // 用户切到该布局时 TerminalView 的 deferred 重恢复会 findLiveSavedSessionId 命中并 reattach（不重建）。
+        leaf.savedSessionId = savedSessionId;
+        leaf.restoring = true;
+        leaf.sessionId = null;
+        syncTabTerminalState(tab);
+      });
     },
   })),
   {
