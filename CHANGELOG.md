@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.3 - 2026-06-26
+
+### Fixed
+
+- Restored macOS terminal IME behavior and added an OpenCode CLI install hint.
+
 ## 0.10.1 - 2026-06-24
 
 ### Fixed
