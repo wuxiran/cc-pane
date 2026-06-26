@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "cc-panes",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "identifier": "com.ccpanes.app",
   "build": {
     "beforeDevCommand": "npm run dev",

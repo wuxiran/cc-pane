@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.5 - 2026-06-27
+
+### Added
+
+- Added a CLI Launchers settings section to override the launch command per CLI tool.
+
+### Fixed
+
+- Fixed launching npm-installed CLIs (OpenCode, Gemini, Kimi, GLM, Cursor) on Windows, where the PTY could not start the `.cmd` shim directly; the shim is now resolved to a direct Node invocation.
+
 ## 0.10.4 - 2026-06-26
 
 ### Fixed
