@@ -310,6 +310,18 @@ describe("WorkspaceItem", () => {
     expect(call?.launchProfileId).toBeUndefined();
   });
 
+  it("launches OpenCode when clicking the workspace CLI menu item directly", async () => {
+    const { onOpenTerminal } = renderWorkspaceItem("local");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "OpenCode" }));
+
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      path: "D:/workspace-alpha",
+      cliTool: "opencode",
+    }));
+  });
+
   it("shows explicit WSL CLI entries when the workspace default environment is wsl", async () => {
     renderWorkspaceItem("wsl");
 

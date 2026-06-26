@@ -1,9 +1,9 @@
 //! Claude Code CLI 适配器
 
 use crate::{
-    CcPaneEvent, CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities,
-    CliToolInfo, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus, ToolKind,
-    ToolMatcher,
+    resolve_executable, CcPaneEvent, CliAdapterContext, CliCommandResult, CliToolAdapter,
+    CliToolCapabilities, CliToolInfo, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus,
+    ToolKind, ToolMatcher,
 };
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -446,12 +446,12 @@ impl ClaudeAdapter {
     fn resolve_claude_path() -> Result<PathBuf> {
         #[cfg(not(windows))]
         {
-            which::which("claude").map_err(|_| anyhow!("claude CLI not found in PATH"))
+            resolve_executable("claude")
         }
 
         #[cfg(windows)]
         {
-            if let Ok(path) = which::which("claude") {
+            if let Ok(path) = resolve_executable("claude") {
                 return Ok(path);
             }
 

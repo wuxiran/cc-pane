@@ -1,9 +1,9 @@
 //! Codex CLI 适配器
 
 use crate::{
-    CcPaneEvent, CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities,
-    CliToolInfo, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus, ToolKind,
-    ToolMatcher,
+    resolve_executable, CcPaneEvent, CliAdapterContext, CliCommandResult, CliToolAdapter,
+    CliToolCapabilities, CliToolInfo, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus,
+    ToolKind, ToolMatcher,
 };
 use anyhow::{anyhow, Result};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -516,7 +516,7 @@ impl CodexAdapter {
 
     /// 跑 host `codex --version` 并解析 `(major, minor)`；失败返回 None。
     fn detect_host_codex_version() -> Option<(u32, u32)> {
-        let path = which::which("codex").ok()?;
+        let path = resolve_executable("codex").ok()?;
         let mut cmd = std::process::Command::new(path);
         cmd.arg("--version");
         #[cfg(windows)]
@@ -688,7 +688,7 @@ impl CliToolAdapter for CodexAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let path = which::which("codex").map_err(|_| anyhow!("codex CLI not found in PATH"))?;
+        let path = resolve_executable("codex")?;
         let codex_cmd = path.to_string_lossy().into_owned();
 
         let mut args = Vec::new();

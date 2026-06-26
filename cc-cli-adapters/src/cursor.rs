@@ -1,9 +1,10 @@
 //! Cursor CLI 适配器
 
 use crate::{
-    CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
+    resolve_executable, CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities,
+    CliToolInfo,
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use tracing::info;
 
@@ -54,8 +55,7 @@ impl CliToolAdapter for CursorAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let path = which::which("cursor-agent")
-            .map_err(|_| anyhow!("cursor-agent CLI not found in PATH"))?;
+        let path = resolve_executable("cursor-agent")?;
         let cursor_cmd = path.to_string_lossy().into_owned();
 
         let mut args = Vec::new();

@@ -256,7 +256,7 @@ export default function WorkspaceItem({
 
     return (
       <ContextMenuSub key={`${keyPrefix}-${item.key}`}>
-        <ContextMenuSubTrigger>
+        <ContextMenuSubTrigger onClick={() => openWorkspace(item.cliTool, item.environment)}>
           <Terminal /> {item.label}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="w-80">

@@ -22,7 +22,7 @@ pub use glm::GlmAdapter;
 pub use kimi::KimiAdapter;
 pub use opencode::OpenCodeAdapter;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -85,6 +85,210 @@ pub fn run_with_timeout(
             Err(_) => return None,
         }
     }
+}
+
+/// Resolve a CLI executable from the process PATH plus common user install
+/// locations. macOS GUI apps may start without a login-shell PATH, so relying
+/// on `which` alone misses tools installed by nvm/npm, Homebrew, Cargo, etc.
+pub fn resolve_executable(executable: &str) -> Result<PathBuf> {
+    if let Ok(path) = which::which(executable) {
+        return Ok(path);
+    }
+
+    find_executable_in_dirs(
+        executable,
+        &candidate_executable_dirs(),
+        &executable_extensions(),
+    )
+    .ok_or_else(|| {
+        anyhow!(
+            "{} CLI not found in PATH or common install locations",
+            executable
+        )
+    })
+}
+
+fn candidate_executable_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    if let Ok(path_var) = std::env::var("PATH") {
+        extend_unique_dirs(&mut dirs, std::env::split_paths(&path_var));
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        extend_unique_dirs(
+            &mut dirs,
+            [
+                home.join(".cargo").join("bin"),
+                home.join(".local").join("bin"),
+            ],
+        );
+
+        #[cfg(not(windows))]
+        {
+            for app_dir in [".cc-panes", ".cc-panes-dev"] {
+                let cached_path = home.join(app_dir).join("cached_path");
+                if let Ok(value) = std::fs::read_to_string(cached_path) {
+                    extend_unique_dirs(&mut dirs, std::env::split_paths(value.trim()));
+                }
+            }
+
+            let nvm_dir = std::env::var_os("NVM_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".nvm"));
+            let nvm_versions = nvm_dir.join("versions").join("node");
+            if let Ok(entries) = std::fs::read_dir(nvm_versions) {
+                let mut node_bins = entries
+                    .flatten()
+                    .map(|entry| entry.path().join("bin"))
+                    .filter(|path| path.is_dir())
+                    .collect::<Vec<_>>();
+                node_bins.sort();
+                node_bins.reverse();
+                extend_unique_dirs(&mut dirs, node_bins);
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            extend_unique_dirs(
+                &mut dirs,
+                [
+                    home.join("AppData").join("Roaming").join("npm"),
+                    home.join("scoop").join("shims"),
+                ],
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            dirs.push(PathBuf::from(app_data).join("npm"));
+        }
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            dirs.push(
+                PathBuf::from(local_app_data)
+                    .join("Microsoft")
+                    .join("WinGet")
+                    .join("Links"),
+            );
+        }
+        if let Ok(scoop_root) = std::env::var("SCOOP") {
+            dirs.push(PathBuf::from(scoop_root).join("shims"));
+        }
+    }
+
+    #[cfg(not(windows))]
+    extend_unique_dirs(
+        &mut dirs,
+        [
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/opt/homebrew/sbin"),
+            PathBuf::from("/usr/local/bin"),
+            PathBuf::from("/usr/local/sbin"),
+            PathBuf::from("/usr/bin"),
+            PathBuf::from("/bin"),
+            PathBuf::from("/usr/sbin"),
+            PathBuf::from("/sbin"),
+            PathBuf::from("/opt/local/bin"),
+        ],
+    );
+
+    dedupe_existing_dirs(dirs)
+}
+
+fn extend_unique_dirs<I>(dirs: &mut Vec<PathBuf>, incoming: I)
+where
+    I: IntoIterator<Item = PathBuf>,
+{
+    for dir in incoming {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        if !dirs.iter().any(|existing| existing == &dir) {
+            dirs.push(dir);
+        }
+    }
+}
+
+fn dedupe_existing_dirs(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    for dir in dirs {
+        if !dir.is_dir() {
+            continue;
+        }
+        if !result.iter().any(|existing| existing == &dir) {
+            result.push(dir);
+        }
+    }
+    result
+}
+
+#[cfg(windows)]
+fn executable_extensions() -> Vec<String> {
+    let from_env = std::env::var("PATHEXT")
+        .ok()
+        .map(|value| {
+            value
+                .split(';')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| {
+                    if value.starts_with('.') {
+                        value.to_ascii_lowercase()
+                    } else {
+                        format!(".{}", value.to_ascii_lowercase())
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let defaults = [".exe", ".cmd", ".bat", ".com"];
+    let mut ordered = Vec::new();
+    for value in from_env
+        .into_iter()
+        .chain(defaults.into_iter().map(str::to_string))
+    {
+        if !ordered.iter().any(|existing| existing == &value) {
+            ordered.push(value);
+        }
+    }
+    ordered
+}
+
+#[cfg(not(windows))]
+fn executable_extensions() -> Vec<String> {
+    Vec::new()
+}
+
+fn find_executable_in_dirs(
+    executable: &str,
+    dirs: &[PathBuf],
+    extensions: &[String],
+) -> Option<PathBuf> {
+    let has_extension = Path::new(executable).extension().is_some();
+
+    for dir in dirs {
+        let direct = dir.join(executable);
+        if direct.is_file() {
+            return Some(direct);
+        }
+
+        if has_extension {
+            continue;
+        }
+
+        for extension in extensions {
+            let candidate = dir.join(format!("{}{}", executable, extension));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
 }
 
 // ============ Trait ============
@@ -158,7 +362,7 @@ pub trait CliToolAdapter: Send + Sync {
     /// 环境检测（默认实现: which + --version，带 5s 超时）
     fn detect(&self) -> CliToolInfo {
         let mut info = self.info().clone();
-        match which::which(&info.executable) {
+        match resolve_executable(&info.executable) {
             Ok(path) => {
                 info.installed = true;
                 info.path = Some(path.to_string_lossy().into_owned());

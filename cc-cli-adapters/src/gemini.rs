@@ -1,9 +1,10 @@
 //! Gemini CLI 适配器
 
 use crate::{
-    CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
+    resolve_executable, CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities,
+    CliToolInfo,
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use tracing::info;
 
@@ -54,7 +55,7 @@ impl CliToolAdapter for GeminiAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let path = which::which("gemini").map_err(|_| anyhow!("gemini CLI not found in PATH"))?;
+        let path = resolve_executable("gemini")?;
         let gemini_cmd = path.to_string_lossy().into_owned();
 
         info!(
