@@ -90,8 +90,8 @@ pub struct LaunchTaskRequest {
     pub layout_id: Option<String>,
     /// 指定目标布局名称（可选；前端不存在时会自动创建）
     pub layout_name: Option<String>,
-    /// CLI 工具类型：`"claude"` | `"codex"`，默认 `"claude"`。
-    /// 其他已注册工具请通过直接终端启动。
+    /// CLI 工具类型：`"claude"` | `"codex"` | `"opencode"`，默认 `"claude"`。
+    /// 其余已注册工具（gemini/kimi/glm/cursor）请通过直接终端启动。
     pub cli_tool: Option<String>,
 }
 
@@ -189,7 +189,8 @@ fn parse_launch_cli_tool(cli_tool: Option<&str>) -> std::result::Result<CliTool,
     match cli_tool.unwrap_or("claude") {
         "claude" => Ok(CliTool::Claude),
         "codex" => Ok(CliTool::Codex),
-        "kimi" | "glm" | "gemini" | "opencode" | "cursor" => Err(format!(
+        "opencode" => Ok(CliTool::Opencode),
+        "kimi" | "glm" | "gemini" | "cursor" => Err(format!(
             "CLI tool '{}' is not supported by launch_task yet; use direct terminal launch instead",
             cli_tool.unwrap_or("claude")
         )),
@@ -914,8 +915,8 @@ struct McpLaunchTaskParams {
     /// 指定目标布局名称（可选；前端不存在时会自动创建）
     #[serde(rename = "layoutName")]
     layout_name: Option<String>,
-    /// CLI 工具类型：`"claude"` | `"codex"`，默认 `"claude"`。
-    /// 其他已注册工具请通过直接终端启动。
+    /// CLI 工具类型：`"claude"` | `"codex"` | `"opencode"`，默认 `"claude"`。
+    /// 其余已注册工具（gemini/kimi/glm/cursor）请通过直接终端启动。
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
 }
@@ -7940,6 +7941,10 @@ mod tests {
             parse_launch_cli_tool(Some("codex")).unwrap(),
             CliTool::Codex
         );
+        assert_eq!(
+            parse_launch_cli_tool(Some("opencode")).unwrap(),
+            CliTool::Opencode
+        );
     }
 
     #[test]
@@ -7948,6 +7953,8 @@ mod tests {
         let glm = parse_launch_cli_tool(Some("glm")).unwrap_err();
         assert!(kimi.contains("not supported by launch_task yet"));
         assert!(glm.contains("not supported by launch_task yet"));
+        // opencode 现已放行，不应再被拒绝
+        assert!(parse_launch_cli_tool(Some("opencode")).is_ok());
     }
 
     #[test]
