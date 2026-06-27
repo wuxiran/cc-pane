@@ -90,6 +90,35 @@ const DEFAULT_TERMINAL_SCROLLBACK = 20_000;
 const WEBGL_HEARTBEAT_INTERVAL_MS = 30_000;
 const WEBGL_SLEEP_GAP_MS = 75_000;
 const WEBGL_RECOVERY_PROMOTION_WINDOW_MS = 12_000;
+const TERMINAL_FONT_WAIT_TIMEOUT_MS = 1_500;
+
+// Best-effort wait for the configured terminal font to be ready before the
+// WebGL renderer rasterizes its first glyph atlas (otherwise the first paint
+// uses a blurry fallback). `document.fonts.ready` alone only settles fonts the
+// page already requested, so we also explicitly request the configured family.
+// A timeout guarantees a never-resolving font load can't block the terminal.
+async function waitForTerminalFont(fontSize: number, fontFamily: string): Promise<void> {
+  if (typeof document === "undefined" || !document.fonts) return;
+
+  const loadFont = (async () => {
+    try {
+      await document.fonts.load(`${fontSize}px ${fontFamily}`);
+    } catch {
+      // Ignore parse/load failures; fall through to the readiness signal.
+    }
+    try {
+      await document.fonts.ready;
+    } catch {
+      // Best-effort only.
+    }
+  })();
+
+  const timeout = new Promise<void>((resolve) => {
+    setTimeout(resolve, TERMINAL_FONT_WAIT_TIMEOUT_MS);
+  });
+
+  await Promise.race([loadFont, timeout]);
+}
 
 type TerminalCursorStyle = "block" | "underline" | "bar";
 
@@ -328,6 +357,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const terminalInstanceRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const rendererControllerRef = useRef<TerminalRendererController | null>(null);
+    const lastAppearanceFontRef = useRef<string | null>(null);
     const layoutSchedulerRef = useRef<TerminalLayoutScheduler | null>(null);
     const onDataDisposableRef = useRef<IDisposable | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -874,12 +904,27 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         if (!isMounted || !terminalRef.current) return;
 
+        // Wait for the configured font *before* constructing the terminal, so an
+        // unmount mid-await can't leak an unopened Terminal, and settings are
+        // re-read afterwards so a font change during the wait is not lost.
+        {
+          const pending = useSettingsStore.getState().settings?.terminal;
+          await waitForTerminalFont(
+            normalizeTerminalFontSize(pending?.fontSize),
+            normalizeTerminalFontFamily(pending?.fontFamily),
+          );
+          if (!isMounted || !terminalRef.current) return;
+        }
+
         const termSettings = useSettingsStore.getState().settings?.terminal;
         const scrollback = termSettings?.scrollback ?? DEFAULT_TERMINAL_SCROLLBACK;
         const fontSize = normalizeTerminalFontSize(termSettings?.fontSize);
         const fontFamily = normalizeTerminalFontFamily(termSettings?.fontFamily);
         const cursorStyle = normalizeTerminalCursorStyle(termSettings?.cursorStyle);
         const cursorBlink = termSettings?.cursorBlink ?? false;
+        // Seed the appearance baseline so the first real font change (after this
+        // async terminal is created) is detected and clears the WebGL atlas.
+        lastAppearanceFontRef.current = `${fontSize}|${fontFamily}`;
         const term = new Terminal({
           allowProposedApi: true,
           cursorBlink,
@@ -1667,10 +1712,35 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       const term = terminalInstanceRef.current;
       if (!term) return;
 
+      const fontSignature = `${terminalFontSize}|${terminalFontFamily}`;
+      const fontChanged =
+        lastAppearanceFontRef.current !== null &&
+        lastAppearanceFontRef.current !== fontSignature;
+      lastAppearanceFontRef.current = fontSignature;
+
       term.options.fontSize = terminalFontSize;
       term.options.fontFamily = terminalFontFamily;
       term.options.cursorStyle = terminalCursorStyle;
       term.options.cursorBlink = terminalCursorBlink;
+
+      if (fontChanged) {
+        // WebGL caches glyphs in a texture atlas keyed by the previous font; if
+        // it is not cleared the new font renders from stale (blurry/garbled)
+        // glyphs. Wait for the new font to load, then rebuild the atlas.
+        const ready =
+          typeof document !== "undefined" && document.fonts?.ready
+            ? document.fonts.ready
+            : Promise.resolve();
+        void ready
+          .then(() => {
+            if (terminalInstanceRef.current !== term) return;
+            rendererControllerRef.current?.clearTextureAtlas("settings.font-change");
+            layoutSchedulerRef.current?.schedule("settings.font-change", { force: true });
+          })
+          .catch(() => {
+            // Font readiness is best-effort; the immediate refit below still runs.
+          });
+      }
       layoutSchedulerRef.current?.schedule("settings.terminal-appearance", { force: true });
     }, [
       terminalCursorBlink,
