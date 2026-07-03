@@ -85,3 +85,139 @@ impl Default for SettingsService {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_config_path(dir: &tempfile::TempDir) -> PathBuf {
+        dir.path().join("config.toml")
+    }
+
+    #[test]
+    fn missing_config_file_falls_back_to_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new_with_config_path(temp_config_path(&dir));
+
+        let settings = service.get_settings();
+        let defaults = {
+            let mut d = AppSettings::default();
+            d.merge_missing_defaults();
+            d
+        };
+        assert_eq!(settings.general.language, defaults.general.language);
+        assert_eq!(settings.terminal.font_size, defaults.terminal.font_size);
+        // 不应因读取失败而创建文件
+        assert!(!temp_config_path(&dir).exists());
+    }
+
+    #[test]
+    fn corrupt_config_file_falls_back_to_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = temp_config_path(&dir);
+        std::fs::write(&path, "this is [ not valid toml").unwrap();
+
+        let service = SettingsService::new_with_config_path(path);
+        let settings = service.get_settings();
+        assert_eq!(settings.general.language, "zh-CN");
+    }
+
+    #[test]
+    fn loads_values_from_existing_config_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = temp_config_path(&dir);
+        std::fs::write(
+            &path,
+            r#"
+[general]
+autoStart = false
+language = "en-US"
+"#,
+        )
+        .unwrap();
+
+        let service = SettingsService::new_with_config_path(path);
+        assert_eq!(service.get_settings().general.language, "en-US");
+    }
+
+    #[test]
+    fn load_applies_merge_missing_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = temp_config_path(&dir);
+        // font_size 越界，加载后应被归一化
+        std::fs::write(
+            &path,
+            r#"
+[terminal]
+fontSize = 1
+fontFamily = "monospace"
+cursorStyle = "block"
+cursorBlink = true
+scrollback = 5000
+"#,
+        )
+        .unwrap();
+
+        let service = SettingsService::new_with_config_path(path);
+        let settings = service.get_settings();
+        assert_ne!(settings.terminal.font_size, 1);
+        assert_eq!(settings.terminal.scrollback, 5_000);
+    }
+
+    #[test]
+    fn update_settings_persists_to_file_and_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        // 父目录不存在时应自动创建
+        let path = dir.path().join("nested").join("config.toml");
+        let service = SettingsService::new_with_config_path(path.clone());
+
+        let mut settings = service.get_settings();
+        settings.general.language = "en-US".to_string();
+        settings.proxy.enabled = true;
+        settings.proxy.host = "127.0.0.1".to_string();
+        settings.proxy.port = 7890;
+        settings.proxy.proxy_type = "http".to_string();
+        service.update_settings(settings).unwrap();
+
+        // 内存中已更新
+        assert_eq!(service.get_settings().general.language, "en-US");
+        assert!(service.get_settings().proxy.enabled);
+
+        // 磁盘上可被新实例读回（round-trip）
+        let reloaded = SettingsService::new_with_config_path(path);
+        let settings = reloaded.get_settings();
+        assert_eq!(settings.general.language, "en-US");
+        assert_eq!(settings.proxy.host, "127.0.0.1");
+        assert_eq!(settings.proxy.port, 7890);
+    }
+
+    #[test]
+    fn get_proxy_env_vars_empty_when_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new_with_config_path(temp_config_path(&dir));
+        assert!(service.get_proxy_env_vars().is_empty());
+    }
+
+    #[test]
+    fn get_proxy_env_vars_reflects_enabled_proxy() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new_with_config_path(temp_config_path(&dir));
+
+        let mut settings = service.get_settings();
+        settings.proxy.enabled = true;
+        settings.proxy.proxy_type = "http".to_string();
+        settings.proxy.host = "proxy.local".to_string();
+        settings.proxy.port = 8080;
+        service.update_settings(settings).unwrap();
+
+        let vars = service.get_proxy_env_vars();
+        assert_eq!(
+            vars.get("HTTP_PROXY"),
+            Some(&"http://proxy.local:8080".to_string())
+        );
+        assert_eq!(
+            vars.get("ALL_PROXY"),
+            Some(&"http://proxy.local:8080".to_string())
+        );
+    }
+}

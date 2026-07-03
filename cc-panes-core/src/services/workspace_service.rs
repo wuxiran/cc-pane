@@ -1938,3 +1938,748 @@ impl WorkspaceService {
         Some((main_repo.to_string_lossy().to_string(), branch))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ProjectMigrationRequest, WorkspaceMigrationRequest};
+
+    fn make_service(dir: &tempfile::TempDir) -> WorkspaceService {
+        WorkspaceService::new(dir.path().join("workspaces"))
+    }
+
+    fn path_str(path: &Path) -> String {
+        path.to_string_lossy().to_string()
+    }
+
+    // ============ 工作空间 CRUD ============
+
+    #[test]
+    fn create_and_get_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+
+        let ws = service.create_workspace("alpha", None).unwrap();
+        assert_eq!(ws.name, "alpha");
+        assert!(ws.projects.is_empty());
+        assert!(service
+            .workspace_dir("alpha")
+            .join("workspace.json")
+            .exists());
+        assert!(service.workspace_dir("alpha").join(".ccpanes").is_dir());
+
+        let loaded = service.get_workspace("alpha").unwrap();
+        assert_eq!(loaded.id, ws.id);
+    }
+
+    #[test]
+    fn create_workspace_with_path_writes_bootstrap_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let root = dir.path().join("root");
+        fs::create_dir_all(&root).unwrap();
+
+        service
+            .create_workspace("alpha", Some(&path_str(&root)))
+            .unwrap();
+
+        assert!(root.join("CLAUDE.md").exists());
+        let csv = fs::read_to_string(root.join(".ccpanes").join("projects.csv")).unwrap();
+        assert!(csv.starts_with("path,alias,branch,status"));
+    }
+
+    #[test]
+    fn create_duplicate_workspace_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("alpha", None).unwrap();
+
+        let err = service.create_workspace("alpha", None).unwrap_err();
+        assert!(err.contains("already exists"));
+    }
+
+    #[test]
+    fn get_missing_workspace_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        assert!(service.get_workspace("ghost").is_err());
+    }
+
+    #[test]
+    fn list_workspaces_empty_initially() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        assert!(service.list_workspaces().unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_workspaces_sorts_pinned_then_sort_order_then_created() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+
+        for name in ["a", "b", "c", "d"] {
+            service.create_workspace(name, None).unwrap();
+        }
+        // c 置顶；a/b 有 sort_order（b 在前）；d 无 sort_order 排最后
+        service.update_workspace_pinned("c", true).unwrap();
+        let mut a = service.get_workspace("a").unwrap();
+        a.sort_order = Some(2);
+        service.write_workspace_json("a", &a).unwrap();
+        let mut b = service.get_workspace("b").unwrap();
+        b.sort_order = Some(1);
+        service.write_workspace_json("b", &b).unwrap();
+
+        let names: Vec<String> = service
+            .list_workspaces()
+            .unwrap()
+            .into_iter()
+            .map(|w| w.name)
+            .collect();
+        assert_eq!(names, vec!["c", "b", "a", "d"]);
+    }
+
+    #[test]
+    fn rename_workspace_moves_dir_and_updates_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("old", None).unwrap();
+
+        service.rename_workspace("old", "new").unwrap();
+
+        assert!(!service.workspace_dir("old").exists());
+        assert_eq!(service.get_workspace("new").unwrap().name, "new");
+    }
+
+    #[test]
+    fn rename_workspace_rejects_missing_source_and_duplicate_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("a", None).unwrap();
+        service.create_workspace("b", None).unwrap();
+
+        assert!(service.rename_workspace("ghost", "x").is_err());
+        let err = service.rename_workspace("a", "b").unwrap_err();
+        assert!(err.contains("WORKSPACE_NAME_DUPLICATE"));
+    }
+
+    #[test]
+    fn delete_workspace_removes_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("a", None).unwrap();
+
+        service.delete_workspace("a").unwrap();
+
+        assert!(!service.workspace_dir("a").exists());
+        assert!(service.delete_workspace("a").is_err());
+    }
+
+    // ============ 项目管理 ============
+
+    #[test]
+    fn add_project_and_reject_normalized_duplicates() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+
+        let project = service.add_project("ws", "/repo/demo").unwrap();
+        assert_eq!(project.path, "/repo/demo");
+
+        // 尾部斜杠视为同一路径
+        let err = service.add_project("ws", "/repo/demo/").unwrap_err();
+        assert!(err.contains("PROJECT_ALREADY_EXISTS"));
+        // 反斜杠分隔符视为同一路径
+        let err = service.add_project("ws", "\\repo\\demo").unwrap_err();
+        assert!(err.contains("PROJECT_ALREADY_EXISTS"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn add_project_duplicate_check_ignores_case_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+        service.add_project("ws", "C:/Repo/Demo").unwrap();
+
+        let err = service.add_project("ws", "c:/repo/demo").unwrap_err();
+        assert!(err.contains("PROJECT_ALREADY_EXISTS"));
+    }
+
+    fn make_ssh_info(user: Option<&str>, port: u16) -> SshConnectionInfo {
+        SshConnectionInfo {
+            host: "example.com".to_string(),
+            port,
+            user: user.map(|s| s.to_string()),
+            remote_path: "/srv/app".to_string(),
+            identity_file: None,
+            machine_id: None,
+            auth_method: None,
+        }
+    }
+
+    #[test]
+    fn add_ssh_project_builds_display_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+
+        // 默认端口 22 不出现在显示路径中
+        let p1 = service
+            .add_ssh_project("ws", make_ssh_info(Some("deploy"), 22))
+            .unwrap();
+        assert_eq!(p1.path, "ssh://deploy@example.com/srv/app");
+        assert!(p1.ssh.is_some());
+
+        // 非默认端口 + 无用户
+        let mut info = make_ssh_info(None, 2222);
+        info.remote_path = "/srv/other".to_string();
+        let p2 = service.add_ssh_project("ws", info).unwrap();
+        assert_eq!(p2.path, "ssh://example.com:2222/srv/other");
+
+        // 相同连接信息去重
+        let err = service
+            .add_ssh_project("ws", make_ssh_info(Some("deploy"), 22))
+            .unwrap_err();
+        assert!(err.contains("PROJECT_ALREADY_EXISTS"));
+    }
+
+    #[test]
+    fn remove_project_by_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+        let project = service.add_project("ws", "/repo/demo").unwrap();
+
+        service.remove_project("ws", &project.id).unwrap();
+        assert!(service.get_workspace("ws").unwrap().projects.is_empty());
+
+        assert!(service.remove_project("ws", &project.id).is_err());
+    }
+
+    #[test]
+    fn update_project_alias_set_and_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+        let project = service.add_project("ws", "/repo/demo").unwrap();
+
+        service
+            .update_project_alias("ws", &project.id, Some("demo-alias"))
+            .unwrap();
+        let ws = service.get_workspace("ws").unwrap();
+        assert_eq!(ws.projects[0].alias.as_deref(), Some("demo-alias"));
+
+        service
+            .update_project_alias("ws", &project.id, None)
+            .unwrap();
+        let ws = service.get_workspace("ws").unwrap();
+        assert!(ws.projects[0].alias.is_none());
+
+        assert!(service.update_project_alias("ws", "ghost", None).is_err());
+    }
+
+    #[test]
+    fn update_workspace_fields_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+
+        service.update_workspace_alias("ws", Some("别名")).unwrap();
+        service
+            .update_workspace_provider("ws", Some("prov-1"))
+            .unwrap();
+        service.update_workspace_hidden("ws", true).unwrap();
+
+        let ws = service.get_workspace("ws").unwrap();
+        assert_eq!(ws.alias.as_deref(), Some("别名"));
+        assert_eq!(ws.provider_id.as_deref(), Some("prov-1"));
+        assert!(ws.hidden);
+    }
+
+    #[test]
+    fn update_workspace_path_syncs_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+
+        service
+            .update_workspace_path("ws", Some("/data/root"))
+            .unwrap();
+        assert_eq!(
+            service.get_workspace("ws").unwrap().path.as_deref(),
+            Some("/data/root")
+        );
+
+        service.update_workspace_path("ws", None).unwrap();
+        assert!(service.get_workspace("ws").unwrap().path.is_none());
+    }
+
+    #[test]
+    fn reorder_workspaces_validates_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("a", None).unwrap();
+        service.create_workspace("b", None).unwrap();
+
+        assert!(service.reorder_workspaces(vec![]).is_err());
+        assert!(service
+            .reorder_workspaces(vec!["a".to_string(), "a".to_string()])
+            .is_err());
+        assert!(service
+            .reorder_workspaces(vec!["a".to_string(), "ghost".to_string()])
+            .is_err());
+    }
+
+    #[test]
+    fn reorder_workspaces_assigns_sort_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("a", None).unwrap();
+        service.create_workspace("b", None).unwrap();
+
+        service
+            .reorder_workspaces(vec!["b".to_string(), "a".to_string()])
+            .unwrap();
+
+        assert_eq!(service.get_workspace("b").unwrap().sort_order, Some(0));
+        assert_eq!(service.get_workspace("a").unwrap().sort_order, Some(1));
+        let names: Vec<String> = service
+            .list_workspaces()
+            .unwrap()
+            .into_iter()
+            .map(|w| w.name)
+            .collect();
+        assert_eq!(names, vec!["b", "a"]);
+    }
+
+    #[test]
+    fn add_project_syncs_projects_csv_under_workspace_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let root = dir.path().join("root");
+        let proj = root.join("proj1");
+        fs::create_dir_all(&proj).unwrap();
+        service
+            .create_workspace("ws", Some(&path_str(&root)))
+            .unwrap();
+
+        service.add_project("ws", &path_str(&proj)).unwrap();
+
+        let csv = fs::read_to_string(root.join(".ccpanes").join("projects.csv")).unwrap();
+        assert!(csv.lines().count() >= 2);
+        assert!(csv.contains("proj1"));
+    }
+
+    // ============ 纯函数辅助 ============
+
+    #[test]
+    fn normalize_project_path_unifies_separators_and_trailing_slash() {
+        let a = WorkspaceService::normalize_project_path("/x/y/");
+        let b = WorkspaceService::normalize_project_path("\\x\\y");
+        assert_eq!(a, b);
+        if cfg!(windows) {
+            assert_eq!(
+                WorkspaceService::normalize_project_path("C:\\Foo"),
+                "c:/foo"
+            );
+        }
+    }
+
+    #[test]
+    fn csv_escape_quotes_special_fields() {
+        assert_eq!(WorkspaceService::csv_escape("plain"), "plain");
+        assert_eq!(WorkspaceService::csv_escape("a,b"), "\"a,b\"");
+        assert_eq!(
+            WorkspaceService::csv_escape("say \"hi\""),
+            "\"say \"\"hi\"\"\""
+        );
+        assert_eq!(
+            WorkspaceService::csv_escape("line\nbreak"),
+            "\"line\nbreak\""
+        );
+    }
+
+    #[test]
+    fn path_basename_and_display_project_name() {
+        assert_eq!(WorkspaceService::path_basename("/a/b/demo"), "demo");
+        assert_eq!(WorkspaceService::path_basename(""), "project");
+
+        let mut project = WorkspaceProject::new("/a/b/demo".to_string());
+        assert_eq!(WorkspaceService::display_project_name(&project), "demo");
+        project.alias = Some("nick".to_string());
+        assert_eq!(WorkspaceService::display_project_name(&project), "nick");
+    }
+
+    #[test]
+    fn relative_path_from_workspace_variants() {
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace("/root", "/root"),
+            Some(String::new())
+        );
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace("/root/sub/dir", "/root"),
+            Some("sub/dir".to_string())
+        );
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace("/elsewhere/x", "/root"),
+            None
+        );
+        // 混合分隔符也能匹配
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace("\\root\\sub", "/root/"),
+            Some("sub".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_wsl_root_requires_absolute_linux_path() {
+        assert!(WorkspaceService::normalize_wsl_root("home/user").is_err());
+        assert_eq!(WorkspaceService::normalize_wsl_root("/").unwrap(), "/");
+        assert_eq!(
+            WorkspaceService::normalize_wsl_root("/home/user/").unwrap(),
+            "/home/user"
+        );
+    }
+
+    #[test]
+    fn join_logical_path_by_target_kind() {
+        assert_eq!(
+            WorkspaceService::join_logical_path(
+                WorkspaceMigrationTargetKind::Wsl,
+                "/data/",
+                "/sub/dir"
+            ),
+            "/data/sub/dir"
+        );
+        // 空 relative 直接返回 root
+        assert_eq!(
+            WorkspaceService::join_logical_path(WorkspaceMigrationTargetKind::Local, "/data", ""),
+            "/data"
+        );
+        let local =
+            WorkspaceService::join_logical_path(WorkspaceMigrationTargetKind::Local, "root", "a/b");
+        assert_eq!(local, path_str(&Path::new("root").join("a").join("b")));
+    }
+
+    #[test]
+    fn join_relative_path_skips_empty_segments() {
+        let joined = WorkspaceService::join_relative_path(Path::new("root"), "a//b/");
+        assert_eq!(joined, Path::new("root").join("a").join("b"));
+    }
+
+    #[test]
+    fn should_skip_migration_entry_rules() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+
+        assert!(service.should_skip_migration_entry(Path::new(".ccpanes/projects.csv")));
+        assert!(service.should_skip_migration_entry(Path::new("pkg/node_modules/lib")));
+        assert!(service.should_skip_migration_entry(Path::new("target")));
+        assert!(!service.should_skip_migration_entry(Path::new("src/main.rs")));
+        assert!(!service.should_skip_migration_entry(Path::new(".ccpanes/other.txt")));
+    }
+
+    #[test]
+    fn build_external_name_map_disambiguates_duplicate_basenames() {
+        let ext1 = WorkspaceProject::new("/ext1/demo".to_string());
+        let ext2 = WorkspaceProject::new("/ext2/demo".to_string());
+        let unique = WorkspaceProject::new("/ext3/solo".to_string());
+        let inside = WorkspaceProject::new("/root/inside".to_string());
+        let projects = vec![ext1.clone(), ext2.clone(), unique.clone(), inside.clone()];
+
+        let map = WorkspaceService::build_external_name_map(&projects, "/root");
+
+        // 工作空间内的项目不进入 external map
+        assert!(!map.contains_key(&inside.id));
+        assert_eq!(map.get(&unique.id).unwrap(), "solo");
+        // 重名 basename 追加 id 前 8 位区分
+        let n1 = map.get(&ext1.id).unwrap();
+        let n2 = map.get(&ext2.id).unwrap();
+        assert!(n1.starts_with("demo--"));
+        assert!(n2.starts_with("demo--"));
+        assert_ne!(n1, n2);
+    }
+
+    // ============ 迁移 ============
+
+    fn migration_request(name: &str, target_root: &str) -> WorkspaceMigrationRequest {
+        WorkspaceMigrationRequest {
+            workspace_name: name.to_string(),
+            target_kind: WorkspaceMigrationTargetKind::Local,
+            target_root: target_root.to_string(),
+            target_distro: None,
+        }
+    }
+
+    /// 建立带真实磁盘结构的工作空间：root/proj1/file.txt
+    fn setup_migratable_workspace(
+        dir: &tempfile::TempDir,
+        service: &WorkspaceService,
+    ) -> (PathBuf, PathBuf) {
+        let root = dir.path().join("src-root");
+        let proj = root.join("proj1");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(proj.join("file.txt"), "hello").unwrap();
+        service
+            .create_workspace("ws", Some(&path_str(&root)))
+            .unwrap();
+        service.add_project("ws", &path_str(&proj)).unwrap();
+        (root, proj)
+    }
+
+    #[test]
+    fn preview_migration_rejects_invalid_requests() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+
+        // 无 path 的工作空间
+        service.create_workspace("no-path", None).unwrap();
+        let err = service
+            .preview_workspace_migration(&migration_request("no-path", "/tmp/x"))
+            .unwrap_err();
+        assert!(err.contains("requires a local path"));
+
+        let (root, _proj) = setup_migratable_workspace(&dir, &service);
+
+        // 空 target root
+        assert!(service
+            .preview_workspace_migration(&migration_request("ws", "   "))
+            .is_err());
+
+        // SSH 目标不支持
+        let mut ssh_req = migration_request("ws", "/tmp/x");
+        ssh_req.target_kind = WorkspaceMigrationTargetKind::Ssh;
+        let err = service.preview_workspace_migration(&ssh_req).unwrap_err();
+        assert!(err.contains("SSH migration is not supported"));
+
+        // 目标 == 源
+        let err = service
+            .preview_workspace_migration(&migration_request("ws", &path_str(&root)))
+            .unwrap_err();
+        assert!(err.contains("cannot be the same as source"));
+
+        // 目标在源内部
+        let err = service
+            .preview_workspace_migration(&migration_request("ws", &path_str(&root.join("nested"))))
+            .unwrap_err();
+        assert!(err.contains("cannot be inside the source"));
+    }
+
+    #[test]
+    fn preview_migration_rejects_non_empty_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        setup_migratable_workspace(&dir, &service);
+
+        let target = dir.path().join("occupied");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("existing.txt"), "x").unwrap();
+
+        let err = service
+            .preview_workspace_migration(&migration_request("ws", &path_str(&target)))
+            .unwrap_err();
+        assert!(err.contains("must be empty"));
+    }
+
+    #[test]
+    fn preview_migration_builds_items_and_warnings() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let (_root, proj) = setup_migratable_workspace(&dir, &service);
+
+        // 外部项目（在工作空间 root 之外）
+        let ext = dir.path().join("outside").join("extproj");
+        fs::create_dir_all(&ext).unwrap();
+        service.add_project("ws", &path_str(&ext)).unwrap();
+
+        // SSH 项目应被跳过并产生 warning
+        service
+            .add_ssh_project("ws", make_ssh_info(Some("u"), 22))
+            .unwrap();
+
+        let target = dir.path().join("target");
+        let plan = service
+            .preview_workspace_migration(&migration_request("ws", &path_str(&target)))
+            .unwrap();
+
+        assert_eq!(plan.items.len(), 2);
+        let inside_item = plan
+            .items
+            .iter()
+            .find(|i| i.source_path == path_str(&proj))
+            .unwrap();
+        assert!(!inside_item.external);
+        assert_eq!(inside_item.relative_path.as_deref(), Some("proj1"));
+
+        let ext_item = plan
+            .items
+            .iter()
+            .find(|i| i.source_path == path_str(&ext))
+            .unwrap();
+        assert!(ext_item.external);
+        assert_eq!(ext_item.relative_path.as_deref(), Some("externals/extproj"));
+
+        assert_eq!(plan.warnings.len(), 1);
+        assert!(plan.warnings[0].contains("Skipped SSH project"));
+    }
+
+    #[test]
+    fn execute_and_rollback_workspace_migration() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let (root, _proj) = setup_migratable_workspace(&dir, &service);
+        let original_path = path_str(&root);
+
+        let target = dir.path().join("target");
+        let result = service
+            .execute_workspace_migration(&migration_request("ws", &path_str(&target)))
+            .unwrap();
+
+        assert_eq!(result.status, WorkspaceMigrationStatus::Succeeded);
+        // 至少拷贝 CLAUDE.md + file.txt，且文件内容真实到达目标
+        assert!(result.copied_files >= 2);
+        assert_eq!(
+            fs::read_to_string(target.join("proj1").join("file.txt")).unwrap(),
+            "hello"
+        );
+        assert!(target.join("CLAUDE.md").exists());
+        // workspace.json 已指向目标
+        let updated = service.get_workspace("ws").unwrap();
+        assert_eq!(updated.path.as_deref(), Some(path_str(&target).as_str()));
+        assert_eq!(updated.projects[0].path, path_str(&target.join("proj1")));
+
+        // 回滚仅恢复元数据
+        let rollback = service
+            .rollback_workspace_migration("ws", &result.snapshot_id)
+            .unwrap();
+        assert_eq!(
+            rollback.workspace.path.as_deref(),
+            Some(original_path.as_str())
+        );
+        let restored = service.get_workspace("ws").unwrap();
+        assert_eq!(restored.path.as_deref(), Some(original_path.as_str()));
+    }
+
+    #[test]
+    fn rollback_with_unknown_snapshot_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+        assert!(service
+            .rollback_workspace_migration("ws", "no-such-id")
+            .is_err());
+    }
+
+    #[test]
+    fn project_migration_preview_and_execute_and_rollback() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let (_root, proj) = setup_migratable_workspace(&dir, &service);
+        let project_id = service.get_workspace("ws").unwrap().projects[0].id.clone();
+        let original_project_path = path_str(&proj);
+
+        let target = dir.path().join("proj-target");
+        let request = ProjectMigrationRequest {
+            workspace_name: "ws".to_string(),
+            project_id: project_id.clone(),
+            target_kind: WorkspaceMigrationTargetKind::Local,
+            target_root: path_str(&target),
+            target_distro: None,
+        };
+
+        let plan = service.preview_project_migration(&request).unwrap();
+        assert_eq!(plan.source_path, original_project_path);
+        assert_eq!(plan.destination_path, path_str(&target));
+
+        let result = service.execute_project_migration(&request).unwrap();
+        assert_eq!(result.status, WorkspaceMigrationStatus::Succeeded);
+        assert_eq!(
+            fs::read_to_string(target.join("file.txt")).unwrap(),
+            "hello"
+        );
+        let migrated = service.get_workspace("ws").unwrap();
+        assert_eq!(migrated.projects[0].path, path_str(&target));
+
+        let rollback = service
+            .rollback_project_migration("ws", &result.snapshot_id)
+            .unwrap();
+        assert_eq!(rollback.workspace.projects[0].path, original_project_path);
+    }
+
+    #[test]
+    fn project_migration_rejects_unknown_project_and_ssh_projects() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+        let ssh_project = service
+            .add_ssh_project("ws", make_ssh_info(None, 22))
+            .unwrap();
+
+        let mut request = ProjectMigrationRequest {
+            workspace_name: "ws".to_string(),
+            project_id: "ghost".to_string(),
+            target_kind: WorkspaceMigrationTargetKind::Local,
+            target_root: path_str(&dir.path().join("t")),
+            target_distro: None,
+        };
+        assert!(service.preview_project_migration(&request).is_err());
+
+        request.project_id = ssh_project.id;
+        let err = service.preview_project_migration(&request).unwrap_err();
+        assert!(err.contains("SSH projects are not supported"));
+    }
+
+    // ============ 目录扫描 ============
+
+    #[test]
+    fn scan_directory_rejects_non_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope");
+        assert!(WorkspaceService::scan_directory(&missing).is_err());
+    }
+
+    #[test]
+    fn scan_directory_ignores_non_git_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("plain")).unwrap();
+        let repos = WorkspaceService::scan_directory(dir.path()).unwrap();
+        assert!(repos.is_empty());
+    }
+
+    #[test]
+    fn scan_directory_finds_git_repo_with_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("myrepo");
+        fs::create_dir_all(&repo).unwrap();
+        let status = Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(&repo)
+            .output()
+            .expect("git init failed to run");
+        assert!(status.status.success());
+
+        let repos = WorkspaceService::scan_directory(dir.path()).unwrap();
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].main_path, path_str(&repo));
+        assert_eq!(repos[0].main_branch, "main");
+        // 既有行为：Windows 下 git porcelain 输出正斜杠路径，与本地分隔符不等，
+        // 主仓库可能被列入自身 worktrees；只要没有指向其他路径的 worktree 即可。
+        let repo_norm = WorkspaceService::normalize_compare_path(&path_str(&repo));
+        assert!(repos[0]
+            .worktrees
+            .iter()
+            .all(|w| WorkspaceService::normalize_compare_path(&w.path) == repo_norm));
+    }
+
+    // ============ Watcher 生命周期 ============
+
+    #[test]
+    fn watcher_start_and_stop_do_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.start_watcher(Arc::new(crate::events::NoopEmitter));
+        service.stop_watcher();
+        // 重复 stop 也应安全
+        service.stop_watcher();
+    }
+}
