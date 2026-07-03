@@ -170,3 +170,59 @@ pub fn open_path_in_explorer(app: AppHandle, path: String) -> AppResult<()> {
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_config_file_info_summarizes_env_keys() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"env":{"ANTHROPIC_BASE_URL":"https://x","ANTHROPIC_AUTH_TOKEN":"sk"}}"#,
+        )
+        .unwrap();
+
+        let info = read_config_file_info(&file, "config.json".to_string()).unwrap();
+
+        assert_eq!(info.path, "config.json");
+        assert!(!info.has_settings);
+        assert!(!info.has_credentials);
+        assert_eq!(info.files.len(), 2);
+        let summary = info.settings_summary.unwrap();
+        assert!(summary.contains("env 变量 (2)"));
+        assert!(summary.contains("ANTHROPIC_BASE_URL"));
+    }
+
+    #[test]
+    fn read_config_file_info_without_env_has_no_summary() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("config.json");
+        std::fs::write(&file, r#"{"model":"opus"}"#).unwrap();
+
+        let info = read_config_file_info(&file, "config.json".to_string()).unwrap();
+
+        assert_eq!(info.settings_summary, None);
+        assert!(info.files.is_empty());
+    }
+
+    #[test]
+    fn read_config_file_info_rejects_invalid_json() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("config.json");
+        std::fs::write(&file, "not json").unwrap();
+
+        let result = read_config_file_info(&file, "config.json".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_config_file_info_rejects_missing_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("missing.json");
+        let result = read_config_file_info(&file, "missing.json".to_string());
+        assert!(result.is_err());
+    }
+}

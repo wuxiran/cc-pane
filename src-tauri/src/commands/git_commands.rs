@@ -359,3 +359,123 @@ pub fn get_git_file_statuses(path: String) -> AppResult<HashMap<String, String>>
     }
     Ok(map)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    #[test]
+    fn parse_git_progress_extracts_phase_and_percent() {
+        let progress = parse_git_progress("Receiving objects:  45% (123/274)");
+        assert_eq!(progress.phase, "receiving objects");
+        assert_eq!(progress.percent, Some(45));
+        assert_eq!(progress.message, "Receiving objects:  45% (123/274)");
+    }
+
+    #[test]
+    fn parse_git_progress_handles_completed_phase() {
+        let progress = parse_git_progress("Resolving deltas: 100% (10/10), done.");
+        assert_eq!(progress.phase, "resolving deltas");
+        assert_eq!(progress.percent, Some(100));
+    }
+
+    #[test]
+    fn parse_git_progress_without_colon_falls_back_to_cloning() {
+        let progress = parse_git_progress("Cloning into 'repo'...");
+        assert_eq!(progress.phase, "cloning");
+        assert_eq!(progress.percent, None);
+    }
+
+    #[test]
+    fn parse_git_progress_without_percent_keeps_phase_only() {
+        let progress = parse_git_progress("remote: Enumerating objects, done.");
+        assert_eq!(progress.phase, "remote");
+        assert_eq!(progress.percent, None);
+    }
+
+    #[test]
+    fn parse_git_progress_empty_line_falls_back_to_cloning() {
+        let progress = parse_git_progress("");
+        assert_eq!(progress.phase, "cloning");
+        assert_eq!(progress.percent, None);
+        assert_eq!(progress.message, "");
+    }
+
+    #[test]
+    fn git_clone_request_deserializes_camel_case_with_optional_credentials() {
+        let request: GitCloneRequest = serde_json::from_str(
+            r#"{
+                "url": "https://example.com/repo.git",
+                "targetDir": "D:/projects",
+                "folderName": "repo",
+                "shallow": true
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(request.url, "https://example.com/repo.git");
+        assert_eq!(request.target_dir, "D:/projects");
+        assert_eq!(request.folder_name, "repo");
+        assert!(request.shallow);
+        assert_eq!(request.username, None);
+        assert_eq!(request.password, None);
+    }
+
+    #[test]
+    fn run_git_command_rejects_missing_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("does-not-exist");
+        let result = run_git_command(&missing.to_string_lossy(), &["status"]);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Path does not exist"));
+    }
+
+    #[test]
+    fn get_git_file_statuses_returns_empty_for_non_repo() {
+        let temp = tempfile::tempdir().unwrap();
+        let map = get_git_file_statuses(temp.path().to_string_lossy().to_string()).unwrap();
+        assert!(map.is_empty());
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .expect("git must be available for this test");
+        assert!(status.success(), "git {:?} failed", args);
+    }
+
+    #[test]
+    fn get_git_file_statuses_maps_porcelain_codes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "user.email", "test@example.com"]);
+        git(root, &["config", "user.name", "test"]);
+
+        std::fs::write(root.join("tracked.txt"), "v1").unwrap();
+        git(root, &["add", "tracked.txt"]);
+        git(root, &["commit", "-q", "-m", "init"]);
+
+        std::fs::write(root.join("tracked.txt"), "v2").unwrap();
+        std::fs::write(root.join("untracked.txt"), "new").unwrap();
+        std::fs::write(root.join("staged.txt"), "staged").unwrap();
+        git(root, &["add", "staged.txt"]);
+
+        let map = get_git_file_statuses(root.to_string_lossy().to_string()).unwrap();
+        let status_of = |name: &str| {
+            map.iter()
+                .find(|(path, _)| {
+                    Path::new(path).file_name().and_then(|n| n.to_str()) == Some(name)
+                })
+                .map(|(_, status)| status.as_str())
+        };
+        assert_eq!(status_of("tracked.txt"), Some("modified"));
+        assert_eq!(status_of("untracked.txt"), Some("untracked"));
+        assert_eq!(status_of("staged.txt"), Some("added"));
+    }
+}

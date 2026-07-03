@@ -293,4 +293,52 @@ mod tests {
 
         assert!(is_idempotent_kill_error(&error));
     }
+
+    #[test]
+    fn kill_terminal_idempotent_treats_already_exited_as_success() {
+        let error = AppError::from("process already exited");
+
+        assert!(is_idempotent_kill_error(&error));
+    }
+
+    #[test]
+    fn kill_terminal_idempotent_rejects_other_errors() {
+        let error = AppError::from("permission denied");
+
+        assert!(!is_idempotent_kill_error(&error));
+    }
+
+    #[test]
+    fn summarize_terminal_input_escapes_carriage_return() {
+        let summary = summarize_terminal_input("\r");
+
+        assert_eq!(summary["chars"][0], "\\r");
+        assert_eq!(summary["codePoints"][0], "d");
+        assert_eq!(summary["charCount"], 1);
+        assert_eq!(summary["utf8Bytes"], 1);
+        assert_eq!(summary["truncated"], false);
+    }
+
+    #[test]
+    fn summarize_terminal_input_truncates_long_input() {
+        let input = "a".repeat(30);
+        let summary = summarize_terminal_input(&input);
+
+        assert_eq!(summary["chars"].as_array().unwrap().len(), 24);
+        assert_eq!(summary["bytes"].as_array().unwrap().len(), 30);
+        assert_eq!(summary["charCount"], 30);
+        assert_eq!(summary["truncated"], true);
+    }
+
+    #[test]
+    fn summarize_terminal_input_flags_truncation_on_wide_utf8() {
+        // 12 个中文字符 = 36 字节，超出 32 字节展示上限即视为截断
+        let input = "好".repeat(12);
+        let summary = summarize_terminal_input(&input);
+
+        assert_eq!(summary["charCount"], 12);
+        assert_eq!(summary["utf8Bytes"], 36);
+        assert_eq!(summary["bytes"].as_array().unwrap().len(), 32);
+        assert_eq!(summary["truncated"], true);
+    }
 }

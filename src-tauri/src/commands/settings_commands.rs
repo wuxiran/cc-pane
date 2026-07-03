@@ -735,3 +735,133 @@ fn verify_copy(src: &Path, dst: &Path) -> AppResult<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_non_empty_skips_blank_values() {
+        assert_eq!(
+            first_non_empty(["", "   ", "value", "later"]),
+            Some("value".to_string())
+        );
+    }
+
+    #[test]
+    fn first_non_empty_returns_none_when_all_blank() {
+        assert_eq!(first_non_empty(["", "  ", "\t"]), None);
+    }
+
+    #[test]
+    fn truncate_cli_launcher_output_keeps_short_text() {
+        let text = "a".repeat(600);
+        assert_eq!(truncate_cli_launcher_output(&text), text);
+    }
+
+    #[test]
+    fn truncate_cli_launcher_output_appends_ellipsis_beyond_limit() {
+        let text = "a".repeat(601);
+        let truncated = truncate_cli_launcher_output(&text);
+        assert_eq!(truncated.chars().count(), 603);
+        assert!(truncated.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_cli_launcher_output_counts_chars_not_bytes() {
+        let text = "汉".repeat(601);
+        let truncated = truncate_cli_launcher_output(&text);
+        assert!(truncated.ends_with("..."));
+        assert_eq!(truncated.chars().count(), 603);
+    }
+
+    #[test]
+    fn copy_if_exists_is_noop_for_missing_source() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("missing.db");
+        let dst = temp.path().join("copy.db");
+        copy_if_exists(&src, &dst).unwrap();
+        assert!(!dst.exists());
+    }
+
+    #[test]
+    fn copy_dir_recursive_copies_nested_files_and_count_matches() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("src");
+        std::fs::create_dir_all(src.join("nested")).unwrap();
+        std::fs::write(src.join("a.txt"), "a").unwrap();
+        std::fs::write(src.join("nested").join("b.txt"), "bb").unwrap();
+
+        let dst = temp.path().join("dst");
+        copy_dir_recursive(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read_to_string(dst.join("a.txt")).unwrap(), "a");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("nested").join("b.txt")).unwrap(),
+            "bb"
+        );
+        assert_eq!(count_files(&src), 2);
+        assert_eq!(count_files(&dst), 2);
+    }
+
+    #[test]
+    fn verify_copy_passes_for_missing_source() {
+        let temp = tempfile::tempdir().unwrap();
+        verify_copy(temp.path().join("none").as_path(), temp.path()).unwrap();
+    }
+
+    #[test]
+    fn verify_copy_fails_when_target_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("src.db");
+        std::fs::write(&src, "data").unwrap();
+        let result = verify_copy(&src, &temp.path().join("missing.db"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_copy_fails_on_size_mismatch() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("src.db");
+        let dst = temp.path().join("dst.db");
+        std::fs::write(&src, "1234").unwrap();
+        std::fs::write(&dst, "12").unwrap();
+        let result = verify_copy(&src, &dst);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("size mismatch"));
+    }
+
+    #[test]
+    fn collect_workspace_summaries_reads_valid_and_skips_broken() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspaces = temp.path();
+
+        let valid = workspaces.join("alpha");
+        std::fs::create_dir_all(&valid).unwrap();
+        std::fs::write(
+            valid.join("workspace.json"),
+            r#"{"id":"ws-1","name":"alpha","createdAt":"2026-01-01","projects":[],"path":"D:/ws/alpha"}"#,
+        )
+        .unwrap();
+
+        let broken = workspaces.join("broken");
+        std::fs::create_dir_all(&broken).unwrap();
+        std::fs::write(broken.join("workspace.json"), "not json").unwrap();
+
+        // 无 workspace.json 的目录应被跳过
+        std::fs::create_dir_all(workspaces.join("empty")).unwrap();
+
+        let summaries = collect_workspace_summaries(workspaces);
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].name, "alpha");
+        assert_eq!(summaries[0].project_count, 0);
+        assert_eq!(summaries[0].path.as_deref(), Some("D:/ws/alpha"));
+    }
+
+    #[test]
+    fn collect_workspace_summaries_handles_missing_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let summaries = collect_workspace_summaries(&temp.path().join("nonexistent"));
+        assert!(summaries.is_empty());
+    }
+}

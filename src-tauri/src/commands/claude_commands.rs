@@ -341,3 +341,42 @@ pub fn extract_last_prompt(project_path: String, session_id: String) -> AppResul
     crate::services::extract_last_prompt("claude", None, None, &project_path, &session_id)
         .map_err(Into::into)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn count_thinking_blocks_counts_thinking_and_redacted() {
+        let line = r#"{"message":{"content":[
+            {"type":"thinking","thinking":"..."},
+            {"type":"text","text":"hi"},
+            {"type":"redacted_thinking","data":"..."}
+        ]}}"#
+            .replace('\n', "");
+        assert_eq!(count_thinking_blocks(&line), 2);
+    }
+
+    #[test]
+    fn count_thinking_blocks_ignores_plain_text_content() {
+        let line = r#"{"message":{"content":[{"type":"text","text":"hello"}]}}"#;
+        assert_eq!(count_thinking_blocks(line), 0);
+    }
+
+    #[test]
+    fn count_thinking_blocks_returns_zero_for_invalid_json() {
+        assert_eq!(count_thinking_blocks("not json at all"), 0);
+    }
+
+    #[test]
+    fn count_thinking_blocks_returns_zero_when_content_is_not_array() {
+        let line = r#"{"message":{"content":"plain string"}}"#;
+        assert_eq!(count_thinking_blocks(line), 0);
+    }
+
+    #[test]
+    fn count_thinking_blocks_returns_zero_without_message() {
+        let line = r#"{"type":"summary","summary":"..."}"#;
+        assert_eq!(count_thinking_blocks(line), 0);
+    }
+}
