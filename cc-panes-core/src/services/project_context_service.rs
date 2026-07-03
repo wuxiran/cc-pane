@@ -127,3 +127,78 @@ impl Default for ProjectContextService {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn get_workflow_errors_when_missing() {
+        let dir = TempDir::new().expect("temp dir");
+        let svc = ProjectContextService::new();
+        let err = svc
+            .get_workflow(dir.path().to_str().unwrap())
+            .expect_err("missing workflow");
+        assert_eq!(err, "workflow.md does not exist");
+    }
+
+    #[test]
+    fn save_workflow_creates_dir_and_round_trips() {
+        let dir = TempDir::new().expect("temp dir");
+        let project = dir.path().to_str().unwrap().to_string();
+        let svc = ProjectContextService::new();
+
+        svc.save_workflow(&project, "# My Workflow\n")
+            .expect("save ok");
+        assert_eq!(
+            svc.get_workflow(&project).expect("read ok"),
+            "# My Workflow\n"
+        );
+
+        // 覆盖写入
+        svc.save_workflow(&project, "updated").expect("save again");
+        assert_eq!(svc.get_workflow(&project).expect("read ok"), "updated");
+    }
+
+    #[test]
+    fn init_ccpanes_creates_default_files() {
+        let dir = TempDir::new().expect("temp dir");
+        let project = dir.path().to_str().unwrap().to_string();
+        let svc = ProjectContextService::new();
+
+        svc.init_ccpanes(&project).expect("init ok");
+
+        let ccpanes = dir.path().join(".ccpanes");
+        assert!(ccpanes.join("workflow.md").exists());
+        assert!(ccpanes.join("journal").join("journal-0.md").exists());
+
+        // index.md 必须带 JournalService 依赖的自动区块标记
+        let index =
+            fs::read_to_string(ccpanes.join("journal").join("index.md")).expect("read index");
+        assert!(index.contains("@@@auto:current-status"));
+        assert!(index.contains("@@@/auto:current-status"));
+        assert!(index.contains("@@@auto:session-history"));
+        assert!(index.contains("@@@/auto:session-history"));
+        assert!(index.contains("**Total Sessions**: 0"));
+        assert!(index.contains("|---|"));
+    }
+
+    #[test]
+    fn init_ccpanes_is_idempotent_and_preserves_existing_files() {
+        let dir = TempDir::new().expect("temp dir");
+        let project = dir.path().to_str().unwrap().to_string();
+        let svc = ProjectContextService::new();
+
+        svc.init_ccpanes(&project).expect("first init");
+        svc.save_workflow(&project, "customized workflow")
+            .expect("customize");
+
+        svc.init_ccpanes(&project).expect("second init");
+        assert_eq!(
+            svc.get_workflow(&project).expect("read ok"),
+            "customized workflow",
+            "re-init must not overwrite an existing workflow.md"
+        );
+    }
+}

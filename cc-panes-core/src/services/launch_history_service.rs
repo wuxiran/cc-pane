@@ -225,3 +225,207 @@ impl LaunchHistoryService {
         self.repo.clear()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository::Database;
+
+    fn service() -> LaunchHistoryService {
+        let db = Arc::new(Database::new_in_memory().expect("in-memory db"));
+        LaunchHistoryService::new(Arc::new(HistoryRepository::new(db)))
+    }
+
+    /// 以最少参数添加一条记录
+    fn add_record(svc: &LaunchHistoryService, project_id: &str, project_path: &str) -> i64 {
+        svc.add(
+            project_id,
+            "proj",
+            project_path,
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("add record")
+    }
+
+    #[test]
+    fn add_then_list_returns_record_with_defaults() {
+        let svc = service();
+        let id = add_record(&svc, "p1", "D:\\work\\proj");
+        assert!(id > 0);
+
+        let records = svc.list(10).expect("list ok");
+        assert_eq!(records.len(), 1);
+        let rec = &records[0];
+        assert_eq!(rec.id, id);
+        assert_eq!(rec.project_id, "p1");
+        assert_eq!(rec.cli_tool, "claude");
+        assert_eq!(rec.runtime_kind, "local");
+        assert!(rec.pty_session_id.is_none());
+        assert!(rec.resume_session_id.is_none());
+    }
+
+    #[test]
+    fn list_by_project_normalizes_slashes_and_case() {
+        let svc = service();
+        add_record(&svc, "p1", "D:\\Work\\Proj");
+        add_record(&svc, "p2", "D:/other/proj");
+
+        // 反斜杠库内记录，用正斜杠 + 不同大小写查询也要命中
+        let hits = svc.list_by_project("d:/work/proj", 10).expect("list ok");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].project_id, "p1");
+
+        let none = svc.list_by_project("d:/no/match", 10).expect("list ok");
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn add_with_pty_session_findable_by_pty_id() {
+        let svc = service();
+        svc.add_with_pty_session(
+            "p1",
+            "proj",
+            "/tmp/proj",
+            "pty-1",
+            "codex",
+            "wsl",
+            Some("Ubuntu"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("add ok");
+
+        let rec = svc
+            .find_by_pty_session_id("pty-1")
+            .expect("find ok")
+            .expect("row exists");
+        assert_eq!(rec.project_id, "p1");
+        assert_eq!(rec.cli_tool, "codex");
+        assert_eq!(rec.wsl_distro.as_deref(), Some("Ubuntu"));
+
+        assert!(svc
+            .find_by_pty_session_id("no-such")
+            .expect("find ok")
+            .is_none());
+    }
+
+    #[test]
+    fn update_session_id_and_resume_source_round_trip() {
+        let svc = service();
+        let id = add_record(&svc, "p1", "/tmp/proj");
+
+        svc.update_session_id(id, "resume-uuid")
+            .expect("set resume");
+        svc.update_resume_source(id, "issued").expect("set source");
+
+        let rec = svc
+            .find_by_resume_session_id("resume-uuid")
+            .expect("find ok")
+            .expect("row exists");
+        assert_eq!(rec.id, id);
+        assert_eq!(rec.resume_source.as_deref(), Some("issued"));
+
+        assert!(svc
+            .find_by_resume_session_id("unknown")
+            .expect("find ok")
+            .is_none());
+    }
+
+    #[test]
+    fn update_session_started_none_when_launch_id_unknown() {
+        let svc = service();
+        let result = svc
+            .update_session_started("ghost", "pty-x", "resume-x", "claude", "local", None, None)
+            .expect("update ok");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn update_last_prompt_by_pty_session_id_matches_and_misses() {
+        let svc = service();
+        svc.add_with_pty_session(
+            "p1",
+            "proj",
+            "/tmp/proj",
+            "pty-1",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("add ok");
+
+        assert!(svc
+            .update_last_prompt_by_pty_session_id("no-such", "hi")
+            .expect("ok")
+            .is_none());
+
+        let id = svc
+            .update_last_prompt_by_pty_session_id("pty-1", "fix the bug")
+            .expect("ok")
+            .expect("matched");
+        assert!(id > 0);
+
+        let rec = svc
+            .find_by_pty_session_id("pty-1")
+            .expect("find ok")
+            .expect("row exists");
+        assert_eq!(rec.last_prompt.as_deref(), Some("fix the bug"));
+    }
+
+    #[test]
+    fn update_last_prompt_by_id() {
+        let svc = service();
+        let id = add_record(&svc, "p1", "/tmp/proj");
+        svc.update_last_prompt(id, "prompt text")
+            .expect("update ok");
+
+        let rec = &svc.list(1).expect("list ok")[0];
+        assert_eq!(rec.last_prompt.as_deref(), Some("prompt text"));
+    }
+
+    #[test]
+    fn touch_by_session_id_updates_timestamp_or_returns_none() {
+        let svc = service();
+        let id = add_record(&svc, "p1", "/tmp/proj");
+        svc.update_session_id(id, "resume-1").expect("set resume");
+
+        assert!(svc.touch_by_session_id("unknown").expect("ok").is_none());
+        assert_eq!(svc.touch_by_session_id("resume-1").expect("ok"), Some(id));
+    }
+
+    #[test]
+    fn delete_and_clear_remove_records() {
+        let svc = service();
+        let id1 = add_record(&svc, "p1", "/tmp/a");
+        add_record(&svc, "p2", "/tmp/b");
+
+        svc.delete(id1).expect("delete ok");
+        let remaining = svc.list(10).expect("list ok");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].project_id, "p2");
+
+        svc.clear().expect("clear ok");
+        assert!(svc.list(10).expect("list ok").is_empty());
+    }
+}

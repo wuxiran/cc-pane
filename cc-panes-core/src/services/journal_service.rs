@@ -374,3 +374,167 @@ impl Default for JournalService {
         Self::new(PathBuf::new())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::project_context_service::ProjectContextService;
+    use tempfile::TempDir;
+
+    fn summary(title: &str, commits: Vec<String>) -> SessionSummary {
+        SessionSummary {
+            title: title.to_string(),
+            summary: format!("summary of {}", title),
+            commits,
+            date: "2026-07-03".to_string(),
+        }
+    }
+
+    /// 初始化 .ccpanes/journal（含带自动区块标记的 index.md）的项目目录
+    fn init_project() -> TempDir {
+        let dir = TempDir::new().expect("temp dir");
+        ProjectContextService::new()
+            .init_ccpanes(dir.path().to_str().unwrap())
+            .expect("init ccpanes");
+        dir
+    }
+
+    #[test]
+    fn get_index_on_empty_project_defaults_to_journal_0() {
+        let dir = TempDir::new().expect("temp dir");
+        let svc = JournalService::default();
+        let index = svc
+            .get_index(dir.path().to_str().unwrap())
+            .expect("index ok");
+        assert_eq!(index.active_file, "journal-0.md");
+        assert_eq!(index.total_sessions, 0);
+    }
+
+    #[test]
+    fn get_recent_journal_returns_empty_when_no_file() {
+        let dir = TempDir::new().expect("temp dir");
+        let svc = JournalService::default();
+        let content = svc
+            .get_recent_journal(dir.path().to_str().unwrap())
+            .expect("ok");
+        assert_eq!(content, "");
+    }
+
+    #[test]
+    fn add_session_fails_without_index() {
+        // journal 目录会被创建，但 index.md 不存在时 update_index 必须显式报错
+        let dir = TempDir::new().expect("temp dir");
+        let svc = JournalService::default();
+        let err = svc
+            .add_session(dir.path().to_str().unwrap(), summary("t", vec![]))
+            .expect_err("no index.md");
+        assert_eq!(err, "index.md does not exist");
+    }
+
+    #[test]
+    fn add_session_appends_content_and_updates_index() {
+        let dir = init_project();
+        let project = dir.path().to_str().unwrap().to_string();
+        let svc = JournalService::default();
+
+        let n = svc
+            .add_session(&project, summary("First task", vec!["abc1234".to_string()]))
+            .expect("add ok");
+        assert_eq!(n, 1);
+
+        let journal = svc.get_recent_journal(&project).expect("read journal");
+        assert!(journal.contains("## Session 1: First task"));
+        assert!(journal.contains("| `abc1234` | (see git log) |"));
+
+        let index = svc.get_index(&project).expect("index ok");
+        assert_eq!(index.active_file, "journal-0.md");
+        assert_eq!(index.total_sessions, 1);
+
+        // index.md 的 session-history 表新增一行，commits 以反引号展示
+        let index_md =
+            fs::read_to_string(dir.path().join(".ccpanes").join("journal").join("index.md"))
+                .expect("read index.md");
+        assert!(index_md.contains("**Total Sessions**: 1"));
+        assert!(index_md.contains("| 1 |"));
+        assert!(index_md.contains("`abc1234`"));
+    }
+
+    #[test]
+    fn add_session_increments_session_number() {
+        let dir = init_project();
+        let project = dir.path().to_str().unwrap().to_string();
+        let svc = JournalService::default();
+
+        assert_eq!(svc.add_session(&project, summary("a", vec![])).unwrap(), 1);
+        assert_eq!(svc.add_session(&project, summary("b", vec![])).unwrap(), 2);
+
+        let journal = svc.get_recent_journal(&project).expect("read journal");
+        assert!(journal.contains("## Session 1: a"));
+        assert!(journal.contains("## Session 2: b"));
+        // 无 commit 的会话标记为 planning session
+        assert!(journal.contains("(no commits - planning session)"));
+    }
+
+    #[test]
+    fn add_session_rotates_journal_file_when_max_lines_exceeded() {
+        let dir = init_project();
+        let project = dir.path().to_str().unwrap().to_string();
+        let journal_dir = dir.path().join(".ccpanes").join("journal");
+
+        // 把 journal-0.md 填到超过 MAX_LINES
+        let big = "line\n".repeat(MAX_LINES + 1);
+        fs::write(journal_dir.join("journal-0.md"), big).expect("fill journal-0");
+
+        let svc = JournalService::default();
+        let n = svc
+            .add_session(&project, summary("rotated", vec![]))
+            .expect("add ok");
+        assert_eq!(n, 1);
+
+        // 新会话写进 journal-1.md，index 指向新文件
+        assert!(journal_dir.join("journal-1.md").exists());
+        let index = svc.get_index(&project).expect("index ok");
+        assert_eq!(index.active_file, "journal-1.md");
+
+        let journal = svc.get_recent_journal(&project).expect("read latest");
+        assert!(journal.contains("# Session Journal (Part 1)"));
+        assert!(journal.contains("## Session 1: rotated"));
+    }
+
+    #[test]
+    fn get_latest_journal_picks_highest_numbered_file() {
+        let dir = init_project();
+        let project = dir.path().to_str().unwrap().to_string();
+        let journal_dir = dir.path().join(".ccpanes").join("journal");
+        fs::write(journal_dir.join("journal-3.md"), "part 3\n").expect("write journal-3");
+
+        let svc = JournalService::default();
+        let index = svc.get_index(&project).expect("index ok");
+        assert_eq!(index.active_file, "journal-3.md");
+        assert_eq!(svc.get_recent_journal(&project).expect("read"), "part 3\n");
+    }
+
+    #[test]
+    fn by_workspace_variants_resolve_under_workspaces_dir() {
+        let root = TempDir::new().expect("temp dir");
+        let ws_dir = root.path().join("my-ws");
+        fs::create_dir_all(&ws_dir).expect("create workspace dir");
+        ProjectContextService::new()
+            .init_ccpanes(ws_dir.to_str().unwrap())
+            .expect("init ccpanes");
+
+        let svc = JournalService::new(root.path().to_path_buf());
+        let n = svc
+            .add_session_by_workspace("my-ws", summary("ws task", vec![]))
+            .expect("add ok");
+        assert_eq!(n, 1);
+
+        let index = svc.get_index_by_workspace("my-ws").expect("index ok");
+        assert_eq!(index.total_sessions, 1);
+
+        let journal = svc
+            .get_recent_journal_by_workspace("my-ws")
+            .expect("read ok");
+        assert!(journal.contains("## Session 1: ws task"));
+    }
+}

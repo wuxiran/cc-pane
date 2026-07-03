@@ -163,3 +163,153 @@ impl Default for PlanService {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn project_with_plans(files: &[(&str, &str)]) -> TempDir {
+        let dir = TempDir::new().expect("temp dir");
+        let plans = dir.path().join(".ccpanes").join("plans");
+        fs::create_dir_all(&plans).expect("create plans dir");
+        for (name, content) in files {
+            fs::write(plans.join(name), content).expect("write plan file");
+        }
+        dir
+    }
+
+    // ---- parse_file_name ----
+
+    #[test]
+    fn parse_file_name_with_session_prefix() {
+        let (original, session, archived_at) =
+            PlanService::parse_file_name("a1b2c3d4_20260215_143052_structured-kindling-canyon.md");
+        assert_eq!(original, "structured-kindling-canyon.md");
+        assert_eq!(session, "a1b2c3d4");
+        assert_eq!(archived_at, "2026-02-15T14:30:52");
+    }
+
+    #[test]
+    fn parse_file_name_keeps_underscores_in_original_name() {
+        let (original, session, _) =
+            PlanService::parse_file_name("a1b2c3d4_20260215_143052_my_plan_v2.md");
+        assert_eq!(original, "my_plan_v2.md");
+        assert_eq!(session, "a1b2c3d4");
+    }
+
+    #[test]
+    fn parse_file_name_without_session_prefix() {
+        let (original, session, archived_at) =
+            PlanService::parse_file_name("20260215_143052_plan.md");
+        assert_eq!(original, "plan.md");
+        assert_eq!(session, "");
+        assert_eq!(archived_at, "2026-02-15T14:30:52");
+    }
+
+    #[test]
+    fn parse_file_name_unparseable_returns_as_is() {
+        let (original, session, archived_at) = PlanService::parse_file_name("random-plan.md");
+        assert_eq!(original, "random-plan.md");
+        assert_eq!(session, "");
+        assert_eq!(archived_at, "");
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_bad_lengths() {
+        assert_eq!(
+            PlanService::parse_timestamp("20260215", "143052"),
+            "2026-02-15T14:30:52"
+        );
+        assert_eq!(PlanService::parse_timestamp("2026", "143052"), "");
+        assert_eq!(PlanService::parse_timestamp("20260215", "1430"), "");
+    }
+
+    // ---- list_plans ----
+
+    #[test]
+    fn list_plans_returns_empty_when_dir_missing() {
+        let dir = TempDir::new().expect("temp dir");
+        let svc = PlanService::new();
+        let entries = svc
+            .list_plans(dir.path().to_str().unwrap())
+            .expect("list ok");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn list_plans_filters_md_and_sorts_desc_by_archived_at() {
+        let dir = project_with_plans(&[
+            ("a1b2c3d4_20260101_090000_old.md", "old"),
+            ("a1b2c3d4_20260301_090000_new.md", "new content"),
+            ("notes.txt", "ignored"),
+        ]);
+        let svc = PlanService::new();
+        let entries = svc
+            .list_plans(dir.path().to_str().unwrap())
+            .expect("list ok");
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].original_name, "new.md");
+        assert_eq!(entries[1].original_name, "old.md");
+        assert_eq!(entries[0].size, "new content".len() as u64);
+    }
+
+    // ---- get_plan_content / delete_plan ----
+
+    #[test]
+    fn get_plan_content_reads_file() {
+        let dir = project_with_plans(&[("a1b2c3d4_20260215_143052_p.md", "# Plan body")]);
+        let svc = PlanService::new();
+        let content = svc
+            .get_plan_content(
+                dir.path().to_str().unwrap(),
+                "a1b2c3d4_20260215_143052_p.md",
+            )
+            .expect("read ok");
+        assert_eq!(content, "# Plan body");
+    }
+
+    #[test]
+    fn get_plan_content_rejects_path_traversal() {
+        let dir = project_with_plans(&[]);
+        let svc = PlanService::new();
+        for bad in ["../secret.md", "a/b.md", "a\\b.md", "..\\up.md"] {
+            let err = svc
+                .get_plan_content(dir.path().to_str().unwrap(), bad)
+                .expect_err("must reject traversal");
+            assert_eq!(err, "Invalid file name");
+        }
+    }
+
+    #[test]
+    fn get_plan_content_missing_file_errors() {
+        let dir = project_with_plans(&[]);
+        let svc = PlanService::new();
+        let err = svc
+            .get_plan_content(dir.path().to_str().unwrap(), "nope.md")
+            .expect_err("missing file");
+        assert_eq!(err, "Plan file not found");
+    }
+
+    #[test]
+    fn delete_plan_removes_file_and_rejects_traversal() {
+        let dir = project_with_plans(&[("a1b2c3d4_20260215_143052_p.md", "x")]);
+        let svc = PlanService::new();
+        let project = dir.path().to_str().unwrap().to_string();
+
+        let err = svc
+            .delete_plan(&project, "../p.md")
+            .expect_err("must reject traversal");
+        assert_eq!(err, "Invalid file name");
+
+        svc.delete_plan(&project, "a1b2c3d4_20260215_143052_p.md")
+            .expect("delete ok");
+        assert!(svc.list_plans(&project).expect("list ok").is_empty());
+
+        let err = svc
+            .delete_plan(&project, "a1b2c3d4_20260215_143052_p.md")
+            .expect_err("already deleted");
+        assert_eq!(err, "Plan file not found");
+    }
+}
