@@ -149,3 +149,65 @@ pub async fn bind_resume_id(
         }),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ResumeIdDetectedPayload;
+
+    // bind_resume_id 依赖运行中的 tauri AppHandle，无法脱离应用构造；
+    // 这里覆盖事件载荷的反序列化契约（与 terminal_service emit 的 JSON 对应）。
+
+    #[test]
+    fn payload_deserializes_full_camel_case_event() {
+        let json = r#"{
+            "sessionId": "pty-1",
+            "resumeSessionId": "resume-abc",
+            "source": "issued",
+            "cliTool": "claude",
+            "runtimeKind": "wsl",
+            "launchId": "launch-42",
+            "projectPath": "C:/proj",
+            "workspacePath": "C:/ws",
+            "wslDistro": "Ubuntu"
+        }"#;
+        let payload: ResumeIdDetectedPayload = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(payload.session_id, "pty-1");
+        assert_eq!(payload.resume_session_id, "resume-abc");
+        assert_eq!(payload.source, "issued");
+        assert_eq!(payload.cli_tool.as_deref(), Some("claude"));
+        assert_eq!(payload.runtime_kind.as_deref(), Some("wsl"));
+        assert_eq!(payload.launch_id.as_deref(), Some("launch-42"));
+        assert_eq!(payload.project_path.as_deref(), Some("C:/proj"));
+        assert_eq!(payload.workspace_path.as_deref(), Some("C:/ws"));
+        assert_eq!(payload.wsl_distro.as_deref(), Some("Ubuntu"));
+    }
+
+    #[test]
+    fn payload_defaults_optional_fields_to_none() {
+        let json = r#"{
+            "sessionId": "pty-2",
+            "resumeSessionId": "resume-def",
+            "source": "osc-title"
+        }"#;
+        let payload: ResumeIdDetectedPayload = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(payload.session_id, "pty-2");
+        assert_eq!(payload.source, "osc-title");
+        assert!(payload.cli_tool.is_none());
+        assert!(payload.runtime_kind.is_none());
+        assert!(payload.launch_id.is_none());
+        assert!(payload.project_path.is_none());
+        assert!(payload.workspace_path.is_none());
+        assert!(payload.wsl_distro.is_none());
+    }
+
+    #[test]
+    fn payload_rejects_missing_required_fields_and_snake_case_keys() {
+        // 缺 resumeSessionId
+        let missing = r#"{"sessionId": "pty-3", "source": "issued"}"#;
+        assert!(serde_json::from_str::<ResumeIdDetectedPayload>(missing).is_err());
+
+        // 事件契约是 camelCase，snake_case 键不被接受
+        let snake = r#"{"session_id": "pty-4", "resume_session_id": "r", "source": "issued"}"#;
+        assert!(serde_json::from_str::<ResumeIdDetectedPayload>(snake).is_err());
+    }
+}

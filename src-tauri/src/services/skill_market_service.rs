@@ -278,3 +278,280 @@ fn hex_sha256(content: &str) -> String {
     let digest = Sha256::digest(content.as_bytes());
     digest.iter().map(|byte| format!("{:02x}", byte)).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// 串行化对 CCPANES_SKILL_MARKET_INDEX_URL 环境变量的读写，避免并行测试互踩
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    const ENV_URL: &str = "CCPANES_SKILL_MARKET_INDEX_URL";
+
+    fn entry(id: &str, name: &str) -> SkillMarketEntry {
+        SkillMarketEntry {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: None,
+            category: None,
+            tags: Vec::new(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            homepage_url: None,
+            content_url: Some("https://example.com/skill.md".to_string()),
+            sha256: Some("deadbeef".to_string()),
+            recommended: false,
+        }
+    }
+
+    fn service_with_dirs() -> (tempfile::TempDir, SkillMarketService) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skills_dir = temp.path().join("skills");
+        let user_skills_dir = temp.path().join("user-skills");
+        let service = SkillMarketService::new(skills_dir, user_skills_dir);
+        (temp, service)
+    }
+
+    // ── parse_index ──
+
+    #[test]
+    fn parse_index_accepts_object_form_with_entries() {
+        let json = r#"{"schemaVersion": 2, "entries": [
+            {"id": "skill-a", "name": "Skill A", "version": "1.0.0"}
+        ]}"#;
+        let index = SkillMarketService::parse_index(json).expect("parse");
+        assert_eq!(index.schema_version, 2);
+        assert_eq!(index.entries.len(), 1);
+        assert_eq!(index.entries[0].id, "skill-a");
+    }
+
+    #[test]
+    fn parse_index_accepts_skills_alias_and_defaults_schema_version() {
+        let json = r#"{"skills": [{"id": "skill-b", "name": "Skill B", "version": "0.1.0"}]}"#;
+        let index = SkillMarketService::parse_index(json).expect("parse");
+        assert_eq!(index.schema_version, 1);
+        assert_eq!(index.entries.len(), 1);
+        assert_eq!(index.entries[0].name, "Skill B");
+    }
+
+    #[test]
+    fn parse_index_accepts_bare_entry_array() {
+        let json =
+            r#"[{"id": "skill-c", "name": "Skill C", "version": "2.0.0", "recommended": true}]"#;
+        let index = SkillMarketService::parse_index(json).expect("parse");
+        assert_eq!(index.schema_version, 1);
+        assert_eq!(index.entries.len(), 1);
+        assert!(index.entries[0].recommended);
+    }
+
+    #[test]
+    fn parse_index_rejects_invalid_json_and_missing_required_fields() {
+        assert!(SkillMarketService::parse_index("not json").is_err());
+        // 缺少必填 name 字段：两个 untagged 变体都不匹配
+        assert!(SkillMarketService::parse_index(r#"[{"id": "x"}]"#).is_err());
+    }
+
+    // ── sorted_entries ──
+
+    #[test]
+    fn sorted_entries_orders_by_recommended_category_then_name() {
+        let mut zeta = entry("zeta", "Zeta");
+        zeta.category = Some("tools".to_string());
+        let mut alpha = entry("alpha", "alpha");
+        alpha.category = Some("tools".to_string());
+        let mut promoted = entry("promoted", "Promoted");
+        promoted.recommended = true;
+        promoted.category = Some("zz-last".to_string());
+        let mut early_cat = entry("early", "Early");
+        early_cat.category = Some("aaa".to_string());
+
+        let sorted = SkillMarketService::sorted_entries(vec![
+            zeta.clone(),
+            alpha.clone(),
+            early_cat.clone(),
+            promoted.clone(),
+        ]);
+        let ids: Vec<_> = sorted.iter().map(|e| e.id.as_str()).collect();
+        // recommended 优先；其余按 category 升序，同 category 按名称（忽略大小写）
+        assert_eq!(ids, vec!["promoted", "early", "alpha", "zeta"]);
+    }
+
+    // ── validate_installable_entry ──
+
+    #[test]
+    fn validate_installable_entry_accepts_complete_entry() {
+        assert!(SkillMarketService::validate_installable_entry(&entry("ok-skill", "OK")).is_ok());
+    }
+
+    #[test]
+    fn validate_installable_entry_rejects_blank_name_and_version() {
+        let mut blank_name = entry("skill-x", "   ");
+        blank_name.name = "   ".to_string();
+        let err = SkillMarketService::validate_installable_entry(&blank_name).unwrap_err();
+        assert!(err.to_string().contains("name"), "unexpected: {}", err);
+
+        let mut blank_version = entry("skill-x", "Skill X");
+        blank_version.version = String::new();
+        let err = SkillMarketService::validate_installable_entry(&blank_version).unwrap_err();
+        assert!(err.to_string().contains("version"), "unexpected: {}", err);
+    }
+
+    #[test]
+    fn validate_installable_entry_requires_license_content_url_and_sha256() {
+        for (label, mutate) in [
+            (
+                "license",
+                Box::new(|e: &mut SkillMarketEntry| e.license = None)
+                    as Box<dyn Fn(&mut SkillMarketEntry)>,
+            ),
+            (
+                "contentUrl",
+                Box::new(|e: &mut SkillMarketEntry| e.content_url = Some("   ".to_string())),
+            ),
+            (
+                "sha256",
+                Box::new(|e: &mut SkillMarketEntry| e.sha256 = None),
+            ),
+        ] {
+            let mut candidate = entry("skill-y", "Skill Y");
+            mutate(&mut candidate);
+            let err = SkillMarketService::validate_installable_entry(&candidate).unwrap_err();
+            assert!(
+                err.to_string().contains(label),
+                "expected '{}' in: {}",
+                label,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn validate_installable_entry_rejects_invalid_skill_id() {
+        assert!(SkillMarketService::validate_installable_entry(&entry("../evil", "Evil")).is_err());
+        assert!(SkillMarketService::validate_installable_entry(&entry("bad id!", "Bad")).is_err());
+    }
+
+    // ── hex_sha256 / default_schema_version ──
+
+    #[test]
+    fn hex_sha256_matches_known_vectors() {
+        assert_eq!(
+            hex_sha256("hello"),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+        assert_eq!(
+            hex_sha256(""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn default_schema_version_is_one() {
+        assert_eq!(default_schema_version(), 1);
+    }
+
+    // ── 缓存读写 ──
+
+    #[test]
+    fn read_cache_returns_none_when_file_missing() {
+        let (_temp, service) = service_with_dirs();
+        assert!(service.read_cache().expect("read").is_none());
+    }
+
+    #[test]
+    fn write_cache_then_read_cache_roundtrips_entries() {
+        let (_temp, service) = service_with_dirs();
+        let index = SkillMarketIndex {
+            schema_version: 3,
+            entries: vec![entry("cached-skill", "Cached")],
+        };
+        service.write_cache(&index).expect("write");
+
+        let loaded = service.read_cache().expect("read").expect("cache present");
+        assert_eq!(loaded.schema_version, 3);
+        assert_eq!(loaded.entries, vec![entry("cached-skill", "Cached")]);
+    }
+
+    #[test]
+    fn read_cache_errors_on_corrupted_file() {
+        let (_temp, service) = service_with_dirs();
+        std::fs::create_dir_all(service.cache_path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&service.cache_path, "{{{ not json").expect("write");
+        assert!(service.read_cache().is_err());
+    }
+
+    // ── new() 环境变量覆盖 ──
+
+    #[test]
+    fn new_uses_default_url_and_honors_env_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = std::env::var(ENV_URL).ok();
+
+        std::env::remove_var(ENV_URL);
+        let (_t1, service) = service_with_dirs();
+        assert_eq!(service.index_url, DEFAULT_SKILL_MARKET_INDEX_URL);
+
+        std::env::set_var(ENV_URL, "https://example.com/custom-index.json");
+        let (_t2, service) = service_with_dirs();
+        assert_eq!(service.index_url, "https://example.com/custom-index.json");
+
+        // 空白值视为未设置
+        std::env::set_var(ENV_URL, "   ");
+        let (_t3, service) = service_with_dirs();
+        assert_eq!(service.index_url, DEFAULT_SKILL_MARKET_INDEX_URL);
+
+        match original {
+            Some(value) => std::env::set_var(ENV_URL, value),
+            None => std::env::remove_var(ENV_URL),
+        }
+    }
+
+    // ── list_market_entries 网络失败回退 ──
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_market_entries_falls_back_to_cache_when_fetch_fails() {
+        let (_temp, service) = {
+            let _guard = ENV_LOCK.lock().unwrap();
+            let original = std::env::var(ENV_URL).ok();
+            // 127.0.0.1:9（discard 端口）本地无监听，连接立即被拒绝
+            std::env::set_var(ENV_URL, "http://127.0.0.1:9/index.json");
+            let pair = service_with_dirs();
+            match original {
+                Some(value) => std::env::set_var(ENV_URL, value),
+                None => std::env::remove_var(ENV_URL),
+            }
+            pair
+        };
+
+        let mut recommended = entry("rec-skill", "Rec");
+        recommended.recommended = true;
+        let index = SkillMarketIndex {
+            schema_version: 1,
+            entries: vec![entry("plain-skill", "Plain"), recommended],
+        };
+        service.write_cache(&index).expect("write cache");
+
+        let entries = service.list_market_entries().await.expect("list");
+        let ids: Vec<_> = entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["rec-skill", "plain-skill"]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_market_entries_returns_empty_when_fetch_fails_and_no_cache() {
+        let (_temp, service) = {
+            let _guard = ENV_LOCK.lock().unwrap();
+            let original = std::env::var(ENV_URL).ok();
+            std::env::set_var(ENV_URL, "http://127.0.0.1:9/index.json");
+            let pair = service_with_dirs();
+            match original {
+                Some(value) => std::env::set_var(ENV_URL, value),
+                None => std::env::remove_var(ENV_URL),
+            }
+            pair
+        };
+
+        let entries = service.list_market_entries().await.expect("list");
+        assert!(entries.is_empty());
+    }
+}

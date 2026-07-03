@@ -609,4 +609,37 @@ mod win32_impl {
         SelectObject(hdc, old_font);
         let _ = DeleteObject(font.into());
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::normalize_rect;
+
+        #[test]
+        fn normalize_rect_keeps_already_ordered_coordinates() {
+            assert_eq!(normalize_rect(10, 20, 30, 40), (10, 20, 30, 40));
+        }
+
+        #[test]
+        fn normalize_rect_swaps_reversed_drag_coordinates() {
+            // 从右下往左上拖拽
+            assert_eq!(normalize_rect(30, 40, 10, 20), (10, 20, 30, 40));
+        }
+
+        #[test]
+        fn normalize_rect_swaps_single_axis_independently() {
+            // 仅 x 反向
+            assert_eq!(normalize_rect(30, 20, 10, 40), (10, 20, 30, 40));
+            // 仅 y 反向
+            assert_eq!(normalize_rect(10, 40, 30, 20), (10, 20, 30, 40));
+        }
+
+        #[test]
+        fn normalize_rect_handles_negative_and_degenerate_coordinates() {
+            // 多显示器场景下窗口坐标可为负
+            assert_eq!(normalize_rect(-5, -10, 5, 10), (-5, -10, 5, 10));
+            assert_eq!(normalize_rect(5, 10, -5, -10), (-5, -10, 5, 10));
+            // 单击（零面积选区）保持退化矩形
+            assert_eq!(normalize_rect(7, 7, 7, 7), (7, 7, 7, 7));
+        }
+    }
 }
