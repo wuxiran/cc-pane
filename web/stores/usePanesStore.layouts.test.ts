@@ -34,7 +34,15 @@ function resetPanesStore() {
 }
 
 function waitForMicrotasks() {
-  return new Promise((resolve) => window.setTimeout(resolve, 0));
+  // notifyTerminalLayoutChanged 优先走 requestAnimationFrame（jsdom ~16ms），
+  // 只等 setTimeout(0) 会输给 rAF 产生 flaky——两条派发路径都要等到。
+  return new Promise((resolve) => {
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => window.setTimeout(resolve, 0));
+    } else {
+      window.setTimeout(resolve, 0);
+    }
+  });
 }
 
 function panel(root: PaneNode): Panel {

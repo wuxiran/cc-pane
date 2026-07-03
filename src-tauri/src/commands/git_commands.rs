@@ -169,7 +169,11 @@ pub struct GitCloneRequest {
 
 #[tauri::command]
 pub async fn git_clone(app_handle: AppHandle, request: GitCloneRequest) -> AppResult<String> {
-    info!(url = %request.url, target_dir = %request.target_dir, "cmd::git_clone");
+    info!(
+        url = %cc_panes_core::utils::redact_git_url(&request.url),
+        target_dir = %request.target_dir,
+        "cmd::git_clone"
+    );
     validate_git_url(&request.url)?;
     validate_path(&request.target_dir)?;
     let clone_path = Path::new(&request.target_dir).join(&request.folder_name);
@@ -185,24 +189,24 @@ pub async fn git_clone(app_handle: AppHandle, request: GitCloneRequest) -> AppRe
         args.push("1".into());
     }
 
-    // 处理认证 URL（HTTPS 场景）
-    let effective_url = if let (Some(user), Some(pass)) = (&request.username, &request.password) {
-        if !user.is_empty() && !pass.is_empty() {
-            inject_credentials(&request.url, user, pass)
-        } else {
-            request.url.clone()
+    // 凭证经 GIT_CONFIG_* 环境变量走 Authorization header（见
+    // git_https_credential_env），URL 保持干净——不落 .git/config、不进命令行。
+    let credential_env = match (&request.username, &request.password) {
+        (Some(user), Some(pass)) => {
+            cc_panes_core::utils::git_https_credential_env(&request.url, user, pass)
         }
-    } else {
-        request.url.clone()
+        _ => Vec::new(),
     };
 
-    args.push(effective_url);
+    args.push(request.url.clone());
     let clone_path_str = clone_path.to_string_lossy().to_string();
     args.push(clone_path_str.clone());
 
     // 使用 spawn + stderr pipe 执行 clone（no_window_command 避免 Windows cmd 弹窗）
     let mut child = cc_panes_core::utils::no_window_command("git")
         .args(&args)
+        .envs(credential_env)
+        .env("GIT_TERMINAL_PROMPT", "0")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -273,17 +277,6 @@ pub async fn git_clone(app_handle: AppHandle, request: GitCloneRequest) -> AppRe
     }
 
     Ok(clone_path_str)
-}
-
-/// 将用户名密码嵌入 HTTPS URL
-fn inject_credentials(url: &str, user: &str, pass: &str) -> String {
-    if let Some(rest) = url.strip_prefix("https://") {
-        let encoded_user = urlencoding::encode(user);
-        let encoded_pass = urlencoding::encode(pass);
-        format!("https://{}:{}@{}", encoded_user, encoded_pass, rest)
-    } else {
-        url.to_string()
-    }
 }
 
 /// 解析 git clone --progress 输出中的进度信息

@@ -600,8 +600,6 @@ impl HistoryFileRepository {
 
             let mut freed: u64 = 0;
             let need_to_free = total_size - max_total_size;
-            // 追踪已计数的 blob hash，避免共享 blob 重复计算释放量
-            let mut counted_hashes = std::collections::HashSet::new();
 
             for (id, fp, hash, _size) in &rows {
                 if freed >= need_to_free {
@@ -611,24 +609,28 @@ impl HistoryFileRepository {
                     "DELETE FROM file_versions WHERE file_path = ?1 AND id = ?2",
                     params![fp, id],
                 )?;
-                // 只在首次遇到该 hash 时计入释放量（共享 blob 不重复计数）
-                if counted_hashes.insert(hash.clone()) {
-                    // 检查该 blob 是否仍被其他版本引用
-                    let ref_count: i64 = db
-                        .query_row(
-                            "SELECT COUNT(*) FROM file_versions WHERE hash = ?1",
-                            params![hash],
-                            |row| row.get(0),
-                        )
+                // 删除后检查该 blob 是否已无版本引用；只有归零那一刻磁盘 blob
+                // 才真正可回收，此时才计入释放量。
+                //
+                // 不能按 hash「首次遇到才计数」：共享 blob（文件回退到旧内容会
+                // 产生重复 hash）在首个副本被删时 ref_count 仍 > 0 计 0，且该
+                // hash 被标记为已计数，导致最后一个副本删除、ref_count 归零时
+                // 反而被跳过——freed 对所有共享 blob 永远停在 0，删除循环停不
+                // 下来，最坏把全部历史版本删光。
+                let ref_count: i64 = db
+                    .query_row(
+                        "SELECT COUNT(*) FROM file_versions WHERE hash = ?1",
+                        params![hash],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+                if ref_count == 0 {
+                    let blob_size = self
+                        .blob_path(hash)
+                        .metadata()
+                        .map(|m| m.len())
                         .unwrap_or(0);
-                    if ref_count == 0 {
-                        let blob_size = self
-                            .blob_path(hash)
-                            .metadata()
-                            .map(|m| m.len())
-                            .unwrap_or(0);
-                        freed += blob_size;
-                    }
+                    freed += blob_size;
                 }
             }
         }

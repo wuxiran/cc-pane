@@ -1,0 +1,123 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  body{margin:0;font-family:ui-sans-serif,sans-serif;color:#0f172a;padding:24px;background:#f1f5f9}
+  h1{font-size:15px;margin:0 0 16px;color:#475569}
+  .grid{display:flex;flex-wrap:wrap;gap:18px}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px;width:210px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .name{font-size:13px;font-weight:600}
+  .desc{font-size:11px;color:#64748b;text-align:center;line-height:1.4}
+  .sizes{display:flex;align-items:flex-end;gap:14px}
+  .sz{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:#94a3b8}
+  .dark{background:#0f172a}.dark .sz{color:#475569}
+  svg{display:block;image-rendering:pixelated}
+</style></head><body>
+<h1>CC-Panes · 像素 logo 配色候选</h1>
+<div class="grid" id="grid"></div>
+<script>
+const P = { K:"#1E293B", C:"#06B6D4", A:"#F59E0B", V:"#8B5CF6", G:"#22C55E", B:"#3B82F6", R:"#F43F5E", ".":null };
+const OPTIONS = [
+  { name:"C · 四色分屏", desc:"四窗格四色 = 多实例编排", bmp:[
+    ".CCCCC....AAAAA.",
+    "CCCCCCC..AAAAAAA",
+    "CCCCCCC..AAAAAAA",
+    "CCCCCCC..AAAAAAA",
+    "CCCCCCC..AAAAAAA",
+    "CCCCCCC..AAAAAAA",
+    ".CCCCC....AAAAA.",
+    "...............",
+    "...............",
+    ".VVVVV....GGGGG.",
+    "VVVVVVV..GGGGGGG",
+    "VVVVVVV..GGGGGGG",
+    "VVVVVVV..GGGGGGG",
+    "VVVVVVV..GGGGGGG",
+    "VVVVVVV..GGGGGGG",
+    ".VVVVV....GGGGG.",
+  ]},
+  { name:"D · 三色布局", desc:"左一格 + 右两格（招牌布局）", bmp:[
+    ".BBBBB....AAAA..",
+    "BBBBBBB..AAAAAA.",
+    "BBBBBBB..AAAAAA.",
+    "BBBBBBB..AAAAAA.",
+    "BBBBBBB..AAAAA..",
+    "BBBBBBB.........",
+    "BBBBBBB..GGGGG..",
+    "BBBBBBB..GGGGGG.",
+    "BBBBBBB..GGGGGG.",
+    "BBBBBBB..GGGGGG.",
+    ".BBBBB....GGGG..",
+  ]},
+  { name:"B · 终端窗口", desc:"红黄绿灯 + 绿提示符 + 青光标", bmp:[
+    "KKKKKKKKKKKKKKKK",
+    "K.RR.AA.GG.....K",
+    "KKKKKKKKKKKKKKKK",
+    "K..............K",
+    "K.GG...........K",
+    "K...GG.........K",
+    "K.....GG.......K",
+    "K...GG.........K",
+    "K.GG...........K",
+    "K.......CCCC...K",
+    "K..............K",
+    "KKKKKKKKKKKKKKKK",
+  ]},
+  { name:"A · 双色 CC", desc:"蓝 C + 青 C（Claude Code）", bmp:[
+    "..BBBBB....CCCCC",
+    ".BBBBBB...CCCCCC",
+    "BB....BB.CC....C",
+    "BB.......CC.....",
+    "BB.......CC.....",
+    "BB.......CC.....",
+    "BB.......CC.....",
+    "BB.......CC.....",
+    "BB....BB.CC....C",
+    ".BBBBBB...CCCCCC",
+    "..BBBBB....CCCCC",
+  ]},
+  { name:"F · 方括号光标", desc:"深色括号 + 琥珀光标块", bmp:[
+    "KKKK......KKKK",
+    "KKKK......KKKK",
+    "KK..........KK",
+    "KK...AAAA...KK",
+    "KK...AAAA...KK",
+    "KK...AAAA...KK",
+    "KK...AAAA...KK",
+    "KK..........KK",
+    "KKKK......KKKK",
+    "KKKK......KKKK",
+  ]},
+  { name:"D2 · 暖色布局", desc:"同布局，另一套配色", bmp:[
+    ".CCCCC....VVVV..",
+    "CCCCCCC..VVVVVV.",
+    "CCCCCCC..VVVVVV.",
+    "CCCCCCC..VVVVVV.",
+    "CCCCCCC..VVVVV..",
+    "CCCCCCC.........",
+    "CCCCCCC..AAAAA..",
+    "CCCCCCC..AAAAAA.",
+    "CCCCCCC..AAAAAA.",
+    "CCCCCCC..AAAAAA.",
+    ".CCCCC....AAAA..",
+  ]},
+];
+function render(bmp,px){
+  const h=bmp.length,w=Math.max(...bmp.map(r=>r.length));
+  let rects="";
+  for(let y=0;y<h;y++){const row=bmp[y];let x=0;
+    while(x<w){const ch=row[x];
+      if(ch&&ch!=="."&&P[ch]){let run=1;while(row[x+run]===ch)run++;
+        rects+=`<rect x="${x}" y="${y}" width="${run}" height="1" fill="${P[ch]}"/>`;x+=run;}
+      else x++;}}
+  return `<svg width="${px}" height="${px*h/w}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+}
+const grid=document.getElementById("grid");
+for(const o of OPTIONS){
+  grid.insertAdjacentHTML("beforeend",`<div class="card">
+    <div class="sizes">
+      <div class="sz">${render(o.bmp,96)}<span>96</span></div>
+      <div class="sz">${render(o.bmp,48)}<span>48</span></div>
+      <div class="sz">${render(o.bmp,28)}<span>28</span></div>
+    </div>
+    <div class="name">${o.name}</div><div class="desc">${o.desc}</div></div>`);
+}
+</script>
+</body></html>

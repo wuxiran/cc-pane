@@ -13,6 +13,25 @@ pub struct WorktreeInfo {
     pub is_main: bool,
 }
 
+/// 判断两个路径是否指向同一位置（用于 is_main 比较）。
+///
+/// git worktree --porcelain 输出的是 git 规范形式（正斜杠、Windows 上盘符
+/// 大小写可能与调用方不同），而 main_path 是调用方原样传入的。直接字符串
+/// 相等会在 `D:/proj`(git) vs `d:\proj`(调用方) 时判不相等，导致主 worktree
+/// 被误标 is_main=false。归一化分隔符后比较；Windows 路径大小写不敏感。
+fn worktree_paths_equal(a: &str, b: &str) -> bool {
+    let norm = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_string();
+    let (a, b) = (norm(a), norm(b));
+    #[cfg(windows)]
+    {
+        a.eq_ignore_ascii_case(&b)
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
+}
+
 /// Worktree 服务 - 管理 Git Worktree
 pub struct WorktreeService;
 
@@ -72,7 +91,7 @@ impl WorktreeService {
                     .unwrap_or(line.strip_prefix("branch ").unwrap_or(""))
                     .to_string();
             } else if line.is_empty() && !current_path.is_empty() {
-                let is_main = current_path == main_path;
+                let is_main = worktree_paths_equal(&current_path, main_path);
                 worktrees.push(WorktreeInfo {
                     path: current_path.clone(),
                     branch: current_branch.clone(),
@@ -86,7 +105,7 @@ impl WorktreeService {
         }
 
         if !current_path.is_empty() {
-            let is_main = current_path == main_path;
+            let is_main = worktree_paths_equal(&current_path, main_path);
             worktrees.push(WorktreeInfo {
                 path: current_path,
                 branch: current_branch,

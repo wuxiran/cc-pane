@@ -269,6 +269,14 @@ npm run tauri build
 - [x] 目录扫描导入
 - [x] Dev/Release 隔离（并行运行互不冲突）
 
+## Known Gotchas
+
+- **终端回车必须发 CR（`\r`）不是 LF**：Windows PowerShell 只认 CR。`write_to_session` 的提交路径已按此实现（`terminal_service.rs` 的 `write_unlocked(.., "\r")`），修改时勿回退成 `\n`。
+- **portable-pty 的 `kill()` 只杀直接子进程**：CC-Panes 显式关闭走 `taskkill /T /F`（`cc-panes-core/src/pty/mod.rs::kill_process_by_pid`）能杀整棵树，但宿主崩溃时靠 `pty/job.rs` 的 Job Object（`KILL_ON_JOB_CLOSE`）由内核清树——**没有替代方案前不要移除 Job**。
+- **React 19 严格模式 dev 下 useEffect 双挂载**：终端组件可能触发两次 spawn/清理，dev 日志里"创建即销毁"的 PTY 是正常现象，新终端类组件需容忍双挂载。
+- **会话状态只信 OSC/hook，不信输出文本**：状态跃迁来自 hook HTTP 通道与 OSC in-band 通道（`osc_state_detect.rs`，跨通道去重见 `session_state_machine.rs`）。不要往 `infer_status` 加文本模式匹配——TUI spinner 每帧重绘、随版本变化，文本猜测必然抖动。
+- **OSC 7 上报的 cwd 是正斜杠 URL 形式**（`file://host/C:/...`）：Windows 下消费方传给 fs 命令前必须剥前缀并规范化分隔符。
+
 ## 文档引用
 
 > 面向**使用者**的操作手册（怎么用）见 [`docs/guide/`](docs/guide/README.md)。下表是面向**开发者**的设计文档（怎么设计 / 实现）。

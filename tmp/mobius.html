@@ -1,0 +1,60 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  body{margin:0;font-family:ui-sans-serif,sans-serif;color:#0f172a;padding:24px;background:#f1f5f9}
+  h1{font-size:15px;margin:0 0 16px;color:#475569}
+  .grid{display:flex;flex-wrap:wrap;gap:18px}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px;width:230px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .name{font-size:13px;font-weight:600}.desc{font-size:11px;color:#64748b;text-align:center}
+  .sizes{display:flex;align-items:flex-end;gap:14px}
+  .sz{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:#94a3b8}
+  .dk{background:#0f172a}
+</style></head><body>
+<h1>CC-Panes · 莫比乌斯环 logo 试做</h1>
+<div class="grid">
+
+  <div class="card">
+    <div class="sizes">
+      <div class="sz">${M1(96)}</div>
+    </div>
+    <div class="name" id="n"></div>
+  </div>
+
+</div>
+<div id="host"></div>
+<script>
+// 变体 1：丝带环 + 正面半扭转（青→紫渐变）
+function ribbon(id, c1, c2, c3){
+  return `
+  <svg width="0" height="0"><defs>
+    <linearGradient id="rg_${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>
+    </linearGradient>
+    <linearGradient id="rd_${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${c2}"/><stop offset="1" stop-color="${c3}"/>
+    </linearGradient>
+  </defs></svg>
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <path d="M60.26 76.19 A30 30 0 1 0 39.74 76.19"
+          fill="none" stroke="url(#rg_${id})" stroke-width="16" stroke-linecap="butt"/>
+    <path d="M37.01 83.71 L57.52 68.67 L62.99 83.71 L42.48 68.67 Z" fill="url(#rd_${id})"/>
+  </svg>`;
+}
+const variants = [
+  {n:"M1 · 青紫渐变", c:["#22D3EE","#7C3AED","#312E81"]},
+  {n:"M2 · 橙粉渐变", c:["#FBBF24","#EC4899","#831843"]},
+  {n:"M3 · 蓝绿渐变", c:["#38BDF8","#22C55E","#14532D"]},
+];
+const sizes=[112,56,32];
+let html="";
+for(const v of variants){
+  const id=v.n.split(" ")[0];
+  let cells="";
+  for(const s of sizes){
+    cells+=`<div class="sz"><div style="width:${s}px;height:${s}px">${ribbon(id,...v.c)}</div><span>${s}</span></div>`;
+  }
+  html+=`<div class="card"><div class="sizes">${cells}</div><div class="name">${v.n}</div><div class="desc">丝带环 + 正面半扭转</div></div>`;
+}
+// dark bg sample
+html+=`<div class="card dk"><div class="sizes"><div class="sz"><div style="width:112px;height:112px">${ribbon("dk","#22D3EE","#7C3AED","#312E81")}</div><span style="color:#475569">深色底</span></div></div></div>`;
+document.querySelector(".grid").innerHTML=html;
+</script>
+</body></html>

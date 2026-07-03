@@ -197,6 +197,7 @@ fn draft(name: &str, is_default: bool) -> LaunchProfileDraft {
         alias: Some(format!("{name} alias")),
         description: Some("Launch profile test".to_string()),
         provider_id: None,
+        adapter_options: Default::default(),
         target_tools: vec!["codex".to_string()],
         target_runtime: Some("local".to_string()),
         yolo_mode: false,

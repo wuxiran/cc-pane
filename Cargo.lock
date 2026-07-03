@@ -1006,6 +1006,7 @@ name = "cc-panes-core"
 version = "0.9.17"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "cc-cli-adapters",
  "cc-memory",
  "chrono",

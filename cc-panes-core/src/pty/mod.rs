@@ -5,6 +5,9 @@
 
 use anyhow::{anyhow, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+
+#[cfg(windows)]
+mod job;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -51,6 +54,10 @@ struct PortablePtyProcess {
     exited: AtomicBool,
     /// 创建时存储 PID，kill() 通过 OS API 按 PID 终止，绕过 child 锁死锁
     pid: u32,
+    /// Windows：KILL_ON_JOB_CLOSE Job Object。宿主进程异常终止时由 OS 回收
+    /// 句柄并击杀整棵子进程树（taskkill 只覆盖显式 kill 路径）。
+    #[cfg(windows)]
+    _job: Option<job::ProcessJob>,
 }
 
 impl PtyProcess for PortablePtyProcess {
@@ -154,12 +161,29 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     let reader = pair.master.try_clone_reader()?;
     let writer = pair.master.take_writer()?;
 
+    // Windows：把子进程挂进 KILL_ON_JOB_CLOSE Job，宿主暴毙时由内核清树。
+    // 创建失败（权限受限等）不阻断 spawn——显式 kill 路径仍有 taskkill /T 兜底。
+    #[cfg(windows)]
+    let job = if pid != 0 {
+        match job::ProcessJob::create_for(pid) {
+            Ok(j) => Some(j),
+            Err(e) => {
+                tracing::warn!("ProcessJob create failed for pid {pid} (non-fatal): {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(PtySpawnResult {
         process: Arc::new(PortablePtyProcess {
             child: Mutex::new(child),
             master: Mutex::new(pair.master),
             exited: AtomicBool::new(false),
             pid,
+            #[cfg(windows)]
+            _job: job,
         }),
         reader,
         writer,

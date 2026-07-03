@@ -8,8 +8,8 @@ use axum::{
 use cc_panes_core::{
     services::WorktreeInfo,
     utils::{
-        output_with_timeout, validate_git_url, validate_path, AppResult, GIT_LOCAL_TIMEOUT,
-        GIT_NETWORK_TIMEOUT,
+        git_https_credential_env, output_with_timeout, validate_git_url, validate_path, AppResult,
+        GIT_LOCAL_TIMEOUT, GIT_NETWORK_TIMEOUT,
     },
 };
 use serde::Deserialize;
@@ -143,16 +143,6 @@ fn auto_label_before_git(state: &AppState, path: &str, operation: &str) {
         .create_auto_label(Path::new(path), &label_name, "git_commit");
 }
 
-fn inject_credentials(url: &str, user: &str, pass: &str) -> String {
-    if let Some(rest) = url.strip_prefix("https://") {
-        let encoded_user = urlencoding::encode(user);
-        let encoded_pass = urlencoding::encode(pass);
-        format!("https://{encoded_user}:{encoded_pass}@{rest}")
-    } else {
-        url.to_string()
-    }
-}
-
 fn clone_repository(request: GitCloneRequest) -> AppResult<String> {
     validate_git_url(&request.url)?;
     validate_path(&request.target_dir)?;
@@ -168,23 +158,20 @@ fn clone_repository(request: GitCloneRequest) -> AppResult<String> {
         args.push("1".into());
     }
 
-    let effective_url = if let (Some(user), Some(pass)) = (&request.username, &request.password) {
-        if !user.is_empty() && !pass.is_empty() {
-            inject_credentials(&request.url, user, pass)
-        } else {
-            request.url.clone()
-        }
-    } else {
-        request.url.clone()
+    // 凭证经 GIT_CONFIG_* 环境变量注入，URL 保持干净（不落 .git/config、不进命令行）
+    let credential_env = match (&request.username, &request.password) {
+        (Some(user), Some(pass)) => git_https_credential_env(&request.url, user, pass),
+        _ => Vec::new(),
     };
 
     let clone_path_str = clone_path.to_string_lossy().to_string();
-    args.push(effective_url);
+    args.push(request.url.clone());
     args.push(clone_path_str.clone());
 
     let output = output_with_timeout(
         Command::new("git")
             .args(&args)
+            .envs(credential_env)
             .current_dir(&request.target_dir),
         GIT_CLONE_TIMEOUT,
     )?;

@@ -319,13 +319,16 @@ impl HistoryService {
                 return Ok(());
             }
 
-            let _ = repo.save_version(
+            if let Err(e) = repo.save_version(
                 &relative_str,
                 &content,
                 false,
                 branch,
                 config.history.min_save_interval_secs,
-            );
+            ) {
+                // 编辑历史快照落库失败不能静默——否则用户以为有恢复点实际没有
+                warn!("history: save_version failed for {relative_str}: {e}");
+            }
         }
 
         Ok(())
@@ -363,7 +366,9 @@ impl HistoryService {
         let versions = repo.list_versions(&relative_str)?;
         if let Some(last_ver) = versions.last() {
             if let Ok(content) = repo.get_version_content(&relative_str, &last_ver.id) {
-                let _ = repo.save_version(&relative_str, &content, true, branch, 0);
+                if let Err(e) = repo.save_version(&relative_str, &content, true, branch, 0) {
+                    warn!("history: delete-tombstone save failed for {relative_str}: {e}");
+                }
             }
         }
 
@@ -476,9 +481,12 @@ impl HistoryService {
     ) {
         use notify::EventKind;
 
-        // 读取当前分支并检测是否切换
+        // 读取当前分支并检测是否切换。
+        // read 失败返回空串——git 在很多操作中非原子重写 .git/HEAD，瞬时读不到
+        // 时若把空串当成"切到空分支"，会伪造一次 BranchSwitched 并开静默窗口
+        // 丢掉真实编辑。空串表示"未知"，此时跳过切换检测，保留缓存分支。
         let current_branch = Self::read_current_branch(project_path).unwrap_or_default();
-        {
+        if !current_branch.is_empty() {
             let mut cache = branch_cache.lock().unwrap_or_else(|e| e.into_inner());
             let cached = cache.get(project_path).cloned().unwrap_or_default();
             if !cached.is_empty() && cached != current_branch {
@@ -543,7 +551,9 @@ impl HistoryService {
             return path == prefix || path.starts_with(&format!("{}/", prefix));
         }
         if let Some(ext) = pattern.strip_prefix("*.") {
-            return path.ends_with(ext);
+            // 按扩展名边界匹配：`*.js` 只匹配 `.js` 结尾，不能连带 `.mjs`/`.cjs`；
+            // `*.log` 不能误伤 `changelog`/`catalog`。
+            return path.ends_with(&format!(".{ext}"));
         }
         path == pattern || path.starts_with(&format!("{}/", pattern))
     }
@@ -920,5 +930,33 @@ impl HistoryService {
         all_changes.sort_by_cached_key(|change| std::cmp::Reverse(change.change.timestamp.clone()));
         all_changes.truncate(limit);
         Ok(all_changes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HistoryService;
+
+    #[test]
+    fn ext_pattern_matches_only_extension_boundary() {
+        // `*.js` 精确匹配 .js，不连带 .mjs / .cjs
+        assert!(HistoryService::matches_pattern("a/foo.js", "*.js"));
+        assert!(!HistoryService::matches_pattern("a/foo.mjs", "*.js"));
+        assert!(!HistoryService::matches_pattern("a/foo.cjs", "*.js"));
+        // `*.log` 不误伤 changelog / catalog
+        assert!(HistoryService::matches_pattern("build.log", "*.log"));
+        assert!(!HistoryService::matches_pattern("CHANGELOG", "*.log"));
+        assert!(!HistoryService::matches_pattern("docs/catalog", "*.log"));
+    }
+
+    #[test]
+    fn dir_and_exact_patterns_still_work() {
+        assert!(HistoryService::matches_pattern("target/x", "target/**"));
+        assert!(!HistoryService::matches_pattern("target2/x", "target/**"));
+        assert!(HistoryService::matches_pattern(
+            "node_modules/x",
+            "node_modules"
+        ));
+        assert!(HistoryService::matches_pattern(".env", ".env"));
     }
 }

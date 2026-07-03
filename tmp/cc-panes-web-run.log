@@ -1,0 +1,135 @@
+2026-06-20T12:45:30.757768Z  INFO cc_panes_core::services::settings_service: Settings loaded config_path=/mnt/c/Users/wuxiran/.cc-panes-dev/config.toml
+2026-06-20T12:45:30.791595Z  INFO cc_panes_web: CC-Panes Web data directory resolved data_dir=/mnt/c/Users/wuxiran/.cc-panes-dev source="windows-desktop"
+2026-06-20T12:45:30.892287Z  INFO cc_panes_core::repository::db: Database schema is up to date (version 21)
+2026-06-20T12:45:30.958430Z  INFO cc_panes_core::services::terminal_service: [terminal] WorkspaceService injected
+2026-06-20T12:45:30.959217Z  INFO cc_panes_core::services::terminal_service: [terminal] SharedMcpService injected
+2026-06-20T12:45:30.959315Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T12:45:30.959885Z  INFO cc_panes_core::services::terminal_service: [terminal] LaunchProfileService injected
+2026-06-20T12:45:30.974145Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1131
+2026-06-20T12:45:30.985640Z  INFO cc_panes_web: CC-Panes Web starting addr="0.0.0.0:18080" cwd="/mnt/d/04_workspace_rust/cc-book"
+2026-06-20T12:45:30.989184Z  INFO cc_panes_web: Listening on http://0.0.0.0:18080
+2026-06-20T12:48:25.532583Z  INFO cc_panes_core::services::terminal_service: create_session: PTY spawned successfully session_id=a53c96fc-eaa1-4e2e-a67d-a498ca9d4c11 command=/bin/bash launch_claude=false
+2026-06-20T12:48:25.533864Z  INFO cc_panes_core::services::terminal_service: Terminal session created session_id=a53c96fc-eaa1-4e2e-a67d-a498ca9d4c11 project=/mnt/i/emergency-enterprise-project launch_claude=false
+2026-06-20T12:48:26.622378Z  INFO cc_panes_core::services::terminal_service: [pty-read] session=a53c96fc-eaa1-4e2e-a67d-a498ca9d4c11 first output: 152 bytes, hex=[1b 5b 3f 32 30 30 34 68 1b 5d 30 3b 77 75 78 69 72 61 6e 40 77 75 78 69 72 61 6e 2d 30 30 31 3a 20 2f 6d 6e 74 2f 69 2f 65 6d 65 72 67 65 6e 63 79 2d 65 6e 74 65 72 70 72 69 73 65 2d 70 72 6f 6a 65 63 74 07 1b 5b 30 31 3b 33 32 6d 77 75 78 69 72 61 6e 40 77 75 78 69 72 61 6e 2d 30 30 31 1b 5b 30 30 6d 3a 1b 5b 30 31 3b 33 34 6d 2f 6d 6e 74 2f 69 2f 65 6d 65 72 67 65 6e 63 79 2d 65 6e 74 65 72 70 72 69 73 65 2d 70 72 6f 6a 65 63 74 1b 5b 30 30 6d 24 20]
+2026-06-20T12:48:32.874772Z  WARN cc_panes_core::services::terminal_service: create_session: failed to sync project hooks before launch; continuing session_id=a1331bfc-cd78-4f6a-be4b-39a9991ffd8b cli_tool="codex" project_path="/mnt/i/emergency-enterprise-project" error=Project root contains a file named .codex, so Codex project hooks cannot be configured.
+2026-06-20T12:48:32.883901Z  INFO cc_panes_core::services::terminal_service: create_session: PTY spawned successfully session_id=a1331bfc-cd78-4f6a-be4b-39a9991ffd8b command=/home/wuxiran/.nvm/versions/node/v24.14.1/bin/codex launch_claude=true
+2026-06-20T12:48:32.885053Z  INFO cc_panes_core::services::terminal_service: Terminal session created session_id=a1331bfc-cd78-4f6a-be4b-39a9991ffd8b project=/mnt/i/emergency-enterprise-project launch_claude=true
+2026-06-20T12:48:33.127770Z  INFO cc_panes_core::services::terminal_service: [pty-read] session=a1331bfc-cd78-4f6a-be4b-39a9991ffd8b first output: 8 bytes, hex=[1b 5b 3f 32 30 30 34 68]
+2026-06-20T12:48:33.311169Z  WARN cc_panes_core::services::history_service: Error processing file change: Failed to get relative path
+2026-06-20T12:49:02.844026Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:50:24.176714Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T12:50:24.190333Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1131
+2026-06-20T12:50:25.100907Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:51:24.336535Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:52:24.760113Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:53:24.795995Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:54:24.851127Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:55:17.207514Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T12:55:17.219613Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T12:55:24.881525Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:56:24.904296Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:57:24.951440Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:58:25.006252Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T12:59:25.029371Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:00:10.504378Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:00:10.518694Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:00:25.072681Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:01:24.338261Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:02:24.379202Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:03:24.416304Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:04:24.452777Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:05:03.719937Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:05:03.731363Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:05:24.508352Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:06:24.547413Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:07:24.601550Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:08:25.038166Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:09:24.647929Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:09:56.690951Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:09:56.702310Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:10:24.715078Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:11:24.665719Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:12:24.772620Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:13:24.803906Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:14:24.851120Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:14:49.453328Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:14:49.464537Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:15:24.894422Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:16:24.918257Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:17:24.962172Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:18:25.063643Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:19:25.057223Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:19:42.760343Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:19:42.772952Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:20:24.323763Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:21:24.345845Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:22:24.399348Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:23:24.451841Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:24:10.201778Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:24:35.560720Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:24:35.571831Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:25:02.721181Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:26:24.554159Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:27:24.610506Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:28:24.669870Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:29:24.716540Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:29:28.321257Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:29:28.332915Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:30:24.734659Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:31:24.794534Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:32:24.812337Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:33:24.884961Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:34:20.997335Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:34:21.009537Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:34:24.907679Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:35:24.994982Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:36:25.013841Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:37:25.049826Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:38:24.747606Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:39:13.899501Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:39:13.912300Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:39:24.334640Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:40:24.391335Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:41:24.873964Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:42:24.469819Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:43:24.500988Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:44:06.324733Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:44:06.337902Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:44:24.551128Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:45:25.059413Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:46:24.633067Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:47:24.678805Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:48:24.722811Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=2
+2026-06-20T13:48:59.565051Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:48:59.576978Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1132
+2026-06-20T13:49:05.759986Z  INFO cc_panes_core::services::terminal_service::osc_resume_capture: osc-capture: codex thread id resolved from terminal title session_id=a1331bfc-cd78-4f6a-be4b-39a9991ffd8b resume_session_id=019ee513-6272-7780-8cb9-0cac83334845
+2026-06-20T13:49:12.398791Z  WARN cc_panes_core::services::terminal_service: [pty-read] session=a53c96fc-eaa1-4e2e-a67d-a498ca9d4c11 read returned Ok(0), breaking loop (read_count=3 in 3744088ms)
+2026-06-20T13:49:12.399703Z  INFO cc_panes_core::services::terminal_service: PTY process exited session_id=a53c96fc-eaa1-4e2e-a67d-a498ca9d4c11 exit_code=1
+2026-06-20T13:49:52.756012Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:50:52.795999Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:51:52.840180Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:52:52.856659Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:53:51.999801Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:53:52.011272Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1133
+2026-06-20T13:53:52.909094Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:54:52.483973Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:55:55.062893Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:56:54.288126Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:57:54.354417Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:58:44.660538Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T13:58:44.674637Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1133
+2026-06-20T13:58:54.374099Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T13:59:54.436152Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:00:54.492426Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:02:24.534066Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:03:24.600328Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:03:37.297887Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T14:03:37.310049Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1133
+2026-06-20T14:04:24.665496Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:05:24.701842Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:06:24.314474Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:07:24.794145Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:08:24.859964Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1
+2026-06-20T14:08:29.876424Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="claude" origin=Native path=/home/wuxiran/.claude/projects file_count=22
+2026-06-20T14:08:29.889611Z  INFO cc_panes_core::services::usage_stats_service: Scanning usage stats root cli="codex" origin=Native path=/home/wuxiran/.codex/sessions file_count=1133
+2026-06-20T14:09:24.877797Z  INFO cc_panes_core::services::session_restore_service: Saving terminal sessions for restore count=1

@@ -1,0 +1,3 @@
+2026-06-20T12:27:19.854921Z  INFO cc_panes_daemon: CC-Panes daemon data directory resolved data_dir=/mnt/c/Users/wuxiran/.cc-panes-dev source="windows-desktop"
+2026-06-20T12:27:19.870932Z  INFO cc_panes_daemon: daemon manifest written path=/tmp/cc-panes-daemon-default-check/daemon-manifest.json
+2026-06-20T12:27:19.871531Z  INFO cc_panes_daemon: CC-Panes daemon listening addr=127.0.0.1:25370 cwd="/mnt/d/04_workspace_rust/cc-book"

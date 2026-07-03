@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;font-family:sans-serif;background:#f1f5f9}
+.row{display:flex;align-items:center;gap:40px;padding:30px}
+.dark{background:#0f172a}
+.tile{display:flex;flex-direction:column;align-items:center;gap:8px;color:#64748b;font-size:12px}
+.dark .tile{color:#94a3b8}
+img{display:block;image-rendering:pixelated}
+.bg{background:#fff;border-radius:18%;padding:16px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.invert img{filter:invert(1)}
+</style></head><body>
+<div class="row">
+  <div class="tile"><img src="../web/assets/logo-pixel.svg" width="160"><span>160 on light</span></div>
+  <div class="tile"><img src="../web/assets/logo-pixel.svg" width="80"><span>80</span></div>
+  <div class="tile"><img src="../web/assets/logo-pixel.svg" width="48"><span>48</span></div>
+  <div class="tile"><img src="../web/assets/logo-pixel.svg" width="32"><span>32</span></div>
+  <div class="tile"><img src="../web/assets/logo-pixel.svg" width="24"><span>24</span></div>
+  <div class="tile"><div class="bg"><img src="../web/assets/logo-pixel.svg" width="96"></div><span>app-icon</span></div>
+</div>
+<div class="row dark invert">
+  <div class="tile"><img src="../web/assets/logo-pixel.svg" width="160"><span>160 on dark (inverted=white)</span></div>
+  <div class="tile"><img src="../web/assets/logo-pixel.svg" width="48"><span>48</span></div>
+  <div class="tile"><img src="../web/assets/logo-pixel.svg" width="24"><span>24</span></div>
+</div>
+</body></html>

@@ -14,6 +14,8 @@ const TASK_BINDING_MERGE_PATCH_MAX_DEPTH: usize = 16;
 pub struct TaskBindingService {
     repo: Arc<TaskBindingRepository>,
     emitter: parking_lot::RwLock<Option<Arc<dyn EventEmitter>>>,
+    /// 串行化 "读旧状态 + 更新" 这对操作（见 update_returning_previous_status）
+    update_lock: std::sync::Mutex<()>,
 }
 
 impl TaskBindingService {
@@ -21,6 +23,7 @@ impl TaskBindingService {
         Self {
             repo,
             emitter: parking_lot::RwLock::new(None),
+            update_lock: std::sync::Mutex::new(()),
         }
     }
 
@@ -95,6 +98,23 @@ impl TaskBindingService {
     /// 更新 TaskBinding
     pub fn update(&self, id: &str, req: UpdateTaskBindingRequest) -> AppResult<TaskBinding> {
         self.update_with_emit(id, req, true)
+    }
+
+    /// 原子更新并返回更新前的 status。
+    ///
+    /// 用于 leader 终态通知去重：调用方若"先 get 旧状态、再 update"，两个并发
+    /// 更新会都读到同一个非终态旧值、都判定为"跃迁到终态"而重复通知 leader。
+    /// 这里用 update_lock 串行化 read-old + update，保证第二个调用读到的旧状态
+    /// 已是第一个写入的新值。
+    pub fn update_returning_previous_status(
+        &self,
+        id: &str,
+        req: UpdateTaskBindingRequest,
+    ) -> AppResult<(Option<TaskBindingStatus>, TaskBinding)> {
+        let _guard = self.update_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let old_status = self.repo.get(id)?.map(|binding| binding.status);
+        let binding = self.update_with_emit(id, req, true)?;
+        Ok((old_status, binding))
     }
 
     fn update_with_emit(

@@ -1,0 +1,133 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  body{margin:0;font-family:ui-sans-serif,sans-serif;background:#f1f5f9;color:#0f172a;padding:24px}
+  h1{font-size:15px;margin:0 0 16px;color:#475569}
+  .grid{display:flex;flex-wrap:wrap;gap:18px}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px;width:200px;display:flex;flex-direction:column;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .name{font-size:13px;font-weight:600}
+  .desc{font-size:11px;color:#64748b;text-align:center;line-height:1.4}
+  .sizes{display:flex;align-items:flex-end;gap:14px}
+  .sz{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:#94a3b8}
+  svg{display:block;image-rendering:pixelated}
+</style></head><body>
+<h1>CC-Panes · 黑色像素 logo 候选（全部原创，与模板互锁图标无关）</h1>
+<div class="grid" id="grid"></div>
+<script>
+const FILL = "#141414";
+// 每个方案：'#'=实心像素, 其它=空
+const OPTIONS = [
+  { name: "A · 8-bit CC", desc: "两个像素 C 字母（Claude Code）", bmp: [
+    "..#####....#####",
+    ".######...######",
+    "##....##.##....#",
+    "##.......##.....",
+    "##.......##.....",
+    "##.......##.....",
+    "##.......##.....",
+    "##.......##.....",
+    "##....##.##....#",
+    ".######...######",
+    "..#####....#####",
+  ]},
+  { name: "B · 终端窗口", desc: "窗口边框 + > 提示符 + 光标", bmp: [
+    "################",
+    "#..............#",
+    "#.##...........#",
+    "#...##.........#",
+    "#.....##.......#",
+    "#...##.........#",
+    "#.##...........#",
+    "#..............#",
+    "#....######....#",
+    "#..............#",
+    "################",
+  ]},
+  { name: "C · 2×2 分屏", desc: "四个像素圆角窗格", bmp: [
+    ".#####....#####.",
+    "#######..#######",
+    "#######..#######",
+    "#######..#######",
+    "#######..#######",
+    "#######..#######",
+    ".#####....#####.",
+    "................",
+    "................",
+    ".#####....#####.",
+    "#######..#######",
+    "#######..#######",
+    "#######..#######",
+    "#######..#######",
+    "#######..#######",
+    ".#####....#####.",
+  ]},
+  { name: "D · 分屏布局", desc: "左一格 + 右两格（CC-Panes 招牌布局）", bmp: [
+    ".#####....####..",
+    "#######..######.",
+    "#######..######.",
+    "#######..######.",
+    "#######..#####..",
+    "#######.........",
+    "#######..#####..",
+    "#######..######.",
+    "#######..######.",
+    "#######..######.",
+    ".#####....####..",
+  ]},
+  { name: "E · 提示符 >_", desc: "大号像素终端提示符", bmp: [
+    "###.............",
+    "..###...........",
+    "....###.........",
+    "......###.......",
+    "........###.....",
+    "......###.......",
+    "....###.........",
+    "..###...........",
+    "###.............",
+    "................",
+    "....##########..",
+  ]},
+  { name: "F · 方括号光标", desc: "[ ] 代码括号 + 中心光标块", bmp: [
+    "####......####",
+    "####......####",
+    "##..........##",
+    "##...####...##",
+    "##...####...##",
+    "##...####...##",
+    "##...####...##",
+    "##..........##",
+    "####......####",
+    "####......####",
+  ]},
+];
+
+function render(bmp, px){
+  const h = bmp.length, w = Math.max(...bmp.map(r=>r.length));
+  let rects = "";
+  for(let y=0;y<h;y++){
+    const row = bmp[y];
+    let x=0;
+    while(x<w){
+      if(row[x]==="#"){
+        let run=1; while(row[x+run]==="#") run++;
+        rects += `<rect x="${x}" y="${y}" width="${run}" height="1"/>`;
+        x+=run;
+      } else x++;
+    }
+  }
+  return `<svg width="${px}" height="${px*h/w}" viewBox="0 0 ${w} ${h}" fill="${FILL}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+}
+
+const grid = document.getElementById("grid");
+for(const o of OPTIONS){
+  grid.insertAdjacentHTML("beforeend", `
+    <div class="card">
+      <div class="sizes">
+        <div class="sz">${render(o.bmp,96)}<span>96</span></div>
+        <div class="sz">${render(o.bmp,48)}<span>48</span></div>
+        <div class="sz">${render(o.bmp,28)}<span>28</span></div>
+      </div>
+      <div class="name">${o.name}</div>
+      <div class="desc">${o.desc}</div>
+    </div>`);
+}
+</script>
+</body></html>

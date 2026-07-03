@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>CC-Panes Mobile Existing-Capability Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #edf2f7;
+      --shell: #f8fafc;
+      --surface: #ffffff;
+      --subtle: #f1f5f9;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #dbe3ee;
+      --blue: #2563eb;
+      --blue-soft: #dbeafe;
+      --green: #059669;
+      --green-soft: #d1fae5;
+      --amber: #d97706;
+      --amber-soft: #fef3c7;
+      --red: #dc2626;
+      --red-soft: #fee2e2;
+      --terminal: #08111f;
+      --terminal-text: #e5edf8;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--page);
+      color: var(--text);
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+    }
+
+    button {
+      font: inherit;
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+    }
+
+    .phone {
+      width: min(100vw, 430px);
+      min-height: 100dvh;
+      background: var(--shell);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 70px rgba(15, 23, 42, 0.16);
+    }
+
+    .phone.terminal-mode .top {
+      display: none;
+    }
+
+    .phone.terminal-mode main {
+      padding: max(2px, env(safe-area-inset-top)) 4px 4px;
+    }
+
+    .top {
+      flex: none;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: max(14px, env(safe-area-inset-top)) 16px 12px;
+    }
+
+    .bar,
+    .section-head,
+    .sheet-title,
+    .workspace-actions,
+    .send-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .bar {
+      height: 44px;
+    }
+
+    .title-wrap,
+    .min {
+      min-width: 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 20px;
+      line-height: 24px;
+      font-weight: 700;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    h2 {
+      font-size: 15px;
+      line-height: 20px;
+    }
+
+    h3 {
+      font-size: 14px;
+      line-height: 20px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .eyebrow,
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    .eyebrow {
+      font-size: 13px;
+      line-height: 18px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .actions {
+      display: flex;
+      gap: 6px;
+      flex: none;
+    }
+
+    .icon-btn {
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+    }
+
+    .icon-btn:active,
+    .nav-btn:active {
+      transform: scale(0.99);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .metric {
+      min-width: 0;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 8px 6px;
+      text-align: center;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 18px;
+      line-height: 20px;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 3px;
+      font-size: 11px;
+      line-height: 14px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .blue {
+      color: var(--blue);
+    }
+
+    .green {
+      color: var(--green);
+    }
+
+    .amber {
+      color: var(--amber);
+    }
+
+    .red {
+      color: var(--red);
+    }
+
+    .segments {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      margin-top: 12px;
+      padding: 4px;
+      border-radius: 8px;
+      background: var(--subtle);
+    }
+
+    .segment {
+      height: 36px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .segment.active {
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+
+    main {
+      min-height: 0;
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .view {
+      display: none;
+    }
+
+    .view.active {
+      display: block;
+    }
+
+    .sheet-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.46);
+    }
+
+    .sheet-backdrop.open {
+      display: flex;
+    }
+
+    .sheet {
+      width: min(100vw, 430px);
+      max-height: 82dvh;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-bottom: 0;
+      border-radius: 16px 16px 0 0;
+      background: var(--surface);
+      padding: 16px;
+      box-shadow: 0 -20px 60px rgba(15, 23, 42, 0.24);
+    }
+
+    .sheet-handle {
+      width: 40px;
+      height: 4px;
+      margin: 0 auto 12px;
+      border-radius: 999px;
+      background: #cbd5e1;
+    }
+
+    .sheet-title {
+      align-items: flex-start;
+    }
+
+    .sheet-title h2 {
+      margin-top: 4px;
+      font-size: 18px;
+      line-height: 23px;
+    }
+
+    .action-group {
+      margin-top: 14px;
+    }
+
+    .action-group-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .action-group-head h3 {
+      font-size: 13px;
+    }
+
+    .action-list {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .action-row {
+      width: 100%;
+      min-height: 52px;
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr) 14px;
+      gap: 9px;
+      align-items: center;
+      border: 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 9px 10px;
+      text-align: left;
+    }
+
+    .action-row:last-child {
+      border-bottom: 0;
+    }
+
+    .action-icon {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--subtle);
+      color: #475569;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .action-row strong,
+    .action-row span {
+      display: block;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .action-row strong {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 17px;
+    }
+
+    .action-row span {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 14px;
+      margin-top: 2px;
+    }
+
+    .action-row.danger .action-icon,
+    .action-row.danger strong {
+      color: var(--red);
+    }
+
+    .ui-icon {
+      width: 18px;
+      height: 18px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .section-head {
+      height: 36px;
+      margin-bottom: 10px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .workspace-card,
+    .project-row,
+    .terminal-input {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .workspace-card {
+      padding: 12px;
+    }
+
+    .workspace-top {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .workspace-actions {
+      flex: none;
+      gap: 6px;
+    }
+
+    .workspace-icon {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: #334155;
+    }
+
+    .project-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .project-row {
+      padding: 9px;
+      background: #f8fafc;
+      text-align: left;
+    }
+
+    .project-row.selected {
+      border-color: #93c5fd;
+      background: #eff6ff;
+    }
+
+    .project-main {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) 12px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .project-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 14px;
+    }
+
+    .project-foot span:first-child {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 9px;
+    }
+
+    .pill {
+      max-width: 100%;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: var(--subtle);
+      color: #475569;
+      font-size: 11px;
+      line-height: 24px;
+    }
+
+    .pill::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      flex: none;
+      opacity: 0.62;
+    }
+
+    .pill span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chevron {
+      width: 9px;
+      height: 9px;
+      border-right: 2px solid #94a3b8;
+      border-bottom: 2px solid #94a3b8;
+      transform: rotate(-45deg);
+      margin-top: 12px;
+    }
+
+    .terminal-view {
+      display: grid;
+      grid-template-rows: minmax(68dvh, 1fr) auto;
+      gap: 4px;
+      min-height: calc(100dvh - 64px);
+    }
+
+    .terminal-box {
+      min-height: 68dvh;
+      border-radius: 8px;
+      border: 1px solid #111827;
+      background: var(--terminal);
+      color: var(--terminal-text);
+      padding: 12px;
+      overflow-y: auto;
+    }
+
+    .terminal-empty {
+      min-height: 68dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #94a3b8;
+    }
+
+    .terminal-empty .ui-icon {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 16px;
+      color: #64748b;
+    }
+
+    .terminal-empty h3 {
+      color: #f8fafc;
+      font-size: 15px;
+      line-height: 20px;
+    }
+
+    .terminal-empty p {
+      max-width: 280px;
+      margin-top: 8px;
+      font-size: 12px;
+      line-height: 20px;
+    }
+
+    .terminal-input {
+      padding: 8px;
+    }
+
+    .command-chip {
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      flex: none;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .fake-input {
+      min-width: 0;
+      flex: 1;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: var(--muted);
+      padding: 0 12px;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .send-btn {
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--blue);
+      color: white;
+      display: grid;
+      place-items: center;
+      flex: none;
+    }
+
+    .bottom {
+      flex: none;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      padding: 8px 8px max(8px, env(safe-area-inset-bottom));
+    }
+
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .nav-btn {
+      height: 50px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .nav-icon {
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .nav-btn.active {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    @media (min-width: 560px) {
+      body {
+        padding: 24px 0;
+      }
+
+      .phone {
+        min-height: 860px;
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        overflow: hidden;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="phone">
+    <header class="top">
+      <div class="bar">
+        <div class="title-wrap">
+          <div class="eyebrow">CC-Panes Mobile</div>
+          <h1>工作区</h1>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><strong class="blue">3</strong><span>工作区</span></div>
+        <div class="metric"><strong class="blue">5</strong><span>项目</span></div>
+        <div class="metric"><strong class="blue">1</strong><span>置顶</span></div>
+        <div class="metric"><strong class="amber">1</strong><span>隐藏</span></div>
+      </div>
+
+      <div class="segments" aria-label="视图切换">
+        <button class="segment active" data-view="workspaces" type="button">工作区</button>
+        <button class="segment" data-view="terminal" type="button">当前终端</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="view active" id="view-workspaces">
+        <div class="section-head">
+          <h2>工作空间</h2>
+          <span class="muted">工作区列表</span>
+        </div>
+        <div class="stack">
+          <article class="workspace-card">
+            <div class="workspace-top">
+              <div class="workspace-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2"></path></svg></div>
+              <div class="min">
+                <h3>CC-Panes</h3>
+                <p class="muted">/mnt/d/04_workspace_rust/cc-book</p>
+                <div class="pills">
+                  <span class="pill"><span>已置顶</span></span>
+                  <span class="pill"><span>2 个项目</span></span>
+                </div>
+              </div>
+              <div class="workspace-actions">
+                <button class="icon-btn" type="button" data-open-workspace-actions data-workspace-title="CC-Panes" data-workspace-path="/mnt/d/04_workspace_rust/cc-book" aria-label="工作区操作菜单"><svg class="ui-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+              </div>
+            </div>
+            <div class="project-list">
+              <button class="project-row selected" type="button" data-open-terminal data-project-name="cc-book" data-workspace-name="cc-book" data-project-path="/mnt/d/04_workspace_rust/cc-book" data-workspace-root="/mnt/d/04_workspace_rust/cc-book">
+                <div class="project-main">
+                  <svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg>
+                  <div class="min"><h3>cc-book</h3><p class="muted">/mnt/d/04_workspace_rust/cc-book</p></div>
+                  <span class="chevron"></span>
+                </div>
+                <div class="project-foot"><span>点按打开项目终端</span></div>
+              </button>
+              <button class="project-row" type="button" data-open-terminal data-project-name="cc-panes-web" data-workspace-name="cc-book" data-project-path="/mnt/d/04_workspace_rust/cc-book/cc-panes-web" data-workspace-root="/mnt/d/04_workspace_rust/cc-book">
+                <div class="project-main">
+                  <svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg>
+                  <div class="min"><h3>cc-panes-web</h3><p class="muted">/mnt/d/04_workspace_rust/cc-book/cc-panes-web</p></div>
+                  <span class="chevron"></span>
+                </div>
+                <div class="project-foot"><span>点按打开项目终端</span></div>
+              </button>
+            </div>
+          </article>
+
+          <article class="workspace-card">
+            <div class="workspace-top">
+              <div class="workspace-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2"></path></svg></div>
+              <div class="min">
+                <h3>sub2api-product</h3>
+                <p class="muted">/mnt/d/01_workspace_ai/2api/sub2api-product</p>
+                <div class="pills">
+                  <span class="pill"><span>2 个项目</span></span>
+                </div>
+              </div>
+              <div class="workspace-actions">
+                <button class="icon-btn" type="button" data-open-workspace-actions data-workspace-title="sub2api-product" data-workspace-path="/mnt/d/01_workspace_ai/2api/sub2api-product" aria-label="工作区操作菜单"><svg class="ui-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+              </div>
+            </div>
+            <div class="project-list">
+              <button class="project-row" type="button" data-open-terminal data-project-name="Studio" data-workspace-name="sub2api-product" data-project-path="/mnt/d/01_workspace_ai/2api/sub2api-product" data-workspace-root="/mnt/d/01_workspace_ai/2api/sub2api-product">
+                <div class="project-main">
+                  <svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg>
+                  <div class="min"><h3>Studio</h3><p class="muted">/mnt/d/01_workspace_ai/2api/sub2api-product</p></div>
+                  <span class="chevron"></span>
+                </div>
+                <div class="project-foot"><span>点按打开项目终端</span></div>
+              </button>
+              <button class="project-row" type="button" data-open-terminal data-project-name="Atelier" data-workspace-name="sub2api-product" data-project-path="/mnt/d/01_workspace_ai/2api/atelier" data-workspace-root="/mnt/d/01_workspace_ai/2api/sub2api-product">
+                <div class="project-main">
+                  <svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg>
+                  <div class="min"><h3>Atelier</h3><p class="muted">/mnt/d/01_workspace_ai/2api/atelier</p></div>
+                  <span class="chevron"></span>
+                </div>
+                <div class="project-foot"><span>点按打开项目终端</span></div>
+              </button>
+            </div>
+          </article>
+
+          <article class="workspace-card">
+            <div class="workspace-top">
+              <div class="workspace-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2"></path></svg></div>
+              <div class="min">
+                <h3>Archived</h3>
+                <p class="muted">/mnt/d/archive/labs</p>
+                <div class="pills">
+                  <span class="pill"><span>已隐藏</span></span>
+                  <span class="pill"><span>1 个项目</span></span>
+                </div>
+              </div>
+              <div class="workspace-actions">
+                <button class="icon-btn" type="button" data-open-workspace-actions data-workspace-title="Archived" data-workspace-path="/mnt/d/archive/labs" aria-label="工作区操作菜单"><svg class="ui-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+              </div>
+            </div>
+            <div class="project-list">
+              <button class="project-row" type="button" data-open-terminal data-project-name="mobile-lab" data-workspace-name="archived-labs" data-project-path="/mnt/d/archive/labs/mobile-lab" data-workspace-root="/mnt/d/archive/labs">
+                <div class="project-main">
+                  <svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg>
+                  <div class="min"><h3>mobile-lab</h3><p class="muted">/mnt/d/archive/labs/mobile-lab</p></div>
+                  <span class="chevron"></span>
+                </div>
+                <div class="project-foot"><span>点按打开项目终端</span></div>
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-terminal">
+        <div class="terminal-view">
+          <article class="terminal-box">
+            <div class="terminal-empty">
+              <svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg>
+              <h3>还没有打开真实终端</h3>
+              <p>从工作区点按项目后，会进入现有 pane 的真实终端会话。</p>
+            </div>
+          </article>
+
+          <article class="terminal-input">
+            <div class="send-row">
+              <button class="command-chip" type="button" aria-label="输入 /">/</button>
+              <button class="command-chip" type="button" aria-label="输入 %">%</button>
+              <div class="fake-input">输入命令或消息...</div>
+              <button class="send-btn" type="button" aria-label="发送到终端"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg></button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+    </main>
+
+    <nav class="bottom" aria-label="底部导航">
+      <div class="bottom-grid">
+        <button class="nav-btn active" data-view="workspaces" type="button"><span class="nav-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path></svg></span><span>工作区</span></button>
+        <button class="nav-btn" data-view="terminal" type="button"><span class="nav-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg></span><span>终端</span></button>
+      </div>
+    </nav>
+  </div>
+
+  <div class="sheet-backdrop" id="workspace-sheet">
+    <section class="sheet" role="dialog" aria-modal="true" aria-label="工作区操作">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">
+        <div class="min">
+          <div class="eyebrow">工作区操作</div>
+          <h2 id="sheet-workspace-title">CC-Panes</h2>
+          <p class="muted" id="sheet-workspace-path">/mnt/d/04_workspace_rust/cc-book</p>
+        </div>
+        <button class="icon-btn" type="button" data-close-sheet aria-label="关闭"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+      </div>
+
+      <div class="action-group">
+        <div class="action-group-head"><h3>常用</h3></div>
+        <div class="action-list">
+          <button class="action-row" type="button"><span class="action-icon"><svg class="ui-icon" viewBox="0 0 24 24"><polygon points="12 2 15 9 22 9 16.5 13.5 18.5 21 12 16.8 5.5 21 7.5 13.5 2 9 9 9 12 2"></polygon></svg></span><span><strong>显示在常用</strong><span>已接置顶/取消置顶</span></span><span class="chevron"></span></button>
+          <button class="action-row" type="button" data-sheet-open-terminal><span class="action-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg></span><span><strong>打开终端</strong><span>已接第一个可用项目</span></span><span class="chevron"></span></button>
+        </div>
+      </div>
+
+      <div class="action-group">
+        <div class="action-group-head"><h3>工作区</h3></div>
+        <div class="action-list">
+          <button class="action-row" type="button"><span class="action-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path></svg></span><span><strong>打开文件夹</strong><span>已接桌面系统文件管理器</span></span><span class="chevron"></span></button>
+          <button class="action-row" type="button"><span class="action-icon"><svg class="ui-icon" viewBox="0 0 24 24"><polygon points="12 2 15 9 22 9 16.5 13.5 18.5 21 12 16.8 5.5 21 7.5 13.5 2 9 9 9 12 2"></polygon></svg></span><span><strong>在文件浏览器中打开</strong><span>已接应用内文件浏览器 tab</span></span><span class="chevron"></span></button>
+        </div>
+      </div>
+
+      <div class="action-group">
+        <div class="action-group-head"><h3>设置</h3></div>
+        <div class="action-list">
+          <button class="action-row" type="button"><span class="action-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"></path><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3-.2-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-3.4v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.2.1-2-3 .1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3 .2.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5V3h3.4v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.2-.1 2 3-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"></path></svg></span><span><strong>隐藏工作空间</strong><span>已接隐藏/显示切换</span></span><span class="chevron"></span></button>
+          <button class="action-row" type="button"><span class="action-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></span><span><strong>设置别名</strong><span>已接工作区别名保存</span></span><span class="chevron"></span></button>
+          <button class="action-row" type="button"><span class="action-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M4 12h10"></path><path d="M4 17h7"></path></svg></span><span><strong>重命名</strong><span>已接工作区重命名</span></span><span class="chevron"></span></button>
+        </div>
+      </div>
+
+      <div class="action-group">
+        <div class="action-group-head"><h3>删除</h3></div>
+        <div class="action-list">
+          <button class="action-row danger" type="button"><span class="action-icon"><svg class="ui-icon" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg></span><span><strong>删除工作空间</strong><span>从工作区列表中移除</span></span><span class="chevron"></span></button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const views = Array.from(document.querySelectorAll(".view"));
+    const navButtons = Array.from(document.querySelectorAll("[data-view]"));
+    const segments = Array.from(document.querySelectorAll(".segment"));
+    const title = document.querySelector("h1");
+    const phone = document.querySelector(".phone");
+    const workspaceSheet = document.querySelector("#workspace-sheet");
+    const sheetWorkspaceTitle = document.querySelector("#sheet-workspace-title");
+    const sheetWorkspacePath = document.querySelector("#sheet-workspace-path");
+    const titles = {
+      workspaces: "工作区",
+      terminal: "终端"
+    };
+
+    function showView(view) {
+      views.forEach((node) => node.classList.toggle("active", node.id === `view-${view}`));
+      segments.forEach((node) => node.classList.toggle("active", node.dataset.view === view));
+      document.querySelectorAll(".nav-btn").forEach((node) => {
+        node.classList.toggle("active", node.dataset.view === view);
+      });
+      phone.classList.toggle("terminal-mode", view === "terminal");
+      if (title) title.textContent = titles[view] || titles.workspaces;
+    }
+
+    navButtons.forEach((button) => {
+      button.addEventListener("click", () => showView(button.dataset.view));
+    });
+
+    document.querySelectorAll("[data-open-terminal]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const projectButton = button.closest("[data-project-path]");
+        if (projectButton) {
+          document.querySelectorAll(".project-row").forEach((node) => node.classList.remove("selected"));
+          projectButton.classList.add("selected");
+        }
+        showView("terminal");
+      });
+    });
+
+    function closeWorkspaceSheet() {
+      workspaceSheet.classList.remove("open");
+    }
+
+    document.querySelectorAll("[data-open-workspace-actions]").forEach((button) => {
+      button.addEventListener("click", () => {
+        sheetWorkspaceTitle.textContent = button.dataset.workspaceTitle || "工作区";
+        sheetWorkspacePath.textContent = button.dataset.workspacePath || "";
+        workspaceSheet.classList.add("open");
+      });
+    });
+
+    document.querySelectorAll("[data-close-sheet]").forEach((button) => {
+      button.addEventListener("click", closeWorkspaceSheet);
+    });
+
+    workspaceSheet.addEventListener("click", (event) => {
+      if (event.target === workspaceSheet) closeWorkspaceSheet();
+    });
+
+    document.querySelector("[data-sheet-open-terminal]").addEventListener("click", () => {
+      closeWorkspaceSheet();
+      showView("terminal");
+    });
+  </script>
+</body>
+</html>

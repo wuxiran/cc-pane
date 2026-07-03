@@ -1,0 +1,2094 @@
+########## TRACKED CHANGES (git diff HEAD) ##########
+diff --git a/cc-cli-adapters/src/opencode.rs b/cc-cli-adapters/src/opencode.rs
+index 2f31bd3..2b0c0c1 100644
+--- a/cc-cli-adapters/src/opencode.rs
++++ b/cc-cli-adapters/src/opencode.rs
+@@ -1,10 +1,13 @@
+ //! OpenCode CLI 适配器
+ 
+ use crate::{
+-    CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
++    CliAdapterContext, CliCommandResult, CliProvider, CliToolAdapter, CliToolCapabilities,
++    CliToolInfo,
+ };
+ use anyhow::{anyhow, Result};
+ use std::collections::HashMap;
++use std::fs;
++use std::path::{Path, PathBuf};
+ use tracing::info;
+ 
+ pub struct OpenCodeAdapter {
+@@ -27,10 +30,10 @@ impl OpenCodeAdapter {
+             },
+             caps: CliToolCapabilities {
+                 supports_provider: true,
+-                supports_resume: false,
+-                supports_mcp: false,
+-                supports_system_prompt: false,
+-                supports_workspace: false,
++                supports_resume: true,
++                supports_mcp: true,
++                supports_system_prompt: true,
++                supports_workspace: true,
+                 supports_project_hooks: false,
+                 compatible_provider_types: vec![
+                     "open_ai".into(),
+@@ -41,6 +44,238 @@ impl OpenCodeAdapter {
+             },
+         }
+     }
++
++    fn provider_model_arg(ctx: &CliAdapterContext) -> Option<String> {
++        let provider = ctx.provider.as_ref()?;
++        let provider_id = provider.id.trim();
++        split_model_selector(provider_id)?;
++
++        Some(provider_id.to_string())
++    }
++
++    fn inject_provider_env(env_inject: &mut HashMap<String, String>, ctx: &CliAdapterContext) {
++        let Some(provider) = ctx.provider.as_ref() else {
++            return;
++        };
++        let (api_key_env, base_url_env) = provider_env_names(provider);
++        if let Some(api_key) = provider
++            .api_key
++            .as_deref()
++            .map(str::trim)
++            .filter(|value| !value.is_empty())
++        {
++            env_inject.insert(api_key_env.to_string(), api_key.to_string());
++        }
++        if let Some(base_url) = provider
++            .base_url
++            .as_deref()
++            .map(str::trim)
++            .filter(|value| !value.is_empty())
++        {
++            env_inject.insert(base_url_env.to_string(), base_url.to_string());
++        }
++    }
++
++    fn config_dir(data_dir: &Path) -> PathBuf {
++        data_dir.join("opencode")
++    }
++
++    fn config_path(data_dir: &Path, session_id: &str) -> PathBuf {
++        Self::config_dir(data_dir).join(format!("opencode-{}.json", sanitize_filename(session_id)))
++    }
++
++    fn write_launch_config(&self, ctx: &CliAdapterContext) -> Result<Option<PathBuf>> {
++        let config = build_launch_config(ctx);
++        if config
++            .as_object()
++            .map(|object| object.is_empty())
++            .unwrap_or(true)
++        {
++            return Ok(None);
++        }
++
++        let config_dir = Self::config_dir(&ctx.data_dir);
++        fs::create_dir_all(&config_dir)?;
++        let path = Self::config_path(&ctx.data_dir, &ctx.session_id);
++        fs::write(&path, serde_json::to_string_pretty(&config)?)?;
++        Ok(Some(path))
++    }
++}
++
++fn sanitize_filename(value: &str) -> String {
++    let sanitized: String = value
++        .chars()
++        .map(|ch| {
++            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
++                ch
++            } else {
++                '-'
++            }
++        })
++        .collect();
++    if sanitized.is_empty() {
++        "session".to_string()
++    } else {
++        sanitized
++    }
++}
++
++fn build_launch_config(ctx: &CliAdapterContext) -> serde_json::Value {
++    let mut root = serde_json::Map::new();
++
++    if let Some(instructions) = ctx
++        .append_system_prompt
++        .as_deref()
++        .map(str::trim)
++        .filter(|value| !value.is_empty())
++    {
++        root.insert(
++            "instructions".to_string(),
++            serde_json::json!([instructions.to_string()]),
++        );
++    }
++
++    if let Some(provider_config) = build_provider_config(ctx) {
++        root.insert("provider".to_string(), provider_config);
++    }
++
++    if !ctx.skip_mcp {
++        let mcp_config = build_mcp_config(ctx);
++        if mcp_config
++            .as_object()
++            .map(|object| !object.is_empty())
++            .unwrap_or(false)
++        {
++            root.insert("mcp".to_string(), mcp_config);
++        }
++    }
++
++    serde_json::Value::Object(root)
++}
++
++fn build_provider_config(ctx: &CliAdapterContext) -> Option<serde_json::Value> {
++    let provider = ctx.provider.as_ref()?;
++    let provider_id = opencode_provider_id(provider)?;
++    let (api_key_env, base_url_env) = provider_env_names(provider);
++
++    let mut options = serde_json::Map::new();
++    if provider
++        .api_key
++        .as_deref()
++        .is_some_and(|value| !value.is_empty())
++    {
++        options.insert(
++            "apiKey".to_string(),
++            serde_json::json!(format!("{{env:{}}}", api_key_env)),
++        );
++    }
++    if provider
++        .base_url
++        .as_deref()
++        .is_some_and(|value| !value.is_empty())
++    {
++        options.insert(
++            "baseURL".to_string(),
++            serde_json::json!(format!("{{env:{}}}", base_url_env)),
++        );
++    }
++
++    if options.is_empty() {
++        return None;
++    }
++
++    let mut provider_body = serde_json::Map::new();
++    provider_body.insert("options".to_string(), serde_json::Value::Object(options));
++
++    let mut providers = serde_json::Map::new();
++    providers.insert(provider_id, serde_json::Value::Object(provider_body));
++    Some(serde_json::Value::Object(providers))
++}
++
++fn split_model_selector(value: &str) -> Option<(&str, &str)> {
++    let (provider_id, model_id) = value.split_once('/')?;
++    let provider_id = provider_id.trim();
++    let model_id = model_id.trim();
++    if provider_id.is_empty() || model_id.is_empty() {
++        return None;
++    }
++    Some((provider_id, model_id))
++}
++
++fn opencode_provider_id(provider: &CliProvider) -> Option<String> {
++    let raw_id = provider.id.trim();
++    if let Some((provider_id, _)) = split_model_selector(raw_id) {
++        return Some(provider_id.to_string());
++    }
++
++    match provider.provider_type.as_str() {
++        "opencode" => Some(infer_opencode_provider_id(provider).to_string()),
++        "open_ai" => Some("openai".to_string()),
++        "anthropic" | "proxy" => Some("anthropic".to_string()),
++        _ => None,
++    }
++}
++
++fn infer_opencode_provider_id(provider: &CliProvider) -> &'static str {
++    let haystack = format!(
++        "{} {}",
++        provider.name.to_ascii_lowercase(),
++        provider
++            .base_url
++            .as_deref()
++            .unwrap_or_default()
++            .to_ascii_lowercase()
++    );
++    if haystack.contains("openrouter") {
++        "openrouter"
++    } else if haystack.contains("anthropic") {
++        "anthropic"
++    } else {
++        "openai"
++    }
++}
++
++fn provider_env_names(provider: &CliProvider) -> (&'static str, &'static str) {
++    match provider.provider_type.as_str() {
++        "anthropic" | "proxy" => ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"),
++        _ => ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
++    }
++}
++
++fn build_mcp_config(ctx: &CliAdapterContext) -> serde_json::Value {
++    let mut servers = serde_json::Map::new();
++
++    if let (Some(port), Some(token)) = (ctx.orchestrator_port, ctx.orchestrator_token.as_ref()) {
++        let mut url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
++        if let Some(launch_id) = ctx.launch_id.as_deref() {
++            url.push_str("&launchId=");
++            url.push_str(launch_id);
++        }
++        servers.insert(
++            "ccpanes".to_string(),
++            serde_json::json!({
++                "type": "remote",
++                "url": url,
++                "enabled": true,
++                "headers": {
++                    "Authorization": "{env:CC_PANES_API_TOKEN}"
++                }
++            }),
++        );
++    }
++
++    for (name, url) in &ctx.shared_mcp_urls {
++        servers.insert(
++            name.clone(),
++            serde_json::json!({
++                "type": "remote",
++                "url": url,
++                "enabled": true
++            }),
++        );
++    }
++
++    serde_json::Value::Object(servers)
+ }
+ 
+ impl Default for OpenCodeAdapter {
+@@ -58,6 +293,14 @@ impl CliToolAdapter for OpenCodeAdapter {
+         &self.caps
+     }
+ 
++    fn global_commands_dir(&self) -> Option<std::path::PathBuf> {
++        dirs::home_dir().map(|h| h.join(".config").join("opencode").join("command"))
++    }
++
++    fn global_skills_dir(&self) -> Option<std::path::PathBuf> {
++        dirs::home_dir().map(|h| h.join(".config").join("opencode").join("skill"))
++    }
++
+     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
+         let path =
+             which::which("opencode").map_err(|_| anyhow!("opencode CLI not found in PATH"))?;
+@@ -69,17 +312,217 @@ impl CliToolAdapter for OpenCodeAdapter {
+         );
+ 
+         let mut args = Vec::new();
++        let mut env_inject = HashMap::new();
++
++        if let Some(config_path) = self.write_launch_config(ctx)? {
++            env_inject.insert(
++                "OPENCODE_CONFIG".to_string(),
++                config_path.to_string_lossy().into_owned(),
++            );
++        }
++        Self::inject_provider_env(&mut env_inject, ctx);
++
++        if let Some(config_dir) = self
++            .global_skills_dir()
++            .and_then(|path| path.parent().map(Path::to_path_buf))
++        {
++            env_inject.insert(
++                "OPENCODE_CONFIG_DIR".to_string(),
++                config_dir.to_string_lossy().into_owned(),
++            );
++        }
++
++        if let Some(model) = Self::provider_model_arg(ctx) {
++            args.push("-m".to_string());
++            args.push(model);
++        }
+ 
+-        // [PROMPT] positional argument
++        if let Some(ref resume_id) = ctx.resume_id {
++            args.push("-s".to_string());
++            args.push(resume_id.clone());
++        }
++
++        if ctx.yolo_mode {
++            args.push("--dangerously-skip-permissions".to_string());
++        }
++
++        // TUI uses --prompt; the positional argument is the project path.
+         if let Some(ref prompt) = ctx.initial_prompt {
++            args.push("--prompt".to_string());
+             args.push(prompt.clone());
+         }
+ 
++        let launch_path = ctx
++            .workspace_path
++            .as_deref()
++            .unwrap_or(ctx.project_path.as_str())
++            .trim();
++        if !launch_path.is_empty() {
++            args.push(launch_path.to_string());
++        }
++
++        info!(
++            session_id = %ctx.session_id,
++            command = %opencode_cmd,
++            resume_id = ?ctx.resume_id,
++            args = ?crate::redact_args_for_log(&args),
++            "opencode: build_command result"
++        );
++
+         Ok(CliCommandResult {
+             command: opencode_cmd,
+             args,
+             env_remove: vec![],
+-            env_inject: HashMap::new(),
++            env_inject,
+         })
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::{CliAdapterContext, CliProvider};
++    use tempfile::tempdir;
++
++    fn ctx() -> CliAdapterContext {
++        CliAdapterContext {
++            session_id: "session-1".to_string(),
++            project_path: "/repo/project".to_string(),
++            workspace_path: None,
++            provider: None,
++            resume_id: None,
++            issued_session_id: None,
++            skip_mcp: false,
++            yolo_mode: false,
++            append_system_prompt: None,
++            initial_prompt: None,
++            orchestrator_port: None,
++            orchestrator_token: None,
++            launch_id: None,
++            data_dir: tempdir().unwrap().keep(),
++            shared_mcp_urls: HashMap::new(),
++            allowed_mcp_server_ids: Vec::new(),
++            disable_unlisted_mcp_servers: false,
++        }
++    }
++
++    #[test]
++    fn launch_config_includes_instructions_provider_and_mcp_without_secrets() {
++        let mut ctx = ctx();
++        ctx.append_system_prompt = Some("Use project rules".to_string());
++        ctx.provider = Some(CliProvider {
++            id: "openai/gpt-4.1".to_string(),
++            name: "OpenAI".to_string(),
++            provider_type: "opencode".to_string(),
++            api_key: Some("secret".to_string()),
++            base_url: Some("https://api.example.test/v1".to_string()),
++            ..Default::default()
++        });
++        ctx.orchestrator_port = Some(4317);
++        ctx.orchestrator_token = Some("mcp-token".to_string());
++        ctx.launch_id = Some("launch-1".to_string());
++
++        let config = build_launch_config(&ctx);
++
++        assert_eq!(
++            config["instructions"],
++            serde_json::json!(["Use project rules"])
++        );
++        assert_eq!(
++            config["provider"]["openai"]["options"]["apiKey"],
++            serde_json::json!("{env:OPENAI_API_KEY}")
++        );
++        assert_eq!(
++            config["provider"]["openai"]["options"]["baseURL"],
++            serde_json::json!("{env:OPENAI_BASE_URL}")
++        );
++        assert_eq!(
++            config["mcp"]["ccpanes"]["type"],
++            serde_json::json!("remote")
++        );
++        let serialized = serde_json::to_string(&config).unwrap();
++        assert!(!serialized.contains("secret"));
++    }
++
++    #[test]
++    fn launch_config_omits_mcp_when_skipped() {
++        let mut ctx = ctx();
++        ctx.skip_mcp = true;
++        ctx.orchestrator_port = Some(4317);
++        ctx.orchestrator_token = Some("mcp-token".to_string());
++
++        let config = build_launch_config(&ctx);
++
++        assert!(config.get("mcp").is_none());
++    }
++
++    #[test]
++    fn provider_model_uses_provider_id_as_model_selector() {
++        let mut ctx = ctx();
++        ctx.provider = Some(CliProvider {
++            id: "opencode/big-pickle".to_string(),
++            ..Default::default()
++        });
++
++        assert_eq!(
++            OpenCodeAdapter::provider_model_arg(&ctx).as_deref(),
++            Some("opencode/big-pickle")
++        );
++    }
++
++    #[test]
++    fn provider_model_ignores_plain_ccpanes_provider_ids() {
++        let mut ctx = ctx();
++        ctx.provider = Some(CliProvider {
++            id: "provider-123".to_string(),
++            ..Default::default()
++        });
++
++        assert!(OpenCodeAdapter::provider_model_arg(&ctx).is_none());
++    }
++
++    #[test]
++    fn provider_config_uses_real_openai_provider_for_plain_opencode_ids() {
++        let mut ctx = ctx();
++        ctx.provider = Some(CliProvider {
++            id: "provider-123".to_string(),
++            name: "OpenAI".to_string(),
++            provider_type: "opencode".to_string(),
++            api_key: Some("secret".to_string()),
++            base_url: Some("https://api.example.test/v1".to_string()),
++            ..Default::default()
++        });
++
++        let config = build_launch_config(&ctx);
++
++        assert_eq!(
++            config["provider"]["openai"]["options"]["apiKey"],
++            serde_json::json!("{env:OPENAI_API_KEY}")
++        );
++        assert_eq!(
++            config["provider"]["openai"]["options"]["baseURL"],
++            serde_json::json!("{env:OPENAI_BASE_URL}")
++        );
++        assert!(config["provider"].get("provider-123").is_none());
++    }
++
++    #[test]
++    fn provider_config_infers_openrouter_provider_from_base_url() {
++        let mut ctx = ctx();
++        ctx.provider = Some(CliProvider {
++            id: "provider-123".to_string(),
++            name: "OpenRouter".to_string(),
++            provider_type: "opencode".to_string(),
++            api_key: Some("secret".to_string()),
++            base_url: Some("https://openrouter.ai/api/v1".to_string()),
++            ..Default::default()
++        });
++
++        let config = build_launch_config(&ctx);
++
++        assert_eq!(
++            config["provider"]["openrouter"]["options"]["apiKey"],
++            serde_json::json!("{env:OPENAI_API_KEY}")
++        );
++    }
++}
+diff --git a/cc-panes-core/src/models/workspace.rs b/cc-panes-core/src/models/workspace.rs
+index c291420..8747a0e 100644
+--- a/cc-panes-core/src/models/workspace.rs
++++ b/cc-panes-core/src/models/workspace.rs
+@@ -19,6 +19,8 @@ pub struct WorkspaceCliEnvironmentDefaults {
+     pub claude: Option<WorkspaceLaunchEnvironment>,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub codex: Option<WorkspaceLaunchEnvironment>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub opencode: Option<WorkspaceLaunchEnvironment>,
+ }
+ 
+ impl WorkspaceCliEnvironmentDefaults {
+@@ -26,6 +28,7 @@ impl WorkspaceCliEnvironmentDefaults {
+         match cli_tool {
+             "claude" => self.claude,
+             "codex" => self.codex,
++            "opencode" => self.opencode,
+             _ => None,
+         }
+     }
+@@ -363,6 +366,7 @@ mod tests {
+         workspace.cli_environment_defaults = Some(WorkspaceCliEnvironmentDefaults {
+             claude: Some(WorkspaceLaunchEnvironment::Wsl),
+             codex: None,
++            opencode: None,
+         });
+ 
+         let value = serde_json::to_value(&workspace).expect("serialize workspace");
+diff --git a/cc-panes-core/src/services/mod.rs b/cc-panes-core/src/services/mod.rs
+index 987e87f..a53116a 100644
+--- a/cc-panes-core/src/services/mod.rs
++++ b/cc-panes-core/src/services/mod.rs
+@@ -11,6 +11,7 @@ mod launch_profile_service;
+ mod layout_snapshot_service;
+ pub mod mcp_config_service;
+ mod memory_service;
++pub mod opencode_session_service;
+ pub mod plan_archive_service;
+ pub mod plan_service;
+ mod port_scanner;
+diff --git a/cc-panes-core/src/services/terminal_service.rs b/cc-panes-core/src/services/terminal_service.rs
+index a94adf4..aff5b83 100644
+--- a/cc-panes-core/src/services/terminal_service.rs
++++ b/cc-panes-core/src/services/terminal_service.rs
+@@ -1500,7 +1500,11 @@ impl TerminalService {
+                 }
+             }
+ 
+-            if matches!(cli_tool, CliTool::Codex | CliTool::Claude) && !effective_skip_mcp {
++            if matches!(
++                cli_tool,
++                CliTool::Codex | CliTool::Claude | CliTool::Opencode
++            ) && !effective_skip_mcp
++            {
+                 if let Some(port_value) = env_vars.get("CC_PANES_API_PORT") {
+                     match port_value.parse::<u16>() {
+                         Ok(port) => match self.resolve_reachable_wsl_windows_host(
+@@ -1574,6 +1578,8 @@ impl TerminalService {
+                         launch_append_system_prompt.as_deref(),
+                         initial_prompt,
+                         effective_skip_mcp,
++                        &effective_shared_mcp_urls,
++                        provider.as_ref(),
+                         effective_yolo_mode,
+                     )?,
+                 CliTool::Kimi | CliTool::Glm => self.build_wsl_supported_cli_command(
+@@ -1587,6 +1593,8 @@ impl TerminalService {
+                     launch_append_system_prompt.as_deref(),
+                     initial_prompt,
+                     effective_skip_mcp,
++                    &effective_shared_mcp_urls,
++                    provider.as_ref(),
+                     effective_yolo_mode,
+                 )?,
+             };
+diff --git a/cc-panes-core/src/services/terminal_service/wsl_codex.rs b/cc-panes-core/src/services/terminal_service/wsl_codex.rs
+index 0bdd444..2dba535 100644
+--- a/cc-panes-core/src/services/terminal_service/wsl_codex.rs
++++ b/cc-panes-core/src/services/terminal_service/wsl_codex.rs
+@@ -7,6 +7,7 @@ use crate::models::{CliTool, WslLaunchInfo};
+ #[cfg(windows)]
+ use crate::services::default_skill_service::{BUNDLED_NAMESPACE, VERSION_FILE_NAME};
+ use anyhow::{anyhow, Result};
++use cc_cli_adapters::CliProvider;
+ use std::collections::HashMap;
+ #[cfg(windows)]
+ use std::path::Path;
+@@ -51,6 +52,60 @@ pub(super) fn build_wsl_mcp_url(windows_host: &str, port: &str, token: &str) ->
+     format!("http://{}:{}/mcp?token={}", windows_host, port, token)
+ }
+ 
++#[cfg(windows)]
++fn split_opencode_model_selector(value: &str) -> Option<(&str, &str)> {
++    let (provider_id, model_id) = value.split_once('/')?;
++    let provider_id = provider_id.trim();
++    let model_id = model_id.trim();
++    if provider_id.is_empty() || model_id.is_empty() {
++        return None;
++    }
++    Some((provider_id, model_id))
++}
++
++#[cfg(windows)]
++fn opencode_provider_id(provider: &CliProvider) -> Option<String> {
++    let raw_id = provider.id.trim();
++    if let Some((provider_id, _)) = split_opencode_model_selector(raw_id) {
++        return Some(provider_id.to_string());
++    }
++
++    match provider.provider_type.as_str() {
++        "opencode" => Some(infer_opencode_provider_id(provider).to_string()),
++        "open_ai" => Some("openai".to_string()),
++        "anthropic" | "proxy" => Some("anthropic".to_string()),
++        _ => None,
++    }
++}
++
++#[cfg(windows)]
++fn infer_opencode_provider_id(provider: &CliProvider) -> &'static str {
++    let haystack = format!(
++        "{} {}",
++        provider.name.to_ascii_lowercase(),
++        provider
++            .base_url
++            .as_deref()
++            .unwrap_or_default()
++            .to_ascii_lowercase()
++    );
++    if haystack.contains("openrouter") {
++        "openrouter"
++    } else if haystack.contains("anthropic") {
++        "anthropic"
++    } else {
++        "openai"
++    }
++}
++
++#[cfg(windows)]
++fn opencode_provider_env_names(provider: &CliProvider) -> (&'static str, &'static str) {
++    match provider.provider_type.as_str() {
++        "anthropic" | "proxy" => ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"),
++        _ => ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
++    }
++}
++
+ #[cfg(windows)]
+ fn rewrite_local_mcp_url_for_wsl(url: &str, windows_host: &str) -> String {
+     for prefix in ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"] {
+@@ -705,6 +760,139 @@ impl TerminalService {
+         unreachable!("WSL launch is only supported on Windows")
+     }
+ 
++    #[cfg(windows)]
++    fn write_wsl_opencode_config(
++        &self,
++        session_id: &str,
++        wsl: &ResolvedWslLaunch,
++        env_vars: &HashMap<String, String>,
++        provider: Option<&CliProvider>,
++        append_system_prompt: Option<&str>,
++        skip_mcp: bool,
++        shared_mcp_urls: &HashMap<String, String>,
++    ) -> Result<Option<String>> {
++        let mut root = serde_json::Map::new();
++
++        if let Some(prompt) = append_system_prompt
++            .map(str::trim)
++            .filter(|value| !value.is_empty())
++        {
++            root.insert(
++                "instructions".to_string(),
++                serde_json::json!([prompt.to_string()]),
++            );
++        }
++
++        if let Some(provider) = provider {
++            if let Some(provider_id) = opencode_provider_id(provider) {
++                let (api_key_env, base_url_env) = opencode_provider_env_names(provider);
++                let mut options = serde_json::Map::new();
++                if provider
++                    .api_key
++                    .as_deref()
++                    .map(str::trim)
++                    .is_some_and(|value| !value.is_empty())
++                {
++                    options.insert(
++                        "apiKey".to_string(),
++                        serde_json::json!(format!("{{env:{}}}", api_key_env)),
++                    );
++                }
++                if provider
++                    .base_url
++                    .as_deref()
++                    .map(str::trim)
++                    .is_some_and(|value| !value.is_empty())
++                {
++                    options.insert(
++                        "baseURL".to_string(),
++                        serde_json::json!(format!("{{env:{}}}", base_url_env)),
++                    );
++                }
++                if !options.is_empty() {
++                    let mut provider_body = serde_json::Map::new();
++                    provider_body.insert("options".to_string(), serde_json::Value::Object(options));
++                    let mut providers = serde_json::Map::new();
++                    providers.insert(provider_id, serde_json::Value::Object(provider_body));
++                    root.insert("provider".to_string(), serde_json::Value::Object(providers));
++                }
++            }
++        }
++
++        if !skip_mcp {
++            let mut servers = serde_json::Map::new();
++            if let (Some(port), Some(token), Some(windows_host)) = (
++                env_vars.get("CC_PANES_API_PORT"),
++                env_vars.get("CC_PANES_API_TOKEN"),
++                wsl.windows_host.as_deref(),
++            ) {
++                let mut url = build_wsl_mcp_url(windows_host, port, token);
++                if let Some(launch_id) = env_vars.get("CC_PANES_LAUNCH_ID") {
++                    url.push_str("&launchId=");
++                    url.push_str(launch_id);
++                }
++                servers.insert(
++                    "ccpanes".to_string(),
++                    serde_json::json!({
++                        "type": "remote",
++                        "url": url,
++                        "enabled": true,
++                        "headers": {
++                            "Authorization": "{env:CC_PANES_API_TOKEN}"
++                        }
++                    }),
++                );
++            }
++
++            if let Some(windows_host) = wsl.windows_host.as_deref() {
++                for (name, url) in shared_mcp_urls {
++                    servers.insert(
++                        name.clone(),
++                        serde_json::json!({
++                            "type": "remote",
++                            "url": rewrite_local_mcp_url_for_wsl(url, windows_host),
++                            "enabled": true
++                        }),
++                    );
++                }
++            } else {
++                for (name, url) in shared_mcp_urls {
++                    servers.insert(
++                        name.clone(),
++                        serde_json::json!({
++                            "type": "remote",
++                            "url": url,
++                            "enabled": true
++                        }),
++                    );
++                }
++            }
++
++            if !servers.is_empty() {
++                root.insert("mcp".to_string(), serde_json::Value::Object(servers));
++            }
++        }
++
++        if root.is_empty() {
++            return Ok(None);
++        }
++
++        let file_name = format!(
++            "wsl-opencode-{}.json",
++            sanitize_wsl_claude_session_id(session_id)
++        );
++        let config_path = self.app_paths.data_dir().join(file_name);
++        let wsl_config_path = windows_path_to_wsl(&config_path).ok_or_else(|| {
++            anyhow!(
++                "Failed to translate OpenCode config path to WSL path: {}",
++                config_path.display()
++            )
++        })?;
++        std::fs::write(&config_path, serde_json::to_string_pretty(&root)?)?;
++
++        Ok(Some(wsl_config_path))
++    }
++
+     #[cfg(windows)]
+     #[allow(clippy::too_many_arguments)]
+     pub(super) fn build_wsl_supported_cli_command(
+@@ -719,6 +907,8 @@ impl TerminalService {
+         append_system_prompt: Option<&str>,
+         initial_prompt: Option<&str>,
+         skip_mcp: bool,
++        shared_mcp_urls: &HashMap<String, String>,
++        provider: Option<&CliProvider>,
+         yolo_mode: bool,
+     ) -> Result<(String, Vec<String>)> {
+         let command = match cli_tool {
+@@ -823,6 +1013,32 @@ impl TerminalService {
+             if let Some(prompt) = initial_prompt {
+                 cli_args.push(prompt.to_string());
+             }
++        } else if cli_tool == CliTool::Opencode {
++            if let Some(config_path) = self.write_wsl_opencode_config(
++                session_id,
++                wsl,
++                env_vars,
++                provider,
++                append_system_prompt,
++                skip_mcp,
++                shared_mcp_urls,
++            )? {
++                remote_parts.push(format!(
++                    "export OPENCODE_CONFIG={}",
++                    Self::shell_escape(&config_path)
++                ));
++            }
++            if let Some(resume_id) = resume_id {
++                cli_args.push("-s".to_string());
++                cli_args.push(resume_id.to_string());
++            }
++            if yolo_mode {
++                cli_args.push("--dangerously-skip-permissions".to_string());
++            }
++            if let Some(prompt) = initial_prompt {
++                cli_args.push("--prompt".to_string());
++                cli_args.push(prompt.to_string());
++            }
+         } else if let Some(prompt) = initial_prompt {
+             cli_args.push(prompt.to_string());
+         }
+@@ -855,6 +1071,8 @@ impl TerminalService {
+         _append_system_prompt: Option<&str>,
+         _initial_prompt: Option<&str>,
+         _skip_mcp: bool,
++        _shared_mcp_urls: &HashMap<String, String>,
++        _provider: Option<&CliProvider>,
+         _yolo_mode: bool,
+     ) -> Result<(String, Vec<String>)> {
+         unreachable!("WSL launch is only supported on Windows")
+diff --git a/cc-panes-web/src/routes/agent_sessions.rs b/cc-panes-web/src/routes/agent_sessions.rs
+index f7f6018..cd14afb 100644
+--- a/cc-panes-web/src/routes/agent_sessions.rs
++++ b/cc-panes-web/src/routes/agent_sessions.rs
+@@ -1,5 +1,7 @@
+ use axum::{extract::Query, http::StatusCode, Json};
+-use cc_panes_core::services::{claude_session_service, codex_session_service};
++use cc_panes_core::services::{
++    claude_session_service, codex_session_service, opencode_session_service,
++};
+ use serde::Deserialize;
+ 
+ #[derive(Deserialize)]
+@@ -52,3 +54,19 @@ pub async fn list_codex_sessions(
+     };
+     result.map(Json).map_err(service_error)
+ }
++
++pub async fn list_opencode_sessions(
++    Query(query): Query<ProjectSessionsQuery>,
++) -> Result<Json<Vec<opencode_session_service::OpenCodeSession>>, (StatusCode, String)> {
++    let limit = query.limit.unwrap_or(10);
++    let result = if query.runtime_kind.as_deref() == Some("wsl") {
++        opencode_session_service::list_wsl_sessions(
++            &query.project_path,
++            limit,
++            query.wsl_distro.as_deref(),
++        )
++    } else {
++        opencode_session_service::list_sessions(&query.project_path, limit)
++    };
++    result.map(Json).map_err(service_error)
++}
+diff --git a/cc-panes-web/src/routes/mod.rs b/cc-panes-web/src/routes/mod.rs
+index 88c3589..55cd33e 100644
+--- a/cc-panes-web/src/routes/mod.rs
++++ b/cc-panes-web/src/routes/mod.rs
+@@ -193,6 +193,10 @@ pub fn build_router(state: AppState) -> Router {
+             "/api/codex/sessions",
+             get(agent_sessions::list_codex_sessions),
+         )
++        .route(
++            "/api/opencode/sessions",
++            get(agent_sessions::list_opencode_sessions),
++        )
+         .route("/api/runner/profiles", get(runner::list_profiles))
+         .route("/api/runner/profiles", put(runner::upsert_profile))
+         .route("/api/runner/profiles/{id}", get(runner::get_profile))
+diff --git a/src-tauri/src/commands/claude_commands.rs b/src-tauri/src/commands/claude_commands.rs
+index 3598e70..67acf4c 100644
+--- a/src-tauri/src/commands/claude_commands.rs
++++ b/src-tauri/src/commands/claude_commands.rs
+@@ -43,6 +43,25 @@ pub fn list_codex_sessions(
+     result.map_err(|e| e.into())
+ }
+ 
++/// 列出项目的 OpenCode 会话历史（手动绑定面板用）
++#[tauri::command]
++pub fn list_opencode_sessions(
++    project_path: String,
++    runtime_kind: Option<String>,
++    wsl_distro: Option<String>,
++) -> AppResult<Vec<crate::services::opencode_session_service::OpenCodeSession>> {
++    let result = if runtime_kind.as_deref() == Some("wsl") {
++        crate::services::opencode_session_service::list_wsl_sessions(
++            &project_path,
++            10,
++            wsl_distro.as_deref(),
++        )
++    } else {
++        crate::services::opencode_session_service::list_sessions(&project_path, 10)
++    };
++    result.map_err(|e| e.into())
++}
++
+ // ============ 会话清理功能 ============
+ 
+ #[derive(Debug, Serialize, Clone)]
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 118a3b6..97e6e59 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -186,6 +186,7 @@ use commands::{
+     // MCP 配置命令
+     list_mcp_servers,
+     list_memories,
++    list_opencode_sessions,
+     // Plan 命令
+     list_plans,
+     list_projects,
+@@ -1791,6 +1792,7 @@ pub fn run() {
+             list_claude_sessions,
+             list_all_claude_sessions,
+             list_codex_sessions,
++            list_opencode_sessions,
+             scan_broken_sessions,
+             clean_session_file,
+             clean_all_broken_sessions,
+diff --git a/src-tauri/src/services/launch_backfill_service.rs b/src-tauri/src/services/launch_backfill_service.rs
+index 7f7a0be..d196b34 100644
+--- a/src-tauri/src/services/launch_backfill_service.rs
++++ b/src-tauri/src/services/launch_backfill_service.rs
+@@ -37,7 +37,7 @@ impl RescueNullCodexSummary {
+     }
+ }
+ 
+-/// 反查某次启动对应的 agent rollout/session id（claude/codex，含 wsl）。
++/// 反查某次启动对应的 agent rollout/session id（claude/codex/opencode，含 wsl）。
+ pub(crate) fn detect_resume_session(
+     cli_tool: &str,
+     runtime_kind: Option<&str>,
+@@ -70,6 +70,31 @@ pub(crate) fn detect_resume_session(
+                 cc_panes_core::services::codex_session_service::detect_session(&paths_to_try, after)
+             }
+         }
++        "opencode" => {
++            let after: DateTime<Utc> = DateTime::parse_from_rfc3339(&after_ts)
++                .map_err(|e| format!("Invalid timestamp: {}", e))?
++                .with_timezone(&Utc);
++
++            let mut paths_to_try = Vec::new();
++            if let Some(ref workspace_path) = workspace_path {
++                paths_to_try.push(workspace_path.as_str());
++            }
++            paths_to_try.push(project_path.as_str());
++
++            let runtime_kind = runtime_kind.unwrap_or("local");
++            if runtime_kind == "wsl" {
++                cc_panes_core::services::opencode_session_service::detect_wsl_session(
++                    &paths_to_try,
++                    after,
++                    wsl_distro,
++                )
++            } else {
++                cc_panes_core::services::opencode_session_service::detect_session(
++                    &paths_to_try,
++                    after,
++                )
++            }
++        }
+         _ => Ok(None),
+     }
+ }
+diff --git a/src-tauri/src/services/orchestrator_service.rs b/src-tauri/src/services/orchestrator_service.rs
+index cc2892d..bbbd01c 100644
+--- a/src-tauri/src/services/orchestrator_service.rs
++++ b/src-tauri/src/services/orchestrator_service.rs
+@@ -4031,6 +4031,39 @@ impl McpToolHandler {
+                         .collect()
+                 })
+             }
++            "opencode" => {
++                let sessions = if runtime_kind == "wsl" {
++                    if let Some(ref project_path) = params.project_path {
++                        crate::services::opencode_session_service::list_wsl_sessions(
++                            project_path,
++                            limit,
++                            params.wsl_distro.as_deref(),
++                        )
++                    } else {
++                        Err("OpenCode WSL session listing requires projectPath".to_string())
++                    }
++                } else if let Some(ref project_path) = params.project_path {
++                    crate::services::opencode_session_service::list_sessions(project_path, limit)
++                } else {
++                    crate::services::opencode_session_service::list_all_sessions(limit)
++                };
++                sessions.map(|items| {
++                    items
++                        .into_iter()
++                        .map(|session| {
++                            serde_json::json!({
++                                "sessionId": session.id,
++                                "projectPath": session.project_path,
++                                "modifiedAt": session.modified_at,
++                                "description": session.description,
++                                "cliTool": "opencode",
++                                "runtimeKind": runtime_kind,
++                                "wslDistro": params.wsl_distro,
++                            })
++                        })
++                        .collect()
++                })
++            }
+             other => Err(format!("错误: 不支持的 cliTool: {}", other)),
+         };
+ 
+@@ -7982,6 +8015,7 @@ mod tests {
+         workspace.cli_environment_defaults = Some(WorkspaceCliEnvironmentDefaults {
+             claude: Some(WorkspaceLaunchEnvironment::Local),
+             codex: None,
++            opencode: None,
+         });
+ 
+         assert_eq!(cli_workspace_default(&workspace, "gemini"), None);
+@@ -8004,6 +8038,7 @@ mod tests {
+         workspace.cli_environment_defaults = Some(WorkspaceCliEnvironmentDefaults {
+             claude: None,
+             codex: Some(WorkspaceLaunchEnvironment::Wsl),
++            opencode: None,
+         });
+ 
+         let notice = runtime_notice(
+diff --git a/src-tauri/src/services/web_access_lifecycle.rs b/src-tauri/src/services/web_access_lifecycle.rs
+index 52e1116..8a326f5 100644
+--- a/src-tauri/src/services/web_access_lifecycle.rs
++++ b/src-tauri/src/services/web_access_lifecycle.rs
+@@ -256,13 +256,9 @@ fn resolve_web_dist_dir(resource_dir: Option<&Path>) -> Option<PathBuf> {
+         }
+     }
+ 
+-    for candidate in workspace_web_dist_candidates() {
+-        if candidate.join("index.html").exists() {
+-            return Some(candidate);
+-        }
+-    }
+-
+-    None
++    workspace_web_dist_candidates()
++        .into_iter()
++        .find(|candidate| candidate.join("index.html").exists())
+ }
+ 
+ fn workspace_web_dist_candidates() -> Vec<PathBuf> {
+diff --git a/web/components/panes/SessionBindDialog.tsx b/web/components/panes/SessionBindDialog.tsx
+index 11d6566..0153737 100644
+--- a/web/components/panes/SessionBindDialog.tsx
++++ b/web/components/panes/SessionBindDialog.tsx
+@@ -9,7 +9,7 @@ import {
+ } from "@/components/ui/dialog";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+-import { claudeService, codexService, historyService } from "@/services";
++import { claudeService, codexService, historyService, opencodeService } from "@/services";
+ import { usePanesStore } from "@/stores";
+ import type { Tab } from "@/types";
+ 
+@@ -26,6 +26,7 @@ interface SessionBindDialogProps {
+ }
+ 
+ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++const OPENCODE_SESSION_PATTERN = /^ses_[A-Za-z0-9]+$/;
+ 
+ /**
+  * 会话绑定面板：列出该 tab 项目的历史会话，让用户手动选择/换绑 resume id。
+@@ -51,6 +52,12 @@ export default function SessionBindDialog({ tab, open, onOpenChange }: SessionBi
+         setCandidates(
+           sessions.map((s) => ({ id: s.id, description: s.description, modifiedAt: s.modified_at })),
+         );
++      } else if (target.cliTool === "opencode") {
++        const runtimeKind = target.wsl ? "wsl" : "local";
++        const sessions = await opencodeService.listSessions(projectPath, runtimeKind, target.wsl?.distro);
++        setCandidates(
++          sessions.map((s) => ({ id: s.id, description: s.description, modifiedAt: s.modified_at })),
++        );
+       } else {
+         const sessions = await claudeService.listSessions(projectPath);
+         setCandidates(
+@@ -93,7 +100,7 @@ export default function SessionBindDialog({ tab, open, onOpenChange }: SessionBi
+     onOpenChange(false);
+   };
+ 
+-  const manualIdValid = UUID_PATTERN.test(manualId.trim());
++  const manualIdValid = UUID_PATTERN.test(manualId.trim()) || OPENCODE_SESSION_PATTERN.test(manualId.trim());
+ 
+   return (
+     <Dialog open={open} onOpenChange={onOpenChange}>
+diff --git a/web/components/panes/terminalBufferMode.test.ts b/web/components/panes/terminalBufferMode.test.ts
+index a4742a6..f66f29b 100644
+--- a/web/components/panes/terminalBufferMode.test.ts
++++ b/web/components/panes/terminalBufferMode.test.ts
+@@ -20,6 +20,7 @@ describe("terminalBufferMode", () => {
+   it("keeps agent CLI output in the normal buffer", () => {
+     expect(shouldKeepCliOutputInNormalBuffer("codex")).toBe(true);
+     expect(shouldKeepCliOutputInNormalBuffer("claude")).toBe(true);
++    expect(shouldKeepCliOutputInNormalBuffer("opencode")).toBe(true);
+     expect(shouldKeepCliOutputInNormalBuffer("gemini")).toBe(false);
+     expect(shouldKeepCliOutputInNormalBuffer("none")).toBe(false);
+   });
+diff --git a/web/components/panes/terminalBufferMode.ts b/web/components/panes/terminalBufferMode.ts
+index 8a4835d..d889b20 100644
+--- a/web/components/panes/terminalBufferMode.ts
++++ b/web/components/panes/terminalBufferMode.ts
+@@ -23,7 +23,7 @@ export function stripAlternateBufferSequences(data: string): string {
+   return data.replace(new RegExp(ALTERNATE_BUFFER_SEQUENCE_SOURCE, "g"), "");
+ }
+ 
+-const NORMAL_BUFFER_CLI_TOOLS = new Set(["claude", "codex"]);
++const NORMAL_BUFFER_CLI_TOOLS = new Set(["claude", "codex", "opencode"]);
+ 
+ export function shouldKeepCliOutputInNormalBuffer(cliToolId: string): boolean {
+   return NORMAL_BUFFER_CLI_TOOLS.has(cliToolId);
+diff --git a/web/components/providers/LaunchProfilesPanel.tsx b/web/components/providers/LaunchProfilesPanel.tsx
+index d7fc08a..1f152c0 100644
+--- a/web/components/providers/LaunchProfilesPanel.tsx
++++ b/web/components/providers/LaunchProfilesPanel.tsx
+@@ -43,8 +43,8 @@ const EXTERNAL_SKILL_GROUPS: Array<{
+   policyKey: "includeExternalClaudeSkills" | "includeExternalCodexSkills" | "includeExternalPluginSkills";
+   applicableTools: KnownCliTool[];
+ }> = [
+-  { kind: "claude", label: "Claude", policyKey: "includeExternalClaudeSkills", applicableTools: ["claude"] },
+-  { kind: "codex", label: "Codex", policyKey: "includeExternalCodexSkills", applicableTools: ["codex"] },
++  { kind: "claude", label: "Claude", policyKey: "includeExternalClaudeSkills", applicableTools: ["claude", "opencode"] },
++  { kind: "codex", label: "Codex", policyKey: "includeExternalCodexSkills", applicableTools: ["codex", "opencode"] },
+   { kind: "plugin", label: "Plugin", policyKey: "includeExternalPluginSkills", applicableTools: ["claude"] },
+ ];
+ 
+diff --git a/web/components/sidebar/OrchestratorInput.tsx b/web/components/sidebar/OrchestratorInput.tsx
+index 0e85123..266b575 100644
+--- a/web/components/sidebar/OrchestratorInput.tsx
++++ b/web/components/sidebar/OrchestratorInput.tsx
+@@ -12,7 +12,13 @@ import {
+   getProjectName,
+ } from "./OrchestratorTaskUtils";
+ 
+-const CLI_CHOICES = ["claude", "codex"] as const;
++const CLI_CHOICES = ["claude", "codex", "opencode"] as const;
++
++function normalizeCliChoice(value: string): (typeof CLI_CHOICES)[number] {
++  return CLI_CHOICES.includes(value as (typeof CLI_CHOICES)[number])
++    ? (value as (typeof CLI_CHOICES)[number])
++    : "claude";
++}
+ 
+ function firstProject(workspaces: Workspace[]): { workspace: Workspace; project: WorkspaceProject } | null {
+   for (const workspace of workspaces) {
+@@ -38,7 +44,7 @@ export default function OrchestratorInput() {
+   const [sending, setSending] = useState(false);
+   const [targetOpen, setTargetOpen] = useState(false);
+   const defaultCliTool = useSettingsStore((s) => s.settings?.general.defaultCliTool ?? "claude");
+-  const [cliTool, setCliTool] = useState(defaultCliTool === "codex" ? "codex" : "claude");
++  const [cliTool, setCliTool] = useState(normalizeCliChoice(defaultCliTool));
+   const inputRef = useRef<HTMLTextAreaElement>(null);
+   const create = useOrchestratorStore((s) => s.create);
+   const lastTargetProjectPath = useOrchestratorStore((s) => s.lastTargetProjectPath);
+@@ -68,7 +74,7 @@ export default function OrchestratorInput() {
+   }, [lastTargetProjectPath, setLastTargetProjectPath, targetProject]);
+ 
+   useEffect(() => {
+-    setCliTool(defaultCliTool === "codex" ? "codex" : "claude");
++    setCliTool(normalizeCliChoice(defaultCliTool));
+   }, [defaultCliTool]);
+ 
+   const handleProjectSelect = useCallback(
+diff --git a/web/components/sidebar/WorkspaceEnvironmentPanel.test.tsx b/web/components/sidebar/WorkspaceEnvironmentPanel.test.tsx
+index a05768a..eda0056 100644
+--- a/web/components/sidebar/WorkspaceEnvironmentPanel.test.tsx
++++ b/web/components/sidebar/WorkspaceEnvironmentPanel.test.tsx
+@@ -166,6 +166,7 @@ describe("WorkspaceEnvironmentPanel", () => {
+     expect(await screen.findByText(/CLI 默认环境|CLI Default Environment/i)).toBeVisible();
+     expect(screen.getByRole("radio", { name: /Claude Code: (继承默认|Inherit Default)/i })).toBeChecked();
+     expect(screen.getByRole("radio", { name: /Codex CLI: (继承默认|Inherit Default)/i })).toBeChecked();
++    expect(screen.getByRole("radio", { name: /OpenCode: (继承默认|Inherit Default)/i })).toBeChecked();
+   });
+ 
+   it("saves a Claude CLI default environment", async () => {
+@@ -192,6 +193,36 @@ describe("WorkspaceEnvironmentPanel", () => {
+       cliEnvironmentDefaults: {
+         claude: "wsl",
+         codex: undefined,
++        opencode: undefined,
++      },
++    }));
++  });
++
++  it("saves an OpenCode CLI default environment", async () => {
++    const user = userEvent.setup();
++    const workspace = createTestWorkspace({
++      id: "ws-1",
++      name: "workspace-alpha",
++      path: "D:/workspace-alpha",
++      defaultEnvironment: "local",
++    });
++
++    useWorkspacesStore.setState({ workspaces: [workspace] });
++    useDialogStore.setState({
++      workspaceEnvironmentOpen: true,
++      workspaceEnvironmentWorkspaceId: workspace.id,
++    });
++
++    renderPanel();
++
++    await user.click(await screen.findByRole("radio", { name: /^OpenCode: WSL$/i }));
++    await user.click(screen.getByRole("button", { name: /保存更改|Save Changes/i }));
++
++    expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("workspace-alpha", expect.objectContaining({
++      cliEnvironmentDefaults: {
++        claude: undefined,
++        codex: undefined,
++        opencode: "wsl",
+       },
+     }));
+   });
+@@ -243,6 +274,7 @@ describe("WorkspaceEnvironmentPanel", () => {
+ 
+     expect(await screen.findByRole("radio", { name: /^Claude Code: WSL$/i })).toBeDisabled();
+     expect(screen.getByRole("radio", { name: /^Codex CLI: WSL$/i })).toBeDisabled();
++    expect(screen.getByRole("radio", { name: /^OpenCode: WSL$/i })).toBeDisabled();
+   });
+ 
+   it("blocks save and shows a toast when a CLI default is not configured", async () => {
+diff --git a/web/components/sidebar/WorkspaceEnvironmentPanel.tsx b/web/components/sidebar/WorkspaceEnvironmentPanel.tsx
+index aa4b233..16e5d1a 100644
+--- a/web/components/sidebar/WorkspaceEnvironmentPanel.tsx
++++ b/web/components/sidebar/WorkspaceEnvironmentPanel.tsx
+@@ -52,6 +52,7 @@ interface WorkspaceEnvironmentSnapshot {
+   defaultEnvironment: WorkspaceLaunchEnvironment;
+   claudeDefault: CliDefaultEnvironment;
+   codexDefault: CliDefaultEnvironment;
++  opencodeDefault: CliDefaultEnvironment;
+   localPath: string;
+   wslDistro: string;
+   wslRemotePath: string;
+@@ -68,12 +69,14 @@ function cliDefaultToEnvironment(
+ function buildCliEnvironmentDefaults(
+   claudeDefault: CliDefaultEnvironment,
+   codexDefault: CliDefaultEnvironment,
++  opencodeDefault: CliDefaultEnvironment,
+ ): WorkspaceCliEnvironmentDefaults | undefined {
+   const defaults: WorkspaceCliEnvironmentDefaults = {
+     claude: cliDefaultToEnvironment(claudeDefault),
+     codex: cliDefaultToEnvironment(codexDefault),
++    opencode: cliDefaultToEnvironment(opencodeDefault),
+   };
+-  return defaults.claude || defaults.codex ? defaults : undefined;
++  return defaults.claude || defaults.codex || defaults.opencode ? defaults : undefined;
+ }
+ 
+ function selectClassName() {
+@@ -122,6 +125,7 @@ function getInitialSnapshot(workspace: Workspace): WorkspaceEnvironmentSnapshot
+     defaultEnvironment: workspace.defaultEnvironment ?? "local",
+     claudeDefault: workspace.cliEnvironmentDefaults?.claude ?? "inherit",
+     codexDefault: workspace.cliEnvironmentDefaults?.codex ?? "inherit",
++    opencodeDefault: workspace.cliEnvironmentDefaults?.opencode ?? "inherit",
+     localPath: workspace.path ?? "",
+     wslDistro: workspace.wsl?.distro ?? "",
+     wslRemotePath: workspace.wsl?.remotePath ?? "",
+@@ -137,6 +141,7 @@ function snapshotsEqual(
+   return left.defaultEnvironment === right.defaultEnvironment
+     && left.claudeDefault === right.claudeDefault
+     && left.codexDefault === right.codexDefault
++    && left.opencodeDefault === right.opencodeDefault
+     && left.localPath === right.localPath
+     && left.wslDistro === right.wslDistro
+     && left.wslRemotePath === right.wslRemotePath
+@@ -176,6 +181,7 @@ export default function WorkspaceEnvironmentPanel() {
+   const [activeEnvironment, setActiveEnvironment] = useState<WorkspaceLaunchEnvironment>("local");
+   const [claudeDefault, setClaudeDefault] = useState<CliDefaultEnvironment>("inherit");
+   const [codexDefault, setCodexDefault] = useState<CliDefaultEnvironment>("inherit");
++  const [opencodeDefault, setOpencodeDefault] = useState<CliDefaultEnvironment>("inherit");
+   const [localPath, setLocalPath] = useState("");
+   const [wslDistro, setWslDistro] = useState("");
+   const [wslRemotePath, setWslRemotePath] = useState("");
+@@ -197,6 +203,7 @@ export default function WorkspaceEnvironmentPanel() {
+     setActiveEnvironment(getDefaultActiveEnvironment(initial.defaultEnvironment, isWindows));
+     setClaudeDefault(initial.claudeDefault);
+     setCodexDefault(initial.codexDefault);
++    setOpencodeDefault(initial.opencodeDefault);
+     setLocalPath(initial.localPath);
+     setWslDistro(initial.wslDistro);
+     setWslRemotePath(initial.wslRemotePath);
+@@ -221,6 +228,7 @@ export default function WorkspaceEnvironmentPanel() {
+     const cliEnvironmentDefaults = buildCliEnvironmentDefaults(
+       claudeDefault,
+       codexDefault,
++      opencodeDefault,
+     );
+ 
+     return {
+@@ -246,6 +254,7 @@ export default function WorkspaceEnvironmentPanel() {
+     codexDefault,
+     defaultEnvironment,
+     localPath,
++    opencodeDefault,
+     sshMachineId,
+     sshRemotePath,
+     wslDistro,
+@@ -291,14 +300,15 @@ export default function WorkspaceEnvironmentPanel() {
+   }, [draftWorkspace, machines, platform]);
+ 
+   const cliDefaultIssues = useMemo(() => {
+-    if (!environmentIssues) return { claude: null, codex: null };
++    if (!environmentIssues) return { claude: null, codex: null, opencode: null };
+     return {
+       claude: claudeDefault === "inherit" ? null : environmentIssues[claudeDefault],
+       codex: codexDefault === "inherit" ? null : environmentIssues[codexDefault],
++      opencode: opencodeDefault === "inherit" ? null : environmentIssues[opencodeDefault],
+     };
+-  }, [claudeDefault, codexDefault, environmentIssues]);
++  }, [claudeDefault, codexDefault, environmentIssues, opencodeDefault]);
+ 
+-  const currentCliDefaultIssue = cliDefaultIssues.claude ?? cliDefaultIssues.codex;
++  const currentCliDefaultIssue = cliDefaultIssues.claude ?? cliDefaultIssues.codex ?? cliDefaultIssues.opencode;
+ 
+   const visibleEnvironments = useMemo<WorkspaceLaunchEnvironment[]>(
+     () => (isWindows ? ["local", "wsl", "ssh"] : ["local", "ssh"]),
+@@ -310,6 +320,7 @@ export default function WorkspaceEnvironmentPanel() {
+       defaultEnvironment,
+       claudeDefault,
+       codexDefault,
++      opencodeDefault,
+       localPath,
+       wslDistro,
+       wslRemotePath,
+@@ -321,6 +332,7 @@ export default function WorkspaceEnvironmentPanel() {
+       codexDefault,
+       defaultEnvironment,
+       localPath,
++      opencodeDefault,
+       sshMachineId,
+       sshRemotePath,
+       wslDistro,
+@@ -761,7 +773,7 @@ export default function WorkspaceEnvironmentPanel() {
+                     <p className="mt-3 text-xs text-[var(--app-text-secondary)]">
+                       {t("workspaceEnv.defaultHint", {
+                         ns: "sidebar",
+-                        defaultValue: "右键工作空间打开 Claude / Codex 时，会直接使用这里的默认环境。",
++                        defaultValue: "右键工作空间打开 Claude / Codex / OpenCode 时，会直接使用这里的默认环境。",
+                       })}
+                     </p>
+                   )}
+@@ -778,7 +790,7 @@ export default function WorkspaceEnvironmentPanel() {
+                     <p className="mt-1 text-xs text-[var(--app-text-secondary)]">
+                       {t("workspaceEnv.cliDefaults.description", {
+                         ns: "sidebar",
+-                        defaultValue: "仅影响 Claude / Codex 启动，终端继续使用工作空间默认环境。",
++                        defaultValue: "仅影响 Claude / Codex / OpenCode 启动，终端继续使用工作空间默认环境。",
+                       })}
+                     </p>
+                   </div>
+@@ -799,6 +811,14 @@ export default function WorkspaceEnvironmentPanel() {
+                       codexDefault,
+                       setCodexDefault,
+                     )}
++                    {renderCliDefaultRow(
++                      t("workspaceEnv.cliDefaults.opencode", {
++                        ns: "sidebar",
++                        defaultValue: "OpenCode",
++                      }),
++                      opencodeDefault,
++                      setOpencodeDefault,
++                    )}
+                   </div>
+                 </div>
+ 
+diff --git a/web/services/index.ts b/web/services/index.ts
+index e3d95e0..8b3e89e 100644
+--- a/web/services/index.ts
++++ b/web/services/index.ts
+@@ -4,6 +4,7 @@ export { usageStatsService } from "./usageStatsService";
+ export { historyService } from "./historyService";
+ export { claudeService } from "./claudeService";
+ export { codexService } from "./codexService";
++export { opencodeService } from "./opencodeService";
+ export { localHistoryService } from "./localHistoryService";
+ export { projectCliHooksService } from "./projectCliHooksService";
+ export { journalService } from "./journalService";
+@@ -23,6 +24,7 @@ export { planService } from "./planService";
+ export type { LaunchRecord, SessionState } from "./historyService";
+ export type { ClaudeSession } from "./claudeService";
+ export type { CodexSession } from "./codexService";
++export type { OpenCodeSession } from "./opencodeService";
+ export type {
+   FileVersion,
+   HistoryConfig,
+diff --git a/web/types/workspace.ts b/web/types/workspace.ts
+index d824001..fd65089 100644
+--- a/web/types/workspace.ts
++++ b/web/types/workspace.ts
+@@ -14,11 +14,12 @@ export interface SshConnectionInfo {
+ /** 工作空间默认运行环境 */
+ export type WorkspaceLaunchEnvironment = "local" | "wsl" | "ssh";
+ 
+-export type CliEnvironmentKey = "claude" | "codex";
++export type CliEnvironmentKey = "claude" | "codex" | "opencode";
+ 
+ export interface WorkspaceCliEnvironmentDefaults {
+   claude?: WorkspaceLaunchEnvironment;
+   codex?: WorkspaceLaunchEnvironment;
++  opencode?: WorkspaceLaunchEnvironment;
+ }
+ 
+ /** 工作空间迁移目标类型 */
+diff --git a/web/utils/workspaceLaunch.test.ts b/web/utils/workspaceLaunch.test.ts
+index 5d5f7b5..8b671cf 100644
+--- a/web/utils/workspaceLaunch.test.ts
++++ b/web/utils/workspaceLaunch.test.ts
+@@ -193,6 +193,33 @@ describe("workspaceLaunch", () => {
+     });
+   });
+ 
++  it("prefers the OpenCode CLI default over the workspace default", () => {
++    const workspace = createTestWorkspace({
++      path: "D:/workspace-root",
++      defaultEnvironment: "local",
++      cliEnvironmentDefaults: {
++        opencode: "wsl",
++      },
++    });
++
++    const { options, issue } = resolveWorkspaceLaunchOptions({
++      workspace,
++      cliTool: "opencode",
++      machines: [],
++      platform: "windows",
++    });
++
++    expect(issue).toBeNull();
++    expect(resolveCliEnvironmentDefault(workspace, "opencode")).toBe("wsl");
++    expect(options).toMatchObject({
++      path: "D:/workspace-root",
++      cliTool: "opencode",
++      wsl: {
++        remotePath: "/mnt/d/workspace-root",
++      },
++    });
++  });
++
+   it("falls back to the workspace default when a CLI default is absent", () => {
+     const workspace = createTestWorkspace({
+       path: "D:/workspace-root",
+diff --git a/web/utils/workspaceLaunch.ts b/web/utils/workspaceLaunch.ts
+index 42318ce..fc50080 100644
+--- a/web/utils/workspaceLaunch.ts
++++ b/web/utils/workspaceLaunch.ts
+@@ -70,6 +70,7 @@ export function resolveCliEnvironmentDefault(
+ ): WorkspaceLaunchEnvironment | undefined {
+   if (cliTool === "claude") return workspace.cliEnvironmentDefaults?.claude;
+   if (cliTool === "codex") return workspace.cliEnvironmentDefaults?.codex;
++  if (cliTool === "opencode") return workspace.cliEnvironmentDefaults?.opencode;
+   return undefined;
+ }
+ 
+
+########## NEW UNTRACKED FILE: cc-panes-core/src/services/opencode_session_service.rs ##########
+//! OpenCode Session Service — 从 OpenCode SQLite 数据库读取历史会话
+//!
+//! OpenCode TUI 不像 Codex 一样输出 OSC thread id，交互会话需要靠项目路径和时间反查。
+
+use chrono::Utc;
+use rusqlite::{Connection, OpenFlags};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+
+#[cfg(windows)]
+use crate::utils::no_window_command;
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct OpenCodeSession {
+    pub id: String,
+    pub project_path: String,
+    pub modified_at: u64,
+    pub file_path: String,
+    pub description: String,
+}
+
+fn normalize_compare_path(path: &str) -> String {
+    let slashed = path.replace('\\', "/");
+    if let Some(mnt) = drive_to_mnt_path(&slashed) {
+        return mnt.trim_end_matches('/').to_lowercase();
+    }
+    slashed.trim_end_matches('/').to_lowercase()
+}
+
+fn drive_to_mnt_path(slashed: &str) -> Option<String> {
+    let bytes = slashed.as_bytes();
+    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/' {
+        let drive = bytes[0].to_ascii_lowercase() as char;
+        return Some(format!("/mnt/{}{}", drive, &slashed[2..]));
+    }
+    None
+}
+
+fn default_data_dir() -> Result<PathBuf, String> {
+    if let Some(value) = std::env::var_os("OPENCODE_DATA_DIR").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(value));
+    }
+    dirs::home_dir()
+        .map(|home| home.join(".local").join("share").join("opencode"))
+        .ok_or_else(|| "Failed to get user home directory".to_string())
+}
+
+fn default_db_path() -> Result<PathBuf, String> {
+    Ok(default_data_dir()?.join("opencode.db"))
+}
+
+fn open_readonly_connection(path: &Path) -> Result<Connection, String> {
+    Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|error| {
+        format!(
+            "Failed to open OpenCode database {}: {}",
+            path.display(),
+            error
+        )
+    })
+}
+
+fn session_description_from_db(conn: &Connection, session_id: &str, fallback: &str) -> String {
+    let mut stmt = match conn.prepare(
+        r#"
+        SELECT data
+        FROM part
+        WHERE session_id = ?1
+        ORDER BY time_created ASC
+        LIMIT 80
+        "#,
+    ) {
+        Ok(stmt) => stmt,
+        Err(_) => return fallback.to_string(),
+    };
+
+    let rows = match stmt.query_map([session_id], |row| row.get::<_, String>(0)) {
+        Ok(rows) => rows,
+        Err(_) => return fallback.to_string(),
+    };
+
+    for data in rows.flatten() {
+        let Ok(json) = serde_json::from_str::<Value>(&data) else {
+            continue;
+        };
+        if json.get("type").and_then(Value::as_str) != Some("text") {
+            continue;
+        }
+        let Some(text) = json.get("text").and_then(Value::as_str).map(str::trim) else {
+            continue;
+        };
+        if should_skip_description(text) {
+            continue;
+        }
+        return truncate_description(text);
+    }
+
+    fallback.to_string()
+}
+
+fn should_skip_description(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.len() < 3 || trimmed == "继续" || trimmed.eq_ignore_ascii_case("continue")
+}
+
+fn truncate_description(text: &str) -> String {
+    let desc: String = text.chars().take(80).collect();
+    if desc.len() < text.len() {
+        format!("{}...", desc)
+    } else {
+        desc
+    }
+}
+
+fn millis_to_secs(value: i64) -> u64 {
+    if value <= 0 {
+        return 0;
+    }
+    if value > 10_000_000_000 {
+        (value / 1000) as u64
+    } else {
+        value as u64
+    }
+}
+
+fn db_file_path(path: &Path, session_id: &str) -> String {
+    format!("{}#session:{}", path.display(), session_id)
+}
+
+#[cfg(windows)]
+fn parse_serialized_sessions(stdout: &str) -> Result<Vec<OpenCodeSession>, String> {
+    let mut sessions = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let session: OpenCodeSession = serde_json::from_str(trimmed)
+            .map_err(|error| format!("Failed to parse WSL OpenCode session payload: {}", error))?;
+        sessions.push(session);
+    }
+    Ok(sessions)
+}
+
+#[cfg(windows)]
+fn resolve_wsl_distro(distro: Option<&str>) -> Result<String, String> {
+    if let Some(distro) = distro.map(str::trim).filter(|value| !value.is_empty()) {
+        return Ok(distro.to_string());
+    }
+
+    crate::services::wsl_discovery_service::resolve_default_distro()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "No default WSL distro found".to_string())
+}
+
+pub fn list_all_sessions(limit: usize) -> Result<Vec<OpenCodeSession>, String> {
+    list_all_sessions_from_db(&default_db_path()?, limit)
+}
+
+fn list_all_sessions_from_db(path: &Path, limit: usize) -> Result<Vec<OpenCodeSession>, String> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let conn = open_readonly_connection(path)?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT
+                session.id,
+                COALESCE(NULLIF(project.worktree, ''), NULLIF(session.directory, ''), '/') AS project_path,
+                session.title,
+                session.time_updated
+            FROM session
+            LEFT JOIN project ON project.id = session.project_id
+            WHERE session.time_archived IS NULL
+            ORDER BY session.time_updated DESC
+            LIMIT ?1
+            "#,
+        )
+        .map_err(|error| format!("Failed to prepare OpenCode session query: {}", error))?;
+
+    let rows = stmt
+        .query_map([limit as i64], |row| {
+            let id: String = row.get(0)?;
+            let project_path: String = row.get(1)?;
+            let title: String = row.get(2)?;
+            let time_updated: i64 = row.get(3)?;
+            Ok((id, project_path, title, time_updated))
+        })
+        .map_err(|error| format!("Failed to query OpenCode sessions: {}", error))?;
+
+    let mut sessions = Vec::new();
+    for row in rows {
+        let (id, project_path, title, time_updated) =
+            row.map_err(|error| format!("Failed to read OpenCode session row: {}", error))?;
+        let description = session_description_from_db(&conn, &id, &title);
+        sessions.push(OpenCodeSession {
+            id: id.clone(),
+            project_path,
+            modified_at: millis_to_secs(time_updated),
+            file_path: db_file_path(path, &id),
+            description,
+        });
+    }
+
+    Ok(sessions)
+}
+
+fn filter_sessions(
+    sessions: Vec<OpenCodeSession>,
+    project_path: &str,
+    limit: usize,
+) -> Vec<OpenCodeSession> {
+    let target = normalize_compare_path(project_path);
+    let mut filtered = sessions
+        .into_iter()
+        .filter(|session| normalize_compare_path(&session.project_path) == target)
+        .collect::<Vec<_>>();
+    filtered.truncate(limit);
+    filtered
+}
+
+pub fn list_sessions(project_path: &str, limit: usize) -> Result<Vec<OpenCodeSession>, String> {
+    Ok(filter_sessions(
+        list_all_sessions(limit.saturating_mul(4).max(limit))?,
+        project_path,
+        limit,
+    ))
+}
+
+pub fn detect_session(
+    cli_project_paths: &[&str],
+    after: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<String>, String> {
+    detect_in_sessions(list_all_sessions(500)?, cli_project_paths, after)
+}
+
+fn detect_in_sessions(
+    mut sessions: Vec<OpenCodeSession>,
+    cli_project_paths: &[&str],
+    after: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<String>, String> {
+    let targets = cli_project_paths
+        .iter()
+        .map(|path| normalize_compare_path(path))
+        .collect::<Vec<_>>();
+    let after_relaxed = after - chrono::Duration::seconds(1);
+
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.modified_at));
+    for session in sessions {
+        let modified_at = chrono::DateTime::<Utc>::from_timestamp(session.modified_at as i64, 0)
+            .ok_or_else(|| "Invalid OpenCode session timestamp".to_string())?;
+        if modified_at < after_relaxed {
+            continue;
+        }
+        if targets.contains(&normalize_compare_path(&session.project_path)) {
+            return Ok(Some(session.id));
+        }
+    }
+
+    Ok(None)
+}
+
+#[cfg(windows)]
+fn collect_wsl_sessions(
+    limit: usize,
+    distro: Option<&str>,
+) -> Result<Vec<OpenCodeSession>, String> {
+    let distro = resolve_wsl_distro(distro)?;
+    let wsl_path = which::which("wsl.exe")
+        .or_else(|_| which::which("wsl"))
+        .map_err(|_| "wsl.exe not found in PATH".to_string())?;
+
+    let script = format!(
+        r###"PY_BIN=""
+if command -v python3 >/dev/null 2>&1; then
+  PY_BIN="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+  PY_BIN="$(command -v python)"
+else
+  exit 127
+fi
+"$PY_BIN" - <<'PY'
+import json
+import os
+import sqlite3
+from pathlib import Path
+
+LIMIT = {limit}
+DATA_DIR = Path(os.environ.get("OPENCODE_DATA_DIR") or (Path.home() / ".local" / "share" / "opencode"))
+DB_PATH = DATA_DIR / "opencode.db"
+
+def should_skip(text: str) -> bool:
+    trimmed = text.strip()
+    return len(trimmed) < 3 or trimmed == "继续" or trimmed.lower() == "continue"
+
+def truncate(text: str) -> str:
+    return text[:80] + ("..." if len(text) > 80 else "")
+
+def millis_to_secs(value):
+    try:
+        value = int(value or 0)
+    except Exception:
+        return 0
+    if value <= 0:
+        return 0
+    return value // 1000 if value > 10_000_000_000 else value
+
+def description(conn, session_id, fallback):
+    try:
+        rows = conn.execute(
+            "SELECT data FROM part WHERE session_id = ? ORDER BY time_created ASC LIMIT 80",
+            (session_id,),
+        ).fetchall()
+    except sqlite3.Error:
+        return fallback or ""
+    for (data,) in rows:
+        try:
+            payload = json.loads(data)
+        except Exception:
+            continue
+        if payload.get("type") != "text":
+            continue
+        text = (payload.get("text") or "").strip()
+        if text and not should_skip(text):
+            return truncate(text)
+    return fallback or ""
+
+if not DB_PATH.exists():
+    raise SystemExit(0)
+
+conn = sqlite3.connect(f"file:{{DB_PATH}}?mode=ro", uri=True)
+rows = conn.execute(
+    """
+    SELECT
+        session.id,
+        COALESCE(NULLIF(project.worktree, ''), NULLIF(session.directory, ''), '/') AS project_path,
+        session.title,
+        session.time_updated
+    FROM session
+    LEFT JOIN project ON project.id = session.project_id
+    WHERE session.time_archived IS NULL
+    ORDER BY session.time_updated DESC
+    LIMIT ?
+    """,
+    (LIMIT,),
+).fetchall()
+
+for session_id, project_path, title, time_updated in rows:
+    print(json.dumps({{
+        "id": session_id,
+        "project_path": project_path,
+        "modified_at": millis_to_secs(time_updated),
+        "file_path": f"{{DB_PATH}}#session:{{session_id}}",
+        "description": description(conn, session_id, title),
+    }}, ensure_ascii=False))
+PY"###,
+        limit = limit,
+    );
+
+    let output = no_window_command(&wsl_path)
+        .args(["-d", &distro, "--", "bash", "-lc", &script])
+        .output()
+        .map_err(|error| format!("Failed to run WSL OpenCode session scan: {}", error))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "WSL OpenCode session scan failed: {}",
+            stderr.trim()
+        ));
+    }
+
+    parse_serialized_sessions(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(not(windows))]
+fn collect_wsl_sessions(
+    _limit: usize,
+    _distro: Option<&str>,
+) -> Result<Vec<OpenCodeSession>, String> {
+    Err("WSL OpenCode session extraction is only supported on Windows hosts".to_string())
+}
+
+pub fn list_wsl_sessions(
+    project_path: &str,
+    limit: usize,
+    distro: Option<&str>,
+) -> Result<Vec<OpenCodeSession>, String> {
+    Ok(filter_sessions(
+        collect_wsl_sessions(limit.saturating_mul(4).max(limit), distro)?,
+        project_path,
+        limit,
+    ))
+}
+
+pub fn list_all_wsl_sessions(
+    limit: usize,
+    distro: Option<&str>,
+) -> Result<Vec<OpenCodeSession>, String> {
+    collect_wsl_sessions(limit, distro)
+}
+
+pub fn detect_wsl_session(
+    cli_project_paths: &[&str],
+    after: chrono::DateTime<chrono::Utc>,
+    distro: Option<&str>,
+) -> Result<Option<String>, String> {
+    detect_in_sessions(
+        list_all_wsl_sessions(500, distro)?,
+        cli_project_paths,
+        after,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+    use tempfile::NamedTempFile;
+
+    fn create_db() -> NamedTempFile {
+        let file = NamedTempFile::new().unwrap();
+        let conn = Connection::open(file.path()).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE project (
+                id TEXT PRIMARY KEY,
+                worktree TEXT NOT NULL
+            );
+            CREATE TABLE session (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                time_updated INTEGER NOT NULL,
+                time_archived INTEGER
+            );
+            CREATE TABLE part (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                data TEXT NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO project (id, worktree) VALUES (?1, ?2)",
+            ("proj-1", "/repo/project"),
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session (id, project_id, title, directory, time_updated, time_archived)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+            (
+                "ses_1",
+                "proj-1",
+                "Title fallback",
+                "/repo/project",
+                1_785_000_000_000_i64,
+            ),
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part (id, session_id, time_created, data) VALUES (?1, ?2, ?3, ?4)",
+            (
+                "prt_1",
+                "ses_1",
+                1_i64,
+                r#"{"type":"text","text":"implement opencode resume support"}"#,
+            ),
+        )
+        .unwrap();
+        drop(conn);
+        file
+    }
+
+    #[test]
+    fn list_all_sessions_reads_opencode_sqlite() {
+        let db = create_db();
+
+        let sessions = list_all_sessions_from_db(db.path(), 10).unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "ses_1");
+        assert_eq!(sessions[0].project_path, "/repo/project");
+        assert_eq!(sessions[0].modified_at, 1_785_000_000);
+        assert_eq!(sessions[0].description, "implement opencode resume support");
+    }
+
+    #[test]
+    fn filter_sessions_matches_normalized_paths() {
+        let sessions = vec![OpenCodeSession {
+            id: "ses_win".to_string(),
+            project_path: "/mnt/d/repo/project".to_string(),
+            modified_at: 1000,
+            file_path: "db#session:ses_win".to_string(),
+            description: String::new(),
+        }];
+
+        let filtered = filter_sessions(sessions, "D:\\repo\\project", 10);
+
+        assert_eq!(filtered[0].id, "ses_win");
+    }
+
+    #[test]
+    fn detect_session_picks_recent_matching_project() {
+        let sessions = vec![
+            OpenCodeSession {
+                id: "old".to_string(),
+                project_path: "/repo/project".to_string(),
+                modified_at: 900,
+                file_path: String::new(),
+                description: String::new(),
+            },
+            OpenCodeSession {
+                id: "new".to_string(),
+                project_path: "/repo/project".to_string(),
+                modified_at: 1000,
+                file_path: String::new(),
+                description: String::new(),
+            },
+        ];
+
+        let after = chrono::DateTime::<Utc>::from_timestamp(999, 0).unwrap();
+        let got = detect_in_sessions(sessions, &["/repo/project"], after).unwrap();
+
+        assert_eq!(got, Some("new".to_string()));
+    }
+}
+
+########## NEW UNTRACKED FILE: web/services/opencodeService.ts ##########
+import { apiGet, invokeOrApi } from "./apiClient";
+
+/** OpenCode 会话（结构与后端 opencode_session_service::OpenCodeSession 对应） */
+export interface OpenCodeSession {
+  id: string;
+  project_path: string;
+  modified_at: number;
+  file_path: string;
+  description: string;
+}
+
+export const opencodeService = {
+  /**
+   * 获取项目的 OpenCode 会话列表。
+   */
+  async listSessions(
+    projectPath: string,
+    runtimeKind?: string,
+    wslDistro?: string,
+  ): Promise<OpenCodeSession[]> {
+    return invokeOrApi<OpenCodeSession[]>(
+      "list_opencode_sessions",
+      { projectPath, runtimeKind, wslDistro },
+      () =>
+        apiGet<OpenCodeSession[]>("/api/opencode/sessions", {
+          projectPath,
+          runtimeKind,
+          wslDistro,
+        }),
+    );
+  },
+};
+
+########## NEW UNTRACKED FILE: web/services/opencodeService.test.ts ##########
+import { describe, expect, it, beforeEach } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import { opencodeService } from "./opencodeService";
+import {
+  mockTauriInvoke,
+  resetTauriInvoke,
+} from "@/test/utils/mockTauriInvoke";
+
+describe("opencodeService", () => {
+  beforeEach(() => {
+    resetTauriInvoke();
+  });
+
+  it("调用 list_opencode_sessions 并返回会话列表", async () => {
+    const sessions = [
+      {
+        id: "ses_123",
+        project_path: "/path/to/project",
+        modified_at: 1785000000,
+        file_path: "/home/user/.local/share/opencode/opencode.db#session:ses_123",
+        description: "Implement OpenCode support",
+      },
+    ];
+    mockTauriInvoke({ list_opencode_sessions: sessions });
+
+    const result = await opencodeService.listSessions(
+      "/path/to/project",
+      "local",
+    );
+
+    expect(invoke).toHaveBeenCalledWith("list_opencode_sessions", {
+      projectPath: "/path/to/project",
+      runtimeKind: "local",
+      wslDistro: undefined,
+    });
+    expect(result).toEqual(sessions);
+  });
+});

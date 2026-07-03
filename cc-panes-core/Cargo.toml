@@ -21,6 +21,7 @@ notify = "7"
 sha2 = "0.10"
 toml = "0.8"
 urlencoding = "2"
+base64 = "0.22"
 url = "2"
 similar = "2"
 flate2 = "1"
@@ -41,6 +42,9 @@ tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }

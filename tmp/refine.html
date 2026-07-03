@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  body{margin:0;font-family:sans-serif;background:#f1f5f9;padding:24px}
+  h1{font-size:14px;color:#475569}
+  .row{display:flex;align-items:flex-end;gap:28px;margin-bottom:24px}
+  .sz{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#64748b}
+  svg{display:block}
+  .lbl{font-size:13px;font-weight:600;color:#0f172a;margin:8px 0}
+</style></head><body>
+<h1>CC-Panes logo 精修</h1>
+
+<div class="lbl">方案 A — [ &gt;_ ] 终端括号（居中、去圆点去灰线）</div>
+<div class="row" id="rowA"></div>
+
+<div class="lbl">方案 B — 分屏布局（左一格 + 右两格，保留分屏、去 &gt;_ 去圆点）</div>
+<div class="row" id="rowB"></div>
+
+<script>
+const A = `
+  <rect width="512" height="512" rx="116" fill="#17181B"/>
+  <path d="M168 120 L116 120 C92 120 76 136 76 160 L76 352 C76 376 92 392 116 392 L168 392"
+        fill="none" stroke="#00E5FF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M344 120 L396 120 C420 120 436 136 436 160 L436 352 C436 376 420 392 396 392 L344 392"
+        fill="none" stroke="#FF6D00" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M210 196 L268 256 L210 316" fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M286 316 L330 316" fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="round"/>
+`;
+const B = `
+  <rect width="512" height="512" rx="116" fill="#17181B"/>
+  <!-- left pane -->
+  <rect x="80" y="120" width="150" height="272" rx="26" fill="none" stroke="#00E5FF" stroke-width="30"/>
+  <!-- right-top pane -->
+  <rect x="282" y="120" width="150" height="120" rx="26" fill="none" stroke="#FF6D00" stroke-width="30"/>
+  <!-- right-bottom pane -->
+  <rect x="282" y="272" width="150" height="120" rx="26" fill="none" stroke="#A78BFA" stroke-width="30"/>
+  <!-- cursor in left pane -->
+  <path d="M120 210 L150 240 L120 270" fill="none" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+`;
+function svg(inner,px){return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="${px}">${inner}</svg>`;}
+const sizes=[200,96,48,28];
+for(const [id,inner] of [["rowA",A],["rowB",B]]){
+  const host=document.getElementById(id);
+  host.innerHTML = sizes.map(s=>`<div class="sz">${svg(inner,s)}<span>${s}px</span></div>`).join("");
+}
+</script>
+</body></html>

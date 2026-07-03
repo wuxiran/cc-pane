@@ -25,6 +25,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 mod osc_resume_capture;
+mod osc_state_detect;
+mod shell_integration;
 mod wsl_codex;
 
 use self::wsl_codex::{strip_wsl_proxy_env_vars, windows_path_to_wsl, WSL_PROXY_ENV_KEYS};
@@ -734,7 +736,8 @@ pub struct TerminalService {
     launch_profile_service: parking_lot::RwLock<Option<Arc<LaunchProfileService>>>,
     workspace_service: parking_lot::RwLock<Option<Arc<WorkspaceService>>>,
     /// 每个 session 独立串行化所有输入写入，避免键盘输入、粘贴和 submit 互相交错。
-    input_mutexes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    // Arc 以便自然退出的 wait 线程也能清理条目（kill 走 &self，wait 走 move 闭包）
+    input_mutexes: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 struct SshAuthRuntime {
@@ -1110,7 +1113,7 @@ impl TerminalService {
             shared_mcp_service: parking_lot::RwLock::new(None),
             launch_profile_service: parking_lot::RwLock::new(None),
             workspace_service: parking_lot::RwLock::new(None),
-            input_mutexes: Mutex::new(HashMap::new()),
+            input_mutexes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1657,6 +1660,13 @@ impl TerminalService {
             // 命令：根据 cli_tool 分发（通过 Registry 适配器层）
             let (cmd, cmd_args, cmd_env_remove) = if cli_tool_id == "none" {
                 let (c, shell_args) = resolve_shell(shell_id.as_deref());
+                // 纯 shell 标签页注入 OSC 133/7 集成脚本（失败时透传）
+                let (c, shell_args) = shell_integration::apply(
+                    self.app_paths.data_dir(),
+                    c,
+                    shell_args,
+                    &mut env_vars,
+                );
                 (c, shell_args, vec![])
             } else {
                 let adapter = self
@@ -1977,6 +1987,7 @@ impl TerminalService {
             let mut read_window_start = Instant::now();
             #[cfg(windows)]
             let mut sanitize_state = WindowsOutputSanitizeState::default();
+            let mut osc_detector = osc_state_detect::OscStateDetector::new();
             loop {
                 if read_cancelled.load(Ordering::Relaxed) {
                     break;
@@ -2054,6 +2065,15 @@ impl TerminalService {
                             capture.scan(&data);
                         }
 
+                        // OSC 状态信号（in-band 通道）：hook 的 terminalSequence 标记、
+                        // shell 集成的 133 命令边界、OSC 9 通知。信号汇入状态机，
+                        // 与 HTTP hook 通道在 on_event_with_channel 内跨通道去重。
+                        if let Some(sm) = read_state_machine.as_ref() {
+                            osc_detector.process(data.as_bytes(), |signal| {
+                                apply_osc_signal(sm, &sid, signal);
+                            });
+                        }
+
                         // 更新状态
                         {
                             let mut ts = read_last_output.lock().unwrap_or_else(|e| {
@@ -2120,7 +2140,15 @@ impl TerminalService {
                             if let Ok(mut runtime) = runtime.lock() {
                                 runtime.prompt_buffer.push_str(&normalized_prompt);
                                 if runtime.prompt_buffer.len() > 512 {
-                                    let keep_from = runtime.prompt_buffer.len() - 512;
+                                    // keep_from 是字节偏移；SSH MOTD/中文 banner 含多字节
+                                    // 字符时可能落在字符中间，drain 非字符边界会 panic
+                                    // 并毒化本锁。向后对齐到最近的字符边界（最多多丢 3B）。
+                                    let mut keep_from = runtime.prompt_buffer.len() - 512;
+                                    while keep_from < runtime.prompt_buffer.len()
+                                        && !runtime.prompt_buffer.is_char_boundary(keep_from)
+                                    {
+                                        keep_from += 1;
+                                    }
                                     runtime.prompt_buffer.drain(..keep_from);
                                 }
                                 let last_line = runtime
@@ -2196,6 +2224,7 @@ impl TerminalService {
         let wait_notifier = notifier;
         let sessions_for_wait = Arc::clone(&self.sessions);
         let dead_buffers_for_wait = Arc::clone(&self.dead_buffers);
+        let input_mutexes_for_wait = Arc::clone(&self.input_mutexes);
         let wait_pid = session_pid;
         let wait_resume_diag = resume_diag;
         let wait_output_buffer = output_buffer.clone();
@@ -2304,6 +2333,11 @@ impl TerminalService {
             // 延迟清理会话：等待读取线程完成后移除 session，
             // 防止僵尸会话永久驻留在 HashMap 中
             thread::sleep(std::time::Duration::from_millis(500));
+            // 自然退出也要清理 per-session 输入锁，否则长期运行下每个已退出
+            // 会话都会残留一个 Arc<Mutex<()>>（此前仅 kill() 清理）。
+            if let Ok(mut input_mutexes) = input_mutexes_for_wait.lock() {
+                input_mutexes.remove(&sid);
+            }
             if let Ok(mut sessions) = sessions_for_wait.lock() {
                 // 移除前保存 output_buffer 到 dead_buffers，供事后读取
                 if let Some(session) = sessions.remove(&sid) {
@@ -3062,6 +3096,56 @@ fn strip_ansi_escapes(s: &str) -> String {
     }
 
     String::from_utf8_lossy(&result).to_string()
+}
+
+/// OSC 状态信号 → 状态机事件（PTY 读线程回调）。
+///
+/// 状态更新与前端广播由 orchestrator 注册在状态机上的 listener 完成，
+/// 这里只负责映射并投递；OSC 通道不携带 task_binding_id（HTTP 通道会补）。
+fn apply_osc_signal(
+    sm: &Arc<crate::services::SessionStateMachine>,
+    session_id: &str,
+    signal: osc_state_detect::OscSignal,
+) {
+    use crate::services::session_state_machine::{parse_cc_pane_event_name, EventChannel};
+    use cc_cli_adapters::CcPaneEvent;
+    use osc_state_detect::OscSignal;
+
+    let (event, payload) = match signal {
+        OscSignal::Started { agent } => (
+            CcPaneEvent::SessionInit,
+            serde_json::json!({"agent": agent, "source": "osc"}),
+        ),
+        OscSignal::Event { name } => {
+            let Some(event) = parse_cc_pane_event_name(&name) else {
+                debug!(
+                    session_id,
+                    event = %name,
+                    "unknown cc-pane event name in OSC marker, dropped"
+                );
+                return;
+            };
+            (event, serde_json::json!({"source": "osc"}))
+        }
+        // 133;D 只发生在 shell 标签页（launch_task 直启的 CLI 没有 shell）：
+        // agent 命令结束但 shell 还活着，映射 SessionEnd 会把活会话标成
+        // Exited 并触发退出通知（审阅发现）。按退出码映射为 Idle / Error。
+        OscSignal::CommandExited { exit_code } => match exit_code {
+            Some(code) if code != 0 => (
+                CcPaneEvent::Error,
+                serde_json::json!({
+                    "error_type": "agent-exit",
+                    "exit_code": code,
+                    "source": "osc"
+                }),
+            ),
+            _ => (
+                CcPaneEvent::TurnEnd,
+                serde_json::json!({"exit_code": exit_code, "source": "osc"}),
+            ),
+        },
+    };
+    sm.on_event_with_channel(session_id, &event, None, &payload, EventChannel::Osc);
 }
 
 /// 从输出内容推断终端状态

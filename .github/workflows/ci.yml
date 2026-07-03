@@ -31,8 +31,8 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Run tests
-        run: npm run test:run
+      - name: Run tests (with coverage gate)
+        run: npm run test:coverage
 
   backend-check:
     name: Backend Check (${{ matrix.os }})

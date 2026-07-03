@@ -98,6 +98,16 @@ fn dispatch_with_business(event_name: &str, kind: DispatchKind) {
 
     events::dispatch::report_with_payload(event_name, &raw);
 
+    // OSC in-band 通道：仅纯状态子命令与 stdout 无输出的业务子命令可发
+    // （terminalSequence JSON 必须独占 stdout；session-init/resume 的
+    //  context 注入是纯文本 stdout，不能混）。
+    match kind {
+        DispatchKind::None | DispatchKind::PlanArchive => {
+            events::dispatch::emit_terminal_sequence(event_name);
+        }
+        DispatchKind::SessionStart => {}
+    }
+
     match kind {
         DispatchKind::None => {}
         DispatchKind::SessionStart => session_start::run_with_stdin(&raw),

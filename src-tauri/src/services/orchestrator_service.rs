@@ -4303,13 +4303,6 @@ impl McpToolHandler {
         };
         info!(id = %params.id, "mcp::update_task_binding");
         let task_id = params.id.clone();
-        let old_status = match self.state.task_binding_service.get(&task_id) {
-            Ok(binding) => binding.map(|binding| binding.status),
-            Err(e) => {
-                warn!(id = %task_id, err = %e, "mcp::update_task_binding failed to load previous status");
-                None
-            }
-        };
 
         let req = UpdateTaskBindingRequest {
             title: params.title,
@@ -4332,8 +4325,12 @@ impl McpToolHandler {
             metadata: params.metadata,
         };
 
-        match self.state.task_binding_service.update(&task_id, req) {
-            Ok(binding) => {
+        match self
+            .state
+            .task_binding_service
+            .update_returning_previous_status(&task_id, req)
+        {
+            Ok((old_status, binding)) => {
                 notify_leader_on_terminal_status(self.state.clone(), old_status, binding.clone());
                 serde_json::to_string(&binding)
                     .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
@@ -6498,20 +6495,8 @@ async fn handle_hook_event(
 }
 
 fn parse_cc_pane_event(name: &str) -> Option<cc_cli_adapters::CcPaneEvent> {
-    use cc_cli_adapters::{CcPaneEvent, ToolMatcher};
-    Some(match name {
-        "session-init" => CcPaneEvent::SessionInit,
-        "session-resume" => CcPaneEvent::SessionResume,
-        "session-end" => CcPaneEvent::SessionEnd,
-        "prompt-before" => CcPaneEvent::PromptBefore,
-        "tool-before" => CcPaneEvent::ToolBefore(ToolMatcher::any()),
-        "tool-after" => CcPaneEvent::ToolAfter(ToolMatcher::any()),
-        "turn-end" => CcPaneEvent::TurnEnd,
-        "before-compact" => CcPaneEvent::BeforeCompact,
-        "waiting-input" => CcPaneEvent::WaitingInput,
-        "error" => CcPaneEvent::Error,
-        _ => return None,
-    })
+    // 与 OSC 通道共用同一份事件名映射，避免两处各自维护静默漏事件
+    cc_panes_core::services::session_state_machine::parse_cc_pane_event_name(name)
 }
 
 async fn handle_memory_recall(
@@ -7104,37 +7089,29 @@ fn externalize_long_prompt(project_path: &str, id: &str, prompt: String) -> Stri
     }
 }
 
-/// 根据文本长度动态计算 Enter 前的等待延迟（ms）
-///
-/// write() 同步阻塞完成后调用，只需覆盖 ink 渲染处理时间。
-/// 基础 200ms + 每 512B 额外 30ms（匹配 write() 的 512B/30ms 分块速率）。
-/// 范围: [200, 5000] ms
-fn compute_enter_delay_ms(text_len: usize) -> u64 {
-    let extra_ms = (text_len as u64 / 512) * 30;
-    std::cmp::min(200 + extra_ms, 5000)
-}
-
 /// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交
 /// 参考: https://github.com/anthropics/claude-code/issues/15553
+///
+/// 直接复用 TerminalService::submit_text_to_session——它持有 per-session 输入锁
+/// 覆盖 "写文本 + sleep + 写 Enter" 的完整序列（fix C2）。此前 orchestrator 自己
+/// 拆成两次独立 write，未持锁，多个 worker 同时向同一 leader 报告时文本会交错，
+/// 提交给 leader PTY 的是拼接乱码。整段放进 spawn_blocking（含内部 sleep）避免
+/// 阻塞 tokio worker。
 async fn submit_text_to_session(
     terminal_svc: &Arc<TerminalService>,
     session_id: &str,
     text: &str,
 ) -> std::result::Result<(), anyhow::Error> {
-    // Step 1: 写入文本（spawn_blocking 避免阻塞 tokio worker）
     let svc = terminal_svc.clone();
     let sid = session_id.to_string();
     let txt = text.to_string();
-    let txt_len = text.len();
-    tokio::task::spawn_blocking(move || svc.write(&sid, &txt)).await??;
-
-    // Step 2: 等待 ink 处理完文本
-    let delay_ms = compute_enter_delay_ms(txt_len);
-    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-
-    // Step 3: 发送 Enter（短写入不需要 spawn_blocking）
-    terminal_svc.write(session_id, "\r")?;
-    Ok(())
+    // 完全限定：`impl RunnerTerminal for Arc<TerminalService>` 也有个同名 async
+    // 方法会遮蔽 deref 到 TerminalService 的 inherent 同步版（且互相递归）。
+    tokio::task::spawn_blocking(move || {
+        TerminalService::submit_text_to_session(svc.as_ref(), &sid, &txt)
+    })
+    .await?
+    .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
 #[derive(Debug, Serialize)]

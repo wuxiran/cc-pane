@@ -22,8 +22,9 @@ import {
 } from "@/stores";
 import { isTauriRuntime } from "@/services/runtime";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
+import { collectPanels } from "@/stores/paneTreeHelpers";
 
-import type { CliTool, LaunchProviderSelection, PaneNode, Panel, SshConnectionInfo, WslLaunchInfo } from "@/types";
+import type { CliTool, LaunchProviderSelection, SshConnectionInfo, WslLaunchInfo } from "@/types";
 
 interface OrchestratorLaunchPayload {
   taskId: string;
@@ -51,11 +52,6 @@ interface OrchestratorLaunchPayload {
    * resolve a `parentTabId` for hierarchical numbering (#N.M).
    */
   parentSessionId?: string;
-}
-
-function collectPanels(node: PaneNode): Panel[] {
-  if (node.type === "panel") return [node];
-  return node.children.flatMap(collectPanels);
 }
 
 export function useOrchestratorListener() {
@@ -217,11 +213,8 @@ export function useOrchestratorListener() {
             "[Orchestrator] Received open-file event:",
             event.payload
           );
-          useEditorTabsStore.getState().openFile(projectPath, filePath, title);
-          const activity = useActivityBarStore.getState();
-          if (activity.appViewMode !== "files") {
-            activity.toggleFilesMode();
-          }
+          // 在分屏区作为 editor tab 打开（与终端并列），去重聚焦由 openEditor 负责
+          usePanesStore.getState().openEditor(projectPath, filePath, title);
         }
       )
       .then((fn) => unlisteners.push(fn));
@@ -233,6 +226,9 @@ export function useOrchestratorListener() {
           "[Orchestrator] Received close-file event:",
           event.payload
         );
+        // 分屏区的 editor tab（跨全部布局）
+        usePanesStore.getState().closeEditorTabsByPath(event.payload.filePath);
+        // Files 视图的编辑器 tab（旧入口打开的文件）
         const store = useEditorTabsStore.getState();
         const tab = store.tabs.find(
           (t) => t.filePath === event.payload.filePath
@@ -261,6 +257,8 @@ export function useOrchestratorListener() {
             pinned: t.pinned ?? false,
             active: t.id === store.activeTabId,
           }));
+          // 分屏区的 editor tab（跨全部布局）也计入
+          files.push(...usePanesStore.getState().listEditorTabsAcrossLayouts());
           const data = JSON.stringify({ files, total: files.length });
           await invoke("respond_orchestrator_query", {
             requestId: event.payload.requestId,

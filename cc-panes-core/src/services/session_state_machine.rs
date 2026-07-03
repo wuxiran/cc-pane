@@ -27,6 +27,27 @@ use tracing::{debug, info, warn};
 
 use crate::services::terminal_service::SessionStatus;
 
+/// hook 事件的到达通道。
+///
+/// 同一个 hook 触发会经两条通道上报：HTTP POST /api/hook-event（带完整 payload）
+/// 和 PTY in-band OSC 777 标记（cc-panes-cli-hook 的 terminalSequence 输出，
+/// 由 osc_state_detect 解析）。本地运行时两条都通，WSL/SSH 运行时 HTTP 可能
+/// 到不了后端，OSC 随终端字节流必达。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventChannel {
+    Http,
+    Osc,
+}
+
+/// 跨通道去重窗口：同名事件在此窗口内从**另一条**通道再次到达时视为
+/// 同一次 hook 的重复投递，丢弃。窗口需远大于双通道到达的偏差（毫秒级），
+/// 又远小于相邻两次真实 hook 事件的最短间隔。
+const CROSS_CHANNEL_DEDUP_WINDOW_SECS: u64 = 2;
+
+/// 去重记忆条数。单槽会被重排击穿：A(Http)→B(Http)→A(Osc) 序列里
+/// A 的 OSC 副本因记忆已被 B 覆盖而重复应用（如 turn_seq 多计）。
+const DEDUP_MEMORY: usize = 4;
+
 /// 单个 session 的状态机内部状态
 #[derive(Debug, Clone)]
 pub struct SessionStateEntry {
@@ -37,6 +58,8 @@ pub struct SessionStateEntry {
     pub current_tool_summary: Option<String>,
     /// 最后一次收到 hook 事件的时间（用于 2.8 ANSI 推断降级判定）
     pub last_hook_event_at: Instant,
+    /// 最近数次已应用事件（事件名 + 时间 + 通道），用于跨通道去重
+    last_applied_events: Vec<(&'static str, Instant, EventChannel)>,
     /// 最近一次状态机更新的 epoch 毫秒时间戳。
     pub updated_at: u64,
     /// 当前 ToolRunning 工具的 tool_use_id（用于长工具 timer 与通知 dedupe）
@@ -54,6 +77,7 @@ impl SessionStateEntry {
             current_tool_name: None,
             current_tool_summary: None,
             last_hook_event_at: Instant::now(),
+            last_applied_events: Vec::new(),
             updated_at: current_epoch_millis(),
             current_tool_use_id: None,
             turn_seq: 0,
@@ -105,7 +129,7 @@ impl SessionStateMachine {
         }
     }
 
-    /// 处理一个 hook 事件。
+    /// 处理一个 hook 事件（HTTP 通道，保持原签名兼容）。
     ///
     /// 返回 (from, to)，用于 HTTP handler 把跃迁回执给 hook（hook 可选择忽略）。
     pub fn on_event(
@@ -115,6 +139,28 @@ impl SessionStateMachine {
         task_binding_id: Option<String>,
         payload: &serde_json::Value,
     ) -> (SessionStatus, SessionStatus) {
+        self.on_event_with_channel(
+            pty_session_id,
+            event,
+            task_binding_id,
+            payload,
+            EventChannel::Http,
+        )
+    }
+
+    /// 处理一个 hook 事件，标注到达通道。
+    ///
+    /// 跨通道去重：同名事件在 2s 窗口内从另一条通道重复到达时丢弃
+    /// （返回 (current, current)，不产生跃迁）。同通道的快速重复
+    /// （如连续两次 tool-before）是真实事件，照常应用。
+    pub fn on_event_with_channel(
+        &self,
+        pty_session_id: &str,
+        event: &CcPaneEvent,
+        task_binding_id: Option<String>,
+        payload: &serde_json::Value,
+        channel: EventChannel,
+    ) -> (SessionStatus, SessionStatus) {
         let mut entries = match self.entries.lock() {
             Ok(g) => g,
             Err(e) => e.into_inner(),
@@ -123,6 +169,29 @@ impl SessionStateMachine {
             .entry(pty_session_id.to_string())
             .or_insert_with(SessionStateEntry::new);
         let from = entry.status;
+
+        let event_name = cc_pane_event_name(event);
+        let is_cross_channel_dup = entry.last_applied_events.iter().any(|(name, at, ch)| {
+            *name == event_name
+                && *ch != channel
+                && at.elapsed().as_secs() < CROSS_CHANNEL_DEDUP_WINDOW_SECS
+        });
+        if is_cross_channel_dup {
+            debug!(
+                pty_session_id = pty_session_id,
+                event = event_name,
+                channel = ?channel,
+                "cross-channel duplicate hook event dropped"
+            );
+            return (from, from);
+        }
+        if entry.last_applied_events.len() >= DEDUP_MEMORY {
+            entry.last_applied_events.remove(0);
+        }
+        entry
+            .last_applied_events
+            .push((event_name, Instant::now(), channel));
+
         if let Some(id) = task_binding_id.clone() {
             entry.task_binding_id = Some(id);
         }
@@ -389,6 +458,25 @@ fn current_epoch_millis() -> u64 {
         .as_millis() as u64
 }
 
+/// 事件名 → CcPaneEvent（`cc_pane_event_name` 的逆映射）。
+/// OSC 通道只携带事件名，工具事件的 matcher 在运行期分发无意义，统一 any()。
+pub fn parse_cc_pane_event_name(name: &str) -> Option<CcPaneEvent> {
+    use cc_cli_adapters::ToolMatcher;
+    Some(match name {
+        "session-init" => CcPaneEvent::SessionInit,
+        "session-resume" => CcPaneEvent::SessionResume,
+        "session-end" => CcPaneEvent::SessionEnd,
+        "prompt-before" => CcPaneEvent::PromptBefore,
+        "tool-before" => CcPaneEvent::ToolBefore(ToolMatcher::any()),
+        "tool-after" => CcPaneEvent::ToolAfter(ToolMatcher::any()),
+        "turn-end" => CcPaneEvent::TurnEnd,
+        "before-compact" => CcPaneEvent::BeforeCompact,
+        "waiting-input" => CcPaneEvent::WaitingInput,
+        "error" => CcPaneEvent::Error,
+        _ => return None,
+    })
+}
+
 fn cc_pane_event_name(event: &CcPaneEvent) -> &'static str {
     match event {
         CcPaneEvent::SessionInit => "session-init",
@@ -552,6 +640,117 @@ mod tests {
             sm.snapshot(sid).unwrap().current_tool_use_id.as_deref(),
             Some("tu-2")
         );
+    }
+
+    #[test]
+    fn cross_channel_duplicate_is_dropped() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-8";
+        // HTTP 先到：Initializing → Thinking
+        let (_, s) = sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
+        assert_eq!(s, SessionStatus::Thinking);
+        sm.on_event(sid, &CcPaneEvent::TurnEnd, None, &empty_payload());
+        assert_eq!(sm.snapshot(sid).unwrap().turn_seq, 1);
+        // 同一 turn-end 的 OSC 副本在窗口内到达 → 丢弃，turn_seq 不再自增
+        let (from, to) = sm.on_event_with_channel(
+            sid,
+            &CcPaneEvent::TurnEnd,
+            None,
+            &empty_payload(),
+            EventChannel::Osc,
+        );
+        assert_eq!((from, to), (SessionStatus::Idle, SessionStatus::Idle));
+        assert_eq!(sm.snapshot(sid).unwrap().turn_seq, 1);
+    }
+
+    #[test]
+    fn osc_first_then_http_duplicate_is_also_dropped() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-9";
+        let (_, s) = sm.on_event_with_channel(
+            sid,
+            &CcPaneEvent::WaitingInput,
+            None,
+            &empty_payload(),
+            EventChannel::Osc,
+        );
+        assert_eq!(s, SessionStatus::WaitingInput);
+        sm.on_event_with_channel(
+            sid,
+            &CcPaneEvent::TurnEnd,
+            None,
+            &empty_payload(),
+            EventChannel::Osc,
+        );
+        let seq_before = sm.snapshot(sid).unwrap().turn_seq;
+        // HTTP 副本晚到 → 丢弃
+        sm.on_event(sid, &CcPaneEvent::TurnEnd, None, &empty_payload());
+        assert_eq!(sm.snapshot(sid).unwrap().turn_seq, seq_before);
+    }
+
+    #[test]
+    fn reordered_osc_copy_is_still_deduped() {
+        // A(Http) → B(Http) → A(Osc)：A 的 OSC 副本被 PTY 缓冲延迟到 B 之后，
+        // 单槽记忆会漏掉它；多槽记忆必须仍然去重。
+        let sm = SessionStateMachine::new();
+        let sid = "pty-11";
+        sm.on_event(sid, &CcPaneEvent::TurnEnd, None, &empty_payload());
+        sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
+        assert_eq!(sm.snapshot(sid).unwrap().turn_seq, 1);
+        // turn-end 的 OSC 副本迟到
+        sm.on_event_with_channel(
+            sid,
+            &CcPaneEvent::TurnEnd,
+            None,
+            &empty_payload(),
+            EventChannel::Osc,
+        );
+        assert_eq!(sm.snapshot(sid).unwrap().turn_seq, 1);
+        // 状态也不该被打回 Idle
+        assert_eq!(sm.snapshot(sid).unwrap().status, SessionStatus::Thinking);
+    }
+
+    #[test]
+    fn same_channel_rapid_repeat_is_applied() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-10";
+        // 同通道连续两次 tool-before 是真实事件（连续工具调用），不去重
+        sm.on_event(
+            sid,
+            &CcPaneEvent::ToolBefore(ToolMatcher::any()),
+            None,
+            &json!({"tool_name": "Read", "tool_use_id": "tu-1"}),
+        );
+        sm.on_event(
+            sid,
+            &CcPaneEvent::ToolBefore(ToolMatcher::any()),
+            None,
+            &json!({"tool_name": "Edit", "tool_use_id": "tu-2"}),
+        );
+        assert_eq!(
+            sm.snapshot(sid).unwrap().current_tool_use_id.as_deref(),
+            Some("tu-2")
+        );
+    }
+
+    #[test]
+    fn parse_cc_pane_event_name_round_trips() {
+        for name in [
+            "session-init",
+            "session-resume",
+            "session-end",
+            "prompt-before",
+            "tool-before",
+            "tool-after",
+            "turn-end",
+            "before-compact",
+            "waiting-input",
+            "error",
+        ] {
+            let event = parse_cc_pane_event_name(name).expect(name);
+            assert_eq!(cc_pane_event_name(&event), name);
+        }
+        assert!(parse_cc_pane_event_name("bogus").is_none());
     }
 
     #[test]
