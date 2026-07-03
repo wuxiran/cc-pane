@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, PollWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ use crate::models::{
 };
 use crate::repository::HistoryFileRepository;
 
-type WatcherMap = Arc<Mutex<HashMap<PathBuf, RecommendedWatcher>>>;
+type WatcherMap = Arc<Mutex<HashMap<PathBuf, PollWatcher>>>;
 type RepoMap = Arc<Mutex<HashMap<PathBuf, Arc<HistoryFileRepository>>>>;
 
 /// 文件事件消息（单写者模型）
@@ -406,6 +406,12 @@ impl HistoryService {
     }
 
     /// 启动文件监控
+    ///
+    /// 使用 `PollWatcher`（轮询模式）而非 `RecommendedWatcher`（Windows 上
+    /// 使用 `ReadDirectoryChangesW` 打开文件句柄），避免在 Windows 上
+    /// 因递归监视整个项目目录导致文件句柄锁定，防止外部工具无法正常操作项目文件。
+    ///
+    /// 轮询间隔 2 秒，自动快照延迟约 2 秒，不影响功能完整性。
     pub fn start_watching(&self, project_path: &Path) -> Result<()> {
         let project_path = project_path.to_path_buf();
 
@@ -423,7 +429,7 @@ impl HistoryService {
         let branch_cache = self.branch_cache.clone();
         let silence_until = self.silence_until.clone();
 
-        let mut watcher = RecommendedWatcher::new(
+        let mut watcher = PollWatcher::new(
             move |res: Result<Event, notify::Error>| {
                 if let Ok(event) = res {
                     Self::dispatch_event(
@@ -435,7 +441,8 @@ impl HistoryService {
                     );
                 }
             },
-            Config::default(),
+            Config::default()
+                .with_poll_interval(Duration::from_secs(2)),
         )
         .context("Failed to create file watcher")?;
 
