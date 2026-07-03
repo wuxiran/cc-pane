@@ -44,3 +44,62 @@ pub fn no_window_tokio_command(program: impl AsRef<OsStr>) -> tokio::process::Co
 pub fn no_window_tokio_command(program: impl AsRef<OsStr>) -> tokio::process::Command {
     tokio::process::Command::new(program)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_window_command_sets_program() {
+        let command = no_window_command("some-program");
+        assert_eq!(command.get_program(), OsStr::new("some-program"));
+    }
+
+    #[test]
+    fn no_window_tokio_command_sets_program() {
+        let command = no_window_tokio_command("some-program");
+        assert_eq!(command.as_std().get_program(), OsStr::new("some-program"));
+    }
+
+    #[test]
+    fn no_window_command_executes_successfully() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut c = no_window_command("cmd");
+            c.args(["/c", "exit 0"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut c = no_window_command("sh");
+            c.args(["-c", "exit 0"]);
+            c
+        };
+        let status = command.status().expect("command should spawn");
+        assert!(status.success());
+    }
+
+    #[test]
+    fn no_window_tokio_command_executes_successfully() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            #[cfg(windows)]
+            let mut command = {
+                let mut c = no_window_tokio_command("cmd");
+                c.args(["/c", "exit 0"]);
+                c
+            };
+            #[cfg(not(windows))]
+            let mut command = {
+                let mut c = no_window_tokio_command("sh");
+                c.args(["-c", "exit 0"]);
+                c
+            };
+            let status = command.status().await.expect("command should spawn");
+            assert!(status.success());
+        });
+    }
+}

@@ -558,3 +558,404 @@ impl FileSystemService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn svc() -> FileSystemService {
+        FileSystemService::new()
+    }
+
+    fn path_str(p: &Path) -> String {
+        p.to_string_lossy().to_string()
+    }
+
+    // ===== validate_path =====
+
+    #[test]
+    fn validate_path_rejects_empty() {
+        let err = svc().get_entry_info("").unwrap_err();
+        assert!(err.message().contains("empty"));
+    }
+
+    #[test]
+    fn validate_path_rejects_parent_dir_component() {
+        let err = svc().get_entry_info("foo/../bar").unwrap_err();
+        assert!(err.message().contains(".."));
+    }
+
+    #[test]
+    fn validate_path_rejects_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let missing = tmp.path().join("no-such-file.txt");
+        let err = svc().get_entry_info(&path_str(&missing)).unwrap_err();
+        assert!(err.message().contains("Invalid path"));
+    }
+
+    // ===== list_directory =====
+
+    #[test]
+    fn list_directory_sorts_dirs_first_then_case_insensitive() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("zeta")).unwrap();
+        fs::create_dir(tmp.path().join("Alpha")).unwrap();
+        fs::write(tmp.path().join("b.txt"), "b").unwrap();
+        fs::write(tmp.path().join("A.txt"), "a").unwrap();
+
+        let listing = svc().list_directory(&path_str(tmp.path()), false).unwrap();
+        let names: Vec<&str> = listing.entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["Alpha", "zeta", "A.txt", "b.txt"]);
+        assert!(listing.entries[0].is_dir);
+        assert!(listing.entries[2].is_file);
+    }
+
+    #[test]
+    fn list_directory_filters_dotfiles_unless_show_hidden() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join(".hidden"), "h").unwrap();
+        fs::write(tmp.path().join("visible.txt"), "v").unwrap();
+
+        let dir = path_str(tmp.path());
+        let without = svc().list_directory(&dir, false).unwrap();
+        assert_eq!(without.entries.len(), 1);
+        assert_eq!(without.entries[0].name, "visible.txt");
+
+        let with = svc().list_directory(&dir, true).unwrap();
+        let names: Vec<&str> = with.entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&".hidden"));
+        assert!(names.contains(&"visible.txt"));
+    }
+
+    #[test]
+    fn list_directory_rejects_file_path() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("f.txt");
+        fs::write(&file, "x").unwrap();
+        let err = svc().list_directory(&path_str(&file), false).unwrap_err();
+        assert!(err.message().contains("not a directory"));
+    }
+
+    // ===== read_file =====
+
+    #[test]
+    fn read_file_returns_utf8_content_and_language() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("main.rs");
+        fs::write(&file, "fn main() {}").unwrap();
+
+        let content = svc().read_file(&path_str(&file)).unwrap();
+        assert_eq!(content.content, "fn main() {}");
+        assert_eq!(content.encoding, "utf-8");
+        assert_eq!(content.language.as_deref(), Some("rust"));
+        assert_eq!(content.size, 12);
+    }
+
+    #[test]
+    fn read_file_detects_language_by_extension() {
+        let tmp = TempDir::new().unwrap();
+        let cases = [
+            ("a.py", Some("python")),
+            ("a.tsx", Some("typescriptreact")),
+            ("a.toml", Some("ini")),
+            ("a.unknownext", None),
+        ];
+        for (name, expected) in cases {
+            let file = tmp.path().join(name);
+            fs::write(&file, "x").unwrap();
+            let content = svc().read_file(&path_str(&file)).unwrap();
+            assert_eq!(content.language.as_deref(), expected, "case: {}", name);
+        }
+    }
+
+    #[test]
+    fn read_file_marks_binary_and_omits_content() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("bin.dat");
+        fs::write(&file, [0x41u8, 0x00, 0x42]).unwrap();
+
+        let content = svc().read_file(&path_str(&file)).unwrap();
+        assert_eq!(content.encoding, "binary");
+        assert!(content.content.is_empty());
+        assert_eq!(content.size, 3);
+    }
+
+    #[test]
+    fn read_file_decodes_non_utf8_with_fallback() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("latin.txt");
+        // 0xE9 = 'é' in windows-1252，不是合法 UTF-8
+        fs::write(&file, [0x63u8, 0x61, 0x66, 0xE9]).unwrap();
+
+        let content = svc().read_file(&path_str(&file)).unwrap();
+        assert_eq!(content.encoding, "windows-1252");
+        assert_eq!(content.content, "café");
+    }
+
+    #[test]
+    fn read_file_rejects_directory() {
+        let tmp = TempDir::new().unwrap();
+        let err = svc().read_file(&path_str(tmp.path())).unwrap_err();
+        assert!(err.message().contains("not a file"));
+    }
+
+    // ===== write_file =====
+
+    #[test]
+    fn write_file_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("out.txt");
+        fs::write(&file, "").unwrap();
+
+        svc().write_file(&path_str(&file), "hello").unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "hello");
+    }
+
+    #[test]
+    fn write_file_rejects_readonly_prefix() {
+        let tmp = TempDir::new().unwrap();
+        let nm = tmp.path().join("node_modules");
+        fs::create_dir(&nm).unwrap();
+        let file = nm.join("pkg.js");
+        fs::write(&file, "x").unwrap();
+
+        let err = svc().write_file(&path_str(&file), "y").unwrap_err();
+        assert!(err.message().contains("read-only"));
+    }
+
+    // ===== create_file / create_directory =====
+
+    #[test]
+    fn create_file_creates_empty_file() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("new.txt");
+        svc().create_file(&path_str(&file)).unwrap();
+        assert!(file.is_file());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "");
+    }
+
+    #[test]
+    fn create_file_rejects_existing() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("dup.txt");
+        fs::write(&file, "x").unwrap();
+        let err = svc().create_file(&path_str(&file)).unwrap_err();
+        assert!(err.message().contains("already exists"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn create_file_rejects_windows_reserved_name() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("CON.txt");
+        let err = svc().create_file(&path_str(&file)).unwrap_err();
+        assert!(err.message().contains("reserved"));
+    }
+
+    #[test]
+    fn create_directory_creates_and_rejects_existing() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("sub");
+        svc().create_directory(&path_str(&dir)).unwrap();
+        assert!(dir.is_dir());
+        let err = svc().create_directory(&path_str(&dir)).unwrap_err();
+        assert!(err.message().contains("already exists"));
+    }
+
+    // ===== rename_entry =====
+
+    #[test]
+    fn rename_entry_renames_file() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("old.txt");
+        fs::write(&file, "data").unwrap();
+
+        svc().rename_entry(&path_str(&file), "new.txt").unwrap();
+        assert!(!file.exists());
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("new.txt")).unwrap(),
+            "data"
+        );
+    }
+
+    #[test]
+    fn rename_entry_rejects_existing_target() {
+        let tmp = TempDir::new().unwrap();
+        let a = tmp.path().join("a.txt");
+        fs::write(&a, "a").unwrap();
+        fs::write(tmp.path().join("b.txt"), "b").unwrap();
+
+        let err = svc().rename_entry(&path_str(&a), "b.txt").unwrap_err();
+        assert!(err.message().contains("already exists"));
+    }
+
+    #[test]
+    fn rename_entry_rejects_invalid_name() {
+        let tmp = TempDir::new().unwrap();
+        let a = tmp.path().join("a.txt");
+        fs::write(&a, "a").unwrap();
+
+        assert!(svc().rename_entry(&path_str(&a), "..").is_err());
+        assert!(svc().rename_entry(&path_str(&a), "").is_err());
+    }
+
+    // ===== copy_entry / move_entry =====
+
+    #[test]
+    fn copy_entry_copies_file() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src.txt");
+        fs::write(&src, "content").unwrap();
+        let dest_dir = tmp.path().join("dest");
+        fs::create_dir(&dest_dir).unwrap();
+
+        svc()
+            .copy_entry(&path_str(&src), &path_str(&dest_dir))
+            .unwrap();
+        assert!(src.exists());
+        assert_eq!(
+            fs::read_to_string(dest_dir.join("src.txt")).unwrap(),
+            "content"
+        );
+    }
+
+    #[test]
+    fn copy_entry_copies_directory_recursively() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("srcdir");
+        fs::create_dir_all(src.join("nested")).unwrap();
+        fs::write(src.join("nested").join("deep.txt"), "deep").unwrap();
+        let dest_dir = tmp.path().join("dest");
+        fs::create_dir(&dest_dir).unwrap();
+
+        svc()
+            .copy_entry(&path_str(&src), &path_str(&dest_dir))
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(dest_dir.join("srcdir").join("nested").join("deep.txt")).unwrap(),
+            "deep"
+        );
+    }
+
+    #[test]
+    fn copy_entry_rejects_copy_into_itself() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("srcdir");
+        let inner = src.join("inner");
+        fs::create_dir_all(&inner).unwrap();
+
+        let err = svc()
+            .copy_entry(&path_str(&src), &path_str(&inner))
+            .unwrap_err();
+        assert!(err.message().contains("into itself"));
+    }
+
+    #[test]
+    fn copy_entry_rejects_existing_destination() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("f.txt");
+        fs::write(&src, "x").unwrap();
+        let dest_dir = tmp.path().join("dest");
+        fs::create_dir(&dest_dir).unwrap();
+        fs::write(dest_dir.join("f.txt"), "old").unwrap();
+
+        let err = svc()
+            .copy_entry(&path_str(&src), &path_str(&dest_dir))
+            .unwrap_err();
+        assert!(err.message().contains("already exists"));
+    }
+
+    #[test]
+    fn move_entry_moves_file() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("mv.txt");
+        fs::write(&src, "moved").unwrap();
+        let dest_dir = tmp.path().join("dest");
+        fs::create_dir(&dest_dir).unwrap();
+
+        svc()
+            .move_entry(&path_str(&src), &path_str(&dest_dir))
+            .unwrap();
+        assert!(!src.exists());
+        assert_eq!(
+            fs::read_to_string(dest_dir.join("mv.txt")).unwrap(),
+            "moved"
+        );
+    }
+
+    #[test]
+    fn move_entry_rejects_readonly_source() {
+        let tmp = TempDir::new().unwrap();
+        let nm = tmp.path().join("node_modules");
+        fs::create_dir(&nm).unwrap();
+        let src = nm.join("pkg.js");
+        fs::write(&src, "x").unwrap();
+        let dest_dir = tmp.path().join("dest");
+        fs::create_dir(&dest_dir).unwrap();
+
+        let err = svc()
+            .move_entry(&path_str(&src), &path_str(&dest_dir))
+            .unwrap_err();
+        assert!(err.message().contains("read-only"));
+    }
+
+    // ===== delete_entry（只测只读拒绝分支，避免真实回收站副作用）=====
+
+    #[test]
+    fn delete_entry_rejects_readonly_path() {
+        let tmp = TempDir::new().unwrap();
+        let git = tmp.path().join(".git");
+        fs::create_dir(&git).unwrap();
+        let file = git.join("HEAD");
+        fs::write(&file, "ref").unwrap();
+
+        let err = svc().delete_entry(&path_str(&file)).unwrap_err();
+        assert!(err.message().contains("read-only"));
+    }
+
+    // ===== get_entry_info =====
+
+    #[test]
+    fn get_entry_info_returns_file_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("info.md");
+        fs::write(&file, "hello").unwrap();
+
+        let entry = svc().get_entry_info(&path_str(&file)).unwrap();
+        assert_eq!(entry.name, "info.md");
+        assert!(entry.is_file);
+        assert!(!entry.is_dir);
+        assert!(!entry.is_symlink);
+        assert_eq!(entry.size, 5);
+        assert_eq!(entry.extension.as_deref(), Some("md"));
+        assert!(entry.modified.is_some());
+        assert!(!entry.hidden);
+    }
+
+    #[test]
+    fn get_entry_info_marks_dotfile_hidden() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join(".env");
+        fs::write(&file, "K=V").unwrap();
+
+        let entry = svc().get_entry_info(&path_str(&file)).unwrap();
+        assert!(entry.hidden);
+    }
+
+    // ===== is_readonly_path 单元行为 =====
+
+    #[test]
+    fn is_readonly_path_matches_component_case_insensitively() {
+        assert!(FileSystemService::is_readonly_path(Path::new(
+            "proj/NODE_MODULES/pkg/index.js"
+        )));
+        assert!(FileSystemService::is_readonly_path(Path::new(
+            "repo/.git/config"
+        )));
+        // 仅前缀相似不算命中
+        assert!(!FileSystemService::is_readonly_path(Path::new(
+            "proj/node_modules_backup/x"
+        )));
+    }
+}

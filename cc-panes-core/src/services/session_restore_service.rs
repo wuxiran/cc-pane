@@ -332,3 +332,237 @@ fn read_workspace_snapshot_file(path: &std::path::Path) -> Result<WorkspaceSnaps
         format!("Failed to parse workspace snapshot: {}", e)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn make_service() -> (SessionRestoreService, TempDir) {
+        let tmp = TempDir::new().expect("tempdir");
+        let app_paths = Arc::new(AppPaths::new(Some(
+            tmp.path().to_string_lossy().to_string(),
+        )));
+        let db = Arc::new(Database::new_in_memory().expect("in-memory db"));
+        (SessionRestoreService::new(db, app_paths), tmp)
+    }
+
+    fn sample_session(session_id: &str, workspace_name: Option<&str>) -> SavedSession {
+        SavedSession {
+            workspace_snapshot_id: None,
+            session_id: session_id.to_string(),
+            tab_id: format!("tab-{}", session_id),
+            pane_id: format!("pane-{}", session_id),
+            project_path: "D:\\proj".to_string(),
+            workspace_name: workspace_name.map(|s| s.to_string()),
+            workspace_path: None,
+            provider_id: None,
+            provider_selection: None,
+            launch_profile_id: None,
+            cli_tool: "claude".to_string(),
+            runtime_kind: Some("local".to_string()),
+            resume_id: Some(format!("resume-{}", session_id)),
+            ssh_config: None,
+            custom_title: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            saved_at: "2026-01-02T00:00:00Z".to_string(),
+            has_output: false,
+        }
+    }
+
+    // ===== 会话元数据持久化 =====
+
+    #[test]
+    fn save_and_load_sessions_roundtrip() {
+        let (service, _tmp) = make_service();
+        let sessions = vec![
+            sample_session("s1", Some("ws")),
+            sample_session("s2", Some("ws")),
+        ];
+        service.save_sessions(&sessions).unwrap();
+
+        let loaded = service.load_sessions().unwrap();
+        assert_eq!(loaded.len(), 2);
+        let s1 = loaded.iter().find(|s| s.session_id == "s1").unwrap();
+        assert_eq!(s1.cli_tool, "claude");
+        assert_eq!(s1.resume_id.as_deref(), Some("resume-s1"));
+        assert!(!s1.has_output, "没有输出文件时 has_output 应为 false");
+    }
+
+    #[test]
+    fn load_sessions_sets_has_output_when_file_exists() {
+        let (service, _tmp) = make_service();
+        service
+            .save_sessions(&[sample_session("s1", Some("ws"))])
+            .unwrap();
+        service
+            .save_session_output("s1", &["line".to_string()])
+            .unwrap();
+
+        let loaded = service.load_sessions().unwrap();
+        assert!(loaded[0].has_output);
+    }
+
+    #[test]
+    fn clear_sessions_removes_all() {
+        let (service, _tmp) = make_service();
+        service
+            .save_sessions(&[sample_session("s1", Some("ws"))])
+            .unwrap();
+        service.clear_sessions().unwrap();
+        assert!(service.load_sessions().unwrap().is_empty());
+    }
+
+    // ===== 输出文件 =====
+
+    #[test]
+    fn session_output_roundtrip() {
+        let (service, _tmp) = make_service();
+        let lines = vec!["first".to_string(), "second".to_string()];
+        service.save_session_output("out1", &lines).unwrap();
+
+        let loaded = service.load_session_output("out1").unwrap();
+        assert_eq!(loaded, Some(lines));
+    }
+
+    #[test]
+    fn load_session_output_returns_none_when_missing() {
+        let (service, _tmp) = make_service();
+        assert_eq!(service.load_session_output("nope").unwrap(), None);
+    }
+
+    #[test]
+    fn clear_session_output_removes_file_and_is_idempotent() {
+        let (service, _tmp) = make_service();
+        service
+            .save_session_output("c1", &["x".to_string()])
+            .unwrap();
+        service.clear_session_output("c1").unwrap();
+        assert_eq!(service.load_session_output("c1").unwrap(), None);
+        // 再次清除不存在的文件不应报错
+        service.clear_session_output("c1").unwrap();
+    }
+
+    #[test]
+    fn clear_all_outputs_removes_sessions_dir() {
+        let (service, _tmp) = make_service();
+        service
+            .save_session_output("a", &["1".to_string()])
+            .unwrap();
+        service
+            .save_session_output("b", &["2".to_string()])
+            .unwrap();
+        service.clear_all_outputs().unwrap();
+        assert_eq!(service.load_session_output("a").unwrap(), None);
+        assert_eq!(service.load_session_output("b").unwrap(), None);
+    }
+
+    // ===== Workspace snapshot =====
+
+    #[test]
+    fn save_sessions_groups_into_workspace_snapshot() {
+        let (service, _tmp) = make_service();
+        let mut s1 = sample_session("s1", Some("myws"));
+        s1.created_at = "2026-01-01T00:00:00Z".to_string();
+        s1.saved_at = "2026-01-02T00:00:00Z".to_string();
+        let mut s2 = sample_session("s2", Some("myws"));
+        s2.created_at = "2026-01-03T00:00:00Z".to_string();
+        s2.saved_at = "2026-01-04T00:00:00Z".to_string();
+        service.save_sessions(&[s1, s2]).unwrap();
+
+        let snapshots = service.list_workspace_snapshots("myws").unwrap();
+        assert_eq!(snapshots.len(), 1);
+
+        let snapshot = service
+            .get_workspace_snapshot("myws", &snapshots[0].id)
+            .unwrap()
+            .expect("snapshot should exist");
+        assert_eq!(snapshot.workspace_id, "myws");
+        assert_eq!(snapshot.entries.len(), 2);
+        // created_at 取最小、saved_at 取最大
+        assert_eq!(snapshot.created_at, "2026-01-01T00:00:00Z");
+        assert_eq!(snapshot.saved_at, "2026-01-04T00:00:00Z");
+        assert_eq!(snapshot.title, "myws");
+        let entry = snapshot
+            .entries
+            .iter()
+            .find(|e| e.pty_session_id == "s1")
+            .unwrap();
+        assert_eq!(entry.agent_tool, "claude");
+        assert_eq!(entry.agent_resume_id.as_deref(), Some("resume-s1"));
+    }
+
+    #[test]
+    fn list_workspace_snapshots_empty_when_dir_missing() {
+        let (service, _tmp) = make_service();
+        assert!(service
+            .list_workspace_snapshots("nothing")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn get_workspace_snapshot_returns_none_when_missing() {
+        let (service, _tmp) = make_service();
+        assert!(service
+            .get_workspace_snapshot("ws", "snap")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn delete_workspace_snapshot_returns_flag() {
+        let (service, _tmp) = make_service();
+        service
+            .save_sessions(&[sample_session("s1", Some("ws1"))])
+            .unwrap();
+        let snapshots = service.list_workspace_snapshots("ws1").unwrap();
+        assert_eq!(snapshots.len(), 1);
+
+        assert!(service
+            .delete_workspace_snapshot("ws1", &snapshots[0].id)
+            .unwrap());
+        assert!(!service
+            .delete_workspace_snapshot("ws1", &snapshots[0].id)
+            .unwrap());
+        assert!(service
+            .get_workspace_snapshot("ws1", &snapshots[0].id)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn snapshot_apis_reject_illegal_component() {
+        let (service, _tmp) = make_service();
+        assert!(service.list_workspace_snapshots("").is_err());
+        assert!(service.list_workspace_snapshots("bad id").is_err());
+        assert!(service.get_workspace_snapshot("ws", "../x").is_err());
+        assert!(service
+            .delete_workspace_snapshot("ws/../x", "snap")
+            .is_err());
+    }
+
+    // ===== 纯函数 =====
+
+    #[test]
+    fn workspace_identity_sanitizes_and_falls_back() {
+        let mut session = sample_session("s1", Some("My WS!"));
+        assert_eq!(workspace_identity(&session), "My_WS_");
+
+        session.workspace_name = None;
+        session.workspace_path = Some("D:\\ws path".to_string());
+        assert_eq!(workspace_identity(&session), "D__ws_path");
+
+        session.workspace_path = Some("   ".to_string());
+        assert_eq!(workspace_identity(&session), "default");
+    }
+
+    #[test]
+    fn validate_snapshot_component_rules() {
+        assert!(validate_snapshot_component("id", "abc-DEF_123").is_ok());
+        assert!(validate_snapshot_component("id", "").is_err());
+        assert!(validate_snapshot_component("id", "  ").is_err());
+        assert!(validate_snapshot_component("id", "a/b").is_err());
+        assert!(validate_snapshot_component("id", "中文").is_err());
+    }
+}

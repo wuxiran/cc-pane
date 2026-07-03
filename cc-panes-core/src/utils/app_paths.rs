@@ -289,3 +289,168 @@ fn dir_size(path: &std::path::Path) -> u64 {
     }
     total
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn make_paths(tmp: &TempDir) -> AppPaths {
+        AppPaths::new(Some(tmp.path().to_string_lossy().to_string()))
+    }
+
+    #[test]
+    fn custom_data_dir_is_used_and_not_default() {
+        let tmp = TempDir::new().unwrap();
+        let paths = make_paths(&tmp);
+        assert_eq!(paths.data_dir(), tmp.path());
+        assert!(!paths.is_default());
+        assert!(paths.default_data_dir().ends_with(APP_DIR_NAME));
+    }
+
+    #[test]
+    fn empty_data_dir_falls_back_to_config_dir() {
+        let paths = AppPaths::new(Some(String::new()));
+        assert!(paths.is_default());
+        assert_eq!(paths.data_dir(), paths.default_data_dir());
+    }
+
+    #[test]
+    fn path_getters_compose_under_data_dir() {
+        let tmp = TempDir::new().unwrap();
+        let paths = make_paths(&tmp);
+        let base = tmp.path();
+
+        assert_eq!(paths.database_path(), base.join("data.db"));
+        assert_eq!(paths.providers_path(), base.join("providers.json"));
+        assert_eq!(
+            paths.launch_profiles_path(),
+            base.join("launch-profiles.json")
+        );
+        assert_eq!(paths.launch_profiles_dir(), base.join("launch-profiles"));
+        assert_eq!(paths.sessions_dir(), base.join("sessions"));
+        assert_eq!(
+            paths.runtime_sessions_dir(),
+            base.join("runtime").join("sessions")
+        );
+        assert_eq!(
+            paths.session_output_path("abc"),
+            base.join("sessions").join("abc.output")
+        );
+        assert_eq!(
+            paths.workspace_dir("ws"),
+            base.join("workspaces").join("ws")
+        );
+        assert_eq!(
+            paths.workspace_snapshot_path("ws", "snap"),
+            base.join("workspaces")
+                .join("ws")
+                .join("snapshots")
+                .join("snap")
+                .join("snapshot.json")
+        );
+        assert_eq!(
+            paths.shared_mcp_path(),
+            base.join("mcp").join("shared-mcp.json")
+        );
+        assert_eq!(paths.user_skills_dir(), base.join("skills").join("user"));
+        assert_eq!(
+            paths.builtin_skills_dir(),
+            base.join("skills").join("builtin")
+        );
+    }
+
+    #[test]
+    fn new_precreates_control_center_layout() {
+        let tmp = TempDir::new().unwrap();
+        let paths = make_paths(&tmp);
+
+        assert!(paths.workspaces_dir().is_dir());
+        assert!(paths.launch_profiles_dir().is_dir());
+        assert!(paths.memory_dir().is_dir());
+        assert!(paths.mcp_dir().is_dir());
+        assert!(paths.user_skills_dir().is_dir());
+        assert!(paths.builtin_skills_dir().is_dir());
+        assert!(paths.runtime_sessions_dir().is_dir());
+    }
+
+    #[test]
+    fn data_dir_size_sums_nested_files() {
+        let tmp = TempDir::new().unwrap();
+        let paths = make_paths(&tmp);
+        let base_size = paths.data_dir_size();
+
+        std::fs::write(tmp.path().join("a.bin"), vec![0u8; 100]).unwrap();
+        let nested = tmp.path().join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("b.bin"), vec![0u8; 50]).unwrap();
+
+        assert_eq!(paths.data_dir_size(), base_size + 150);
+    }
+
+    #[test]
+    fn dir_size_returns_zero_for_missing_dir() {
+        let tmp = TempDir::new().unwrap();
+        assert_eq!(dir_size(&tmp.path().join("missing")), 0);
+    }
+
+    #[test]
+    fn extract_bundled_claude_config_noop_without_bundle() {
+        let data_tmp = TempDir::new().unwrap();
+        let resource_tmp = TempDir::new().unwrap();
+        let paths = make_paths(&data_tmp);
+
+        paths.extract_bundled_claude_config(resource_tmp.path());
+        assert!(!data_tmp.path().join(".claude").exists());
+        assert!(!data_tmp.path().join("CLAUDE.md").exists());
+    }
+
+    #[test]
+    fn extract_bundled_claude_config_copies_and_cleans_stale() {
+        let data_tmp = TempDir::new().unwrap();
+        let resource_tmp = TempDir::new().unwrap();
+        let paths = make_paths(&data_tmp);
+
+        // 构造 bundle：commands/ccbook + agents + CLAUDE.md
+        let bundle = resource_tmp.path().join("resources").join("claude-bundle");
+        let src_commands = bundle.join(".claude").join("commands").join("ccbook");
+        let src_agents = bundle.join(".claude").join("agents");
+        std::fs::create_dir_all(&src_commands).unwrap();
+        std::fs::create_dir_all(&src_agents).unwrap();
+        std::fs::write(src_commands.join("cmd.md"), "command").unwrap();
+        std::fs::write(src_agents.join("agent.md"), "agent").unwrap();
+        std::fs::write(bundle.join("CLAUDE.md"), "claude md").unwrap();
+
+        // 预置旧版本残留文件，提取时应被清掉
+        let dest_commands = data_tmp
+            .path()
+            .join(".claude")
+            .join("commands")
+            .join("ccbook");
+        std::fs::create_dir_all(&dest_commands).unwrap();
+        std::fs::write(dest_commands.join("stale.md"), "stale").unwrap();
+
+        paths.extract_bundled_claude_config(resource_tmp.path());
+
+        assert_eq!(
+            std::fs::read_to_string(dest_commands.join("cmd.md")).unwrap(),
+            "command"
+        );
+        assert!(!dest_commands.join("stale.md").exists(), "旧文件应被清理");
+        assert_eq!(
+            std::fs::read_to_string(
+                data_tmp
+                    .path()
+                    .join(".claude")
+                    .join("agents")
+                    .join("agent.md")
+            )
+            .unwrap(),
+            "agent"
+        );
+        assert_eq!(
+            std::fs::read_to_string(data_tmp.path().join("CLAUDE.md")).unwrap(),
+            "claude md"
+        );
+    }
+}

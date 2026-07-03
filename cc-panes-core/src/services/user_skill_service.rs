@@ -149,3 +149,180 @@ impl UserSkillService {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn make_service() -> (UserSkillService, TempDir) {
+        let tmp = TempDir::new().expect("tempdir");
+        (UserSkillService::new(tmp.path().join("user-skills")), tmp)
+    }
+
+    fn sample_skill(id: &str, name: &str) -> InstalledUserSkill {
+        InstalledUserSkill {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: Some("desc".to_string()),
+            category: None,
+            tags: vec!["tag1".to_string()],
+            version: "1.0.0".to_string(),
+            license: None,
+            homepage_url: None,
+            source_url: None,
+            content_sha256: "abc123".to_string(),
+            installed_at: "2026-01-01T00:00:00Z".to_string(),
+            file_path: None,
+        }
+    }
+
+    // ===== validate_skill_id =====
+
+    #[test]
+    fn validate_skill_id_accepts_normal_ids() {
+        assert!(UserSkillService::validate_skill_id("my-skill_1.2").is_ok());
+        assert!(UserSkillService::validate_skill_id("ABC").is_ok());
+    }
+
+    #[test]
+    fn validate_skill_id_rejects_invalid() {
+        assert!(UserSkillService::validate_skill_id("").is_err());
+        assert!(UserSkillService::validate_skill_id("   ").is_err());
+        assert!(UserSkillService::validate_skill_id(".hidden").is_err());
+        assert!(UserSkillService::validate_skill_id("a..b").is_err());
+        assert!(UserSkillService::validate_skill_id("a/b").is_err());
+        assert!(UserSkillService::validate_skill_id("a\\b").is_err());
+        assert!(UserSkillService::validate_skill_id("中文id").is_err());
+        assert!(UserSkillService::validate_skill_id(&"x".repeat(121)).is_err());
+        assert!(UserSkillService::validate_skill_id(&"x".repeat(120)).is_ok());
+    }
+
+    // ===== CRUD roundtrip =====
+
+    #[test]
+    fn write_read_list_remove_roundtrip() {
+        let (service, _tmp) = make_service();
+        let skill = sample_skill("skill-a", "Skill A");
+        service.write_skill(&skill, "# Skill A content").unwrap();
+
+        let read = service
+            .read_skill("skill-a")
+            .unwrap()
+            .expect("should exist");
+        assert_eq!(read.skill.id, "skill-a");
+        assert_eq!(read.skill.name, "Skill A");
+        assert_eq!(read.content, "# Skill A content");
+        assert!(read.skill.file_path.is_some(), "读取时应回填 file_path");
+
+        let listed = service.list_skills().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].file_path.is_some());
+
+        assert!(service.remove_skill("skill-a").unwrap());
+        assert!(service.read_skill("skill-a").unwrap().is_none());
+        assert!(
+            !service.remove_skill("skill-a").unwrap(),
+            "重复删除应返回 false"
+        );
+    }
+
+    #[test]
+    fn write_skill_does_not_persist_file_path_in_metadata() {
+        let (service, _tmp) = make_service();
+        let mut skill = sample_skill("skill-b", "B");
+        skill.file_path = Some("should-not-persist".to_string());
+        service.write_skill(&skill, "content").unwrap();
+
+        let metadata_path = service
+            .user_skills_dir()
+            .join("skill-b")
+            .join(USER_SKILL_METADATA_FILE);
+        let raw = std::fs::read_to_string(metadata_path).unwrap();
+        assert!(!raw.contains("should-not-persist"));
+        assert!(!raw.contains("filePath"));
+    }
+
+    #[test]
+    fn list_skills_sorts_by_name_case_insensitive() {
+        let (service, _tmp) = make_service();
+        service
+            .write_skill(&sample_skill("id-1", "zebra"), "z")
+            .unwrap();
+        service
+            .write_skill(&sample_skill("id-2", "Apple"), "a")
+            .unwrap();
+        service
+            .write_skill(&sample_skill("id-3", "mango"), "m")
+            .unwrap();
+
+        let names: Vec<String> = service
+            .list_skills()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(names, vec!["Apple", "mango", "zebra"]);
+    }
+
+    #[test]
+    fn list_from_dir_returns_empty_when_root_missing() {
+        let tmp = TempDir::new().unwrap();
+        let missing = tmp.path().join("nope");
+        assert!(UserSkillService::list_from_dir(&missing)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn list_from_dir_skips_incomplete_skill_dirs() {
+        let (service, _tmp) = make_service();
+        service
+            .write_skill(&sample_skill("good", "Good"), "ok")
+            .unwrap();
+
+        // 只有 metadata、缺 SKILL.md
+        let half = service.user_skills_dir().join("half");
+        std::fs::create_dir_all(&half).unwrap();
+        std::fs::write(half.join(USER_SKILL_METADATA_FILE), "{}").unwrap();
+
+        // 游离文件（非目录）
+        std::fs::write(service.user_skills_dir().join("stray.txt"), "x").unwrap();
+
+        let listed = service.list_skills().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "good");
+    }
+
+    #[test]
+    fn list_from_dir_errors_on_invalid_metadata_json() {
+        let (service, _tmp) = make_service();
+        let dir = service.user_skills_dir().join("broken");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(USER_SKILL_METADATA_FILE), "not json").unwrap();
+        std::fs::write(dir.join(USER_SKILL_MARKDOWN_FILE), "content").unwrap();
+
+        let err = service.list_skills().unwrap_err();
+        assert!(err.message().contains("Invalid user skill metadata"));
+    }
+
+    #[test]
+    fn read_skill_returns_none_when_missing() {
+        let (service, _tmp) = make_service();
+        assert!(service.read_skill("absent").unwrap().is_none());
+    }
+
+    #[test]
+    fn read_skill_rejects_invalid_id() {
+        let (service, _tmp) = make_service();
+        assert!(service.read_skill("../escape").is_err());
+    }
+
+    #[test]
+    fn skill_dir_for_joins_validated_id() {
+        let root = Path::new("root");
+        let dir = UserSkillService::skill_dir_for(root, "my-skill").unwrap();
+        assert_eq!(dir, root.join("my-skill"));
+        assert!(UserSkillService::skill_dir_for(root, "../up").is_err());
+    }
+}
