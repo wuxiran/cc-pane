@@ -244,3 +244,318 @@ impl ProviderService {
         Ok(vars)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_provider(id: &str, is_default: bool) -> Provider {
+        Provider {
+            id: id.to_string(),
+            name: format!("Provider {}", id),
+            provider_type: ProviderType::Anthropic,
+            api_key: Some(format!("sk-{}", id)),
+            base_url: Some("https://api.example.com".to_string()),
+            region: None,
+            project_id: None,
+            aws_profile: None,
+            config_dir: None,
+            is_default,
+        }
+    }
+
+    fn make_config_profile_provider(id: &str, config_dir: Option<String>) -> Provider {
+        Provider {
+            id: id.to_string(),
+            name: id.to_string(),
+            provider_type: ProviderType::ConfigProfile,
+            api_key: None,
+            base_url: None,
+            region: None,
+            project_id: None,
+            aws_profile: None,
+            config_dir,
+            is_default: false,
+        }
+    }
+
+    fn new_service(dir: &tempfile::TempDir) -> ProviderService {
+        ProviderService::new(dir.path().join("providers.json"))
+    }
+
+    #[test]
+    fn missing_config_file_yields_empty_providers() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        assert!(service.list_providers().is_empty());
+        assert!(service.get_default_provider().is_none());
+        assert!(service.get_provider("nope").is_none());
+    }
+
+    #[test]
+    fn corrupt_config_file_falls_back_to_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        std::fs::write(&path, "{ not json").unwrap();
+        let service = ProviderService::new(path);
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn first_added_provider_becomes_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+
+        service.add_provider(make_provider("a", false)).unwrap();
+
+        let providers = service.list_providers();
+        assert_eq!(providers.len(), 1);
+        assert!(providers[0].is_default);
+        assert_eq!(service.get_default_provider().unwrap().id, "a");
+    }
+
+    #[test]
+    fn adding_default_provider_clears_other_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", false)).unwrap();
+        service.add_provider(make_provider("b", true)).unwrap();
+
+        let providers = service.list_providers();
+        let a = providers.iter().find(|p| p.id == "a").unwrap();
+        let b = providers.iter().find(|p| p.id == "b").unwrap();
+        assert!(!a.is_default);
+        assert!(b.is_default);
+    }
+
+    #[test]
+    fn add_persists_to_file_for_new_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        {
+            let service = ProviderService::new(path.clone());
+            service.add_provider(make_provider("a", false)).unwrap();
+        }
+        let reloaded = ProviderService::new(path);
+        assert_eq!(reloaded.list_providers().len(), 1);
+        assert_eq!(reloaded.get_provider("a").unwrap().id, "a");
+    }
+
+    #[test]
+    fn update_provider_not_found_is_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        assert!(service
+            .update_provider(make_provider("ghost", false))
+            .is_err());
+    }
+
+    #[test]
+    fn update_provider_replaces_and_handles_default_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", false)).unwrap();
+        service.add_provider(make_provider("b", false)).unwrap();
+        // a 目前是默认（第一个自动设默认）
+        assert_eq!(service.get_default_provider().unwrap().id, "a");
+
+        let mut updated_b = make_provider("b", true);
+        updated_b.name = "renamed".to_string();
+        service.update_provider(updated_b).unwrap();
+
+        let b = service.get_provider("b").unwrap();
+        assert_eq!(b.name, "renamed");
+        assert!(b.is_default);
+        assert!(!service.get_provider("a").unwrap().is_default);
+    }
+
+    #[test]
+    fn remove_default_provider_promotes_first_remaining() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", false)).unwrap();
+        service.add_provider(make_provider("b", false)).unwrap();
+
+        service.remove_provider("a").unwrap();
+
+        let providers = service.list_providers();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "b");
+        assert!(providers[0].is_default);
+    }
+
+    #[test]
+    fn remove_non_default_keeps_default_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", false)).unwrap();
+        service.add_provider(make_provider("b", false)).unwrap();
+
+        service.remove_provider("b").unwrap();
+
+        assert_eq!(service.get_default_provider().unwrap().id, "a");
+    }
+
+    #[test]
+    fn remove_unknown_provider_is_noop_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", false)).unwrap();
+        service.remove_provider("ghost").unwrap();
+        assert_eq!(service.list_providers().len(), 1);
+    }
+
+    #[test]
+    fn set_default_switches_exclusively() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", false)).unwrap();
+        service.add_provider(make_provider("b", false)).unwrap();
+
+        service.set_default("b").unwrap();
+
+        assert!(!service.get_provider("a").unwrap().is_default);
+        assert!(service.get_provider("b").unwrap().is_default);
+    }
+
+    #[test]
+    fn get_default_provider_falls_back_to_first_when_none_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        // 手写配置：两个 provider 都没有 default 标记
+        let config = ProviderConfig {
+            providers: vec![make_provider("a", false), make_provider("b", false)],
+        };
+        std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
+
+        let service = ProviderService::new(path);
+        assert_eq!(service.get_default_provider().unwrap().id, "a");
+    }
+
+    #[test]
+    fn get_env_vars_none_id_injects_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", true)).unwrap();
+        assert!(service.get_env_vars(None).is_empty());
+    }
+
+    #[test]
+    fn get_env_vars_unknown_id_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", true)).unwrap();
+        assert!(service.get_env_vars(Some("ghost")).is_empty());
+    }
+
+    #[test]
+    fn get_env_vars_anthropic_provider_maps_key_and_base_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", true)).unwrap();
+
+        let vars = service.get_env_vars(Some("a"));
+        assert_eq!(vars.get("ANTHROPIC_API_KEY"), Some(&"sk-a".to_string()));
+        assert_eq!(
+            vars.get("ANTHROPIC_BASE_URL"),
+            Some(&"https://api.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn config_profile_directory_mode_sets_claude_config_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile_dir = dir.path().join("profile");
+        std::fs::create_dir_all(&profile_dir).unwrap();
+        let service = new_service(&dir);
+        service
+            .add_provider(make_config_profile_provider(
+                "p",
+                Some(profile_dir.to_string_lossy().to_string()),
+            ))
+            .unwrap();
+
+        let vars = service.get_env_vars(Some("p"));
+        assert_eq!(
+            vars.get("CLAUDE_CONFIG_DIR"),
+            Some(&profile_dir.to_string_lossy().to_string())
+        );
+    }
+
+    #[test]
+    fn config_profile_file_mode_parses_env_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_file = dir.path().join("profile.json");
+        std::fs::write(
+            &config_file,
+            r#"{"env": {"ANTHROPIC_API_KEY": "sk-from-file", "IGNORED_NUM": 42}}"#,
+        )
+        .unwrap();
+        let service = new_service(&dir);
+        service
+            .add_provider(make_config_profile_provider(
+                "p",
+                Some(config_file.to_string_lossy().to_string()),
+            ))
+            .unwrap();
+
+        let vars = service.get_env_vars(Some("p"));
+        assert_eq!(
+            vars.get("ANTHROPIC_API_KEY"),
+            Some(&"sk-from-file".to_string())
+        );
+        // 非字符串值被跳过
+        assert!(!vars.contains_key("IGNORED_NUM"));
+    }
+
+    #[test]
+    fn config_profile_file_without_env_field_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_file = dir.path().join("profile.json");
+        std::fs::write(&config_file, r#"{"other": true}"#).unwrap();
+        let service = new_service(&dir);
+        service
+            .add_provider(make_config_profile_provider(
+                "p",
+                Some(config_file.to_string_lossy().to_string()),
+            ))
+            .unwrap();
+
+        assert!(service.get_env_vars(Some("p")).is_empty());
+    }
+
+    #[test]
+    fn config_profile_invalid_json_file_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_file = dir.path().join("profile.json");
+        std::fs::write(&config_file, "not json at all").unwrap();
+        let service = new_service(&dir);
+        service
+            .add_provider(make_config_profile_provider(
+                "p",
+                Some(config_file.to_string_lossy().to_string()),
+            ))
+            .unwrap();
+
+        assert!(service.get_env_vars(Some("p")).is_empty());
+    }
+
+    #[test]
+    fn config_profile_missing_path_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service
+            .add_provider(make_config_profile_provider(
+                "p",
+                Some(dir.path().join("nope").to_string_lossy().to_string()),
+            ))
+            .unwrap();
+        assert!(service.get_env_vars(Some("p")).is_empty());
+
+        let service2 = new_service(&dir);
+        service2
+            .add_provider(make_config_profile_provider("q", None))
+            .unwrap();
+        assert!(service2.get_env_vars(Some("q")).is_empty());
+    }
+}
