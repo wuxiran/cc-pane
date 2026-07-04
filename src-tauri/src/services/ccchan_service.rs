@@ -973,9 +973,13 @@ impl CCChanService {
             .unwrap_or(false)
     }
 
-    #[allow(dead_code)]
-    fn set_window_visible(&self, visible: bool) -> AppResult<()> {
+    /// 用户显式开关宠物时持久化可见性，保证下次启动按最后一次开关恢复。
+    /// 仅由 show_ccchan/hide_ccchan 命令调用；ccchan_say 等临时展示不持久化。
+    pub fn set_window_visible(&self, visible: bool) -> AppResult<()> {
         let mut settings = self.settings();
+        if settings.window_visible == visible {
+            return Ok(());
+        }
         settings.window_visible = visible;
         self.save_settings(settings)
     }

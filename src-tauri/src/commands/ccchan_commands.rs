@@ -12,7 +12,8 @@ pub async fn show_ccchan(app: AppHandle) -> AppResult<()> {
     let service = app
         .try_state::<Arc<CCChanService>>()
         .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
-    service.show_window(&app)
+    service.show_window(&app)?;
+    service.set_window_visible(true)
 }
 
 #[tauri::command]
@@ -21,7 +22,8 @@ pub async fn hide_ccchan(app: AppHandle) -> AppResult<()> {
     let service = app
         .try_state::<Arc<CCChanService>>()
         .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
-    service.hide_window(&app)
+    service.hide_window(&app)?;
+    service.set_window_visible(false)
 }
 
 #[tauri::command]
