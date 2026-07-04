@@ -1,5 +1,6 @@
 import type {
   CliTool,
+  LaunchProfile,
   OpenTerminalOptions,
   SshConnectionInfo,
   SshMachine,
@@ -8,6 +9,7 @@ import type {
   WorkspaceLaunchEnvironment,
   LaunchProviderSelection,
 } from "@/types";
+import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import { isWslUncPath, toWslPath } from "./path";
 
 export type AppPlatform = "windows" | "macos" | "linux" | "unknown";
@@ -193,6 +195,28 @@ export function resolveWorkspaceLaunchOptions(
   return resolveWorkspaceLaunchOptionsInternal(params);
 }
 
+/**
+ * 工作空间/项目「绑定」的启动配置只是兜底，不代表用户本次显式选择：
+ * 与目标 CLI / 运行环境不匹配时不传给后端（后端会静默回落默认配置），
+ * 避免触发仅面向显式选择的 profileMismatch 启动警告。
+ * 显式传入的 `params.launchProfileId` 不经过此过滤，不匹配时应当告警。
+ */
+function resolveBoundLaunchProfileId(
+  boundId: string | undefined,
+  cliTool: CliTool | undefined,
+  environment: WorkspaceLaunchEnvironment,
+  profiles?: LaunchProfile[],
+): string | undefined {
+  if (!boundId) return undefined;
+  const list = profiles ?? useLaunchProfilesStore.getState().profiles;
+  const profile = list.find((item) => item.id === boundId);
+  // 本地列表未加载/找不到时保持原行为，由后端解析
+  if (!profile) return boundId;
+  const cliOk = !cliTool || profile.targetTools.length === 0 || profile.targetTools.includes(cliTool);
+  const runtimeOk = !profile.targetRuntime || profile.targetRuntime === environment;
+  return cliOk && runtimeOk ? boundId : undefined;
+}
+
 export function resolveWorkspaceProjectLaunchOptions(
   params: WorkspaceProjectLaunchParams & {
     environment?: WorkspaceLaunchEnvironment;
@@ -200,9 +224,11 @@ export function resolveWorkspaceProjectLaunchOptions(
 ): { options: OpenTerminalOptions | null; issue: WorkspaceLaunchIssue | null } {
   const platform = params.platform ?? detectAppPlatform();
   const { workspace, project, cliTool, providerId, providerSelection, machines } = params;
-  const launchProfileId = params.launchProfileId ?? project.launchProfileId ?? workspace.launchProfileId;
+  const boundProfileId = project.launchProfileId ?? workspace.launchProfileId;
 
   if (project.ssh) {
+    const launchProfileId = params.launchProfileId
+      ?? resolveBoundLaunchProfileId(boundProfileId, cliTool, "ssh");
     const machine = machines.find(
       (item) =>
         item.host === project.ssh!.host &&
@@ -233,6 +259,8 @@ export function resolveWorkspaceProjectLaunchOptions(
     params.environment
     ?? resolveCliEnvironmentDefault(workspace, cliTool)
     ?? getWorkspaceDefaultEnvironment(workspace);
+  const launchProfileId = params.launchProfileId
+    ?? resolveBoundLaunchProfileId(boundProfileId, cliTool, environment);
 
   switch (environment) {
     case "local":
@@ -345,7 +373,8 @@ function resolveWorkspaceLaunchOptionsInternal(
     ?? getWorkspaceDefaultEnvironment(params.workspace);
   const { workspace, machines, cliTool, providerId, providerSelection } = params;
   const effectiveProviderId = providerId;
-  const launchProfileId = params.launchProfileId ?? workspace.launchProfileId;
+  const launchProfileId = params.launchProfileId
+    ?? resolveBoundLaunchProfileId(workspace.launchProfileId, cliTool, environment);
 
   switch (environment) {
     case "local": {

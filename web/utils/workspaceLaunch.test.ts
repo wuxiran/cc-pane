@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import type { SshMachine, Workspace } from "@/types";
+import { afterEach, describe, expect, it } from "vitest";
+import type { LaunchProfile, SshMachine, Workspace } from "@/types";
+import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import {
   createTestWorkspace,
   createTestWorkspaceProject,
@@ -26,6 +27,40 @@ function createMachine(overrides?: Partial<SshMachine>): SshMachine {
     tags: [],
     createdAt: "2026-04-02T00:00:00Z",
     updatedAt: "2026-04-02T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function createLaunchProfile(overrides: Partial<LaunchProfile> = {}): LaunchProfile {
+  return {
+    id: "profile-1",
+    name: "Codex Fast",
+    alias: null,
+    description: null,
+    providerId: null,
+    targetTools: ["codex"],
+    targetRuntime: null,
+    mcpPolicy: {
+      mode: "default",
+      enabledServerIds: [],
+      disabledServerIds: [],
+      includeCcpanesMcp: true,
+      includeSharedMcp: true,
+    },
+    skillPolicy: {
+      mode: "core",
+      enabledSkillIds: [],
+      disabledSkillIds: [],
+      profileSkills: [],
+      includeProjectSkills: true,
+      includeExternalClaudeSkills: true,
+      includeExternalCodexSkills: true,
+      includeExternalPluginSkills: true,
+      target: "session",
+    },
+    isDefault: false,
+    createdAt: "2026-05-03T00:00:00Z",
+    updatedAt: "2026-05-03T00:00:00Z",
     ...overrides,
   };
 }
@@ -645,5 +680,114 @@ describe("workspaceLaunch", () => {
 
     expect(issue).toBeNull();
     expect(options?.launchProfileId).toBe("selected-profile");
+  });
+
+  describe("绑定 profile 的 CLI/运行环境过滤", () => {
+    afterEach(() => {
+      useLaunchProfilesStore.setState({ profiles: [] });
+    });
+
+    it("workspace 绑定的 profile 不适用于目标 CLI 时静默丢弃（不触发后端 mismatch 警告）", () => {
+      useLaunchProfilesStore.setState({
+        profiles: [createLaunchProfile({ id: "codex-only", targetTools: ["codex"] })],
+      });
+      const workspace = createTestWorkspace({
+        path: "D:/workspace-root",
+        launchProfileId: "codex-only",
+        defaultEnvironment: "local",
+      });
+
+      const { options, issue } = resolveWorkspaceLaunchOptions({
+        workspace,
+        cliTool: "claude",
+        machines: [],
+        platform: "windows",
+      });
+
+      expect(issue).toBeNull();
+      expect(options?.launchProfileId).toBeUndefined();
+    });
+
+    it("workspace 绑定的 profile 适用于目标 CLI 时正常传递", () => {
+      useLaunchProfilesStore.setState({
+        profiles: [createLaunchProfile({ id: "codex-only", targetTools: ["codex"] })],
+      });
+      const workspace = createTestWorkspace({
+        path: "D:/workspace-root",
+        launchProfileId: "codex-only",
+        defaultEnvironment: "local",
+      });
+
+      const { options } = resolveWorkspaceLaunchOptions({
+        workspace,
+        cliTool: "codex",
+        machines: [],
+        platform: "windows",
+      });
+
+      expect(options?.launchProfileId).toBe("codex-only");
+    });
+
+    it("项目绑定的 profile 运行环境不匹配时静默丢弃", () => {
+      useLaunchProfilesStore.setState({
+        profiles: [createLaunchProfile({ id: "wsl-only", targetTools: [], targetRuntime: "wsl" })],
+      });
+      const workspace = createTestWorkspace({
+        path: "D:/workspace-root",
+        defaultEnvironment: "local",
+      });
+      const project = createTestWorkspaceProject({
+        path: "D:/workspace-root/apps/api",
+        launchProfileId: "wsl-only",
+      });
+
+      const { options, issue } = resolveWorkspaceProjectLaunchOptions({
+        workspace,
+        project,
+        cliTool: "claude",
+        machines: [],
+        platform: "windows",
+      });
+
+      expect(issue).toBeNull();
+      expect(options?.launchProfileId).toBeUndefined();
+    });
+
+    it("显式传入的 launchProfileId 不经过滤（保留后端 mismatch 警告）", () => {
+      useLaunchProfilesStore.setState({
+        profiles: [createLaunchProfile({ id: "codex-only", targetTools: ["codex"] })],
+      });
+      const workspace = createTestWorkspace({
+        path: "D:/workspace-root",
+        defaultEnvironment: "local",
+      });
+
+      const { options } = resolveWorkspaceLaunchOptions({
+        workspace,
+        cliTool: "claude",
+        launchProfileId: "codex-only",
+        machines: [],
+        platform: "windows",
+      });
+
+      expect(options?.launchProfileId).toBe("codex-only");
+    });
+
+    it("绑定 profile 在本地列表中不存在时保持原样传递", () => {
+      const workspace = createTestWorkspace({
+        path: "D:/workspace-root",
+        launchProfileId: "unknown-profile",
+        defaultEnvironment: "local",
+      });
+
+      const { options } = resolveWorkspaceLaunchOptions({
+        workspace,
+        cliTool: "claude",
+        machines: [],
+        platform: "windows",
+      });
+
+      expect(options?.launchProfileId).toBe("unknown-profile");
+    });
   });
 });
