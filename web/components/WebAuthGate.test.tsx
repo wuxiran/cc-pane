@@ -21,6 +21,7 @@ function makeStatus(overrides: Partial<WebAuthStatus> = {}): WebAuthStatus {
     passwordConfigured: true,
     allowLan: false,
     lockOnIdleMinutes: 0,
+    readOnly: false,
     ...overrides,
   };
 }

@@ -164,6 +164,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       passwordSalt: null,
       passwordHash: null,
       lockOnIdleMinutes: 30,
+      remoteReadOnly: false,
     },
     orchestrator: {
       bindMode: "auto",

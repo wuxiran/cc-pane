@@ -41,6 +41,7 @@ const DEFAULT_WEB_ACCESS_SETTINGS: WebAccessSettings = {
   passwordSalt: null,
   passwordHash: null,
   lockOnIdleMinutes: 30,
+  remoteReadOnly: false,
 };
 
 const DEFAULT_CLI_LAUNCHER_SETTINGS: CliLauncherSettings = {

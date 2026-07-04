@@ -422,6 +422,10 @@ pub struct WebAccessSettings {
     /// Web 端空闲自动锁屏分钟数；0 表示不自动锁屏。
     #[serde(default = "default_web_lock_on_idle_minutes")]
     pub lock_on_idle_minutes: u16,
+    /// 远程只读模式：非回环来源（含 Tailscale Serve 等本机反向代理转发的远程流量）
+    /// 的已登录会话仅允许只读操作；回环来源（本机浏览器）始终全权。
+    #[serde(default)]
+    pub remote_read_only: bool,
 }
 
 impl WebAccessSettings {
@@ -747,6 +751,7 @@ impl Default for WebAccessSettings {
             password_salt: None,
             password_hash: None,
             lock_on_idle_minutes: default_web_lock_on_idle_minutes(),
+            remote_read_only: false,
         }
     }
 }

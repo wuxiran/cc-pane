@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import { launchProfileService } from "@/services";
+// 直接引服务文件而非 "@/services" barrel：workspaceLaunch.ts（utils）引用本 store，
+// 走 barrel 会形成 utils → stores → services → utils 循环导入。
+import { launchProfileService } from "@/services/launchProfileService";
 import type { LaunchProfile, LaunchProfileDraft, LaunchProfilePreviewRequest, LaunchProfileResolution } from "@/types";
 
 interface LaunchProfilesState {

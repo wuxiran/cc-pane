@@ -646,9 +646,15 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/auth/status", get(crate::web_auth::status))
         .route("/api/auth/login", post(crate::web_auth::login))
         .route("/api/auth/logout", post(crate::web_auth::logout));
+    // 层序：route_layer 后添加者更外层、先执行——access_control 必须先跑
+    // （写入 RequestOrigin extension），read_only_guard 随后消费它。
     let protected = Router::new()
         .merge(api)
         .merge(ws)
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::web_auth::read_only_guard,
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::web_auth::access_control,

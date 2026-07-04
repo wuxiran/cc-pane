@@ -204,6 +204,23 @@ export default function StatusBar() {
 
       {/* 右侧工具 */}
       <div className="flex items-center gap-0.5">
+        {showWebLock && webAuthStatus.readOnly && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}
+              >
+                <LockKeyhole className="w-3 h-3" />
+                只读模式
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>远程只读模式已启用：当前来源只能查看，终端输入与文件改动被禁止</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+
         {showWebLock && (
           <Tooltip>
             <TooltipTrigger asChild>

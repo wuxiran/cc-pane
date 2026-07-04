@@ -154,6 +154,8 @@ export interface WebAccessSettings {
   passwordSalt: string | null;
   passwordHash: string | null;
   lockOnIdleMinutes: number;
+  /** 远程只读模式：非回环来源（含 Tailscale Serve 转发）仅允许只读操作 */
+  remoteReadOnly: boolean;
 }
 
 /** Orchestrator（HTTP+MCP server）绑定模式 */

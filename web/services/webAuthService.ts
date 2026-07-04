@@ -7,6 +7,8 @@ export interface WebAuthStatus {
   passwordConfigured: boolean;
   allowLan: boolean;
   lockOnIdleMinutes: number;
+  /** 本请求来源在远程只读模式下是否被限制为只读 */
+  readOnly: boolean;
 }
 
 export interface WebLoginRequest {

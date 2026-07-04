@@ -1,7 +1,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        Path, State, WebSocketUpgrade,
+        Extension, Path, State, WebSocketUpgrade,
     },
     response::IntoResponse,
 };
@@ -11,18 +11,29 @@ use tokio_tungstenite::connect_async;
 use tracing::{debug, error, warn};
 
 use crate::state::{AppState, TerminalOutputMode};
+use crate::web_auth::RequestOrigin;
 
 /// Upgrade HTTP to WebSocket for a terminal session.
+/// upgrade 是 GET，read_only_guard 放行；读写区分下沉到消息层：
+/// 远程只读时输出流照常，输入/resize 拒绝。
 pub async fn ws_upgrade(
     ws: WebSocketUpgrade,
     Path(session_id): Path<String>,
+    origin: Option<Extension<RequestOrigin>>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    debug!(session_id, "WebSocket upgrade requested");
-    ws.on_upgrade(move |socket| handle_ws(socket, session_id, state))
+    let remote = origin.is_none_or(|Extension(origin)| origin == RequestOrigin::Remote);
+    let read_only = remote
+        && state
+            .settings_service
+            .get_settings()
+            .web_access
+            .remote_read_only;
+    debug!(session_id, read_only, "WebSocket upgrade requested");
+    ws.on_upgrade(move |socket| handle_ws(socket, session_id, state, read_only))
 }
 
-async fn handle_ws(socket: WebSocket, session_id: String, state: AppState) {
+async fn handle_ws(socket: WebSocket, session_id: String, state: AppState, read_only: bool) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     // Subscribe to terminal output for this session
@@ -121,12 +132,15 @@ async fn handle_ws(socket: WebSocket, session_id: String, state: AppState) {
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
-                if let Err(e) = handle_client_message(&text, &session_id, &state) {
+                if let Err(e) = handle_client_message(&text, &session_id, &state, read_only) {
                     warn!(session_id, error = %e, "Failed to handle WS message");
                 }
             }
             Message::Binary(data) => {
-                // Treat binary as raw terminal input
+                // Treat binary as raw terminal input（远程只读时丢弃）
+                if read_only {
+                    continue;
+                }
                 if let Ok(text) = String::from_utf8(data.to_vec()) {
                     let _ = state.terminal_backend.write(&session_id, &text);
                 }
@@ -143,9 +157,20 @@ async fn handle_ws(socket: WebSocket, session_id: String, state: AppState) {
 }
 
 /// Parse and handle a JSON message from the WebSocket client.
-fn handle_client_message(text: &str, session_id: &str, state: &AppState) -> anyhow::Result<()> {
+fn handle_client_message(
+    text: &str,
+    session_id: &str,
+    state: &AppState,
+    read_only: bool,
+) -> anyhow::Result<()> {
     let msg: serde_json::Value = serde_json::from_str(text)?;
     let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+    // 远程只读：拒绝一切写入。resize 也算写——会真实改共享 PTY 尺寸，
+    // 影响桌面端同一会话的渲染。
+    if read_only && matches!(msg_type, "input" | "resize") {
+        anyhow::bail!("remote read-only mode: '{msg_type}' rejected");
+    }
 
     match msg_type {
         "input" => {

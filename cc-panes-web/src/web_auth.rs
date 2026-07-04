@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::header::{self, HeaderValue};
-use axum::http::{Request, StatusCode};
+use axum::http::{HeaderMap, Method, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -17,6 +17,86 @@ use crate::state::AppState;
 
 const SESSION_COOKIE: &str = "ccp_web_session";
 const SESSION_TTL: Duration = Duration::from_secs(60 * 60 * 24 * 7);
+
+/// 请求来源分类（access_control 中间件写入 request extensions）。
+///
+/// Tailscale Serve 等本机反向代理会把远程流量转成回环源 IP，
+/// 因此回环 + 代理转发头（x-forwarded-for / tailscale-user-login）也判 Remote。
+/// 本机进程伪造 XFF 只会把自己降级为只读，方向 fail-safe。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestOrigin {
+    Local,
+    Remote,
+}
+
+pub fn classify_origin(remote_ip: Option<IpAddr>, headers: &HeaderMap) -> RequestOrigin {
+    let loopback = remote_ip.is_some_and(|ip| ip.is_loopback());
+    if !loopback {
+        return RequestOrigin::Remote;
+    }
+    let proxied =
+        headers.contains_key("x-forwarded-for") || headers.contains_key("tailscale-user-login");
+    if proxied {
+        RequestOrigin::Remote
+    } else {
+        RequestOrigin::Local
+    }
+}
+
+/// 远程只读模式下仍放行的查询型 POST 路由（body 承载查询条件、无副作用；
+/// 其余非 GET/HEAD 一律拒绝）。auth 登录/登出在免鉴权组，不经过本守卫。
+const READ_ONLY_POST_ALLOWLIST: &[&str] = &[
+    "/api/todos/query",
+    "/api/task-bindings/query",
+    "/api/memories/search",
+    "/api/memories/format",
+    "/api/runner/ports/conflicts",
+    "/api/launch-profiles/preview",
+    "/api/workspace-migrations/preview",
+    "/api/project-migrations/preview",
+];
+
+pub fn read_only_denies(
+    origin: RequestOrigin,
+    remote_read_only: bool,
+    method: &Method,
+    path: &str,
+) -> bool {
+    if !remote_read_only || origin == RequestOrigin::Local {
+        return false;
+    }
+    if matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
+        return false;
+    }
+    !(*method == Method::POST && READ_ONLY_POST_ALLOWLIST.contains(&path))
+}
+
+/// 远程只读守卫：置于 access_control 之后（依赖其写入的 RequestOrigin extension）。
+pub async fn read_only_guard(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let settings = state.settings_service.get_settings().web_access;
+    let origin = request
+        .extensions()
+        .get::<RequestOrigin>()
+        .copied()
+        .unwrap_or(RequestOrigin::Remote);
+    if read_only_denies(
+        origin,
+        settings.remote_read_only,
+        request.method(),
+        request.uri().path(),
+    ) {
+        return json_error(
+            StatusCode::FORBIDDEN,
+            "READ_ONLY",
+            "Remote read-only mode is enabled; write operations are not allowed",
+        );
+    }
+    next.run(request).await
+}
 
 #[derive(Default)]
 pub struct WebAuthStore {
@@ -68,6 +148,8 @@ pub struct AuthStatus {
     pub password_configured: bool,
     pub allow_lan: bool,
     pub lock_on_idle_minutes: u16,
+    /// 本请求来源在远程只读模式下是否被限制为只读
+    pub read_only: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,6 +175,13 @@ pub async fn status(State(state): State<AppState>, request: Request<Body>) -> Js
         });
     let auth_required = settings.auth_required();
     let password_configured = settings.password_configured();
+    // /api/auth/status 在免鉴权组，access_control 不经过它——这里独立分类来源
+    let remote_ip = request
+        .extensions()
+        .get::<axum::extract::connect_info::ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip());
+    let origin = classify_origin(remote_ip, request.headers());
+    let read_only = settings.remote_read_only && origin == RequestOrigin::Remote;
 
     Json(AuthStatus {
         auth_required,
@@ -101,6 +190,7 @@ pub async fn status(State(state): State<AppState>, request: Request<Body>) -> Js
         password_configured,
         allow_lan: settings.allow_lan,
         lock_on_idle_minutes: settings.lock_on_idle_minutes,
+        read_only,
     })
 }
 
@@ -153,17 +243,17 @@ pub async fn logout(State(state): State<AppState>, request: Request<Body>) -> Re
 
 pub async fn access_control(
     State(state): State<AppState>,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Response {
     let settings = state.settings_service.get_settings().web_access;
 
-    if let Some(remote_addr) = request
+    let remote_ip = request
         .extensions()
         .get::<axum::extract::connect_info::ConnectInfo<SocketAddr>>()
-        .map(|info| info.0)
-    {
-        if !remote_allowed(remote_addr.ip(), &settings) {
+        .map(|info| info.0.ip());
+    if let Some(ip) = remote_ip {
+        if !remote_allowed(ip, &settings) {
             return json_error(
                 StatusCode::FORBIDDEN,
                 "REMOTE_FORBIDDEN",
@@ -171,6 +261,8 @@ pub async fn access_control(
             );
         }
     }
+    let origin = classify_origin(remote_ip, request.headers());
+    request.extensions_mut().insert(origin);
 
     if !settings.auth_required() {
         return next.run(request).await;
@@ -261,6 +353,89 @@ mod tests {
         settings.password_salt = Some("00".into());
         settings.password_hash = Some("hash".into());
         assert!(remote_allowed("192.168.1.10".parse().unwrap(), &settings));
+    }
+
+    #[test]
+    fn classify_origin_loopback_without_proxy_headers_is_local() {
+        let headers = HeaderMap::new();
+        assert_eq!(
+            classify_origin(Some("127.0.0.1".parse().unwrap()), &headers),
+            RequestOrigin::Local
+        );
+    }
+
+    #[test]
+    fn classify_origin_non_loopback_is_remote() {
+        let headers = HeaderMap::new();
+        assert_eq!(
+            classify_origin(Some("192.168.1.10".parse().unwrap()), &headers),
+            RequestOrigin::Remote
+        );
+        // 拿不到源地址按 Remote 保守处理
+        assert_eq!(classify_origin(None, &headers), RequestOrigin::Remote);
+    }
+
+    #[test]
+    fn classify_origin_loopback_with_proxy_headers_is_remote() {
+        for header_name in ["x-forwarded-for", "tailscale-user-login"] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header_name, HeaderValue::from_static("100.64.0.5"));
+            assert_eq!(
+                classify_origin(Some("127.0.0.1".parse().unwrap()), &headers),
+                RequestOrigin::Remote,
+                "header {header_name} should mark request as remote"
+            );
+        }
+    }
+
+    #[test]
+    fn read_only_denies_only_remote_writes() {
+        // 未开只读：全放行
+        assert!(!read_only_denies(
+            RequestOrigin::Remote,
+            false,
+            &Method::POST,
+            "/api/sessions/x/write"
+        ));
+        // 本机来源：全放行
+        assert!(!read_only_denies(
+            RequestOrigin::Local,
+            true,
+            &Method::DELETE,
+            "/api/sessions/x"
+        ));
+        // 远程 + 只读：GET 放行、写拒绝
+        assert!(!read_only_denies(
+            RequestOrigin::Remote,
+            true,
+            &Method::GET,
+            "/api/sessions"
+        ));
+        assert!(read_only_denies(
+            RequestOrigin::Remote,
+            true,
+            &Method::POST,
+            "/api/sessions/x/write"
+        ));
+        assert!(read_only_denies(
+            RequestOrigin::Remote,
+            true,
+            &Method::DELETE,
+            "/api/fs/entry"
+        ));
+        // 查询型 POST 白名单放行
+        assert!(!read_only_denies(
+            RequestOrigin::Remote,
+            true,
+            &Method::POST,
+            "/api/todos/query"
+        ));
+        assert!(!read_only_denies(
+            RequestOrigin::Remote,
+            true,
+            &Method::POST,
+            "/api/memories/search"
+        ));
     }
 
     #[test]

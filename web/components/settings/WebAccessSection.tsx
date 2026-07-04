@@ -244,6 +244,22 @@ export default function WebAccessSection({
           />
         </div>
 
+        <div className="flex items-center justify-between">
+          <div>
+            <Label>远程只读模式</Label>
+            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+              非本机来源（含经 Tailscale Serve 访问）登录后只能查看，禁止终端输入与文件改动；本机浏览器不受影响。保存后重启 Web 服务生效。
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={value.remoteReadOnly}
+            onChange={(event) => update("remoteReadOnly", event.target.checked)}
+            className="w-4 h-4 cursor-pointer"
+            style={{ accentColor: "var(--app-accent)" }}
+          />
+        </div>
+
         <div className="flex flex-col gap-1">
           <Label>IP 白名单</Label>
           <textarea

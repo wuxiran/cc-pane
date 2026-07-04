@@ -28,6 +28,7 @@ describe("webAuthService", () => {
         passwordConfigured: true,
         allowLan: false,
         lockOnIdleMinutes: 15,
+        readOnly: false,
       };
       const fetchMock = mockFetch(jsonResponse(status));
 
