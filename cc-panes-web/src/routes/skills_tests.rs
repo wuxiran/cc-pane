@@ -231,6 +231,7 @@ async fn project_skill_routes_match_tauri_skill_commands() {
     assert_eq!(saved.name, "make-component");
     assert!(saved
         .file_path
+        .replace('\\', "/")
         .ends_with(".claude/commands/make-component.md"));
 
     let Json(skills) = list_skills(
@@ -269,7 +270,10 @@ async fn project_skill_routes_match_tauri_skill_commands() {
     .await
     .expect("copy skill");
     assert_eq!(copied.name, "make-component");
-    assert!(copied.file_path.contains("target/.claude/commands"));
+    assert!(copied
+        .file_path
+        .replace('\\', "/")
+        .contains("target/.claude/commands"));
 
     let Json(deleted) = delete_skill(
         State(state.clone()),

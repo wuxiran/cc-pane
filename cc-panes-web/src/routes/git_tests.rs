@@ -211,6 +211,11 @@ fn init_repo(path: &Path) {
     run_git(path, &["init"]);
     run_git(path, &["config", "user.email", "test@example.com"]);
     run_git(path, &["config", "user.name", "Test User"]);
+    // Keep line endings byte-for-byte so content round-trips through git
+    // operations (e.g. stash/pop) identically on every platform. Without this,
+    // a global `core.autocrlf=true` (common on Windows / GitHub runners) rewrites
+    // LF to CRLF on checkout and breaks exact content assertions.
+    run_git(path, &["config", "core.autocrlf", "false"]);
     std::fs::write(path.join("README.md"), "initial\n").expect("write readme");
     run_git(path, &["add", "README.md"]);
     run_git(path, &["commit", "-m", "initial"]);
@@ -413,9 +418,22 @@ async fn worktree_routes_match_core_service_operations() {
     )
     .await
     .expect("list worktrees after add");
+    // `git worktree list --porcelain` reports paths in git-canonical form
+    // (forward slashes, and on Windows the drive-letter case may differ), while
+    // `add_worktree` returns the path built with the host separator. Normalize
+    // separators (and case on Windows) before comparing.
+    let norm_path = |value: &str| {
+        let normalized = value.replace('\\', "/");
+        if cfg!(windows) {
+            normalized.to_ascii_lowercase()
+        } else {
+            normalized
+        }
+    };
+    let expected_worktree = norm_path(&worktree_path);
     assert!(worktrees
         .iter()
-        .any(|worktree| worktree.path == worktree_path));
+        .any(|worktree| norm_path(&worktree.path) == expected_worktree));
 
     remove_worktree(
         State(state),

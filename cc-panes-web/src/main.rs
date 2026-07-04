@@ -128,7 +128,16 @@ fn non_empty_path(value: Option<&str>) -> Option<&str> {
 }
 
 fn normalize_current_host_path(path: &str) -> PathBuf {
-    windows_path_to_wsl_path(path).unwrap_or_else(|| PathBuf::from(path))
+    // Only translate a Windows-style path (C:\...) into a WSL mount path
+    // (/mnt/c/...) when we are actually running inside WSL. On native Windows
+    // the incoming path is already correct and must be preserved verbatim —
+    // converting it to /mnt/c/... would point at a non-existent location.
+    if running_under_wsl() {
+        if let Some(wsl_path) = windows_path_to_wsl_path(path) {
+            return wsl_path;
+        }
+    }
+    PathBuf::from(path)
 }
 
 fn detect_windows_desktop_app_dir() -> Option<PathBuf> {
