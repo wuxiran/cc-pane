@@ -1399,7 +1399,10 @@ mod tests {
             Some("codex"),
             Some("local"),
         );
-        assert_eq!(resolved.as_ref().map(|profile| profile.yolo_mode), Some(true));
+        assert_eq!(
+            resolved.as_ref().map(|profile| profile.yolo_mode),
+            Some(true)
+        );
         assert!(diag.is_none());
     }
 
@@ -1419,7 +1422,10 @@ mod tests {
             Some("local"),
         );
         // 关键：静默回落到 claude 默认 → YOLO 未生效
-        assert_eq!(resolved.as_ref().map(|profile| profile.yolo_mode), Some(false));
+        assert_eq!(
+            resolved.as_ref().map(|profile| profile.yolo_mode),
+            Some(false)
+        );
         let diag = diag.expect("显式 profile 因 CLI 不匹配被丢弃时应给出诊断");
         assert!(diag.cli_mismatch);
         assert!(!diag.runtime_mismatch);
@@ -1430,8 +1436,14 @@ mod tests {
     #[test]
     fn diagnostic_flags_runtime_mismatch() {
         let service = test_service();
-        let local_only =
-            mk_profile(&service, "Codex Local", &["codex"], Some("local"), true, false);
+        let local_only = mk_profile(
+            &service,
+            "Codex Local",
+            &["codex"],
+            Some("local"),
+            true,
+            false,
+        );
         let (_resolved, diag) = service.resolve_launch_profile_with_diagnostic(
             Some(&local_only.id),
             None,
