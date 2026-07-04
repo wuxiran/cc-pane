@@ -142,7 +142,12 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
               <NotificationSection value={draft.notification} onChange={(v) => setDraft({ ...draft, notification: v })} />
             )}
             {activeSection === "web-access" && (
-              <WebAccessSection value={draft.webAccess} onChange={(v) => setDraft({ ...draft, webAccess: v })} />
+              <WebAccessSection
+                value={draft.webAccess}
+                onChange={(v) => setDraft({ ...draft, webAccess: v })}
+                orchestrator={draft.orchestrator}
+                onOrchestratorChange={(v) => setDraft({ ...draft, orchestrator: v })}
+              />
             )}
             {activeSection === "provider" && <ProviderSection />}
             {activeSection === "cli-launchers" && (

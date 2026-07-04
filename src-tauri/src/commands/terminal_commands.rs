@@ -10,8 +10,36 @@ use crate::utils::error::AppError;
 use crate::utils::{validate_path, validate_ssh_info, AppResult};
 use cc_cli_adapters::{CliToolInfo, CliToolRegistry};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
-use tracing::debug;
+use tauri::{AppHandle, Emitter, Manager, State};
+use tracing::{debug, warn};
+
+/// WSL 启动安全网：orchestrator 绑定回环且 WSL 非 mirrored 网络时，
+/// WSL 内 CLI 可能无法回连 MCP —— warn + 广播 terminal-launch-warning 供前端 toast 提示。
+/// mirrored 网络下 WSL 内 127.0.0.1 直达宿主，回环绑定无影响，不提示。
+fn warn_if_orchestrator_unreachable_from_wsl(app_handle: &AppHandle) {
+    let Some(orchestrator) = app_handle.try_state::<Arc<crate::services::OrchestratorService>>()
+    else {
+        return;
+    };
+    let Some(bind) = orchestrator.bind_decision() else {
+        return;
+    };
+    if bind.host != "127.0.0.1" || bind.wsl_mirrored == Some(true) {
+        return;
+    }
+    warn!(
+        "[orchestrator] WSL session launched while orchestrator is loopback-bound \
+         (mode={}) and WSL networking is not mirrored; ccpanes MCP may be unreachable from WSL",
+        bind.mode
+    );
+    let _ = app_handle.emit(
+        "terminal-launch-warning",
+        serde_json::json!({
+            "kind": "orchestratorLoopbackWsl",
+            "bindMode": bind.mode,
+        }),
+    );
+}
 
 fn is_idempotent_kill_error(error: &AppError) -> bool {
     // fix(H2) review: typed NotFound replaces fragile string-only not-found detection.
@@ -79,6 +107,12 @@ pub async fn create_terminal_session(
         if let Some(ref ws_path) = request.workspace_path {
             validate_path(ws_path)?;
         }
+    }
+
+    // 安全网：orchestrator 只绑了回环时，WSL 内 CLI 无法回连宿主 MCP 端点。
+    // 不阻断启动（终端本身可用），仅告警 + 通知前端提示用户调整绑定模式后重启。
+    if request.wsl.is_some() {
+        warn_if_orchestrator_unreachable_from_wsl(&app_handle);
     }
 
     let backend = service.backend();

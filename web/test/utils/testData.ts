@@ -165,6 +165,9 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       passwordHash: null,
       lockOnIdleMinutes: 30,
     },
+    orchestrator: {
+      bindMode: "auto",
+    },
     ...overrides,
   };
 }

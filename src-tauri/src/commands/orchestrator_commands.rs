@@ -1,5 +1,7 @@
+use crate::services::orchestrator_service::OrchestratorBindDecision;
 use crate::services::OrchestratorService;
 use crate::utils::error::AppResult;
+use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
 
@@ -9,6 +11,24 @@ pub fn get_orchestrator_port(
     orchestrator: State<'_, Arc<OrchestratorService>>,
 ) -> AppResult<Option<u16>> {
     Ok(orchestrator.port())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorStatus {
+    pub port: Option<u16>,
+    pub bind: Option<OrchestratorBindDecision>,
+}
+
+/// 获取 Orchestrator 运行状态（端口 + 绑定决策，供设置页展示）
+#[tauri::command]
+pub fn get_orchestrator_status(
+    orchestrator: State<'_, Arc<OrchestratorService>>,
+) -> AppResult<OrchestratorStatus> {
+    Ok(OrchestratorStatus {
+        port: orchestrator.port(),
+        bind: orchestrator.bind_decision(),
+    })
 }
 
 /// 获取 Orchestrator 认证 Token

@@ -80,6 +80,7 @@
   "voiceTranscribing": "正在识别",
   "voiceNoSession": "终端会话未就绪",
   "launchProfileMismatch": "启动配置「{{profile}}」不适用于 {{cli}}，已改用「{{used}}」（YOLO 等 profile 级设置可能未生效）",
+  "orchestratorLoopbackWsl": "MCP 编排服务仅监听本机回环，且未检测到 WSL mirrored 网络，WSL 内 CLI 可能无法回连 ccpanes MCP。可在设置 → Web 访问中调整监听模式后重启应用。",
   "voiceUnavailable": "当前窗格暂不可用",
   "voiceEnableInSettings": "请先在设置中启用语音输入",
   "voiceApiKeyMissing": "请先配置当前语音服务的 API Key",

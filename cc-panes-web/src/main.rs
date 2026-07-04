@@ -364,8 +364,7 @@ fn resolve_bind_host(
     explicit: Option<String>,
     web_access: &cc_panes_core::models::settings::WebAccessSettings,
 ) -> anyhow::Result<String> {
-    let is_loopback =
-        |host: &str| matches!(host, "127.0.0.1" | "::1" | "[::1]" | "localhost");
+    let is_loopback = |host: &str| matches!(host, "127.0.0.1" | "::1" | "[::1]" | "localhost");
     match explicit {
         None => {
             if web_access.allow_lan && web_access.auth_required() {
@@ -521,7 +520,9 @@ mod tests {
             auth_enabled: true,
             ..Default::default()
         };
-        settings.set_password("test-password").expect("set password");
+        settings
+            .set_password("test-password")
+            .expect("set password");
         settings
     }
 
@@ -558,8 +559,11 @@ mod tests {
     #[test]
     fn resolve_bind_host_allows_explicit_non_loopback_with_auth() {
         assert_eq!(
-            resolve_bind_host(Some("0.0.0.0".to_string()), &web_access_with_password(false))
-                .expect("resolve"),
+            resolve_bind_host(
+                Some("0.0.0.0".to_string()),
+                &web_access_with_password(false)
+            )
+            .expect("resolve"),
             "0.0.0.0"
         );
     }

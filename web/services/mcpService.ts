@@ -1,7 +1,7 @@
 /**
  * MCP 配置管理服务层 — 封装所有 MCP 配置相关的 Tauri invoke 调用
  */
-import type { McpServerConfig } from "@/types";
+import type { McpServerConfig, OrchestratorStatus } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
 import { apiDeleteJson, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
 
@@ -53,5 +53,11 @@ export const mcpService = {
       invoke<string>("get_orchestrator_token"),
     ]);
     return { port, token };
+  },
+
+  /** 获取 Orchestrator 运行状态（端口 + 绑定决策，设置页展示用） */
+  async getOrchestratorStatus(): Promise<OrchestratorStatus | null> {
+    if (!isTauriRuntime()) return null;
+    return invoke<OrchestratorStatus>("get_orchestrator_status");
   },
 };

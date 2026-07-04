@@ -4,15 +4,37 @@ import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "l
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { settingsService } from "@/services";
+import { mcpService, settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
-import type { WebAccessSettings, WebAccessStatus } from "@/types";
+import type {
+  OrchestratorBindMode,
+  OrchestratorSettings,
+  OrchestratorStatus,
+  WebAccessSettings,
+  WebAccessStatus,
+} from "@/types";
 
 interface WebAccessSectionProps {
   value: WebAccessSettings;
   onChange: (value: WebAccessSettings) => void;
+  orchestrator?: OrchestratorSettings;
+  onOrchestratorChange?: (value: OrchestratorSettings) => void;
 }
+
+const ORCHESTRATOR_BIND_MODES: Array<{ mode: OrchestratorBindMode; label: string; hint: string }> = [
+  {
+    mode: "auto",
+    label: "自动（推荐）",
+    hint: "默认仅本机；WSL mirrored 网络下回环即可被 WSL 访问，仅 NAT 模式的 WSL 使用会开放所有网卡。",
+  },
+  {
+    mode: "loopback",
+    label: "仅本机",
+    hint: "始终 127.0.0.1。WSL mirrored 网络下 WSL 仍可访问；NAT 模式下 WSL 内 CLI 可能无法回连 MCP。",
+  },
+  { mode: "all", label: "所有网卡", hint: "始终 0.0.0.0（局域网可见，凭随机端口 + token 防护）。" },
+];
 
 function normalizeWhitelistText(value: string): string[] {
   return value
@@ -21,9 +43,15 @@ function normalizeWhitelistText(value: string): string[] {
     .filter(Boolean);
 }
 
-export default function WebAccessSection({ value, onChange }: WebAccessSectionProps) {
+export default function WebAccessSection({
+  value,
+  onChange,
+  orchestrator,
+  onOrchestratorChange,
+}: WebAccessSectionProps) {
   const [status, setStatus] = useState<WebAccessStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
+  const [orchestratorStatus, setOrchestratorStatus] = useState<OrchestratorStatus | null>(null);
   const [password, setPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
   const loadSettings = useSettingsStore((state) => state.loadSettings);
@@ -50,6 +78,10 @@ export default function WebAccessSection({ value, onChange }: WebAccessSectionPr
 
   useEffect(() => {
     void refreshStatus();
+    void mcpService
+      .getOrchestratorStatus()
+      .then(setOrchestratorStatus)
+      .catch(() => setOrchestratorStatus(null));
   }, []);
 
   async function handleSetPassword() {
@@ -231,6 +263,44 @@ export default function WebAccessSection({ value, onChange }: WebAccessSectionPr
           </p>
         </div>
       </div>
+
+      {orchestrator && onOrchestratorChange && isTauriRuntime() && (
+        <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
+          <div>
+            <Label>MCP 编排服务监听</Label>
+            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+              CC-Panes 内置 orchestrator（供 CLI 的 ccpanes MCP 工具回连）。修改后重启应用生效。
+            </p>
+          </div>
+          <select
+            value={orchestrator.bindMode}
+            onChange={(event) =>
+              onOrchestratorChange({ ...orchestrator, bindMode: event.target.value as OrchestratorBindMode })
+            }
+            className="px-2 py-1.5 rounded-md text-[13px] outline-none cursor-pointer"
+            style={{
+              border: "1px solid var(--app-border)",
+              background: "var(--app-content)",
+              color: "var(--app-text-primary)",
+            }}
+          >
+            {ORCHESTRATOR_BIND_MODES.map((item) => (
+              <option key={item.mode} value={item.mode}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+            {ORCHESTRATOR_BIND_MODES.find((item) => item.mode === orchestrator.bindMode)?.hint}
+          </p>
+          {orchestratorStatus?.bind && (
+            <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
+              当前实际监听 {orchestratorStatus.bind.host}
+              {orchestratorStatus.port != null ? `:${orchestratorStatus.port}` : ""}（{orchestratorStatus.bind.reason}）
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
         <div className="flex items-center justify-between">

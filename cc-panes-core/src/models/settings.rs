@@ -35,6 +35,8 @@ pub struct AppSettings {
     pub layout_switcher: LayoutSwitcherSettings,
     #[serde(default)]
     pub web_access: WebAccessSettings,
+    #[serde(default)]
+    pub orchestrator: OrchestratorSettings,
 }
 
 impl AppSettings {
@@ -45,7 +47,38 @@ impl AppSettings {
         self.ccchan.merge_missing_defaults();
         self.cli_launchers.merge_missing_defaults();
         self.web_access.merge_missing_defaults();
+        self.orchestrator.merge_missing_defaults();
     }
+}
+
+/// Orchestrator（HTTP+MCP server）网络绑定设置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorSettings {
+    /// "auto"：默认只绑回环，检测到 WSL 使用信号时绑全网卡（WSL 内 CLI 需回连宿主）
+    /// "loopback"：始终 127.0.0.1；"all"：始终 0.0.0.0
+    #[serde(default = "default_orchestrator_bind_mode")]
+    pub bind_mode: String,
+}
+
+impl Default for OrchestratorSettings {
+    fn default() -> Self {
+        Self {
+            bind_mode: default_orchestrator_bind_mode(),
+        }
+    }
+}
+
+impl OrchestratorSettings {
+    pub fn merge_missing_defaults(&mut self) {
+        if !matches!(self.bind_mode.as_str(), "auto" | "loopback" | "all") {
+            self.bind_mode = default_orchestrator_bind_mode();
+        }
+    }
+}
+
+fn default_orchestrator_bind_mode() -> String {
+    "auto".to_string()
 }
 
 /// 代理设置

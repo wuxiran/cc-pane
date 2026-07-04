@@ -94,6 +94,10 @@ export type {
   LayoutSwitcherSettings,
   WebAccessSettings,
   WebAccessStatus,
+  OrchestratorSettings,
+  OrchestratorBindMode,
+  OrchestratorBindDecision,
+  OrchestratorStatus,
   EnvironmentInfo,
 } from "./settings";
 export { BUSY_STATUSES, isBusyStatus } from "./settings";

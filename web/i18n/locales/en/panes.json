@@ -80,6 +80,7 @@
   "voiceTranscribing": "Transcribing",
   "voiceNoSession": "Terminal session is not ready",
   "launchProfileMismatch": "Launch profile \"{{profile}}\" doesn't apply to {{cli}}; using \"{{used}}\" instead (profile-level settings like YOLO may not take effect)",
+  "orchestratorLoopbackWsl": "The MCP orchestrator only listens on loopback and WSL mirrored networking was not detected, so CLIs inside WSL may not reach the ccpanes MCP tools. Adjust the listen mode in Settings → Web Access and restart the app.",
   "voiceUnavailable": "This pane is unavailable",
   "voiceEnableInSettings": "Enable voice input in Settings first",
   "voiceApiKeyMissing": "Configure the current voice service API key first",

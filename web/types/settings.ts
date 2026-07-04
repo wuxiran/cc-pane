@@ -11,6 +11,7 @@ export interface AppSettings {
   cliLaunchers: CliLauncherSettings;
   layoutSwitcher: LayoutSwitcherSettings;
   webAccess: WebAccessSettings;
+  orchestrator: OrchestratorSettings;
 }
 
 /** 代理设置 */
@@ -153,6 +154,25 @@ export interface WebAccessSettings {
   passwordSalt: string | null;
   passwordHash: string | null;
   lockOnIdleMinutes: number;
+}
+
+/** Orchestrator（HTTP+MCP server）绑定模式 */
+export type OrchestratorBindMode = "auto" | "loopback" | "all";
+
+export interface OrchestratorSettings {
+  bindMode: OrchestratorBindMode;
+}
+
+/** Orchestrator 运行状态（get_orchestrator_status） */
+export interface OrchestratorBindDecision {
+  host: string;
+  mode: string;
+  reason: string;
+}
+
+export interface OrchestratorStatus {
+  port: number | null;
+  bind: OrchestratorBindDecision | null;
 }
 
 export interface WebAccessStatus {

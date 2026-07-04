@@ -5,7 +5,7 @@ import { handleErrorSilent } from "@/utils";
 import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
 import type { CCChanSettings } from "@/ccchan/types";
-import type { CliLauncherSettings, LayoutSwitcherSettings, WebAccessSettings } from "@/types";
+import type { CliLauncherSettings, LayoutSwitcherSettings, OrchestratorSettings, WebAccessSettings } from "@/types";
 
 const defaultCloseToTray = () => {
   if (typeof navigator === "undefined") {
@@ -47,6 +47,10 @@ const DEFAULT_CLI_LAUNCHER_SETTINGS: CliLauncherSettings = {
   overrides: {},
 };
 
+const DEFAULT_ORCHESTRATOR_SETTINGS: OrchestratorSettings = {
+  bindMode: "auto",
+};
+
 function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
   const maybeWithCCChan = settings as Partial<AppSettingsWithCCChan>;
   const maybeSettings = settings as Partial<AppSettings>;
@@ -67,6 +71,10 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
     webAccess: {
       ...DEFAULT_WEB_ACCESS_SETTINGS,
       ...settings.webAccess,
+    },
+    orchestrator: {
+      ...DEFAULT_ORCHESTRATOR_SETTINGS,
+      ...maybeSettings.orchestrator,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
@@ -205,5 +213,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     cliLaunchers: DEFAULT_CLI_LAUNCHER_SETTINGS,
     layoutSwitcher: DEFAULT_LAYOUT_SWITCHER_SETTINGS,
     webAccess: DEFAULT_WEB_ACCESS_SETTINGS,
+    orchestrator: DEFAULT_ORCHESTRATOR_SETTINGS,
   }),
 }));

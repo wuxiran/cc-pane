@@ -115,6 +115,7 @@ use commands::{
     get_memory_stats,
     // Orchestrator 命令
     get_orchestrator_port,
+    get_orchestrator_status,
     get_orchestrator_token,
     get_plan_collaboration,
     get_plan_content,
@@ -2121,6 +2122,7 @@ pub fn run() {
             set_macos_terminal_focused,
             // Orchestrator 命令
             get_orchestrator_port,
+            get_orchestrator_status,
             get_orchestrator_token,
             respond_orchestrator_query,
             // TaskBinding 命令

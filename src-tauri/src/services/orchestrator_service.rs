@@ -395,9 +395,160 @@ pub struct AppState {
 
 // ============ OrchestratorService ============
 
+/// 监听绑定决策（供状态查询与 WSL 安全网提示）
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorBindDecision {
+    /// 实际绑定地址："127.0.0.1" 或 "0.0.0.0"
+    pub host: String,
+    /// 设置值："auto" | "loopback" | "all"
+    pub mode: String,
+    /// 决策原因（面向 UI 展示）
+    pub reason: String,
+    /// WSL 是否为 mirrored 网络（None = 未检测/无 .wslconfig）。
+    /// mirrored 下 WSL 内 127.0.0.1 直达 Windows 服务，回环绑定不影响 WSL MCP。
+    pub wsl_mirrored: Option<bool>,
+}
+
+/// 按设置解析 orchestrator 绑定地址。auto 模式：
+/// - 无 WSL 使用信号 → 回环
+/// - 有 WSL 信号且 WSL 为 mirrored 网络 → 回环（mirrored 下 WSL 访问 127.0.0.1 直达宿主，
+///   当前 WSL MCP URL 注入本就是 127.0.0.1，见 wsl_codex::resolve_reachable_wsl_windows_host）
+/// - 有 WSL 信号且 NAT/未知网络 → 0.0.0.0（保持旧行为；NAT 下注入的 127.0.0.1 URL 本身不可达，
+///   属既有问题，此处宁开勿关）
+pub fn resolve_bind_decision(
+    settings_service: &SettingsService,
+    workspace_service: &WorkspaceService,
+    launch_history_service: &LaunchHistoryService,
+) -> OrchestratorBindDecision {
+    let mode = settings_service.get_settings().orchestrator.bind_mode;
+    let mirrored = wsl_networking_mirrored();
+    let wsl_signal = if mode == "auto" {
+        Some(wsl_usage_detected(
+            workspace_service,
+            launch_history_service,
+        ))
+    } else {
+        None
+    };
+    decide_bind(&mode, wsl_signal, mirrored)
+}
+
+/// 读取 %USERPROFILE%\.wslconfig 判断 WSL2 是否启用 mirrored 网络。
+/// None = 文件不存在/不可读（按 NAT 保守处理）。
+fn wsl_networking_mirrored() -> Option<bool> {
+    let home = std::env::var("USERPROFILE").ok()?;
+    let content = std::fs::read_to_string(std::path::Path::new(&home).join(".wslconfig")).ok()?;
+    Some(parse_wsl_networking_mirrored(&content))
+}
+
+fn parse_wsl_networking_mirrored(config: &str) -> bool {
+    config.lines().any(|line| {
+        let line = line.trim();
+        if line.starts_with('#') || line.starts_with(';') {
+            return false;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            return false;
+        };
+        key.trim().eq_ignore_ascii_case("networkingMode")
+            && value.trim().eq_ignore_ascii_case("mirrored")
+    })
+}
+
+/// 纯决策：mode + WSL 使用信号 + WSL 网络模式 → 绑定地址（信号仅 auto 模式提供）
+fn decide_bind(
+    mode: &str,
+    wsl_signal: Option<Result<Option<String>, String>>,
+    wsl_mirrored: Option<bool>,
+) -> OrchestratorBindDecision {
+    let mode = mode.to_string();
+    match mode.as_str() {
+        "loopback" => OrchestratorBindDecision {
+            host: "127.0.0.1".to_string(),
+            mode,
+            reason: "settings: loopback".to_string(),
+            wsl_mirrored,
+        },
+        "all" => OrchestratorBindDecision {
+            host: "0.0.0.0".to_string(),
+            mode,
+            reason: "settings: all interfaces".to_string(),
+            wsl_mirrored,
+        },
+        _ => match wsl_signal.unwrap_or(Ok(None)) {
+            Ok(Some(signal)) if wsl_mirrored == Some(true) => OrchestratorBindDecision {
+                host: "127.0.0.1".to_string(),
+                mode,
+                reason: format!(
+                    "auto: WSL usage ({signal}) with mirrored networking; loopback reachable from WSL"
+                ),
+                wsl_mirrored,
+            },
+            Ok(Some(signal)) => OrchestratorBindDecision {
+                host: "0.0.0.0".to_string(),
+                mode,
+                reason: format!("auto: WSL usage detected ({signal}), NAT/unknown networking"),
+                wsl_mirrored,
+            },
+            Ok(None) => OrchestratorBindDecision {
+                host: "127.0.0.1".to_string(),
+                mode,
+                reason: "auto: no WSL usage detected".to_string(),
+                wsl_mirrored,
+            },
+            Err(error) => {
+                warn!(
+                    "[orchestrator] WSL usage detection failed ({error}); \
+                     falling back to 0.0.0.0 to keep WSL MCP reachable"
+                );
+                OrchestratorBindDecision {
+                    host: "0.0.0.0".to_string(),
+                    mode,
+                    reason: format!("auto: detection failed ({error}), fail-open"),
+                    wsl_mirrored,
+                }
+            }
+        },
+    }
+}
+
+/// WSL 使用信号：Ok(Some(描述)) 命中，Ok(None) 未命中，Err 读取失败
+fn wsl_usage_detected(
+    workspace_service: &WorkspaceService,
+    launch_history_service: &LaunchHistoryService,
+) -> Result<Option<String>, String> {
+    let workspaces = workspace_service.list_workspaces()?;
+    for workspace in &workspaces {
+        let cli_default_wsl = workspace
+            .cli_environment_defaults
+            .as_ref()
+            .is_some_and(|defaults| {
+                defaults.claude == Some(WorkspaceLaunchEnvironment::Wsl)
+                    || defaults.codex == Some(WorkspaceLaunchEnvironment::Wsl)
+            });
+        if workspace.default_environment == WorkspaceLaunchEnvironment::Wsl
+            || workspace.wsl.is_some()
+            || cli_default_wsl
+            || workspace
+                .projects
+                .iter()
+                .any(|project| project.wsl_remote_path.is_some())
+        {
+            return Ok(Some(format!("workspace '{}'", workspace.name)));
+        }
+    }
+    let records = launch_history_service.list(500)?;
+    if records.iter().any(|record| record.runtime_kind == "wsl") {
+        return Ok(Some("launch history".to_string()));
+    }
+    Ok(None)
+}
+
 pub struct OrchestratorService {
     port: Mutex<Option<u16>>,
     token: String,
+    bind_decision: Mutex<Option<OrchestratorBindDecision>>,
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     /// hook 驱动状态机：进程级单例，所有 session 共享
     session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
@@ -410,6 +561,7 @@ impl OrchestratorService {
         Self {
             port: Mutex::new(None),
             token,
+            bind_decision: Mutex::new(None),
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             session_state_machine: Arc::new(cc_panes_core::services::SessionStateMachine::new()),
         }
@@ -418,6 +570,14 @@ impl OrchestratorService {
     /// 获取服务器端口
     pub fn port(&self) -> Option<u16> {
         *self.port.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 获取当前监听绑定决策（None = 尚未启动）
+    pub fn bind_decision(&self) -> Option<OrchestratorBindDecision> {
+        self.bind_decision
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// 获取认证 token
@@ -466,6 +626,17 @@ impl OrchestratorService {
         app_paths: Arc<AppPaths>,
     ) -> Result<()> {
         let app_paths_for_config = app_paths.clone();
+        let bind = resolve_bind_decision(
+            &settings_service,
+            &workspace_service,
+            &launch_history_service,
+        );
+        info!(
+            "[orchestrator] bind decision: host={} mode={} ({})",
+            bind.host, bind.mode, bind.reason
+        );
+        *self.bind_decision.lock().unwrap_or_else(|e| e.into_inner()) = Some(bind.clone());
+        let bind_host = bind.host;
         let state = AppState {
             token: self.token.clone(),
             terminal_service,
@@ -669,15 +840,17 @@ impl OrchestratorService {
             rt.block_on(async move {
                 let app = build_router(state);
 
-                // 绑定 0.0.0.0:0（自动分配端口），供本机与 WSL 访问
-                // macOS Ventura+ 首次绑定可能触发防火墙授权弹窗，这是正常行为
-                let listener = match tokio::net::TcpListener::bind("0.0.0.0:0").await {
+                // 绑定 {bind_host}:0（自动分配端口）。auto/all 下绑 0.0.0.0 供 WSL 访问；
+                // loopback（或 auto 无 WSL 信号）只绑回环，缩小 LAN 暴露面。
+                // macOS Ventura+ 首次绑定非回环可能触发防火墙授权弹窗，这是正常行为
+                let listener = match tokio::net::TcpListener::bind(format!("{bind_host}:0")).await
+                {
                     Ok(l) => l,
                     Err(e) => {
                         error!(
-                            "[orchestrator] Failed to bind 0.0.0.0:0: {}. \
+                            "[orchestrator] Failed to bind {}:0: {}. \
                              On macOS, ensure the app is allowed in System Settings > Privacy & Security > Firewall.",
-                            e
+                            bind_host, e
                         );
                         return;
                     }
@@ -692,8 +865,8 @@ impl OrchestratorService {
                 };
                 let port = addr.port();
                 info!(
-                    "[orchestrator] HTTP + MCP server listening on 0.0.0.0:{}",
-                    port
+                    "[orchestrator] HTTP + MCP server listening on {}:{}",
+                    bind_host, port
                 );
 
                 // 通知主线程端口号
@@ -7352,6 +7525,67 @@ fn local_orchestrator_endpoint_reachable(port: u16) -> bool {
 mod tests {
     use super::*;
     use crate::models::WorkspaceCliEnvironmentDefaults;
+
+    #[test]
+    fn decide_bind_explicit_modes_ignore_wsl_signal() {
+        let loopback = decide_bind("loopback", None, Some(false));
+        assert_eq!(loopback.host, "127.0.0.1");
+        let all = decide_bind("all", None, Some(true));
+        assert_eq!(all.host, "0.0.0.0");
+    }
+
+    #[test]
+    fn decide_bind_auto_without_wsl_usage_stays_loopback() {
+        let decision = decide_bind("auto", Some(Ok(None)), None);
+        assert_eq!(decision.host, "127.0.0.1");
+    }
+
+    #[test]
+    fn decide_bind_auto_with_wsl_usage_and_mirrored_stays_loopback() {
+        let decision = decide_bind(
+            "auto",
+            Some(Ok(Some("workspace 'x'".to_string()))),
+            Some(true),
+        );
+        assert_eq!(decision.host, "127.0.0.1");
+        assert!(decision.reason.contains("mirrored"));
+    }
+
+    #[test]
+    fn decide_bind_auto_with_wsl_usage_and_nat_opens_all_interfaces() {
+        for mirrored in [Some(false), None] {
+            let decision = decide_bind(
+                "auto",
+                Some(Ok(Some("launch history".to_string()))),
+                mirrored,
+            );
+            assert_eq!(decision.host, "0.0.0.0");
+        }
+    }
+
+    #[test]
+    fn decide_bind_auto_detection_failure_fails_open() {
+        let decision = decide_bind("auto", Some(Err("boom".to_string())), Some(true));
+        assert_eq!(decision.host, "0.0.0.0");
+        assert!(decision.reason.contains("fail-open"));
+    }
+
+    #[test]
+    fn parse_wsl_networking_mirrored_variants() {
+        assert!(parse_wsl_networking_mirrored(
+            "[wsl2]\nnetworkingMode=mirrored\n"
+        ));
+        assert!(parse_wsl_networking_mirrored(
+            "[wsl2]\n networkingMode = Mirrored \n"
+        ));
+        assert!(!parse_wsl_networking_mirrored(
+            "[wsl2]\n# networkingMode=mirrored\n"
+        ));
+        assert!(!parse_wsl_networking_mirrored("[wsl2]\nmemory=8GB\n"));
+        assert!(!parse_wsl_networking_mirrored(
+            "[wsl2]\nnetworkingMode=nat\n"
+        ));
+    }
 
     #[test]
     fn test_generate_token_length() {
