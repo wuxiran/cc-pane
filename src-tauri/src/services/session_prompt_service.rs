@@ -130,12 +130,10 @@ pub fn extract_codex_last_prompt(
 
     let file = File::open(&file_path).map_err(|e| e.to_string())?;
     let reader = BufReader::new(file);
-    let mut lines = Vec::new();
-    for line in reader.lines() {
-        let Ok(line) = line else { continue };
-        lines.push(line);
-    }
-    Ok(extract_codex_prompt_from_lines(lines))
+    // 流式传入，避免把整个 JSONL（长会话可达数十 MB）驻留内存
+    Ok(extract_codex_prompt_from_lines(
+        reader.lines().map_while(Result::ok),
+    ))
 }
 
 /// 从 Codex session jsonl 行中提取最后一条有效用户 prompt（纯函数，便于测试）
@@ -143,7 +141,8 @@ fn extract_codex_prompt_from_lines<I>(lines: I) -> Option<String>
 where
     I: IntoIterator<Item = String>,
 {
-    let mut prompts = Vec::new();
+    // 只保留最后一条，不累积全部候选 prompt
+    let mut last_prompt = None;
 
     for line in lines {
         let json: Value = match serde_json::from_str(&line) {
@@ -182,11 +181,11 @@ where
             }
         }
         if !merged.is_empty() {
-            prompts.push(merged.join("\n"));
+            last_prompt = Some(merged.join("\n"));
         }
     }
 
-    prompts.pop().map(|prompt| truncate_prompt(&prompt))
+    last_prompt.map(|prompt| truncate_prompt(&prompt))
 }
 
 #[cfg(test)]
