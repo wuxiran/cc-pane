@@ -7,6 +7,7 @@ class Workspace {
     this.alias,
     this.path,
     this.pinned = false,
+    this.hidden = false,
   });
 
   final String id;
@@ -14,9 +15,11 @@ class Workspace {
   final String? alias;
   final String? path;
   final bool pinned;
+  final bool hidden;
   final List<WorkspaceProject> projects;
 
   String get displayName => alias?.isNotEmpty == true ? alias! : name;
+  int get projectCount => projects.length;
 
   factory Workspace.fromJson(Map<String, dynamic> json) => Workspace(
         id: json['id'] as String? ?? json['name'] as String,
@@ -24,6 +27,7 @@ class Workspace {
         alias: json['alias'] as String?,
         path: json['path'] as String?,
         pinned: json['pinned'] as bool? ?? false,
+        hidden: json['hidden'] as bool? ?? false,
         projects: (json['projects'] as List<dynamic>? ?? const [])
             .map((item) => WorkspaceProject.fromJson(item as Map<String, dynamic>))
             .toList(),

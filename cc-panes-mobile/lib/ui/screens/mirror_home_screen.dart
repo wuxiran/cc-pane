@@ -4,33 +4,47 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/result.dart';
 import '../../state/auth_controller.dart';
 import '../../state/mirror_controller.dart';
-import '../widgets/launch_picker.dart';
+import '../../state/workspaces_controller.dart';
 import '../widgets/mirror_card.dart';
 import 'terminal_screen.dart';
+import 'workspace_tab.dart';
 
-/// 镜像首页：显示电脑当前布局里在跑的会话（按布局分组）+ 手机远程会话 + 孤儿。
-/// 数据来自 GET /api/layout-snapshot/default（近实时镜像）join /api/sessions。
-class MirrorHomeScreen extends ConsumerWidget {
+/// 双 tab 首页（照 mobile-prototype.html demo）：
+/// 「工作区」= 工作空间浏览 → 项目 → 选 Claude/Codex/终端启动；
+/// 「终端」= 电脑在跑的所有会话镜像（layout-snapshot join /api/sessions）→ 点接管。
+class MirrorHomeScreen extends ConsumerStatefulWidget {
   const MirrorHomeScreen({super.key, required this.auth});
 
   final AuthReady auth;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MirrorHomeScreen> createState() => _MirrorHomeScreenState();
+}
+
+class _MirrorHomeScreenState extends ConsumerState<MirrorHomeScreen> {
+  int _tab = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = widget.auth;
     final mirror = ref.watch(mirrorControllerProvider);
+    final onTerminalTab = _tab == 1;
+    final sessionCount = mirror.value?.groups.fold<int>(0, (n, g) => n + g.cards.length) ?? 0;
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(mirror.value?.workspaceName ?? auth.client.profile.name),
-            _SyncSubtitle(state: mirror.value),
-          ],
-        ),
+        title: onTerminalTab
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(mirror.value?.workspaceName ?? auth.client.profile.name),
+                  _SyncSubtitle(state: mirror.value),
+                ],
+              )
+            : const Text('CC-Panes Mobile'),
         actions: [
-          if (mirror.value?.stale == true)
+          if (onTerminalTab && mirror.value?.stale == true)
             const Padding(
               padding: EdgeInsets.only(right: 4),
               child: Chip(
@@ -46,25 +60,47 @@ class MirrorHomeScreen extends ConsumerWidget {
             ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(mirrorControllerProvider),
+            onPressed: () {
+              ref.invalidate(mirrorControllerProvider);
+              ref.invalidate(workspacesControllerProvider);
+            },
           ),
         ],
       ),
-      body: mirror.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _ErrorView(
-          error: error,
-          onRetry: () => ref.invalidate(mirrorControllerProvider),
-        ),
-        data: (state) => _MirrorBody(state: state, auth: auth),
-      ),
-      floatingActionButton: auth.readOnly
-          ? null
-          : FloatingActionButton(
-              onPressed: () => showLaunchPicker(context, ref),
-              tooltip: '在项目里启动会话',
-              child: const Icon(Icons.add),
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          const WorkspaceTab(),
+          mirror.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, _) => _ErrorView(
+              error: error,
+              onRetry: () => ref.invalidate(mirrorControllerProvider),
             ),
+            data: (state) => _MirrorBody(state: state, auth: auth),
+          ),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() => _tab = i),
+        destinations: [
+          const NavigationDestination(
+            icon: Icon(Icons.folder_outlined),
+            selectedIcon: Icon(Icons.folder),
+            label: '工作区',
+          ),
+          NavigationDestination(
+            icon: Badge(
+              isLabelVisible: sessionCount > 0,
+              label: Text('$sessionCount'),
+              child: const Icon(Icons.terminal_outlined),
+            ),
+            selectedIcon: const Icon(Icons.terminal),
+            label: '终端',
+          ),
+        ],
+      ),
     );
   }
 }
