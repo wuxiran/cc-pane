@@ -198,6 +198,20 @@ class SessionCard {
   String get projectName => pathBasename(projectPath);
 }
 
+/// 规范化项目路径，用于跨来源（布局快照 / 手机 localMeta / 工作区列表）相等比较。
+/// 去 `\\?\` / `//?/` 长路径前缀 → 反斜杠转正斜杠 → 小写 → 去尾部斜杠。
+String normalizeProjectPath(String p) {
+  var s = p.trim();
+  if (s.startsWith(r'\\?\')) s = s.substring(4);
+  s = s.replaceAll(r'\', '/');
+  if (s.startsWith('//?/')) s = s.substring(4);
+  s = s.toLowerCase();
+  while (s.length > 1 && s.endsWith('/')) {
+    s = s.substring(0, s.length - 1);
+  }
+  return s;
+}
+
 /// 递归收集一个 rootPane 下的所有 Panel（保持左→右/上→下顺序）。
 List<Panel> collectPanels(PaneNode? node) {
   if (node is Panel) return [node];

@@ -61,9 +61,17 @@ class MirrorState {
     required this.stale,
     this.savedAt,
     this.workspaceName,
+    this.desktopProjectPaths = const {},
+    this.mobileProjectPaths = const {},
   });
 
   final List<MirrorGroup> groups;
+
+  /// 电脑布局里有活会话的项目路径（规范化）——用于工作区 tab 标「电脑在跑」。
+  final Set<String> desktopProjectPaths;
+
+  /// 手机自己 launch 的项目路径（规范化）——用于工作区 tab 标「手机打开」。
+  final Set<String> mobileProjectPaths;
 
   /// 桌面前端是否落过快照（false = 电脑未运行/未开前端）。
   final bool snapshotAvailable;
@@ -90,6 +98,8 @@ MirrorState buildMirrorState({
   final runningById = {for (final s in running) s.sessionId: s};
   final cards = snapshot == null ? const <SessionCard>[] : collectSessionCards(snapshot);
   final inLayout = <String>{};
+  final desktopProjectPaths = <String>{};
+  final mobileProjectPaths = <String>{};
 
   // 按布局分组，保留 collectSessionCards 的顺序，当前布局提前。
   final layoutOrder = <String>[];
@@ -99,6 +109,9 @@ MirrorState buildMirrorState({
     final info = runningById[card.sessionId];
     if (info == null) continue; // 快照有但已不在活会话（刚关闭）→ 跳过
     inLayout.add(card.sessionId);
+    if (card.projectPath.isNotEmpty) {
+      desktopProjectPaths.add(normalizeProjectPath(card.projectPath));
+    }
     if (!byLayout.containsKey(card.layoutId)) {
       byLayout[card.layoutId] = [];
       layoutOrder.add(card.layoutId);
@@ -138,6 +151,9 @@ MirrorState buildMirrorState({
     if (inLayout.contains(info.sessionId)) continue;
     final meta = localMeta[info.sessionId];
     if (meta != null) {
+      if (meta.projectPath.isNotEmpty) {
+        mobileProjectPaths.add(normalizeProjectPath(meta.projectPath));
+      }
       mobileCards.add(MirrorCard(
         sessionId: info.sessionId,
         title: meta.displayTitle,
@@ -183,6 +199,8 @@ MirrorState buildMirrorState({
     stale: stale,
     savedAt: savedAt,
     workspaceName: snapshot?.workspaceName,
+    desktopProjectPaths: desktopProjectPaths,
+    mobileProjectPaths: mobileProjectPaths,
   );
 }
 

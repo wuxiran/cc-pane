@@ -344,5 +344,60 @@ void main() {
       expect(state.snapshotAvailable, isFalse);
       expect(state.isEmpty, isTrue);
     });
+
+    test('desktop/mobile project paths populated from layout + localMeta', () {
+      // 布局里 A 项目有活会话；手机 launch B 项目。
+      final snapshot = LayoutSnapshot.fromJson(snap(
+        currentLayoutId: 'L1',
+        savedAt: now.toIso8601String(),
+        layouts: [
+          {
+            'id': 'L1',
+            'name': 'L',
+            'rootPane': {
+              'type': 'panel',
+              'id': 'p1',
+              'activeTabId': 't-a',
+              'tabs': [termTab('t-a', 'A', 'sess-a', project: r'D:\work\proj-a')],
+            },
+          },
+        ],
+      ));
+      final state = buildMirrorState(
+        snapshot: snapshot,
+        running: [info('sess-a'), info('sess-b')],
+        localMeta: {
+          'sess-b': const SavedSession(
+              sessionId: 'sess-b', projectPath: r'D:\work\proj-b', cliTool: 'claude'),
+        },
+        now: now,
+      );
+      // A 在电脑布局（规范化后小写正斜杠）；B 在手机组，不在电脑组。
+      expect(state.desktopProjectPaths, contains('d:/work/proj-a'));
+      expect(state.desktopProjectPaths, isNot(contains('d:/work/proj-b')));
+      expect(state.mobileProjectPaths, contains('d:/work/proj-b'));
+      expect(state.mobileProjectPaths, isNot(contains('d:/work/proj-a')));
+    });
+
+    test('desktop path excludes snapshot session that is not running', () {
+      final snapshot = layoutWith('L1', [('L1', 'L', 'sess-dead')],
+          savedAt: now.toIso8601String());
+      final state = buildMirrorState(
+        snapshot: snapshot,
+        running: const [],
+        localMeta: const {},
+        now: now,
+      );
+      expect(state.desktopProjectPaths, isEmpty);
+    });
+  });
+
+  group('normalizeProjectPath', () {
+    test('long-path prefix, backslashes, case and trailing slash normalize equal', () {
+      expect(normalizeProjectPath(r'\\?\D:\Work\Repo\'), 'd:/work/repo');
+      expect(normalizeProjectPath('D:/work/repo'), 'd:/work/repo');
+      expect(normalizeProjectPath(r'\\?\D:\Work\Repo\'),
+          normalizeProjectPath('d:/work/repo/'));
+    });
   });
 }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/layout_snapshot.dart' show normalizeProjectPath;
 import '../../models/workspace.dart';
+import '../../state/mirror_controller.dart';
 import '../../state/workspaces_controller.dart';
 import '../widgets/launch_sheet.dart';
 import '../widgets/workspace_actions_sheet.dart';
@@ -178,6 +180,10 @@ class _ProjectRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final mirror = ref.watch(mirrorControllerProvider).value;
+    final key = normalizeProjectPath(project.path);
+    final onDesktop = mirror?.desktopProjectPaths.contains(key) ?? false;
+    final onMobile = mirror?.mobileProjectPaths.contains(key) ?? false;
     return Container(
       margin: const EdgeInsets.only(top: 8),
       decoration: BoxDecoration(
@@ -213,6 +219,23 @@ class _ProjectRow extends ConsumerWidget {
                       ],
                     ),
                   ),
+                  if (onDesktop) ...[
+                    const SizedBox(width: 6),
+                    _StatusBadge(
+                      icon: Icons.desktop_windows,
+                      label: '电脑在跑',
+                      color: scheme.primary,
+                    ),
+                  ],
+                  if (onMobile) ...[
+                    const SizedBox(width: 6),
+                    _StatusBadge(
+                      icon: Icons.smartphone,
+                      label: '手机打开',
+                      color: scheme.tertiary,
+                    ),
+                  ],
+                  const SizedBox(width: 4),
                   Icon(Icons.chevron_right, size: 18, color: scheme.outline),
                 ],
               ),
@@ -228,6 +251,35 @@ class _ProjectRow extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 项目「电脑在跑 / 手机打开」状态徽标（图标 + 文字 + 半透明底色）。
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.icon, required this.label, required this.color});
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 3),
+          Text(label,
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+        ],
       ),
     );
   }
