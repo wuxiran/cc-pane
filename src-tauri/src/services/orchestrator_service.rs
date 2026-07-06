@@ -7239,13 +7239,18 @@ fn generate_token() -> String {
 
 /// L2: 清理已完成/超时/错误的旧任务（30 分钟淘汰）
 fn cleanup_stale_tasks(tasks: &mut HashMap<String, TaskStatus>) {
+    cleanup_stale_tasks_at(tasks, std::time::Instant::now());
+}
+
+/// 注入 now 以便单测（CI 新虚拟机 uptime 短，构造"过去的 Instant"会下溢 panic）
+fn cleanup_stale_tasks_at(tasks: &mut HashMap<String, TaskStatus>, now: std::time::Instant) {
     let ttl = std::time::Duration::from_secs(30 * 60);
     tasks.retain(|_, t| {
         let is_terminal = matches!(
             t.status.as_str(),
             "completed" | "error" | "timeout" | "exited"
         );
-        !(is_terminal && t.created_at.elapsed() > ttl)
+        !(is_terminal && now.saturating_duration_since(t.created_at) > ttl)
     });
 }
 
@@ -7415,7 +7420,7 @@ pub struct PendingWorkerReport {
 pub type PendingReportMap = HashMap<String, Vec<PendingWorkerReport>>;
 
 fn pending_report_expired(report: &PendingWorkerReport, now: std::time::Instant) -> bool {
-    now.duration_since(report.queued_at).as_secs() > PENDING_REPORT_TTL_SECS
+    now.saturating_duration_since(report.queued_at).as_secs() > PENDING_REPORT_TTL_SECS
 }
 
 /// 入队：TTL 剪枝 → 同 worker.id 去重（保留最新）→ push → 超上限丢最老。返回队列长度。
@@ -7953,17 +7958,19 @@ mod tests {
         let now = std::time::Instant::now();
         enqueue_pending_report(&mut map, "leader-s", test_pending_report_worker("w1"), now);
         enqueue_pending_report(&mut map, "leader-s", test_pending_report_worker("w2"), now);
-        // 人为把 w1 标成过期
-        map.get_mut("leader-s").unwrap()[0].queued_at =
-            now - std::time::Duration::from_secs(PENDING_REPORT_TTL_SECS + 1);
+        // 用"未来的 now"制造过期（往 Instant 加时长总是安全；往回减在 CI
+        // 新虚拟机上会因 uptime 不足而下溢 panic）。w2 的入队时间也前移，
+        // 使其在 later 时刻仍未过期。
+        let later = now + std::time::Duration::from_secs(PENDING_REPORT_TTL_SECS + 1);
+        map.get_mut("leader-s").unwrap()[1].queued_at = now + std::time::Duration::from_secs(2);
 
-        let taken = take_pending_reports(&mut map, "leader-s", now);
+        let taken = take_pending_reports(&mut map, "leader-s", later);
         assert_eq!(taken.len(), 1);
         assert_eq!(taken[0].worker.id, "w2");
         assert!(!map.contains_key("leader-s"));
 
         // 空 map 再取
-        assert!(take_pending_reports(&mut map, "leader-s", now).is_empty());
+        assert!(take_pending_reports(&mut map, "leader-s", later).is_empty());
     }
 
     #[test]
@@ -8073,6 +8080,7 @@ mod tests {
 
     #[test]
     fn test_cleanup_stale_tasks_removes_exited_tasks() {
+        let created_at = std::time::Instant::now();
         let mut tasks = HashMap::from([(
             "task-1".to_string(),
             TaskStatus {
@@ -8080,11 +8088,15 @@ mod tests {
                 session_id: "session-1".to_string(),
                 status: "exited".to_string(),
                 error: None,
-                created_at: std::time::Instant::now() - std::time::Duration::from_secs(31 * 60),
+                created_at,
             },
         )]);
 
-        cleanup_stale_tasks(&mut tasks);
+        // 用"未来的 now"判定过期，避免在 uptime 不足的 CI 虚拟机上构造过去 Instant 下溢
+        cleanup_stale_tasks_at(
+            &mut tasks,
+            created_at + std::time::Duration::from_secs(31 * 60),
+        );
 
         assert!(tasks.is_empty());
     }
