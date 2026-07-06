@@ -193,19 +193,26 @@ mod tests {
     #[test]
     fn classify_recognizes_supported_shells() {
         assert_eq!(classify("pwsh"), Some(ShellKind::Pwsh));
-        assert_eq!(
-            classify(r"C:\Program Files\PowerShell\7\pwsh.exe"),
-            Some(ShellKind::Pwsh)
-        );
+        assert_eq!(classify("pwsh.exe"), Some(ShellKind::Pwsh));
         assert_eq!(classify("powershell"), Some(ShellKind::Pwsh));
-        assert_eq!(
-            classify(r"C:\Program Files\Git\bin\bash.exe"),
-            Some(ShellKind::Bash)
-        );
         assert_eq!(classify("/bin/zsh"), Some(ShellKind::Zsh));
         assert_eq!(classify("cmd.exe"), None);
         assert_eq!(classify("wsl"), None);
         assert_eq!(classify("/usr/bin/fish"), None);
+        // 反斜杠路径的 file_name 解析只在 Windows 成立（Linux 下 \ 是普通字符）
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                classify(r"C:\Program Files\PowerShell\7\pwsh.exe"),
+                Some(ShellKind::Pwsh)
+            );
+            assert_eq!(
+                classify(r"C:\Program Files\Git\bin\bash.exe"),
+                Some(ShellKind::Bash)
+            );
+        }
+        #[cfg(not(windows))]
+        assert_eq!(classify("/usr/bin/bash"), Some(ShellKind::Bash));
     }
 
     #[test]

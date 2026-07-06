@@ -375,7 +375,14 @@ async fn worktree_routes_match_core_service_operations() {
     let (state, root) = test_state("worktree");
     let repo = root.join("repo");
     init_repo(&repo);
+    // canonicalize 解掉 Windows 8.3 短路径（CI 的 TEMP 是 RUNNER~1 形式，
+    // git worktree list 输出长路径，路径比较会失败），再剥 \\?\ 前缀
+    let repo = std::fs::canonicalize(&repo).expect("canonicalize repo");
     let project_path = repo.to_string_lossy().to_string();
+    let project_path = project_path
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&project_path)
+        .to_string();
 
     let Json(is_repo) = is_git_repo(
         State(state.clone()),
