@@ -369,7 +369,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
         std::fs::create_dir(&repo).unwrap();
+        // canonicalize 解掉 Windows 8.3 短路径（CI 的 TEMP 是 RUNNER~1 形式，
+        // 与 git porcelain 输出的长路径不等，is_main 判定会失败），再剥 \\?\ 前缀
+        let repo = std::fs::canonicalize(&repo).unwrap();
         let repo_str = repo.to_string_lossy().to_string();
+        let repo_str = repo_str
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&repo_str)
+            .to_string();
+        let repo = std::path::PathBuf::from(&repo_str);
 
         let run = |args: &[&str]| {
             Command::new("git")

@@ -2664,7 +2664,12 @@ mod tests {
         assert_eq!(repos[0].main_branch, "main");
         // 既有行为：Windows 下 git porcelain 输出正斜杠路径，与本地分隔符不等，
         // 主仓库可能被列入自身 worktrees；只要没有指向其他路径的 worktree 即可。
-        let repo_norm = WorkspaceService::normalize_compare_path(&path_str(&repo));
+        // 比较基准用 canonicalize 解掉 8.3 短路径（CI 的 TEMP 是 RUNNER~1 形式，
+        // git 输出的是长路径），再剥 \\?\ 前缀。
+        let repo_canon = std::fs::canonicalize(&repo).expect("canonicalize repo");
+        let repo_canon = repo_canon.to_string_lossy().to_string();
+        let repo_canon = repo_canon.strip_prefix(r"\\?\").unwrap_or(&repo_canon);
+        let repo_norm = WorkspaceService::normalize_compare_path(repo_canon);
         assert!(repos[0]
             .worktrees
             .iter()

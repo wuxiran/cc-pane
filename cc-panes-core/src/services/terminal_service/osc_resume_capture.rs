@@ -391,6 +391,8 @@ fn resolve_full_id_wsl(prefix: &str, distro: Option<&str>) -> Result<Option<Stri
 /// 应 fail-open，保留 resume 不误伤）。
 ///
 /// `distro = Some(..)` 走 WSL 内 find；`distro = None` 扫本地 `~/.codex/sessions`。
+// 生产调用方在 wsl_codex.rs（Windows-only 模块），Linux 下仅测试引用
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn codex_rollout_exists(full_id: &str, distro: Option<&str>) -> Option<bool> {
     // 必须是完整 UUID 形状（精确匹配，避免短前缀撞车，如 019ef31c 同时间戳前缀不同后缀）
     if full_id.len() != FULL_UUID_LEN || !is_uuid_shaped(full_id) {
