@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use cc_panes_core::services::TerminalDaemonClient;
-use cc_panes_core::utils::{AppPaths, AppResult};
+use cc_panes_core::utils::{no_window_command, AppPaths, AppResult};
 use tracing::{info, warn};
 
 use crate::utils::AppError;
@@ -60,7 +60,7 @@ fn try_connect_manifest(manifest_path: &Path) -> Option<TerminalDaemonClient> {
 fn start_daemon_process(daemon_binary: &Path, app_paths: &AppPaths) -> AppResult<()> {
     std::fs::create_dir_all(app_paths.runtime_dir())?;
 
-    let mut command = Command::new(daemon_binary);
+    let mut command = no_window_command(daemon_binary);
     command
         .arg("--runtime-dir")
         .arg(app_paths.runtime_dir())

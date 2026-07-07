@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::Mutex;
 
 use cc_panes_core::models::settings::WebAccessSettings;
-use cc_panes_core::utils::{AppPaths, AppResult};
+use cc_panes_core::utils::{no_window_command, AppPaths, AppResult};
 use serde::Serialize;
 use tracing::{info, warn};
 
@@ -95,7 +95,7 @@ impl WebAccessLifecycle {
 
         self.stop();
         let binary = resolve_web_binary(resource_dir)?;
-        let mut command = Command::new(&binary);
+        let mut command = no_window_command(&binary);
         command
             .arg("--port")
             .arg(settings.port.to_string())
