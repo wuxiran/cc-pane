@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.11 - 2026-07-08
+
+### Fixed
+
+- Terminal font spacing/alignment was broken on macOS: the desktop build shipped no bundled font, so the terminal font chain fell back to the proportional PingFang SC system font (the only chain font installed on stock macOS, ahead of generic `monospace`). A monospace CJK webfont (Maple Mono NF CN) is now bundled via `@font-face`, so Latin and CJK glyphs render on a consistent monospace grid on every platform. (Adds ~20 MB to the installer.)
+- Terminal daemon / MCP connectivity now survives an app restart or update: the orchestrator reuses its previous port and bearer token (persisted in `mcp-orchestrator.json`) instead of picking a fresh random port + token each launch, so already-running CLI sessions keep their injected `CC_PANES_API_*` values valid. The session-start hook also falls back to reading the current endpoint from `mcp-orchestrator.json` when those env vars are missing (e.g. resumed sessions), fixing `MCP client for ccpanes failed to start: CC_PANES_API_TOKEN not set`.
+
 ## 0.10.10 - 2026-07-08
 
 ### Fixed
