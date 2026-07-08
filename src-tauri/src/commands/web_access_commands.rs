@@ -1,9 +1,12 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager, State};
 use tracing::debug;
 
-use crate::services::{SettingsService, WebAccessLifecycle, WebAccessStatus};
+use crate::services::{
+    SettingsService, TerminalDaemonClient, WebAccessLifecycle, WebAccessStatus,
+};
 use crate::utils::{AppPaths, AppResult};
 
 #[tauri::command]
@@ -60,6 +63,31 @@ pub fn stop_web_access(
     web_access.stop();
     let settings = settings_service.get_settings().web_access;
     Ok(web_access.status(&settings))
+}
+
+/// 停止终端 daemon（`cc-panes-daemon.exe`）——更新前调用，释放其对
+/// `binaries/cc-panes-daemon.exe` 的文件锁，否则 NSIS 安装程序无法替换该二进制，
+/// daemon 侧修复无法通过应用内更新生效。会中断所有 daemon 托管的活会话（更新即将
+/// 重启应用，可接受）。无 daemon 运行时为 no-op。
+#[tauri::command]
+pub fn stop_terminal_daemon(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<()> {
+    debug!("cmd::stop_terminal_daemon");
+    let manifest = app_paths.runtime_dir().join("daemon-manifest.json");
+    if !manifest.exists() {
+        return Ok(());
+    }
+    let client = TerminalDaemonClient::from_manifest_path(&manifest)?;
+    // 已在退出 / 连不上都视作已停止，不阻断更新。
+    let _ = client.shutdown();
+    // 轮询等 daemon 真正退出（HTTP 停服 → 进程退出 → 释放二进制锁），最多 ~3s。
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(3) {
+        if client.health().is_err() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
 }
 
 #[tauri::command]

@@ -4,6 +4,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { getErrorMessage } from "@/utils";
 import { useUpdateStore } from "@/stores";
 import { isTauriRuntime } from "./runtime";
+// 直接从模块导入（不走 @/services 桶文件）避免服务间循环依赖
+import { settingsService } from "./settingsService";
 
 /**
  * 静默检查更新，结果写入 useUpdateStore（不弹窗）
@@ -112,6 +114,22 @@ async function promptAndInstallUpdate(update: Awaited<ReturnType<typeof check>>)
   );
 
   if (!confirmed) return;
+
+  // 安装前先停掉 cc-panes-web + cc-panes-daemon（释放它们对 binaries 下二进制的
+  // 文件锁）：否则 Windows NSIS 安装程序无法替换正在运行的
+  // binaries/cc-panes-web.exe / cc-panes-daemon.exe，会静默失败并留下旧二进制
+  // （表现为"更新后 web 仍是旧版读不出工作空间 / daemon 侧修复不生效"）。
+  // 停 daemon 会中断托管的活会话，但更新即将重启应用，可接受。任一停止失败不阻断更新。
+  try {
+    await settingsService.stopWebAccess();
+  } catch (error) {
+    console.warn("[updater] 安装前停止 Web 服务失败（继续更新）:", error);
+  }
+  try {
+    await settingsService.stopTerminalDaemon();
+  } catch (error) {
+    console.warn("[updater] 安装前停止终端 daemon 失败（继续更新）:", error);
+  }
 
   await update.downloadAndInstall((progress) => {
     if (progress.event === "Started" && progress.data.contentLength) {

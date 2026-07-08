@@ -61,6 +61,12 @@ export const settingsService = {
     );
   },
 
+  /// 停止终端 daemon（更新前调用，释放 cc-panes-daemon.exe 文件锁）。桌面端专用；
+  /// 非 Tauri 运行时无 daemon，fallback 为 no-op。
+  async stopTerminalDaemon(): Promise<void> {
+    return invokeOrApi<void>("stop_terminal_daemon", undefined, async () => {});
+  },
+
   async restartWebAccess(): Promise<WebAccessStatus> {
     return invokeOrApi<WebAccessStatus>("restart_web_access", undefined, () =>
       this.getWebAccessStatus(),

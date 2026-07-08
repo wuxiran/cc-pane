@@ -293,6 +293,7 @@ use commands::{
     start_web_access,
     stop_project_history,
     stop_shared_mcp_server,
+    stop_terminal_daemon,
     stop_web_access,
     store_memory,
     submit_to_session,
@@ -2210,6 +2211,7 @@ pub fn run() {
             restart_web_access,
             open_web_access,
             set_web_access_password,
+            stop_terminal_daemon,
             // Session Restore 命令
             save_terminal_sessions,
             load_terminal_sessions,
