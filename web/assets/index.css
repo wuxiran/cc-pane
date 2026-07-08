@@ -1,6 +1,17 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* 打包等宽 CJK 字体：终端字体链首项 "Maple Mono NF CN" 若靠 OS 自带字体，
+   macOS 上会 fallback 到比例字体 PingFang SC 导致间距/对齐乱。打包 webfont
+   让所有平台该字体都可用（family 名须与 terminalFont.ts 的字体链首项一致）。 */
+@font-face {
+  font-family: "Maple Mono NF CN";
+  src: url("./fonts/MapleMonoNFCN-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
