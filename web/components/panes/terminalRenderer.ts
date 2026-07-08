@@ -33,6 +33,12 @@ export function isWebKitTerminalRendererHost(userAgent: string): boolean {
   );
 }
 
+/// Windows/WebView2 上 WebglAddon 存在 CJK 字形图集花屏问题（auto 模式默认避开，
+/// 显式选 webgl 仍放行）。
+export function isWindowsTerminalRendererHost(userAgent: string): boolean {
+  return userAgent.toLowerCase().includes("windows nt");
+}
+
 export function normalizeTerminalRendererMode(
   mode: string | null | undefined,
 ): TerminalRendererMode {
@@ -106,6 +112,16 @@ export function decideTerminalRenderer(
       requestedMode: mode,
       renderer: "dom",
       reason: "webkit-host",
+      webglAllowed: false,
+      webgl2Supported,
+    };
+  }
+
+  if (isWindowsTerminalRendererHost(userAgent)) {
+    return {
+      requestedMode: mode,
+      renderer: "dom",
+      reason: "windows-cjk-guard",
       webglAllowed: false,
       webgl2Supported,
     };
