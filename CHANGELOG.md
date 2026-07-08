@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.9 - 2026-07-08
+
+### Fixed
+
+- WSL Codex/Claude launches failed with `HTTP 500: Failed to translate WSL launch script path to WSL path` after 0.10.8 turned the terminal daemon on by default. The daemon was translating its `--data-dir` to a `/mnt/c/...` WSL path even when running as a native Windows process, producing mixed-separator paths that `wslpath` could not resolve. The daemon now only rewrites Windows paths to WSL form when it is actually running under WSL.
+
 ## 0.10.8 - 2026-07-08
 
 ### Changed
