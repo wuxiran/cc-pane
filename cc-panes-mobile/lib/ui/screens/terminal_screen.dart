@@ -6,20 +6,46 @@ import '../../state/terminal_controller.dart';
 import '../widgets/key_bar.dart';
 
 /// 终端页：xterm 渲染 + WS 输入 + 快捷键条。
-/// 进页面默认把共享 PTY 适配为手机屏幕尺寸，AppBar 提供手动「再适配」（旋转后用）。
-class TerminalScreen extends ConsumerWidget {
+/// 默认不 resize 共享 PTY（避免破坏桌面端渲染），AppBar 提供手动「适配尺寸」；
+/// 手动适配过后，旋转/键盘等 metrics 变化会自动再适配。
+class TerminalScreen extends ConsumerStatefulWidget {
   const TerminalScreen({super.key, required this.sessionId, required this.title});
 
   final String sessionId;
   final String title;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(terminalControllerProvider(sessionId));
+  ConsumerState<TerminalScreen> createState() => _TerminalScreenState();
+}
+
+class _TerminalScreenState extends ConsumerState<TerminalScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    ref
+        .read(terminalControllerProvider(widget.sessionId))
+        .onViewMetricsChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ref.watch(terminalControllerProvider(widget.sessionId));
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
           if (controller.phase == TerminalPhase.connected)
             IconButton(
@@ -44,8 +70,8 @@ class TerminalScreen extends ConsumerWidget {
                 content: Text(controller.errorMessage ?? '连接中断'),
                 actions: [
                   TextButton(
-                    onPressed: () =>
-                        ref.invalidate(terminalControllerProvider(sessionId)),
+                    onPressed: () => ref.invalidate(
+                        terminalControllerProvider(widget.sessionId)),
                     child: const Text('重连'),
                   ),
                 ],
@@ -65,7 +91,12 @@ class TerminalScreen extends ConsumerWidget {
                 color: const Color(0xFF1E1E1E),
                 child: TerminalView(
                   controller.terminal,
-                  textStyle: const TerminalStyle(fontSize: 12),
+                  // 打包的 CJK 等宽字体：系统等宽字体普遍缺 CJK，回退字体
+                  // 非等宽会让中文与 cell 网格错位。
+                  textStyle: const TerminalStyle(
+                    fontSize: 12,
+                    fontFamily: 'MapleMonoNFCN',
+                  ),
                   autofocus: true,
                 ),
               ),

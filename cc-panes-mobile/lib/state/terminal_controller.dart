@@ -11,6 +11,33 @@ import 'auth_controller.dart';
 
 enum TerminalPhase { connecting, connected, exited, error }
 
+/// 尺寸变化自动再适配策略：共享 PTY 默认不动（避免破坏桌面端渲染），
+/// 只有用户手动适配过（opt-in）后才跟随 metrics 变化下发 resize，
+/// 并做去抖合并——conpty 每次 resize 都整屏重绘，高频下发会留残行。
+class RefitPolicy {
+  RefitPolicy({this.debounce = const Duration(milliseconds: 300)});
+
+  final Duration debounce;
+  bool _userFitted = false;
+  Timer? _timer;
+
+  bool get userFitted => _userFitted;
+
+  void markUserFitted() => _userFitted = true;
+
+  /// metrics（旋转/键盘）变化时调用；未手动适配过则忽略。
+  void onMetricsChanged(void Function() fire) {
+    if (!_userFitted) return;
+    _timer?.cancel();
+    _timer = Timer(debounce, fire);
+  }
+
+  void dispose() {
+    _timer?.cancel();
+    _timer = null;
+  }
+}
+
 /// 单个会话的终端状态机：
 /// snapshot 初始化 → 连 WS 收输出流 → 键盘输入经 WS input 回传。
 /// Enter 发 \r（CC-Panes PTY 约定，xterm 键盘默认即 CR）。
@@ -36,6 +63,7 @@ class TerminalSessionController extends ChangeNotifier {
 
   TerminalSocket? _socket;
   StreamSubscription<TerminalEvent>? _sub;
+  final RefitPolicy _refitPolicy = RefitPolicy();
   bool _disposed = false;
 
   Future<void> _start() async {
@@ -66,7 +94,6 @@ class TerminalSessionController extends ChangeNotifier {
     }
 
     _setPhase(TerminalPhase.connected);
-    _autoFit(); // 进页面默认把 PTY 调整为手机屏幕尺寸（等 TerminalView 布局完成）
     _sub = _socket!.events.listen(
       (event) {
         switch (event) {
@@ -110,8 +137,10 @@ class TerminalSessionController extends ChangeNotifier {
   }
 
   /// 「跟随手机尺寸」：把共享 PTY 调整为当前 TerminalView 的 cols/rows。
-  /// 进页面自动触发一次，AppBar 也可手动再触发（旋转/键盘弹出后重新适配）。
+  /// 仅由用户在 AppBar 手动触发（默认不 resize 共享 PTY，避免破坏桌面端渲染）；
+  /// 手动适配过后旋转/键盘变化会经 [onViewMetricsChanged] 自动再适配。
   void resizeToView() {
+    _refitPolicy.markUserFitted();
     final cols = terminal.viewWidth;
     final rows = terminal.viewHeight;
     if (cols > 0 && rows > 0) {
@@ -119,16 +148,14 @@ class TerminalSessionController extends ChangeNotifier {
     }
   }
 
-  /// 连上后自动适配：TerminalView 首帧可能还没把 viewWidth/Height 布局出来，
-  /// 用 post-frame + 有限重试等到有效尺寸再下发 resize。
-  void _autoFit({int attempt = 0}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+  /// 屏幕 metrics 变化（旋转/软键盘）回调；仅用户手动适配过才生效。
+  void onViewMetricsChanged() {
+    _refitPolicy.onMetricsChanged(() {
       if (_disposed || _phase != TerminalPhase.connected) return;
-      if (terminal.viewWidth > 0 && terminal.viewHeight > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_disposed || _phase != TerminalPhase.connected) return;
         resizeToView();
-      } else if (attempt < 10) {
-        _autoFit(attempt: attempt + 1);
-      }
+      });
     });
   }
 
@@ -141,6 +168,7 @@ class TerminalSessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _refitPolicy.dispose();
     unawaited(_sub?.cancel());
     unawaited(_socket?.close());
     super.dispose();
