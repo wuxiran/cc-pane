@@ -529,6 +529,8 @@ Do not try to salvage a session whose MCP client already failed during startup; 
 **WSL NAT 可达性（后续补齐，让四场景全通）：**
 `resolve_reachable_wsl_windows_host`（`wsl_codex.rs`）原是返回 `127.0.0.1` 的桩——mirrored 网络可用，但 WSL2 默认的 NAT 网络下 WSL 内 127.0.0.1 够不到宿主，注入的 MCP URL 不可达。现改为**从 WSL 内部探活**：候选 `127.0.0.1`（mirrored）→ 默认网关 `ip route show default`（NAT 即宿主 vEthernet IP）→ `/etc/resolv.conf` nameserver，逐个对 orchestrator `/api/health` 发最小 HTTP 请求（`timeout 1` 逐候选兜底），命中本 orchestrator 独有的 `{"status":"ok"}` 即选该 host 重写注入 URL + `CC_PANES_API_BASE_URL`。探活脚本 base64 编码后经 `echo <b64> | base64 -d | bash -s <port>` 下发，规避 wsl.exe→bash 引号问题；探不到则回退 127.0.0.1（不比原来更坏）。结果：**Windows/Mac 本地 codex、WSL mirrored、WSL NAT 四种场景 ccpanes MCP 均可注入并连通**。
 
-**遗留（未动）：**
-- **#7**：P0a stale 配置迁移只清 Windows `~/.codex`，WSL Linux `~/.codex/config.toml` 的残留 `bearer_token_env_var` 未清——宜在 WSL 启动脚本内就地清理。
+**#7（已收口）：WSL 侧 stale ccpanes 配置迁移。**
+P0a 本地迁移只动 Windows `~/.codex`，够不到 WSL codex 读的 Linux 侧 `~/.codex/config.toml`。现新增 `CodexAdapter::migrate_stale_wsl_ccpanes_mcp_config(wsl_path, distro)`（`cc-cli-adapters/src/codex.rs`）：在 WSL 内解析 `${CODEX_HOME:-$HOME/.codex}/config.toml`、`wslpath -w` 转成 Windows UNC 路径，再喂给**与本地相同**的 `migrate_stale_global_ccpanes_mcp_config_at`（签名匹配 loopback+/mcp+token= 或 `bearer_token_env_var==CC_PANES_API_TOKEN` → 备份 + toml_edit 外科删除 + 原子写）。在 `terminal_service.rs` 的 WSL codex 启动分支、`!skip_mcp` 时调用（best-effort，失败不阻断）。至此 stale 配置在 Windows 与 WSL 两侧都被清理。
+
+**遗留（未动）：** 无。
 - **#9**：hook manifest 兜底在 `[.cc-panes, .cc-panes-dev]` 里取第一个可达，dev/release 并存且无 `CC_PANES_DATA_DIR` 时可能串味；缺可靠区分信号，暂接受。

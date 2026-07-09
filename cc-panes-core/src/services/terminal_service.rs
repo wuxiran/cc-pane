@@ -1667,6 +1667,14 @@ impl TerminalService {
             let (cmd, cmd_args) = match cli_tool {
                 CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
                 CliTool::Codex => {
+                    // 收口 #7：清掉 WSL 内 ~/.codex/config.toml 残留的旧 CC-Panes ccpanes 段
+                    // （本地迁移只动 Windows 侧，够不到 WSL Linux 侧这份）。best-effort。
+                    if !effective_skip_mcp {
+                        cc_cli_adapters::CodexAdapter::migrate_stale_wsl_ccpanes_mcp_config(
+                            &resolved_wsl.wsl_path,
+                            &resolved_wsl.distro,
+                        );
+                    }
                     self.ensure_wsl_codex_mcp_registered(
                         &session_id,
                         &resolved_wsl,

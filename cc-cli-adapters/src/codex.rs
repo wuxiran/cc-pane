@@ -275,6 +275,54 @@ impl CodexAdapter {
         Ok(true)
     }
 
+    /// WSL 版 stale ccpanes 迁移：清掉 **WSL 内** `~/.codex/config.toml`（或 `$CODEX_HOME`）里
+    /// 残留的旧 CC-Panes ccpanes 段——WSL codex 读的是 Linux 侧这份配置，本地迁移够不到它。
+    /// 复用与本地完全相同的签名匹配 + 备份 + 原子写，只是文件经 `wsl.exe wslpath -w` 定位为
+    /// Windows UNC 路径。best-effort，失败不阻断启动。
+    #[cfg(windows)]
+    pub fn migrate_stale_wsl_ccpanes_mcp_config(wsl_path: &Path, distro: &str) {
+        let Some(win_path) = Self::resolve_wsl_codex_config_windows_path(wsl_path, distro) else {
+            return;
+        };
+        match Self::migrate_stale_global_ccpanes_mcp_config_at(&win_path) {
+            Ok(true) => info!(
+                config = %win_path.display(),
+                distro,
+                "codex(wsl): removed stale global ccpanes MCP config"
+            ),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(
+                config = %win_path.display(),
+                distro,
+                error = %error,
+                "codex(wsl): failed to migrate stale global ccpanes MCP config"
+            ),
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn migrate_stale_wsl_ccpanes_mcp_config(_wsl_path: &Path, _distro: &str) {}
+
+    /// 在 WSL 内解析 codex config 路径（`$CODEX_HOME/config.toml`，否则 `$HOME/.codex/config.toml`），
+    /// 存在则 `wslpath -w` 转成 Windows 可访问路径（UNC）。文件不存在 / 解析失败 → None。
+    #[cfg(windows)]
+    fn resolve_wsl_codex_config_windows_path(wsl_path: &Path, distro: &str) -> Option<PathBuf> {
+        let script = r#"cfg="${CODEX_HOME:-$HOME/.codex}/config.toml"; [ -f "$cfg" ] || exit 0; wslpath -w "$cfg""#;
+        let output = crate::no_window_command(&wsl_path.to_string_lossy())
+            .args(["-d", distro, "bash", "-lc", script])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let win = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if win.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(win))
+        }
+    }
+
     fn is_stale_global_ccpanes_mcp_config(server: &Item) -> bool {
         let old_url_signature = server
             .get("url")
