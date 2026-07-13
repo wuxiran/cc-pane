@@ -1,0 +1,17 @@
+{
+  "id": "ye-shunguang-jk",
+  "displayName": "叶瞬光JK (Ye Shunguang)",
+  "description": "绝区零角色叶瞬光（小师姐）的校园风小宠物，抱着笔记本和铅笔陪你工作、等待、复盘和冲刺。",
+  "spritesheetPath": "spritesheet.webp",
+  "atlas": { "cellW": 192, "cellH": 208, "cols": 8, "rows": 9 },
+  "animations": {
+    "idle": { "row": 0, "frames": 6, "fps": 2 },
+    "walking": { "row": 1, "frames": 8, "fps": 8 },
+    "thinking": { "row": 8, "frames": 6, "fps": 8 },
+    "waiting": { "row": 6, "frames": 6, "fps": 6 },
+    "working": { "row": 7, "frames": 6, "fps": 12 },
+    "happy": { "row": 3, "frames": 4, "fps": 10 },
+    "sad": { "row": 5, "frames": 8, "fps": 6 },
+    "jumping": { "row": 4, "frames": 5, "fps": 6 }
+  }
+}
