@@ -495,6 +495,9 @@ function ServerRow({
 }) {
   const isRunning = server.status === "Running";
   const isStopped = server.status === "Stopped";
+  // Failed（含超过重启上限的熔断态）必须给 Restart 入口：后端 restart 会
+  // 重建 runtime 并清零重启计数，是解除熔断的唯一 UI 路径。
+  const isFailed = typeof server.status === "object" && "Failed" in server.status;
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card">
@@ -542,6 +545,17 @@ function ServerRow({
             title="Start"
           >
             <Play size={13} />
+          </Button>
+        )}
+        {isFailed && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => onRestart(server.name)}
+            title="Restart"
+          >
+            <RotateCw size={13} />
           </Button>
         )}
         {isRunning && (

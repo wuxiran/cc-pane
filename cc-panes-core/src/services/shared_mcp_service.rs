@@ -275,7 +275,13 @@ impl SharedMcpService {
         let mut urls = HashMap::new();
         if let Some(ref running) = running {
             for (name, server_config) in &config.servers {
-                if server_config.shared && running.contains_key(name) {
+                // 只注入状态确为 Running 的 server：熔断/失败的死进程仍留在
+                // running map 里供 UI 展示，仅凭 contains_key 会把死端点
+                // 注入新会话。
+                let is_running = running
+                    .get(name)
+                    .is_some_and(|rt| rt.status == SharedMcpServerStatus::Running);
+                if server_config.shared && is_running {
                     urls.insert(
                         name.clone(),
                         format!("http://127.0.0.1:{}/mcp", server_config.port),
@@ -340,6 +346,15 @@ impl SharedMcpService {
 
         if let Ok(mut running) = self.running.lock() {
             for (name, runtime) in running.iter_mut() {
+                // 熔断：超过最大重启次数且已标记 Failed 的 server 不再反复
+                // try_wait / 刷日志（此前每个健康检查周期都会对尸体进程重复
+                // 记 WARN+ERROR，永不停止）。状态保留供 UI 展示；手动 restart
+                // 会重建 runtime 并清零计数，自动解除熔断。
+                if runtime.restart_count >= max_restarts
+                    && matches!(runtime.status, SharedMcpServerStatus::Failed { .. })
+                {
+                    continue;
+                }
                 // 检查进程是否还活着
                 match runtime.child.try_wait() {
                     Ok(Some(exit_status)) => {
@@ -348,14 +363,20 @@ impl SharedMcpService {
                             "[shared-mcp] '{}' exited with status: {:?}",
                             name, exit_status
                         );
-                        runtime.status = SharedMcpServerStatus::Failed {
-                            message: format!("Exited: {:?}", exit_status),
-                        };
                         if runtime.restart_count < max_restarts {
+                            runtime.status = SharedMcpServerStatus::Failed {
+                                message: format!("Exited: {:?}", exit_status),
+                            };
                             to_restart.push(name.clone());
                         } else {
+                            runtime.status = SharedMcpServerStatus::Failed {
+                                message: format!(
+                                    "Exited: {:?}; exceeded max restarts ({}), auto-restart stopped",
+                                    exit_status, max_restarts
+                                ),
+                            };
                             error!(
-                                "[shared-mcp] '{}' exceeded max restarts ({})",
+                                "[shared-mcp] '{}' exceeded max restarts ({}), auto-restart stopped until manual restart",
                                 name, max_restarts
                             );
                         }
@@ -615,6 +636,89 @@ mod tests {
         assert!(config.servers.is_empty());
         assert_eq!(config.port_range_start, 3100);
         assert_eq!(config.port_range_end, 3199);
+    }
+
+    #[test]
+    fn health_check_skips_server_after_max_restarts() {
+        let (_dir, paths) = test_paths();
+        let svc = SharedMcpService::new(&paths);
+        let max_restarts = svc.get_config().max_restarts;
+
+        // 造一个已退出的子进程尸体
+        let mut cmd = if cfg!(windows) {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/c", "exit", "1"]);
+            c
+        } else {
+            let mut c = std::process::Command::new("sh");
+            c.args(["-c", "exit 1"]);
+            c
+        };
+        let mut child = cmd.spawn().unwrap();
+        let _ = child.wait();
+
+        let sentinel = "circuit-open-sentinel".to_string();
+        svc.running.lock().unwrap().insert(
+            "dead-server".to_string(),
+            ServerRuntime {
+                child,
+                restart_count: max_restarts,
+                status: SharedMcpServerStatus::Failed {
+                    message: sentinel.clone(),
+                },
+            },
+        );
+
+        // 熔断态：健康检查应跳过，不再 try_wait / 改写状态（也就不再刷日志）
+        svc.run_health_check();
+        let running = svc.running.lock().unwrap();
+        let runtime = running.get("dead-server").unwrap();
+        assert_eq!(runtime.restart_count, max_restarts);
+        match &runtime.status {
+            SharedMcpServerStatus::Failed { message } => assert_eq!(message, &sentinel),
+            other => panic!("unexpected status: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn health_check_marks_exceeded_restarts_as_circuit_open() {
+        let (_dir, paths) = test_paths();
+        let svc = SharedMcpService::new(&paths);
+        let max_restarts = svc.get_config().max_restarts;
+
+        let mut cmd = if cfg!(windows) {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/c", "exit", "1"]);
+            c
+        } else {
+            let mut c = std::process::Command::new("sh");
+            c.args(["-c", "exit 1"]);
+            c
+        };
+        let mut child = cmd.spawn().unwrap();
+        let _ = child.wait();
+
+        // 尚未标记 Failed（刚超限的首次检测）：应转入熔断消息，只此一次
+        svc.running.lock().unwrap().insert(
+            "dead-server".to_string(),
+            ServerRuntime {
+                child,
+                restart_count: max_restarts,
+                status: SharedMcpServerStatus::Running,
+            },
+        );
+
+        svc.run_health_check();
+        let running = svc.running.lock().unwrap();
+        match &running.get("dead-server").unwrap().status {
+            SharedMcpServerStatus::Failed { message } => {
+                assert!(
+                    message.contains("exceeded max restarts"),
+                    "message should mark circuit open: {message}"
+                );
+            }
+            other => panic!("unexpected status: {other:?}"),
+        }
     }
 
     #[test]
