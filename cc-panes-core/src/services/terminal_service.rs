@@ -2354,6 +2354,7 @@ impl TerminalService {
         let wait_output_buffer = output_buffer.clone();
         let wait_exit_code = exit_code.clone();
         let wait_spawned_at = Instant::now();
+        let wait_data_dir = self.app_paths.data_dir().to_path_buf();
         let wait_state_machine = self
             .state_machine
             .lock()
@@ -2488,6 +2489,7 @@ impl TerminalService {
                     }
                 }
             }
+            wsl_codex::cleanup_session_mcp_configs(&wait_data_dir, &sid);
         });
 
         info!(session_id = %session_id, project = %project_path, launch_claude, "Terminal session created");
@@ -2749,6 +2751,7 @@ impl TerminalService {
         if let Ok(mut input_mutexes) = self.input_mutexes.lock() {
             input_mutexes.remove(session_id);
         }
+        wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), session_id);
 
         if let Some(session) = session {
             // 保存 output_buffer 到 dead_buffers，供事后读取

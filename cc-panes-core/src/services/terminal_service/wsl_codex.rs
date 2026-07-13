@@ -382,12 +382,38 @@ fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String
     commands
 }
 
-#[cfg(windows)]
 fn sanitize_wsl_claude_session_id(session_id: &str) -> String {
     session_id
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-')
         .collect()
+}
+
+/// 会话结束（自然退出 / kill）时删除该会话的临时 MCP 配置文件。
+/// 本地启动写 `mcp-<id>.json`（cc-cli-adapters/claude.rs），WSL 启动写
+/// `wsl-claude-mcp-<id>.json`（本文件），两者都只在 CLI 启动时读取一次，
+/// 会话结束后即为垃圾。尽力而为：删除失败不影响会话清理主流程。
+pub(super) fn cleanup_session_mcp_configs(data_dir: &std::path::Path, session_id: &str) {
+    let sanitized = sanitize_wsl_claude_session_id(session_id);
+    if sanitized.is_empty() {
+        return;
+    }
+    for file_name in [
+        format!("mcp-{}.json", sanitized),
+        format!("wsl-claude-mcp-{}.json", sanitized),
+    ] {
+        let path = data_dir.join(file_name);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to remove per-session MCP config"
+                );
+            }
+        }
+    }
 }
 
 fn append_codex_resume_args(
@@ -1002,7 +1028,40 @@ impl TerminalService {
             "wsl-claude-mcp-{}.json",
             sanitize_wsl_claude_session_id(session_id)
         );
-        let config_path = self.app_paths.data_dir().join(file_name);
+        let config_path = self.app_paths.data_dir().join(&file_name);
+
+        // 清扫崩溃残留：会话正常结束会删自己的配置（cleanup_session_mcp_configs），
+        // 但 daemon 崩溃时会遗留。仅删除同时满足两个条件的文件：
+        // 1) 修改时间 >1h（不是刚启动的会话）；2) 文件名对应的会话不在活跃
+        // 会话表中（"旧于一小时"单独不足以断定不活跃——长跑会话可以超过一小时）。
+        let active_session_files: std::collections::HashSet<String> = self
+            .sessions
+            .lock()
+            .map(|sessions| {
+                sessions
+                    .keys()
+                    .map(|id| format!("wsl-claude-mcp-{}.json", sanitize_wsl_claude_session_id(id)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Ok(entries) = std::fs::read_dir(self.app_paths.data_dir()) {
+            let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with("wsl-claude-mcp-")
+                    && name_str.ends_with(".json")
+                    && *name_str != file_name
+                    && !active_session_files.contains(name_str.as_ref())
+                {
+                    if let Ok(meta) = entry.metadata() {
+                        if meta.modified().map(|m| m < cutoff).unwrap_or(false) {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+        }
         let wsl_config_path = windows_path_to_wsl(&config_path).ok_or_else(|| {
             anyhow!(
                 "Failed to translate Claude MCP config path to WSL path: {}",
@@ -1264,6 +1323,40 @@ mod tests {
 
     fn remove_dir(path: &Path) {
         let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn cleanup_session_mcp_configs_removes_only_own_session_files() {
+        let dir = unique_temp_dir("mcp-cleanup");
+        let sid = "11111111-aaaa-bbbb-cccc-222222222222";
+        let other = "33333333-dddd-eeee-ffff-444444444444";
+        for name in [
+            format!("mcp-{}.json", sid),
+            format!("wsl-claude-mcp-{}.json", sid),
+            format!("mcp-{}.json", other),
+            format!("wsl-claude-mcp-{}.json", other),
+            "mcp-orchestrator.json".to_string(),
+        ] {
+            fs::write(dir.join(name), "{}").unwrap();
+        }
+
+        super::cleanup_session_mcp_configs(&dir, sid);
+
+        assert!(!dir.join(format!("mcp-{}.json", sid)).exists());
+        assert!(!dir.join(format!("wsl-claude-mcp-{}.json", sid)).exists());
+        assert!(dir.join(format!("mcp-{}.json", other)).exists());
+        assert!(dir.join(format!("wsl-claude-mcp-{}.json", other)).exists());
+        assert!(dir.join("mcp-orchestrator.json").exists());
+        remove_dir(&dir);
+    }
+
+    #[test]
+    fn cleanup_session_mcp_configs_ignores_empty_or_hostile_session_id() {
+        let dir = unique_temp_dir("mcp-cleanup-hostile");
+        // 全部字符被 sanitize 过滤 → 空文件名，直接返回不动任何文件
+        super::cleanup_session_mcp_configs(&dir, "../..");
+        super::cleanup_session_mcp_configs(&dir, "");
+        remove_dir(&dir);
     }
 
     #[test]
