@@ -205,21 +205,29 @@ fn run_inner(hook_input: Option<HookInput>) {
         println!();
     }
 
-    // 3. Current state (dynamic)
+    // 3. Runtime-specific tool guidance shared by every CLI adapter that uses
+    // the CC-Panes SessionStart hook.
+    if let Some(guidance) = windows_mount_tool_guidance(&project_dir) {
+        println!("<runtime-guidance>");
+        println!("{}", guidance);
+        println!("</runtime-guidance>\n");
+    }
+
+    // 4. Current state (dynamic)
     println!("<current-state>");
     println!("Time: {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     println!("Branch: {}", get_git_branch(&project_dir));
     println!("Git status:\n{}", get_git_status(&project_dir));
     println!("</current-state>\n");
 
-    // 4. Workspace context
+    // 5. Workspace context
     if let Some(ws_claude_md) = find_workspace_claude_md(&project_dir) {
         println!("<workspace-context>");
         println!("{}", ws_claude_md);
         println!("</workspace-context>\n");
     }
 
-    // 5. Memory context (high importance)
+    // 6. Memory context (high importance)
     // Prefer the CC-Panes Orchestrator API so recall is invisible to the user and
     // backed by the same memory.db used by the in-process MCP tools.
     if let Some(memory) =
@@ -230,7 +238,7 @@ fn run_inner(hook_input: Option<HookInput>) {
         println!("</memory-context>\n");
     }
 
-    // 6. Workflow guide
+    // 7. Workflow guide
     let workflow_path = ccpanes_dir.join("workflow.md");
     if workflow_path.exists() {
         if let Ok(content) = fs::read_to_string(&workflow_path) {
@@ -240,7 +248,7 @@ fn run_inner(hook_input: Option<HookInput>) {
         }
     }
 
-    // 7. Recent sessions
+    // 8. Recent sessions
     let journal_index = ccpanes_dir.join("journal").join("index.md");
     if journal_index.exists() {
         if let Ok(content) = fs::read_to_string(&journal_index) {
@@ -250,19 +258,64 @@ fn run_inner(hook_input: Option<HookInput>) {
         }
     }
 
-    // 8. Recent plan from db (Plan-as-Memory)
+    // 9. Recent plan from db (Plan-as-Memory)
     // 拿最近 1 条同 scope 的 plan 标签，注入 intent + tags + followups。
     // 失败/无数据时静默不打印。注入不会触发 recall_count 递增。
     if let Some(plan_block) = fetch_recent_plan_block(&project_dir) {
         println!("{}", plan_block);
     }
 
-    // 9. Ready prompt
+    // 10. Ready prompt
     println!(
         "<ready>\n\
          Context loaded. Waiting for user input, then handle request per <workflow> guidelines.\n\
          </ready>"
     );
+}
+
+const WINDOWS_MOUNT_TOOL_GUIDANCE: &str = "This project is running in WSL from a Windows-mounted filesystem. For repository-wide Git operations (for example status, diff, fetch, pull, cherry-pick, add, commit, push, and worktree) and Maven builds, prefer Windows-native tools through powershell.exe with the working directory converted to a Windows path; they avoid the severe WSL-on-NTFS metadata scan penalty. Never run WSL Git and Windows Git against the same repository concurrently. If .git/index.lock exists or another Git process is active, wait for it to exit before switching runtimes. Treat CRLF/LF-only differences as non-semantic only after a read-only comparison confirms that no real content changed. Use the current runtime's native tools for projects outside Windows-mounted filesystems.";
+
+fn windows_mount_tool_guidance(project_dir: &Path) -> Option<&'static str> {
+    let runtime_kind = detect_runtime_kind();
+    let env_project_path = std::env::var("CC_PANES_PROJECT_PATH").ok();
+    windows_mount_tool_guidance_for(
+        runtime_kind,
+        &project_dir.to_string_lossy(),
+        env_project_path.as_deref(),
+    )
+}
+
+fn windows_mount_tool_guidance_for(
+    runtime_kind: &str,
+    project_path: &str,
+    env_project_path: Option<&str>,
+) -> Option<&'static str> {
+    if runtime_kind != "wsl" {
+        return None;
+    }
+
+    let is_windows_backed = is_wsl_windows_mount_path(project_path)
+        || env_project_path.is_some_and(|path| {
+            is_wsl_windows_mount_path(path) || is_windows_drive_path(path)
+        });
+    is_windows_backed.then_some(WINDOWS_MOUNT_TOOL_GUIDANCE)
+}
+
+fn is_wsl_windows_mount_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    let mut parts = normalized.split('/').filter(|part| !part.is_empty());
+    matches!(
+        (parts.next(), parts.next()),
+        (Some("mnt"), Some(drive)) if drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic()
+    )
+}
+
+fn is_windows_drive_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
 }
 
 fn send_session_started(
@@ -695,7 +748,46 @@ fn read_hook_input_from_stdin() -> Option<HookInput> {
 
 #[cfg(test)]
 mod tests {
-    use super::{push_budgeted_line, sanitize_field};
+    use super::{
+        push_budgeted_line, sanitize_field, windows_mount_tool_guidance_for,
+        WINDOWS_MOUNT_TOOL_GUIDANCE,
+    };
+
+    #[test]
+    fn injects_windows_native_tool_guidance_for_wsl_mount() {
+        assert_eq!(
+            windows_mount_tool_guidance_for("wsl", "/mnt/d/work/project", None),
+            Some(WINDOWS_MOUNT_TOOL_GUIDANCE)
+        );
+    }
+
+    #[test]
+    fn injects_guidance_when_ccpanes_project_path_is_windows_style() {
+        assert_eq!(
+            windows_mount_tool_guidance_for(
+                "wsl",
+                "/home/user/project",
+                Some(r"D:\work\project")
+            ),
+            Some(WINDOWS_MOUNT_TOOL_GUIDANCE)
+        );
+    }
+
+    #[test]
+    fn skips_guidance_for_native_linux_windows_and_ssh_sessions() {
+        assert_eq!(
+            windows_mount_tool_guidance_for("wsl", "/home/user/project", None),
+            None
+        );
+        assert_eq!(
+            windows_mount_tool_guidance_for("local", r"D:\work\project", None),
+            None
+        );
+        assert_eq!(
+            windows_mount_tool_guidance_for("ssh", "/mnt/d/work/project", None),
+            None
+        );
+    }
 
     /// 关键回归：恶意 plan 写 `</recent-plan>` 试图闭合注入段，必须被剥成全角，
     /// 阻止 prompt 注入扩散到主会话其余结构。
