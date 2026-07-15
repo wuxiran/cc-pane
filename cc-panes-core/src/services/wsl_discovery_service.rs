@@ -85,6 +85,24 @@ mod inner {
         Ok(status.success())
     }
 
+    /// 零副作用探测 WSL utility VM 是否在运行：只查 vmmemWSL/vmmem 进程是否存在，
+    /// 不调用 wsl.exe、不触碰 wslservice，绝不会把 VM 唤醒。
+    /// vmmem 也被 Hyper-V 普通 VM 使用，可能误报为"在跑"——后果只是多执行一次
+    /// 无害的 `wsl --list --verbose`（会发现无 Running distro），可接受。
+    pub fn is_wsl_vm_running() -> bool {
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            false,
+            ProcessRefreshKind::nothing(),
+        );
+        sys.processes().values().any(|process| {
+            let name = process.name().to_string_lossy();
+            name.eq_ignore_ascii_case("vmmemWSL") || name.eq_ignore_ascii_case("vmmem")
+        })
+    }
+
     fn find_wsl_path() -> Result<PathBuf> {
         Ok(which::which("wsl.exe")?)
     }
@@ -299,4 +317,10 @@ mod inner {
 }
 
 #[cfg(target_os = "windows")]
-pub use inner::{discover, ensure_directory_exists, resolve_default_distro};
+pub use inner::{discover, ensure_directory_exists, is_wsl_vm_running, resolve_default_distro};
+
+/// 非 Windows 平台无 WSL，恒 false。
+#[cfg(not(target_os = "windows"))]
+pub fn is_wsl_vm_running() -> bool {
+    false
+}

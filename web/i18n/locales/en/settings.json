@@ -110,6 +110,8 @@
   "providerTitle": "Provider Management",
   "providerDesc": "Manage AI Provider configurations. After binding a Provider to a workspace, the corresponding environment variables will be injected when opening a terminal.",
   "noProviders": "No Providers yet, click the button below to add one",
+  "systemProviderName": "System environment",
+  "systemProviderDesc": "Inject nothing — follow the current system config (e.g. cc-switch)",
   "addProvider": "Add Provider",
   "editProvider": "Edit Provider",
   "providerName": "Name",
@@ -175,6 +177,8 @@
   "providerTypeOpenCodeDesc": "Use OpenCode with OpenAI-compatible API",
   "providerTypeCursorLabel": "Cursor",
   "providerTypeCursorDesc": "Use Cursor CLI API key",
+  "providerTypeGrokLabel": "Grok (xAI)",
+  "providerTypeGrokDesc": "Use xAI API key (XAI_API_KEY). Custom base URL must also be configured per-model in ~/.grok/config.toml",
   "nameRequired": "Name is required",
   "operationFailed": "Operation failed: {{error}}",
   "deleteFailed": "Delete failed: {{error}}",
@@ -221,6 +225,7 @@
   "tabGlm": "GLM",
   "tabOpenCode": "OpenCode",
   "tabCursor": "Cursor",
+  "tabGrok": "Grok",
   "cliInstalled": "Installed",
   "cliNotInstalled": "Not installed",
   "cliLaunchersTitle": "CLI Launch Commands",
@@ -269,6 +274,8 @@
   "presetOpenCodeOpenRouterDesc": "OpenRouter for OpenCode",
   "presetCursorName": "Cursor",
   "presetCursorDesc": "Official Cursor CLI API key",
+  "presetXaiName": "xAI",
+  "presetXaiDesc": "Official xAI API key for Grok CLI",
   "fromPreset": "From Preset",
   "manualConfig": "Manual",
   "getApiKey": "Get API Key",
@@ -299,5 +306,7 @@
   "daemonOrphanReaperDisabled": "Never reclaim orphaned sessions",
   "daemonOrphanReaperDisabledHint": "When checked the daemon never auto-reclaims unwatched sessions (replaces the old \"set expiry to 0\" semantics).",
   "orphanSessionReclaimedTitle": "Orphaned sessions reclaimed",
-  "orphanSessionReclaimedBody": "Cleaned up {{count}} background terminal sessions with no panel reference."
+  "orphanSessionReclaimedBody": "Cleaned up {{count}} background terminal sessions with no panel reference.",
+  "disableWslUsageScan": "Skip WSL usage scanning",
+  "disableWslUsageScanDesc": "Stop scanning usage data inside WSL so the app never wakes the WSL VM (Vmmem memory usage)"
 }

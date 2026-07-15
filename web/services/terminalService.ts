@@ -103,10 +103,52 @@ function compactCreateSessionRequest(request: CreateSessionRequest): CreateSessi
   ) as CreateSessionRequest;
 }
 
-// ── 模块级状态：单例监听器 ──────────────────────────────────
+// ── 订阅者集合工具 ────────────────────────────────────────
 
-const outputCallbacks = new Map<string, (data: string) => void>();
-const exitCallbacks = new Map<string, (exitCode: number) => void>();
+function addSubscriber<T>(map: Map<string, Set<T>>, sessionId: string, callback: T): void {
+  let set = map.get(sessionId);
+  if (!set) {
+    set = new Set();
+    map.set(sessionId, set);
+  }
+  set.add(callback);
+}
+
+function removeSubscriber<T>(map: Map<string, Set<T>>, sessionId: string, callback: T): void {
+  const set = map.get(sessionId);
+  if (!set) return;
+  set.delete(callback);
+  if (set.size === 0) map.delete(sessionId);
+}
+
+/** 把输出分发给该 session 的全部订阅者；无订阅者时返回 false（调用方转入缓冲） */
+function dispatchOutput(sessionId: string, data: string): boolean {
+  const set = outputCallbacks.get(sessionId);
+  if (!set || set.size === 0) return false;
+  for (const callback of set) callback(data);
+  return true;
+}
+
+function dispatchExit(sessionId: string, exitCode: number): void {
+  const set = exitCallbacks.get(sessionId);
+  if (!set) return;
+  for (const callback of set) callback(exitCode);
+}
+
+/** 输出与退出订阅者都清空后才关 WS（最后一个视图离开才断连） */
+function maybeCloseWebSocket(sessionId: string): void {
+  const hasSubscribers =
+    (outputCallbacks.get(sessionId)?.size ?? 0) > 0
+    || (exitCallbacks.get(sessionId)?.size ?? 0) > 0;
+  if (!hasSubscribers) closeWebSocket(sessionId);
+}
+
+// ── 模块级状态：单例监听器 ──────────────────────────────────
+// 每个 session 一组订阅者（Set）：同一会话可被多个视图同时渲染
+// （星标镜像 = 同一 PTY 的第二视图），事件按 Set 广播分发。
+
+const outputCallbacks = new Map<string, Set<(data: string) => void>>();
+const exitCallbacks = new Map<string, Set<(exitCode: number) => void>>();
 const pendingBuffers = new Map<string, string[]>();
 const webSockets = new Map<string, WebSocket>();
 const inputQueues = new Map<string, TerminalInputQueue>();
@@ -275,10 +317,7 @@ export async function ensureListeners(): Promise<void> {
     (event) => {
       const { sessionId, data } = event.payload;
       if (killedSessions.has(sessionId)) return;
-      const cb = outputCallbacks.get(sessionId);
-      if (cb) {
-        cb(data);
-      } else {
+      if (!dispatchOutput(sessionId, data)) {
         // 回调未注册 — 缓冲等待 flush
         debugTerminalService("output.buffered", {
           sessionId,
@@ -302,8 +341,7 @@ export async function ensureListeners(): Promise<void> {
     "terminal-exit",
     (event) => {
       if (killedSessions.has(event.payload.sessionId)) return;
-      const cb = exitCallbacks.get(event.payload.sessionId);
-      cb?.(event.payload.exitCode);
+      dispatchExit(event.payload.sessionId, event.payload.exitCode);
     }
   );
 
@@ -319,7 +357,7 @@ export async function ensureListeners(): Promise<void> {
       if (killedSessions.has(sessionId)) return;
       if (reason === "orphan-reclaim" || reason === "daemon-reaper") {
         console.warn("[terminal] session-killed by reclaim; keeping tab", { sessionId, reason });
-        exitCallbacks.get(sessionId)?.(-1);
+        dispatchExit(sessionId, -1);
         return;
       }
       console.info("[terminal] session-killed → closeTabBySessionId", {
@@ -389,11 +427,7 @@ function ensureWebSocket(sessionId: string): void {
     if (killedSessions.has(sessionId)) return;
     const data = parseWebSocketOutput(event.data);
     if (!data) return;
-    const cb = outputCallbacks.get(sessionId);
-    if (cb) {
-      cb(data);
-      return;
-    }
+    if (dispatchOutput(sessionId, data)) return;
     const buf = pendingBuffers.get(sessionId);
     if (buf) {
       if (buf.length >= MAX_PENDING_CHUNKS) {
@@ -408,7 +442,7 @@ function ensureWebSocket(sessionId: string): void {
   socket.onclose = () => {
     webSockets.delete(sessionId);
     if (!killedSessions.has(sessionId)) {
-      exitCallbacks.get(sessionId)?.(0);
+      dispatchExit(sessionId, 0);
     }
   };
 
@@ -556,11 +590,11 @@ export const terminalService = {
 
   // ── 断连 API（分屏重连用） ──────────────────────────────
 
-  /** 断连：移除输出回调并清理 pendingBuffers，防止内存泄漏 */
+  /** 断连：移除该会话全部输出回调并清理 pendingBuffers（kill/重连前的全量清理） */
   detachOutput(sessionId: string): void {
     debugTerminalService("callback.detach.output", {
       sessionId,
-      hadCallback: outputCallbacks.has(sessionId),
+      subscriberCount: outputCallbacks.get(sessionId)?.size ?? 0,
       pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
     });
     outputCallbacks.delete(sessionId);
@@ -568,11 +602,11 @@ export const terminalService = {
     closeWebSocket(sessionId);
   },
 
-  /** 断连：仅移除退出回调 */
+  /** 断连：移除该会话全部退出回调 */
   detachExit(sessionId: string): void {
     debugTerminalService("callback.detach.exit", {
       sessionId,
-      hadCallback: exitCallbacks.has(sessionId),
+      subscriberCount: exitCallbacks.get(sessionId)?.size ?? 0,
     });
     exitCallbacks.delete(sessionId);
   },
@@ -582,8 +616,8 @@ export const terminalService = {
     debugTerminalService("session.kill", {
       sessionId,
       reason: reason ?? "user-close",
-      hadOutputCallback: outputCallbacks.has(sessionId),
-      hadExitCallback: exitCallbacks.has(sessionId),
+      outputSubscribers: outputCallbacks.get(sessionId)?.size ?? 0,
+      exitSubscribers: exitCallbacks.get(sessionId)?.size ?? 0,
       pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
     });
     killedSessions.add(sessionId);
@@ -602,63 +636,79 @@ export const terminalService = {
 
   // ── 单例监听器 API ─────────────────────────────────────
 
-  /** 注册终端输出回调。Map.set 覆盖语义天然防重复。 */
+  /**
+   * 注册终端输出回调（可多订阅：同一会话可挂多个视图，如星标镜像）。
+   * 返回 unsubscribe：只注销自己这份回调，最后一个订阅者离开才关 WS。
+   * pendingBuffers 只 flush 给"0→1"的首个订阅者——后续订阅者应自行用
+   * replay snapshot 铺底（getReplaySnapshot），之后的增量实时收到。
+   */
   async registerOutput(
     sessionId: string,
     callback: (data: string) => void
-  ): Promise<void> {
+  ): Promise<() => void> {
     await ensureListeners();
     ensureWebSocket(sessionId);
+    const isFirstSubscriber = (outputCallbacks.get(sessionId)?.size ?? 0) === 0;
     debugTerminalService("callback.register.output", {
       sessionId,
-      replacedExisting: outputCallbacks.has(sessionId),
+      subscriberCount: (outputCallbacks.get(sessionId)?.size ?? 0) + 1,
       pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
     });
-    outputCallbacks.set(sessionId, callback);
-    // Flush 缓冲的早期输出
-    const buf = pendingBuffers.get(sessionId);
-    if (buf) {
-      debugTerminalService("callback.flush.output", {
-        sessionId,
-        chunkCount: buf.length,
-      });
-      pendingBuffers.delete(sessionId);
-      for (const data of buf) {
-        callback(data);
+    addSubscriber(outputCallbacks, sessionId, callback);
+    // Flush 缓冲的早期输出（仅首个订阅者）
+    if (isFirstSubscriber) {
+      const buf = pendingBuffers.get(sessionId);
+      if (buf) {
+        debugTerminalService("callback.flush.output", {
+          sessionId,
+          chunkCount: buf.length,
+        });
+        pendingBuffers.delete(sessionId);
+        for (const data of buf) {
+          callback(data);
+        }
       }
     }
+    return () => {
+      removeSubscriber(outputCallbacks, sessionId, callback);
+      maybeCloseWebSocket(sessionId);
+    };
   },
 
-  /** 注销终端输出回调 */
+  /** 注销该会话的全部输出回调（kill 前清理用；视图级注销请用 registerOutput 返回的 unsubscribe） */
   unregisterOutput(sessionId: string): void {
     debugTerminalService("callback.unregister.output", {
       sessionId,
-      hadCallback: outputCallbacks.has(sessionId),
+      subscriberCount: outputCallbacks.get(sessionId)?.size ?? 0,
       pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
     });
     outputCallbacks.delete(sessionId);
     pendingBuffers.delete(sessionId);
   },
 
-  /** 注册终端退出回调。Map.set 覆盖语义天然防重复。 */
+  /** 注册终端退出回调（可多订阅）。返回 unsubscribe，语义同 registerOutput。 */
   async registerExit(
     sessionId: string,
     callback: (exitCode: number) => void
-  ): Promise<void> {
+  ): Promise<() => void> {
     await ensureListeners();
     ensureWebSocket(sessionId);
     debugTerminalService("callback.register.exit", {
       sessionId,
-      replacedExisting: exitCallbacks.has(sessionId),
+      subscriberCount: (exitCallbacks.get(sessionId)?.size ?? 0) + 1,
     });
-    exitCallbacks.set(sessionId, callback);
+    addSubscriber(exitCallbacks, sessionId, callback);
+    return () => {
+      removeSubscriber(exitCallbacks, sessionId, callback);
+      maybeCloseWebSocket(sessionId);
+    };
   },
 
-  /** 注销终端退出回调 */
+  /** 注销该会话的全部退出回调（kill 前清理用） */
   unregisterExit(sessionId: string): void {
     debugTerminalService("callback.unregister.exit", {
       sessionId,
-      hadCallback: exitCallbacks.has(sessionId),
+      subscriberCount: exitCallbacks.get(sessionId)?.size ?? 0,
     });
     exitCallbacks.delete(sessionId);
   },

@@ -19,6 +19,11 @@ const GLOBAL_WORKSPACE: &str = "_global";
 const UNKNOWN_CLI: &str = "unknown";
 const USAGE_SCAN_INTERVAL_SECS: u64 = 300;
 const WSL_DISCOVERY_REFRESH_TICKS: u32 = 10;
+/// 统计算法版本。变更（如 Claude message.id 去重）时 +1：
+/// 启动检测到版本不一致会清空 scan_state 强制全量重扫，历史聚合行被 REPLACE 重算。
+const USAGE_SCAN_ALGO_VERSION: u64 = 2;
+/// 版本号伪装成一条 scan_state 记录存储（jsonl_path 用 sentinel，不会与真实路径冲突）
+const USAGE_SCAN_ALGO_VERSION_KEY: &str = "_algo_version";
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct UsageKey {
@@ -47,6 +52,8 @@ pub struct UsageStatsService {
     wsl_distros: Mutex<Vec<WslDistro>>,
     background_started: AtomicBool,
     scan_running: AtomicBool,
+    /// 供 WSL 扫描开关读取；None（测试等场景）视为未禁用
+    settings: Option<Arc<crate::services::SettingsService>>,
 }
 
 impl UsageStatsService {
@@ -58,7 +65,32 @@ impl UsageStatsService {
             wsl_distros: Mutex::new(Vec::new()),
             background_started: AtomicBool::new(false),
             scan_running: AtomicBool::new(false),
+            settings: None,
         }
+    }
+
+    pub fn new_with_settings(
+        repo: Arc<UsageStatsRepository>,
+        launch_history: Arc<LaunchHistoryService>,
+        settings: Arc<crate::services::SettingsService>,
+    ) -> Self {
+        Self {
+            settings: Some(settings),
+            ..Self::new(repo, launch_history)
+        }
+    }
+
+    /// WSL 扫描是否被设置禁用
+    fn wsl_scan_disabled(&self) -> bool {
+        self.settings
+            .as_ref()
+            .is_some_and(|settings| settings.get_settings().general.disable_wsl_usage_scan)
+    }
+
+    /// WSL 扫描门控：设置未禁用 且 WSL VM 本来就在运行。
+    /// 探测零副作用（只查 vmmem 进程），保证"单纯启动 app 绝不唤醒 WSL"。
+    fn wsl_scan_allowed(&self) -> bool {
+        !self.wsl_scan_disabled() && crate::services::wsl_discovery_service::is_wsl_vm_running()
     }
 
     pub fn start_background_tasks(self: &Arc<Self>) {
@@ -94,13 +126,22 @@ impl UsageStatsService {
 
         let scan_service = self.clone();
         handle.spawn(async move {
-            scan_service.refresh_wsl_distros().await;
+            scan_service.ensure_scan_algo_version();
+            // 启动首扫只扫本机：不做 WSL discovery，保证"单纯启动 app 不唤醒 WSL"
+            // （issue #37：\\wsl$ 访问与 wsl.exe 调用会拉起/保活 Vmmem VM）。
             scan_service.refresh_usage_stats_from_cache_logged();
             let mut tick = 0u32;
             loop {
                 sleep(Duration::from_secs(USAGE_SCAN_INTERVAL_SECS)).await;
                 tick = tick.wrapping_add(1);
-                if tick.is_multiple_of(WSL_DISCOVERY_REFRESH_TICKS) {
+                // 缓存为空且 WSL 已在跑时提前 discovery，WSL 用户最多等一个
+                // 扫描周期统计就能跟上，不必等满 10 tick。
+                let cache_empty = scan_service
+                    .wsl_distros
+                    .lock()
+                    .map(|guard| guard.is_empty())
+                    .unwrap_or(false);
+                if tick.is_multiple_of(WSL_DISCOVERY_REFRESH_TICKS) || cache_empty {
                     scan_service.refresh_wsl_distros().await;
                 }
                 scan_service.refresh_usage_stats_from_cache_logged();
@@ -256,6 +297,14 @@ impl UsageStatsService {
     async fn refresh_wsl_distros(&self) {
         #[cfg(target_os = "windows")]
         {
+            // 门控：设置禁用或 WSL VM 没在跑时不执行 wsl.exe（--list --verbose 会拉起
+            // wslservice），并清空缓存防止 stale Running 条目触发 \\wsl$ 扫描。
+            if !self.wsl_scan_allowed() {
+                if let Ok(mut guard) = self.wsl_distros.lock() {
+                    guard.clear();
+                }
+                return;
+            }
             match crate::services::wsl_discovery_service::discover(&[]).await {
                 Ok(distros) => match self.wsl_distros.lock() {
                     Ok(mut guard) => {
@@ -275,13 +324,41 @@ impl UsageStatsService {
         }
     }
 
+    /// 统计算法版本门：版本变更时清空 scan_state，强制全量重扫重算历史聚合。
+    fn ensure_scan_algo_version(&self) {
+        match self.repo.get_scan_state(USAGE_SCAN_ALGO_VERSION_KEY) {
+            Ok(Some(state)) if state.last_byte_offset == USAGE_SCAN_ALGO_VERSION => {}
+            Ok(_) => {
+                info!(
+                    version = USAGE_SCAN_ALGO_VERSION,
+                    "Usage scan algorithm changed; forcing full rescan"
+                );
+                if let Err(error) = self.repo.clear_all_scan_states() {
+                    warn!(err = %error, "Failed to clear usage scan states for algo upgrade");
+                    return;
+                }
+                if let Err(error) = self.repo.upsert_scan_state(
+                    USAGE_SCAN_ALGO_VERSION_KEY,
+                    USAGE_SCAN_ALGO_VERSION,
+                    0,
+                ) {
+                    warn!(err = %error, "Failed to record usage scan algo version");
+                }
+            }
+            Err(error) => warn!(err = %error, "Failed to read usage scan algo version"),
+        }
+    }
+
     fn scan_all_usage_files(&self) -> Result<()> {
         let wsl_distros = self
             .wsl_distros
             .lock()
             .map(|guard| guard.clone())
             .map_err(|_| anyhow!("Usage stats WSL distro cache lock poisoned"))?;
-        for root in collect_scan_roots(&wsl_distros) {
+        // 扫描前实时复核：discovery 缓存最长 50 分钟，期间 WSL 可能已被用户关掉；
+        // 若仍按缓存访问 \\wsl$ 会把已停止的 distro 重新唤醒（issue #37 的冷唤醒源）。
+        let wsl_vm_running = self.wsl_scan_allowed();
+        for root in collect_scan_roots(&wsl_distros, wsl_vm_running) {
             self.scan_root(&root);
         }
         Ok(())
@@ -436,10 +513,15 @@ fn aggregate_entries(
     by_date.into_values().collect()
 }
 
-fn collect_scan_roots(wsl_distros: &[WslDistro]) -> Vec<ScanRoot> {
+fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_vm_running: bool) -> Vec<ScanRoot> {
     let mut roots = Vec::new();
     if let Some(home) = dirs::home_dir() {
         collect_home_scan_roots(&home, ScanOrigin::Native, &mut roots);
+    }
+
+    // VM 已不在跑时忽略缓存里的 Running 条目：访问 \\wsl$ 会重新唤醒 distro
+    if !wsl_vm_running {
+        return roots;
     }
 
     for distro in wsl_distros {
@@ -645,7 +727,7 @@ mod tests {
 
     #[test]
     fn collect_scan_roots_windows_only() {
-        let roots = collect_scan_roots(&[]);
+        let roots = collect_scan_roots(&[], true);
 
         assert!(roots.len() >= 2);
         assert!(roots.iter().any(|root| root.cli == "claude"));
@@ -655,10 +737,13 @@ mod tests {
 
     #[test]
     fn collect_scan_roots_with_wsl() {
-        let roots = collect_scan_roots(&[
-            wsl_distro("Ubuntu", WslDistroState::Running, Some("alice")),
-            wsl_distro("NoUser", WslDistroState::Running, None),
-        ]);
+        let roots = collect_scan_roots(
+            &[
+                wsl_distro("Ubuntu", WslDistroState::Running, Some("alice")),
+                wsl_distro("NoUser", WslDistroState::Running, None),
+            ],
+            true,
+        );
 
         assert!(roots.len() >= 4);
         let wsl_roots = roots
@@ -682,8 +767,23 @@ mod tests {
 
     #[test]
     fn collect_scan_roots_skips_stopped() {
-        let roots =
-            collect_scan_roots(&[wsl_distro("Ubuntu", WslDistroState::Stopped, Some("alice"))]);
+        let roots = collect_scan_roots(
+            &[wsl_distro("Ubuntu", WslDistroState::Stopped, Some("alice"))],
+            true,
+        );
+
+        assert!(roots.len() >= 2);
+        assert!(roots.iter().all(|root| root.origin == ScanOrigin::Native));
+    }
+
+    #[test]
+    fn collect_scan_roots_skips_wsl_when_vm_not_running() {
+        // 缓存仍标 Running（最长 50 分钟 stale），但 VM 已被关掉：
+        // 必须忽略 WSL 根，否则 \\wsl$ 访问会把 distro 重新唤醒。
+        let roots = collect_scan_roots(
+            &[wsl_distro("Ubuntu", WslDistroState::Running, Some("alice"))],
+            false,
+        );
 
         assert!(roots.len() >= 2);
         assert!(roots.iter().all(|root| root.origin == ScanOrigin::Native));

@@ -182,13 +182,18 @@ describe("WorkspaceItem", () => {
   });
 
   it("shows CLI entries in the workspace launch menu", async () => {
+    const user = userEvent.setup();
     renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
 
+    // 常用项（默认 claude/codex）顶层可见
     expect((await screen.findAllByRole("menuitem", { name: "Claude Code" })).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("menuitem", { name: "Codex CLI" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("menuitem", { name: "Gemini CLI" }).length).toBeGreaterThan(0);
+    // 其余 CLI 折叠进"更多启动方式"（issue #36）
+    expect(screen.queryByRole("menuitem", { name: "Kimi CLI" })).not.toBeInTheDocument();
+    await user.hover(screen.getByRole("menuitem", { name: /更多启动方式|More launch options/ }));
+    expect(await screen.findByRole("menuitem", { name: "Gemini CLI" })).toBeVisible();
     expect(screen.getAllByRole("menuitem", { name: "Kimi CLI" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("menuitem", { name: "GLM CLI" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("menuitem", { name: "OpenCode" }).length).toBeGreaterThan(0);
@@ -311,9 +316,13 @@ describe("WorkspaceItem", () => {
   });
 
   it("launches OpenCode when clicking the workspace CLI menu item directly", async () => {
+    const user = userEvent.setup();
     const { onOpenTerminal } = renderWorkspaceItem("local");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: /更多启动方式|More launch options/ }),
+    );
     fireEvent.click(await screen.findByRole("menuitem", { name: "OpenCode" }));
 
     expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
@@ -323,9 +332,13 @@ describe("WorkspaceItem", () => {
   });
 
   it("shows explicit WSL CLI entries when the workspace default environment is wsl", async () => {
+    const user = userEvent.setup();
     renderWorkspaceItem("wsl");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: /更多启动方式|More launch options/ }),
+    );
 
     expect(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: /Claude Code.*WSL/ })).toBeVisible();
@@ -336,7 +349,13 @@ describe("WorkspaceItem", () => {
     const { onOpenTerminal } = renderWorkspaceItem("wsl");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: /更多启动方式|More launch options/ }),
+    );
+    // jsdom 下三层嵌套子菜单 hover 不触发展开，用 Radix 键盘导航展开
+    const codexWslTrigger = await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ });
+    codexWslTrigger.focus();
+    fireEvent.keyDown(codexWslTrigger, { key: "ArrowRight" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /使用默认运行配置|Launch with Default Profile/i }));
 
     expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
@@ -476,7 +495,13 @@ describe("WorkspaceItem", () => {
     const { onOpenTerminal } = renderWorkspaceItem("wsl");
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: /更多启动方式|More launch options/ }),
+    );
+    // jsdom 下三层嵌套子菜单 hover 不触发展开，用 Radix 键盘导航展开
+    const codexWslTrigger = await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ });
+    codexWslTrigger.focus();
+    fireEvent.keyDown(codexWslTrigger, { key: "ArrowRight" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /Codex WSL/ }));
 
     expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({

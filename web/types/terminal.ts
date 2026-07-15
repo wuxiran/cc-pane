@@ -13,7 +13,8 @@ export type KnownCliTool =
   | "kimi"
   | "glm"
   | "opencode"
-  | "cursor";
+  | "cursor"
+  | "grok";
 export type CliTool = KnownCliTool | (string & {});
 
 /** CLI 工具元信息（来自 Rust cc-cli-adapters crate） */
@@ -36,6 +37,7 @@ export interface CliToolCapabilities {
   supportsSystemPrompt: boolean;
   supportsWorkspace: boolean;
   supportsProjectHooks: boolean;
+  supportsIssuedSessionId?: boolean;
   compatibleProviderTypes: string[];
 }
 

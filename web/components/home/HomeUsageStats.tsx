@@ -49,8 +49,17 @@ function formatPercent(value: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function tokenTotal(totals: UsageTotals | undefined): number {
+/**
+ * 总 token 数公式按 CLI 区分（input_tokens 语义不同）：
+ * - Claude: input_tokens 不含 cache_*，四项相加才是总量
+ * - OpenAI/Codex: input_tokens 是 prompt 总数（已含 cache_read 子集），
+ *   再叠加 cache_read 会把缓存读重复计一遍
+ */
+function tokenTotal(totals: UsageTotals | undefined, cli: "claude" | "codex"): number {
   if (!totals) return 0;
+  if (cli === "codex") {
+    return totals.tokenInput + totals.tokenOutput;
+  }
   return (
     totals.tokenInput
     + totals.tokenOutput
@@ -140,10 +149,8 @@ export default function HomeUsageStats() {
         + point.claudeTokensOut
         + point.claudeCacheRead
         + point.claudeCacheCreation;
-      const codexTokens = point.codexTokensIn
-        + point.codexTokensOut
-        + point.codexCacheRead
-        + point.codexCacheCreation;
+      // Codex 的 input 已含 cache_read 子集，不再叠加（见 tokenTotal 注释）
+      const codexTokens = point.codexTokensIn + point.codexTokensOut;
       return {
         date: point.date,
         claudeTokens,
@@ -154,8 +161,8 @@ export default function HomeUsageStats() {
   }, [data?.series]);
 
   const totals = data?.totals;
-  const claudeTokens = tokenTotal(data?.byCli.claude);
-  const codexTokens = tokenTotal(data?.byCli.codex);
+  const claudeTokens = tokenTotal(data?.byCli.claude, "claude");
+  const codexTokens = tokenTotal(data?.byCli.codex, "codex");
   const claudeHit = hitRate(data?.byCli.claude, "claude");
   const codexHit = hitRate(data?.byCli.codex, "codex");
 

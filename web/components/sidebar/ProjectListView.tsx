@@ -23,7 +23,12 @@ import {
   resolveWorkspaceProjectLaunchOptions,
 } from "@/utils";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions, SpecEntry, SshConnectionInfo, WorkspaceLaunchEnvironment } from "@/types";
-import { buildSidebarCliLaunchItems } from "./launchMenu";
+import {
+  buildSidebarCliLaunchItems,
+  getDefaultSidebarFavoriteLaunchActionIds,
+  groupSidebarCliLaunchItems,
+} from "./launchMenu";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 
 interface ProjectListViewProps {
   projects: WorkspaceProject[];
@@ -89,6 +94,7 @@ export default function ProjectListView({
 }: ProjectListViewProps) {
   const { t } = useTranslation(["sidebar", "common", "spec"]);
   const sshMachines = useSshMachinesStore((s) => s.machines);
+  const rawFavoriteLaunchIds = useSettingsStore((s) => s.settings?.general.launchFavorites);
   const onOpenHistory = useDialogStore((s) => s.openLocalHistory);
   const onOpenTodo = useDialogStore((s) => s.openTodo);
   const [projectSpecs, setProjectSpecs] = useState<Record<string, SpecEntry[]>>({});
@@ -202,6 +208,11 @@ export default function ProjectListView({
           environment: "ssh",
         }).issue;
         const cliLaunchItems = buildSidebarCliLaunchItems(t, canLaunchWsl, canLaunchSsh);
+        // 常用项平铺，其余折叠进"更多启动方式"（issue #36：避免 20+ 项平铺）
+        const groupedCliLaunchItems = groupSidebarCliLaunchItems(
+          cliLaunchItems,
+          rawFavoriteLaunchIds ?? getDefaultSidebarFavoriteLaunchActionIds(),
+        );
         const displayName = project.alias || (isSsh ? getSshDisplayName(project.ssh!) : getProjectName(project.path));
         const launchProject = (
           cliTool?: OpenTerminalOptions["cliTool"],
@@ -272,7 +283,7 @@ export default function ProjectListView({
                   </ContextMenuItem>
                 </ContextMenuSubContent>
               </ContextMenuSub>
-              {cliLaunchItems.map((item) => (
+              {groupedCliLaunchItems.primary.map((item) => (
                 <ContextMenuItem
                   key={item.key}
                   onClick={() => launchProject(item.cliTool, item.environment)}
@@ -280,6 +291,23 @@ export default function ProjectListView({
                   <Terminal /> {item.label}
                 </ContextMenuItem>
               ))}
+              {groupedCliLaunchItems.more.length > 0 && (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <Terminal /> {t("moreLaunchActions", { defaultValue: "更多启动方式" })}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-56">
+                    {groupedCliLaunchItems.more.map((item) => (
+                      <ContextMenuItem
+                        key={item.key}
+                        onClick={() => launchProject(item.cliTool, item.environment)}
+                      >
+                        <Terminal /> {item.label}
+                      </ContextMenuItem>
+                    ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              )}
               <ContextMenuSeparator />
               {/* 本地项目专有菜单项 */}
               {!isSsh && (

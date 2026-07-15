@@ -63,6 +63,7 @@ function createValue(overrides: Partial<GeneralSettings> = {}): GeneralSettings 
     defaultCliTool: "claude",
     launchFavorites: [],
     hideNonFavoriteLaunchActions: false,
+    disableWslUsageScan: false,
     ...overrides,
   };
 }

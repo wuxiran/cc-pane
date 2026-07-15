@@ -55,3 +55,9 @@ export interface DiscoveredExternalSkill {
   contentSha256: string;
   installedAt?: string | null;
 }
+
+/** CC-Panes 自带、启动时注入到各 CLI 全局目录的内置 skill（只读展示） */
+export interface BundledSkill {
+  name: string;
+  description?: string | null;
+}

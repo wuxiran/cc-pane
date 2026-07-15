@@ -110,6 +110,8 @@
   "providerTitle": "Provider 管理",
   "providerDesc": "管理 AI Provider 配置。为工作空间绑定 Provider 后，打开终端时会注入对应环境变量。",
   "noProviders": "暂无 Provider，点击下方按钮添加",
+  "systemProviderName": "系统环境变量",
+  "systemProviderDesc": "不注入 provider 环境变量，跟随系统当前配置（如 cc-switch）",
   "addProvider": "新增 Provider",
   "editProvider": "编辑 Provider",
   "providerName": "名称",
@@ -175,6 +177,8 @@
   "providerTypeOpenCodeDesc": "使用 OpenCode（OpenAI 兼容 API）",
   "providerTypeCursorLabel": "Cursor",
   "providerTypeCursorDesc": "使用 Cursor CLI API Key",
+  "providerTypeGrokLabel": "Grok (xAI)",
+  "providerTypeGrokDesc": "使用 xAI API Key（XAI_API_KEY）。自定义 Base URL 还需在 ~/.grok/config.toml 按 model 配置",
   "nameRequired": "请输入名称",
   "operationFailed": "操作失败: {{error}}",
   "deleteFailed": "删除失败: {{error}}",
@@ -221,6 +225,7 @@
   "tabGlm": "GLM",
   "tabOpenCode": "OpenCode",
   "tabCursor": "Cursor",
+  "tabGrok": "Grok",
   "cliInstalled": "已安装",
   "cliNotInstalled": "未安装",
   "cliLaunchersTitle": "CLI 启动命令",
@@ -269,6 +274,8 @@
   "presetOpenCodeOpenRouterDesc": "通过 OpenRouter 使用 OpenCode",
   "presetCursorName": "Cursor",
   "presetCursorDesc": "Cursor CLI 官方 API Key",
+  "presetXaiName": "xAI",
+  "presetXaiDesc": "Grok CLI 官方 xAI API Key",
   "fromPreset": "从预设创建",
   "manualConfig": "手动配置",
   "getApiKey": "获取 API Key",
@@ -299,5 +306,7 @@
   "daemonOrphanReaperDisabled": "永不回收孤儿会话",
   "daemonOrphanReaperDisabledHint": "勾选后 daemon 不再自动回收无人查看的会话（取代旧的\"过期时间填 0\"语义）。",
   "orphanSessionReclaimedTitle": "已回收孤儿会话",
-  "orphanSessionReclaimedBody": "清理了 {{count}} 个无面板引用的后台终端会话。"
+  "orphanSessionReclaimedBody": "清理了 {{count}} 个无面板引用的后台终端会话。",
+  "disableWslUsageScan": "WSL 免打扰（用量统计）",
+  "disableWslUsageScanDesc": "关闭后不再扫描 WSL 内的用量数据，避免启动时唤醒 WSL 虚拟机（Vmmem 内存占用）"
 }

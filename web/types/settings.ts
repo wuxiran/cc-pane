@@ -96,6 +96,8 @@ export interface GeneralSettings {
   launchFavorites: string[];
   /** 工作空间右键菜单中隐藏非常用启动项 */
   hideNonFavoriteLaunchActions: boolean;
+  /** 禁用 WSL 用量统计扫描（不再触碰 \\wsl$ 与 wsl.exe，避免唤醒 WSL VM） */
+  disableWslUsageScan: boolean;
 }
 
 /** 环境检测原始结果（来自 Rust check_environment 命令） */

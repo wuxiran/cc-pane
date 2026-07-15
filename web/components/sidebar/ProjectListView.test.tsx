@@ -170,9 +170,14 @@ describe("ProjectListView", () => {
     );
 
     fireEvent.contextMenu(screen.getByText("local-project"));
+    // 常用项（默认 claude/codex）顶层可见
     expect(await screen.findByRole("menuitem", { name: "Claude Code" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "Codex CLI" })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: "Kimi CLI" })).toBeVisible();
+    // 其余 CLI 折叠进"更多启动方式"（issue #36）
+    expect(screen.queryByRole("menuitem", { name: "Kimi CLI" })).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.hover(screen.getByRole("menuitem", { name: /更多启动方式|More launch options/ }));
+    expect(await screen.findByRole("menuitem", { name: "Kimi CLI" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "GLM CLI" })).toBeVisible();
   });
 
@@ -252,6 +257,10 @@ describe("ProjectListView", () => {
     );
 
     fireEvent.contextMenu(screen.getByText("local-project"));
+    const user = userEvent.setup();
+    await user.hover(
+      await screen.findByRole("menuitem", { name: /更多启动方式|More launch options/ }),
+    );
     expect(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ })).toBeVisible();
   });
 
@@ -288,7 +297,10 @@ describe("ProjectListView", () => {
     );
 
     fireEvent.contextMenu(screen.getByText("local-project"));
-    await user.click(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ }));
+    await user.hover(
+      await screen.findByRole("menuitem", { name: /更多启动方式|More launch options/ }),
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Codex CLI.*WSL/ }));
 
     expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
       path: "D:/workspace-root/apps/api",

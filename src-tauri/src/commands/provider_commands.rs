@@ -54,6 +54,12 @@ pub fn set_default_provider(id: String, service: State<'_, Arc<ProviderService>>
     Ok(service.set_default(&id)?)
 }
 
+/// 检测「系统环境变量」provider 是否应作为默认（cc-switch 已安装或宿主已设 Anthropic 凭证）。
+#[tauri::command]
+pub fn detect_system_provider() -> AppResult<bool> {
+    Ok(ProviderService::system_provider_active())
+}
+
 /// 配置目录信息
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

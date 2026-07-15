@@ -26,23 +26,32 @@ impl FileSystemService {
 
     /// 校验路径安全性（路径沙箱）
     fn validate_path(path: &str) -> AppResult<PathBuf> {
+        let p = Self::validate_path_syntax(path)?;
+        let canonical = p
+            .canonicalize()
+            .map_err(|e| format!("Invalid path '{}': {}", path, e))?;
+        Self::validate_system_path(&canonical)?;
+        Ok(canonical)
+    }
+
+    fn validate_path_syntax(path: &str) -> AppResult<PathBuf> {
         if path.is_empty() {
             return Err("Path cannot be empty".into());
         }
         let p = PathBuf::from(path);
-        // 禁止路径穿越
         for component in p.components() {
             if let std::path::Component::ParentDir = component {
                 return Err(format!("Path contains illegal '..' component: {}", path).into());
             }
         }
-        let canonical = p
-            .canonicalize()
-            .map_err(|e| format!("Invalid path '{}': {}", path, e))?;
+        Ok(p)
+    }
+
+    fn validate_system_path(#[allow(unused_variables)] path: &Path) -> AppResult<()> {
         // 确保不是系统关键路径
         #[cfg(windows)]
         {
-            let path_str = canonical.to_string_lossy().to_lowercase();
+            let path_str = path.to_string_lossy().to_lowercase();
             // 使用环境变量获取系统目录，不硬编码驱动器号
             let blocked: Vec<String> = [
                 std::env::var("WINDIR").ok(),
@@ -60,7 +69,35 @@ impl FileSystemService {
                 }
             }
         }
-        Ok(canonical)
+        Ok(())
+    }
+
+    /// 解析用于「删除 / 移动」的叶子路径：**保留最后一级符号链接本身**，绝不
+    /// canonicalize 到链接目标。仅规范化父目录，既维持路径边界检查，也允许删除悬空链接。
+    ///
+    /// 关键防线：**不能对原始字符串直接 `symlink_metadata`**。当路径带尾部分隔符
+    /// （如 `link/`）时，操作系统会把最终组件当目录解析，从而**跟随**目录符号链接；
+    /// 若据此判定为「非符号链接」再走 `canonicalize`，就会落到目标目录并对**目标**
+    /// 执行 `remove_dir_all`，永久删除链接指向的真实目录（数据丢失）。
+    /// 因此这里先只规范化父目录，再用 `file_name` 重建叶子——既剥掉尾部分隔符，
+    /// 又保证最终组件（可能是 symlink）本身不会被跟随。
+    fn validate_delete_path(path: &str) -> AppResult<PathBuf> {
+        let entry_path = Self::validate_path_syntax(path)?;
+        let file_name = entry_path
+            .file_name()
+            .ok_or_else(|| format!("Invalid path '{}': missing file name", path))?;
+        let parent = entry_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let canonical_parent = parent
+            .canonicalize()
+            .map_err(|e| format!("Invalid path '{}': {}", path, e))?;
+        Self::validate_system_path(&canonical_parent)?;
+        let leaf = canonical_parent.join(file_name);
+        // 叶子本身也要过系统路径边界检查（非 symlink 时它就是最终规范路径）。
+        Self::validate_system_path(&leaf)?;
+        Ok(leaf)
     }
 
     /// 判断是否隐藏（接受已有 metadata，避免重复 I/O）
@@ -455,12 +492,25 @@ impl FileSystemService {
     /// `TRASH_FAILED` 结构化错误，前端据此提供"永久删除"兜底。
     pub fn delete_entry(&self, path: &str, permanent: bool) -> AppResult<()> {
         debug!("svc::delete_entry permanent={}", permanent);
-        let entry_path = Self::validate_path(path)?;
+        let entry_path = Self::validate_delete_path(path)?;
         if Self::is_readonly_path(&entry_path) {
             return Err("Cannot delete read-only path".into());
         }
         if permanent {
-            if entry_path.is_dir() {
+            let metadata = fs::symlink_metadata(&entry_path)?;
+            if metadata.file_type().is_symlink() {
+                // Windows 上目录符号链接/junction 需用 remove_dir 删链接本身。
+                // 用元数据的 is_symlink_dir()（不跟随）判定，避免对悬空链接误判为文件。
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::FileTypeExt;
+                    if metadata.file_type().is_symlink_dir() {
+                        fs::remove_dir(&entry_path)?;
+                        return Ok(());
+                    }
+                }
+                fs::remove_file(&entry_path)?;
+            } else if metadata.is_dir() {
                 fs::remove_dir_all(&entry_path)?;
             } else {
                 fs::remove_file(&entry_path)?;
@@ -529,7 +579,9 @@ impl FileSystemService {
     /// 移动文件/目录
     pub fn move_entry(&self, src: &str, dest_dir: &str) -> AppResult<()> {
         debug!("svc::move_entry");
-        let source = Self::validate_path(src)?;
+        // 解析源时保留最后一级符号链接本身（同删除路径的防线）：否则 canonicalize 会
+        // 落到链接目标，跨文件系统降级分支会对**目标**执行 remove_dir_all（数据丢失）。
+        let source = Self::validate_delete_path(src)?;
         if Self::is_readonly_path(&source) {
             return Err("Cannot move read-only path".into());
         }
@@ -544,9 +596,15 @@ impl FileSystemService {
                 format!("'{}' already exists in destination", name.to_string_lossy()).into(),
             );
         }
-        // fs::rename 跨盘/跨文件系统会失败，降级为 copy + delete
+        let source_meta = fs::symlink_metadata(&source)?;
+        // fs::rename 跨盘/跨文件系统会失败，降级为 copy + delete。
+        // 注意：rename 本身不跟随符号链接，因此同卷移动会正确地搬动链接本身。
         if fs::rename(&source, &dest).is_err() {
-            if source.is_dir() {
+            if source_meta.file_type().is_symlink() {
+                // 符号链接跨文件系统移动：绝不 copy_dir_recursive + remove_dir_all（那会
+                // 复制并删除目标）。这里直接报错，避免数据丢失（重建链接需特权，从简）。
+                return Err("Cannot move a symbolic link across filesystems".into());
+            } else if source_meta.is_dir() {
                 Self::copy_dir_recursive(&source, &dest)?;
                 fs::remove_dir_all(&source)?;
             } else {
@@ -954,6 +1012,89 @@ mod tests {
 
         svc().delete_entry(&path_str(&dir), true).unwrap();
         assert!(!dir.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn delete_entry_permanent_removes_symlink_without_touching_target() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let target = tmp.path().join("target");
+        fs::create_dir(&target).unwrap();
+        let target_file = target.join("keep.txt");
+        fs::write(&target_file, "keep").unwrap();
+        let link = tmp.path().join("target-link");
+        symlink(&target, &link).unwrap();
+
+        svc().delete_entry(&path_str(&link), true).unwrap();
+
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert_eq!(fs::read_to_string(target_file).unwrap(), "keep");
+    }
+
+    // 回归：目录符号链接带尾部 '/' 时，绝不能跟随链接删除到目标目录（数据丢失）。
+    #[cfg(unix)]
+    #[test]
+    fn delete_entry_permanent_dir_symlink_trailing_slash_keeps_target() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let target = tmp.path().join("target");
+        fs::create_dir(&target).unwrap();
+        let target_file = target.join("keep.txt");
+        fs::write(&target_file, "keep").unwrap();
+        let link = tmp.path().join("target-link");
+        symlink(&target, &link).unwrap();
+
+        // 关键：路径带尾部斜杠
+        let link_with_slash = format!("{}/", path_str(&link));
+        svc().delete_entry(&link_with_slash, true).unwrap();
+
+        // 链接被删、目标目录与内容原封不动
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert!(target.is_dir());
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "keep");
+    }
+
+    // 回归：回收站删除（permanent=false）同样不得跟随尾斜杠删到目标。
+    #[cfg(unix)]
+    #[test]
+    fn delete_entry_trash_dir_symlink_trailing_slash_keeps_target() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let target = tmp.path().join("target");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep").unwrap();
+        let link = tmp.path().join("target-link");
+        symlink(&target, &link).unwrap();
+
+        // trash::delete 在 CI/无回收站环境可能失败——无论成败，目标目录都必须保留。
+        let _ = svc().delete_entry(&format!("{}/", path_str(&link)), false);
+        assert!(target.is_dir());
+        assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "keep");
+    }
+
+    // 回归：跨文件系统移动一个目录符号链接不得删除目标（这里模拟为报错而非静默删目标）。
+    #[cfg(unix)]
+    #[test]
+    fn move_entry_symlink_source_never_deletes_target() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let target = tmp.path().join("target");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep").unwrap();
+        let link = tmp.path().join("link");
+        symlink(&target, &link).unwrap();
+        let dest_dir = tmp.path().join("dest");
+        fs::create_dir(&dest_dir).unwrap();
+
+        // 同卷 rename 会成功并搬动链接本身；无论成败，目标目录都不能被删。
+        let _ = svc().move_entry(&path_str(&link), &path_str(&dest_dir));
+        assert!(target.is_dir());
+        assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "keep");
     }
 
     #[test]

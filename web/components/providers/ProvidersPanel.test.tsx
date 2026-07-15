@@ -104,7 +104,10 @@ describe("ProvidersPanel", () => {
     setupStores();
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
-    expect(screen.getByText(i18n.t("settings:emptyTitle"))).toBeInTheDocument();
+    // 合成「系统环境变量」条目恒置顶，故无真实 provider 时列表非空：
+    // 展示 System 条目 + 空态引导文案。
+    expect(screen.getByText(i18n.t("settings:systemProviderName"))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t("settings:emptyDesc"))).toBeInTheDocument();
   });
 
   it("lists providers compatible with the active CLI tab", async () => {
@@ -200,8 +203,9 @@ describe("ProvidersPanel", () => {
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
 
+    // System 卡与真实 provider 卡各有一个「启用」按钮；点任一都先校验工作空间。
     await user.click(
-      screen.getByRole("button", { name: new RegExp(i18n.t("settings:launch")) })
+      screen.getAllByRole("button", { name: new RegExp(i18n.t("settings:launch")) })[0]
     );
     expect(toast.error).toHaveBeenCalledWith(i18n.t("settings:selectWorkspaceFirst"));
   });

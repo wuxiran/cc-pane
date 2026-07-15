@@ -12,6 +12,7 @@ const TYPE_COLORS: Record<ProviderType, string> = {
   glm: "#2563EB",
   opencode: "#8B5CF6",
   cursor: "#111827",
+  grok: "#71767B",
 };
 
 interface ProviderAvatarProps {

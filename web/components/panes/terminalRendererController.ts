@@ -9,6 +9,29 @@ import {
 
 type RendererLogger = (event: string, payload?: Record<string, unknown>) => void;
 
+// 跨终端共享 atlas 协调。
+// xterm 让**同配置**的终端共用同一张字形图集（CharAtlasCache）。当某个 pane 因输出新字形
+// 导致 atlas 扩容 / 加页 / 合并页时，共享纹理里字形的位置会变，但**每个 pane 各自保存 WebGL
+// 顶点模型**；没有同步重建模型的 pane 会采样到错误位置 → 表现为「大片黑 + 稀疏彩色碎片」，
+// 点击/滚动触发全量刷新才恢复。所以任一 pane 的 atlas 结构变化时，必须让**所有活跃 WebGL
+// 终端**各补一次 refresh。用模块级注册表 + rAF 合并，避免每个事件都全量重画所有 pane。
+const atlasRefreshRegistry = new Set<() => void>();
+let atlasRefreshScheduled = false;
+function notifyAtlasStructureChanged(): void {
+  if (atlasRefreshScheduled) return;
+  atlasRefreshScheduled = true;
+  requestAnimationFrame(() => {
+    atlasRefreshScheduled = false;
+    for (const refresh of atlasRefreshRegistry) {
+      try {
+        refresh();
+      } catch {
+        // 单个 pane 刷新失败不影响其它 pane。
+      }
+    }
+  });
+}
+
 export interface TerminalRendererDiagnostics {
   activeRenderer: ActiveTerminalRenderer;
   requestedMode: TerminalRendererMode;
@@ -76,6 +99,7 @@ export function createTerminalRendererController({
   });
 
   const disposeWebgl = (reason: string) => {
+    atlasRefreshRegistry.delete(refreshForSharedAtlas);
     for (const disposable of webglDisposables) {
       try {
         disposable.dispose();
@@ -84,6 +108,24 @@ export function createTerminalRendererController({
       }
     }
     webglDisposables = [];
+
+    // 释放前先抓住底层 WebGL context：@xterm/addon-webgl 0.19 的 dispose() **不会** 调
+    // WEBGL_lose_context.loseContext()，被弃的 context 要等 GC 才退出 Chromium 活动集合。
+    // 每次 recreate/切换/卸载都漏一个 → 多终端很快撞 ~16 个 live context 上限（花屏/黑屏根因）。
+    // 这里在 dispose 后显式 loseContext，确定性立即释放。
+    const leakedContexts: WebGLRenderingContext[] = [];
+    try {
+      // 限定 .xterm-screen 内的 canvas 并只请求 webgl2（addon-webgl 用 webgl2）：
+      // 避免对尚未绑定 context 的其它 canvas 误 getContext 反而**新建**一个 WebGL2 context。
+      const canvases = term.element?.querySelectorAll<HTMLCanvasElement>(".xterm-screen canvas") ?? [];
+      for (const canvas of Array.from(canvases)) {
+        // 已绑定 2D 的 link-layer canvas 请求 webgl2 会返回 null，自动跳过。
+        const gl = canvas.getContext("webgl2") as WebGLRenderingContext | null;
+        if (gl) leakedContexts.push(gl);
+      }
+    } catch {
+      /* 抓取失败不阻塞释放流程 */
+    }
 
     if (webglAddon) {
       try {
@@ -98,6 +140,14 @@ export function createTerminalRendererController({
       webglAddon = null;
     }
 
+    for (const gl of leakedContexts) {
+      try {
+        (gl.getExtension("WEBGL_lose_context") as { loseContext(): void } | null)?.loseContext();
+      } catch {
+        /* 已丢失/跨 context 的清理可忽略 */
+      }
+    }
+
     activeRenderer = "dom";
   };
 
@@ -108,6 +158,9 @@ export function createTerminalRendererController({
       term.clearTextureAtlas();
       atlasClearCount += 1;
       lastDevicePixelRatio = getDevicePixelRatio();
+      // clearTextureAtlas 本身已清模型并触发 RenderService 全量 refresh，无需额外 repaint。
+      // 但它清的是**跨 pane 共享**的 atlas，故通知其它共享 pane 一并刷新，避免它们残留错位。
+      notifyAtlasStructureChanged();
       logger("renderer.webgl.atlas.clear", {
         reason,
         atlasClearCount,
@@ -151,6 +204,17 @@ export function createTerminalRendererController({
     }
   };
 
+  // 本终端在「共享 atlas 结构变化」时要执行的有界重绘（注册进 atlasRefreshRegistry）。
+  // 仅重绘一次、且只在 WebGL 活跃时——普通刷新不新增字形，不会再触发 atlas 变化，故不会级联。
+  const refreshForSharedAtlas = () => {
+    if (disposed || !webglAddon) return;
+    try {
+      term.refresh(0, Math.max(0, term.rows - 1));
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  };
+
   const enableWebgl = () => {
     if (disposed || webglAddon) return;
 
@@ -163,6 +227,8 @@ export function createTerminalRendererController({
           contextLossCount,
         });
         disposeWebgl("context-loss");
+        // context 丢失后 canvas 会留成整片黑：降级 DOM 后必须补一次重绘，否则不恢复。
+        repaint("context-loss");
         onRendererChanged("webgl.context-loss", getDiagnostics());
       }),
       addon.onChangeTextureAtlas((canvas) => {
@@ -173,6 +239,9 @@ export function createTerminalRendererController({
           height: canvas.height,
           dpr: getDevicePixelRatio(),
         });
+        // 共享 atlas 结构变化 → 刷新所有共享它的可见 WebGL pane（不只自己），
+        // 否则未同步模型的 pane 会采样错位（黑块 + 彩色碎片）。
+        notifyAtlasStructureChanged();
       }),
       addon.onAddTextureAtlasCanvas((canvas) => {
         atlasCanvasCount += 1;
@@ -181,6 +250,8 @@ export function createTerminalRendererController({
           width: canvas.width,
           height: canvas.height,
         });
+        // 加页同理，是跨 pane 事件：所有共享该 atlas 的 renderer 都需重建模型。
+        notifyAtlasStructureChanged();
       }),
       addon.onRemoveTextureAtlasCanvas((canvas) => {
         atlasCanvasCount = Math.max(0, atlasCanvasCount - 1);
@@ -189,14 +260,35 @@ export function createTerminalRendererController({
           width: canvas.width,
           height: canvas.height,
         });
+        notifyAtlasStructureChanged();
       }),
     ];
 
-    term.loadAddon(addon);
+    try {
+      term.loadAddon(addon);
+    } catch (error) {
+      // loadAddon 会同步 activate()；若 shader/renderer 初始化抛错，此时 webglAddon 尚未保存，
+      // 上层 catch 看不到这个 addon 也就无法 dispose → context 泄漏。这里显式 dispose 兜底。
+      try {
+        addon.dispose();
+      } catch {
+        /* 清理失败忽略 */
+      }
+      for (const disposable of webglDisposables) {
+        try {
+          disposable.dispose();
+        } catch {
+          /* ignore */
+        }
+      }
+      webglDisposables = [];
+      throw error;
+    }
     webglAddon = addon;
     activeRenderer = "webgl";
     lastError = null;
     lastDevicePixelRatio = getDevicePixelRatio();
+    atlasRefreshRegistry.add(refreshForSharedAtlas);
     logger("renderer.webgl.enabled", { ...getDiagnostics() });
   };
 

@@ -191,6 +191,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       // 侧边栏"隐藏非常用菜单"开关可随时展开全部 7 个 CLI × 环境变体，
       // 避免一上来就是 ~30 条密密麻麻的长列表。老用户的已存设置不受影响。
       hideNonFavoriteLaunchActions: true,
+      disableWslUsageScan: false,
     },
     notification: {
       enabled: true,

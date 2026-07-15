@@ -40,7 +40,7 @@ mod worktree_service;
 pub mod wsl_discovery_service;
 
 pub use daemon_client::{TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus};
-pub use default_skill_service::DefaultSkillService;
+pub use default_skill_service::{BundledSkillInfo, DefaultSkillService};
 pub use external_skill_registry::ExternalSkillRegistry;
 pub use filesystem_service::FileSystemService;
 pub use history_service::HistoryService;

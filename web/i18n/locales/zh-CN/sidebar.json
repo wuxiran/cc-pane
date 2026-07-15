@@ -51,6 +51,7 @@
   "cliToolGlm": "GLM CLI",
   "cliToolOpenCode": "OpenCode",
   "cliToolCursor": "Cursor CLI",
+  "cliToolGrok": "Grok CLI",
   "cliLocalVariant": "{{label}}（本机）",
   "cliWslVariant": "{{label}}（WSL）",
   "cliSshVariant": "{{label}}（SSH）",
@@ -284,5 +285,6 @@
   "workspaceEnv.cliDefaults.codex": "Codex CLI",
   "workspaceEnv.cliDefaults.inheritWith": "继承默认（{{environment}}）",
   "workspaceEnv.cliDefaults.invalidConfig": "CLI 默认环境有未完成配置，请先补齐配置或改为继承默认环境。",
-  "workspaceEnv.launchThisTime": "本次选择环境"
+  "workspaceEnv.launchThisTime": "本次选择环境",
+  "moreLaunchActions": "更多启动方式"
 }

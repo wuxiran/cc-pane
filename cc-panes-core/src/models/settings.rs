@@ -256,6 +256,9 @@ pub struct GeneralSettings {
     /// 工作空间右键菜单中隐藏非常用启动项
     #[serde(default)]
     pub hide_non_favorite_launch_actions: bool,
+    /// 禁用 WSL 用量统计扫描（禁用后启动/定时/手动刷新都不再触碰 \\wsl$ 与 wsl.exe）
+    #[serde(default)]
+    pub disable_wsl_usage_scan: bool,
 }
 
 fn default_cli_tool() -> String {
@@ -840,6 +843,7 @@ impl Default for GeneralSettings {
             // 新装用户默认收起非常用启动项（只见收藏的几条）。字段上的
             // #[serde(default)] 保持 false：老 config.toml 缺该键时行为不变。
             hide_non_favorite_launch_actions: true,
+            disable_wsl_usage_scan: false,
         }
     }
 }
@@ -1135,6 +1139,18 @@ mod tests {
         let settings: AppSettings = toml::from_str("").unwrap();
 
         assert!(settings.cli_launchers.overrides.is_empty());
+    }
+
+    #[test]
+    fn general_disable_wsl_usage_scan_defaults_false_for_legacy_config() {
+        let toml_str = r#"
+            closeToTray = true
+            autoStart = false
+            language = "zh-CN"
+        "#;
+        let settings: GeneralSettings = toml::from_str(toml_str).expect("parse legacy general");
+        assert!(!settings.disable_wsl_usage_scan);
+        assert!(!GeneralSettings::default().disable_wsl_usage_scan);
     }
 
     #[test]

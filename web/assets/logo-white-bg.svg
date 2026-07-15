@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="CC-Panes">
+  <title>CC-Panes</title>
+  <!-- 白底版：白色圆角底，青 [ + 橙 ] 保留，>_ 提示符改深色以便在白底可见。浅色模式图标。 -->
+  <rect width="512" height="512" rx="116" fill="#FFFFFF"/>
+  <path d="M168 120 L116 120 C92 120 76 136 76 160 L76 352 C76 376 92 392 116 392 L168 392"
+        fill="none" stroke="#00E5FF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M344 120 L396 120 C420 120 436 136 436 160 L436 352 C436 376 420 392 396 392 L344 392"
+        fill="none" stroke="#FF6D00" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M210 196 L268 256 L210 316"
+        fill="none" stroke="#17181B" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M286 316 L330 316"
+        fill="none" stroke="#17181B" stroke-width="30" stroke-linecap="round"/>
+</svg>

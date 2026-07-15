@@ -1,4 +1,7 @@
-# 阶段 9：远程访问（待设计）
+# 阶段 9：远程访问（已实现，本文为早期设计记录）
+
+> **本文已过时**：远程访问已通过 `cc-panes-web`（Axum Web 服务，复用桌面 React 前端 + REST/WS）与 `cc-panes-mobile`（Flutter Android 客户端）落地，多端通过持久终端 daemon 共享同一批 PTY 会话（见 [`17-persistent-terminal-daemon.md`](17-persistent-terminal-daemon.md)）。
+> 用户使用手册见 [`guide/16-web-and-mobile.md`](guide/16-web-and-mobile.md)。以下内容保留为当年的方案调研记录。
 
 ## 目标
 
@@ -6,7 +9,7 @@
 
 ## 状态
 
-📋 待设计
+✅ 已实现（cc-panes-web + cc-panes-mobile，实际实现即下文「方案 A：Web 服务」方向）
 
 ## 背景说明
 

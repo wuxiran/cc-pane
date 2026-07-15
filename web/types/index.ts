@@ -135,6 +135,7 @@ export type {
 } from "./spec";
 export type { McpServerConfig } from "./mcp";
 export type {
+  BundledSkill,
   DiscoveredExternalSkill,
   ExternalSkillSource,
   InstalledUserSkill,

@@ -5,6 +5,7 @@ mod ccchan_service;
 mod commands;
 pub mod constants;
 pub mod emitter;
+pub mod import;
 pub mod models;
 pub mod pty;
 pub mod repository;
@@ -71,10 +72,12 @@ use commands::{
     delete_workspace_snapshot,
     detect_claude_session,
     detect_resume_session,
+    detect_system_provider,
     detect_tailscale_status,
     discover_wsl_distros,
     enter_fullscreen,
     enter_mini_mode,
+    execute_import,
     execute_project_migration,
     execute_workspace_migration,
     exit_fullscreen,
@@ -174,6 +177,8 @@ use commands::{
     kill_terminal,
     kill_terminal_idempotent,
     list_all_claude_sessions,
+    // Provider 命令
+    list_bundled_skills,
     list_claude_sessions,
     list_cli_tools,
     list_codex_sessions,
@@ -193,7 +198,6 @@ use commands::{
     // Plan 命令
     list_plans,
     list_projects,
-    // Provider 命令
     list_providers,
     list_skill_market_entries,
     list_skills,
@@ -215,6 +219,7 @@ use commands::{
     open_layout_switcher_window,
     open_path_in_explorer,
     open_web_access,
+    parse_import_url,
     prepare_session_context,
     preview_launch_profile_resolution,
     preview_project_migration,
@@ -299,6 +304,7 @@ use commands::{
     store_memory,
     submit_to_session,
     sync_spec_tasks,
+    take_pending_import,
     test_cli_launcher,
     test_proxy,
     toggle_always_on_top,
@@ -1080,6 +1086,46 @@ fn wry_log_allowed() -> bool {
     WINDOW_COUNT.fetch_add(1, Ordering::Relaxed) < MAX_PER_WINDOW
 }
 
+/// 解析 `ccpanes://` 一键导入链接。返回是否命中导入链接。
+///
+/// `defer`：
+/// - `true`（**冷启动**，setup 扫首进程 argv，此时前端未挂载）→ **只暂存 pending**，前端挂载后
+///   调 `take_pending_import` 补领；不 emit（没人听）。
+/// - `false`（**热态**，single-instance argv / macOS on_open_url，前端已在听）→ **只 emit**，
+///   不写 pending —— 否则热态请求也留在 pending，WebView/组件重载后会重放已处理过的旧请求。
+fn handle_import_url(app: &tauri::AppHandle, url: &str, defer: bool) -> bool {
+    use tauri::{Emitter, Manager};
+    if !crate::import::is_import_url(url) {
+        return false;
+    }
+    // 唤醒主窗口（固定 "main"，不误聚焦 ccchan/popup）。
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    match crate::import::parse_import_url(url) {
+        Ok(req) => {
+            // 脱敏：只记资源类型，绝不打印含 apiKey/env 的完整 URL。
+            let kind = crate::import::request_kind(&req);
+            log::info!("[import] received (defer={defer}): resource={kind}");
+            if defer {
+                app.state::<crate::import::PendingImportStore>().set(req);
+            } else {
+                let _ = app.emit_to("main", "ccpanes-import", &req);
+            }
+        }
+        Err(e) => {
+            // 热态直接弹错误 toast；冷启动无监听器，只记日志（罕见的畸形冷启动链接丢提示可接受）。
+            if !defer {
+                let _ = app.emit_to("main", "ccpanes-import-error", e.clone());
+            }
+            log::warn!("[import] parse failed (defer={defer}): {e}");
+        }
+    }
+    true
+}
+
 // ============ 应用入口 ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1192,9 +1238,10 @@ pub fn run() {
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let plan_archive_service = Arc::new(PlanArchiveService::new(plan_repo));
-    let usage_stats_service = Arc::new(UsageStatsService::new(
+    let usage_stats_service = Arc::new(UsageStatsService::new_with_settings(
         usage_stats_repo,
         launch_history_service.clone(),
+        settings_service.clone(),
     ));
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let project_service = Arc::new(ProjectService::new(project_repo));
@@ -1213,6 +1260,7 @@ pub fn run() {
         reg.register(Arc::new(cc_cli_adapters::GlmAdapter::new()));
         reg.register(Arc::new(cc_cli_adapters::OpenCodeAdapter::new()));
         reg.register(Arc::new(cc_cli_adapters::CursorAdapter::new()));
+        reg.register(Arc::new(cc_cli_adapters::GrokAdapter::new()));
         Arc::new(reg)
     };
     let external_skill_registry = Arc::new(ExternalSkillRegistry::new(cli_registry.clone()));
@@ -1300,16 +1348,26 @@ pub fn run() {
         // 单实例锁必须最先注册：残留旧实例与新实例共享 daemon/data.db 时会互相
         // 误杀会话（孤儿对账）、互相覆盖持久化状态。锁按 app identifier 派生，
         // dev（com.ccpanes.dev）与 release（com.ccpanes.app）仍可并存。
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            log::info!(
-                "[single-instance] second launch blocked, focusing existing window; argv={argv:?} cwd={cwd}"
-            );
-            if let Some(window) = app.webview_windows().values().next() {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            use tauri::Manager;
+            // 脱敏：argv 可能含 ccpanes:// 导入链接（内嵌 apiKey），不整体打印。
+            log::info!("[single-instance] second launch blocked ({} args)", argv.len());
+            // deep-link 在 Windows/Linux 通过第二次启动的 argv 传入 ccpanes:// URL。
+            let mut handled = false;
+            for arg in &argv {
+                if handle_import_url(app, arg, false) {
+                    handled = true;
+                }
+            }
+            if !handled {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
@@ -1378,7 +1436,34 @@ pub fn run() {
         .manage(layout_switcher_snapshot_store)
         .manage(orchestrator_service.clone())
         .manage(cli_registry)
+        .manage(crate::import::PendingImportStore::default())
         .setup(move |app| {
+            // ---- deep-link：运行时注册 scheme + 监听 macOS/Linux 的 on_open_url ----
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                // dev 构建注册 ccpanes-dev（release 由安装包声明的 ccpanes 生效）。
+                #[cfg(debug_assertions)]
+                if let Err(e) = app.deep_link().register("ccpanes-dev") {
+                    log::warn!("[import] register ccpanes-dev scheme failed: {e}");
+                }
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        handle_import_url(&handle, url.as_str(), false);
+                    }
+                });
+            }
+
+            // 冷启动（应用原本关着）：Windows/Linux 下点击链接会以首进程 argv 传入 URL，
+            // 此时前端未挂载，事件会丢——这里在启动时扫一遍 argv 存进 PendingImportStore，
+            // 前端挂载后调 take_pending_import 补领。
+            {
+                let handle = app.handle().clone();
+                for arg in std::env::args().skip(1) {
+                    handle_import_url(&handle, &arg, true);
+                }
+            }
+
             // Replay 早期启动打点到日志文件（此时 tauri-plugin-log 已初始化）
             info!("[boot] === CC-Panes starting ===");
             for (ms, msg) in &boot_marks {
@@ -2133,6 +2218,7 @@ pub fn run() {
             update_provider,
             remove_provider,
             set_default_provider,
+            detect_system_provider,
             read_config_dir_info,
             open_path_in_explorer,
             // Todo 命令
@@ -2177,6 +2263,10 @@ pub fn run() {
             list_user_skills,
             install_market_skill,
             remove_user_skill,
+            list_bundled_skills,
+            parse_import_url,
+            execute_import,
+            take_pending_import,
             // Plan 命令
             list_plans,
             get_plan_content,
@@ -2289,6 +2379,8 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |_app_handle, event| {
+            // 注：macOS 的 RunEvent::Opened 已由 tauri-plugin-deep-link 转成 on_open_url（见 setup），
+            // 这里不再手动处理，避免重复分发同一个导入链接。
             if let tauri::RunEvent::Exit = event {
                 info!("[cleanup] Application exiting, cleaning up resources...");
 

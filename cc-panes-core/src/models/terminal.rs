@@ -17,6 +17,7 @@ pub enum CliTool {
     Glm,
     Opencode,
     Cursor,
+    Grok,
 }
 
 impl CliTool {
@@ -31,6 +32,7 @@ impl CliTool {
             CliTool::Glm => "glm",
             CliTool::Opencode => "opencode",
             CliTool::Cursor => "cursor",
+            CliTool::Grok => "grok",
         }
     }
 }

@@ -42,6 +42,7 @@ CC-Panes 是一个面向 AI Coding 重度用户的多实例分屏工作台，以
 13. ✅ [Plan → Codex 交接 & Plan 同行评审](13-plan-to-codex.md)
 14. ✅ [Resume：恢复历史会话](14-resume.md)
 15. ✅ [WSL / SSH 远程运行](15-wsl-ssh.md)
+16. ✅ [Web 端与手机端：离开电脑也能看着 AI 干活](16-web-and-mobile.md)
 
 ## 四、参考
 

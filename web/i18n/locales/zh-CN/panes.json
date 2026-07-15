@@ -101,5 +101,6 @@
   "sessionBindAction": "绑定",
   "sessionBindUnbind": "解除绑定",
   "sessionBindBoundTooltip": "已绑定会话 {{id}}…（来源: {{source}}），重启可恢复。点击查看/换绑",
-  "sessionBindUnboundTooltip": "未绑定会话 id，重启将开新对话。点击手动绑定"
+  "sessionBindUnboundTooltip": "未绑定会话 id，重启将开新对话。点击手动绑定",
+  "starredMirrorNoSession": "会话未启动，回原布局启动后这里会出现镜像"
 }

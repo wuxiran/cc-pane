@@ -1,5 +1,5 @@
 import {
-  Command, FolderTree, History, ListTodo, Settings, Files, Server, Zap, Workflow,
+  Command, FolderTree, History, ListTodo, Settings, Files, Server, Boxes, Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -70,7 +70,7 @@ export default function ActivityBar() {
   const orchestrationOverlayOpen = useActivityBarStore((s) => s.orchestrationOverlayOpen);
   const toggleTodoMode = useActivityBarStore((s) => s.toggleTodoMode);
   const toggleHomeMode = useActivityBarStore((s) => s.toggleHomeMode);
-  const toggleProvidersMode = useActivityBarStore((s) => s.toggleProvidersMode);
+  const toggleResourcesMode = useActivityBarStore((s) => s.toggleResourcesMode);
   const openSettings = useDialogStore((s) => s.openSettings);
   const orchestrationFailed = useOrchestratorStore((s) =>
     s.bindings.some((binding) => binding.status === "failed")
@@ -143,12 +143,12 @@ export default function ActivityBar() {
           />
         ))}
 
-        {/* Providers (切换全屏 providers 视图模式) */}
+        {/* 资源中心（全屏 Provider / Skills / MCP 三合一大页面） */}
         <ActivityBarIcon
-          icon={<Zap className="w-[22px] h-[22px]" strokeWidth={1.5} />}
-          label={t("providers", { defaultValue: "Providers" })}
-          active={appViewMode === "providers"}
-          onClick={toggleProvidersMode}
+          icon={<Boxes className="w-[22px] h-[22px]" strokeWidth={1.5} />}
+          label={t("resourceHub", { defaultValue: "资源中心" })}
+          active={appViewMode === "resources"}
+          onClick={toggleResourcesMode}
         />
 
         {/* Todo (切换全屏 todo 视图模式) */}

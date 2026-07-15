@@ -109,9 +109,10 @@ describe("HomeUsageStats", () => {
     });
     expect(screen.getByText("输入字符")).toBeVisible();
     expect(screen.getByText("500")).toBeVisible();
-    // Claude tokens: 60+20+30+10 = 120；Codex: 50+10+25+0 = 85
+    // Claude tokens: 60+20+30+10 = 120（input 不含 cache_*，四项相加）
+    // Codex tokens: 50+10 = 60（input 已含 cache_read 子集，不再叠加）
     expect(screen.getByText("120")).toBeVisible();
-    expect(screen.getByText("85")).toBeVisible();
+    expect(screen.getByText("60")).toBeVisible();
     expect(screen.getByText("30.0%")).toBeVisible();
     expect(screen.getByText("50.0%")).toBeVisible();
     // 30 天范围显示趋势图标题

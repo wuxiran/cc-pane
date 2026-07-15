@@ -46,6 +46,7 @@ function createMockTerminal(): Terminal {
     refresh: vi.fn(),
     clearTextureAtlas: vi.fn(),
     loadAddon: vi.fn(),
+    onRender: vi.fn(() => ({ dispose: vi.fn() })),
   } as unknown as Terminal;
 }
 

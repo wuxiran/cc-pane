@@ -11,7 +11,8 @@ export type ProviderType =
   | "kimi"
   | "glm"
   | "opencode"
-  | "cursor";
+  | "cursor"
+  | "grok";
 
 export interface Provider {
   id: string;
@@ -26,6 +27,29 @@ export interface Provider {
   isDefault: boolean;
 }
 
+/**
+ * 合成「系统环境变量」provider 的固定 id（镜像后端 `SYSTEM_PROVIDER_ID`）。
+ * 选中它表示不注入任何 provider 环境变量，跟随宿主/cc-switch 当前配置。**不落盘**。
+ */
+export const SYSTEM_PROVIDER_ID = "__system__";
+
+export function isSystemProvider(id: string | null | undefined): boolean {
+  return id === SYSTEM_PROVIDER_ID;
+}
+
+/**
+ * 构造用于列表展示的合成「系统环境变量」条目。
+ * `providerType` 仅为满足类型占位（渲染/启动均按 id 特判，不会读取它）。
+ */
+export function createSystemProvider(name: string, isDefault = false): Provider {
+  return {
+    id: SYSTEM_PROVIDER_ID,
+    name,
+    providerType: "config_profile",
+    isDefault,
+  };
+}
+
 export type ProviderTypeLabelKey =
   | "providerTypeAnthropicLabel"
   | "providerTypeBedrockLabel"
@@ -37,7 +61,8 @@ export type ProviderTypeLabelKey =
   | "providerTypeKimiLabel"
   | "providerTypeGlmLabel"
   | "providerTypeOpenCodeLabel"
-  | "providerTypeCursorLabel";
+  | "providerTypeCursorLabel"
+  | "providerTypeGrokLabel";
 
 export type ProviderTypeDescKey =
   | "providerTypeAnthropicDesc"
@@ -50,7 +75,8 @@ export type ProviderTypeDescKey =
   | "providerTypeKimiDesc"
   | "providerTypeGlmDesc"
   | "providerTypeOpenCodeDesc"
-  | "providerTypeCursorDesc";
+  | "providerTypeCursorDesc"
+  | "providerTypeGrokDesc";
 
 export const PROVIDER_TYPE_META: Record<
   ProviderType,
@@ -111,6 +137,11 @@ export const PROVIDER_TYPE_META: Record<
     descriptionKey: "providerTypeCursorDesc",
     fields: ["apiKey"],
   },
+  grok: {
+    labelKey: "providerTypeGrokLabel",
+    descriptionKey: "providerTypeGrokDesc",
+    fields: ["apiKey", "baseUrl"],
+  },
 };
 
 /** Provider 类型与 CLI 工具的兼容映射（单值版本，兼容旧调用） */
@@ -122,6 +153,7 @@ export function getCompatibleCliTool(providerType: ProviderType): KnownCliTool {
     case "glm": return "glm";
     case "opencode": return "opencode";
     case "cursor": return "cursor";
+    case "grok": return "grok";
     default: return "claude";
   }
 }
@@ -148,6 +180,8 @@ export function getCompatibleCliTools(providerType: ProviderType): KnownCliTool[
       return ["opencode"];
     case "cursor":
       return ["cursor"];
+    case "grok":
+      return ["grok"];
   }
 }
 
@@ -165,6 +199,7 @@ export function getProviderTypesForTab(tab: KnownCliTool): ProviderType[] {
     "glm",
     "opencode",
     "cursor",
+    "grok",
   ];
   return ALL.filter((pt) => getCompatibleCliTools(pt).includes(tab));
 }
@@ -178,6 +213,7 @@ export const CLI_TOOL_TABS = [
   { id: "glm" as const, labelKey: "tabGlm", accentColor: "#2563EB" },
   { id: "opencode" as const, labelKey: "tabOpenCode", accentColor: "#8B5CF6" },
   { id: "cursor" as const, labelKey: "tabCursor", accentColor: "#111827" },
+  { id: "grok" as const, labelKey: "tabGrok", accentColor: "#71767B" },
 ] as const;
 
 export type PresetCategory = "official" | "cloud" | "proxy_intl" | "openai_compat" | "domestic";

@@ -104,6 +104,51 @@ impl SharedMcpService {
         self.save_config()
     }
 
+    /// 原子导入一个 server（供一键导入）：在**同一把锁**内校验重名 + 在端口范围内找空位 +
+    /// 插入，避免并发导入选到同一端口或都通过重名检查后覆盖。返回分配到的端口。
+    /// `bridge_mode` 默认 McpProxy、`shared=false`（与既有导入语义一致）。
+    pub fn add_imported_server(
+        &self,
+        name: &str,
+        command: String,
+        args: Vec<String>,
+        env: std::collections::HashMap<String, String>,
+    ) -> Result<u16, String> {
+        let port = {
+            let mut config = self
+                .config
+                .lock()
+                .map_err(|e| format!("Lock error: {}", e))?;
+            if config.servers.contains_key(name) {
+                return Err(format!("已存在同名共享 MCP：{name}（如需更新请在资源中心操作）"));
+            }
+            let used: std::collections::HashSet<u16> =
+                config.servers.values().map(|s| s.port).collect();
+            let port = (config.port_range_start..=config.port_range_end)
+                .find(|p| !used.contains(p))
+                .ok_or_else(|| {
+                    format!(
+                        "共享 MCP 端口已耗尽（{}-{}）",
+                        config.port_range_start, config.port_range_end
+                    )
+                })?;
+            config.servers.insert(
+                name.to_string(),
+                SharedMcpServerConfig {
+                    command,
+                    args,
+                    env,
+                    shared: false,
+                    port,
+                    bridge_mode: BridgeMode::McpProxy,
+                },
+            );
+            port
+        };
+        self.save_config()?;
+        Ok(port)
+    }
+
     /// 删除一个 server 配置（先停止运行中的进程）
     pub fn remove_server(&self, name: &str) -> Result<(), String> {
         self.stop_server(name);

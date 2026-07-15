@@ -117,3 +117,21 @@ pub fn remove_user_skill(
     debug!(skill_id = %skill_id, "cmd::remove_user_skill");
     service.remove_user_skill(&skill_id)
 }
+
+/// 列出 CC-Panes 内置注入的 skill（只读，供资源中心展示）。
+#[tauri::command]
+pub fn list_bundled_skills(
+    app: tauri::AppHandle,
+) -> AppResult<Vec<cc_panes_core::services::BundledSkillInfo>> {
+    use tauri::Manager;
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to resolve resource dir: {e}"))?;
+    let templates_dir = resource_dir
+        .join("resources")
+        .join("claude-bundle")
+        .join("default-skills");
+    let svc = cc_panes_core::services::DefaultSkillService::new(templates_dir);
+    Ok(svc.list_bundled())
+}

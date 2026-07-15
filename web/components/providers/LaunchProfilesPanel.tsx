@@ -62,6 +62,7 @@ const TOOL_LABELS: Record<KnownCliTool, string> = {
   glm: "GLM",
   opencode: "OpenCode",
   cursor: "Cursor",
+  grok: "Grok",
 };
 
 const RUNTIME_LABELS: Record<Exclude<LaunchProfileRuntime, null>, string> = {

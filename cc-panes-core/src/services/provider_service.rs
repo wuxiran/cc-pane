@@ -1,4 +1,4 @@
-use crate::models::provider::{Provider, ProviderConfig, ProviderType};
+use crate::models::provider::{Provider, ProviderConfig, ProviderType, SYSTEM_PROVIDER_ID};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -31,12 +31,11 @@ impl ProviderService {
     }
 
     fn save_to_file(&self, config: &ProviderConfig) -> Result<()> {
-        if let Some(parent) = self.config_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let content = serde_json::to_string_pretty(config)
             .with_context(|| "Failed to serialize providers config")?;
-        std::fs::write(&self.config_path, content)
+        // providers.json 存有全部供应商配置（含明文 API key）。原子写（temp+fsync+rename，
+        // 内部会建父目录）杜绝崩溃/断电写到一半导致截断丢失。
+        crate::utils::atomic_file::write_atomic(&self.config_path, content)
             .with_context(|| "Failed to write providers config")?;
         Ok(())
     }
@@ -72,8 +71,37 @@ impl ProviderService {
             .cloned()
     }
 
+    /// 检测「系统环境变量」provider 是否应可用/默认。
+    ///
+    /// 判据（满足其一即为真）：
+    /// 1. 检测到 cc-switch：`~/.cc-switch/cc-switch.db` 存在；
+    /// 2. 宿主环境已设置 Anthropic 凭证：`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` /
+    ///    `ANTHROPIC_BASE_URL` 之一非空。
+    ///
+    /// 为真时前端会把「系统环境变量」作为默认选项——即不注入、跟随宿主/cc-switch。
+    pub fn system_provider_active() -> bool {
+        let ccswitch_db = dirs::home_dir().map(|h| h.join(".cc-switch").join("cc-switch.db"));
+        if ccswitch_db.map(|p| p.is_file()).unwrap_or(false) {
+            return true;
+        }
+
+        [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+        ]
+        .iter()
+        .any(|key| std::env::var(key).map(|v| !v.is_empty()).unwrap_or(false))
+    }
+
     /// 添加 Provider
     pub fn add_provider(&self, mut provider: Provider) -> Result<()> {
+        // `__system__` 是合成「系统环境变量」条目的保留 id，禁止落盘，
+        // 否则会与列表顶部的虚拟条目撞 id、且凭证永远被 get_env_vars 短路忽略。
+        if provider.id == SYSTEM_PROVIDER_ID {
+            anyhow::bail!("Provider id '{}' is reserved", SYSTEM_PROVIDER_ID);
+        }
+
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
         // 如果是默认 Provider，取消其他的默认状态
@@ -93,8 +121,41 @@ impl ProviderService {
         Ok(())
     }
 
+    /// 原子去重添加（供一键导入）：在**同一把锁**内检查 name+type+base_url 是否已存在，
+    /// 存在则报错、否则插入。避免并发导入「各自 list→都通过→都 insert」堆重复。
+    pub fn add_provider_unique(&self, mut provider: Provider) -> Result<()> {
+        if provider.id == SYSTEM_PROVIDER_ID {
+            anyhow::bail!("Provider id '{}' is reserved", SYSTEM_PROVIDER_ID);
+        }
+        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let dup = config.providers.iter().any(|e| {
+            e.name == provider.name
+                && e.provider_type == provider.provider_type
+                && e.base_url == provider.base_url
+        });
+        if dup {
+            anyhow::bail!("已存在同名同端点的 provider：{}", provider.name);
+        }
+        if provider.is_default {
+            for p in &mut config.providers {
+                p.is_default = false;
+            }
+        }
+        if config.providers.is_empty() {
+            provider.is_default = true;
+        }
+        config.providers.push(provider);
+        self.save_to_file(&config)?;
+        Ok(())
+    }
+
     /// 更新 Provider
     pub fn update_provider(&self, provider: Provider) -> Result<()> {
+        // 同 add_provider：保留 id 不可写入 providers.json。
+        if provider.id == SYSTEM_PROVIDER_ID {
+            anyhow::bail!("Provider id '{}' is reserved", SYSTEM_PROVIDER_ID);
+        }
+
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
         let pos = config
@@ -155,6 +216,12 @@ impl ProviderService {
     /// - provider_id 为 None 时不注入任何 env var，由调用方决定默认回退来源
     /// - 指定的 provider_id 找不到时返回空
     pub fn get_env_vars(&self, provider_id: Option<&str>) -> HashMap<String, String> {
+        // 合成「系统环境变量」条目：显式不注入，跟随系统当前配置（如 cc-switch）。
+        // 独立短路，避免下面走「provider not found」告警路径。
+        if provider_id == Some(SYSTEM_PROVIDER_ID) {
+            return HashMap::new();
+        }
+
         let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
         let provider = if let Some(id) = provider_id {
@@ -446,6 +513,46 @@ mod tests {
         let service = new_service(&dir);
         service.add_provider(make_provider("a", true)).unwrap();
         assert!(service.get_env_vars(Some("ghost")).is_empty());
+    }
+
+    #[test]
+    fn get_env_vars_system_sentinel_injects_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        // 即便存了个默认 provider，选「系统」也不注入。
+        service.add_provider(make_provider("a", true)).unwrap();
+        assert!(service
+            .get_env_vars(Some(crate::models::provider::SYSTEM_PROVIDER_ID))
+            .is_empty());
+    }
+
+    #[test]
+    fn add_and_update_reject_reserved_system_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut sys = make_provider(crate::models::provider::SYSTEM_PROVIDER_ID, false);
+        sys.name = "spoof".to_string();
+        assert!(service.add_provider(sys.clone()).is_err());
+        assert!(service.update_provider(sys).is_err());
+        // 保留 id 不得进入持久化列表
+        assert!(service
+            .get_provider(crate::models::provider::SYSTEM_PROVIDER_ID)
+            .is_none());
+    }
+
+    #[test]
+    fn system_provider_active_true_when_anthropic_env_set() {
+        // 该用例改写进程级 env，用一个平时不存在的专用 key，测完恢复原值，
+        // 避免污染其它用例或本机真实的 ANTHROPIC_API_KEY。
+        const KEY: &str = "ANTHROPIC_AUTH_TOKEN";
+        let saved = std::env::var(KEY).ok();
+        std::env::set_var(KEY, "sk-test");
+        let active = ProviderService::system_provider_active();
+        match saved {
+            Some(v) => std::env::set_var(KEY, v),
+            None => std::env::remove_var(KEY),
+        }
+        assert!(active);
     }
 
     #[test]

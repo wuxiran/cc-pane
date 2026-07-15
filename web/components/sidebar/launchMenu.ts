@@ -38,6 +38,7 @@ const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   { id: "glm", labelKey: "cliToolGlm" },
   { id: "opencode", labelKey: "cliToolOpenCode" },
   { id: "cursor", labelKey: "cliToolCursor" },
+  { id: "grok", labelKey: "cliToolGrok" },
 ];
 
 const LEGACY_DEFAULT_FAVORITES = ["terminal-default", "claude-local", "codex-local"];
@@ -163,6 +164,30 @@ export function filterSidebarFavoriteLaunchActions(
   return normalizeSidebarFavoriteLaunchActionIds(favoriteIds)
     .map((favoriteId) => actionMap.get(favoriteId as SidebarLaunchActionId))
     .filter((action): action is SidebarLaunchAction => action !== undefined);
+}
+
+export interface GroupedSidebarCliLaunchItems {
+  /** 常用项（favorites 命中），右键菜单顶层平铺 */
+  primary: SidebarCliLaunchItem[];
+  /** 其余项，折叠进"更多启动方式"子菜单 */
+  more: SidebarCliLaunchItem[];
+}
+
+/**
+ * 按常用启动项（launchFavorites，与全局"显示在常用"体系同源）把 CLI 启动项
+ * 分成"顶层平铺"与"更多"两组，避免右键菜单一次平铺 20+ 项（issue #36）。
+ */
+export function groupSidebarCliLaunchItems(
+  items: SidebarCliLaunchItem[],
+  favoriteIds: string[],
+): GroupedSidebarCliLaunchItems {
+  const favorites = new Set(normalizeSidebarFavoriteLaunchActionIds(favoriteIds));
+  const primary: SidebarCliLaunchItem[] = [];
+  const more: SidebarCliLaunchItem[] = [];
+  for (const item of items) {
+    (favorites.has(item.key) ? primary : more).push(item);
+  }
+  return { primary, more };
 }
 
 export function buildSidebarCliLaunchItems(

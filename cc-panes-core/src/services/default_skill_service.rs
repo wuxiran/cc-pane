@@ -30,6 +30,13 @@ struct SkillEntry {
     file: String,
 }
 
+/// 内置 skill 的只读展示信息（供资源中心 / 命令返回）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BundledSkillInfo {
+    pub name: String,
+    pub description: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RenderedCommand {
     file_name: String,
@@ -61,6 +68,53 @@ impl DefaultSkillService {
     /// `templates_dir` 指向包含 `manifest.json` 和 `.md` 模板的目录
     pub fn new(templates_dir: PathBuf) -> Self {
         Self { templates_dir }
+    }
+
+    /// 列出内置 skill（供「资源中心」只读展示）。读取 manifest 的 name，
+    /// 并尽力从各模板 YAML frontmatter 的 `description:` 解析一句简介（缺失则为 None）。
+    pub fn list_bundled(&self) -> Vec<BundledSkillInfo> {
+        let manifest_path = self.templates_dir.join("manifest.json");
+        let manifest = match Self::load_manifest(&manifest_path) {
+            Some(m) => m,
+            None => return Vec::new(),
+        };
+        manifest
+            .skills
+            .iter()
+            .map(|s| {
+                let description = std::fs::read_to_string(self.templates_dir.join(&s.file))
+                    .ok()
+                    // 先做 {{app_name}} 等变量替换，否则描述里会残留占位符。
+                    .map(|c| Self::replace_variables(&c, &manifest.variables))
+                    .and_then(|c| Self::parse_frontmatter_description(&c));
+                BundledSkillInfo {
+                    name: s.name.clone(),
+                    description,
+                }
+            })
+            .collect()
+    }
+
+    /// 从 markdown 顶部 `--- ... ---` frontmatter 里取 `description:` 值（CRLF 安全）。
+    fn parse_frontmatter_description(content: &str) -> Option<String> {
+        let trimmed = content.trim_start_matches('\u{feff}');
+        let mut lines = trimmed.lines();
+        if lines.next().map(|l| l.trim()) != Some("---") {
+            return None;
+        }
+        for line in lines {
+            let t = line.trim();
+            if t == "---" {
+                break;
+            }
+            if let Some(rest) = t.strip_prefix("description:") {
+                let v = rest.trim().trim_matches('"').trim_matches('\'').trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+        None
     }
 
     /// 将所有默认 Skill 发布到支持的 CLI 用户目录

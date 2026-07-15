@@ -253,4 +253,20 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     accentColor: "#111827",
     order: 70,
   },
+
+  // ========== Grok Tab ==========
+
+  // --- official ---
+  {
+    id: "xai_official",
+    nameKey: "presetXaiName",
+    descKey: "presetXaiDesc",
+    category: "official",
+    providerType: "grok",
+    defaults: {},
+    userFields: ["apiKey"],
+    website: "https://console.x.ai",
+    accentColor: "#71767B",
+    order: 80,
+  },
 ];

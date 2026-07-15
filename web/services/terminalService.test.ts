@@ -15,6 +15,101 @@ describe("terminalService", () => {
     _resetListenersForTest();
   });
 
+  describe("多订阅分发（星标镜像：同一会话多视图）", () => {
+    type OutputHandler = (event: { payload: { sessionId: string; data: string } }) => void;
+
+    async function getOutputHandler(): Promise<OutputHandler> {
+      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+      const listenMock = vi.mocked(getCurrentWebview().listen);
+      const entry = listenMock.mock.calls.find(([event]) => event === "terminal-output");
+      expect(entry).toBeDefined();
+      return entry![1] as unknown as OutputHandler;
+    }
+
+    it("delivers output to every subscriber of the same session", async () => {
+      mockTauriInvoke({});
+      const a = vi.fn();
+      const b = vi.fn();
+      await terminalService.registerOutput("s-multi", a);
+      await terminalService.registerOutput("s-multi", b);
+
+      const handler = await getOutputHandler();
+      handler({ payload: { sessionId: "s-multi", data: "hello" } });
+
+      expect(a).toHaveBeenCalledWith("hello");
+      expect(b).toHaveBeenCalledWith("hello");
+    });
+
+    it("unsubscribe removes only the caller's callback", async () => {
+      mockTauriInvoke({});
+      const a = vi.fn();
+      const b = vi.fn();
+      const unsubA = await terminalService.registerOutput("s-unsub", a);
+      await terminalService.registerOutput("s-unsub", b);
+
+      unsubA();
+      const handler = await getOutputHandler();
+      handler({ payload: { sessionId: "s-unsub", data: "after" } });
+
+      expect(a).not.toHaveBeenCalled();
+      expect(b).toHaveBeenCalledWith("after");
+    });
+
+    it("flushes pending buffers only to the first subscriber", async () => {
+      mockTauriInvoke({});
+      // 无订阅者时先来输出 → 进缓冲
+      const warmup = vi.fn();
+      const unsubWarmup = await terminalService.registerOutput("s-flush-init", warmup);
+      unsubWarmup();
+      const handler = await getOutputHandler();
+      handler({ payload: { sessionId: "s-flush", data: "early" } });
+
+      const first = vi.fn();
+      await terminalService.registerOutput("s-flush", first);
+      expect(first).toHaveBeenCalledWith("early");
+
+      const second = vi.fn();
+      await terminalService.registerOutput("s-flush", second);
+      // 第二订阅者不吃缓冲（缓冲已清），走 replay 快照铺底
+      expect(second).not.toHaveBeenCalled();
+    });
+
+    it("detachOutput clears all subscribers (kill-path semantics)", async () => {
+      mockTauriInvoke({});
+      const a = vi.fn();
+      const b = vi.fn();
+      await terminalService.registerOutput("s-detach", a);
+      await terminalService.registerOutput("s-detach", b);
+
+      terminalService.detachOutput("s-detach");
+      const handler = await getOutputHandler();
+      handler({ payload: { sessionId: "s-detach", data: "gone" } });
+
+      expect(a).not.toHaveBeenCalled();
+      expect(b).not.toHaveBeenCalled();
+    });
+
+    it("exit event reaches every exit subscriber", async () => {
+      mockTauriInvoke({});
+      const a = vi.fn();
+      const b = vi.fn();
+      await terminalService.registerExit("s-exit", a);
+      await terminalService.registerExit("s-exit", b);
+
+      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+      const listenMock = vi.mocked(getCurrentWebview().listen);
+      const entry = listenMock.mock.calls.find(([event]) => event === "terminal-exit");
+      expect(entry).toBeDefined();
+      const handler = entry![1] as unknown as (event: {
+        payload: { sessionId: string; exitCode: number };
+      }) => void;
+      handler({ payload: { sessionId: "s-exit", exitCode: 3 } });
+
+      expect(a).toHaveBeenCalledWith(3);
+      expect(b).toHaveBeenCalledWith(3);
+    });
+  });
+
   describe("session-killed reason 分流", () => {
     type KilledHandler = (event: {
       payload: { sessionId: string; reason?: string };

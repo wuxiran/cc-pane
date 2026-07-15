@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process" | "orchestration";
-export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files" | "providers" | "orchestration";
+export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files" | "providers" | "resources" | "orchestration";
 
 interface ActivityBarState {
   activeView: ActivityView;
@@ -22,6 +22,7 @@ interface ActivityBarState {
   toggleFilesMode: () => void;
   toggleHomeMode: () => void;
   toggleProvidersMode: () => void;
+  toggleResourcesMode: () => void;
 }
 
 export const useActivityBarStore = create<ActivityBarState>()(
@@ -130,6 +131,12 @@ export const useActivityBarStore = create<ActivityBarState>()(
       toggleProvidersMode: () =>
         set((s) => ({
           appViewMode: s.appViewMode === "providers" ? "panes" : "providers",
+          orchestrationOverlayOpen: false,
+        })),
+
+      toggleResourcesMode: () =>
+        set((s) => ({
+          appViewMode: s.appViewMode === "resources" ? "panes" : "resources",
           orchestrationOverlayOpen: false,
         })),
 

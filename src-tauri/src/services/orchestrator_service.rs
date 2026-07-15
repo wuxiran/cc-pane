@@ -197,6 +197,7 @@ fn parse_launch_cli_tool(cli_tool: Option<&str>) -> std::result::Result<CliTool,
         "claude" => Ok(CliTool::Claude),
         "codex" => Ok(CliTool::Codex),
         "opencode" => Ok(CliTool::Opencode),
+        "grok" => Ok(CliTool::Grok),
         "kimi" | "glm" | "gemini" | "cursor" => Err(format!(
             "CLI tool '{}' is not supported by launch_task yet; use direct terminal launch instead",
             cli_tool.unwrap_or("claude")
@@ -8677,6 +8678,7 @@ mod tests {
             parse_launch_cli_tool(Some("opencode")).unwrap(),
             CliTool::Opencode
         );
+        assert_eq!(parse_launch_cli_tool(Some("grok")).unwrap(), CliTool::Grok);
     }
 
     #[test]

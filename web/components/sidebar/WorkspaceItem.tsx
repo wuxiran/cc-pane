@@ -56,6 +56,7 @@ import {
   buildSidebarLaunchActions,
   filterSidebarFavoriteLaunchActions,
   getDefaultSidebarFavoriteLaunchActionIds,
+  groupSidebarCliLaunchItems,
   normalizeSidebarFavoriteLaunchActionIds,
   type SidebarCliLaunchItem,
 } from "./launchMenu";
@@ -147,6 +148,7 @@ export default function WorkspaceItem({
     environment: "ssh",
   }).issue;
   const cliLaunchItems = buildSidebarCliLaunchItems(t, canLaunchWsl, canLaunchSsh);
+  const nonFavoriteCliLaunchItems = groupSidebarCliLaunchItems(cliLaunchItems, favoriteLaunchIds).more;
   const favoriteLaunchActions = filterSidebarFavoriteLaunchActions(
     buildSidebarLaunchActions(t, canLaunchWsl, canLaunchSsh),
     favoriteLaunchIds,
@@ -529,7 +531,18 @@ export default function WorkspaceItem({
                 </ContextMenuSubContent>
               </ContextMenuSub>
 
-              {cliLaunchItems.map((item) => renderCliLaunchMenuItem(item, "launch"))}
+              {/* issue #36：非常用 CLI 项折叠进"更多启动方式"，顶层不再平铺 20+ 项；
+                  常用项已在上方"常用"区展示，这里只放补集避免重复 */}
+              {nonFavoriteCliLaunchItems.length > 0 && (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <Terminal /> {t("moreLaunchActions", { defaultValue: "更多启动方式" })}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-60">
+                    {nonFavoriteCliLaunchItems.map((item) => renderCliLaunchMenuItem(item, "launch"))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              )}
 
               <ContextMenuSeparator />
             </>

@@ -1,10 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { Pencil, Trash2, Star, Copy, Play } from "lucide-react";
+import { Pencil, Trash2, Star, Copy, Play, MonitorCog } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import ProviderAvatar from "./ProviderAvatar";
-import { PROVIDER_TYPE_META, type Provider, type ProviderType } from "@/types/provider";
+import { PROVIDER_TYPE_META, isSystemProvider, type Provider, type ProviderType } from "@/types/provider";
 import { PROVIDER_PRESETS } from "@/constants/providerPresets";
 
 function getAccentColor(provider: Provider): string {
@@ -17,6 +17,7 @@ function getAccentColor(provider: Provider): string {
     anthropic: "#E8590C", bedrock: "#FF9900", vertex: "#4285F4",
     proxy: "#6366F1", config_profile: "#6B7280", open_ai: "#10A37F",
     gemini: "#4285F4", kimi: "#F97316", glm: "#2563EB", opencode: "#8B5CF6", cursor: "#111827",
+    grok: "#71767B",
   };
   return TYPE_COLORS[provider.providerType] || "#6B7280";
 }
@@ -46,6 +47,58 @@ interface ProviderCardProps {
 
 export default function ProviderCard({ provider, onEdit, onDelete, onSetDefault, onLaunch, onDuplicate }: ProviderCardProps) {
   const { t } = useTranslation("settings");
+
+  // 合成「系统环境变量」条目：无凭证、不可编辑/删除，仅可启动（不注入、跟随系统/cc-switch）。
+  if (isSystemProvider(provider.id)) {
+    const systemAccent = "#0EA5E9";
+    return (
+      <div
+        className="group relative rounded-lg transition-colors hover:bg-[var(--app-hover)]"
+        style={{
+          border: "1px solid var(--app-border)",
+          borderLeft: provider.isDefault ? `4px solid ${systemAccent}` : "1px solid var(--app-border)",
+        }}
+      >
+        <div className="p-4 flex gap-4 items-center">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: `color-mix(in srgb, ${systemAccent} 14%, transparent)`, color: systemAccent }}
+          >
+            <MonitorCog size={24} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sm font-semibold truncate" style={{ color: "var(--app-text-primary)" }}>
+                {provider.name}
+              </span>
+              {provider.isDefault && (
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] px-1.5 py-0 shrink-0"
+                  style={{ background: `color-mix(in srgb, ${systemAccent} 15%, transparent)`, color: systemAccent }}
+                >
+                  {t("defaultBadge")}
+                </Badge>
+              )}
+            </div>
+            <div className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("systemProviderDesc")}
+            </div>
+          </div>
+          <Button
+            size="sm"
+            className="h-8 px-3 text-xs shrink-0 text-white"
+            style={{ background: "#16a34a", borderColor: "#16a34a" }}
+            onClick={() => onLaunch(provider.id)}
+          >
+            <Play size={13} className="mr-1.5" fill="currentColor" />
+            {t("launch")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const accentColor = getAccentColor(provider);
   const meta = PROVIDER_TYPE_META[provider.providerType];
   const website = getPresetWebsite(provider);

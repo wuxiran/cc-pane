@@ -88,7 +88,17 @@ async function renderRoot() {
   } else if (mode === "popup") {
     const { default: PopupTerminalWindow } = await import("@/components/PopupTerminalWindow");
     root.render(<PopupTerminalWindow />);
+  } else if (mode === "webgl-lab") {
+    // WebGL 花屏复现台（诊断工具）：录制回放 + GPU/WebView2 采集 + 图集诊断。
+    const { default: WebglReproLab } = await import("@/components/dev/WebglReproLab");
+    root.render(<WebglReproLab />);
   } else {
+    // 装 WebGL 诊断台的开发者键盘和弦（Ctrl+Alt+Shift+R 录制 / G 打开诊断台）。
+    const [{ installTerminalCastShortcuts }, { toast }] = await Promise.all([
+      import("@/utils/terminalCast"),
+      import("sonner"),
+    ]);
+    installTerminalCastShortcuts((m) => toast(m));
     root.render(<App />);
   }
 }

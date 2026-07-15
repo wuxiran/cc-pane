@@ -16,7 +16,12 @@ import ProviderFormPanel from "./ProviderFormPanel";
 import ProviderToolTabs from "./ProviderToolTabs";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 import type { Provider, ProviderPreset } from "@/types/provider";
-import { getCompatibleCliTools, CLI_TOOL_TABS } from "@/types/provider";
+import {
+  getCompatibleCliTools,
+  CLI_TOOL_TABS,
+  createSystemProvider,
+  isSystemProvider,
+} from "@/types/provider";
 import type { KnownCliTool, Tab } from "@/types/terminal";
 import type { LaunchProfileRuntime, Workspace } from "@/types";
 import { PROVIDER_PRESETS, PRESET_CATEGORIES } from "@/constants/providerPresets";
@@ -53,6 +58,7 @@ function inferLaunchRuntime(tab: Tab | null, workspace?: Workspace | null): Laun
 export default function ProvidersPanel({ compact }: Props = {}) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
+  const systemActive = useProvidersStore((s) => s.systemActive);
   const activePane = usePanesStore((s) => s.activePane());
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace());
   const defaultCliTool = useSettingsStore((s) => s.settings?.general.defaultCliTool);
@@ -98,6 +104,24 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   const filteredProviders = useMemo(() =>
     providers.filter((p) => getCompatibleCliTools(p.providerType).includes(activeTab)),
     [providers, activeTab],
+  );
+
+  // 合成「系统环境变量」条目：置顶、跨所有 CLI Tab 可用（选它 = 不注入、跟随系统/cc-switch）。
+  // 「自动默认」只在 cc-switch/宿主检测**真正代表目标环境**时才标记：
+  // cc-switch 只改 Claude 配置，且检测是本机宿主进程级的——故仅限 Claude Tab + 本机运行环境，
+  // Codex/Gemini 等其它 Tab 或 WSL/SSH 运行环境不自动默认（那里的宿主检测不可代表目标）。
+  const systemIsDefault =
+    systemActive
+    && activeTab === "claude"
+    && (launchDefaults.runtime === "local" || launchDefaults.runtime == null)
+    && !providers.some((p) => p.isDefault);
+  const systemProvider = useMemo(
+    () => createSystemProvider(t("systemProviderName"), systemIsDefault),
+    [t, systemIsDefault],
+  );
+  const displayProviders = useMemo(
+    () => [systemProvider, ...filteredProviders],
+    [systemProvider, filteredProviders],
   );
 
   // Filter presets for current tab
@@ -168,7 +192,8 @@ export default function ProvidersPanel({ compact }: Props = {}) {
       path: options.path,
       workspaceName: options.workspaceName,
       providerId,
-      providerSelection: "explicit",
+      // 「系统环境变量」→ 不注入（none），后端 effective_provider_id 落 None；其余显式注入。
+      providerSelection: isSystemProvider(providerId) ? "none" : "explicit",
       launchProfileId: options.launchProfileId,
       workspacePath: options.workspacePath,
       cliTool: activeTab,
@@ -363,53 +388,41 @@ export default function ProvidersPanel({ compact }: Props = {}) {
         />
       </div>
 
-      {/* Provider list */}
+      {/* Provider list（「系统环境变量」恒置顶，故列表永不为空；无真实 provider 时在下方给引导） */}
       <div className="flex-1 overflow-y-auto">
-        {filteredProviders.length === 0 ? (
-          /* Empty state */
-          <div className="flex flex-col items-center justify-center h-full gap-4">
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center"
-              style={{ background: "var(--app-content)", border: "1px solid var(--app-border)" }}
-            >
-              <Zap size={32} style={{ color: "var(--app-text-tertiary)" }} />
-            </div>
-            <div className="text-center">
-              <div className="text-sm font-medium mb-1" style={{ color: "var(--app-text-primary)" }}>
-                {t("emptyTitle")}
-              </div>
+        <div className={`mx-auto ${compact ? "px-4 py-3" : "max-w-3xl px-6 py-4"}`}>
+          <div className="flex flex-col gap-3">
+            {displayProviders.map((p) => (
+              <ProviderCard
+                key={p.id}
+                provider={p}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onSetDefault={handleSetDefault}
+                onLaunch={handleLaunch}
+                onDuplicate={handleDuplicate}
+              />
+            ))}
+          </div>
+
+          {filteredProviders.length === 0 && (
+            <div className="flex flex-col items-center gap-3 mt-8 text-center">
               <div className="text-xs max-w-[260px]" style={{ color: "var(--app-text-tertiary)" }}>
                 {t("emptyDesc")}
               </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => setView("preset_pick")}>
+                  <Plus size={16} className="mr-1.5" />
+                  {t("fromPreset")}
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleCustomNew}>
+                  <Wrench size={16} className="mr-1.5" />
+                  {t("manualConfig")}
+                </Button>
+              </div>
             </div>
-            <div className="flex gap-2 mt-2">
-              <Button size="sm" onClick={() => setView("preset_pick")}>
-                <Plus size={16} className="mr-1.5" />
-                {t("fromPreset")}
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleCustomNew}>
-                <Wrench size={16} className="mr-1.5" />
-                {t("manualConfig")}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className={`mx-auto ${compact ? "px-4 py-3" : "max-w-3xl px-6 py-4"}`}>
-            <div className="flex flex-col gap-3">
-              {filteredProviders.map((p) => (
-                <ProviderCard
-                  key={p.id}
-                  provider={p}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                  onSetDefault={handleSetDefault}
-                  onLaunch={handleLaunch}
-                  onDuplicate={handleDuplicate}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

@@ -225,6 +225,18 @@ impl UsageStatsRepository {
         .map_err(|e| e.to_string())
     }
 
+    /// 清空全部扫描状态：统计算法变更时强制下一轮全量重扫，
+    /// usage_stats 行随重扫被 REPLACE 重算（幂等设计兜底，无需数据迁移）。
+    pub fn clear_all_scan_states(&self) -> Result<(), String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM usage_scan_state", [])
+            .map_err(|e| {
+                error!(table = "usage_scan_state", err = %e, "SQL clear_all_scan_states failed");
+                e.to_string()
+            })?;
+        Ok(())
+    }
+
     pub fn upsert_scan_state(
         &self,
         jsonl_path: &str,

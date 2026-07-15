@@ -1448,10 +1448,12 @@ impl TerminalService {
         })?;
         let settings_service = self.settings_service.clone();
         let session_id = Uuid::new_v4().to_string();
-        // Claude 新会话由 CC-Panes 发号（claude --session-id），启动前即确定 resume id。
-        // resume 场景 claude 复用原 id，无需发号；其他 CLI 走各自的捕获通道。
-        let issued_session_id = (cli_tool == CliTool::Claude && resume_id.is_none())
-            .then(|| Uuid::new_v4().to_string());
+        // 新会话由 CC-Panes 发号（如 claude/grok 的 --session-id），启动前即确定 resume id。
+        // 是否支持发号由 adapter 能力声明决定；resume 场景复用原 id，无需发号；
+        // 不支持发号的 CLI（如 codex）走各自的捕获通道。
+        let issued_session_id =
+            Self::should_issue_session_id(&self.cli_registry, cli_tool, resume_id)
+                .then(|| Uuid::new_v4().to_string());
 
         // 注入终端环境变量（macOS Release .app 从 Finder 启动时不继承终端环境）
         env_vars
@@ -1734,20 +1736,23 @@ impl TerminalService {
                         effective_yolo_mode,
                     )?
                 }
-                CliTool::Claude | CliTool::Gemini | CliTool::Opencode | CliTool::Cursor => self
-                    .build_wsl_supported_cli_command(
-                        &resolved_wsl,
-                        cli_tool,
-                        &session_id,
-                        &env_vars,
-                        &provider_vars,
-                        resume_id,
-                        issued_session_id.as_deref(),
-                        launch_append_system_prompt.as_deref(),
-                        initial_prompt,
-                        effective_skip_mcp,
-                        effective_yolo_mode,
-                    )?,
+                CliTool::Claude
+                | CliTool::Gemini
+                | CliTool::Opencode
+                | CliTool::Cursor
+                | CliTool::Grok => self.build_wsl_supported_cli_command(
+                    &resolved_wsl,
+                    cli_tool,
+                    &session_id,
+                    &env_vars,
+                    &provider_vars,
+                    resume_id,
+                    issued_session_id.as_deref(),
+                    launch_append_system_prompt.as_deref(),
+                    initial_prompt,
+                    effective_skip_mcp,
+                    effective_yolo_mode,
+                )?,
                 CliTool::Kimi | CliTool::Glm => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
                     cli_tool,
@@ -2959,6 +2964,20 @@ impl TerminalService {
         chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
     }
 
+    /// 新会话是否由 CC-Panes 预发确定性 session id：由 adapter 的
+    /// `supports_issued_session_id` 能力决定（claude/grok = true），resume 场景不发号。
+    fn should_issue_session_id(
+        registry: &CliToolRegistry,
+        cli_tool: CliTool,
+        resume_id: Option<&str>,
+    ) -> bool {
+        resume_id.is_none()
+            && registry
+                .get(cli_tool.as_id())
+                .map(|adapter| adapter.capabilities().supports_issued_session_id)
+                .unwrap_or(false)
+    }
+
     /// 远端 CLI 启动命令（含 YOLO 语义）。
     ///
     /// SSH 下 Codex 的语义需特别注意：
@@ -2979,6 +2998,8 @@ impl TerminalService {
             CliTool::Glm => "crush",
             CliTool::Opencode => "opencode",
             CliTool::Cursor => "cursor-agent",
+            CliTool::Grok if yolo_mode => "grok --always-approve",
+            CliTool::Grok => "grok",
         }
     }
 
@@ -3395,6 +3416,49 @@ mod tests {
             TerminalService::ssh_remote_cli_command(CliTool::Gemini, true),
             "gemini"
         );
+        // Grok：非 YOLO 不加标志；YOLO 加 --always-approve。
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Grok, false),
+            "grok"
+        );
+        assert_eq!(
+            TerminalService::ssh_remote_cli_command(CliTool::Grok, true),
+            "grok --always-approve"
+        );
+    }
+
+    #[test]
+    fn should_issue_session_id_follows_adapter_capability() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+
+        // claude / grok 声明支持发号；codex 走 OSC 捕获通道，不发号。
+        assert!(TerminalService::should_issue_session_id(
+            &registry,
+            CliTool::Claude,
+            None
+        ));
+        assert!(TerminalService::should_issue_session_id(
+            &registry,
+            CliTool::Grok,
+            None
+        ));
+        assert!(!TerminalService::should_issue_session_id(
+            &registry,
+            CliTool::Codex,
+            None
+        ));
+        // resume 场景复用原 id，一律不发号。
+        assert!(!TerminalService::should_issue_session_id(
+            &registry,
+            CliTool::Claude,
+            Some("existing-id")
+        ));
+        // 未注册的 CLI（None）不发号。
+        assert!(!TerminalService::should_issue_session_id(
+            &registry,
+            CliTool::None,
+            None
+        ));
     }
 
     struct FakePtyProcess;

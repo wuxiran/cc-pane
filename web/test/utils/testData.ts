@@ -124,6 +124,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       defaultCliTool: "claude",
       launchFavorites: ["terminal-default", "claude-default", "codex-default"],
       hideNonFavoriteLaunchActions: false,
+      disableWslUsageScan: false,
     },
     notification: {
       enabled: true,

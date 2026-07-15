@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **xAI Grok CLI (Grok Build) is now the 8th supported CLI tool**, aligned with Codex-level integration depth: launch from the sidebar menu (local / WSL / SSH), a Grok provider tab with an xAI preset (`XAI_API_KEY` / forward-looking `XAI_BASE_URL` injection), ccpanes MCP auto-injection into `~/.grok/config.toml` (comment-preserving TOML edit, atomic write with `.bak` backup, ownership detected by URL signature so user-defined entries are never touched), YOLO via `--always-approve`, system-prompt append via `--rules`, and deterministic resume: CC-Panes pre-issues the session UUID via `--session-id`, so launch history and the Resume button work without any output capture. The issued-session-id gate in the terminal service is now capability-driven (`supportsIssuedSessionId`) instead of hardcoded to Claude. Known deferrals (documented in `docs/21-grok-cli-support.md`): WSL Grok launches without MCP injection, MCP isolation degrades to a warning, and native Grok project hooks stay off until the config surface is confirmed.
+
+### Fixed
+
+- **Token usage stats were roughly 2× inflated for both Claude and Codex.** Verified against raw session JSONL (one day's data: Claude shown 1.92B vs. real 0.89B, Codex shown 131M vs. real 67M):
+  - Claude: Claude Code writes one JSONL line per assistant content block — each line repeats the same `message.id` and the same `usage`, and streaming updates rewrite the same-id line. The scanner summed every line (55.8% duplicates in measured data). Usage entries are now deduplicated per file by `(message.id, requestId)` with last-write-wins (progressive updates keep the final counts), matching ccusage semantics.
+  - Codex: the dashboard summed `input + output + cache_read + cache_creation`, but OpenAI's `input_tokens` already includes the cached-read subset — cache reads were counted twice. Codex totals (cards and trend chart) are now `input + output`. Cache-hit-rate formulas were already CLI-aware and are unchanged.
+  - A usage-scan algorithm version gate clears the scan cache on upgrade, so all historical aggregates are automatically recomputed on the next sweep (idempotent REPLACE per file — no manual migration).
+- Starred tabs are now real terminal mirrors: starring a tab shows a live, fully interactive second view of the same PTY in the starred layout (auto-arranged grid, output stays in sync, original tab untouched; the mirror follows session restores and disappears when the tab closes or is unstarred). The terminal event layer now supports multiple subscribers per session — previously a second view would silently steal the first view's output stream.
+- Launching CC-Panes no longer wakes the WSL VM (Vmmem): usage-stats scanning probes for a running VmmemWSL process (zero side effects) before touching `wsl.exe` or `\\wsl$` paths, the startup scan is native-only, and a stale distro cache can no longer re-awaken a stopped distro. A new "Skip WSL usage scanning" toggle in Settings → General disables WSL scanning entirely. (#37)
+- Project/workspace context menus no longer flat-list 20+ launch entries: favorites (default Terminal / Claude Code / Codex CLI, customizable via "显示在常用") stay top-level and everything else folds into a "More launch options" submenu. (#36)
+
 ## 0.10.17 - 2026-07-13
 
 ### Fixed

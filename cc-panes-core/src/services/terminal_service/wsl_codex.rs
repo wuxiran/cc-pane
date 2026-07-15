@@ -870,6 +870,7 @@ impl TerminalService {
             CliTool::Glm => "crush",
             CliTool::Opencode => "opencode",
             CliTool::Cursor => "cursor-agent",
+            CliTool::Grok => "grok",
             other => {
                 return Err(anyhow!(
                     "WSL generic launch does not support CLI tool {:?}",
@@ -961,6 +962,28 @@ impl TerminalService {
             if let Some(resume_id) = resume_id {
                 cli_args.push("--resume".to_string());
                 cli_args.push(resume_id.to_string());
+            }
+            if let Some(prompt) = initial_prompt {
+                cli_args.push(prompt.to_string());
+            }
+        } else if cli_tool == CliTool::Grok {
+            // MCP：Grok 的注入面是 WSL 内 ~/.grok/config.toml，需 wslpath + UNC 写
+            // （参考 codex 的 resolve_wsl_codex_config_windows_path）。本期 WSL grok
+            // 不注入 MCP，TODO 后续增量。
+            if let Some(resume_id) = resume_id {
+                cli_args.push("--resume".to_string());
+                cli_args.push(resume_id.to_string());
+            } else if let Some(issued) = issued_session_id {
+                // 新会话由 CC-Panes 发号（与本地 grok.rs build_command 一致）
+                cli_args.push("--session-id".to_string());
+                cli_args.push(issued.to_string());
+            }
+            if let Some(prompt) = append_system_prompt {
+                cli_args.push("--rules".to_string());
+                cli_args.push(prompt.to_string());
+            }
+            if yolo_mode {
+                cli_args.push("--always-approve".to_string());
             }
             if let Some(prompt) = initial_prompt {
                 cli_args.push(prompt.to_string());

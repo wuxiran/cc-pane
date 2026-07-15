@@ -23,6 +23,7 @@ cc-memory = { path = "../cc-memory" }
 cc-cli-adapters = { path = "../cc-cli-adapters" }
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-single-instance = "2"
+tauri-plugin-deep-link = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
@@ -39,6 +40,7 @@ sha2 = "0.10"
 walkdir = "2"
 toml = "0.8"
 urlencoding = "2"
+url = "2"
 similar = "2"
 flate2 = "1"
 encoding_rs = "0.8"

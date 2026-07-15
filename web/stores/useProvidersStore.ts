@@ -1,11 +1,13 @@
 import { create } from "zustand";
 import { providerService } from "@/services/providerService";
 import * as workspaceService from "@/services/workspaceService";
-import type { Provider } from "@/types/provider";
+import { createSystemProvider, type Provider } from "@/types/provider";
 import { handleErrorSilent } from "@/utils";
 
 interface ProvidersState {
   providers: Provider[];
+  /** cc-switch/宿主 Anthropic 凭证已检测：「系统环境变量」可作默认。 */
+  systemActive: boolean;
   defaultProvider: () => Provider | null;
   loadProviders: () => Promise<void>;
   addProvider: (provider: Provider) => Promise<void>;
@@ -16,16 +18,27 @@ interface ProvidersState {
 
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
   providers: [],
+  systemActive: false,
 
   defaultProvider: () => {
-    const { providers } = get();
-    return providers.find((p) => p.isDefault) || providers[0] || null;
+    const { providers, systemActive } = get();
+    const explicit = providers.find((p) => p.isDefault);
+    if (explicit) return explicit;
+    // 用户未显式设默认时，检测到 cc-switch 则默认「系统环境变量」（不注入、跟随系统）。
+    if (systemActive) return createSystemProvider("System", true);
+    return providers[0] || null;
   },
 
   loadProviders: async () => {
     try {
       const providers = await providerService.listProviders();
-      set({ providers });
+      let systemActive = false;
+      try {
+        systemActive = (await providerService.detectSystemProvider?.()) ?? false;
+      } catch {
+        /* 检测失败按未启用处理 */
+      }
+      set({ providers, systemActive });
     } catch (e) {
       handleErrorSilent(e, "load providers");
     }

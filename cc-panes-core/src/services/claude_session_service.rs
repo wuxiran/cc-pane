@@ -7,6 +7,7 @@ use crate::utils::is_claude_project_match;
 use chrono::{DateTime, Local};
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -205,14 +206,6 @@ pub fn read_session_usage(
     jsonl_path: &Path,
     from_byte_offset: u64,
 ) -> Result<(Vec<UsageEntry>, u64), String> {
-    read_usage_entries(jsonl_path, from_byte_offset, extract_claude_usage)
-}
-
-fn read_usage_entries(
-    jsonl_path: &Path,
-    from_byte_offset: u64,
-    extract: fn(&Value) -> Option<UsageEntry>,
-) -> Result<(Vec<UsageEntry>, u64), String> {
     let mut file = File::open(jsonl_path).map_err(|e| e.to_string())?;
     let len = file.metadata().map_err(|e| e.to_string())?.len();
     let start = from_byte_offset.min(len);
@@ -221,7 +214,12 @@ fn read_usage_entries(
 
     let mut reader = BufReader::new(file);
     let mut offset = start;
-    let mut entries = Vec::new();
+    let mut entries: Vec<UsageEntry> = Vec::new();
+    // 去重：Claude Code 把同一条 assistant 消息按 content block 拆成多行写入，
+    // 每行都带同一个 message.id 和同一份 usage；流式渐进更新也会重写同 id 行。
+    // 不按 (message.id, requestId) 去重会重复计数（实测可虚高 2 倍以上）。
+    // 同 key 后写覆盖先写——渐进更新的最后一行才是该消息的最终 usage。
+    let mut entry_index_by_key: HashMap<(String, Option<String>), usize> = HashMap::new();
 
     loop {
         let mut buf = Vec::new();
@@ -245,8 +243,20 @@ fn read_usage_entries(
 
         match serde_json::from_str::<Value>(trimmed) {
             Ok(json) => {
-                if let Some(entry) = extract(&json).filter(|entry| !entry.is_empty()) {
-                    entries.push(entry);
+                let Some(entry) = extract_claude_usage(&json).filter(|entry| !entry.is_empty())
+                else {
+                    continue;
+                };
+                match claude_usage_dedup_key(&json) {
+                    Some(key) => match entry_index_by_key.get(&key) {
+                        Some(&index) => entries[index] = entry,
+                        None => {
+                            entry_index_by_key.insert(key, entries.len());
+                            entries.push(entry);
+                        }
+                    },
+                    // 无 message.id 的行（罕见/旧格式）无法去重，按原样累加
+                    None => entries.push(entry),
                 }
             }
             Err(error) => {
@@ -261,6 +271,15 @@ fn read_usage_entries(
     }
 
     Ok((entries, offset))
+}
+
+fn claude_usage_dedup_key(json: &Value) -> Option<(String, Option<String>)> {
+    let message_id = json.get("message")?.get("id")?.as_str()?.to_string();
+    let request_id = json
+        .get("requestId")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    Some((message_id, request_id))
 }
 
 fn extract_claude_usage(json: &Value) -> Option<UsageEntry> {
@@ -460,6 +479,56 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].token_input, 5);
         assert_eq!(entries[0].token_output, 7);
+    }
+
+    #[test]
+    fn read_session_usage_dedups_repeated_message_id_last_wins() {
+        // 同一条 assistant 消息按 content block 拆成多行（同 message.id + requestId、
+        // 同 usage）——只计一次；渐进更新（同 key 不同 usage）取最后一行。
+        let block = |output: u64| {
+            format!(
+                r#"{{"type":"assistant","requestId":"req-1","timestamp":"2026-01-15T12:00:00Z","message":{{"id":"msg-1","usage":{{"input_tokens":10,"output_tokens":{output},"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}}}}"#
+            )
+        };
+        let other = r#"{"type":"assistant","requestId":"req-2","timestamp":"2026-01-15T12:00:00Z","message":{"id":"msg-2","usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":3,"cache_creation_input_tokens":4}}}"#;
+        let content = format!("{}\n{}\n{}\n{other}\n", block(5), block(5), block(9));
+        let path = write_raw_file(&content);
+
+        let (entries, _offset) = read_session_usage(&path, 0).expect("usage");
+
+        assert_eq!(entries.len(), 2);
+        // msg-1 三行只计一次，且取最后一行的 usage（output=9）
+        assert_eq!(entries[0].token_input, 10);
+        assert_eq!(entries[0].token_output, 9);
+        assert_eq!(entries[0].token_cache_read, 100);
+        assert_eq!(entries[1].token_input, 1);
+    }
+
+    #[test]
+    fn read_session_usage_treats_different_request_ids_as_distinct() {
+        // 同 message.id 不同 requestId（重试等场景）是两次真实计费，不去重。
+        let line = |request_id: &str| {
+            format!(
+                r#"{{"type":"assistant","requestId":"{request_id}","timestamp":"2026-01-15T12:00:00Z","message":{{"id":"msg-1","usage":{{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}}}}"#
+            )
+        };
+        let content = format!("{}\n{}\n", line("req-a"), line("req-b"));
+        let path = write_raw_file(&content);
+
+        let (entries, _offset) = read_session_usage(&path, 0).expect("usage");
+
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn read_session_usage_keeps_lines_without_message_id() {
+        // 无 message.id 的行（旧格式）无法去重，按原样逐行累加。
+        let content = format!("{}\n{}\n", usage_line(3, 4), usage_line(3, 4));
+        let path = write_raw_file(&content);
+
+        let (entries, _offset) = read_session_usage(&path, 0).expect("usage");
+
+        assert_eq!(entries.len(), 2);
     }
 
     #[test]

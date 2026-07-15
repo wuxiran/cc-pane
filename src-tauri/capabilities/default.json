@@ -5,6 +5,7 @@
   "windows": ["main", "screenshot", "popup-*", "ccchan"],
   "permissions": [
     "core:default",
+    "deep-link:default",
     "opener:default",
     {
       "identifier": "opener:allow-open-path",

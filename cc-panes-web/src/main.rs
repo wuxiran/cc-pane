@@ -283,9 +283,10 @@ async fn main() -> anyhow::Result<()> {
         }),
     );
     let user_skill_service = Arc::new(UserSkillService::new(app_paths.user_skills_dir()));
-    let usage_stats_service = Arc::new(UsageStatsService::new(
+    let usage_stats_service = Arc::new(UsageStatsService::new_with_settings(
         usage_stats_repo,
         launch_history_service.clone(),
+        settings_service.clone(),
     ));
     usage_stats_service.start_background_tasks();
 

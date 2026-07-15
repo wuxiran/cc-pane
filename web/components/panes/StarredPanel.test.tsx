@@ -1,9 +1,16 @@
 import "@/i18n";
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import type { LayoutEntry, Panel, Tab, TerminalStatusInfo } from "@/types";
 import StarredPanel from "./StarredPanel";
+
+// 镜像格子挂真实 TerminalView（xterm）——jsdom 下 mock 成 sessionId 标记节点
+vi.mock("./TerminalView", () => ({
+  default: ({ sessionId }: { sessionId: string | null }) => (
+    <div data-testid="mirror-terminal" data-session-id={sessionId} />
+  ),
+}));
 
 function makeTerminalTab(overrides?: Partial<Tab>): Tab {
   return {
@@ -72,5 +79,56 @@ describe("StarredPanel", () => {
 
     expect(screen.getByText("Project One")).toBeInTheDocument();
     expect(screen.getByText("布局 1")).toBeInTheDocument();
+  });
+
+  it("mounts a live terminal mirror bound to the original tab's session", () => {
+    render(<StarredPanel />);
+
+    const mirror = screen.getByTestId("mirror-terminal");
+    expect(mirror).toHaveAttribute("data-session-id", "session-1");
+  });
+
+  it("shows a placeholder instead of a mirror when the session has not started", () => {
+    const rootPane = makePanel(
+      makeTerminalTab({
+        starred: true,
+        sessionId: null,
+        terminalRootPane: { type: "leaf", id: "leaf-1", sessionId: null },
+      }),
+    );
+    usePanesStore.setState({
+      rootPane,
+      layouts: [makeLayout("layout-1", "布局 1", rootPane)],
+      currentLayoutId: "layout-1",
+    });
+
+    render(<StarredPanel />);
+
+    expect(screen.queryByTestId("mirror-terminal")).not.toBeInTheDocument();
+  });
+
+  it("jump button navigates back to the original tab", () => {
+    const openStarredTab = vi.fn();
+    usePanesStore.setState({ openStarredTab } as never);
+
+    render(<StarredPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /打开|Open/ }));
+
+    expect(openStarredTab).toHaveBeenCalledWith("tab-1");
+  });
+
+  it("removes the mirror when the tab is unstarred", () => {
+    const { rerender } = render(<StarredPanel />);
+    expect(screen.getByTestId("mirror-terminal")).toBeInTheDocument();
+
+    const rootPane = makePanel(makeTerminalTab({ starred: false }));
+    usePanesStore.setState({
+      rootPane,
+      layouts: [makeLayout("layout-1", "布局 1", rootPane)],
+      currentLayoutId: "layout-1",
+    });
+    rerender(<StarredPanel />);
+
+    expect(screen.queryByTestId("mirror-terminal")).not.toBeInTheDocument();
   });
 });

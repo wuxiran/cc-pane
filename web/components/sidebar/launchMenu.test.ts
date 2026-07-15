@@ -4,6 +4,7 @@ import {
   buildSidebarLaunchActions,
   filterSidebarFavoriteLaunchActions,
   getDefaultSidebarFavoriteLaunchActionIds,
+  groupSidebarCliLaunchItems,
   normalizeSidebarFavoriteLaunchActionIds,
 } from "./launchMenu";
 
@@ -13,7 +14,7 @@ function fakeT(key: string, options?: { defaultValue?: string }): string {
   return options?.defaultValue ?? key;
 }
 
-const CLI_TOOLS = ["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor"];
+const CLI_TOOLS = ["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok"];
 
 describe("getDefaultSidebarFavoriteLaunchActionIds", () => {
   it("returns the terminal + claude + codex defaults", () => {
@@ -150,6 +151,48 @@ describe("filterSidebarFavoriteLaunchActions", () => {
   it("returns empty array for empty favorites", () => {
     const actions = buildSidebarLaunchActions(fakeT, false, false);
     expect(filterSidebarFavoriteLaunchActions(actions, [])).toEqual([]);
+  });
+});
+
+describe("groupSidebarCliLaunchItems", () => {
+  it("puts default favorites in primary and everything else in more", () => {
+    const items = buildSidebarCliLaunchItems(fakeT, true, true);
+    const { primary, more } = groupSidebarCliLaunchItems(
+      items,
+      getDefaultSidebarFavoriteLaunchActionIds(),
+    );
+
+    // 默认常用里的 CLI 项只有 claude-default / codex-default（terminal 不属于 CLI 项）
+    expect(primary.map((i) => i.key)).toEqual(["claude-default", "codex-default"]);
+    expect(more).toHaveLength(items.length - 2);
+    // 不重复：primary 与 more 无交集
+    const moreKeys = new Set(more.map((i) => i.key));
+    expect(primary.every((i) => !moreKeys.has(i.key))).toBe(true);
+  });
+
+  it("applies legacy favorites migration before grouping", () => {
+    const items = buildSidebarCliLaunchItems(fakeT, false, false);
+    const { primary } = groupSidebarCliLaunchItems(items, [
+      "terminal-default",
+      "claude-local",
+      "codex-local",
+    ]);
+    expect(primary.map((i) => i.key)).toEqual(["claude-default", "codex-default"]);
+  });
+
+  it("returns everything in more when favorites are empty", () => {
+    const items = buildSidebarCliLaunchItems(fakeT, false, false);
+    const { primary, more } = groupSidebarCliLaunchItems(items, []);
+    expect(primary).toEqual([]);
+    expect(more).toHaveLength(items.length);
+  });
+
+  it("ignores favorite ids without a matching item", () => {
+    // codex-wsl 在 WSL 变体关闭时不存在，不应出现在任何分组
+    const items = buildSidebarCliLaunchItems(fakeT, false, false);
+    const { primary, more } = groupSidebarCliLaunchItems(items, ["codex-wsl", "claude-default"]);
+    expect(primary.map((i) => i.key)).toEqual(["claude-default"]);
+    expect(more.some((i) => i.key === "codex-wsl")).toBe(false);
   });
 });
 

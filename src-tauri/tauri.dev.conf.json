@@ -1,5 +1,12 @@
 {
   "identifier": "com.ccpanes.dev",
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["ccpanes-dev"]
+      }
+    }
+  },
   "app": {
     "windows": [
       {

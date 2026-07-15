@@ -1,7 +1,7 @@
 /**
  * Skill 管理服务层 — 封装所有 Skill 相关的 Tauri invoke 调用
  */
-import type { DiscoveredExternalSkill, InstalledUserSkill, SkillInfo, SkillMarketEntry, SkillSummary } from "@/types";
+import type { BundledSkill, DiscoveredExternalSkill, InstalledUserSkill, SkillInfo, SkillMarketEntry, SkillSummary } from "@/types";
 import { apiDeleteJson, apiGet, apiJson, invokeOrApi } from "./apiClient";
 
 export const skillService = {
@@ -82,5 +82,10 @@ export const skillService = {
     return invokeOrApi<boolean>("remove_user_skill", { skillId }, () =>
       apiDeleteJson<boolean>(`/api/user-skills/${encodeURIComponent(skillId)}`),
     );
+  },
+
+  /** 列出 CC-Panes 内置注入的 skill（只读展示） */
+  async listBundledSkills(): Promise<BundledSkill[]> {
+    return invokeOrApi<BundledSkill[]>("list_bundled_skills", undefined, async () => []);
   },
 };

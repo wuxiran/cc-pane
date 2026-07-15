@@ -12,6 +12,7 @@ mod cursor;
 mod fs_atomic;
 mod gemini;
 mod glm;
+mod grok;
 mod kimi;
 mod opencode;
 
@@ -20,6 +21,7 @@ pub use codex::CodexAdapter;
 pub use cursor::CursorAdapter;
 pub use gemini::GeminiAdapter;
 pub use glm::GlmAdapter;
+pub use grok::GrokAdapter;
 pub use kimi::KimiAdapter;
 pub use opencode::OpenCodeAdapter;
 
@@ -413,6 +415,10 @@ pub struct CliToolCapabilities {
     pub supports_workspace: bool,
     /// 支持项目级 hooks 配置
     pub supports_project_hooks: bool,
+    /// 支持 CC-Panes 为新会话预发确定性 session id（如 Claude/Grok 的 `--session-id`），
+    /// 使 resume id 在启动前即确定，无需事后捕获
+    #[serde(default)]
+    pub supports_issued_session_id: bool,
     /// 兼容的 Provider 类型列表
     #[serde(default)]
     pub compatible_provider_types: Vec<String>,
@@ -820,6 +826,7 @@ impl CliToolRegistry {
         registry.register(Arc::new(GlmAdapter::new()));
         registry.register(Arc::new(OpenCodeAdapter::new()));
         registry.register(Arc::new(CursorAdapter::new()));
+        registry.register(Arc::new(GrokAdapter::new()));
         registry
     }
 
@@ -935,7 +942,7 @@ mod registry_tests {
 
         assert_eq!(
             ids,
-            vec!["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor"]
+            vec!["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok"]
         );
         assert!(registry.get("claude").is_some());
         assert!(registry.get("codex").is_some());

@@ -101,5 +101,6 @@
   "sessionBindAction": "Bind",
   "sessionBindUnbind": "Unbind",
   "sessionBindBoundTooltip": "Bound to session {{id}}… (source: {{source}}); restorable after restart. Click to inspect/rebind",
-  "sessionBindUnboundTooltip": "No session id bound; restart opens a new conversation. Click to bind manually"
+  "sessionBindUnboundTooltip": "No session id bound; restart opens a new conversation. Click to bind manually",
+  "starredMirrorNoSession": "Session not started yet — the mirror appears once it runs in its layout"
 }

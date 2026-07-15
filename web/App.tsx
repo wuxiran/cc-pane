@@ -23,6 +23,8 @@ import SelfChatPanel from "@/components/SelfChatPanel";
 import { SelfChatManager } from "@/components/selfchat";
 import { HomeDashboard } from "@/components/home";
 import { ProvidersPanel } from "@/components/providers";
+import ResourceHub from "@/components/resources/ResourceHub";
+import ImportConfirmDialog from "@/components/resources/ImportConfirmDialog";
 import OrchestrationOverlay from "@/components/orchestration/OrchestrationOverlay";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
 import OnboardingGuide from "@/components/OnboardingGuide";
@@ -1155,9 +1157,14 @@ function MainApp() {
                   <SelfChatManager />
                 </div>
               ) : effectiveAppViewMode === "providers" ? (
-                /* Providers 全屏模式 */
+                /* Providers 全屏模式（旧入口，保留兼容） */
                 <div className="flex-1 overflow-hidden">
                   <ProvidersPanel />
+                </div>
+              ) : effectiveAppViewMode === "resources" ? (
+                /* 资源中心：Provider / Skills / MCP 三合一大页面 */
+                <div className="flex-1 overflow-hidden">
+                  <ResourceHub />
                 </div>
               ) : effectiveAppViewMode === "files" ? (
                 /* Files 模式：侧边栏（文件浏览器）+ 文件编辑面板 */
@@ -1215,6 +1222,9 @@ function MainApp() {
 
         {/* 无边框浮动退出按钮 */}
         <BorderlessFloatingButton />
+
+        {/* 一键导入确认弹窗（deep-link ccpanes://…） */}
+        <ImportConfirmDialog />
 
         {/* Dialog 组件 */}
         <SettingsPanel

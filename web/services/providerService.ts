@@ -48,6 +48,14 @@ export const providerService = {
     );
   },
 
+  /**
+   * 检测「系统环境变量」provider 是否应作为默认（cc-switch 已安装或宿主已设 Anthropic 凭证）。
+   * Web/远程模式下无本地 cc-switch，回退为 false（不自动默认）。
+   */
+  async detectSystemProvider(): Promise<boolean> {
+    return invokeOrApi<boolean>("detect_system_provider", undefined, async () => false);
+  },
+
   async readConfigDirInfo(path: string): Promise<ConfigDirInfo> {
     return invokeOrApi<ConfigDirInfo>("read_config_dir_info", { path }, async () => ({
       path,

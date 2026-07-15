@@ -51,6 +51,7 @@
   "cliToolGlm": "GLM CLI",
   "cliToolOpenCode": "OpenCode",
   "cliToolCursor": "Cursor CLI",
+  "cliToolGrok": "Grok CLI",
   "cliLocalVariant": "{{label}} (Local)",
   "cliWslVariant": "{{label}} (WSL)",
   "cliSshVariant": "{{label}} (SSH)",
@@ -284,5 +285,6 @@
   "workspaceEnv.cliDefaults.codex": "Codex CLI",
   "workspaceEnv.cliDefaults.inheritWith": "Inherit Default ({{environment}})",
   "workspaceEnv.cliDefaults.invalidConfig": "A CLI default environment is not fully configured. Complete it or switch back to inherit default.",
-  "workspaceEnv.launchThisTime": "Choose Environment For This Launch"
+  "workspaceEnv.launchThisTime": "Choose Environment For This Launch",
+  "moreLaunchActions": "More launch options"
 }

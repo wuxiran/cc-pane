@@ -13,6 +13,7 @@ import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage } from "@/utils";
 import { pickCreateSessionResumeId } from "./terminalResume";
 import { devDebugLog } from "@/utils/devLogger";
+import { captureTerminalWrite, noteTerminalGeometry } from "@/utils/terminalCast";
 import { TERMINAL_APP_MENU_PASTE_EVENT } from "@/utils/appMenuPaste";
 import {
   TERMINAL_LAYOUT_CHANGED_EVENT,
@@ -357,6 +358,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const onDataDisposableRef = useRef<IDisposable | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const currentSessionIdRef = useRef<string | null>(null);
+    // 本视图自己的订阅注销函数：同一会话可能被多个视图订阅（星标镜像），
+    // 卸载时只能注销自己这份，绝不能按 sessionId 全量 detach（会灭掉其他视图）。
+    const outputUnsubRef = useRef<(() => void) | null>(null);
+    const exitUnsubRef = useRef<(() => void) | null>(null);
     const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
     const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null);
     const nativeMenuCleanupRef = useRef<(() => void) | null>(null);
@@ -525,8 +530,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (!flowControl) {
         throw new Error("Terminal write flow control is not initialized");
       }
+      // WebGL 花屏诊断台录制钩子（未 arm 时为 no-op，见 utils/terminalCast）。
+      captureTerminalWrite(currentSessionIdRef.current ?? props.sessionId ?? "unknown", data);
       await flowControl.write(data, onWritten);
-    }, []);
+    }, [props.sessionId]);
 
     const shouldRunWebglRecovery = useCallback(() => {
       const renderer = rendererControllerRef.current;
@@ -566,6 +573,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             forced: Boolean(options.forceRecreate),
             dpr: lastDevicePixelRatioRef.current,
           });
+          // 重建成功后清零 streak：否则连续的 resize/focus/visible 事件会让 streak 一直 ≥3、
+          // 反复重建 WebGL context（每次重建都新建一个 context），是撞满 ~16 上限的主要推手。
+          webglRecoveryStreakRef.current = 0;
           layoutSchedulerRef.current?.schedule(`webgl.renderer.recreate.${reason}`, { force: true });
           return;
         }
@@ -629,6 +639,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       };
     }, [debugLog]);
 
+    /** 注销本视图自己的输出/退出订阅（不影响同会话的其他视图） */
+    const unbindSessionCallbacks = useCallback(() => {
+      outputUnsubRef.current?.();
+      outputUnsubRef.current = null;
+      exitUnsubRef.current?.();
+      exitUnsubRef.current = null;
+    }, []);
+
     // Dispose listeners, timers, observers, addons, and the terminal instance.
     const cleanup = useCallback(() => {
       debugLog("cleanup.begin", {
@@ -642,10 +660,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         debugLog("cleanup.detach-session", {
           detachSessionId: currentSessionIdRef.current,
         });
-        terminalService.detachOutput(currentSessionIdRef.current);
-        terminalService.detachExit(currentSessionIdRef.current);
         currentSessionIdRef.current = null;
       }
+      unbindSessionCallbacks();
       if (atlasResetTimerRef.current) {
         clearTimeout(atlasResetTimerRef.current);
         atlasResetTimerRef.current = null;
@@ -729,7 +746,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         }
       }
       debugLog("cleanup.end", {});
-    }, [debugLog]);
+    }, [debugLog, unbindSessionCallbacks]);
 
     /** Shared exit handling for initial attach and reconnect flows. */
     const handleSessionExit = useCallback((sessionId: string, exitCode: number) => {
@@ -754,7 +771,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       debugLog("session.bind-callbacks.begin", {
         bindSessionId: sessionId,
       });
-      await terminalService.registerOutput(sessionId, (data) => {
+      // 换绑前先注销旧订阅（重连等场景），避免旧回调残留
+      unbindSessionCallbacks();
+      outputUnsubRef.current = await terminalService.registerOutput(sessionId, (data) => {
         const term = terminalInstanceRef.current;
         const focusReportMode = detectFocusReportMode(data, focusReportModeRef.current);
         if (focusReportMode !== focusReportModeRef.current) {
@@ -812,7 +831,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           });
         });
       });
-      await terminalService.registerExit(sessionId, (exitCode) => {
+      exitUnsubRef.current = await terminalService.registerExit(sessionId, (exitCode) => {
         handleSessionExit(sessionId, exitCode);
       });
       debugLog("session.bind-callbacks.end", {
@@ -824,6 +843,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       keepCliOutputInNormalBuffer,
       renderTerminalData,
       syncTrackedBufferType,
+      unbindSessionCallbacks,
       writeTerminalData,
     ]);
 
@@ -839,10 +859,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
       try {
         // Detach callbacks from the previous session before reconnecting.
-        if (currentSessionIdRef.current) {
-          terminalService.detachOutput(currentSessionIdRef.current);
-          terminalService.detachExit(currentSessionIdRef.current);
-        }
+        unbindSessionCallbacks();
 
         const newSessionId = await onReconnect();
         if (!newSessionId) {
@@ -879,7 +896,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         );
         isReconnectingRef.current = false;
       }
-    }, [bindSessionCallbacks]);
+    }, [bindSessionCallbacks, unbindSessionCallbacks]);
 
     // Initialize xterm and create or attach the backend session.
     useEffect(() => {
@@ -962,6 +979,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           resizeBackend: (cols, rows) => {
             const sessionId = currentSessionIdRef.current;
             if (!sessionId) return;
+            // WebGL 诊断台录制：记下几何，回放才能几何对齐（否则 TUI 光标定位错位出假花）。
+            noteTerminalGeometry(sessionId, cols, rows);
             terminalService.resize({ sessionId, cols, rows });
           },
           logger: debugLog,
@@ -1632,8 +1651,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             // Register output and exit handlers.
             await bindSessionCallbacks(sessionId);
             if (!isMounted) {
-              terminalService.detachOutput(sessionId);
-              terminalService.detachExit(sessionId);
+              unbindSessionCallbacks();
               return;
             }
 
@@ -1769,19 +1787,24 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (!IS_WINDOWS) return;
 
       lastWebglHeartbeatAtRef.current = Date.now();
+      // 普通 resize/focus/visible **不再 clearTextureAtlas**：atlas 是跨同配置终端共享的，
+      // 清一次会让其它共享 pane 残留错位（大片黑 + 碎片）。这些事件只做本 pane 的 fit/repaint；
+      // 真正需要重建 atlas 的只有 DPR 变化（字形按新 DPR 重光栅）和休眠恢复（heartbeat resume-gap）。
+      // atlas 结构变化时的跨 pane 同步已由 controller 的 notifyAtlasStructureChanged 负责。
       const handleWindowResize = () => {
-        scheduleWebglRecovery("window.resize");
+        layoutSchedulerRef.current?.schedule("window.resize");
+        rendererControllerRef.current?.repaint("window.resize");
       };
       const handleWindowFocus = () => {
         if (window.devicePixelRatio !== lastDevicePixelRatioRef.current) {
           scheduleWebglRecovery("window.focus.dpr-change");
           return;
         }
-        scheduleWebglRecovery("window.focus");
+        rendererControllerRef.current?.repaint("window.focus");
       };
       const handleVisibilityChange = () => {
         if (document.visibilityState === "visible") {
-          scheduleWebglRecovery("document.visible");
+          rendererControllerRef.current?.repaint("document.visible");
         }
       };
 
@@ -1891,8 +1914,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 }
                 await bindSessionCallbacks(liveSavedSessionId);
                 if (isUnmountedRef.current) {
-                  terminalService.detachOutput(liveSavedSessionId);
-                  terminalService.detachExit(liveSavedSessionId);
+                  unbindSessionCallbacks();
                 }
                 return;
               }
@@ -1963,8 +1985,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }
               await bindSessionCallbacks(sessionId);
               if (isUnmountedRef.current) {
-                terminalService.detachOutput(sessionId);
-                terminalService.detachExit(sessionId);
+                unbindSessionCallbacks();
               }
             } catch (err) {
               if (isUnmountedRef.current) return;

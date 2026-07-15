@@ -119,6 +119,22 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
         />
       </div>
 
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col">
+          <Label>{t("disableWslUsageScan")}</Label>
+          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("disableWslUsageScanDesc")}
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          checked={value.disableWslUsageScan ?? false}
+          onChange={(e) => update("disableWslUsageScan", e.target.checked)}
+          className="w-4 h-4 cursor-pointer shrink-0"
+          style={{ accentColor: "var(--app-accent)" }}
+        />
+      </div>
+
       <div className="flex flex-col gap-1">
         <Label>{t("language")}</Label>
         <select
