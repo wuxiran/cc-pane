@@ -556,9 +556,9 @@ export default function SshMachineDialog({
                       {testing ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : testResult?.reachable ? (
-                        <Wifi className="h-3.5 w-3.5 text-green-500" />
+                        <Wifi className="h-3.5 w-3.5 text-[var(--app-status-success)]" />
                       ) : testResult ? (
-                        <WifiOff className="h-3.5 w-3.5 text-red-500" />
+                        <WifiOff className="h-3.5 w-3.5 text-[var(--app-status-danger)]" />
                       ) : (
                         <Wifi className="h-3.5 w-3.5" />
                       )}

@@ -91,7 +91,7 @@ function ProcessItem({
           <button
             onClick={(e) => { e.stopPropagation(); onKill(); }}
             disabled={killing}
-            className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-500/20 text-[var(--app-text-tertiary)] hover:text-red-400 transition-all disabled:opacity-50"
+            className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--app-status-danger-bg)] text-[var(--app-text-tertiary)] hover:text-[var(--app-status-danger)] transition-all disabled:opacity-50"
           >
             <X className="w-3 h-3" />
           </button>
@@ -237,7 +237,7 @@ export default function ProcessMonitorSection() {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setConfirmAction("selected")}
-                  className="p-1 rounded hover:bg-red-500/20 text-[var(--app-text-tertiary)] hover:text-red-400 transition-colors"
+                  className="p-1 rounded hover:bg-[var(--app-status-danger-bg)] text-[var(--app-text-tertiary)] hover:text-[var(--app-status-danger)] transition-colors"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -252,7 +252,7 @@ export default function ProcessMonitorSection() {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setConfirmAction("all")}
-                  className="p-1 rounded hover:bg-red-500/20 text-[var(--app-text-tertiary)] hover:text-red-400 transition-colors"
+                  className="p-1 rounded hover:bg-[var(--app-status-danger-bg)] text-[var(--app-text-tertiary)] hover:text-[var(--app-status-danger)] transition-colors"
                 >
                   <AlertTriangle className="w-3 h-3" />
                 </button>
@@ -281,8 +281,8 @@ export default function ProcessMonitorSection() {
 
       {/* 确认弹窗 */}
       {confirmAction && (
-        <div className="mt-1 p-2 rounded-lg border border-red-500/30 bg-red-500/10 text-[11px]">
-          <div className="flex items-center gap-1 text-red-400 mb-1.5">
+        <div className="mt-1 p-2 rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] text-[11px]">
+          <div className="flex items-center gap-1 text-[var(--app-status-danger)] mb-1.5">
             <AlertTriangle className="w-3 h-3" />
             <span className="font-medium">
               确定终止 {confirmAction === "selected" ? selectedPids.size : totalCount} 个进程？
@@ -299,7 +299,7 @@ export default function ProcessMonitorSection() {
           <div className="flex gap-1.5">
             <button
               onClick={handleConfirmKill}
-              className="px-2 py-0.5 rounded bg-red-500/80 text-white text-[10px] hover:bg-red-500 transition-colors"
+              className="px-2 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-status-danger)_80%,transparent)] text-white text-[10px] hover:bg-[var(--app-status-danger)] transition-colors"
             >
               确认
             </button>

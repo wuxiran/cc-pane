@@ -194,6 +194,15 @@
   --app-status-success: #1a7f37;
   --app-status-warning: #9A6700;
   --app-status-danger: #CF222E;
+  /* 状态色派生（bg/border 随主题自动跟随主值） */
+  --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent);
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent);
+  --app-status-danger-border: color-mix(in srgb, var(--app-status-danger) 30%, transparent);
+  /* 身份色（运行环境等"是什么"而非"什么状态"）：WSL / SSH */
+  --app-identity-wsl: #B45309;
+  --app-identity-ssh: #0E7490;
 
   /* TitleBar 高光线 */
   --app-titlebar-highlight: none;
@@ -332,6 +341,9 @@
   --app-status-success: #3FB950;
   --app-status-warning: #D6A625;
   --app-status-danger: #F85149;
+  /* 身份色（暗色亮化） */
+  --app-identity-wsl: #FCD34D;
+  --app-identity-ssh: #67E8F9;
 
   /* TitleBar 高光线 */
   --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.05) 80%, transparent);

@@ -75,14 +75,17 @@ function getRelativePath(projectPath: string, wsPath?: string | null): string {
   return parts.pop() || projectPath;
 }
 
+const PROJECT_BADGE_BASE = "text-[9px] px-1.5 py-0.5 rounded-full font-medium border";
+
+// 身份色徽章（local 中性 / wsl / ssh），亮暗随 token 自动切换
 function projectBadgeClassName(kind: "local" | "wsl" | "ssh"): string {
   switch (kind) {
     case "local":
-      return "text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-500/20 dark:text-slate-300 dark:border-slate-500/30";
+      return `${PROJECT_BADGE_BASE} bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)] border-[var(--app-border)]`;
     case "wsl":
-      return "text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30";
+      return `${PROJECT_BADGE_BASE} bg-[color-mix(in_srgb,var(--app-identity-wsl)_14%,transparent)] text-[var(--app-identity-wsl)] border-[color-mix(in_srgb,var(--app-identity-wsl)_30%,transparent)]`;
     case "ssh":
-      return "text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-cyan-100 text-cyan-700 border border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/30";
+      return `${PROJECT_BADGE_BASE} bg-[color-mix(in_srgb,var(--app-identity-ssh)_14%,transparent)] text-[var(--app-identity-ssh)] border-[color-mix(in_srgb,var(--app-identity-ssh)_30%,transparent)]`;
   }
 }
 
@@ -184,7 +187,7 @@ export default function ProjectListView({
   return (
     <div className="flex flex-col gap-1 px-3 pb-3 pt-2">
       {invalidProjectCount > 0 ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2 text-[11px] text-[var(--app-status-warning)]">
           {t("invalidProjectsSkipped", {
             count: invalidProjectCount,
             defaultValue: `已隐藏 ${invalidProjectCount} 个异常项目`,
@@ -363,10 +366,10 @@ export default function ProjectListView({
                             <span className="flex-1 truncate">{spec.title}</span>
                             <span className={`text-[9px] ml-2 px-1 py-0.5 rounded ${
                               spec.status === "active"
-                                ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300"
+                                ? "bg-[var(--app-status-success-bg)] text-[var(--app-status-success)]"
                                 : spec.status === "archived"
-                                ? "bg-gray-100 text-gray-500 dark:bg-gray-500/20 dark:text-gray-400"
-                                : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+                                ? "bg-[var(--app-hover)] text-[var(--app-text-tertiary)]"
+                                : "bg-[color-mix(in_srgb,var(--app-accent)_12%,transparent)] text-[var(--app-accent)]"
                             }`}>
                               {spec.status}
                             </span>

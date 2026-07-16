@@ -350,8 +350,8 @@ function StatusDot({ state }: { state: ConnectivityState }) {
   if (state === "checking") {
     return (
       <span className="relative flex h-2 w-2 shrink-0" title="Checking...">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500" />
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--app-status-warning)] opacity-75" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--app-status-warning)]" />
       </span>
     );
   }
@@ -359,7 +359,7 @@ function StatusDot({ state }: { state: ConnectivityState }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="inline-flex rounded-full h-2 w-2 shrink-0 bg-green-500" />
+          <span className="inline-flex rounded-full h-2 w-2 shrink-0 bg-[var(--app-status-success)]" />
         </TooltipTrigger>
         <TooltipContent side="right">
           <p>{state.message}</p>
@@ -371,7 +371,7 @@ function StatusDot({ state }: { state: ConnectivityState }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="inline-flex rounded-full h-2 w-2 shrink-0 bg-red-500" />
+          <span className="inline-flex rounded-full h-2 w-2 shrink-0 bg-[var(--app-status-danger)]" />
         </TooltipTrigger>
         <TooltipContent side="right">
           <p>{state.message}</p>
@@ -381,7 +381,7 @@ function StatusDot({ state }: { state: ConnectivityState }) {
   }
   // 未检测
   return (
-    <span className="inline-flex rounded-full h-2 w-2 shrink-0 bg-gray-400/40" />
+    <span className="inline-flex rounded-full h-2 w-2 shrink-0 bg-[color-mix(in_srgb,var(--app-text-tertiary)_40%,transparent)]" />
   );
 }
 
@@ -416,7 +416,7 @@ const MachineItem = memo(function MachineItem({
       </ContextMenuItem>
       <ContextMenuItem
         onClick={() => onDelete(machine)}
-        className="text-red-500 focus:text-red-500"
+        className="text-[var(--app-status-danger)] focus:text-[var(--app-status-danger)]"
       >
         <Trash2 className="w-3.5 h-3.5 mr-2" />
         {t("ssh.delete", { defaultValue: "Delete" })}
@@ -508,7 +508,7 @@ const MachineItem = memo(function MachineItem({
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => onDelete(machine)}
-                className="text-red-500 focus:text-red-500"
+                className="text-[var(--app-status-danger)] focus:text-[var(--app-status-danger)]"
               >
                 <Trash2 className="w-3.5 h-3.5 mr-2" />
                 {t("ssh.delete", { defaultValue: "Delete" })}

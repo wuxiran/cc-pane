@@ -174,13 +174,13 @@ export default function ProjectMigrationDialog({
               <div className="mt-1 text-xs text-[var(--app-text-secondary)]">
                 Source: {project.path}
               </div>
-              <div className="mt-2 text-xs text-amber-600">
+              <div className="mt-2 text-xs text-[var(--app-status-warning)]">
                 Flow is always preview, copy, verify, then switch metadata. The source directory is kept.
               </div>
             </div>
 
             {!isWindows ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700">
+              <div className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] p-3 text-sm text-[var(--app-status-warning)]">
                 WSL project migration is only available on Windows.
               </div>
             ) : null}
@@ -276,7 +276,7 @@ export default function ProjectMigrationDialog({
                   <div>Target root: {previewPlan.targetRoot}</div>
                   {previewPlan.targetDistro ? <div>Distro: {previewPlan.targetDistro}</div> : null}
                   {previewPlan.warnings.length > 0 ? (
-                    <div className="space-y-1 pt-2 text-amber-600">
+                    <div className="space-y-1 pt-2 text-[var(--app-status-warning)]">
                       {previewPlan.warnings.map((warning) => (
                         <div key={warning}>{warning}</div>
                       ))}
@@ -287,7 +287,7 @@ export default function ProjectMigrationDialog({
             ) : null}
 
             {migrationResult ? (
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700">
+              <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-status-success)_30%,transparent)] bg-[var(--app-status-success-bg)] px-4 py-3 text-sm text-[var(--app-status-success)]">
                 <div>
                   Copied files: {migrationResult.copiedFiles}, copied size: {formatSize(migrationResult.copiedBytes)}
                 </div>

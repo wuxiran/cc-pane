@@ -127,7 +127,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                 }}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <Play className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                  <Play className="w-3.5 h-3.5 text-[var(--app-status-success)] shrink-0" />
                   <div className="min-w-0 text-left">
                     <span className="text-[12px] font-medium tracking-wide truncate block max-w-[120px]">
                       {record.projectName}
