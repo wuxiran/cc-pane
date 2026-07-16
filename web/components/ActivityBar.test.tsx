@@ -52,7 +52,7 @@ describe("ActivityBar", () => {
   it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer/files/sessions/ssh/orchestration + providers + todo + settings = 9 按钮
+    // Home + explorer/files/sessions/ssh/orchestration + 资源中心 + todo + settings = 9 按钮
     expect(container.querySelectorAll("button")).toHaveLength(9);
   });
 
@@ -69,14 +69,14 @@ describe("ActivityBar", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
   });
 
-  it("点击 Providers 图标切换到 providers 视图模式", async () => {
+  it("点击资源中心图标切换到 resources 视图模式", async () => {
     const user = userEvent.setup();
     const { container } = renderBar();
-    // providers 是倒数第二个（settings 之前）
+    // 资源中心是倒数第三个（todo、settings 之前）
     const buttons = container.querySelectorAll("button");
-    const providersBtn = buttons[buttons.length - 3];
-    await user.click(providersBtn);
-    expect(useActivityBarStore.getState().appViewMode).toBe("providers");
+    const resourcesBtn = buttons[buttons.length - 3];
+    await user.click(resourcesBtn);
+    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
   });
 
   it("点击 Todo 图标切换到 todo 视图模式", async () => {
@@ -117,10 +117,13 @@ describe("ActivityBar", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
-  it("Home 处于激活态时按钮带激活背景样式", () => {
+  it("Home 处于激活态时按钮带激活背景样式与左缘 accent 竖条", () => {
     useActivityBarStore.setState({ appViewMode: "home" });
     const { container } = renderBar();
     const homeBtn = container.querySelectorAll("button")[0] as HTMLElement;
     expect(homeBtn.style.background).toContain("app-activity-item-active");
+    // demo 式激活指示条：激活项左缘 3px accent 竖条
+    const indicator = homeBtn.parentElement?.querySelector('[aria-hidden]');
+    expect(indicator).not.toBeNull();
   });
 });

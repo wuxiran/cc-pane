@@ -27,37 +27,46 @@ function ActivityBarIcon({ icon, label, active, onClick, badge }: ActivityBarIco
   const badgeTone = typeof badge === "number" ? "blue" : badge?.tone;
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          className={`relative mx-auto h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
-            active
-              ? "text-[var(--app-accent)]"
-              : "text-[var(--app-icon-inactive)] hover:text-[var(--app-icon-hover)] hover:bg-[var(--app-activity-item-hover)]"
-          }`}
-          style={{
-            background: active ? "var(--app-activity-item-active)" : undefined,
-            boxShadow: active ? "var(--app-activity-item-active-shadow)" : undefined,
-          }}
-          onClick={onClick}
-        >
-          {icon}
-          {/* Badge */}
-          {showBadge && (
-            <span
-              className={`absolute top-[4px] right-[4px] min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
-                badgeTone === "red" ? "bg-red-500" : "bg-[var(--app-accent)]"
-              }`}
-            >
-              {badgeValue != null && badgeValue > 0 ? (badgeValue > 999 ? "999+" : badgeValue) : ""}
-            </span>
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right" sideOffset={8}>
-        <p>{label}</p>
-      </TooltipContent>
-    </Tooltip>
+    <div className="relative flex w-full justify-center">
+      {/* demo 式激活指示：左缘 3px accent 竖条 */}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-md bg-[var(--app-accent)]"
+        />
+      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className={`relative h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
+              active
+                ? "text-[var(--app-accent)]"
+                : "text-[var(--app-icon-inactive)] hover:text-[var(--app-icon-hover)] hover:bg-[var(--app-activity-item-hover)]"
+            }`}
+            style={{
+              background: active ? "var(--app-activity-item-active)" : undefined,
+              boxShadow: active ? "var(--app-activity-item-active-shadow)" : undefined,
+            }}
+            onClick={onClick}
+          >
+            {icon}
+            {/* Badge */}
+            {showBadge && (
+              <span
+                className={`absolute top-[4px] right-[4px] min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
+                  badgeTone === "red" ? "bg-red-500" : "bg-[var(--app-accent)]"
+                }`}
+              >
+                {badgeValue != null && badgeValue > 0 ? (badgeValue > 999 ? "999+" : badgeValue) : ""}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>
+          <p>{label}</p>
+        </TooltipContent>
+      </Tooltip>
+    </div>
   );
 }
 
