@@ -320,7 +320,7 @@ export default function StatusBar() {
           <TooltipTrigger asChild>
             <button
               className={`p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] ${
-                isDark ? "text-amber-400" : ""
+                isDark ? "text-[var(--app-status-warning)]" : ""
               }`}
               onClick={() => void handleToggleTheme()}
             >

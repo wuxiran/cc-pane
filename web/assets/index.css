@@ -196,6 +196,7 @@
   --app-status-danger: #CF222E;
   /* 状态色派生（bg/border 随主题自动跟随主值） */
   --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent);
+  --app-status-success-border: color-mix(in srgb, var(--app-status-success) 30%, transparent);
   --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
   --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
   --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent);

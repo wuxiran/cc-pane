@@ -117,7 +117,7 @@ export default function SessionBindDialog({ tab, open, onOpenChange }: SessionBi
             </p>
           )}
           {!loading && loadError && (
-            <p className="text-[12px] text-red-500">{loadError}</p>
+            <p className="text-[12px] text-[var(--app-status-danger)]">{loadError}</p>
           )}
           {!loading && !loadError && candidates.length === 0 && (
             <p className="text-[12px]" style={{ color: "var(--app-text-tertiary)" }}>

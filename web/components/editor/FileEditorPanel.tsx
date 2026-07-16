@@ -197,7 +197,7 @@ function EditorTabItem({
 
             {/* 文件名 */}
             <span className={`truncate flex-1 ${d.titleGap} ${d.titleMaxW} ${active ? 'font-medium' : ''}`}>
-              {tab.dirty && <span className="mr-0.5 text-amber-400">●</span>}
+              {tab.dirty && <span className="mr-0.5 text-[var(--app-status-warning)]">●</span>}
               {tab.title}
             </span>
 

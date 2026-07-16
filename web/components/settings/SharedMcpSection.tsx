@@ -106,7 +106,7 @@ function CcpanesMcpCard() {
             onClick={() => copyText(url, setCopiedUrl)}
             title="Copy URL"
           >
-            {copiedUrl ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+            {copiedUrl ? <Check size={10} className="text-[var(--app-status-success)]" /> : <Copy size={10} />}
           </Button>
         </div>
 
@@ -122,7 +122,7 @@ function CcpanesMcpCard() {
             onClick={() => copyText(info.token, setCopiedToken)}
             title="Copy token"
           >
-            {copiedToken ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+            {copiedToken ? <Check size={10} className="text-[var(--app-status-success)]" /> : <Copy size={10} />}
           </Button>
         </div>
       </div>

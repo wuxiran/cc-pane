@@ -1353,7 +1353,7 @@ export default function LaunchProfilesPanel({
                       <option value="native">{KIMI_CONFIG_MODE_LABELS.native}</option>
                     </select>
                   </Field>
-                  <div className="rounded-md border border-amber-500/30 px-3 py-2 text-xs leading-5 text-amber-600">
+                  <div className="rounded-md border border-[var(--app-status-warning-border)] px-3 py-2 text-xs leading-5 text-[var(--app-status-warning)]">
                     {currentKimiConfigMode === "native"
                       ? "使用 ~/.kimi 登录态；启动时不传 --config-file，也不注入 KIMI_SHARE_DIR。"
                       : "Kimi 显式 Provider 暂未支持完整模型配置；Provider 选择已禁用。"}
@@ -1499,7 +1499,7 @@ export default function LaunchProfilesPanel({
                     <div style={{ color: "var(--app-text-tertiary)" }}>在左侧选择工作空间后，可以按该工作空间解析项目 Skill。</div>
                   )}
                   {preview?.warnings.map((warning) => (
-                    <div key={warning} className="rounded-md border border-amber-500/30 px-3 py-2 text-amber-500">
+                    <div key={warning} className="rounded-md border border-[var(--app-status-warning-border)] px-3 py-2 text-[var(--app-status-warning)]">
                       {warning}
                     </div>
                   ))}

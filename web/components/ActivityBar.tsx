@@ -54,7 +54,7 @@ function ActivityBarIcon({ icon, label, active, onClick, badge }: ActivityBarIco
             {showBadge && (
               <span
                 className={`absolute top-[4px] right-[4px] min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
-                  badgeTone === "red" ? "bg-red-500" : "bg-[var(--app-accent)]"
+                  badgeTone === "red" ? "bg-[var(--app-status-danger)]" : "bg-[var(--app-accent)]"
                 }`}
               >
                 {badgeValue != null && badgeValue > 0 ? (badgeValue > 999 ? "999+" : badgeValue) : ""}

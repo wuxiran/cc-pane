@@ -131,7 +131,7 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
       {children}
       <DragOverlay dropAnimation={null}>
         {activeTab && (
-          <div className="flex items-center gap-2 px-4 h-10 rounded-lg text-sm font-medium bg-blue-500/20 border border-blue-500/40 text-blue-300 backdrop-blur-lg shadow-lg">
+          <div className="flex items-center gap-2 px-4 h-10 rounded-lg text-sm font-medium bg-[color-mix(in_srgb,var(--app-accent)_20%,transparent)] border border-[color-mix(in_srgb,var(--app-accent)_40%,transparent)] text-[var(--app-accent)] backdrop-blur-lg shadow-lg">
             <span className="max-w-[120px] truncate">{activeTab.title}</span>
           </div>
         )}
