@@ -303,5 +303,6 @@ flutter pub get && flutter analyze && flutter test
 | `docs/05-local-history.md` | Local History 设计 |
 | `docs/11-tauri-gui-basic.md` | GUI 基础（✅ 完成） |
 | `docs/12-gui-advanced.md` | GUI 高级功能 |
+| `docs/22-frontend-design-refactor.md` | 前端设计重构：分区/色彩 token 映射/拆分索引/UX 约定 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
