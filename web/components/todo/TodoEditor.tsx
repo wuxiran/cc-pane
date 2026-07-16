@@ -88,9 +88,9 @@ function SegmentedControl<T extends string>({
 }
 
 const PRIORITY_COLOR_MAP: Record<string, string> = {
-  high: "bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400 font-bold shadow-sm",
-  medium: "bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400 shadow-sm",
-  low: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400 shadow-sm",
+  high: "bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] font-bold shadow-sm",
+  medium: "bg-[var(--app-status-warning-bg)] text-[var(--app-status-warning)] shadow-sm",
+  low: "bg-[var(--app-status-success-bg)] text-[var(--app-status-success)] shadow-sm",
 };
 
 /** 内置类型翻译键映射 */

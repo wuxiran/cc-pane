@@ -124,19 +124,19 @@ export default function TodoOverview({
           icon={<PlayCircle size={18} />}
           label={t("todoInProgress")}
           count={inProgressCount}
-          color="text-blue-500"
+          color="text-[var(--app-accent)]"
         />
         <StatCard
           icon={<CheckCircle2 size={18} />}
           label={t("todoDone")}
           count={doneCount}
-          color="text-emerald-500"
+          color="text-[var(--app-status-success)]"
         />
         <StatCard
           icon={<AlertTriangle size={18} />}
           label={t("todoOverviewOverdue")}
           count={overdueCount}
-          color="text-red-500"
+          color="text-[var(--app-status-danger)]"
         />
       </div>
 
@@ -153,19 +153,19 @@ export default function TodoOverview({
             label={t("todoPriorityHigh")}
             count={highCount}
             total={total}
-            color="bg-rose-500"
+            color="bg-[var(--app-status-danger)]"
           />
           <PriorityBar
             label={t("todoPriorityMedium")}
             count={mediumCount}
             total={total}
-            color="bg-amber-500"
+            color="bg-[var(--app-status-warning)]"
           />
           <PriorityBar
             label={t("todoPriorityLow")}
             count={lowCount}
             total={total}
-            color="bg-slate-400"
+            color="bg-[var(--app-text-tertiary)]"
           />
         </div>
       </div>

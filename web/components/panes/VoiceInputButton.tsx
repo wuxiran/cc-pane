@@ -463,18 +463,18 @@ export default function VoiceInputButton({ sessionId, paneId, disabled = false }
             "cursor-grab active:cursor-grabbing",
             (!canInteract || status === "transcribing") && "opacity-55",
             status === "recording"
-              ? "border-red-300/70 bg-red-500 text-white shadow-[0_0_0_5px_rgba(239,68,68,0.18),0_14px_34px_rgba(127,29,29,0.32)]"
+              ? "border-[color-mix(in_srgb,var(--app-status-danger)_60%,transparent)] bg-[var(--app-status-danger)] text-white shadow-[0_0_0_5px_rgba(239,68,68,0.18),0_14px_34px_rgba(127,29,29,0.32)]"
               : status === "transcribing"
-                ? "border-sky-300/70 bg-sky-500 text-white shadow-[0_0_0_5px_rgba(14,165,233,0.16),0_14px_34px_rgba(12,74,110,0.28)]"
+                ? "border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] bg-[var(--app-accent)] text-white shadow-[0_0_0_5px_rgba(14,165,233,0.16),0_14px_34px_rgba(12,74,110,0.28)]"
                 : voice?.enabled
-                  ? "border-blue-300/70 bg-blue-600 text-white shadow-[0_0_0_4px_rgba(37,99,235,0.16),0_14px_34px_rgba(15,23,42,0.36)] hover:scale-105 hover:bg-blue-500"
-                  : "border-white/20 bg-slate-700 text-white/70 shadow-[0_14px_34px_rgba(15,23,42,0.28)] backdrop-blur hover:border-white/35 hover:text-white"
+                  ? "border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] bg-[var(--app-accent)] text-white shadow-[0_0_0_4px_rgba(37,99,235,0.16),0_14px_34px_rgba(15,23,42,0.36)] hover:scale-105 hover:bg-[color-mix(in_srgb,var(--app-accent)_85%,white)]"
+                  : "border-[var(--app-border)] bg-[var(--muted)] text-[var(--app-text-secondary)] shadow-[0_14px_34px_rgba(15,23,42,0.28)] backdrop-blur hover:border-[var(--app-border)] hover:text-[var(--app-text-primary)]"
           )}
           style={{ right: position.right, bottom: position.bottom }}
         >
           <Icon className={cn("h-5 w-5", status === "transcribing" && "animate-spin")} />
           {status === "recording" ? (
-            <span className="pointer-events-none absolute inset-0 rounded-full border border-red-200/70 animate-ping" />
+            <span className="pointer-events-none absolute inset-0 rounded-full border border-[color-mix(in_srgb,var(--app-status-danger)_45%,transparent)] animate-ping" />
           ) : null}
         </button>
       </TooltipTrigger>

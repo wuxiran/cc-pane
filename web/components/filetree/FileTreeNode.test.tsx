@@ -143,7 +143,7 @@ describe("FileTreeNode", () => {
     renderNode(makeNode(entry("/proj/a.ts", false)), {
       gitStatuses: { "/proj/a.ts": "modified" },
     });
-    expect(screen.getByText("a.ts")).toHaveClass("text-yellow-400");
+    expect(screen.getByText("a.ts")).toHaveClass("text-[var(--app-status-warning)]");
   });
 
   it("highlights the selected file", () => {

@@ -82,7 +82,7 @@ describe("TodoOverview", () => {
     expect(screen.getByText("优先级分布")).toBeVisible();
     const highLabel = screen.getByText("高");
     const bar = highLabel.parentElement!.querySelector(
-      ".bg-rose-500",
+      "[class*='--app-status-danger']",
     ) as HTMLElement;
     expect(bar.style.width).toBe("20%"); // 2/10
   });

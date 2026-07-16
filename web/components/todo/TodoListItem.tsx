@@ -25,9 +25,9 @@ interface TodoListItemProps {
 }
 
 const PRIORITY_FLAG_STYLE = {
-  high: "text-rose-500 fill-rose-500/20",
-  medium: "text-amber-500 fill-amber-500/20",
-  low: "text-slate-400",
+  high: "text-[var(--app-status-danger)] fill-[color-mix(in_srgb,var(--app-status-danger)_20%,transparent)]",
+  medium: "text-[var(--app-status-warning)] fill-[color-mix(in_srgb,var(--app-status-warning)_20%,transparent)]",
+  low: "text-[var(--app-text-tertiary)]",
 };
 
 export default function TodoListItem({
@@ -47,9 +47,9 @@ export default function TodoListItem({
 
   const statusIcon =
     todo.status === "done" ? (
-      <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+      <CheckCircle2 className="w-5 h-5 text-[var(--app-status-success)]" />
     ) : todo.status === "in_progress" ? (
-      <CircleDashed className="w-5 h-5 text-blue-500 animate-[spin_4s_linear_infinite]" />
+      <CircleDashed className="w-5 h-5 text-[var(--app-accent)] animate-[spin_4s_linear_infinite]" />
     ) : (
       <Circle className="w-5 h-5 text-muted-foreground hover:text-primary transition-colors" />
     );
@@ -105,8 +105,8 @@ export default function TodoListItem({
                 <Sun
                   className={`w-3.5 h-3.5 transition-colors ${
                     todo.myDay
-                      ? "text-amber-500 fill-amber-500/30"
-                      : "text-muted-foreground hover:text-amber-500"
+                      ? "text-[var(--app-status-warning)] fill-[color-mix(in_srgb,var(--app-status-warning)_30%,transparent)]"
+                      : "text-muted-foreground hover:text-[var(--app-status-warning)]"
                   }`}
                 />
               </button>
@@ -158,7 +158,7 @@ export default function TodoListItem({
           {todo.dueDate && (
             <span
               className={`flex items-center gap-0.5 text-xs ${
-                isOverdue ? "text-red-500 font-medium" : "text-muted-foreground"
+                isOverdue ? "text-[var(--app-status-danger)] font-medium" : "text-muted-foreground"
               }`}
             >
               <Calendar size={9} />
