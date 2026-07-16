@@ -477,7 +477,7 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
 
       {/* 右侧编辑器 */}
       <aside
-        className={`shrink-0 bg-card transition-all duration-200 ${
+        className={`shrink-0 bg-card transition-all duration-[var(--dur-fast)] ${
           showEditor ? "w-[480px]" : "w-0 overflow-hidden"
         }`}
       >

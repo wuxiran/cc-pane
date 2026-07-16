@@ -50,12 +50,12 @@ export default function HomeQuickActions({ onNewTerminal }: HomeQuickActionsProp
       {actions.map((action) => (
         <button
           key={action.labelKey}
-          className="home-quick-action group relative overflow-hidden flex flex-col items-center gap-3 p-5 rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-all duration-300 cursor-pointer hover:-translate-y-0.5 hover:border-[var(--app-home-border-hover)] hover:bg-[var(--app-home-surface-hover)] hover:shadow-lg hover:shadow-[0_16px_32px_color-mix(in_srgb,var(--app-bg-deep)_45%,transparent)]"
+          className="home-quick-action group relative overflow-hidden flex flex-col items-center gap-3 p-5 rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-all duration-[var(--dur)] cursor-pointer hover:-translate-y-0.5 hover:border-[var(--app-home-border-hover)] hover:bg-[var(--app-home-surface-hover)] hover:shadow-[var(--sh-lg)]"
           onClick={action.onClick}
         >
-          <span className="absolute inset-0 bg-gradient-to-b from-[var(--app-home-surface-light)] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+          <span className="absolute inset-0 bg-gradient-to-b from-[var(--app-home-surface-light)] to-transparent opacity-0 transition-opacity duration-[var(--dur)] group-hover:opacity-100" />
           <span
-            className="relative w-11 h-11 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110"
+            className="relative w-11 h-11 rounded-xl flex items-center justify-center transition-transform duration-[var(--dur)] group-hover:scale-110"
             style={{
               background: "var(--app-home-surface-light)",
               color: action.color,
@@ -64,7 +64,7 @@ export default function HomeQuickActions({ onNewTerminal }: HomeQuickActionsProp
             {action.icon}
           </span>
           <span
-            className="relative text-xs font-medium transition-colors duration-200 group-hover:text-[var(--app-text-primary)]"
+            className="relative text-xs font-medium transition-colors duration-[var(--dur-fast)] group-hover:text-[var(--app-text-primary)]"
             style={{ color: "var(--app-text-primary)" }}
           >
             {t(action.labelKey as never)}

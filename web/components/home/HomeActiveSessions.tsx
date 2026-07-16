@@ -65,14 +65,14 @@ export default function HomeActiveSessions() {
           {t("activeSessions")}
         </h3>
         <div
-          className="group relative flex h-[280px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-colors duration-200 hover:bg-[var(--app-home-surface-hover)]"
+          className="group relative flex h-[280px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-home-surface-hover)]"
         >
           <div
             className="absolute inset-0 bg-gradient-to-b from-transparent to-[color-mix(in_srgb,var(--primary-foreground)_1%,transparent)]"
             aria-hidden="true"
           />
           <Terminal
-            className="relative w-8 h-8 mb-2 opacity-40 transition-opacity duration-200 group-hover:opacity-60"
+            className="relative w-8 h-8 mb-2 opacity-40 transition-opacity duration-[var(--dur-fast)] group-hover:opacity-60"
             style={{ color: "var(--app-text-tertiary)" }}
           />
           <p
@@ -109,7 +109,7 @@ export default function HomeActiveSessions() {
             <button
               key={tab.id}
               type="button"
-              className="home-session-item flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors duration-150"
+              className="home-session-item flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors duration-[var(--dur-fast)]"
               style={{ borderColor: "var(--app-home-row-border)" }}
               onClick={() => focusTab(tab.id)}
             >

@@ -38,7 +38,7 @@ function ActivityBarIcon({ icon, label, active, onClick, badge }: ActivityBarIco
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            className={`relative h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
+            className={`relative h-10 w-10 rounded-xl flex items-center justify-center transition-colors duration-[var(--dur-fast)] ${
               active
                 ? "text-[var(--app-accent)]"
                 : "text-[var(--app-icon-inactive)] hover:text-[var(--app-icon-hover)] hover:bg-[var(--app-activity-item-hover)]"

@@ -204,7 +204,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
           aria-label={t("newWorkspace")}
           title={t("newWorkspace")}
           onClick={actions.handleCreateWorkspace}
-          className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-150 group-hover/section:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
+          className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/section:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
@@ -278,10 +278,10 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
 
       {/* 新建工作空间按钮 */}
       <button
-        className="group w-full mt-3 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-all duration-150 border border-[var(--app-border)] bg-[var(--app-hover)] text-[var(--app-text-secondary)] hover:border-[color-mix(in_srgb,var(--app-accent)_45%,transparent)] hover:text-[var(--app-accent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_8%,transparent)]"
+        className="group w-full mt-3 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors duration-[var(--dur-fast)] border border-[var(--app-border)] bg-[var(--app-hover)] text-[var(--app-text-secondary)] hover:border-[color-mix(in_srgb,var(--app-accent)_45%,transparent)] hover:text-[var(--app-accent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_8%,transparent)]"
         onClick={actions.handleCreateWorkspace}
       >
-        <Plus className="w-3.5 h-3.5 transition-transform duration-150 group-hover:rotate-90" />
+        <Plus className="w-3.5 h-3.5 transition-transform duration-[var(--dur-fast)] group-hover:rotate-90" />
         {t("newWorkspace")}
       </button>
 

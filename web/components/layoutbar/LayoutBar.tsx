@@ -68,7 +68,7 @@ export default function LayoutBar() {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-pressed={panelPinned}
-        className={`relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl transition-all duration-200 ${
+        className={`relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl transition-colors duration-[var(--dur-fast)] ${
           active
             ? "text-[var(--primary-foreground)]"
             : "text-[var(--app-accent)] hover:bg-[var(--app-activity-item-hover)]"

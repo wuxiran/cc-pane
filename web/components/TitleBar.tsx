@@ -100,7 +100,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             <TooltipTrigger asChild>
               <button
                 aria-label={t("minimize")}
-                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
                 onClick={minimizeWindow}
               >
                 <Minus className="w-[13px] h-[13px]" />
@@ -112,7 +112,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             <TooltipTrigger asChild>
               <button
                 aria-label={isMaximized ? t("restoreWindow") : t("maximize")}
-                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
                 onClick={maximizeWindow}
               >
                 {isMaximized ? <Copy className="w-3 h-3" /> : <Square className="w-3 h-3" />}
@@ -124,7 +124,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             <TooltipTrigger asChild>
               <button
                 aria-label={t("close")}
-                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
+                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
                 onClick={closeWindow}
               >
                 <X className="w-[13px] h-[13px]" />

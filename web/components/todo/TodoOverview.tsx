@@ -32,7 +32,7 @@ function StatCard({
   color: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border/30 bg-card shadow-sm p-4 hover:shadow-md hover:-translate-y-[1px] transition-all">
+    <div className="flex items-center gap-3 rounded-2xl border border-border/30 bg-card shadow-sm p-4 hover:shadow-md hover:-translate-y-[1px] transition-all duration-[var(--dur)]">
       <div className={`shrink-0 w-9 h-9 rounded-full bg-muted/50 border border-border/30 flex items-center justify-center ${color}`}>{icon}</div>
       <div className="min-w-0">
         <p className="text-lg font-semibold leading-none">{count}</p>
@@ -181,7 +181,7 @@ export default function TodoOverview({
               <button
                 key={todo.id}
                 onClick={() => onSelectTodo(todo)}
-                className="w-full text-left px-2.5 py-1.5 text-xs rounded-xl border border-transparent hover:bg-accent/50 hover:shadow-sm transition-all truncate text-foreground/80"
+                className="w-full text-left px-2.5 py-1.5 text-xs rounded-xl border border-transparent hover:bg-accent/50 hover:shadow-sm transition-all duration-[var(--dur-fast)] truncate text-foreground/80"
               >
                 {todo.title}
               </button>

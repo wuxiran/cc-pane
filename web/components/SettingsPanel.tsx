@@ -154,7 +154,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
               return (
                 <button
                   key={section.id}
-                  className="group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-[13px] transition-colors duration-150 cursor-pointer border-none"
+                  className="group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-[13px] transition-colors duration-[var(--dur-fast)] cursor-pointer border-none"
                   style={{
                     background: active ? "var(--app-active-bg)" : "transparent",
                     color: active ? "var(--app-accent)" : "var(--app-text-secondary)",

@@ -244,7 +244,7 @@ export default function ProjectListView({
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
-                className="rounded-xl border border-transparent px-3 py-2 transition-all text-[var(--app-text-secondary)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                className="rounded-xl border border-transparent px-3 py-2 transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
               >
                 <div
                   className="flex cursor-pointer items-center gap-2"
@@ -396,7 +396,7 @@ export default function ProjectListView({
 
       {/* 导入项目按钮 */}
       <div
-        className="flex items-center justify-center gap-1 p-1.5 mt-1 text-[11px] rounded-lg cursor-pointer transition-all border border-dashed group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[var(--app-active-bg)]"
+        className="flex items-center justify-center gap-1 p-1.5 mt-1 text-[11px] rounded-lg cursor-pointer transition-colors duration-[var(--dur-fast)] border border-dashed group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[var(--app-active-bg)]"
         onClick={() => onImportProject(workspace)}
       >
         <Plus size={12} className="transition-transform group-hover:rotate-90" />

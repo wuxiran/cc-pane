@@ -200,7 +200,7 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
       {binding.status !== "pending" && (
         <div className="mt-0.5 h-1 overflow-hidden rounded-full" style={{ background: "var(--app-border)" }}>
           <div
-            className="h-full rounded-full transition-all duration-300"
+            className="h-full rounded-full transition-all duration-[var(--dur)]"
             style={{
               width: `${binding.progress}%`,
               background: config.color,

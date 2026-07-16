@@ -57,7 +57,7 @@ export default function TodoListItem({
   return (
     <div
       className={`group relative flex items-start gap-2.5 p-4 cursor-pointer rounded-2xl mx-2 my-1
-        transition-all duration-200 ease-out border
+        transition-all duration-[var(--dur-fast)] ease-out border
         ${
           isSelected
             ? "bg-primary/5 border-primary/60 shadow-sm ring-2 ring-primary/10"
@@ -81,7 +81,7 @@ export default function TodoListItem({
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
           <span
-            className={`text-sm font-medium truncate transition-colors duration-200 ${
+            className={`text-sm font-medium truncate transition-colors duration-[var(--dur-fast)] ${
               todo.status === "done"
                 ? "line-through text-muted-foreground/50"
                 : "text-foreground"
@@ -228,7 +228,7 @@ export function SortableTodoListItem({
       </div>
 
       {/* 删除按钮 */}
-      <div className="absolute right-3 top-3 hidden group-hover/sortable:flex">
+      <div className="absolute right-3 top-3 flex opacity-0 group-hover/sortable:opacity-100 focus-within:opacity-100 transition-opacity duration-[var(--dur-fast)]">
         <Button
           size="icon"
           variant="ghost"

@@ -59,7 +59,7 @@ export default function TodoSubtaskList({
           {/* 进度条 */}
           <div className="h-1.5 bg-muted/50 rounded-full overflow-hidden">
             <div
-              className="h-full bg-primary rounded-full transition-all duration-300"
+              className="h-full bg-primary rounded-full transition-all duration-[var(--dur)]"
               style={{
                 width: `${subtasks.length > 0 ? (completed / subtasks.length) * 100 : 0}%`,
               }}
@@ -74,12 +74,12 @@ export default function TodoSubtaskList({
           <div
             key={subtask.id}
             className="group flex items-center gap-2.5 px-3 py-2 rounded-xl
-                       hover:bg-muted/40 hover:shadow-sm transition-all border border-transparent hover:border-border/30"
+                       hover:bg-muted/40 hover:shadow-sm transition-all duration-[var(--dur-fast)] border border-transparent hover:border-border/30"
           >
             {/* 自定义 Checkbox */}
             <button
               onClick={() => onToggle(subtask.id)}
-              className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-all duration-200
+              className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-colors duration-[var(--dur-fast)]
                 ${
                   subtask.completed
                     ? "bg-primary border-primary text-primary-foreground"
@@ -91,7 +91,7 @@ export default function TodoSubtaskList({
 
             {/* 子任务文字 */}
             <span
-              className={`flex-1 text-sm transition-all duration-200 ${
+              className={`flex-1 text-sm transition-colors duration-[var(--dur-fast)] ${
                 subtask.completed
                   ? "line-through text-muted-foreground/50"
                   : "text-foreground"
@@ -104,7 +104,7 @@ export default function TodoSubtaskList({
             <Button
               size="icon"
               variant="ghost"
-              className="h-5 w-5 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+              className="h-5 w-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-[var(--dur-fast)]"
               onClick={() => onDelete(subtask.id)}
             >
               <Trash2 size={10} />

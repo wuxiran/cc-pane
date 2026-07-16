@@ -123,7 +123,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                 key={record.id}
                 role="button"
                 tabIndex={0}
-                className="w-full group flex items-center justify-between px-3 pl-7 py-2 mb-0.5 rounded-xl transition-all duration-300 border border-transparent cursor-pointer text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                className="w-full group flex items-center justify-between px-3 pl-7 py-2 mb-0.5 rounded-xl transition-colors duration-[var(--dur-fast)] border border-transparent cursor-pointer text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                 onClick={() => {
                   if (!record.resumeSessionId) return;
                   handleResume(record);
@@ -158,7 +158,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                   </span>
                   <ResumeDetailPopover record={record} onResume={handleResume} onDelete={onDeleteRecord}>
                     <button
-                      className="p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--app-hover)] text-[var(--app-text-tertiary)]"
+                      className="p-0.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] text-[var(--app-text-tertiary)]"
                     >
                       <Info className="w-3.5 h-3.5" />
                     </button>
@@ -167,7 +167,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                     <TooltipTrigger asChild>
                       <button
                         aria-label={t("deleteRecord")}
-                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--app-hover)] text-[var(--destructive)]"
+                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] text-[var(--destructive)]"
                         onClick={(e) => { e.stopPropagation(); onDeleteRecord(record.id); }}
                       >
                         <X className="w-3.5 h-3.5" />

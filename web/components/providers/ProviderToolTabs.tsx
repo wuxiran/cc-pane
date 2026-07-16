@@ -27,7 +27,7 @@ export default function ProviderToolTabs({ activeTab, onTabChange, providerCount
             key={tab.id}
             type="button"
             className={`
-              inline-flex items-center rounded-lg transition-all font-semibold
+              inline-flex items-center rounded-lg transition-all duration-[var(--dur-fast)] font-semibold
               ${compact ? "gap-1.5 px-2.5 py-1.5 text-xs" : "h-10 gap-2 px-4 text-sm"}
               ${isActive
                 ? "shadow-sm"

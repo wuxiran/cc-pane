@@ -113,7 +113,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
         {/* 进入工作区按钮 */}
         <div className="flex justify-center pt-2 pb-2">
           <button
-            className="inline-flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-[1px] hover:shadow-lg active:translate-y-0"
+            className="inline-flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-[var(--dur-fast)] hover:-translate-y-[1px] hover:shadow-lg active:translate-y-0"
             style={{
               background: "linear-gradient(135deg, var(--app-accent), color-mix(in srgb, var(--app-accent) 60%, black))",
               color: "var(--primary-foreground)",

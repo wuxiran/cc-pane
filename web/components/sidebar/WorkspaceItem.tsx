@@ -392,7 +392,7 @@ export default function WorkspaceItem({
             role="button"
             tabIndex={0}
             aria-expanded={expanded}
-            className={`relative w-full group flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg transition-colors duration-150 ${
+            className={`relative w-full group flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg transition-colors duration-[var(--dur-fast)] ${
               expanded
                 ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
                 : "text-[var(--app-text-primary)] hover:bg-[var(--app-hover)]"
@@ -419,7 +419,7 @@ export default function WorkspaceItem({
                   aria-label={t("workspaceReorderHandle", {
                     defaultValue: "拖动排序工作空间",
                   })}
-                  className="flex h-4 w-3 -ml-1 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] opacity-0 transition-opacity duration-150 cursor-grab group-hover:opacity-50 hover:!opacity-90 hover:text-[var(--app-text-secondary)] active:cursor-grabbing"
+                  className="flex h-4 w-3 -ml-1 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] opacity-0 transition-opacity duration-[var(--dur-fast)] cursor-grab group-hover:opacity-50 hover:!opacity-90 hover:text-[var(--app-text-secondary)] active:cursor-grabbing"
                   onClick={(event) => event.stopPropagation()}
                   {...dragHandleProps}
                 >

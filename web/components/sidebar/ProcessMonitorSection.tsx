@@ -91,7 +91,7 @@ function ProcessItem({
           <button
             onClick={(e) => { e.stopPropagation(); onKill(); }}
             disabled={killing}
-            className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[var(--app-status-danger-bg)] text-[var(--app-text-tertiary)] hover:text-[var(--app-status-danger)] transition-all disabled:opacity-50"
+            className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-0.5 rounded hover:bg-[var(--app-status-danger-bg)] text-[var(--app-text-tertiary)] hover:text-[var(--app-status-danger)] transition-all duration-[var(--dur-fast)] disabled:opacity-50"
           >
             <X className="w-3 h-3" />
           </button>

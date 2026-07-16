@@ -48,7 +48,7 @@ export default function VersionListSidebar({
         filteredVersions.map((version) => (
           <div
             key={version.id}
-            className="px-3 py-2.5 rounded-md cursor-pointer transition-all mb-1"
+            className="px-3 py-2.5 rounded-md cursor-pointer transition-colors duration-[var(--dur-fast)] mb-1"
             style={{
               background: selectedVersion?.id === version.id ? "var(--app-active-bg)" : undefined,
               borderLeft: selectedVersion?.id === version.id ? "3px solid var(--app-accent)" : "3px solid transparent",

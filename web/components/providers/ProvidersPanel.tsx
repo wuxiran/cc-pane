@@ -288,7 +288,7 @@ export default function ProvidersPanel({ compact }: Props = {}) {
                   {group.presets.map((preset) => (
                     <button
                       key={preset.id}
-                      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-all hover:shadow-sm"
+                      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-all duration-[var(--dur-fast)] hover:shadow-sm"
                       style={{
                         border: "1px solid var(--app-border)",
                         background: "var(--app-content)",

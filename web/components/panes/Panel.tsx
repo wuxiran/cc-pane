@@ -453,7 +453,7 @@ export default memo(function Panel({ pane }: PanelProps) {
   return (
     <div
       data-pane-id={pane.id}
-      className={`flex w-full min-w-0 min-h-0 flex-col h-full overflow-hidden transition-shadow duration-300 ${
+      className={`flex w-full min-w-0 min-h-0 flex-col h-full overflow-hidden transition-shadow duration-[var(--dur)] ${
         isFullscreenPanel ? "fixed inset-0 z-[9999]" : ""
       }`}
       style={{
@@ -572,7 +572,7 @@ export default memo(function Panel({ pane }: PanelProps) {
       {/* 全屏退出按钮 */}
       {isFullscreenPanel && (
         <div
-          className="fixed top-4 right-4 z-[10000] flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-all hover:text-[var(--app-text-primary)]"
+          className="fixed top-4 right-4 z-[10000] flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-text-primary)]"
           style={{
             background: "var(--app-overlay)",
             border: "1px solid var(--app-border)",

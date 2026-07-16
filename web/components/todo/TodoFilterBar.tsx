@@ -45,7 +45,7 @@ function PillGroup<T>({
           <button
             key={String(opt.label)}
             onClick={() => onChange(opt.value)}
-            className={`px-2.5 py-0.5 text-xs font-medium rounded-full transition-all duration-200
+            className={`px-2.5 py-0.5 text-xs font-medium rounded-full transition-all duration-[var(--dur-fast)]
               ${
                 isActive
                   ? "bg-primary/20 text-primary font-semibold"
@@ -131,7 +131,7 @@ export default function TodoFilterBar({
             value={searchText}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("todoSearchPlaceholder")}
-            className="h-9 text-sm pl-8 bg-card border border-border/40 rounded-full shadow-sm focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all"
+            className="h-9 text-sm pl-8 bg-card border border-border/40 rounded-full shadow-sm focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all duration-[var(--dur-fast)]"
           />
         </div>
         <DropdownMenu>
