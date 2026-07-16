@@ -234,15 +234,17 @@ function collectRestorableSessions(): SavedSession[] {
 
 function useSessionLayoutPersistence() {
   useEffect(() => {
+    let cancelled = false;
     let unlistenClose: (() => void) | undefined;
     let timer: ReturnType<typeof setInterval> | undefined;
 
     waitForDesktopRuntime().then(async (ready) => {
+      if (cancelled) return;
       if (isTauriRuntime() && !ready) return;
 
       const currentWindow = getCurrentWindowIfTauri();
       if (currentWindow) {
-        unlistenClose = await currentWindow.onCloseRequested(async () => {
+        const unlisten = await currentWindow.onCloseRequested(async () => {
           try {
             const sessions = collectRestorableSessions();
             if (sessions.length > 0) {
@@ -254,8 +256,15 @@ function useSessionLayoutPersistence() {
             console.error("[SessionRestore] Failed to save sessions on close:", err);
           }
         });
+        // await 期间可能已卸载：立即释放，避免监听器泄漏
+        if (cancelled) {
+          unlisten();
+          return;
+        }
+        unlistenClose = unlisten;
       }
 
+      if (cancelled) return;
       timer = setInterval(async () => {
         try {
           const sessions = collectRestorableSessions();
@@ -268,6 +277,7 @@ function useSessionLayoutPersistence() {
     });
 
     return () => {
+      cancelled = true;
       unlistenClose?.();
       if (timer) clearInterval(timer);
     };
