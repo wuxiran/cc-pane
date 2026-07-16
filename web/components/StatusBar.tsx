@@ -132,7 +132,7 @@ export default function StatusBar() {
     <div
       className="flex items-center h-[24px] px-2 shrink-0 select-none z-10 text-[11px]"
       style={{
-        background: "var(--app-activity-bar-bg)",
+        background: "var(--app-menubar)",
         borderTop: "1px solid var(--app-border)",
         backdropFilter: `blur(var(--app-glass-blur-sm))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur-sm))`,

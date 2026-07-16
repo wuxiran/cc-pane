@@ -336,9 +336,9 @@
   /* TitleBar 高光线 */
   --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.05) 80%, transparent);
 
-  /* 组件级变量 —— 活动栏最深(#0A0B0D)、侧边栏抬成独立表面(#16181D)形成明度分层 */
+  /* 组件级变量 —— 明度三档：活动栏最深(#0A0B0D) < 侧边栏(#111318) < 主区(#16181D) */
   --app-activity-bar-bg: var(--app-bg-sidebar-deep);
-  --app-sidebar-bg: #16181D;
+  --app-sidebar-bg: #111318;
   --app-panel-bg: #16181D;
   --app-icon-active: #E6E8EB;
   --app-icon-inactive: #6B7178;
