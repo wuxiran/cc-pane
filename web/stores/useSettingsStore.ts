@@ -147,6 +147,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         "new-tab": "Ctrl+T",
         "close-tab": "Ctrl+W",
         settings: "Ctrl+,",
+        "command-palette": "Ctrl+K",
         "toggle-layouts": "Ctrl+Alt+L",
         "split-right": "Ctrl+\\",
         "split-down": "Ctrl+-",

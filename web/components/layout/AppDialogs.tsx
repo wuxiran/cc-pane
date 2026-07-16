@@ -7,6 +7,7 @@ import TodoPanel from "@/components/TodoPanel";
 import PlansPanel from "@/components/PlansPanel";
 import SelfChatPanel from "@/components/SelfChatPanel";
 import RecentFilesPicker from "@/components/RecentFilesPicker";
+import CommandPalette from "@/components/CommandPalette";
 import { useDialogStore } from "@/stores";
 
 interface AppDialogsProps {
@@ -70,6 +71,9 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
 
       {/* 最近文件选择器（Ctrl+E） */}
       <RecentFilesPicker open={recentFilesOpen} onClose={onCloseRecentFiles} />
+
+      {/* 命令面板（Ctrl+K，终端聚焦时放行给终端） */}
+      <CommandPalette />
     </>
   );
 }

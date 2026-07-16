@@ -13,6 +13,7 @@ import {
 } from "@/stores";
 import { terminalService } from "@/services";
 import { LAYOUT_BAR_TOGGLE_EVENT } from "@/components/LayoutBar";
+import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/components/CommandPalette";
 import { findPaneFocusTarget, readPaneFocusRects, type PaneFocusDirection } from "@/utils/paneFocus";
 import i18n from "@/i18n";
 import type { TerminalPaneLeaf, TerminalPaneNode } from "@/types";
@@ -115,6 +116,11 @@ export function useShortcutRegistrations(): void {
       id: "settings",
       label: i18n.t("settings", { ns: "shortcuts" }),
       handler: () => useDialogStore.getState().openSettings(),
+    });
+    register({
+      id: "command-palette",
+      label: i18n.t("command-palette", { ns: "shortcuts", defaultValue: "命令面板" }),
+      handler: () => window.dispatchEvent(new Event(COMMAND_PALETTE_TOGGLE_EVENT)),
     });
     register({
       id: "toggle-layouts",

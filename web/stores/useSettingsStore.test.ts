@@ -116,10 +116,10 @@ describe("useSettingsStore", () => {
       expect(defaults.cliLaunchers).toEqual({ overrides: {} });
     });
 
-    it("快捷键绑定应有 34 个", () => {
+    it("快捷键绑定应有 35 个", () => {
       const defaults = useSettingsStore.getState().getDefaults();
       const bindingCount = Object.keys(defaults.shortcuts.bindings).length;
-      expect(bindingCount).toBe(34);
+      expect(bindingCount).toBe(35);
     });
 
     it("应包含关键快捷键定义", () => {
