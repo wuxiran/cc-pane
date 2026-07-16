@@ -260,6 +260,14 @@ function SortableTab({
         onClick={isEditing ? undefined : () => onSelect(tab.id)}
         onDoubleClick={isEditing ? undefined : () => onFullscreen(tab.id)}
       >
+        {/* 激活态:底部 accent 下划线,一眼分明 */}
+        {active ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-2.5 bottom-0 h-[2px] rounded-full"
+            style={{ background: "var(--app-accent)" }}
+          />
+        ) : null}
         <StatusIndicator status={getStatus(tab.sessionId ?? null)} size={d.statusSize} />
         {/* 会话绑定标志：绿=已确定 resume id（重启可恢复），灰=未绑定（点击手动绑定） */}
         {tab.contentType === "terminal" && tab.cliTool && tab.cliTool !== "none" && (

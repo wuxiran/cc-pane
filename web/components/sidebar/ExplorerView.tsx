@@ -9,10 +9,10 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
   return (
     <div className="flex h-full flex-col">
       {/* 视图标题栏 */}
-      <div className="shrink-0 px-4 py-2">
+      <div className="shrink-0 px-4 pt-3 pb-1">
         <span
-          className="text-[11px] font-bold tracking-wider"
-          style={{ color: "var(--app-text-primary)" }}
+          className="text-[10px] font-semibold uppercase tracking-[0.09em]"
+          style={{ color: "var(--app-text-tertiary)" }}
         >
           EXPLORER
         </span>

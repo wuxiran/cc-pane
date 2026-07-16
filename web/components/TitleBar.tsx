@@ -63,8 +63,13 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
         }}
       >
         <span
-          className="text-[12px] font-medium truncate max-w-[200px]"
-          style={{ color: "var(--app-text-secondary)" }}
+          aria-hidden="true"
+          className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+          style={{ background: "var(--app-accent)", boxShadow: "var(--hi)" }}
+        />
+        <span
+          className="text-[12px] font-semibold truncate max-w-[240px]"
+          style={{ color: "var(--app-text-primary)" }}
         >
           {workspaceName || "CC-Panes"}
         </span>

@@ -184,18 +184,27 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
   return (
     <>
       {/* Section: 工作空间 */}
-      <div className="flex items-center justify-between px-3 py-3 mt-1 mb-1 group">
+      <div className="flex items-center justify-between px-3 pt-2 pb-1.5 group/section">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-primary)] transition-colors">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--app-text-secondary)] transition-colors">
             {t("workspaces")}
           </span>
           <span
-            className="text-[10px] font-medium tabular-nums leading-none px-1.5 py-0.5 rounded text-[var(--app-text-primary)] transition-colors"
-            style={{ background: "color-mix(in srgb, var(--app-text-primary) 10%, transparent)" }}
+            className="text-[10px] font-medium tabular-nums leading-none px-1.5 py-0.5 rounded text-[var(--app-text-tertiary)] transition-colors"
+            style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
           >
             {workspaces.length}
           </span>
         </div>
+        <button
+          type="button"
+          aria-label={t("newWorkspace")}
+          title={t("newWorkspace")}
+          onClick={actions.handleCreateWorkspace}
+          className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-150 group-hover/section:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <DndContext
@@ -252,10 +261,10 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
 
       {/* 新建工作空间按钮 */}
       <button
-        className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed text-xs font-medium transition-all duration-200 group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_6%,transparent)] hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--app-accent)_25%,transparent),0_4px_16px_-4px_color-mix(in_srgb,var(--app-accent)_30%,transparent)]"
+        className="group w-full mt-3 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-all duration-150 border border-[var(--app-border)] bg-[var(--app-hover)] text-[var(--app-text-secondary)] hover:border-[color-mix(in_srgb,var(--app-accent)_45%,transparent)] hover:text-[var(--app-accent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_8%,transparent)]"
         onClick={actions.handleCreateWorkspace}
       >
-        <Plus className="w-3.5 h-3.5 transition-transform duration-200 group-hover:rotate-90 group-hover:scale-110" />
+        <Plus className="w-3.5 h-3.5 transition-transform duration-150 group-hover:rotate-90" />
         {t("newWorkspace")}
       </button>
 

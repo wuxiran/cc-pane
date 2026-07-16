@@ -460,6 +460,10 @@ export default memo(function Panel({ pane }: PanelProps) {
         background: "var(--app-panel-bg)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
+        // 激活 pane:subtle accent 内环,一眼分清焦点
+        boxShadow: isActivePane
+          ? "inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 20%, transparent)"
+          : "inset 0 0 0 1px transparent",
       }}
       onClick={handlePanelClick}
     >
@@ -532,32 +536,33 @@ export default memo(function Panel({ pane }: PanelProps) {
         {(!activeTab || !activeTab.projectPath) && (
           <div
             className="absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden"
-            style={{ background: "#1a1a1a", paddingTop: tabBarHeight }}
+            style={{ background: "var(--app-panel-bg)", paddingTop: tabBarHeight }}
           >
             {/* 点阵背景 */}
             <div
               className="absolute inset-0 opacity-[0.03]"
               style={{
-                backgroundImage: 'radial-gradient(rgba(255,255,255,0.8) 1px, transparent 1px)',
+                backgroundImage: 'radial-gradient(var(--app-text-primary) 1px, transparent 1px)',
                 backgroundSize: '24px 24px',
               }}
             />
 
             {/* 图标容器 */}
             <div
-              className="relative w-28 h-28 rounded-3xl flex items-center justify-center mb-8 transition-transform duration-700"
+              className="relative w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-transform duration-700"
               style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.1)",
+                background: "color-mix(in srgb, var(--app-accent) 8%, var(--app-hover))",
+                border: "1px solid var(--app-border)",
+                boxShadow: "var(--sh-md), var(--hi)",
               }}
             >
-              <Terminal className="w-12 h-12 opacity-80" style={{ color: "rgba(255,255,255,0.3)" }} />
+              <Terminal className="w-9 h-9" style={{ color: "var(--app-accent)", opacity: 0.85 }} />
             </div>
 
-            <h3 className="text-xl font-medium mb-3 tracking-tight" style={{ color: "rgba(255,255,255,0.85)" }}>
+            <h3 className="text-lg font-semibold mb-2 tracking-tight" style={{ color: "var(--app-text-primary)" }}>
               {t("ready")}
             </h3>
-            <p className="text-center max-w-sm leading-relaxed text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>
+            <p className="text-center max-w-sm leading-relaxed text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("selectProject")}
             </p>
           </div>

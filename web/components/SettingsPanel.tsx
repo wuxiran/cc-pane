@@ -111,38 +111,78 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     toast.info(t("resetDone"));
   }
 
+  const activeSectionMeta = sections.find((s) => s.id === activeSection);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent resizable className="w-[880px] h-[640px] max-w-[95vw] max-h-[90vh] !p-0 flex flex-col overflow-hidden">
-        <DialogHeader className="px-5 pt-4 pb-3" style={{ borderBottom: "1px solid var(--app-border)" }}>
-          <DialogTitle>{t("title")}</DialogTitle>
+      <DialogContent
+        showCloseButton={false}
+        className="!fixed !inset-0 !top-0 !left-0 !translate-x-0 !translate-y-0 !w-screen !h-screen !max-w-none !max-h-none !rounded-none !border-0 !p-0 !gap-0 !shadow-none data-[state=closed]:!zoom-out-100 data-[state=open]:!zoom-in-100 flex flex-col overflow-hidden"
+        style={{ background: "var(--app-content)" }}
+      >
+        <DialogHeader
+          className="flex flex-row items-center gap-3 px-6 h-[52px] shrink-0 space-y-0"
+          style={{ borderBottom: "1px solid var(--app-border)", background: "var(--app-panel-bg)" }}
+        >
+          <span
+            aria-hidden="true"
+            className="flex h-7 w-7 items-center justify-center rounded-lg shrink-0"
+            style={{ background: "color-mix(in srgb, var(--app-accent) 12%, transparent)", color: "var(--app-accent)" }}
+          >
+            <Settings size={16} />
+          </span>
+          <DialogTitle className="text-[15px] font-semibold tracking-tight">{t("title")}</DialogTitle>
+          <button
+            type="button"
+            aria-label={t("close", { ns: "common" })}
+            onClick={() => onOpenChange(false)}
+            className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+          >
+            <span className="text-lg leading-none">×</span>
+          </button>
         </DialogHeader>
 
         <div className="flex flex-1 overflow-hidden">
           {/* 左侧导航 */}
-          <nav className="w-[140px] p-2 flex flex-col gap-0.5 shrink-0" style={{ borderRight: "1px solid var(--app-border)" }}>
+          <nav
+            className="w-[208px] px-3 py-4 flex flex-col gap-0.5 shrink-0 overflow-y-auto"
+            style={{ borderRight: "1px solid var(--app-border)", background: "var(--app-panel-bg)" }}
+          >
             {sections.map((section) => {
               const Icon = section.icon;
+              const active = activeSection === section.id;
               return (
                 <button
                   key={section.id}
-                  className="flex items-center gap-2 px-3 py-2 rounded-md text-left text-[13px] transition-all cursor-pointer border-none"
+                  className="group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-[13px] transition-colors duration-150 cursor-pointer border-none"
                   style={{
-                    background: activeSection === section.id ? "var(--app-active-bg)" : "transparent",
-                    color: activeSection === section.id ? "var(--app-accent)" : "var(--app-text-secondary)",
-                    fontWeight: activeSection === section.id ? 500 : 400,
+                    background: active ? "var(--app-active-bg)" : "transparent",
+                    color: active ? "var(--app-accent)" : "var(--app-text-secondary)",
+                    fontWeight: active ? 600 : 450,
                   }}
+                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "var(--app-hover)"; }}
+                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
                   onClick={() => setActiveSection(section.id)}
                 >
-                  <Icon size={16} />
-                  <span>{section.label}</span>
+                  {active ? (
+                    <span aria-hidden="true" className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-[var(--app-accent)]" />
+                  ) : null}
+                  <Icon size={16} className="shrink-0" />
+                  <span className="truncate">{section.label}</span>
                 </button>
               );
             })}
           </nav>
 
-          {/* 右侧内容 */}
-          <div className="flex-1 px-5 py-4 overflow-y-auto">
+          {/* 右侧内容 — 居中限宽,大屏也不拉伸 */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[760px] px-8 py-7">
+              {activeSectionMeta ? (
+                <div className="mb-5 flex items-center gap-2.5">
+                  <activeSectionMeta.icon size={18} className="text-[var(--app-text-secondary)]" />
+                  <h2 className="text-[17px] font-semibold tracking-tight text-[var(--app-text-primary)]">{activeSectionMeta.label}</h2>
+                </div>
+              ) : null}
             {activeSection === "general" && (
               <GeneralSection value={draft.general} onChange={(v) => setDraft({ ...draft, general: v })} />
             )}
@@ -181,11 +221,15 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
               <ScreenshotSection value={draft.screenshot} onChange={(v) => setDraft({ ...draft, screenshot: v })} />
             )}
             {activeSection === "about" && <AboutSection />}
+            </div>
           </div>
         </div>
 
         {/* 底部操作 */}
-        <div className="flex justify-between items-center px-5 py-3" style={{ borderTop: "1px solid var(--app-border)" }}>
+        <div
+          className="flex justify-between items-center h-[56px] px-6 shrink-0"
+          style={{ borderTop: "1px solid var(--app-border)", background: "var(--app-panel-bg)" }}
+        >
           <Button variant="ghost" size="sm" onClick={handleReset}>{t("reset", { ns: "common" })}</Button>
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={() => onOpenChange(false)}>{t("cancel", { ns: "common" })}</Button>
