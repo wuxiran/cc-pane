@@ -1,6 +1,7 @@
 // 主内容区视图切换：收拢 useActivityBarStore 的全部 appViewMode 分支。
 // 切换语义为"卸载重建"（切走即卸载 panes），终端保活属独立生命周期变更，勿在此改动。
 import Sidebar from "@/components/Sidebar";
+import SidebarTransition from "@/components/layout/SidebarTransition";
 import { PaneContainer } from "@/components/panes";
 import StarredPanel from "@/components/panes/StarredPanel";
 import DndPaneProvider from "@/components/panes/DndPaneProvider";
@@ -68,25 +69,25 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       ) : effectiveAppViewMode === "files" ? (
         /* Files 模式：侧边栏（文件浏览器）+ 文件编辑面板 */
         <>
-          {shouldShowSidebar && (
+          <SidebarTransition visible={shouldShowSidebar}>
             <Sidebar
               activeView={activeView}
               onOpenTerminal={onOpenTerminal}
             />
-          )}
+          </SidebarTransition>
           <div className="flex-1 overflow-hidden" style={{ background: "var(--app-panel-bg)" }}>
             <FileEditorPanel />
           </div>
         </>
       ) : (
         <>
-          {/* 侧边栏 */}
-          {shouldShowSidebar && (
+          {/* 侧边栏（过渡结束后卸载） */}
+          <SidebarTransition visible={shouldShowSidebar}>
             <Sidebar
               activeView={activeView}
               onOpenTerminal={onOpenTerminal}
             />
-          )}
+          </SidebarTransition>
           {/* 面板区域 */}
           <div className="flex-1 overflow-hidden" style={{ background: "var(--app-panel-bg)" }}>
             <DndPaneProvider>
