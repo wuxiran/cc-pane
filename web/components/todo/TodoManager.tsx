@@ -21,6 +21,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { useTodoStore } from "@/stores";
 import TodoSidebar from "./TodoSidebar";
 import TodoFilterBar, { type GroupMode } from "./TodoFilterBar";
@@ -420,18 +421,12 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
           )}
 
           {!loading && todos.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
-              <div className="w-16 h-16 rounded-full bg-muted/50 border border-border/30 flex items-center justify-center mx-auto mb-3">
-                <ListTodo size={28} className="opacity-40" />
-              </div>
-              <p className="text-sm">{t("noTasks")}</p>
-              <button
-                onClick={handleNew}
-                className="text-sm mt-1 text-primary hover:underline cursor-pointer"
-              >
-                {t("clickToCreate")}
-              </button>
-            </div>
+            <EmptyState
+              icon={ListTodo}
+              title={t("noTasks")}
+              action={{ label: t("clickToCreate"), onClick: handleNew }}
+              className="py-12"
+            />
           )}
 
           {/* 分组模式 */}

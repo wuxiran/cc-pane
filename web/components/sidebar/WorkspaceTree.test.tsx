@@ -148,7 +148,8 @@ describe("WorkspaceTree component", () => {
 
   it("点击新建工作空间按钮触发 handleCreateWorkspace", () => {
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
-    fireEvent.click(screen.getByText("newWorkspace"));
+    // 空态下存在多个「新建工作空间」入口（空状态 CTA + 底部按钮），点击其一即可
+    fireEvent.click(screen.getAllByText("newWorkspace")[0]);
     expect(handleCreateWorkspace).toHaveBeenCalledTimes(1);
   });
 });

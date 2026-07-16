@@ -1,7 +1,13 @@
 import "@/i18n";
+import type { ReactElement } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import TitleBar from "./TitleBar";
+
+function renderTitleBar(ui: ReactElement) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>);
+}
 
 const mockUseBorderlessStore = vi.fn();
 const mockStartDrag = vi.fn();
@@ -33,7 +39,7 @@ describe("TitleBar", () => {
   });
 
   it("marks the whole titlebar as a native drag region", () => {
-    const { container } = render(<TitleBar workspaceName="Workspace A" />);
+    const { container } = renderTitleBar(<TitleBar workspaceName="Workspace A" />);
     const titlebar = container.firstElementChild as HTMLDivElement;
 
     expect(titlebar).toHaveAttribute("data-tauri-drag-region", "");
@@ -41,9 +47,9 @@ describe("TitleBar", () => {
   });
 
   it("keeps window controls out of the drag region", () => {
-    render(<TitleBar />);
+    renderTitleBar(<TitleBar />);
 
-    const minimizeButton = screen.getByTitle("最小化");
+    const minimizeButton = screen.getByRole("button", { name: "最小化" });
 
     fireEvent.click(minimizeButton);
     expect(mockMinimizeWindow).toHaveBeenCalledTimes(1);
@@ -51,7 +57,7 @@ describe("TitleBar", () => {
   });
 
   it("starts dragging from the center spacer", () => {
-    render(<TitleBar />);
+    renderTitleBar(<TitleBar />);
 
     fireEvent.mouseDown(screen.getByTestId("titlebar-drag-spacer"), { button: 0 });
 
@@ -59,7 +65,7 @@ describe("TitleBar", () => {
   });
 
   it("toggles fullscreen on center spacer double click", () => {
-    render(<TitleBar />);
+    renderTitleBar(<TitleBar />);
 
     fireEvent.mouseDown(screen.getByTestId("titlebar-drag-spacer"), { button: 0, detail: 2 });
 
@@ -68,7 +74,7 @@ describe("TitleBar", () => {
   });
 
   it("toggles fullscreen on workspace title double click", () => {
-    render(<TitleBar workspaceName="Workspace A" />);
+    renderTitleBar(<TitleBar workspaceName="Workspace A" />);
 
     fireEvent.doubleClick(screen.getByText("Workspace A"));
 
@@ -79,7 +85,7 @@ describe("TitleBar", () => {
   it("hides itself in borderless mode", () => {
     mockUseBorderlessStore.mockReturnValue(true);
 
-    const { container } = render(<TitleBar />);
+    const { container } = renderTitleBar(<TitleBar />);
 
     expect(container).toBeEmptyDOMElement();
   });

@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react";
-import { Trash2, Play, ChevronDown, ChevronRight, Info, X } from "lucide-react";
+import { Trash2, Play, ChevronDown, ChevronRight, Info, X, History } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { formatRelativeTime, buildLaunchRecordTerminalOptions } from "@/utils";
 import { groupByWorkspace } from "@/utils/groupLaunches";
 import ResumeDetailPopover from "@/components/sidebar/ResumeDetailPopover";
@@ -51,18 +53,21 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
             {t("recentLaunches")}
           </span>
           {launchHistory.length > 0 && (
-            <button
-              className="transition-colors p-1 rounded-md text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] hover:text-[var(--destructive)]"
-              onClick={onClearHistory}
-              title={t("clearHistory")}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label={t("clearHistory")}
+                  className="transition-colors p-1 rounded-md text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] hover:text-[var(--destructive)]"
+                  onClick={onClearHistory}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("clearHistory")}</TooltipContent>
+            </Tooltip>
           )}
         </div>
-        <p className="text-xs mt-1 text-[var(--app-text-tertiary)]">
-          {t("noResumableSessions")}
-        </p>
+        <EmptyState icon={History} title={t("noResumableSessions")} className="px-2 py-6" />
       </div>
     );
   }
@@ -74,13 +79,18 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
         <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
           {t("recentLaunches")}
         </span>
-        <button
-          className="transition-colors p-1 rounded-md text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] hover:text-[var(--destructive)]"
-          onClick={onClearHistory}
-          title={t("clearHistory")}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              aria-label={t("clearHistory")}
+              className="transition-colors p-1 rounded-md text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] hover:text-[var(--destructive)]"
+              onClick={onClearHistory}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t("clearHistory")}</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* 工作空间分组 */}
@@ -153,13 +163,18 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                       <Info className="w-3.5 h-3.5" />
                     </button>
                   </ResumeDetailPopover>
-                  <button
-                    className="p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--app-hover)] text-[var(--destructive)]"
-                    onClick={(e) => { e.stopPropagation(); onDeleteRecord(record.id); }}
-                    title={t("deleteRecord")}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        aria-label={t("deleteRecord")}
+                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--app-hover)] text-[var(--destructive)]"
+                        onClick={(e) => { e.stopPropagation(); onDeleteRecord(record.id); }}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("deleteRecord")}</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             ))}

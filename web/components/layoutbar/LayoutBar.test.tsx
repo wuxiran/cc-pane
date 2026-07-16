@@ -1,10 +1,15 @@
 import "@/i18n";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import LayoutBar from "./LayoutBar";
 import { useActivityBarStore, usePanesStore } from "@/stores";
 import { createPanel } from "@/stores/paneTreeHelpers";
+
+// LayoutSelectorPanel 内部使用统一 Tooltip，需要 TooltipProvider 包裹
+const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
 vi.mock("sonner", () => ({
   toast: {

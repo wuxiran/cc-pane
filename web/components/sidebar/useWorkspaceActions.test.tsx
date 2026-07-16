@@ -14,6 +14,7 @@ vi.mock("sonner", () => ({
   toast: {
     info: vi.fn(),
     error: vi.fn(),
+    success: vi.fn(),
   },
 }));
 

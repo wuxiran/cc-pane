@@ -1,5 +1,6 @@
 import { Minus, Square, Copy, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useBorderlessStore } from "@/stores";
 import { useWindowControl } from "@/hooks/useWindowControl";
 
@@ -95,27 +96,42 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
       {/* 右侧：窗口控件（macOS 使用原生红绿灯，不需要自定义按钮） */}
       {!isMac && (
         <div className="flex items-center -mr-1 shrink-0" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          <button
-            className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
-            onClick={minimizeWindow}
-            title={t("minimize")}
-          >
-            <Minus className="w-[13px] h-[13px]" />
-          </button>
-          <button
-            className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
-            onClick={maximizeWindow}
-            title={isMaximized ? t("restoreWindow") : t("maximize")}
-          >
-            {isMaximized ? <Copy className="w-3 h-3" /> : <Square className="w-3 h-3" />}
-          </button>
-          <button
-            className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
-            onClick={closeWindow}
-            title={t("close")}
-          >
-            <X className="w-[13px] h-[13px]" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={t("minimize")}
+                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+                onClick={minimizeWindow}
+              >
+                <Minus className="w-[13px] h-[13px]" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t("minimize")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={isMaximized ? t("restoreWindow") : t("maximize")}
+                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+                onClick={maximizeWindow}
+              >
+                {isMaximized ? <Copy className="w-3 h-3" /> : <Square className="w-3 h-3" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{isMaximized ? t("restoreWindow") : t("maximize")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={t("close")}
+                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-200 text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
+                onClick={closeWindow}
+              >
+                <X className="w-[13px] h-[13px]" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t("close")}</TooltipContent>
+          </Tooltip>
         </div>
       )}
     </div>

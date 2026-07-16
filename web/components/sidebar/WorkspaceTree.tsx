@@ -18,7 +18,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, FolderGit2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { useWorkspacesStore } from "@/stores";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores/useDialogStore";
@@ -107,6 +109,7 @@ function SortableWorkspaceItem(props: SortableWorkspaceItemProps) {
 export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const loading = useWorkspacesStore((s) => s.loading);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
   const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
   const updateWorkspacePath = useWorkspacesStore((s) => s.updateWorkspacePath);
@@ -217,6 +220,15 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
           strategy={verticalListSortingStrategy}
         >
           <div className="flex flex-col gap-1">
+            {loading && workspaces.length === 0 ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-1.5">
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-4 flex-1" />
+                </div>
+              ))
+            ) : (
+              <>
             {workspaces.map((ws) => (
               <SortableWorkspaceItem
                 key={ws.id}
@@ -251,9 +263,14 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
             ))}
 
             {workspaces.length === 0 && (
-              <div className="py-4 text-center text-xs text-[var(--app-text-tertiary)]">
-                {t("noWorkspaces")}
-              </div>
+              <EmptyState
+                icon={FolderGit2}
+                title={t("noWorkspaces")}
+                action={{ label: t("newWorkspace"), onClick: actions.handleCreateWorkspace }}
+                className="py-8"
+              />
+            )}
+              </>
             )}
           </div>
         </SortableContext>

@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { Clock, Tag, GitBranch } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import type { FileVersion, HistoryLabel } from "@/services";
 import { formatRelativeTime, formatFullTime, formatSize } from "@/utils";
 import { getLabelColor } from "./useLocalHistoryData";
@@ -29,9 +31,19 @@ export default function VersionListSidebar({
   return (
     <div className="w-[260px] shrink-0 overflow-y-auto rounded-lg p-2" style={{ border: "1px solid var(--app-border)" }}>
       {loading ? (
-        <div className="py-5 text-center" style={{ color: "var(--app-text-tertiary)" }}>{t("common:loading")}</div>
+        <div className="space-y-1" aria-busy="true" aria-live="polite">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="px-3 py-2.5">
+              <div className="flex items-center gap-1.5">
+                <Skeleton className="h-3 w-3 rounded-full" />
+                <Skeleton className="h-3.5 w-24" />
+              </div>
+              <Skeleton className="mt-2 ml-[18px] h-3 w-16" />
+            </div>
+          ))}
+        </div>
       ) : filteredVersions.length === 0 ? (
-        <div className="py-5 text-center" style={{ color: "var(--app-text-tertiary)" }}>{t("noHistory")}</div>
+        <EmptyState icon={Clock} title={t("noHistory")} className="px-2 py-8" />
       ) : (
         filteredVersions.map((version) => (
           <div

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Pin, PinOff, Plus } from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent, type SensorDescriptor, type SensorOptions } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TFunction } from "i18next";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import { SortableLayoutRow } from "./SortableLayoutRow";
@@ -91,28 +92,37 @@ export function LayoutSelectorPanel({
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label={panelPinned ? t("unpinLayoutPanel") : t("pinLayoutPanel")}
-            aria-pressed={panelPinned}
-            className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)] ${
-              panelPinned ? "text-[var(--app-accent)]" : ""
-            }`}
-            title={panelPinned ? t("unpinLayoutPanel") : t("pinLayoutPanel")}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={handleTogglePanelPinned}
-          >
-            {panelPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-          </button>
-          <button
-            type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
-            title={t("newLayout")}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={handleCreateLayout}
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={panelPinned ? t("unpinLayoutPanel") : t("pinLayoutPanel")}
+                aria-pressed={panelPinned}
+                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)] ${
+                  panelPinned ? "text-[var(--app-accent)]" : ""
+                }`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={handleTogglePanelPinned}
+              >
+                {panelPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{panelPinned ? t("unpinLayoutPanel") : t("pinLayoutPanel")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("newLayout")}
+                className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={handleCreateLayout}
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("newLayout")}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
