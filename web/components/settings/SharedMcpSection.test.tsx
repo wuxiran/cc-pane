@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 import { mcpService } from "@/services";
 import { useSharedMcpStore } from "@/stores";
 import type { SharedMcpServerConfig, SharedMcpServerInfo } from "@/types";
@@ -21,6 +22,9 @@ vi.mock("sonner", () => ({
     info: vi.fn(),
   },
 }));
+
+const tk = (key: string, opts?: Record<string, unknown>) =>
+  String(i18n.t(`settings:${key}` as never, opts as never));
 
 const fetchStatusMock = vi.fn(async () => {});
 const fetchConfigMock = vi.fn(async () => {});
@@ -203,7 +207,7 @@ describe("SharedMcpSection", () => {
     setStore([createServer({ name: "old" })]);
     await renderSection();
 
-    await user.click(screen.getByTitle("Edit"));
+    await user.click(screen.getByTitle(tk("sharedMcp.edit")));
     const nameInput = screen.getByDisplayValue("old");
     await user.clear(nameInput);
     await user.type(nameInput, "new");
@@ -226,9 +230,9 @@ describe("SharedMcpSection", () => {
     ]);
     await renderSection();
 
-    expect(screen.getAllByTitle("Start")).toHaveLength(1);
-    expect(screen.getAllByTitle("Stop")).toHaveLength(1);
-    expect(screen.getAllByTitle("Restart")).toHaveLength(1);
+    expect(screen.getAllByTitle(tk("sharedMcp.start"))).toHaveLength(1);
+    expect(screen.getAllByTitle(tk("sharedMcp.stop"))).toHaveLength(1);
+    expect(screen.getAllByTitle(tk("sharedMcp.restart"))).toHaveLength(1);
   });
 
   it("renders a failed status as a destructive badge with the message", async () => {
@@ -251,19 +255,19 @@ describe("SharedMcpSection", () => {
     ]);
     await renderSection();
 
-    await user.click(screen.getByTitle("Start"));
+    await user.click(screen.getByTitle(tk("sharedMcp.start")));
     await waitFor(() => expect(startServerMock).toHaveBeenCalledWith("stopped"));
 
-    await user.click(screen.getByTitle("Stop"));
+    await user.click(screen.getByTitle(tk("sharedMcp.stop")));
     await waitFor(() => expect(stopServerMock).toHaveBeenCalledWith("running"));
 
-    await user.click(screen.getByTitle("Restart"));
+    await user.click(screen.getByTitle(tk("sharedMcp.restart")));
     await waitFor(() => expect(restartServerMock).toHaveBeenCalledWith("running"));
 
-    await user.click(screen.getAllByTitle("Disable sharing")[0]);
+    await user.click(screen.getAllByTitle(tk("sharedMcp.disableSharing"))[0]);
     await waitFor(() => expect(toggleSharedMock).toHaveBeenCalledWith("stopped", false));
 
-    await user.click(screen.getAllByTitle("Remove")[0]);
+    await user.click(screen.getAllByTitle(tk("sharedMcp.remove"))[0]);
     await waitFor(() => expect(removeServerMock).toHaveBeenCalledWith("stopped"));
   });
 
@@ -273,11 +277,11 @@ describe("SharedMcpSection", () => {
     await renderSection();
 
     await user.click(screen.getByRole("button", { name: /导入 MCP 配置/ }));
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Imported 2 MCP servers"));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(tk("sharedMcp.importedCount", { count: 2 })));
 
     importFromClaudeMock.mockResolvedValueOnce([]);
     await user.click(screen.getByRole("button", { name: /导入 MCP 配置/ }));
-    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("No new servers to import"));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(tk("sharedMcp.noNewServers")));
   });
 
   it("polls fetchStatus every 5 seconds", async () => {

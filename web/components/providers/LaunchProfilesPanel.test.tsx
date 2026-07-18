@@ -1,6 +1,8 @@
+import "@/i18n";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Provider } from "@/types";
@@ -13,6 +15,9 @@ vi.mock("sonner", () => ({
     success: vi.fn(),
   },
 }));
+
+const tp = (key: string, opts?: Record<string, unknown>) =>
+  String(i18n.t(`providers:${key}` as never, opts as never));
 
 const externalSkills: DiscoveredExternalSkill[] = [{
   id: "claude:rust-patterns",
@@ -115,7 +120,7 @@ describe("LaunchProfilesPanel external skills", () => {
 
     await screen.findByText("External Skills");
     await user.click(screen.getByRole("checkbox", { name: "Claude" }));
-    const saveButtons = screen.getAllByRole("button", { name: /保存默认/ });
+    const saveButtons = screen.getAllByRole("button", { name: new RegExp(tp("saveDefault")) });
     await user.click(saveButtons[saveButtons.length - 1]);
 
     await waitFor(() => {
@@ -133,10 +138,10 @@ describe("LaunchProfilesPanel external skills", () => {
     const skillSection = (await screen.findByRole("heading", { name: "Skill" })).closest("section");
     expect(skillSection).not.toBeNull();
     await screen.findByText("Idiomatic Rust");
-    await user.click(within(skillSection as HTMLElement).getByRole("button", { name: "自定义选择" }));
+    await user.click(within(skillSection as HTMLElement).getByRole("button", { name: tp("skillMode.custom") }));
     await user.click(within(skillSection as HTMLElement).getByRole("checkbox", { name: /Idiomatic Rust/ }));
     await user.click(within(skillSection as HTMLElement).getByRole("checkbox", { name: /Idiomatic Rust/ }));
-    const saveButtons = screen.getAllByRole("button", { name: /保存默认/ });
+    const saveButtons = screen.getAllByRole("button", { name: new RegExp(tp("saveDefault")) });
     await user.click(saveButtons[saveButtons.length - 1]);
 
     await waitFor(() => {
@@ -155,8 +160,8 @@ describe("LaunchProfilesPanel external skills", () => {
     await screen.findByText("YOLO mode");
     await user.click(screen.getByRole("checkbox", { name: /YOLO mode/ }));
     // 开启 YOLO 是危险操作，需点"确认开启"二次确认后才写入 draft
-    await user.click(await screen.findByRole("button", { name: /确认开启/ }));
-    const saveButtons = screen.getAllByRole("button", { name: /保存默认/ });
+    await user.click(await screen.findByRole("button", { name: new RegExp(tp("yoloConfirmBtn")) }));
+    const saveButtons = screen.getAllByRole("button", { name: new RegExp(tp("saveDefault")) });
     await user.click(saveButtons[saveButtons.length - 1]);
 
     await waitFor(() => {
@@ -171,14 +176,14 @@ describe("LaunchProfilesPanel external skills", () => {
       savedDraft = draft;
     });
 
-    await user.click(await screen.findByRole("button", { name: /复制为运行配置/ }));
+    await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
 
     const providerSelect = screen.getByLabelText("Provider") as HTMLSelectElement;
     expect(providerSelect.disabled).toBe(true);
-    expect(screen.getByText(/Kimi 显式 Provider 暂未支持完整模型配置/)).toBeTruthy();
+    expect(screen.getByText(new RegExp(tp("kimiManagedHint").split("；")[0]))).toBeTruthy();
 
-    await user.selectOptions(screen.getByLabelText("Kimi 配置来源"), "native");
-    await user.click(screen.getByRole("button", { name: /保存为运行配置/ }));
+    await user.selectOptions(screen.getByLabelText(tp("fieldKimiConfigSource")), "native");
+    await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
 
     await waitFor(() => {
       expect(savedDraft?.providerId).toBeNull();
