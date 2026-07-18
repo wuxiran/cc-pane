@@ -74,39 +74,60 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
   it("home → HomeDashboard 全屏", () => {
     setMode("home");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("home-dashboard")).toBeInTheDocument();
+    expect(screen.getByTestId("home-dashboard")).toBeVisible();
     expect(screen.queryByTestId("sidebar")).toBeNull();
+  });
+
+  it("keep-alive：切走隐藏不卸载，切回即显示；未访问过的模式不挂载", () => {
+    setMode("home");
+    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getByTestId("home-dashboard")).toBeVisible();
+    // 未访问过 todo：不应挂载
+    expect(screen.queryByTestId("todo-manager")).toBeNull();
+
+    // 切到 panes：home 保持挂载但隐藏
+    setMode("panes");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getByTestId("pane-container")).toBeVisible();
+    expect(screen.getByTestId("home-dashboard")).not.toBeVisible();
+
+    // 切回 home：同一实例重新显示，panes（含终端）保持挂载
+    setMode("home");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getByTestId("home-dashboard")).toBeVisible();
+    expect(screen.getByTestId("pane-container")).not.toBeVisible();
+    expect(screen.getAllByTestId("home-dashboard")).toHaveLength(1);
   });
 
   it("todo → TodoManager 全屏", () => {
     setMode("todo");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("todo-manager")).toBeInTheDocument();
+    expect(screen.getByTestId("todo-manager")).toBeVisible();
   });
 
   it("selfchat → SelfChatManager 全屏", () => {
     setMode("selfchat");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("selfchat-manager")).toBeInTheDocument();
+    expect(screen.getByTestId("selfchat-manager")).toBeVisible();
   });
 
   it("providers → ProvidersPanel 全屏", () => {
     setMode("providers");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("providers-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("providers-panel")).toBeVisible();
   });
 
   it("resources → ResourceHub 全屏", () => {
     setMode("resources");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("resource-hub")).toBeInTheDocument();
+    expect(screen.getByTestId("resource-hub")).toBeVisible();
   });
 
   it("files → Sidebar + FileEditorPanel 组合", () => {
     setMode("files", { activeView: "files" });
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
-    expect(screen.getByTestId("file-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("file-editor")).toBeVisible();
   });
 
   it("panes → Sidebar + PaneContainer，隐藏侧栏时只剩面板", () => {
