@@ -1,0 +1,18 @@
+{
+  "save": "保存 (Ctrl+S)",
+  "undo": "撤销 (Ctrl+Z)",
+  "redo": "重做 (Ctrl+Shift+Z)",
+  "editMode": "编辑",
+  "previewMode": "预览",
+  "splitPreview": "分屏预览",
+  "modified": "已修改",
+  "zoomIn": "放大",
+  "zoomOut": "缩小",
+  "fitToView": "适应窗口",
+  "actualSize": "1:1 实际大小",
+  "refresh": "刷新",
+  "newFile": "新建文件",
+  "newFolder": "新建文件夹",
+  "showHidden": "显示隐藏文件",
+  "hideHidden": "隐藏隐藏文件"
+}

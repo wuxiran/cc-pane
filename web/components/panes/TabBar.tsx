@@ -740,7 +740,7 @@ export default memo(function TabBar({
             ))}
             <button
               type="button"
-              aria-label="New tab"
+              aria-label={t("newTab")}
               className={`${d.addBtn} shrink-0 rounded-lg transition-colors text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]`}
               onClick={onAdd}
             >

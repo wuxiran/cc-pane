@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { CSSProperties } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
@@ -6,8 +7,8 @@ import { useOrchestratorStore, useWorkspacesStore } from "@/stores";
 import type { TaskBindingRole } from "@/types";
 import { getProjectLabel, getProjectName } from "./OrchestratorTaskUtils";
 
-const ROLE_OPTIONS: Array<{ value: TaskBindingRole | null; label: string }> = [
-  { value: null, label: "All" },
+const ROLE_OPTIONS: Array<{ value: TaskBindingRole | null; label: string | null }> = [
+  { value: null, label: null },
   { value: "task", label: "🎯" },
   { value: "leader", label: "📋" },
   { value: "worker", label: "⚙️" },
@@ -15,13 +16,16 @@ const ROLE_OPTIONS: Array<{ value: TaskBindingRole | null; label: string }> = [
 
 function chipStyle(active: boolean): CSSProperties {
   return {
-    background: active ? "var(--app-accent)" : "var(--app-input-bg)",
-    color: active ? "white" : "var(--app-text-secondary)",
+    background: active
+      ? "color-mix(in srgb, var(--app-accent) 12%, transparent)"
+      : "var(--app-input-bg)",
+    color: active ? "var(--app-accent)" : "var(--app-text-secondary)",
     border: "1px solid var(--app-border)",
   };
 }
 
 export default function OrchestratorFilterBar() {
+  const { t } = useTranslation("orchestration");
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const filterWorkspace = useOrchestratorStore((s) => s.filterWorkspace);
   const filterProjectPath = useOrchestratorStore((s) => s.filterProjectPath);
@@ -50,9 +54,9 @@ export default function OrchestratorFilterBar() {
           <button
             className="min-w-0 max-w-[88px] truncate rounded px-2 py-1 text-[11px]"
             style={chipStyle(Boolean(filterWorkspace))}
-            title={filterWorkspace ?? "All workspaces"}
+            title={filterWorkspace ?? t("sidebar.allWorkspaces")}
           >
-            {filterWorkspace ?? "Workspace"}
+            {filterWorkspace ?? t("sidebar.workspace")}
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 p-2">
@@ -60,7 +64,7 @@ export default function OrchestratorFilterBar() {
             className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--app-hover)]"
             onClick={() => setFilterWorkspace(null)}
           >
-            All workspaces
+            {t("sidebar.allWorkspaces")}
           </button>
           {workspaces.map((workspace) => (
             <button
@@ -79,9 +83,9 @@ export default function OrchestratorFilterBar() {
           <button
             className="min-w-0 max-w-[86px] truncate rounded px-2 py-1 text-[11px]"
             style={chipStyle(Boolean(filterProjectPath))}
-            title={selectedProject?.path ?? "All projects"}
+            title={selectedProject?.path ?? t("sidebar.allProjects")}
           >
-            {selectedProject ? getProjectLabel(selectedProject) : "Project"}
+            {selectedProject ? getProjectLabel(selectedProject) : t("sidebar.project")}
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-72 p-2">
@@ -89,7 +93,7 @@ export default function OrchestratorFilterBar() {
             className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--app-hover)]"
             onClick={() => setFilterProjectPath(null)}
           >
-            All projects
+            {t("sidebar.allProjects")}
           </button>
           <div className="max-h-60 overflow-y-auto">
             {availableProjects.map((project) => (
@@ -115,13 +119,16 @@ export default function OrchestratorFilterBar() {
             key={option.value ?? "all"}
             className="h-6 min-w-6 px-1.5 text-[11px]"
             style={{
-              background: filterRole === option.value ? "var(--app-accent)" : "var(--app-input-bg)",
-              color: filterRole === option.value ? "white" : "var(--app-text-secondary)",
+              background:
+                filterRole === option.value
+                  ? "color-mix(in srgb, var(--app-accent) 12%, transparent)"
+                  : "var(--app-input-bg)",
+              color: filterRole === option.value ? "var(--app-accent)" : "var(--app-text-secondary)",
             }}
             onClick={() => setFilterRole(option.value)}
-            title={option.value ?? "All roles"}
+            title={option.value ?? t("sidebar.allRoles")}
           >
-            {option.label}
+            {option.label ?? t("sidebar.roleAll")}
           </button>
         ))}
       </div>
@@ -132,7 +139,7 @@ export default function OrchestratorFilterBar() {
           className="h-6 rounded px-6 text-xs"
           value={searchKeyword}
           onChange={(event) => setSearchKeyword(event.target.value)}
-          placeholder="Search"
+          placeholder={t("searchPlaceholder")}
         />
       </div>
     </div>

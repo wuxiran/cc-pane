@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import EditorToolbar from "./EditorToolbar";
+
+const modifiedLabel = String(i18n.t("editor:modified"));
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
@@ -39,7 +42,7 @@ describe("EditorToolbar", () => {
     expect(screen.getByText("typescript")).toBeInTheDocument();
     // 仅 save/undo/redo 三个按钮
     expect(screen.getAllByRole("button")).toHaveLength(3);
-    expect(screen.queryByText("Modified")).not.toBeInTheDocument();
+    expect(screen.queryByText(modifiedLabel)).not.toBeInTheDocument();
   });
 
   it("disables save unless dirty and writable", () => {
@@ -65,7 +68,7 @@ describe("EditorToolbar", () => {
   it("shows the Modified marker and enables save when dirty", async () => {
     const user = userEvent.setup();
     const props = renderToolbar({ dirty: true });
-    expect(screen.getByText("Modified")).toBeInTheDocument();
+    expect(screen.getByText(modifiedLabel)).toBeInTheDocument();
 
     const saveBtn = screen.getAllByRole("button")[0];
     expect(saveBtn).toBeEnabled();

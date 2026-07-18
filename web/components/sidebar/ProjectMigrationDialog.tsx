@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   ArrowRight,
@@ -46,6 +47,7 @@ export default function ProjectMigrationDialog({
   workspace,
   project,
 }: ProjectMigrationDialogProps) {
+  const { t } = useTranslation(["dialogs", "common"]);
   const reloadWorkspaces = useWorkspacesStore((state) => state.load);
   const platform = useMemo(() => detectAppPlatform(), []);
   const isWindows = platform === "windows";
@@ -126,7 +128,7 @@ export default function ProjectMigrationDialog({
       setMigrationResult(result);
       setPreviewKey(currentRequestKey);
       await reloadWorkspaces();
-      toast.success("Project migration completed. Source directory was not deleted.");
+      toast.success(t("projectMigration.migrationDone"));
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -141,7 +143,7 @@ export default function ProjectMigrationDialog({
       await rollbackProjectMigration(workspace.name, migrationResult.snapshotId);
       await reloadWorkspaces();
       setMigrationResult(null);
-      toast.success("Project migration config rolled back. Copied target files were kept.");
+      toast.success(t("projectMigration.rollbackDone"));
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -159,7 +161,7 @@ export default function ProjectMigrationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Project To WSL</DialogTitle>
+          <DialogTitle>{t("projectMigration.title")}</DialogTitle>
         </DialogHeader>
 
         {!workspace || !project ? null : (
@@ -169,32 +171,32 @@ export default function ProjectMigrationDialog({
                 {project.alias || project.path.split(/[/\\]/).pop() || project.path}
               </div>
               <div className="mt-1 text-xs text-[var(--app-text-secondary)]">
-                Workspace: {workspace.alias || workspace.name}
+                {t("projectMigration.workspace", { name: workspace.alias || workspace.name })}
               </div>
               <div className="mt-1 text-xs text-[var(--app-text-secondary)]">
-                Source: {project.path}
+                {t("projectMigration.source", { path: project.path })}
               </div>
               <div className="mt-2 text-xs text-[var(--app-status-warning)]">
-                Flow is always preview, copy, verify, then switch metadata. The source directory is kept.
+                {t("projectMigration.flowHint")}
               </div>
             </div>
 
             {!isWindows ? (
               <div className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] p-3 text-sm text-[var(--app-status-warning)]">
-                WSL project migration is only available on Windows.
+                {t("projectMigration.windowsOnly")}
               </div>
             ) : null}
 
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm font-medium text-[var(--app-text-primary)]">
                 <MonitorSmartphone className="h-4 w-4 text-[var(--app-accent)]" />
-                WSL Target
+                {t("projectMigration.wslTarget")}
               </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <label className="text-xs font-medium text-[var(--app-text-secondary)]">
-                    Distro
+                    {t("projectMigration.distro")}
                   </label>
                   <button
                     className="inline-flex items-center gap-1 text-xs text-[var(--app-text-secondary)] hover:text-[var(--app-accent)]"
@@ -202,7 +204,7 @@ export default function ProjectMigrationDialog({
                     type="button"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${wslLoading ? "animate-spin" : ""}`} />
-                    Refresh
+                    {t("projectMigration.refresh")}
                   </button>
                 </div>
                 <select
@@ -210,11 +212,11 @@ export default function ProjectMigrationDialog({
                   onChange={(event) => setTargetDistro(event.target.value)}
                   value={targetDistro}
                 >
-                  <option value="">Use default distro</option>
+                  <option value="">{t("projectMigration.useDefaultDistro")}</option>
                   {wslDistros.map((distro) => (
                     <option key={distro.name} value={distro.name}>
                       {distro.name}
-                      {distro.isDefault ? " (Default)" : ""}
+                      {distro.isDefault ? t("projectMigration.defaultSuffix") : ""}
                     </option>
                   ))}
                 </select>
@@ -222,7 +224,7 @@ export default function ProjectMigrationDialog({
 
               <div className="space-y-2">
                 <label className="text-xs font-medium text-[var(--app-text-secondary)]">
-                  Target path
+                  {t("projectMigration.targetPath")}
                 </label>
                 <Input
                   value={targetRoot}
@@ -234,11 +236,11 @@ export default function ProjectMigrationDialog({
               <div className="flex flex-wrap gap-2">
                 <Button disabled={!isWindows} onClick={handlePreview} type="button" variant="outline">
                   {loading === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Preview
+                  {t("projectMigration.preview")}
                 </Button>
                 <Button disabled={!isWindows || !canExecute} onClick={handleExecute} type="button">
                   {loading === "execute" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Execute
+                  {t("projectMigration.execute")}
                 </Button>
                 {migrationResult ? (
                   <Button
@@ -252,7 +254,7 @@ export default function ProjectMigrationDialog({
                     ) : (
                       <RotateCcw className="h-4 w-4" />
                     )}
-                    Rollback Metadata
+                    {t("projectMigration.rollbackMetadata")}
                   </Button>
                 ) : null}
               </div>
@@ -262,7 +264,7 @@ export default function ProjectMigrationDialog({
               <div className="rounded-lg border border-[var(--app-border)]">
                 <div className="border-b border-[var(--app-border)] px-4 py-3">
                   <div className="text-sm font-medium text-[var(--app-text-primary)]">
-                    Preview
+                    {t("projectMigration.previewTitle")}
                   </div>
                   <div className="mt-1 text-xs text-[var(--app-text-secondary)]">
                     {previewPlan.sourcePath}
@@ -272,9 +274,9 @@ export default function ProjectMigrationDialog({
                 </div>
 
                 <div className="space-y-2 px-4 py-3 text-xs text-[var(--app-text-secondary)]">
-                  <div>Project: {previewPlan.projectName}</div>
-                  <div>Target root: {previewPlan.targetRoot}</div>
-                  {previewPlan.targetDistro ? <div>Distro: {previewPlan.targetDistro}</div> : null}
+                  <div>{t("projectMigration.project", { name: previewPlan.projectName })}</div>
+                  <div>{t("projectMigration.targetRoot", { path: previewPlan.targetRoot })}</div>
+                  {previewPlan.targetDistro ? <div>{t("projectMigration.distroLine", { name: previewPlan.targetDistro })}</div> : null}
                   {previewPlan.warnings.length > 0 ? (
                     <div className="space-y-1 pt-2 text-[var(--app-status-warning)]">
                       {previewPlan.warnings.map((warning) => (
@@ -289,9 +291,9 @@ export default function ProjectMigrationDialog({
             {migrationResult ? (
               <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-status-success)_30%,transparent)] bg-[var(--app-status-success-bg)] px-4 py-3 text-sm text-[var(--app-status-success)]">
                 <div>
-                  Copied files: {migrationResult.copiedFiles}, copied size: {formatSize(migrationResult.copiedBytes)}
+                  {t("projectMigration.copiedSummary", { files: migrationResult.copiedFiles, size: formatSize(migrationResult.copiedBytes) })}
                 </div>
-                <div className="mt-1 text-xs">Snapshot: {migrationResult.snapshotId}</div>
+                <div className="mt-1 text-xs">{t("projectMigration.snapshot", { id: migrationResult.snapshotId })}</div>
               </div>
             ) : null}
           </div>
@@ -299,7 +301,7 @@ export default function ProjectMigrationDialog({
 
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)} type="button" variant="secondary">
-            Close
+            {t("common:close")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,10 @@ import {
   useTerminalStatusStore,
 } from "@/stores";
 import type { TaskBinding, TerminalStatusInfo } from "@/types";
+
+const tt = (k: string, opts?: Record<string, unknown>) =>
+  String(i18n.t(k as never, opts as never));
+const tRe = (k: string) => new RegExp(tt(k));
 
 const killIdempotent = vi.fn(async (..._a: unknown[]) => undefined);
 const createSession = vi.fn(async (..._a: unknown[]) => "session-new");
@@ -74,7 +78,7 @@ function setSessionStatus(sessionId: string, status: TerminalStatusInfo["status"
 }
 
 async function openMenu(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByTitle("Actions"));
+  await user.click(screen.getByTitle(tt("orchestration:sidebar.actions")));
 }
 
 describe("OrchestratorTaskActions", () => {
@@ -93,13 +97,13 @@ describe("OrchestratorTaskActions", () => {
 
     await openMenu(user);
 
-    expect(await screen.findByRole("menuitem", { name: /Details/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Kill/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Retry/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Edit/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Send message/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Mute/ })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /Delete/ })).toBeVisible();
+    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.details") })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: tRe("orchestration:sidebar.kill") })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: tRe("orchestration:sidebar.retry") })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: tRe("orchestration:sidebar.edit") })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: tRe("orchestration:sidebar.sendMessage") })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: tRe("orchestration:sidebar.mute") })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: tRe("orchestration:sidebar.delete") })).toBeVisible();
   });
 
   it("opens task details and the orchestration overlay", async () => {
@@ -109,7 +113,7 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    await user.click(await screen.findByRole("menuitem", { name: /Details/ }));
+    await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.details") }));
 
     expect(setSelectedTaskId).toHaveBeenCalledWith(binding.id);
     expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(true);
@@ -122,7 +126,7 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: /Kill/ })).toHaveAttribute("data-disabled");
+    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.kill") })).toHaveAttribute("data-disabled");
   });
 
   it("kills a running session and marks the task failed", async () => {
@@ -132,7 +136,7 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    await user.click(await screen.findByRole("menuitem", { name: /Kill/ }));
+    await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.kill") }));
 
     await waitFor(() => expect(killIdempotent).toHaveBeenCalledWith("sess-1"));
     expect(updatePatch).toHaveBeenCalledWith(
@@ -148,14 +152,14 @@ describe("OrchestratorTaskActions", () => {
     const { unmount } = render(<OrchestratorTaskActions binding={running} />);
 
     await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: /Retry/ })).toHaveAttribute("data-disabled");
+    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.retry") })).toHaveAttribute("data-disabled");
     unmount();
 
     const failed = createBinding({ status: "failed" });
     seedStore([failed]);
     render(<OrchestratorTaskActions binding={failed} />);
     await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: /Retry/ })).not.toHaveAttribute("data-disabled");
+    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.retry") })).not.toHaveAttribute("data-disabled");
   });
 
   it("edits the task title and prompt", async () => {
@@ -165,12 +169,12 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    await user.click(await screen.findByRole("menuitem", { name: /Edit/ }));
+    await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.edit") }));
 
     const titleInput = await screen.findByDisplayValue("Old");
     await user.clear(titleInput);
     await user.type(titleInput, "New title");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: tt("common:save") }));
 
     await waitFor(() =>
       expect(updatePatch).toHaveBeenCalledWith(
@@ -187,7 +191,7 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    await user.click(await screen.findByRole("menuitem", { name: /Delete/ }));
+    await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.delete") }));
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith(binding.id));
     expect(removeCascade).not.toHaveBeenCalled();
@@ -201,12 +205,12 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={leader} />);
 
     await openMenu(user);
-    await user.click(await screen.findByRole("menuitem", { name: /Delete/ }));
+    await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.delete") }));
 
     // A confirmation dialog listing descendants appears.
-    expect(await screen.findByText(/Delete leader and workers/)).toBeVisible();
+    expect(await screen.findByText(tRe("orchestration:sidebar.deleteCascadeTitle"))).toBeVisible();
     expect(screen.getByText("child worker")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: tt("common:delete") }));
 
     await waitFor(() => expect(removeCascade).toHaveBeenCalledWith(leader.id));
     expect(remove).not.toHaveBeenCalled();
@@ -219,7 +223,7 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    await user.click(await screen.findByRole("menuitem", { name: /Mute/ }));
+    await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.mute") }));
 
     await waitFor(() =>
       expect(updatePatch).toHaveBeenCalledWith(
@@ -236,7 +240,7 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: /Mute/ })).toHaveAttribute("data-disabled");
+    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.mute") })).toHaveAttribute("data-disabled");
   });
 
   it("disables Send message unless the session is idle or waiting for input", async () => {
@@ -247,7 +251,7 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    expect(await screen.findByRole("menuitem", { name: /Send message/ })).toHaveAttribute("data-disabled");
+    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.sendMessage") })).toHaveAttribute("data-disabled");
   });
 
   it("sends a message to an idle session", async () => {
@@ -258,11 +262,13 @@ describe("OrchestratorTaskActions", () => {
     render(<OrchestratorTaskActions binding={binding} />);
 
     await openMenu(user);
-    await user.click(await screen.findByRole("menuitem", { name: /Send message/ }));
+    await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.sendMessage") }));
 
-    const box = await screen.findByPlaceholderText(/Message to/);
+    const box = await screen.findByPlaceholderText(
+      new RegExp(tt("orchestration:sidebar.messageTo", { name: "frontend" })),
+    );
     await user.type(box, "please continue");
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.click(screen.getByRole("button", { name: tt("orchestration:sidebar.send") }));
 
     await waitFor(() => expect(submitToSession).toHaveBeenCalledWith("sess-3", "please continue"));
   });

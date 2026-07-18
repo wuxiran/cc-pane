@@ -7,7 +7,6 @@
   "projectAliasPlaceholder": "留空则使用文件夹名",
   "setWorkspaceAlias": "设置工作空间别名",
   "workspaceAliasPlaceholder": "留空则使用原始名称",
-
   "gitCloneTitle": "克隆到「{{name}}」",
   "repoUrl": "仓库 URL",
   "cloneDir": "克隆到目录",
@@ -26,7 +25,6 @@
   "cloneFieldsRequired": "请填写完整的 URL、目标目录和项目文件夹名",
   "cloneSuccess": "克隆成功",
   "cloneFailed": "克隆失败: {{error}}",
-
   "journalTitle": "会话日志",
   "saveSession": "保存会话摘要",
   "sessionTitleLabel": "标题 *",
@@ -40,7 +38,6 @@
   "saving": "保存中...",
   "saveSession2": "保存会话",
   "noSessions": "暂无会话记录",
-
   "localHistoryTitle": "文件历史 - {{path}}",
   "diff": "差异",
   "fullContent": "完整内容",
@@ -65,7 +62,6 @@
   "sessionSaveFailed": "保存失败: {{error}}",
   "selectCloneDir": "选择克隆到的目录",
   "selectParentDir": "选择父目录",
-
   "worktreeTitle": "Git Worktree 管理",
   "createWorktree": "创建新 Worktree",
   "worktreeNamePlaceholder": "名称（如：feature-login）",
@@ -77,21 +73,17 @@
   "confirmDeleteWorktree": "确定要删除 Worktree \"{{path}}\" 吗？",
   "createWorktreeFailed": "创建 Worktree 失败: {{error}}",
   "deleteWorktreeFailed": "删除 Worktree 失败: {{error}}",
-
   "scanTitle": "扫描结果",
   "scanSummary": "发现 {{repoCount}} 个仓库，共 {{totalCount}} 个项目",
   "mainBadge": "主",
   "importCount": "导入 {{count}} 个项目",
-
   "diffComputing": "计算差异中...",
   "diffSelectVersion": "选择一个版本查看差异",
   "diffBinaryFile": "二进制文件，无法显示差异",
   "diffTooLarge": "文件超过 10000 行，差异计算已跳过",
   "diffNoChanges": "文件内容没有变更",
   "diffLineCount": "{{count}} 行",
-
   "sessionCleanerTitle": "会话修复",
-
   "todoTitle": "TodoList",
   "noTasks": "暂无任务",
   "clickToCreate": "点击 + 创建",
@@ -105,7 +97,6 @@
   "addSubtaskFailed": "添加子任务失败: {{error}}",
   "toggleSubtaskFailed": "切换子任务失败: {{error}}",
   "deleteSubtaskFailed": "删除子任务失败: {{error}}",
-
   "memoryTitle": "Memory",
   "memoryAll": "全部",
   "memoryGlobal": "全局",
@@ -130,7 +121,6 @@
   "memoryCreated": "Memory 已创建",
   "memoryUpdated": "Memory 已更新",
   "memoryDeleted": "Memory 已删除",
-
   "skillTitle": "Skill 命令",
   "noSkills": "暂无 Skill",
   "selectOrCreateSkill": "选择一个 Skill 或创建新的",
@@ -140,7 +130,6 @@
   "skillCommandName": "命令名称",
   "skillCommandNamePlaceholder": "如 create-component",
   "skillEditorPlaceholder": "在这里编写 Skill 的 Markdown 内容...",
-
   "todoNewTask": "新建任务",
   "todoDetail": "任务详情",
   "todoTitlePlaceholder": "输入任务标题...",
@@ -213,12 +202,10 @@
   "todoTypeChore": "杂务",
   "todoAddType": "添加类型",
   "todoTypeAll": "所有类型",
-
   "memoryPickerTitle": "选择 Memory",
   "memoryPickerSearch": "搜索 Memory...",
   "memoryPickerSelected": "已选择 {{count}} 条",
   "memoryPickerNoMemory": "暂无 Memory",
-
   "sessionCleanerTitleWithName": "会话修复 - {{name}}",
   "sessionCleanerDesc": "扫描 Claude Code 会话文件中的 <code>thinking</code> / <code>redacted_thinking</code> 块。这些块可能包含无效签名，导致 API 返回 400 错误。",
   "sessionCleanerScanning": "正在扫描会话文件...",
@@ -229,24 +216,19 @@
   "sessionCleanerBlocks": "{{count}} 个块",
   "sessionCleanerResults": "清理结果",
   "sessionCleanerRemoved": "移除 {{count}} 个块",
-
   "recentChangesTitle": "最近更改",
   "recentChangesAllWorktrees": "查看所有 Worktree 的变更",
   "recentChangesNoChanges": "暂无变更记录",
   "recentChangesMainRepo": "主仓库",
   "recentChangesUnknownBranch": "未知分支",
-
   "scanSelectAll": "全选",
   "scanDeselectAll": "取消全选",
-
   "noActiveSessions": "无活跃会话",
   "unpinWindow": "取消置顶",
   "pinWindow": "窗口置顶",
   "restoreWindowSize": "恢复窗口",
-
   "switchToLight": "切换到亮色模式",
   "switchToDark": "切换到暗色模式",
-
   "statusActive": "运行中",
   "statusWaitingInput": "等待授权",
   "statusIdle": "空闲",
@@ -256,9 +238,7 @@
   "statusToolRunning": "工具运行",
   "statusCompacting": "压缩上下文",
   "statusError": "错误",
-
   "notificationDesc": "窗口失焦时通过系统桌面通知提醒关键事件",
-
   "projectRestore": "项目恢复",
   "noSnapshots": "暂无快照标签。启动 Claude Code 时会自动创建项目快照。",
   "labelSourceClaudeSession": "CC 会话",
@@ -270,5 +250,30 @@
   "loadingFileList": "加载文件列表...",
   "noFileHistory": "暂无文件历史记录",
   "autoTrackChanges": "项目中的文件变更将自动记录",
-  "diffEarliestToCurrent": "最早版本 -> 当前文件"
+  "diffEarliestToCurrent": "最早版本 -> 当前文件",
+  "projectMigration": {
+    "title": "迁移项目到 WSL",
+    "workspace": "工作空间：{{name}}",
+    "source": "源目录：{{path}}",
+    "flowHint": "流程固定为：预览 → 复制 → 校验 → 切换元数据。源目录会保留。",
+    "windowsOnly": "WSL 项目迁移仅在 Windows 上可用。",
+    "wslTarget": "WSL 目标",
+    "distro": "发行版",
+    "refresh": "刷新",
+    "useDefaultDistro": "使用默认发行版",
+    "defaultSuffix": "（默认）",
+    "targetPath": "目标路径",
+    "preview": "预览",
+    "execute": "执行",
+    "rollbackMetadata": "回滚元数据",
+    "previewTitle": "预览",
+    "project": "项目：{{name}}",
+    "targetRoot": "目标根目录：{{path}}",
+    "distroLine": "发行版：{{name}}",
+    "copiedSummary": "已复制 {{files}} 个文件，共 {{size}}",
+    "snapshot": "快照：{{id}}",
+    "migrationDone": "项目迁移完成，源目录未删除。",
+    "rollbackDone": "迁移配置已回滚，已复制到目标的文件保留。"
+  },
+  "workspaceAnchorPathPlaceholder": "可选的工作空间锚点路径"
 }

@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ZoomIn, ZoomOut, Maximize, Scan } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ function getExtensionLabel(filePath: string): string {
 }
 
 export default function ImagePreview({ filePath }: ImagePreviewProps) {
+  const { t } = useTranslation("editor");
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
@@ -165,7 +167,7 @@ export default function ImagePreview({ filePath }: ImagePreviewProps) {
                 <ZoomOut size={13} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Zoom Out</TooltipContent>
+            <TooltipContent>{t("zoomOut")}</TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -179,7 +181,7 @@ export default function ImagePreview({ filePath }: ImagePreviewProps) {
                 <ZoomIn size={13} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Zoom In</TooltipContent>
+            <TooltipContent>{t("zoomIn")}</TooltipContent>
           </Tooltip>
 
           <div className="w-px h-4 bg-border mx-1" />
@@ -195,7 +197,7 @@ export default function ImagePreview({ filePath }: ImagePreviewProps) {
                 <Maximize size={13} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Fit to View</TooltipContent>
+            <TooltipContent>{t("fitToView")}</TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -209,7 +211,7 @@ export default function ImagePreview({ filePath }: ImagePreviewProps) {
                 <Scan size={13} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>1:1 Actual Size</TooltipContent>
+            <TooltipContent>{t("actualSize")}</TooltipContent>
           </Tooltip>
 
           <div className="flex-1" />

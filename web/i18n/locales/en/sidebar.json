@@ -137,6 +137,9 @@
   "goForward": "Forward",
   "goUp": "Up",
   "refresh": "Refresh",
+  "goToProjectRoot": "Go to Project Root",
+  "collapseAll": "Collapse All",
+  "revealActiveFile": "Reveal Active File",
   "noPath": "Select a directory to browse",
   "openInFileBrowser": "Open in File Browser",
   "noOpenFiles": "No open files",
@@ -286,5 +289,6 @@
   "workspaceEnv.cliDefaults.inheritWith": "Inherit Default ({{environment}})",
   "workspaceEnv.cliDefaults.invalidConfig": "A CLI default environment is not fully configured. Complete it or switch back to inherit default.",
   "workspaceEnv.launchThisTime": "Choose Environment For This Launch",
-  "moreLaunchActions": "More launch options"
+  "moreLaunchActions": "More launch options",
+  "noArchivedPlans": "No archived plans"
 }

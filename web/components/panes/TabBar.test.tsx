@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -122,7 +122,7 @@ describe("TabBar", () => {
     await waitFor(() => expect(input).toHaveFocus());
     await user.clear(input);
     await user.type(input, "Outside");
-    await user.click(screen.getByRole("button", { name: "New tab" }));
+    await user.click(screen.getByRole("button", { name: String(i18n.t("panes:newTab")) }));
 
     expect(onRename).toHaveBeenCalledWith("tab-1", "Outside");
     expect(screen.queryByDisplayValue("Outside")).not.toBeInTheDocument();

@@ -181,7 +181,7 @@ export default function MemoryManager({ projectPath }: MemoryManagerProps) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Database size={16} className="text-muted-foreground" />
-              <span className="text-sm font-medium">Memory</span>
+              <span className="text-sm font-medium">{t("memoryTitle")}</span>
               <Badge variant="secondary" className="text-xs">
                 {total}
               </Badge>

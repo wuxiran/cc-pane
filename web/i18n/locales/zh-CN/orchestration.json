@@ -75,5 +75,27 @@
   "tree": {
     "collapse": "折叠",
     "expand": "展开"
-  }
+  },
+  "sidebar": {
+    "actions": "操作",
+    "workspace": "工作空间",
+    "allWorkspaces": "全部工作空间",
+    "project": "项目",
+    "allProjects": "全部项目",
+    "allRoles": "全部角色",
+    "roleAll": "全部",
+    "details": "详情",
+    "kill": "终止会话",
+    "retry": "重试",
+    "edit": "编辑",
+    "sendMessage": "发送消息",
+    "mute": "静音",
+    "delete": "删除",
+    "editTask": "编辑任务",
+    "messageTo": "发给 {{name}} 的消息",
+    "send": "发送",
+    "deleteCascadeTitle": "删除 leader 及全部 worker",
+    "deleteCascadeDesc": "将同时删除 {{count}} 个 worker 任务。"
+  },
+  "closeOverlay": "关闭编排浮层"
 }

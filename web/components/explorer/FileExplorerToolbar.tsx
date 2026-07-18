@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { RefreshCw, FilePlus, FolderPlus, EyeOff, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +23,7 @@ export default function FileExplorerToolbar({
   onNewFolder,
   onToggleHidden,
 }: FileExplorerToolbarProps) {
+  const { t } = useTranslation("editor");
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex items-center gap-0.5 px-2 py-1 border-b bg-background">
@@ -31,7 +33,7 @@ export default function FileExplorerToolbar({
               <RefreshCw size={14} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Refresh</TooltipContent>
+          <TooltipContent>{t("refresh")}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -40,7 +42,7 @@ export default function FileExplorerToolbar({
               <FilePlus size={14} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>New File</TooltipContent>
+          <TooltipContent>{t("newFile")}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -49,7 +51,7 @@ export default function FileExplorerToolbar({
               <FolderPlus size={14} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>New Folder</TooltipContent>
+          <TooltipContent>{t("newFolder")}</TooltipContent>
         </Tooltip>
 
         <div className="flex-1" />
@@ -65,7 +67,7 @@ export default function FileExplorerToolbar({
               {showHidden ? <Eye size={14} /> : <EyeOff size={14} />}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{showHidden ? "Hide Hidden Files" : "Show Hidden Files"}</TooltipContent>
+          <TooltipContent>{showHidden ? t("hideHidden") : t("showHidden")}</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import OrchestrationOverlay from "./OrchestrationOverlay";
+
+const tt = (k: string) => String(i18n.t(k as never));
 
 interface FullViewProps {
   variant?: string;
@@ -21,7 +24,7 @@ describe("OrchestrationOverlay", () => {
   it("renders the full view in overlay variant inside a modal dialog", () => {
     render(<OrchestrationOverlay onClose={vi.fn()} />);
 
-    expect(screen.getByRole("dialog", { name: "Orchestration" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: tt("orchestration:title") })).toBeInTheDocument();
     expect(screen.getByTestId("full-view")).toBeInTheDocument();
     expect(lastFullViewProps?.variant).toBe("overlay");
   });
@@ -31,7 +34,7 @@ describe("OrchestrationOverlay", () => {
     const onClose = vi.fn();
     render(<OrchestrationOverlay onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "Close orchestration overlay" }));
+    await user.click(screen.getByRole("button", { name: tt("orchestration:closeOverlay") }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });

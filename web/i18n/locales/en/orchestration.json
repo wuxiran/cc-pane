@@ -75,5 +75,27 @@
   "tree": {
     "collapse": "Collapse",
     "expand": "Expand"
-  }
+  },
+  "sidebar": {
+    "actions": "Actions",
+    "workspace": "Workspace",
+    "allWorkspaces": "All workspaces",
+    "project": "Project",
+    "allProjects": "All projects",
+    "allRoles": "All roles",
+    "roleAll": "All",
+    "details": "Details",
+    "kill": "Kill session",
+    "retry": "Retry",
+    "edit": "Edit",
+    "sendMessage": "Send message",
+    "mute": "Mute",
+    "delete": "Delete",
+    "editTask": "Edit task",
+    "messageTo": "Message to {{name}}",
+    "send": "Send",
+    "deleteCascadeTitle": "Delete leader and workers",
+    "deleteCascadeDesc": "This will also delete {{count}} worker task(s)."
+  },
+  "closeOverlay": "Close orchestration overlay"
 }

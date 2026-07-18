@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +17,8 @@ vi.mock("@/services", () => ({
     query: vi.fn(async () => ({ items: [], total: 0, hasMore: false })),
   },
 }));
+
+const tt = (k: string) => String(i18n.t(`orchestration:${k}` as never));
 
 function resetOrchestratorFilters() {
   useOrchestratorStore.setState({
@@ -39,11 +41,11 @@ describe("OrchestratorFilterBar", () => {
   it("renders default chip labels when no filter is active", () => {
     render(<OrchestratorFilterBar />);
 
-    expect(screen.getByRole("button", { name: "Workspace" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Project" })).toBeVisible();
-    expect(screen.getByPlaceholderText("Search")).toBeVisible();
+    expect(screen.getByRole("button", { name: tt("sidebar.workspace") })).toBeVisible();
+    expect(screen.getByRole("button", { name: tt("sidebar.project") })).toBeVisible();
+    expect(screen.getByPlaceholderText(tt("searchPlaceholder"))).toBeVisible();
     // Role buttons are identified by their title attribute.
-    expect(screen.getByTitle("All roles")).toBeVisible();
+    expect(screen.getByTitle(tt("sidebar.allRoles"))).toBeVisible();
     expect(screen.getByTitle("worker")).toBeVisible();
   });
 
@@ -60,7 +62,7 @@ describe("OrchestratorFilterBar", () => {
     const user = userEvent.setup();
     render(<OrchestratorFilterBar />);
 
-    await user.type(screen.getByPlaceholderText("Search"), "hello");
+    await user.type(screen.getByPlaceholderText(tt("searchPlaceholder")), "hello");
 
     expect(useOrchestratorStore.getState().searchKeyword).toBe("hello");
   });
@@ -79,7 +81,7 @@ describe("OrchestratorFilterBar", () => {
     useOrchestratorStore.setState({ filterRole: "worker" });
     render(<OrchestratorFilterBar />);
 
-    await user.click(screen.getByTitle("All roles"));
+    await user.click(screen.getByTitle(tt("sidebar.allRoles")));
 
     expect(useOrchestratorStore.getState().filterRole).toBeNull();
   });
@@ -94,7 +96,7 @@ describe("OrchestratorFilterBar", () => {
     });
     render(<OrchestratorFilterBar />);
 
-    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: tt("sidebar.workspace") }));
     // Alias is shown when present.
     await user.click(await screen.findByRole("button", { name: "One" }));
 
@@ -110,7 +112,7 @@ describe("OrchestratorFilterBar", () => {
     render(<OrchestratorFilterBar />);
 
     await user.click(screen.getByRole("button", { name: "ws-one" }));
-    await user.click(await screen.findByRole("button", { name: "All workspaces" }));
+    await user.click(await screen.findByRole("button", { name: tt("sidebar.allWorkspaces") }));
 
     expect(useOrchestratorStore.getState().filterWorkspace).toBeNull();
   });
@@ -134,7 +136,7 @@ describe("OrchestratorFilterBar", () => {
     useOrchestratorStore.setState({ filterWorkspace: "ws-one" });
     render(<OrchestratorFilterBar />);
 
-    await user.click(screen.getByRole("button", { name: "Project" }));
+    await user.click(screen.getByRole("button", { name: tt("sidebar.project") }));
     // Only ws-one's project should be available.
     expect(screen.queryByRole("button", { name: /other/ })).not.toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /front/ }));
