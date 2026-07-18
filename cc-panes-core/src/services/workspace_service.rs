@@ -189,11 +189,13 @@ impl WorkspaceService {
             }
         }
 
-        // 排序：pinned 优先 → sort_order 升序 → 创建时间升序
+        // 排序：默认工作空间恒第一 → pinned 优先 → sort_order 升序 → 创建时间升序
         workspaces.sort_by(|a, b| {
-            // pinned 在前
-            b.pinned
-                .cmp(&a.pinned)
+            // 默认工作空间置顶
+            b.is_default
+                .cmp(&a.is_default)
+                // pinned 在前
+                .then_with(|| b.pinned.cmp(&a.pinned))
                 // sort_order 升序（None 排在最后）
                 .then_with(|| match (a.sort_order, b.sort_order) {
                     (Some(sa), Some(sb)) => sa.cmp(&sb),
@@ -205,6 +207,40 @@ impl WorkspaceService {
                 .then_with(|| a.created_at.cmp(&b.created_at))
         });
         Ok(workspaces)
+    }
+
+    /// 确保默认工作空间存在：启动时调用，缺失则自动创建。
+    ///
+    /// 锚点路径固定为应用数据目录下的工作空间目录（`base_dir/default`），
+    /// 即 CC-Panes 自身管理的路径，无需用户选择。
+    /// 返回 `Some(ws)` 表示本次创建/补标记了默认工作空间，`None` 表示已存在。
+    pub fn ensure_default_workspace(&self) -> Result<Option<Workspace>, String> {
+        const DEFAULT_NAME: &str = "default";
+
+        let workspaces = self.list_workspaces()?;
+        if workspaces.iter().any(|w| w.is_default) {
+            return Ok(None);
+        }
+
+        let ws_dir = self.workspace_dir(DEFAULT_NAME);
+        let json_path = self.workspace_json_path(DEFAULT_NAME);
+
+        // 目录/配置可能已被用户手建同名占用：补标记而不是报错
+        let mut workspace = if json_path.exists() {
+            self.read_workspace_json(&json_path)?
+        } else {
+            fs::create_dir_all(ws_dir.join(".ccpanes"))
+                .map_err(|e| format!("Failed to create default workspace directory: {}", e))?;
+            Workspace::new(DEFAULT_NAME.to_string(), None)
+        };
+
+        workspace.is_default = true;
+        if workspace.path.is_none() {
+            workspace.path = Some(ws_dir.to_string_lossy().to_string());
+        }
+        self.write_workspace_json(DEFAULT_NAME, &workspace)?;
+        self.init_workspace_files(&workspace)?;
+        Ok(Some(workspace))
     }
 
     /// 创建新工作空间
@@ -280,6 +316,14 @@ impl WorkspaceService {
 
         if !ws_dir.exists() {
             return Err(format!("Workspace '{}' does not exist", name));
+        }
+
+        // 默认工作空间不可删除（启动时会自动重建，删除只会造成困惑）
+        if self.get_workspace(name).map(|ws| ws.is_default).unwrap_or(false) {
+            return Err(format!(
+                "DEFAULT_WORKSPACE_PROTECTED: Workspace '{}' is the default workspace and cannot be deleted",
+                name
+            ));
         }
 
         fs::remove_dir_all(&ws_dir).map_err(|e| format!("Failed to delete workspace: {}", e))?;
@@ -1996,6 +2040,56 @@ mod tests {
 
         let err = service.create_workspace("alpha", None).unwrap_err();
         assert!(err.contains("already exists"));
+    }
+
+    #[test]
+    fn ensure_default_workspace_creates_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+
+        // 首次：创建 default，锚点指向应用数据目录下的工作空间目录
+        let created = service.ensure_default_workspace().unwrap().unwrap();
+        assert!(created.is_default);
+        assert_eq!(created.name, "default");
+        let anchor = created.path.clone().unwrap();
+        assert_eq!(anchor, service.workspace_dir("default").to_string_lossy());
+        assert!(Path::new(&anchor).join("CLAUDE.md").exists());
+
+        // 再次调用：已存在，不重复创建
+        assert!(service.ensure_default_workspace().unwrap().is_none());
+
+        // 列表排序：default 恒第一（含 pinned 竞争者）
+        service.create_workspace("alpha", None).unwrap();
+        service.update_workspace_pinned("alpha", true).unwrap();
+        let names: Vec<String> = service
+            .list_workspaces()
+            .unwrap()
+            .into_iter()
+            .map(|w| w.name)
+            .collect();
+        assert_eq!(names[0], "default");
+    }
+
+    #[test]
+    fn ensure_default_workspace_adopts_existing_same_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("default", None).unwrap();
+
+        let adopted = service.ensure_default_workspace().unwrap().unwrap();
+        assert!(adopted.is_default);
+        assert!(adopted.path.is_some());
+    }
+
+    #[test]
+    fn delete_default_workspace_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.ensure_default_workspace().unwrap();
+
+        let err = service.delete_workspace("default").unwrap_err();
+        assert!(err.contains("DEFAULT_WORKSPACE_PROTECTED"));
+        assert!(service.get_workspace("default").is_ok());
     }
 
     #[test]

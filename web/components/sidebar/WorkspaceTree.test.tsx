@@ -101,6 +101,12 @@ describe("getReorderedWorkspaceNames", () => {
     expect(getReorderedWorkspaceNames([a, b, c], "zzz", "b")).toBeNull();
   });
 
+  it("默认工作空间不参与拖拽排序", () => {
+    const def = makeWorkspace({ id: "d", name: "default", isDefault: true });
+    expect(getReorderedWorkspaceNames([def, a, b], "d", "a")).toBeNull();
+    expect(getReorderedWorkspaceNames([def, a, b], "a", "d")).toBeNull();
+  });
+
   it("跨 pinned 边界返回 null", () => {
     const pinned = makeWorkspace({ id: "a", name: "alpha", pinned: true });
     expect(getReorderedWorkspaceNames([pinned, b, c], "a", "b")).toBeNull();

@@ -50,6 +50,10 @@ export function getReorderedWorkspaceNames(
 
   const activeWorkspace = workspaces[oldIndex];
   const overWorkspace = workspaces[newIndex];
+  // 默认工作空间恒置顶，不参与拖拽排序
+  if (activeWorkspace.isDefault || overWorkspace.isDefault) {
+    return null;
+  }
   if (!!activeWorkspace.pinned !== !!overWorkspace.pinned) {
     return null;
   }
@@ -84,7 +88,7 @@ function SortableWorkspaceItem(props: SortableWorkspaceItemProps) {
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: ws.id });
+  } = useSortable({ id: ws.id, disabled: !!ws.isDefault });
 
   return (
     <div
@@ -97,7 +101,7 @@ function SortableWorkspaceItem(props: SortableWorkspaceItemProps) {
     >
       <WorkspaceItem
         {...props}
-        dragHandleProps={{
+        dragHandleProps={ws.isDefault ? undefined : {
           ...attributes,
           ...listeners,
         }}

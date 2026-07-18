@@ -290,5 +290,7 @@
   "workspaceEnv.cliDefaults.invalidConfig": "A CLI default environment is not fully configured. Complete it or switch back to inherit default.",
   "workspaceEnv.launchThisTime": "Choose Environment For This Launch",
   "moreLaunchActions": "More launch options",
-  "noArchivedPlans": "No archived plans"
+  "noArchivedPlans": "No archived plans",
+  "defaultWorkspaceName": "Default Workspace",
+  "defaultBadge": "Default"
 }

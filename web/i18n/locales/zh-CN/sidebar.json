@@ -290,5 +290,7 @@
   "workspaceEnv.cliDefaults.invalidConfig": "CLI 默认环境有未完成配置，请先补齐配置或改为继承默认环境。",
   "workspaceEnv.launchThisTime": "本次选择环境",
   "moreLaunchActions": "更多启动方式",
-  "noArchivedPlans": "暂无归档 plan"
+  "noArchivedPlans": "暂无归档 plan",
+  "defaultWorkspaceName": "默认工作空间",
+  "defaultBadge": "默认"
 }

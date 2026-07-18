@@ -10,6 +10,7 @@ import {
   GitBranch,
   Globe,
   GripVertical,
+  House,
   Settings2,
   Star,
   Terminal,
@@ -127,7 +128,9 @@ export default function WorkspaceItem({
   const [hookGroups, setHookGroups] = useState<ProjectCliHookGroupStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
 
-  const displayName = workspace.alias || workspace.name;
+  const isDefaultWorkspace = !!workspace.isDefault;
+  const displayName = workspace.alias
+    || (isDefaultWorkspace ? t("defaultWorkspaceName", { defaultValue: "默认工作空间" }) : workspace.name);
   const rootProject = projects.find((project) => !project.ssh);
   const rootPath = workspace.path || rootProject?.path;
   const showWslBadge = hasWorkspaceWslPath(workspace);
@@ -395,7 +398,9 @@ export default function WorkspaceItem({
             className={`relative w-full group flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg transition-colors duration-[var(--dur-fast)] ${
               expanded
                 ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
-                : "text-[var(--app-text-primary)] hover:bg-[var(--app-hover)]"
+                : isDefaultWorkspace
+                  ? "text-[var(--app-text-primary)] bg-[color-mix(in_srgb,var(--app-accent)_5%,transparent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_10%,transparent)]"
+                  : "text-[var(--app-text-primary)] hover:bg-[var(--app-hover)]"
             }`}
             onClick={() => onExpand(workspace.id)}
             onKeyDown={(event) => {
@@ -429,12 +434,19 @@ export default function WorkspaceItem({
               <ChevronRight
                 className={`w-3 h-3 shrink-0 transition-transform ${expanded ? "rotate-90 text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"}`}
               />
-              {expanded ? (
+              {isDefaultWorkspace ? (
+                <House className="w-3.5 h-3.5 shrink-0 text-[var(--app-accent)]" strokeWidth={1.5} />
+              ) : expanded ? (
                 <FolderOpen className="w-3.5 h-3.5 shrink-0 text-[var(--app-accent)]" />
               ) : (
                 <Folder className="w-3.5 h-3.5 shrink-0 text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors" />
               )}
               <span className="truncate text-[13px] font-medium">{displayName}</span>
+              {isDefaultWorkspace ? (
+                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
+                  {t("defaultBadge", { defaultValue: "默认" })}
+                </span>
+              ) : null}
               {showWslBadge ? (
                 <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
                   WSL
@@ -663,11 +675,14 @@ export default function WorkspaceItem({
             </ContextMenuSubContent>
           </ContextMenuSub>
 
-          <ContextMenuSeparator />
-
-          <ContextMenuItem variant="destructive" onClick={() => onDelete(workspace)}>
-            <Trash2 /> {t("deleteWorkspace")}
-          </ContextMenuItem>
+          {!isDefaultWorkspace ? (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem variant="destructive" onClick={() => onDelete(workspace)}>
+                <Trash2 /> {t("deleteWorkspace")}
+              </ContextMenuItem>
+            </>
+          ) : null}
         </ContextMenuContent>
       </ContextMenu>
 
