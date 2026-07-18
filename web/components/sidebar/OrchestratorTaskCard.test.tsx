@@ -84,7 +84,7 @@ describe("OrchestratorTaskCard", () => {
 
     render(<OrchestratorTaskCard binding={worker} />);
 
-    expect(screen.getByText(/📋 Leader: Plan leader/)).toBeVisible();
+    expect(screen.getByText(/📋 负责人: Plan leader/)).toBeVisible();
   });
 
   it("shows a workers badge counting child tasks", () => {
@@ -95,7 +95,7 @@ describe("OrchestratorTaskCard", () => {
 
     render(<OrchestratorTaskCard binding={leader} />);
 
-    expect(screen.getByText(/⚙️ 2 workers/)).toBeVisible();
+    expect(screen.getByText(/⚙️ 2 个工作单元/)).toBeVisible();
   });
 
   it("hides the progress bar for pending tasks but shows it otherwise", () => {
@@ -120,8 +120,8 @@ describe("OrchestratorTaskCard", () => {
     render(<OrchestratorTaskCard binding={binding} />);
 
     expect(screen.getByText("All tests passing")).toBeVisible();
-    // Completed tasks render "done" instead of the relative time.
-    expect(screen.getByText("done")).toBeVisible();
+    // Completed tasks render the localized "done" label instead of the relative time.
+    expect(screen.getByText("已完成")).toBeVisible();
   });
 
   it("renders a failure button with the exit code for failed tasks", () => {
@@ -134,8 +134,8 @@ describe("OrchestratorTaskCard", () => {
 
     render(<OrchestratorTaskCard binding={binding} />);
 
-    expect(screen.getByText("Failed")).toBeVisible();
-    expect(screen.getByText(/exit 137/)).toBeVisible();
+    expect(screen.getByText("失败")).toBeVisible();
+    expect(screen.getByText(/退出码 137/)).toBeVisible();
   });
 
   it("shows the git branch and worktree marker from metadata", () => {

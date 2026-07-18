@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { localHistoryService } from "@/services";
 import { useActivityBarStore, useOrchestratorStore, usePanesStore } from "@/stores";
 import type { TaskBinding } from "@/types";
@@ -67,6 +68,7 @@ interface OrchestratorTaskCardProps {
 }
 
 export default function OrchestratorTaskCard({ binding, depth = 0 }: OrchestratorTaskCardProps) {
+  const { t } = useTranslation("orchestration");
   const bindings = useOrchestratorStore((s) => s.bindings);
   const selectedTaskId = useOrchestratorStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useOrchestratorStore((s) => s.setSelectedTaskId);
@@ -151,7 +153,7 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
               }}
               title={leader.title}
             >
-              📋 Leader: {leader.title.length > 30 ? `${leader.title.slice(0, 30)}...` : leader.title}
+              📋 {t("card.leaderPrefix", { defaultValue: "负责人" })}: {leader.title.length > 30 ? `${leader.title.slice(0, 30)}...` : leader.title}
             </button>
           )}
         </div>
@@ -163,7 +165,7 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
         <span>·</span>
         <span className="max-w-[120px] truncate">{getProjectName(binding.projectPath)}</span>
         <span>·</span>
-        <span>{binding.status === "completed" ? "done" : timeAgo}</span>
+        <span>{binding.status === "completed" ? t("card.done", { defaultValue: "已完成" }) : timeAgo}</span>
       </div>
 
       <div className="flex min-w-0 items-center gap-1.5">
@@ -190,9 +192,13 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
               background: "var(--app-input-bg)",
               border: "1px solid var(--app-border)",
             }}
-            title={`${runningWorkers} running, ${doneWorkers} done`}
+            title={t("card.workersTitle", {
+              running: runningWorkers,
+              done: doneWorkers,
+              defaultValue: "{{running}} 运行中，{{done}} 已完成",
+            })}
           >
-            ⚙️ {workers.length} workers
+            ⚙️ {t("card.workers", { count: workers.length, defaultValue: "{{count}} 个工作单元" })}
           </span>
         )}
       </div>
@@ -230,9 +236,11 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
           }}
         >
           <span className="font-medium" style={{ color: "var(--app-status-danger)" }}>
-            Failed
+            {t("card.failed", { defaultValue: "失败" })}
           </span>
-          {binding.exitCode != null && <span> · exit {binding.exitCode}</span>}
+          {binding.exitCode != null && (
+            <span> · {t("card.exit", { code: binding.exitCode, defaultValue: "退出码 {{code}}" })}</span>
+          )}
           {failedSummary && <span> · {failedSummary}</span>}
         </button>
       )}

@@ -1,3 +1,4 @@
+import "@/i18n";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,8 +30,8 @@ describe("TaskDetailPanel", () => {
   it("shows the empty placeholder when no binding is selected", () => {
     render(<TaskDetailPanel binding={null} />);
 
-    expect(screen.getByText("No task selected")).toBeInTheDocument();
-    expect(screen.getByText("Select a task from the orchestration list.")).toBeInTheDocument();
+    expect(screen.getByText("未选择任务")).toBeInTheDocument();
+    expect(screen.getByText("从编排列表中选择一个任务。")).toBeInTheDocument();
   });
 
   it("renders header info and session fields for a binding", () => {
@@ -61,7 +62,7 @@ describe("TaskDetailPanel", () => {
   it("keeps 'View in PTY' disabled without a session id", () => {
     render(<TaskDetailPanel binding={makeBinding()} />);
 
-    expect(screen.getByRole("button", { name: /View in PTY/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /在终端中查看/ })).toBeDisabled();
   });
 
   it("activates the pane and tab of the bound session via View in PTY", async () => {
@@ -96,7 +97,7 @@ describe("TaskDetailPanel", () => {
     } as never);
 
     render(<TaskDetailPanel binding={makeBinding({ sessionId: "sess-1" })} />);
-    await user.click(screen.getByRole("button", { name: /View in PTY/ }));
+    await user.click(screen.getByRole("button", { name: /在终端中查看/ }));
 
     expect(setAppViewMode).toHaveBeenCalledWith("panes");
     expect(switchLayout).toHaveBeenCalledWith("layout-2");
@@ -111,10 +112,10 @@ describe("TaskDetailPanel", () => {
 
     expect(screen.getByText("do the thing")).toBeInTheDocument();
 
-    await user.click(screen.getByText("Prompt content"));
+    await user.click(screen.getByText("提示词内容"));
     expect(screen.queryByText("do the thing")).not.toBeInTheDocument();
 
-    await user.click(screen.getByText("Prompt content"));
+    await user.click(screen.getByText("提示词内容"));
     expect(screen.getByText("do the thing")).toBeInTheDocument();
   });
 
@@ -127,7 +128,7 @@ describe("TaskDetailPanel", () => {
     });
 
     render(<TaskDetailPanel binding={makeBinding({ prompt: "copy me" })} />);
-    await user.click(screen.getByRole("button", { name: "Copy prompt" }));
+    await user.click(screen.getByRole("button", { name: "复制提示词" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("copy me"));
   });
@@ -135,8 +136,8 @@ describe("TaskDetailPanel", () => {
   it("disables the copy button when there is no prompt", () => {
     render(<TaskDetailPanel binding={makeBinding()} />);
 
-    expect(screen.getByText("No prompt stored")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy prompt" })).toBeDisabled();
+    expect(screen.getByText("未存储提示词")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制提示词" })).toBeDisabled();
   });
 
   it("renders timeline values from ui metadata over top-level metadata", () => {
@@ -151,9 +152,9 @@ describe("TaskDetailPanel", () => {
       />
     );
 
-    expect(screen.getByText("Created")).toBeInTheDocument();
-    expect(screen.getByText("Started")).toBeInTheDocument();
-    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByText("创建")).toBeInTheDocument();
+    expect(screen.getByText("开始")).toBeInTheDocument();
+    expect(screen.getByText("完成")).toBeInTheDocument();
     // ui.completedAt 与 metadata.startedAt 都被格式化为本地时间，不再是原始 ISO 字符串
     expect(screen.queryByText("2026-07-01T12:00:00Z")).not.toBeInTheDocument();
   });
@@ -167,7 +168,7 @@ describe("TaskDetailPanel", () => {
     expect(screen.getByText('"bar"')).toBeInTheDocument();
 
     rerender(<TaskDetailPanel binding={makeBinding({ metadata: null })} />);
-    expect(screen.getByText("No metadata")).toBeInTheDocument();
+    expect(screen.getByText("无元数据")).toBeInTheDocument();
   });
 
   it("keeps an unparseable date string as-is and dashes for missing values", () => {

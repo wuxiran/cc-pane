@@ -1,0 +1,79 @@
+{
+  "title": "Orchestration",
+  "tab": {
+    "tasks": "Tasks",
+    "notifications": "Notifications"
+  },
+  "close": "Close",
+  "exit": "Exit",
+  "filter": {
+    "all": "All",
+    "running": "Running",
+    "done": "Done",
+    "errors": "Errors"
+  },
+  "searchPlaceholder": "Search tasks",
+  "view": {
+    "list": "List",
+    "tree": "Tree"
+  },
+  "clear": "Clear",
+  "emptyTasks": {
+    "title": "No orchestration tasks",
+    "description": "Tasks dispatched by leaders/workers will show up here"
+  },
+  "emptyNotifications": {
+    "title": "No notifications",
+    "description": "You'll be notified here when tasks complete or fail"
+  },
+  "outputPreview": "Output Preview",
+  "expandPreview": "Expand preview",
+  "collapsePreview": "Collapse preview",
+  "resizePreview": "Resize preview",
+  "linkedTask": "linked task",
+  "tasksCompleted": "{{count}} tasks completed",
+  "taskErrors": "{{count}} task errors",
+  "notificationsCount": "{{count}} notifications",
+  "detail": {
+    "viewInPty": "View in PTY",
+    "prompt": "Prompt",
+    "promptContent": "Prompt content",
+    "noPromptStored": "No prompt stored",
+    "copyPrompt": "Copy prompt",
+    "timeline": "Timeline",
+    "created": "Created",
+    "started": "Started",
+    "completed": "Completed",
+    "result": "Result",
+    "exitCode": "Exit code",
+    "summary": "Summary",
+    "session": "Session",
+    "sessionId": "Session ID",
+    "resumeId": "Resume ID",
+    "paneTab": "Pane / Tab",
+    "workspace": "Workspace",
+    "project": "Project",
+    "metadata": "Metadata",
+    "noMetadata": "No metadata",
+    "noTaskSelected": "No task selected",
+    "noTaskSelectedDesc": "Select a task from the orchestration list."
+  },
+  "output": {
+    "noSession": "No linked PTY session.",
+    "recentOutput": "Recent output",
+    "refresh": "Refresh output",
+    "noOutput": "No output yet."
+  },
+  "card": {
+    "leaderPrefix": "Leader",
+    "workers": "{{count}} workers",
+    "workersTitle": "{{running}} running, {{done}} done",
+    "done": "done",
+    "failed": "Failed",
+    "exit": "exit {{code}}"
+  },
+  "tree": {
+    "collapse": "Collapse",
+    "expand": "Expand"
+  }
+}

@@ -1,3 +1,4 @@
+import "@/i18n";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SessionOutputPreview from "./SessionOutputPreview";
@@ -24,7 +25,7 @@ describe("SessionOutputPreview", () => {
   it("shows the no-session placeholder and never polls without a session id", () => {
     render(<SessionOutputPreview sessionId={null} />);
 
-    expect(screen.getByText("No linked PTY session.")).toBeInTheDocument();
+    expect(screen.getByText("无关联的终端会话")).toBeInTheDocument();
     expect(getRecentOutput).not.toHaveBeenCalled();
   });
 
@@ -41,7 +42,7 @@ describe("SessionOutputPreview", () => {
     render(<SessionOutputPreview sessionId="sess-1" />);
 
     await waitFor(() => expect(getRecentOutput).toHaveBeenCalled());
-    expect(await screen.findByText("No output yet.")).toBeInTheDocument();
+    expect(await screen.findByText("暂无输出")).toBeInTheDocument();
   });
 
   it("shows the error message when loading fails", async () => {
