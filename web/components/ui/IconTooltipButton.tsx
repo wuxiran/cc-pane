@@ -34,7 +34,7 @@ export function IconTooltipButton({
           aria-label={label}
           className={cn(
             "inline-flex items-center justify-center rounded-md p-1 text-[var(--app-text-secondary)]",
-            "transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]",
+            "transition-[color,background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:scale-[0.96] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]",
             "disabled:pointer-events-none disabled:opacity-50",
             className,
           )}

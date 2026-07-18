@@ -89,6 +89,16 @@ Dialog 壳 + useLocalHistoryData（21 个 useState 收拢）+ VersionListSidebar
 - **命令面板**：`Ctrl+K`（action id `command-palette`，Rust/TS 双端默认绑定，`merge_missing_defaults` 自动合入存量配置）。聚合已注册快捷键动作/工作空间跳转/布局切换。**终端聚焦时放行给终端**（在 `TERMINAL_PASSTHROUGH_ACTIONS`）。
 - **动效**：过渡统一 `transition-colors duration-[var(--dur-fast)]`（或 `--dur`/`--dur-slow`），缓动 `--ease-out`；卡片 hover 阴影 `--sh-sm → --sh-md`。
 
+### 动效准则（采纳 emilkowalski/skills design-eng 规则）
+
+- **缓动 token**：`--ease-out: cubic-bezier(0.23,1,0.32,1)`（进入/退出）、`--ease-in-out: cubic-bezier(0.77,0,0.175,1)`（屏上移动/形变）；**UI 永不使用 ease-in**。
+- **键盘唤起零动画**：命令面板（Ctrl+K）、最近文件（Ctrl+E）等高频键盘入口不做入场/离场动画（Raycast 式）。
+- **按压反馈**：可按元素 `active:scale(0.96~0.98)` + transform 过渡（ui/button、ActivityBar 图标、IconTooltipButton 已内置）。
+- **退出快于进入**：Dialog 进场 200ms、离场 `--dur-fast`(120ms)。
+- **入场不从 scale(0) 开始**：用 zoom-95 + fade（shadcn 预设已符合）；popover 族 transform-origin 必须锚定 trigger（radix var）。
+- **只动画 transform/opacity**（性能）；`transition: all` 一律收窄到具体属性。
+- **prefers-reduced-motion**：keyframe 位移入场直接跳过、transition 收短到 60ms（减弱而非归零，index.css 全局规则）。
+
 ## 6. 已评审决议（Codex 同行评审拍板记录）
 
 - Ctrl+K：终端聚焦放行；非终端焦点打开面板。

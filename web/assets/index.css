@@ -84,8 +84,10 @@
   --sh-lg: 0 16px 36px rgba(16, 24, 40, 0.13), 0 2px 8px rgba(16, 24, 40, 0.07);
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 
-  /* 动效令牌 */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* 动效令牌（缓动曲线采用 Emil Kowalski design-eng 推荐值：
+     标准 CSS ease-out 太弱；ease-in 永不用于 UI） */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --dur-fast: 120ms;
   --dur: 160ms;
   --dur-slow: 240ms;
@@ -698,4 +700,19 @@
   user-select: none !important;
   pointer-events: none !important;
   caret-color: transparent !important;
+}
+
+/* ===== 无障碍：减弱动效（fewer/gentler, not zero）=====
+   keyframe 入场/离场（zoom/slide 等位移类）直接跳过；
+   transition 收短保留——颜色/透明度仍平滑渐变，位移几乎不可感。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  * {
+    transition-duration: 60ms !important;
+  }
 }
