@@ -1,7 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   usePanesStore,
   useProvidersStore,
@@ -50,6 +52,9 @@ vi.mock("sonner", () => ({
 
 const { toast } = await import("sonner");
 
+// 卡片内的 CRUD 图标走统一 IconTooltipButton，需要 TooltipProvider 祖先（生产环境由 AppShell 提供）
+const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
+
 function makeProvider(overrides: Partial<Provider> = {}): Provider {
   return {
     id: "p-1",
@@ -72,7 +77,14 @@ function setupStores(providers: Provider[] = []) {
     removeProvider: vi.fn().mockResolvedValue(undefined),
     setDefault: vi.fn().mockResolvedValue(undefined),
   };
-  useProvidersStore.setState({ providers, ...actions });
+  useProvidersStore.setState({
+    providers,
+    systemActive: false,
+    systemEnvKeys: [],
+    systemCcSwitch: false,
+    defaultIsSystem: false,
+    ...actions,
+  });
   usePanesStore.setState({ activePane: () => null } as never);
   useWorkspacesStore.setState({
     workspaces: [],
@@ -84,7 +96,9 @@ function setupStores(providers: Provider[] = []) {
 }
 
 async function switchToProvidersList(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Provider 凭证" }));
+  await user.click(
+    screen.getByRole("button", { name: i18n.t("settings:providerCredentialsTab") })
+  );
 }
 
 describe("ProvidersPanel", () => {
@@ -137,7 +151,7 @@ describe("ProvidersPanel", () => {
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
 
-    await user.click(screen.getByTitle(i18n.t("settings:deleteBtn")));
+    await user.click(screen.getByLabelText(i18n.t("settings:deleteBtn")));
     await waitFor(() => {
       expect(actions.removeProvider).toHaveBeenCalledWith("p-1");
     });
@@ -150,10 +164,40 @@ describe("ProvidersPanel", () => {
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
 
-    await user.click(screen.getByTitle(i18n.t("settings:setAsDefaultBtn")));
+    // 系统条目恒置顶，也带「设为默认」主操作 → [0] 是系统卡，[1] 才是这个 provider
+    const setDefaultButtons = screen.getAllByRole("button", {
+      name: i18n.t("settings:setAsDefaultBtn"),
+    });
+    await user.click(setDefaultButtons[1]);
     await waitFor(() => {
       expect(actions.setDefault).toHaveBeenCalledWith("p-1");
     });
+  });
+
+  it("sets the synthetic system entry as default through the same persisted path", async () => {
+    const user = userEvent.setup();
+    const actions = setupStores([makeProvider()]);
+    render(<ProvidersPanel />);
+    await switchToProvidersList(user);
+
+    await user.click(
+      screen.getAllByRole("button", { name: i18n.t("settings:setAsDefaultBtn") })[0]
+    );
+    await waitFor(() => {
+      expect(actions.setDefault).toHaveBeenCalledWith("__system__");
+    });
+  });
+
+  it("marks the system entry as default from the persisted flag, not a derived guess", async () => {
+    const user = userEvent.setup();
+    setupStores([makeProvider({ isDefault: true })]);
+    // 后端持久化标记为准：即便存在一个 isDefault 的 provider 也不影响该标记的读取
+    useProvidersStore.setState({ defaultIsSystem: true });
+    render(<ProvidersPanel />);
+    await switchToProvidersList(user);
+
+    // 系统卡与该 provider 卡都呈现「默认」状态标识（互斥性由后端保证，前端只如实渲染）
+    expect(screen.getAllByText(i18n.t("settings:defaultBadge"))).toHaveLength(2);
   });
 
   it("opens the form pre-filled with a copy when duplicating", async () => {
@@ -162,7 +206,7 @@ describe("ProvidersPanel", () => {
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
 
-    await user.click(screen.getByTitle(i18n.t("settings:duplicate")));
+    await user.click(screen.getByLabelText(i18n.t("settings:duplicate")));
     expect(screen.getByTestId("provider-form")).toHaveTextContent(
       "edit:Claude API (Copy)"
     );
@@ -175,7 +219,7 @@ describe("ProvidersPanel", () => {
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
 
-    await user.click(screen.getByTitle(i18n.t("settings:editBtn")));
+    await user.click(screen.getByLabelText(i18n.t("settings:editBtn")));
     expect(screen.getByTestId("provider-form")).toHaveTextContent("edit:Claude API");
   });
 
@@ -197,16 +241,20 @@ describe("ProvidersPanel", () => {
     expect(screen.getByTestId("provider-form")).toHaveTextContent("new");
   });
 
-  it("blocks launching without a selected workspace", async () => {
+  it("offers no launch action and points at the global launcher instead", async () => {
     const user = userEvent.setup();
     setupStores([makeProvider()]);
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
 
-    // System 卡与真实 provider 卡各有一个「启用」按钮；点任一都先校验工作空间。
-    await user.click(
-      screen.getAllByRole("button", { name: new RegExp(i18n.t("settings:launch")) })[0]
-    );
-    expect(toast.error).toHaveBeenCalledWith(i18n.t("settings:selectWorkspaceFirst"));
+    // 本面板退化为纯凭证管理：启动入口只有全局启动器（Ctrl+T）
+    expect(
+      screen.queryAllByRole("button", { name: new RegExp(i18n.t("settings:launch")) })
+    ).toHaveLength(0);
+    expect(
+      screen.getByText(
+        i18n.t("settings:providerLaunchHint", { shortcut: "Ctrl+T" })
+      )
+    ).toBeInTheDocument();
   });
 });

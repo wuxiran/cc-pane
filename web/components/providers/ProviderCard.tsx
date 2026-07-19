@@ -1,25 +1,20 @@
 import { useTranslation } from "react-i18next";
-import { Pencil, Trash2, Star, Copy, Play, MonitorCog } from "lucide-react";
+import { Pencil, Trash2, Copy, MonitorCog, Check, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import ProviderAvatar from "./ProviderAvatar";
-import { PROVIDER_TYPE_META, isSystemProvider, type Provider, type ProviderType } from "@/types/provider";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import ProviderAvatar, { PROVIDER_TYPE_COLORS } from "./ProviderAvatar";
+import { PROVIDER_TYPE_META, isSystemProvider, type Provider } from "@/types/provider";
 import { PROVIDER_PRESETS } from "@/constants/providerPresets";
 
+/**
+ * Provider 的**身份色**（品牌色），仅用于头像等标识性元素。
+ * 状态（默认/激活）一律走 `--app-accent`，不得借身份色表达。
+ */
 function getAccentColor(provider: Provider): string {
-  const preset = PROVIDER_PRESETS.find(
-    (p) => p.providerType === provider.providerType && provider.name.includes(p.nameKey.replace("preset", "").replace("Name", ""))
-  );
-  if (preset?.accentColor) return preset.accentColor;
-
-  const TYPE_COLORS: Record<ProviderType, string> = {
-    anthropic: "#E8590C", bedrock: "#FF9900", vertex: "#4285F4",
-    proxy: "#6366F1", config_profile: "#6B7280", open_ai: "#10A37F",
-    gemini: "#4285F4", kimi: "#F97316", glm: "#2563EB", opencode: "#8B5CF6", cursor: "#111827",
-    grok: "#71767B",
-  };
-  return TYPE_COLORS[provider.providerType] || "#6B7280";
+  // 按 providerType 匹配预设。旧实现拿 i18n key 裁剪去比对用户自定义名称，几乎必然失配。
+  const preset = PROVIDER_PRESETS.find((p) => p.providerType === provider.providerType);
+  return preset?.accentColor || PROVIDER_TYPE_COLORS[provider.providerType] || "#6B7280";
 }
 
 function maskApiKey(key: string | null | undefined): string {
@@ -36,64 +31,132 @@ function getPresetWebsite(provider: Provider): string | undefined {
   return preset?.website;
 }
 
+/** 系统条目的宿主探测明细（仅「系统环境变量」卡片使用） */
+export interface SystemProbeInfo {
+  /** 命中的宿主 Anthropic 环境变量名（不含值） */
+  envKeys: string[];
+  /** 探测到 cc-switch 配置库 */
+  ccSwitch: boolean;
+  /** 当前运行环境是本机——否则该宿主级探测不代表目标环境 */
+  runtimeApplicable: boolean;
+  /** 非本机时展示的运行环境名，如 "WSL" / "SSH" */
+  runtimeLabel?: string;
+}
+
 interface ProviderCardProps {
   provider: Provider;
   onEdit: (p: Provider) => void;
   onDelete: (id: string) => void;
   onSetDefault: (id: string) => void;
-  onLaunch: (id: string) => void;
   onDuplicate: (p: Provider) => void;
+  systemProbe?: SystemProbeInfo;
 }
 
-export default function ProviderCard({ provider, onEdit, onDelete, onSetDefault, onLaunch, onDuplicate }: ProviderCardProps) {
-  const { t } = useTranslation("settings");
+/** 卡片外框：默认态用 `--app-accent` 左边条表达（文档 §1 激活态约定，非身份色） */
+function cardShellStyle(isDefault: boolean): React.CSSProperties {
+  return {
+    border: "1px solid var(--app-border)",
+    borderLeft: isDefault ? "3px solid var(--app-accent)" : "1px solid var(--app-border)",
+    boxShadow: "var(--sh-sm)",
+  };
+}
 
-  // 合成「系统环境变量」条目：无凭证、不可编辑/删除，仅可启动（不注入、跟随系统/cc-switch）。
-  if (isSystemProvider(provider.id)) {
-    const systemAccent = "#0EA5E9";
+const CARD_SHELL_CLASS =
+  "group relative rounded-lg rounded-r-md transition-[background-color,box-shadow] duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:shadow-[var(--sh-md)]";
+
+/** 「设为默认」主操作：非默认为文字按钮，已默认为不可点的状态标识 */
+function DefaultAction({
+  isDefault,
+  onSetDefault,
+  label,
+  defaultLabel,
+}: {
+  isDefault: boolean;
+  onSetDefault: () => void;
+  label: string;
+  defaultLabel: string;
+}) {
+  if (isDefault) {
     return (
-      <div
-        className="group relative rounded-lg transition-colors hover:bg-[var(--app-hover)]"
+      <span
+        className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-xs shrink-0 select-none"
         style={{
-          border: "1px solid var(--app-border)",
-          borderLeft: provider.isDefault ? `4px solid ${systemAccent}` : "1px solid var(--app-border)",
+          background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
+          color: "var(--app-accent)",
         }}
       >
-        <div className="p-4 flex gap-4 items-center">
+        <Check size={13} />
+        {defaultLabel}
+      </span>
+    );
+  }
+  return (
+    <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs shrink-0" onClick={onSetDefault}>
+      {label}
+    </Button>
+  );
+}
+
+export default function ProviderCard({
+  provider,
+  onEdit,
+  onDelete,
+  onSetDefault,
+  onDuplicate,
+  systemProbe,
+}: ProviderCardProps) {
+  const { t } = useTranslation("settings");
+
+  // 合成「系统环境变量」条目：无凭证、不可编辑/删除，仅可设为默认（选它 = 不注入、跟随系统/cc-switch）。
+  if (isSystemProvider(provider.id)) {
+    const detected = [
+      ...(systemProbe?.ccSwitch ? [t("systemEnvCcSwitch")] : []),
+      ...(systemProbe?.envKeys ?? []),
+    ];
+    return (
+      <div className={CARD_SHELL_CLASS} style={cardShellStyle(provider.isDefault)}>
+        <div className="p-3 flex gap-3 items-center">
           <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: `color-mix(in srgb, ${systemAccent} 14%, transparent)`, color: systemAccent }}
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+            style={{
+              background: "color-mix(in srgb, var(--app-accent) 14%, transparent)",
+              color: "var(--app-accent)",
+            }}
           >
-            <MonitorCog size={24} />
+            <MonitorCog size={20} />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-sm font-semibold truncate" style={{ color: "var(--app-text-primary)" }}>
-                {provider.name}
-              </span>
-              {provider.isDefault && (
-                <Badge
-                  variant="secondary"
-                  className="text-[10px] px-1.5 py-0 shrink-0"
-                  style={{ background: `color-mix(in srgb, ${systemAccent} 15%, transparent)`, color: systemAccent }}
-                >
-                  {t("defaultBadge")}
-                </Badge>
-              )}
+            <div className="text-sm font-semibold truncate mb-1" style={{ color: "var(--app-text-primary)" }}>
+              {provider.name}
             </div>
             <div className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
               {t("systemProviderDesc")}
             </div>
+            {/* 探测明细：只展示命中的变量名，绝不展示值 */}
+            <div className="text-xs mt-0.5" style={{ color: "var(--app-text-tertiary)" }}>
+              {detected.length > 0
+                ? t("systemEnvDetected", { keys: detected.join(", ") })
+                : t("systemEnvNone")}
+            </div>
+            {/* 宿主进程级探测在 WSL/SSH 下不代表目标环境 */}
+            {systemProbe && !systemProbe.runtimeApplicable && (
+              <div
+                className="flex items-start gap-1 text-xs mt-1"
+                style={{ color: "var(--app-warning)" }}
+              >
+                <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                <span>
+                  {t("systemEnvRuntimeWarning", { runtime: systemProbe.runtimeLabel ?? "" })}
+                </span>
+              </div>
+            )}
           </div>
-          <Button
-            size="sm"
-            className="h-8 px-3 text-xs shrink-0 text-white"
-            style={{ background: "#16a34a", borderColor: "#16a34a" }}
-            onClick={() => onLaunch(provider.id)}
-          >
-            <Play size={13} className="mr-1.5" fill="currentColor" />
-            {t("launch")}
-          </Button>
+          <DefaultAction
+            isDefault={provider.isDefault}
+            onSetDefault={() => onSetDefault(provider.id)}
+            label={t("setAsDefaultBtn")}
+            defaultLabel={t("defaultBadge")}
+          />
         </div>
       </div>
     );
@@ -111,37 +174,20 @@ export default function ProviderCard({ provider, onEdit, onDelete, onSetDefault,
   };
 
   return (
-    <div
-      className="group relative rounded-lg transition-colors hover:bg-[var(--app-hover)]"
-      style={{
-        border: "1px solid var(--app-border)",
-        borderLeft: provider.isDefault ? `4px solid ${accentColor}` : "1px solid var(--app-border)",
-      }}
-    >
-      <div className="p-4 flex gap-4 items-center">
-        {/* Avatar */}
+    <div className={CARD_SHELL_CLASS} style={cardShellStyle(provider.isDefault)}>
+      <div className="p-3 flex gap-3 items-center">
+        {/* Avatar（身份色） */}
         <ProviderAvatar
           name={provider.name}
           providerType={provider.providerType}
           accentColor={accentColor}
-          size={48}
+          size={40}
         />
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-semibold truncate" style={{ color: "var(--app-text-primary)" }}>
-              {provider.name}
-            </span>
-            {provider.isDefault && (
-              <Badge
-                variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0"
-                style={{ background: `color-mix(in srgb, ${accentColor} 15%, transparent)`, color: accentColor }}
-              >
-                {t("defaultBadge")}
-              </Badge>
-            )}
+          <div className="text-sm font-semibold truncate mb-1" style={{ color: "var(--app-text-primary)" }}>
+            {provider.name}
           </div>
 
           <div className="flex items-center gap-1.5 text-xs mb-1" style={{ color: "var(--app-text-tertiary)" }}>
@@ -170,65 +216,40 @@ export default function ProviderCard({ provider, onEdit, onDelete, onSetDefault,
 
           {/* Base URL (if no website or different from website) */}
           {provider.baseUrl && provider.baseUrl !== website && (
-            <button
-              className="flex items-center gap-1 text-xs hover:underline cursor-pointer mt-0.5"
-              style={{ color: "var(--app-text-tertiary)" }}
+            <IconTooltipButton
+              label="Copy URL"
+              className="flex items-center gap-1 text-xs hover:underline mt-0.5 p-0 text-[var(--app-text-tertiary)] hover:bg-transparent"
               onClick={handleCopyUrl}
-              title="Copy URL"
             >
               <span className="truncate max-w-[300px]">{provider.baseUrl}</span>
               <Copy size={11} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
+            </IconTooltipButton>
           )}
         </div>
 
-        {/* Launch button */}
-        <Button
-          size="sm"
-          className="h-8 px-3 text-xs shrink-0 text-white"
-          style={{ background: "#16a34a", borderColor: "#16a34a" }}
-          onClick={() => onLaunch(provider.id)}
-        >
-          <Play size={13} className="mr-1.5" fill="currentColor" />
-          {t("launch")}
-        </Button>
+        {/* 主操作：设为默认 */}
+        <DefaultAction
+          isDefault={provider.isDefault}
+          onSetDefault={() => onSetDefault(provider.id)}
+          label={t("setAsDefaultBtn")}
+          defaultLabel={t("defaultBadge")}
+        />
 
-        {/* Action icons */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Button
-            variant="ghost" size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => onEdit(provider)}
-            title={t("editBtn")}
-          >
+        {/* CRUD：hover 才现 */}
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <IconTooltipButton label={t("editBtn")} className="h-7 w-7" onClick={() => onEdit(provider)}>
             <Pencil size={14} />
-          </Button>
-          <Button
-            variant="ghost" size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => onDuplicate(provider)}
-            title={t("duplicate")}
-          >
+          </IconTooltipButton>
+          <IconTooltipButton label={t("duplicate")} className="h-7 w-7" onClick={() => onDuplicate(provider)}>
             <Copy size={14} />
-          </Button>
-          {!provider.isDefault && (
-            <Button
-              variant="ghost" size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => onSetDefault(provider.id)}
-              title={t("setAsDefaultBtn")}
-            >
-              <Star size={14} />
-            </Button>
-          )}
-          <Button
-            variant="ghost" size="sm"
-            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+          </IconTooltipButton>
+          <IconTooltipButton
+            label={t("deleteBtn")}
+            className="h-7 w-7 text-destructive hover:text-destructive"
             onClick={() => onDelete(provider.id)}
-            title={t("deleteBtn")}
           >
             <Trash2 size={14} />
-          </Button>
+          </IconTooltipButton>
         </div>
       </div>
     </div>

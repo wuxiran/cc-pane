@@ -164,4 +164,27 @@ impl Provider {
 pub struct ProviderConfig {
     #[serde(default)]
     pub providers: Vec<Provider>,
+    /// 「系统环境变量」（`SYSTEM_PROVIDER_ID`）被显式设为默认。
+    ///
+    /// 该伪条目不落入 `providers`，故无法用 `is_default` 表达；用这个独立标记持久化。
+    /// 与任一 provider 的 `is_default` 互斥：设置其一即清空另一方。
+    #[serde(default)]
+    pub default_is_system: bool,
+}
+
+/// 「系统环境变量」条目的探测结果。
+///
+/// `active` 与旧版 `detect_system_provider` 的布尔返回值语义一致；其余字段供 UI 展示
+/// 「探测到了什么」以及「用户是否已把系统条目设为默认」。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemProviderInfo {
+    /// 探测到 cc-switch 或宿主 Anthropic 凭证之一。
+    pub active: bool,
+    /// 探测到 `~/.cc-switch/cc-switch.db`。
+    pub cc_switch: bool,
+    /// 宿主进程中命中的 Anthropic 环境变量名（**只有键名，不含值**）。
+    pub env_keys: Vec<String>,
+    /// 用户已把「系统环境变量」设为默认凭证（持久化状态）。
+    pub default_is_system: bool,
 }

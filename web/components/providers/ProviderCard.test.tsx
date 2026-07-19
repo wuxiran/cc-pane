@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
-import type { Provider } from "@/types/provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { createSystemProvider, type Provider } from "@/types/provider";
 import ProviderCard from "./ProviderCard";
 
 vi.mock("sonner", () => ({
@@ -27,15 +28,21 @@ function makeProvider(overrides: Partial<Provider> = {}): Provider {
   };
 }
 
-function renderCard(provider: Provider) {
+function renderCard(
+  provider: Provider,
+  systemProbe?: React.ComponentProps<typeof ProviderCard>["systemProbe"],
+) {
   const handlers = {
     onEdit: vi.fn(),
     onDelete: vi.fn(),
     onSetDefault: vi.fn(),
-    onLaunch: vi.fn(),
     onDuplicate: vi.fn(),
   };
-  render(<ProviderCard provider={provider} {...handlers} />);
+  render(
+    <TooltipProvider>
+      <ProviderCard provider={provider} systemProbe={systemProbe} {...handlers} />
+    </TooltipProvider>,
+  );
   return handlers;
 }
 
@@ -55,35 +62,39 @@ describe("ProviderCard", () => {
     expect(screen.getByText("***")).toBeInTheDocument();
   });
 
-  it("shows default badge and hides set-default button for the default provider", () => {
+  it("shows an inert default marker instead of the set-default action for the default provider", () => {
     renderCard(makeProvider({ isDefault: true }));
     expect(screen.getByText(i18n.t("settings:defaultBadge"))).toBeInTheDocument();
     expect(
-      screen.queryByTitle(i18n.t("settings:setAsDefaultBtn"))
+      screen.queryByRole("button", { name: i18n.t("settings:setAsDefaultBtn") })
     ).not.toBeInTheDocument();
   });
 
-  it("invokes edit/duplicate/delete/set-default/launch callbacks with correct args", async () => {
+  it("has no launch action — starting a session goes through the global launcher", () => {
+    renderCard(makeProvider());
+    expect(
+      screen.queryByRole("button", { name: new RegExp(i18n.t("settings:launch")) })
+    ).not.toBeInTheDocument();
+  });
+
+  it("invokes edit/duplicate/delete/set-default callbacks with correct args", async () => {
     const user = userEvent.setup();
     const provider = makeProvider();
     const handlers = renderCard(provider);
 
-    await user.click(screen.getByTitle(i18n.t("settings:editBtn")));
+    await user.click(screen.getByLabelText(i18n.t("settings:editBtn")));
     expect(handlers.onEdit).toHaveBeenCalledWith(provider);
 
-    await user.click(screen.getByTitle(i18n.t("settings:duplicate")));
+    await user.click(screen.getByLabelText(i18n.t("settings:duplicate")));
     expect(handlers.onDuplicate).toHaveBeenCalledWith(provider);
 
-    await user.click(screen.getByTitle(i18n.t("settings:setAsDefaultBtn")));
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("settings:setAsDefaultBtn") })
+    );
     expect(handlers.onSetDefault).toHaveBeenCalledWith("p-1");
 
-    await user.click(screen.getByTitle(i18n.t("settings:deleteBtn")));
+    await user.click(screen.getByLabelText(i18n.t("settings:deleteBtn")));
     expect(handlers.onDelete).toHaveBeenCalledWith("p-1");
-
-    await user.click(
-      screen.getByRole("button", { name: new RegExp(i18n.t("settings:launch")) })
-    );
-    expect(handlers.onLaunch).toHaveBeenCalledWith("p-1");
   });
 
   it("copies baseUrl to clipboard when the URL button is clicked", async () => {
@@ -98,8 +109,61 @@ describe("ProviderCard", () => {
     // proxy 类型没有 preset website，baseUrl 走可点击复制按钮分支
     renderCard(makeProvider({ baseUrl: "https://proxy.example.com/v1" }));
 
-    await user.click(screen.getByTitle("Copy URL"));
+    await user.click(screen.getByLabelText("Copy URL"));
     expect(writeText).toHaveBeenCalledWith("https://proxy.example.com/v1");
     expect(toast.success).toHaveBeenCalledWith("Copied");
+  });
+
+  describe("system environment card", () => {
+    it("can be set as default (it is a real, persisted choice)", async () => {
+      const user = userEvent.setup();
+      const handlers = renderCard(createSystemProvider("System env"), {
+        envKeys: [],
+        ccSwitch: false,
+        runtimeApplicable: true,
+      });
+
+      await user.click(
+        screen.getByRole("button", { name: i18n.t("settings:setAsDefaultBtn") })
+      );
+      expect(handlers.onSetDefault).toHaveBeenCalledWith("__system__");
+    });
+
+    it("lists the detected variable names and never their values", () => {
+      renderCard(createSystemProvider("System env"), {
+        envKeys: ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
+        ccSwitch: true,
+        runtimeApplicable: true,
+      });
+
+      expect(
+        screen.getByText(
+          i18n.t("settings:systemEnvDetected", {
+            keys: `${i18n.t("settings:systemEnvCcSwitch")}, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL`,
+          })
+        )
+      ).toBeInTheDocument();
+    });
+
+    it("shows the empty-probe message when nothing was detected", () => {
+      renderCard(createSystemProvider("System env"), {
+        envKeys: [],
+        ccSwitch: false,
+        runtimeApplicable: true,
+      });
+      expect(screen.getByText(i18n.t("settings:systemEnvNone"))).toBeInTheDocument();
+    });
+
+    it("warns that the host probe does not apply under WSL/SSH", () => {
+      renderCard(createSystemProvider("System env"), {
+        envKeys: ["ANTHROPIC_API_KEY"],
+        ccSwitch: false,
+        runtimeApplicable: false,
+        runtimeLabel: "WSL",
+      });
+      expect(
+        screen.getByText(i18n.t("settings:systemEnvRuntimeWarning", { runtime: "WSL" }))
+      ).toBeInTheDocument();
+    });
   });
 });

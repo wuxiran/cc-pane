@@ -1,6 +1,10 @@
 import type { ProviderType } from "@/types/provider";
 
-const TYPE_COLORS: Record<ProviderType, string> = {
+/**
+ * Provider 类型的**身份色**（各家品牌色），仅用于头像等标识性元素。
+ * 属 identity 语义，不参与主题 token —— 状态色一律用 `--app-accent` 等 token 表达。
+ */
+export const PROVIDER_TYPE_COLORS: Record<ProviderType, string> = {
   anthropic: "#E8590C",
   bedrock: "#FF9900",
   vertex: "#4285F4",
@@ -23,7 +27,7 @@ interface ProviderAvatarProps {
 }
 
 export default function ProviderAvatar({ name, providerType, accentColor, size = 48 }: ProviderAvatarProps) {
-  const color = accentColor || TYPE_COLORS[providerType] || "#6B7280";
+  const color = accentColor || PROVIDER_TYPE_COLORS[providerType] || "#6B7280";
   const letter = name.charAt(0).toUpperCase() || "?";
   const fontSize = size * 0.42;
 

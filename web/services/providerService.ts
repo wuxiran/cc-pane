@@ -1,4 +1,4 @@
-import type { Provider, ConfigDirInfo } from "@/types/provider";
+import type { Provider, ConfigDirInfo, SystemProviderInfo } from "@/types/provider";
 import { apiDelete, apiGet, apiJson, apiNoContent, invokeOrApi } from "./apiClient";
 
 export const providerService = {
@@ -49,11 +49,17 @@ export const providerService = {
   },
 
   /**
-   * 检测「系统环境变量」provider 是否应作为默认（cc-switch 已安装或宿主已设 Anthropic 凭证）。
-   * Web/远程模式下无本地 cc-switch，回退为 false（不自动默认）。
+   * 探测「系统环境变量」条目：是否可用（cc-switch 已安装或宿主已设 Anthropic 凭证）、
+   * 命中了哪些变量名，以及它是否已被设为默认凭证。
+   * Web/远程模式下无本地宿主可探测，回退为「未检测到」。
    */
-  async detectSystemProvider(): Promise<boolean> {
-    return invokeOrApi<boolean>("detect_system_provider", undefined, async () => false);
+  async detectSystemProvider(): Promise<SystemProviderInfo> {
+    return invokeOrApi<SystemProviderInfo>("detect_system_provider", undefined, async () => ({
+      active: false,
+      ccSwitch: false,
+      envKeys: [],
+      defaultIsSystem: false,
+    }));
   },
 
   async readConfigDirInfo(path: string): Promise<ConfigDirInfo> {
