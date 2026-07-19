@@ -115,6 +115,12 @@ export async function resolveTerminalPastePayload(
 
   const imageHint = clipboardHasImage(clipboardData);
 
+  // Image probing is a best-effort side path: on Linux the backend reads the
+  // clipboard image off the main thread (GTK/arboard), which can reject the
+  // invoke outright. A failure here must never prevent a plain text paste, so
+  // the error is remembered and only surfaced when there is no text to paste.
+  let imageError: string | null = null;
+
   if (imageHint || !clipboardData) {
     try {
       const savedImage = await screenshotService.saveClipboardImage();
@@ -125,19 +131,11 @@ export async function resolveTerminalPastePayload(
           filePath: savedImage.filePath,
         };
       }
-      if (imageHint) {
-        return {
-          kind: "error",
-          reason: "clipboard-image-unavailable",
-          error: "Clipboard image could not be read",
-        };
-      }
     } catch (error) {
-      return {
-        kind: "error",
-        reason: "clipboard-image-save-failed",
-        error: getErrorMessage(error),
-      };
+      imageError = getErrorMessage(error);
+      devDebugLog("terminal-clipboard", "image.probe.failed", {
+        error: imageError,
+      });
     }
   }
 
@@ -146,6 +144,22 @@ export async function resolveTerminalPastePayload(
     return {
       kind: "text",
       text,
+    };
+  }
+
+  if (imageError) {
+    return {
+      kind: "error",
+      reason: "clipboard-image-save-failed",
+      error: imageError,
+    };
+  }
+
+  if (imageHint) {
+    return {
+      kind: "error",
+      reason: "clipboard-image-unavailable",
+      error: "Clipboard image could not be read",
     };
   }
 

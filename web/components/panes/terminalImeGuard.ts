@@ -69,6 +69,14 @@ function clearTextarea(textarea: HTMLTextAreaElement): void {
   }
 }
 
+// Reasons where wiping the document selection would destroy the very thing the
+// caller just handed to the clipboard. On Linux WebKit an async clipboard write
+// is not necessarily committed to the X11/Wayland selection by the time the
+// promise resolves, so removeAllRanges() right after a copy loses it. The
+// hidden textarea is still cleared — only the document selection is preserved.
+// See docs/27-linux-clipboard-fix.md (follow-up to 5089593).
+const SELECTION_PRESERVING_REASONS = new Set(["copy-selection"]);
+
 function clearDocumentSelection(textarea: HTMLTextAreaElement): void {
   try {
     textarea.ownerDocument.getSelection()?.removeAllRanges();
@@ -113,10 +121,14 @@ export function attachTerminalImeGuard(options: TerminalImeGuardOptions): Termin
   };
 
   const clearNativeEditState = (reason = "manual") => {
+    const preserveDocumentSelection = SELECTION_PRESERVING_REASONS.has(reason);
     clearTextarea(textarea);
-    clearDocumentSelection(textarea);
+    if (!preserveDocumentSelection) {
+      clearDocumentSelection(textarea);
+    }
     log("native-edit-state.cleared", {
       reason,
+      preserveDocumentSelection,
       textarea: {
         valueLength: textarea.value.length,
         selectionStart: textarea.selectionStart,

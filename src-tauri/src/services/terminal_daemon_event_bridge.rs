@@ -10,7 +10,12 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use tauri::Emitter;
 use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::{Error as WsError, Message as WsMessage};
 use tracing::{debug, warn};
+
+/// 状态轮询判定会话消失后，退出前额外等待 daemon 补发 `killed` 的窗口。
+/// 只在即将退出时生效，正常运行期不引入延迟。
+const DRAIN_WINDOW: Duration = Duration::from_millis(150);
 
 #[derive(Clone)]
 pub struct TerminalDaemonEventBridge {
@@ -153,12 +158,44 @@ impl TerminalDaemonEventBridge {
                     }
                 }
                 _ = status_interval.tick() => {
+                    // 状态轮询判定“会话没了”只说明 sessions map 里查不到，不代表 daemon
+                    // 没有排队待发的 killed 消息——kill 路径里 remove 与事件广播之间存在空窗，
+                    // 直接 return 会 drop socket 并把 reason 一起丢掉（标签因此关不掉）。
+                    // 所以先排干 WS 中已就绪的消息，让 killed/exit 有机会被处理，再决定是否
+                    // 由 poll_status 发静默 -1。
+                    if self.drain_ready_messages(&session_id, &mut ws, Duration::ZERO).await? {
+                        return Ok(());
+                    }
                     if self.poll_status(&session_id, backend.clone()).await? == PollStatus::Done {
+                        // poll_status 的 HTTP 往返期间 ws.next() 不被 poll，killed 可能刚好
+                        // 在这段时间入队：退出前再给一个短窗口把它读出来。
+                        self.drain_ready_messages(&session_id, &mut ws, DRAIN_WINDOW)
+                            .await?;
                         return Ok(());
                     }
                 }
             }
         }
+    }
+
+    /// 退出前排干 WS 里已就绪的消息，`window` 内还允许等待新到达的消息。
+    ///
+    /// 返回 `true` 表示读到了终止性消息（`killed` / `exit`）并已 emit 对应事件，
+    /// 调用方应直接退出、不要再走静默 `-1` 路径。返回 `false` 表示窗口内没有可用消息
+    /// （或流已结束/收到 close 帧），由调用方按原逻辑处理。
+    async fn drain_ready_messages<S>(
+        &self,
+        session_id: &str,
+        ws: &mut S,
+        window: Duration,
+    ) -> anyhow::Result<bool>
+    where
+        S: futures_util::Stream<Item = Result<WsMessage, WsError>> + Unpin,
+    {
+        drain_ready_messages_with(ws, window, |text| {
+            self.handle_stream_message(session_id, text)
+        })
+        .await
     }
 
     fn handle_stream_message(&self, session_id: &str, text: &str) -> anyhow::Result<bool> {
@@ -348,6 +385,40 @@ impl TerminalDaemonEventBridge {
     }
 }
 
+/// `drain_ready_messages` 的纯流处理部分：把消息取舍与事件 emit 解耦，便于脱离
+/// `tauri::AppHandle` 单测“poll 先于 killed 到达时消息不会被丢弃”。
+///
+/// `handle` 返回 `true` 表示该消息是终止性的（`killed` / `exit`），排干立即结束。
+async fn drain_ready_messages_with<S, F>(
+    ws: &mut S,
+    window: Duration,
+    mut handle: F,
+) -> anyhow::Result<bool>
+where
+    S: futures_util::Stream<Item = Result<WsMessage, WsError>> + Unpin,
+    F: FnMut(&str) -> anyhow::Result<bool>,
+{
+    let deadline = tokio::time::Instant::now() + window;
+    loop {
+        let Ok(message) = tokio::time::timeout_at(deadline, ws.next()).await else {
+            return Ok(false);
+        };
+        let Some(message) = message else {
+            return Ok(false);
+        };
+        let message = message?;
+        if message.is_close() {
+            return Ok(false);
+        }
+        if !message.is_text() {
+            continue;
+        }
+        if handle(message.to_text()?)? {
+            return Ok(true);
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum PollStatus {
     Continue,
@@ -474,6 +545,67 @@ mod tests {
             DaemonStreamMessage::Exit { exit_code } => assert_eq!(exit_code, 7),
             other => panic!("unexpected message: {other:?}"),
         }
+    }
+
+    fn text_frame(payload: &str) -> Result<WsMessage, WsError> {
+        Ok(WsMessage::Text(payload.into()))
+    }
+
+    /// 竞态回归：500ms 状态轮询判定会话消失时，队列里已就绪的 killed 不能被丢掉，
+    /// 否则 socket 被 drop、reason 永远读不到 → 标签关不掉。
+    #[tokio::test]
+    async fn drain_delivers_queued_killed_before_bridge_exits() {
+        let mut stream = futures_util::stream::iter(vec![
+            text_frame(r#"{"type":"output","data":"bye"}"#),
+            text_frame(r#"{"type":"killed","reason":"mcp"}"#),
+            text_frame(r#"{"type":"output","data":"never read"}"#),
+        ]);
+
+        let mut seen = Vec::new();
+        let terminated = drain_ready_messages_with(&mut stream, Duration::ZERO, |text| {
+            seen.push(text.to_string());
+            Ok(matches!(
+                serde_json::from_str::<DaemonStreamMessage>(text)?,
+                DaemonStreamMessage::Killed { .. }
+            ))
+        })
+        .await
+        .expect("drain must succeed");
+
+        assert!(terminated, "读到 killed 后应返回 true，调用方据此跳过静默 -1");
+        assert_eq!(seen.len(), 2, "killed 之后的消息不再消费");
+        assert!(seen[1].contains(r#""reason":"mcp""#), "reason 必须完整送达");
+    }
+
+    #[tokio::test]
+    async fn drain_returns_false_when_no_terminal_message_is_queued() {
+        let mut stream =
+            futures_util::stream::iter(vec![text_frame(r#"{"type":"output","data":"alive"}"#)]);
+
+        let terminated = drain_ready_messages_with(&mut stream, Duration::ZERO, |_| Ok(false))
+            .await
+            .expect("drain must succeed");
+
+        assert!(!terminated, "没有终止性消息时应交回调用方按原逻辑处理");
+    }
+
+    #[tokio::test]
+    async fn drain_stops_at_close_frame_without_consuming_rest() {
+        let mut stream = futures_util::stream::iter(vec![
+            Ok(WsMessage::Close(None)),
+            text_frame(r#"{"type":"killed","reason":"mcp"}"#),
+        ]);
+
+        let mut seen = 0usize;
+        let terminated = drain_ready_messages_with(&mut stream, Duration::ZERO, |_| {
+            seen += 1;
+            Ok(true)
+        })
+        .await
+        .expect("drain must succeed");
+
+        assert!(!terminated);
+        assert_eq!(seen, 0, "close 帧后不再处理消息，走调用方原有 -1 路径");
     }
 
     #[test]

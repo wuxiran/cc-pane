@@ -36,16 +36,17 @@ import {
 } from "./terminalCapabilityReports";
 import { buildOscColorReply } from "./terminalOscColor";
 import {
+  createTerminalDataRenderer,
   detectAlternateBufferTransitions,
   shouldKeepCliOutputInNormalBuffer,
-  stripAlternateBufferSequences,
+  type TerminalDataRenderer,
 } from "./terminalBufferMode";
 import { formatTerminalFilePaths, resolveTerminalPastePayload } from "./terminalClipboard";
 import { isDropInsideTerminalHost } from "./terminalDrop";
 import { attachTerminalInputTrace, summarizeTerminalInputData } from "./terminalInputTrace";
 import { attachTerminalDomInputFallback } from "./terminalDomInputFallback";
 import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
-import { isTerminalPasteShortcut } from "./terminalKeyboard";
+import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
 import { detectFocusReportMode, isXtermFocusReportInput } from "./terminalFocusReport";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import { getCliInstallHint } from "./terminalCliInstallHint";
@@ -482,9 +483,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       props.tabId,
     ]);
     const keepCliOutputInNormalBuffer = shouldKeepCliOutputInNormalBuffer(effectiveCliTool);
+    // renderer 是**有状态**的（可能扣留跨 chunk 的不完整转义序列尾部），必须按终端实例
+    // 用 ref 持有——useMemo 可能被 React 丢弃重算，扣留的尾部会随之丢失。
+    //
+    // 销毁时不 flush 残留：写入残留得挂进 init 闭包的 cleanup（终端销毁时序红线），
+    // 且那时 xterm 正在 dispose，写入本就不安全。代价是会话结束时最多丢 32 字节的
+    // 不完整转义序列尾部（MAX_PARTIAL_TAIL_LENGTH 上限）——远好于动渲染生命周期。
+    const terminalDataRendererRef = useRef<TerminalDataRenderer | null>(null);
     const renderTerminalData = useCallback((data: string) => {
-      if (!keepCliOutputInNormalBuffer) return data;
-      return stripAlternateBufferSequences(data);
+      terminalDataRendererRef.current ??= createTerminalDataRenderer();
+      return terminalDataRendererRef.current.render(data, {
+        keepCliOutputInNormalBuffer,
+        sessionId: currentSessionIdRef.current,
+      });
     }, [keepCliOutputInNormalBuffer]);
 
     const syncTrackedBufferType = useCallback((reason: string) => {
@@ -1365,27 +1376,27 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             return false;
           }
 
-          if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && !e.altKey) {
-            // Copy the selection on Ctrl+C; otherwise let the terminal handle SIGINT.
-            if (!e.shiftKey && (e.key === 'c' || e.key === 'C')) {
-              const selection = term.getSelection();
-              if (selection) {
-                e.preventDefault();
-                void copyTerminalSelection(selection)
-                  .then(() => {
-                    term.clearSelection();
-                    imeGuardRef.current?.clearNativeEditState("copy-selection");
-                    term.focus();
-                  })
-                  .catch((error) => {
-                    const message = getErrorMessage(error);
-                    debugLog("clipboard.copy.failed", { error: message });
-                    toast.error(`Copy failed: ${message}`);
-                  });
-                return false;
-              }
-              return true;
+          if (isTerminalCopyShortcut(e, IS_MAC)) {
+            // Copy the selection; without one Ctrl+C must stay SIGINT.
+            const selection = term.getSelection();
+            if (selection) {
+              e.preventDefault();
+              void copyTerminalSelection(selection)
+                .then(() => {
+                  term.clearSelection();
+                  imeGuardRef.current?.clearNativeEditState("copy-selection");
+                  term.focus();
+                })
+                .catch((error) => {
+                  const message = getErrorMessage(error);
+                  debugLog("clipboard.copy.failed", { error: message });
+                  toast.error(`Copy failed: ${message}`);
+                });
+              return false;
             }
+            // No selection: plain Ctrl/Cmd+C goes to the terminal (SIGINT);
+            // Ctrl+Shift+C falls through to the global shortcut layer.
+            if (!e.shiftKey) return true;
           }
           return shouldTerminalHandleKey(e);
         });
