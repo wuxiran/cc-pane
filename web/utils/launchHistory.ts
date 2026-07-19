@@ -1,5 +1,6 @@
 import type { LaunchRecord } from "@/services";
 import type { OpenTerminalOptions, SshMachine, Workspace, WorkspaceProject } from "@/types";
+import { stripVerbatimPrefix } from "./path";
 import {
   buildSshConnectionDisplayPath,
   resolveWorkspaceProjectLaunchOptions,
@@ -43,7 +44,11 @@ export function buildLaunchRecordTerminalOptions(
     workspaceName: optionalValue(record.workspaceName),
     providerId,
     providerSelection,
-    workspacePath: optionalValue(record.launchCwd ?? record.workspacePath),
+    // 兜底剥 `\\?\`：存量历史记录仍可能带被 hook 污染的值（docs/35-unc-path-contamination.md）。
+    // 注意此处 launchCwd 优先于 workspacePath 的顺序**未改动**——见该文档的评估。
+    workspacePath: stripVerbatimPrefix(
+      optionalValue(record.launchCwd ?? record.workspacePath),
+    ),
     cliTool,
     resumeId: optionalValue(record.resumeSessionId),
   };

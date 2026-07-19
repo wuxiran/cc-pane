@@ -31,6 +31,7 @@ struct Migration {
 /// V20 = runner registry (runner_profiles + runner_instances + port_claims)
 /// V21 = launch_history 添加 resume_source（resume id 来源：issued/osc-title/backfill/rescue/manual）
 /// V22 = layout_snapshots shared desktop/Web pane layout state
+/// V23 = 洗掉 launch_history 里被 CLI hook 回填污染的 `\\?\` 路径（数据迁移，非 schema）
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -466,6 +467,31 @@ const MIGRATIONS: &[Migration] = &[
                 ON layout_snapshots(workspace_id);
         ",
     },
+    Migration {
+        version: 23,
+        description: "launch_history: strip \\\\?\\ verbatim prefix from launch_cwd/workspace_path",
+        // 存量数据清洗（见 docs/35-unc-path-contamination.md）：CLI hook 的
+        // `canonicalize()` 把 `\\?\C:\...` 回填进 launch_cwd，再经前端回流成 PTY cwd，
+        // 被 cmd.exe 拒绝并静默回落 C:\Windows。
+        //
+        // 这条迁移会改用户真实数据，因此严格限定：
+        //   * 只对**恰好**以 `\\?\` 开头的值做 substr(…, 5)，其余一字不动；
+        //   * 排除 `\\?\UNC\`——它无法靠裸剥前缀降级成合法路径（与 dunce 语义一致）；
+        //   * 天然幂等：剥完就不再匹配 WHERE，重复执行是 no-op。
+        up_sql: "
+            UPDATE launch_history
+               SET launch_cwd = substr(launch_cwd, 5)
+             WHERE launch_cwd IS NOT NULL
+               AND substr(launch_cwd, 1, 4) = '\\\\?\\'
+               AND substr(launch_cwd, 1, 8) <> '\\\\?\\UNC\\';
+
+            UPDATE launch_history
+               SET workspace_path = substr(workspace_path, 5)
+             WHERE workspace_path IS NOT NULL
+               AND substr(workspace_path, 1, 4) = '\\\\?\\'
+               AND substr(workspace_path, 1, 8) <> '\\\\?\\UNC\\';
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -749,6 +775,74 @@ mod tests {
                 columns.iter().any(|column| column == expected),
                 "task_bindings should have column '{}'",
                 expected
+            );
+        }
+    }
+
+    /// V23 数据清洗：对存量污染行剥 `\\?\`，且重复执行幂等。
+    /// 见 docs/35-unc-path-contamination.md。
+    #[test]
+    fn migration_v23_strips_verbatim_prefix_and_is_idempotent() {
+        let db = Database::new_in_memory().expect("should create db");
+        let conn = db.connection().expect("conn");
+
+        // 迁移已在建库时跑过，这里手动种入污染行再重放 v23 的 SQL。
+        conn.execute_batch(
+            r"
+            INSERT INTO launch_history (project_id, project_name, project_path, launched_at, launch_cwd, workspace_path)
+            VALUES
+              ('dirty',      'p', 'C:\p', '2026-01-01', '\\?\C:\Users\me\proj', '\\?\C:\ws'),
+              ('clean',      'p', 'C:\p', '2026-01-01', 'C:\Users\me\proj',     'C:\ws'),
+              ('unc',        'p', 'C:\p', '2026-01-01', '\\?\UNC\server\share', NULL),
+              ('unixish',    'p', '/p',   '2026-01-01', '/home/me/proj',        NULL);
+            ",
+        )
+        .expect("seed");
+
+        let v23 = MIGRATIONS
+            .iter()
+            .find(|m| m.version == 23)
+            .expect("v23 exists");
+
+        let read = |id: &str| -> (Option<String>, Option<String>) {
+            conn.query_row(
+                "SELECT launch_cwd, workspace_path FROM launch_history WHERE project_id = ?1",
+                rusqlite::params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("row")
+        };
+
+        for pass in 1..=2 {
+            conn.execute_batch(v23.up_sql).expect("apply v23");
+
+            // 污染行被剥干净
+            assert_eq!(
+                read("dirty"),
+                (
+                    Some(r"C:\Users\me\proj".to_string()),
+                    Some(r"C:\ws".to_string())
+                ),
+                "pass {pass}: dirty row should be stripped"
+            );
+            // 干净行、`\\?\UNC\` 行、Unix 风格路径一律不动
+            assert_eq!(
+                read("clean"),
+                (
+                    Some(r"C:\Users\me\proj".to_string()),
+                    Some(r"C:\ws".to_string())
+                ),
+                "pass {pass}: clean row must not be rewritten"
+            );
+            assert_eq!(
+                read("unc").0,
+                Some(r"\\?\UNC\server\share".to_string()),
+                "pass {pass}: \\\\?\\UNC\\ cannot be naively stripped"
+            );
+            assert_eq!(
+                read("unixish").0,
+                Some("/home/me/proj".to_string()),
+                "pass {pass}: unix path must not be rewritten"
             );
         }
     }

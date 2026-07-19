@@ -101,3 +101,40 @@ describe("launchHistory", () => {
     });
   });
 });
+
+describe("launchHistory · verbatim 路径污染兜底", () => {
+  // 存量历史记录仍带被 CLI hook 回填的 `\\?\` 路径，从「最近启动」再启动时
+  // 它会成为 OpenTerminalOptions.workspacePath 并被 cmd.exe 拒绝。
+  // 见 docs/35-unc-path-contamination.md。
+  it("launchCwd 带 verbatim 前缀时 workspacePath 解析后是干净的", () => {
+    const record = createRecord({
+      runtimeKind: "local",
+      launchCwd: String.raw`\\?\C:\Users\me\.cc-panes-dev\workspaces\default`,
+      workspacePath: String.raw`C:\Users\me\.cc-panes-dev\workspaces\default`,
+    });
+
+    const options = buildLaunchRecordTerminalOptions(record, [], []);
+
+    expect(options.workspacePath).toBe(
+      String.raw`C:\Users\me\.cc-panes-dev\workspaces\default`,
+    );
+  });
+
+  it("launchCwd 缺失时回落的 workspacePath 同样被兜底", () => {
+    const record = createRecord({
+      runtimeKind: "local",
+      launchCwd: undefined,
+      workspacePath: String.raw`\\?\C:\ws`,
+    });
+
+    expect(buildLaunchRecordTerminalOptions(record, [], []).workspacePath).toBe(
+      String.raw`C:\ws`,
+    );
+  });
+
+  it("干净路径不被改写", () => {
+    const record = createRecord({ runtimeKind: "local", launchCwd: "D:/workspace-root" });
+
+    expect(buildLaunchRecordTerminalOptions(record, [], []).workspacePath).toBe("D:/workspace-root");
+  });
+});

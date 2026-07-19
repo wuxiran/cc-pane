@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getFileName, getDirName, getProjectName, getWslUncRemotePath, isWslUncPath, toWslPath } from "./path";
+import { getFileName, stripVerbatimPrefix, getDirName, getProjectName, getWslUncRemotePath, isWslUncPath, toWslPath } from "./path";
 
 describe("getFileName", () => {
   it("正斜杠路径提取文件名", () => {
@@ -141,5 +141,39 @@ describe("isWslUncPath", () => {
   it("忽略 Windows 本地路径和普通 Linux 路径", () => {
     expect(isWslUncPath("D:\\workspace\\repo")).toBe(false);
     expect(isWslUncPath("/home/dev/repo")).toBe(false);
+  });
+});
+
+describe("stripVerbatimPrefix", () => {
+  // 见 docs/35-unc-path-contamination.md（用 String.raw 避免反斜杠转义噪音）
+  it("剥掉 \\?\\ verbatim 前缀", () => {
+    expect(
+      stripVerbatimPrefix(String.raw`\\?\C:\Users\me\.cc-panes-dev\workspaces\default`),
+    ).toBe(String.raw`C:\Users\me\.cc-panes-dev\workspaces\default`);
+  });
+
+  it("普通路径原样返回", () => {
+    expect(stripVerbatimPrefix(String.raw`C:\Users\me`)).toBe(String.raw`C:\Users\me`);
+    expect(stripVerbatimPrefix("/home/dev/repo")).toBe("/home/dev/repo");
+    expect(stripVerbatimPrefix(String.raw`\\wsl.localhost\Ubuntu\home`)).toBe(
+      String.raw`\\wsl.localhost\Ubuntu\home`,
+    );
+  });
+
+  it("\\?\\UNC\\ 无法裸剥，保持原样（与后端 dunce 语义一致）", () => {
+    expect(stripVerbatimPrefix(String.raw`\\?\UNC\server\share`)).toBe(
+      String.raw`\\?\UNC\server\share`,
+    );
+  });
+
+  it("幂等", () => {
+    const once = stripVerbatimPrefix(String.raw`\\?\C:\proj`);
+    expect(once).toBe(String.raw`C:\proj`);
+    expect(stripVerbatimPrefix(once)).toBe(once);
+  });
+
+  it("null / undefined 透传", () => {
+    expect(stripVerbatimPrefix(null)).toBeNull();
+    expect(stripVerbatimPrefix(undefined)).toBeUndefined();
   });
 });

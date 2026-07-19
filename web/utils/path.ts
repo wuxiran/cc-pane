@@ -1,4 +1,21 @@
 /**
+ * 剥离 Windows `\\?\` verbatim 前缀。
+ *
+ * 后端 `canonicalize()` 会产出 `\\?\C:\...`，该值一旦回流成 PTY 的 cwd，
+ * cmd.exe 会拒绝并静默回落到 `C:\Windows`（见 docs/35-unc-path-contamination.md）。
+ * 这是前端兜底防线——后端已在 hook / 入库 / spawn 三处拦截。
+ *
+ * 与后端 `dunce` 语义保持一致：`\\?\UNC\server\share` 无法靠裸剥前缀降级成合法
+ * 路径，保持原样。非 Windows 路径不含该前缀，因此天然是 no-op。幂等。
+ */
+export function stripVerbatimPrefix<T extends string | null | undefined>(path: T): T {
+  if (typeof path !== "string") return path;
+  if (!path.startsWith("\\\\?\\")) return path;
+  if (path.startsWith("\\\\?\\UNC\\")) return path;
+  return path.slice(4) as T;
+}
+
+/**
  * 从完整路径提取文件名
  */
 export function getFileName(path: string): string {
