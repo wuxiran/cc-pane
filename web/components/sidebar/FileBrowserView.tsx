@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/tooltip";
 
 export default function FileBrowserView() {
-  const { t } = useTranslation("sidebar");
+  const { t } = useTranslation(["sidebar", "common"]);
 
   const currentPath = useFileBrowserStore((s) => s.currentPath);
   const navigateTo = useFileBrowserStore((s) => s.navigateTo);
@@ -118,10 +118,10 @@ export default function FileBrowserView() {
     try {
       if (dialogType === "newFile") {
         await createFile(currentPath, inputValue.trim(), currentPath);
-        toast.success(`Created: ${inputValue.trim()}`);
+        toast.success(t("filetree.created", { name: inputValue.trim() }));
       } else if (dialogType === "newDir") {
         await createDirectory(currentPath, inputValue.trim(), currentPath);
-        toast.success(`Created: ${inputValue.trim()}`);
+        toast.success(t("filetree.created", { name: inputValue.trim() }));
       }
     } catch (err) {
       handleError(err, "create file/directory");
@@ -134,7 +134,7 @@ export default function FileBrowserView() {
       {/* 标题栏 + 工具栏 */}
       <div className="flex items-center justify-between px-4 py-3 shrink-0 group/toolbar">
         <span className="text-xs font-semibold uppercase tracking-widest text-[var(--app-text-tertiary)]">
-          {t("fileBrowser", { defaultValue: "Files" })}
+          {t("fileBrowser")}
         </span>
 
         {/* 工具栏按钮 - hover 时显示 */}
@@ -152,7 +152,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>Back</p>
+                <p>{t("goBack")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -168,7 +168,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>Forward</p>
+                <p>{t("goForward")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -184,7 +184,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>Up</p>
+                <p>{t("goUp")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -201,7 +201,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>Go to Project Root</p>
+                <p>{t("goToProjectRoot")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -216,7 +216,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>New File</p>
+                <p>{t("filetree.newFile")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -231,7 +231,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>New Folder</p>
+                <p>{t("filetree.newFolder")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -246,7 +246,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>Refresh</p>
+                <p>{t("refresh")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -261,7 +261,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>Collapse All</p>
+                <p>{t("collapseAll")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -277,7 +277,7 @@ export default function FileBrowserView() {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
-                <p>Reveal Active File</p>
+                <p>{t("revealActiveFile")}</p>
               </TooltipContent>
             </Tooltip>
           </div>
@@ -295,7 +295,7 @@ export default function FileBrowserView() {
           />
         ) : (
           <div className="text-xs text-center py-8 text-muted-foreground">
-            {t("noPath", { defaultValue: "Select a directory to browse" })}
+            {t("noPath")}
           </div>
         )}
       </div>
@@ -305,7 +305,7 @@ export default function FileBrowserView() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {dialogType === "newFile" ? "New File" : "New Folder"}
+              {dialogType === "newFile" ? t("filetree.dialogNewFile") : t("filetree.dialogNewFolder")}
             </DialogTitle>
           </DialogHeader>
           <Input
@@ -317,9 +317,9 @@ export default function FileBrowserView() {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogType(null)}>
-              Cancel
+              {t("common:cancel")}
             </Button>
-            <Button onClick={handleDialogSubmit}>Create</Button>
+            <Button onClick={handleDialogSubmit}>{t("common:create")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

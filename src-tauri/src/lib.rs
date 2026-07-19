@@ -1250,6 +1250,12 @@ pub fn run() {
     let journal_service = Arc::new(JournalService::new(app_paths.workspaces_dir()));
     let worktree_service = Arc::new(WorktreeService::new());
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
+    // 默认工作空间：缺失自动创建（锚点为应用数据目录下的 workspaces/default）
+    match workspace_service.ensure_default_workspace() {
+        Ok(Some(ws)) => info!("[workspace] default workspace ensured at {:?}", ws.path),
+        Ok(None) => {}
+        Err(e) => warn!("[workspace] ensure default workspace failed: {}", e),
+    }
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let cli_registry = {
         let mut reg = cc_cli_adapters::CliToolRegistry::new();

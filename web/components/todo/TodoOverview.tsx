@@ -32,7 +32,7 @@ function StatCard({
   color: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border/30 bg-card shadow-sm p-4 hover:shadow-md hover:-translate-y-[1px] transition-all">
+    <div className="flex items-center gap-3 rounded-2xl border border-border/30 bg-card shadow-sm p-4 hover:shadow-md hover:-translate-y-[1px] transition-all duration-[var(--dur)]">
       <div className={`shrink-0 w-9 h-9 rounded-full bg-muted/50 border border-border/30 flex items-center justify-center ${color}`}>{icon}</div>
       <div className="min-w-0">
         <p className="text-lg font-semibold leading-none">{count}</p>
@@ -124,19 +124,19 @@ export default function TodoOverview({
           icon={<PlayCircle size={18} />}
           label={t("todoInProgress")}
           count={inProgressCount}
-          color="text-blue-500"
+          color="text-[var(--app-accent)]"
         />
         <StatCard
           icon={<CheckCircle2 size={18} />}
           label={t("todoDone")}
           count={doneCount}
-          color="text-emerald-500"
+          color="text-[var(--app-status-success)]"
         />
         <StatCard
           icon={<AlertTriangle size={18} />}
           label={t("todoOverviewOverdue")}
           count={overdueCount}
-          color="text-red-500"
+          color="text-[var(--app-status-danger)]"
         />
       </div>
 
@@ -153,19 +153,19 @@ export default function TodoOverview({
             label={t("todoPriorityHigh")}
             count={highCount}
             total={total}
-            color="bg-rose-500"
+            color="bg-[var(--app-status-danger)]"
           />
           <PriorityBar
             label={t("todoPriorityMedium")}
             count={mediumCount}
             total={total}
-            color="bg-amber-500"
+            color="bg-[var(--app-status-warning)]"
           />
           <PriorityBar
             label={t("todoPriorityLow")}
             count={lowCount}
             total={total}
-            color="bg-slate-400"
+            color="bg-[var(--app-text-tertiary)]"
           />
         </div>
       </div>
@@ -181,7 +181,7 @@ export default function TodoOverview({
               <button
                 key={todo.id}
                 onClick={() => onSelectTodo(todo)}
-                className="w-full text-left px-2.5 py-1.5 text-xs rounded-xl border border-transparent hover:bg-accent/50 hover:shadow-sm transition-all truncate text-foreground/80"
+                className="w-full text-left px-2.5 py-1.5 text-xs rounded-xl border border-transparent hover:bg-accent/50 hover:shadow-sm transition-all duration-[var(--dur-fast)] truncate text-foreground/80"
               >
                 {todo.title}
               </button>

@@ -134,11 +134,11 @@ describe("FileTree", () => {
       gitStatuses: { [ROOT]: { [`${ROOT}/src/deep/file.ts`]: "modified" } },
     });
     render(<FileTree rootPath={ROOT} />);
-    expect(screen.getByText("file.ts")).toHaveClass("text-yellow-400");
-    expect(screen.getByText("deep")).toHaveClass("text-yellow-400");
-    expect(screen.getByText("src")).toHaveClass("text-yellow-400");
+    expect(screen.getByText("file.ts")).toHaveClass("text-[var(--app-status-warning)]");
+    expect(screen.getByText("deep")).toHaveClass("text-[var(--app-status-warning)]");
+    expect(screen.getByText("src")).toHaveClass("text-[var(--app-status-warning)]");
     // 根目录本身（长度 <= rootPath）不冒泡
-    expect(screen.getByText("README.md")).not.toHaveClass("text-yellow-400");
+    expect(screen.getByText("README.md")).not.toHaveClass("text-[var(--app-status-warning)]");
   });
 
   it("keeps the higher-priority git status when bubbling multiple children", () => {
@@ -152,8 +152,8 @@ describe("FileTree", () => {
     });
     render(<FileTree rootPath={ROOT} />);
     // modified(3) 优先于 untracked(1)
-    expect(screen.getByText("src")).toHaveClass("text-yellow-400");
-    expect(screen.getByText("other.ts")).toHaveClass("text-emerald-400");
+    expect(screen.getByText("src")).toHaveClass("text-[var(--app-status-warning)]");
+    expect(screen.getByText("other.ts")).toHaveClass("text-[var(--app-status-success)]");
   });
 
   it("syncs selection when the active pane switches to an editor tab", async () => {

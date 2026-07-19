@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { collectPanels } from "@/stores/paneTreeHelpers";
 import TabBar from "./TabBar";
+import PanelEmptyActions from "./PanelEmptyActions";
 import TabContentRenderer from "./TabContentRenderer";
 import type { TerminalViewHandle } from "./TerminalView";
 
@@ -340,6 +341,39 @@ export default memo(function Panel({ pane }: PanelProps) {
     [pane.id, enterFullscreen]
   );
 
+  const handleToggleFullscreen = useCallback(
+    (tabId: string) => {
+      if (isFullscreenPanel) {
+        exitFullscreen();
+      } else {
+        enterFullscreen(pane.id, tabId);
+      }
+    },
+    [isFullscreenPanel, exitFullscreen, enterFullscreen, pane.id]
+  );
+
+  // 克隆终端：同目录/同 CLI 配置在本窗格再开一个标签（全新会话，不共享 PTY）。
+  const handleCloneTab = useCallback(
+    (tab: Tab) => {
+      if (tab.contentType !== "terminal" || !tab.projectPath) return;
+      addTab(pane.id, {
+        projectId: tab.projectId,
+        projectPath: tab.projectPath,
+        workspaceName: tab.workspaceName,
+        providerId: tab.providerId,
+        providerSelection: tab.providerSelection,
+        launchProfileId: tab.launchProfileId,
+        workspacePath: tab.workspacePath,
+        workspaceSnapshotId: tab.workspaceSnapshotId,
+        cliTool: tab.cliTool ?? (tab.launchClaude ? "claude" : undefined),
+        ssh: tab.ssh,
+        wsl: tab.wsl,
+        machineName: tab.machineName,
+      });
+    },
+    [pane.id, addTab]
+  );
+
   const handleSessionCreated = useCallback(
     (tabId: string, sessionId: string, terminalPaneId?: string) =>
       updateTabSession(pane.id, tabId, sessionId, terminalPaneId),
@@ -453,13 +487,17 @@ export default memo(function Panel({ pane }: PanelProps) {
   return (
     <div
       data-pane-id={pane.id}
-      className={`flex w-full min-w-0 min-h-0 flex-col h-full overflow-hidden transition-shadow duration-300 ${
+      className={`flex w-full min-w-0 min-h-0 flex-col h-full overflow-hidden transition-shadow duration-[var(--dur)] ${
         isFullscreenPanel ? "fixed inset-0 z-[9999]" : ""
       }`}
       style={{
         background: "var(--app-panel-bg)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
+        // 激活 pane:subtle accent 内环,一眼分清焦点
+        boxShadow: isActivePane
+          ? "inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 20%, transparent)"
+          : "inset 0 0 0 1px transparent",
       }}
       onClick={handlePanelClick}
     >
@@ -500,6 +538,9 @@ export default memo(function Panel({ pane }: PanelProps) {
             onPopOutTab={isTauriRuntime() ? handlePopOutTab : undefined}
             canEditWorkspaceEnvironment={canEditWorkspaceEnvironment}
             onEditWorkspaceEnvironment={handleEditWorkspaceEnvironment}
+            onCloneTab={handleCloneTab}
+            onToggleFullscreen={handleToggleFullscreen}
+            isPaneFullscreen={isFullscreenPanel}
           />
         </div>
 
@@ -532,34 +573,36 @@ export default memo(function Panel({ pane }: PanelProps) {
         {(!activeTab || !activeTab.projectPath) && (
           <div
             className="absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden"
-            style={{ background: "#1a1a1a", paddingTop: tabBarHeight }}
+            style={{ background: "var(--app-panel-bg)", paddingTop: tabBarHeight }}
           >
             {/* 点阵背景 */}
             <div
               className="absolute inset-0 opacity-[0.03]"
               style={{
-                backgroundImage: 'radial-gradient(rgba(255,255,255,0.8) 1px, transparent 1px)',
+                backgroundImage: 'radial-gradient(var(--app-text-primary) 1px, transparent 1px)',
                 backgroundSize: '24px 24px',
               }}
             />
 
             {/* 图标容器 */}
             <div
-              className="relative w-28 h-28 rounded-3xl flex items-center justify-center mb-8 transition-transform duration-700"
+              className="relative w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-transform duration-700"
               style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.1)",
+                background: "color-mix(in srgb, var(--app-accent) 8%, var(--app-hover))",
+                border: "1px solid var(--app-border)",
+                boxShadow: "var(--sh-md), var(--hi)",
               }}
             >
-              <Terminal className="w-12 h-12 opacity-80" style={{ color: "rgba(255,255,255,0.3)" }} />
+              <Terminal className="w-9 h-9" style={{ color: "var(--app-accent)", opacity: 0.85 }} />
             </div>
 
-            <h3 className="text-xl font-medium mb-3 tracking-tight" style={{ color: "rgba(255,255,255,0.85)" }}>
+            <h3 className="text-lg font-semibold mb-2 tracking-tight" style={{ color: "var(--app-text-primary)" }}>
               {t("ready")}
             </h3>
-            <p className="text-center max-w-sm leading-relaxed text-sm" style={{ color: "rgba(255,255,255,0.45)" }}>
+            <p className="text-center max-w-sm leading-relaxed text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("selectProject")}
             </p>
+            <PanelEmptyActions />
           </div>
         )}
       </div>
@@ -567,7 +610,7 @@ export default memo(function Panel({ pane }: PanelProps) {
       {/* 全屏退出按钮 */}
       {isFullscreenPanel && (
         <div
-          className="fixed top-4 right-4 z-[10000] flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-all hover:text-[var(--app-text-primary)]"
+          className="fixed top-4 right-4 z-[10000] flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-text-primary)]"
           style={{
             background: "var(--app-overlay)",
             border: "1px solid var(--app-border)",

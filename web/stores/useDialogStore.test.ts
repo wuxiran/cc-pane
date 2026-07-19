@@ -123,6 +123,53 @@ describe("useDialogStore", () => {
     });
   });
 
+  describe("Launcher dialog", () => {
+    it("openLauncher 无上下文时 launcherContext 为 null", () => {
+      useDialogStore.getState().openLauncher();
+      const state = useDialogStore.getState();
+      expect(state.launcherOpen).toBe(true);
+      expect(state.launcherContext).toBeNull();
+    });
+
+    it("openLauncher 带上下文时保存 workspaceName/targetLayoutId", () => {
+      useDialogStore.getState().openLauncher({ workspaceName: "demo", targetLayoutId: "layout-1" });
+      const state = useDialogStore.getState();
+      expect(state.launcherOpen).toBe(true);
+      expect(state.launcherContext).toEqual({ workspaceName: "demo", targetLayoutId: "layout-1" });
+    });
+
+    it("closeLauncher 关闭并清空上下文", () => {
+      useDialogStore.getState().openLauncher({ workspaceName: "demo" });
+      useDialogStore.getState().closeLauncher();
+      const state = useDialogStore.getState();
+      expect(state.launcherOpen).toBe(false);
+      expect(state.launcherContext).toBeNull();
+    });
+  });
+
+  describe("Pending Launch extras", () => {
+    it("setPendingLaunch 透传启动器附加字段", () => {
+      useDialogStore.getState().setPendingLaunch({
+        path: "D:/repos/demo",
+        providerId: "",
+        skipMcp: true,
+        appendSystemPrompt: "focus",
+        initialPrompt: "run tests",
+        yolo: true,
+        adapterOptions: { effort: "high", maxTurns: 3 },
+      });
+      expect(useDialogStore.getState().pendingLaunch).toMatchObject({
+        skipMcp: true,
+        appendSystemPrompt: "focus",
+        initialPrompt: "run tests",
+        yolo: true,
+        adapterOptions: { effort: "high", maxTurns: 3 },
+      });
+      useDialogStore.getState().clearPendingLaunch();
+      expect(useDialogStore.getState().pendingLaunch).toBeNull();
+    });
+  });
+
   describe("Todo dialog", () => {
     it("openTodo 应设置 todoOpen、todoScope 和 todoScopeRef", () => {
       useDialogStore.getState().openTodo("workspace", "my-workspace");

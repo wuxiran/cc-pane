@@ -97,14 +97,14 @@ describe("TodoListItem", () => {
     renderItem(createTodo({ dueDate: "2020-01-01T00:00:00Z" }));
 
     const due = screen.getByText(new Date("2020-01-01T00:00:00Z").toLocaleDateString());
-    expect(due).toHaveClass("text-red-500");
+    expect(due).toHaveClass("text-[var(--app-status-danger)]");
   });
 
   it("已完成任务的过期到期日不标红且标题带删除线", () => {
     renderItem(createTodo({ status: "done", dueDate: "2020-01-01T00:00:00Z" }));
 
     const due = screen.getByText(new Date("2020-01-01T00:00:00Z").toLocaleDateString());
-    expect(due).not.toHaveClass("text-red-500");
+    expect(due).not.toHaveClass("text-[var(--app-status-danger)]");
     expect(screen.getByText("写测试")).toHaveClass("line-through");
   });
 

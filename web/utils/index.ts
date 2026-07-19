@@ -15,6 +15,7 @@ export {
   resolveWorkspaceProjectWslPath,
   resolveWorkspaceLaunchOptions,
 } from "./workspaceLaunch";
+export { coerceCliTool } from "./cliTool";
 export { buildLaunchRecordTerminalOptions } from "./launchHistory";
 export { parseEnvLines, formatEnvLines } from "./env";
 export { handleError, handleErrorSilent } from "./errorHandler";

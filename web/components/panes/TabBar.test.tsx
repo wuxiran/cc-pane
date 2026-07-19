@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,6 +39,9 @@ function renderTabBar({
   onMoveTabToLayoutPane = vi.fn(),
   onEditWorkspaceEnvironment,
   canEditWorkspaceEnvironment,
+  onCloneTab,
+  onToggleFullscreen,
+  isPaneFullscreen,
 }: {
   tabs?: Tab[];
   activeId?: string;
@@ -48,6 +51,9 @@ function renderTabBar({
   onMoveTabToLayoutPane?: (tabId: string, targetLayoutId: string, targetPaneId: string) => void;
   onEditWorkspaceEnvironment?: (tab: Tab) => void;
   canEditWorkspaceEnvironment?: (tab: Tab) => boolean;
+  onCloneTab?: (tab: Tab) => void;
+  onToggleFullscreen?: (tabId: string) => void;
+  isPaneFullscreen?: boolean;
 } = {}) {
   return render(
     <DndContext>
@@ -78,6 +84,9 @@ function renderTabBar({
         onCloseOtherTabs={vi.fn()}
         onEditWorkspaceEnvironment={onEditWorkspaceEnvironment}
         canEditWorkspaceEnvironment={canEditWorkspaceEnvironment}
+        onCloneTab={onCloneTab}
+        onToggleFullscreen={onToggleFullscreen}
+        isPaneFullscreen={isPaneFullscreen}
       />
     </DndContext>
   );
@@ -122,7 +131,7 @@ describe("TabBar", () => {
     await waitFor(() => expect(input).toHaveFocus());
     await user.clear(input);
     await user.type(input, "Outside");
-    await user.click(screen.getByRole("button", { name: "New tab" }));
+    await user.click(screen.getByRole("button", { name: String(i18n.t("panes:newTab")) }));
 
     expect(onRename).toHaveBeenCalledWith("tab-1", "Outside");
     expect(screen.queryByDisplayValue("Outside")).not.toBeInTheDocument();
@@ -161,6 +170,47 @@ describe("TabBar", () => {
     await user.click(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i }));
 
     expect(onEditWorkspaceEnvironment).toHaveBeenCalledWith(tab);
+  });
+
+  it("克隆终端菜单项应回传整个 tab", async () => {
+    const user = userEvent.setup();
+    const tab = makeTab("tab-1", "Alpha");
+    const onCloneTab = vi.fn();
+    renderTabBar({ tabs: [tab], onCloneTab });
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    await user.click(await screen.findByRole("menuitem", { name: /克隆终端|Clone Terminal/i }));
+
+    expect(onCloneTab).toHaveBeenCalledWith(tab);
+  });
+
+  it("无 projectPath 的标签不显示克隆终端", async () => {
+    const tab = { ...makeTab("tab-1", "Alpha"), projectPath: "" };
+    renderTabBar({ tabs: [tab], onCloneTab: vi.fn() });
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+
+    await screen.findByRole("menuitem", { name: /重命名|Rename/i });
+    expect(
+      screen.queryByRole("menuitem", { name: /克隆终端|Clone Terminal/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("全屏切换菜单项按当前状态显示进入/退出并触发回调", async () => {
+    const user = userEvent.setup();
+    const onToggleFullscreen = vi.fn();
+    const view = renderTabBar({ onToggleFullscreen, isPaneFullscreen: false });
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    await user.click(await screen.findByRole("menuitem", { name: /进入全屏|Enter Full Screen/i }));
+    expect(onToggleFullscreen).toHaveBeenCalledWith("tab-1");
+
+    view.unmount();
+    renderTabBar({ onToggleFullscreen, isPaneFullscreen: true });
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    expect(
+      await screen.findByRole("menuitem", { name: /退出全屏|Exit Full Screen/i })
+    ).toBeInTheDocument();
   });
 
   it("shows layout move targets in the tab context menu", async () => {

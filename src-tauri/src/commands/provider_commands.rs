@@ -1,4 +1,4 @@
-use crate::models::provider::Provider;
+use crate::models::provider::{Provider, SystemProviderInfo};
 use crate::services::ProviderService;
 use crate::utils::AppResult;
 use serde::Serialize;
@@ -54,10 +54,13 @@ pub fn set_default_provider(id: String, service: State<'_, Arc<ProviderService>>
     Ok(service.set_default(&id)?)
 }
 
-/// 检测「系统环境变量」provider 是否应作为默认（cc-switch 已安装或宿主已设 Anthropic 凭证）。
+/// 探测「系统环境变量」条目：是否可用（cc-switch 已安装或宿主已设 Anthropic 凭证）、
+/// 命中了哪些变量名，以及用户是否已把它设为默认凭证。
 #[tauri::command]
-pub fn detect_system_provider() -> AppResult<bool> {
-    Ok(ProviderService::system_provider_active())
+pub fn detect_system_provider(
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<SystemProviderInfo> {
+    Ok(service.system_provider_info())
 }
 
 /// 配置目录信息

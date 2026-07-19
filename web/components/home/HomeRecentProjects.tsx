@@ -88,7 +88,7 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
             {t("noRecentProjects")}
           </p>
           <button
-            className="relative px-5 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 hover:opacity-90 hover:-translate-y-[0.5px]"
+            className="relative px-5 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all duration-[var(--dur-fast)] hover:opacity-90 hover:-translate-y-[0.5px]"
             style={{
               background: "var(--app-accent)",
               color: "var(--primary-foreground)",
@@ -116,7 +116,7 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
           {t("recentProjects")}
         </h2>
         <button
-          className="flex items-center gap-1 text-xs cursor-pointer transition-all duration-200 hover:underline"
+          className="flex items-center gap-1 text-xs cursor-pointer transition-colors duration-[var(--dur-fast)] hover:underline"
           style={{ color: "var(--app-accent)" }}
           onClick={() => {
             setAppViewMode("panes");
@@ -131,7 +131,7 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
         {uniqueRecords.map((record) => (
           <div
             key={record.id}
-            className="home-project-card flex items-center gap-3.5 p-3 rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-all duration-200 group hover:-translate-y-[0.5px] hover:bg-[var(--app-home-surface-hover)] hover:shadow-md hover:border-[var(--app-home-border-hover)]"
+            className="home-project-card flex items-center gap-3.5 p-3 rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-all duration-[var(--dur-fast)] group hover:-translate-y-[0.5px] hover:bg-[var(--app-home-surface-hover)] hover:shadow-[var(--sh-md)] hover:border-[var(--app-home-border-hover)]"
           >
             <div
               className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
@@ -164,7 +164,7 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-1 group-hover:translate-x-0 shrink-0">
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-[var(--dur-fast)] translate-x-1 group-hover:translate-x-0 shrink-0">
               <button
                 className="p-1.5 rounded-md cursor-pointer transition-colors text-[var(--app-text-secondary)] hover:bg-[var(--app-accent)] hover:text-[var(--primary-foreground)]"
                 title={t("open")}

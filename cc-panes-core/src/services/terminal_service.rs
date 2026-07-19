@@ -1282,6 +1282,8 @@ impl TerminalService {
         skip_mcp: bool,
         append_system_prompt: Option<&str>,
         initial_prompt: Option<&str>,
+        yolo_mode: Option<bool>,
+        request_adapter_options: Option<&HashMap<String, serde_json::Value>>,
         extra_env: Option<&HashMap<String, String>>,
         ssh: Option<&SshConnectionInfo>,
         wsl: Option<&WslLaunchInfo>,
@@ -1323,10 +1325,16 @@ impl TerminalService {
         let profile_provider_id = resolved_profile
             .as_ref()
             .and_then(|profile| profile.provider_id.as_deref());
-        let adapter_options = resolved_profile
+        // adapter_options 合并：profile 打底，request 覆盖同名键（per-launch 覆盖）
+        let mut adapter_options = resolved_profile
             .as_ref()
             .map(|profile| profile.adapter_options.clone())
             .unwrap_or_default();
+        if let Some(request_options) = request_adapter_options {
+            for (key, value) in request_options {
+                adapter_options.insert(key.clone(), value.clone());
+            }
+        }
         let use_native_kimi_config = cli_tool == CliTool::Kimi
             && adapter_options
                 .get("kimiConfigMode")
@@ -1382,10 +1390,13 @@ impl TerminalService {
             selected_shared_mcp_config_toml_for_codex(&allowed_mcp_server_ids, &shared_mcp_config);
         let sync_project_hooks =
             LaunchProfileService::should_sync_project_hooks_for_profile(resolved_profile.as_ref());
-        let effective_yolo_mode = resolved_profile
-            .as_ref()
-            .map(|profile| profile.yolo_mode)
-            .unwrap_or(false);
+        // per-launch YOLO 覆盖：Some = 请求显式指定，None = 跟随 profile 解析值
+        let effective_yolo_mode = yolo_mode.unwrap_or_else(|| {
+            resolved_profile
+                .as_ref()
+                .map(|profile| profile.yolo_mode)
+                .unwrap_or(false)
+        });
         // 方案 A：显式选中的启动配置因 CLI/运行环境不匹配被静默丢弃时，不再无声回落——
         // 记录 warn 并向前端广播提示，避免 YOLO 等 profile 级设置无声失效。
         if let Some(diagnostic) = profile_diagnostic.as_ref() {
@@ -1734,6 +1745,7 @@ impl TerminalService {
                         disable_unlisted_mcp_servers,
                         &selected_mcp_config_toml,
                         effective_yolo_mode,
+                        &adapter_options,
                     )?
                 }
                 CliTool::Claude
@@ -1752,6 +1764,7 @@ impl TerminalService {
                     initial_prompt,
                     effective_skip_mcp,
                     effective_yolo_mode,
+                    &adapter_options,
                 )?,
                 CliTool::Kimi | CliTool::Glm => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
@@ -1765,6 +1778,7 @@ impl TerminalService {
                     initial_prompt,
                     effective_skip_mcp,
                     effective_yolo_mode,
+                    &adapter_options,
                 )?,
             };
 
@@ -2753,6 +2767,21 @@ impl TerminalService {
                 .map_err(|_| AppError::from("sessions lock poisoned"))?;
             sessions.remove(session_id)
         }; // sessions lock 在此释放
+
+        // 提前广播 kill 事件：`sessions.remove` 之后 `get_session_status` 已查不到本会话，
+        // 若拖到 cleanup + `process.kill()`（Windows 杀进程树可达数百 ms）之后才 emit，
+        // daemon 事件桥接的 500ms 状态轮询会抢先判定会话消失、只发静默 terminal-exit(-1)
+        // 并退出 → socket 被 drop，队列里的 session-killed 永远读不到 → 标签关不掉。
+        // 前端据 reason 决定关标签还是保留显示退出；输出已存入 dead_buffers，提前关标签不丢日志。
+        if session.is_some() {
+            if let Some(emitter) = self.emitter.read().as_ref() {
+                let _ = emitter.emit(
+                    EV::SESSION_KILLED,
+                    serde_json::json!({ "sessionId": session_id, "reason": reason }),
+                );
+            }
+        }
+
         if let Ok(mut input_mutexes) = self.input_mutexes.lock() {
             input_mutexes.remove(session_id);
         }
@@ -2788,13 +2817,7 @@ impl TerminalService {
                 *s = SessionStatus::Exited;
             }
             let _ = session.process.kill();
-            // 广播 kill 事件（带来源），前端据 reason 决定关标签还是保留显示退出
-            if let Some(emitter) = self.emitter.read().as_ref() {
-                let _ = emitter.emit(
-                    EV::SESSION_KILLED,
-                    serde_json::json!({ "sessionId": session_id, "reason": reason }),
-                );
-            }
+            // session-killed 已在 sessions.remove 后立即广播（见上），此处不再重复 emit
             // session 在此 drop，不再持有 sessions lock
             Ok(())
         } else {
@@ -3722,6 +3745,41 @@ mod tests {
             false,
             SessionStatus::Error
         ));
+    }
+
+    #[test]
+    fn write_passes_control_bytes_through_unmodified() {
+        // 回归：写入链路必须字节透明，Esc / Shift+Tab 不能被转义或规范化。
+        // （容错 unescape 只在 MCP 边界做，见 orchestrator_service::decode_terminal_escapes）
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session(&service, "session-1", writes.clone());
+
+        for payload in ["\u{1b}", "\u{1b}[Z", "\u{3}", "\\x03"] {
+            service.write("session-1", payload).expect("write");
+        }
+
+        let start = Instant::now();
+        loop {
+            let len = writes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len();
+            if len == 4 {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "writer thread did not flush control bytes"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        let writes = writes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        assert_eq!(writes, vec!["\u{1b}", "\u{1b}[Z", "\u{3}", "\\x03"]);
     }
 
     #[test]

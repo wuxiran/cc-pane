@@ -918,9 +918,21 @@ impl CliToolAdapter for CodexAdapter {
         // 标题带 thread-id：resume 与新会话都注入（resume 后活跃线程 id 同样经标题回报）
         Self::push_terminal_title_override(&mut args);
 
+        // effort → `-c model_reasoning_effort=<v>`（max 映射 xhigh）。
+        // `-c` 是全局 flag，必须在 resume 子命令之前。
+        if let Some(effort) = crate::effort_from_options(&ctx.adapter_options)
+            .and_then(|effort| crate::codex_reasoning_effort(&effort))
+        {
+            args.push("-c".to_string());
+            args.push(format!("model_reasoning_effort={effort}"));
+        }
+
         if ctx.yolo_mode {
             Self::push_yolo_mode_arg(&mut args);
         }
+
+        // extraArgs 追加在 resume 子命令 / positional prompt 之前
+        args.extend(crate::extra_args_from_options(&ctx.adapter_options));
 
         // Resume: codex resume <id>
         if let Some(ref rid) = ctx.resume_id {
@@ -1304,6 +1316,72 @@ bearer_token_env_var = "USER_TOKEN"
                 "developer_instructions=\"CC-Panes launch profile skill\""
             ]
         );
+    }
+
+    #[test]
+    fn build_command_injects_reasoning_effort_before_resume() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex-next/bin/codex"));
+        ctx.adapter_options
+            .insert("effort".to_string(), serde_json::json!("high"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        let effort_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "model_reasoning_effort=high")
+            .expect("effort override present");
+        assert_eq!(result.args[effort_pos - 1], "-c");
+        let resume_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "resume")
+            .expect("resume subcommand present");
+        assert!(effort_pos < resume_pos, "-c must precede resume subcommand");
+    }
+
+    #[test]
+    fn build_command_maps_max_effort_to_xhigh() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex-next/bin/codex"));
+        ctx.adapter_options
+            .insert("effort".to_string(), serde_json::json!("max"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(result
+            .args
+            .iter()
+            .any(|arg| arg == "model_reasoning_effort=xhigh"));
+        assert!(!result
+            .args
+            .iter()
+            .any(|arg| arg.contains("model_reasoning_effort=max")));
+    }
+
+    #[test]
+    fn build_command_places_extra_args_before_resume_subcommand() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex-next/bin/codex"));
+        ctx.adapter_options
+            .insert("extraArgs".to_string(), serde_json::json!(["--foo", "bar"]));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        let foo_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "--foo")
+            .expect("extra arg present");
+        assert_eq!(result.args[foo_pos + 1], "bar");
+        let resume_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "resume")
+            .expect("resume subcommand present");
+        assert!(foo_pos < resume_pos, "extraArgs must precede resume");
+        assert_eq!(result.args.last().map(String::as_str), Some("hello"));
     }
 
     #[test]

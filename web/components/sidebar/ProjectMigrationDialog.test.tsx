@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,10 @@ import ProjectMigrationDialog from "./ProjectMigrationDialog";
 import { createTestWorkspace, createTestWorkspaceProject, resetTestDataCounter } from "@/test/utils/testData";
 import { useWorkspacesStore } from "@/stores";
 import type { ProjectMigrationPlan, ProjectMigrationResult, Workspace, WorkspaceProject, WslDistro } from "@/types";
+
+const tt = (k: string, opts?: Record<string, unknown>) =>
+  String(i18n.t(k as never, opts as never));
+const tRe = (k: string, opts?: Record<string, unknown>) => new RegExp(tt(k, opts));
 
 const previewProjectMigration = vi.fn();
 const executeProjectMigration = vi.fn();
@@ -106,24 +110,24 @@ describe("ProjectMigrationDialog", () => {
 
   it("workspace 或 project 为空时不渲染主体内容", () => {
     renderDialog({ workspace: null, project: null });
-    expect(screen.getByText("Project To WSL")).toBeVisible();
-    expect(screen.queryByText(/Preview/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
+    expect(screen.getByText(tt("dialogs:projectMigration.title"))).toBeVisible();
+    expect(screen.queryByText(tt("dialogs:projectMigration.preview"))).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: tt("dialogs:projectMigration.preview") })).not.toBeInTheDocument();
   });
 
   it("渲染源项目信息与工作空间信息", () => {
     renderDialog();
     expect(screen.getByText("api")).toBeVisible();
-    expect(screen.getByText(/Workspace:\s*workspace-alpha/)).toBeVisible();
-    expect(screen.getByText(/Source:\s*D:\/workspace\/api/)).toBeVisible();
+    expect(screen.getByText(tt("dialogs:projectMigration.workspace", { name: "workspace-alpha" }))).toBeVisible();
+    expect(screen.getByText(tt("dialogs:projectMigration.source", { path: "D:/workspace/api" }))).toBeVisible();
   });
 
   it("非 Windows 平台显示提示并禁用 Preview/Execute", () => {
     setPlatform("MacIntel");
     renderDialog();
-    expect(screen.getByText(/only available on Windows/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Execute" })).toBeDisabled();
+    expect(screen.getByText(tt("dialogs:projectMigration.windowsOnly"))).toBeVisible();
+    expect(screen.getByRole("button", { name: tt("dialogs:projectMigration.preview") })).toBeDisabled();
+    expect(screen.getByRole("button", { name: tt("dialogs:projectMigration.execute") })).toBeDisabled();
   });
 
   it("打开时按项目路径推导默认 WSL 目标路径", async () => {
@@ -146,7 +150,11 @@ describe("ProjectMigrationDialog", () => {
     ]);
     renderDialog();
     await waitFor(() => expect(discoverWslDistros).toHaveBeenCalled());
-    expect(await screen.findByRole("option", { name: /Ubuntu \(Default\)/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("option", {
+        name: new RegExp("Ubuntu" + tt("dialogs:projectMigration.defaultSuffix")),
+      }),
+    ).toBeInTheDocument();
   });
 
   it("Preview 成功后渲染预览计划与警告", async () => {
@@ -156,14 +164,14 @@ describe("ProjectMigrationDialog", () => {
     );
     renderDialog();
 
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: tt("dialogs:projectMigration.preview") }));
 
     await waitFor(() => expect(previewProjectMigration).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/Project:\s*api/)).toBeVisible();
-    expect(screen.getByText(/Target root:\s*\/home\/dev\/api/)).toBeVisible();
+    expect(await screen.findByText(tt("dialogs:projectMigration.project", { name: "api" }))).toBeVisible();
+    expect(screen.getByText(tt("dialogs:projectMigration.targetRoot", { path: "/home/dev/api" }))).toBeVisible();
     expect(screen.getByText("target already exists")).toBeVisible();
     // 预览后 Execute 可用
-    expect(screen.getByRole("button", { name: "Execute" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: tt("dialogs:projectMigration.execute") })).toBeEnabled();
   });
 
   it("Preview 失败时提示错误且不出现预览", async () => {
@@ -171,11 +179,11 @@ describe("ProjectMigrationDialog", () => {
     previewProjectMigration.mockRejectedValue(new Error("preview boom"));
     renderDialog();
 
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: tt("dialogs:projectMigration.preview") }));
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith("preview boom"));
-    expect(screen.queryByText(/Project:\s*api/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Execute" })).toBeDisabled();
+    expect(screen.queryByText(tt("dialogs:projectMigration.project", { name: "api" }))).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tt("dialogs:projectMigration.execute") })).toBeDisabled();
   });
 
   it("Execute 成功后展示结果、刷新工作空间并出现回滚按钮", async () => {
@@ -186,16 +194,16 @@ describe("ProjectMigrationDialog", () => {
     executeProjectMigration.mockResolvedValue(makeResult({ copiedFiles: 7, snapshotId: "snap-xyz" }));
     renderDialog();
 
-    await user.click(screen.getByRole("button", { name: "Preview" }));
-    await screen.findByText(/Project:\s*api/);
-    await user.click(screen.getByRole("button", { name: "Execute" }));
+    await user.click(screen.getByRole("button", { name: tt("dialogs:projectMigration.preview") }));
+    await screen.findByText(tt("dialogs:projectMigration.project", { name: "api" }));
+    await user.click(screen.getByRole("button", { name: tt("dialogs:projectMigration.execute") }));
 
     await waitFor(() => expect(executeProjectMigration).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/Copied files:\s*7/)).toBeVisible();
-    expect(screen.getByText(/Snapshot:\s*snap-xyz/)).toBeVisible();
+    expect(await screen.findByText(/已复制 7 个文件/)).toBeVisible();
+    expect(screen.getByText(tt("dialogs:projectMigration.snapshot", { id: "snap-xyz" }))).toBeVisible();
     expect(load).toHaveBeenCalled();
     expect(toastSuccess).toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /Rollback Metadata/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: tRe("dialogs:projectMigration.rollbackMetadata") })).toBeVisible();
   });
 
   it("Execute 后点击回滚调用 rollback 并清除结果", async () => {
@@ -205,18 +213,18 @@ describe("ProjectMigrationDialog", () => {
     rollbackProjectMigration.mockResolvedValue({ snapshotId: "snap-roll", workspace: createTestWorkspace() });
     renderDialog();
 
-    await user.click(screen.getByRole("button", { name: "Preview" }));
-    await screen.findByText(/Project:\s*api/);
-    await user.click(screen.getByRole("button", { name: "Execute" }));
-    await screen.findByRole("button", { name: /Rollback Metadata/ });
+    await user.click(screen.getByRole("button", { name: tt("dialogs:projectMigration.preview") }));
+    await screen.findByText(tt("dialogs:projectMigration.project", { name: "api" }));
+    await user.click(screen.getByRole("button", { name: tt("dialogs:projectMigration.execute") }));
+    await screen.findByRole("button", { name: tRe("dialogs:projectMigration.rollbackMetadata") });
 
-    await user.click(screen.getByRole("button", { name: /Rollback Metadata/ }));
+    await user.click(screen.getByRole("button", { name: tRe("dialogs:projectMigration.rollbackMetadata") }));
 
     await waitFor(() =>
       expect(rollbackProjectMigration).toHaveBeenCalledWith("workspace-alpha", "snap-roll"),
     );
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /Rollback Metadata/ })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("button", { name: tRe("dialogs:projectMigration.rollbackMetadata") })).not.toBeInTheDocument(),
     );
   });
 
@@ -225,7 +233,7 @@ describe("ProjectMigrationDialog", () => {
     const { onOpenChange } = renderDialog();
     // Radix 自带右上角关闭按钮带 data-slot="dialog-close"，这里选择底部页脚 Close 按钮
     const footerClose = screen
-      .getAllByRole("button", { name: "Close" })
+      .getAllByRole("button", { name: tt("common:close") })
       .find((btn) => btn.getAttribute("data-slot") !== "dialog-close");
     await user.click(footerClose!);
     expect(onOpenChange).toHaveBeenCalledWith(false);

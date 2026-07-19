@@ -1,3 +1,4 @@
+import "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -81,7 +82,7 @@ describe("OrchestrationFullView", () => {
   it("loads bindings on mount and shows the empty state without tasks", async () => {
     render(<OrchestrationFullView />);
 
-    expect(screen.getByText("No tasks yet")).toBeInTheDocument();
+    expect(screen.getByText("暂无编排任务")).toBeInTheDocument();
     await waitFor(() => expect(loadBindings).toHaveBeenCalledWith({ limit: 100 }));
   });
 
@@ -113,7 +114,7 @@ describe("OrchestrationFullView", () => {
     setOrchestratorState([makeBinding("b1")], { setFilterTab });
     render(<OrchestrationFullView />);
 
-    await user.click(screen.getByRole("button", { name: "Running" }));
+    await user.click(screen.getByRole("button", { name: "运行中" }));
 
     expect(setFilterTab).toHaveBeenCalledWith("running");
   });
@@ -124,7 +125,7 @@ describe("OrchestrationFullView", () => {
     setOrchestratorState([makeBinding("b1")], { setSearchKeyword });
     render(<OrchestrationFullView />);
 
-    await user.type(screen.getByPlaceholderText("Search tasks"), "abc");
+    await user.type(screen.getByPlaceholderText("搜索任务"), "abc");
 
     expect(setSearchKeyword).toHaveBeenCalled();
   });
@@ -152,7 +153,7 @@ describe("OrchestrationFullView", () => {
     useActivityBarStore.setState({ closeOrchestrationOverlay } as never);
     render(<OrchestrationFullView />);
 
-    await user.click(screen.getByRole("button", { name: "Exit" }));
+    await user.click(screen.getByRole("button", { name: "退出" }));
 
     expect(closeOrchestrationOverlay).toHaveBeenCalledTimes(1);
   });
@@ -165,12 +166,12 @@ describe("OrchestrationFullView", () => {
     expect(screen.queryByTestId("output-preview")).not.toBeInTheDocument();
 
     // 折叠时缩栏按钮与拖拽柄同名，点其一即可展开
-    await user.click(screen.getAllByRole("button", { name: "Expand preview" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "展开预览" })[0]);
 
     expect(screen.getByTestId("output-preview")).toBeInTheDocument();
     expect(window.sessionStorage.getItem("cc-panes-orchestration-right-collapsed")).toBe("false");
 
-    await user.click(screen.getByRole("button", { name: "Collapse preview" }));
+    await user.click(screen.getByRole("button", { name: "折叠预览" }));
     expect(screen.queryByTestId("output-preview")).not.toBeInTheDocument();
     expect(window.sessionStorage.getItem("cc-panes-orchestration-right-collapsed")).toBe("true");
   });
@@ -186,12 +187,12 @@ describe("OrchestrationFullView", () => {
     });
     render(<OrchestrationFullView />);
 
-    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await user.click(screen.getByRole("button", { name: "通知" }));
     await user.click(screen.getByText("Worker done"));
 
     expect(setSelectedTaskId).toHaveBeenCalledWith("b1");
     // 跳回任务页
-    expect(screen.getByPlaceholderText("Search tasks")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("搜索任务")).toBeInTheDocument();
   });
 
   it("groups notifications sharing a group key within the 5s window", async () => {
@@ -204,9 +205,9 @@ describe("OrchestrationFullView", () => {
     });
     render(<OrchestrationFullView />);
 
-    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await user.click(screen.getByRole("button", { name: "通知" }));
 
-    expect(screen.getByText("2 tasks completed")).toBeInTheDocument();
+    expect(screen.getByText("2 个任务已完成")).toBeInTheDocument();
     expect(screen.queryByText("task two completed")).not.toBeInTheDocument();
   });
 
@@ -219,13 +220,13 @@ describe("OrchestrationFullView", () => {
       ],
     });
     render(<OrchestrationFullView />);
-    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await user.click(screen.getByRole("button", { name: "通知" }));
 
-    await user.click(screen.getByRole("button", { name: "Errors" }));
+    await user.click(screen.getByRole("button", { name: "错误" }));
     expect(screen.getByText("build failed with error")).toBeInTheDocument();
     expect(screen.queryByText("deploy completed")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "已完成" }));
     expect(screen.getByText("deploy completed")).toBeInTheDocument();
     expect(screen.queryByText("build failed with error")).not.toBeInTheDocument();
   });
@@ -238,9 +239,9 @@ describe("OrchestrationFullView", () => {
       clear,
     } as never);
     render(<OrchestrationFullView />);
-    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await user.click(screen.getByRole("button", { name: "通知" }));
 
-    await user.click(screen.getByRole("button", { name: "Clear" }));
+    await user.click(screen.getByRole("button", { name: "清空" }));
 
     expect(clear).toHaveBeenCalledTimes(1);
   });

@@ -64,6 +64,8 @@ export interface Workspace {
   pinned?: boolean;
   hidden?: boolean;
   sortOrder?: number;
+  /** 默认工作空间：启动时缺失自动创建，恒置顶，不可删除/拖拽 */
+  isDefault?: boolean;
 }
 
 export interface WorkspaceMigrationRequest {

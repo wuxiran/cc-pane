@@ -36,6 +36,8 @@
   "operationFailed": "操作失败: {{error}}",
 
   "createFailed": "创建失败: {{error}}",
+  "renameDone": "已重命名",
+  "aliasSet": "别名已更新",
   "renameFailed": "重命名失败: {{error}}",
   "importFailed": "导入失败: {{error}}",
   "removeFailed": "移除失败: {{error}}",

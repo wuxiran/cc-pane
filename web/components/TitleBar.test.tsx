@@ -1,7 +1,13 @@
 import "@/i18n";
+import type { ReactElement } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import TitleBar from "./TitleBar";
+
+function renderTitleBar(ui: ReactElement) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>);
+}
 
 const mockUseBorderlessStore = vi.fn();
 const mockStartDrag = vi.fn();
@@ -9,10 +15,27 @@ const mockCloseWindow = vi.fn();
 const mockMinimizeWindow = vi.fn();
 const mockMaximizeWindow = vi.fn();
 const mockToggleFullscreenWindow = vi.fn();
+const mockToggleSidebar = vi.fn();
+const mockSidebarVisible = vi.fn<() => boolean>();
 
 vi.mock("@/stores", () => ({
+  useActivityBarStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      sidebarVisible: mockSidebarVisible(),
+      toggleSidebar: mockToggleSidebar,
+    }),
   useBorderlessStore: (selector: (state: { isBorderless: boolean }) => boolean) =>
     selector({ isBorderless: mockUseBorderlessStore() }),
+  useWorkspacesStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      workspaces: [],
+      expandedWorkspaceId: null,
+      expandedProjectId: null,
+      expandWorkspace: () => {},
+      expandProject: () => {},
+    }),
+  useDialogStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ openSettings: () => {} }),
 }));
 
 vi.mock("@/hooks/useWindowControl", () => ({
@@ -30,10 +53,11 @@ describe("TitleBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseBorderlessStore.mockReturnValue(false);
+    mockSidebarVisible.mockReturnValue(true);
   });
 
   it("marks the whole titlebar as a native drag region", () => {
-    const { container } = render(<TitleBar workspaceName="Workspace A" />);
+    const { container } = renderTitleBar(<TitleBar workspaceName="Workspace A" />);
     const titlebar = container.firstElementChild as HTMLDivElement;
 
     expect(titlebar).toHaveAttribute("data-tauri-drag-region", "");
@@ -41,9 +65,9 @@ describe("TitleBar", () => {
   });
 
   it("keeps window controls out of the drag region", () => {
-    render(<TitleBar />);
+    renderTitleBar(<TitleBar />);
 
-    const minimizeButton = screen.getByTitle("最小化");
+    const minimizeButton = screen.getByRole("button", { name: "最小化" });
 
     fireEvent.click(minimizeButton);
     expect(mockMinimizeWindow).toHaveBeenCalledTimes(1);
@@ -51,7 +75,7 @@ describe("TitleBar", () => {
   });
 
   it("starts dragging from the center spacer", () => {
-    render(<TitleBar />);
+    renderTitleBar(<TitleBar />);
 
     fireEvent.mouseDown(screen.getByTestId("titlebar-drag-spacer"), { button: 0 });
 
@@ -59,7 +83,7 @@ describe("TitleBar", () => {
   });
 
   it("toggles fullscreen on center spacer double click", () => {
-    render(<TitleBar />);
+    renderTitleBar(<TitleBar />);
 
     fireEvent.mouseDown(screen.getByTestId("titlebar-drag-spacer"), { button: 0, detail: 2 });
 
@@ -68,7 +92,7 @@ describe("TitleBar", () => {
   });
 
   it("toggles fullscreen on workspace title double click", () => {
-    render(<TitleBar workspaceName="Workspace A" />);
+    renderTitleBar(<TitleBar workspaceName="Workspace A" />);
 
     fireEvent.doubleClick(screen.getByText("Workspace A"));
 
@@ -76,10 +100,46 @@ describe("TitleBar", () => {
     expect(mockStartDrag).not.toHaveBeenCalled();
   });
 
+  // 按钮的 -webkit-app-region: no-drag 无法在此断言：jsdom 不识别该属性，
+  // React 写入时会被整条丢弃（style 属性为 null）。同窗口控制按钮一样，
+  // 只能退而验证「点击到达按钮且没有被当成拖拽」。
+  it("toggles the sidebar from the titlebar switch without starting a drag", () => {
+    renderTitleBar(<TitleBar />);
+
+    fireEvent.click(screen.getByTestId("titlebar-toggle-sidebar"));
+
+    expect(mockToggleSidebar).toHaveBeenCalledTimes(1);
+    expect(mockStartDrag).not.toHaveBeenCalled();
+  });
+
+  it("swaps the sidebar switch icon and label with sidebarVisible", () => {
+    const { unmount } = renderTitleBar(<TitleBar />);
+
+    expect(screen.getByTestId("titlebar-toggle-sidebar")).toHaveAttribute(
+      "aria-label",
+      "折叠侧边栏",
+    );
+    expect(
+      screen.getByTestId("titlebar-toggle-sidebar").querySelector(".lucide-panel-left-close"),
+    ).not.toBeNull();
+    unmount();
+
+    mockSidebarVisible.mockReturnValue(false);
+    renderTitleBar(<TitleBar />);
+
+    expect(screen.getByTestId("titlebar-toggle-sidebar")).toHaveAttribute(
+      "aria-label",
+      "展开侧边栏",
+    );
+    expect(
+      screen.getByTestId("titlebar-toggle-sidebar").querySelector(".lucide-panel-left"),
+    ).not.toBeNull();
+  });
+
   it("hides itself in borderless mode", () => {
     mockUseBorderlessStore.mockReturnValue(true);
 
-    const { container } = render(<TitleBar />);
+    const { container } = renderTitleBar(<TitleBar />);
 
     expect(container).toBeEmptyDOMElement();
   });

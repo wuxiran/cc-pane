@@ -214,11 +214,11 @@ export function getFileIcon(ext: string | null, size = 14): React.ReactNode {
 
 /** Git 状态颜色映射 */
 const GIT_STATUS_COLORS: Record<string, string> = {
-  modified: "text-yellow-400",
-  added: "text-green-400",
-  deleted: "text-red-400 line-through",
-  untracked: "text-emerald-400",
-  renamed: "text-blue-400",
+  modified: "text-[var(--app-status-warning)]",
+  added: "text-[var(--app-status-success)]",
+  deleted: "text-[var(--app-status-danger)] line-through",
+  untracked: "text-[var(--app-status-success)]",
+  renamed: "text-[var(--app-accent)]",
 };
 
 export default memo(function FileTreeNode({
@@ -289,9 +289,9 @@ export default memo(function FileTreeNode({
         {/* 图标 */}
         {node.entry.isDir ? (
           node.expanded ? (
-            <FolderOpen size={14} className="shrink-0 text-blue-500" />
+            <FolderOpen size={14} className="shrink-0 text-[var(--app-accent)]" />
           ) : (
-            <Folder size={14} className="shrink-0 text-blue-500" />
+            <Folder size={14} className="shrink-0 text-[var(--app-accent)]" />
           )
         ) : (
           getFileIcon(node.entry.extension)

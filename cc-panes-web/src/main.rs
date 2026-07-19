@@ -23,7 +23,7 @@ use cc_panes_core::{
         TerminalDaemonClient, TerminalService, TodoService, UsageStatsService, UserSkillService,
         WorkspaceService, WorktreeService,
     },
-    utils::{AppPaths, APP_DIR_NAME},
+    utils::{simplify_path, AppPaths, APP_DIR_NAME},
 };
 use clap::Parser;
 use tracing::info;
@@ -207,9 +207,12 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    // Resolve cwd to absolute path
-    let cwd =
-        std::fs::canonicalize(&args.cwd).unwrap_or_else(|_| std::path::PathBuf::from(&args.cwd));
+    // Resolve cwd to absolute path；剥掉 Windows `\\?\` verbatim 前缀：该值会作为
+    // default_cwd 回落给缺少 project_path 的会话（routes/terminal.rs），带前缀会让
+    // cmd.exe 把 CLI 启到 C:\Windows。详见 docs/35-unc-path-contamination.md。
+    let cwd = simplify_path(
+        std::fs::canonicalize(&args.cwd).unwrap_or_else(|_| std::path::PathBuf::from(&args.cwd)),
+    );
     let cwd_str = cwd.to_string_lossy().to_string();
 
     let web_paths = resolve_web_paths(args.data_dir.as_deref());

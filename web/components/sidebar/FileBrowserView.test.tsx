@@ -1,10 +1,12 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFileBrowserStore, useWorkspacesStore } from "@/stores";
 import { useFileTreeStore } from "@/stores/useFileTreeStore";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import FileBrowserView from "./FileBrowserView";
+
+const tt = (k: string) => String(i18n.t(k as never));
 
 function renderView() {
   return render(
@@ -138,10 +140,10 @@ describe("FileBrowserView", () => {
     const buttons = screen.getAllByRole("button");
     fireEvent.click(buttons[4]); // New File
 
-    expect(await screen.findByText("New File")).toBeVisible();
+    expect(await screen.findByText(tt("sidebar:filetree.dialogNewFile"))).toBeVisible();
     const input = screen.getByPlaceholderText("filename.ext");
     fireEvent.change(input, { target: { value: "index.ts" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: tt("common:create") }));
 
     await waitFor(() =>
       expect(createFile).toHaveBeenCalledWith("D:/projects/app", "index.ts", "D:/projects/app"),
@@ -155,10 +157,10 @@ describe("FileBrowserView", () => {
     const buttons = screen.getAllByRole("button");
     fireEvent.click(buttons[5]); // New Folder
 
-    expect(await screen.findByText("New Folder")).toBeVisible();
+    expect(await screen.findByText(tt("sidebar:filetree.dialogNewFolder"))).toBeVisible();
     const input = screen.getByPlaceholderText("folder-name");
     fireEvent.change(input, { target: { value: "components" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: tt("common:create") }));
 
     await waitFor(() =>
       expect(createDirectory).toHaveBeenCalledWith("D:/projects/app", "components", "D:/projects/app"),

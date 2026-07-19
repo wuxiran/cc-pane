@@ -3,6 +3,7 @@
 //! 提供统一的 `spawn_pty()` 入口，Windows/macOS/Linux 均使用 portable-pty。
 //! portable-pty 在 Windows 上内部使用 ConPTY，无需自研绑定。
 
+use crate::utils::simplify_path;
 use anyhow::{anyhow, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
@@ -148,7 +149,9 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
         c
     };
 
-    cmd.cwd(&config.cwd);
+    // 兜底闸门：cmd.exe 拒绝 `\\?\` cwd 并静默回落 C:\Windows，任何上游漏网都在此拦下。
+    // 非 Windows 平台为 no-op。见 docs/35-unc-path-contamination.md。
+    cmd.cwd(simplify_path(&config.cwd));
     for key in env_remove_keys(config.env_remove) {
         cmd.env_remove(key);
     }

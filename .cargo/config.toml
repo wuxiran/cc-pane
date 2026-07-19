@@ -1,2 +1,5 @@
 [build]
-target-dir = "target"
+# 构建产物放到仓库外的同级目录：留在仓库内会被 Vite 的 file watcher、git status、
+# ripgrep 等反复遍历（实测曾达 22 万文件 / 357GB，直接把 vite dev server 拖死）。
+# 用相对路径而非绝对路径，保证换机器/换人 clone 后依然可用。
+target-dir = "../cc-book-target"

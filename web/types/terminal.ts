@@ -41,6 +41,33 @@ export interface CliToolCapabilities {
   compatibleProviderTypes: string[];
 }
 
+/** effort 六档中的显式五档（undefined = default，不注入） */
+export type LaunchEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * per-launch adapter 选项（与 Rust CreateSessionRequest.adapterOptions 约定键对齐）：
+ * claude 侧 effort 经 MAX_THINKING_TOKENS env 注入，codex 侧走 `-c model_reasoning_effort`。
+ */
+export interface LaunchAdapterOptions {
+  effort?: LaunchEffort;
+  extraArgs?: string[];
+  verbose?: boolean;
+  maxTurns?: number;
+}
+
+/**
+ * 启动器附加参数聚合对象（Tab/TerminalPaneLeaf 透传用，避免字段平铺爆炸）。
+ * yolo：undefined = 跟随 launch profile，true = 本次强制 YOLO。
+ * initialPrompt 仅首次启动生效，session 创建成功后由 clearTabInitialPrompt 清除防重放。
+ */
+export interface LaunchExtras {
+  skipMcp?: boolean;
+  appendSystemPrompt?: string;
+  initialPrompt?: string;
+  yolo?: boolean;
+  adapterOptions?: LaunchAdapterOptions;
+}
+
 /** WSL 启动信息 */
 export interface WslLaunchInfo {
   remotePath: string;
@@ -72,6 +99,7 @@ export interface TerminalPaneLeaf {
   disconnected?: boolean;
   restoring?: boolean;
   savedSessionId?: string;
+  launchExtras?: LaunchExtras;
 }
 
 export interface TerminalPaneSplit {
@@ -117,6 +145,7 @@ export interface Tab {
   savedSessionId?: string;
   terminalRootPane?: TerminalPaneNode;
   activeTerminalPaneId?: string;
+  launchExtras?: LaunchExtras;
   /**
    * Parent tab id when this tab was created by `launch_task` from another
    * cc-panes-managed Claude instance. Drives hierarchical numbering
@@ -151,6 +180,11 @@ export interface CreateSessionRequest {
   resumeId?: string;
   skipMcp?: boolean;
   appendSystemPrompt?: string;
+  /** 首启注入的用户 prompt（位置参数）；restore/reattach 路径不得携带 */
+  initialPrompt?: string;
+  /** per-launch YOLO 覆盖：undefined = 跟随 launch profile */
+  yoloMode?: boolean;
+  adapterOptions?: LaunchAdapterOptions;
   ssh?: import("./workspace").SshConnectionInfo;
   wsl?: WslLaunchInfo;
 }
@@ -169,6 +203,14 @@ export interface OpenTerminalOptions {
   ssh?: import("./workspace").SshConnectionInfo;
   wsl?: WslLaunchInfo;
   machineName?: string;
+  /** 显式指定落位布局；缺省时由 workspaceName 经 findLayoutForWorkspace 推导 */
+  targetLayoutId?: string;
+  skipMcp?: boolean;
+  appendSystemPrompt?: string;
+  initialPrompt?: string;
+  /** per-launch YOLO 覆盖：undefined = 跟随 launch profile */
+  yolo?: boolean;
+  adapterOptions?: LaunchAdapterOptions;
 }
 
 /** 终端输出事件 */

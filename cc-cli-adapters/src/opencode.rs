@@ -250,8 +250,11 @@ impl CliToolAdapter for OpenCodeAdapter {
             args.push(resume_id.clone());
         }
 
-        // [PROMPT] positional argument
+        // 初始 prompt 经 --prompt 传入 TUI；opencode 的位置参数是 [project]
+        // （启动目录），把 prompt 当位置参数会导致 opencode 启动即报
+        // "Failed to change directory to <prompt>" 退出。
         if let Some(ref prompt) = ctx.initial_prompt {
+            args.push("--prompt".to_string());
             args.push(prompt.clone());
         }
 
@@ -414,6 +417,22 @@ mod tests {
             .unwrap();
         assert!(!plugin.is_file());
         assert!(!adapter.get_project_hook_statuses(&dir).unwrap()[0].enabled);
+    }
+
+    #[test]
+    fn build_command_passes_initial_prompt_via_prompt_flag() {
+        let mut c = ctx(fresh_data_dir("prompt"));
+        // override 跳过可执行解析，测试不依赖本机安装 opencode
+        c.executable_override = Some("/usr/bin/opencode".to_string());
+        c.skip_mcp = true;
+        c.initial_prompt = Some("fix the login bug".to_string());
+
+        let cmd = OpenCodeAdapter::new().build_command(&c).unwrap();
+        // prompt 必须走 --prompt flag，不能作为 [project] 位置参数
+        assert_eq!(
+            cmd.args,
+            vec!["--prompt".to_string(), "fix the login bug".to_string()]
+        );
     }
 
     #[test]

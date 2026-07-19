@@ -6,6 +6,7 @@ import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 loader.config({ monaco });
 
+import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 import "@/i18n";
 import App from "./App";
@@ -99,7 +100,11 @@ async function renderRoot() {
       import("sonner"),
     ]);
     installTerminalCastShortcuts((m) => toast(m));
-    root.render(<App />);
+    root.render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
   }
 }
 

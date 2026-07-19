@@ -274,8 +274,11 @@ fn find_executable_in_dirs(
     let has_extension = Path::new(executable).extension().is_some();
 
     for dir in dirs {
+        // Windows（extensions 非空）下扩展名缺失的裸文件不可直接执行——npm 全局
+        // 安装会在 .cmd shim 旁放同名 sh 脚本（如 `opencode`），命中它会导致
+        // CreateProcess 启动失败，必须继续用 PATHEXT 扩展名探测。
         let direct = dir.join(executable);
-        if direct.is_file() {
+        if direct.is_file() && (has_extension || extensions.is_empty()) {
             return Some(direct);
         }
 
@@ -523,6 +526,67 @@ impl CliAdapterContext {
             path.to_string_lossy().into_owned(),
             args,
         ))
+    }
+}
+
+/// adapter_options 约定键（effort/extraArgs/verbose/maxTurns）的解析 helper，
+/// 供 claude/codex adapter 与 WSL 命令构建复用。
+///
+/// effort 六档：low/medium/high/xhigh/max（default 或未知值视为未设置）。
+pub fn effort_from_options(options: &HashMap<String, serde_json::Value>) -> Option<String> {
+    options
+        .get("effort")
+        .and_then(serde_json::Value::as_str)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| matches!(value.as_str(), "low" | "medium" | "high" | "xhigh" | "max"))
+}
+
+pub fn extra_args_from_options(options: &HashMap<String, serde_json::Value>) -> Vec<String> {
+    options
+        .get("extraArgs")
+        .and_then(serde_json::Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .filter(|value| !value.trim().is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn verbose_from_options(options: &HashMap<String, serde_json::Value>) -> bool {
+    options
+        .get("verbose")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+pub fn max_turns_from_options(options: &HashMap<String, serde_json::Value>) -> Option<u64> {
+    options.get("maxTurns").and_then(serde_json::Value::as_u64)
+}
+
+/// Codex `-c model_reasoning_effort=<v>` 的取值：codex 无 max 档，max 映射为 xhigh。
+pub fn codex_reasoning_effort(effort: &str) -> Option<&'static str> {
+    match effort {
+        "low" => Some("low"),
+        "medium" => Some("medium"),
+        "high" => Some("high"),
+        "xhigh" | "max" => Some("xhigh"),
+        _ => None,
+    }
+}
+
+/// Claude 无 --effort flag，effort 经 `MAX_THINKING_TOKENS` 环境变量注入思考预算。
+pub fn claude_max_thinking_tokens(effort: &str) -> Option<u32> {
+    match effort {
+        "low" => Some(4096),
+        "medium" => Some(10000),
+        "high" => Some(16000),
+        "xhigh" => Some(31999),
+        "max" => Some(63999),
+        _ => None,
     }
 }
 
@@ -1003,6 +1067,28 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  \"%dp0%\\n
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn find_executable_prefers_cmd_shim_over_bare_sh_script_on_windows() {
+        let dir = fresh_dir("bare_sh");
+        // npm 全局安装同时生成扩展名缺失的 sh 脚本与 .cmd shim
+        std::fs::write(dir.join("opencode"), b"#!/bin/sh\n").unwrap();
+        std::fs::write(dir.join("opencode.cmd"), b"@ECHO off\r\n").unwrap();
+
+        // Windows 语义（extensions 非空）：必须选 .cmd，不能命中裸 sh 脚本
+        let found = find_executable_in_dirs(
+            "opencode",
+            std::slice::from_ref(&dir),
+            &[".exe".to_string(), ".cmd".to_string()],
+        )
+        .expect("should find executable");
+        assert_eq!(found, dir.join("opencode.cmd"));
+
+        // 非 Windows 语义（extensions 为空）：裸文件即真实二进制，保持原行为
+        let found_unix = find_executable_in_dirs("opencode", std::slice::from_ref(&dir), &[])
+            .expect("should find executable");
+        assert_eq!(found_unix, dir.join("opencode"));
     }
 
     #[test]

@@ -184,7 +184,7 @@ export default function HomeUsageStats() {
         : workspaceFilter;
 
   return (
-    <section>
+    <section className="flex min-h-0 flex-1 flex-col">
       <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4" style={{ color: "var(--app-accent)" }} />
@@ -262,7 +262,7 @@ export default function HomeUsageStats() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-5">
+      <div className="flex flex-1 flex-col rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-5">
         {/* 3 个 metric 卡片（带图标、命中率进度条） */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <MetricCard
@@ -295,7 +295,7 @@ export default function HomeUsageStats() {
         </div>
 
         {/* 趋势区域 */}
-        <div className="mt-4">
+        <div className="mt-4 flex flex-1 flex-col">
           {error ? (
             <div
               className="flex h-[280px] items-center justify-center text-sm"
@@ -325,16 +325,16 @@ export default function HomeUsageStats() {
               {t("usage.needLongerRange")}
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* 主图：Token 曲线 */}
-              <div>
+            <div className="flex flex-1 flex-col gap-4">
+              {/* 主图：Token 曲线（宽屏下弹性拉伸吸收剩余高度，与右列对齐） */}
+              <div className="flex flex-1 flex-col">
                 <div
                   className="mb-1 text-[11px] uppercase tracking-normal"
                   style={{ color: "var(--app-text-tertiary)" }}
                 >
                   {t("usage.tokenChartTitle")}
                 </div>
-                <div className="h-[260px] min-w-0">
+                <div className="min-h-[260px] min-w-0 flex-1">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid stroke="var(--app-home-row-border)" vertical={false} />

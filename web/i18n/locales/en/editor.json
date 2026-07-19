@@ -1,0 +1,18 @@
+{
+  "save": "Save (Ctrl+S)",
+  "undo": "Undo (Ctrl+Z)",
+  "redo": "Redo (Ctrl+Shift+Z)",
+  "editMode": "Edit",
+  "previewMode": "Preview",
+  "splitPreview": "Split Preview",
+  "modified": "Modified",
+  "zoomIn": "Zoom In",
+  "zoomOut": "Zoom Out",
+  "fitToView": "Fit to View",
+  "actualSize": "1:1 Actual Size",
+  "refresh": "Refresh",
+  "newFile": "New File",
+  "newFolder": "New Folder",
+  "showHidden": "Show Hidden Files",
+  "hideHidden": "Hide Hidden Files"
+}

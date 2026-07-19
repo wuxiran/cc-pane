@@ -23,6 +23,7 @@ import {
 import { isTauriRuntime } from "@/services/runtime";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 import { collectPanels } from "@/stores/paneTreeHelpers";
+import { findLayoutForWorkspace } from "@/utils/layoutWorkspace";
 
 import type { CliTool, LaunchProviderSelection, SshConnectionInfo, WslLaunchInfo } from "@/types";
 
@@ -120,6 +121,10 @@ export function useOrchestratorListener() {
             const layoutId = existingLayout?.id ?? latestPanesStore.createLayout(requestedLayoutName);
             hasExplicitLayout = true;
             latestPanesStore = usePanesStore.getState();
+            // 自动新建的布局带 workspaceName 时直接建立绑定；已存在的布局不覆盖其既有绑定
+            if (!existingLayout && workspaceName?.trim()) {
+              latestPanesStore.bindLayoutWorkspace(layoutId, workspaceName);
+            }
             if (latestPanesStore.currentLayoutId !== layoutId) {
               latestPanesStore.switchLayout(layoutId);
             }
@@ -147,6 +152,19 @@ export function useOrchestratorListener() {
                 parentTabId = parentLocation.tab.id;
                 parentPaneId = parentLocation.panel.id;
               }
+            }
+          }
+
+          // 无显式布局且无调用者 pane 命中时，按 workspaceName 找绑定布局落位
+          if (!hasExplicitLayout && !parentPaneId && workspaceName?.trim()) {
+            const boundLayout = findLayoutForWorkspace(
+              latestPanesStore.listLayouts(),
+              workspaceName,
+            );
+            if (boundLayout && boundLayout.id !== latestPanesStore.currentLayoutId) {
+              latestPanesStore.switchLayout(boundLayout.id);
+              latestPanesStore = usePanesStore.getState();
+              activePane = latestPanesStore.activePane();
             }
           }
 
@@ -187,7 +205,7 @@ export function useOrchestratorListener() {
               : (parentPaneId ?? activePane?.id ?? latestPanesStore.rootPane.id);
             latestPanesStore.addTab(paneId, tabOpts);
           } else if (parentPaneId && !wantsTab) {
-            latestPanesStore.openSessionBesidePane(parentPaneId, "right", tabOpts);
+            latestPanesStore.openSessionBesidePane(parentPaneId, "auto", tabOpts);
           } else {
             const basePaneId = parentPaneId ?? activePane?.id ?? latestPanesStore.rootPane.id;
             latestPanesStore.addTab(basePaneId, tabOpts);

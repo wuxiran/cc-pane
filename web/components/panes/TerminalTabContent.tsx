@@ -98,6 +98,11 @@ export default memo(function TerminalTabContent({
             launchClaude={leaf.launchClaude}
             cliTool={leaf.cliTool}
             resumeId={leaf.resumeId}
+            skipMcp={leaf.launchExtras?.skipMcp}
+            appendSystemPrompt={leaf.launchExtras?.appendSystemPrompt}
+            initialPrompt={leaf.launchExtras?.initialPrompt}
+            yoloMode={leaf.launchExtras?.yolo}
+            adapterOptions={leaf.launchExtras?.adapterOptions}
             ssh={leaf.ssh}
             wsl={leaf.wsl}
             restoring={leaf.restoring}

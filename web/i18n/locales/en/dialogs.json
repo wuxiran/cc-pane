@@ -7,7 +7,6 @@
   "projectAliasPlaceholder": "Leave empty to use folder name",
   "setWorkspaceAlias": "Set Workspace Alias",
   "workspaceAliasPlaceholder": "Leave empty to use original name",
-
   "gitCloneTitle": "Clone to \"{{name}}\"",
   "repoUrl": "Repository URL",
   "cloneDir": "Clone to Directory",
@@ -26,7 +25,6 @@
   "cloneFieldsRequired": "Please fill in URL, target directory, and project folder name",
   "cloneSuccess": "Clone successful",
   "cloneFailed": "Clone failed: {{error}}",
-
   "journalTitle": "Session Journal",
   "saveSession": "Save Session Summary",
   "sessionTitleLabel": "Title *",
@@ -40,7 +38,6 @@
   "saving": "Saving...",
   "saveSession2": "Save Session",
   "noSessions": "No sessions recorded",
-
   "localHistoryTitle": "File History - {{path}}",
   "diff": "Diff",
   "fullContent": "Full Content",
@@ -65,7 +62,6 @@
   "sessionSaveFailed": "Save failed: {{error}}",
   "selectCloneDir": "Select directory to clone into",
   "selectParentDir": "Select parent directory",
-
   "worktreeTitle": "Git Worktree Manager",
   "createWorktree": "Create New Worktree",
   "worktreeNamePlaceholder": "Name (e.g. feature-login)",
@@ -77,21 +73,17 @@
   "confirmDeleteWorktree": "Are you sure you want to delete Worktree \"{{path}}\"?",
   "createWorktreeFailed": "Failed to create Worktree: {{error}}",
   "deleteWorktreeFailed": "Failed to delete Worktree: {{error}}",
-
   "scanTitle": "Scan Results",
   "scanSummary": "Found {{repoCount}} repositories with {{totalCount}} projects",
   "mainBadge": "Main",
   "importCount": "Import {{count}} projects",
-
   "diffComputing": "Computing diff...",
   "diffSelectVersion": "Select a version to view diff",
   "diffBinaryFile": "Binary file, cannot display diff",
   "diffTooLarge": "File exceeds 10000 lines, diff skipped",
   "diffNoChanges": "No changes in file content",
   "diffLineCount": "{{count}} lines",
-
   "sessionCleanerTitle": "Session Cleaner",
-
   "todoTitle": "TodoList",
   "noTasks": "No tasks",
   "clickToCreate": "Click + to create",
@@ -105,7 +97,6 @@
   "addSubtaskFailed": "Failed to add subtask: {{error}}",
   "toggleSubtaskFailed": "Failed to toggle subtask: {{error}}",
   "deleteSubtaskFailed": "Failed to delete subtask: {{error}}",
-
   "memoryTitle": "Memory",
   "memoryAll": "All",
   "memoryGlobal": "Global",
@@ -130,7 +121,6 @@
   "memoryCreated": "Memory created",
   "memoryUpdated": "Memory updated",
   "memoryDeleted": "Memory deleted",
-
   "skillTitle": "Skill Commands",
   "noSkills": "No skills",
   "selectOrCreateSkill": "Select a skill or create a new one",
@@ -140,7 +130,6 @@
   "skillCommandName": "Command Name",
   "skillCommandNamePlaceholder": "e.g. create-component",
   "skillEditorPlaceholder": "Write Skill content in Markdown here...",
-
   "todoNewTask": "New Task",
   "todoDetail": "Task Detail",
   "todoTitlePlaceholder": "Enter task title...",
@@ -213,12 +202,10 @@
   "todoTypeChore": "Chore",
   "todoAddType": "Add Type",
   "todoTypeAll": "All Types",
-
   "memoryPickerTitle": "Select Memory",
   "memoryPickerSearch": "Search Memory...",
   "memoryPickerSelected": "{{count}} selected",
   "memoryPickerNoMemory": "No memories",
-
   "sessionCleanerTitleWithName": "Session Cleaner - {{name}}",
   "sessionCleanerDesc": "Scan Claude Code session files for <code>thinking</code> / <code>redacted_thinking</code> blocks. These blocks may contain invalid signatures, causing the API to return 400 errors.",
   "sessionCleanerScanning": "Scanning session files...",
@@ -229,24 +216,19 @@
   "sessionCleanerBlocks": "{{count}} blocks",
   "sessionCleanerResults": "Clean Results",
   "sessionCleanerRemoved": "Removed {{count}} blocks",
-
   "recentChangesTitle": "Recent Changes",
   "recentChangesAllWorktrees": "View all Worktree changes",
   "recentChangesNoChanges": "No change records",
   "recentChangesMainRepo": "Main Repo",
   "recentChangesUnknownBranch": "Unknown branch",
-
   "scanSelectAll": "Select All",
   "scanDeselectAll": "Deselect All",
-
   "noActiveSessions": "No active sessions",
   "unpinWindow": "Unpin",
   "pinWindow": "Pin Window",
   "restoreWindowSize": "Restore Window",
-
   "switchToLight": "Switch to Light Mode",
   "switchToDark": "Switch to Dark Mode",
-
   "statusActive": "Running",
   "statusWaitingInput": "Awaiting approval",
   "statusIdle": "Idle",
@@ -256,9 +238,7 @@
   "statusToolRunning": "Running tool",
   "statusCompacting": "Compacting",
   "statusError": "Error",
-
   "notificationDesc": "Receive system desktop notifications for key events when the window is unfocused",
-
   "projectRestore": "Project Restore",
   "noSnapshots": "No snapshot labels. Snapshots are automatically created when launching Claude Code.",
   "labelSourceClaudeSession": "CC Session",
@@ -270,5 +250,30 @@
   "loadingFileList": "Loading file list...",
   "noFileHistory": "No file history records",
   "autoTrackChanges": "File changes in the project will be recorded automatically",
-  "diffEarliestToCurrent": "Earliest version -> Current file"
+  "diffEarliestToCurrent": "Earliest version -> Current file",
+  "projectMigration": {
+    "title": "Project To WSL",
+    "workspace": "Workspace: {{name}}",
+    "source": "Source: {{path}}",
+    "flowHint": "Flow is always preview, copy, verify, then switch metadata. The source directory is kept.",
+    "windowsOnly": "WSL project migration is only available on Windows.",
+    "wslTarget": "WSL Target",
+    "distro": "Distro",
+    "refresh": "Refresh",
+    "useDefaultDistro": "Use default distro",
+    "defaultSuffix": " (Default)",
+    "targetPath": "Target path",
+    "preview": "Preview",
+    "execute": "Execute",
+    "rollbackMetadata": "Rollback Metadata",
+    "previewTitle": "Preview",
+    "project": "Project: {{name}}",
+    "targetRoot": "Target root: {{path}}",
+    "distroLine": "Distro: {{name}}",
+    "copiedSummary": "Copied files: {{files}}, copied size: {{size}}",
+    "snapshot": "Snapshot: {{id}}",
+    "migrationDone": "Project migration completed. Source directory was not deleted.",
+    "rollbackDone": "Project migration config rolled back. Copied target files were kept."
+  },
+  "workspaceAnchorPathPlaceholder": "Optional workspace anchor path"
 }

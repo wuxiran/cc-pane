@@ -30,13 +30,13 @@ interface WslDiscoverDialogProps {
 function stateBadgeVariant(state: WslDistro["state"]) {
   switch (state) {
     case "running":
-      return "bg-green-500/15 text-green-600 dark:text-green-400";
+      return "bg-[var(--app-status-success-bg)] text-[var(--app-status-success)]";
     case "stopped":
-      return "bg-gray-500/15 text-gray-600 dark:text-gray-400";
+      return "bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)]";
     case "installing":
-      return "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400";
+      return "bg-[var(--app-status-warning-bg)] text-[var(--app-status-warning)]";
     default:
-      return "bg-gray-500/15 text-gray-500";
+      return "bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-tertiary)]";
   }
 }
 
@@ -200,7 +200,7 @@ export default function WslDiscoverDialog({
             </div>
           ) : error ? (
             <div className="text-center py-8">
-              <p className="text-sm text-red-500">{error}</p>
+              <p className="text-sm text-[var(--app-status-danger)]">{error}</p>
             </div>
           ) : distros.length === 0 ? (
             <div className="text-center py-8">
@@ -228,7 +228,7 @@ export default function WslDiscoverDialog({
                       checked={checked}
                       disabled={disabled}
                       onChange={() => !disabled && toggleSelect(distro.name)}
-                      className="h-4 w-4 rounded border-gray-300 accent-[var(--app-accent)] cursor-pointer disabled:cursor-not-allowed"
+                      className="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent)] cursor-pointer disabled:cursor-not-allowed"
                     />
 
                     <div className="flex-1 min-w-0">
@@ -256,7 +256,7 @@ export default function WslDiscoverDialog({
                         {distro.alreadyImported && (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Check className="w-3.5 h-3.5 shrink-0 text-green-500" />
+                              <Check className="w-3.5 h-3.5 shrink-0 text-[var(--app-status-success)]" />
                             </TooltipTrigger>
                             <TooltipContent side="right">
                               <p>

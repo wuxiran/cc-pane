@@ -52,6 +52,7 @@ use cc_panes_core::services::mcp_config_service::McpServerConfig;
 use cc_panes_core::services::terminal_service::{KillReason, SessionStatus, SessionStatusInfo};
 use cc_panes_core::services::TerminalBackend;
 use cc_panes_core::utils::orchestrator_manifest;
+use cc_panes_core::utils::simplify_path_str;
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
@@ -580,33 +581,60 @@ fn wsl_usage_detected(
     Ok(None)
 }
 
-/// 优先绑定上一轮端口（跨重启稳定），被占用则回退 `{bind_host}:0` 自动分配。
-async fn bind_reusing_port(
-    bind_host: &str,
-    preferred: Option<u16>,
-) -> Option<tokio::net::TcpListener> {
-    if let Some(port) = preferred.filter(|p| *p != 0) {
-        match tokio::net::TcpListener::bind(format!("{bind_host}:{port}")).await {
-            Ok(listener) => {
-                info!("[orchestrator] reused previous port {}", port);
-                return Some(listener);
+/// 决定本次要监听的端口：默认固定端口，`CC_PANES_ORCHESTRATOR_PORT` 是逃生阀。
+///
+/// 逃生阀非法（含 `0`）时报错并退回固定端口——绝不静默走 OS 随机分配。
+fn decide_port() -> u16 {
+    let raw = std::env::var(orchestrator_manifest::ORCHESTRATOR_PORT_ENV).ok();
+    match orchestrator_manifest::resolve_orchestrator_port(raw.as_deref()) {
+        Ok(port) => {
+            if port != orchestrator_manifest::ORCHESTRATOR_FIXED_PORT {
+                info!(
+                    "[orchestrator] port overridden to {} via {}",
+                    port,
+                    orchestrator_manifest::ORCHESTRATOR_PORT_ENV
+                );
             }
-            Err(error) => warn!(
-                "[orchestrator] previous port {} unavailable ({}); falling back to dynamic :0",
-                port, error
-            ),
+            port
+        }
+        Err(message) => {
+            error!(
+                "[orchestrator] {}；本次退回固定端口 {}",
+                message,
+                orchestrator_manifest::ORCHESTRATOR_FIXED_PORT
+            );
+            orchestrator_manifest::ORCHESTRATOR_FIXED_PORT
         }
     }
-    tokio::net::TcpListener::bind(format!("{bind_host}:0"))
+}
+
+/// 绑定固定端口。**失败不回退 `:0`**——端口一漂移，已运行 CLI 会话的 MCP client
+/// （只在进程启动时解析一次端点）会永久失联，静默换端口比起不来更难排查。
+async fn bind_fixed_port(bind_host: &str, port: u16) -> Result<tokio::net::TcpListener, String> {
+    tokio::net::TcpListener::bind(format!("{bind_host}:{port}"))
         .await
-        .ok()
+        .map_err(|error| {
+            format!(
+                "无法绑定 {bind_host}:{port}（{error}）。本构建为 {build}，固定端口 {fixed}。排查：\
+                 1) 是否已有另一个同类型（{build}）的 CC-Panes 实例在跑——dev 与 release 端口本就错开，\
+                 只有同类型重复启动才会撞；\
+                 2) `netstat -ano | findstr :{port}`（Windows）/ `lsof -i :{port}`（macOS/Linux）看占用进程；\
+                 3) 确实被别的程序长期占用时，设 {env}=<另一个确定端口> 后重启应用\
+                 （不要填 0，那是 OS 随机分配，会让已运行的 CLI 会话重启后永久失联）。\
+                 macOS 上还需确认系统设置 > 隐私与安全性 > 防火墙已放行本应用。",
+                build = if cfg!(debug_assertions) { "dev" } else { "release" },
+                fixed = orchestrator_manifest::ORCHESTRATOR_FIXED_PORT,
+                env = orchestrator_manifest::ORCHESTRATOR_PORT_ENV,
+            )
+        })
 }
 
 pub struct OrchestratorService {
     port: Mutex<Option<u16>>,
     token: String,
-    /// 上一轮 mcp-orchestrator.json 里的端口；start() 优先复用它，占用则回退 :0。
-    preferred_port: Option<u16>,
+    /// 本次要监听的端口：固定端口，或逃生阀 `CC_PANES_ORCHESTRATOR_PORT` 指定的确定值。
+    /// **不再来自 manifest**——manifest 里可能残留旧版本 `:0` 分配的 ephemeral 端口。
+    listen_port: u16,
     bind_decision: Mutex<Option<OrchestratorBindDecision>>,
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
@@ -615,25 +643,27 @@ pub struct OrchestratorService {
 }
 
 impl OrchestratorService {
-    /// 复用上一轮 mcp-orchestrator.json 的 token+端口（跨重启稳定），
+    /// 端口来自固定常量（或逃生阀），token 仍复用上一轮 mcp-orchestrator.json，
     /// 让重启/更新后仍在跑的 CLI 会话注入的 `CC_PANES_API_*` 不失效。
+    ///
+    /// manifest 与端口的 dev/release 对应关系见 `ORCHESTRATOR_FIXED_PORT` 的文档表格：
+    /// 本进程只读写自己数据目录（`AppPaths` 由 `APP_DIR_NAME` 决定）下的 manifest。
     pub fn new(app_paths: &AppPaths) -> Self {
-        let (preferred_port, token) = match orchestrator_manifest::read_endpoint(
-            app_paths.data_dir(),
-        ) {
-            Some((port, token)) => {
+        let token = match orchestrator_manifest::read_endpoint(app_paths.data_dir()) {
+            Some((persisted_port, token)) => {
                 info!(
-                    "[orchestrator] reusing persisted endpoint (port {}) from mcp-orchestrator.json",
-                    port
+                    "[orchestrator] reusing persisted token from mcp-orchestrator.json \
+                     (persisted port {} ignored; port is fixed now)",
+                    persisted_port
                 );
-                (Some(port), token)
+                token
             }
-            None => (None, generate_token()),
+            None => generate_token(),
         };
         Self {
             port: Mutex::new(None),
             token,
-            preferred_port,
+            listen_port: decide_port(),
             bind_decision: Mutex::new(None),
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             pending_worker_reports: Arc::new(Mutex::new(HashMap::new())),
@@ -950,7 +980,10 @@ impl OrchestratorService {
 
         let port_mutex = Arc::new(Mutex::new(None::<u16>));
         let port_mutex_clone = port_mutex.clone();
-        let preferred_port = self.preferred_port;
+        // 绑定失败要让主线程立刻知道并醒目报错，而不是干等 5 秒超时。
+        let bind_error = Arc::new(Mutex::new(None::<String>));
+        let bind_error_clone = bind_error.clone();
+        let listen_port = self.listen_port;
 
         // 在独立线程中启动 tokio runtime + axum 服务器
         std::thread::spawn(move || {
@@ -973,18 +1006,17 @@ impl OrchestratorService {
             rt.block_on(async move {
                 let app = build_router(state);
 
-                // 优先复用上一轮端口（跨重启稳定：让重启/更新后仍在跑的 CLI 会话注入的
-                // CC_PANES_API_PORT 依旧有效），被占用则回退 {bind_host}:0 自动分配。
+                // 固定端口（跨重启稳定：让重启/更新后仍在跑的 CLI 会话里写死的 MCP 端点依旧有效）。
+                // 绑不上就报错退出，不静默漂移到随机端口。
                 // auto/all 下绑 0.0.0.0 供 WSL 访问；loopback 只绑回环，缩小 LAN 暴露面。
                 // macOS Ventura+ 首次绑定非回环可能触发防火墙授权弹窗，这是正常行为
-                let listener = match bind_reusing_port(&bind_host, preferred_port).await {
-                    Some(l) => l,
-                    None => {
-                        error!(
-                            "[orchestrator] Failed to bind {} (preferred {:?} and :0 both failed). \
-                             On macOS, ensure the app is allowed in System Settings > Privacy & Security > Firewall.",
-                            bind_host, preferred_port
-                        );
+                let listener = match bind_fixed_port(&bind_host, listen_port).await {
+                    Ok(l) => l,
+                    Err(message) => {
+                        error!("[orchestrator] {}", message);
+                        if let Ok(mut slot) = bind_error_clone.lock() {
+                            *slot = Some(message);
+                        }
                         return;
                     }
                 };
@@ -1017,9 +1049,14 @@ impl OrchestratorService {
             warn!("[orchestrator] rt.block_on returned — runtime thread exiting");
         });
 
-        // 等待端口分配完成（最多 5 秒）
+        // 等待端口绑定完成（最多 5 秒）；绑定失败则立即返回 Err，让调用方/用户看见
         let start = std::time::Instant::now();
         loop {
+            if let Ok(slot) = bind_error.lock() {
+                if let Some(message) = slot.clone() {
+                    return Err(anyhow::anyhow!("orchestrator 未能启动：{message}"));
+                }
+            }
             if start.elapsed() > std::time::Duration::from_secs(5) {
                 error!("[orchestrator] Timeout waiting for port assignment");
                 break;
@@ -1029,7 +1066,11 @@ impl OrchestratorService {
                     let mut self_port = self.port.lock().unwrap_or_else(|e| e.into_inner());
                     *self_port = Some(port);
 
-                    // 启动时立即写入 mcp-orchestrator.json，确保 token 与端口同步
+                    // 启动时立即写入 mcp-orchestrator.json，确保 token 与端口同步。
+                    // 端口固定后 manifest 依然必要：token 跨重启复用，且逃生阀覆盖端口时
+                    // 这里记录的是**实际**监听端口。写入的是本进程数据目录下的 manifest——
+                    // dev 写 ~/.cc-panes-dev/、release 写 ~/.cc-panes/，与端口一一对应
+                    // （见 ORCHESTRATOR_FIXED_PORT 文档表格）。
                     let config = serde_json::json!({
                         "mcpServers": {
                             "ccpanes": {
@@ -1043,8 +1084,10 @@ impl OrchestratorService {
                     });
                     let config_path = app_paths_for_config
                         .data_dir()
-                        .join("mcp-orchestrator.json");
-                    match std::fs::write(
+                        .join(orchestrator_manifest::ORCHESTRATOR_MANIFEST_FILE);
+                    // 原子写：裸 fs::write 在崩溃/断电时可能留下截断的 manifest，
+                    // 下次启动 read_endpoint 返回 None → token 丢失。
+                    match cc_panes_core::utils::atomic_file::write_atomic(
                         &config_path,
                         serde_json::to_string_pretty(&config).unwrap_or_default(),
                     ) {
@@ -1513,8 +1556,88 @@ struct McpWriteToSessionParams {
     /// 终端会话 ID（由 launch_task 返回）
     #[serde(rename = "sessionId")]
     session_id: String,
-    /// 要写入的原始字节（不做任何处理）。如需提交命令给 Claude Code，请改用 submit_to_session。Ctrl+C 用 "\x03"。
+    /// 要写入终端的文本。控制键必须用 JSON \u 转义（\x 不是合法 JSON 转义）：Esc = "\u001b"，Shift+Tab = "\u001b[Z"，Ctrl+C = "\u0003"，Ctrl+D = "\u0004"，回车 = "\r"（CR 非 LF）。控制键必须走本工具，不能用 submit_to_session（它总会追加一个 CR，会把 Esc 变成 Esc+Enter）。要发字面反斜杠请写两个反斜杠。
     text: String,
+}
+
+/// MCP/REST 边界的容错转义解码。
+///
+/// 模型经常写出 `"\\x03"` 这类 JSON 表达不了的转义，反序列化后落到这里是
+/// 字面的 `\`、`x`、`0`、`3` 四个字符，原样写进 PTY 就是"不报错也没效果"。
+/// 这里把字面量 `\xNN` / `\uNNNN` / `\e` / `\r` / `\n` / `\t` / `\0` 还原成真字符，
+/// 真控制字节本身不含反斜杠，因此该变换对已正确转义的输入是幂等的。
+/// 想发字面反斜杠时用 `\\` 表示。
+fn decode_terminal_escapes(input: &str) -> String {
+    fn take_hex(chars: &[char], start: usize, len: usize) -> Option<char> {
+        let digits: String = chars.get(start..start + len)?.iter().collect();
+        if !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        char::from_u32(u32::from_str_radix(&digits, 16).ok()?)
+    }
+
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '\\' || i + 1 >= chars.len() {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        match chars[i + 1] {
+            '\\' => {
+                out.push('\\');
+                i += 2;
+            }
+            'x' => match take_hex(&chars, i + 2, 2) {
+                Some(c) => {
+                    out.push(c);
+                    i += 4;
+                }
+                None => {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            },
+            'u' => match take_hex(&chars, i + 2, 4) {
+                Some(c) => {
+                    out.push(c);
+                    i += 6;
+                }
+                None => {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            },
+            'e' => {
+                out.push('\u{1b}');
+                i += 2;
+            }
+            'r' => {
+                out.push('\r');
+                i += 2;
+            }
+            'n' => {
+                out.push('\n');
+                i += 2;
+            }
+            't' => {
+                out.push('\t');
+                i += 2;
+            }
+            '0' => {
+                out.push('\0');
+                i += 2;
+            }
+            // 未知转义原样保留，避免吞掉用户真想发的字符
+            _ => {
+                out.push(chars[i]);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3144,6 +3267,8 @@ impl McpToolHandler {
             skip_mcp: false,
             append_system_prompt: None,
             initial_prompt: initial_prompt.map(str::to_string),
+            yolo_mode: None,
+            adapter_options: None,
             extra_env: None,
             ssh: runtime.ssh.clone(),
             wsl: runtime.wsl.clone(),
@@ -4051,7 +4176,7 @@ impl McpToolHandler {
             return format!("错误: '{}' 不是目录", params.path);
         }
         let canonical = match path.canonicalize() {
-            Ok(p) => strip_unc_prefix(p.to_string_lossy().to_string()),
+            Ok(p) => simplify_path_str(&p.to_string_lossy()),
             Err(e) => return format!("错误: 路径规范化失败: {}", e),
         };
         let event = OrchestratorOpenFolderEvent {
@@ -4076,7 +4201,7 @@ impl McpToolHandler {
             return format!("错误: '{}' 不是文件", params.file_path);
         }
         let canonical_file = match file_path.canonicalize() {
-            Ok(p) => strip_unc_prefix(p.to_string_lossy().to_string()),
+            Ok(p) => simplify_path_str(&p.to_string_lossy()),
             Err(e) => return format!("错误: 路径规范化失败: {}", e),
         };
 
@@ -4139,7 +4264,7 @@ impl McpToolHandler {
         // 文件已被删除时 canonicalize 会失败，此时用原始路径尽力匹配。
         let file_path = std::path::Path::new(&params.file_path)
             .canonicalize()
-            .map(|p| strip_unc_prefix(p.to_string_lossy().to_string()))
+            .map(|p| simplify_path_str(&p.to_string_lossy()))
             .unwrap_or_else(|_| params.file_path.clone());
         let event = OrchestratorCloseFileEvent {
             file_path: file_path.clone(),
@@ -4243,7 +4368,7 @@ impl McpToolHandler {
 
     // ============ PTY Control Tools ============
 
-    /// 向指定 PTY 会话写入原始字节（不做时序处理）。适合发送控制字符（如 Ctrl+C: "\x03"）。如果需要向 Claude Code 提交命令或 prompt，请改用 submit_to_session，它会自动处理 Enter 键时序。
+    /// 向指定 PTY 会话写入文本/控制键（不做 Enter 时序处理）。控制键必须用 JSON \u 转义（\x 不是合法 JSON 转义，写 "\\x03" 只会送出 4 个字面字符）：Esc = "\u001b"，Shift+Tab = "\u001b[Z"，Ctrl+C = "\u0003"，Ctrl+D = "\u0004"，回车 = "\r"。控制键只能用本工具，不要用 submit_to_session（它会追加 CR）。提交命令或 prompt 请改用 submit_to_session。
     #[tool]
     async fn write_to_session(
         &self,
@@ -4251,7 +4376,8 @@ impl McpToolHandler {
     ) -> String {
         info!(session_id = %params.session_id, text_len = params.text.len(), "mcp::write_to_session");
         let sid = params.session_id.clone();
-        let txt = params.text;
+        // 容错：把模型写出的字面量转义（如 "\\x03"）还原成真控制字节。
+        let txt = decode_terminal_escapes(&params.text);
         match backend_call(&self.state, move |backend| backend.write(&sid, &txt)).await {
             Ok(()) => serde_json::json!({
                 "success": true,
@@ -4265,7 +4391,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 向 PTY 会话提交文本（自动处理 Enter 键时序）。内部先写入文本，等待 150ms，再单独发送 Enter，确保 Claude Code (ink) 正确识别为提交。适用于发送 slash command（如 "/plan"）或输入 prompt。
+    /// 向 PTY 会话提交文本（自动处理 Enter 键时序）。内部先写入文本，按长度等待 min(200 + (len/512)*30, 5000) ms，再单独发送 CR，确保 Claude Code (ink) 正确识别为提交。适用于发送 slash command（如 "/plan"）或输入 prompt。控制键请改用 write_to_session。
     #[tool]
     async fn submit_to_session(
         &self,
@@ -5200,6 +5326,8 @@ impl RunnerTerminal for TerminalBackendState {
                 skip_mcp: true,
                 append_system_prompt: None,
                 initial_prompt: None,
+                yolo_mode: None,
+                adapter_options: None,
                 extra_env: Some(profile.env.clone()),
                 ssh: runtime.ssh.clone(),
                 wsl: runtime.wsl.clone(),
@@ -6084,6 +6212,8 @@ async fn handle_launch_task(
         skip_mcp: false,
         append_system_prompt: None,
         initial_prompt: initial_prompt.map(str::to_string),
+        yolo_mode: None,
+        adapter_options: None,
         extra_env: None,
         ssh: runtime.ssh.clone(),
         wsl: runtime.wsl.clone(),
@@ -6574,7 +6704,8 @@ async fn handle_write_to_session(
     }
 
     let sid = req.session_id.clone();
-    let txt = req.text;
+    // 与 MCP write_to_session 共用同一条容错解码，避免两条路径行为分叉。
+    let txt = decode_terminal_escapes(&req.text);
     match backend_call(&state, move |backend| backend.write(&sid, &txt)).await {
         Ok(()) => (
             StatusCode::OK,
@@ -7889,17 +8020,6 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
     }
 }
 
-/// 剥离 Windows `canonicalize()` 产生的 `\\?\` UNC 前缀
-#[cfg(windows)]
-fn strip_unc_prefix(path: String) -> String {
-    path.strip_prefix(r"\\?\").unwrap_or(&path).to_string()
-}
-
-#[cfg(not(windows))]
-fn strip_unc_prefix(path: String) -> String {
-    path
-}
-
 fn local_orchestrator_endpoint_reachable(port: u16) -> bool {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(250)).is_ok()
@@ -7909,6 +8029,41 @@ fn local_orchestrator_endpoint_reachable(port: u16) -> bool {
 mod tests {
     use super::*;
     use crate::models::WorkspaceCliEnvironmentDefaults;
+
+    #[test]
+    fn decode_terminal_escapes_restores_control_bytes() {
+        // 模型写 "\\x03" 时到达的是字面 \ x 0 3。
+        assert_eq!(decode_terminal_escapes("\\x03"), "\u{3}");
+        assert_eq!(decode_terminal_escapes("\\u001b[Z"), "\u{1b}[Z");
+        assert_eq!(decode_terminal_escapes("\\e"), "\u{1b}");
+        assert_eq!(decode_terminal_escapes("\\r"), "\r");
+        assert_eq!(decode_terminal_escapes("\\n\\t\\0"), "\n\t\u{0}");
+    }
+
+    #[test]
+    fn decode_terminal_escapes_honors_doubled_backslash() {
+        // 想发字面 \x03 的用户写 \\x03（JSON 里是 "\\\\x03"）。
+        assert_eq!(decode_terminal_escapes("\\\\x03"), "\\x03");
+        assert_eq!(decode_terminal_escapes("C:\\\\tmp"), "C:\\tmp");
+    }
+
+    #[test]
+    fn decode_terminal_escapes_is_idempotent_on_real_control_bytes() {
+        // 已经是真控制字节的输入不受影响（不含反斜杠）。
+        for raw in ["\u{1b}", "\u{1b}[Z", "\u{3}", "\r", "hello world"] {
+            assert_eq!(decode_terminal_escapes(raw), raw);
+            assert_eq!(decode_terminal_escapes(&decode_terminal_escapes(raw)), raw);
+        }
+    }
+
+    #[test]
+    fn decode_terminal_escapes_preserves_unknown_and_truncated_escapes() {
+        // 非转义序列原样保留，不吞字符。
+        assert_eq!(decode_terminal_escapes("\\q"), "\\q");
+        assert_eq!(decode_terminal_escapes("\\xZZ"), "\\xZZ");
+        assert_eq!(decode_terminal_escapes("\\u12"), "\\u12");
+        assert_eq!(decode_terminal_escapes("trailing\\"), "trailing\\");
+    }
 
     #[test]
     fn decide_bind_explicit_modes_ignore_wsl_signal() {

@@ -387,6 +387,8 @@ impl CCChanService {
             None,
             None,
             None,
+            None,
+            None,
         )?;
         info!(
             session_id = %session_id,
@@ -834,12 +836,11 @@ impl CCChanService {
             project_path: chat_dir.to_string_lossy().to_string(),
             workspace_path: None,
             provider,
-            executable_override: self
-                .settings_service
-                .get_settings()
-                .cli_launchers
-                .command_for("claude")
-                .map(str::to_string),
+            // 结构化模式不走 CLI 启动器覆盖：包装器（如 reclaude）转发含换行的
+            // argv 时会吞掉后续参数——ccchan 每轮必带多行 --append-system-prompt，
+            // 位置 prompt 被吞后 claude -p 直接报 "Input must be provided..."。
+            // 覆盖只面向交互式终端启动，程序化调用直连真实 CLI。
+            executable_override: None,
             adapter_options: Default::default(),
             resume_id: resume_id.map(str::to_string),
             issued_session_id: None,
@@ -889,12 +890,8 @@ impl CCChanService {
             project_path: chat_dir.to_string_lossy().to_string(),
             workspace_path: None,
             provider,
-            executable_override: self
-                .settings_service
-                .get_settings()
-                .cli_launchers
-                .command_for("codex")
-                .map(str::to_string),
+            // 同 Claude 侧：结构化 exec 调用不走启动器覆盖（包装器换行 argv 吞参问题）
+            executable_override: None,
             adapter_options: Default::default(),
             resume_id: resume_id.map(str::to_string),
             issued_session_id: None,

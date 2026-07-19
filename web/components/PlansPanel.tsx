@@ -41,7 +41,7 @@ function formatArchivedAt(iso: string): string {
 }
 
 export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPanelProps) {
-  const { t } = useTranslation("sidebar");
+  const { t } = useTranslation(["sidebar", "common"]);
   const [plans, setPlans] = useState<PlanEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string>("");
@@ -158,7 +158,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
             style={{ color: "var(--app-text-tertiary)" }}
           >
             <FileText size={32} strokeWidth={1.5} />
-            <span>No archived plans</span>
+            <span>{t("noArchivedPlans")}</span>
           </div>
         ) : (
           <div className="flex gap-3 flex-1 min-h-0 overflow-hidden">
@@ -178,7 +178,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                   <Input
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search..."
+                    placeholder={t("common:search")}
                     className="h-7 pl-7 text-xs"
                   />
                 </div>

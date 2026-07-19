@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Save, Undo2, Redo2, Eye, SplitSquareHorizontal, Code2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,7 @@ export default function EditorToolbar({
   onRedo,
   onPreviewModeChange,
 }: EditorToolbarProps) {
+  const { t } = useTranslation("editor");
   const cyclePreview = useCallback(() => {
     const modes: PreviewMode[] = ["edit", "preview", "split"];
     const idx = modes.indexOf(previewMode);
@@ -54,7 +56,7 @@ export default function EditorToolbar({
               <Save size={13} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Save (Ctrl+S)</TooltipContent>
+          <TooltipContent>{t("save")}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -68,7 +70,7 @@ export default function EditorToolbar({
               <Undo2 size={13} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Undo (Ctrl+Z)</TooltipContent>
+          <TooltipContent>{t("undo")}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -82,7 +84,7 @@ export default function EditorToolbar({
               <Redo2 size={13} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Redo (Ctrl+Shift+Z)</TooltipContent>
+          <TooltipContent>{t("redo")}</TooltipContent>
         </Tooltip>
 
         {isMarkdown && (
@@ -99,7 +101,7 @@ export default function EditorToolbar({
                   <Code2 size={13} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Edit</TooltipContent>
+              <TooltipContent>{t("editMode")}</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -113,7 +115,7 @@ export default function EditorToolbar({
                   <Eye size={13} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Preview</TooltipContent>
+              <TooltipContent>{t("previewMode")}</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -127,7 +129,7 @@ export default function EditorToolbar({
                   <SplitSquareHorizontal size={13} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Split Preview</TooltipContent>
+              <TooltipContent>{t("splitPreview")}</TooltipContent>
             </Tooltip>
           </>
         )}
@@ -135,7 +137,7 @@ export default function EditorToolbar({
         <div className="flex-1" />
 
         {dirty && (
-          <span className="text-[11px] mr-1" style={{ color: "var(--app-warning)" }}>Modified</span>
+          <span className="text-[11px] mr-1" style={{ color: "var(--app-warning)" }}>{t("modified")}</span>
         )}
         <span className="text-muted-foreground text-[11px]">{language}</span>
       </div>

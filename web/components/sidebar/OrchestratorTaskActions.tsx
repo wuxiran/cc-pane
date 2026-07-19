@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,7 @@ interface OrchestratorTaskActionsProps {
 }
 
 export default function OrchestratorTaskActions({ binding }: OrchestratorTaskActionsProps) {
+  const { t } = useTranslation(["orchestration", "common"]);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [retryLocked, setRetryLocked] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -255,22 +257,22 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
           <button
             className="rounded p-0.5 opacity-0 transition-opacity hover:bg-[var(--app-hover)] group-hover:opacity-100"
             onClick={(event) => event.stopPropagation()}
-            title="Actions"
+            title={t("sidebar.actions")}
           >
             <MoreHorizontal className="h-3.5 w-3.5" style={{ color: "var(--app-text-tertiary)" }} />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onClick={openDetails}>📄 Details</DropdownMenuItem>
+          <DropdownMenuItem onClick={openDetails}>📄 {t("sidebar.details")}</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={!canKill || isBusy}
             onClick={() => runAction("kill", killSession)}
           >
-            🔪 Kill
+            🔪 {t("sidebar.kill")}
           </DropdownMenuItem>
           <DropdownMenuItem disabled={!canRetry || isBusy} onClick={retryTask}>
-            🔄 Retry
+            🔄 {t("sidebar.retry")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={!canEdit || isBusy}
@@ -281,7 +283,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
               setEditOpen(true);
             }}
           >
-            ✏️ Edit
+            ✏️ {t("sidebar.edit")}
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={!canSend || isBusy}
@@ -290,10 +292,10 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
               setSendOpen(true);
             }}
           >
-            💬 Send message
+            💬 {t("sidebar.sendMessage")}
           </DropdownMenuItem>
           <DropdownMenuItem disabled={muted || isBusy} onClick={muteTask}>
-            🔕 Mute
+            🔕 {t("sidebar.mute")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -308,7 +310,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
               }
             }}
           >
-            🗑 Delete
+            🗑 {t("sidebar.delete")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -316,7 +318,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-md" onClick={(event) => event.stopPropagation()}>
           <DialogHeader>
-            <DialogTitle>Edit task</DialogTitle>
+            <DialogTitle>{t("sidebar.editTask")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <Input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} />
@@ -328,10 +330,10 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button onClick={saveEdit} disabled={isBusy}>
-              Save
+              {t("common:save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -340,20 +342,20 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent className="sm:max-w-md" onClick={(event) => event.stopPropagation()}>
           <DialogHeader>
-            <DialogTitle>Send message</DialogTitle>
+            <DialogTitle>{t("sidebar.sendMessage")}</DialogTitle>
           </DialogHeader>
           <textarea
             className="min-h-28 w-full resize-y rounded-md border bg-transparent px-3 py-2 text-sm outline-none"
             value={message}
             onChange={(event) => setMessage(event.target.value)}
-            placeholder={`Message to ${getProjectName(binding.projectPath)}`}
+            placeholder={t("sidebar.messageTo", { name: getProjectName(binding.projectPath) })}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setSendOpen(false)}>
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button onClick={sendMessage} disabled={!message.trim() || !canSend || isBusy}>
-              Send
+              {t("sidebar.send")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -362,11 +364,11 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent className="sm:max-w-md" onClick={(event) => event.stopPropagation()}>
           <DialogHeader>
-            <DialogTitle>Delete leader and workers</DialogTitle>
+            <DialogTitle>{t("sidebar.deleteCascadeTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 text-sm">
             <p style={{ color: "var(--app-text-secondary)" }}>
-              This will delete {descendants.length} worker task{descendants.length === 1 ? "" : "s"}.
+              {t("sidebar.deleteCascadeDesc", { count: descendants.length })}
             </p>
             <div className="max-h-44 overflow-y-auto rounded border p-2">
               {descendants.map((child) => (
@@ -379,10 +381,10 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
+              {t("common:cancel")}
             </Button>
             <Button variant="destructive" onClick={deleteTask} disabled={isBusy}>
-              Delete
+              {t("common:delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

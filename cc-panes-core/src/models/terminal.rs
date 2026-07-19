@@ -74,6 +74,13 @@ pub struct CreateSessionRequest {
     pub append_system_prompt: Option<String>,
     #[serde(default, alias = "prompt", skip_serializing_if = "Option::is_none")]
     pub initial_prompt: Option<String>,
+    /// per-launch YOLO 覆盖：None = 跟随 launch profile 解析值
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yolo_mode: Option<bool>,
+    /// per-launch adapter 选项（约定键：effort/extraArgs/verbose/maxTurns），
+    /// 与 profile.adapter_options 合并，request 覆盖同名键
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_options: Option<HashMap<String, serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_env: Option<HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

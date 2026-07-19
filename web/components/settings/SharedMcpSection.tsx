@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   ServerOff,
@@ -66,6 +67,7 @@ function statusVariant(
 }
 
 function CcpanesMcpCard() {
+  const { t } = useTranslation(["settings", "common"]);
   const [info, setInfo] = useState<{ port: number | null; token: string } | null>(null);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
@@ -104,9 +106,9 @@ function CcpanesMcpCard() {
             variant="ghost"
             className="h-5 w-5 shrink-0"
             onClick={() => copyText(url, setCopiedUrl)}
-            title="Copy URL"
+            title={t("sharedMcp.copyUrl")}
           >
-            {copiedUrl ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+            {copiedUrl ? <Check size={10} className="text-[var(--app-status-success)]" /> : <Copy size={10} />}
           </Button>
         </div>
 
@@ -120,9 +122,9 @@ function CcpanesMcpCard() {
             variant="ghost"
             className="h-5 w-5 shrink-0"
             onClick={() => copyText(info.token, setCopiedToken)}
-            title="Copy token"
+            title={t("sharedMcp.copyToken")}
           >
-            {copiedToken ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+            {copiedToken ? <Check size={10} className="text-[var(--app-status-success)]" /> : <Copy size={10} />}
           </Button>
         </div>
       </div>
@@ -131,6 +133,7 @@ function CcpanesMcpCard() {
 }
 
 export default function SharedMcpSection() {
+  const { t } = useTranslation(["settings", "common"]);
   const servers = useSharedMcpStore((s) => s.servers);
   const config = useSharedMcpStore((s) => s.config);
   const fetchStatus = useSharedMcpStore((s) => s.fetchStatus);
@@ -164,12 +167,12 @@ export default function SharedMcpSection() {
     try {
       const imported = await importFromClaude();
       if (imported.length > 0) {
-        toast.success(`Imported ${imported.length} MCP servers`);
+        toast.success(t("sharedMcp.importedCount", { count: imported.length }));
       } else {
-        toast.info("No new servers to import");
+        toast.info(t("sharedMcp.noNewServers"));
       }
     } catch (e) {
-      toast.error(`Import failed: ${String(e)}`);
+      toast.error(t("sharedMcp.importFailed", { error: String(e) }));
     } finally {
       setImporting(false);
     }
@@ -224,22 +227,22 @@ export default function SharedMcpSection() {
     const port = Number.parseInt(form.port, 10);
 
     if (!name || !command) {
-      toast.error("MCP 名称和命令不能为空");
+      toast.error(t("sharedMcp.nameCommandRequired"));
       return;
     }
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      toast.error("端口必须是 1-65535 之间的数字");
+      toast.error(t("sharedMcp.portInvalid"));
       return;
     }
 
     const duplicate = servers.some((server) => server.name !== editingName && server.name === name);
     if (duplicate) {
-      toast.error("MCP 名称已存在");
+      toast.error(t("sharedMcp.nameExists"));
       return;
     }
     const portDuplicate = servers.some((server) => server.name !== editingName && server.config.port === port);
     if (portDuplicate) {
-      toast.error("端口已被其他共享 MCP 使用");
+      toast.error(t("sharedMcp.portInUse"));
       return;
     }
 
@@ -257,37 +260,37 @@ export default function SharedMcpSection() {
         await removeServer(editingName);
       }
       await upsertServer(name, updated);
-      toast.success(editingName ? "共享 MCP 已更新" : "共享 MCP 已新增");
+      toast.success(editingName ? t("sharedMcp.updated") : t("sharedMcp.added"));
       resetForm();
     } catch (e) {
-      toast.error(`保存失败: ${String(e)}`);
+      toast.error(t("common:saveFailed", { error: String(e) }));
     }
   }
 
   async function handleStart(name: string) {
     try {
       await startServer(name);
-      toast.success(`Started ${name}`);
+      toast.success(t("sharedMcp.started", { name }));
     } catch (e) {
-      toast.error(`Failed to start ${name}: ${String(e)}`);
+      toast.error(t("sharedMcp.startFailed", { name, error: String(e) }));
     }
   }
 
   async function handleStop(name: string) {
     try {
       await stopServer(name);
-      toast.success(`Stopped ${name}`);
+      toast.success(t("sharedMcp.stopped", { name }));
     } catch (e) {
-      toast.error(`Failed to stop ${name}: ${String(e)}`);
+      toast.error(t("sharedMcp.stopFailed", { name, error: String(e) }));
     }
   }
 
   async function handleRestart(name: string) {
     try {
       await restartServer(name);
-      toast.success(`Restarted ${name}`);
+      toast.success(t("sharedMcp.restarted", { name }));
     } catch (e) {
-      toast.error(`Failed to restart ${name}: ${String(e)}`);
+      toast.error(t("sharedMcp.restartFailed", { name, error: String(e) }));
     }
   }
 
@@ -295,17 +298,17 @@ export default function SharedMcpSection() {
     try {
       await toggleShared(name, enabled);
     } catch (e) {
-      toast.error(`Toggle failed: ${String(e)}`);
+      toast.error(t("sharedMcp.toggleFailed", { error: String(e) }));
     }
   }
 
   async function handleRemove(name: string) {
     try {
       await removeServer(name);
-      toast.success(`Removed ${name}`);
+      toast.success(t("sharedMcp.removed", { name }));
       if (editingName === name) resetForm();
     } catch (e) {
-      toast.error(`Remove failed: ${String(e)}`);
+      toast.error(t("sharedMcp.removeFailed", { error: String(e) }));
     }
   }
 
@@ -321,7 +324,7 @@ export default function SharedMcpSection() {
       {/* 标题 + 操作 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium">共享 MCP</h3>
+          <h3 className="text-sm font-medium">{t("sharedMcp.title")}</h3>
           <Badge variant="secondary" className="text-xs">
             {runningCount}/{servers.length}
           </Badge>
@@ -329,7 +332,7 @@ export default function SharedMcpSection() {
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={handleNew}>
             <Plus size={14} className="mr-1" />
-            新增
+            {t("sharedMcp.add")}
           </Button>
           <Button
             size="sm"
@@ -342,20 +345,20 @@ export default function SharedMcpSection() {
             ) : (
               <Download size={14} className="mr-1" />
             )}
-            导入 MCP 配置
+            {t("sharedMcp.importConfig")}
           </Button>
         </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        当前支持从 Claude 配置导入 stdio MCP 启动命令；CC-Panes 会桥接为 HTTP，并在启动时按当前 CLI 的 MCP 规则注入。
+        {t("sharedMcp.importHint")}
       </p>
 
       {editing && (
         <div className="rounded-lg border-2 border-primary/30 bg-card p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h4 className="text-sm font-medium">
-              {editingName ? "编辑共享 MCP" : "新增共享 MCP"}
+              {editingName ? t("sharedMcp.editTitle") : t("sharedMcp.newTitle")}
             </h4>
             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={resetForm}>
               <X size={14} />
@@ -364,7 +367,7 @@ export default function SharedMcpSection() {
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="space-y-1">
-              <Label className="text-xs">名称</Label>
+              <Label className="text-xs">{t("sharedMcp.fieldName")}</Label>
               <Input
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -373,7 +376,7 @@ export default function SharedMcpSection() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">命令</Label>
+              <Label className="text-xs">{t("sharedMcp.fieldCommand")}</Label>
               <Input
                 value={form.command}
                 onChange={(e) => setForm({ ...form, command: e.target.value })}
@@ -382,7 +385,7 @@ export default function SharedMcpSection() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">参数</Label>
+              <Label className="text-xs">{t("sharedMcp.fieldArgs")}</Label>
               <Input
                 value={form.args}
                 onChange={(e) => setForm({ ...form, args: e.target.value })}
@@ -392,7 +395,7 @@ export default function SharedMcpSection() {
             </div>
             <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">端口</Label>
+                <Label className="text-xs">{t("sharedMcp.fieldPort")}</Label>
                 <Input
                   value={form.port}
                   onChange={(e) => setForm({ ...form, port: e.target.value })}
@@ -401,7 +404,7 @@ export default function SharedMcpSection() {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">桥接</Label>
+                <Label className="text-xs">{t("sharedMcp.fieldBridge")}</Label>
                 <select
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={form.bridgeMode}
@@ -415,7 +418,7 @@ export default function SharedMcpSection() {
           </div>
 
           <div className="space-y-1">
-            <Label className="text-xs">环境变量</Label>
+            <Label className="text-xs">{t("sharedMcp.fieldEnv")}</Label>
             <textarea
               value={form.env}
               onChange={(e) => setForm({ ...form, env: e.target.value })}
@@ -431,16 +434,16 @@ export default function SharedMcpSection() {
                 checked={form.shared}
                 onChange={(e) => setForm({ ...form, shared: e.target.checked })}
               />
-              启用共享
+              {t("sharedMcp.enableShared")}
             </label>
             <div className="flex gap-2">
               <Button size="sm" variant="ghost" onClick={resetForm}>
                 <X size={14} className="mr-1" />
-                取消
+                {t("common:cancel")}
               </Button>
               <Button size="sm" onClick={handleSave}>
                 <Save size={14} className="mr-1" />
-                保存
+                {t("common:save")}
               </Button>
             </div>
           </div>
@@ -451,9 +454,9 @@ export default function SharedMcpSection() {
       {servers.length === 0 && !editing ? (
         <div className="text-center py-12 text-muted-foreground">
           <ServerOff size={28} className="mx-auto mb-3 opacity-40" />
-          <p className="text-xs">还没有共享 MCP</p>
+          <p className="text-xs">{t("sharedMcp.emptyTitle")}</p>
           <p className="text-xs mt-1">
-            可以新增，或从已有 MCP 配置导入
+            {t("sharedMcp.emptyHint")}
           </p>
         </div>
       ) : servers.length > 0 ? (
@@ -493,6 +496,7 @@ function ServerRow({
   onRemove: (name: string) => void;
   onEdit: (server: SharedMcpServerInfo) => void;
 }) {
+  const { t } = useTranslation(["settings", "common"]);
   const isRunning = server.status === "Running";
   const isStopped = server.status === "Stopped";
   // Failed（含超过重启上限的熔断态）必须给 Restart 入口：后端 restart 会
@@ -507,7 +511,7 @@ function ServerRow({
         variant="ghost"
         className="h-7 w-7 shrink-0"
         onClick={() => onToggleShared(server.name, !server.config.shared)}
-        title={server.config.shared ? "Disable sharing" : "Enable sharing"}
+        title={server.config.shared ? t("sharedMcp.disableSharing") : t("sharedMcp.enableSharing")}
       >
         {server.config.shared ? (
           <ToggleRight size={18} className="text-primary" />
@@ -542,7 +546,7 @@ function ServerRow({
             variant="ghost"
             className="h-7 w-7"
             onClick={() => onStart(server.name)}
-            title="Start"
+            title={t("sharedMcp.start")}
           >
             <Play size={13} />
           </Button>
@@ -553,7 +557,7 @@ function ServerRow({
             variant="ghost"
             className="h-7 w-7"
             onClick={() => onRestart(server.name)}
-            title="Restart"
+            title={t("sharedMcp.restart")}
           >
             <RotateCw size={13} />
           </Button>
@@ -565,7 +569,7 @@ function ServerRow({
               variant="ghost"
               className="h-7 w-7"
               onClick={() => onRestart(server.name)}
-              title="Restart"
+              title={t("sharedMcp.restart")}
             >
               <RotateCw size={13} />
             </Button>
@@ -574,7 +578,7 @@ function ServerRow({
               variant="ghost"
               className="h-7 w-7"
               onClick={() => onStop(server.name)}
-              title="Stop"
+              title={t("sharedMcp.stop")}
             >
               <Square size={13} />
             </Button>
@@ -585,7 +589,7 @@ function ServerRow({
           variant="ghost"
           className="h-7 w-7"
           onClick={() => onEdit(server)}
-          title="Edit"
+          title={t("sharedMcp.edit")}
         >
           <SquarePen size={13} />
         </Button>
@@ -594,7 +598,7 @@ function ServerRow({
           variant="ghost"
           className="h-7 w-7 text-destructive"
           onClick={() => onRemove(server.name)}
-          title="Remove"
+          title={t("sharedMcp.remove")}
         >
           <Trash2 size={13} />
         </Button>

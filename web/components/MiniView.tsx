@@ -88,7 +88,7 @@ export default function MiniView() {
         </span>
         <div className="flex gap-0.5">
           <button
-            className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-pointer transition-all"
+            className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-pointer transition-colors duration-[var(--dur-fast)]"
             style={{
               background: "transparent",
               color: isPinned ? "var(--app-accent)" : "var(--app-text-secondary)",
@@ -100,7 +100,7 @@ export default function MiniView() {
             <Pin size={10} className={isPinned ? "rotate-45" : ""} />
           </button>
           <button
-            className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-pointer transition-all hover:bg-[var(--app-hover)]"
+            className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-pointer transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
             style={{ background: "transparent", color: "var(--app-text-secondary)" }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); handleRestore(); }}

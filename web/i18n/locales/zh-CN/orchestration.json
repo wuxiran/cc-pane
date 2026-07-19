@@ -1,0 +1,101 @@
+{
+  "title": "编排",
+  "tab": {
+    "tasks": "任务",
+    "notifications": "通知"
+  },
+  "close": "关闭",
+  "exit": "退出",
+  "filter": {
+    "all": "全部",
+    "running": "运行中",
+    "done": "已完成",
+    "errors": "错误"
+  },
+  "searchPlaceholder": "搜索任务",
+  "view": {
+    "list": "列表",
+    "tree": "树"
+  },
+  "clear": "清空",
+  "emptyTasks": {
+    "title": "暂无编排任务",
+    "description": "由 leader/worker 派发的任务会出现在这里"
+  },
+  "emptyNotifications": {
+    "title": "暂无通知",
+    "description": "任务完成或出错时会在这里提醒"
+  },
+  "outputPreview": "输出预览",
+  "expandPreview": "展开预览",
+  "collapsePreview": "折叠预览",
+  "resizePreview": "调整预览宽度",
+  "linkedTask": "已关联任务",
+  "tasksCompleted": "{{count}} 个任务已完成",
+  "taskErrors": "{{count}} 个任务出错",
+  "notificationsCount": "{{count}} 条通知",
+  "detail": {
+    "viewInPty": "在终端中查看",
+    "prompt": "提示词",
+    "promptContent": "提示词内容",
+    "noPromptStored": "未存储提示词",
+    "copyPrompt": "复制提示词",
+    "timeline": "时间线",
+    "created": "创建",
+    "started": "开始",
+    "completed": "完成",
+    "result": "结果",
+    "exitCode": "退出码",
+    "summary": "摘要",
+    "session": "会话",
+    "sessionId": "会话 ID",
+    "resumeId": "恢复 ID",
+    "paneTab": "面板 / 标签",
+    "workspace": "工作空间",
+    "project": "项目",
+    "metadata": "元数据",
+    "noMetadata": "无元数据",
+    "noTaskSelected": "未选择任务",
+    "noTaskSelectedDesc": "从编排列表中选择一个任务。"
+  },
+  "output": {
+    "noSession": "无关联的终端会话",
+    "recentOutput": "最近输出",
+    "refresh": "刷新输出",
+    "noOutput": "暂无输出"
+  },
+  "card": {
+    "leaderPrefix": "负责人",
+    "workers": "{{count}} 个工作单元",
+    "workersTitle": "{{running}} 运行中，{{done}} 已完成",
+    "done": "已完成",
+    "failed": "失败",
+    "exit": "退出码 {{code}}"
+  },
+  "tree": {
+    "collapse": "折叠",
+    "expand": "展开"
+  },
+  "sidebar": {
+    "actions": "操作",
+    "workspace": "工作空间",
+    "allWorkspaces": "全部工作空间",
+    "project": "项目",
+    "allProjects": "全部项目",
+    "allRoles": "全部角色",
+    "roleAll": "全部",
+    "details": "详情",
+    "kill": "终止会话",
+    "retry": "重试",
+    "edit": "编辑",
+    "sendMessage": "发送消息",
+    "mute": "静音",
+    "delete": "删除",
+    "editTask": "编辑任务",
+    "messageTo": "发给 {{name}} 的消息",
+    "send": "发送",
+    "deleteCascadeTitle": "删除 leader 及全部 worker",
+    "deleteCascadeDesc": "将同时删除 {{count}} 个 worker 任务。"
+  },
+  "closeOverlay": "关闭编排浮层"
+}

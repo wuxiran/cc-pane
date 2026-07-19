@@ -17,9 +17,9 @@ export default function ResourceHub() {
   const [tab, setTab] = useState<HubTab>("providers");
 
   const tabs: { id: HubTab; label: string; icon: React.ReactNode }[] = [
-    { id: "providers", label: t("provider", { defaultValue: "Provider" }), icon: <Zap size={16} /> },
-    { id: "skills", label: t("skills", { defaultValue: "Skills" }), icon: <Sparkles size={16} /> },
-    { id: "mcp", label: t("sharedMcp", { defaultValue: "MCP" }), icon: <Server size={16} /> },
+    { id: "providers", label: t("provider"), icon: <Zap size={16} /> },
+    { id: "skills", label: t("skills"), icon: <Sparkles size={16} /> },
+    { id: "mcp", label: t("sharedMcp.title"), icon: <Server size={16} /> },
   ];
 
   return (
@@ -30,7 +30,7 @@ export default function ResourceHub() {
         style={{ height: 48, borderBottom: "1px solid var(--app-border)" }}
       >
         <span className="text-sm font-semibold mr-3" style={{ color: "var(--app-text-primary)" }}>
-          {t("resourceHub", { defaultValue: "资源中心" })}
+          {t("resourceHub")}
         </span>
         {tabs.map((it) => {
           const active = tab === it.id;

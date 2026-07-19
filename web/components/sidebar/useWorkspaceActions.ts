@@ -180,6 +180,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     try {
       await renameWs(renameWorkspaceOldName, renameWorkspaceNewName.trim());
       setRenameWorkspaceOpen(false);
+      toast.success(tNotify("renameDone"));
     } catch (e) {
       toast.error(tNotify("renameFailed", { error: String(e) }));
     }
@@ -242,6 +243,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     try {
       await updateProjectAlias(aliasWorkspaceName, aliasProjectId, aliasValue.trim() || null);
       setAliasDialogOpen(false);
+      toast.success(tNotify("aliasSet"));
     } catch (e) {
       toast.error(tNotify("setAliasFailed", { error: String(e) }));
     }
@@ -257,6 +259,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     try {
       await updateWorkspaceAlias(wsAliasTargetName, wsAliasValue.trim() || null);
       setWsAliasDialogOpen(false);
+      toast.success(tNotify("aliasSet"));
     } catch (e) {
       toast.error(tNotify("setAliasFailed", { error: String(e) }));
     }

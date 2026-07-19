@@ -1,3 +1,4 @@
+import "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OrchestratorTaskTree from "./OrchestratorTaskTree";
@@ -74,13 +75,13 @@ describe("OrchestratorTaskTree", () => {
     render(<OrchestratorTaskTree />);
 
     expect(screen.getByText("Worker")).toBeInTheDocument();
-    // parent has children → its toggle title is "Collapse" while expanded
-    fireEvent.click(screen.getByTitle("Collapse"));
+    // parent has children → its toggle title is "折叠" while expanded
+    fireEvent.click(screen.getByTitle("折叠"));
 
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
     expect(screen.getByText("Leader")).toBeInTheDocument();
-    // toggle now offers "Expand"
-    expect(screen.getByTitle("Expand")).toBeVisible();
+    // toggle now offers "展开"
+    expect(screen.getByTitle("展开")).toBeVisible();
   });
 
   it("re-expands children when clicking the toggle again", () => {
@@ -90,16 +91,16 @@ describe("OrchestratorTaskTree", () => {
     ]);
     render(<OrchestratorTaskTree />);
 
-    fireEvent.click(screen.getByTitle("Collapse"));
+    fireEvent.click(screen.getByTitle("折叠"));
     expect(screen.queryByText("Worker")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("Expand"));
+    fireEvent.click(screen.getByTitle("展开"));
     expect(screen.getByText("Worker")).toBeInTheDocument();
   });
 
   it("does not render a collapse toggle for leaf root nodes", () => {
     setBindings([makeBinding({ id: "solo", title: "Solo" })]);
     render(<OrchestratorTaskTree />);
-    expect(screen.queryByTitle("Collapse")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Expand")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("折叠")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("展开")).not.toBeInTheDocument();
   });
 });

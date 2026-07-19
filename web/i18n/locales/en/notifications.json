@@ -36,6 +36,8 @@
   "operationFailed": "Operation failed: {{error}}",
 
   "createFailed": "Create failed: {{error}}",
+  "renameDone": "Renamed",
+  "aliasSet": "Alias updated",
   "renameFailed": "Rename failed: {{error}}",
   "importFailed": "Import failed: {{error}}",
   "removeFailed": "Remove failed: {{error}}",

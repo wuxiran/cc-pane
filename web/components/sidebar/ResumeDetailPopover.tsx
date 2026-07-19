@@ -114,7 +114,7 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleResume}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-green-600 text-white hover:bg-green-700 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-[var(--app-status-success)] text-white hover:bg-[color-mix(in_srgb,var(--app-status-success)_85%,transparent)] transition-colors"
             >
               <Play className="w-3 h-3" />
               {t("resumeButton")}
@@ -129,7 +129,7 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
             </button>
             <button
               onClick={handleDelete}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors bg-red-500/10 text-red-500 hover:bg-red-500/20"
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] hover:bg-[color-mix(in_srgb,var(--app-status-danger)_20%,transparent)]"
             >
               <Trash2 className="w-3 h-3" />
               {t("deleteRecord")}

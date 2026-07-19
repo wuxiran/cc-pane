@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
@@ -6,6 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import PlansPanel from "./PlansPanel";
 import { mockTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { PlanEntry } from "@/services";
+
+const noArchivedPlans = String(i18n.t("sidebar:noArchivedPlans"));
+const searchPlaceholder = String(i18n.t("common:search"));
 
 const PROJECT_PATH = "C:/repos/myproj";
 
@@ -63,7 +66,7 @@ describe("PlansPanel", () => {
   it("空列表时显示无归档提示", async () => {
     stubPlans([]);
     renderPanel();
-    expect(await screen.findByText(/No archived plans/i)).toBeInTheDocument();
+    expect(await screen.findByText(noArchivedPlans)).toBeInTheDocument();
   });
 
   it("默认自动选中并加载第一个计划的内容", async () => {
@@ -101,7 +104,7 @@ describe("PlansPanel", () => {
     renderPanel();
     await screen.findByText("Refactor Plan");
 
-    await user.type(screen.getByPlaceholderText(/Search/i), "auth");
+    await user.type(screen.getByPlaceholderText(searchPlaceholder), "auth");
 
     expect(screen.queryByText("Refactor Plan")).not.toBeInTheDocument();
     expect(screen.getByText("Auth Plan")).toBeInTheDocument();
@@ -113,7 +116,7 @@ describe("PlansPanel", () => {
     renderPanel();
     await screen.findByText("Refactor Plan");
 
-    await user.type(screen.getByPlaceholderText(/Search/i), "zzzz-none");
+    await user.type(screen.getByPlaceholderText(searchPlaceholder), "zzzz-none");
 
     expect(await screen.findByText(/No matches/i)).toBeInTheDocument();
   });
@@ -140,6 +143,6 @@ describe("PlansPanel", () => {
       list_plans: () => Promise.reject(new Error("boom")),
     });
     renderPanel();
-    expect(await screen.findByText(/No archived plans/i)).toBeInTheDocument();
+    expect(await screen.findByText(noArchivedPlans)).toBeInTheDocument();
   });
 });

@@ -35,6 +35,32 @@
   "minutesAgo": "{{count}}分钟前",
   "hoursAgo": "{{count}}小时前",
   "daysAgo": "{{count}}天前",
+  "guide": {
+    "title": "快速上手",
+    "subtitle": "三步开始你的第一个并行开发工作台",
+    "stepLabel": "第 {{num}} 步",
+    "step1Title": "创建工作空间",
+    "step1Desc": "工作空间是多个项目的集合，先建一个作为你的工作台",
+    "step1Action": "去创建",
+    "step2Title": "添加项目",
+    "step2Desc": "把 Git 仓库加入工作空间，支持扫描目录批量导入",
+    "step2Action": "去添加",
+    "step3Title": "启动第一个任务",
+    "step3Desc": "在项目上打开终端，启动 Claude Code 或 Codex",
+    "step3Action": "打开终端",
+    "fullTutorial": "查看完整入门教程"
+  },
+  "highlights": {
+    "title": "设计理念",
+    "threeLayerTitle": "三层模型",
+    "threeLayerDesc": "工作空间 → 项目 → 任务，一个工作台管理全部并行开发",
+    "multiCliTitle": "多 CLI 互通",
+    "multiCliDesc": "Claude Code 与 Codex 同一工作台并行编排，共享工作空间与记忆",
+    "multiDeviceTitle": "多端支持",
+    "multiDeviceDesc": "移动 App / Web 随时远程接管会话",
+    "localFirstTitle": "本地优先",
+    "localFirstDesc": "Local History、会话日志与全部数据保存在本地"
+  },
   "usage": {
     "title": "用量趋势",
     "rangeToday": "今天",

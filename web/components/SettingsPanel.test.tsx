@@ -144,8 +144,7 @@ describe("SettingsPanel", () => {
     expect(screen.getByRole("button", { name: tSettings("screenshot") })).toBeInTheDocument();
   });
 
-  it("saves ccchan and app settings, preserving live web-access credentials", async () => {
-    const user = userEvent.setup();
+  it("auto-saves edits after debounce, preserving live web-access credentials", async () => {
     const onOpenChange = vi.fn();
     render(<SettingsPanel open onOpenChange={onOpenChange} />);
 
@@ -158,62 +157,77 @@ describe("SettingsPanel", () => {
       } as never);
     });
 
-    await user.click(screen.getByRole("button", { name: i18n.t("save") }));
+    act(() => {
+      generalSectionProps!.onChange({ ...generalSectionProps!.value, language: "en" } as never);
+    });
 
-    await waitFor(() => expect(saveSettings).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledTimes(1), { timeout: 2000 });
     const saved = saveSettings.mock.calls[0][0];
+    expect(saved.general.language).toBe("en");
     expect(saved.webAccess.passwordSalt).toBe("salt-new");
     expect(saved.webAccess.passwordHash).toBe("hash-new");
     expect(saveCCChanSettings).toHaveBeenCalledWith(expect.objectContaining(DEFAULT_CCCHAN_SETTINGS));
-    expect(toast.success).toHaveBeenCalledWith(tSettings("saved"));
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it("keeps the dialog open and reports the error when saving fails", async () => {
-    const user = userEvent.setup();
-    const onOpenChange = vi.fn();
-    saveSettings.mockRejectedValueOnce(new Error("disk full"));
-
-    render(<SettingsPanel open onOpenChange={onOpenChange} />);
-    await user.click(screen.getByRole("button", { name: i18n.t("save") }));
-
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    // 自动保存不关闭面板
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
-  it("resets the draft to defaults and notifies", async () => {
-    const user = userEvent.setup();
-    render(<SettingsPanel open onOpenChange={vi.fn()} />);
-
-    getDefaults.mockClear();
-    await user.click(screen.getByRole("button", { name: i18n.t("reset") }));
-
-    expect(getDefaults).toHaveBeenCalled();
-    expect(toast.info).toHaveBeenCalledWith(tSettings("resetDone"));
-    expect(generalSectionProps?.value).toEqual(getDefaults().general);
-  });
-
-  it("closes without saving via the cancel button", async () => {
+  it("does not save when nothing was edited", async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
     render(<SettingsPanel open onOpenChange={onOpenChange} />);
 
-    await user.click(screen.getByRole("button", { name: i18n.t("cancel") }));
+    await user.click(screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!);
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(saveSettings).not.toHaveBeenCalled();
   });
 
-  it("propagates section onChange edits into the saved draft", async () => {
+  it("keeps the dialog open and reports the error when auto-save fails", async () => {
+    const onOpenChange = vi.fn();
+    saveSettings.mockRejectedValueOnce(new Error("disk full"));
+
+    render(<SettingsPanel open onOpenChange={onOpenChange} />);
+    act(() => {
+      generalSectionProps!.onChange({ ...generalSectionProps!.value, language: "en" } as never);
+    });
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled(), { timeout: 2000 });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("flushes a pending edit immediately when closing", async () => {
     const user = userEvent.setup();
-    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+    const onOpenChange = vi.fn();
+    render(<SettingsPanel open onOpenChange={onOpenChange} />);
 
     act(() => {
       generalSectionProps!.onChange({ ...generalSectionProps!.value, language: "en" } as never);
     });
-    await user.click(screen.getByRole("button", { name: i18n.t("save") }));
+    // 不等防抖，直接关闭：最后一笔编辑应立即落盘
+    await user.click(screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!);
 
-    await waitFor(() => expect(saveSettings).toHaveBeenCalled());
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledTimes(1));
     expect(saveSettings.mock.calls[0][0].general.language).toBe("en");
+  });
+
+  it("resets only the active section after a two-click confirm", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    // 先把 general 改掉，确认重置能打回默认
+    act(() => {
+      generalSectionProps!.onChange({ ...generalSectionProps!.value, language: "en" } as never);
+    });
+
+    getDefaults.mockClear();
+    // 第一次点击只是待确认，不重置
+    await user.click(screen.getByRole("button", { name: tSettings("resetSection") }));
+    expect(toast.info).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: tSettings("resetSectionConfirm") }));
+    expect(getDefaults).toHaveBeenCalled();
+    expect(toast.info).toHaveBeenCalledWith(tSettings("sectionResetDone"));
+    expect(generalSectionProps?.value).toEqual(getDefaults().general);
   });
 });

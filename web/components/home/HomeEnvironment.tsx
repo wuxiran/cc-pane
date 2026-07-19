@@ -87,7 +87,7 @@ export default function HomeEnvironment() {
             return (
               <div
                 key={tool.name}
-                className="flex items-center gap-3 px-5 py-3.5 border-b border-[var(--app-home-row-border)] transition-colors duration-150 hover:bg-[var(--app-home-surface-hover)] last:border-b-0"
+                className="flex items-center gap-3 px-5 py-3.5 border-b border-[var(--app-home-row-border)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-home-surface-hover)] last:border-b-0"
               >
                 {/* 图标容器 */}
                 <div

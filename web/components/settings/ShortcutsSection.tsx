@@ -16,6 +16,7 @@ const actionI18nKeys: Record<string, string> = {
   "new-tab": "new-tab",
   "close-tab": "close-tab",
   settings: "settings",
+  "command-palette": "command-palette",
   "toggle-layouts": "toggle-layouts",
   "split-right": "split-right",
   "split-down": "split-down",
@@ -96,7 +97,7 @@ export default function ShortcutsSection({ value, onChange }: ShortcutsSectionPr
               {getActionLabel(action)}
             </span>
             <button
-              className="text-xs px-2.5 py-[3px] rounded font-mono min-w-[80px] text-center cursor-pointer transition-all"
+              className="text-xs px-2.5 py-[3px] rounded font-mono min-w-[80px] text-center cursor-pointer transition-colors duration-[var(--dur-fast)]"
               style={{
                 background: editingAction === action ? "var(--app-active-bg)" : "var(--app-hover)",
                 border: `1px solid ${editingAction === action ? "var(--app-accent)" : "var(--app-border)"}`,

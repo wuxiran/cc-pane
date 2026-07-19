@@ -138,7 +138,11 @@ fn run_inner(hook_input: Option<HookInput>) {
         .map(PathBuf::from)
         .or_else(|| std::env::var("CLAUDE_PROJECT_DIR").ok().map(PathBuf::from))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let project_dir = project_dir.canonicalize().unwrap_or(project_dir);
+    // 必须走 dunce：`Path::canonicalize()` 在 Windows 上产出 `\\?\C:\...`，该值经
+    // send_session_started 上报后会被写进 launch_history.launch_cwd，再从「最近启动」
+    // 回流成 PTY 的 cwd —— cmd.exe 拒绝 UNC cwd 并回落 C:\Windows。
+    // 见 docs/35-unc-path-contamination.md。非 Windows 平台上等价于 canonicalize。
+    let project_dir = dunce::canonicalize(&project_dir).unwrap_or(project_dir);
 
     // Safety check
     if !project_dir.is_dir() {
@@ -838,5 +842,32 @@ mod tests {
 
         assert!(out.chars().count() <= max);
         assert!(out.ends_with(close));
+    }
+
+    /// 根因回归：`run_inner` 上报给 /api/terminal/session-started 的 cwd 绝不能带
+    /// `\\?\` —— 该值会被落进 launch_history.launch_cwd 并回流成 PTY cwd，
+    /// 被 cmd.exe 拒绝后静默回落 C:\Windows。见 docs/35-unc-path-contamination.md。
+    #[test]
+    fn canonicalized_project_dir_has_no_verbatim_prefix() {
+        let dir = std::env::temp_dir();
+        let canonical = dunce::canonicalize(&dir).unwrap_or(dir);
+        let rendered = canonical.to_string_lossy();
+
+        assert!(
+            !rendered.starts_with(r"\\?\"),
+            "dunce::canonicalize must not yield a verbatim path, got {rendered}"
+        );
+
+        // 对照组：标准库的 canonicalize 在 Windows 上正是污染源
+        #[cfg(windows)]
+        {
+            let std_canonical = std::env::temp_dir()
+                .canonicalize()
+                .expect("temp dir canonicalize");
+            assert!(
+                std_canonical.to_string_lossy().starts_with(r"\\?\"),
+                "sanity: std canonicalize is expected to produce the verbatim form"
+            );
+        }
     }
 }

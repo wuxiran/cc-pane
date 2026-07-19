@@ -1,7 +1,11 @@
-import { act, render, waitFor } from "@testing-library/react";
+import "@/i18n";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSettingsStore, useTerminalStatusStore } from "@/stores";
 import { historyService, sessionRestoreService, terminalService } from "@/services";
+import { createTerminalRendererController } from "./terminalRendererController";
 import TerminalView from "./TerminalView";
 
 /* ------------------------------------------------------------------ */
@@ -16,7 +20,15 @@ const MockXterm = vi.hoisted(() => class MockXterm {
   rows = 24;
   element: HTMLElement | null = null;
   textarea: HTMLTextAreaElement | null = null;
-  buffer = { active: { type: "normal", cursorX: 0, cursorY: 0 } };
+  buffer = {
+    active: {
+      type: "normal",
+      cursorX: 0,
+      cursorY: 0,
+      length: 2,
+      getLine: (y: number) => ({ translateToString: () => `line-${y}` }),
+    },
+  };
   unicode = { activeVersion: "6" };
   parser = {
     registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
@@ -65,6 +77,8 @@ const MockXterm = vi.hoisted(() => class MockXterm {
   refresh = vi.fn();
   getSelection = vi.fn(() => "");
   clearSelection = vi.fn();
+  selectAll = vi.fn();
+  clear = vi.fn();
 
   dispose() {
     this.disposed = true;
@@ -409,6 +423,50 @@ describe("TerminalView", () => {
     expect(term.options.cursorStyle).toBe("bar");
     expect(term.options.cursorBlink).toBe(true);
     expect(term.options.scrollback).toBe(5000);
+  });
+
+  it("terminal context menu drives select-all, clear and copy-buffer", async () => {
+    const user = userEvent.setup();
+    const view = renderTerminalView();
+    await waitFor(() => expect(createSession).toHaveBeenCalled());
+    const term = await lastTerm();
+    const host = view.container.querySelector(".cc-terminal-host");
+    expect(host).not.toBeNull();
+
+    fireEvent.contextMenu(host!);
+    await user.click(await screen.findByRole("menuitem", { name: /全选|Select All/i }));
+    expect(term.selectAll).toHaveBeenCalled();
+
+    fireEvent.contextMenu(host!);
+    await user.click(await screen.findByRole("menuitem", { name: /清空缓冲区|Clear Buffer/i }));
+    expect(term.clear).toHaveBeenCalled();
+
+    fireEvent.contextMenu(host!);
+    await user.click(
+      await screen.findByRole("menuitem", { name: /复制整个缓冲区|Copy Entire Buffer/i })
+    );
+    await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("line-0\nline-1"));
+  });
+
+  it("terminal context menu refreshes the renderer and copies the session id", async () => {
+    const user = userEvent.setup();
+    const view = renderTerminalView();
+    await waitFor(() => expect(createSession).toHaveBeenCalled());
+    await waitFor(() => expect(registerOutput).toHaveBeenCalled());
+    const host = view.container.querySelector(".cc-terminal-host");
+    expect(host).not.toBeNull();
+
+    const controllerResults = vi.mocked(createTerminalRendererController).mock.results;
+    const controller = controllerResults[controllerResults.length - 1]
+      .value as { clearTextureAtlas: ReturnType<typeof vi.fn> };
+
+    fireEvent.contextMenu(host!);
+    await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
+    expect(controller.clearTextureAtlas).toHaveBeenCalledWith("context-menu.refresh");
+
+    fireEvent.contextMenu(host!);
+    await user.click(await screen.findByRole("menuitem", { name: /复制会话 ID|Copy Session ID/i }));
+    await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("new-session-1"));
   });
 
   it("disposes the terminal on unmount", async () => {

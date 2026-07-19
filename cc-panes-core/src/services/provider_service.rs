@@ -1,10 +1,19 @@
-use crate::models::provider::{Provider, ProviderConfig, ProviderType, SYSTEM_PROVIDER_ID};
+use crate::models::provider::{
+    Provider, ProviderConfig, ProviderType, SystemProviderInfo, SYSTEM_PROVIDER_ID,
+};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tracing::warn;
+
+/// 宿主环境中被视为「已配置 Anthropic 凭证」的环境变量。
+const SYSTEM_PROBE_ENV_KEYS: [&str; 3] = [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+];
 
 /// Provider 服务 - 管理 AI Provider 配置
 pub struct ProviderService {
@@ -80,18 +89,43 @@ impl ProviderService {
     ///
     /// 为真时前端会把「系统环境变量」作为默认选项——即不注入、跟随宿主/cc-switch。
     pub fn system_provider_active() -> bool {
-        let ccswitch_db = dirs::home_dir().map(|h| h.join(".cc-switch").join("cc-switch.db"));
-        if ccswitch_db.map(|p| p.is_file()).unwrap_or(false) {
-            return true;
-        }
+        let (cc_switch, env_keys) = Self::probe_system_provider();
+        cc_switch || !env_keys.is_empty()
+    }
 
-        [
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_AUTH_TOKEN",
-            "ANTHROPIC_BASE_URL",
-        ]
-        .iter()
-        .any(|key| std::env::var(key).map(|v| !v.is_empty()).unwrap_or(false))
+    /// 探测明细：(是否检测到 cc-switch, 命中的宿主环境变量名列表)。
+    fn probe_system_provider() -> (bool, Vec<String>) {
+        let cc_switch = dirs::home_dir()
+            .map(|h| h.join(".cc-switch").join("cc-switch.db"))
+            .map(|p| p.is_file())
+            .unwrap_or(false);
+
+        let env_keys = SYSTEM_PROBE_ENV_KEYS
+            .iter()
+            .filter(|key| std::env::var(key).map(|v| !v.is_empty()).unwrap_or(false))
+            .map(|key| key.to_string())
+            .collect();
+
+        (cc_switch, env_keys)
+    }
+
+    /// 探测结果 + 当前「系统条目是否为默认」的持久化状态。
+    ///
+    /// 只回传命中的**变量名**，绝不回传值——凭证不出后端。
+    pub fn system_provider_info(&self) -> SystemProviderInfo {
+        let (cc_switch, env_keys) = Self::probe_system_provider();
+        let default_is_system = self
+            .config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .default_is_system;
+
+        SystemProviderInfo {
+            active: cc_switch || !env_keys.is_empty(),
+            cc_switch,
+            env_keys,
+            default_is_system,
+        }
     }
 
     /// 添加 Provider
@@ -104,15 +138,16 @@ impl ProviderService {
 
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
-        // 如果是默认 Provider，取消其他的默认状态
+        // 如果是默认 Provider，取消其他的默认状态（含「系统条目为默认」标记）
         if provider.is_default {
+            config.default_is_system = false;
             for p in &mut config.providers {
                 p.is_default = false;
             }
         }
 
-        // 如果是第一个 Provider，自动设为默认
-        if config.providers.is_empty() {
+        // 如果是第一个 Provider，自动设为默认——但用户已显式选定「系统环境变量」时不抢默认
+        if config.providers.is_empty() && !config.default_is_system {
             provider.is_default = true;
         }
 
@@ -137,11 +172,12 @@ impl ProviderService {
             anyhow::bail!("已存在同名同端点的 provider：{}", provider.name);
         }
         if provider.is_default {
+            config.default_is_system = false;
             for p in &mut config.providers {
                 p.is_default = false;
             }
         }
-        if config.providers.is_empty() {
+        if config.providers.is_empty() && !config.default_is_system {
             provider.is_default = true;
         }
         config.providers.push(provider);
@@ -164,8 +200,9 @@ impl ProviderService {
             .position(|p| p.id == provider.id)
             .with_context(|| format!("Provider '{}' not found", provider.id))?;
 
-        // 如果设为默认，取消其他的默认状态
+        // 如果设为默认，取消其他的默认状态（含「系统条目为默认」标记）
         if provider.is_default {
+            config.default_is_system = false;
             for p in &mut config.providers {
                 p.is_default = false;
             }
@@ -201,11 +238,17 @@ impl ProviderService {
         Ok(())
     }
 
-    /// 设置默认 Provider
+    /// 设置默认 Provider。
+    ///
+    /// 接受保留 id `__system__`：此时不写入 `providers`（该伪条目永不落盘），
+    /// 而是置 `default_is_system = true` 并清空所有 provider 的 `is_default`。
+    /// 反之，选中任一真实 provider 会把 `default_is_system` 复位为 false。
     pub fn set_default(&self, id: &str) -> Result<()> {
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let is_system = id == SYSTEM_PROVIDER_ID;
+        config.default_is_system = is_system;
         for p in &mut config.providers {
-            p.is_default = p.id == id;
+            p.is_default = !is_system && p.id == id;
         }
         self.save_to_file(&config)?;
         Ok(())
@@ -492,11 +535,110 @@ mod tests {
         // 手写配置：两个 provider 都没有 default 标记
         let config = ProviderConfig {
             providers: vec![make_provider("a", false), make_provider("b", false)],
+            ..Default::default()
         };
         std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
 
         let service = ProviderService::new(path);
         assert_eq!(service.get_default_provider().unwrap().id, "a");
+    }
+
+    #[test]
+    fn set_default_system_clears_provider_defaults_and_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        {
+            let service = ProviderService::new(path.clone());
+            service.add_provider(make_provider("a", false)).unwrap();
+            assert!(service.get_provider("a").unwrap().is_default);
+
+            service
+                .set_default(crate::models::provider::SYSTEM_PROVIDER_ID)
+                .unwrap();
+
+            assert!(!service.get_provider("a").unwrap().is_default);
+            assert!(service.system_provider_info().default_is_system);
+            // 保留 id 仍不得落入 providers 列表
+            assert!(service
+                .get_provider(crate::models::provider::SYSTEM_PROVIDER_ID)
+                .is_none());
+        }
+        // 重启（新实例读盘）后仍生效
+        let reloaded = ProviderService::new(path);
+        assert!(reloaded.system_provider_info().default_is_system);
+        assert!(!reloaded.get_provider("a").unwrap().is_default);
+    }
+
+    #[test]
+    fn set_default_real_provider_resets_system_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service.add_provider(make_provider("a", false)).unwrap();
+        service
+            .set_default(crate::models::provider::SYSTEM_PROVIDER_ID)
+            .unwrap();
+        assert!(service.system_provider_info().default_is_system);
+
+        service.set_default("a").unwrap();
+
+        assert!(!service.system_provider_info().default_is_system);
+        assert!(service.get_provider("a").unwrap().is_default);
+    }
+
+    #[test]
+    fn adding_first_provider_does_not_steal_system_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service
+            .set_default(crate::models::provider::SYSTEM_PROVIDER_ID)
+            .unwrap();
+
+        service.add_provider(make_provider("a", false)).unwrap();
+
+        assert!(!service.get_provider("a").unwrap().is_default);
+        assert!(service.system_provider_info().default_is_system);
+    }
+
+    #[test]
+    fn marking_a_provider_default_via_add_or_update_resets_system_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service
+            .set_default(crate::models::provider::SYSTEM_PROVIDER_ID)
+            .unwrap();
+
+        service.add_provider(make_provider("a", true)).unwrap();
+        assert!(!service.system_provider_info().default_is_system);
+
+        service
+            .set_default(crate::models::provider::SYSTEM_PROVIDER_ID)
+            .unwrap();
+        service.update_provider(make_provider("a", true)).unwrap();
+        assert!(!service.system_provider_info().default_is_system);
+    }
+
+    #[test]
+    fn system_provider_info_reports_hit_env_keys_without_values() {
+        // 刻意避开 system_provider_active_true_when_anthropic_env_set 用的 AUTH_TOKEN：
+        // 进程级 env 是全局共享的，两个用例并行改同一个 key 会互相打架。
+        const KEY: &str = "ANTHROPIC_BASE_URL";
+        const VALUE: &str = "https://secret.example.com";
+        let saved = std::env::var(KEY).ok();
+        std::env::set_var(KEY, VALUE);
+
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let info = service.system_provider_info();
+
+        match saved {
+            Some(v) => std::env::set_var(KEY, v),
+            None => std::env::remove_var(KEY),
+        }
+
+        assert!(info.active);
+        assert!(info.env_keys.contains(&KEY.to_string()));
+        // 只回传键名，值绝不外泄
+        assert!(!info.env_keys.iter().any(|k| k.contains(VALUE)));
     }
 
     #[test]

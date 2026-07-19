@@ -289,6 +289,9 @@ flutter pub get && flutter analyze && flutter test
 - **会话状态只信 OSC/hook，不信输出文本**：状态跃迁来自 hook HTTP 通道与 OSC in-band 通道（`osc_state_detect.rs`，跨通道去重见 `session_state_machine.rs`）。不要往 `infer_status` 加文本模式匹配——TUI spinner 每帧重绘、随版本变化，文本猜测必然抖动。
 - **OSC 7 上报的 cwd 是正斜杠 URL 形式**（`file://host/C:/...`）：Windows 下消费方传给 fs 命令前必须剥前缀并规范化分隔符。
 - **不要在 tauri.conf.json 预创建隐藏 WebView 窗口**：长期隐藏的 WebView2 会被系统置为失效状态（0x8007139F），之后每条 `app.emit` 广播都失败并刷一条 wry ERROR；日志的 Webview target 还会把错误 emit 回失效 WebView，形成自放大洪水（实测 13 条/秒、烧满 CPU、前端假死）。ccchan 窗口已改为启用时按需创建（`ccchan_service.rs::ccchan_window` get-or-create），新增辅助窗口也必须按需创建；`lib.rs` 中对 `tauri_runtime_wry` 有日志限流兜底（`wry_log_allowed`）。
+- **根目录新增大目录必须同步 `vite.config.ts` 的 `server.watch.ignored`**：`.cargo/config.toml` 把 Rust 的 `target-dir` 指到了仓库根，实测 `target/` 达 22 万文件；chokidar 默认只跳过 `node_modules`/`.git`，漏掉的大目录会被递归监听，叠加 `tauri dev` 期间 cargo 持续写入形成事件风暴——实测 Vite 进程烧到 2.9GB 内存、2091 秒 CPU 后彻底停止响应，窗口永久停在 `Loading CC-Panes...`（看着像卡死，其实是 dev server 不返回任何模块）。判断方法：`curl 127.0.0.1:14200` 超时但端口在 Listen。
+- **`cargo` 的 `incremental/` 不会自动回收**：按构建会话堆积，本仓库实测积到 1164 个目录、176GB（其中超 7 天的占 155GB）。定期删除旧目录即可，增量缓存对 cargo 是可丢弃数据，缺了只是那次非增量重编。
+- **Zustand selector 里不要调用返回新集合的 store 方法**：`usePanesStore((s) => s.listLayouts())` 这类写法，因 `listLayouts` 内部是 `filter().map()` 每次返回新数组，`useSyncExternalStore` 的快照永不相等 → `Maximum update depth exceeded` 崩页。正确做法是选稳定引用（如 `s.layouts`）后用 `useMemo` 本地派生；`.getState().listLayouts()` 在渲染外调用则不受影响。
 
 ## 文档引用
 
@@ -303,5 +306,6 @@ flutter pub get && flutter analyze && flutter test
 | `docs/05-local-history.md` | Local History 设计 |
 | `docs/11-tauri-gui-basic.md` | GUI 基础（✅ 完成） |
 | `docs/12-gui-advanced.md` | GUI 高级功能 |
+| `docs/22-frontend-design-refactor.md` | 前端设计重构：分区/色彩 token 映射/拆分索引/UX 约定 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

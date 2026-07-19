@@ -43,7 +43,7 @@ export default function HomeShortcuts() {
           return (
             <div
               key={id}
-              className="flex items-center justify-between gap-4 px-5 py-3 border-b border-[var(--app-home-row-border)] transition-colors duration-150 hover:bg-[var(--app-home-surface-hover)] last:border-b-0"
+              className="flex items-center justify-between gap-4 px-5 py-3 border-b border-[var(--app-home-row-border)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-home-surface-hover)] last:border-b-0"
             >
               <span
                 className="text-xs"

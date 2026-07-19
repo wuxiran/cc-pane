@@ -1,6 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, ChevronRight, Clipboard, ExternalLink, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { useActivityBarStore, usePanesStore } from "@/stores";
 import type { TaskBinding } from "@/types";
 
@@ -65,7 +67,7 @@ function JsonNode({ label, value, depth = 0 }: { label?: string; value: unknown;
 function DetailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--app-text-tertiary)" }}>
+      <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-tertiary)" }}>
         {title}
       </h3>
       {children}
@@ -85,32 +87,37 @@ function InfoRow({ label, value }: { label: string; value?: ReactNode }) {
 }
 
 export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
+  const { t } = useTranslation("orchestration");
   const [promptOpen, setPromptOpen] = useState(true);
   const [copied, setCopied] = useState(false);
 
   const metadata = useMemo(() => asRecord(binding?.metadata), [binding?.metadata]);
   const uiMetadata = useMemo(() => asRecord(metadata?.ui), [metadata]);
-  const timeline = useMemo<[string, string | undefined][]>(
+  const timeline = useMemo<{ key: string; label: string; value: string | undefined }[]>(
     () => [
-      ["Created", binding?.createdAt],
-      ["Started", asString(uiMetadata?.startedAt) ?? asString(metadata?.startedAt)],
-      ["Completed", asString(uiMetadata?.completedAt) ?? asString(metadata?.completedAt)],
+      { key: "created", label: t("detail.created", { defaultValue: "创建" }), value: binding?.createdAt },
+      {
+        key: "started",
+        label: t("detail.started", { defaultValue: "开始" }),
+        value: asString(uiMetadata?.startedAt) ?? asString(metadata?.startedAt),
+      },
+      {
+        key: "completed",
+        label: t("detail.completed", { defaultValue: "完成" }),
+        value: asString(uiMetadata?.completedAt) ?? asString(metadata?.completedAt),
+      },
     ],
-    [binding?.createdAt, metadata, uiMetadata]
+    [binding?.createdAt, metadata, uiMetadata, t]
   );
 
   if (!binding) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-        <FileText className="h-10 w-10" style={{ color: "var(--app-text-tertiary)" }} />
-        <div>
-          <div className="text-sm font-medium" style={{ color: "var(--app-text-primary)" }}>
-            No task selected
-          </div>
-          <div className="mt-1 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-            Select a task from the orchestration list.
-          </div>
-        </div>
+      <div className="flex h-full items-center justify-center p-8">
+        <EmptyState
+          icon={FileText}
+          title={t("detail.noTaskSelected", { defaultValue: "未选择任务" })}
+          description={t("detail.noTaskSelectedDesc", { defaultValue: "从编排列表中选择一个任务。" })}
+        />
       </div>
     );
   }
@@ -168,15 +175,15 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
             size="sm"
             onClick={openPty}
             disabled={!binding.sessionId}
-            title="View in PTY"
+            title={t("detail.viewInPty", { defaultValue: "在终端中查看" })}
           >
-            <ExternalLink className="h-4 w-4" />
-            View in PTY
+            <ExternalLink className="h-4 w-4" strokeWidth={1.5} />
+            {t("detail.viewInPty", { defaultValue: "在终端中查看" })}
           </Button>
         </header>
 
-        <DetailSection title="Prompt">
-          <div className="rounded-md" style={{ border: "1px solid var(--app-border)" }}>
+        <DetailSection title={t("detail.prompt", { defaultValue: "提示词" })}>
+          <div className="rounded-lg" style={{ border: "1px solid var(--app-border)" }}>
             <button
               type="button"
               className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs"
@@ -184,8 +191,10 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
               style={{ color: "var(--app-text-secondary)" }}
             >
               <span className="flex items-center gap-1.5">
-                <ChevronRight className={`h-3.5 w-3.5 transition-transform ${promptOpen ? "rotate-90" : ""}`} />
-                {binding.prompt ? "Prompt content" : "No prompt stored"}
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-[var(--dur-fast)] ${promptOpen ? "rotate-90" : ""}`} strokeWidth={1.5} />
+                {binding.prompt
+                  ? t("detail.promptContent", { defaultValue: "提示词内容" })
+                  : t("detail.noPromptStored", { defaultValue: "未存储提示词" })}
               </span>
               <Button
                 variant="ghost"
@@ -195,7 +204,7 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
                   void copyPrompt();
                 }}
                 disabled={!binding.prompt}
-                title="Copy prompt"
+                title={t("detail.copyPrompt", { defaultValue: "复制提示词" })}
               >
                 {copied ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
               </Button>
@@ -211,19 +220,19 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
           </div>
         </DetailSection>
 
-        <DetailSection title="Timeline">
-          <div className="grid gap-2 rounded-md p-3" style={{ border: "1px solid var(--app-border)" }}>
-            {timeline.map(([label, value]) => (
-              <InfoRow key={label} label={label} value={formatDate(value)} />
+        <DetailSection title={t("detail.timeline", { defaultValue: "时间线" })}>
+          <div className="grid gap-2 rounded-lg p-3" style={{ border: "1px solid var(--app-border)" }}>
+            {timeline.map(({ key, label, value }) => (
+              <InfoRow key={key} label={label} value={formatDate(value)} />
             ))}
           </div>
         </DetailSection>
 
-        <DetailSection title="Result">
-          <div className="grid gap-2 rounded-md p-3" style={{ border: "1px solid var(--app-border)" }}>
-            <InfoRow label="Exit code" value={binding.exitCode ?? "-"} />
+        <DetailSection title={t("detail.result", { defaultValue: "结果" })}>
+          <div className="grid gap-2 rounded-lg p-3" style={{ border: "1px solid var(--app-border)" }}>
+            <InfoRow label={t("detail.exitCode", { defaultValue: "退出码" })} value={binding.exitCode ?? "-"} />
             <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 text-xs">
-              <span style={{ color: "var(--app-text-tertiary)" }}>Summary</span>
+              <span style={{ color: "var(--app-text-tertiary)" }}>{t("detail.summary", { defaultValue: "摘要" })}</span>
               <span className="min-w-0 whitespace-pre-wrap break-words" style={{ color: summaryColor }}>
                 {binding.completionSummary || "-"}
               </span>
@@ -231,23 +240,23 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
           </div>
         </DetailSection>
 
-        <DetailSection title="Session">
-          <div className="grid gap-2 rounded-md p-3" style={{ border: "1px solid var(--app-border)" }}>
-            <InfoRow label="Session ID" value={binding.sessionId} />
-            <InfoRow label="Resume ID" value={binding.resumeId} />
-            <InfoRow label="Pane / Tab" value={[binding.paneId, binding.tabId].filter(Boolean).join(" / ")} />
-            <InfoRow label="Workspace" value={binding.workspaceName} />
-            <InfoRow label="Project" value={binding.projectPath} />
+        <DetailSection title={t("detail.session", { defaultValue: "会话" })}>
+          <div className="grid gap-2 rounded-lg p-3" style={{ border: "1px solid var(--app-border)" }}>
+            <InfoRow label={t("detail.sessionId", { defaultValue: "会话 ID" })} value={binding.sessionId} />
+            <InfoRow label={t("detail.resumeId", { defaultValue: "恢复 ID" })} value={binding.resumeId} />
+            <InfoRow label={t("detail.paneTab", { defaultValue: "面板 / 标签" })} value={[binding.paneId, binding.tabId].filter(Boolean).join(" / ")} />
+            <InfoRow label={t("detail.workspace", { defaultValue: "工作空间" })} value={binding.workspaceName} />
+            <InfoRow label={t("detail.project", { defaultValue: "项目" })} value={binding.projectPath} />
           </div>
         </DetailSection>
 
-        <DetailSection title="Metadata">
+        <DetailSection title={t("detail.metadata", { defaultValue: "元数据" })}>
           <div
-            className="max-h-96 overflow-auto rounded-md p-3 font-mono text-[11px] leading-5"
+            className="max-h-96 overflow-auto rounded-lg p-3 font-mono text-[11px] leading-5"
             style={{ border: "1px solid var(--app-border)", color: "var(--app-text-secondary)" }}
           >
             {binding.metadata === undefined || binding.metadata === null ? (
-              <span style={{ color: "var(--app-text-tertiary)" }}>No metadata</span>
+              <span style={{ color: "var(--app-text-tertiary)" }}>{t("detail.noMetadata", { defaultValue: "无元数据" })}</span>
             ) : (
               <JsonNode value={binding.metadata} />
             )}

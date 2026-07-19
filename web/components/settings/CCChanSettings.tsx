@@ -75,7 +75,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
                 className={cn(
                   "h-9 rounded-md border px-3 text-[13px] font-medium transition-colors",
                   active
-                    ? "border-blue-500 bg-blue-600 text-white"
+                    ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
                     : "border-[var(--app-border)] bg-[var(--app-content)] text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]",
                 )}
                 onClick={() => update("aiEngine", option.value)}

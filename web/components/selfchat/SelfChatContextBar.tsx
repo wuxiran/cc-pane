@@ -20,14 +20,14 @@ export default function SelfChatContextBar({
   const statusBadge = (() => {
     if (session.systemPrompt !== null) {
       return (
-        <Badge variant="outline" className="text-xs text-emerald-500 border-emerald-500/30">
+        <Badge variant="outline" className="text-xs text-[var(--app-status-success)] border-[var(--app-status-success-border)]">
           {t("selfChat.contextInjected")}
         </Badge>
       );
     }
     if (session.status === "initializing") {
       return (
-        <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/30 animate-pulse">
+        <Badge variant="outline" className="text-xs text-[var(--app-status-warning)] border-[var(--app-status-warning-border)] animate-pulse">
           {t("selfChat.injecting")}
         </Badge>
       );

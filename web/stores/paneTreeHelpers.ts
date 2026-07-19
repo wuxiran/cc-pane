@@ -5,7 +5,11 @@ export function generateId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-/** 创建新的面板 */
+/**
+ * 创建新的面板（usePanesStore 与测试共用的唯一实现）。
+ * 不传 tab 才生成默认空 "Terminal" 标签——调用点若已有会话标签必须传进来，
+ * 否则会多出一个空标签（见 docs/25-pane-placement-fix.md）。
+ */
 export function createPanel(tab?: Tab): Panel {
   const id = generateId("pane");
   const defaultLeaf: TerminalPaneLeaf = {

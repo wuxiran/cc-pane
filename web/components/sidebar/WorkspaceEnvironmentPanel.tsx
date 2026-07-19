@@ -484,7 +484,7 @@ export default function WorkspaceEnvironmentPanel() {
           })}
         </div>
         {selectedIssue ? (
-          <p className="text-xs text-amber-500">{getIssueMessage(t, selectedIssue)}</p>
+          <p className="text-xs text-[var(--app-status-warning)]">{getIssueMessage(t, selectedIssue)}</p>
         ) : null}
       </div>
     );
@@ -538,7 +538,7 @@ export default function WorkspaceEnvironmentPanel() {
                 </Button>
               </div>
               {environmentIssues.local ? (
-                <p className="text-xs text-amber-500">{getIssueMessage(t, environmentIssues.local)}</p>
+                <p className="text-xs text-[var(--app-status-warning)]">{getIssueMessage(t, environmentIssues.local)}</p>
               ) : (
                 <p className="text-xs text-[var(--app-text-secondary)]">
                   {t("workspaceEnv.localHint", {
@@ -599,7 +599,7 @@ export default function WorkspaceEnvironmentPanel() {
                   ))}
                 </select>
                 {wslError ? (
-                  <p className="mt-1 text-xs text-amber-500">{wslError}</p>
+                  <p className="mt-1 text-xs text-[var(--app-status-warning)]">{wslError}</p>
                 ) : null}
               </div>
               <div>
@@ -621,7 +621,7 @@ export default function WorkspaceEnvironmentPanel() {
                 </Button>
               </div>
               {environmentIssues.wsl ? (
-                <p className="text-xs text-amber-500">{getIssueMessage(t, environmentIssues.wsl)}</p>
+                <p className="text-xs text-[var(--app-status-warning)]">{getIssueMessage(t, environmentIssues.wsl)}</p>
               ) : (
                 <p className="text-xs text-[var(--app-text-secondary)]">
                   {t("workspaceEnv.wslHint", {
@@ -691,9 +691,9 @@ export default function WorkspaceEnvironmentPanel() {
                 </p>
               ) : null}
               {environmentIssues.ssh ? (
-                <p className="text-xs text-amber-500">{getIssueMessage(t, environmentIssues.ssh)}</p>
+                <p className="text-xs text-[var(--app-status-warning)]">{getIssueMessage(t, environmentIssues.ssh)}</p>
               ) : (
-                <div className="flex items-center gap-2 text-xs text-emerald-600">
+                <div className="flex items-center gap-2 text-xs text-[var(--app-status-success)]">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   {t("workspaceEnv.sshHint", {
                     ns: "sidebar",
@@ -754,7 +754,7 @@ export default function WorkspaceEnvironmentPanel() {
                     })}
                   </div>
                   {currentDefaultIssue ? (
-                    <p className="mt-3 text-xs text-amber-500">
+                    <p className="mt-3 text-xs text-[var(--app-status-warning)]">
                       {getIssueMessage(t, currentDefaultIssue)}
                     </p>
                   ) : (

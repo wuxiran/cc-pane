@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
 
 function createInputEvent(
@@ -365,5 +365,48 @@ describe("terminal IME guard", () => {
     expect(laterInput.defaultPrevented).toBe(false);
 
     guard.dispose();
+  });
+
+  describe("clearNativeEditState document selection", () => {
+    function setupGuard() {
+      const textarea = document.createElement("textarea");
+      document.body.appendChild(textarea);
+      const removeAllRanges = vi.fn();
+      vi.spyOn(document, "getSelection").mockReturnValue({
+        removeAllRanges,
+      } as unknown as Selection);
+      const guard = attachTerminalImeGuard({
+        textarea,
+        terminal: { input: vi.fn() },
+        enabled: true,
+      });
+      return { textarea, removeAllRanges, guard };
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("keeps the document selection after a copy so WebKit can commit the write", () => {
+      const { textarea, removeAllRanges, guard } = setupGuard();
+      textarea.value = "leftover";
+
+      guard.clearNativeEditState("copy-selection");
+
+      expect(removeAllRanges).not.toHaveBeenCalled();
+      // The hidden textarea is still cleared — only the selection is preserved.
+      expect(textarea.value).toBe("");
+      guard.dispose();
+    });
+
+    it("still clears the document selection for the IME workaround reasons", () => {
+      const { removeAllRanges, guard } = setupGuard();
+
+      guard.clearNativeEditState("before-paste");
+      guard.clearNativeEditState();
+
+      expect(removeAllRanges).toHaveBeenCalledTimes(2);
+      guard.dispose();
+    });
   });
 });

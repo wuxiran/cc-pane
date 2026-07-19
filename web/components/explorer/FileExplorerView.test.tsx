@@ -1,8 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { useFileTreeStore } from "@/stores";
 import FileExplorerView from "./FileExplorerView";
+
+const tt = (k: string, opts?: Record<string, unknown>) =>
+  String(i18n.t(k as never, opts as never));
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -77,15 +81,15 @@ describe("FileExplorerView", () => {
     render(<FileExplorerView projectPath={PROJECT} />);
 
     await user.click(screen.getAllByRole("button")[1]);
-    expect(await screen.findByText("New File")).toBeInTheDocument();
+    expect(await screen.findByText(tt("sidebar:filetree.dialogNewFile"))).toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText("filename.ext"), "  hello.ts  ");
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: tt("common:create") }));
 
     await waitFor(() => {
       expect(actions.createFile).toHaveBeenCalledWith(PROJECT, "hello.ts", PROJECT);
     });
-    expect(toast.success).toHaveBeenCalledWith("Created: hello.ts");
+    expect(toast.success).toHaveBeenCalledWith(tt("sidebar:filetree.created", { name: "hello.ts" }));
   });
 
   it("creates a new folder via Enter in the dialog input", async () => {
@@ -94,7 +98,7 @@ describe("FileExplorerView", () => {
     render(<FileExplorerView projectPath={PROJECT} />);
 
     await user.click(screen.getAllByRole("button")[2]);
-    expect(await screen.findByText("New Folder")).toBeInTheDocument();
+    expect(await screen.findByText(tt("sidebar:filetree.dialogNewFolder"))).toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText("folder-name"), "docs{Enter}");
     await waitFor(() => {
@@ -108,8 +112,8 @@ describe("FileExplorerView", () => {
     render(<FileExplorerView projectPath={PROJECT} />);
 
     await user.click(screen.getAllByRole("button")[1]);
-    await screen.findByText("New File");
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByText(tt("sidebar:filetree.dialogNewFile"));
+    await user.click(screen.getByRole("button", { name: tt("common:create") }));
     expect(actions.createFile).not.toHaveBeenCalled();
   });
 
@@ -119,10 +123,10 @@ describe("FileExplorerView", () => {
     render(<FileExplorerView projectPath={PROJECT} />);
 
     await user.click(screen.getAllByRole("button")[1]);
-    await screen.findByText("New File");
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await screen.findByText(tt("sidebar:filetree.dialogNewFile"));
+    await user.click(screen.getByRole("button", { name: tt("common:cancel") }));
     await waitFor(() => {
-      expect(screen.queryByText("New File")).not.toBeInTheDocument();
+      expect(screen.queryByText(tt("sidebar:filetree.dialogNewFile"))).not.toBeInTheDocument();
     });
     expect(actions.createFile).not.toHaveBeenCalled();
   });

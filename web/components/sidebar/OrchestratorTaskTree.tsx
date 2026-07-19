@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useOrchestratorStore } from "@/stores";
 import type { TaskBindingNode } from "@/types";
@@ -20,6 +21,7 @@ function flattenVisible(
 }
 
 export default function OrchestratorTaskTree() {
+  const { t } = useTranslation("orchestration");
   const bindings = useOrchestratorStore((s) => s.bindings);
   const getTaskTree = useOrchestratorStore((s) => s.getTaskTree);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -59,7 +61,7 @@ export default function OrchestratorTaskTree() {
                       return next;
                     });
                   }}
-                  title={isExpanded ? "Collapse" : "Expand"}
+                  title={isExpanded ? t("tree.collapse", { defaultValue: "折叠" }) : t("tree.expand", { defaultValue: "展开" })}
                 >
                   {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 </button>

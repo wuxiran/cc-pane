@@ -65,7 +65,7 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
         </span>
         {updateAvailable ? (
           <button
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all duration-200 hover:opacity-80"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-opacity duration-[var(--dur-fast)] hover:opacity-80"
             style={{
               background: "color-mix(in srgb, var(--app-accent) 15%, transparent)",
               color: "var(--app-accent)",

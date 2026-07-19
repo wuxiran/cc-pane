@@ -2,6 +2,7 @@ import "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import type { LaunchRecord } from "@/services";
 import RecentLaunches from "./RecentLaunches";
@@ -33,12 +34,14 @@ function renderRecent(launchHistory: LaunchRecord[]) {
   const onClearHistory = vi.fn();
   const onDeleteRecord = vi.fn();
   render(
-    <RecentLaunches
-      launchHistory={launchHistory}
-      onOpenTerminal={onOpenTerminal}
-      onClearHistory={onClearHistory}
-      onDeleteRecord={onDeleteRecord}
-    />,
+    <TooltipProvider>
+      <RecentLaunches
+        launchHistory={launchHistory}
+        onOpenTerminal={onOpenTerminal}
+        onClearHistory={onClearHistory}
+        onDeleteRecord={onDeleteRecord}
+      />
+    </TooltipProvider>,
   );
   return { onOpenTerminal, onClearHistory, onDeleteRecord };
 }
@@ -60,7 +63,7 @@ describe("RecentLaunches", () => {
   it("does not render a clear button in the empty state when history is empty", () => {
     renderRecent([]);
 
-    expect(screen.queryByTitle(/Clear history|清空/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Clear history|清空/i })).not.toBeInTheDocument();
   });
 
   it("renders records with resume session id grouped by workspace name", () => {
@@ -120,7 +123,7 @@ describe("RecentLaunches", () => {
   it("invokes onClearHistory when clicking the clear button", () => {
     const { onClearHistory } = renderRecent([createRecord({ workspaceName: "Alpha" })]);
 
-    fireEvent.click(screen.getByTitle(/Clear history|清空/i));
+    fireEvent.click(screen.getByRole("button", { name: /Clear history|清空/i }));
 
     expect(onClearHistory).toHaveBeenCalledTimes(1);
   });
@@ -130,7 +133,7 @@ describe("RecentLaunches", () => {
       createRecord({ id: 7, workspaceName: "Alpha", projectName: "Alpha App" }),
     ]);
 
-    fireEvent.click(screen.getByTitle(/^Delete$|^删除$/i));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$|^删除$/i }));
 
     expect(onDeleteRecord).toHaveBeenCalledWith(7);
   });

@@ -1,6 +1,7 @@
 use crate::constants::fs_limits::{MAX_DIR_ENTRIES, MAX_READ_SIZE, MAX_WRITE_SIZE};
 use crate::models::filesystem::{DirListing, FileContent, FsEntry};
 use crate::utils::error::AppError;
+use crate::utils::path_normalize::simplify_path;
 use crate::utils::AppResult;
 use encoding_rs::Encoding;
 use std::fs;
@@ -25,13 +26,21 @@ impl FileSystemService {
     }
 
     /// 校验路径安全性（路径沙箱）
+    ///
+    /// 返回值经 [`simplify_path`] 剥掉 Windows `\\?\` verbatim 前缀：`list_directory`
+    /// 与 `entry_from_path` 会把它交给前端文件树，带前缀的路径一旦被用作 PTY cwd
+    /// 就会复现 `docs/35-unc-path-contamination.md` 的崩法。
+    ///
+    /// **顺序不可调整**：`canonicalize` 同时承担路径边界校验（防 `..` 逃逸、解析
+    /// 符号链接），剥前缀必须发生在 `validate_system_path` 通过**之后**，
+    /// 否则就改变了校验语义本身。
     fn validate_path(path: &str) -> AppResult<PathBuf> {
         let p = Self::validate_path_syntax(path)?;
         let canonical = p
             .canonicalize()
             .map_err(|e| format!("Invalid path '{}': {}", path, e))?;
         Self::validate_system_path(&canonical)?;
-        Ok(canonical)
+        Ok(simplify_path(canonical))
     }
 
     fn validate_path_syntax(path: &str) -> AppResult<PathBuf> {
@@ -671,6 +680,55 @@ mod tests {
         let missing = tmp.path().join("no-such-file.txt");
         let err = svc().get_entry_info(&path_str(&missing)).unwrap_err();
         assert!(err.message().contains("Invalid path"));
+    }
+
+    /// `validate_path` 必须剥掉 Windows verbatim 前缀，否则文件树的 path 会带
+    /// `\\?\`，被当作 PTY cwd 时复现 docs/35 的崩法。非 Windows 上恒成立（no-op）。
+    #[test]
+    fn validate_path_output_has_no_verbatim_prefix() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("sub")).unwrap();
+
+        let listing = svc().list_directory(&path_str(tmp.path()), false).unwrap();
+        assert!(
+            !listing.path.starts_with(r"\\?\"),
+            "listing.path leaked a verbatim prefix: {}",
+            listing.path
+        );
+        for entry in &listing.entries {
+            assert!(
+                !entry.path.starts_with(r"\\?\"),
+                "entry.path leaked a verbatim prefix: {}",
+                entry.path
+            );
+        }
+
+        let info = svc().get_entry_info(&path_str(tmp.path())).unwrap();
+        assert!(!info.path.starts_with(r"\\?\"), "{}", info.path);
+    }
+
+    /// 剥前缀发生在校验之后，因此边界校验行为完全不变。
+    #[test]
+    fn validate_path_boundary_checks_unchanged_after_simplify() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("sub")).unwrap();
+
+        // `..` 语法逃逸仍被拒
+        let escape = format!("{}/sub/../sub", path_str(tmp.path()));
+        assert!(svc()
+            .get_entry_info(&escape)
+            .unwrap_err()
+            .message()
+            .contains(".."));
+
+        // 合法路径仍解析到同一目标（剥前缀不改变指向）
+        let sub = tmp.path().join("sub");
+        let info = svc().get_entry_info(&path_str(&sub)).unwrap();
+        assert_eq!(
+            fs::canonicalize(&info.path).unwrap(),
+            fs::canonicalize(&sub).unwrap()
+        );
+        assert!(info.is_dir);
     }
 
     // ===== list_directory =====

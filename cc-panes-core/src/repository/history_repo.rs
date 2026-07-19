@@ -1,4 +1,5 @@
 use crate::repository::Database;
+use crate::utils::simplify_opt_path_str;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -104,6 +105,9 @@ impl HistoryRepository {
     ) -> Result<i64, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let now = Utc::now().to_rfc3339();
+        // 入库防线：即使上游漏网也不落 `\\?\` 脏数据（docs/35-unc-path-contamination.md）
+        let workspace_path = simplify_opt_path_str(workspace_path);
+        let launch_cwd = simplify_opt_path_str(launch_cwd);
 
         conn.execute(
             "INSERT INTO launch_history (
@@ -162,6 +166,9 @@ impl HistoryRepository {
     ) -> Result<i64, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let now = Utc::now().to_rfc3339();
+        // 入库防线：同 `add`
+        let workspace_path = simplify_opt_path_str(workspace_path);
+        let launch_cwd = simplify_opt_path_str(launch_cwd);
 
         conn.execute(
             "INSERT INTO launch_history (
@@ -331,6 +338,8 @@ impl HistoryRepository {
         launch_cwd: Option<&str>,
     ) -> Result<Option<i64>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
+        // 入库防线：hook 上报的 cwd 曾是 `\\?\` 污染的主要来源
+        let launch_cwd = simplify_opt_path_str(launch_cwd);
         let affected = conn
             .execute(
                 "UPDATE launch_history
@@ -393,6 +402,9 @@ impl HistoryRepository {
         workspace_path: Option<&str>,
     ) -> Result<i64, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
+        // 入库防线：UPDATE 与下方 INSERT 分支共用规范化后的值
+        let launch_cwd = simplify_opt_path_str(launch_cwd);
+        let workspace_path = simplify_opt_path_str(workspace_path);
         let affected = conn
             .execute(
                 "UPDATE launch_history
@@ -941,5 +953,139 @@ mod tests {
             .expect("find ok")
             .expect("row exists");
         assert_eq!(found.resume_source.as_deref(), Some("issued"));
+    }
+
+    // ---- `\\?\` UNC 污染防线（docs/35-unc-path-contamination.md）----
+
+    /// 入库防线：`add` 写入的 launch_cwd / workspace_path 读出必须干净。
+    #[cfg(windows)]
+    #[test]
+    fn add_strips_verbatim_prefix_from_paths() {
+        let r = repo();
+        r.add(
+            "launch-unc-1",
+            "proj",
+            r"C:\proj",
+            "claude",
+            "local",
+            None,
+            Some("ws"),
+            Some(r"\\?\C:\Users\me\.cc-panes-dev\workspaces\default"),
+            Some(r"\\?\C:\proj"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("insert");
+
+        let found = r
+            .find_by_launch_id("launch-unc-1")
+            .expect("find ok")
+            .expect("row exists");
+        assert_eq!(found.launch_cwd.as_deref(), Some(r"C:\proj"));
+        assert_eq!(
+            found.workspace_path.as_deref(),
+            Some(r"C:\Users\me\.cc-panes-dev\workspaces\default")
+        );
+    }
+
+    /// 根因路径：hook 上报的 UNC cwd 经 update_session_started 落库后必须干净。
+    #[cfg(windows)]
+    #[test]
+    fn update_session_started_strips_verbatim_prefix_from_launch_cwd() {
+        let r = repo();
+        r.add(
+            "launch-unc-2",
+            "proj",
+            r"C:\proj",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            Some(r"C:\proj"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("insert");
+
+        r.update_session_started(
+            "launch-unc-2",
+            "pty-1",
+            "resume-1",
+            "claude",
+            "local",
+            None,
+            Some(r"\\?\C:\proj"),
+        )
+        .expect("update ok")
+        .expect("row matched");
+
+        let found = r
+            .find_by_launch_id("launch-unc-2")
+            .expect("find ok")
+            .expect("row exists");
+        assert_eq!(found.launch_cwd.as_deref(), Some(r"C:\proj"));
+    }
+
+    /// upsert 的 INSERT 分支（GUI TabBar 新建路径）同样要过防线。
+    #[cfg(windows)]
+    #[test]
+    fn upsert_session_started_strips_verbatim_prefix_on_insert() {
+        let r = repo();
+        r.upsert_session_started(
+            "launch-unc-3",
+            "pty-2",
+            "resume-2",
+            "claude",
+            "local",
+            None,
+            Some(r"\\?\C:\proj"),
+            r"C:\proj",
+            "proj",
+            Some(r"\\?\C:\ws"),
+        )
+        .expect("upsert insert");
+
+        let found = r
+            .find_by_launch_id("launch-unc-3")
+            .expect("find ok")
+            .expect("row exists");
+        assert_eq!(found.launch_cwd.as_deref(), Some(r"C:\proj"));
+        assert_eq!(found.workspace_path.as_deref(), Some(r"C:\ws"));
+    }
+
+    /// 非 Windows 平台必须是 no-op：Unix 下 `\` 是合法文件名字符，不得改写。
+    #[cfg(not(windows))]
+    #[test]
+    fn paths_are_untouched_on_unix() {
+        let r = repo();
+        let weird = r"/tmp/\\?\literal";
+        r.add(
+            "launch-unix-1",
+            "proj",
+            "/tmp/proj",
+            "claude",
+            "local",
+            None,
+            None,
+            Some(weird),
+            Some(weird),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("insert");
+
+        let found = r
+            .find_by_launch_id("launch-unix-1")
+            .expect("find ok")
+            .expect("row exists");
+        assert_eq!(found.launch_cwd.as_deref(), Some(weird));
+        assert_eq!(found.workspace_path.as_deref(), Some(weird));
     }
 }

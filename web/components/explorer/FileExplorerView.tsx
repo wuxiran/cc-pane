@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { handleError } from "@/utils";
 import { FileTree } from "@/components/filetree";
@@ -19,6 +20,7 @@ interface FileExplorerViewProps {
 }
 
 export default function FileExplorerView({ projectPath }: FileExplorerViewProps) {
+  const { t } = useTranslation(["sidebar", "common"]);
   const [dialogType, setDialogType] = useState<"newFile" | "newDir" | null>(null);
   const [inputValue, setInputValue] = useState("");
 
@@ -48,10 +50,10 @@ export default function FileExplorerView({ projectPath }: FileExplorerViewProps)
     try {
       if (dialogType === "newFile") {
         await createFile(projectPath, inputValue.trim(), projectPath);
-        toast.success(`Created: ${inputValue.trim()}`);
+        toast.success(t("filetree.created", { name: inputValue.trim() }));
       } else if (dialogType === "newDir") {
         await createDirectory(projectPath, inputValue.trim(), projectPath);
-        toast.success(`Created: ${inputValue.trim()}`);
+        toast.success(t("filetree.created", { name: inputValue.trim() }));
       }
     } catch (err) {
       handleError(err, "create file/directory");
@@ -82,7 +84,7 @@ export default function FileExplorerView({ projectPath }: FileExplorerViewProps)
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {dialogType === "newFile" ? "New File" : "New Folder"}
+              {dialogType === "newFile" ? t("filetree.dialogNewFile") : t("filetree.dialogNewFolder")}
             </DialogTitle>
           </DialogHeader>
           <Input
@@ -94,9 +96,9 @@ export default function FileExplorerView({ projectPath }: FileExplorerViewProps)
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogType(null)}>
-              Cancel
+              {t("common:cancel")}
             </Button>
-            <Button onClick={handleDialogSubmit}>Create</Button>
+            <Button onClick={handleDialogSubmit}>{t("common:create")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

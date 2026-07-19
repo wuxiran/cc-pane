@@ -10,6 +10,7 @@ import {
   GitBranch,
   Globe,
   GripVertical,
+  House,
   Settings2,
   Star,
   Terminal,
@@ -127,7 +128,9 @@ export default function WorkspaceItem({
   const [hookGroups, setHookGroups] = useState<ProjectCliHookGroupStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
 
-  const displayName = workspace.alias || workspace.name;
+  const isDefaultWorkspace = !!workspace.isDefault;
+  const displayName = workspace.alias
+    || (isDefaultWorkspace ? t("defaultWorkspaceName", { defaultValue: "默认工作空间" }) : workspace.name);
   const rootProject = projects.find((project) => !project.ssh);
   const rootPath = workspace.path || rootProject?.path;
   const showWslBadge = hasWorkspaceWslPath(workspace);
@@ -392,12 +395,13 @@ export default function WorkspaceItem({
             role="button"
             tabIndex={0}
             aria-expanded={expanded}
-            className={`w-full group flex items-center justify-between px-3 py-1.5 rounded-lg transition-colors duration-150 ${
+            className={`relative w-full group flex items-center justify-between gap-2 px-3 py-2 rounded-lg transition-colors duration-[var(--dur-fast)] ${
               expanded
-                ? "border border-[var(--app-border)] text-[var(--app-accent)]"
-                : "border border-transparent text-[var(--app-text-primary)] hover:bg-[var(--app-hover)]"
+                ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
+                : isDefaultWorkspace
+                  ? "text-[var(--app-text-primary)] bg-[color-mix(in_srgb,var(--app-accent)_5%,transparent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_10%,transparent)]"
+                  : "text-[var(--app-text-primary)] hover:bg-[var(--app-hover)]"
             }`}
-            style={expanded ? { background: "var(--app-hover)" } : undefined}
             onClick={() => onExpand(workspace.id)}
             onKeyDown={(event) => {
               if (event.target !== event.currentTarget) return;
@@ -407,31 +411,51 @@ export default function WorkspaceItem({
               }
             }}
           >
-            <div className="flex items-center gap-1.5">
+            {expanded ? (
+              <span
+                aria-hidden="true"
+                className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-[var(--app-accent)]"
+              />
+            ) : null}
+            <div className="flex min-w-0 items-center gap-1.5">
               {dragHandleProps ? (
                 <button
                   type="button"
                   aria-label={t("workspaceReorderHandle", {
                     defaultValue: "拖动排序工作空间",
                   })}
-                  className="flex h-4 w-3 -ml-1 items-center justify-center rounded text-[var(--app-text-tertiary)] opacity-0 transition-opacity duration-150 cursor-grab group-hover:opacity-50 hover:!opacity-90 hover:text-[var(--app-text-secondary)] active:cursor-grabbing"
+                  className="flex h-4 w-3 -ml-1 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] opacity-0 transition-opacity duration-[var(--dur-fast)] cursor-grab group-hover:opacity-50 hover:!opacity-90 hover:text-[var(--app-text-secondary)] active:cursor-grabbing"
                   onClick={(event) => event.stopPropagation()}
                   {...dragHandleProps}
                 >
                   <GripVertical className="h-3 w-3" />
                 </button>
               ) : null}
-              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
-              <span className="text-sm font-medium tracking-wide">{displayName}</span>
+              <ChevronRight
+                className={`w-3.5 h-3.5 shrink-0 transition-transform ${expanded ? "rotate-90 text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"}`}
+              />
+              {isDefaultWorkspace ? (
+                <House className="w-4 h-4 shrink-0 text-[var(--app-accent)]" strokeWidth={1.5} />
+              ) : expanded ? (
+                <FolderOpen className="w-4 h-4 shrink-0 text-[var(--app-accent)]" />
+              ) : (
+                <Folder className="w-4 h-4 shrink-0 text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors" />
+              )}
+              <span className="truncate text-[14px] font-medium">{displayName}</span>
+              {isDefaultWorkspace ? (
+                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
+                  {t("defaultBadge", { defaultValue: "默认" })}
+                </span>
+              ) : null}
               {showWslBadge ? (
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30">
+                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
                   WSL
                 </span>
               ) : null}
               {boundProvider && defaultEnvironment !== "wsl" ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium border bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-500/20 dark:text-slate-300 dark:border-slate-500/30">
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)]">
                       {boundProvider.name}
                     </span>
                   </TooltipTrigger>
@@ -440,7 +464,7 @@ export default function WorkspaceItem({
               ) : null}
             </div>
             <span
-              className="text-[11px] font-medium tabular-nums leading-none min-w-[22px] text-center px-2 py-1 rounded-full text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors"
+              className="shrink-0 text-[12px] font-medium tabular-nums leading-none min-w-[22px] text-center px-2 py-1 rounded-full text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors"
               style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
             >
               {projects.length}
@@ -651,11 +675,14 @@ export default function WorkspaceItem({
             </ContextMenuSubContent>
           </ContextMenuSub>
 
-          <ContextMenuSeparator />
-
-          <ContextMenuItem variant="destructive" onClick={() => onDelete(workspace)}>
-            <Trash2 /> {t("deleteWorkspace")}
-          </ContextMenuItem>
+          {!isDefaultWorkspace ? (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem variant="destructive" onClick={() => onDelete(workspace)}>
+                <Trash2 /> {t("deleteWorkspace")}
+              </ContextMenuItem>
+            </>
+          ) : null}
         </ContextMenuContent>
       </ContextMenu>
 

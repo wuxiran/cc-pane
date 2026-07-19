@@ -207,7 +207,7 @@ export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
               <Input
                 value={newWorkspace.path}
                 readOnly
-                placeholder="Optional workspace anchor path"
+                placeholder={t("workspaceAnchorPathPlaceholder")}
                 className="flex-1"
               />
               <Button variant="secondary" onClick={newWorkspace.onSelectPath}>

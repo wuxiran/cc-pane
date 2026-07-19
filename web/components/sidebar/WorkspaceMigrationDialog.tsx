@@ -200,7 +200,7 @@ export default function WorkspaceMigrationDialog({
               <div className="mt-1 text-xs text-[var(--app-text-secondary)]">
                 源目录：{workspace.path || "未设置"}
               </div>
-              <div className="mt-2 text-xs text-amber-600">
+              <div className="mt-2 text-xs text-[var(--app-status-warning)]">
                 迁移流程固定为：预检 → 复制 → 校验 → 切换。整个过程不会删除 Windows 副本。
               </div>
             </div>
@@ -374,7 +374,7 @@ export default function WorkspaceMigrationDialog({
                   )}
 
                   {previewPlan.warnings.length > 0 ? (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    <div className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2 text-xs text-[var(--app-status-warning)]">
                       {previewPlan.warnings.map((warning) => (
                         <div key={warning}>{warning}</div>
                       ))}
@@ -385,7 +385,7 @@ export default function WorkspaceMigrationDialog({
             ) : null}
 
             {migrationResult ? (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-status-success)_30%,transparent)] bg-[var(--app-status-success-bg)] px-4 py-3 text-sm text-[var(--app-status-success)]">
                 <div>已完成切换，默认环境已更新。</div>
                 <div className="mt-1 text-xs">
                   复制文件：{migrationResult.copiedFiles}，复制体积：

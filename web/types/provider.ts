@@ -50,6 +50,21 @@ export function createSystemProvider(name: string, isDefault = false): Provider 
   };
 }
 
+/**
+ * 「系统环境变量」条目的探测结果（镜像后端 `SystemProviderInfo`）。
+ * `envKeys` 只含命中的**变量名**，不含值。
+ */
+export interface SystemProviderInfo {
+  /** 探测到 cc-switch 或宿主 Anthropic 凭证之一 */
+  active: boolean;
+  /** 探测到 `~/.cc-switch/cc-switch.db` */
+  ccSwitch: boolean;
+  /** 宿主进程中命中的 Anthropic 环境变量名 */
+  envKeys: string[];
+  /** 用户已把「系统环境变量」设为默认凭证（持久化状态） */
+  defaultIsSystem: boolean;
+}
+
 export type ProviderTypeLabelKey =
   | "providerTypeAnthropicLabel"
   | "providerTypeBedrockLabel"

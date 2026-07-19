@@ -72,7 +72,7 @@ function SegmentedControl<T extends string>({
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
-            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200
+            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-[var(--dur-fast)]
               ${
                 isActive
                   ? activeColor ?? "bg-primary/15 text-primary shadow-sm border border-primary/25"
@@ -88,9 +88,9 @@ function SegmentedControl<T extends string>({
 }
 
 const PRIORITY_COLOR_MAP: Record<string, string> = {
-  high: "bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400 font-bold shadow-sm",
-  medium: "bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400 shadow-sm",
-  low: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400 shadow-sm",
+  high: "bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] font-bold shadow-sm",
+  medium: "bg-[var(--app-status-warning-bg)] text-[var(--app-status-warning)] shadow-sm",
+  low: "bg-[var(--app-status-success-bg)] text-[var(--app-status-success)] shadow-sm",
 };
 
 /** 内置类型翻译键映射 */
@@ -360,7 +360,7 @@ export default function TodoEditor({
                   onChange={(e) =>
                     onChange({ ...form, scopeRef: e.target.value })
                   }
-                  className="h-8 w-full text-xs rounded-md bg-card border border-border/40 shadow-sm px-2 focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all outline-none"
+                  className="h-8 w-full text-xs rounded-md bg-card border border-border/40 shadow-sm px-2 focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-[var(--dur-fast)] outline-none"
                 >
                   <option value="">{t("todoSelectWorkspace")}</option>
                   {workspaces.map((ws) => (
@@ -375,7 +375,7 @@ export default function TodoEditor({
                   onChange={(e) =>
                     onChange({ ...form, scopeRef: e.target.value })
                   }
-                  className="h-8 w-full text-xs rounded-md bg-card border border-border/40 shadow-sm px-2 focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all outline-none"
+                  className="h-8 w-full text-xs rounded-md bg-card border border-border/40 shadow-sm px-2 focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-[var(--dur-fast)] outline-none"
                 >
                   <option value="">{t("todoSelectProject")}</option>
                   {allProjects.map((p) => (
@@ -397,7 +397,7 @@ export default function TodoEditor({
               {/* 无类型选项 */}
               <button
                 onClick={() => onChange({ ...form, todoType: "" })}
-                className={`px-2.5 py-1 text-xs font-medium rounded-full transition-all duration-200
+                className={`px-2.5 py-1 text-xs font-medium rounded-full transition-all duration-[var(--dur-fast)]
                   ${
                     !form.todoType
                       ? "bg-primary/15 text-primary font-semibold border border-primary/20"
@@ -420,7 +420,7 @@ export default function TodoEditor({
                         todoType: isActive ? "" : tp,
                       })
                     }
-                    className={`group/type relative px-2.5 py-1 text-xs font-medium rounded-full transition-all duration-200
+                    className={`group/type relative px-2.5 py-1 text-xs font-medium rounded-full transition-all duration-[var(--dur-fast)]
                       ${
                         isActive
                           ? "bg-primary/15 text-primary font-semibold border border-primary/20"
@@ -468,7 +468,7 @@ export default function TodoEditor({
               ) : (
                 <button
                   onClick={() => setShowTypeInput(true)}
-                  className="px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-all"
+                  className="px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-lg transition-colors duration-[var(--dur-fast)]"
                   title={t("todoAddType")}
                 >
                   <Plus size={12} />
@@ -529,7 +529,7 @@ export default function TodoEditor({
               onChange={(e) =>
                 onChange({ ...form, recurrence: e.target.value })
               }
-              className="h-8 w-full text-xs rounded-md bg-card border border-border/40 shadow-sm px-2 focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all outline-none"
+              className="h-8 w-full text-xs rounded-md bg-card border border-border/40 shadow-sm px-2 focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-[var(--dur-fast)] outline-none"
             >
               <option value="">{t("todoRecurrenceNone")}</option>
               <option value="daily">{t("todoRecurrenceDaily")}</option>
@@ -587,7 +587,7 @@ export default function TodoEditor({
               }
               className="w-full min-h-[120px] p-3 rounded-xl bg-muted/30 border border-border/30 shadow-sm text-sm font-mono
                          focus:ring-2 focus:ring-primary/20
-                         transition-all outline-none resize-y placeholder:text-muted-foreground/40"
+                         transition-all duration-[var(--dur-fast)] outline-none resize-y placeholder:text-muted-foreground/40"
               placeholder={t("todoDescPlaceholder")}
               spellCheck={false}
             />

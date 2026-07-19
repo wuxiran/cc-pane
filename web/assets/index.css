@@ -12,6 +12,15 @@
   font-display: swap;
 }
 
+/* 打包 Inter 变量字体(UI 正文)。系统未装 Inter 时靠此 webfont 保证跨平台一致的精致排版。 */
+@font-face {
+  font-family: "Inter Variable";
+  src: url("./fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -50,69 +59,96 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Elevation — 供 shadow-xs/sm/md/lg 工具类使用；实值按主题在 :root/.dark 定义 */
+  --shadow-2xs: var(--sh-sm);
+  --shadow-xs: var(--sh-sm);
+  --shadow-sm: var(--sh-sm);
+  --shadow: var(--sh-md);
+  --shadow-md: var(--sh-md);
+  --shadow-lg: var(--sh-lg);
+  --shadow-xl: var(--sh-lg);
+  --shadow-2xl: var(--sh-lg);
+
+  /* UI 字体栈（Inter 若已安装则优先，否则 Win11 Segoe UI Variable / macOS SF Pro） */
+  --font-sans: "Inter Variable", "Inter", "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-/* ===== Light 主题（默认）— GitHub Light 扁平风格 ===== */
+/* ===== Light 主题（默认）— Refined Developer Tool（冷调 off-white / 发丝边框 / 柔和 elevation）===== */
 :root {
-  --radius: 0.625rem;
+  --radius: 0.5rem;
 
-  /* shadcn 语义变量 — GitHub Light 色板 */
-  --background: #F8F9FA;
-  --foreground: #24292F;
-  --card: #ffffff;
-  --card-foreground: #24292F;
-  --popover: #ffffff;
-  --popover-foreground: #24292F;
-  --primary: #0969DA;
+  /* Elevation（柔和低透明）+ 顶部内高光 */
+  --sh-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --sh-md: 0 4px 14px rgba(16, 24, 40, 0.09), 0 1px 3px rgba(16, 24, 40, 0.05);
+  --sh-lg: 0 16px 36px rgba(16, 24, 40, 0.13), 0 2px 8px rgba(16, 24, 40, 0.07);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  /* 动效令牌（缓动曲线采用 Emil Kowalski design-eng 推荐值：
+     标准 CSS ease-out 太弱；ease-in 永不用于 UI） */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-fast: 120ms;
+  --dur: 160ms;
+  --dur-slow: 240ms;
+
+  /* shadcn 语义变量 — 冷调 off-white 色板 */
+  --background: #F6F7F9;
+  --foreground: #1A1D21;
+  --card: #FFFFFF;
+  --card-foreground: #1A1D21;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1D21;
+  --primary: #2563EB;
   --primary-foreground: #ffffff;
-  --secondary: #F3F4F6;
-  --secondary-foreground: #24292F;
-  --muted: #F3F4F6;
-  --muted-foreground: #57606A;
-  --accent: #F3F4F6;
-  --accent-foreground: #24292F;
+  --secondary: #F1F3F6;
+  --secondary-foreground: #1A1D21;
+  --muted: #F1F3F6;
+  --muted-foreground: #5A626C;
+  --accent: #F1F3F6;
+  --accent-foreground: #1A1D21;
   --destructive: #CF222E;
-  --border: #E5E7EB;
-  --input: #E5E7EB;
-  --ring: #0969DA;
+  --border: rgba(17, 24, 39, 0.09);
+  --input: rgba(17, 24, 39, 0.12);
+  --ring: #2563EB;
 
-  --chart-1: #0969DA;
+  --chart-1: #2563EB;
   --chart-2: #1a7f37;
-  --chart-3: #bf8700;
+  --chart-3: #9A6700;
   --chart-4: #8250df;
   --chart-5: #CF222E;
 
-  --sidebar: #F8F9FA;
-  --sidebar-foreground: #24292F;
-  --sidebar-primary: #0969DA;
+  --sidebar: #F6F7F9;
+  --sidebar-foreground: #1A1D21;
+  --sidebar-primary: #2563EB;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #EAECEF;
-  --sidebar-accent-foreground: #24292F;
-  --sidebar-border: #E5E7EB;
-  --sidebar-ring: #0969DA;
+  --sidebar-accent: #ECEEF1;
+  --sidebar-accent-foreground: #1A1D21;
+  --sidebar-border: rgba(17, 24, 39, 0.08);
+  --sidebar-ring: #2563EB;
 
   /* 自定义应用层级变量 — 全部实色 */
-  --app-menubar: #F3F4F6;
-  --app-sidebar: #F8F9FA;
-  --app-tabbar: #F3F4F6;
+  --app-menubar: #EEF0F3;
+  --app-sidebar: #F6F7F9;
+  --app-tabbar: #EEF0F3;
   --app-content: #FFFFFF;
-  --app-bg-deep: #F8F9FA;
-  --app-bg-sidebar-deep: #F8F9FA;
-  --app-overlay: #ffffff;
-  --app-accent: #0969DA;
-  --app-text-primary: #24292F;
-  --app-text-secondary: #57606A;
-  --app-text-tertiary: #8C959F;
-  --app-border: #E5E7EB;
-  --app-hover: #EAECEF;
-  --app-active-bg: #DBEAFE;
+  --app-bg-deep: #EEF0F3;
+  --app-bg-sidebar-deep: #F1F3F6;
+  --app-overlay: #FFFFFF;
+  --app-accent: #2563EB;
+  --app-text-primary: #1A1D21;
+  --app-text-secondary: #5A626C;
+  --app-text-tertiary: #8B929B;
+  --app-border: rgba(17, 24, 39, 0.09);
+  --app-hover: rgba(17, 24, 39, 0.04);
+  --app-active-bg: rgba(37, 99, 235, 0.10);
 
   /* Glass 变量 — Light 模式消灭 glass 效果 */
-  --app-glass-bg: #F8F9FA;
-  --app-glass-bg-heavy: #F3F4F6;
+  --app-glass-bg: #F6F7F9;
+  --app-glass-bg-heavy: #F1F3F6;
   --app-glass-bg-light: #FFFFFF;
-  --app-glass-border: #E5E7EB;
-  --app-glass-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --app-glass-border: rgba(17, 24, 39, 0.09);
+  --app-glass-shadow: var(--sh-sm);
   --app-glass-shadow-sidebar: none;
   --app-glass-highlight: none;
   --app-glass-blur: 0px;
@@ -133,191 +169,208 @@
   --app-activity-item-hover: var(--app-hover);
   --app-activity-item-active: var(--app-active-bg);
   --app-activity-item-active-shadow: none;
-  --app-active-gradient-from: #DBEAFE;
-  --app-active-gradient-to: #EFF6FF;
+  --app-active-gradient-from: rgba(37, 99, 235, 0.10);
+  --app-active-gradient-to: rgba(37, 99, 235, 0.02);
   --app-tab-highlight: #FFFFFF;
 
-  /* Editor 专用变量 — GitHub Light */
-  --editor-bg: #ffffff;
-  --editor-tab-bar-bg: #F3F4F6;
-  --editor-tab-active-bg: #ffffff;
-  --editor-tab-inactive-bg: #F3F4F6;
-  --editor-tab-active-fg: #24292F;
-  --editor-tab-inactive-fg: #8C959F;
-  --editor-tab-border: #E5E7EB;
-  --editor-breadcrumb-bg: #F8F9FA;
-  --editor-breadcrumb-fg: #57606A;
-  --editor-breadcrumb-fg-active: #24292F;
-  --editor-selection-bg: #DBEAFE;
-  --editor-line-highlight: #F6F8FA;
+  /* Editor 专用变量 */
+  --editor-bg: #FFFFFF;
+  --editor-tab-bar-bg: #F1F3F6;
+  --editor-tab-active-bg: #FFFFFF;
+  --editor-tab-inactive-bg: #F1F3F6;
+  --editor-tab-active-fg: #1A1D21;
+  --editor-tab-inactive-fg: #8B929B;
+  --editor-tab-border: rgba(17, 24, 39, 0.08);
+  --editor-breadcrumb-bg: #F6F7F9;
+  --editor-breadcrumb-fg: #5A626C;
+  --editor-breadcrumb-fg-active: #1A1D21;
+  --editor-selection-bg: rgba(37, 99, 235, 0.14);
+  --editor-line-highlight: rgba(17, 24, 39, 0.03);
   --checkerboard-color: #e0e0e0;
   --checkerboard-bg: #ffffff;
 
   /* Warning / Input 变量 */
-  --app-warning: #d97706;
-  --app-warning-bg: rgba(245, 158, 11, 0.05);
-  --app-input-bg: #F3F4F6;
-  /* fix(M2) review: 编排状态色统一走 CSS 变量，避免组件硬编码 hex。 */
+  --app-warning: #9A6700;
+  --app-warning-bg: rgba(191, 135, 0, 0.08);
+  --app-input-bg: #F1F3F6;
   --app-status-success: #1a7f37;
-  --app-status-warning: #bf8700;
+  --app-status-warning: #9A6700;
   --app-status-danger: #CF222E;
+  /* 状态色派生（bg/border 随主题自动跟随主值） */
+  --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent);
+  --app-status-success-border: color-mix(in srgb, var(--app-status-success) 30%, transparent);
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent);
+  --app-status-danger-border: color-mix(in srgb, var(--app-status-danger) 30%, transparent);
+  /* 身份色（运行环境等"是什么"而非"什么状态"）：WSL / SSH */
+  --app-identity-wsl: #B45309;
+  --app-identity-ssh: #0E7490;
 
   /* TitleBar 高光线 */
   --app-titlebar-highlight: none;
 
-  /* 新增：组件级变量 */
-  --app-activity-bar-bg: #F3F4F6;
-  --app-sidebar-bg: #F8F9FA;
+  /* 组件级变量 */
+  --app-activity-bar-bg: #EEF0F3;
+  --app-sidebar-bg: #F6F7F9;
   --app-panel-bg: #FFFFFF;
-  --app-icon-active: #24292F;
-  --app-icon-inactive: #8C959F;
-  --app-icon-hover: #57606A;
+  --app-icon-active: #1A1D21;
+  --app-icon-inactive: #8B929B;
+  --app-icon-hover: #5A626C;
   --app-close-btn-hover-bg: #CF222E;
   --app-close-btn-hover-fg: #FFFFFF;
-  --app-tab-active-border: #0969DA;
+  --app-tab-active-border: #2563EB;
   --app-terminal-bg: #FFFFFF;
-  --app-terminal-fg: #000000;
+  --app-terminal-fg: #1A1D21;
 
-  /* Notch Tab 变量 — Light 模式匹配浅色终端与面板 */
-  --notch-tab-active-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 244, 246, 0.96));
-  --notch-tab-active-fg: #24292F;
-  --notch-tab-inactive-fg: #57606A;
-  --notch-tab-hover-bg: rgba(234, 236, 239, 0.92);
-  --notch-tab-hover-fg: #24292F;
-  --notch-tab-border: rgba(36, 41, 47, 0.08);
+  /* Notch Tab 变量 */
+  --notch-tab-active-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 243, 246, 0.96));
+  --notch-tab-active-fg: #1A1D21;
+  --notch-tab-inactive-fg: #5A626C;
+  --notch-tab-hover-bg: rgba(17, 24, 39, 0.045);
+  --notch-tab-hover-fg: #1A1D21;
+  --notch-tab-border: rgba(17, 24, 39, 0.08);
 }
 
-/* ===== Dark 主题 — GitHub Dark 补色 ===== */
+/* ===== Dark 主题 — Refined Developer Tool（冷调近黑 / 发丝边框 / 明度分层 / 克制 elevation）===== */
 .dark {
-  /* shadcn 语义变量 — GitHub Dark 色调 */
-  --background: #0D1117;
-  --foreground: #E6EDF3;
-  --card: #161B22;
-  --card-foreground: #E6EDF3;
-  --popover: #1C2128;
-  --popover-foreground: #E6EDF3;
-  --primary: #2F81F7;
-  --primary-foreground: #ffffff;
-  --secondary: #21262D;
-  --secondary-foreground: #E6EDF3;
-  --muted: #161B22;
-  --muted-foreground: #8B949E;
-  --accent: #1C2128;
-  --accent-foreground: #E6EDF3;
-  --destructive: #F85149;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.15);
-  --ring: #2F81F7;
+  /* Elevation（暗色极克制）+ Linear 招牌顶部内高光 */
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --sh-md: 0 4px 14px rgba(0, 0, 0, 0.42), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --sh-lg: 0 16px 40px rgba(0, 0, 0, 0.55), 0 3px 10px rgba(0, 0, 0, 0.38);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 
-  --chart-1: #2F81F7;
+  /* shadcn 语义变量 — 冷调近黑,靠明度分层而非边框 */
+  --background: #1E2024;
+  --foreground: #E6E8EB;
+  --card: #26282D;
+  --card-foreground: #E6E8EB;
+  --popover: #2C2F35;
+  --popover-foreground: #E6E8EB;
+  --primary: #4C8DF5;
+  --primary-foreground: #ffffff;
+  --secondary: #2C2F35;
+  --secondary-foreground: #E6E8EB;
+  --muted: #26282D;
+  --muted-foreground: #9BA1A9;
+  --accent: #32363E;
+  --accent-foreground: #E6E8EB;
+  --destructive: #F85149;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #4C8DF5;
+
+  --chart-1: #4C8DF5;
   --chart-2: #3FB950;
-  --chart-3: #D29922;
+  --chart-3: #D6A625;
   --chart-4: #A371F7;
   --chart-5: #F85149;
 
-  --sidebar: #161B22;
-  --sidebar-foreground: #E6EDF3;
-  --sidebar-primary: #2F81F7;
+  --sidebar: #26282D;
+  --sidebar-foreground: #E6E8EB;
+  --sidebar-primary: #4C8DF5;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #1C2128;
-  --sidebar-accent-foreground: #E6EDF3;
+  --sidebar-accent: #2C2F35;
+  --sidebar-accent-foreground: #E6E8EB;
   --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #2F81F7;
+  --sidebar-ring: #4C8DF5;
 
-  /* 自定义应用层级变量 */
-  --app-menubar: rgba(45, 45, 45, 0.40);
-  --app-sidebar: rgba(22, 27, 34, 0.40);
-  --app-tabbar: rgba(37, 37, 37, 0.40);
-  --app-content: rgba(26, 26, 26, 0.30);
-  --app-bg-deep: #0a0a0f;
-  --app-bg-sidebar-deep: #0f0f16;
-  --app-overlay: #1C2128;
-  --app-accent: #2F81F7;
-  --app-text-primary: #E6EDF3;
-  --app-text-secondary: #8B949E;
-  --app-text-tertiary: #6E7681;
-  --app-border: rgba(255, 255, 255, 0.05);
+  /* 自定义应用层级变量 — 实色明度分层 */
+  --app-menubar: #1A1C20;
+  --app-sidebar: #26282D;
+  --app-tabbar: #1E2024;
+  --app-content: #1E2024;
+  --app-bg-deep: #1A1C20;
+  --app-bg-sidebar-deep: #1A1C20;
+  --app-overlay: #2C2F35;
+  --app-accent: #4C8DF5;
+  --app-text-primary: #E6E8EB;
+  --app-text-secondary: #9BA1A9;
+  --app-text-tertiary: #767C85;
+  --app-border: rgba(255, 255, 255, 0.09);
   --app-hover: rgba(255, 255, 255, 0.06);
-  --app-active-bg: rgba(47, 129, 247, 0.15);
+  --app-active-bg: rgba(76, 141, 245, 0.14);
 
-  /* Glass 变量 — Dark 保留 glass 效果 */
-  --app-glass-bg: rgba(15, 23, 42, 0.25);
-  --app-glass-bg-heavy: rgba(15, 23, 42, 0.40);
-  --app-glass-bg-light: rgba(15, 23, 42, 0.12);
-  --app-glass-border: rgba(255, 255, 255, 0.15);
-  --app-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
-  --app-glass-shadow-sidebar: 5px 0 40px rgba(0, 0, 0, 0.20);
-  --app-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  /* Glass 变量 — Dark 保留但收敛（降饱和/降模糊,精致工具不要太炫） */
+  --app-glass-bg: rgba(38, 40, 45, 0.60);
+  --app-glass-bg-heavy: rgba(30, 32, 36, 0.72);
+  --app-glass-bg-light: rgba(255, 255, 255, 0.03);
+  --app-glass-border: rgba(255, 255, 255, 0.08);
+  --app-glass-shadow: var(--sh-lg);
+  --app-glass-shadow-sidebar: 1px 0 0 rgba(255, 255, 255, 0.04);
+  --app-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --app-glass-blur: 12px;
   --app-glass-blur-sm: 8px;
-  --app-orb-1: rgba(37, 99, 235, 0.20);
-  --app-orb-2: rgba(168, 85, 247, 0.18);
-  --app-orb-3: rgba(6, 182, 212, 0.15);
+  --app-orb-1: rgba(76, 141, 245, 0.10);
+  --app-orb-2: rgba(124, 92, 255, 0.08);
+  --app-orb-3: rgba(63, 185, 80, 0.06);
   --app-orb-blur-lg: 120px;
   --app-orb-blur-md: 100px;
   --app-home-surface: rgba(255, 255, 255, 0.02);
   --app-home-surface-light: rgba(255, 255, 255, 0.03);
-  --app-home-surface-hover: rgba(255, 255, 255, 0.04);
-  --app-home-border: rgba(255, 255, 255, 0.055);
+  --app-home-surface-hover: rgba(255, 255, 255, 0.045);
+  --app-home-border: rgba(255, 255, 255, 0.08);
   --app-home-border-hover: rgba(255, 255, 255, 0.12);
-  --app-home-row-border: rgba(255, 255, 255, 0.03);
+  --app-home-row-border: rgba(255, 255, 255, 0.05);
   --app-home-kbd-bg: rgba(0, 0, 0, 0.40);
-  --app-activity-border: rgba(255, 255, 255, 0.05);
-  --app-activity-item-hover: rgba(255, 255, 255, 0.05);
-  --app-activity-item-active: rgba(47, 129, 247, 0.12);
+  --app-activity-border: rgba(255, 255, 255, 0.08);
+  --app-activity-item-hover: rgba(255, 255, 255, 0.06);
+  --app-activity-item-active: rgba(76, 141, 245, 0.13);
   --app-activity-item-active-shadow: none;
-  --app-active-gradient-from: rgba(47, 129, 247, 0.20);
-  --app-active-gradient-to: rgba(47, 129, 247, 0.05);
-  --app-tab-highlight: rgba(255, 255, 255, 0.15);
+  --app-active-gradient-from: rgba(76, 141, 245, 0.18);
+  --app-active-gradient-to: rgba(76, 141, 245, 0.04);
+  --app-tab-highlight: rgba(255, 255, 255, 0.10);
 
-  /* Editor 专用变量 — GitHub Dark */
-  --editor-bg: #0D1117;
-  --editor-tab-bar-bg: #161B22;
-  --editor-tab-active-bg: #0D1117;
-  --editor-tab-inactive-bg: #21262D;
-  --editor-tab-active-fg: #E6EDF3;
-  --editor-tab-inactive-fg: #6E7681;
-  --editor-tab-border: #21262D;
-  --editor-breadcrumb-bg: #0D1117;
-  --editor-breadcrumb-fg: #8B949E;
-  --editor-breadcrumb-fg-active: #E6EDF3;
-  --editor-selection-bg: rgba(47, 129, 247, 0.2);
-  --editor-line-highlight: rgba(255, 255, 255, 0.04);
-  --checkerboard-color: #2a2a2a;
-  --checkerboard-bg: #1a1a1a;
+  /* Editor 专用变量 */
+  --editor-bg: #1A1C20;
+  --editor-tab-bar-bg: #1E2024;
+  --editor-tab-active-bg: #1A1C20;
+  --editor-tab-inactive-bg: #26282D;
+  --editor-tab-active-fg: #E6E8EB;
+  --editor-tab-inactive-fg: #767C85;
+  --editor-tab-border: rgba(255, 255, 255, 0.08);
+  --editor-breadcrumb-bg: #1A1C20;
+  --editor-breadcrumb-fg: #9BA1A9;
+  --editor-breadcrumb-fg-active: #E6E8EB;
+  --editor-selection-bg: rgba(76, 141, 245, 0.22);
+  --editor-line-highlight: rgba(255, 255, 255, 0.05);
+  --checkerboard-color: #32363E;
+  --checkerboard-bg: #26282D;
 
   /* Warning / Input 变量 */
-  --app-warning: #D29922;
-  --app-warning-bg: rgba(210, 153, 34, 0.1);
-  --app-input-bg: rgba(255, 255, 255, 0.05);
-  /* fix(M2) review: Dark 使用 GitHub Dark 状态配色。 */
+  --app-warning: #D6A625;
+  --app-warning-bg: rgba(214, 166, 37, 0.12);
+  --app-input-bg: rgba(255, 255, 255, 0.04);
   --app-status-success: #3FB950;
-  --app-status-warning: #D29922;
+  --app-status-warning: #D6A625;
   --app-status-danger: #F85149;
+  /* 身份色（暗色亮化） */
+  --app-identity-wsl: #FCD34D;
+  --app-identity-ssh: #67E8F9;
 
   /* TitleBar 高光线 */
-  --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.08) 20%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.08) 80%, transparent);
+  --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.05) 80%, transparent);
 
-  /* 新增：组件级变量 */
+  /* 组件级变量 —— 明度三档：活动栏最深(#1A1C20) < 侧边栏(#212328) < 主区(#26282D) */
   --app-activity-bar-bg: var(--app-bg-sidebar-deep);
-  --app-sidebar-bg: var(--app-bg-sidebar-deep);
-  --app-panel-bg: #1a1a1a;
-  --app-icon-active: #E6EDF3;
-  --app-icon-inactive: #B0B8C1;
-  --app-icon-hover: #E6EDF3;
+  --app-sidebar-bg: #212328;
+  --app-panel-bg: #26282D;
+  --app-icon-active: #E6E8EB;
+  --app-icon-inactive: #767C85;
+  --app-icon-hover: #9BA1A9;
   --app-close-btn-hover-bg: #F85149;
   --app-close-btn-hover-fg: #FFFFFF;
-  --app-tab-active-border: #2F81F7;
-  --app-terminal-bg: #0C0C0C;
-  --app-terminal-fg: #f5f5f7;
+  --app-tab-active-border: #4C8DF5;
+  --app-terminal-bg: #1A1C20;
+  --app-terminal-fg: #E6E8EB;
 
-  /* Notch Tab 变量 — 始终浮在深色终端上，统一毛玻璃风格 */
-  --notch-tab-active-bg: rgba(255, 255, 255, 0.12);
-  --notch-tab-active-fg: #f5f5f7;
-  --notch-tab-inactive-fg: rgba(255, 255, 255, 0.5);
-  --notch-tab-hover-bg: rgba(255, 255, 255, 0.08);
+  /* Notch Tab 变量 — 浮在深色终端上 */
+  --notch-tab-active-bg: rgba(255, 255, 255, 0.08);
+  --notch-tab-active-fg: #E6E8EB;
+  --notch-tab-inactive-fg: rgba(255, 255, 255, 0.42);
+  --notch-tab-hover-bg: rgba(255, 255, 255, 0.06);
   --notch-tab-hover-fg: #C9D1D9;
-  --notch-tab-border: rgba(255, 255, 255, 0.15);
+  --notch-tab-border: rgba(255, 255, 255, 0.09);
 }
 
 @layer base {
@@ -337,6 +390,14 @@
   body {
     @apply bg-background text-foreground;
     -webkit-app-region: no-drag;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.008em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv02", "cv03", "cv04", "ss01";
   }
 }
 
@@ -397,7 +458,9 @@
   background-color: rgba(255, 255, 255, 0.30);
 }
 
-/* --- xterm.js viewport 滚动条 --- */
+/* --- xterm.js viewport 滚动条（v5 时代写法；@xterm/xterm v6 已改用 VS Code
+   ScrollableElement，真正生效的是下面的 .xterm-scrollable-element > .scrollbar > .slider。
+   这里保留作为 v5 兼容兜底） --- */
 .cc-terminal-host .xterm .xterm-viewport::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -410,10 +473,18 @@
   border-radius: 3px;
   transition: background-color 0.2s ease;
 }
+/* Light 模式：浅底用深色半透明滑块（对齐全局段 :446 的写法） */
 .cc-terminal-host:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.14);
+  background-color: rgba(0, 0, 0, 0.16);
 }
 .cc-terminal-host .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.32) !important;
+}
+/* Dark 模式 */
+.dark .cc-terminal-host:hover .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.dark .cc-terminal-host .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background-color: rgba(255, 255, 255, 0.30) !important;
 }
 /* Firefox 兜底 */
@@ -422,6 +493,9 @@
   scrollbar-color: transparent transparent;
 }
 .cc-terminal-host:hover .xterm .xterm-viewport {
+  scrollbar-color: rgba(0, 0, 0, 0.16) transparent;
+}
+.dark .cc-terminal-host:hover .xterm .xterm-viewport {
   scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
 
@@ -435,13 +509,24 @@
   border-radius: 3px;
   transition: background 0.2s ease;
 }
+/* Light 模式 */
 .cc-terminal-host:hover .xterm .xterm-scrollable-element > .scrollbar > .slider {
-  background: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(0, 0, 0, 0.16) !important;
 }
 .cc-terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider:hover {
-  background: rgba(255, 255, 255, 0.30) !important;
+  background: rgba(0, 0, 0, 0.32) !important;
 }
 .cc-terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider.active {
+  background: rgba(0, 0, 0, 0.45) !important;
+}
+/* Dark 模式 */
+.dark .cc-terminal-host:hover .xterm .xterm-scrollable-element > .scrollbar > .slider {
+  background: rgba(255, 255, 255, 0.14) !important;
+}
+.dark .cc-terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider:hover {
+  background: rgba(255, 255, 255, 0.30) !important;
+}
+.dark .cc-terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider.active {
   background: rgba(255, 255, 255, 0.45) !important;
 }
 
@@ -639,4 +724,19 @@
   user-select: none !important;
   pointer-events: none !important;
   caret-color: transparent !important;
+}
+
+/* ===== 无障碍：减弱动效（fewer/gentler, not zero）=====
+   keyframe 入场/离场（zoom/slide 等位移类）直接跳过；
+   transition 收短保留——颜色/透明度仍平滑渐变，位移几乎不可感。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  * {
+    transition-duration: 60ms !important;
+  }
 }

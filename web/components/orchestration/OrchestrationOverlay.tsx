@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import OrchestrationFullView from "./OrchestrationFullView";
 
 interface OrchestrationOverlayProps {
@@ -6,6 +7,7 @@ interface OrchestrationOverlayProps {
 }
 
 export default function OrchestrationOverlay({ onClose }: OrchestrationOverlayProps) {
+  const { t } = useTranslation("orchestration");
   return (
     <div
       className="absolute inset-0 z-40 flex justify-end"
@@ -17,13 +19,13 @@ export default function OrchestrationOverlay({ onClose }: OrchestrationOverlayPr
       <button
         type="button"
         className="absolute inset-0 cursor-default"
-        aria-label="Close orchestration overlay"
+        aria-label={t("closeOverlay")}
         onClick={onClose}
       />
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Orchestration"
+        aria-label={t("title")}
         className="relative m-3 min-w-0 overflow-hidden shadow-2xl"
         style={{
           width: "clamp(560px, 52vw, 980px)",

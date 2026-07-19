@@ -1,5 +1,5 @@
 import {
-  Command, FolderTree, History, ListTodo, Settings, Files, Server, Boxes, Workflow,
+  Command, FolderTree, ListTodo, Settings, Server, Boxes, Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useActivityBarStore, type ActivityView } from "@/stores/useActivityBarStore";
-import { useDialogStore, useOrchestratorStore } from "@/stores";
+import { useDialogStore, useLayoutUiStore, useOrchestratorStore } from "@/stores";
 import LayoutBar from "@/components/LayoutBar";
 
 type ActivityBadge = number | { tone: "red" | "blue"; value?: number };
@@ -27,42 +27,52 @@ function ActivityBarIcon({ icon, label, active, onClick, badge }: ActivityBarIco
   const badgeTone = typeof badge === "number" ? "blue" : badge?.tone;
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          className={`relative mx-auto h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
-            active
-              ? "text-[var(--app-accent)]"
-              : "text-[var(--app-icon-inactive)] hover:text-[var(--app-icon-hover)] hover:bg-[var(--app-activity-item-hover)]"
-          }`}
-          style={{
-            background: active ? "var(--app-activity-item-active)" : undefined,
-            boxShadow: active ? "var(--app-activity-item-active-shadow)" : undefined,
-          }}
-          onClick={onClick}
-        >
-          {icon}
-          {/* Badge */}
-          {showBadge && (
-            <span
-              className={`absolute top-[4px] right-[4px] min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
-                badgeTone === "red" ? "bg-red-500" : "bg-[var(--app-accent)]"
-              }`}
-            >
-              {badgeValue != null && badgeValue > 0 ? (badgeValue > 999 ? "999+" : badgeValue) : ""}
-            </span>
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right" sideOffset={8}>
-        <p>{label}</p>
-      </TooltipContent>
-    </Tooltip>
+    <div className="relative flex w-full justify-center">
+      {/* demo 式激活指示：左缘 3px accent 竖条 */}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-md bg-[var(--app-accent)]"
+        />
+      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className={`relative h-10 w-10 rounded-xl flex items-center justify-center transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] active:scale-[0.96] ${
+              active
+                ? "text-[var(--app-accent)]"
+                : "text-[var(--app-icon-inactive)] hover:text-[var(--app-icon-hover)] hover:bg-[var(--app-activity-item-hover)]"
+            }`}
+            style={{
+              background: active ? "var(--app-activity-item-active)" : undefined,
+              boxShadow: active ? "var(--app-activity-item-active-shadow)" : undefined,
+            }}
+            onClick={onClick}
+          >
+            {icon}
+            {/* Badge */}
+            {showBadge && (
+              <span
+                className={`absolute top-[4px] right-[4px] min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-white ${
+                  badgeTone === "red" ? "bg-[var(--app-status-danger)]" : "bg-[var(--app-accent)]"
+                }`}
+              >
+                {badgeValue != null && badgeValue > 0 ? (badgeValue > 999 ? "999+" : badgeValue) : ""}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>
+          <p>{label}</p>
+        </TooltipContent>
+      </Tooltip>
+    </div>
   );
 }
 
 export default function ActivityBar() {
   const { t } = useTranslation("sidebar");
+  const layoutSwitcherMode = useLayoutUiStore((s) => s.switcherMode);
   const activeView = useActivityBarStore((s) => s.activeView);
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const toggleView = useActivityBarStore((s) => s.toggleView);
@@ -88,8 +98,9 @@ export default function ActivityBar() {
 
   const viewItems: { view: ActivityView; icon: React.ReactNode; label: string; badge?: ActivityBadge }[] = [
     { view: "explorer", icon: <FolderTree className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("workspaces") },
-    { view: "files", icon: <Files className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("fileBrowser", { defaultValue: "Files" }) },
-    { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches") },
+    // "files" 视图入口已移除：Explorer 侧栏自带 文件 tab；appViewMode "files" 机制保留（openInFileBrowser 等内部跳转仍可用）
+    // "sessions" 视图入口已移除：Explorer 侧栏顶部图标 tab 自带「最近启动」；
+    // activeView "sessions" 机制保留（快捷键、Home 最近项目等内部跳转仍走 Sidebar 的 SessionsView 分支）
     // { view: "process", icon: <Activity className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("processMonitor", { defaultValue: "Processes" }), badge: processCount }, // 已禁用（macOS 卡顿排查）
     { view: "ssh", icon: <Server className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("sshMachines", { defaultValue: "SSH Machines" }) },
     {
@@ -162,7 +173,8 @@ export default function ActivityBar() {
 
       {/* 底部设置 */}
       <div className="mt-auto flex w-full flex-col items-center gap-1.5 pb-2">
-        <LayoutBar />
+        {/* topbar 模式下布局切换移到终端标签上方的布局条（LayoutTopBar），左下角入口隐藏 */}
+        {layoutSwitcherMode === "corner" && <LayoutBar />}
         <ActivityBarIcon
           icon={<Settings className="w-[22px] h-[22px]" strokeWidth={1.5} />}
           label={t("settings", { ns: "common", defaultValue: "Settings" })}

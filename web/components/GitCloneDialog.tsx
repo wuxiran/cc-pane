@@ -249,7 +249,7 @@ export default function GitCloneDialog({
             <div className="flex flex-col gap-1">
               <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--app-border)" }}>
                 <div
-                  className="h-full rounded-full transition-all duration-300"
+                  className="h-full rounded-full transition-all duration-[var(--dur)]"
                   style={{
                     width: `${progress?.percent ?? 0}%`,
                     background: "var(--app-accent)",

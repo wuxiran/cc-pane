@@ -96,6 +96,9 @@ pub struct Workspace {
     pub hidden: bool,
     #[serde(default)]
     pub sort_order: Option<i32>,
+    /// 默认工作空间：启动时缺失自动创建，列表恒置顶，不可删除
+    #[serde(default)]
+    pub is_default: bool,
 }
 
 /// 工作空间迁移目标类型
@@ -247,6 +250,7 @@ impl Workspace {
             pinned: false,
             hidden: false,
             sort_order: None,
+            is_default: false,
         }
     }
 }

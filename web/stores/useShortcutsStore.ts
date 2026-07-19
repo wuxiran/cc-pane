@@ -11,6 +11,7 @@ import { useSettingsStore } from "./useSettingsStore";
  * - toggle-mini-mode (Ctrl+M) → terminal: Enter (0x0D)
  * - split-right    (Ctrl+\) → terminal: SIGQUIT
  * - split-down     (Ctrl+-) → 部分 TUI 应用使用
+ * - command-palette (Ctrl+K) → readline: kill-line / Claude Code 常用
  */
 const TERMINAL_PASSTHROUGH_ACTIONS = new Set([
   "toggle-sidebar",
@@ -19,6 +20,7 @@ const TERMINAL_PASSTHROUGH_ACTIONS = new Set([
   "toggle-mini-mode",
   "split-right",
   "split-down",
+  "command-palette",
 ]);
 
 export interface ShortcutAction {

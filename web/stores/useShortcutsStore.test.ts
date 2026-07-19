@@ -453,6 +453,33 @@ describe("useShortcutsStore", () => {
       expect(shouldTerminalHandleKey(e)).toBe(false);
     });
 
+    it("终端聚焦时 Ctrl+K（命令面板）应放行给终端", () => {
+      useShortcutsStore.getState().setTerminalFocused(true);
+      const handler = vi.fn();
+      useShortcutsStore.getState().registerAction({
+        id: "command-palette",
+        label: "Command Palette",
+        handler,
+      });
+      useSettingsStore.setState({
+        settings: {
+          shortcuts: { bindings: { "command-palette": "Ctrl+K" } },
+        } as never,
+      });
+
+      const e = createKeyEvent("k", { ctrlKey: true });
+      // 终端聚焦：放行给终端，不触发面板
+      expect(shouldTerminalHandleKey(e)).toBe(true);
+      handleKeydown(e);
+      expect(handler).not.toHaveBeenCalled();
+
+      // 终端失焦：应用接管，打开面板
+      useShortcutsStore.getState().setTerminalFocused(false);
+      expect(shouldTerminalHandleKey(e)).toBe(false);
+      handleKeydown(e);
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
     it("终端聚焦时 pane 切换快捷键仍应由应用处理", () => {
       useShortcutsStore.getState().setTerminalFocused(true);
       useShortcutsStore.getState().registerAction({

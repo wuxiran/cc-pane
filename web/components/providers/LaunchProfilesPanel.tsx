@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { toast } from "sonner";
 import { Cable, KeyRound, Layers3, Link2, Pencil, Plus, Save, Settings2, Sparkles, Star, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,23 +25,6 @@ const BUILTIN_SKILLS = [
   "ccpanes-memory-dual-write",
 ];
 
-const MCP_MODE_LABELS: Record<LaunchProfileDraft["mcpPolicy"]["mode"], string> = {
-  default: "默认组合",
-  custom: "自定义选择",
-  disabled: "不注入",
-};
-
-const SKILL_MODE_LABELS: Record<LaunchProfileDraft["skillPolicy"]["mode"], string> = {
-  core: "默认组合",
-  custom: "自定义选择",
-  disabled: "不注入",
-};
-
-const KIMI_CONFIG_MODE_LABELS: Record<KimiConfigMode, string> = {
-  managed: "CC-Panes 隔离配置",
-  native: "本机 Kimi 配置 (~/.kimi)",
-};
-
 type ExternalSkillSourceKind = "claude" | "codex" | "plugin";
 
 const EXTERNAL_SKILL_GROUPS: Array<{
@@ -54,7 +39,7 @@ const EXTERNAL_SKILL_GROUPS: Array<{
 ];
 
 const TOOL_LABELS: Record<KnownCliTool, string> = {
-  none: "终端",
+  none: "",
   claude: "Claude",
   codex: "Codex",
   gemini: "Gemini",
@@ -65,29 +50,24 @@ const TOOL_LABELS: Record<KnownCliTool, string> = {
   grok: "Grok",
 };
 
-const RUNTIME_LABELS: Record<Exclude<LaunchProfileRuntime, null>, string> = {
-  local: "本机",
-  wsl: "WSL",
-  ssh: "SSH",
-};
-
 const panelClass = "rounded-lg border border-border bg-[var(--app-content)]";
 const inputClass = "h-9 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-70";
 
-function toolLabel(tool: KnownCliTool | string): string {
-  return TOOL_LABELS[tool as KnownCliTool] ?? tool;
+function toolLabel(tool: KnownCliTool | string, t: TFunction<["providers", "common"]>): string {
+  if (tool === "none") return t("toolNone");
+  return TOOL_LABELS[tool as KnownCliTool] || tool;
 }
 
 function profileMatchesTool(profile: Pick<LaunchProfile, "targetTools">, tool: KnownCliTool): boolean {
   return profile.targetTools.length === 0 || profile.targetTools.includes(tool);
 }
 
-function launchEnvironmentLabel(targetTools: string[], fallbackTool: KnownCliTool): string {
-  return toolLabel(targetTools[0] ?? fallbackTool);
+function launchEnvironmentLabel(targetTools: string[], fallbackTool: KnownCliTool, t: TFunction<["providers", "common"]>): string {
+  return toolLabel(targetTools[0] ?? fallbackTool, t);
 }
 
-function runtimeLabel(runtime?: LaunchProfileRuntime): string {
-  return runtime ? RUNTIME_LABELS[runtime] : "全部位置";
+function runtimeLabel(runtime: LaunchProfileRuntime, t: TFunction<["providers", "common"]>): string {
+  return runtime ? t(`runtime.${runtime}`) : t("runtimeAll");
 }
 
 function kimiConfigMode(options?: LaunchProfileDraft["adapterOptions"]): KimiConfigMode {
@@ -177,8 +157,8 @@ function profileDisplayName(profile: Pick<LaunchProfile, "name" | "alias">): str
   return profile.alias?.trim() || profile.name;
 }
 
-function draftDisplayName(draft: Pick<LaunchProfileDraft, "name" | "alias">): string {
-  return draft.alias?.trim() || draft.name?.trim() || "运行配置";
+function draftDisplayName(draft: Pick<LaunchProfileDraft, "name" | "alias">, t: TFunction<["providers", "common"]>): string {
+  return draft.alias?.trim() || draft.name?.trim() || t("profileFallbackName");
 }
 
 function workspaceProfileIds(workspace: Workspace | null): Set<string> {
@@ -191,11 +171,11 @@ function workspaceProfileIds(workspace: Workspace | null): Set<string> {
   return ids;
 }
 
-function systemDefaultLaunchProfileDraft(tool: KnownCliTool, runtime: LaunchProfileRuntime = null): LaunchProfileDraft {
+function systemDefaultLaunchProfileDraft(tool: KnownCliTool, runtime: LaunchProfileRuntime = null, t: TFunction<["providers", "common"]>): LaunchProfileDraft {
   return {
-    name: `${toolLabel(tool)} 系统默认配置`,
-    alias: `${toolLabel(tool)} 系统默认配置`,
-    description: "不注入 Provider，尊重 CLI 自身配置、CC Switch live config 和用户环境；CC-Panes 只附加自己的 MCP 与 Skill 能力。",
+    name: t("systemDefaultName", { tool: toolLabel(tool, t) }),
+    alias: t("systemDefaultName", { tool: toolLabel(tool, t) }),
+    description: t("systemDefaultDescription"),
     providerId: null,
     adapterOptions: {},
     targetTools: [tool],
@@ -300,6 +280,7 @@ export default function LaunchProfilesPanel({
   initialRuntime = null,
   onActiveToolChange,
 }: LaunchProfilesPanelProps) {
+  const { t } = useTranslation(["providers", "common"]);
   const profiles = useLaunchProfilesStore((s) => s.profiles);
   const loadProfiles = useLaunchProfilesStore((s) => s.load);
   const createProfile = useLaunchProfilesStore((s) => s.create);
@@ -319,7 +300,7 @@ export default function LaunchProfilesPanel({
 
   const [activeTool, setActiveTool] = useState<KnownCliTool>(initialTool);
   const [selectedId, setSelectedId] = useState<string | null>(SYSTEM_DEFAULT_PROFILE_ID);
-  const [draft, setDraft] = useState<LaunchProfileDraft>(() => systemDefaultLaunchProfileDraft(initialTool, initialRuntime));
+  const [draft, setDraft] = useState<LaunchProfileDraft>(() => systemDefaultLaunchProfileDraft(initialTool, initialRuntime, t));
   const [preview, setPreview] = useState<LaunchProfileResolution | null>(null);
   const [mcpManagerOpen, setMcpManagerOpen] = useState(false);
   const [workspaceBindingOpen, setWorkspaceBindingOpen] = useState(false);
@@ -380,13 +361,13 @@ export default function LaunchProfilesPanel({
     const profile = profiles.find((item) => item.id === selectedId);
     if (!profile || !profileMatchesTool(profile, activeTool)) {
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null));
+      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
     }
   }, [activeTool, profiles, selectedId, toolDefaultProfile]);
 
   useEffect(() => {
     if (selectedId === SYSTEM_DEFAULT_PROFILE_ID) {
-      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null));
+      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
     }
   }, [activeTool, selectedId, toolDefaultProfile]);
 
@@ -486,11 +467,11 @@ export default function LaunchProfilesPanel({
       setUserSkills(installed);
       setExternalSkills(external);
     } catch (error) {
-      toast.error(`加载 Skill 失败: ${String(error)}`);
+      toast.error(t("toast.loadSkillFailed", { error: String(error) }));
     } finally {
       setSkillMarketLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     refreshSkillMarket();
@@ -500,7 +481,7 @@ export default function LaunchProfilesPanel({
     if (selectedId === null || selectedId === SYSTEM_DEFAULT_PROFILE_ID) return;
     if (!filteredProfiles.some((profile) => profile.id === selectedId)) {
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null));
+      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
     }
   }, [activeTool, filteredProfiles, selectedId, toolDefaultProfile]);
 
@@ -519,13 +500,13 @@ export default function LaunchProfilesPanel({
     setActiveTool(tool);
     onActiveToolChange?.(tool);
     setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-    setDraft(systemDefaultLaunchProfileDraft(tool, draft.targetRuntime ?? null));
+    setDraft(systemDefaultLaunchProfileDraft(tool, draft.targetRuntime ?? null, t));
     resetTransientState();
   }, [activeTool, draft.targetRuntime, onActiveToolChange, resetTransientState]);
 
   const handleSelectSystemDefault = useCallback(() => {
     setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-    setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null));
+    setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
     resetTransientState();
   }, [activeTool, resetTransientState, toolDefaultProfile]);
 
@@ -536,12 +517,12 @@ export default function LaunchProfilesPanel({
   }, [resetTransientState]);
 
   const handleCopySystemDefault = useCallback(() => {
-    const base = selectedId === SYSTEM_DEFAULT_PROFILE_ID ? draft : systemDefaultLaunchProfileDraft(activeTool, draft.targetRuntime ?? null);
+    const base = selectedId === SYSTEM_DEFAULT_PROFILE_ID ? draft : systemDefaultLaunchProfileDraft(activeTool, draft.targetRuntime ?? null, t);
     setSelectedId(null);
     setDraft({
       ...base,
-      name: `${toolLabel(activeTool)} 运行配置`,
-      alias: `${toolLabel(activeTool)} 运行配置`,
+      name: t("profileDefaultName", { tool: toolLabel(activeTool, t) }),
+      alias: t("profileDefaultName", { tool: toolLabel(activeTool, t) }),
       targetTools: [activeTool],
       targetRuntime: draft.targetRuntime ?? null,
       isDefault: false,
@@ -550,12 +531,12 @@ export default function LaunchProfilesPanel({
     setMcpManagerOpen(false);
     setWorkspaceBindingOpen(false);
     setBindingWorkspaceName(null);
-    toast.success(`已创建 ${toolLabel(activeTool)} 运行配置草稿，保存后生效`);
-  }, [activeTool, draft, selectedId]);
+    toast.success(t("toast.draftCreated", { tool: toolLabel(activeTool, t) }));
+  }, [activeTool, draft, selectedId, t]);
 
   const handleSave = useCallback(async () => {
     try {
-      const alias = draft.alias?.trim() || draft.name?.trim() || `${toolLabel(activeTool)} 运行配置`;
+      const alias = draft.alias?.trim() || draft.name?.trim() || t("profileDefaultName", { tool: toolLabel(activeTool, t) });
       const nextDraft = {
         ...draft,
         name: draft.name?.trim() || alias,
@@ -575,7 +556,7 @@ export default function LaunchProfilesPanel({
       if (isSystemDefaultSelected) {
         setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
         setDraft(toDraft(saved));
-        toast.success("系统默认配置已保存");
+        toast.success(t("toast.systemDefaultSaved"));
         return;
       }
 
@@ -585,12 +566,12 @@ export default function LaunchProfilesPanel({
       setSelectedId(saved.id);
       setDraft(toDraft(saved));
       toast.success(workspaceContext && !selectedProfile
-        ? `运行配置已保存并绑定到 ${workspaceContext.name}`
-        : "运行配置已保存");
+        ? t("toast.profileSavedBound", { name: workspaceContext.name })
+        : t("toast.profileSaved"));
     } catch (error) {
-      toast.error(`保存失败: ${String(error)}`);
+      toast.error(t("common:saveFailed", { error: String(error) }));
     }
-  }, [activeTool, createProfile, currentKimiConfigMode, draft, isSystemDefaultSelected, selectedProfile, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
+  }, [activeTool, createProfile, currentKimiConfigMode, draft, isSystemDefaultSelected, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedProfile || isSystemDefaultSelected) return;
@@ -600,34 +581,34 @@ export default function LaunchProfilesPanel({
       }
       await removeProfile(selectedProfile.id);
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null));
-      toast.success("运行配置已删除");
+      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+      toast.success(t("toast.profileDeleted"));
     } catch (error) {
-      toast.error(`删除失败: ${String(error)}`);
+      toast.error(t("common:deleteFailed", { error: String(error) }));
     }
-  }, [activeTool, isSystemDefaultSelected, removeProfile, selectedProfile, toolDefaultProfile, updateWorkspaceLaunchProfile, workspaces]);
+  }, [activeTool, isSystemDefaultSelected, removeProfile, selectedProfile, t, toolDefaultProfile, updateWorkspaceLaunchProfile, workspaces]);
 
   const handleSetDefault = useCallback(async () => {
     if (!selectedProfile) return;
     await setDefaultProfile(selectedProfile.id);
-    toast.success("默认运行配置已更新");
-  }, [selectedProfile, setDefaultProfile]);
+    toast.success(t("toast.defaultProfileUpdated"));
+  }, [selectedProfile, setDefaultProfile, t]);
 
   const handleToggleWorkspaceBinding = useCallback(async (workspaceName: string, checked: boolean) => {
     if (!selectedProfileId) {
-      toast.info("请先保存运行配置");
+      toast.info(t("toast.saveProfileFirst"));
       return;
     }
     setBindingWorkspaceName(workspaceName);
     try {
       await updateWorkspaceLaunchProfile(workspaceName, checked ? selectedProfileId : null);
-      toast.success(checked ? `已绑定到 ${workspaceName}` : `已从 ${workspaceName} 解绑`);
+      toast.success(checked ? t("toast.boundTo", { name: workspaceName }) : t("toast.unboundFrom", { name: workspaceName }));
     } catch (error) {
-      toast.error(`工作空间绑定失败: ${String(error)}`);
+      toast.error(t("toast.workspaceBindFailed", { error: String(error) }));
     } finally {
       setBindingWorkspaceName(null);
     }
-  }, [selectedProfileId, updateWorkspaceLaunchProfile]);
+  }, [selectedProfileId, t, updateWorkspaceLaunchProfile]);
 
   const setMcpMode = (mode: LaunchProfileDraft["mcpPolicy"]["mode"]) => {
     setDraft((current) => {
@@ -887,9 +868,9 @@ export default function LaunchProfilesPanel({
           },
         };
       });
-      toast.success(`已安装并启用 ${installed.name}`);
+      toast.success(t("toast.installedAndEnabled", { name: installed.name }));
     } catch (error) {
-      toast.error(`安装 Skill 失败: ${String(error)}`);
+      toast.error(t("toast.installSkillFailed", { error: String(error) }));
     } finally {
       setInstallingSkillId(null);
     }
@@ -951,7 +932,7 @@ export default function LaunchProfilesPanel({
     const name = profileSkillForm.name.trim();
     const content = profileSkillForm.content.trim();
     if (!name || !content) {
-      toast.error("运行配置 Skill 的名称和内容不能为空");
+      toast.error(t("toast.profileSkillRequired"));
       return;
     }
 
@@ -1004,8 +985,8 @@ export default function LaunchProfilesPanel({
   };
 
   const previewProviderLabel = isSystemDefaultSelected
-    ? "CLI / CC Switch / 用户环境"
-    : preview?.providerName ?? "未指定 Provider";
+    ? t("previewSystemProvider")
+    : preview?.providerName ?? t("noProviderSpecified");
   const previewMcpCount = preview?.mcpServers.filter((server) => server.enabled).length ?? 0;
   const previewSkillCount = preview?.skills.filter((skill) => skill.enabled).length ?? 0;
   const mcpDisabled = draft.mcpPolicy.mode === "disabled";
@@ -1029,7 +1010,7 @@ export default function LaunchProfilesPanel({
     ...group,
     skills: externalSkills.filter((skill) => externalSkillSourceKind(skill) === group.kind),
   }));
-  const currentTitle = isSystemDefaultSelected ? `${toolLabel(activeTool)} 系统默认配置` : isNewProfile ? draftDisplayName(draft) : draftDisplayName(draft);
+  const currentTitle = isSystemDefaultSelected ? t("systemDefaultName", { tool: toolLabel(activeTool, t) }) : isNewProfile ? draftDisplayName(draft, t) : draftDisplayName(draft, t);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -1041,10 +1022,10 @@ export default function LaunchProfilesPanel({
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Layers3 size={16} style={{ color: "var(--app-accent)" }} />
-              <span>运行配置</span>
+              <span>{t("panelTitle")}</span>
             </div>
             <div className="mt-1 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-              先选择 CLI，再管理对应的 Provider、MCP、Skill 启动组合
+              {t("panelSubtitle")}
             </div>
           </div>
           <div className="max-w-full overflow-x-auto">
@@ -1066,21 +1047,21 @@ export default function LaunchProfilesPanel({
         <div className="border-b border-border px-3 py-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-              <span className="truncate">{toolLabel(activeTool)} 配置列表</span>
+              <span className="truncate">{t("profileListTitle", { tool: toolLabel(activeTool, t) })}</span>
             </div>
             <Button size="xs" variant="outline" onClick={handleCopySystemDefault}>
-              <Plus size={12} /> 新增
+              <Plus size={12} /> {t("add")}
             </Button>
           </div>
           <div className="mt-1 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-            {workspaceContext ? `仅显示 ${workspaceContext.name} 绑定和当前默认配置` : "全部工作空间可用的运行配置"}
+            {workspaceContext ? t("listScopeWorkspace", { name: workspaceContext.name }) : t("listScopeAll")}
           </div>
           <select
             className="mt-3 h-8 w-full rounded-md border bg-background px-2 text-xs"
             value={workspaceFilterName}
             onChange={(event) => setWorkspaceFilterName(event.target.value)}
           >
-            <option value={WORKSPACE_FILTER_ALL}>全部工作空间</option>
+            <option value={WORKSPACE_FILTER_ALL}>{t("allWorkspaces")}</option>
             {workspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.name}>
                 {workspace.alias || workspace.name}
@@ -1103,16 +1084,16 @@ export default function LaunchProfilesPanel({
           >
             <div className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                {toolLabel(activeTool)} 系统默认配置
+                {t("systemDefaultName", { tool: toolLabel(activeTool, t) })}
               </span>
-              <Badge variant="secondary" className="text-[10px]">默认</Badge>
+              <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>
             </div>
             <div className="mt-1 text-xs leading-5" style={{ color: "var(--app-text-secondary)" }}>
-              Provider 不注入，MCP / Skill 可保存默认组合
+              {t("systemDefaultCardHint")}
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px]">CC-Panes MCP</span>
-              <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px]">核心 Skill</span>
+              <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px]">{t("coreSkillTag")}</span>
             </div>
           </button>
 
@@ -1131,18 +1112,18 @@ export default function LaunchProfilesPanel({
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{profileDisplayName(profile)}</span>
-                  {profile.isDefault && <Badge variant="secondary" className="text-[10px]">默认</Badge>}
+                  {profile.isDefault && <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>}
                   {workspaceContext && workspaceBoundProfileIds.has(profile.id) && (
-                    <Badge variant="outline" className="text-[10px]">工作空间</Badge>
+                    <Badge variant="outline" className="text-[10px]">{t("workspaceBadge")}</Badge>
                   )}
                 </div>
                 <div className="mt-1 truncate text-xs" style={{ color: "var(--app-text-secondary)" }}>
-                  {providers.find((p) => p.id === profile.providerId)?.name ?? "未指定 Provider"}
+                  {providers.find((p) => p.id === profile.providerId)?.name ?? t("noProviderSpecified")}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
-                  <span>{launchEnvironmentLabel(profile.targetTools, activeTool)}</span>
+                  <span>{launchEnvironmentLabel(profile.targetTools, activeTool, t)}</span>
                   <span className="rounded-md border border-border px-1.5 py-0.5">
-                    {runtimeLabel(profile.targetRuntime ?? null)}
+                    {runtimeLabel(profile.targetRuntime ?? null, t)}
                   </span>
                 </div>
               </button>
@@ -1152,8 +1133,8 @@ export default function LaunchProfilesPanel({
           {filteredProfiles.length === 0 && (
             <div className="px-2 py-4 text-xs leading-5" style={{ color: "var(--app-text-tertiary)" }}>
               {workspaceContext
-                ? "这个工作空间还没有绑定自定义运行配置。点击“新增”会创建并绑定到当前工作空间。"
-                : "当前 CLI 还没有自定义配置。点击“新增”会从系统默认配置创建草稿。"}
+                ? t("listEmptyWorkspace")
+                : t("listEmptyAll")}
             </div>
           )}
         </div>
@@ -1168,16 +1149,16 @@ export default function LaunchProfilesPanel({
                   <h2 className="truncate text-base font-semibold" style={{ color: "var(--app-text-primary)" }}>
                     {currentTitle}
                   </h2>
-                  {(isSystemDefaultSelected || selectedProfile?.isDefault) && <Badge variant="secondary" className="text-[10px]">默认</Badge>}
+                  {(isSystemDefaultSelected || selectedProfile?.isDefault) && <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>}
                   {!isSystemDefaultSelected && (
-                    <Badge variant="outline" className="text-[10px]">{toolLabel(activeTool)}</Badge>
+                    <Badge variant="outline" className="text-[10px]">{toolLabel(activeTool, t)}</Badge>
                   )}
-                  <Badge variant="outline" className="text-[10px]">{runtimeLabel(draft.targetRuntime ?? null)}</Badge>
+                  <Badge variant="outline" className="text-[10px]">{runtimeLabel(draft.targetRuntime ?? null, t)}</Badge>
                 </div>
                 <p className="mt-1 max-w-2xl text-xs leading-5" style={{ color: "var(--app-text-secondary)" }}>
                   {isSystemDefaultSelected
-                    ? `${toolLabel(activeTool)} 系统默认配置是启动基线。Provider 不注入，MCP 与 Skill 可按当前环境保存默认组合。`
-                    : "运行配置用于一次启动时组合 Provider、MCP 与 Skill，可绑定到工作空间或设为当前 CLI 的默认。"}
+                    ? t("systemDefaultDetail", { tool: toolLabel(activeTool, t) })
+                    : t("profileDetail")}
                 </p>
               </div>
 
@@ -1190,20 +1171,20 @@ export default function LaunchProfilesPanel({
                       disabled={!selectedProfileId}
                       onClick={() => setWorkspaceBindingOpen((value) => !value)}
                     >
-                      <Link2 size={14} /> {selectedProfileId ? `工作空间绑定 ${boundWorkspaces.length}` : "保存后绑定"}
+                      <Link2 size={14} /> {selectedProfileId ? t("workspaceBindingCount", { count: boundWorkspaces.length }) : t("bindAfterSave")}
                     </Button>
                     <Button size="sm" variant="outline" onClick={handleCopySystemDefault}>
-                      <Plus size={14} /> 复制为运行配置
+                      <Plus size={14} /> {t("copyAsProfile")}
                     </Button>
                     <Button size="sm" onClick={handleSave}>
-                      <Save size={14} /> 保存默认
+                      <Save size={14} /> {t("saveDefault")}
                     </Button>
                   </>
                 ) : (
                   <>
                     {selectedProfile && !selectedProfile.isDefault && (
                       <Button size="sm" variant="outline" onClick={handleSetDefault}>
-                        <Star size={14} /> 设为默认
+                        <Star size={14} /> {t("setAsDefault")}
                       </Button>
                     )}
                     <Button
@@ -1212,15 +1193,15 @@ export default function LaunchProfilesPanel({
                       disabled={!selectedProfile}
                       onClick={() => setWorkspaceBindingOpen((value) => !value)}
                     >
-                      <Link2 size={14} /> {selectedProfile ? `工作空间绑定 ${boundWorkspaces.length}` : "保存后绑定"}
+                      <Link2 size={14} /> {selectedProfile ? t("workspaceBindingCount", { count: boundWorkspaces.length }) : t("bindAfterSave")}
                     </Button>
                     {selectedProfile && (
                       <Button size="sm" variant="outline" onClick={handleDelete}>
-                        <Trash2 size={14} /> 删除
+                        <Trash2 size={14} /> {t("common:delete")}
                       </Button>
                     )}
                     <Button size="sm" onClick={handleSave}>
-                      <Save size={14} /> {isNewProfile ? "保存为运行配置" : "保存"}
+                      <Save size={14} /> {isNewProfile ? t("saveAsProfile") : t("common:save")}
                     </Button>
                   </>
                 )}
@@ -1229,11 +1210,11 @@ export default function LaunchProfilesPanel({
 
             <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-4">
               <PreviewItem label="Provider" value={previewProviderLabel} />
-              <PreviewItem label="MCP" value={`${previewMcpCount} 个启用`} />
-              <PreviewItem label="Skill" value={`${previewSkillCount} 个启用`} />
+              <PreviewItem label="MCP" value={t("enabledCount", { count: previewMcpCount })} />
+              <PreviewItem label="Skill" value={t("enabledCount", { count: previewSkillCount })} />
               <PreviewItem
-                label="工作空间"
-                value={selectedProfileId ? `${boundWorkspaces.length} 个绑定` : "未保存"}
+                label={t("workspace")}
+                value={selectedProfileId ? t("boundCount", { count: boundWorkspaces.length }) : t("notSaved")}
               />
             </div>
 
@@ -1256,7 +1237,7 @@ export default function LaunchProfilesPanel({
                     >
                       <Link2 size={14} />
                     </span>
-                    工作空间绑定
+                    {t("workspaceBinding")}
                   </div>
                   <Badge variant="default" className="text-[10px]">
                     {boundWorkspaces.length}
@@ -1264,11 +1245,11 @@ export default function LaunchProfilesPanel({
                 </div>
                 {workspacesLoading && workspaces.length === 0 ? (
                   <div className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                    正在加载工作空间...
+                    {t("loadingWorkspaces")}
                   </div>
                 ) : workspaces.length === 0 ? (
                   <div className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                    暂无工作空间。
+                    {t("noWorkspaces")}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -1279,7 +1260,7 @@ export default function LaunchProfilesPanel({
                         : null;
                       const currentLabel = currentProfile
                         ? profileDisplayName(currentProfile)
-                        : workspace.launchProfileId ? workspace.launchProfileId : "未绑定";
+                        : workspace.launchProfileId ? workspace.launchProfileId : t("notBound");
                       return (
                         <label
                           key={workspace.id}
@@ -1304,7 +1285,7 @@ export default function LaunchProfilesPanel({
                           />
                           <span className="min-w-0 flex-1 truncate">{workspace.alias || workspace.name}</span>
                           <span className="truncate text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
-                            {checked ? "当前配置" : currentLabel}
+                            {checked ? t("currentProfile") : currentLabel}
                           </span>
                         </label>
                       );
@@ -1315,14 +1296,14 @@ export default function LaunchProfilesPanel({
             )}
           </section>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]">
             <Section
-              title="基础"
-              description="设置别名、限定适用 CLI，并选择要显式注入的 Provider。"
+              title={t("sectionBasicTitle")}
+              description={t("sectionBasicDesc")}
               icon={<KeyRound size={16} />}
             >
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Field label="别名">
+                <Field label={t("fieldAlias")}>
                   <input
                     className={inputClass}
                     value={draft.alias ?? draft.name ?? ""}
@@ -1336,37 +1317,37 @@ export default function LaunchProfilesPanel({
                     value={draft.providerId ?? ""}
                     onChange={(event) => setDraft({ ...draft, providerId: event.target.value || null })}
                   >
-                    <option value="">未指定 Provider</option>
+                    <option value="">{t("noProviderSpecified")}</option>
                     {providerOptions.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
                   </select>
                 </Field>
               </div>
               {activeTool === "kimi" && (
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <Field label="Kimi 配置来源">
+                  <Field label={t("fieldKimiConfigSource")}>
                     <select
                       className={inputClass}
                       value={currentKimiConfigMode}
                       onChange={(event) => setKimiConfigMode(event.target.value as KimiConfigMode)}
                     >
-                      <option value="managed">{KIMI_CONFIG_MODE_LABELS.managed}</option>
-                      <option value="native">{KIMI_CONFIG_MODE_LABELS.native}</option>
+                      <option value="managed">{t("kimiConfig.managed")}</option>
+                      <option value="native">{t("kimiConfig.native")}</option>
                     </select>
                   </Field>
-                  <div className="rounded-md border border-amber-500/30 px-3 py-2 text-xs leading-5 text-amber-600">
+                  <div className="rounded-md border border-[var(--app-status-warning-border)] px-3 py-2 text-xs leading-5 text-[var(--app-status-warning)]">
                     {currentKimiConfigMode === "native"
-                      ? "使用 ~/.kimi 登录态；启动时不传 --config-file，也不注入 KIMI_SHARE_DIR。"
-                      : "Kimi 显式 Provider 暂未支持完整模型配置；Provider 选择已禁用。"}
+                      ? t("kimiNativeHint")
+                      : t("kimiManagedHint")}
                   </div>
                 </div>
               )}
               <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Field label="适用 CLI">
+                <Field label={t("fieldApplicableCli")}>
                   <div className={cn(inputClass, "flex items-center")}>
-                    {toolLabel(activeTool)}
+                    {toolLabel(activeTool, t)}
                   </div>
                 </Field>
-                <Field label="运行位置">
+                <Field label={t("fieldRuntime")}>
                   <select
                     className={inputClass}
                     value={draft.targetRuntime ?? ""}
@@ -1375,18 +1356,18 @@ export default function LaunchProfilesPanel({
                       targetRuntime: event.target.value ? event.target.value as Exclude<LaunchProfileRuntime, null> : null,
                     })}
                   >
-                    <option value="">全部位置</option>
-                    <option value="local">本机</option>
-                    <option value="wsl">WSL</option>
-                    <option value="ssh">SSH</option>
+                    <option value="">{t("runtimeAll")}</option>
+                    <option value="local">{t("runtime.local")}</option>
+                    <option value="wsl">{t("runtime.wsl")}</option>
+                    <option value="ssh">{t("runtime.ssh")}</option>
                   </select>
                 </Field>
               </div>
               <div className="mt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-                运行配置固定归属当前 CLI；运行位置用于区分本机、WSL 与 SSH 的 CLI 配置。
+                {t("runtimeHint")}
               </div>
               <div className="mt-3">
-                <Field label="说明">
+                <Field label={t("fieldDescription")}>
                   <input
                     className={inputClass}
                     value={draft.description ?? ""}
@@ -1397,8 +1378,8 @@ export default function LaunchProfilesPanel({
             </Section>
 
             <Section
-              title="权限"
-              description="设置当前运行配置的 CLI 权限策略。"
+              title={t("sectionPermTitle")}
+              description={t("sectionPermDesc")}
               icon={<Sparkles size={16} />}
             >
               <label
@@ -1426,21 +1407,21 @@ export default function LaunchProfilesPanel({
                     YOLO mode
                     {draft.yoloMode ? (
                       <span className="ml-2 align-middle text-[11px] font-semibold text-destructive">
-                        ⚠ 已绕过权限确认
+                        {t("yoloBypassed")}
                       </span>
                     ) : null}
                   </span>
                   <span className="block text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                    仅本次启动追加 CLI bypass 参数，不写入 Claude/Codex 用户配置。
+                    {t("yoloDesc")}
                   </span>
                 </span>
               </label>
 
               {yoloConfirmOpen && !draft.yoloMode ? (
                 <div className="mt-2 rounded-md border border-destructive/60 bg-destructive/10 px-3 py-2 text-xs leading-5">
-                  <p className="font-medium text-destructive">确认开启 YOLO？</p>
+                  <p className="font-medium text-destructive">{t("yoloConfirmTitle")}</p>
                   <p className="mt-1" style={{ color: "var(--app-text-tertiary)" }}>
-                    会让本配置启动的 CLI 跳过权限 / 沙箱确认（Claude：--dangerously-skip-permissions，Codex：bypass approvals and sandbox），可能在无人确认下执行危险命令。仅在你完全信任该工作区时开启。
+                    {t("yoloConfirmBody")}
                   </p>
                   <div className="mt-2 flex gap-2">
                     <Button
@@ -1452,7 +1433,7 @@ export default function LaunchProfilesPanel({
                         setYoloConfirmOpen(false);
                       }}
                     >
-                      确认开启
+                      {t("yoloConfirmBtn")}
                     </Button>
                     <Button
                       type="button"
@@ -1460,46 +1441,46 @@ export default function LaunchProfilesPanel({
                       size="sm"
                       onClick={() => setYoloConfirmOpen(false)}
                     >
-                      取消
+                      {t("common:cancel")}
                     </Button>
                   </div>
                 </div>
               ) : null}
 
               <div className="mt-3 text-[11px] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
-                Claude 使用 skip permissions；Codex 使用 bypass approvals and sandbox。其他 CLI 会保存此标记，但不会追加未知参数。
+                {t("yoloFootnote")}
               </div>
             </Section>
 
             <Section
-              title="预览"
-              description="按当前选中的工作空间解析最终启动结果。"
+              title={t("sectionPreviewTitle")}
+              description={t("sectionPreviewDesc")}
               icon={<Layers3 size={16} />}
             >
               {isNewProfile ? (
                 <div className="text-xs leading-5" style={{ color: "var(--app-text-tertiary)" }}>
-                  保存后显示当前运行配置的解析结果。
+                  {t("previewAfterSave")}
                 </div>
               ) : (
                 <div className="space-y-3 text-xs">
                   {workspaceContext && (
                     <div style={{ color: "var(--app-text-secondary)" }}>
-                      当前工作空间: <span className="font-medium">{workspaceContext.name}</span>
+                      {t("previewCurrentWorkspace")}<span className="font-medium">{workspaceContext.name}</span>
                     </div>
                   )}
                   {workspaceContext && (
                     <div style={{ color: "var(--app-text-secondary)" }}>
-                      绑定配置: {workspaceContext.launchProfileId ? profileDisplayName(profiles.find((p) => p.id === workspaceContext.launchProfileId) ?? { name: workspaceContext.launchProfileId, alias: null }) : "未绑定"}
+                      {t("previewBoundProfile")}{workspaceContext.launchProfileId ? profileDisplayName(profiles.find((p) => p.id === workspaceContext.launchProfileId) ?? { name: workspaceContext.launchProfileId, alias: null }) : t("notBound")}
                     </div>
                   )}
                   {workspaces.length === 0 && (
-                    <div style={{ color: "var(--app-text-tertiary)" }}>创建或选择工作空间后，可以预览项目 Skill。</div>
+                    <div style={{ color: "var(--app-text-tertiary)" }}>{t("previewCreateWorkspaceHint")}</div>
                   )}
                   {!workspaceContext && workspaces.length > 0 && (
-                    <div style={{ color: "var(--app-text-tertiary)" }}>在左侧选择工作空间后，可以按该工作空间解析项目 Skill。</div>
+                    <div style={{ color: "var(--app-text-tertiary)" }}>{t("previewSelectWorkspaceHint")}</div>
                   )}
                   {preview?.warnings.map((warning) => (
-                    <div key={warning} className="rounded-md border border-amber-500/30 px-3 py-2 text-amber-500">
+                    <div key={warning} className="rounded-md border border-[var(--app-status-warning-border)] px-3 py-2 text-[var(--app-status-warning)]">
                       {warning}
                     </div>
                   ))}
@@ -1511,7 +1492,7 @@ export default function LaunchProfilesPanel({
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <Section
               title="MCP"
-              description="设置本运行配置启动时注入的 MCP 组合。"
+              description={t("sectionMcpDesc")}
               icon={<Cable size={16} />}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1523,7 +1504,7 @@ export default function LaunchProfilesPanel({
                       variant={draft.mcpPolicy.mode === mode ? "default" : "outline"}
                       onClick={() => setMcpMode(mode)}
                     >
-                      {MCP_MODE_LABELS[mode]}
+                      {t(`mcpMode.${mode}`)}
                     </Button>
                   ))}
                 </div>
@@ -1533,16 +1514,16 @@ export default function LaunchProfilesPanel({
                   onClick={() => setMcpManagerOpen((value) => !value)}
                 >
                   <Settings2 size={14} />
-                  {mcpManagerOpen ? "收起服务库" : "管理共享 MCP"}
+                  {mcpManagerOpen ? t("collapseServerLib") : t("manageSharedMcp")}
                 </Button>
               </div>
 
               <div className="mt-4 rounded-md border border-border bg-background px-3 py-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
                 {mcpDisabled
-                  ? "当前配置不会注入 CC-Panes MCP 或共享 MCP。"
+                  ? t("mcpDisabledHint")
                   : draft.mcpPolicy.mode === "custom"
-                    ? "自定义模式只注入下方选中的共享 MCP。"
-                    : "默认组合会使用 CC-Panes MCP，并启用共享服务库中未排除的 MCP。"}
+                    ? t("mcpCustomHint")
+                    : t("mcpDefaultHint")}
               </div>
 
               {!mcpDisabled && (
@@ -1561,7 +1542,7 @@ export default function LaunchProfilesPanel({
                     />
                     <span className="min-w-0">
                       <span className="block font-medium">CC-Panes MCP</span>
-                      <span className="block text-xs" style={{ color: "var(--app-text-tertiary)" }}>注入 CC-Panes 自身的任务、工作空间与编排能力。</span>
+                      <span className="block text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("ccpanesMcpDesc")}</span>
                     </span>
                   </label>
                   <label
@@ -1577,8 +1558,8 @@ export default function LaunchProfilesPanel({
                       onChange={(event) => setDraft({ ...draft, mcpPolicy: { ...draft.mcpPolicy, includeSharedMcp: event.target.checked } })}
                     />
                     <span className="min-w-0">
-                      <span className="block font-medium">共享 MCP 服务</span>
-                      <span className="block text-xs" style={{ color: "var(--app-text-tertiary)" }}>从共享服务库复用已配置的 MCP。</span>
+                      <span className="block font-medium">{t("sharedMcpService")}</span>
+                      <span className="block text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("sharedMcpServiceDesc")}</span>
                     </span>
                   </label>
                 </div>
@@ -1587,14 +1568,14 @@ export default function LaunchProfilesPanel({
               {!mcpDisabled && draft.mcpPolicy.includeSharedMcp && (
                 <div className="mt-4">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>共享 MCP 选择</div>
+                    <div className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("sharedMcpSelection")}</div>
                     <Badge variant="secondary" className="text-[10px]">
                       {sharedMcpSelectedCount}/{servers.length}
                     </Badge>
                   </div>
                   {servers.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      共享服务库为空，可以通过“管理共享 MCP”新增或导入。
+                      {t("sharedMcpEmpty")}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 gap-2">
@@ -1634,7 +1615,7 @@ export default function LaunchProfilesPanel({
 
             <Section
               title="Skill"
-              description="设置本运行配置启动时注入的 Skill 组合。"
+              description={t("sectionSkillDesc")}
               icon={<Sparkles size={16} />}
             >
               <div className="flex flex-wrap gap-2">
@@ -1645,32 +1626,32 @@ export default function LaunchProfilesPanel({
                     variant={draft.skillPolicy.mode === mode ? "default" : "outline"}
                     onClick={() => setSkillMode(mode)}
                   >
-                    {SKILL_MODE_LABELS[mode]}
+                    {t(`skillMode.${mode}`)}
                   </Button>
                 ))}
               </div>
 
               <div className="mt-4 rounded-md border border-border bg-background px-3 py-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
                 {draft.skillPolicy.mode === "disabled"
-                  ? "当前配置不会注入 CC-Panes 内置 Skill、运行配置 Skill 或工作空间项目 Skill。"
+                  ? t("skillDisabledHint")
                   : draft.skillPolicy.mode === "custom"
-                    ? "自定义模式只注入下方选中的 Skill。"
-                    : "默认组合会启用 CC-Panes 内置 Skill、运行配置 Skill，并可附加工作空间项目 Skill。"}
+                    ? t("skillCustomHint")
+                    : t("skillDefaultHint")}
               </div>
 
               <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>CC-Panes 内置 Skill</div>
+                  <div className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("builtinSkill")}</div>
                   <Badge variant="secondary" className="text-[10px]">
                     {builtinSkillSelectedCount}/{BUILTIN_SKILLS.length}
                   </Badge>
                 </div>
                 <div className="flex gap-2">
                   <Button size="xs" variant="outline" onClick={selectAllBuiltinSkills}>
-                    全选
+                    {t("common:selectAll")}
                   </Button>
                   <Button size="xs" variant="outline" onClick={clearBuiltinSkills}>
-                    清空
+                    {t("clear")}
                   </Button>
                 </div>
               </div>
@@ -1692,7 +1673,7 @@ export default function LaunchProfilesPanel({
                         onChange={() => toggleSkill(name)}
                       />
                       <span className="min-w-0 flex-1 truncate">{name}</span>
-                      <Badge variant="secondary" className="text-[10px]">内置</Badge>
+                      <Badge variant="secondary" className="text-[10px]">{t("builtinBadge")}</Badge>
                     </label>
                   );
                 })}
@@ -1711,11 +1692,11 @@ export default function LaunchProfilesPanel({
                       </Badge>
                     </div>
                     <div className="mt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-                      Core 模式默认通过外部池；Custom 模式只允许勾选项。
+                      {t("externalSkillHint")}
                     </div>
                   </div>
                   <Button size="xs" variant="outline" disabled={skillMarketLoading} onClick={refreshSkillMarket}>
-                    {skillMarketLoading ? "刷新中" : "刷新"}
+                    {skillMarketLoading ? t("refreshing") : t("refresh")}
                   </Button>
                 </div>
 
@@ -1744,11 +1725,11 @@ export default function LaunchProfilesPanel({
                 <div className="mt-3 space-y-2">
                   {skillMarketLoading && visibleExternalSkills.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      正在加载外部 Skill...
+                      {t("loadingExternalSkills")}
                     </div>
                   ) : visibleExternalSkills.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      未发现 {visibleExternalSkillGroups.map((group) => group.label).join("、")} 外部 Skill。
+                      {t("noExternalSkills", { sources: visibleExternalSkillGroups.map((group) => group.label).join(", ") })}
                     </div>
                   ) : externalSkillGroups.map((group) => {
                     const included = isExternalSourceIncluded(draft.skillPolicy, group.kind);
@@ -1761,7 +1742,7 @@ export default function LaunchProfilesPanel({
                         <div className="mt-2 grid grid-cols-1 gap-2">
                           {group.skills.length === 0 ? (
                             <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                              这个来源下暂无 Skill。
+                              {t("noSkillInSource")}
                             </div>
                           ) : group.skills.map((skill) => {
                             const checked = isExternalSkillSelected(draft.skillPolicy, skill);
@@ -1806,29 +1787,29 @@ export default function LaunchProfilesPanel({
                   <div>
                     <div className="flex items-center gap-2">
                       <div className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>
-                        推荐 Skill 市场
+                        {t("skillMarket")}
                       </div>
                       <Badge variant="secondary" className="text-[10px]">
                         {userSkillSelectedCount}/{userSkills.length}
                       </Badge>
                     </div>
                     <div className="mt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-                      官方推荐 Skill 安装到用户库。只有安装并勾选后才会注入当前运行配置。
+                      {t("skillMarketHint")}
                     </div>
                   </div>
                   <Button size="xs" variant="outline" disabled={skillMarketLoading} onClick={refreshSkillMarket}>
-                    {skillMarketLoading ? "刷新中" : "刷新"}
+                    {skillMarketLoading ? t("refreshing") : t("refresh")}
                   </Button>
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-2">
                   {skillMarketLoading && marketEntries.length === 0 && standaloneUserSkills.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      正在加载官方 Skill 推荐...
+                      {t("loadingMarket")}
                     </div>
                   ) : marketEntries.length === 0 && standaloneUserSkills.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      暂无可用推荐。离线或官方索引不可用时不会影响已有运行配置。
+                      {t("noMarketEntries")}
                     </div>
                   ) : (
                     <>
@@ -1854,7 +1835,7 @@ export default function LaunchProfilesPanel({
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="truncate font-medium">{entry.name}</span>
-                                {entry.recommended && <Badge variant="secondary" className="text-[10px]">推荐</Badge>}
+                                {entry.recommended && <Badge variant="secondary" className="text-[10px]">{t("recommendedBadge")}</Badge>}
                                 {entry.category && <Badge variant="outline" className="text-[10px]">{entry.category}</Badge>}
                               </div>
                               {entry.description && (
@@ -1864,11 +1845,11 @@ export default function LaunchProfilesPanel({
                               )}
                               <div className="mt-1 flex flex-wrap gap-2 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
                                 <span>v{entry.version}</span>
-                                {entry.license ? <span>{entry.license}</span> : <span>缺少 license</span>}
+                                {entry.license ? <span>{entry.license}</span> : <span>{t("missingLicense")}</span>}
                               </div>
                             </div>
                             {installed ? (
-                              <Badge variant="secondary" className="shrink-0 text-[10px]">已安装</Badge>
+                              <Badge variant="secondary" className="shrink-0 text-[10px]">{t("installed")}</Badge>
                             ) : (
                               <Button
                                 size="xs"
@@ -1876,9 +1857,9 @@ export default function LaunchProfilesPanel({
                                 className="shrink-0"
                                 disabled={!installable || installingSkillId === entry.id}
                                 onClick={() => installAndEnableSkill(entry)}
-                                title={installable ? "安装到用户库并启用到当前运行配置" : "缺少 license、contentUrl 或 sha256，暂不能安装"}
+                                title={installable ? t("installTitle") : t("installBlockedTitle")}
                               >
-                                {installingSkillId === entry.id ? "安装中" : "安装并启用"}
+                                {installingSkillId === entry.id ? t("installing") : t("installAndEnable")}
                               </Button>
                             )}
                           </div>
@@ -1908,7 +1889,7 @@ export default function LaunchProfilesPanel({
                                 </span>
                               )}
                             </span>
-                            <Badge variant="secondary" className="shrink-0 text-[10px]">用户库</Badge>
+                            <Badge variant="secondary" className="shrink-0 text-[10px]">{t("userLibBadge")}</Badge>
                           </label>
                         );
                       })}
@@ -1922,18 +1903,18 @@ export default function LaunchProfilesPanel({
                   <div>
                     <div className="flex items-center gap-2">
                       <div className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>
-                        运行配置 Skill
+                        {t("profileSkill")}
                       </div>
                       <Badge variant="secondary" className="text-[10px]">
                         {profileSkillSelectedCount}/{draft.skillPolicy.profileSkills.length}
                       </Badge>
                     </div>
                     <div className="mt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-                      保存在当前运行配置里，启动时通过 CC-Panes session context 注入，不写入用户项目。
+                      {t("profileSkillHint")}
                     </div>
                   </div>
                   <Button size="xs" variant="outline" onClick={beginNewProfileSkill}>
-                    <Plus size={12} /> 新增
+                    <Plus size={12} /> {t("add")}
                   </Button>
                 </div>
 
@@ -1941,14 +1922,14 @@ export default function LaunchProfilesPanel({
                   <div className="mt-3 rounded-md border border-primary/40 bg-[var(--app-content)] p-3">
                     <div className="mb-3 flex items-center justify-between gap-2">
                       <div className="text-xs font-semibold" style={{ color: "var(--app-text-primary)" }}>
-                        {editingProfileSkillId ? "编辑运行配置 Skill" : "新增运行配置 Skill"}
+                        {editingProfileSkillId ? t("editProfileSkill") : t("newProfileSkill")}
                       </div>
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={cancelProfileSkillEdit}>
                         <X size={13} />
                       </Button>
                     </div>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <Field label="名称">
+                      <Field label={t("fieldName")}>
                         <input
                           className={inputClass}
                           value={profileSkillForm.name}
@@ -1956,31 +1937,31 @@ export default function LaunchProfilesPanel({
                           placeholder="review-guard"
                         />
                       </Field>
-                      <Field label="说明">
+                      <Field label={t("fieldDescription")}>
                         <input
                           className={inputClass}
                           value={profileSkillForm.description}
                           onChange={(event) => setProfileSkillForm({ ...profileSkillForm, description: event.target.value })}
-                          placeholder="进入会话时附加的工作习惯或角色要求"
+                          placeholder={t("profileSkillDescPlaceholder")}
                         />
                       </Field>
                     </div>
                     <div className="mt-3">
-                      <Field label="内容">
+                      <Field label={t("fieldContent")}>
                         <textarea
                           className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm"
                           value={profileSkillForm.content}
                           onChange={(event) => setProfileSkillForm({ ...profileSkillForm, content: event.target.value })}
-                          placeholder="写入这条运行配置 Skill 的完整指令。"
+                          placeholder={t("profileSkillContentPlaceholder")}
                         />
                       </Field>
                     </div>
                     <div className="mt-3 flex justify-end gap-2">
                       <Button size="xs" variant="outline" onClick={cancelProfileSkillEdit}>
-                        取消
+                        {t("common:cancel")}
                       </Button>
                       <Button size="xs" onClick={saveProfileSkill}>
-                        <Save size={12} /> 保存 Skill
+                        <Save size={12} /> {t("saveSkill")}
                       </Button>
                     </div>
                   </div>
@@ -1989,7 +1970,7 @@ export default function LaunchProfilesPanel({
                 <div className="mt-3 grid grid-cols-1 gap-2">
                   {draft.skillPolicy.profileSkills.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      还没有运行配置 Skill。点击“新增”后会随当前运行配置保存。
+                      {t("profileSkillEmpty")}
                     </div>
                   ) : draft.skillPolicy.profileSkills.map((skill) => {
                     const checked = isProfileSkillSelected(draft.skillPolicy, skill.id);
@@ -2049,12 +2030,12 @@ export default function LaunchProfilesPanel({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-medium" style={{ color: "var(--app-text-secondary)" }}>
-                      工作空间项目 Skill
+                      {t("workspaceProjectSkill")}
                     </div>
                     <div className="mt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
                       {workspaceContext
-                        ? "项目 Skill 会写入项目的 .claude/commands，并随当前工作空间参与预览。"
-                        : "左侧选择工作空间后，可以在这里新增或编辑项目 Skill。"}
+                        ? t("projectSkillWorkspaceHint")
+                        : t("projectSkillSelectHint")}
                     </div>
                   </div>
                   <label className="flex items-center gap-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
@@ -2063,7 +2044,7 @@ export default function LaunchProfilesPanel({
                       checked={draft.skillPolicy.includeProjectSkills}
                       onChange={(event) => setDraft({ ...draft, skillPolicy: { ...draft.skillPolicy, includeProjectSkills: event.target.checked } })}
                     />
-                    启用项目 Skill
+                    {t("enableProjectSkill")}
                   </label>
                   <Button
                     size="xs"
@@ -2074,7 +2055,7 @@ export default function LaunchProfilesPanel({
                       if (project) openProjectSkillManager(project.path, project.alias || project.path);
                     }}
                   >
-                    <Plus size={12} /> 新增项目 Skill
+                    <Plus size={12} /> {t("addProjectSkill")}
                   </Button>
                 </div>
                 {workspaceContext ? (
@@ -2091,14 +2072,14 @@ export default function LaunchProfilesPanel({
                             variant="outline"
                             onClick={() => openProjectSkillManager(project.path, project.alias || project.path)}
                           >
-                            <Plus size={12} /> 新增 / 编辑
+                            <Plus size={12} /> {t("addOrEdit")}
                           </Button>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="mt-3 rounded-md border border-dashed border-border px-3 py-5 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      当前工作空间还没有项目。
+                      {t("noProjects")}
                     </div>
                   )
                 ) : null}

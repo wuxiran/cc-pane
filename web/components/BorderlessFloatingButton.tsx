@@ -19,7 +19,7 @@ export default function BorderlessFloatingButton() {
       <TooltipTrigger asChild>
         <button
           onClick={() => exitBorderless()}
-          className="fixed bottom-4 right-4 z-[9998] w-8 h-8 flex items-center justify-center rounded-full opacity-30 hover:opacity-100 transition-all duration-200 backdrop-blur-sm"
+          className="fixed bottom-4 right-4 z-[9998] w-8 h-8 flex items-center justify-center rounded-full opacity-30 hover:opacity-100 transition-opacity duration-[var(--dur-fast)] backdrop-blur-sm"
           style={{
             background: "var(--app-overlay)",
             border: "1px solid var(--app-border)",

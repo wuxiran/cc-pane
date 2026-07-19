@@ -5,6 +5,7 @@ export type {
   SplitPane,
   LayoutEntry,
   SplitDirection,
+  AutoSplitDirection,
   PaneContextAction,
 } from "./pane";
 export type {
@@ -18,6 +19,9 @@ export type {
   CliToolInfo,
   CliToolCapabilities,
   WslLaunchInfo,
+  LaunchEffort,
+  LaunchAdapterOptions,
+  LaunchExtras,
   TerminalPaneNode,
   TerminalPaneLeaf,
   TerminalPaneSplit,

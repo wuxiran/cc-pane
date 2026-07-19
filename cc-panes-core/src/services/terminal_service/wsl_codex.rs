@@ -862,6 +862,7 @@ impl TerminalService {
         initial_prompt: Option<&str>,
         skip_mcp: bool,
         yolo_mode: bool,
+        adapter_options: &HashMap<String, serde_json::Value>,
     ) -> Result<(String, Vec<String>)> {
         let command = match cli_tool {
             CliTool::Claude => "claude",
@@ -883,6 +884,13 @@ impl TerminalService {
         push_wsl_env_exports(&mut remote_parts, provider_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
         if cli_tool == CliTool::Claude {
+            // effort → 思考预算（与本地 claude.rs 的 env_inject 通道对齐；WSL 分支
+            // 不走 CliAdapterContext，改为 remote 端 export 注入）
+            if let Some(tokens) = cc_cli_adapters::effort_from_options(adapter_options)
+                .and_then(|effort| cc_cli_adapters::claude_max_thinking_tokens(&effort))
+            {
+                remote_parts.push(format!("export MAX_THINKING_TOKENS={tokens}"));
+            }
             match self.build_wsl_claude_skill_sync_commands() {
                 Ok(mut commands) => remote_parts.append(&mut commands),
                 Err(error) => warn!(
@@ -933,6 +941,16 @@ impl TerminalService {
             if yolo_mode {
                 cli_args.push("--dangerously-skip-permissions".to_string());
             }
+            // adapter_options：verbose / maxTurns / extraArgs（与本地 claude.rs 对齐，
+            // extraArgs 必须在 `--` 分隔符之前）
+            if cc_cli_adapters::verbose_from_options(adapter_options) {
+                cli_args.push("--verbose".to_string());
+            }
+            if let Some(max_turns) = cc_cli_adapters::max_turns_from_options(adapter_options) {
+                cli_args.push("--max-turns".to_string());
+                cli_args.push(max_turns.to_string());
+            }
+            cli_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
             if let Some(prompt) = initial_prompt {
                 cli_args.push("--".to_string());
                 cli_args.push(prompt.to_string());
@@ -956,6 +974,18 @@ impl TerminalService {
             }
             if let Some(prompt) = initial_prompt {
                 cli_args.push("run".to_string());
+                cli_args.push(prompt.to_string());
+            }
+        } else if cli_tool == CliTool::Opencode {
+            // opencode 的位置参数是 [project]（启动目录）：prompt 必须走 --prompt，
+            // 否则启动即报 "Failed to change directory to <prompt>" 退出。
+            // resume 与本地 opencode.rs 对齐（--session <id>）。
+            if let Some(resume_id) = resume_id {
+                cli_args.push("--session".to_string());
+                cli_args.push(resume_id.to_string());
+            }
+            if let Some(prompt) = initial_prompt {
+                cli_args.push("--prompt".to_string());
                 cli_args.push(prompt.to_string());
             }
         } else if cli_tool == CliTool::Cursor {
@@ -1021,6 +1051,7 @@ impl TerminalService {
         _initial_prompt: Option<&str>,
         _skip_mcp: bool,
         _yolo_mode: bool,
+        _adapter_options: &HashMap<String, serde_json::Value>,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }
@@ -1144,6 +1175,7 @@ impl TerminalService {
         disable_unlisted_mcp_servers: bool,
         _selected_mcp_config_toml: &str,
         yolo_mode: bool,
+        adapter_options: &HashMap<String, serde_json::Value>,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
         push_wsl_env_exports(&mut remote_parts, provider_env);
@@ -1230,9 +1262,19 @@ impl TerminalService {
         // （与本地 codex.rs push_terminal_title_override 保持一致）
         codex_args.push("-c".to_string());
         codex_args.push(r#"tui.terminal_title=["activity","project","thread-id"]"#.to_string());
+        // effort → `-c model_reasoning_effort=<v>`（max 映射 xhigh，与本地 codex.rs 对齐）。
+        // `-c` 必须在 resume 子命令之前 → 放在 append_codex_resume_args 前。
+        if let Some(effort) = cc_cli_adapters::effort_from_options(adapter_options)
+            .and_then(|effort| cc_cli_adapters::codex_reasoning_effort(&effort))
+        {
+            codex_args.push("-c".to_string());
+            codex_args.push(format!("model_reasoning_effort={effort}"));
+        }
         if yolo_mode {
             push_codex_yolo_mode_arg(&mut codex_args);
         }
+        // extraArgs 追加在 resume 子命令 / positional prompt 之前
+        codex_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
         // resume 前预检：codex 会话库里若已无该 id 的 rollout 文件（被存错/从未落盘/v4 抓错），
         // 拿它去 `codex resume <id>` 会被 codex 拒绝并秒退 → pane 半残。此时回退为开新会话。
         // fail-open：仅在"确定不存在"时丢弃 resume；检查本身失败则保留，避免误伤。
@@ -1312,6 +1354,7 @@ impl TerminalService {
         _disable_unlisted_mcp_servers: bool,
         _selected_mcp_config_toml: &str,
         _yolo_mode: bool,
+        _adapter_options: &HashMap<String, serde_json::Value>,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }

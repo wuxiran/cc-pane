@@ -35,6 +35,32 @@
   "minutesAgo": "{{count}}m ago",
   "hoursAgo": "{{count}}h ago",
   "daysAgo": "{{count}}d ago",
+  "guide": {
+    "title": "Getting Started",
+    "subtitle": "Three steps to your first parallel-dev workbench",
+    "stepLabel": "Step {{num}}",
+    "step1Title": "Create a Workspace",
+    "step1Desc": "A workspace groups multiple projects — create one as your workbench",
+    "step1Action": "Create",
+    "step2Title": "Add Projects",
+    "step2Desc": "Add Git repos to the workspace, or scan a directory to bulk import",
+    "step2Action": "Add",
+    "step3Title": "Launch Your First Task",
+    "step3Desc": "Open a terminal on a project and launch Claude Code or Codex",
+    "step3Action": "Open Terminal",
+    "fullTutorial": "View the full onboarding tutorial"
+  },
+  "highlights": {
+    "title": "Design Principles",
+    "threeLayerTitle": "Three-Layer Model",
+    "threeLayerDesc": "Workspace → Project → Task — one workbench for all parallel development",
+    "multiCliTitle": "Multi-CLI Interop",
+    "multiCliDesc": "Claude Code and Codex orchestrated side by side, sharing workspaces and memory",
+    "multiDeviceTitle": "Multi-Device",
+    "multiDeviceDesc": "Take over sessions remotely from the mobile app or the web",
+    "localFirstTitle": "Local-First",
+    "localFirstDesc": "Local History, session journals and all data stay on your machine"
+  },
   "usage": {
     "title": "Usage Trends",
     "rangeToday": "Today",

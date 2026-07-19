@@ -132,7 +132,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
         onClick={onClose}
       />
       <div
-        className="quicksearch-enter fixed z-50 top-[40px] left-1/2 -translate-x-1/2 w-[520px] max-w-[90vw] max-h-[400px] flex flex-col rounded-md shadow-2xl border overflow-hidden"
+        className="fixed z-50 top-[40px] left-1/2 -translate-x-1/2 w-[520px] max-w-[90vw] max-h-[400px] flex flex-col rounded-md shadow-2xl border overflow-hidden"
         style={{
           background: "var(--editor-bg)",
           borderColor: "var(--app-border)",

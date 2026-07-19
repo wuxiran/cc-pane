@@ -60,7 +60,7 @@ export default memo(function StatusIndicator({ status, toolName, size = 8 }: Sta
 
   return (
     <span
-      className={`inline-block rounded-full shrink-0 transition-colors duration-300 ${
+      className={`inline-block rounded-full shrink-0 transition-colors duration-[var(--dur)] ${
         isPulsing ? "cc-status-pulse" : ""
       }`}
       title={label}

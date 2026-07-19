@@ -15,7 +15,7 @@ use cc_panes_core::{
         ProjectCliHooksService, ProviderService, SettingsService, SharedMcpService,
         SshCredentialService, TerminalBackend, TerminalService, WorkspaceService,
     },
-    utils::{AppPaths, APP_DIR_NAME},
+    utils::{simplify_path, AppPaths, APP_DIR_NAME},
 };
 use clap::Parser;
 use tracing::info;
@@ -212,8 +212,12 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
 
-    let cwd =
-        std::fs::canonicalize(&args.cwd).unwrap_or_else(|_| std::path::PathBuf::from(&args.cwd));
+    // 剥掉 Windows `\\?\` verbatim 前缀：该值会作为 default_cwd 回落给缺少
+    // project_path 的会话（server.rs 的 spawn 路径），带前缀会让 cmd.exe 把 CLI
+    // 启到 C:\Windows。详见 docs/35-unc-path-contamination.md。
+    let cwd = simplify_path(
+        std::fs::canonicalize(&args.cwd).unwrap_or_else(|_| std::path::PathBuf::from(&args.cwd)),
+    );
     let cwd_str = cwd.to_string_lossy().to_string();
 
     let daemon_paths = resolve_daemon_paths(args.data_dir.as_deref());

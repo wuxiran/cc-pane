@@ -165,6 +165,54 @@ describe("terminalClipboard", () => {
     });
   });
 
+  it("still pastes text when the clipboard image probe throws", async () => {
+    // Linux: `screenshot_save_clipboard_image` reads the clipboard off the main
+    // thread and the invoke can be rejected outright. Text paste must survive.
+    invokeMock.mockResolvedValue([]);
+    saveClipboardImageMock.mockRejectedValue(new Error("clipboard image read failed"));
+    tauriReadTextMock.mockResolvedValue("plain text from clipboard");
+
+    const result = await resolveTerminalPastePayload(null);
+
+    expect(saveClipboardImageMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      kind: "text",
+      text: "plain text from clipboard",
+    });
+  });
+
+  it("still pastes text when the image probe throws on an event-driven paste", async () => {
+    invokeMock.mockResolvedValue([]);
+    saveClipboardImageMock.mockRejectedValue(new Error("clipboard image read failed"));
+
+    const result = await resolveTerminalPastePayload(
+      createClipboardData({
+        text: "hello world",
+        items: [{ kind: "file", type: "image/png" }],
+      })
+    );
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "hello world",
+    });
+  });
+
+  it("reports the image failure only when no text is available", async () => {
+    invokeMock.mockResolvedValue([]);
+    saveClipboardImageMock.mockRejectedValue(new Error("disk full"));
+    tauriReadTextMock.mockResolvedValue("");
+    webReadTextMock.mockResolvedValue("");
+
+    const result = await resolveTerminalPastePayload(null);
+
+    expect(result).toEqual({
+      kind: "error",
+      reason: "clipboard-image-save-failed",
+      error: "disk full",
+    });
+  });
+
   it("formats dropped or pasted file paths with spaces between entries", () => {
     expect(formatTerminalFilePaths([
       "/Users/me/Desktop/企业基本信息.sql",

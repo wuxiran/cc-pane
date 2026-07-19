@@ -110,9 +110,24 @@ mcp__ccpanes__launch_task(
   cliTool: "claude" | "codex",
   runtimeKind: "local" | "wsl",
   title: "Worker: <模块名>",
+  placement: "beside",   // 代码型 worker 一律分屏，见下
   prompt: <自包含任务描述 + 文件范围 + 完成定义>
 )
 ```
+
+**`placement` 必须显式传，别吃默认值**：
+
+| worker 类型 | `placement` | 理由 |
+|---|---|---|
+| 代码型（implement / debug / refactor） | `"beside"` 分屏 | 用户要实时看到它改什么，出问题能立刻打断 |
+| 只读型（research / check / review） | `"tab"` 同 pane 加标签 | 只看最终结论，不该抢分屏版面 |
+
+一次派多个只读 worker 时全用 `"tab"`——否则屏幕会被切成碎片。
+传了 `paneId` 时 `placement` 不生效。
+
+> 注意：只读型 worker 大多数情况**根本不该走 launch_task**，用 Claude Task 子 agent
+> 更便宜（见上方两层并行模型）。会用 `placement: "tab"` 的场景是：只读任务但需要
+> 独立 CLI 实例（比如要用 codex 做交叉评审）。
 
 启完立刻 `register_plan_worker(leaderId, sessionId)`（前提是 Phase 1.5 注册过 leader —— 见下方"完成监控"），把 workerId 写进 worker prompt 让它完成时上报。
 

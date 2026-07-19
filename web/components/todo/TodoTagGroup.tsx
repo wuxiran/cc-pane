@@ -39,10 +39,10 @@ export default function TodoTagGroup({
   return (
     <Collapsible.Root open={open} onOpenChange={setOpen} className="mb-1">
       <Collapsible.Trigger asChild>
-        <button className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-accent/50 hover:shadow-sm rounded-xl transition-all group">
+        <button className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-accent/50 hover:shadow-sm rounded-xl transition-all duration-[var(--dur-fast)] group">
           <ChevronRight
             size={14}
-            className={`text-muted-foreground shrink-0 transition-transform duration-200 ${
+            className={`text-muted-foreground shrink-0 transition-transform duration-[var(--dur-fast)] ${
               open ? "rotate-90" : ""
             }`}
           />

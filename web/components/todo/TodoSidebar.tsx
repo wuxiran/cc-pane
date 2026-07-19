@@ -37,7 +37,7 @@ function NavItem({ icon, label, active, onClick }: NavItemProps) {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-150 ${
+      className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-colors duration-[var(--dur-fast)] ${
         active
           ? "bg-primary/15 text-primary font-medium shadow-sm"
           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"

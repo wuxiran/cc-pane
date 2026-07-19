@@ -112,6 +112,7 @@ export default function Sidebar({
         width: sidebarWidth,
         height: "100%",
         background: "var(--app-sidebar-bg)",
+        borderRight: "1px solid var(--app-border)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
         WebkitAppRegion: "no-drag",
