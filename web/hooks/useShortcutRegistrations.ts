@@ -92,8 +92,8 @@ export function useShortcutRegistrations(): void {
       id: "new-tab",
       label: i18n.t("new-tab", { ns: "shortcuts" }),
       handler: () => {
-        const s = usePanesStore.getState();
-        if (s.activePaneId) s.addTab(s.activePaneId, { projectId: "", projectPath: "" });
+        // 新建标签改走全局启动器（项目/CLI/环境/参数一站式选择）
+        useDialogStore.getState().openLauncher();
       },
     });
     register({

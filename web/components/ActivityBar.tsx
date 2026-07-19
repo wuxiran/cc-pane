@@ -1,5 +1,5 @@
 import {
-  Command, FolderTree, History, ListTodo, Settings, Files, Server, Boxes, Workflow,
+  Command, FolderTree, History, ListTodo, Settings, Server, Boxes, Workflow,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useActivityBarStore, type ActivityView } from "@/stores/useActivityBarStore";
-import { useDialogStore, useOrchestratorStore } from "@/stores";
+import { useDialogStore, useLayoutUiStore, useOrchestratorStore } from "@/stores";
 import LayoutBar from "@/components/LayoutBar";
 
 type ActivityBadge = number | { tone: "red" | "blue"; value?: number };
@@ -72,6 +72,7 @@ function ActivityBarIcon({ icon, label, active, onClick, badge }: ActivityBarIco
 
 export default function ActivityBar() {
   const { t } = useTranslation("sidebar");
+  const layoutSwitcherMode = useLayoutUiStore((s) => s.switcherMode);
   const activeView = useActivityBarStore((s) => s.activeView);
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const toggleView = useActivityBarStore((s) => s.toggleView);
@@ -97,7 +98,7 @@ export default function ActivityBar() {
 
   const viewItems: { view: ActivityView; icon: React.ReactNode; label: string; badge?: ActivityBadge }[] = [
     { view: "explorer", icon: <FolderTree className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("workspaces") },
-    { view: "files", icon: <Files className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("fileBrowser", { defaultValue: "Files" }) },
+    // "files" 视图入口已移除：Explorer 侧栏自带 文件 tab；appViewMode "files" 机制保留（openInFileBrowser 等内部跳转仍可用）
     { view: "sessions", icon: <History className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("recentLaunches") },
     // { view: "process", icon: <Activity className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("processMonitor", { defaultValue: "Processes" }), badge: processCount }, // 已禁用（macOS 卡顿排查）
     { view: "ssh", icon: <Server className="w-[22px] h-[22px]" strokeWidth={1.5} />, label: t("sshMachines", { defaultValue: "SSH Machines" }) },
@@ -171,7 +172,8 @@ export default function ActivityBar() {
 
       {/* 底部设置 */}
       <div className="mt-auto flex w-full flex-col items-center gap-1.5 pb-2">
-        <LayoutBar />
+        {/* topbar 模式下布局切换移到终端标签上方的布局条（LayoutTopBar），左下角入口隐藏 */}
+        {layoutSwitcherMode === "corner" && <LayoutBar />}
         <ActivityBarIcon
           icon={<Settings className="w-[22px] h-[22px]" strokeWidth={1.5} />}
           label={t("settings", { ns: "common", defaultValue: "Settings" })}

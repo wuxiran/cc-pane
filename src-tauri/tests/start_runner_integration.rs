@@ -135,6 +135,8 @@ async fn start_runner_components_launch_reuse_exit_and_relaunch_sleep_command() 
             None,
             None,
             None,
+            None,
+            None,
         )
         .expect("create session");
     let root_pid = wait_for_session_pid(&terminal, &session_id).await;
@@ -207,6 +209,8 @@ async fn start_runner_components_launch_reuse_exit_and_relaunch_sleep_command() 
             CliTool::None,
             None,
             true,
+            None,
+            None,
             None,
             None,
             None,

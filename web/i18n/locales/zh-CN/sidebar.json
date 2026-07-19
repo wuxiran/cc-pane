@@ -292,5 +292,16 @@
   "moreLaunchActions": "更多启动方式",
   "noArchivedPlans": "暂无归档 plan",
   "defaultWorkspaceName": "默认工作空间",
-  "defaultBadge": "默认"
+  "defaultBadge": "默认",
+  "explorer.git": "Git",
+  "explorer.tabWorkspaces": "工作区",
+  "explorer.tabFiles": "文件",
+  "explorer.tabGit": "Git",
+  "explorer.selectProjectHint": "选择项目后显示",
+  "explorer.selectWorkspaceHint": "选择工作空间后显示",
+  "explorer.noProjects": "暂无项目",
+  "explorer.notGitRepo": "非 Git 项目",
+  "explorer.gitUnavailable": "不可用",
+  "explorer.gitLoading": "加载中...",
+  "explorer.noChanges": "无变更"
 }

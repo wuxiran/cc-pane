@@ -395,7 +395,7 @@ export default function WorkspaceItem({
             role="button"
             tabIndex={0}
             aria-expanded={expanded}
-            className={`relative w-full group flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg transition-colors duration-[var(--dur-fast)] ${
+            className={`relative w-full group flex items-center justify-between gap-2 px-3 py-2 rounded-lg transition-colors duration-[var(--dur-fast)] ${
               expanded
                 ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
                 : isDefaultWorkspace
@@ -432,30 +432,30 @@ export default function WorkspaceItem({
                 </button>
               ) : null}
               <ChevronRight
-                className={`w-3 h-3 shrink-0 transition-transform ${expanded ? "rotate-90 text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"}`}
+                className={`w-3.5 h-3.5 shrink-0 transition-transform ${expanded ? "rotate-90 text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"}`}
               />
               {isDefaultWorkspace ? (
-                <House className="w-3.5 h-3.5 shrink-0 text-[var(--app-accent)]" strokeWidth={1.5} />
+                <House className="w-4 h-4 shrink-0 text-[var(--app-accent)]" strokeWidth={1.5} />
               ) : expanded ? (
-                <FolderOpen className="w-3.5 h-3.5 shrink-0 text-[var(--app-accent)]" />
+                <FolderOpen className="w-4 h-4 shrink-0 text-[var(--app-accent)]" />
               ) : (
-                <Folder className="w-3.5 h-3.5 shrink-0 text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors" />
+                <Folder className="w-4 h-4 shrink-0 text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors" />
               )}
-              <span className="truncate text-[13px] font-medium">{displayName}</span>
+              <span className="truncate text-[14px] font-medium">{displayName}</span>
               {isDefaultWorkspace ? (
-                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
+                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
                   {t("defaultBadge", { defaultValue: "默认" })}
                 </span>
               ) : null}
               {showWslBadge ? (
-                <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
+                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
                   WSL
                 </span>
               ) : null}
               {boundProvider && defaultEnvironment !== "wsl" ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)]">
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)]">
                       {boundProvider.name}
                     </span>
                   </TooltipTrigger>
@@ -464,7 +464,7 @@ export default function WorkspaceItem({
               ) : null}
             </div>
             <span
-              className="shrink-0 text-[11px] font-medium tabular-nums leading-none min-w-[22px] text-center px-2 py-1 rounded-full text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors"
+              className="shrink-0 text-[12px] font-medium tabular-nums leading-none min-w-[22px] text-center px-2 py-1 rounded-full text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors"
               style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
             >
               {projects.length}

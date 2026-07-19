@@ -11,8 +11,10 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { LayoutWorkspaceBadge, LayoutWorkspaceMenuItems } from "./LayoutWorkspaceMenu";
 import { collectPanels } from "@/stores/paneTreeHelpers";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 
@@ -206,6 +208,7 @@ export function SortableLayoutRow({
               ) : null}
             </span>
             <span className="min-w-0 flex-1 truncate">{layout.name}</span>
+            {isStarredLayout ? null : <LayoutWorkspaceBadge layout={layout} rootPane={rootPane} />}
             {isStarredLayout ? null : <LayoutStatusDots rootPane={rootPane} statusMap={statusMap} />}
           </button>
           {!isStarredLayout ? (
@@ -231,6 +234,8 @@ export function SortableLayoutRow({
           <ContextMenuItem onClick={() => startRename(layout)}>
             {t("renameLayout")}
           </ContextMenuItem>
+          <LayoutWorkspaceMenuItems layout={layout} />
+          <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
             disabled={deletingLastLayout}

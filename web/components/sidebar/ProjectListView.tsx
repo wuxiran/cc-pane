@@ -251,12 +251,12 @@ export default function ProjectListView({
                   onDoubleClick={() => isSsh ? launchProject() : onOpenInFileBrowser?.(project.path)}
                 >
                   {isSsh
-                    ? <Globe size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
-                    : <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
+                    ? <Globe size={15} className="shrink-0" style={{ color: "var(--app-accent)" }} />
+                    : <Folder size={15} className="shrink-0" style={{ color: "var(--app-accent)" }} />
                   }
-                  <span className="flex-1 text-xs truncate">{displayName}</span>
+                  <span className="flex-1 text-[13px] truncate">{displayName}</span>
                   {!isSsh && gitBranches[project.path] && (
-                    <span className="text-[10px] px-1 rounded shrink-0" style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}>
+                    <span className="text-[11px] px-1 rounded shrink-0" style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}>
                       {gitBranches[project.path]}
                     </span>
                   )}

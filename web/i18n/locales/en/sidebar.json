@@ -292,5 +292,16 @@
   "moreLaunchActions": "More launch options",
   "noArchivedPlans": "No archived plans",
   "defaultWorkspaceName": "Default Workspace",
-  "defaultBadge": "Default"
+  "defaultBadge": "Default",
+  "explorer.git": "Git",
+  "explorer.tabWorkspaces": "Workspaces",
+  "explorer.tabFiles": "Files",
+  "explorer.tabGit": "Git",
+  "explorer.selectProjectHint": "Select a project to view",
+  "explorer.selectWorkspaceHint": "Select a workspace to view",
+  "explorer.noProjects": "No projects",
+  "explorer.notGitRepo": "Not a Git project",
+  "explorer.gitUnavailable": "Unavailable",
+  "explorer.gitLoading": "Loading...",
+  "explorer.noChanges": "No changes"
 }

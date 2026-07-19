@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
-import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2, Star } from "lucide-react";
+import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2, Star, CopyPlus, Maximize2, Minimize2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -100,6 +100,12 @@ interface TabBarProps {
   onPopOutTab?: (tabId: string) => void;
   onEditWorkspaceEnvironment?: (tab: Tab) => void;
   canEditWorkspaceEnvironment?: (tab: Tab) => boolean;
+  /** 克隆终端：同目录/同 CLI 配置在本窗格再开一个标签。 */
+  onCloneTab?: (tab: Tab) => void;
+  /** 全屏切换：当前面板已全屏则退出，否则进入。 */
+  onToggleFullscreen?: (tabId: string) => void;
+  /** 当前面板是否处于全屏，用于切换菜单文案。 */
+  isPaneFullscreen?: boolean;
   activeTabBg?: string;
   activeTabFg?: string;
 }
@@ -141,6 +147,9 @@ function SortableTab({
   onPopOutTab,
   onEditWorkspaceEnvironment,
   canEditWorkspaceEnvironment,
+  onCloneTab,
+  onToggleFullscreen,
+  isPaneFullscreen,
   activeTabFg,
   getStatus,
   registerTabNode,
@@ -183,6 +192,9 @@ function SortableTab({
   onPopOutTab?: (tabId: string) => void;
   onEditWorkspaceEnvironment?: (tab: Tab) => void;
   canEditWorkspaceEnvironment?: (tab: Tab) => boolean;
+  onCloneTab?: (tab: Tab) => void;
+  onToggleFullscreen?: (tabId: string) => void;
+  isPaneFullscreen?: boolean;
   activeTabBg?: string;
   activeTabFg?: string;
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
@@ -383,6 +395,17 @@ function SortableTab({
         <ContextMenuItem inset onClick={() => onToggleStar(tab.id)}>
           {tab.starred ? t("unstarTab") : t("starTab")}
         </ContextMenuItem>
+        {tab.contentType === "terminal" && tab.projectPath && onCloneTab && (
+          <ContextMenuItem onClick={() => onCloneTab(tab)}>
+            <CopyPlus /> {t("cloneTerminal")}
+          </ContextMenuItem>
+        )}
+        {onToggleFullscreen && (
+          <ContextMenuItem onClick={() => onToggleFullscreen(tab.id)}>
+            {isPaneFullscreen ? <Minimize2 /> : <Maximize2 />}{" "}
+            {isPaneFullscreen ? t("exitFullscreenTab") : t("enterFullscreenTab")}
+          </ContextMenuItem>
+        )}
         {tab.contentType === "terminal" && tab.sessionId && onPopOutTab && (
           <ContextMenuItem onClick={() => onPopOutTab(tab.id)}>
             <ExternalLink /> {t("popOutWindow")}
@@ -552,6 +575,9 @@ export default memo(function TabBar({
   onPopOutTab,
   onEditWorkspaceEnvironment,
   canEditWorkspaceEnvironment,
+  onCloneTab,
+  onToggleFullscreen,
+  isPaneFullscreen,
   activeTabBg,
   activeTabFg,
 }: TabBarProps) {
@@ -729,6 +755,9 @@ export default memo(function TabBar({
                 onPopOutTab={onPopOutTab}
                 onEditWorkspaceEnvironment={onEditWorkspaceEnvironment}
                 canEditWorkspaceEnvironment={canEditWorkspaceEnvironment}
+                onCloneTab={onCloneTab}
+                onToggleFullscreen={onToggleFullscreen}
+                isPaneFullscreen={isPaneFullscreen}
                 activeTabBg={activeTabBg}
                 activeTabFg={activeTabFg}
                 getStatus={getStatus}

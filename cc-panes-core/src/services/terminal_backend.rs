@@ -91,6 +91,8 @@ impl TerminalBackend for TerminalService {
             request.skip_mcp,
             request.append_system_prompt.as_deref(),
             request.initial_prompt.as_deref(),
+            request.yolo_mode,
+            request.adapter_options.as_ref(),
             request.extra_env.as_ref(),
             request.ssh.as_ref(),
             request.wsl.as_ref(),
@@ -354,6 +356,8 @@ mod tests {
             skip_mcp: false,
             append_system_prompt: None,
             initial_prompt: None,
+            yolo_mode: None,
+            adapter_options: None,
             extra_env: Some(std::collections::HashMap::from([(
                 "RUNNER_ENV".to_string(),
                 "1".to_string(),

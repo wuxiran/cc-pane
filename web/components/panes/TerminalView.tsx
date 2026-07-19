@@ -5,9 +5,11 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { writeText as tauriWriteText } from "@tauri-apps/plugin-clipboard-manager";
+import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { info as logInfo } from "@tauri-apps/plugin-log";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { terminalService, historyService, sessionRestoreService } from "@/services";
+import { terminalService, historyService, sessionRestoreService, filesystemService, providerService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage } from "@/utils";
@@ -63,6 +65,8 @@ import {
 import { resolveTerminalRendererModeForSession } from "./terminalRenderer";
 import { getTerminalTheme, type TerminalThemePalette } from "./terminalTheme";
 import { normalizeTerminalFontFamily } from "./terminalFont";
+import TerminalContextMenu from "./TerminalContextMenu";
+import { buildTerminalExportFileName, serializeTerminalBuffer } from "./terminalBufferSnapshot";
 import "@xterm/xterm/css/xterm.css";
 
 /** Cache the Windows build number once per renderer process. */
@@ -318,6 +322,11 @@ interface TerminalViewProps {
   resumeId?: string;
   skipMcp?: boolean;
   appendSystemPrompt?: string;
+  /** 首启注入的用户 prompt；session 创建成功后经 clearTabInitialPrompt 清除，restore 路径不传 */
+  initialPrompt?: string;
+  /** per-launch YOLO 覆盖：undefined = 跟随 launch profile */
+  yoloMode?: boolean;
+  adapterOptions?: CreateSessionRequest["adapterOptions"];
   ssh?: SshConnectionInfo;
   wsl?: WslLaunchInfo;
   /** Whether the tab is restoring output from a saved session. */
@@ -342,6 +351,7 @@ export interface TerminalViewHandle {
 
 const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   function TerminalView(props, ref) {
+    const { t } = useTranslation("panes");
     const isDark = useThemeStore((s) => s.isDark);
     const terminalThemeMode = useSettingsStore((s): TerminalThemeMode => s.settings?.terminal.themeMode ?? "followApp");
     const terminalFontSize = useSettingsStore((s) => normalizeTerminalFontSize(s.settings?.terminal.fontSize));
@@ -364,6 +374,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const exitUnsubRef = useRef<(() => void) | null>(null);
     const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
     const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null);
+    // 右键菜单"粘贴"入口：init 闭包里把 pasteTerminalPayload 暴露到这里。
+    const pasteRequestRef = useRef<(() => void) | null>(null);
     const nativeMenuCleanupRef = useRef<(() => void) | null>(null);
     const inputDebugCleanupRef = useRef<(() => void) | null>(null);
     const inputTraceSeqRef = useRef(0);
@@ -716,6 +728,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       nativeMenuCleanupRef.current = null;
       inputDebugCleanupRef.current?.();
       inputDebugCleanupRef.current = null;
+      pasteRequestRef.current = null;
 
       // Dispose addons before the terminal instance.
       const rendererToDispose = rendererControllerRef.current;
@@ -1157,6 +1170,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             });
         };
 
+        pasteRequestRef.current = () => pasteTerminalPayload(null);
+
         // Track terminal focus so global shortcuts can defer to xterm.
         const textarea = term.textarea;
         const cleanupNativeMenuBlockers: Array<() => void> = [];
@@ -1589,6 +1604,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 resumeId: effectiveResumeId,
                 skipMcp: props.skipMcp,
                 appendSystemPrompt: props.appendSystemPrompt,
+                // restore 路径不重放 initialPrompt（原会话已消费过）
+                initialPrompt: props.restoring ? undefined : props.initialPrompt,
+                yoloMode: props.yoloMode,
+                adapterOptions: props.adapterOptions,
                 ssh: props.ssh,
                 wsl: props.wsl,
               });
@@ -1637,6 +1656,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               // Persist the corrected resume id back into the tab state.
               if (effectiveResumeId && effectiveResumeId !== props.resumeId) {
                 usePanesStore.getState().updateTabAgentResumeId(sessionId, effectiveResumeId);
+              }
+              // initialPrompt 已随本次 createSession 消费，清除防 restore/reattach 重放
+              if (props.initialPrompt && props.tabId) {
+                usePanesStore.getState().clearTabInitialPrompt(props.tabId);
               }
             }
 
@@ -1941,6 +1964,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 resumeId: effectiveResumeId,
                 skipMcp: props.skipMcp,
                 appendSystemPrompt: props.appendSystemPrompt,
+                // deferred restore 是恢复路径：不携带 initialPrompt（防重放）
+                yoloMode: props.yoloMode,
+                adapterOptions: props.adapterOptions,
                 ssh: props.ssh,
                 wsl: props.wsl,
               });
@@ -2021,6 +2047,120 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.isActive, props.isVisible, props.layoutActive]);
 
+    /* ---------------- 终端区右键菜单动作 ---------------- */
+
+    const getTerminalSelection = useCallback(
+      () => terminalInstanceRef.current?.getSelection() ?? "",
+      []
+    );
+
+    const handleMenuCopySelection = useCallback(() => {
+      const term = terminalInstanceRef.current;
+      const selection = term?.getSelection();
+      if (!term || !selection) return;
+      void copyTerminalSelection(selection)
+        .then(() => {
+          term.clearSelection();
+          term.focus();
+        })
+        .catch((error) => {
+          const message = getErrorMessage(error);
+          debugLog("clipboard.copy.failed", { error: message });
+          toast.error(t("terminalCopyFailed", { error: message }));
+        });
+    }, [debugLog, t]);
+
+    const handleMenuSelectAll = useCallback(() => {
+      const term = terminalInstanceRef.current;
+      if (!term) return;
+      term.focus();
+      term.selectAll();
+    }, []);
+
+    const handleMenuPaste = useCallback(() => {
+      pasteRequestRef.current?.();
+    }, []);
+
+    const getMenuSessionId = useCallback(
+      () => currentSessionIdRef.current ?? props.sessionId ?? null,
+      [props.sessionId]
+    );
+
+    const handleMenuRefreshTerminal = useCallback(() => {
+      const term = terminalInstanceRef.current;
+      if (!term) return;
+      // 花屏/字形变形多是 WebGL 图集脏了；未铺满是 fit 没跟上容器。
+      // 清图集 + 强制 refit（scheduler flush 会顺带 repaint）一次到位。
+      rendererControllerRef.current?.clearTextureAtlas("context-menu.refresh");
+      refitAndRepaintTerminal("context-menu.refresh", { focusIfSafe: true });
+      repaintTerminal("context-menu.refresh");
+    }, [refitAndRepaintTerminal, repaintTerminal]);
+
+    const handleMenuCopySessionId = useCallback(() => {
+      const sessionId = currentSessionIdRef.current ?? props.sessionId;
+      if (!sessionId) return;
+      void copyTerminalSelection(sessionId)
+        .then(() => toast.success(t("terminalSessionIdCopied", { id: sessionId })))
+        .catch((error) => {
+          toast.error(t("terminalCopyFailed", { error: getErrorMessage(error) }));
+        });
+    }, [props.sessionId, t]);
+
+    const handleMenuClearBuffer = useCallback(() => {
+      const term = terminalInstanceRef.current;
+      if (!term) return;
+      term.clear();
+      term.focus();
+    }, []);
+
+    const handleMenuCopyBuffer = useCallback(() => {
+      const term = terminalInstanceRef.current;
+      if (!term) return;
+      const text = serializeTerminalBuffer(term);
+      if (!text) return;
+      void copyTerminalSelection(text).catch((error) => {
+        const message = getErrorMessage(error);
+        debugLog("clipboard.copy.failed", { error: message });
+        toast.error(t("terminalCopyFailed", { error: message }));
+      });
+    }, [debugLog, t]);
+
+    const handleMenuExportBuffer = useCallback(async () => {
+      const term = terminalInstanceRef.current;
+      if (!term) return;
+      const text = serializeTerminalBuffer(term);
+      const fileName = buildTerminalExportFileName(props.projectPath, new Date());
+      try {
+        if (isTauriRuntime()) {
+          const path = await saveFileDialog({
+            defaultPath: fileName,
+            filters: [{ name: "Text", extensions: ["txt"] }],
+          });
+          if (!path) return;
+          await filesystemService.writeFile(path, text);
+          toast.success(t("terminalExportSuccess", { path }));
+        } else {
+          // 浏览器运行时无 fs 命令，退化为下载。
+          const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = fileName;
+          anchor.click();
+          URL.revokeObjectURL(url);
+        }
+      } catch (error) {
+        toast.error(t("terminalExportFailed", { error: getErrorMessage(error) }));
+      }
+    }, [props.projectPath, t]);
+
+    const handleMenuOpenProjectDir = useCallback(() => {
+      if (!props.projectPath) return;
+      void providerService.openPathInExplorer(props.projectPath).catch((error) => {
+        toast.error(t("terminalOpenDirFailed", { error: getErrorMessage(error) }));
+      });
+    }, [props.projectPath, t]);
+
     return (
       <div
         className="h-full w-full overflow-hidden flex flex-col"
@@ -2032,16 +2172,31 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           paddingTop: 'var(--notch-bar-height, 0px)',
         } as CSSProperties}
       >
-        <div
-          ref={terminalRef}
-          className="cc-terminal-host flex-1 overflow-hidden [&_.xterm]:h-full"
-          onContextMenu={(event) => {
-            if (!IS_MAC) return;
-            event.preventDefault();
-            event.stopPropagation();
-            terminalInstanceRef.current?.focus();
-          }}
-        />
+        <TerminalContextMenu
+          enabled={!IS_MAC}
+          getSelection={getTerminalSelection}
+          getSessionId={getMenuSessionId}
+          onCopySelection={handleMenuCopySelection}
+          onSelectAll={handleMenuSelectAll}
+          onPaste={handleMenuPaste}
+          onRefreshTerminal={handleMenuRefreshTerminal}
+          onCopySessionId={handleMenuCopySessionId}
+          onClearBuffer={handleMenuClearBuffer}
+          onCopyBuffer={handleMenuCopyBuffer}
+          onExportBuffer={handleMenuExportBuffer}
+          onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
+        >
+          <div
+            ref={terminalRef}
+            className="cc-terminal-host flex-1 overflow-hidden [&_.xterm]:h-full"
+            onContextMenu={(event) => {
+              if (!IS_MAC) return;
+              event.preventDefault();
+              event.stopPropagation();
+              terminalInstanceRef.current?.focus();
+            }}
+          />
+        </TerminalContextMenu>
       </div>
     );
   }

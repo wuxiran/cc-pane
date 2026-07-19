@@ -1,8 +1,22 @@
-import { Minus, Square, Copy, X } from "lucide-react";
+import { Check, ChevronDown, Minus, Square, Copy, Settings, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useBorderlessStore } from "@/stores";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useBorderlessStore, useDialogStore, useWorkspacesStore } from "@/stores";
 import { useWindowControl } from "@/hooks/useWindowControl";
+import type { WorkspaceProject } from "@/types";
+
+// 项目没有独立 name 字段：显示别名，否则取路径最后一段
+function projectDisplayName(project: WorkspaceProject): string {
+  if (project.alias) return project.alias;
+  const parts = project.path.replace(/[\\/]+$/, "").split(/[\\/]/);
+  return parts[parts.length - 1] || project.path;
+}
 
 interface TitleBarProps {
   workspaceName?: string;
@@ -19,6 +33,12 @@ const isLinux = navigator.platform.toUpperCase().indexOf("LINUX") >= 0;
 export default function TitleBar({ workspaceName }: TitleBarProps) {
   const { t } = useTranslation("common");
   const isBorderless = useBorderlessStore((s) => s.isBorderless);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
+  const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
+  const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
+  const expandProject = useWorkspacesStore((s) => s.expandProject);
+  const openSettings = useDialogStore((s) => s.openSettings);
   const {
     closeWindow,
     minimizeWindow,
@@ -31,9 +51,17 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
   // 无边框模式时隐藏标题栏
   if (isBorderless) return null;
 
+  const currentWorkspace = workspaces.find((ws) => ws.id === expandedWorkspaceId);
+  const visibleWorkspaces = workspaces.filter((ws) => !ws.hidden);
+  const currentProject =
+    currentWorkspace?.projects.find((p) => p.id === expandedProjectId) ?? null;
+  const workspaceLabel =
+    currentWorkspace?.alias || currentWorkspace?.name || workspaceName || "CC-Panes";
+  const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
+
   return (
     <div
-      className="relative flex items-center h-[32px] shrink-0 select-none z-10"
+      className="relative flex items-center h-[38px] shrink-0 select-none z-10"
       data-tauri-drag-region=""
       style={{
         paddingLeft: isMac ? 78 : 12,
@@ -54,10 +82,23 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
         }}
       />
 
-      {/* 左侧：工作空间名 */}
+      {/* 中间：居中应用名（纯装饰，点击穿透到拖拽区） */}
       <div
-        className="flex items-center gap-2 shrink-0 min-w-0"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 flex justify-center"
+      >
+        <span
+          className="text-[12px] tracking-wide"
+          style={{ color: "var(--app-text-tertiary)" }}
+        >
+          CC-Panes{import.meta.env.DEV ? " [DEV]" : ""}
+        </span>
+      </div>
+
+      {/* 左侧：工作区 / 项目 面包屑（下拉直切，联动侧栏展开状态） */}
+      <div
+        className="flex items-center gap-1 shrink-0 min-w-0"
+        style={noDrag}
         onDoubleClick={(e) => {
           e.preventDefault();
           toggleFullscreenWindow();
@@ -65,15 +106,95 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
       >
         <span
           aria-hidden="true"
-          className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+          className="mr-1 h-3 w-3 shrink-0 rounded-[3px]"
           style={{ background: "var(--app-accent)", boxShadow: "var(--hi)" }}
         />
-        <span
-          className="text-[12px] font-semibold truncate max-w-[240px]"
-          style={{ color: "var(--app-text-primary)" }}
-        >
-          {workspaceName || "CC-Panes"}
-        </span>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("switchWorkspace")}
+              className="flex min-w-0 items-center gap-1 rounded-[5px] px-2 py-1 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+            >
+              <span
+                className="truncate max-w-[220px] text-[13px] font-semibold"
+                style={{ color: "var(--app-text-primary)" }}
+              >
+                {workspaceLabel}
+              </span>
+              {visibleWorkspaces.length > 0 && (
+                <ChevronDown
+                  className="h-3 w-3 shrink-0"
+                  style={{ color: "var(--app-text-tertiary)" }}
+                />
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          {visibleWorkspaces.length > 0 && (
+            <DropdownMenuContent align="start" className="min-w-[180px]">
+              {visibleWorkspaces.map((ws) => (
+                <DropdownMenuItem
+                  key={ws.id}
+                  onSelect={() => expandWorkspace(ws.id)}
+                  className="flex items-center gap-2 text-[12.5px]"
+                >
+                  <span className="flex-1 truncate">{ws.alias || ws.name}</span>
+                  {ws.id === expandedWorkspaceId && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-[var(--app-accent)]" />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          )}
+        </DropdownMenu>
+
+        {currentWorkspace && currentWorkspace.projects.length > 0 && (
+          <>
+            <span className="text-[12px]" style={{ color: "var(--app-text-tertiary)" }}>
+              /
+            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t("switchProject")}
+                  className="flex min-w-0 items-center gap-1 rounded-[5px] px-2 py-1 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+                >
+                  <span
+                    className="truncate max-w-[200px] text-[13px]"
+                    style={{
+                      color: currentProject
+                        ? "var(--app-text-primary)"
+                        : "var(--app-text-tertiary)",
+                      fontWeight: currentProject ? 600 : 400,
+                    }}
+                  >
+                    {currentProject ? projectDisplayName(currentProject) : t("selectProject")}
+                  </span>
+                  <ChevronDown
+                    className="h-3 w-3 shrink-0"
+                    style={{ color: "var(--app-text-tertiary)" }}
+                  />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[180px]">
+                {currentWorkspace.projects.map((project) => (
+                  <DropdownMenuItem
+                    key={project.id}
+                    onSelect={() => expandProject(project.id)}
+                    className="flex items-center gap-2 text-[12.5px]"
+                  >
+                    <span className="flex-1 truncate">{projectDisplayName(project)}</span>
+                    {project.id === expandedProjectId && (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-[var(--app-accent)]" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
       </div>
 
       {/* 中间：拖拽区 */}
@@ -93,14 +214,30 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
         }}
       />
 
-      {/* 右侧：窗口控件（macOS 使用原生红绿灯，不需要自定义按钮） */}
+      {/* 右侧：工具按钮 + 窗口控件 */}
+      <div className="flex items-center shrink-0" style={noDrag}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              aria-label={t("settings", { defaultValue: "Settings" })}
+              className="w-[32px] h-[28px] mr-1 flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+              onClick={openSettings}
+            >
+              <Settings className="w-[13px] h-[13px]" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t("settings", { defaultValue: "Settings" })}</TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* 窗口控件（macOS 使用原生红绿灯，不需要自定义按钮） */}
       {!isMac && (
-        <div className="flex items-center -mr-1 shrink-0" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div className="flex items-center -mr-1 shrink-0" style={noDrag}>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 aria-label={t("minimize")}
-                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+                className="w-[36px] h-[30px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
                 onClick={minimizeWindow}
               >
                 <Minus className="w-[13px] h-[13px]" />
@@ -112,7 +249,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             <TooltipTrigger asChild>
               <button
                 aria-label={isMaximized ? t("restoreWindow") : t("maximize")}
-                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+                className="w-[36px] h-[30px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
                 onClick={maximizeWindow}
               >
                 {isMaximized ? <Copy className="w-3 h-3" /> : <Square className="w-3 h-3" />}
@@ -124,7 +261,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             <TooltipTrigger asChild>
               <button
                 aria-label={t("close")}
-                className="w-[34px] h-[28px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
+                className="w-[36px] h-[30px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
                 onClick={closeWindow}
               >
                 <X className="w-[13px] h-[13px]" />

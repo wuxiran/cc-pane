@@ -1296,7 +1296,7 @@ export default function LaunchProfilesPanel({
             )}
           </section>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]">
             <Section
               title={t("sectionBasicTitle")}
               description={t("sectionBasicDesc")}

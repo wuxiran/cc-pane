@@ -271,6 +271,10 @@ pub struct PartialCreateSessionRequest {
     #[serde(default, alias = "prompt")]
     pub initial_prompt: Option<String>,
     #[serde(default)]
+    pub yolo_mode: Option<bool>,
+    #[serde(default)]
+    pub adapter_options: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default)]
     pub extra_env: Option<HashMap<String, String>>,
     #[serde(default)]
     pub ssh: Option<SshConnectionInfo>,
@@ -442,6 +446,8 @@ async fn create_session(
         skip_mcp: req.core.skip_mcp,
         append_system_prompt: req.core.append_system_prompt,
         initial_prompt: req.core.initial_prompt,
+        yolo_mode: req.core.yolo_mode,
+        adapter_options: req.core.adapter_options,
         extra_env: req.core.extra_env,
         ssh: req.core.ssh,
         wsl: req.core.wsl,

@@ -1,9 +1,10 @@
 import type { RefObject, PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { Pin, PinOff, Plus } from "lucide-react";
+import { PanelTop, Pin, PinOff, Plus } from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent, type SensorDescriptor, type SensorOptions } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useLayoutUiStore } from "@/stores";
 import type { TFunction } from "i18next";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import { SortableLayoutRow } from "./SortableLayoutRow";
@@ -66,6 +67,7 @@ export function LayoutSelectorPanel({
   requestDelete: (layout: LayoutEntry) => void;
   t: TFunction<"panes">;
 }) {
+  const setSwitcherMode = useLayoutUiStore((s) => s.setSwitcherMode);
   return createPortal(
     <div
       ref={floatingRef}
@@ -92,6 +94,20 @@ export function LayoutSelectorPanel({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("layoutModeTopbar")}
+                className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => setSwitcherMode("topbar")}
+              >
+                <PanelTop className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("layoutModeTopbar")}</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <button

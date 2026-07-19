@@ -604,6 +604,8 @@ fn restore_snapshot_entry(
             skip_mcp: false,
             append_system_prompt: None,
             initial_prompt: None,
+            yolo_mode: None,
+            adapter_options: None,
             extra_env: None,
             ssh: None,
             wsl: None,

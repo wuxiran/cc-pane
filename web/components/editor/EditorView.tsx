@@ -282,7 +282,14 @@ export default function EditorView({
   const showPreview = isMarkdown && (previewMode === "preview" || previewMode === "split");
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    // 在 pane 内渲染时，Panel 的标签栏是 absolute 浮动的（Notch 布局），内容区从 y=0
+    // 铺满并被它盖住——工具栏和面包屑必须自己让出这段高度，否则会和标签重叠。
+    // 变量只由 Panel 定义，故 FileEditorPanel（文件模式）下回落到 0px，同一份代码通用。
+    // 同 TerminalView 的处理方式。
+    <div
+      className="flex flex-col h-full overflow-hidden"
+      style={{ paddingTop: "var(--notch-bar-height, 0px)" }}
+    >
       <EditorToolbar
         language={language}
         dirty={dirty}

@@ -20,9 +20,11 @@ import type {
   TerminalPaneNode,
   TerminalPaneLeaf,
   TerminalPaneSplit,
+  LaunchExtras,
   TerminalStatusInfo,
   LayoutSnapshotPayload,
 } from "@/types";
+import type { LayoutPresetId } from "@/types/pane";
 
 // 生成唯一 ID
 function generateId(prefix: string): string {
@@ -83,10 +85,14 @@ interface CreateTabOptions {
   machineName?: string;
   /** Parent tab id for hierarchical numbering (#N.M). Top-level tabs omit it. */
   parentTabId?: string;
+  /** openProject 专用：非当前布局时先 switchLayout 再落位（布局绑定工作空间落位） */
+  targetLayoutId?: string;
+  /** 启动器附加参数（skipMcp/appendSystemPrompt/initialPrompt/yolo/adapterOptions）透传 */
+  launchExtras?: LaunchExtras;
 }
 
 function createTab(opts: CreateTabOptions): Tab {
-  const { projectId, projectPath, sessionId, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId } = opts;
+  const { projectId, projectPath, sessionId, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId, launchExtras } = opts;
   let title: string;
   if (customTitle) {
     title = customTitle;
@@ -125,6 +131,7 @@ function createTab(opts: CreateTabOptions): Tab {
     ssh,
     wsl,
     machineName,
+    launchExtras,
   };
 
   return {
@@ -150,6 +157,7 @@ function createTab(opts: CreateTabOptions): Tab {
     terminalRootPane: terminalLeaf,
     activeTerminalPaneId: terminalLeaf.id,
     parentTabId,
+    launchExtras: terminalLeaf.launchExtras,
   };
 }
 
@@ -161,7 +169,17 @@ function cloneTerminalLeaf(source: TerminalPaneLeaf): TerminalPaneLeaf {
     disconnected: false,
     restoring: false,
     savedSessionId: undefined,
+    // initialPrompt 仅首启生效：分屏克隆的新 leaf 不得重放
+    launchExtras: stripInitialPrompt(source.launchExtras),
   };
+}
+
+/** 去掉 launchExtras 中的 initialPrompt（防重放）；无其余字段时整体归 undefined */
+function stripInitialPrompt(extras: LaunchExtras | undefined): LaunchExtras | undefined {
+  if (!extras) return undefined;
+  if (extras.initialPrompt === undefined) return extras;
+  const { initialPrompt: _initialPrompt, ...rest } = extras;
+  return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
 function findTerminalPane(node: TerminalPaneNode, paneId: string): TerminalPaneNode | null {
@@ -702,6 +720,123 @@ function normalizePaneTree(root: PaneNode): PaneNode {
   return root;
 }
 
+/** 各预设的格子数 */
+const LAYOUT_PRESET_SLOTS: Record<LayoutPresetId, number> = {
+  "single": 1,
+  "two-col": 2,
+  "three-col": 3,
+  "two-row": 2,
+  "grid-2x2": 4,
+  "main-side": 3,
+};
+
+function createSplit(
+  direction: SplitPane["direction"],
+  children: PaneNode[],
+  sizes?: number[]
+): SplitPane {
+  return {
+    type: "split",
+    id: generateId("split"),
+    direction,
+    children,
+    sizes: sizes ?? children.map(() => 100 / children.length),
+  };
+}
+
+// 按预设结构组装分屏树。slots 长度必须等于 LAYOUT_PRESET_SLOTS[preset]。
+// rootSplitId 传现有根 split 的 id 以复用其 React key，减少整树 remount。
+function buildPresetTree(
+  preset: LayoutPresetId,
+  slots: Panel[],
+  rootSplitId: string | null
+): PaneNode {
+  let root: PaneNode;
+  switch (preset) {
+    case "single":
+      // 根已是 split 时保留单 child 壳（与 normalizePaneTree 的壳约定一致）
+      root = rootSplitId
+        ? createSplit("horizontal", [slots[0]], [100])
+        : slots[0];
+      break;
+    case "two-col":
+      root = createSplit("horizontal", slots);
+      break;
+    case "three-col":
+      root = createSplit("horizontal", slots);
+      break;
+    case "two-row":
+      root = createSplit("vertical", slots);
+      break;
+    case "grid-2x2":
+      root = createSplit("vertical", [
+        createSplit("horizontal", [slots[0], slots[1]]),
+        createSplit("horizontal", [slots[2], slots[3]]),
+      ]);
+      break;
+    case "main-side":
+      root = createSplit(
+        "horizontal",
+        [slots[0], createSplit("vertical", [slots[1], slots[2]])],
+        [60, 40]
+      );
+      break;
+  }
+  if (rootSplitId && root.type === "split") {
+    root.id = rootSplitId;
+  }
+  return root;
+}
+
+/** 跳过单 child split 壳，取结构上的有效节点（仅用于结构匹配，不修改树） */
+function unwrapShell(node: PaneNode): PaneNode {
+  let current = node;
+  while (current.type === "split" && current.children.length === 1) {
+    current = current.children[0];
+  }
+  return current;
+}
+
+/** 判断当前树结构是否恰好匹配某个预设（用于布局条高亮），不匹配返回 null */
+export function matchLayoutPreset(root: PaneNode): LayoutPresetId | null {
+  const node = unwrapShell(root);
+  if (node.type === "panel") return "single";
+
+  const children = node.children.map(unwrapShell);
+  const allPanels = children.every((child) => child.type === "panel");
+
+  if (node.direction === "horizontal") {
+    if (children.length === 2 && allPanels) return "two-col";
+    if (children.length === 3 && allPanels) return "three-col";
+    if (
+      children.length === 2
+      && children[0].type === "panel"
+      && children[1].type === "split"
+      && children[1].direction === "vertical"
+      && children[1].children.length === 2
+      && children[1].children.map(unwrapShell).every((child) => child.type === "panel")
+    ) {
+      return "main-side";
+    }
+    return null;
+  }
+
+  if (children.length === 2 && allPanels) return "two-row";
+  if (
+    children.length === 2
+    && children.every(
+      (child) =>
+        child.type === "split"
+        && child.direction === "horizontal"
+        && child.children.length === 2
+        && child.children.map(unwrapShell).every((grand) => grand.type === "panel")
+    )
+  ) {
+    return "grid-2x2";
+  }
+  return null;
+}
+
 // 仅用于快照/持久化加载：压平运行期积累的单 child split 壳链。
 // 运行期不得调用（会触发上述 remount）；导出侧（partialize /
 // exportLayoutSnapshotPayload）持有活树引用，也不得原地压平。
@@ -792,6 +927,10 @@ interface PanesState {
   reorderLayouts: (fromIndex: number, toIndex: number) => void;
   ensureStarredLayout: () => string;
   listLayouts: () => LayoutEntry[];
+  /** 手动绑定布局到工作空间（workspaceName 为键；星标布局忽略） */
+  bindLayoutWorkspace: (layoutId: string, workspaceName: string) => void;
+  /** 解除手动绑定（不影响按标签推导的 derived 绑定） */
+  unbindLayoutWorkspace: (layoutId: string) => void;
 
   // Pane layout
   split: (paneId: string, direction: SplitDirection) => void;
@@ -799,6 +938,8 @@ interface PanesState {
   splitDown: (paneId: string) => void;
   closePane: (paneId: string) => void;
   resizePanes: (paneId: string, sizes: number[]) => void;
+  /** 把当前布局的分屏树一键重排为预设结构；tabs 保序顺序填充，多余的进最后一格 */
+  applyLayoutPreset: (preset: LayoutPresetId) => void;
 
   // Tabs
   addTab: (paneId: string, opts: CreateTabOptions) => void;
@@ -872,6 +1013,8 @@ interface PanesState {
   applyLayoutSnapshotPayload: (payload: LayoutSnapshotPayload) => boolean;
   /** Clear restoring metadata after a terminal tab finishes recovery. */
   clearRestoring: (paneId: string, tabId: string, terminalPaneId?: string) => void;
+  /** 会话创建成功后清除 initialPrompt（tab + 所有 leaf），防 restore/reattach 重放 */
+  clearTabInitialPrompt: (tabId: string) => void;
   /** Collect terminal tabs that can be restored after restart. */
   getRestorableTabs: () => Array<{ tab: Tab; paneId: string; layoutId: string }>;
   setBackgroundRestoreSession: (tabId: string, savedSessionId: string) => void;
@@ -908,7 +1051,10 @@ function cleanRehydratedPanes(node: PaneNode) {
           if (leaf.resumeId === "new") {
             leaf.resumeId = undefined;
           }
+          // restore 路径不得重放 initialPrompt（clearTabInitialPrompt 失败时的兜底）
+          leaf.launchExtras = stripInitialPrompt(leaf.launchExtras);
         }
+        tab.launchExtras = stripInitialPrompt(tab.launchExtras);
         syncTabTerminalState(tab);
       }
       if (tab.contentType === "editor") {
@@ -966,6 +1112,7 @@ export const usePanesStore = create<PanesState>()(
           kind: "normal",
           rootPane,
           activePaneId: rootPane.id,
+          lastActiveAt: Date.now(),
         };
         const starredIndex = state.layouts.findIndex(isStarredLayout);
         if (starredIndex >= 0) {
@@ -1033,6 +1180,7 @@ export const usePanesStore = create<PanesState>()(
         state.currentLayoutId = id;
         state.rootPane = target.rootPane;
         state.activePaneId = target.activePaneId;
+        target.lastActiveAt = Date.now();
       });
       useFullscreenStore.getState().exitFullscreen();
       notifyTerminalLayoutChanged("layout.switch");
@@ -1065,6 +1213,24 @@ export const usePanesStore = create<PanesState>()(
     },
 
     listLayouts: () => projectedLayouts(get()),
+
+    bindLayoutWorkspace: (layoutId, workspaceName) => {
+      const trimmed = workspaceName.trim();
+      if (!trimmed) return;
+      set((state) => {
+        const layout = state.layouts.find((item) => item.id === layoutId);
+        if (!layout || isStarredLayout(layout)) return;
+        layout.workspaceName = trimmed;
+      });
+    },
+
+    unbindLayoutWorkspace: (layoutId) => {
+      set((state) => {
+        const layout = state.layouts.find((item) => item.id === layoutId);
+        if (!layout || isStarredLayout(layout)) return;
+        layout.workspaceName = undefined;
+      });
+    },
 
     split: (paneId, direction) => {
       const directionMap: Record<SplitDirection, "horizontal" | "vertical"> = {
@@ -1275,6 +1441,58 @@ export const usePanesStore = create<PanesState>()(
         }
       });
       notifyTerminalLayoutChanged("pane.close");
+    },
+
+    applyLayoutPreset: (preset) => {
+      set((state) => {
+        if (!activateFirstNormalLayout(state)) return;
+
+        const slotCount = LAYOUT_PRESET_SLOTS[preset];
+        const existingPanels = collectPanels(state.rootPane);
+        const allTabs = existingPanels.flatMap((panel) => panel.tabs);
+
+        // 记住重排前的激活 tab，重排后把焦点跟过去
+        const prevActivePane = findPane(state.rootPane, state.activePaneId);
+        const prevActiveTabId =
+          prevActivePane?.type === "panel" ? prevActivePane.activeTabId : null;
+        // 各 panel 的 activeTabId 集合：tab 被分走后优先保持原激活标签仍激活
+        const prevActiveTabIds = new Set(
+          existingPanels.map((panel) => panel.activeTabId)
+        );
+
+        // 顺序填充：前 N-1 格各一个 tab，剩余全部进最后一格；tabs 不足则留空格子
+        const slotTabs: Tab[][] = Array.from({ length: slotCount }, () => []);
+        allTabs.forEach((tab, index) => {
+          slotTabs[Math.min(index, slotCount - 1)].push(tab);
+        });
+
+        // 复用现有 Panel id（按序），保住 React key 减少幸存终端 remount。
+        // tabs 不足的格子留成空 Panel（tabs: []）：Panel.tsx 对无 activeTab 渲染
+        // 空状态，openSessionBesidePane / addTab 均支持往空 pane 落会话。
+        const slots: Panel[] = slotTabs.map((tabs, index) => {
+          const reused = existingPanels[index];
+          const active =
+            tabs.find((tab) => reused && tab.id === reused.activeTabId)
+            ?? tabs.find((tab) => prevActiveTabIds.has(tab.id))
+            ?? tabs[0];
+          return {
+            type: "panel",
+            id: reused?.id ?? generateId("pane"),
+            tabs,
+            activeTabId: active?.id ?? "",
+          };
+        });
+
+        const rootSplitId = state.rootPane.type === "split" ? state.rootPane.id : null;
+        state.rootPane = buildPresetTree(preset, slots, rootSplitId);
+
+        const focusSlot =
+          (prevActiveTabId
+            && slots.find((slot) => slot.tabs.some((tab) => tab.id === prevActiveTabId)))
+          || slots[0];
+        state.activePaneId = focusSlot.id;
+      });
+      notifyTerminalLayoutChanged("layout.preset");
     },
 
     resizePanes: (paneId, sizes) => {
@@ -1994,6 +2212,16 @@ export const usePanesStore = create<PanesState>()(
     },
 
     openProject: (opts) => {
+      // 布局绑定落位：显式指定目标布局且非当前布局时，先切过去再落位
+      const { targetLayoutId } = opts;
+      if (targetLayoutId && targetLayoutId !== get().currentLayoutId) {
+        const target = get().layouts.find(
+          (layout) => layout.id === targetLayoutId && isNormalLayout(layout)
+        );
+        if (target) {
+          get().switchLayout(targetLayoutId);
+        }
+      }
       if (activeLayout(get())?.kind === "starred") {
         const normal = firstNormalLayout(get().layouts);
         if (normal) {
@@ -2519,7 +2747,8 @@ export const usePanesStore = create<PanesState>()(
     exportLayoutSnapshotPayload: () => {
       const state = get();
       return {
-        schemaVersion: 1,
+        // v2: LayoutEntry 携带 workspaceName/lastActiveAt（可选字段，v1 消费方可忽略）
+        schemaVersion: 2,
         layouts: projectedLayouts(state, { includeStarred: true }),
         currentLayoutId: state.currentLayoutId,
       };
@@ -2527,6 +2756,8 @@ export const usePanesStore = create<PanesState>()(
 
     applyLayoutSnapshotPayload: (payload) => {
       if (!payload || !Array.isArray(payload.layouts)) return false;
+      // 接受 v1（无绑定字段）与 v2；未来更高版本结构未知，拒绝以免半解析
+      if (typeof payload.schemaVersion === "number" && payload.schemaVersion > 2) return false;
       let applied = false;
       set((state) => {
         const layoutState = ensureLayoutState({
@@ -2563,6 +2794,20 @@ export const usePanesStore = create<PanesState>()(
           } else {
             tab.restoring = false;
             tab.savedSessionId = undefined;
+          }
+        }
+      });
+    },
+
+    clearTabInitialPrompt: (tabId) => {
+      set((state) => {
+        const location = findTabAcrossLayouts(state, tabId);
+        const tab = location?.tab;
+        if (!tab) return;
+        tab.launchExtras = stripInitialPrompt(tab.launchExtras);
+        if (tab.terminalRootPane) {
+          for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
+            leaf.launchExtras = stripInitialPrompt(leaf.launchExtras);
           }
         }
       });

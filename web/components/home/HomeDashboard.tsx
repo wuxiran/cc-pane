@@ -6,6 +6,8 @@ import { ArrowRight } from "lucide-react";
 import { historyService } from "@/services";
 import type { LaunchRecord } from "@/services";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useDialogStore } from "@/stores/useDialogStore";
+import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { waitForTauri } from "@/utils";
 import { isTauriRuntime } from "@/services/runtime";
 import HomeHeader from "./HomeHeader";
@@ -15,6 +17,8 @@ import HomeActiveSessions from "./HomeActiveSessions";
 import HomeEnvironment from "./HomeEnvironment";
 import HomeUsageStats from "./HomeUsageStats";
 import HomeShortcuts from "./HomeShortcuts";
+import HomeGettingStarted from "./HomeGettingStarted";
+import HomeDesignHighlights from "./HomeDesignHighlights";
 import type { OpenTerminalOptions } from "@/types";
 
 interface HomeDashboardProps {
@@ -24,9 +28,16 @@ interface HomeDashboardProps {
 export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   const { t } = useTranslation("home");
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const loadWorkspaces = useWorkspacesStore((s) => s.load);
 
   const [version, setVersion] = useState("...");
   const [records, setRecords] = useState<LaunchRecord[]>([]);
+
+  // 新用户判定：没有任何工作空间，或所有工作空间都没有项目
+  const isNewUser =
+    workspaces.length === 0
+    || workspaces.every((ws) => (Array.isArray(ws.projects) ? ws.projects.length : 0) === 0);
 
   const loadRecords = useCallback(async () => {
     try {
@@ -42,6 +53,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
     if (!isTauriRuntime()) {
       setVersion(packageJson.version);
       void loadRecords();
+      void loadWorkspaces().catch(() => undefined);
       return () => { cancelled = true; };
     }
     waitForTauri().then(async (ready) => {
@@ -53,9 +65,11 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
         // fallback
       }
       await loadRecords();
+      // 新用户判定依赖工作空间列表（引导卡场景下 HomeUsageStats 不渲染，需自行加载）
+      await loadWorkspaces().catch(() => undefined);
     });
     return () => { cancelled = true; };
-  }, [loadRecords]);
+  }, [loadRecords, loadWorkspaces]);
 
   // 监听 history-updated 事件刷新
   useEffect(() => {
@@ -65,8 +79,8 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   }, [loadRecords]);
 
   const handleNewTerminal = useCallback(() => {
-    setAppViewMode("panes");
-  }, [setAppViewMode]);
+    useDialogStore.getState().openLauncher();
+  }, []);
 
   return (
     <div
@@ -94,21 +108,33 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
         />
       </div>
 
-      <div className="relative w-full max-w-[1480px] mx-auto px-6 2xl:px-8 pt-8 pb-12 space-y-6">
+      <div className="relative w-full px-6 2xl:px-10 pt-8 pb-12 space-y-6">
         <HomeHeader version={version} />
         <HomeQuickActions onNewTerminal={handleNewTerminal} />
 
-        {/* 第二行：统计（左大） + 开发环境（右小） — 首屏可见 */}
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.5fr)] gap-4 items-start">
-          <HomeUsageStats />
-          <HomeEnvironment />
+        {/* 宽屏（≥1600px 视口）两列：左列 引导卡/用量趋势，右列 环境+最近项目+活跃会话；窄屏单列（现状顺序） */}
+        <div className="grid grid-cols-1 min-[1600px]:grid-cols-[minmax(0,1.6fr)_minmax(340px,1fr)] gap-6 items-stretch">
+          {/* 左列：用量趋势弹性拉伸 + 快捷键速查，与右列底边对齐 */}
+          <div className="min-w-0 flex flex-col gap-6">
+            {isNewUser ? (
+              <>
+                <HomeGettingStarted onNewTerminal={handleNewTerminal} />
+                <HomeDesignHighlights />
+              </>
+            ) : (
+              <HomeUsageStats />
+            )}
+            <HomeShortcuts />
+          </div>
+          <div className="min-w-0 space-y-6">
+            <HomeEnvironment />
+            <HomeRecentProjects records={records} onOpenTerminal={onOpenTerminal} />
+            <HomeActiveSessions />
+          </div>
         </div>
 
-        <HomeRecentProjects records={records} onOpenTerminal={onOpenTerminal} />
-
-        <HomeActiveSessions />
-
-        <HomeShortcuts />
+        {/* 老用户：设计理念收敛为页脚紧凑横条 */}
+        {!isNewUser && <HomeDesignHighlights compact />}
 
         {/* 进入工作区按钮 */}
         <div className="flex justify-center pt-2 pb-2">

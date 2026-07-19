@@ -21,6 +21,7 @@ import { useAppLifecycleEarly } from "@/hooks/useAppLifecycleEarly";
 import { useAppLifecycleLate } from "@/hooks/useAppLifecycleLate";
 import { useShortcutRegistrations } from "@/hooks/useShortcutRegistrations";
 import { useOpenTerminal } from "@/hooks/useOpenTerminal";
+import LauncherDialog from "@/components/launcher/LauncherDialog";
 
 export default function App() {
   // 弹出窗口路由：mode=popup 时渲染纯终端视图（tabData 通过 IPC 获取）
@@ -87,10 +88,14 @@ function MainApp() {
   const handleOpenTerminal = useOpenTerminal();
 
   return (
-    <AppShell
-      onOpenTerminal={handleOpenTerminal}
-      recentFilesOpen={recentFilesOpen}
-      onCloseRecentFiles={closeRecentFiles}
-    />
+    <>
+      <AppShell
+        onOpenTerminal={handleOpenTerminal}
+        recentFilesOpen={recentFilesOpen}
+        onCloseRecentFiles={closeRecentFiles}
+      />
+      {/* 全局唯一启动器弹窗（产物走 pendingLaunch，由上面的 useOpenTerminal 消费） */}
+      <LauncherDialog />
+    </>
   );
 }

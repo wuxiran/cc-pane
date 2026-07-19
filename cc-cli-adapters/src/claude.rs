@@ -917,11 +917,30 @@ impl CliToolAdapter for ClaudeAdapter {
             Self::push_yolo_mode_arg(&mut args);
         }
 
+        // adapter_options：verbose / maxTurns / extraArgs（effort 走 env 注入，见下）
+        if crate::verbose_from_options(&ctx.adapter_options) {
+            args.push("--verbose".to_string());
+        }
+        if let Some(max_turns) = crate::max_turns_from_options(&ctx.adapter_options) {
+            args.push("--max-turns".to_string());
+            args.push(max_turns.to_string());
+        }
+        // extraArgs 必须插在 `--` 分隔符之前，否则会被当作 prompt 文本
+        args.extend(crate::extra_args_from_options(&ctx.adapter_options));
+
         // 位置参数：初始用户 prompt（必须在所有 --option 之后）
         // 使用 `--` 分隔符防止 prompt 被误解析为 flag 值
         if let Some(ref prompt) = ctx.initial_prompt {
             args.push("--".to_string());
             args.push(prompt.clone());
+        }
+
+        // effort → 思考预算：Claude 无 --effort flag，经 MAX_THINKING_TOKENS 注入
+        let mut env_inject = HashMap::new();
+        if let Some(tokens) = crate::effort_from_options(&ctx.adapter_options)
+            .and_then(|effort| crate::claude_max_thinking_tokens(&effort))
+        {
+            env_inject.insert("MAX_THINKING_TOKENS".to_string(), tokens.to_string());
         }
 
         let command;
@@ -952,7 +971,7 @@ impl CliToolAdapter for ClaudeAdapter {
             command,
             args,
             env_remove: vec!["CLAUDECODE".to_string()],
-            env_inject: HashMap::new(),
+            env_inject,
         })
     }
 
@@ -1224,6 +1243,78 @@ mod tests {
 
         assert_eq!(resolved_command, command.to_string_lossy());
         assert_eq!(args, vec!["--version".to_string()]);
+    }
+
+    #[test]
+    fn build_command_injects_max_thinking_tokens_for_effort() {
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some(r"C:\Tools\claude.exe"));
+        ctx.adapter_options
+            .insert("effort".to_string(), serde_json::json!("low"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert_eq!(
+            result.env_inject.get("MAX_THINKING_TOKENS").map(String::as_str),
+            Some("4096")
+        );
+
+        ctx.adapter_options
+            .insert("effort".to_string(), serde_json::json!("max"));
+        let result = adapter.build_command(&ctx).unwrap();
+        assert_eq!(
+            result.env_inject.get("MAX_THINKING_TOKENS").map(String::as_str),
+            Some("63999")
+        );
+    }
+
+    #[test]
+    fn build_command_skips_thinking_tokens_without_valid_effort() {
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some(r"C:\Tools\claude.exe"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+        assert!(result.env_inject.is_empty());
+
+        ctx.adapter_options
+            .insert("effort".to_string(), serde_json::json!("default"));
+        let result = adapter.build_command(&ctx).unwrap();
+        assert!(result.env_inject.is_empty());
+    }
+
+    #[test]
+    fn build_command_places_extra_args_before_prompt_separator() {
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some(r"C:\Tools\claude.exe"));
+        ctx.adapter_options
+            .insert("extraArgs".to_string(), serde_json::json!(["--foo"]));
+        ctx.adapter_options
+            .insert("verbose".to_string(), serde_json::json!(true));
+        ctx.adapter_options
+            .insert("maxTurns".to_string(), serde_json::json!(12));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(result.args.iter().any(|arg| arg == "--verbose"));
+        assert!(result
+            .args
+            .windows(2)
+            .any(|pair| pair[0] == "--max-turns" && pair[1] == "12"));
+        let foo_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "--foo")
+            .expect("extra arg present");
+        let sep_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "--")
+            .expect("prompt separator present");
+        assert!(foo_pos < sep_pos, "extraArgs must precede `--` separator");
+        assert_eq!(
+            &result.args[result.args.len() - 2..],
+            ["--".to_string(), "hello".to_string()]
+        );
     }
 
     #[test]

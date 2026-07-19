@@ -19,6 +19,16 @@ const mockToggleFullscreenWindow = vi.fn();
 vi.mock("@/stores", () => ({
   useBorderlessStore: (selector: (state: { isBorderless: boolean }) => boolean) =>
     selector({ isBorderless: mockUseBorderlessStore() }),
+  useWorkspacesStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      workspaces: [],
+      expandedWorkspaceId: null,
+      expandedProjectId: null,
+      expandWorkspace: () => {},
+      expandProject: () => {},
+    }),
+  useDialogStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ openSettings: () => {} }),
 }));
 
 vi.mock("@/hooks/useWindowControl", () => ({

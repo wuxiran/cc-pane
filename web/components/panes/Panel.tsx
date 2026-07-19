@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { collectPanels } from "@/stores/paneTreeHelpers";
 import TabBar from "./TabBar";
+import PanelEmptyActions from "./PanelEmptyActions";
 import TabContentRenderer from "./TabContentRenderer";
 import type { TerminalViewHandle } from "./TerminalView";
 
@@ -340,6 +341,39 @@ export default memo(function Panel({ pane }: PanelProps) {
     [pane.id, enterFullscreen]
   );
 
+  const handleToggleFullscreen = useCallback(
+    (tabId: string) => {
+      if (isFullscreenPanel) {
+        exitFullscreen();
+      } else {
+        enterFullscreen(pane.id, tabId);
+      }
+    },
+    [isFullscreenPanel, exitFullscreen, enterFullscreen, pane.id]
+  );
+
+  // 克隆终端：同目录/同 CLI 配置在本窗格再开一个标签（全新会话，不共享 PTY）。
+  const handleCloneTab = useCallback(
+    (tab: Tab) => {
+      if (tab.contentType !== "terminal" || !tab.projectPath) return;
+      addTab(pane.id, {
+        projectId: tab.projectId,
+        projectPath: tab.projectPath,
+        workspaceName: tab.workspaceName,
+        providerId: tab.providerId,
+        providerSelection: tab.providerSelection,
+        launchProfileId: tab.launchProfileId,
+        workspacePath: tab.workspacePath,
+        workspaceSnapshotId: tab.workspaceSnapshotId,
+        cliTool: tab.cliTool ?? (tab.launchClaude ? "claude" : undefined),
+        ssh: tab.ssh,
+        wsl: tab.wsl,
+        machineName: tab.machineName,
+      });
+    },
+    [pane.id, addTab]
+  );
+
   const handleSessionCreated = useCallback(
     (tabId: string, sessionId: string, terminalPaneId?: string) =>
       updateTabSession(pane.id, tabId, sessionId, terminalPaneId),
@@ -504,6 +538,9 @@ export default memo(function Panel({ pane }: PanelProps) {
             onPopOutTab={isTauriRuntime() ? handlePopOutTab : undefined}
             canEditWorkspaceEnvironment={canEditWorkspaceEnvironment}
             onEditWorkspaceEnvironment={handleEditWorkspaceEnvironment}
+            onCloneTab={handleCloneTab}
+            onToggleFullscreen={handleToggleFullscreen}
+            isPaneFullscreen={isFullscreenPanel}
           />
         </div>
 
@@ -565,6 +602,7 @@ export default memo(function Panel({ pane }: PanelProps) {
             <p className="text-center max-w-sm leading-relaxed text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("selectProject")}
             </p>
+            <PanelEmptyActions />
           </div>
         )}
       </div>

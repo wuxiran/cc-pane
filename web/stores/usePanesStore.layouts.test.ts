@@ -587,7 +587,7 @@ describe("usePanesStore layouts", () => {
 
     const payload = usePanesStore.getState().exportLayoutSnapshotPayload();
 
-    expect(payload.schemaVersion).toBe(1);
+    expect(payload.schemaVersion).toBe(2);
     expect(payload.currentLayoutId).toBe("layout-1");
     const tabs = panel(payload.layouts[0].rootPane).tabs;
     expect(tabs[tabs.length - 1]?.projectPath).toBe("/tmp/snapshot");
@@ -614,6 +614,98 @@ describe("usePanesStore layouts", () => {
     expect(leaf.sessionId).toBeNull();
     expect(leaf.savedSessionId).toBe("session-remote");
     expect(leaf.restoring).toBe(true);
+  });
+
+  it("applyLayoutSnapshotPayload 接受 v1/v2，拒绝未知的更高版本", () => {
+    const buildPayload = (schemaVersion: number) => {
+      const rootPane = createPanel(makeTerminalTab(`tab-v${schemaVersion}`));
+      return {
+        schemaVersion,
+        layouts: [{
+          id: `layout-v${schemaVersion}`,
+          name: `v${schemaVersion}`,
+          kind: "normal" as const,
+          rootPane,
+          activePaneId: rootPane.id,
+        }],
+        currentLayoutId: `layout-v${schemaVersion}`,
+      };
+    };
+
+    expect(usePanesStore.getState().applyLayoutSnapshotPayload(buildPayload(1))).toBe(true);
+    expect(usePanesStore.getState().applyLayoutSnapshotPayload(buildPayload(2))).toBe(true);
+    expect(usePanesStore.getState().applyLayoutSnapshotPayload(buildPayload(3))).toBe(false);
+    expect(usePanesStore.getState().currentLayoutId).toBe("layout-v2");
+  });
+
+  it("快照导出保留 workspaceName / lastActiveAt 绑定字段", () => {
+    usePanesStore.getState().bindLayoutWorkspace("layout-1", "ws-a");
+    usePanesStore.setState((state) => {
+      state.layouts[0].lastActiveAt = 12345;
+    });
+
+    const payload = usePanesStore.getState().exportLayoutSnapshotPayload();
+
+    expect(payload.layouts[0].workspaceName).toBe("ws-a");
+    expect(payload.layouts[0].lastActiveAt).toBe(12345);
+  });
+
+  it("bindLayoutWorkspace / unbindLayoutWorkspace 只作用于普通布局", () => {
+    usePanesStore.getState().bindLayoutWorkspace("layout-1", "  ws-a  ");
+    usePanesStore.getState().bindLayoutWorkspace("layout-starred", "ws-a");
+    usePanesStore.getState().bindLayoutWorkspace("layout-1", "  ");
+
+    let state = usePanesStore.getState();
+    expect(state.layouts.find((l) => l.id === "layout-1")?.workspaceName).toBe("ws-a");
+    expect(state.layouts.find((l) => l.id === "layout-starred")?.workspaceName).toBeUndefined();
+
+    usePanesStore.getState().unbindLayoutWorkspace("layout-1");
+    state = usePanesStore.getState();
+    expect(state.layouts.find((l) => l.id === "layout-1")?.workspaceName).toBeUndefined();
+  });
+
+  it("createLayout / switchLayout 打 lastActiveAt 最近使用时间", () => {
+    const before = Date.now();
+    const id = usePanesStore.getState().createLayout("绑定测试");
+    const created = usePanesStore.getState().layouts.find((l) => l.id === id);
+    expect(created?.lastActiveAt).toBeGreaterThanOrEqual(before);
+
+    usePanesStore.getState().switchLayout("layout-1");
+    const switched = usePanesStore.getState().layouts.find((l) => l.id === "layout-1");
+    expect(switched?.lastActiveAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it("openProject 带 targetLayoutId 时先切到目标布局再落位", () => {
+    const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
+    usePanesStore.setState((state) => {
+      state.layouts.push(hidden);
+    });
+
+    usePanesStore.getState().openProject({
+      projectId: "proj-target",
+      projectPath: "/tmp/proj-target",
+      targetLayoutId: "layout-hidden",
+    });
+
+    const state = usePanesStore.getState();
+    expect(state.currentLayoutId).toBe("layout-hidden");
+    expect(panel(state.rootPane).tabs.some((tab) => tab.projectPath === "/tmp/proj-target")).toBe(true);
+  });
+
+  it("openProject 的 targetLayoutId 指向星标/不存在布局时留在当前布局", () => {
+    usePanesStore.getState().openProject({
+      projectId: "proj-starred",
+      projectPath: "/tmp/proj-starred",
+      targetLayoutId: "layout-starred",
+    });
+    expect(usePanesStore.getState().currentLayoutId).toBe("layout-1");
+
+    usePanesStore.getState().openProject({
+      projectId: "proj-missing",
+      projectPath: "/tmp/proj-missing",
+      targetLayoutId: "layout-missing",
+    });
+    expect(usePanesStore.getState().currentLayoutId).toBe("layout-1");
   });
 
   it("移动端选择 pane/tab 会触发布局快照保存事件", async () => {

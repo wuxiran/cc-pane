@@ -16,7 +16,8 @@ import { ProvidersPanel } from "@/components/providers";
 import ResourceHub from "@/components/resources/ResourceHub";
 import OrchestrationOverlay from "@/components/orchestration/OrchestrationOverlay";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
-import { usePanesStore, useActivityBarStore, type AppViewMode } from "@/stores";
+import LayoutTopBar from "@/components/layoutbar/LayoutTopBar";
+import { usePanesStore, useActivityBarStore, useLayoutUiStore, type AppViewMode } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
 
 interface MainViewSwitcherProps {
@@ -28,6 +29,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   const layouts = usePanesStore((s) => s.layouts);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
 
+  const layoutSwitcherMode = useLayoutUiStore((s) => s.switcherMode);
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const activeView = useActivityBarStore((s) => s.activeView);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
@@ -117,28 +119,32 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       {/* 面板区域（终端）：keep-alive 关键区——隐藏不卸载，切回即恢复 */}
       {isMounted("panes") && (
         <div
-          className="flex-1 overflow-hidden"
+          className="flex flex-1 flex-col overflow-hidden"
           style={{ background: "var(--app-panel-bg)", ...viewStyle("panes") }}
         >
-          <DndPaneProvider>
-            {layouts.map((layout) => {
-              const isCurrent = layout.id === currentLayoutId;
-              return (
-                <LayoutVisibilityContext.Provider key={layout.id} value={isCurrent && isActive("panes")}>
-                  <div
-                    className="h-full w-full"
-                    style={{ display: isCurrent ? "block" : "none" }}
-                  >
-                    {layout.kind === "starred" ? (
-                      <StarredPanel />
-                    ) : (
-                      <PaneContainer pane={isCurrent ? rootPane : layout.rootPane} />
-                    )}
-                  </div>
-                </LayoutVisibilityContext.Provider>
-              );
-            })}
-          </DndPaneProvider>
+          {/* 布局条模式：标签上方多一层布局层（corner 模式下仍走左下角 LayoutBar） */}
+          {layoutSwitcherMode === "topbar" && <LayoutTopBar />}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <DndPaneProvider>
+              {layouts.map((layout) => {
+                const isCurrent = layout.id === currentLayoutId;
+                return (
+                  <LayoutVisibilityContext.Provider key={layout.id} value={isCurrent && isActive("panes")}>
+                    <div
+                      className="h-full w-full"
+                      style={{ display: isCurrent ? "block" : "none" }}
+                    >
+                      {layout.kind === "starred" ? (
+                        <StarredPanel />
+                      ) : (
+                        <PaneContainer pane={isCurrent ? rootPane : layout.rootPane} />
+                      )}
+                    </div>
+                  </LayoutVisibilityContext.Provider>
+                );
+              })}
+            </DndPaneProvider>
+          </div>
         </div>
       )}
       {showOrchestrationOverlay && (

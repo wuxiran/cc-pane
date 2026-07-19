@@ -4,7 +4,23 @@ import { useCallback, useEffect } from "react";
 import { usePanesStore, useDialogStore, useSettingsStore } from "@/stores";
 import { historyService, localHistoryService } from "@/services";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
-import type { OpenTerminalOptions } from "@/types";
+import { findLayoutForWorkspace } from "@/utils/layoutWorkspace";
+import type { LaunchExtras, OpenTerminalOptions } from "@/types";
+
+/** 从 OpenTerminalOptions 收拢启动器附加参数；全部缺省时返回 undefined */
+function buildLaunchExtras(opts: OpenTerminalOptions): LaunchExtras | undefined {
+  const { skipMcp, appendSystemPrompt, initialPrompt, yolo, adapterOptions } = opts;
+  if (
+    skipMcp === undefined
+    && appendSystemPrompt === undefined
+    && initialPrompt === undefined
+    && yolo === undefined
+    && adapterOptions === undefined
+  ) {
+    return undefined;
+  }
+  return { skipMcp, appendSystemPrompt, initialPrompt, yolo, adapterOptions };
+}
 
 export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
   const openProject = usePanesStore((s) => s.openProject);
@@ -22,7 +38,15 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
       const workspaceSnapshotId = opts.workspaceSnapshotId ?? `ws-snapshot-${crypto.randomUUID()}`;
-      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName, workspaceSnapshotId });
+      // 落位布局：显式 targetLayoutId 优先；否则按 workspaceName 找绑定布局（manual > derived）
+      let targetLayoutId = opts.targetLayoutId;
+      if (!targetLayoutId && workspaceName) {
+        targetLayoutId = findLayoutForWorkspace(
+          usePanesStore.getState().listLayouts(),
+          workspaceName,
+        )?.id;
+      }
+      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName, workspaceSnapshotId, targetLayoutId, launchExtras: buildLaunchExtras(opts) });
       const name = path.split(/[/\\]/).pop() || path;
 
       // SSH 项目：launchCwd 用 display path
@@ -109,6 +133,12 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
         wsl: pendingLaunch.wsl,
         machineName: pendingLaunch.machineName,
         cliTool: pendingLaunch.cliTool ?? defaultTool,
+        targetLayoutId: pendingLaunch.targetLayoutId,
+        skipMcp: pendingLaunch.skipMcp,
+        appendSystemPrompt: pendingLaunch.appendSystemPrompt,
+        initialPrompt: pendingLaunch.initialPrompt,
+        yolo: pendingLaunch.yolo,
+        adapterOptions: pendingLaunch.adapterOptions,
       });
       clearPendingLaunch();
     }

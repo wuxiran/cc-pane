@@ -35,6 +35,10 @@ import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
 
 interface WorkspaceTreeProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
+  /** Explorer 分区模式：由外层提供分区头（替换内置的「工作空间」分组头），拿到计数与新建入口 */
+  renderSectionHeader?: (ctx: { count: number; onCreateWorkspace: () => void }) => ReactNode;
+  /** Explorer 分区模式：折叠时隐藏树主体（Dialogs 保持挂载） */
+  collapsed?: boolean;
 }
 
 export function getReorderedWorkspaceNames(
@@ -110,7 +114,7 @@ function SortableWorkspaceItem(props: SortableWorkspaceItemProps) {
   );
 }
 
-export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
+export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, collapsed = false }: WorkspaceTreeProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const loading = useWorkspacesStore((s) => s.loading);
@@ -190,14 +194,17 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
 
   return (
     <>
-      {/* Section: 工作空间 */}
+      {/* Section: 工作空间（Explorer 分区模式下由外层渲染分区头） */}
+      {renderSectionHeader ? (
+        renderSectionHeader({ count: workspaces.length, onCreateWorkspace: actions.handleCreateWorkspace })
+      ) : (
       <div className="flex items-center justify-between px-3 pt-2 pb-1.5 group/section">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--app-text-secondary)] transition-colors">
             {t("workspaces")}
           </span>
           <span
-            className="text-[10px] font-medium tabular-nums leading-none px-1.5 py-0.5 rounded text-[var(--app-text-tertiary)] transition-colors"
+            className="text-[11px] font-medium tabular-nums leading-none px-1.5 py-0.5 rounded text-[var(--app-text-tertiary)] transition-colors"
             style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
           >
             {workspaces.length}
@@ -213,7 +220,10 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
           <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
+      )}
 
+      {!collapsed && (
+      <>
       <DndContext
         collisionDetection={closestCenter}
         onDragEnd={(event: DragEndEvent) => void handleDragEnd(event)}
@@ -226,7 +236,7 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
           <div className="flex flex-col gap-1">
             {loading && workspaces.length === 0 ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-2 px-3 py-1.5">
+                <div key={i} className="flex items-center gap-2 px-3 py-2">
                   <Skeleton className="h-4 w-4 rounded" />
                   <Skeleton className="h-4 flex-1" />
                 </div>
@@ -288,6 +298,8 @@ export default function WorkspaceTree({ onOpenTerminal }: WorkspaceTreeProps) {
         <Plus className="w-3.5 h-3.5 transition-transform duration-[var(--dur-fast)] group-hover:rotate-90" />
         {t("newWorkspace")}
       </button>
+      </>
+      )}
 
       {/* Dialogs */}
       <WorkspaceDialogs {...actions.dialogs} />

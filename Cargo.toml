@@ -12,3 +12,13 @@ members = [
     "cc-notify",
     "cc-cli-adapters",
 ]
+
+# dev 构建的调试信息策略：自己的代码留行号级信息（够看栈回溯），依赖一律不生成。
+# 默认 debug = 2 会给全部 914 个依赖生成完整调试信息——这是 target/debug/deps 膨胀到
+# 上百 GB 的主因，且链接器每次都要读取并合并这些信息，拖慢每一次重新链接。
+# 依赖代码基本不会单步进入，故收益远大于代价。需要调试某个依赖时临时改回即可。
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 0

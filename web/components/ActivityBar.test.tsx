@@ -52,8 +52,9 @@ describe("ActivityBar", () => {
   it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer/files/sessions/ssh/orchestration + 资源中心 + todo + settings = 9 按钮
-    expect(container.querySelectorAll("button")).toHaveLength(9);
+    // Home + explorer/sessions/ssh/orchestration + 资源中心 + todo + settings = 8 按钮
+    //（files 图标已移除：Explorer 侧栏自带文件 tab）
+    expect(container.querySelectorAll("button")).toHaveLength(8);
   });
 
   it("点击 Home 图标在 home 与 panes 之间切换", async () => {

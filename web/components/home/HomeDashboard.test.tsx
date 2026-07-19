@@ -6,7 +6,10 @@ import packageJson from "../../../package.json";
 import { historyService } from "@/services/historyService";
 import { isTauriRuntime } from "@/services/runtime";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useDialogStore } from "@/stores";
+import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import type { LaunchRecord } from "@/services";
+import type { Workspace } from "@/types";
 import HomeDashboard from "./HomeDashboard";
 
 vi.mock("@tauri-apps/api/app", () => ({
@@ -36,10 +39,31 @@ vi.mock("./HomeRecentProjects", () => ({
 }));
 vi.mock("./HomeActiveSessions", () => ({ default: () => null }));
 vi.mock("./HomeEnvironment", () => ({ default: () => null }));
-vi.mock("./HomeUsageStats", () => ({ default: () => null }));
+vi.mock("./HomeUsageStats", () => ({
+  default: () => <div data-testid="usage-stats" />,
+}));
 vi.mock("./HomeShortcuts", () => ({ default: () => null }));
+vi.mock("./HomeGettingStarted", () => ({
+  default: () => <div data-testid="getting-started" />,
+}));
+vi.mock("./HomeDesignHighlights", () => ({
+  default: ({ compact }: { compact?: boolean }) => (
+    <div data-testid={compact ? "highlights-compact" : "highlights-card"} />
+  ),
+}));
 
 const RECORD = { id: 1 } as unknown as LaunchRecord;
+
+function makeWorkspace(projectCount: number): Workspace {
+  return {
+    id: `ws-${projectCount}`,
+    name: `ws-${projectCount}`,
+    projects: Array.from({ length: projectCount }, (_, i) => ({
+      id: `p-${i}`,
+      path: `D:/proj-${i}`,
+    })),
+  } as unknown as Workspace;
+}
 
 describe("HomeDashboard", () => {
   beforeEach(() => {
@@ -47,6 +71,10 @@ describe("HomeDashboard", () => {
     vi.mocked(isTauriRuntime).mockReturnValue(false);
     vi.spyOn(historyService, "list").mockResolvedValue([RECORD]);
     useActivityBarStore.setState({ appViewMode: "home" });
+    useWorkspacesStore.setState({
+      workspaces: [makeWorkspace(1)],
+      load: vi.fn(async () => {}),
+    });
   });
 
   it("非 Tauri 环境使用 package.json 版本并加载启动历史", async () => {
@@ -96,12 +124,43 @@ describe("HomeDashboard", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
-  it("快速操作的新建终端回调切换到 panes 视图", async () => {
+  it("快速操作的新建终端回调打开启动器", async () => {
     render(<HomeDashboard onOpenTerminal={vi.fn()} />);
     await screen.findByTestId("recent");
 
     fireEvent.click(screen.getByTestId("quick-actions"));
 
-    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    // 新建终端已改为打开全局启动器（LauncherDialog），不再直接切 panes 视图
+    expect(useDialogStore.getState().launcherOpen).toBe(true);
+  });
+
+  it("老用户（有项目）显示用量趋势 + 页脚紧凑理念条，不显示引导卡", async () => {
+    render(<HomeDashboard onOpenTerminal={vi.fn()} />);
+    await screen.findByTestId("recent");
+
+    expect(screen.getByTestId("usage-stats")).toBeInTheDocument();
+    expect(screen.getByTestId("highlights-compact")).toBeInTheDocument();
+    expect(screen.queryByTestId("getting-started")).toBeNull();
+    expect(screen.queryByTestId("highlights-card")).toBeNull();
+  });
+
+  it("无工作空间时显示引导卡 + 理念卡，隐藏用量趋势", async () => {
+    useWorkspacesStore.setState({ workspaces: [] });
+    render(<HomeDashboard onOpenTerminal={vi.fn()} />);
+    await screen.findByTestId("recent");
+
+    expect(screen.getByTestId("getting-started")).toBeInTheDocument();
+    expect(screen.getByTestId("highlights-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("usage-stats")).toBeNull();
+    expect(screen.queryByTestId("highlights-compact")).toBeNull();
+  });
+
+  it("有工作空间但项目总数为 0 也算新用户", async () => {
+    useWorkspacesStore.setState({ workspaces: [makeWorkspace(0), makeWorkspace(0)] });
+    render(<HomeDashboard onOpenTerminal={vi.fn()} />);
+    await screen.findByTestId("recent");
+
+    expect(screen.getByTestId("getting-started")).toBeInTheDocument();
+    expect(screen.queryByTestId("usage-stats")).toBeNull();
   });
 });

@@ -1,7 +1,13 @@
 import { create } from "zustand";
-import type { CliTool, LaunchProviderSelection, SshConnectionInfo, WslLaunchInfo } from "@/types";
+import type {
+  CliTool,
+  LaunchAdapterOptions,
+  LaunchProviderSelection,
+  SshConnectionInfo,
+  WslLaunchInfo,
+} from "@/types";
 
-interface PendingLaunch {
+export interface PendingLaunch {
   path: string;
   workspaceName?: string;
   providerId: string;
@@ -12,6 +18,22 @@ interface PendingLaunch {
   ssh?: SshConnectionInfo;
   wsl?: WslLaunchInfo;
   machineName?: string;
+  /** 显式指定落位布局；缺省时由 workspaceName 经 findLayoutForWorkspace 推导 */
+  targetLayoutId?: string;
+  skipMcp?: boolean;
+  appendSystemPrompt?: string;
+  /** 仅首启注入；重放防护见 usePanesStore.clearTabInitialPrompt */
+  initialPrompt?: string;
+  /** per-launch YOLO 覆盖：undefined = 跟随 launch profile */
+  yolo?: boolean;
+  adapterOptions?: LaunchAdapterOptions;
+}
+
+/** 启动器打开时的上下文（入口带入的预选项） */
+export interface LauncherContext {
+  workspaceName?: string;
+  projectPath?: string;
+  targetLayoutId?: string;
 }
 
 interface DialogState {
@@ -72,6 +94,12 @@ interface DialogState {
   pendingLaunch: PendingLaunch | null;
   setPendingLaunch: (launch: PendingLaunch) => void;
   clearPendingLaunch: () => void;
+
+  // Launcher（全局启动器弹窗）
+  launcherOpen: boolean;
+  launcherContext: LauncherContext | null;
+  openLauncher: (ctx?: LauncherContext) => void;
+  closeLauncher: () => void;
 }
 
 export const useDialogStore = create<DialogState>((set) => ({
@@ -141,4 +169,10 @@ export const useDialogStore = create<DialogState>((set) => ({
   pendingLaunch: null,
   setPendingLaunch: (launch) => set({ pendingLaunch: launch }),
   clearPendingLaunch: () => set({ pendingLaunch: null }),
+
+  // Launcher
+  launcherOpen: false,
+  launcherContext: null,
+  openLauncher: (ctx) => set({ launcherOpen: true, launcherContext: ctx ?? null }),
+  closeLauncher: () => set({ launcherOpen: false, launcherContext: null }),
 }));

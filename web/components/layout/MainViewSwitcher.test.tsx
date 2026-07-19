@@ -36,6 +36,9 @@ vi.mock("@/components/resources/ResourceHub", () => ({
 vi.mock("@/components/orchestration/OrchestrationOverlay", () => ({
   default: () => <div data-testid="orchestration-overlay" />,
 }));
+vi.mock("@/components/layoutbar/LayoutTopBar", () => ({
+  default: () => <div data-testid="layout-top-bar" />,
+}));
 
 const activityState = vi.hoisted(() => ({
   sidebarVisible: true,
@@ -43,6 +46,11 @@ const activityState = vi.hoisted(() => ({
   appViewMode: "panes" as AppViewMode,
   orchestrationOverlayOpen: false,
   closeOrchestrationOverlay: () => {},
+}));
+
+const layoutUiState = vi.hoisted(() => ({
+  switcherMode: "corner" as "corner" | "topbar",
+  setSwitcherMode: () => {},
 }));
 
 const panesState = vi.hoisted(() => ({
@@ -56,6 +64,7 @@ const panesState = vi.hoisted(() => ({
 vi.mock("@/stores", () => ({
   usePanesStore: (selector: (s: typeof panesState) => unknown) => selector(panesState),
   useActivityBarStore: (selector: (s: typeof activityState) => unknown) => selector(activityState),
+  useLayoutUiStore: (selector: (s: typeof layoutUiState) => unknown) => selector(layoutUiState),
 }));
 
 function setMode(mode: AppViewMode, overrides: Partial<typeof activityState> = {}) {
@@ -162,5 +171,22 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     panesState.layouts = [
       { id: "l1", kind: "normal", rootPane: panesState.rootPane },
     ];
+  });
+
+  it("布局切换器双模式：corner 不渲染布局条，topbar 在 panes 区渲染 LayoutTopBar", () => {
+    setMode("panes");
+    layoutUiState.switcherMode = "corner";
+    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.queryByTestId("layout-top-bar")).toBeNull();
+
+    layoutUiState.switcherMode = "topbar";
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getByTestId("layout-top-bar")).toBeInTheDocument();
+
+    // 非 panes 视图不渲染布局条
+    setMode("home");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getByTestId("layout-top-bar")).not.toBeVisible();
+    layoutUiState.switcherMode = "corner";
   });
 });

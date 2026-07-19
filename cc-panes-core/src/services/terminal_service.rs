@@ -1282,6 +1282,8 @@ impl TerminalService {
         skip_mcp: bool,
         append_system_prompt: Option<&str>,
         initial_prompt: Option<&str>,
+        yolo_mode: Option<bool>,
+        request_adapter_options: Option<&HashMap<String, serde_json::Value>>,
         extra_env: Option<&HashMap<String, String>>,
         ssh: Option<&SshConnectionInfo>,
         wsl: Option<&WslLaunchInfo>,
@@ -1323,10 +1325,16 @@ impl TerminalService {
         let profile_provider_id = resolved_profile
             .as_ref()
             .and_then(|profile| profile.provider_id.as_deref());
-        let adapter_options = resolved_profile
+        // adapter_options 合并：profile 打底，request 覆盖同名键（per-launch 覆盖）
+        let mut adapter_options = resolved_profile
             .as_ref()
             .map(|profile| profile.adapter_options.clone())
             .unwrap_or_default();
+        if let Some(request_options) = request_adapter_options {
+            for (key, value) in request_options {
+                adapter_options.insert(key.clone(), value.clone());
+            }
+        }
         let use_native_kimi_config = cli_tool == CliTool::Kimi
             && adapter_options
                 .get("kimiConfigMode")
@@ -1382,10 +1390,13 @@ impl TerminalService {
             selected_shared_mcp_config_toml_for_codex(&allowed_mcp_server_ids, &shared_mcp_config);
         let sync_project_hooks =
             LaunchProfileService::should_sync_project_hooks_for_profile(resolved_profile.as_ref());
-        let effective_yolo_mode = resolved_profile
-            .as_ref()
-            .map(|profile| profile.yolo_mode)
-            .unwrap_or(false);
+        // per-launch YOLO 覆盖：Some = 请求显式指定，None = 跟随 profile 解析值
+        let effective_yolo_mode = yolo_mode.unwrap_or_else(|| {
+            resolved_profile
+                .as_ref()
+                .map(|profile| profile.yolo_mode)
+                .unwrap_or(false)
+        });
         // 方案 A：显式选中的启动配置因 CLI/运行环境不匹配被静默丢弃时，不再无声回落——
         // 记录 warn 并向前端广播提示，避免 YOLO 等 profile 级设置无声失效。
         if let Some(diagnostic) = profile_diagnostic.as_ref() {
@@ -1734,6 +1745,7 @@ impl TerminalService {
                         disable_unlisted_mcp_servers,
                         &selected_mcp_config_toml,
                         effective_yolo_mode,
+                        &adapter_options,
                     )?
                 }
                 CliTool::Claude
@@ -1752,6 +1764,7 @@ impl TerminalService {
                     initial_prompt,
                     effective_skip_mcp,
                     effective_yolo_mode,
+                    &adapter_options,
                 )?,
                 CliTool::Kimi | CliTool::Glm => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
@@ -1765,6 +1778,7 @@ impl TerminalService {
                     initial_prompt,
                     effective_skip_mcp,
                     effective_yolo_mode,
+                    &adapter_options,
                 )?,
             };
 
