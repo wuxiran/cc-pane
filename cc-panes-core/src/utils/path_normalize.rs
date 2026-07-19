@@ -36,7 +36,10 @@ mod tests {
     #[test]
     fn plain_paths_are_untouched() {
         // 各平台都不该改写普通路径
-        assert_eq!(simplify_path_str("/home/user/project"), "/home/user/project");
+        assert_eq!(
+            simplify_path_str("/home/user/project"),
+            "/home/user/project"
+        );
     }
 
     #[test]

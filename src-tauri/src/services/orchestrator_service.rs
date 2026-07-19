@@ -1054,9 +1054,7 @@ impl OrchestratorService {
         loop {
             if let Ok(slot) = bind_error.lock() {
                 if let Some(message) = slot.clone() {
-                    return Err(anyhow::anyhow!(
-                        "orchestrator 未能启动：{message}"
-                    ));
+                    return Err(anyhow::anyhow!("orchestrator 未能启动：{message}"));
                 }
             }
             if start.elapsed() > std::time::Duration::from_secs(5) {

@@ -715,7 +715,11 @@ mod tests {
 
         // `..` 语法逃逸仍被拒
         let escape = format!("{}/sub/../sub", path_str(tmp.path()));
-        assert!(svc().get_entry_info(&escape).unwrap_err().message().contains(".."));
+        assert!(svc()
+            .get_entry_info(&escape)
+            .unwrap_err()
+            .message()
+            .contains(".."));
 
         // 合法路径仍解析到同一目标（剥前缀不改变指向）
         let sub = tmp.path().join("sub");

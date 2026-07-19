@@ -572,7 +572,10 @@ mod tests {
         .await
         .expect("drain must succeed");
 
-        assert!(terminated, "读到 killed 后应返回 true，调用方据此跳过静默 -1");
+        assert!(
+            terminated,
+            "读到 killed 后应返回 true，调用方据此跳过静默 -1"
+        );
         assert_eq!(seen.len(), 2, "killed 之后的消息不再消费");
         assert!(seen[1].contains(r#""reason":"mcp""#), "reason 必须完整送达");
     }
