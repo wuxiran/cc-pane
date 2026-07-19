@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.10.19 - 2026-07-20
+
+### Added
+
+- **Global launcher (`Ctrl+T`)** — a nine-section launch dialog (project / CLI / environment / scenario / options / injection / provider / worktree / layout) with a live CLI-args preview. A persistent **Launch Terminal** button now sits at the bottom of the sidebar, the title bar gained an explicit sidebar collapse toggle, and the home dashboard's **Enter Workspace** CTA moved from the very bottom of the page up to the greeting row (it now also expands the sidebar on click). **Recent Launches** moved out of the ActivityBar rail into the Explorer's top icon tabs.
+- **System environment variables can now be set as the default credential.** Backed by a persisted `default_is_system` flag (serde-defaulted, so existing configs still deserialize); `detect_system_provider` now returns detection details — matched variable *names* only, never values — and the card states plainly that host-process detection does not represent a WSL/SSH target.
+
+### Fixed
+
+- **Windows verbatim-path (`\\?\`) contamination — data-affecting.** The CLI hook's `canonicalize()` produced verbatim-prefixed paths that overwrote the clean `launch_cwd` in launch history, flowed back as `workspacePath`, and reached the PTY as a working directory — which `cmd.exe` rejects, silently falling back to `C:\Windows`. Measured 41 polluted rows across 9 workspaces, growing with every relaunch from Recent Launches. Fixed at six layers (a shared `dunce`-backed helper, the hook, the repository, the frontend fallback, and the PTY gate) plus migration **V23**, which strips only an exact verbatim prefix, skips the UNC form that cannot be safely downgraded, and is idempotent by construction.
+- **Orchestrator MCP port drift silently killed long-running sessions.** The port was OS-ephemeral with best-effort reuse, landing squarely inside Windows' 49152-65535 ephemeral range. When it changed, already-running CLI sessions lost `ccpanes` MCP permanently: hooks re-resolve per call and self-heal, but a CLI's own MCP client resolves exactly once, at startup. Now a fixed port outside the ephemeral range with separate dev/release offsets, a loud failure instead of a silent drift, and a `CC_PANES_ORCHESTRATOR_PORT` escape hatch. Manifest writes are atomic.
+- **MCP control keys never reached the target session.** `\x03`-style escaping is not valid JSON, yet the tool description and skill docs taught exactly that — the payload either failed to parse or arrived as four literal characters, with no error either way. Added tolerant escape decoding at the MCP boundary (shared with the REST twin) and corrected the docs to require `\u` escapes. Control keys must use `write_to_session`; `submit_to_session` always appends CR and will cancel an interrupt.
+- **MCP `kill_session` left the tab open.** The kill reason was never mis-set — it was dropped. The daemon bridge's 500 ms status tick could beat `ws.next()`, emit a silent `terminal-exit(-1)`, and return before the queued `killed` message was ever read. The race window was wide because the kill path removed the session from the map first (making it invisible to status polling), then did file I/O and a process-tree kill, and only then emitted the event. Fixed by emitting earlier and draining the socket before exit. Starred layouts and pinned tabs no longer swallow backend-driven closes silently.
+- **Linux terminal copy/paste.** `5089593` deliberately kept `clearNativeEditState`'s destructive clearing for Linux WebKit's IME workaround, but its effect on the clipboard was never checked — wiping the document selection immediately after an async clipboard write is precisely how WebKitGTK loses that write. Copy now preserves the document selection (the hidden textarea is still cleared, so the IME workaround is untouched); the paste path no longer aborts on a failed image probe before it ever reads text; Ctrl+Shift+C copies on non-Mac.
+- **Terminal scrollbar was invisible in light theme** — the slider colors had no light variant. Separately, `stripAlternateBufferSequences` ran per chunk, so a PTY split mid-sequence let Codex slip into the alternate buffer, making behaviour flip between "no scrollbar" and screen residue. Replaced with a stateful, chunk-safe stripper wired into the render path.
+- **The provider panel conflated three different verbs on one card**: a green *Launch* button (a one-shot session start, mislabeled as if it set state), a small star for *Set as default* (the actually persistent action), and CRUD icons — with the visual weighting exactly inverted. The panel is now pure credential management; launching lives in the global launcher, which already covered every option the panel's inferior entry point offered.
+- **The main launcher ignored the "default CLI tool" setting**, always starting Claude despite eight supported CLIs, a settings entry, and an onboarding prompt asking the user to choose one.
+- New split panes no longer open with a stray empty *Terminal* tab, and auto-split now alternates right/down into a spiral instead of tiling horizontally forever.
+- `ResourceHub` rendered an i18next "returned an object instead of string" banner directly in the UI; missing `resourceHub` / `skills` keys and hard-coded Chinese in the segmented control are now translated.
+
+### Internal
+
+- Extracted shared CLI-tool coercion and de-duplicated `createPanel` — both artifacts of parallel work. The `launch-task` and `parallel` skills now document the previously unrecorded `placement` parameter.
+- Design and investigation notes land in `docs/24` through `docs/38`.
+
+
 ## 0.10.18 - 2026-07-15
 
 ### Added
