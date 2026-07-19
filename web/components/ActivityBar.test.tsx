@@ -52,9 +52,17 @@ describe("ActivityBar", () => {
   it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer/sessions/ssh/orchestration + 资源中心 + todo + settings = 8 按钮
-    //（files 图标已移除：Explorer 侧栏自带文件 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(8);
+    // Home + explorer/ssh/orchestration + 资源中心 + todo + settings = 7 按钮
+    //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
+    expect(container.querySelectorAll("button")).toHaveLength(7);
+  });
+
+  it("不再有 sessions 竖排入口：explorer 之后紧跟 ssh（最近启动已迁至 Explorer 顶部 tab）", async () => {
+    const user = userEvent.setup();
+    const { container } = renderBar();
+    // 索引 2 原为 sessions，现应为 ssh
+    await user.click(container.querySelectorAll("button")[2]);
+    expect(useActivityBarStore.getState().activeView).toBe("ssh");
   });
 
   it("点击 Home 图标在 home 与 panes 之间切换", async () => {

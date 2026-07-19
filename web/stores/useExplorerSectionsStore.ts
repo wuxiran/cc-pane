@@ -1,8 +1,8 @@
-// Explorer 侧栏激活视图（工作区 / 文件 / Git 三按钮单选，纯 UI 偏好，持久化到 localStorage）
+// Explorer 侧栏激活视图（工作区 / 文件 / Git / 最近启动 四按钮单选，纯 UI 偏好，持久化到 localStorage）
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type ExplorerSectionId = "workspaces" | "files" | "git";
+export type ExplorerSectionId = "workspaces" | "files" | "git" | "sessions";
 
 interface ExplorerSectionsState {
   activeSection: ExplorerSectionId;

@@ -115,13 +115,26 @@ describe("HomeDashboard", () => {
     expect(historyService.list).toHaveBeenCalledTimes(2);
   });
 
-  it("点击进入工作区切换到 panes 视图", async () => {
+  it("点击进入工作区切换到 panes 视图并展开左侧面板", async () => {
+    useActivityBarStore.setState({ appViewMode: "home", sidebarVisible: false });
     render(<HomeDashboard onOpenTerminal={vi.fn()} />);
     await screen.findByTestId("recent");
 
-    fireEvent.click(screen.getByText("进入工作区"));
+    fireEvent.click(screen.getByRole("button", { name: /进入工作区/ }));
 
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    expect(useActivityBarStore.getState().sidebarVisible).toBe(true);
+  });
+
+  it("进入工作区按钮只有一份，且与问候区同处顶部区块", async () => {
+    render(<HomeDashboard onOpenTerminal={vi.fn()} />);
+    await screen.findByTestId("recent");
+
+    const buttons = screen.getAllByRole("button", { name: /进入工作区/ });
+    expect(buttons).toHaveLength(1);
+
+    // 原先按钮独占页面最底部的容器；现在应与问候区（HomeHeader 桩）同属一个区块
+    expect(buttons[0].parentElement?.contains(screen.getByTestId("header"))).toBe(true);
   });
 
   it("快速操作的新建终端回调打开启动器", async () => {

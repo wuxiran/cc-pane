@@ -15,8 +15,15 @@ const mockCloseWindow = vi.fn();
 const mockMinimizeWindow = vi.fn();
 const mockMaximizeWindow = vi.fn();
 const mockToggleFullscreenWindow = vi.fn();
+const mockToggleSidebar = vi.fn();
+const mockSidebarVisible = vi.fn<() => boolean>();
 
 vi.mock("@/stores", () => ({
+  useActivityBarStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      sidebarVisible: mockSidebarVisible(),
+      toggleSidebar: mockToggleSidebar,
+    }),
   useBorderlessStore: (selector: (state: { isBorderless: boolean }) => boolean) =>
     selector({ isBorderless: mockUseBorderlessStore() }),
   useWorkspacesStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -46,6 +53,7 @@ describe("TitleBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseBorderlessStore.mockReturnValue(false);
+    mockSidebarVisible.mockReturnValue(true);
   });
 
   it("marks the whole titlebar as a native drag region", () => {
@@ -90,6 +98,42 @@ describe("TitleBar", () => {
 
     expect(mockToggleFullscreenWindow).toHaveBeenCalledTimes(1);
     expect(mockStartDrag).not.toHaveBeenCalled();
+  });
+
+  // 按钮的 -webkit-app-region: no-drag 无法在此断言：jsdom 不识别该属性，
+  // React 写入时会被整条丢弃（style 属性为 null）。同窗口控制按钮一样，
+  // 只能退而验证「点击到达按钮且没有被当成拖拽」。
+  it("toggles the sidebar from the titlebar switch without starting a drag", () => {
+    renderTitleBar(<TitleBar />);
+
+    fireEvent.click(screen.getByTestId("titlebar-toggle-sidebar"));
+
+    expect(mockToggleSidebar).toHaveBeenCalledTimes(1);
+    expect(mockStartDrag).not.toHaveBeenCalled();
+  });
+
+  it("swaps the sidebar switch icon and label with sidebarVisible", () => {
+    const { unmount } = renderTitleBar(<TitleBar />);
+
+    expect(screen.getByTestId("titlebar-toggle-sidebar")).toHaveAttribute(
+      "aria-label",
+      "折叠侧边栏",
+    );
+    expect(
+      screen.getByTestId("titlebar-toggle-sidebar").querySelector(".lucide-panel-left-close"),
+    ).not.toBeNull();
+    unmount();
+
+    mockSidebarVisible.mockReturnValue(false);
+    renderTitleBar(<TitleBar />);
+
+    expect(screen.getByTestId("titlebar-toggle-sidebar")).toHaveAttribute(
+      "aria-label",
+      "展开侧边栏",
+    );
+    expect(
+      screen.getByTestId("titlebar-toggle-sidebar").querySelector(".lucide-panel-left"),
+    ).not.toBeNull();
   });
 
   it("hides itself in borderless mode", () => {

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ExplorerView from "./ExplorerView";
-import { useExplorerSectionsStore, useWorkspacesStore } from "@/stores";
+import { useDialogStore, useExplorerSectionsStore, useWorkspacesStore } from "@/stores";
 import { invokeOrApi } from "@/services/apiClient";
 import type { OpenTerminalOptions, Workspace } from "@/types";
 
@@ -24,6 +24,18 @@ vi.mock("@/components/sidebar/WorkspaceTree", () => ({
       onClick={() => onOpenTerminal({ path: "/tmp/from-tree" } as OpenTerminalOptions)}
     >
       workspace-tree-stub
+    </button>
+  ),
+}));
+
+// --- SessionsView stub：keep-alive 下始终挂载，桩掉其 history/PTY 依赖 ---
+vi.mock("@/components/sidebar/SessionsView", () => ({
+  default: ({ onOpenTerminal }: WorkspaceTreeStubProps) => (
+    <button
+      type="button"
+      onClick={() => onOpenTerminal({ path: "/tmp/from-sessions" } as OpenTerminalOptions)}
+    >
+      sessions-view-stub
     </button>
   ),
 }));
@@ -68,6 +80,7 @@ describe("ExplorerView", () => {
   beforeEach(() => {
     vi.mocked(invokeOrApi).mockImplementation(async () => null);
     useExplorerSectionsStore.setState({ activeSection: "workspaces" });
+    useDialogStore.setState({ launcherOpen: false, launcherContext: null });
     useWorkspacesStore.setState({
       workspaces: [],
       expandedWorkspaceId: null,
@@ -75,7 +88,7 @@ describe("ExplorerView", () => {
     });
   });
 
-  it("renders the EXPLORER header and three segmented tabs, workspaces active by default", () => {
+  it("renders the EXPLORER header and four segmented tabs, workspaces active by default", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("EXPLORER")).toBeVisible();
     expect(screen.getByRole("tab", { name: "explorer.tabWorkspaces" })).toHaveAttribute(
@@ -90,7 +103,32 @@ describe("ExplorerView", () => {
       "aria-selected",
       "false",
     );
+    expect(screen.getByRole("tab", { name: "recentLaunches" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
+  });
+
+  it("switches to the recent-launches tab and keeps both views mounted (keep-alive)", () => {
+    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    // 未选中时已挂载但隐藏
+    expect(screen.getByText("sessions-view-stub")).not.toBeVisible();
+
+    fireEvent.click(screen.getByRole("tab", { name: "recentLaunches" }));
+
+    expect(useExplorerSectionsStore.getState().activeSection).toBe("sessions");
+    expect(screen.getByText("sessions-view-stub")).toBeVisible();
+    // 工作空间树同样 keep-alive，仅隐藏
+    expect(screen.getByText("workspace-tree-stub")).not.toBeVisible();
+  });
+
+  it("forwards onOpenTerminal from the recent-launches view", () => {
+    const onOpenTerminal = vi.fn();
+    useExplorerSectionsStore.setState({ activeSection: "sessions" });
+    render(<TooltipProvider><ExplorerView onOpenTerminal={onOpenTerminal} /></TooltipProvider>);
+    fireEvent.click(screen.getByText("sessions-view-stub"));
+    expect(onOpenTerminal).toHaveBeenCalledWith({ path: "/tmp/from-sessions" });
   });
 
   it("forwards onOpenTerminal from the workspace tree", () => {
@@ -160,6 +198,34 @@ describe("ExplorerView", () => {
     // 组头（两个非 git 项目）+ 选中项目展开的组体各一条
     const hints = await screen.findAllByText("explorer.notGitRepo");
     expect(hints.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("opens the global launcher from the persistent bottom button with the workspace context", () => {
+    selectWorkspaceWithProject(null);
+    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: /launchTerminal/ }));
+
+    expect(useDialogStore.getState().launcherOpen).toBe(true);
+    expect(useDialogStore.getState().launcherContext).toEqual({ workspaceName: "alpha" });
+  });
+
+  it("includes the expanded project path in the launcher context", () => {
+    selectWorkspaceWithProject("proj-2");
+    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: /launchTerminal/ }));
+
+    expect(useDialogStore.getState().launcherContext).toEqual({
+      workspaceName: "alpha",
+      projectPath: "D:/repos/other",
+    });
+  });
+
+  it("keeps the bottom launch button mounted while the git tab is active", () => {
+    useExplorerSectionsStore.setState({ activeSection: "git" });
+    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    expect(screen.getByRole("button", { name: /launchTerminal/ })).toBeVisible();
   });
 
   it("shows an unavailable hint when the git query fails (silent tolerance)", async () => {

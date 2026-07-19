@@ -1,13 +1,29 @@
-import { Check, ChevronDown, Minus, Square, Copy, Settings, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Minus,
+  Square,
+  Copy,
+  PanelLeft,
+  PanelLeftClose,
+  Settings,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useBorderlessStore, useDialogStore, useWorkspacesStore } from "@/stores";
+import {
+  useActivityBarStore,
+  useBorderlessStore,
+  useDialogStore,
+  useWorkspacesStore,
+} from "@/stores";
 import { useWindowControl } from "@/hooks/useWindowControl";
 import type { WorkspaceProject } from "@/types";
 
@@ -32,7 +48,10 @@ const isLinux = navigator.platform.toUpperCase().indexOf("LINUX") >= 0;
 
 export default function TitleBar({ workspaceName }: TitleBarProps) {
   const { t } = useTranslation("common");
+  const { t: tSidebar } = useTranslation("sidebar");
   const isBorderless = useBorderlessStore((s) => s.isBorderless);
+  const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
+  const toggleSidebar = useActivityBarStore((s) => s.toggleSidebar);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
   const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
@@ -195,6 +214,22 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             </DropdownMenu>
           </>
         )}
+
+        {/* 侧栏折叠开关：必须显式 no-drag，否则 Linux/WebKitGTK 会吞掉拖拽区内的点击（见文件顶部说明） */}
+        <IconTooltipButton
+          data-testid="titlebar-toggle-sidebar"
+          label={sidebarVisible ? tSidebar("collapseSidebar") : tSidebar("expandSidebar")}
+          side="bottom"
+          className="ml-1 h-[26px] w-[26px] shrink-0 rounded-[5px] p-0"
+          style={noDrag}
+          onClick={toggleSidebar}
+        >
+          {sidebarVisible ? (
+            <PanelLeftClose className="h-[15px] w-[15px]" strokeWidth={1.5} />
+          ) : (
+            <PanelLeft className="h-[15px] w-[15px]" strokeWidth={1.5} />
+          )}
+        </IconTooltipButton>
       </div>
 
       {/* 中间：拖拽区 */}

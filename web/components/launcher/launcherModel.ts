@@ -58,10 +58,15 @@ export interface LauncherDraft {
   worktree?: LauncherWorktreeDraft;
 }
 
+/**
+ * 校验「默认 CLI 工具」设置值：命中 CLI_TOOL_TABS 才采用，脏配置回落 null。
+ * 实现已收口到 @/utils/cliTool（与 ProvidersPanel 共用同一份），此处保留启动器语境下的别名。
+ */
+export { coerceCliTool as coerceDefaultCliTool } from "@/utils/cliTool";
+
 export function createDefaultDraft(partial?: Partial<LauncherDraft>): LauncherDraft {
   return {
     source: null,
-    cliTool: "claude",
     environment: "local",
     appendSystemPrompt: "",
     initialPrompt: "",
@@ -69,6 +74,9 @@ export function createDefaultDraft(partial?: Partial<LauncherDraft>): LauncherDr
     verbose: false,
     providerSelection: "inherit",
     ...partial,
+    // 优先级：调用点显式传入（用户选择 / 默认设置）> 硬编码回落。
+    // 写在展开之后：显式 undefined 不得抹掉回落值。
+    cliTool: partial?.cliTool ?? "claude",
   };
 }
 

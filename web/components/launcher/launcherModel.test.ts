@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "@/types";
 import { applyScenario, LAUNCHER_SCENARIOS } from "@/constants/launcherScenarios";
+import { CLI_TOOL_TABS } from "@/types/provider";
 import {
   buildAdapterOptions,
   buildPendingLaunch,
+  coerceDefaultCliTool,
   createDefaultDraft,
   defaultWorktreeBranch,
   isDraftLocalEnvironment,
@@ -207,5 +209,52 @@ describe("resolveDraftProjectPath / isDraftLocalEnvironment", () => {
     const empty = createDefaultDraft();
     expect(resolveDraftProjectPath(empty, [])).toBeUndefined();
     expect(isDraftLocalEnvironment(empty, [])).toBe(false);
+  });
+});
+
+describe("coerceDefaultCliTool（默认 CLI 工具设置的合法性校验）", () => {
+  it("命中 CLI_TOOL_TABS 的值原样返回", () => {
+    for (const tab of CLI_TOOL_TABS) {
+      expect(coerceDefaultCliTool(tab.id)).toBe(tab.id);
+    }
+  });
+
+  it("空值 / none / 脏配置一律回落 null（由调用点落回 claude）", () => {
+    expect(coerceDefaultCliTool(undefined)).toBeNull();
+    expect(coerceDefaultCliTool(null)).toBeNull();
+    expect(coerceDefaultCliTool("")).toBeNull();
+    expect(coerceDefaultCliTool("none")).toBeNull();
+    expect(coerceDefaultCliTool("Claude")).toBeNull();
+    expect(coerceDefaultCliTool("totally-bogus")).toBeNull();
+  });
+});
+
+describe("createDefaultDraft 的 cliTool 优先级", () => {
+  // 复刻 LauncherDialog 两处调用点的组装方式：合法设置 → partial，非法 → {}
+  const partialFromSetting = (setting?: string | null) => {
+    const tool = coerceDefaultCliTool(setting);
+    return tool ? { cliTool: tool } : {};
+  };
+
+  it("无设置时保持硬编码回落 claude", () => {
+    expect(createDefaultDraft(partialFromSetting(undefined)).cliTool).toBe("claude");
+  });
+
+  it("设置为 codex 时新建草稿即为 codex", () => {
+    expect(createDefaultDraft(partialFromSetting("codex")).cliTool).toBe("codex");
+    expect(createDefaultDraft(partialFromSetting("gemini")).cliTool).toBe("gemini");
+  });
+
+  it("设置为非法值时回落 claude", () => {
+    expect(createDefaultDraft(partialFromSetting("totally-bogus")).cliTool).toBe("claude");
+  });
+
+  it("调用方显式传入的 cliTool 不被默认设置覆盖", () => {
+    const draft = createDefaultDraft({ ...partialFromSetting("codex"), cliTool: "grok" });
+    expect(draft.cliTool).toBe("grok");
+  });
+
+  it("传入 cliTool: undefined 不会抹掉回落值", () => {
+    expect(createDefaultDraft({ cliTool: undefined as never }).cliTool).toBe("claude");
   });
 });

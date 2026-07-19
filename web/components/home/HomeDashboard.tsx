@@ -28,6 +28,7 @@ interface HomeDashboardProps {
 export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   const { t } = useTranslation("home");
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
+  const setSidebarVisible = useActivityBarStore((s) => s.setSidebarVisible);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const loadWorkspaces = useWorkspacesStore((s) => s.load);
 
@@ -82,6 +83,12 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
     useDialogStore.getState().openLauncher();
   }, []);
 
+  // 进入分屏视图时一并展开左侧面板，避免落地在一个空荡荡的界面
+  const handleEnterWorkspace = useCallback(() => {
+    setAppViewMode("panes");
+    setSidebarVisible(true);
+  }, [setAppViewMode, setSidebarVisible]);
+
   return (
     <div
       className="h-full overflow-y-auto relative"
@@ -109,7 +116,24 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
       </div>
 
       <div className="relative w-full px-6 2xl:px-10 pt-8 pb-12 space-y-6">
-        <HomeHeader version={version} />
+        {/* 问候区 + 首页主 CTA：窄屏换行整行铺开，宽屏与问候语同排右对齐 */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0 flex-1 basis-[420px]">
+            <HomeHeader version={version} />
+          </div>
+          <button
+            className="inline-flex w-full sm:w-auto shrink-0 items-center justify-center gap-2.5 px-10 py-4 rounded-2xl text-base font-semibold cursor-pointer transition-all duration-[var(--dur-fast)] hover:-translate-y-[1px] hover:shadow-xl active:translate-y-0"
+            style={{
+              background: "linear-gradient(135deg, var(--app-accent), color-mix(in srgb, var(--app-accent) 60%, black))",
+              color: "var(--primary-foreground)",
+              boxShadow: "0 6px 20px color-mix(in srgb, var(--app-accent) 35%, transparent)",
+            }}
+            onClick={handleEnterWorkspace}
+          >
+            {t("enterWorkspace")}
+            <ArrowRight className="w-5 h-5" />
+          </button>
+        </div>
         <HomeQuickActions onNewTerminal={handleNewTerminal} />
 
         {/* 宽屏（≥1600px 视口）两列：左列 引导卡/用量趋势，右列 环境+最近项目+活跃会话；窄屏单列（现状顺序） */}
@@ -135,22 +159,6 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
 
         {/* 老用户：设计理念收敛为页脚紧凑横条 */}
         {!isNewUser && <HomeDesignHighlights compact />}
-
-        {/* 进入工作区按钮 */}
-        <div className="flex justify-center pt-2 pb-2">
-          <button
-            className="inline-flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-[var(--dur-fast)] hover:-translate-y-[1px] hover:shadow-lg active:translate-y-0"
-            style={{
-              background: "linear-gradient(135deg, var(--app-accent), color-mix(in srgb, var(--app-accent) 60%, black))",
-              color: "var(--primary-foreground)",
-              boxShadow: "0 4px 14px color-mix(in srgb, var(--app-accent) 35%, transparent)",
-            }}
-            onClick={() => setAppViewMode("panes")}
-          >
-            {t("enterWorkspace")}
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
       </div>
     </div>
   );

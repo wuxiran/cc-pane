@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import {
   useActivityBarStore,
   useDialogStore,
+  useSettingsStore,
   useSshMachinesStore,
   useWorkspacesStore,
 } from "@/stores";
@@ -35,6 +36,7 @@ import LauncherArgsPreview from "./LauncherArgsPreviewView";
 import {
   buildAdapterOptions,
   buildPendingLaunch,
+  coerceDefaultCliTool,
   createDefaultDraft,
   defaultWorktreeBranch,
   isDraftLocalEnvironment,
@@ -62,7 +64,19 @@ export default function LauncherDialog() {
   const open = useDialogStore((s) => s.launcherOpen);
   const context = useDialogStore((s) => s.launcherContext);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
-  const [draft, setDraft] = useState<LauncherDraft>(() => createDefaultDraft());
+  // 设置里的「默认 CLI 工具」；非法/缺省时返回 undefined，交给 createDefaultDraft 回落 claude。
+  // 用 getState() 而非 selector：草稿只在弹窗打开时重建，此刻读到的才是最新值，
+  // 且避免设置变更把用户正在编辑的草稿重置掉。
+  // 返回 {} 而非 { cliTool: undefined }——后者会被 createDefaultDraft 展开覆盖掉硬编码回落。
+  const defaultCliToolPartial = (): Partial<LauncherDraft> => {
+    const tool = coerceDefaultCliTool(
+      useSettingsStore.getState().settings?.general.defaultCliTool,
+    );
+    return tool ? { cliTool: tool } : {};
+  };
+  const [draft, setDraft] = useState<LauncherDraft>(() =>
+    createDefaultDraft(defaultCliToolPartial()),
+  );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -83,6 +97,8 @@ export default function LauncherDialog() {
       : undefined;
     setDraft(
       createDefaultDraft({
+        // 默认设置在前：调用点后续显式指定的字段（含 cliTool）优先级更高
+        ...defaultCliToolPartial(),
         source:
           ctxWorkspace && ctxProject
             ? { kind: "workspace", workspaceId: ctxWorkspace.id, projectId: ctxProject.id }
