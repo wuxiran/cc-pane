@@ -5,6 +5,7 @@ export type {
   SplitPane,
   LayoutEntry,
   SplitDirection,
+  AutoSplitDirection,
   PaneContextAction,
 } from "./pane";
 export type {

@@ -4,7 +4,7 @@ import { createPanel } from "./paneTreeHelpers";
 import {
   resetTestDataCounter,
 } from "@/test/utils/testData";
-import type { Panel, SplitPane, Tab } from "@/types";
+import type { PaneNode, Panel, SplitPane, Tab } from "@/types";
 
 describe("usePanesStore", () => {
   beforeEach(() => {
@@ -853,6 +853,59 @@ describe("usePanesStore", () => {
 
       const activeTabAfter = (usePanesStore.getState().rootPane as Panel).activeTabId;
       expect(activeTabAfter).toBe(activeTabBefore);
+    });
+  });
+
+  describe("openSessionBesidePane", () => {
+    /** 找到包含 paneId 的最近一层 split 的方向 */
+    const parentDirectionOf = (node: PaneNode, paneId: string): SplitPane["direction"] | null => {
+      if (node.type !== "split") return null;
+      if (node.children.some((child) => child.id === paneId)) return node.direction;
+      for (const child of node.children) {
+        const found = parentDirectionOf(child, paneId);
+        if (found) return found;
+      }
+      return null;
+    };
+
+    it("新窗格只应有会话标签本身，不带多余的空 Terminal 标签", () => {
+      const rootId = usePanesStore.getState().rootPane.id;
+
+      usePanesStore.getState().openSessionBesidePane(rootId, "right", {
+        projectId: "proj-1",
+        projectPath: "/tmp/proj1",
+        customTitle: "worker-1",
+      });
+
+      const newPaneId = usePanesStore.getState().activePaneId;
+      const newPane = usePanesStore.getState().findPaneById(newPaneId) as Panel;
+      expect(newPane.type).toBe("panel");
+      expect(newPane.tabs).toHaveLength(1);
+      expect(newPane.tabs[0].projectPath).toBe("/tmp/proj1");
+      expect(newPane.activeTabId).toBe(newPane.tabs[0].id);
+    });
+
+    it("auto 方向应按父容器取反，连续分屏形成螺旋", () => {
+      const openAuto = (paneId: string, index: number) =>
+        usePanesStore.getState().openSessionBesidePane(paneId, "auto", {
+          projectId: `proj-${index}`,
+          projectPath: `/tmp/proj${index}`,
+        });
+
+      // 1. 根 panel 无 split 祖先 → 默认横向（right）
+      openAuto(usePanesStore.getState().rootPane.id, 1);
+      const pane1 = usePanesStore.getState().activePaneId;
+      expect(parentDirectionOf(usePanesStore.getState().rootPane, pane1)).toBe("horizontal");
+
+      // 2. 父容器 horizontal → 取反为 down（vertical）
+      openAuto(pane1, 2);
+      const pane2 = usePanesStore.getState().activePaneId;
+      expect(parentDirectionOf(usePanesStore.getState().rootPane, pane2)).toBe("vertical");
+
+      // 3. 父容器 vertical → 取反回 right（horizontal）
+      openAuto(pane2, 3);
+      const pane3 = usePanesStore.getState().activePaneId;
+      expect(parentDirectionOf(usePanesStore.getState().rootPane, pane3)).toBe("horizontal");
     });
   });
 });

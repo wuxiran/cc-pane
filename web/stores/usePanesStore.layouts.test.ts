@@ -506,6 +506,57 @@ describe("usePanesStore layouts", () => {
     expect(tabs.map((tab) => tab.id)).toEqual(["split-tab"]);
   });
 
+  it("closeTabBySessionId 能关闭星标布局中的标签", () => {
+    const starredTab = makeTerminalTab("starred-tab", "session-starred");
+    usePanesStore.setState((state) => {
+      const starred = state.layouts.find((layout) => layout.kind === "starred");
+      panel(starred!.rootPane).tabs.push(starredTab);
+    });
+
+    const result = usePanesStore.getState().closeTabBySessionId("session-starred");
+
+    expect(result).toEqual({ closed: 1, blockedByPinned: 0 });
+    const starred = usePanesStore.getState().layouts.find((layout) => layout.kind === "starred");
+    expect(panel(starred!.rootPane).tabs.map((tab) => tab.id)).not.toContain("starred-tab");
+  });
+
+  it("closeTabBySessionId 对同一会话在普通布局和星标布局的镜像各关一次", () => {
+    const normalTab = makeTerminalTab("normal-tab", "session-mirrored");
+    const keepAlive = makeTerminalTab("keep-normal", "session-other");
+    const starredTab = makeTerminalTab("starred-mirror", "session-mirrored");
+    usePanesStore.setState((state) => {
+      panel(state.rootPane).tabs.push(normalTab, keepAlive);
+      const starred = state.layouts.find((layout) => layout.kind === "starred");
+      panel(starred!.rootPane).tabs.push(starredTab);
+    });
+
+    const result = usePanesStore.getState().closeTabBySessionId("session-mirrored");
+
+    expect(result).toEqual({ closed: 2, blockedByPinned: 0 });
+    const state = usePanesStore.getState();
+    const normalTabIds = panel(state.rootPane).tabs.map((tab) => tab.id);
+    expect(normalTabIds).not.toContain("normal-tab");
+    expect(normalTabIds).toContain("keep-normal");
+    const starred = state.layouts.find((layout) => layout.kind === "starred");
+    expect(panel(starred!.rootPane).tabs.map((tab) => tab.id)).not.toContain("starred-mirror");
+  });
+
+  it("closeTabBySessionId 对 pinned 标签不谎报关闭成功", () => {
+    const pinnedTab = { ...makeTerminalTab("pinned-tab", "session-pinned"), pinned: true };
+    const sibling = makeTerminalTab("sibling-tab", "session-sibling");
+    usePanesStore.setState((state) => {
+      panel(state.rootPane).tabs.push(pinnedTab, sibling);
+    });
+
+    const result = usePanesStore.getState().closeTabBySessionId("session-pinned");
+
+    // 后端 kill 被 pinned 吞掉：标签必须留着，且结果如实反映没关成
+    expect(result).toEqual({ closed: 0, blockedByPinned: 1 });
+    expect(panel(usePanesStore.getState().rootPane).tabs.map((tab) => tab.id)).toContain(
+      "pinned-tab"
+    );
+  });
+
   it("updateTabAgentResumeId、markTabReclaimed、getRestorableTabs 能命中隐藏布局", () => {
     const tab = makeTerminalTab("hidden-tab", "session-hidden");
     usePanesStore.setState((state) => {

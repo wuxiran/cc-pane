@@ -41,6 +41,9 @@ export interface LayoutEntry {
 /** 面板操作类型 */
 export type SplitDirection = "right" | "down";
 
+/** 分屏方向，`auto` 表示按父容器方向取反（螺旋落位） */
+export type AutoSplitDirection = SplitDirection | "auto";
+
 /** 分屏布局预设：一键把当前布局的分屏树重排成固定结构 */
 export type LayoutPresetId =
   | "single"

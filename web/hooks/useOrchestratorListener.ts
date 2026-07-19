@@ -205,7 +205,7 @@ export function useOrchestratorListener() {
               : (parentPaneId ?? activePane?.id ?? latestPanesStore.rootPane.id);
             latestPanesStore.addTab(paneId, tabOpts);
           } else if (parentPaneId && !wantsTab) {
-            latestPanesStore.openSessionBesidePane(parentPaneId, "right", tabOpts);
+            latestPanesStore.openSessionBesidePane(parentPaneId, "auto", tabOpts);
           } else {
             const basePaneId = parentPaneId ?? activePane?.id ?? latestPanesStore.rootPane.id;
             latestPanesStore.addTab(basePaneId, tabOpts);
