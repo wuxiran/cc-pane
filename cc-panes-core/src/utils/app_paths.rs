@@ -133,6 +133,11 @@ impl AppPaths {
         self.skills_dir().join("builtin")
     }
 
+    /// 壁纸文件目录（导入的图片/视频/音乐统一放这里，配置只存相对文件名）。
+    pub fn wallpapers_dir(&self) -> PathBuf {
+        self.data_dir.join("wallpapers")
+    }
+
     /// 指定工作空间的目录
     pub fn workspace_dir(&self, name: &str) -> PathBuf {
         self.workspaces_dir().join(name)
@@ -184,6 +189,7 @@ impl AppPaths {
             self.user_skills_dir(),
             self.builtin_skills_dir(),
             self.runtime_sessions_dir(),
+            self.wallpapers_dir(),
         ];
 
         for dir in dirs {
@@ -358,6 +364,7 @@ mod tests {
             paths.builtin_skills_dir(),
             base.join("skills").join("builtin")
         );
+        assert_eq!(paths.wallpapers_dir(), base.join("wallpapers"));
     }
 
     #[test]
@@ -372,6 +379,7 @@ mod tests {
         assert!(paths.user_skills_dir().is_dir());
         assert!(paths.builtin_skills_dir().is_dir());
         assert!(paths.runtime_sessions_dir().is_dir());
+        assert!(paths.wallpapers_dir().is_dir());
     }
 
     #[test]

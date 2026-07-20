@@ -24,6 +24,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { ConfirmDialog } from "@/components/sidebar/WorkspaceDialogs";
+import WorkspaceWallpaperCard from "@/components/sidebar/WorkspaceWallpaperCard";
 import {
   useDialogStore,
   useEnvironmentStore,
@@ -864,6 +865,9 @@ export default function WorkspaceEnvironmentPanel() {
                 <div className="mt-4">
                   {renderEnvironmentForm()}
                 </div>
+
+                {/* 壁纸三态：即时保存，独立于上方 dirty 快照逻辑 */}
+                <WorkspaceWallpaperCard workspace={workspace} />
               </div>
 
               <SheetFooter className="border-t border-[var(--app-border)] bg-[var(--app-sidebar-bg)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">

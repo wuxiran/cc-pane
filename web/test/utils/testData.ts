@@ -175,6 +175,29 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
     orchestrator: {
       bindMode: "auto",
     },
+    wallpaper: {
+      enabled: false,
+      kind: "none",
+      file: null,
+      fit: "cover",
+      opacity: 1,
+      blur: 0,
+      dim: 0.35,
+      terminalOpacity: 0.85,
+      video: {
+        autoplay: true,
+        playbackRate: 1,
+        pauseWhenUnfocused: true,
+        powerSaver: "auto",
+      },
+      music: {
+        enabled: false,
+        file: null,
+        volume: 0.5,
+        loopPlayback: true,
+        autoplay: true,
+      },
+    },
     ...overrides,
   };
 }

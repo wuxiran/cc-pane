@@ -42,7 +42,7 @@ export default function StarredPanel() {
   const openStarredTab = usePanesStore((s) => s.openStarredTab);
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col" style={{ background: "var(--app-panel-bg)", color: "var(--app-text-primary)" }}>
+    <div className="flex h-full min-h-0 w-full flex-col" style={{ background: "var(--app-panel-bg-effective)", color: "var(--app-text-primary)" }}>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4" style={{ borderColor: "var(--app-border)" }}>
         <Star className="h-4 w-4" fill="currentColor" style={{ color: "var(--app-accent)" }} />
         <div className="min-w-0 flex-1">

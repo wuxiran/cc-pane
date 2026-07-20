@@ -491,7 +491,7 @@ export default memo(function Panel({ pane }: PanelProps) {
         isFullscreenPanel ? "fixed inset-0 z-[9999]" : ""
       }`}
       style={{
-        background: "var(--app-panel-bg)",
+        background: "var(--app-panel-bg-effective)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
         // 激活 pane:subtle accent 内环,一眼分清焦点
@@ -573,12 +573,13 @@ export default memo(function Panel({ pane }: PanelProps) {
         {(!activeTab || !activeTab.projectPath) && (
           <div
             className="absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden"
-            style={{ background: "var(--app-panel-bg)", paddingTop: tabBarHeight }}
+            style={{ background: "var(--app-panel-bg-effective)", paddingTop: tabBarHeight }}
           >
-            {/* 点阵背景 */}
+            {/* 点阵背景（opacity 走壁纸 token，壁纸激活时可整体压 0） */}
             <div
-              className="absolute inset-0 opacity-[0.03]"
+              className="absolute inset-0"
               style={{
+                opacity: 'var(--app-panel-dots-opacity)',
                 backgroundImage: 'radial-gradient(var(--app-text-primary) 1px, transparent 1px)',
                 backgroundSize: '24px 24px',
               }}

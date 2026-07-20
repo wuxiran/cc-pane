@@ -5,7 +5,11 @@ export default function DarkOrbsBackground() {
   const isDark = useThemeStore((s) => s.isDark);
   if (!isDark) return null;
   return (
-    <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+    <div
+      className="fixed inset-0 z-0 pointer-events-none overflow-hidden"
+      // 壁纸激活时被压 0：mix-blend-screen 叠在照片上会洗白
+      style={{ opacity: "var(--app-orbs-opacity, 1)" }}
+    >
       <div
         className="absolute rounded-full mix-blend-screen opacity-60"
         style={{

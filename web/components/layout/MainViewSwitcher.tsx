@@ -17,7 +17,8 @@ import ResourceHub from "@/components/resources/ResourceHub";
 import OrchestrationOverlay from "@/components/orchestration/OrchestrationOverlay";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
 import LayoutTopBar from "@/components/layoutbar/LayoutTopBar";
-import { usePanesStore, useActivityBarStore, useLayoutUiStore, type AppViewMode } from "@/stores";
+import MainWallpaperLayer from "@/components/layout/MainWallpaperLayer";
+import { usePanesStore, useActivityBarStore, useLayoutUiStore, useWallpaperStore, type AppViewMode } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
 
 interface MainViewSwitcherProps {
@@ -35,6 +36,8 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
   const orchestrationOverlayOpen = useActivityBarStore((s) => s.orchestrationOverlayOpen);
   const closeOrchestrationOverlay = useActivityBarStore((s) => s.closeOrchestrationOverlay);
+  // 原子字段 selector（布尔），不在 selector 里做对象解析
+  const wallpaperActive = useWallpaperStore((s) => s.resolved !== null && s.assetUrl !== null);
 
   const showOrchestrationOverlay =
     orchestrationOverlayOpen ||
@@ -116,15 +119,29 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           <FileEditorPanel />
         </div>
       )}
-      {/* 面板区域（终端）：keep-alive 关键区——隐藏不卸载，切回即恢复 */}
+      {/* 面板区域（终端）：keep-alive 关键区——隐藏不卸载，切回即恢复。
+          壁纸激活时仅在此根节点覆盖 effective token（不动 :root，不污染 files 等视图），
+          子树内画底的位置读 --app-panel-bg-effective 即透出壁纸层。 */}
       {isMounted("panes") && (
         <div
-          className="flex flex-1 flex-col overflow-hidden"
-          style={{ background: "var(--app-panel-bg)", ...viewStyle("panes") }}
+          className="relative flex flex-1 flex-col overflow-hidden"
+          style={{
+            background: "var(--app-panel-bg)",
+            ...(wallpaperActive
+              ? ({ "--app-panel-bg-effective": "transparent" } as React.CSSProperties)
+              : null),
+            ...viewStyle("panes"),
+          }}
         >
-          {/* 布局条模式：标签上方多一层布局层（corner 模式下仍走左下角 LayoutBar） */}
-          {layoutSwitcherMode === "topbar" && <LayoutTopBar />}
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <MainWallpaperLayer />
+          {/* 布局条模式：标签上方多一层布局层（corner 模式下仍走左下角 LayoutBar）。
+              抬到 z-[1]：壁纸层是 positioned z-0，静态流内容会被它盖住 */}
+          {layoutSwitcherMode === "topbar" && (
+            <div className="relative z-[1] shrink-0">
+              <LayoutTopBar />
+            </div>
+          )}
+          <div className="relative z-[1] min-h-0 flex-1 overflow-hidden">
             <DndPaneProvider>
               {layouts.map((layout) => {
                 const isCurrent = layout.id === currentLayoutId;

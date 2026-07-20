@@ -15,6 +15,16 @@ export interface TerminalRendererEnvironment {
   webgl2Supported?: boolean;
   document?: Document;
   window?: Window & typeof globalThis;
+  /** 壁纸终端透明需求（测试注入用；缺省走注册的 provider） */
+  transparencyRequired?: boolean;
+}
+
+// 壁纸透明需求 provider：由 useWallpaperStore 模块注册，本文件保持纯函数、不 import store。
+// WebGL 渲染器不透传背景（不覆盖就是黑底），透明需求必须降 DOM。
+let transparencyRequiredProvider: () => boolean = () => false;
+
+export function setTerminalTransparencyProvider(provider: () => boolean): void {
+  transparencyRequiredProvider = provider;
 }
 
 export interface TerminalRendererSessionContext {
@@ -102,6 +112,7 @@ export function decideTerminalRenderer(
   const userAgent =
     env.userAgent ?? (typeof navigator === "undefined" ? "" : navigator.userAgent);
   const webgl2Supported = isTerminalWebgl2Supported(env);
+  const transparencyRequired = env.transparencyRequired ?? transparencyRequiredProvider();
 
   if (mode === "dom") {
     return {
@@ -124,6 +135,16 @@ export function decideTerminalRenderer(
   }
 
   if (mode === "webgl") {
+    // 用户显式选 webgl 也必须被透明需求覆盖：WebGL 不透传背景。
+    if (transparencyRequired) {
+      return {
+        requestedMode: mode,
+        renderer: "dom",
+        reason: "wallpaper-transparency",
+        webglAllowed: false,
+        webgl2Supported,
+      };
+    }
     return {
       requestedMode: mode,
       renderer: "webgl",
@@ -148,6 +169,18 @@ export function decideTerminalRenderer(
       requestedMode: mode,
       renderer: "dom",
       reason: "windows-cjk-guard",
+      webglAllowed: false,
+      webgl2Supported,
+    };
+  }
+
+  // ⚠️ 透明分支必须在 windows-cjk-guard 之后：Windows 的 reason 保持
+  // windows-cjk-guard 不变（现有测试断言 + 线上诊断基线都依赖它）。
+  if (transparencyRequired) {
+    return {
+      requestedMode: mode,
+      renderer: "dom",
+      reason: "wallpaper-transparency",
       webglAllowed: false,
       webgl2Supported,
     };

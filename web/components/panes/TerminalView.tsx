@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type CSSProperties } from "react";
+import { useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle, type CSSProperties } from "react";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -25,6 +25,7 @@ import {
   usePanesStore,
   useThemeStore,
   useTerminalStatusStore,
+  useWallpaperStore,
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
 import { replayAttachedSession } from "./terminalReplay";
@@ -359,7 +360,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const terminalFontFamily = useSettingsStore((s) => normalizeTerminalFontFamily(s.settings?.terminal.fontFamily));
     const terminalCursorStyle = useSettingsStore((s) => normalizeTerminalCursorStyle(s.settings?.terminal.cursorStyle));
     const terminalCursorBlink = useSettingsStore((s) => s.settings?.terminal.cursorBlink ?? false);
-    const terminalTheme = getTerminalTheme(isDark, terminalThemeMode);
+    // 壁纸终端透明度：原子数值 selector（壁纸未激活恒为 1，getTerminalTheme 返回原引用）。
+    // 开关壁纸只走下方主题热更新路径，绝不重建终端。
+    const wallpaperTerminalAlpha = useWallpaperStore((s) =>
+      s.resolved !== null && s.assetUrl !== null ? s.resolved.terminalOpacity : 1,
+    );
+    const terminalTheme = useMemo(
+      () => getTerminalTheme(isDark, terminalThemeMode, wallpaperTerminalAlpha),
+      [isDark, terminalThemeMode, wallpaperTerminalAlpha],
+    );
     const terminalRef = useRef<HTMLDivElement>(null);
     const terminalInstanceRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -641,6 +650,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       rendererControllerRef.current?.configure(effectiveRendererMode);
       layoutSchedulerRef.current?.schedule("settings.renderer-mode");
     }, [resolveRendererMode, terminalRendererMode]);
+
+    // 壁纸透明需求翻转时重估渲染器（decideTerminalRenderer 经 provider 读到新值，
+    // configure 按 reason 变化自动 disposeWebgl 降 DOM / 恢复）。依赖是布尔翻转，
+    // 只在用户改设置/切工作空间时变化——不进入 resize/visibility/focus 等高频路径。
+    const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
+    useEffect(() => {
+      rendererControllerRef.current?.configure(terminalRendererModeRef.current);
+    }, [wallpaperTransparencyRequired]);
 
     useEffect(() => {
       if (typeof window === "undefined") return;
@@ -965,6 +982,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         lastAppearanceFontRef.current = `${fontSize}|${fontFamily}`;
         const term = new Terminal({
           allowProposedApi: true,
+          // 无条件常量化：若随壁纸设置开关，切壁纸就得重建终端（渲染生命周期红线）。
+          // 恒开后开关壁纸只改主题 alpha；代价是不透明时的微小合成开销。
+          allowTransparency: true,
           cursorBlink,
           cursorStyle,
           fastScrollSensitivity: 5,

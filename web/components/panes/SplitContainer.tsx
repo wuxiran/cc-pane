@@ -34,7 +34,7 @@ export default function SplitContainer({ pane }: SplitContainerProps) {
   );
 
   return (
-    <div className="h-full w-full min-h-0 min-w-0 split-container" style={{ background: "var(--app-panel-bg)" }}>
+    <div className="h-full w-full min-h-0 min-w-0 split-container" style={{ background: "var(--app-panel-bg-effective)" }}>
       <SplitView
         vertical={pane.direction === "vertical"}
         sizes={pane.sizes}

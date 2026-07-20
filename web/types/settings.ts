@@ -12,6 +12,55 @@ export interface AppSettings {
   layoutSwitcher: LayoutSwitcherSettings;
   webAccess: WebAccessSettings;
   orchestrator: OrchestratorSettings;
+  wallpaper: WallpaperSettings;
+}
+
+/** 壁纸种类 / 铺放方式 / 视频省电策略 */
+export type WallpaperKind = "none" | "image" | "video";
+export type WallpaperFit = "cover" | "contain" | "tile" | "center";
+export type WallpaperPowerSaver = "auto" | "always" | "never";
+
+/** 主区壁纸设置（镜像 cc-panes-core WallpaperSettings） */
+export interface WallpaperSettings {
+  enabled: boolean;
+  kind: WallpaperKind;
+  /** wallpapers_dir 下的相对文件名（受控 uuid 文件名） */
+  file: string | null;
+  fit: WallpaperFit;
+  /** 媒体层不透明度 0.1..1 */
+  opacity: number;
+  /** 高斯模糊 px 0..64 */
+  blur: number;
+  /** 压暗遮罩 0..0.9 */
+  dim: number;
+  /** 终端背景不透明度 0.3..1（1 = 不透明） */
+  terminalOpacity: number;
+  video: WallpaperVideoSettings;
+  music: WallpaperMusicSettings;
+}
+
+export interface WallpaperVideoSettings {
+  autoplay: boolean;
+  /** 0.25..2 */
+  playbackRate: number;
+  pauseWhenUnfocused: boolean;
+  powerSaver: WallpaperPowerSaver;
+}
+
+export interface WallpaperMusicSettings {
+  enabled: boolean;
+  file: string | null;
+  /** 0..1 */
+  volume: number;
+  loopPlayback: boolean;
+  autoplay: boolean;
+}
+
+/** 壁纸库文件（list_wallpapers 返回项） */
+export interface WallpaperFileInfo {
+  name: string;
+  kind: "image" | "video" | "audio";
+  sizeBytes: number;
 }
 
 /** 代理设置 */

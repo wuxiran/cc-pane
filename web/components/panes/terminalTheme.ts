@@ -85,12 +85,56 @@ export function resolveTerminalThemeMode(
   return "followApp";
 }
 
+/** #RGB / #RRGGBB 转 rgba；已是 rgb()/rgba() 的原样返回（保守不重写 alpha） */
+function hexToRgba(color: string, alpha: number): string {
+  const hex = color.trim();
+  const match = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(hex);
+  if (!match) return color;
+  let value = match[1];
+  if (value.length === 3) {
+    value = value
+      .split("")
+      .map((ch) => ch + ch)
+      .join("");
+  }
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/**
+ * 返回 background 转 rgba 的新调色板；仅动 background——cursorAccent 保持不透明
+ * （块状光标下字符会糊），其余色不涉及。
+ *
+ * `alpha >= 1` 时返回**原对象引用**：terminalTheme.test.ts 对
+ * DARK/LIGHT_TERMINAL_THEME 有 `toBe` 恒等断言，壁纸未激活必须零变化。
+ */
+export function withTerminalBackgroundAlpha(
+  palette: TerminalThemePalette,
+  alpha: number,
+): TerminalThemePalette {
+  if (!Number.isFinite(alpha) || alpha >= 1) return palette;
+  const clamped = Math.max(0, alpha);
+  return {
+    ...palette,
+    background: hexToRgba(palette.background, clamped),
+  };
+}
+
 export function getTerminalTheme(
   isDark: boolean,
   themeMode?: TerminalThemeMode | string | null,
+  alpha?: number,
 ): TerminalThemePalette {
   const resolvedMode = resolveTerminalThemeMode(themeMode);
-  if (resolvedMode === "dark") return DARK_TERMINAL_THEME;
-  if (resolvedMode === "light") return LIGHT_TERMINAL_THEME;
-  return isDark ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME;
+  const base =
+    resolvedMode === "dark"
+      ? DARK_TERMINAL_THEME
+      : resolvedMode === "light"
+        ? LIGHT_TERMINAL_THEME
+        : isDark
+          ? DARK_TERMINAL_THEME
+          : LIGHT_TERMINAL_THEME;
+  return alpha === undefined ? base : withTerminalBackgroundAlpha(base, alpha);
 }

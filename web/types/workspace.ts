@@ -1,4 +1,14 @@
 import type { AuthMethod } from "./ssh-machine";
+import type { WallpaperSettings } from "./settings";
+
+/** 工作空间壁纸覆盖模式：off 必须与 inherit 区分（明确关掉全局壁纸） */
+export type WorkspaceWallpaperOverrideMode = "inherit" | "custom" | "off";
+
+/** 工作空间级壁纸覆盖 */
+export interface WorkspaceWallpaperOverride {
+  mode: WorkspaceWallpaperOverrideMode;
+  config?: Partial<WallpaperSettings> | null;
+}
 
 /** SSH 连接信息 */
 export interface SshConnectionInfo {
@@ -66,6 +76,8 @@ export interface Workspace {
   sortOrder?: number;
   /** 默认工作空间：启动时缺失自动创建，恒置顶，不可删除/拖拽 */
   isDefault?: boolean;
+  /** 工作空间壁纸覆盖（inherit/custom/off），存 workspace.json */
+  wallpaperOverride?: WorkspaceWallpaperOverride | null;
 }
 
 export interface WorkspaceMigrationRequest {

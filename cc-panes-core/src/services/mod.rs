@@ -35,6 +35,7 @@ pub mod terminal_service;
 mod todo_service;
 pub mod usage_stats_service;
 mod user_skill_service;
+mod wallpaper_service;
 mod workspace_service;
 mod worktree_service;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
@@ -78,5 +79,6 @@ pub use terminal_service::{
 pub use todo_service::TodoService;
 pub use usage_stats_service::UsageStatsService;
 pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillService};
+pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
 pub use workspace_service::WorkspaceService;
 pub use worktree_service::{WorktreeInfo, WorktreeService};

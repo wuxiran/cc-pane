@@ -164,6 +164,8 @@ use commands::{
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
     import_shared_mcp_from_claude,
+    // Wallpaper 命令
+    import_wallpaper,
     init_ccpanes,
     // Local History 命令
     init_project_history,
@@ -205,6 +207,7 @@ use commands::{
     // SSH Machine 命令
     list_ssh_machines,
     list_user_skills,
+    list_wallpapers,
     list_workspace_snapshots,
     // Workspace 命令
     list_workspaces,
@@ -244,6 +247,7 @@ use commands::{
     remove_shared_mcp_server,
     remove_ssh_machine,
     remove_user_skill,
+    remove_wallpaper,
     remove_workspace_project,
     remove_worktree,
     rename_workspace,
@@ -251,6 +255,7 @@ use commands::{
     reorder_todos,
     reorder_workspaces,
     resize_terminal,
+    resolve_wallpaper_asset,
     respond_orchestrator_query,
     restart_shared_mcp_server,
     restart_web_access,
@@ -1336,6 +1341,9 @@ pub fn run() {
     let popup_data_store = commands::PopupDataStore::default();
     let layout_switcher_snapshot_store = commands::LayoutSwitcherSnapshotStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new(app_paths.as_ref()));
+    let wallpaper_service = Arc::new(cc_panes_core::services::WallpaperService::new(
+        app_paths.wallpapers_dir(),
+    ));
     let start_locks = Arc::new(StartLocks::default());
     let web_access_lifecycle = Arc::new(WebAccessLifecycle::default());
     boot_mark!("all services created");
@@ -1441,6 +1449,7 @@ pub fn run() {
         .manage(popup_data_store)
         .manage(layout_switcher_snapshot_store)
         .manage(orchestrator_service.clone())
+        .manage(wallpaper_service)
         .manage(cli_registry)
         .manage(crate::import::PendingImportStore::default())
         .setup(move |app| {
@@ -2380,7 +2389,12 @@ pub fn run() {
             clear_session_output,
             list_workspace_snapshots,
             get_workspace_snapshot,
-            delete_workspace_snapshot
+            delete_workspace_snapshot,
+            // Wallpaper 命令
+            import_wallpaper,
+            list_wallpapers,
+            remove_wallpaper,
+            resolve_wallpaper_asset
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

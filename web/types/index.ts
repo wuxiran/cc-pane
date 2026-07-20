@@ -58,6 +58,8 @@ export type {
   WorkspaceProject,
   WorkspaceSshLaunchConfig,
   WorkspaceWslConfig,
+  WorkspaceWallpaperOverride,
+  WorkspaceWallpaperOverrideMode,
   SshConnectionInfo,
 } from "./workspace";
 export type { Provider, ProviderType } from "./provider";
@@ -106,6 +108,13 @@ export type {
   OrchestratorStatus,
   TailscaleStatus,
   EnvironmentInfo,
+  WallpaperSettings,
+  WallpaperVideoSettings,
+  WallpaperMusicSettings,
+  WallpaperKind,
+  WallpaperFit,
+  WallpaperPowerSaver,
+  WallpaperFileInfo,
 } from "./settings";
 export { BUSY_STATUSES, isBusyStatus } from "./settings";
 export type {

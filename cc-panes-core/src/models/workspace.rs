@@ -1,3 +1,4 @@
+use crate::models::settings::WallpaperSettings;
 use crate::models::ssh_machine::AuthMethod;
 use serde::{Deserialize, Serialize};
 
@@ -99,6 +100,26 @@ pub struct Workspace {
     /// 默认工作空间：启动时缺失自动创建，列表恒置顶，不可删除
     #[serde(default)]
     pub is_default: bool,
+    /// 工作空间壁纸覆盖：inherit 用全局 / custom 逐字段覆盖 / off 明确关闭全局壁纸。
+    /// 放 workspace.json（壁纸属工作空间视觉身份，随迁移/分享走）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wallpaper_override: Option<WorkspaceWallpaperOverride>,
+}
+
+/// 工作空间级壁纸覆盖
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceWallpaperOverride {
+    /// "inherit" | "custom" | "off" —— off 必须与 inherit 区分：
+    /// 用户要能在某个工作空间明确关掉全局壁纸。
+    #[serde(default = "default_wallpaper_override_mode")]
+    pub mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<WallpaperSettings>,
+}
+
+fn default_wallpaper_override_mode() -> String {
+    "inherit".to_string()
 }
 
 /// 工作空间迁移目标类型
@@ -251,6 +272,7 @@ impl Workspace {
             hidden: false,
             sort_order: None,
             is_default: false,
+            wallpaper_override: None,
         }
     }
 }

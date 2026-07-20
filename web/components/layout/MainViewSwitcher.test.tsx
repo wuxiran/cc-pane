@@ -39,6 +39,9 @@ vi.mock("@/components/orchestration/OrchestrationOverlay", () => ({
 vi.mock("@/components/layoutbar/LayoutTopBar", () => ({
   default: () => <div data-testid="layout-top-bar" />,
 }));
+vi.mock("@/components/layout/MainWallpaperLayer", () => ({
+  default: () => <div data-testid="main-wallpaper-layer" />,
+}));
 
 const activityState = vi.hoisted(() => ({
   sidebarVisible: true,
@@ -61,10 +64,16 @@ const panesState = vi.hoisted(() => ({
   currentLayoutId: "l1",
 }));
 
+const wallpaperState = vi.hoisted(() => ({
+  resolved: null as unknown,
+  assetUrl: null as string | null,
+}));
+
 vi.mock("@/stores", () => ({
   usePanesStore: (selector: (s: typeof panesState) => unknown) => selector(panesState),
   useActivityBarStore: (selector: (s: typeof activityState) => unknown) => selector(activityState),
   useLayoutUiStore: (selector: (s: typeof layoutUiState) => unknown) => selector(layoutUiState),
+  useWallpaperStore: (selector: (s: typeof wallpaperState) => unknown) => selector(wallpaperState),
 }));
 
 function setMode(mode: AppViewMode, overrides: Partial<typeof activityState> = {}) {

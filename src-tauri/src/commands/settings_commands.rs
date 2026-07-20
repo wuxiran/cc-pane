@@ -232,12 +232,32 @@ pub fn migrate_data_dir(
         copy_dir_recursive(&src_ws, &dst_ws)?;
     }
 
+    // 递归复制 wallpapers/（config.toml 只存相对文件名，不复制会静默丢壁纸）
+    let src_wp = source.join("wallpapers");
+    let dst_wp = target.join("wallpapers");
+    if src_wp.exists() {
+        copy_dir_recursive(&src_wp, &dst_wp)?;
+    }
+
     // 校验文件完整性（文件大小一致）
     verify_copy(&source.join("data.db"), &target.join("data.db"))?;
     verify_copy(
         &source.join("providers.json"),
         &target.join("providers.json"),
     )?;
+
+    // 校验 wallpapers 目录的文件数量一致
+    if src_wp.exists() {
+        let src_count = count_files(&src_wp);
+        let dst_count = count_files(&dst_wp);
+        if src_count != dst_count {
+            return Err(format!(
+                "Wallpapers directory file count mismatch (source: {}, target: {})",
+                src_count, dst_count
+            )
+            .into());
+        }
+    }
 
     // 校验 workspaces 目录的文件数量一致
     if src_ws.exists() {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle, Eye, EyeOff, LockKeyhole } from "lucide-react";
+import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle, Eye, EyeOff, LockKeyhole, Music, Music2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip,
@@ -14,7 +14,9 @@ import {
   useSettingsStore,
   useTerminalStatusStore,
   useUpdateStore,
+  useWallpaperStore,
 } from "@/stores";
+import { toggleWallpaperMusic } from "@/utils/wallpaperMusicController";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { triggerUpdate } from "@/services";
 import { webAuthService, type WebAuthStatus } from "@/services/webAuthService";
@@ -35,6 +37,9 @@ export default function StatusBar() {
   const loadCCChan = useCCChanStore((s) => s.load);
   const setCCChanVisible = useCCChanStore((s) => s.setWindowVisible);
   const [updating, setUpdating] = useState(false);
+  const musicAvailable = useWallpaperStore((s) => s.musicUrl !== null);
+  const musicPlaying = useWallpaperStore((s) => s.musicPlaying);
+  const musicGestureNeeded = useWallpaperStore((s) => s.musicGestureNeeded);
   const [webAuthStatus, setWebAuthStatus] = useState<WebAuthStatus | null>(null);
   const { isPinned, togglePin } = useWindowControl();
 
@@ -204,6 +209,29 @@ export default function StatusBar() {
 
       {/* 右侧工具 */}
       <div className="flex items-center gap-0.5">
+        {/* 壁纸音乐：autoplay 被拒时这里是显式起播入口，平时是播放/暂停开关 */}
+        {isTauriRuntime() && musicAvailable && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="flex items-center px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
+                style={musicGestureNeeded ? { color: "var(--app-accent)" } : undefined}
+                onClick={() => toggleWallpaperMusic()}
+              >
+                {musicPlaying ? <Music2 className="w-3 h-3" /> : <Music className="w-3 h-3" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>
+                {musicGestureNeeded
+                  ? t("wallpaperMusicGesture", { ns: "settings", defaultValue: "点击开始播放背景音乐" })
+                  : musicPlaying
+                    ? t("wallpaperMusicPause", { ns: "settings", defaultValue: "暂停背景音乐" })
+                    : t("wallpaperMusicPlay", { ns: "settings", defaultValue: "播放背景音乐" })}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        )}
         {showWebLock && webAuthStatus.readOnly && (
           <Tooltip>
             <TooltipTrigger asChild>

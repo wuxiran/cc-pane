@@ -102,6 +102,49 @@ describe("terminal renderer selection", () => {
     });
   });
 
+  it("wallpaper transparency forces DOM on non-Windows auto hosts", () => {
+    const linuxChrome =
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    expect(decideTerminalRenderer("auto", {
+      userAgent: linuxChrome,
+      webgl2Supported: true,
+      transparencyRequired: true,
+    })).toMatchObject({
+      renderer: "dom",
+      reason: "wallpaper-transparency",
+      webglAllowed: false,
+    });
+  });
+
+  it("wallpaper transparency overrides explicit webgl mode", () => {
+    const linuxChrome =
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    expect(decideTerminalRenderer("webgl", {
+      userAgent: linuxChrome,
+      webgl2Supported: true,
+      transparencyRequired: true,
+    })).toMatchObject({
+      renderer: "dom",
+      reason: "wallpaper-transparency",
+    });
+  });
+
+  it("Windows 下 reason 保持 windows-cjk-guard（透明分支不得污染诊断基线）", () => {
+    const webview2 =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
+
+    expect(decideTerminalRenderer("auto", {
+      userAgent: webview2,
+      webgl2Supported: true,
+      transparencyRequired: true,
+    })).toMatchObject({
+      renderer: "dom",
+      reason: "windows-cjk-guard",
+    });
+  });
+
   it("normalizes unknown renderer modes to auto", () => {
     expect(normalizeTerminalRendererMode("unknown")).toBe("auto");
     expect(normalizeTerminalRendererMode("dom")).toBe("dom");

@@ -37,6 +37,8 @@ pub struct AppSettings {
     pub web_access: WebAccessSettings,
     #[serde(default)]
     pub orchestrator: OrchestratorSettings,
+    #[serde(default)]
+    pub wallpaper: WallpaperSettings,
 }
 
 impl AppSettings {
@@ -48,7 +50,182 @@ impl AppSettings {
         self.cli_launchers.merge_missing_defaults();
         self.web_access.merge_missing_defaults();
         self.orchestrator.merge_missing_defaults();
+        self.wallpaper.merge_missing_defaults();
     }
+}
+
+/// 主区壁纸设置。
+///
+/// 每个字段都必须带 `#[serde(default)]`：老 config.toml 不含 [wallpaper] 子键时
+/// 反序列化要能整体回落默认，缺任何一个 default 都会让老配置升级直接失败。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallpaperSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    /// "none" | "image" | "video"
+    #[serde(default = "default_wallpaper_kind")]
+    pub kind: String,
+    /// wallpapers_dir 下的相对文件名（受控 uuid 文件名），不存绝对路径
+    #[serde(default)]
+    pub file: Option<String>,
+    /// "cover" | "contain" | "tile" | "center"
+    #[serde(default = "default_wallpaper_fit")]
+    pub fit: String,
+    /// 媒体层不透明度 0.1..=1
+    #[serde(default = "default_wallpaper_opacity")]
+    pub opacity: f64,
+    /// 高斯模糊半径 px 0..=64
+    #[serde(default)]
+    pub blur: f64,
+    /// 压暗遮罩不透明度 0..=0.9
+    #[serde(default = "default_wallpaper_dim")]
+    pub dim: f64,
+    /// 终端背景不透明度 0.3..=1（1 = 不透明，走原路径）
+    #[serde(default = "default_wallpaper_terminal_opacity")]
+    pub terminal_opacity: f64,
+    #[serde(default)]
+    pub video: WallpaperVideoSettings,
+    #[serde(default)]
+    pub music: WallpaperMusicSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallpaperVideoSettings {
+    #[serde(default = "default_true")]
+    pub autoplay: bool,
+    /// 0.25..=2.0
+    #[serde(default = "default_wallpaper_playback_rate")]
+    pub playback_rate: f64,
+    #[serde(default = "default_true")]
+    pub pause_when_unfocused: bool,
+    /// "auto" | "always" | "never"
+    #[serde(default = "default_wallpaper_power_saver")]
+    pub power_saver: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallpaperMusicSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    /// wallpapers_dir 下的相对文件名
+    #[serde(default)]
+    pub file: Option<String>,
+    /// 0..=1
+    #[serde(default = "default_wallpaper_music_volume")]
+    pub volume: f64,
+    #[serde(default = "default_true")]
+    pub loop_playback: bool,
+    #[serde(default = "default_true")]
+    pub autoplay: bool,
+}
+
+impl Default for WallpaperSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            kind: default_wallpaper_kind(),
+            file: None,
+            fit: default_wallpaper_fit(),
+            opacity: default_wallpaper_opacity(),
+            blur: 0.0,
+            dim: default_wallpaper_dim(),
+            terminal_opacity: default_wallpaper_terminal_opacity(),
+            video: WallpaperVideoSettings::default(),
+            music: WallpaperMusicSettings::default(),
+        }
+    }
+}
+
+impl Default for WallpaperVideoSettings {
+    fn default() -> Self {
+        Self {
+            autoplay: true,
+            playback_rate: default_wallpaper_playback_rate(),
+            pause_when_unfocused: true,
+            power_saver: default_wallpaper_power_saver(),
+        }
+    }
+}
+
+impl Default for WallpaperMusicSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            file: None,
+            volume: default_wallpaper_music_volume(),
+            loop_playback: true,
+            autoplay: true,
+        }
+    }
+}
+
+impl WallpaperSettings {
+    pub fn merge_missing_defaults(&mut self) {
+        if !matches!(self.kind.as_str(), "none" | "image" | "video") {
+            self.kind = default_wallpaper_kind();
+        }
+        if !matches!(self.fit.as_str(), "cover" | "contain" | "tile" | "center") {
+            self.fit = default_wallpaper_fit();
+        }
+        if !self.opacity.is_finite() || !(0.1..=1.0).contains(&self.opacity) {
+            self.opacity = default_wallpaper_opacity();
+        }
+        if !self.blur.is_finite() || !(0.0..=64.0).contains(&self.blur) {
+            self.blur = 0.0;
+        }
+        if !self.dim.is_finite() || !(0.0..=0.9).contains(&self.dim) {
+            self.dim = default_wallpaper_dim();
+        }
+        if !self.terminal_opacity.is_finite() || !(0.3..=1.0).contains(&self.terminal_opacity) {
+            self.terminal_opacity = default_wallpaper_terminal_opacity();
+        }
+        if !self.video.playback_rate.is_finite()
+            || !(0.25..=2.0).contains(&self.video.playback_rate)
+        {
+            self.video.playback_rate = default_wallpaper_playback_rate();
+        }
+        if !matches!(self.video.power_saver.as_str(), "auto" | "always" | "never") {
+            self.video.power_saver = default_wallpaper_power_saver();
+        }
+        if !self.music.volume.is_finite() || !(0.0..=1.0).contains(&self.music.volume) {
+            self.music.volume = default_wallpaper_music_volume();
+        }
+    }
+}
+
+fn default_wallpaper_kind() -> String {
+    "none".to_string()
+}
+
+fn default_wallpaper_fit() -> String {
+    "cover".to_string()
+}
+
+fn default_wallpaper_opacity() -> f64 {
+    1.0
+}
+
+fn default_wallpaper_dim() -> f64 {
+    0.35
+}
+
+fn default_wallpaper_terminal_opacity() -> f64 {
+    0.85
+}
+
+fn default_wallpaper_playback_rate() -> f64 {
+    1.0
+}
+
+fn default_wallpaper_power_saver() -> String {
+    "auto".to_string()
+}
+
+fn default_wallpaper_music_volume() -> f64 {
+    0.5
 }
 
 /// Orchestrator（HTTP+MCP server）网络绑定设置
@@ -1140,6 +1317,60 @@ mod tests {
         let settings: AppSettings = toml::from_str("").unwrap();
 
         assert!(settings.cli_launchers.overrides.is_empty());
+    }
+
+    #[test]
+    fn app_settings_deserializes_wallpaper_default_for_legacy_config() {
+        // 老 config.toml 完全没有 [wallpaper]：整块回落默认，不能报错。
+        let settings: AppSettings = toml::from_str("").unwrap();
+        assert!(!settings.wallpaper.enabled);
+        assert_eq!(settings.wallpaper.kind, "none");
+        assert_eq!(settings.wallpaper.video.power_saver, "auto");
+        assert_eq!(settings.wallpaper.music.volume, 0.5);
+    }
+
+    #[test]
+    fn wallpaper_deserializes_partial_config_with_missing_nested_blocks() {
+        // 只写了顶层字段、缺 video/music 子块：逐字段回落默认。
+        let toml_str = r#"
+            enabled = true
+            kind = "image"
+            file = "abc.png"
+        "#;
+        let settings: WallpaperSettings = toml::from_str(toml_str).expect("partial wallpaper");
+        assert!(settings.enabled);
+        assert_eq!(settings.file.as_deref(), Some("abc.png"));
+        assert_eq!(settings.fit, "cover");
+        assert!(settings.video.autoplay);
+        assert!(settings.music.loop_playback);
+    }
+
+    #[test]
+    fn wallpaper_merge_missing_defaults_clamps_invalid_values() {
+        let mut settings = WallpaperSettings {
+            kind: "gif".to_string(),
+            fit: "stretch".to_string(),
+            opacity: 3.0,
+            blur: -1.0,
+            dim: f64::NAN,
+            terminal_opacity: 0.0,
+            ..WallpaperSettings::default()
+        };
+        settings.video.playback_rate = 10.0;
+        settings.video.power_saver = "eco".to_string();
+        settings.music.volume = 2.0;
+
+        settings.merge_missing_defaults();
+
+        assert_eq!(settings.kind, "none");
+        assert_eq!(settings.fit, "cover");
+        assert_eq!(settings.opacity, 1.0);
+        assert_eq!(settings.blur, 0.0);
+        assert_eq!(settings.dim, 0.35);
+        assert_eq!(settings.terminal_opacity, 0.85);
+        assert_eq!(settings.video.playback_rate, 1.0);
+        assert_eq!(settings.video.power_saver, "auto");
+        assert_eq!(settings.music.volume, 0.5);
     }
 
     #[test]

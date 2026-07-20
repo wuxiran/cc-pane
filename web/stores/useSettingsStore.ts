@@ -5,7 +5,7 @@ import { handleErrorSilent } from "@/utils";
 import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
 import type { CCChanSettings } from "@/ccchan/types";
-import type { CliLauncherSettings, LayoutSwitcherSettings, OrchestratorSettings, WebAccessSettings } from "@/types";
+import type { CliLauncherSettings, LayoutSwitcherSettings, OrchestratorSettings, WallpaperSettings, WebAccessSettings } from "@/types";
 
 const defaultCloseToTray = () => {
   if (typeof navigator === "undefined") {
@@ -53,6 +53,30 @@ const DEFAULT_ORCHESTRATOR_SETTINGS: OrchestratorSettings = {
   bindMode: "auto",
 };
 
+export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
+  enabled: false,
+  kind: "none",
+  file: null,
+  fit: "cover",
+  opacity: 1,
+  blur: 0,
+  dim: 0.35,
+  terminalOpacity: 0.85,
+  video: {
+    autoplay: true,
+    playbackRate: 1,
+    pauseWhenUnfocused: true,
+    powerSaver: "auto",
+  },
+  music: {
+    enabled: false,
+    file: null,
+    volume: 0.5,
+    loopPlayback: true,
+    autoplay: true,
+  },
+};
+
 function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
   const maybeWithCCChan = settings as Partial<AppSettingsWithCCChan>;
   const maybeSettings = settings as Partial<AppSettings>;
@@ -77,6 +101,20 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
     orchestrator: {
       ...DEFAULT_ORCHESTRATOR_SETTINGS,
       ...maybeSettings.orchestrator,
+    },
+    // wallpaper 是三层嵌套结构：老配置升级后 settings.wallpaper 或其 video/music
+    // 子块可能是 undefined，必须逐层合并默认，否则读 settings.wallpaper.video.* 直接崩
+    wallpaper: {
+      ...DEFAULT_WALLPAPER_SETTINGS,
+      ...maybeSettings.wallpaper,
+      video: {
+        ...DEFAULT_WALLPAPER_SETTINGS.video,
+        ...maybeSettings.wallpaper?.video,
+      },
+      music: {
+        ...DEFAULT_WALLPAPER_SETTINGS.music,
+        ...maybeSettings.wallpaper?.music,
+      },
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
@@ -222,5 +260,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     layoutSwitcher: DEFAULT_LAYOUT_SWITCHER_SETTINGS,
     webAccess: DEFAULT_WEB_ACCESS_SETTINGS,
     orchestrator: DEFAULT_ORCHESTRATOR_SETTINGS,
+    wallpaper: DEFAULT_WALLPAPER_SETTINGS,
   }),
 }));

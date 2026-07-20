@@ -8,6 +8,7 @@ export { localHistoryService } from "./localHistoryService";
 export { projectCliHooksService } from "./projectCliHooksService";
 export { journalService } from "./journalService";
 export { worktreeService } from "./worktreeService";
+export * as wallpaperService from "./wallpaperService";
 export * as workspaceService from "./workspaceService";
 export { settingsService } from "./settingsService";
 export { webAuthService } from "./webAuthService";

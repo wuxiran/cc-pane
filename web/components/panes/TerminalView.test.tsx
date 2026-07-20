@@ -126,6 +126,7 @@ vi.mock("./terminalLayoutScheduler", () => ({
 
 vi.mock("./terminalRenderer", () => ({
   resolveTerminalRendererModeForSession: vi.fn(() => "canvas"),
+  setTerminalTransparencyProvider: vi.fn(),
 }));
 
 vi.mock("./terminalInputTrace", () => ({

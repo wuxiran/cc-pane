@@ -1,4 +1,14 @@
 {
+  "workspaceWallpaper": {
+    "title": "壁纸",
+    "hint": "工作空间可跟随全局壁纸、使用自己的壁纸，或明确关闭。",
+    "mode_inherit": "跟随全局",
+    "mode_custom": "自定义",
+    "mode_off": "不使用",
+    "imageFilter": "图片",
+    "noImage": "未选择",
+    "pickImage": "选择图片…"
+  },
   "home": "首页",
   "workspaces": "工作空间",
   "tools": "工具",

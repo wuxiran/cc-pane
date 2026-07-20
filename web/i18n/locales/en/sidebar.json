@@ -1,4 +1,14 @@
 {
+  "workspaceWallpaper": {
+    "title": "Wallpaper",
+    "hint": "A workspace can follow the global wallpaper, use its own, or turn it off.",
+    "mode_inherit": "Follow global",
+    "mode_custom": "Custom",
+    "mode_off": "Off",
+    "imageFilter": "Images",
+    "noImage": "None",
+    "pickImage": "Choose image…"
+  },
   "home": "Home",
   "workspaces": "Workspaces",
   "tools": "Tools",

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { emitTo } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Settings, Globe, Terminal, Keyboard, Info, Cloud, Bell, Camera, Share2, Mic, Bot, Wifi, Cable } from "lucide-react";
+import { Settings, Globe, Terminal, Keyboard, Info, Cloud, Bell, Camera, Share2, Mic, Bot, Wifi, Cable, Image } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,8 @@ import CliLaunchersSection from "./settings/CliLaunchersSection";
 import ShortcutsSection from "./settings/ShortcutsSection";
 import AboutSection from "./settings/AboutSection";
 import ScreenshotSection from "./settings/ScreenshotSection";
+import WallpaperSection from "./settings/WallpaperSection";
+import { isTauriRuntime } from "@/services/runtime";
 import SharedMcpSection from "./settings/SharedMcpSection";
 import VoiceSection from "./settings/VoiceSection";
 import WebAccessSection from "./settings/WebAccessSection";
@@ -73,6 +75,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     ccchan: ["ccchan"],
     shortcuts: ["shortcuts"],
     screenshot: ["screenshot"],
+    wallpaper: ["wallpaper"],
   };
 
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
@@ -84,6 +87,8 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     { id: "cli-launchers", label: t("cliLaunchers"), icon: Cable },
     { id: "proxy", label: t("proxy"), icon: Globe },
     { id: "terminal", label: t("terminal"), icon: Terminal },
+    // 壁纸依赖 asset 协议与本地文件系统：Web 端整块不渲染
+    ...(isTauriRuntime() ? [{ id: "wallpaper", label: t("wallpaper"), icon: Image }] : []),
     { id: "voice", label: t("voice"), icon: Mic },
     { id: "ccchan", label: "cc酱", icon: Bot },
     { id: "shortcuts", label: t("shortcuts"), icon: Keyboard },
@@ -306,6 +311,9 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             {activeSection === "shared-mcp" && <SharedMcpSection />}
             {activeSection === "screenshot" && (
               <ScreenshotSection value={draft.screenshot} onChange={(v) => updateDraft({ ...draft, screenshot: v })} />
+            )}
+            {activeSection === "wallpaper" && isTauriRuntime() && (
+              <WallpaperSection value={draft.wallpaper} onChange={(v) => updateDraft({ ...draft, wallpaper: v })} />
             )}
             {activeSection === "about" && <AboutSection />}
             </div>
