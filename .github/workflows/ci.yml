@@ -10,7 +10,8 @@ env:
   CARGO_TERM_COLOR: always
   # 同 release.yml：CI 用常规 target/ 布局，避免仓库 .cargo/config.toml 的
   # 仓库外 target-dir 与 actions/cache 的相对路径失配。
-  CARGO_TARGET_DIR: target
+  # 必须绝对路径——相对值按 CWD 解析，子目录里跑 cargo 会各自建一个 target/。
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
 
 jobs:
   frontend-check:
