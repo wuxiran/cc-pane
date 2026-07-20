@@ -8,6 +8,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # 同 release.yml：CI 用常规 target/ 布局，避免仓库 .cargo/config.toml 的
+  # 仓库外 target-dir 与 actions/cache 的相对路径失配。
+  CARGO_TARGET_DIR: target
 
 jobs:
   frontend-check:

@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { cargoTargetDir } from "./cargo-target-dir.cjs";
 import { verifyWebGitApis } from "./smoke-daemon-web-git.mjs";
 import { verifyWebHistoryApis } from "./smoke-daemon-web-history.mjs";
 import { verifyWebLaunchProfileApis } from "./smoke-daemon-web-launch-profiles.mjs";
@@ -34,7 +35,8 @@ function fail(message) {
 
 function cargoBinary(name) {
   const extension = process.platform === "win32" ? ".exe" : "";
-  return path.join("target", "debug", `${name}${extension}`);
+  // 不要写死 "target"：`.cargo/config.toml` 把 target-dir 指到了仓库外。
+  return path.join(cargoTargetDir(), "debug", `${name}${extension}`);
 }
 
 function spawnProcess(command, args, name, options = {}) {

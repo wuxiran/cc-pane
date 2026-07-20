@@ -8,6 +8,8 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+import { cargoTargetDir } from "./cargo-target-dir.cjs";
 import { createConnection } from "node:net";
 
 function log(message) {
@@ -33,7 +35,8 @@ async function run(command, args) {
 
 function cargoBinary(name) {
   const suffix = process.platform === "win32" ? ".exe" : "";
-  return path.join(process.cwd(), "target", "debug", `${name}${suffix}`);
+  // 不要写死 "target"：`.cargo/config.toml` 把 target-dir 指到了仓库外。
+  return path.resolve(cargoTargetDir(), "debug", `${name}${suffix}`);
 }
 
 async function getAvailablePort() {

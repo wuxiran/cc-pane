@@ -7,6 +7,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # 仓库的 .cargo/config.toml 把 target-dir 指到仓库外（`../cc-book-target`），
+  # 那是为了避开本地 Vite watcher 遍历海量产物。CI 没有这个问题，且产物落在
+  # workspace 外会让 actions/cache 的相对路径失配——这里显式拉回常规布局。
+  CARGO_TARGET_DIR: target
 
 jobs:
   validate-version:

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { cargoTargetDir } = require("./cargo-target-dir.cjs");
 
 function readFlagValue(flag) {
   const index = process.argv.indexOf(flag);
@@ -32,9 +33,11 @@ for (const f of fs.readdirSync(d).filter(f =>
 }
 
 const ext = isWindowsTarget ? ".exe" : "";
+// 不要写死 "target"：`.cargo/config.toml` 把 target-dir 指到了仓库外。
+const targetDir = cargoTargetDir();
 const buildDir = targetTriple
-  ? path.join("target", targetTriple, profile)
-  : path.join("target", profile);
+  ? path.join(targetDir, targetTriple, profile)
+  : path.join(targetDir, profile);
 
 function copyBinary(baseName) {
   const binaryName = `${baseName}${ext}`;
