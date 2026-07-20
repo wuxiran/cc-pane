@@ -243,6 +243,8 @@
   "wallpaperMusicVolume": "Volume",
   "wallpaperMusicLoop": "Loop",
   "wallpaperMusicAutoplay": "Autoplay",
+  "wallpaperMusicPauseUnfocused": "Pause when unfocused",
+  "wallpaperMusicPauseUnfocusedHint": "Independent from the video setting",
   "wallpaperMusicGesture": "Click to start background music",
   "wallpaperMusicPlay": "Play background music",
   "wallpaperMusicPause": "Pause background music",

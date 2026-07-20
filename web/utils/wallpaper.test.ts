@@ -45,10 +45,86 @@ describe("resolveWallpaper", () => {
     const global = enabledGlobal({ video: { ...DEFAULT_WALLPAPER.video, playbackRate: 0.5 } });
     const resolved = resolveWallpaper(global, {
       mode: "custom",
-      config: { video: { pauseWhenUnfocused: false } as never },
+      config: { video: { pauseWhenUnfocused: false } },
     });
     expect(resolved?.video.playbackRate).toBe(0.5);
     expect(resolved?.video.pauseWhenUnfocused).toBe(false);
+  });
+
+  it("custom：滑杆类参数（透明度/模糊/暗化/终端不透明度）可整套覆盖", () => {
+    const global = enabledGlobal({
+      opacity: 1,
+      blur: 0,
+      dim: 0.35,
+      terminalOpacity: 0.85,
+    });
+    const resolved = resolveWallpaper(global, {
+      mode: "custom",
+      config: { opacity: 0.6, blur: 20, dim: 0.7, terminalOpacity: 0.4 },
+    });
+    expect(resolved?.opacity).toBe(0.6);
+    expect(resolved?.blur).toBe(20);
+    expect(resolved?.dim).toBe(0.7);
+    expect(resolved?.terminalOpacity).toBe(0.4);
+  });
+
+  it("custom：只覆盖部分滑杆时，其余滑杆仍回落全局", () => {
+    const global = enabledGlobal({ opacity: 0.9, blur: 6, dim: 0.5, terminalOpacity: 0.7 });
+    const resolved = resolveWallpaper(global, { mode: "custom", config: { blur: 30 } });
+    expect(resolved?.blur).toBe(30);
+    expect(resolved?.opacity).toBe(0.9);
+    expect(resolved?.dim).toBe(0.5);
+    expect(resolved?.terminalOpacity).toBe(0.7);
+  });
+
+  it("custom：嵌套 music 逐字段覆盖，未设的 music 字段回落全局", () => {
+    const global = enabledGlobal({
+      music: { ...DEFAULT_WALLPAPER.music, enabled: true, file: "bgm.mp3", volume: 0.8 },
+    });
+    const resolved = resolveWallpaper(global, {
+      mode: "custom",
+      config: { music: { volume: 0.2, pauseWhenUnfocused: true } },
+    });
+    expect(resolved?.music.volume).toBe(0.2);
+    expect(resolved?.music.pauseWhenUnfocused).toBe(true);
+    // 未设字段仍来自全局
+    expect(resolved?.music.file).toBe("bgm.mp3");
+    expect(resolved?.music.enabled).toBe(true);
+    expect(resolved?.music.loopPlayback).toBe(true);
+  });
+
+  it("custom：video 与 music 的 pauseWhenUnfocused 互不影响", () => {
+    const global = enabledGlobal();
+    const resolved = resolveWallpaper(global, {
+      mode: "custom",
+      config: { video: { pauseWhenUnfocused: false }, music: { pauseWhenUnfocused: true } },
+    });
+    expect(resolved?.video.pauseWhenUnfocused).toBe(false);
+    expect(resolved?.music.pauseWhenUnfocused).toBe(true);
+  });
+
+  it("custom：覆盖 video 的一个字段不会整块替换 video", () => {
+    const global = enabledGlobal({
+      video: { ...DEFAULT_WALLPAPER.video, autoplay: false, powerSaver: "never" },
+    });
+    const resolved = resolveWallpaper(global, {
+      mode: "custom",
+      config: { video: { playbackRate: 1.5 } },
+    });
+    expect(resolved?.video.playbackRate).toBe(1.5);
+    expect(resolved?.video.autoplay).toBe(false);
+    expect(resolved?.video.powerSaver).toBe("never");
+  });
+
+  it("custom：覆盖值同样被收敛到合法域", () => {
+    const global = enabledGlobal();
+    const resolved = resolveWallpaper(global, {
+      mode: "custom",
+      config: { dim: 5, blur: -10, music: { volume: 9 } },
+    });
+    expect(resolved?.dim).toBe(0.9);
+    expect(resolved?.blur).toBe(0);
+    expect(resolved?.music.volume).toBe(1);
   });
 
   it("custom 可以在全局关闭时单独启用壁纸", () => {

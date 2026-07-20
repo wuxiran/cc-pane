@@ -158,6 +158,62 @@ language = "en-US"
         assert_eq!(service.get_settings().general.language, "en-US");
     }
 
+    /// 老用户升级路径：磁盘上的 config.toml 是加 music.pauseWhenUnfocused **之前**写的。
+    /// 光有 `#[serde(default)]` 不足以证明这条路能走通——load_from_file 的解析失败会被
+    /// `unwrap_or_default()` 静默吞掉，只看 wallpaper 字段有默认值会误判为通过。
+    /// 所以这里同时断言老配置里的其它值确实被读到了（= 真的解析成功，不是回落默认）。
+    #[test]
+    fn legacy_config_toml_without_music_pause_field_loads_without_data_loss() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = temp_config_path(&dir);
+        std::fs::write(
+            &path,
+            r#"
+[general]
+autoStart = false
+language = "en-US"
+
+[wallpaper]
+enabled = true
+kind = "video"
+file = "old-clip.mp4"
+opacity = 0.8
+blur = 12.0
+dim = 0.6
+terminalOpacity = 0.5
+
+[wallpaper.video]
+autoplay = true
+playbackRate = 1.5
+pauseWhenUnfocused = true
+powerSaver = "never"
+
+[wallpaper.music]
+enabled = true
+file = "old-bgm.mp3"
+volume = 0.3
+loopPlayback = true
+autoplay = true
+"#,
+        )
+        .unwrap();
+
+        let service = SettingsService::new_with_config_path(path);
+        let settings = service.get_settings();
+
+        // 真的解析成功（不是解析失败后回落默认）
+        assert_eq!(settings.general.language, "en-US");
+        assert!(settings.wallpaper.enabled);
+        assert_eq!(settings.wallpaper.file.as_deref(), Some("old-clip.mp4"));
+        assert_eq!(settings.wallpaper.opacity, 0.8);
+        assert_eq!(settings.wallpaper.terminal_opacity, 0.5);
+        assert_eq!(settings.wallpaper.music.file.as_deref(), Some("old-bgm.mp3"));
+        assert_eq!(settings.wallpaper.music.volume, 0.3);
+        // 视频的失焦暂停保持原样，音乐的新字段落到 false
+        assert!(settings.wallpaper.video.pause_when_unfocused);
+        assert!(!settings.wallpaper.music.pause_when_unfocused);
+    }
+
     #[test]
     fn load_applies_merge_missing_defaults() {
         let dir = tempfile::tempdir().unwrap();

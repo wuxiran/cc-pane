@@ -54,6 +54,8 @@ export interface WallpaperMusicSettings {
   volume: number;
   loopPlayback: boolean;
   autoplay: boolean;
+  /** 失焦是否暂停：独立于 video.pauseWhenUnfocused，默认 false（BGM 属全局氛围） */
+  pauseWhenUnfocused: boolean;
 }
 
 /** 壁纸库文件（list_wallpapers 返回项） */

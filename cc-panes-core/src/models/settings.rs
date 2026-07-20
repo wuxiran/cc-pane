@@ -120,6 +120,70 @@ pub struct WallpaperMusicSettings {
     pub loop_playback: bool,
     #[serde(default = "default_true")]
     pub autoplay: bool,
+    /// 失焦是否暂停。**独立于 video.pauseWhenUnfocused**：BGM 属全局氛围，
+    /// 切走窗口未必想停，所以默认 false（老配置升级后音乐不再随失焦暂停）。
+    #[serde(default)]
+    pub pause_when_unfocused: bool,
+}
+
+/// 工作空间壁纸覆盖配置：**每个字段都是 Option**，未设 = 回落全局。
+///
+/// 不能复用 `WallpaperSettings`：它每个字段都带 `serde(default)`，部分覆盖一旦
+/// 经 Rust 反序列化就会被补成完整对象写回 workspace.json，
+/// 「未设字段回落全局」的语义会在第一次保存后永久失效。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallpaperOverrideConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blur: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dim: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_opacity: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<WallpaperVideoOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music: Option<WallpaperMusicOverride>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallpaperVideoOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autoplay: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playback_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pause_when_unfocused: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_saver: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WallpaperMusicOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_playback: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autoplay: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pause_when_unfocused: Option<bool>,
 }
 
 impl Default for WallpaperSettings {
@@ -158,6 +222,7 @@ impl Default for WallpaperMusicSettings {
             volume: default_wallpaper_music_volume(),
             loop_playback: true,
             autoplay: true,
+            pause_when_unfocused: false,
         }
     }
 }
@@ -1343,6 +1408,101 @@ mod tests {
         assert_eq!(settings.fit, "cover");
         assert!(settings.video.autoplay);
         assert!(settings.music.loop_playback);
+    }
+
+    #[test]
+    fn legacy_config_without_music_pause_when_unfocused_deserializes_to_false() {
+        // 老用户的 config.toml：[wallpaper.music] 存在但没有 pauseWhenUnfocused 字段。
+        // 反序列化不能崩，且新字段落到 false（BGM 不随失焦暂停）。
+        let toml_str = r#"
+            [wallpaper]
+            enabled = true
+            kind = "image"
+            file = "old.png"
+
+            [wallpaper.video]
+            autoplay = true
+            playbackRate = 1.0
+            pauseWhenUnfocused = true
+            powerSaver = "auto"
+
+            [wallpaper.music]
+            enabled = true
+            file = "bgm.mp3"
+            volume = 0.4
+            loopPlayback = true
+            autoplay = true
+        "#;
+        let mut settings: AppSettings = toml::from_str(toml_str).expect("legacy config");
+        settings.merge_missing_defaults();
+
+        assert!(settings.wallpaper.music.enabled);
+        assert_eq!(settings.wallpaper.music.volume, 0.4);
+        assert!(settings.wallpaper.video.pause_when_unfocused);
+        assert!(!settings.wallpaper.music.pause_when_unfocused);
+    }
+
+    #[test]
+    fn wallpaper_override_config_keeps_unset_fields_absent_through_roundtrip() {
+        // 关键：部分覆盖经 Rust 反序列化 + 再序列化后，未设字段必须仍然缺席，
+        // 否则前端 resolveWallpaper 的「未设回落全局」在第一次保存后就失效。
+        let json = r#"{"enabled":true,"kind":"image","file":"ws.png","music":{"pauseWhenUnfocused":true}}"#;
+        let config: WallpaperOverrideConfig = serde_json::from_str(json).expect("partial override");
+
+        assert_eq!(config.enabled, Some(true));
+        assert!(config.dim.is_none());
+        assert!(config.video.is_none());
+        assert_eq!(
+            config.music.as_ref().and_then(|m| m.pause_when_unfocused),
+            Some(true)
+        );
+        assert!(config.music.as_ref().and_then(|m| m.volume).is_none());
+
+        let out = serde_json::to_string(&config).expect("serialize override");
+        assert!(!out.contains("dim"), "未设字段不应被补进序列化结果: {out}");
+        assert!(!out.contains("terminalOpacity"), "{out}");
+        assert!(!out.contains("\"video\""), "{out}");
+        assert!(out.contains("pauseWhenUnfocused"));
+    }
+
+    /// 老 workspace.json 是被旧代码（config: WallpaperSettings）写出的**完整**对象，
+    /// 换成部分覆盖结构后必须仍能读进来，不能让老工作空间的壁纸设置炸掉。
+    #[test]
+    fn legacy_full_override_config_still_deserializes() {
+        let json = r#"{
+            "enabled":true,"kind":"image","file":"ws.png","fit":"cover",
+            "opacity":1.0,"blur":0.0,"dim":0.35,"terminalOpacity":0.85,
+            "video":{"autoplay":true,"playbackRate":1.0,"pauseWhenUnfocused":true,"powerSaver":"auto"},
+            "music":{"enabled":false,"file":null,"volume":0.5,"loopPlayback":true,"autoplay":true}
+        }"#;
+        let config: WallpaperOverrideConfig = serde_json::from_str(json).expect("legacy override");
+
+        assert_eq!(config.file.as_deref(), Some("ws.png"));
+        assert_eq!(config.dim, Some(0.35));
+        assert_eq!(config.video.as_ref().unwrap().power_saver.as_deref(), Some("auto"));
+        // 老结构没有 music.pauseWhenUnfocused，读进来是 None（= 不覆盖，回落全局）
+        assert!(config.music.as_ref().unwrap().pause_when_unfocused.is_none());
+    }
+
+    #[test]
+    fn wallpaper_override_config_supports_full_parameter_override() {
+        let json = r#"{
+            "opacity":0.5,"blur":12.0,"dim":0.7,"terminalOpacity":0.4,
+            "video":{"playbackRate":0.5,"pauseWhenUnfocused":false},
+            "music":{"volume":0.2,"pauseWhenUnfocused":true}
+        }"#;
+        let config: WallpaperOverrideConfig = serde_json::from_str(json).expect("full override");
+
+        assert_eq!(config.opacity, Some(0.5));
+        assert_eq!(config.blur, Some(12.0));
+        assert_eq!(config.dim, Some(0.7));
+        assert_eq!(config.terminal_opacity, Some(0.4));
+        assert_eq!(config.video.as_ref().unwrap().playback_rate, Some(0.5));
+        assert_eq!(
+            config.video.as_ref().unwrap().pause_when_unfocused,
+            Some(false)
+        );
+        assert_eq!(config.music.as_ref().unwrap().volume, Some(0.2));
     }
 
     #[test]

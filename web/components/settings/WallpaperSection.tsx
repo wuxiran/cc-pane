@@ -7,6 +7,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import WallpaperSliderRow from "@/components/settings/WallpaperSliderRow";
 import { wallpaperService } from "@/services";
 import { getErrorMessage } from "@/utils";
 import type { WallpaperFit, WallpaperPowerSaver, WallpaperSettings } from "@/types";
@@ -160,24 +161,15 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
     apply: (v: number) => void,
   ) {
     return (
-      <div className="flex items-center justify-between gap-3">
-        <Label>{label}</Label>
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={current}
-            className="w-48 cursor-pointer"
-            style={{ accentColor: "var(--app-accent)" }}
-            onChange={(event) => apply(Number(event.target.value))}
-          />
-          <span className="w-12 text-right font-mono text-[12px]" style={{ color: "var(--app-text-secondary)" }}>
-            {format(current)}
-          </span>
-        </div>
-      </div>
+      <WallpaperSliderRow
+        label={label}
+        value={current}
+        min={min}
+        max={max}
+        step={step}
+        format={format}
+        onChange={apply}
+      />
     );
   }
 
@@ -397,6 +389,24 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
                 style={{ accentColor: "var(--app-accent)" }}
                 onChange={(event) =>
                   update("music", { ...value.music, autoplay: event.target.checked })
+                }
+              />
+            </label>
+            {/* 独立于视频的同名开关：BGM 属全局氛围，失焦默认继续放 */}
+            <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+              <span>
+                {t("wallpaperMusicPauseUnfocused")}
+                <span className="ml-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+                  {t("wallpaperMusicPauseUnfocusedHint")}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={value.music.pauseWhenUnfocused}
+                className="h-4 w-4 cursor-pointer"
+                style={{ accentColor: "var(--app-accent)" }}
+                onChange={(event) =>
+                  update("music", { ...value.music, pauseWhenUnfocused: event.target.checked })
                 }
               />
             </label>

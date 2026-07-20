@@ -74,6 +74,7 @@ export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
     volume: 0.5,
     loopPlayback: true,
     autoplay: true,
+    pauseWhenUnfocused: false,
   },
 };
 

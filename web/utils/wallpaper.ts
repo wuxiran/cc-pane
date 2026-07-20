@@ -2,6 +2,7 @@
 // 合并语义（docs/39）：off → null；custom → 以全局为底逐字段浅覆盖（未设字段回落全局）；
 // inherit/未设 → 全局；全局 enabled === false（且非 custom）→ null。
 import type {
+  WallpaperOverrideConfig,
   WallpaperSettings,
   WorkspaceWallpaperOverride,
 } from "@/types";
@@ -27,6 +28,7 @@ export const DEFAULT_WALLPAPER: WallpaperSettings = {
     volume: 0.5,
     loopPlayback: true,
     autoplay: true,
+    pauseWhenUnfocused: false,
   },
 };
 
@@ -64,7 +66,7 @@ export function clampWallpaper(settings: WallpaperSettings): WallpaperSettings {
 /** 逐字段浅覆盖：partial 里为 undefined 的字段回落 base；video/music 也逐字段 */
 function mergeWallpaper(
   base: WallpaperSettings,
-  partial: Partial<WallpaperSettings>,
+  partial: WallpaperOverrideConfig,
 ): WallpaperSettings {
   return {
     ...base,

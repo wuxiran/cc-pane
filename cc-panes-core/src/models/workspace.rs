@@ -1,4 +1,4 @@
-use crate::models::settings::WallpaperSettings;
+use crate::models::settings::WallpaperOverrideConfig;
 use crate::models::ssh_machine::AuthMethod;
 use serde::{Deserialize, Serialize};
 
@@ -115,7 +115,8 @@ pub struct WorkspaceWallpaperOverride {
     #[serde(default = "default_wallpaper_override_mode")]
     pub mode: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub config: Option<WallpaperSettings>,
+    /// 部分覆盖：只含用户显式设置的字段，未设字段由前端 resolveWallpaper 回落全局
+    pub config: Option<WallpaperOverrideConfig>,
 }
 
 fn default_wallpaper_override_mode() -> String {

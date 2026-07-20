@@ -6,8 +6,9 @@
 // 2. 静默手势兜底：pointerdown/keydown once+capture 重试——用户点任何地方就起播
 // 3. 显式入口：musicGestureNeeded=true 时 StatusBar 出音符按钮
 //
-// 暂停规则：hidden → pause；blur 按 video.pauseWhenUnfocused；MiniMode → pause；
-// 主视图切走 panes 不暂停（BGM 属全局氛围）。
+// 暂停规则：hidden → pause；blur 按 music.pauseWhenUnfocused（独立于视频的同名开关，
+// 默认 false —— BGM 属全局氛围，切走窗口未必想停）；MiniMode → pause；
+// 主视图切走 panes 不暂停。
 import { useWallpaperStore } from "@/stores/useWallpaperStore";
 import { useMiniModeStore } from "@/stores/useMiniModeStore";
 import { isTauriRuntime } from "@/services/runtime";
@@ -30,9 +31,12 @@ function shouldPlayNow(): boolean {
   if (!musicConfigured() || userPaused) return false;
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
   if (useMiniModeStore.getState().isMiniMode) return false;
-  const pauseWhenUnfocused = wallpaperState().resolved?.video.pauseWhenUnfocused ?? true;
-  if (pauseWhenUnfocused && typeof document !== "undefined" && !document.hasFocus()) return false;
+  if (musicPausesOnBlur() && typeof document !== "undefined" && !document.hasFocus()) return false;
   return true;
+}
+
+function musicPausesOnBlur(): boolean {
+  return wallpaperState().resolved?.music.pauseWhenUnfocused ?? false;
 }
 
 function setPlaying(playing: boolean) {
@@ -135,8 +139,7 @@ export function initWallpaperMusicController(): void {
     }
   });
   window.addEventListener("blur", () => {
-    const pauseWhenUnfocused = wallpaperState().resolved?.video.pauseWhenUnfocused ?? true;
-    if (pauseWhenUnfocused) pauseNow();
+    if (musicPausesOnBlur()) pauseNow();
   });
   window.addEventListener("focus", () => {
     void tryPlay();

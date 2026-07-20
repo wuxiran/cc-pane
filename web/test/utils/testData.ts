@@ -196,6 +196,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
         volume: 0.5,
         loopPlayback: true,
         autoplay: true,
+        pauseWhenUnfocused: false,
       },
     },
     ...overrides,

@@ -1,13 +1,28 @@
 import type { AuthMethod } from "./ssh-machine";
-import type { WallpaperSettings } from "./settings";
+import type {
+  WallpaperMusicSettings,
+  WallpaperSettings,
+  WallpaperVideoSettings,
+} from "./settings";
 
 /** 工作空间壁纸覆盖模式：off 必须与 inherit 区分（明确关掉全局壁纸） */
 export type WorkspaceWallpaperOverrideMode = "inherit" | "custom" | "off";
 
+/**
+ * 工作空间壁纸覆盖配置（镜像 cc-panes-core WallpaperOverrideConfig）。
+ * 每个字段都可选：未设 = 回落全局。video/music 也是各自的 Partial，
+ * 这样能只覆盖某一个嵌套字段而不整块替换。
+ */
+export interface WallpaperOverrideConfig
+  extends Partial<Omit<WallpaperSettings, "video" | "music">> {
+  video?: Partial<WallpaperVideoSettings>;
+  music?: Partial<WallpaperMusicSettings>;
+}
+
 /** 工作空间级壁纸覆盖 */
 export interface WorkspaceWallpaperOverride {
   mode: WorkspaceWallpaperOverrideMode;
-  config?: Partial<WallpaperSettings> | null;
+  config?: WallpaperOverrideConfig | null;
 }
 
 /** SSH 连接信息 */

@@ -58,6 +58,7 @@ export type {
   WorkspaceProject,
   WorkspaceSshLaunchConfig,
   WorkspaceWslConfig,
+  WallpaperOverrideConfig,
   WorkspaceWallpaperOverride,
   WorkspaceWallpaperOverrideMode,
   SshConnectionInfo,
