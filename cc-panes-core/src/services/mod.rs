@@ -4,6 +4,7 @@ mod daemon_client;
 pub mod default_skill_service;
 mod external_skill_registry;
 mod filesystem_service;
+mod history_scanner;
 mod history_service;
 mod journal_service;
 mod launch_history_service;

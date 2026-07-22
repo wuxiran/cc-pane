@@ -3,18 +3,43 @@ use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tracing::{info, warn};
 
-use crate::constants::history::{CHECKOUT_SILENCE_SECS, DEBOUNCE_MS};
+use super::history_scanner;
+use crate::constants::history::{CHECKOUT_SILENCE_SECS, DEBOUNCE_MS, POLL_SCAN_INTERVAL_MS};
 use crate::models::{
     DiffResult, FileVersion, HistoryConfig, HistoryLabel, RecentChange, WorktreeRecentChange,
 };
 use crate::repository::HistoryFileRepository;
 
-type WatcherMap = Arc<Mutex<HashMap<PathBuf, RecommendedWatcher>>>;
+/// 单个项目的监视方式。
+///
+/// Windows 用轮询扫描器（`history_scanner`）：`ReadDirectoryChangesW` 会持有
+/// 项目根目录句柄，外部工具无法删除/重命名该目录（PR #35）。其余平台维持
+/// 零成本的系统通知。
+// 字段从不读取：持有即生效，drop 即停止（watcher 停监视 / handle 停扫描线程）
+#[allow(dead_code)]
+enum ProjectWatch {
+    Native(RecommendedWatcher),
+    Scanner(ScannerHandle),
+}
+
+/// 扫描线程句柄：drop 即通知线程退出（线程按短片睡眠，≤200ms 内响应）。
+struct ScannerHandle {
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for ScannerHandle {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+type WatcherMap = Arc<Mutex<HashMap<PathBuf, ProjectWatch>>>;
 type RepoMap = Arc<Mutex<HashMap<PathBuf, Arc<HistoryFileRepository>>>>;
 
 /// 文件事件消息（单写者模型）
@@ -428,30 +453,144 @@ impl HistoryService {
         let branch_cache = self.branch_cache.clone();
         let silence_until = self.silence_until.clone();
 
-        let mut watcher = RecommendedWatcher::new(
-            move |res: Result<Event, notify::Error>| {
-                if let Ok(event) = res {
-                    Self::dispatch_event(
-                        &project_path_clone,
-                        event,
-                        &tx,
-                        &branch_cache,
-                        &silence_until,
-                    );
-                }
-            },
-            Config::default(),
-        )
-        .context("Failed to create file watcher")?;
+        let watch = if cfg!(windows) {
+            let stop = Arc::new(AtomicBool::new(false));
+            let stop_clone = stop.clone();
+            let repos = self.repos.clone();
+            std::thread::spawn(move || {
+                Self::scanner_loop(
+                    &project_path_clone,
+                    &repos,
+                    &tx,
+                    &branch_cache,
+                    &silence_until,
+                    &stop_clone,
+                );
+            });
+            ProjectWatch::Scanner(ScannerHandle { stop })
+        } else {
+            let mut watcher = RecommendedWatcher::new(
+                move |res: Result<Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        Self::dispatch_event(
+                            &project_path_clone,
+                            event,
+                            &tx,
+                            &branch_cache,
+                            &silence_until,
+                        );
+                    }
+                },
+                Config::default(),
+            )
+            .context("Failed to create file watcher")?;
 
-        watcher
-            .watch(&project_path, RecursiveMode::Recursive)
-            .context("Failed to start watching")?;
+            watcher
+                .watch(&project_path, RecursiveMode::Recursive)
+                .context("Failed to start watching")?;
+            ProjectWatch::Native(watcher)
+        };
 
         let mut watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
-        watchers.insert(project_path, watcher);
+        watchers.insert(project_path, watch);
 
         Ok(())
+    }
+
+    /// Windows 轮询扫描线程：每轮遍历（剪枝）→ 快照 diff → 投递事件。
+    /// 分支切换检测与静默窗口语义同 `dispatch_event`。
+    fn scanner_loop(
+        project_path: &Path,
+        repos: &RepoMap,
+        tx: &std::sync::mpsc::Sender<HistoryEvent>,
+        branch_cache: &Arc<Mutex<HashMap<PathBuf, String>>>,
+        silence_until: &Arc<Mutex<HashMap<PathBuf, Instant>>>,
+        stop: &AtomicBool,
+    ) {
+        let mut snapshot: Option<history_scanner::ScanSnapshot> = None;
+
+        loop {
+            // 短片睡眠：stop（stop_watching / 服务析构）≤200ms 内生效
+            let deadline = Instant::now() + Duration::from_millis(POLL_SCAN_INTERVAL_MS);
+            while Instant::now() < deadline {
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+
+            // 每轮重读配置：跟随 ignore_patterns 修改与 enabled 开关
+            let config = {
+                let repo = {
+                    let repos = repos.lock().unwrap_or_else(|e| e.into_inner());
+                    repos.get(project_path).cloned()
+                };
+                match repo.and_then(|r| r.read_config().ok()) {
+                    Some(c) => c.history,
+                    None => HistoryConfig::default(),
+                }
+            };
+            if !config.enabled {
+                // 关闭期间丢弃基线：重新启用后先建快照不补发历史差异
+                snapshot = None;
+                continue;
+            }
+
+            let patterns = config.ignore_patterns;
+            let next = history_scanner::scan_project(project_path, &|rel| {
+                Self::should_ignore(rel, &patterns)
+            });
+
+            // 分支切换检测（语义同 dispatch_event：读不到分支时跳过检测）
+            let current_branch = Self::read_current_branch(project_path).unwrap_or_default();
+            if !current_branch.is_empty() {
+                let mut cache = branch_cache.lock().unwrap_or_else(|e| e.into_inner());
+                let cached = cache.get(project_path).cloned().unwrap_or_default();
+                if !cached.is_empty() && cached != current_branch {
+                    let _ = tx.send(HistoryEvent::BranchSwitched {
+                        project_path: project_path.to_path_buf(),
+                        old_branch: cached,
+                        new_branch: current_branch.clone(),
+                    });
+                    cache.insert(project_path.to_path_buf(), current_branch.clone());
+                    let mut silence = silence_until.lock().unwrap_or_else(|e| e.into_inner());
+                    silence.insert(
+                        project_path.to_path_buf(),
+                        Instant::now() + Duration::from_secs(CHECKOUT_SILENCE_SECS),
+                    );
+                    // checkout 带来的整批文件差异属于噪声：吞掉本轮 diff，
+                    // 直接以 checkout 后的状态为新基线
+                    snapshot = Some(next);
+                    continue;
+                }
+                if cached.is_empty() {
+                    cache.insert(project_path.to_path_buf(), current_branch.clone());
+                }
+            }
+
+            if let Some(prev) = &snapshot {
+                let diff = history_scanner::diff_snapshots(prev, &next);
+                for path in diff.changed {
+                    let _ = tx.send(HistoryEvent::FileChanged {
+                        project_path: project_path.to_path_buf(),
+                        file_path: path,
+                        branch: current_branch.clone(),
+                    });
+                }
+                for path in diff.removed {
+                    let _ = tx.send(HistoryEvent::FileRemoved {
+                        project_path: project_path.to_path_buf(),
+                        file_path: path,
+                        branch: current_branch.clone(),
+                    });
+                }
+            }
+            // 首轮只建基线不发事件（对齐系统通知“启动时无存量事件”的行为）
+            snapshot = Some(next);
+        }
     }
 
     /// 停止文件监控
