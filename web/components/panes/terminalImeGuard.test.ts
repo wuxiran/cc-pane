@@ -367,6 +367,45 @@ describe("terminal IME guard", () => {
     guard.dispose();
   });
 
+  it("resets stuck composition state on paste cleanup so later IME input still forwards", () => {
+    const textarea = document.createElement("textarea");
+    const terminal = { input: vi.fn() };
+    const guard = attachTerminalImeGuard({
+      textarea,
+      terminal,
+      enabled: true,
+      now: () => 1000,
+    });
+
+    // 组合开始后被粘贴打断，WebKitGTK 此后不再发 compositionend（issue #41）。
+    textarea.dispatchEvent(new CompositionEvent("compositionstart", {
+      data: "",
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    }));
+    guard.clearNativeEditState("before-paste");
+    guard.clearNativeEditState("after-paste");
+
+    // 之后的中文上屏没有新的 compositionstart，guard 必须按 malformed
+    // composition 接管转发，而不是因残留的 composing 标志放行（放行后
+    // xterm 在该环境下会吞掉这次输入）。
+    textarea.value = "你好";
+    textarea.setSelectionRange(2, 2);
+    const beforeInput = createInputEvent("beforeinput", {
+      inputType: "insertFromComposition",
+      data: "你好",
+      isComposing: true,
+    });
+    textarea.dispatchEvent(beforeInput);
+
+    expect(beforeInput.defaultPrevented).toBe(true);
+    expect(terminal.input).toHaveBeenCalledWith("你好", true);
+    expect(terminal.input).toHaveBeenCalledTimes(1);
+
+    guard.dispose();
+  });
+
   describe("clearNativeEditState document selection", () => {
     function setupGuard() {
       const textarea = document.createElement("textarea");

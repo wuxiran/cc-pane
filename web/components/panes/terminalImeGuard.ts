@@ -120,23 +120,6 @@ export function attachTerminalImeGuard(options: TerminalImeGuardOptions): Termin
     options.logger?.(`ime-guard.${event}`, payload);
   };
 
-  const clearNativeEditState = (reason = "manual") => {
-    const preserveDocumentSelection = SELECTION_PRESERVING_REASONS.has(reason);
-    clearTextarea(textarea);
-    if (!preserveDocumentSelection) {
-      clearDocumentSelection(textarea);
-    }
-    log("native-edit-state.cleared", {
-      reason,
-      preserveDocumentSelection,
-      textarea: {
-        valueLength: textarea.value.length,
-        selectionStart: textarea.selectionStart,
-        selectionEnd: textarea.selectionEnd,
-      },
-    });
-  };
-
   // When the guard is disabled (non Linux-WebKit, e.g. Windows WebView2 / macOS),
   // clearNativeEditState must be a true no-op. Clearing the hidden textarea value +
   // document selection during paste/copy corrupts the WebView2 IME session (paste
@@ -151,6 +134,38 @@ export function attachTerminalImeGuard(options: TerminalImeGuardOptions): Termin
   let skippedCompositionKeydownUntil = 0;
   let suppressSelectionSpaceUntil = 0;
   const handledEvents = new WeakSet<Event>();
+
+  const clearNativeEditState = (reason = "manual") => {
+    const preserveDocumentSelection = SELECTION_PRESERVING_REASONS.has(reason);
+    // 清 DOM 状态之外必须同步重置 guard 的组合态：WebKitGTK + Fcitx 在粘贴打断
+    // 组合后可能永远不发 compositionend，残留的 composing 标志会吞掉后续所有
+    // insertFromComposition 中文输入，直到窗口失焦重建 IME 上下文（issue #41）。
+    const hadCompositionState =
+      sawCompositionStart ||
+      handledMalformedComposition ||
+      handledSkippedKeydownText ||
+      skippedCompositionKeydownUntil > 0 ||
+      suppressSelectionSpaceUntil > 0;
+    sawCompositionStart = false;
+    handledMalformedComposition = false;
+    handledSkippedKeydownText = false;
+    skippedCompositionKeydownUntil = 0;
+    suppressSelectionSpaceUntil = 0;
+    clearTextarea(textarea);
+    if (!preserveDocumentSelection) {
+      clearDocumentSelection(textarea);
+    }
+    log("native-edit-state.cleared", {
+      reason,
+      preserveDocumentSelection,
+      hadCompositionState,
+      textarea: {
+        valueLength: textarea.value.length,
+        selectionStart: textarea.selectionStart,
+        selectionEnd: textarea.selectionEnd,
+      },
+    });
+  };
 
   const addListener = <K extends keyof HTMLElementEventMap>(
     type: K,
