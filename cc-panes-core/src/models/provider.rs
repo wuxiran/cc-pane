@@ -18,6 +18,7 @@ pub enum ProviderType {
     Vertex,
     Proxy,
     ConfigProfile,
+    #[serde(rename = "open_ai", alias = "open_a_i")]
     OpenAI,
     Gemini,
     Kimi,
@@ -187,4 +188,25 @@ pub struct SystemProviderInfo {
     pub env_keys: Vec<String>,
     /// 用户已把「系统环境变量」设为默认凭证（持久化状态）。
     pub default_is_system: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProviderType;
+
+    #[test]
+    fn open_ai_uses_canonical_name_and_accepts_legacy_name() {
+        assert_eq!(
+            serde_json::from_str::<ProviderType>(r#""open_ai""#).unwrap(),
+            ProviderType::OpenAI
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderType>(r#""open_a_i""#).unwrap(),
+            ProviderType::OpenAI
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderType::OpenAI).unwrap(),
+            r#""open_ai""#
+        );
+    }
 }
