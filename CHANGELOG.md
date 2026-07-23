@@ -11,8 +11,6 @@
 
 - **`ProviderType::OpenAI` serialized as `open_a_i`** (serde's snake_case acronym split), breaking the `open_ai` contract used by the frontend, IPC payloads, and CLI adapters — `add_provider` rejected OpenAI providers as an unknown variant. Now canonically `open_ai`, with `open_a_i` still accepted on read for persisted configs. (PR #42, contributed by @luminouA)
 - **Linux (WebKitGTK + Fcitx5): Chinese IME stopped working after copy/paste in the terminal** until the window lost and regained focus. Paste interrupts an in-flight composition and WebKitGTK never delivers the matching `compositionend`, so the IME guard's stale composing flag swallowed every subsequent `insertFromComposition`. The paste/copy cleanup path now resets the guard's composition state alongside the DOM state. (#41)
-- **Windows: the Local History watcher no longer holds a handle on the project root directory** (`ReadDirectoryChangesW`), which prevented external tools from deleting or renaming the watched project folder. Windows now uses a handle-free polling scanner that prunes ignored directories (`node_modules`, `target`, …) during traversal — unlike a naive `PollWatcher`, it never stats the heavy trees, so a scan cycle touches only real source files. Other platforms keep native notifications. (PR #35)
-
 ## 0.10.19 - 2026-07-20
 
 ### Added

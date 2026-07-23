@@ -28,9 +28,6 @@ pub mod history {
 
     /// 分支切换后的静默窗口（秒），抑制 checkout 产生的文件事件
     pub const CHECKOUT_SILENCE_SECS: u64 = 3;
-
-    /// Windows 轮询扫描器的扫描间隔（毫秒）。见 `history_scanner`。
-    pub const POLL_SCAN_INTERVAL_MS: u64 = 2_000;
 }
 
 /// Journal 模块常量
