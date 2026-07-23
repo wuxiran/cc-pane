@@ -339,6 +339,11 @@
   "explorer.noProjects": "暂无项目",
   "explorer.notGitRepo": "非 Git 项目",
   "explorer.gitUnavailable": "不可用",
+  "explorer.gitUnavailableReason": "Git 不可用：{{message}}",
+  "explorer.gitPathNotFound": "项目路径不存在",
+  "explorer.gitError": "Git 错误：{{message}}",
+  "explorer.gitUnknownError": "未知错误",
+  "explorer.gitRepoRoot": "仓库根目录：{{path}}",
   "explorer.gitLoading": "加载中...",
   "explorer.noChanges": "无变更"
 }

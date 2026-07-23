@@ -1,6 +1,10 @@
 use super::error::AppError;
-use std::io;
+use std::io::{self, Read};
 use std::process::{Command, Output, Stdio};
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 /// 本地 Git 命令超时（30 秒）
@@ -11,6 +15,9 @@ pub const GIT_NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Git checkout 操作超时（60 秒）— worktree add 等涉及文件写入的操作
 pub const GIT_CHECKOUT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// 单个 Git 子进程允许返回的 stdout + stderr 总量。
+pub const GIT_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 /// 为 HTTPS Git 操作生成认证环境变量（凭证不进 URL、不进命令行）。
 ///
@@ -124,6 +131,18 @@ pub fn redact_git_url(url: &str) -> String {
 /// 通过 `try_wait` 轮询实现超时检测，超时后 kill 子进程。
 /// Windows 上自动设置 `CREATE_NO_WINDOW` 防止弹出控制台窗口。
 pub fn output_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<Output> {
+    output_with_timeout_limit(cmd, timeout, GIT_MAX_OUTPUT_BYTES)
+}
+
+/// 带超时和硬输出上限执行命令。
+///
+/// stdout/stderr 必须在子进程运行期间并发排空，否则任一 pipe 写满后子进程会阻塞，
+/// `try_wait` 会把正常的大输出命令误判为超时。
+pub fn output_with_timeout_limit(
+    cmd: &mut Command,
+    timeout: Duration,
+    max_output_bytes: usize,
+) -> io::Result<Output> {
     // 阻止 git 弹出交互式认证提示（GUI 子进程中无法交互）
     cmd.env("GIT_TERMINAL_PROMPT", "0");
 
@@ -140,21 +159,104 @@ pub fn output_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<O
         .stderr(Stdio::piped())
         .spawn()?;
 
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| io::Error::other("failed to capture command stdout"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| io::Error::other("failed to capture command stderr"))?;
+    let total_bytes = Arc::new(AtomicUsize::new(0));
+    let exceeded = Arc::new(AtomicBool::new(false));
+    let stdout_thread = spawn_limited_reader(
+        stdout,
+        total_bytes.clone(),
+        exceeded.clone(),
+        max_output_bytes,
+    );
+    let stderr_thread =
+        spawn_limited_reader(stderr, total_bytes, exceeded.clone(), max_output_bytes);
+
     let start = Instant::now();
-    loop {
-        match child.try_wait()? {
-            Some(_) => return child.wait_with_output(),
-            None if start.elapsed() > timeout => {
+    let wait_result = loop {
+        if exceeded.load(Ordering::Acquire) {
+            let _ = child.kill();
+            break Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                format!("Command output limit exceeded ({max_output_bytes} bytes)"),
+            ));
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if start.elapsed() > timeout => {
                 let _ = child.kill();
-                let _ = child.wait();
-                return Err(io::Error::new(
+                break Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     format!("Command timed out (waited {} seconds)", timeout.as_secs()),
                 ));
             }
-            None => std::thread::sleep(Duration::from_millis(200)),
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(error) => {
+                let _ = child.kill();
+                break Err(error);
+            }
         }
+    };
+
+    if wait_result.is_err() {
+        let _ = child.wait();
     }
+    let stdout_result = join_reader(stdout_thread);
+    let stderr_result = join_reader(stderr_thread);
+    let stdout = stdout_result?;
+    let stderr = stderr_result?;
+    if exceeded.load(Ordering::Acquire) {
+        return Err(io::Error::new(
+            io::ErrorKind::FileTooLarge,
+            format!("Command output limit exceeded ({max_output_bytes} bytes)"),
+        ));
+    }
+
+    wait_result.map(|status| Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+fn spawn_limited_reader<R>(
+    mut reader: R,
+    total_bytes: Arc<AtomicUsize>,
+    exceeded: Arc<AtomicBool>,
+    max_output_bytes: usize,
+) -> std::thread::JoinHandle<io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut output = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            let read = reader.read(&mut chunk)?;
+            if read == 0 {
+                break;
+            }
+            let previous = total_bytes.fetch_add(read, Ordering::AcqRel);
+            let remaining = max_output_bytes.saturating_sub(previous);
+            output.extend_from_slice(&chunk[..read.min(remaining)]);
+            if read > remaining {
+                exceeded.store(true, Ordering::Release);
+            }
+        }
+        Ok(output)
+    })
+}
+
+fn join_reader(handle: std::thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
+    handle
+        .join()
+        .map_err(|_| io::Error::other("command output reader thread panicked"))?
 }
 
 #[cfg(test)]
@@ -271,6 +373,53 @@ mod tests {
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(stdout.contains("git version"));
+    }
+
+    #[test]
+    fn output_with_timeout_drains_output_larger_than_pipe_capacity() {
+        let temp = tempfile::tempdir().unwrap();
+        let blob = temp.path().join("blob.bin");
+        std::fs::write(&blob, vec![b'x'; 256 * 1024]).unwrap();
+
+        let init = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(temp.path())
+            .status()
+            .unwrap();
+        assert!(init.success());
+        let hash = Command::new("git")
+            .args(["hash-object", "-w"])
+            .arg(&blob)
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        assert!(hash.status.success());
+        let hash = String::from_utf8(hash.stdout).unwrap();
+
+        let output = output_with_timeout_limit(
+            Command::new("git")
+                .args(["cat-file", "blob", hash.trim()])
+                .current_dir(temp.path()),
+            Duration::from_secs(5),
+            512 * 1024,
+        )
+        .unwrap();
+
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 256 * 1024);
+    }
+
+    #[test]
+    fn output_with_timeout_kills_command_when_combined_output_exceeds_limit() {
+        let result = output_with_timeout_limit(
+            Command::new("git").arg("--version"),
+            Duration::from_secs(5),
+            4,
+        );
+
+        let error = result.expect_err("output above the hard limit must fail");
+        assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
+        assert!(error.to_string().contains("output limit"));
     }
 
     #[cfg(not(windows))]

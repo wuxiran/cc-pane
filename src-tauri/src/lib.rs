@@ -107,6 +107,7 @@ use commands::{
     get_file_branches,
     get_git_branch,
     get_git_file_statuses,
+    get_git_repo_info,
     get_git_status,
     get_history_config,
     get_history_watch_stats,
@@ -2124,6 +2125,7 @@ pub fn run() {
             open_ccchan_pets_dir,
             // Git 命令
             get_git_branch,
+            get_git_repo_info,
             get_git_status,
             get_git_file_statuses,
             git_clone,

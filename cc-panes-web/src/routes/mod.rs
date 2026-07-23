@@ -154,6 +154,7 @@ pub fn build_router(state: AppState) -> Router {
             post(history::restore_workspace_snapshot),
         )
         .route("/api/git/branch", get(git::get_git_branch))
+        .route("/api/git/repo-info", get(git::get_git_repo_info))
         .route("/api/git/status", get(git::get_git_status))
         .route("/api/git/file-statuses", get(git::get_git_file_statuses))
         .route("/api/git/pull", post(git::git_pull))

@@ -4,6 +4,7 @@ mod daemon_client;
 pub mod default_skill_service;
 mod external_skill_registry;
 mod filesystem_service;
+mod git_service;
 mod history_service;
 mod history_watch_manager;
 mod journal_service;
@@ -47,6 +48,7 @@ pub use daemon_client::{TerminalDaemonClient, TerminalDaemonManifest, TerminalDa
 pub use default_skill_service::{BundledSkillInfo, DefaultSkillService};
 pub use external_skill_registry::ExternalSkillRegistry;
 pub use filesystem_service::FileSystemService;
+pub use git_service::GitService;
 pub use history_service::HistoryService;
 pub use history_watch_manager::{HistoryWatchManager, HistoryWatchStats};
 pub use journal_service::{JournalIndex, JournalService, SessionSummary};

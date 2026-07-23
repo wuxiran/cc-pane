@@ -1,7 +1,7 @@
-use crate::services::HistoryService;
+use crate::models::GitRepoInfo;
+use crate::services::{GitService, HistoryService};
 use crate::utils::{
-    output_with_timeout, validate_git_url, validate_path, AppResult, GIT_LOCAL_TIMEOUT,
-    GIT_NETWORK_TIMEOUT,
+    output_with_timeout, validate_git_url, validate_path, AppError, AppResult, GIT_NETWORK_TIMEOUT,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,54 +13,43 @@ use tracing::{debug, info};
 
 /// 获取项目的 Git 分支名
 #[tauri::command]
-pub fn get_git_branch(path: String) -> AppResult<Option<String>> {
+pub async fn get_git_repo_info(path: String) -> AppResult<GitRepoInfo> {
     validate_path(&path)?;
-    let project_path = Path::new(&path);
-    if !project_path.exists() {
-        return Ok(None);
-    }
+    spawn_git_task(move || Ok(GitService::new().repo_info(Path::new(&path)))).await
+}
 
-    let output = output_with_timeout(
-        Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(project_path),
-        GIT_LOCAL_TIMEOUT,
-    )?;
-
-    if output.status.success() {
-        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if branch.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(branch))
-        }
-    } else {
-        Ok(None)
-    }
+/// 获取项目的 Git 分支名
+#[tauri::command]
+pub async fn get_git_branch(path: String) -> AppResult<Option<String>> {
+    validate_path(&path)?;
+    spawn_git_task(move || {
+        GitService::new()
+            .get_branch_compat(Path::new(&path))
+            .map_err(AppError::from)
+    })
+    .await
 }
 
 /// 获取项目的 Git 状态（是否有未提交的更改）
 #[tauri::command]
-pub fn get_git_status(path: String) -> AppResult<Option<bool>> {
+pub async fn get_git_status(path: String) -> AppResult<Option<bool>> {
     validate_path(&path)?;
-    let project_path = Path::new(&path);
-    if !project_path.exists() {
-        return Ok(None);
-    }
+    spawn_git_task(move || {
+        GitService::new()
+            .get_status_compat(Path::new(&path))
+            .map_err(AppError::from)
+    })
+    .await
+}
 
-    let output = output_with_timeout(
-        Command::new("git")
-            .args(["status", "--porcelain"])
-            .current_dir(project_path),
-        GIT_LOCAL_TIMEOUT,
-    )?;
-
-    if output.status.success() {
-        let status = String::from_utf8_lossy(&output.stdout);
-        Ok(Some(!status.trim().is_empty()))
-    } else {
-        Ok(None)
-    }
+async fn spawn_git_task<T, F>(task: F) -> AppResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> AppResult<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?
 }
 
 /// 执行 Git 命令并返回结果
@@ -97,53 +86,69 @@ fn auto_label_before_git(history_service: &HistoryService, path: &str, operation
 }
 
 #[tauri::command]
-pub fn git_pull(
+pub async fn git_pull(
     path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
     debug!(path = %path, "cmd::git_pull");
-    auto_label_before_git(&history_service, &path, "Pull");
-    run_git_command(&path, &["pull"])
+    let history_service = history_service.inner().clone();
+    spawn_git_task(move || {
+        auto_label_before_git(&history_service, &path, "Pull");
+        run_git_command(&path, &["pull"])
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_push(
+pub async fn git_push(
     path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
     info!(path = %path, "cmd::git_push");
-    auto_label_before_git(&history_service, &path, "Push");
-    run_git_command(&path, &["push"])
+    let history_service = history_service.inner().clone();
+    spawn_git_task(move || {
+        auto_label_before_git(&history_service, &path, "Push");
+        run_git_command(&path, &["push"])
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_stash(
+pub async fn git_stash(
     path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
     debug!(path = %path, "cmd::git_stash");
-    auto_label_before_git(&history_service, &path, "Stash");
-    run_git_command(&path, &["stash"])
+    let history_service = history_service.inner().clone();
+    spawn_git_task(move || {
+        auto_label_before_git(&history_service, &path, "Stash");
+        run_git_command(&path, &["stash"])
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_stash_pop(
+pub async fn git_stash_pop(
     path: String,
     history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
     debug!(path = %path, "cmd::git_stash_pop");
-    auto_label_before_git(&history_service, &path, "Stash Pop");
-    run_git_command(&path, &["stash", "pop"])
+    let history_service = history_service.inner().clone();
+    spawn_git_task(move || {
+        auto_label_before_git(&history_service, &path, "Stash Pop");
+        run_git_command(&path, &["stash", "pop"])
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn git_fetch(
+pub async fn git_fetch(
     path: String,
     _history_service: State<'_, Arc<HistoryService>>,
 ) -> AppResult<String> {
     debug!(path = %path, "cmd::git_fetch");
     // fetch 只拉取远程引用，不修改工作区文件，无需打标签
-    run_git_command(&path, &["fetch", "--all"])
+    spawn_git_task(move || run_git_command(&path, &["fetch", "--all"])).await
 }
 
 // ============ Git Clone ============
@@ -169,6 +174,10 @@ pub struct GitCloneRequest {
 
 #[tauri::command]
 pub async fn git_clone(app_handle: AppHandle, request: GitCloneRequest) -> AppResult<String> {
+    spawn_git_task(move || git_clone_blocking(app_handle, request)).await
+}
+
+fn git_clone_blocking(app_handle: AppHandle, request: GitCloneRequest) -> AppResult<String> {
     info!(
         url = %cc_panes_core::utils::redact_git_url(&request.url),
         target_dir = %request.target_dir,
@@ -207,7 +216,7 @@ pub async fn git_clone(app_handle: AppHandle, request: GitCloneRequest) -> AppRe
         .args(&args)
         .envs(credential_env)
         .env("GIT_TERMINAL_PROMPT", "0")
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()?;
 
@@ -311,53 +320,14 @@ fn parse_git_progress(line: &str) -> GitCloneProgress {
 
 /// 获取项目中所有文件的 Git 状态（用于文件树着色）
 #[tauri::command]
-pub fn get_git_file_statuses(path: String) -> AppResult<HashMap<String, String>> {
+pub async fn get_git_file_statuses(path: String) -> AppResult<HashMap<String, String>> {
     validate_path(&path)?;
-    let project_path = Path::new(&path);
-    if !project_path.exists() {
-        return Ok(HashMap::new());
-    }
-
-    let output = output_with_timeout(
-        Command::new("git")
-            .args(["status", "--porcelain", "-unormal"])
-            .current_dir(project_path),
-        GIT_LOCAL_TIMEOUT,
-    )?;
-
-    if !output.status.success() {
-        return Ok(HashMap::new());
-    }
-
-    let mut map = HashMap::new();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if line.len() < 4 {
-            continue;
-        }
-        let status_code = &line[..2];
-        let file_path = line[3..].trim();
-        // 处理重命名情况: "R  old -> new"
-        let actual_path = if let Some(arrow_pos) = file_path.find(" -> ") {
-            &file_path[arrow_pos + 4..]
-        } else {
-            file_path
-        };
-        let abs = project_path.join(actual_path);
-        let abs_str = abs.to_string_lossy().to_string();
-        let status = match status_code.trim() {
-            "M" | "MM" => "modified",
-            "A" | "AM" => "added",
-            "D" => "deleted",
-            "R" | "RM" => "renamed",
-            "??" => "untracked",
-            s if s.ends_with('M') => "modified",
-            s if s.ends_with('D') => "deleted",
-            _ => "modified",
-        };
-        map.insert(abs_str, status.to_string());
-    }
-    Ok(map)
+    spawn_git_task(move || {
+        GitService::new()
+            .get_file_statuses_compat(Path::new(&path))
+            .map_err(AppError::from)
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -433,10 +403,12 @@ mod tests {
             .contains("Path does not exist"));
     }
 
-    #[test]
-    fn get_git_file_statuses_returns_empty_for_non_repo() {
+    #[tokio::test]
+    async fn get_git_file_statuses_returns_empty_for_non_repo() {
         let temp = tempfile::tempdir().unwrap();
-        let map = get_git_file_statuses(temp.path().to_string_lossy().to_string()).unwrap();
+        let map = get_git_file_statuses(temp.path().to_string_lossy().to_string())
+            .await
+            .unwrap();
         assert!(map.is_empty());
     }
 
@@ -449,8 +421,8 @@ mod tests {
         assert!(status.success(), "git {:?} failed", args);
     }
 
-    #[test]
-    fn get_git_file_statuses_maps_porcelain_codes() {
+    #[tokio::test]
+    async fn get_git_file_statuses_maps_porcelain_codes() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         git(root, &["init", "-q"]);
@@ -466,7 +438,9 @@ mod tests {
         std::fs::write(root.join("staged.txt"), "staged").unwrap();
         git(root, &["add", "staged.txt"]);
 
-        let map = get_git_file_statuses(root.to_string_lossy().to_string()).unwrap();
+        let map = get_git_file_statuses(root.to_string_lossy().to_string())
+            .await
+            .unwrap();
         let status_of = |name: &str| {
             map.iter()
                 .find(|(path, _)| {
@@ -477,5 +451,15 @@ mod tests {
         assert_eq!(status_of("tracked.txt"), Some("modified"));
         assert_eq!(status_of("untracked.txt"), Some("untracked"));
         assert_eq!(status_of("staged.txt"), Some("added"));
+    }
+
+    #[tokio::test]
+    async fn git_read_commands_share_core_compatibility_contract() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing").to_string_lossy().to_string();
+        assert_eq!(get_git_branch(missing.clone()).await.unwrap(), None);
+        assert_eq!(get_git_status(missing.clone()).await.unwrap(), None);
+        let info = get_git_repo_info(missing).await.unwrap();
+        assert_eq!(info.state, crate::models::GitRepoState::PathNotFound);
     }
 }

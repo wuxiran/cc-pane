@@ -1,5 +1,6 @@
 pub mod external_skill;
 pub mod filesystem;
+pub mod git;
 mod history;
 pub mod launch_profile;
 pub mod layout_snapshot;
@@ -23,6 +24,7 @@ pub mod workspace_snapshot;
 pub mod wsl;
 
 pub use external_skill::{DiscoveredExternalSkill, ExternalSkillSource};
+pub use git::{GitChangeStatus, GitChangedFile, GitRepoInfo, GitRepoState};
 pub use history::{
     // Diff 模型
     DiffChangeType,

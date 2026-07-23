@@ -6,10 +6,11 @@ use axum::{
     Json,
 };
 use cc_panes_core::{
-    services::WorktreeInfo,
+    models::GitRepoInfo,
+    services::{GitService, WorktreeInfo},
     utils::{
         output_with_timeout, prepare_git_clone_auth, validate_git_url, validate_path, AppResult,
-        GIT_LOCAL_TIMEOUT, GIT_NETWORK_TIMEOUT,
+        GIT_NETWORK_TIMEOUT,
     },
 };
 use serde::Deserialize;
@@ -66,48 +67,34 @@ fn service_error(error: impl ToString) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, error.to_string())
 }
 
+async fn spawn_git<T, F>(task: F) -> Result<T, (StatusCode, String)>
+where
+    T: Send + 'static,
+    F: FnOnce() -> AppResult<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(service_error)?
+        .map_err(service_error)
+}
+
+fn get_git_repo_info_inner(path: &str) -> AppResult<GitRepoInfo> {
+    validate_path(path)?;
+    Ok(GitService::new().repo_info(Path::new(path)))
+}
+
 fn get_git_branch_inner(path: &str) -> AppResult<Option<String>> {
     validate_path(path)?;
-    let project_path = Path::new(path);
-    if !project_path.exists() {
-        return Ok(None);
-    }
-
-    let output = output_with_timeout(
-        Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(project_path),
-        GIT_LOCAL_TIMEOUT,
-    )?;
-
-    if output.status.success() {
-        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok((!branch.is_empty()).then_some(branch))
-    } else {
-        Ok(None)
-    }
+    GitService::new()
+        .get_branch_compat(Path::new(path))
+        .map_err(Into::into)
 }
 
 fn get_git_status_inner(path: &str) -> AppResult<Option<bool>> {
     validate_path(path)?;
-    let project_path = Path::new(path);
-    if !project_path.exists() {
-        return Ok(None);
-    }
-
-    let output = output_with_timeout(
-        Command::new("git")
-            .args(["status", "--porcelain"])
-            .current_dir(project_path),
-        GIT_LOCAL_TIMEOUT,
-    )?;
-
-    if output.status.success() {
-        let status = String::from_utf8_lossy(&output.stdout);
-        Ok(Some(!status.trim().is_empty()))
-    } else {
-        Ok(None)
-    }
+    GitService::new()
+        .get_status_compat(Path::new(path))
+        .map_err(Into::into)
 }
 
 fn run_git_command(path: &str, args: &[&str]) -> AppResult<String> {
@@ -193,127 +180,107 @@ fn clone_repository(request: GitCloneRequest) -> AppResult<String> {
 
 fn get_git_file_statuses_inner(path: &str) -> AppResult<HashMap<String, String>> {
     validate_path(path)?;
-    let project_path = Path::new(path);
-    if !project_path.exists() {
-        return Ok(HashMap::new());
-    }
+    GitService::new()
+        .get_file_statuses_compat(Path::new(path))
+        .map_err(Into::into)
+}
 
-    let output = output_with_timeout(
-        Command::new("git")
-            .args(["status", "--porcelain", "-unormal"])
-            .current_dir(project_path),
-        GIT_LOCAL_TIMEOUT,
-    )?;
-
-    if !output.status.success() {
-        return Ok(HashMap::new());
-    }
-
-    let mut map = HashMap::new();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if line.len() < 4 {
-            continue;
-        }
-        let status_code = &line[..2];
-        let file_path = line[3..].trim();
-        let actual_path = if let Some(arrow_pos) = file_path.find(" -> ") {
-            &file_path[arrow_pos + 4..]
-        } else {
-            file_path
-        };
-        let abs = project_path.join(actual_path);
-        let status = match status_code.trim() {
-            "M" | "MM" => "modified",
-            "A" | "AM" => "added",
-            "D" => "deleted",
-            "R" | "RM" => "renamed",
-            "??" => "untracked",
-            s if s.ends_with('M') => "modified",
-            s if s.ends_with('D') => "deleted",
-            _ => "modified",
-        };
-        map.insert(abs.to_string_lossy().to_string(), status.to_string());
-    }
-    Ok(map)
+pub async fn get_git_repo_info(
+    Query(query): Query<PathQuery>,
+) -> Result<Json<GitRepoInfo>, (StatusCode, String)> {
+    let path = query.path;
+    spawn_git(move || get_git_repo_info_inner(&path))
+        .await
+        .map(Json)
 }
 
 pub async fn get_git_branch(
     Query(query): Query<PathQuery>,
 ) -> Result<Json<Option<String>>, (StatusCode, String)> {
-    get_git_branch_inner(&query.path)
+    let path = query.path;
+    spawn_git(move || get_git_branch_inner(&path))
+        .await
         .map(Json)
-        .map_err(service_error)
 }
 
 pub async fn get_git_status(
     Query(query): Query<PathQuery>,
 ) -> Result<Json<Option<bool>>, (StatusCode, String)> {
-    get_git_status_inner(&query.path)
+    let path = query.path;
+    spawn_git(move || get_git_status_inner(&path))
+        .await
         .map(Json)
-        .map_err(service_error)
 }
 
 pub async fn get_git_file_statuses(
     Query(query): Query<PathQuery>,
 ) -> Result<Json<HashMap<String, String>>, (StatusCode, String)> {
-    get_git_file_statuses_inner(&query.path)
+    let path = query.path;
+    spawn_git(move || get_git_file_statuses_inner(&path))
+        .await
         .map(Json)
-        .map_err(service_error)
 }
 
 pub async fn git_pull(
     State(state): State<AppState>,
     Json(req): Json<GitPathRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    auto_label_before_git(&state, &req.path, "Pull");
-    run_git_command(&req.path, &["pull"])
-        .map(Json)
-        .map_err(service_error)
+    spawn_git(move || {
+        auto_label_before_git(&state, &req.path, "Pull");
+        run_git_command(&req.path, &["pull"])
+    })
+    .await
+    .map(Json)
 }
 
 pub async fn git_push(
     State(state): State<AppState>,
     Json(req): Json<GitPathRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    auto_label_before_git(&state, &req.path, "Push");
-    run_git_command(&req.path, &["push"])
-        .map(Json)
-        .map_err(service_error)
+    spawn_git(move || {
+        auto_label_before_git(&state, &req.path, "Push");
+        run_git_command(&req.path, &["push"])
+    })
+    .await
+    .map(Json)
 }
 
 pub async fn git_fetch(
     Json(req): Json<GitPathRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    run_git_command(&req.path, &["fetch", "--all"])
+    spawn_git(move || run_git_command(&req.path, &["fetch", "--all"]))
+        .await
         .map(Json)
-        .map_err(service_error)
 }
 
 pub async fn git_stash(
     State(state): State<AppState>,
     Json(req): Json<GitPathRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    auto_label_before_git(&state, &req.path, "Stash");
-    run_git_command(&req.path, &["stash"])
-        .map(Json)
-        .map_err(service_error)
+    spawn_git(move || {
+        auto_label_before_git(&state, &req.path, "Stash");
+        run_git_command(&req.path, &["stash"])
+    })
+    .await
+    .map(Json)
 }
 
 pub async fn git_stash_pop(
     State(state): State<AppState>,
     Json(req): Json<GitPathRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    auto_label_before_git(&state, &req.path, "Stash Pop");
-    run_git_command(&req.path, &["stash", "pop"])
-        .map(Json)
-        .map_err(service_error)
+    spawn_git(move || {
+        auto_label_before_git(&state, &req.path, "Stash Pop");
+        run_git_command(&req.path, &["stash", "pop"])
+    })
+    .await
+    .map(Json)
 }
 
 pub async fn git_clone(
     Json(req): Json<GitCloneRequest>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    clone_repository(req).map(Json).map_err(service_error)
+    spawn_git(move || clone_repository(req)).await.map(Json)
 }
 
 pub async fn is_git_repo(
@@ -321,9 +288,12 @@ pub async fn is_git_repo(
     Query(query): Query<WorktreeQuery>,
 ) -> Result<Json<bool>, (StatusCode, String)> {
     validate_path(&query.project_path).map_err(service_error)?;
-    Ok(Json(
-        state.worktree_service.is_git_repo(&query.project_path),
-    ))
+    let service = state.worktree_service.clone();
+    let project_path = query.project_path;
+    tokio::task::spawn_blocking(move || service.is_git_repo(&project_path))
+        .await
+        .map(Json)
+        .map_err(service_error)
 }
 
 pub async fn list_worktrees(
@@ -331,9 +301,11 @@ pub async fn list_worktrees(
     Query(query): Query<WorktreeQuery>,
 ) -> Result<Json<Vec<WorktreeInfo>>, (StatusCode, String)> {
     validate_path(&query.project_path).map_err(service_error)?;
-    state
-        .worktree_service
-        .list_worktrees(&query.project_path)
+    let service = state.worktree_service.clone();
+    let project_path = query.project_path;
+    tokio::task::spawn_blocking(move || service.list_worktrees(&project_path))
+        .await
+        .map_err(service_error)?
         .map(Json)
         .map_err(service_error)
 }
@@ -343,10 +315,13 @@ pub async fn add_worktree(
     Json(req): Json<AddWorktreeRequest>,
 ) -> Result<(StatusCode, Json<String>), (StatusCode, String)> {
     validate_path(&req.project_path).map_err(service_error)?;
-    let path = state
-        .worktree_service
-        .add_worktree(&req.project_path, &req.name, req.branch.as_deref())
-        .map_err(service_error)?;
+    let service = state.worktree_service.clone();
+    let path = tokio::task::spawn_blocking(move || {
+        service.add_worktree(&req.project_path, &req.name, req.branch.as_deref())
+    })
+    .await
+    .map_err(service_error)?
+    .map_err(service_error)?;
     Ok((StatusCode::CREATED, Json(path)))
 }
 
@@ -356,10 +331,13 @@ pub async fn remove_worktree(
 ) -> Result<StatusCode, (StatusCode, String)> {
     validate_path(&req.project_path).map_err(service_error)?;
     validate_path(&req.worktree_path).map_err(service_error)?;
-    state
-        .worktree_service
-        .remove_worktree(&req.project_path, &req.worktree_path)
-        .map_err(service_error)?;
+    let service = state.worktree_service.clone();
+    tokio::task::spawn_blocking(move || {
+        service.remove_worktree(&req.project_path, &req.worktree_path)
+    })
+    .await
+    .map_err(service_error)?
+    .map_err(service_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

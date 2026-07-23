@@ -227,6 +227,17 @@ async fn git_read_routes_match_tauri_git_commands() {
     let repo = root.join("repo");
     init_repo(&repo);
 
+    let Json(info) = get_git_repo_info(Query(PathQuery {
+        path: repo.to_string_lossy().to_string(),
+    }))
+    .await
+    .expect("repo info");
+    assert_eq!(info.state, cc_panes_core::models::GitRepoState::Ok);
+    assert_eq!(
+        info.repo_root.as_deref(),
+        Some(repo.to_string_lossy().as_ref())
+    );
+
     let Json(branch) = get_git_branch(Query(PathQuery {
         path: repo.to_string_lossy().to_string(),
     }))
@@ -256,6 +267,33 @@ async fn git_read_routes_match_tauri_git_commands() {
     assert_eq!(
         statuses.get(&repo.join("new.txt").to_string_lossy().to_string()),
         Some(&"untracked".to_string())
+    );
+}
+
+#[tokio::test]
+async fn git_read_routes_keep_legacy_none_and_expose_failure_state() {
+    let (_state, root) = test_state("read-invalid");
+    let missing = root.join("missing").to_string_lossy().to_string();
+
+    let Json(branch) = get_git_branch(Query(PathQuery {
+        path: missing.clone(),
+    }))
+    .await
+    .expect("legacy branch");
+    let Json(status) = get_git_status(Query(PathQuery {
+        path: missing.clone(),
+    }))
+    .await
+    .expect("legacy status");
+    let Json(info) = get_git_repo_info(Query(PathQuery { path: missing }))
+        .await
+        .expect("repo info");
+
+    assert_eq!(branch, None);
+    assert_eq!(status, None);
+    assert_eq!(
+        info.state,
+        cc_panes_core::models::GitRepoState::PathNotFound
     );
 }
 

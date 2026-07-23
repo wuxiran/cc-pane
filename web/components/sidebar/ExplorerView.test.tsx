@@ -3,7 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ExplorerView from "./ExplorerView";
 import { useDialogStore, useExplorerSectionsStore, useWorkspacesStore } from "@/stores";
-import { invokeOrApi } from "@/services/apiClient";
+import { gitService } from "@/services/gitService";
 import type { OpenTerminalOptions, Workspace } from "@/types";
 
 // --- i18n: t 直接回 key，便于断言 ---
@@ -52,6 +52,18 @@ vi.mock("@/services/apiClient", () => ({
   invokeOrApi: vi.fn(async () => null),
   apiGet: vi.fn(async () => null),
 }));
+vi.mock("@/services/gitService", () => ({
+  gitService: {
+    getRepoInfo: vi.fn(async () => ({
+      state: "notARepo",
+      repoRoot: null,
+      branch: null,
+      hasChanges: null,
+      message: null,
+    })),
+    getFileStatuses: vi.fn(async () => ({})),
+  },
+}));
 vi.mock("@/services/filesystemService", () => ({
   filesystemService: { getGitFileStatuses: vi.fn(async () => ({})) },
 }));
@@ -78,7 +90,13 @@ function selectWorkspaceWithProject(projectId: string | null = "proj-1") {
 
 describe("ExplorerView", () => {
   beforeEach(() => {
-    vi.mocked(invokeOrApi).mockImplementation(async () => null);
+    vi.mocked(gitService.getRepoInfo).mockResolvedValue({
+      state: "notARepo",
+      repoRoot: null,
+      branch: null,
+      hasChanges: null,
+      message: null,
+    });
     useExplorerSectionsStore.setState({ activeSection: "workspaces" });
     useDialogStore.setState({ launcherOpen: false, launcherContext: null });
     useWorkspacesStore.setState({
@@ -229,14 +247,14 @@ describe("ExplorerView", () => {
   });
 
   it("shows an unavailable hint when the git query fails (silent tolerance)", async () => {
-    vi.mocked(invokeOrApi).mockImplementation(async () => {
+    vi.mocked(gitService.getRepoInfo).mockImplementation(async () => {
       throw new Error("ssh timeout");
     });
     selectWorkspaceWithProject("proj-1");
     useExplorerSectionsStore.setState({ activeSection: "git" });
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
 
-    const hints = await screen.findAllByText("explorer.gitUnavailable");
+    const hints = await screen.findAllByText("explorer.gitUnavailableReason");
     expect(hints.length).toBeGreaterThanOrEqual(2);
   });
 });

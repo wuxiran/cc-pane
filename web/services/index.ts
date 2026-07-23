@@ -7,6 +7,7 @@ export { codexService } from "./codexService";
 export { localHistoryService } from "./localHistoryService";
 export { projectCliHooksService } from "./projectCliHooksService";
 export { journalService } from "./journalService";
+export { gitService } from "./gitService";
 export { worktreeService } from "./worktreeService";
 export * as wallpaperService from "./wallpaperService";
 export * as workspaceService from "./workspaceService";
@@ -39,6 +40,7 @@ export type {
   WorktreeRecentChange,
 } from "./localHistoryService";
 export type { JournalIndex } from "./journalService";
+export type { GitRepoInfo, GitRepoState } from "./gitService";
 export type { WorktreeInfo } from "./worktreeService";
 export type { PlanEntry } from "./planService";
 export { filesystemService } from "./filesystemService";

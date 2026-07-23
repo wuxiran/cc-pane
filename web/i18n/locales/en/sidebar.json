@@ -339,6 +339,11 @@
   "explorer.noProjects": "No projects",
   "explorer.notGitRepo": "Not a Git project",
   "explorer.gitUnavailable": "Unavailable",
+  "explorer.gitUnavailableReason": "Git unavailable: {{message}}",
+  "explorer.gitPathNotFound": "Project path not found",
+  "explorer.gitError": "Git error: {{message}}",
+  "explorer.gitUnknownError": "Unknown error",
+  "explorer.gitRepoRoot": "Repository root: {{path}}",
   "explorer.gitLoading": "Loading...",
   "explorer.noChanges": "No changes"
 }

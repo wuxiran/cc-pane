@@ -1,8 +1,9 @@
+use crate::services::GitService;
 use crate::utils::{
     output_with_timeout, paths_equivalent, GIT_CHECKOUT_TIMEOUT, GIT_LOCAL_TIMEOUT,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Worktree 信息
@@ -25,20 +26,17 @@ impl WorktreeService {
 
     /// 检查项目是否为 Git 仓库
     pub fn is_git_repo(&self, project_path: &str) -> bool {
-        let git_dir = PathBuf::from(project_path).join(".git");
-        git_dir.exists()
+        GitService::discover_repo_root(Path::new(project_path)).is_ok()
     }
 
     /// 列出所有 worktree
     pub fn list_worktrees(&self, project_path: &str) -> Result<Vec<WorktreeInfo>, String> {
-        if !self.is_git_repo(project_path) {
-            return Err("Not a Git repository".to_string());
-        }
+        let repo_root = self.repo_root(project_path)?;
 
         let output = output_with_timeout(
             Command::new("git")
                 .args(["worktree", "list", "--porcelain"])
-                .current_dir(project_path),
+                .current_dir(&repo_root),
             GIT_LOCAL_TIMEOUT,
         )
         .map_err(|e| format!("Failed to execute git command: {}", e))?;
@@ -49,7 +47,7 @@ impl WorktreeService {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        self.parse_worktree_list(&stdout, project_path)
+        self.parse_worktree_list(&stdout, repo_root.to_string_lossy().as_ref())
     }
 
     /// 解析 worktree 列表输出
@@ -110,11 +108,7 @@ impl WorktreeService {
         // 验证 worktree 名称安全性
         crate::utils::validate_worktree_name(name).map_err(|e| e.to_string())?;
 
-        if !self.is_git_repo(project_path) {
-            return Err("Not a Git repository".to_string());
-        }
-
-        let project_dir = PathBuf::from(project_path);
+        let project_dir = self.repo_root(project_path)?;
         let parent_dir = project_dir
             .parent()
             .ok_or("Failed to get parent directory")?;
@@ -126,27 +120,47 @@ impl WorktreeService {
 
         // 分组目录模式: {repo}-worktrees/{name}/
         let worktrees_dir = parent_dir.join(format!("{}-worktrees", project_name));
+        if std::fs::symlink_metadata(&worktrees_dir)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err("Worktree container must not be a symlink".to_string());
+        }
         if !worktrees_dir.exists() {
             std::fs::create_dir_all(&worktrees_dir)
                 .map_err(|e| format!("Failed to create worktrees directory: {}", e))?;
         }
+        let canonical_parent = dunce::canonicalize(parent_dir)
+            .map_err(|error| format!("Failed to validate worktree parent: {error}"))?;
+        let canonical_container = dunce::canonicalize(&worktrees_dir)
+            .map_err(|error| format!("Failed to validate worktree container: {error}"))?;
+        if canonical_container.parent() != Some(canonical_parent.as_path()) {
+            return Err("Worktree container escapes repository parent".to_string());
+        }
         let worktree_path = worktrees_dir.join(name);
+        if std::fs::symlink_metadata(&worktree_path).is_ok() {
+            return Err("Worktree destination already exists".to_string());
+        }
 
         let worktree_path_str = worktree_path.to_string_lossy().to_string();
 
         let mut args = vec!["worktree".to_string(), "add".to_string()];
 
         if let Some(b) = branch {
+            if b.is_empty() || b.starts_with('-') {
+                return Err("Invalid worktree branch name".to_string());
+            }
             args.push("-b".to_string());
             args.push(b.to_string());
         }
 
+        args.push("--".to_string());
         args.push(worktree_path_str.clone());
 
         let output = output_with_timeout(
             Command::new("git")
                 .args(&args)
-                .current_dir(project_path)
+                .current_dir(&project_dir)
                 .env("GIT_LFS_SKIP_SMUDGE", "1"),
             GIT_CHECKOUT_TIMEOUT,
         )
@@ -162,14 +176,23 @@ impl WorktreeService {
 
     /// 删除 worktree
     pub fn remove_worktree(&self, project_path: &str, worktree_path: &str) -> Result<(), String> {
-        if !self.is_git_repo(project_path) {
-            return Err("Not a Git repository".to_string());
+        let repo_root = self.repo_root(project_path)?;
+        let registered = self
+            .list_worktrees(repo_root.to_string_lossy().as_ref())?
+            .into_iter()
+            .find(|worktree| !worktree.is_main && paths_equivalent(&worktree.path, worktree_path))
+            .ok_or_else(|| "Worktree path is not a registered non-main worktree".to_string())?;
+        if std::fs::symlink_metadata(&registered.path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err("Worktree path must not be a symlink".to_string());
         }
 
         let output = output_with_timeout(
             Command::new("git")
-                .args(["worktree", "remove", "--force", worktree_path])
-                .current_dir(project_path),
+                .args(["worktree", "remove", "--force", "--", &registered.path])
+                .current_dir(&repo_root),
             GIT_LOCAL_TIMEOUT,
         )
         .map_err(|e| format!("Failed to execute git command: {}", e))?;
@@ -180,6 +203,11 @@ impl WorktreeService {
         }
 
         Ok(())
+    }
+
+    fn repo_root(&self, project_path: &str) -> Result<PathBuf, String> {
+        GitService::discover_repo_root(Path::new(project_path))
+            .map_err(|_| "Not a Git repository".to_string())
     }
 }
 
@@ -292,9 +320,14 @@ mod tests {
     }
 
     #[test]
-    fn is_git_repo_true_when_dot_git_exists() {
+    fn is_git_repo_true_for_repository_discovered_by_git() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let status = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
         let svc = WorktreeService::new();
         assert!(svc.is_git_repo(dir.path().to_str().unwrap()));
     }
@@ -342,6 +375,65 @@ mod tests {
             .remove_worktree(dir.path().to_str().unwrap(), "whatever")
             .unwrap_err();
         assert_eq!(err, "Not a Git repository");
+    }
+
+    #[test]
+    fn worktree_operations_resolve_repository_root_from_subdirectory() {
+        let Some((_guard, repo)) = init_git_repo() else {
+            eprintln!("git unavailable, skipping integration test");
+            return;
+        };
+        let nested = PathBuf::from(&repo).join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let service = WorktreeService::new();
+
+        assert!(service.is_git_repo(nested.to_string_lossy().as_ref()));
+        let created = service
+            .add_worktree(
+                nested.to_string_lossy().as_ref(),
+                "from-subdir",
+                Some("from-subdir"),
+            )
+            .unwrap();
+        assert!(Path::new(&created).exists());
+
+        let listed = service
+            .list_worktrees(nested.to_string_lossy().as_ref())
+            .unwrap();
+        assert!(listed.iter().any(|worktree| worktree.is_main));
+        assert!(listed
+            .iter()
+            .any(|worktree| paths_equivalent(&worktree.path, &created)));
+
+        service
+            .remove_worktree(nested.to_string_lossy().as_ref(), &created)
+            .unwrap();
+        assert!(!Path::new(&created).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn add_worktree_rejects_symlinked_worktree_container() {
+        use std::os::unix::fs::symlink;
+
+        let Some((guard, repo)) = init_git_repo() else {
+            eprintln!("git unavailable, skipping integration test");
+            return;
+        };
+        let repo_path = PathBuf::from(&repo);
+        let container = repo_path.parent().unwrap().join(format!(
+            "{}-worktrees",
+            repo_path.file_name().unwrap().to_string_lossy()
+        ));
+        let outside = guard.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        symlink(&outside, &container).unwrap();
+
+        let error = WorktreeService::new()
+            .add_worktree(&repo, "escaped", Some("escaped"))
+            .expect_err("symlink container must not redirect worktree creation");
+        assert!(error.to_lowercase().contains("symlink"));
+        assert!(!outside.join("escaped").exists());
     }
 
     // ---------- 真实 git 集成 ----------

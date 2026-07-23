@@ -15,8 +15,9 @@ pub use claude_path::{encode_claude_project_path, is_claude_project_match};
 pub use command::{no_window_command, no_window_tokio_command};
 pub use error::AppResult;
 pub use git_command::{
-    git_https_credential_env, output_with_timeout, prepare_git_clone_auth, redact_git_url,
-    GIT_CHECKOUT_TIMEOUT, GIT_LOCAL_TIMEOUT, GIT_NETWORK_TIMEOUT,
+    git_https_credential_env, output_with_timeout, output_with_timeout_limit,
+    prepare_git_clone_auth, redact_git_url, GIT_CHECKOUT_TIMEOUT, GIT_LOCAL_TIMEOUT,
+    GIT_MAX_OUTPUT_BYTES, GIT_NETWORK_TIMEOUT,
 };
 pub use launch_request::{
     normalize_session_request_for_current_host, normalize_session_request_for_host,
