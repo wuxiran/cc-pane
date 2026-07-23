@@ -17,6 +17,22 @@ pub mod fs_limits {
 
 /// Local History 模块常量
 pub mod history {
+    /// 无论项目配置新旧都必须忽略的高噪声目录。
+    pub const BUILTIN_IGNORE_PATTERNS: &[&str] = &[
+        ".git/**",
+        "node_modules/**",
+        "target/**",
+        "dist/**",
+        "build/**",
+        ".venv/**",
+        ".next/**",
+        ".turbo/**",
+        ".dart_tool/**",
+        "coverage/**",
+        "__pycache__/**",
+        ".ccpanes/**",
+    ];
+
     /// Diff 最大行数（超过则截断）
     pub const MAX_DIFF_LINES: usize = 10_000;
 
@@ -28,6 +44,9 @@ pub mod history {
 
     /// 分支切换后的静默窗口（秒），抑制 checkout 产生的文件事件
     pub const CHECKOUT_SILENCE_SECS: u64 = 3;
+
+    /// 最后一个会话结束后保留 watcher 的宽限时间（秒）
+    pub const WATCH_GRACE_SECS: u64 = 45;
 }
 
 /// Journal 模块常量

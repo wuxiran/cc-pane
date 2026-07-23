@@ -109,6 +109,7 @@ use commands::{
     get_git_file_statuses,
     get_git_status,
     get_history_config,
+    get_history_watch_stats,
     get_journal_index,
     get_launch_profile,
     get_layout_switcher_snapshot,
@@ -349,9 +350,9 @@ use repository::{
     TaskBindingRepository, TodoRepository, UsageStatsRepository,
 };
 use services::{
-    ExternalSkillRegistry, FileSystemService, HistoryService, JournalService, LaunchHistoryService,
-    LaunchProfileService, LayoutSnapshotService, McpConfigService, MemoryService,
-    NotificationService, OrchestratorService, PlanArchiveService, PlanService,
+    ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager, JournalService,
+    LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
+    MemoryService, NotificationService, OrchestratorService, PlanArchiveService, PlanService,
     ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
     ProviderService, ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService,
     SkillMarketService, SkillService, SpecService, SshCredentialService, SshMachineService,
@@ -1251,6 +1252,8 @@ pub fn run() {
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let project_service = Arc::new(ProjectService::new(project_repo));
     let history_service = Arc::new(HistoryService::new());
+    let history_watch_manager = Arc::new(HistoryWatchManager::new(history_service.clone()));
+    history_watch_manager.set_enabled(settings_service.get_settings().local_history.enabled);
     let project_context_service = Arc::new(ProjectContextService::new());
     let journal_service = Arc::new(JournalService::new(app_paths.workspaces_dir()));
     let worktree_service = Arc::new(WorktreeService::new());
@@ -1417,6 +1420,7 @@ pub fn run() {
         .manage(launch_history_service)
         .manage(usage_stats_service)
         .manage(history_service)
+        .manage(history_watch_manager)
         .manage(project_cli_hooks_service)
         .manage(project_context_service)
         .manage(journal_service)
@@ -1622,7 +1626,14 @@ pub fn run() {
             {
                 use emitter::{TauriEmitter, TauriSessionNotifier};
                 let app_handle = app.handle().clone();
-                app.manage(Arc::new(TerminalDaemonEventBridge::new(app_handle.clone())));
+                let history_watch_manager = app
+                    .state::<Arc<HistoryWatchManager>>()
+                    .inner()
+                    .clone();
+                app.manage(Arc::new(TerminalDaemonEventBridge::new(
+                    app_handle.clone(),
+                    history_watch_manager.clone(),
+                )));
                 let tauri_emitter: std::sync::Arc<dyn cc_panes_core::events::EventEmitter> =
                     Arc::new(TauriEmitter::new(app_handle.clone()));
 
@@ -1642,6 +1653,7 @@ pub fn run() {
                         notif_svc.inner().clone(),
                         settings_svc.inner().clone(),
                         launch_history_svc.inner().clone(),
+                        history_watch_manager,
                     ));
                 term_svc.set_notifier(Arc::new(CcChanSessionNotifier::new(
                     base_notifier,
@@ -1778,6 +1790,7 @@ pub fn run() {
                 let skill_svc = app.state::<Arc<SkillService>>();
                 let external_skill_registry = app.state::<Arc<ExternalSkillRegistry>>();
                 let lh_svc = app.state::<Arc<LaunchHistoryService>>();
+                let history_watch_manager = app.state::<Arc<HistoryWatchManager>>();
                 let notif_svc = app.state::<Arc<NotificationService>>();
                 let ccchan_svc = app.state::<Arc<CCChanService>>();
                 let settings_svc = app.state::<Arc<SettingsService>>();
@@ -1802,6 +1815,7 @@ pub fn run() {
                     skill_svc.inner().clone(),
                     external_skill_registry.inner().clone(),
                     lh_svc.inner().clone(),
+                    history_watch_manager.inner().clone(),
                     notif_svc.inner().clone(),
                     ccchan_svc.inner().clone(),
                     settings_svc.inner().clone(),
@@ -2147,6 +2161,7 @@ pub fn run() {
             get_version_content,
             restore_file_version,
             get_history_config,
+            get_history_watch_stats,
             update_history_config,
             stop_project_history,
             cleanup_project_history,

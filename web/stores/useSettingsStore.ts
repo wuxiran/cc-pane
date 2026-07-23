@@ -53,6 +53,10 @@ const DEFAULT_ORCHESTRATOR_SETTINGS: OrchestratorSettings = {
   bindMode: "auto",
 };
 
+const DEFAULT_LOCAL_HISTORY_SETTINGS = {
+  enabled: true,
+};
+
 export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
   enabled: false,
   kind: "none",
@@ -104,6 +108,10 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
     orchestrator: {
       ...DEFAULT_ORCHESTRATOR_SETTINGS,
       ...maybeSettings.orchestrator,
+    },
+    localHistory: {
+      ...DEFAULT_LOCAL_HISTORY_SETTINGS,
+      ...maybeSettings.localHistory,
     },
     // wallpaper 是三层嵌套结构：老配置升级后 settings.wallpaper 或其 video/music
     // 子块可能是 undefined，必须逐层合并默认，否则读 settings.wallpaper.video.* 直接崩
@@ -235,6 +243,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       hideNonFavoriteLaunchActions: true,
       disableWslUsageScan: false,
     },
+    localHistory: DEFAULT_LOCAL_HISTORY_SETTINGS,
     notification: {
       enabled: true,
       onExit: true,

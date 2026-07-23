@@ -3,8 +3,8 @@ use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::terminal_service;
 use crate::services::terminal_service::{KillReason, SessionOutput};
 use crate::services::{
-    SessionStatusInfo, ShellInfo, TerminalBackendKind, TerminalBackendState,
-    TerminalDaemonEventBridge, TerminalService,
+    HistoryWatchManager, LaunchHistoryService, SessionStatusInfo, ShellInfo, TerminalBackendKind,
+    TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
 use crate::utils::{validate_path, validate_ssh_info, AppResult};
@@ -82,6 +82,7 @@ fn summarize_terminal_input(data: &str) -> serde_json::Value {
 pub async fn create_terminal_session(
     app_handle: AppHandle,
     service: State<'_, Arc<TerminalBackendState>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
     request: Option<CreateSessionRequest>,
 ) -> AppResult<String> {
     let request = request
@@ -115,6 +116,7 @@ pub async fn create_terminal_session(
         warn_if_orchestrator_unreachable_from_wsl(&app_handle);
     }
 
+    let project_path = request.project_path.clone();
     let backend = service.backend();
     let create_backend = backend.clone();
     let result =
@@ -122,6 +124,33 @@ pub async fn create_terminal_session(
             .await
             .map_err(|e| AppError::from(e.to_string()))?;
     let session_id = result?;
+
+    if let Err(error) = history_watch_manager.on_session_created(&session_id, &project_path) {
+        warn!(session_id = %session_id, error = %error, "failed to start local history watcher");
+    }
+
+    let status_backend = backend.clone();
+    let status_session_id = session_id.clone();
+    match tauri::async_runtime::spawn_blocking(move || {
+        status_backend.get_session_status(&status_session_id)
+    })
+    .await
+    {
+        Ok(Ok(status))
+            if status
+                .as_ref()
+                .is_none_or(|value| value.status.is_terminal()) =>
+        {
+            history_watch_manager.on_session_ended(&session_id);
+        }
+        Ok(Err(error)) => {
+            warn!(session_id = %session_id, error = %error, "failed to verify terminal status after creation");
+        }
+        Err(error) => {
+            warn!(session_id = %session_id, error = %error, "terminal status verification task failed");
+        }
+        _ => {}
+    }
 
     if service.kind() == TerminalBackendKind::Daemon {
         let bridge = app_handle.state::<Arc<TerminalDaemonEventBridge>>();
@@ -346,6 +375,8 @@ pub fn get_terminal_recent_output(
 pub fn get_terminal_replay_snapshot(
     app_handle: AppHandle,
     service: State<'_, Arc<TerminalBackendState>>,
+    launch_history_service: State<'_, Arc<LaunchHistoryService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
     session_id: String,
 ) -> AppResult<Option<TerminalReplaySnapshot>> {
     debug!(session_id = %session_id, "cmd::get_terminal_replay_snapshot");
@@ -356,6 +387,13 @@ pub fn get_terminal_replay_snapshot(
         .as_ref()
         .filter(|_| service.kind() == TerminalBackendKind::Daemon)
     {
+        if let Ok(Some(record)) = launch_history_service.find_by_pty_session_id(&session_id) {
+            if let Err(error) =
+                history_watch_manager.on_session_created(&session_id, &record.project_path)
+            {
+                warn!(session_id = %session_id, error = %error, "failed to restore local history watcher");
+            }
+        }
         let bridge = app_handle.state::<Arc<TerminalDaemonEventBridge>>();
         bridge.start_session_after_replay(session_id, backend, snapshot);
     }

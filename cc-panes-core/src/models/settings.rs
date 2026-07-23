@@ -22,6 +22,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub general: GeneralSettings,
     #[serde(default)]
+    pub local_history: LocalHistorySettings,
+    #[serde(default)]
     pub notification: NotificationSettings,
     #[serde(default)]
     pub screenshot: ScreenshotSettings,
@@ -39,6 +41,20 @@ pub struct AppSettings {
     pub orchestrator: OrchestratorSettings,
     #[serde(default)]
     pub wallpaper: WallpaperSettings,
+}
+
+/// Local History 全局设置。项目级配置只有在该开关开启时才生效。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalHistorySettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for LocalHistorySettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 impl AppSettings {
@@ -1521,9 +1537,17 @@ mod tests {
 
         assert_eq!(config.file.as_deref(), Some("ws.png"));
         assert_eq!(config.dim, Some(0.35));
-        assert_eq!(config.video.as_ref().unwrap().power_saver.as_deref(), Some("auto"));
+        assert_eq!(
+            config.video.as_ref().unwrap().power_saver.as_deref(),
+            Some("auto")
+        );
         // 老结构没有 music.pauseWhenUnfocused，读进来是 None（= 不覆盖，回落全局）
-        assert!(config.music.as_ref().unwrap().pause_when_unfocused.is_none());
+        assert!(config
+            .music
+            .as_ref()
+            .unwrap()
+            .pause_when_unfocused
+            .is_none());
     }
 
     #[test]
@@ -1603,6 +1627,25 @@ mod tests {
         let settings: GeneralSettings = toml::from_str(toml_str).expect("parse legacy general");
         assert!(!settings.disable_wsl_usage_scan);
         assert!(!GeneralSettings::default().disable_wsl_usage_scan);
+    }
+
+    #[test]
+    fn local_history_defaults_enabled_for_legacy_settings() {
+        let settings: AppSettings = toml::from_str("").expect("parse legacy settings");
+        assert!(settings.local_history.enabled);
+        assert!(AppSettings::default().local_history.enabled);
+    }
+
+    #[test]
+    fn local_history_explicit_disable_is_preserved() {
+        let settings: AppSettings = toml::from_str(
+            r#"
+                [localHistory]
+                enabled = false
+            "#,
+        )
+        .expect("parse local history settings");
+        assert!(!settings.local_history.enabled);
     }
 
     #[test]

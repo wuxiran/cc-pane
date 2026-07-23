@@ -8,6 +8,7 @@ import type {
   FileVersion,
   RecentChange,
   WorktreeRecentChange,
+  HistoryWatchStats,
 } from "./localHistoryService";
 import {
   mockTauriInvoke,
@@ -95,6 +96,18 @@ describe("localHistoryService", () => {
       expect(invoke).toHaveBeenCalledWith("init_project_history", {
         projectPath: "/tmp/project",
       });
+    });
+  });
+
+  describe("getHistoryWatchStats", () => {
+    it("应该调用 get_history_watch_stats 命令并返回统计", async () => {
+      const stats: HistoryWatchStats = { watchingProjects: 2, sessionCount: 3 };
+      mockTauriInvoke({ get_history_watch_stats: stats });
+
+      const result = await localHistoryService.getHistoryWatchStats();
+
+      expect(invoke).toHaveBeenCalledWith("get_history_watch_stats");
+      expect(result).toEqual(stats);
     });
   });
 

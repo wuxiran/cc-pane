@@ -6,7 +6,7 @@ use tracing::debug;
 use crate::models::{
     DiffResult, FileVersion, HistoryConfig, HistoryLabel, RecentChange, WorktreeRecentChange,
 };
-use crate::services::HistoryService;
+use crate::services::{HistoryService, HistoryWatchManager, HistoryWatchStats};
 use crate::utils::AppResult;
 
 #[tauri::command]
@@ -17,6 +17,13 @@ pub async fn init_project_history(
     debug!(project_path = %project_path, "cmd::init_project_history");
     history_service.init_project_history(Path::new(&project_path))?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_history_watch_stats(
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
+) -> AppResult<HistoryWatchStats> {
+    Ok(history_watch_manager.stats())
 }
 
 #[tauri::command]

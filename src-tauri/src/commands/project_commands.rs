@@ -1,5 +1,5 @@
 use crate::models::Project;
-use crate::services::ProjectService;
+use crate::services::{HistoryWatchManager, ProjectService};
 use crate::utils::{validate_path, AppResult};
 use std::sync::Arc;
 use tauri::State;
@@ -20,9 +20,18 @@ pub fn add_project(path: String, service: State<'_, Arc<ProjectService>>) -> App
 }
 
 #[tauri::command]
-pub fn remove_project(id: String, service: State<'_, Arc<ProjectService>>) -> AppResult<()> {
+pub fn remove_project(
+    id: String,
+    service: State<'_, Arc<ProjectService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
+) -> AppResult<()> {
     debug!(id = %id, "cmd::remove_project");
-    Ok(service.remove_project(&id)?)
+    let project = service
+        .get_project(&id)?
+        .ok_or_else(|| crate::utils::AppError::from("Project does not exist"))?;
+    service.remove_project(&id)?;
+    history_watch_manager.force_stop_project(project.path);
+    Ok(())
 }
 
 #[tauri::command]

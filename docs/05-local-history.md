@@ -57,3 +57,22 @@ flate2 = "1"              # 压缩存储
 ## 下一步
 
 完成阶段 5 后，进入 [阶段 6：Skill 系统](./06-skill-system.md)
+
+## 文件监听生命周期
+
+桌面端 Local History 使用原生 `notify::RecommendedWatcher`，但不再在应用启动时监听全部注册项目。`HistoryWatchManager` 只为存在活跃终端会话的本地项目启动 watcher；同一项目的多个会话共享一个 watcher，最后一个会话结束后保留 45 秒宽限，再释放 watcher。
+
+Windows 的 `ReadDirectoryChangesW` 需要持有被监听目录的句柄，因此仍可能阻止目录重命名或删除。当前锁面限定为“有活跃会话的项目 + 最后会话结束后 45 秒宽限内的项目”，而不是所有注册项目。删除项目、删除或重命名工作空间、项目迁移以及关闭全局 Local History 开关都会立即释放对应 watcher。
+
+设置页的全局 Local History 开关优先于项目级 `config.history.enabled`。关闭会停止全部 watcher 并拒绝新会话启动监听；重新开启不会扫描所有项目，只由之后创建的新会话按需恢复。
+
+排障时可通过桌面 Tauri 命令 `get_history_watch_stats` 读取：
+
+```json
+{
+  "watchingProjects": 1,
+  "sessionCount": 2
+}
+```
+
+`cc-panes-web` 会复用“初始化历史仓库不启动 watcher”的 core 行为，因此不会恢复旧的全量监听；但 web 端终端路由尚未接入 `HistoryWatchManager`，也没有对应的 HTTP stats 路由。这是当前已知残留，桌面命令返回的 stats 仅代表桌面进程内的 watcher。

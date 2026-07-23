@@ -47,6 +47,10 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     const maybeWithCCChan = value as Partial<SettingsDraft>;
     return {
       ...value,
+      localHistory: {
+        enabled: true,
+        ...maybeWithCCChan.localHistory,
+      },
       ccchan: {
         ...DEFAULT_CCCHAN_SETTINGS,
         ...maybeWithCCChan.ccchan,
@@ -65,7 +69,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
 
   // 各分区在草稿里对应的键；不在表里的分区（Provider/Shared MCP/关于）自管存储，无重置入口
   const SECTION_DRAFT_KEYS: Partial<Record<string, (keyof SettingsDraft)[]>> = {
-    general: ["general"],
+    general: ["general", "localHistory"],
     notification: ["notification"],
     "web-access": ["webAccess", "orchestrator"],
     "cli-launchers": ["cliLaunchers"],
@@ -277,7 +281,14 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
                 </div>
               ) : null}
             {activeSection === "general" && (
-              <GeneralSection value={draft.general} onChange={(v) => updateDraft({ ...draft, general: v })} />
+              <GeneralSection
+                value={draft.general}
+                onChange={(v) => updateDraft({ ...draft, general: v })}
+                localHistoryEnabled={draft.localHistory.enabled}
+                onLocalHistoryEnabledChange={(enabled) =>
+                  updateDraft({ ...draft, localHistory: { enabled } })
+                }
+              />
             )}
             {activeSection === "notification" && (
               <NotificationSection value={draft.notification} onChange={(v) => updateDraft({ ...draft, notification: v })} />

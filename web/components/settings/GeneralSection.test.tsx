@@ -107,6 +107,30 @@ describe("GeneralSection", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoStart: true }));
   });
 
+  it("toggles the global Local History watcher setting", async () => {
+    const user = userEvent.setup();
+    const onLocalHistoryEnabledChange = vi.fn();
+    render(
+      <GeneralSection
+        value={createValue()}
+        onChange={vi.fn()}
+        localHistoryEnabled
+        onLocalHistoryEnabledChange={onLocalHistoryEnabledChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /启用 Local History 文件监听|Enable Local History file watching/i,
+      }),
+    );
+
+    expect(onLocalHistoryEnabledChange).toHaveBeenCalledWith(false);
+    expect(
+      screen.getByText(/项目级设置不能覆盖此开关|Project settings cannot override it/i),
+    ).toBeInTheDocument();
+  });
+
   it("emits language changes and lists CLI tools from the hook", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

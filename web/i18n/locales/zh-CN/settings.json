@@ -19,6 +19,8 @@
   "generalTitle": "通用设置",
   "closeToTray": "关闭窗口时最小化到托盘",
   "autoStart": "开机自启",
+  "localHistoryEnabled": "启用 Local History 文件监听",
+  "localHistoryEnabledDesc": "全局关闭会停止所有项目的文件监听，项目级设置不能覆盖此开关；重新开启后由新会话按需恢复。",
   "language": "语言",
   "zhCN": "简体中文",
   "en": "English",

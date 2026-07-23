@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::constants::history::BUILTIN_IGNORE_PATTERNS;
+
 /// 文件版本信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,16 +65,11 @@ impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            ignore_patterns: vec![
-                "node_modules/**".to_string(),
-                ".git/**".to_string(),
-                "target/**".to_string(),
-                "dist/**".to_string(),
-                "build/**".to_string(),
-                "*.log".to_string(),
-                "*.lock".to_string(),
-                ".ccpanes/**".to_string(),
-            ],
+            ignore_patterns: BUILTIN_IGNORE_PATTERNS
+                .iter()
+                .map(|pattern| (*pattern).to_string())
+                .chain(["*.log".to_string(), "*.lock".to_string()])
+                .collect(),
             max_versions_per_file: 50,
             max_age_days: 30,
             max_file_size: default_max_file_size(),

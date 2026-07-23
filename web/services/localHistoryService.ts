@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiJson, apiNoContent, invokeOrApi } from "./apiClient";
+import { invokeIfTauri } from "./runtime";
 
 export interface FileVersion {
   id: string;
@@ -95,6 +96,11 @@ export interface WorktreeRecentChange {
   change: RecentChange;
 }
 
+export interface HistoryWatchStats {
+  watchingProjects: number;
+  sessionCount: number;
+}
+
 export const localHistoryService = {
   // ============ 基础操作 ============
 
@@ -102,6 +108,10 @@ export const localHistoryService = {
     await invokeOrApi<void>("init_project_history", { projectPath }, () =>
       apiJson<void>("/api/local-history/init", "POST", { projectPath }),
     );
+  },
+
+  async getHistoryWatchStats(): Promise<HistoryWatchStats | null> {
+    return (await invokeIfTauri<HistoryWatchStats>("get_history_watch_stats")) ?? null;
   },
 
   async listFileVersions(projectPath: string, filePath: string): Promise<FileVersion[]> {

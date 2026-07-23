@@ -84,7 +84,7 @@ export function useLocalHistoryData({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, projectPath, filePath]);
 
   // internalFilePath 变化时加载版本
   useEffect(() => {

@@ -5,6 +5,7 @@ export interface AppSettings {
   terminal: TerminalSettings;
   shortcuts: ShortcutSettings;
   general: GeneralSettings;
+  localHistory: LocalHistorySettings;
   notification: NotificationSettings;
   screenshot: ScreenshotSettings;
   voice: VoiceSettings;
@@ -13,6 +14,11 @@ export interface AppSettings {
   webAccess: WebAccessSettings;
   orchestrator: OrchestratorSettings;
   wallpaper: WallpaperSettings;
+}
+
+/** Local History 全局设置 */
+export interface LocalHistorySettings {
+  enabled: boolean;
 }
 
 /** 壁纸种类 / 铺放方式 / 视频省电策略 */

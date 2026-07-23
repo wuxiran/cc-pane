@@ -15,9 +15,16 @@ import { formatSize } from "@/utils";
 interface GeneralSectionProps {
   value: GeneralSettings;
   onChange: (value: GeneralSettings) => void;
+  localHistoryEnabled?: boolean;
+  onLocalHistoryEnabledChange?: (enabled: boolean) => void;
 }
 
-export default function GeneralSection({ value, onChange }: GeneralSectionProps) {
+export default function GeneralSection({
+  value,
+  onChange,
+  localHistoryEnabled = true,
+  onLocalHistoryEnabledChange,
+}: GeneralSectionProps) {
   const { t, i18n } = useTranslation("settings");
   const [dataDirInfo, setDataDirInfo] = useState<DataDirInfo | null>(null);
   const [migrating, setMigrating] = useState(false);
@@ -115,6 +122,23 @@ export default function GeneralSection({ value, onChange }: GeneralSectionProps)
           checked={value.autoStart}
           onChange={(e) => update("autoStart", e.target.checked)}
           className="w-4 h-4 cursor-pointer"
+          style={{ accentColor: "var(--app-accent)" }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col pr-4">
+          <Label>{t("localHistoryEnabled")}</Label>
+          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("localHistoryEnabledDesc")}
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          aria-label={t("localHistoryEnabled")}
+          checked={localHistoryEnabled}
+          onChange={(event) => onLocalHistoryEnabledChange?.(event.target.checked)}
+          className="w-4 h-4 cursor-pointer shrink-0"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>

@@ -84,7 +84,7 @@ describe("Sidebar", () => {
     expect(vi.mocked(historyService.list)).toHaveBeenCalledWith(1);
   });
 
-  it("restores history watchers for every project of every workspace", async () => {
+  it("does not start history watchers for registered projects on startup", async () => {
     useWorkspacesStore.setState({
       workspaces: [
         { name: "ws1", projects: [{ path: "/p1" }, { path: "/p2" }] },
@@ -95,10 +95,8 @@ describe("Sidebar", () => {
 
     renderSidebar();
 
-    const initProjectHistory = vi.mocked(localHistoryService.initProjectHistory);
-    await waitFor(() => expect(initProjectHistory).toHaveBeenCalledTimes(3));
-    expect(initProjectHistory).toHaveBeenCalledWith("/p1");
-    expect(initProjectHistory).toHaveBeenCalledWith("/p3");
+    await waitFor(() => expect(useWorkspacesStore.getState().load).toHaveBeenCalled());
+    expect(vi.mocked(localHistoryService.initProjectHistory)).not.toHaveBeenCalled();
   });
 
   it("uses the persisted sidebar width when it is within bounds", () => {

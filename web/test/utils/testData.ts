@@ -126,6 +126,9 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       hideNonFavoriteLaunchActions: false,
       disableWslUsageScan: false,
     },
+    localHistory: {
+      enabled: true,
+    },
     notification: {
       enabled: true,
       onExit: true,

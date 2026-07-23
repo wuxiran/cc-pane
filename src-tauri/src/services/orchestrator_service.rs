@@ -385,6 +385,7 @@ pub struct AppState {
     pub skill_service: Arc<SkillService>,
     pub external_skill_registry: Arc<ExternalSkillRegistry>,
     pub launch_history_service: Arc<LaunchHistoryService>,
+    pub history_watch_manager: Arc<cc_panes_core::services::HistoryWatchManager>,
     pub notification_service: Arc<NotificationService>,
     pub ccchan_service: Arc<CCChanService>,
     pub settings_service: Arc<SettingsService>,
@@ -721,6 +722,7 @@ impl OrchestratorService {
         skill_service: Arc<SkillService>,
         external_skill_registry: Arc<ExternalSkillRegistry>,
         launch_history_service: Arc<LaunchHistoryService>,
+        history_watch_manager: Arc<cc_panes_core::services::HistoryWatchManager>,
         notification_service: Arc<NotificationService>,
         ccchan_service: Arc<CCChanService>,
         settings_service: Arc<SettingsService>,
@@ -760,6 +762,7 @@ impl OrchestratorService {
             skill_service,
             external_skill_registry,
             launch_history_service,
+            history_watch_manager,
             notification_service,
             ccchan_service,
             settings_service,
@@ -3289,6 +3292,14 @@ impl McpToolHandler {
                 return format!("错误: 创建会话失败: {}{}", runtime_notice, e);
             }
         };
+
+        if let Err(error) = self
+            .state
+            .history_watch_manager
+            .on_session_created(&session_id, &params.project_path)
+        {
+            warn!(session_id = %session_id, err = %error, "mcp::launch_task failed to start local history watcher");
+        }
 
         // 记录任务状态 + 清理旧任务
         {
@@ -6242,6 +6253,13 @@ async fn handle_launch_task(
             );
         }
     };
+
+    if let Err(error) = state
+        .history_watch_manager
+        .on_session_created(&session_id, &req.project_path)
+    {
+        warn!(session_id = %session_id, err = %error, "REST::launch_task failed to start local history watcher");
+    }
 
     {
         let mut tasks = state.tasks.lock().unwrap_or_else(|e| e.into_inner());

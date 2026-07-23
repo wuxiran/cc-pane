@@ -1,6 +1,6 @@
 use crate::models::settings::AppSettings;
 use crate::models::Workspace;
-use crate::services::SettingsService;
+use crate::services::{HistoryWatchManager, SettingsService};
 use crate::utils::AppPaths;
 use crate::utils::AppResult;
 use cc_cli_adapters::{no_window_command, normalize_cli_command};
@@ -23,10 +23,17 @@ pub fn get_settings(service: State<'_, Arc<SettingsService>>) -> AppResult<AppSe
 #[tauri::command]
 pub fn update_settings(
     service: State<'_, Arc<SettingsService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
     settings: AppSettings,
 ) -> AppResult<()> {
     debug!("cmd::update_settings");
-    Ok(service.update_settings(settings)?)
+    let was_enabled = service.get_settings().local_history.enabled;
+    let is_enabled = settings.local_history.enabled;
+    service.update_settings(settings)?;
+    if was_enabled != is_enabled {
+        history_watch_manager.set_enabled(is_enabled);
+    }
+    Ok(())
 }
 
 /// 测试代理连接

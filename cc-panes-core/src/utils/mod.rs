@@ -21,7 +21,10 @@ pub use git_command::{
 pub use launch_request::{
     normalize_session_request_for_current_host, normalize_session_request_for_host,
 };
-pub use path_normalize::{simplify_opt_path_str, simplify_path, simplify_path_str};
+pub use path_normalize::{
+    normalize_project_path, paths_equivalent, simplify_opt_path_str, simplify_path,
+    simplify_path_str,
+};
 pub use path_validator::{
     sanitize_path_display, validate_command, validate_git_url, validate_mcp_name, validate_path,
     validate_relative_path, validate_ssh_info, validate_ssh_machine, validate_worktree_name,

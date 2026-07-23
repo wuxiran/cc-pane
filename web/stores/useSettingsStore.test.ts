@@ -54,6 +54,16 @@ describe("useSettingsStore", () => {
       expect(useSettingsStore.getState().loading).toBe(false);
     });
 
+    it("旧设置缺少 localHistory 时默认开启", async () => {
+      const legacySettings = createTestSettings() as unknown as Record<string, unknown>;
+      delete legacySettings.localHistory;
+      vi.mocked(settingsService.getSettings).mockResolvedValue(legacySettings as never);
+
+      await useSettingsStore.getState().loadSettings();
+
+      expect(useSettingsStore.getState().settings?.localHistory.enabled).toBe(true);
+    });
+
     it("加载失败时不应抛异常且 loading 恢复 false", async () => {
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       vi.mocked(settingsService.getSettings).mockRejectedValue(
@@ -113,6 +123,7 @@ describe("useSettingsStore", () => {
       expect(defaults.proxy.enabled).toBe(false);
       expect(defaults.general.language).toBe("zh-CN");
       expect(defaults.notification.enabled).toBe(true);
+      expect(defaults.localHistory.enabled).toBe(true);
       expect(defaults.cliLaunchers).toEqual({ overrides: {} });
     });
 

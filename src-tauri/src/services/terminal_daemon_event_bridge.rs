@@ -5,7 +5,7 @@ use std::time::Duration;
 use cc_panes_core::constants::events as EV;
 use cc_panes_core::models::{TerminalExit, TerminalOutput, TerminalReplaySnapshot};
 use cc_panes_core::services::terminal_service::{SessionStatus, SessionStatusInfo};
-use cc_panes_core::services::TerminalBackend;
+use cc_panes_core::services::{HistoryWatchManager, TerminalBackend};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tauri::Emitter;
@@ -21,6 +21,7 @@ const DRAIN_WINDOW: Duration = Duration::from_millis(150);
 pub struct TerminalDaemonEventBridge {
     app_handle: tauri::AppHandle,
     sessions: Arc<Mutex<HashMap<String, SessionBridgeState>>>,
+    history_watch_manager: Arc<HistoryWatchManager>,
 }
 
 #[derive(Debug, Default)]
@@ -51,10 +52,14 @@ enum DaemonStreamMessage {
 }
 
 impl TerminalDaemonEventBridge {
-    pub fn new(app_handle: tauri::AppHandle) -> Self {
+    pub fn new(
+        app_handle: tauri::AppHandle,
+        history_watch_manager: Arc<HistoryWatchManager>,
+    ) -> Self {
         Self {
             app_handle,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            history_watch_manager,
         }
     }
 
@@ -363,6 +368,7 @@ impl TerminalDaemonEventBridge {
         };
 
         if should_emit {
+            self.history_watch_manager.on_session_ended(session_id);
             self.app_handle.emit(
                 EV::TERMINAL_EXIT,
                 serde_json::to_value(TerminalExit {

@@ -19,6 +19,8 @@
   "generalTitle": "General Settings",
   "closeToTray": "Minimize to tray on close",
   "autoStart": "Start on boot",
+  "localHistoryEnabled": "Enable Local History file watching",
+  "localHistoryEnabledDesc": "Turning this off stops file watching for every project. Project settings cannot override it; new sessions resume watching on demand after re-enabling.",
   "language": "Language",
   "zhCN": "简体中文",
   "en": "English",

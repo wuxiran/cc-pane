@@ -8,14 +8,19 @@ use std::time::{Duration, Instant};
 
 use tracing::{info, warn};
 
-use crate::constants::history::{CHECKOUT_SILENCE_SECS, DEBOUNCE_MS};
+use crate::constants::history::{BUILTIN_IGNORE_PATTERNS, CHECKOUT_SILENCE_SECS, DEBOUNCE_MS};
 use crate::models::{
     DiffResult, FileVersion, HistoryConfig, HistoryLabel, RecentChange, WorktreeRecentChange,
 };
 use crate::repository::HistoryFileRepository;
+use crate::utils::{normalize_project_path, paths_equivalent};
 
 type WatcherMap = Arc<Mutex<HashMap<PathBuf, RecommendedWatcher>>>;
 type RepoMap = Arc<Mutex<HashMap<PathBuf, Arc<HistoryFileRepository>>>>;
+
+fn equivalent_path_key<T>(map: &HashMap<PathBuf, T>, path: &Path) -> Option<PathBuf> {
+    map.keys().find(|key| paths_equivalent(key, path)).cloned()
+}
 
 /// 文件事件消息（单写者模型）
 enum HistoryEvent {
@@ -276,9 +281,14 @@ impl HistoryService {
             return Ok(());
         }
 
-        let relative_path = file_path
-            .strip_prefix(project_path)
-            .context("Failed to get relative path")?;
+        let Some(relative_path) = Self::relative_to_project(file_path, project_path) else {
+            warn!(
+                project_path = %project_path.display(),
+                file_path = %file_path.display(),
+                "history: file change path is outside project"
+            );
+            return Ok(());
+        };
         let relative_str = relative_path.to_string_lossy().replace('\\', "/");
 
         let repo = {
@@ -341,9 +351,14 @@ impl HistoryService {
         file_path: &Path,
         branch: &str,
     ) -> Result<()> {
-        let relative_path = file_path
-            .strip_prefix(project_path)
-            .context("Failed to get relative path")?;
+        let Some(relative_path) = Self::relative_to_project(file_path, project_path) else {
+            warn!(
+                project_path = %project_path.display(),
+                file_path = %file_path.display(),
+                "history: removed file path is outside project"
+            );
+            return Ok(());
+        };
         let relative_str = relative_path.to_string_lossy().replace('\\', "/");
 
         let repo = {
@@ -377,21 +392,62 @@ impl HistoryService {
 
     /// 获取或创建项目的仓库实例
     fn get_or_create_repo(&self, project_path: &Path) -> Result<Arc<HistoryFileRepository>> {
+        let project_path = normalize_project_path(project_path);
         let mut repos = self.repos.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(repo) = repos.get(project_path) {
+        if let Some(key) = equivalent_path_key(&repos, &project_path) {
+            let repo = repos.get(&key).expect("equivalent repo key must exist");
             return Ok(repo.clone());
         }
 
-        let repo = Arc::new(HistoryFileRepository::open(project_path)?);
-        repos.insert(project_path.to_path_buf(), repo.clone());
+        let repo = Arc::new(HistoryFileRepository::open(&project_path)?);
+        repos.insert(project_path, repo.clone());
         Ok(repo)
+    }
+
+    fn relative_to_project(file_path: &Path, project_path: &Path) -> Option<PathBuf> {
+        let file_path = normalize_project_path(file_path);
+        let project_path = normalize_project_path(project_path);
+
+        if let Ok(relative) = file_path.strip_prefix(&project_path) {
+            return Some(relative.to_path_buf());
+        }
+
+        let file = file_path.to_string_lossy().replace('\\', "/");
+        let project = project_path.to_string_lossy().replace('\\', "/");
+        if !Self::is_absolute_drive_path(&file) || !Self::is_absolute_drive_path(&project) {
+            return None;
+        }
+
+        let file_components: Vec<&str> = file.split('/').filter(|part| !part.is_empty()).collect();
+        let project_components: Vec<&str> =
+            project.split('/').filter(|part| !part.is_empty()).collect();
+        if project_components.len() > file_components.len()
+            || file_components
+                .iter()
+                .chain(project_components.iter())
+                .any(|part| *part == "." || *part == "..")
+            || !project_components
+                .iter()
+                .zip(&file_components)
+                .all(|(project, file)| project.eq_ignore_ascii_case(file))
+        {
+            return None;
+        }
+
+        Some(PathBuf::from(
+            file_components[project_components.len()..].join("/"),
+        ))
+    }
+
+    fn is_absolute_drive_path(path: &str) -> bool {
+        let bytes = path.as_bytes();
+        bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/'
     }
 
     /// 初始化项目历史记录
     pub fn init_project_history(&self, project_path: &Path) -> Result<()> {
         let repo = self.get_or_create_repo(project_path)?;
         repo.init_history_dir()?;
-        self.start_watching(project_path)?;
         Ok(())
     }
 
@@ -412,10 +468,20 @@ impl HistoryService {
 
     /// 启动文件监控
     pub fn start_watching(&self, project_path: &Path) -> Result<()> {
-        let project_path = project_path.to_path_buf();
+        let project_path = normalize_project_path(project_path);
 
         // 确保 repo 已创建
         self.get_or_create_repo(&project_path)?;
+        let project_path = {
+            let repos = self.repos.lock().unwrap_or_else(|e| e.into_inner());
+            equivalent_path_key(&repos, &project_path).unwrap_or(project_path)
+        };
+
+        // double-check 必须在 watcher 锁内完成，否则并发启动仍会各自创建内核 watcher。
+        let mut watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
+        if equivalent_path_key(&watchers, &project_path).is_some() {
+            return Ok(());
+        }
 
         // 初始化分支缓存
         if let Some(branch) = Self::read_current_branch(&project_path) {
@@ -448,7 +514,6 @@ impl HistoryService {
             .watch(&project_path, RecursiveMode::Recursive)
             .context("Failed to start watching")?;
 
-        let mut watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
         watchers.insert(project_path, watcher);
 
         Ok(())
@@ -456,9 +521,38 @@ impl HistoryService {
 
     /// 停止文件监控
     pub fn stop_watching(&self, project_path: &Path) -> Result<()> {
+        let project_path = normalize_project_path(project_path);
         let mut watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
-        watchers.remove(project_path);
+        if let Some(key) = equivalent_path_key(&watchers, &project_path) {
+            watchers.remove(&key);
+        }
+        drop(watchers);
+        let mut branch_cache = self.branch_cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(key) = equivalent_path_key(&branch_cache, &project_path) {
+            branch_cache.remove(&key);
+        }
+        drop(branch_cache);
+        let mut silence_until = self.silence_until.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(key) = equivalent_path_key(&silence_until, &project_path) {
+            silence_until.remove(&key);
+        }
         Ok(())
+    }
+
+    pub fn is_watching(&self, project_path: &Path) -> bool {
+        let project_path = normalize_project_path(project_path);
+        self.watchers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .any(|key| paths_equivalent(key, &project_path))
+    }
+
+    pub fn watcher_count(&self) -> usize {
+        self.watchers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
 
     /// 停止所有文件监控（应用退出时调用）
@@ -511,6 +605,14 @@ impl HistoryService {
             }
         }
 
+        let mut event = event;
+        event
+            .paths
+            .retain(|path| !Self::is_builtin_ignored_event_path(project_path, path));
+        if event.paths.is_empty() {
+            return;
+        }
+
         match event.kind {
             EventKind::Create(_) | EventKind::Modify(_) => {
                 for path in event.paths {
@@ -536,26 +638,48 @@ impl HistoryService {
 
     /// 检查文件是否应该忽略
     fn should_ignore(path: &str, patterns: &[String]) -> bool {
-        for pattern in patterns {
-            if Self::matches_pattern(path, pattern) {
-                return true;
-            }
-        }
-        false
+        BUILTIN_IGNORE_PATTERNS
+            .iter()
+            .any(|pattern| Self::matches_pattern(path, pattern))
+            || patterns
+                .iter()
+                .any(|pattern| Self::matches_pattern(path, pattern))
+    }
+
+    fn is_builtin_ignored_event_path(project_path: &Path, file_path: &Path) -> bool {
+        let Some(relative) = Self::relative_to_project(file_path, project_path) else {
+            return false;
+        };
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        let Some(first) = relative.split('/').next() else {
+            return false;
+        };
+
+        BUILTIN_IGNORE_PATTERNS.iter().any(|pattern| {
+            pattern
+                .strip_suffix("/**")
+                .is_some_and(|directory| directory == first)
+        })
     }
 
     /// 简单的 glob 模式匹配
     fn matches_pattern(path: &str, pattern: &str) -> bool {
         if let Some(prefix) = pattern.strip_suffix("/**") {
-            // 精确匹配目录前缀，避免 "target2/foo" 误匹配 "target/**"
-            return path == prefix || path.starts_with(&format!("{}/", prefix));
+            if !prefix.contains('/') {
+                return path.split('/').any(|component| component == prefix);
+            }
+            // 含路径的目录模式保持根锚定，避免扩大已有自定义规则的范围。
+            return path == prefix || path.starts_with(&format!("{prefix}/"));
         }
         if let Some(ext) = pattern.strip_prefix("*.") {
             // 按扩展名边界匹配：`*.js` 只匹配 `.js` 结尾，不能连带 `.mjs`/`.cjs`；
             // `*.log` 不能误伤 `changelog`/`catalog`。
             return path.ends_with(&format!(".{ext}"));
         }
-        path == pattern || path.starts_with(&format!("{}/", pattern))
+        if !pattern.contains('/') {
+            return path.split('/').any(|component| component == pattern);
+        }
+        path == pattern || path.starts_with(&format!("{pattern}/"))
     }
 
     /// 列出文件版本
@@ -802,6 +926,7 @@ impl HistoryService {
         project_path: &Path,
         limit: usize,
     ) -> Result<Vec<WorktreeRecentChange>> {
+        let project_path = normalize_project_path(project_path);
         let mut all_changes: Vec<WorktreeRecentChange> = Vec::new();
 
         // 1. 判断当前项目是主仓库还是 worktree
@@ -809,8 +934,8 @@ impl HistoryService {
         let is_main = git_path.is_dir(); // .git 是目录 = 主仓库，是文件 = worktree
 
         // 当前项目自身的变更
-        let current_branch = Self::read_current_branch(project_path).unwrap_or_default();
-        let repo = self.get_or_create_repo(project_path)?;
+        let current_branch = Self::read_current_branch(&project_path).unwrap_or_default();
+        let repo = self.get_or_create_repo(&project_path)?;
         let changes = repo.get_recent_changes(limit)?;
         for change in changes {
             all_changes.push(WorktreeRecentChange {
@@ -834,6 +959,7 @@ impl HistoryService {
                 } else {
                     project_path.join(gitdir)
                 };
+                let gitdir_path = normalize_project_path(gitdir_path);
                 // 从 .git/worktrees/<name> 回到 .git/worktrees/
                 if let Some(worktrees_parent) = gitdir_path.parent() {
                     // 新增：发现主仓库并聚合其变更
@@ -841,12 +967,13 @@ impl HistoryService {
                     if let Some(git_dir) = worktrees_parent.parent() {
                         // git_dir = .git/
                         if let Some(main_repo_dir) = git_dir.parent() {
+                            let main_repo_dir = normalize_project_path(main_repo_dir);
                             // main_repo_dir = 主仓库根目录
-                            if main_repo_dir != project_path {
+                            if !paths_equivalent(&main_repo_dir, &project_path) {
                                 if let Ok(main_repo) =
-                                    HistoryFileRepository::open_readonly(main_repo_dir)
+                                    HistoryFileRepository::open_readonly(&main_repo_dir)
                                 {
-                                    let main_branch = Self::read_current_branch(main_repo_dir)
+                                    let main_branch = Self::read_current_branch(&main_repo_dir)
                                         .unwrap_or_default();
                                     if let Ok(main_changes) = main_repo.get_recent_changes(limit) {
                                         for change in main_changes {
@@ -902,9 +1029,10 @@ impl HistoryService {
                     } else {
                         work_dir
                     };
+                    let work_dir = normalize_project_path(work_dir);
 
                     // 跳过当前项目自身
-                    if work_dir == project_path {
+                    if paths_equivalent(&work_dir, &project_path) {
                         continue;
                     }
 
@@ -935,7 +1063,85 @@ impl HistoryService {
 
 #[cfg(test)]
 mod tests {
-    use super::HistoryService;
+    use super::{equivalent_path_key, HistoryService};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    #[test]
+    fn init_project_history_does_not_start_watcher() {
+        let dir = tempdir().unwrap();
+        let service = HistoryService::new();
+
+        service.init_project_history(dir.path()).unwrap();
+
+        assert_eq!(service.watcher_count(), 0);
+    }
+
+    #[test]
+    fn map_keys_use_platform_aware_path_equivalence() {
+        let map = HashMap::from([(PathBuf::from(r"D:\Code\Project"), ())]);
+
+        assert_eq!(
+            equivalent_path_key(&map, std::path::Path::new("d:/code/project/")),
+            Some(PathBuf::from(r"D:\Code\Project"))
+        );
+        assert_eq!(
+            equivalent_path_key(&map, std::path::Path::new(r"D:\Code\Other")),
+            None
+        );
+    }
+
+    #[test]
+    fn start_watching_is_idempotent_for_normalized_path() {
+        let dir = tempdir().unwrap();
+        let service = HistoryService::new();
+        let with_trailing_separator = format!("{}/", dir.path().display());
+
+        service.start_watching(dir.path()).unwrap();
+        service
+            .start_watching(std::path::Path::new(&with_trailing_separator))
+            .unwrap();
+
+        assert_eq!(service.watcher_count(), 1);
+        assert!(service.is_watching(dir.path()));
+    }
+
+    #[test]
+    fn relative_to_project_folds_drive_components_safely() {
+        assert_eq!(
+            HistoryService::relative_to_project(
+                std::path::Path::new(r"\\?\d:\Code\Project\src\main.rs"),
+                std::path::Path::new(r"D:\code\project"),
+            ),
+            Some(std::path::PathBuf::from("src/main.rs"))
+        );
+        assert_eq!(
+            HistoryService::relative_to_project(
+                std::path::Path::new(r"D:\code\project-copy\src\main.rs"),
+                std::path::Path::new(r"D:\code\project"),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn relative_to_project_does_not_fold_unc_or_unix_case() {
+        assert_eq!(
+            HistoryService::relative_to_project(
+                std::path::Path::new(r"\\server\share\Project\src\main.rs"),
+                std::path::Path::new(r"\\server\share\project"),
+            ),
+            None
+        );
+        assert_eq!(
+            HistoryService::relative_to_project(
+                std::path::Path::new("/home/User/project/src/main.rs"),
+                std::path::Path::new("/home/user/project"),
+            ),
+            None
+        );
+    }
 
     #[test]
     fn ext_pattern_matches_only_extension_boundary() {
@@ -952,11 +1158,63 @@ mod tests {
     #[test]
     fn dir_and_exact_patterns_still_work() {
         assert!(HistoryService::matches_pattern("target/x", "target/**"));
-        assert!(!HistoryService::matches_pattern("target2/x", "target/**"));
         assert!(HistoryService::matches_pattern(
-            "node_modules/x",
+            "crates/app/target/x",
+            "target/**"
+        ));
+        assert!(!HistoryService::matches_pattern("target2/x", "target/**"));
+        assert!(!HistoryService::matches_pattern(
+            "crates/app/target2/x",
+            "target/**"
+        ));
+        assert!(HistoryService::matches_pattern(
+            "packages/app/node_modules/pkg/index.js",
             "node_modules"
         ));
+        assert!(HistoryService::matches_pattern(
+            "src/gen/output.rs",
+            "src/gen/**"
+        ));
+        assert!(!HistoryService::matches_pattern(
+            "nested/src/gen/output.rs",
+            "src/gen/**"
+        ));
         assert!(HistoryService::matches_pattern(".env", ".env"));
+    }
+
+    #[test]
+    fn builtin_patterns_extend_legacy_project_config() {
+        let legacy_patterns = vec!["node_modules/**".to_string(), "target/**".to_string()];
+
+        assert!(HistoryService::should_ignore(
+            "packages/app/.next/cache/data",
+            &legacy_patterns
+        ));
+        assert!(HistoryService::should_ignore(
+            "src/__pycache__/module.pyc",
+            &legacy_patterns
+        ));
+        assert!(!HistoryService::should_ignore(
+            "src/not__pycache__/module.py",
+            &legacy_patterns
+        ));
+    }
+
+    #[test]
+    fn dispatch_prefilter_rejects_root_builtin_directory_only() {
+        let project = std::path::Path::new("/workspace/project");
+
+        assert!(HistoryService::is_builtin_ignored_event_path(
+            project,
+            std::path::Path::new("/workspace/project/node_modules/pkg/index.js")
+        ));
+        assert!(!HistoryService::is_builtin_ignored_event_path(
+            project,
+            std::path::Path::new("/workspace/project/src/node_modules/pkg/index.js")
+        ));
+        assert!(!HistoryService::is_builtin_ignored_event_path(
+            project,
+            std::path::Path::new("/workspace/project/node_modules-copy/index.js")
+        ));
     }
 }

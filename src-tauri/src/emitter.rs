@@ -1,4 +1,6 @@
-use crate::services::{LaunchHistoryService, NotificationService, SettingsService};
+use crate::services::{
+    HistoryWatchManager, LaunchHistoryService, NotificationService, SettingsService,
+};
 use cc_panes_core::events::{EventEmitter, SessionNotifier};
 use serde_json::Value;
 use std::sync::Arc;
@@ -28,6 +30,7 @@ pub struct TauriSessionNotifier {
     notification_service: Arc<NotificationService>,
     settings_service: Arc<SettingsService>,
     launch_history_service: Arc<LaunchHistoryService>,
+    history_watch_manager: Arc<HistoryWatchManager>,
 }
 
 impl TauriSessionNotifier {
@@ -36,12 +39,14 @@ impl TauriSessionNotifier {
         notification_service: Arc<NotificationService>,
         settings_service: Arc<SettingsService>,
         launch_history_service: Arc<LaunchHistoryService>,
+        history_watch_manager: Arc<HistoryWatchManager>,
     ) -> Self {
         Self {
             app_handle,
             notification_service,
             settings_service,
             launch_history_service,
+            history_watch_manager,
         }
     }
 }
@@ -57,6 +62,7 @@ impl SessionNotifier for TauriSessionNotifier {
     }
 
     fn notify_session_exited(&self, session_id: &str, exit_code: i32) {
+        self.history_watch_manager.on_session_ended(session_id);
         self.notification_service.notify_session_exited(
             &self.app_handle,
             &self.settings_service,

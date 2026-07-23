@@ -4,8 +4,9 @@ use crate::models::{
     WorkspaceMigrationPlan, WorkspaceMigrationRequest, WorkspaceMigrationResult,
     WorkspaceMigrationRollbackResult, WorkspaceProject,
 };
-use crate::services::WorkspaceService;
+use crate::services::{HistoryWatchManager, WorkspaceService};
 use crate::utils::{validate_path, validate_ssh_info, AppResult};
+use cc_panes_core::utils::{normalize_project_path, paths_equivalent};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
@@ -42,15 +43,40 @@ pub fn rename_workspace(
     old_name: String,
     new_name: String,
     service: State<'_, Arc<WorkspaceService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
 ) -> AppResult<()> {
     debug!(old_name = %old_name, new_name = %new_name, "cmd::rename_workspace");
+    let workspace = service.get_workspace(&old_name)?;
+    let old_workspace_dir = service.workspace_dir(&old_name);
+    for project in &workspace.projects {
+        if path_is_within(Path::new(&project.path), &old_workspace_dir) {
+            history_watch_manager.force_stop_project(&project.path);
+        }
+    }
     Ok(service.rename_workspace(&old_name, &new_name)?)
 }
 
 #[tauri::command]
-pub fn delete_workspace(name: String, service: State<'_, Arc<WorkspaceService>>) -> AppResult<()> {
+pub fn delete_workspace(
+    name: String,
+    service: State<'_, Arc<WorkspaceService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
+) -> AppResult<()> {
     debug!(name = %name, "cmd::delete_workspace");
-    Ok(service.delete_workspace(&name)?)
+    let removed_paths: Vec<String> = service
+        .get_workspace(&name)?
+        .projects
+        .into_iter()
+        .map(|project| project.path)
+        .collect();
+    service.delete_workspace(&name)?;
+    let remaining = service.list_workspaces()?;
+    for path in removed_paths {
+        if !workspaces_reference_path(&remaining, &path) {
+            history_watch_manager.force_stop_project(path);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -79,9 +105,21 @@ pub fn remove_workspace_project(
     workspace_name: String,
     project_id: String,
     service: State<'_, Arc<WorkspaceService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
 ) -> AppResult<()> {
     debug!(workspace_name = %workspace_name, project_id = %project_id, "cmd::remove_workspace_project");
-    Ok(service.remove_project(&workspace_name, &project_id)?)
+    let project_path = service
+        .get_workspace(&workspace_name)?
+        .projects
+        .into_iter()
+        .find(|project| project.id == project_id)
+        .map(|project| project.path)
+        .ok_or_else(|| format!("Project '{}' does not exist", project_id))?;
+    service.remove_project(&workspace_name, &project_id)?;
+    if !workspaces_reference_path(&service.list_workspaces()?, &project_path) {
+        history_watch_manager.force_stop_project(project_path);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -172,15 +210,23 @@ pub async fn preview_workspace_migration(
 pub async fn execute_workspace_migration(
     request: WorkspaceMigrationRequest,
     service: State<'_, Arc<WorkspaceService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
 ) -> AppResult<WorkspaceMigrationResult> {
     debug!(workspace = %request.workspace_name, "cmd::execute_workspace_migration");
     let svc = service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || svc.execute_workspace_migration(&request))
-        .await
-        .map_err(|e| {
-            crate::utils::AppError::from(format!("Failed to execute workspace migration: {}", e))
-        })?
-        .map_err(Into::into)
+    let result =
+        tauri::async_runtime::spawn_blocking(move || svc.execute_workspace_migration(&request))
+            .await
+            .map_err(|e| {
+                crate::utils::AppError::from(format!(
+                    "Failed to execute workspace migration: {}",
+                    e
+                ))
+            })??;
+    for item in &result.plan.items {
+        history_watch_manager.force_stop_project(&item.source_path);
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -224,6 +270,7 @@ pub async fn preview_project_migration(
 pub async fn execute_project_migration(
     request: ProjectMigrationRequest,
     service: State<'_, Arc<WorkspaceService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
 ) -> AppResult<ProjectMigrationResult> {
     debug!(
         workspace = %request.workspace_name,
@@ -231,12 +278,30 @@ pub async fn execute_project_migration(
         "cmd::execute_project_migration"
     );
     let svc = service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || svc.execute_project_migration(&request))
-        .await
-        .map_err(|e| {
-            crate::utils::AppError::from(format!("Failed to execute project migration: {}", e))
-        })?
-        .map_err(Into::into)
+    let result =
+        tauri::async_runtime::spawn_blocking(move || svc.execute_project_migration(&request))
+            .await
+            .map_err(|e| {
+                crate::utils::AppError::from(format!("Failed to execute project migration: {}", e))
+            })??;
+    history_watch_manager.force_stop_project(&result.plan.source_path);
+    Ok(result)
+}
+
+fn workspaces_reference_path(workspaces: &[Workspace], path: &str) -> bool {
+    workspaces.iter().any(|workspace| {
+        workspace
+            .projects
+            .iter()
+            .any(|project| paths_equivalent(&project.path, path))
+    })
+}
+
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    let path = normalize_project_path(path);
+    let root = normalize_project_path(root);
+    path.ancestors()
+        .any(|ancestor| paths_equivalent(ancestor, &root))
 }
 
 #[tauri::command]
@@ -259,4 +324,55 @@ pub async fn rollback_project_migration(
         crate::utils::AppError::from(format!("Failed to rollback project migration: {}", e))
     })?
     .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{path_is_within, workspaces_reference_path};
+    use crate::models::{Workspace, WorkspaceProject};
+    use std::path::Path;
+
+    fn workspace(name: &str, paths: &[&str]) -> Workspace {
+        let mut workspace = Workspace::new(name.to_string(), None);
+        workspace.projects = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| WorkspaceProject {
+                id: format!("p-{index}"),
+                path: (*path).to_string(),
+                alias: None,
+                launch_profile_id: None,
+                wsl_remote_path: None,
+                ssh: None,
+            })
+            .collect();
+        workspace
+    }
+
+    #[test]
+    fn workspace_reference_check_uses_shared_path_equivalence() {
+        let workspaces = vec![
+            workspace("a", &["D:/Code/App"]),
+            workspace("b", &["/tmp/b"]),
+        ];
+
+        assert!(workspaces_reference_path(&workspaces, r"d:\code\app\"));
+        assert!(!workspaces_reference_path(&workspaces, r"D:\Code\Other"));
+    }
+
+    #[test]
+    fn path_prefix_check_is_component_aware() {
+        assert!(path_is_within(
+            Path::new("/data/workspaces/old/project"),
+            Path::new("/data/workspaces/old")
+        ));
+        assert!(path_is_within(
+            Path::new("/data/workspaces/old"),
+            Path::new("/data/workspaces/old")
+        ));
+        assert!(!path_is_within(
+            Path::new("/data/workspaces/old-copy/project"),
+            Path::new("/data/workspaces/old")
+        ));
+    }
 }

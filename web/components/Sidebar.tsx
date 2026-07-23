@@ -1,8 +1,8 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { handleErrorSilent, isTauriRuntime, waitForTauri } from "@/utils";
+import { isTauriRuntime, waitForTauri } from "@/utils";
 import { useWorkspacesStore, useProvidersStore, useSshMachinesStore } from "@/stores";
 import type { ActivityView } from "@/stores/useActivityBarStore";
-import { historyService, localHistoryService } from "@/services";
+import { historyService } from "@/services";
 import ExplorerView from "@/components/sidebar/ExplorerView";
 import WorkspaceEnvironmentPanel from "@/components/sidebar/WorkspaceEnvironmentPanel";
 import SessionsView from "@/components/sidebar/SessionsView";
@@ -94,13 +94,6 @@ export default function Sidebar({
       historyService.list(1).catch(() => {}); // warm up
       loadProviders();
       loadSshMachines().catch(() => {});
-      // 应用启动时为所有工作空间项目恢复 history watcher（幂等）
-      const allWorkspaces = useWorkspacesStore.getState().workspaces;
-      for (const ws of allWorkspaces) {
-        for (const project of ws.projects) {
-          localHistoryService.initProjectHistory(project.path).catch((e) => handleErrorSilent(e, "init project history"));
-        }
-      }
     });
   }, [loadProviders, loadSshMachines, loadWorkspaces]);
 

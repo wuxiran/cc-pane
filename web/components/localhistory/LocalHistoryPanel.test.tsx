@@ -4,8 +4,16 @@ import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import LocalHistoryPanel from "./LocalHistoryPanel";
-import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
-import type { DiffResult, FileVersion, RecentChange } from "@/services";
+import {
+  mockTauriInvoke,
+  resetTauriInvoke,
+} from "@/test/utils/mockTauriInvoke";
+import type {
+  DiffResult,
+  FileVersion,
+  RecentChange,
+  WorktreeRecentChange,
+} from "@/services";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -49,7 +57,13 @@ const DIFF: DiffResult = {
       newStart: 1,
       newCount: 2,
       lines: [
-        { changeType: "insert", content: "added line", oldLineNo: null, newLineNo: 2, inlineChanges: null },
+        {
+          changeType: "insert",
+          content: "added line",
+          oldLineNo: null,
+          newLineNo: 2,
+          inlineChanges: null,
+        },
       ],
     },
   ],
@@ -83,38 +97,79 @@ describe("LocalHistoryPanel", () => {
 
   it("open 为 false 时不渲染对话框", () => {
     setup();
-    render(<LocalHistoryPanel open={false} onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
-    expect(screen.queryByText(/文件历史|File History/i)).not.toBeInTheDocument();
+    render(
+      <LocalHistoryPanel
+        open={false}
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
+    expect(
+      screen.queryByText(/文件历史|File History/i),
+    ).not.toBeInTheDocument();
   });
 
   it("filePath 模式下加载版本列表并展示工具栏与空预览占位", async () => {
     setup();
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
 
     // 工具栏按钮
-    expect(await screen.findByRole("button", { name: /差异|Diff/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /完整内容|Full Content/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /差异|Diff/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /完整内容|Full Content/i }),
+    ).toBeInTheDocument();
 
     // 版本行（相对时间）
     expect(await screen.findByText("刚刚")).toBeInTheDocument();
     expect(screen.getByText("10 分钟前")).toBeInTheDocument();
 
     // 未选中版本 → 预览占位
-    expect(screen.getByText(/选择一个版本查看内容|Select a version/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/选择一个版本查看内容|Select a version/i),
+    ).toBeInTheDocument();
 
-    expect(invoke).toHaveBeenCalledWith("list_file_versions", { projectPath: PROJECT, filePath: FILE });
+    expect(invoke).toHaveBeenCalledWith("list_file_versions", {
+      projectPath: PROJECT,
+      filePath: FILE,
+    });
   });
 
   it("版本列表为空时展示无历史提示", async () => {
     setup({ list_file_versions: [] });
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
-    expect(await screen.findByText(/暂无历史版本|No history/i)).toBeInTheDocument();
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
+    expect(
+      await screen.findByText(/暂无历史版本|No history/i),
+    ).toBeInTheDocument();
   });
 
   it("选中较新版本时与前一版本比较，调用 get_versions_diff 并渲染 diff 统计", async () => {
     const user = userEvent.setup();
     setup();
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
 
     await user.click(await screen.findByText("刚刚"));
 
@@ -135,7 +190,14 @@ describe("LocalHistoryPanel", () => {
   it("选中最早版本时回退为与当前磁盘文件比较（get_version_diff）", async () => {
     const user = userEvent.setup();
     setup();
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
 
     await user.click(await screen.findByText("10 分钟前"));
 
@@ -152,9 +214,18 @@ describe("LocalHistoryPanel", () => {
   it("完整内容模式下选中版本会加载并展示版本内容", async () => {
     const user = userEvent.setup();
     setup();
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
 
-    await user.click(await screen.findByRole("button", { name: /完整内容|Full Content/i }));
+    await user.click(
+      await screen.findByRole("button", { name: /完整内容|Full Content/i }),
+    );
     await user.click(await screen.findByText("刚刚"));
 
     await waitFor(() =>
@@ -183,7 +254,11 @@ describe("LocalHistoryPanel", () => {
     );
 
     await user.click(await screen.findByText("刚刚"));
-    await user.click(await screen.findByRole("button", { name: /恢复此版本|Restore this version/i }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: /恢复此版本|Restore this version/i,
+      }),
+    );
 
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("restore_file_version", {
@@ -199,7 +274,14 @@ describe("LocalHistoryPanel", () => {
   it("右键版本可打开添加标签对话框并提交标签（put_label）", async () => {
     const user = userEvent.setup();
     setup();
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
 
     fireEvent.contextMenu(await screen.findByText("刚刚"));
 
@@ -220,24 +302,51 @@ describe("LocalHistoryPanel", () => {
 
   it("切换到已删除视图时加载并展示已删除文件", async () => {
     const user = userEvent.setup();
-    const deleted: FileVersion = { ...V_OLD, id: "d1", filePath: "src/gone.ts", isDeleted: true };
+    const deleted: FileVersion = {
+      ...V_OLD,
+      id: "d1",
+      filePath: "src/gone.ts",
+      isDeleted: true,
+    };
     setup({ list_deleted_files: [deleted] });
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
 
-    await user.click(await screen.findByRole("button", { name: /已删除|Deleted/i }));
+    await user.click(
+      await screen.findByRole("button", { name: /已删除|Deleted/i }),
+    );
 
     expect(await screen.findByText("src/gone.ts")).toBeInTheDocument();
-    expect(invoke).toHaveBeenCalledWith("list_deleted_files", { projectPath: PROJECT });
+    expect(invoke).toHaveBeenCalledWith("list_deleted_files", {
+      projectPath: PROJECT,
+    });
   });
 
   it("切换到项目恢复视图且无标签时展示空快照提示", async () => {
     const user = userEvent.setup();
     setup({ list_labels: [] });
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} filePath={FILE} />);
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        filePath={FILE}
+      />,
+    );
 
-    await user.click(await screen.findByRole("button", { name: /项目恢复|Project Restore/i }));
+    await user.click(
+      await screen.findByRole("button", { name: /项目恢复|Project Restore/i }),
+    );
 
-    expect(await screen.findByText(/暂无快照标签|No snapshot/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/暂无快照标签|No snapshot/i),
+    ).toBeInTheDocument();
   });
 
   it("未提供 filePath 时进入文件列表模式，点击文件进入版本视图", async () => {
@@ -252,20 +361,104 @@ describe("LocalHistoryPanel", () => {
       branch: "",
     };
     setup({ get_recent_changes: [change] });
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} />);
+    render(
+      <LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} />,
+    );
 
     // getFileName("src/main.ts") → "main.ts"
     const fileRow = await screen.findByText("main.ts");
     await user.click(fileRow);
 
     // 进入版本视图后工具栏出现
-    expect(await screen.findByRole("button", { name: /差异|Diff/i })).toBeInTheDocument();
-    expect(invoke).toHaveBeenCalledWith("get_recent_changes", { projectPath: PROJECT, limit: 200 });
+    expect(
+      await screen.findByRole("button", { name: /差异|Diff/i }),
+    ).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("get_recent_changes", {
+      projectPath: PROJECT,
+      limit: 200,
+    });
   });
 
   it("文件列表为空时展示无文件历史提示", async () => {
     setup({ get_recent_changes: [] });
-    render(<LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} />);
-    expect(await screen.findByText(/暂无文件历史记录|No file history/i)).toBeInTheDocument();
+    render(
+      <LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} />,
+    );
+    expect(
+      await screen.findByText(/暂无文件历史记录|No file history/i),
+    ).toBeInTheDocument();
+  });
+
+  it("切换项目时重新加载对应项目的文件列表", async () => {
+    setup({ get_recent_changes: [] });
+    const { rerender } = render(
+      <LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} />,
+    );
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("get_recent_changes", {
+        projectPath: PROJECT,
+        limit: 200,
+      }),
+    );
+
+    rerender(
+      <LocalHistoryPanel open onOpenChange={vi.fn()} projectPath="D:/other" />,
+    );
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("get_recent_changes", {
+        projectPath: "D:/other",
+        limit: 200,
+      }),
+    );
+  });
+
+  it("跨 worktree 文件使用分组路径打开历史", async () => {
+    const user = userEvent.setup();
+    const onOpenFileHistory = vi.fn();
+    const worktreeChanges: WorktreeRecentChange[] = [
+      {
+        worktreePath: "D:/proj-feature",
+        worktreeBranch: "feature/history",
+        isMain: false,
+        change: {
+          filePath: "src/worktree.ts",
+          versionId: "wt-v1",
+          timestamp: iso(0),
+          size: 128,
+          hash: "wt-hash",
+          labelName: null,
+          branch: "feature/history",
+        },
+      },
+    ];
+    setup({
+      get_recent_changes: [],
+      list_worktree_recent_changes: worktreeChanges,
+    });
+    render(
+      <LocalHistoryPanel
+        open
+        onOpenChange={vi.fn()}
+        projectPath={PROJECT}
+        onOpenFileHistory={onOpenFileHistory}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /查看所有 Worktree 的变更|View all Worktree changes/i,
+      }),
+    );
+    await user.click(await screen.findByText("worktree.ts"));
+
+    expect(invoke).toHaveBeenCalledWith("list_worktree_recent_changes", {
+      projectPath: PROJECT,
+      limit: 200,
+    });
+    expect(onOpenFileHistory).toHaveBeenCalledWith(
+      "src/worktree.ts",
+      "D:/proj-feature",
+    );
   });
 });

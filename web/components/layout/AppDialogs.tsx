@@ -47,6 +47,9 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
         onOpenChange={(open) => open ? useDialogStore.getState().openLocalHistory(localHistoryProjectPath, localHistoryFilePath) : useDialogStore.getState().closeLocalHistory()}
         projectPath={localHistoryProjectPath}
         filePath={localHistoryFilePath}
+        onOpenFileHistory={(filePath, worktreePath) => {
+          useDialogStore.getState().openLocalHistory(worktreePath || localHistoryProjectPath, filePath);
+        }}
       />
       <SessionCleanerPanel
         open={sessionCleanerOpen}
