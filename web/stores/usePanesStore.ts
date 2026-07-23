@@ -29,6 +29,7 @@ import type {
   LayoutSnapshotPayload,
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
+import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 
 // 生成唯一 ID
 function generateId(prefix: string): string {
@@ -959,6 +960,8 @@ interface PanesState {
   bindLayoutWorkspace: (layoutId: string, workspaceName: string) => void;
   /** 解除手动绑定（不影响按标签推导的 derived 绑定） */
   unbindLayoutWorkspace: (layoutId: string) => void;
+  /** 布局无手动绑定时，把当前布局树内首个终端 tab 的 workspaceName 固化为持久绑定 */
+  autoBindLayoutWorkspaceFromTabs: () => void;
 
   // Pane layout
   split: (paneId: string, direction: SplitDirection) => void;
@@ -1267,6 +1270,18 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
+    autoBindLayoutWorkspaceFromTabs: () => {
+      set((state) => {
+        const layout = state.layouts.find((item) => item.id === state.currentLayoutId);
+        if (!layout || isStarredLayout(layout) || layout.workspaceName?.trim()) return;
+        const binding = getLayoutWorkspaceBinding({
+          workspaceName: undefined,
+          rootPane: state.rootPane,
+        });
+        if (binding) layout.workspaceName = binding.workspaceName;
+      });
+    },
+
     split: (paneId, direction) => {
       const directionMap: Record<SplitDirection, "horizontal" | "vertical"> = {
         right: "horizontal",
@@ -1404,6 +1419,7 @@ export const usePanesStore = create<PanesState>()(
 
         state.activePaneId = newPane.id;
       });
+      get().autoBindLayoutWorkspaceFromTabs();
       notifyTerminalLayoutChanged("pane.split");
     },
 
@@ -1554,6 +1570,7 @@ export const usePanesStore = create<PanesState>()(
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
+      get().autoBindLayoutWorkspaceFromTabs();
     },
 
     togglePinTab: (paneId, tabId) => {
@@ -2244,6 +2261,7 @@ export const usePanesStore = create<PanesState>()(
         }
         state.activePaneId = pane.id;
       });
+      get().autoBindLayoutWorkspaceFromTabs();
       // 打开项目/终端 tab 也要落快照——让手机镜像近实时看到新 tab。
       notifyTerminalLayoutChanged("project.open");
     },

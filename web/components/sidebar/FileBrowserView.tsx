@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { handleError, handleErrorSilent, isTauriRuntime } from "@/utils";
 import {
-  FilePlus, FolderPlus, RefreshCw, ChevronsDownUp, Crosshair, Home,
+  FilePlus, FolderPlus, RefreshCw, ChevronsDownUp, Crosshair, Home, Link, Link2Off,
   ArrowLeft, ArrowRight, ArrowUp,
 } from "lucide-react";
 import { useFileBrowserStore, useWorkspacesStore } from "@/stores";
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useFileBrowserFollow } from "@/hooks/useFileBrowserFollow";
 import {
   Tooltip,
   TooltipContent,
@@ -28,8 +29,11 @@ import {
 
 export default function FileBrowserView() {
   const { t } = useTranslation(["sidebar", "common"]);
+  useFileBrowserFollow();
 
   const currentPath = useFileBrowserStore((s) => s.currentPath);
+  const followTerminal = useFileBrowserStore((s) => s.followTerminal);
+  const setFollowTerminal = useFileBrowserStore((s) => s.setFollowTerminal);
   const navigateTo = useFileBrowserStore((s) => s.navigateTo);
   const goBack = useFileBrowserStore((s) => s.goBack);
   const goForward = useFileBrowserStore((s) => s.goForward);
@@ -53,14 +57,16 @@ export default function FileBrowserView() {
   useEffect(() => {
     if (currentPath) return;
     selfChatService.getAppCwd().then((cwd) => {
-      navigateTo(cwd);
+      if (!useFileBrowserStore.getState().currentPath) navigateTo(cwd);
     }).catch(() => {
       const ws = useWorkspacesStore.getState().selectedWorkspace();
       if (ws?.path) {
-        navigateTo(ws.path);
+        if (!useFileBrowserStore.getState().currentPath) navigateTo(ws.path);
       } else if (isTauriRuntime()) {
         homeDir().then((home) => {
-          if (home) navigateTo(home.replace(/\\/g, "/").replace(/\/+$/, ""));
+          if (home && !useFileBrowserStore.getState().currentPath) {
+            navigateTo(home.replace(/\\/g, "/").replace(/\/+$/, ""));
+          }
         }).catch((e) => handleErrorSilent(e, "get home dir"));
       }
     });
@@ -278,6 +284,25 @@ export default function FileBrowserView() {
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
                 <p>{t("revealActiveFile")}</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label={t("followTerminal")}
+                  aria-pressed={followTerminal}
+                  className="p-1 rounded-md transition-colors hover:bg-[var(--app-hover)] focus:outline-none"
+                  style={{
+                    color: followTerminal ? "var(--app-accent)" : "var(--app-text-secondary)",
+                  }}
+                  onClick={() => setFollowTerminal(!followTerminal)}
+                >
+                  {followTerminal ? <Link size={14} /> : <Link2Off size={14} />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}>
+                <p>{t(followTerminal ? "stopFollowingTerminal" : "followTerminal")}</p>
               </TooltipContent>
             </Tooltip>
           </div>

@@ -204,6 +204,6 @@ export function defaultWorktreeBranch(now: Date = new Date()): string {
 
 /** 分支名 → worktree 目录名（add_worktree 的 name 参数不接受路径分隔符） */
 export function worktreeNameFromBranch(branch: string): string {
-  const name = branch.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
+  const name = branch.replace(/[^\p{L}\p{N}_.-]+/gu, "-").replace(/^-+|-+$/g, "");
   return name || "cc-worktree";
 }

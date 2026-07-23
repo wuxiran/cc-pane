@@ -166,6 +166,8 @@
   "copyFailed": "Copy failed: {{error}}",
   "hookOperationFailed": "Hook operation failed: {{error}}",
   "fileBrowser": "Files",
+  "followTerminal": "Follow Terminal",
+  "stopFollowingTerminal": "Stop Following Terminal",
   "goBack": "Back",
   "goForward": "Forward",
   "goUp": "Up",

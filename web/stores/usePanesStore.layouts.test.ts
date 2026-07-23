@@ -715,6 +715,102 @@ describe("usePanesStore layouts", () => {
     expect(state.layouts.find((l) => l.id === "layout-1")?.workspaceName).toBeUndefined();
   });
 
+  it("openProject 首次落位时自动固化布局工作空间绑定", () => {
+    usePanesStore.getState().openProject({
+      projectId: "proj-a",
+      projectPath: "/tmp/proj-a",
+      workspaceName: "ws-a",
+    });
+
+    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
+      .toBe("ws-a");
+  });
+
+  it("自动绑定不覆盖已有布局绑定", () => {
+    usePanesStore.getState().bindLayoutWorkspace("layout-1", "ws-existing");
+
+    usePanesStore.getState().openProject({
+      projectId: "proj-new",
+      projectPath: "/tmp/proj-new",
+      workspaceName: "ws-new",
+    });
+
+    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
+      .toBe("ws-existing");
+  });
+
+  it("无 workspaceName 时等待后续带工作空间的 tab 再固化", () => {
+    usePanesStore.getState().openProject({
+      projectId: "proj-unbound",
+      projectPath: "/tmp/proj-unbound",
+    });
+    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
+      .toBeUndefined();
+
+    usePanesStore.getState().openProject({
+      projectId: "proj-bound",
+      projectPath: "/tmp/proj-bound",
+      workspaceName: "ws-later",
+    });
+    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
+      .toBe("ws-later");
+  });
+
+  it("星标布局不会自动固化工作空间绑定", () => {
+    const starred = usePanesStore.getState().layouts.find((l) => l.id === "layout-starred")!;
+    const starredRoot = createPanel(createTab("starred", "/tmp/starred", undefined, "ws-starred"));
+    usePanesStore.setState((state) => {
+      state.currentLayoutId = starred.id;
+      state.rootPane = starredRoot;
+      state.activePaneId = starredRoot.id;
+      state.layouts.find((l) => l.id === starred.id)!.rootPane = starredRoot;
+    });
+
+    usePanesStore.getState().autoBindLayoutWorkspaceFromTabs();
+
+    expect(usePanesStore.getState().layouts.find((l) => l.id === starred.id)?.workspaceName)
+      .toBeUndefined();
+  });
+
+  it("addTab 落位后自动固化布局工作空间绑定", () => {
+    const paneId = usePanesStore.getState().activePaneId;
+
+    usePanesStore.getState().addTab(paneId, {
+      projectId: "proj-add",
+      projectPath: "/tmp/proj-add",
+      workspaceName: "ws-add",
+    });
+
+    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
+      .toBe("ws-add");
+  });
+
+  it("openSessionBesidePane 落位后自动固化布局工作空间绑定", () => {
+    const paneId = usePanesStore.getState().activePaneId;
+
+    usePanesStore.getState().openSessionBesidePane(paneId, "right", {
+      projectId: "proj-beside",
+      projectPath: "/tmp/proj-beside",
+      workspaceName: "ws-beside",
+    });
+
+    expect(usePanesStore.getState().layouts.find((l) => l.id === "layout-1")?.workspaceName)
+      .toBe("ws-beside");
+  });
+
+  it("createLayout 后首个 openProject 自动绑定新布局", () => {
+    const layoutId = usePanesStore.getState().createLayout("新布局");
+
+    usePanesStore.getState().openProject({
+      projectId: "proj-created",
+      projectPath: "/tmp/proj-created",
+      workspaceName: "ws-created",
+    });
+
+    expect(usePanesStore.getState().layouts.find((l) => l.id === layoutId)?.workspaceName)
+      .toBe("ws-created");
+  });
+
   it("createLayout / switchLayout 打 lastActiveAt 最近使用时间", () => {
     const before = Date.now();
     const id = usePanesStore.getState().createLayout("绑定测试");

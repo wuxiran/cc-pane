@@ -695,18 +695,38 @@ pub fn rewrite_windows_npm_shim(command: String, args: Vec<String>) -> (String, 
     if let Some(entry) = parse_npm_shim_entry(&path) {
         // 入口是 PE 二进制：PTY 可直接 CreateProcess 拉起，绝不能交给 node。
         if is_pe_binary(&entry) {
-            return (entry.to_string_lossy().into_owned(), args);
+            let effective_command = entry.to_string_lossy().into_owned();
+            tracing::info!(
+                shim = %command,
+                final_command = %effective_command,
+                launch_kind = "native_exe",
+                arg_count = args.len(),
+                "windows npm shim: using native executable entry"
+            );
+            return (effective_command, args);
         }
         // 入口是 JS 脚本：用 node 运行。
         if let Some(node) = node_for_npm_shim(&path) {
+            let effective_command = node.to_string_lossy().into_owned();
             let mut effective_args = vec![entry.to_string_lossy().into_owned()];
             effective_args.extend(args);
-            return (node.to_string_lossy().into_owned(), effective_args);
+            tracing::info!(
+                shim = %command,
+                final_command = %effective_command,
+                entry = %entry.display(),
+                launch_kind = "node_entry",
+                arg_count = effective_args.len(),
+                "windows npm shim: using node entry"
+            );
+            return (effective_command, effective_args);
         }
     }
 
     tracing::warn!(
         command = %command,
+        final_command = "cmd.exe",
+        launch_kind = "cmd_fallback",
+        arg_count = args.len(),
         "windows npm shim: node/entry 解析失败，回退到 cmd.exe /c"
     );
     let mut effective_args = vec!["/c".to_string(), command];

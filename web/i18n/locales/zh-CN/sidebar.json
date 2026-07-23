@@ -166,6 +166,8 @@
   "copyFailed": "复制失败: {{error}}",
   "hookOperationFailed": "Hook 操作失败: {{error}}",
   "fileBrowser": "文件",
+  "followTerminal": "跟随终端",
+  "stopFollowingTerminal": "停止跟随终端",
   "goBack": "后退",
   "goForward": "前进",
   "goUp": "上一级",

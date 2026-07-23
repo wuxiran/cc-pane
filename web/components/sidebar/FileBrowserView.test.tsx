@@ -55,6 +55,7 @@ function resetFileBrowser(currentPath: string, historyIndex = 0) {
     history: currentPath ? [currentPath] : [],
     historyIndex: currentPath ? historyIndex : -1,
     refreshKey: 0,
+    followTerminal: true,
   });
 }
 
@@ -103,6 +104,20 @@ describe("FileBrowserView", () => {
     renderView();
 
     expect(screen.getByTestId("file-tree")).toHaveTextContent("D:/projects/app");
+  });
+
+  it("toggles terminal following from the toolbar", () => {
+    resetFileBrowser("D:/projects/app");
+    renderView();
+
+    const followButton = screen.getByRole("button", { name: tt("sidebar:followTerminal") });
+    expect(followButton).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(followButton);
+
+    expect(useFileBrowserStore.getState().followTerminal).toBe(false);
+    expect(screen.getByRole("button", { name: tt("sidebar:followTerminal") }))
+      .toHaveAttribute("aria-pressed", "false");
   });
 
   it("does not render toolbar buttons when there is no path", () => {
