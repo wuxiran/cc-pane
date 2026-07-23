@@ -1,9 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.10.20 - 2026-07-23
+
+### Added
+
+- **Main-area wallpaper** — set an image or looping video as the background of the panes area, with an optional background music track. Everything is tunable: wallpaper intensity, blur, dim, terminal backdrop opacity (now allowed all the way down to 0 — text floats directly on the video), and a new configurable glass-blur for panels stacked above the wallpaper (default 0, so panels no longer frost the video). Videos can lend their own audio track as the BGM (`use video audio`, played via a separate audio element so autoplay policies and the power-saving pause never freeze the video). Per-workspace overrides cover the **full** parameter set with explicit per-field opt-in — anything not overridden falls back to the global setting, including nested video/music fields. Wallpaper files are copied into the app data dir (`wallpapers/`), validated, and covered by the data-dir migration.
+- ⚠️ **Behavior note**: background music gets its own "pause when unfocused" switch, **default off** — previously the BGM followed the video's pause-on-blur setting (default on). After upgrading, music keeps playing when the window loses focus unless you enable the new switch.
 
 ### Fixed
 
+- **`ProviderType::OpenAI` serialized as `open_a_i`** (serde's snake_case acronym split), breaking the `open_ai` contract used by the frontend, IPC payloads, and CLI adapters — `add_provider` rejected OpenAI providers as an unknown variant. Now canonically `open_ai`, with `open_a_i` still accepted on read for persisted configs. (PR #42, contributed by @luminouA)
 - **Linux (WebKitGTK + Fcitx5): Chinese IME stopped working after copy/paste in the terminal** until the window lost and regained focus. Paste interrupts an in-flight composition and WebKitGTK never delivers the matching `compositionend`, so the IME guard's stale composing flag swallowed every subsequent `insertFromComposition`. The paste/copy cleanup path now resets the guard's composition state alongside the DOM state. (#41)
 - **Windows: the Local History watcher no longer holds a handle on the project root directory** (`ReadDirectoryChangesW`), which prevented external tools from deleting or renaming the watched project folder. Windows now uses a handle-free polling scanner that prunes ignored directories (`node_modules`, `target`, …) during traversal — unlike a naive `PollWatcher`, it never stats the heavy trees, so a scan cycle touches only real source files. Other platforms keep native notifications. (PR #35)
 
