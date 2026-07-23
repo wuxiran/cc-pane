@@ -166,6 +166,7 @@ export default function WorkspaceItem({
       ...getWorkspaceLaunchIssueValues(issue),
       defaultValue: {
         local_path_missing: "Local launch requires a workspace path or a local project.",
+        path_platform_mismatch: "The saved path belongs to another operating system: {{path}}",
         wsl_unsupported: "WSL is only available on Windows.",
         wsl_path_missing: "WSL launch requires a remote path.",
         wsl_local_path_missing: "WSL launch requires a local anchor path or a WSL project.",

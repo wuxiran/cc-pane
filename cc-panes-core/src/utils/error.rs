@@ -99,6 +99,8 @@ impl std::fmt::Display for AppError {
     }
 }
 
+impl std::error::Error for AppError {}
+
 impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
         Self::message_error(None, err.to_string(), None)

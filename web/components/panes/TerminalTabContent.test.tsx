@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Tab } from "@/types";
+import { usePanesStore } from "@/stores";
 import TerminalTabContent from "./TerminalTabContent";
 
 vi.mock("./TerminalView", () => ({
@@ -54,6 +55,42 @@ function renderTerminalTabContent(tab: Tab, options?: { isVisible?: boolean; isA
 }
 
 describe("TerminalTabContent", () => {
+  it("shows a persistent launch error with retry and remove actions", () => {
+    const retryTerminalLaunch = vi.fn();
+    const removeTerminalLaunch = vi.fn();
+    usePanesStore.setState({ retryTerminalLaunch, removeTerminalLaunch } as never);
+    renderTerminalTabContent(
+      createTerminalTab({
+        launchError: {
+          code: "PATH_NOT_FOUND",
+          message: "Launch directory does not exist",
+          params: { path: "/missing/repo" },
+        },
+        terminalRootPane: {
+          type: "leaf",
+          id: "leaf-1",
+          sessionId: null,
+          launchError: {
+            code: "PATH_NOT_FOUND",
+            message: "Launch directory does not exist",
+            params: { path: "/missing/repo" },
+          },
+        },
+      }),
+    );
+
+    expect(screen.getByText("终端启动失败")).toBeVisible();
+    expect(screen.getByText("路径不存在")).toBeVisible();
+    expect(screen.getByText("/missing/repo")).toBeVisible();
+    expect(screen.queryByTestId("terminal-view")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    fireEvent.click(screen.getByRole("button", { name: "移除" }));
+
+    expect(retryTerminalLaunch).toHaveBeenCalledWith("tab-1", "leaf-1");
+    expect(removeTerminalLaunch).toHaveBeenCalledWith("tab-1", "leaf-1");
+  });
+
   it("shows launching overlay for a leaf without a session when a project is already selected", () => {
     renderTerminalTabContent(createTerminalTab());
 

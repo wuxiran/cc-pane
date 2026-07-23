@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tracing::warn;
 
@@ -32,7 +32,7 @@ fn normalize_compare_path(path: &str) -> String {
 /// 统一到 WSL 视角的 POSIX `/mnt/<drive>/...`，让 Windows/UNC 形态的候选能匹配 rollout
 /// 里 POSIX 形态的 `session_meta.cwd`。非 WSL 网络共享、盘符相对路径不强转 `/mnt`，仅做
 /// 保守归一（避免误判）。**无 `#[cfg(windows)]`**：cc-panes-core 跨平台、需在 Linux 跑单测。
-fn normalize_cross_platform_compare_path(path: &str) -> String {
+pub(crate) fn normalize_cross_platform_compare_path(path: &str) -> String {
     let stripped = strip_extended_length_prefix(path);
     let slashed = stripped.replace('\\', "/");
 
@@ -256,8 +256,7 @@ pub fn list_sessions(project_path: &str, limit: usize) -> Result<Vec<CodexSessio
 }
 
 pub fn list_all_sessions(limit: usize) -> Result<Vec<CodexSession>, String> {
-    let home = dirs::home_dir().ok_or_else(|| "Failed to get user home directory".to_string())?;
-    let sessions_root = home.join(".codex").join("sessions");
+    let sessions_root = codex_sessions_root()?;
     if !sessions_root.exists() {
         return Ok(Vec::new());
     }
@@ -267,6 +266,14 @@ pub fn list_all_sessions(limit: usize) -> Result<Vec<CodexSession>, String> {
     sessions.sort_by_key(|session| std::cmp::Reverse(session.modified_at));
     sessions.truncate(limit);
     Ok(sessions)
+}
+
+fn codex_sessions_root() -> Result<PathBuf, String> {
+    if let Some(codex_home) = std::env::var_os("CODEX_HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(codex_home).join("sessions"));
+    }
+    let home = dirs::home_dir().ok_or_else(|| "Failed to get user home directory".to_string())?;
+    Ok(home.join(".codex").join("sessions"))
 }
 
 pub fn read_session_usage(
@@ -456,10 +463,11 @@ else
 fi
 "\$PY_BIN" - <<'PY'
 import json
+import os
 from pathlib import Path
 
 LIMIT = {limit}
-ROOT = Path.home() / ".codex" / "sessions"
+ROOT = (Path(os.environ["CODEX_HOME"]) if os.environ.get("CODEX_HOME") else Path.home() / ".codex") / "sessions"
 
 def should_skip(text: str) -> bool:
     trimmed = text.strip()

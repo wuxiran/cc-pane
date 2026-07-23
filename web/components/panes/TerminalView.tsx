@@ -12,7 +12,8 @@ import { toast } from "sonner";
 import { terminalService, historyService, sessionRestoreService, filesystemService, providerService } from "@/services";
 import { ensureListeners } from "@/services/terminalService";
 import { isTauriRuntime } from "@/services/runtime";
-import { getErrorMessage } from "@/utils";
+import { getErrorMessage, toTerminalLaunchError } from "@/utils";
+import type { TerminalLaunchError } from "@/types";
 import { pickCreateSessionResumeId } from "./terminalResume";
 import { devDebugLog } from "@/utils/devLogger";
 import { captureTerminalWrite, noteTerminalGeometry } from "@/utils/terminalCast";
@@ -344,6 +345,7 @@ interface TerminalViewProps {
   /** Tab id used to clear restoring state after recovery finishes. */
   tabId?: string;
   onRestoreLaunchState?: (state: RestoreLaunchState) => void;
+  onLaunchError?: (error: TerminalLaunchError) => void;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
   /** Optional SSH reconnect callback for disconnected sessions. */
@@ -450,6 +452,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     const onSessionCreatedRef = useRef(props.onSessionCreated);
     const onSessionExitedRef = useRef(props.onSessionExited);
+    const onLaunchErrorRef = useRef(props.onLaunchError);
     const onReconnectRef = useRef(props.onReconnect);
     const debugInstanceIdRef = useRef(`term-${Math.random().toString(36).slice(2, 8)}`);
     const trackedBufferTypeRef = useRef<"unknown" | "normal" | "alternate">("unknown");
@@ -645,6 +648,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     useEffect(() => {
       onSessionCreatedRef.current = props.onSessionCreated;
       onSessionExitedRef.current = props.onSessionExited;
+      onLaunchErrorRef.current = props.onLaunchError;
       onReconnectRef.current = props.onReconnect;
       isActiveRef.current = props.isActive;
       isVisibleRef.current = props.isVisible ?? props.isActive;
@@ -1734,6 +1738,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             if (props.restoring) {
               props.onRestoreLaunchState?.("failed");
             }
+            onLaunchErrorRef.current?.(toTerminalLaunchError(error));
             console.error(
               `[TerminalView] FAILED to init session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, error=`,
               error
@@ -2065,6 +2070,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }
               restoreLaunchStartedRef.current = false;
               props.onRestoreLaunchState?.("failed");
+              onLaunchErrorRef.current?.(toTerminalLaunchError(err));
               logRestoreEvent("activation.create.failed", { error: getErrorMessage(err) });
               console.error("[TerminalView] Deferred restore failed:", err);
               term.writeln(`\x1b[31m--- Failed to restore session: ${getErrorMessage(err)} ---\x1b[0m`);

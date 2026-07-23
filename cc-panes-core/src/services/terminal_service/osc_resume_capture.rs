@@ -17,7 +17,7 @@ use crate::utils::command::no_window_command;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, info, warn};
 
 /// 解析尝试之间的最小间隔（按输出活动节流）
@@ -32,6 +32,7 @@ const MAX_TITLE_LEN: usize = 256;
 /// UUID 前缀最短可信长度（含 4 组：8-4-4-4 = 23 字符）
 const MIN_PREFIX_LEN: usize = 23;
 const FULL_UUID_LEN: usize = 36;
+const ROLLOUT_SCAN_MAX_ATTEMPTS: u32 = 15;
 
 /// 会话启动上下文（emit 事件时回带，供后端落库）
 #[derive(Clone)]
@@ -42,6 +43,9 @@ pub(super) struct OscCaptureContext {
     pub project_path: String,
     pub workspace_path: Option<String>,
     pub wsl_distro: Option<String>,
+    pub rollout_cwds: Vec<String>,
+    pub launch_started_at: SystemTime,
+    pub rollout_fallback: bool,
 }
 
 struct SharedState {
@@ -49,6 +53,8 @@ struct SharedState {
     current_prefix: Mutex<Option<String>>,
     /// 已成功 emit 完整 id
     done: AtomicBool,
+    /// rollout 兜底已 emit 的 id；OSC 后到时仍可覆盖并比较告警。
+    fallback_id: Mutex<Option<String>>,
     /// 有解析线程在跑（避免并发扫描）
     in_flight: AtomicBool,
 }
@@ -66,7 +72,7 @@ pub(super) struct OscResumeCapture {
 
 impl OscResumeCapture {
     pub(super) fn new(ctx: OscCaptureContext, emitter: Arc<dyn EventEmitter>) -> Self {
-        Self {
+        let capture = Self {
             ctx,
             emitter,
             tail: String::new(),
@@ -76,9 +82,12 @@ impl OscResumeCapture {
             shared: Arc::new(SharedState {
                 current_prefix: Mutex::new(None),
                 done: AtomicBool::new(false),
+                fallback_id: Mutex::new(None),
                 in_flight: AtomicBool::new(false),
             }),
-        }
+        };
+        capture.spawn_rollout_fallback();
+        capture
     }
 
     /// 在 PTY 读线程中对每个输出 chunk 调用。开销：done 后仅一次原子读；
@@ -155,7 +164,52 @@ impl OscResumeCapture {
         if self.shared.done.swap(true, Ordering::AcqRel) {
             return;
         }
-        emit_detected(&self.emitter, &self.ctx, full_id);
+        warn_on_source_mismatch(&self.shared, &self.ctx, full_id);
+        emit_detected(&self.emitter, &self.ctx, full_id, "osc-title");
+    }
+
+    fn spawn_rollout_fallback(&self) {
+        if !self.ctx.rollout_fallback || !matches!(self.ctx.runtime_kind.as_str(), "local" | "wsl")
+        {
+            return;
+        }
+        let shared = self.shared.clone();
+        let ctx = self.ctx.clone();
+        let emitter = self.emitter.clone();
+        std::thread::spawn(move || {
+            for attempt in 0..ROLLOUT_SCAN_MAX_ATTEMPTS {
+                if shared.done.load(Ordering::Acquire) {
+                    return;
+                }
+                match detect_rollout_for_context(&ctx) {
+                    Ok(Some(full_id)) => {
+                        if shared.done.load(Ordering::Acquire) {
+                            return;
+                        }
+                        if let Ok(mut fallback_id) = shared.fallback_id.lock() {
+                            *fallback_id = Some(full_id.clone());
+                        }
+                        emit_detected(&emitter, &ctx, &full_id, "rollout-scan");
+                        return;
+                    }
+                    Ok(None) => {}
+                    Err(error) => warn!(
+                        session_id = %ctx.session_id,
+                        attempt,
+                        error = %error,
+                        "rollout-scan: failed to scan Codex sessions"
+                    ),
+                }
+                let delay = if attempt < 4 { 500 } else { 2_000 };
+                std::thread::sleep(Duration::from_millis(delay));
+            }
+            warn!(
+                session_id = %ctx.session_id,
+                runtime_kind = %ctx.runtime_kind,
+                cwds = ?ctx.rollout_cwds,
+                "rollout-scan: exhausted attempts without detecting Codex session id"
+            );
+        });
     }
 
     fn spawn_resolver(&self) {
@@ -190,7 +244,8 @@ impl OscResumeCapture {
                         .map(|current| full_id.starts_with(&current))
                         .unwrap_or(false);
                     if still_current && !shared.done.swap(true, Ordering::AcqRel) {
-                        emit_detected(&emitter, &ctx, &full_id);
+                        warn_on_source_mismatch(&shared, &ctx, &full_id);
+                        emit_detected(&emitter, &ctx, &full_id, "osc-title");
                     }
                 }
                 Ok(None) => {
@@ -215,18 +270,40 @@ impl OscResumeCapture {
     }
 }
 
-fn emit_detected(emitter: &Arc<dyn EventEmitter>, ctx: &OscCaptureContext, full_id: &str) {
+fn warn_on_source_mismatch(shared: &SharedState, ctx: &OscCaptureContext, osc_id: &str) {
+    let fallback_id = shared
+        .fallback_id
+        .lock()
+        .ok()
+        .and_then(|value| value.clone());
+    if let Some(fallback_id) = fallback_id.filter(|value| value != osc_id) {
+        warn!(
+            session_id = %ctx.session_id,
+            osc_resume_session_id = %osc_id,
+            rollout_resume_session_id = %fallback_id,
+            "Codex resume sources disagreed; keeping osc-title binding"
+        );
+    }
+}
+
+fn emit_detected(
+    emitter: &Arc<dyn EventEmitter>,
+    ctx: &OscCaptureContext,
+    full_id: &str,
+    source: &str,
+) {
     info!(
         session_id = %ctx.session_id,
         resume_session_id = %full_id,
-        "osc-capture: codex thread id resolved from terminal title"
+        source,
+        "Codex resume id detected"
     );
     let _ = emitter.emit(
         EV::TERMINAL_RESUME_ID_DETECTED,
         serde_json::json!({
             "sessionId": ctx.session_id,
             "resumeSessionId": full_id,
-            "source": "osc-title",
+            "source": source,
             "cliTool": "codex",
             "runtimeKind": ctx.runtime_kind,
             "launchId": ctx.launch_id,
@@ -235,6 +312,98 @@ fn emit_detected(emitter: &Arc<dyn EventEmitter>, ctx: &OscCaptureContext, full_
             "wslDistro": ctx.wsl_distro,
         }),
     );
+}
+
+fn detect_rollout_for_context(ctx: &OscCaptureContext) -> Result<Option<String>, String> {
+    if ctx.rollout_cwds.is_empty() {
+        return Ok(None);
+    }
+    if ctx.runtime_kind == "wsl" {
+        let paths = ctx
+            .rollout_cwds
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        return crate::services::codex_session_service::detect_wsl_session(
+            &paths,
+            chrono::DateTime::<chrono::Utc>::from(ctx.launch_started_at),
+            ctx.wsl_distro.as_deref(),
+        );
+    }
+    find_rollout_for_cwd(
+        &codex_sessions_root()?,
+        &ctx.rollout_cwds,
+        ctx.launch_started_at,
+    )
+}
+
+fn find_rollout_for_cwd(
+    root: &Path,
+    candidate_cwds: &[String],
+    launch_started_at: SystemTime,
+) -> Result<Option<String>, String> {
+    if !root.is_dir() {
+        return Ok(None);
+    }
+    let targets = candidate_cwds
+        .iter()
+        .map(|path| {
+            crate::services::codex_session_service::normalize_cross_platform_compare_path(path)
+        })
+        .collect::<Vec<_>>();
+    let cutoff = launch_started_at
+        .checked_sub(Duration::from_secs(1))
+        .unwrap_or(launch_started_at);
+    let mut stack = vec![(root.to_path_buf(), 0usize)];
+    let mut latest: Option<(SystemTime, String)> = None;
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > 4 {
+            continue;
+        }
+        let entries = std::fs::read_dir(&dir)
+            .map_err(|error| format!("read {} failed: {error}", dir.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push((path, depth + 1));
+                continue;
+            }
+            if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let metadata = match entry.metadata() {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            let created_at = metadata.created().or_else(|_| metadata.modified()).ok();
+            let Some(created_at) = created_at.filter(|timestamp| *timestamp >= cutoff) else {
+                continue;
+            };
+            let Some((id, cwd)) = crate::services::codex_session_service::read_session_meta(&path)
+            else {
+                continue;
+            };
+            let filename_matches = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .is_some_and(|name| name.contains(&id));
+            let cwd_matches = targets.contains(
+                &crate::services::codex_session_service::normalize_cross_platform_compare_path(
+                    &cwd,
+                ),
+            );
+            if !filename_matches || !is_uuid_shaped(&id) || !cwd_matches {
+                continue;
+            }
+            if latest
+                .as_ref()
+                .is_none_or(|(latest_at, _)| created_at > *latest_at)
+            {
+                latest = Some((created_at, id));
+            }
+        }
+    }
+    Ok(latest.map(|(_, id)| id))
 }
 
 /// 从输出流中提取**最后一条** OSC 0/2 标题里的 UUID（前缀）。
@@ -313,15 +482,32 @@ fn is_uuid_shaped(run: &str) -> bool {
 
 /// 本地：扫 ~/.codex/sessions/YYYY/MM/DD 下的 rollout 文件名做前缀匹配
 fn resolve_full_id_local(prefix: &str) -> Result<Option<String>, String> {
-    let root = dirs::home_dir()
-        .ok_or_else(|| "home dir not found".to_string())?
-        .join(".codex")
-        .join("sessions");
+    let root = codex_sessions_root()?;
     if !root.exists() {
         return Ok(None);
     }
     let mut visited = 0usize;
     Ok(find_in_dir(&root, prefix, 0, &mut visited))
+}
+
+fn codex_sessions_root() -> Result<PathBuf, String> {
+    codex_sessions_root_from(
+        std::env::var_os("CODEX_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
+        dirs::home_dir(),
+    )
+}
+
+fn codex_sessions_root_from(
+    codex_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Result<PathBuf, String> {
+    if let Some(codex_home) = codex_home {
+        return Ok(codex_home.join("sessions"));
+    }
+    home.map(|path| path.join(".codex").join("sessions"))
+        .ok_or_else(|| "home dir not found".to_string())
 }
 
 fn find_in_dir(dir: &Path, prefix: &str, depth: usize, visited: &mut usize) -> Option<String> {
@@ -358,8 +544,9 @@ fn resolve_full_id_wsl(prefix: &str, distro: Option<&str>) -> Result<Option<Stri
     if let Some(distro) = distro.filter(|d| !d.trim().is_empty()) {
         command.arg("-d").arg(distro);
     }
-    let script =
-        format!("find ~/.codex/sessions -name '*{prefix}*.jsonl' -print 2>/dev/null | head -n 1");
+    let script = format!(
+        "root=\"${{CODEX_HOME:-$HOME/.codex}}/sessions\"; find \"$root\" -name '*{prefix}*.jsonl' -print 2>/dev/null | head -n 1"
+    );
     command.arg("--").arg("bash").arg("-lc").arg(&script);
     let output = command
         .output()
@@ -379,6 +566,25 @@ fn resolve_full_id_wsl(prefix: &str, distro: Option<&str>) -> Result<Option<Stri
     }
     let name = line.rsplit('/').next().unwrap_or(line);
     Ok(extract_full_id_from_filename(name, prefix))
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(super) fn emit_resume_downgrade_warning(
+    emitter: &Arc<dyn EventEmitter>,
+    session_id: &str,
+    resume_id: &str,
+    runtime_kind: &str,
+) {
+    let _ = emitter.emit(
+        EV::TERMINAL_LAUNCH_WARNING,
+        serde_json::json!({
+            "kind": "codexResumeTargetMissing",
+            "sessionId": session_id,
+            "resumeId": resume_id,
+            "cliTool": "codex",
+            "runtimeKind": runtime_kind,
+        }),
+    );
 }
 
 /// resume 前预检：codex 会话库 `~/.codex/sessions` 里是否存在该完整 thread/session id 的 rollout 文件。
@@ -419,6 +625,25 @@ fn extract_full_id_from_filename(name: &str, prefix: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::EventEmitter;
+    use serde_json::Value;
+    use std::sync::Mutex;
+    use std::time::{Duration, SystemTime};
+
+    #[derive(Default)]
+    struct RecordingEmitter {
+        events: Mutex<Vec<(String, Value)>>,
+    }
+
+    impl EventEmitter for RecordingEmitter {
+        fn emit(&self, event: &str, payload: Value) -> anyhow::Result<()> {
+            self.events
+                .lock()
+                .expect("events lock")
+                .push((event.to_string(), payload));
+            Ok(())
+        }
+    }
 
     #[test]
     fn extracts_truncated_uuid_prefix_from_osc_title() {
@@ -426,6 +651,15 @@ mod tests {
         assert_eq!(
             extract_last_title_uuid_prefix(data).as_deref(),
             Some("019eb24f-f78f-7c63-baba-b70f8")
+        );
+    }
+
+    #[test]
+    fn extracts_codex_v0145_observed_title_sample() {
+        let data = "\u{1b}]0;tmp | 019f9057-c7cf-7f73-9fa9-44ae2...\u{7}";
+        assert_eq!(
+            extract_last_title_uuid_prefix(data).as_deref(),
+            Some("019f9057-c7cf-7f73-9fa9-44ae2")
         );
     }
 
@@ -493,5 +727,57 @@ mod tests {
             codex_rollout_exists("019eb24ff78f7c63babab70f8aabbccd0000ab", Some("Ubuntu")),
             Some(false)
         );
+    }
+
+    #[test]
+    fn codex_sessions_root_prefers_explicit_codex_home() {
+        let root = codex_sessions_root_from(
+            Some(PathBuf::from("/custom/codex-home")),
+            Some(PathBuf::from("/home/tester")),
+        )
+        .expect("sessions root");
+        assert_eq!(root, PathBuf::from("/custom/codex-home/sessions"));
+    }
+
+    #[test]
+    fn rollout_scan_matches_launch_time_and_session_meta_cwd() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let sessions = temp.path().join("sessions/2026/07/24");
+        std::fs::create_dir_all(&sessions).expect("sessions dir");
+        let id = "019f9057-c7cf-7f73-9fa9-44ae21234567";
+        let rollout = sessions.join(format!("rollout-2026-07-24T12-00-00-{id}.jsonl"));
+        std::fs::write(
+            &rollout,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{id}\",\"cwd\":\"/work/target\"}}}}\n"
+            ),
+        )
+        .expect("rollout");
+
+        let found = find_rollout_for_cwd(
+            &temp.path().join("sessions"),
+            &["/work/target".to_string()],
+            SystemTime::now() - Duration::from_secs(2),
+        )
+        .expect("scan");
+
+        assert_eq!(found.as_deref(), Some(id));
+    }
+
+    #[test]
+    fn resume_downgrade_emits_frontend_warning_event() {
+        let emitter = Arc::new(RecordingEmitter::default());
+        emit_resume_downgrade_warning(
+            &(emitter.clone() as Arc<dyn EventEmitter>),
+            "pty-1",
+            "019f9057-c7cf-7f73-9fa9-44ae21234567",
+            "wsl",
+        );
+
+        let events = emitter.events.lock().expect("events lock");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, EV::TERMINAL_LAUNCH_WARNING);
+        assert_eq!(events[0].1["kind"], "codexResumeTargetMissing");
+        assert_eq!(events[0].1["sessionId"], "pty-1");
     }
 }

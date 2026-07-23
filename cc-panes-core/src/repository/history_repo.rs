@@ -303,7 +303,11 @@ impl HistoryRepository {
             .execute(
                 "UPDATE launch_history
                  SET resume_session_id = ?1, resume_source = ?2
-                 WHERE pty_session_id = ?3",
+                 WHERE id = (
+                     SELECT id FROM launch_history
+                     WHERE pty_session_id = ?3
+                     ORDER BY launched_at DESC LIMIT 1
+                 )",
                 rusqlite::params![resume_session_id, source, pty_session_id],
             )
             .map_err(|e| {
@@ -321,6 +325,49 @@ impl HistoryRepository {
             )
             .map_err(|e| {
                 error!(table = "launch_history", pty_session_id = %pty_session_id, err = %e, "SQL query updated resume record failed");
+                e.to_string()
+            })?;
+        Ok(Some(id))
+    }
+
+    /// 将创建完成的 PTY 精确归属到对应 launch 记录。CLI 必须匹配，避免并发启动或
+    /// 错误事件把 Codex PTY 绑定到 Claude 记录。
+    pub fn bind_pty_session(
+        &self,
+        launch_id: &str,
+        pty_session_id: &str,
+        cli_tool: &str,
+    ) -> Result<Option<i64>, String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        let affected = conn
+            .execute(
+                "UPDATE launch_history
+                 SET pty_session_id = ?1
+                 WHERE id = (
+                     SELECT id FROM launch_history
+                     WHERE project_id = ?2 AND cli_tool = ?3
+                       AND (pty_session_id IS NULL OR pty_session_id = ?1)
+                     ORDER BY launched_at DESC LIMIT 1
+                 )",
+                rusqlite::params![pty_session_id, launch_id, cli_tool],
+            )
+            .map_err(|e| {
+                error!(table = "launch_history", launch_id = %launch_id, pty_session_id = %pty_session_id, cli_tool = %cli_tool, err = %e, "SQL bind_pty_session failed");
+                e.to_string()
+            })?;
+        if affected == 0 {
+            return Ok(None);
+        }
+        let id = conn
+            .query_row(
+                "SELECT id FROM launch_history
+                 WHERE project_id = ?1 AND pty_session_id = ?2 AND cli_tool = ?3
+                 ORDER BY launched_at DESC LIMIT 1",
+                rusqlite::params![launch_id, pty_session_id, cli_tool],
+                |row| row.get(0),
+            )
+            .map_err(|e| {
+                error!(table = "launch_history", launch_id = %launch_id, pty_session_id = %pty_session_id, err = %e, "SQL query bound PTY record failed");
                 e.to_string()
             })?;
         Ok(Some(id))

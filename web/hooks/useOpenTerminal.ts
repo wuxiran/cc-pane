@@ -5,6 +5,8 @@ import { usePanesStore, useDialogStore, useSettingsStore } from "@/stores";
 import { historyService, localHistoryService } from "@/services";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
 import { findLayoutForWorkspace } from "@/utils/layoutWorkspace";
+import { classifyTerminalLaunchPath, translateError } from "@/utils";
+import { toast } from "sonner";
 import type { LaunchExtras, OpenTerminalOptions } from "@/types";
 
 /** 从 OpenTerminalOptions 收拢启动器附加参数；全部缺省时返回 undefined */
@@ -31,6 +33,11 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
   const handleOpenTerminal = useCallback(
     (opts: OpenTerminalOptions) => {
       const { path, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, resumeId, ssh, wsl, machineName } = opts;
+      const pathError = classifyTerminalLaunchPath(opts);
+      if (pathError) {
+        toast.error(translateError(pathError));
+        return;
+      }
       // 兼容：如果有 resumeId 但没有指定 cliTool，跟随全局默认设置
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
       const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);

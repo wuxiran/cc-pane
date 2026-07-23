@@ -104,6 +104,7 @@ function getIssueMessage(
     ...getWorkspaceLaunchIssueValues(issue),
     defaultValue: {
       "local_path_missing": "本机环境需要先设置工作空间路径。",
+      "path_platform_mismatch": "保存的路径属于其他操作系统：{{path}}",
       "wsl_unsupported": "当前平台不支持 WSL。",
       "wsl_path_missing": "WSL 环境需要填写远端路径。",
       "wsl_local_path_missing": "WSL 环境需要先设置本机工作空间路径。",

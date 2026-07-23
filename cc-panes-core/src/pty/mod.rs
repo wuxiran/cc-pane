@@ -3,7 +3,7 @@
 //! 提供统一的 `spawn_pty()` 入口，Windows/macOS/Linux 均使用 portable-pty。
 //! portable-pty 在 Windows 上内部使用 ConPTY，无需自研绑定。
 
-use crate::utils::simplify_path;
+use crate::utils::{simplify_path, validate_spawn_cwd};
 use anyhow::{anyhow, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
@@ -131,6 +131,7 @@ impl PtyProcess for PortablePtyProcess {
 
 /// 创建 PTY 进程（全平台统一入口）
 pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
+    validate_spawn_cwd(&config.cwd).map_err(anyhow::Error::new)?;
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: config.rows,
@@ -202,7 +203,57 @@ fn env_remove_keys(mut env_remove: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::env_remove_keys;
+    use super::{env_remove_keys, spawn_pty, PtyConfig};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn invalid_cwd_config(cwd: PathBuf) -> PtyConfig {
+        PtyConfig {
+            cols: 80,
+            rows: 24,
+            cwd,
+            command: String::new(),
+            args: Vec::new(),
+            env: HashMap::new(),
+            env_remove: Vec::new(),
+        }
+    }
+
+    fn temp_test_path(kind: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "cc-panes-spawn-pty-{kind}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn spawn_pty_rejects_missing_cwd_before_portable_pty_fallback() {
+        let path = temp_test_path("missing");
+        let error = match spawn_pty(invalid_cwd_config(path)) {
+            Ok(_) => panic!("missing cwd must fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("PATH_NOT_FOUND"));
+    }
+
+    #[test]
+    fn spawn_pty_rejects_file_cwd_before_portable_pty_fallback() {
+        let path = temp_test_path("file");
+        std::fs::write(&path, b"not a directory").expect("create test file");
+
+        let error = match spawn_pty(invalid_cwd_config(path.clone())) {
+            Ok(_) => panic!("file cwd must fail"),
+            Err(error) => error,
+        };
+        std::fs::remove_file(path).expect("remove test file");
+
+        assert!(error.to_string().contains("PATH_NOT_DIRECTORY"));
+    }
 
     #[test]
     fn env_remove_keys_adds_no_color_once() {

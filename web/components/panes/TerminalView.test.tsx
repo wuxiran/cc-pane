@@ -404,6 +404,23 @@ describe("TerminalView", () => {
     );
   });
 
+  it("reports a structured launch error to the parent", async () => {
+    const onLaunchError = vi.fn();
+    createSession.mockRejectedValue({
+      code: "PATH_NOT_FOUND",
+      message: "Launch directory does not exist",
+      params: { path: "/missing/repo" },
+    });
+
+    renderTerminalView({ onLaunchError });
+
+    await waitFor(() => expect(onLaunchError).toHaveBeenCalledWith({
+      code: "PATH_NOT_FOUND",
+      message: "Launch directory does not exist",
+      params: { path: "/missing/repo" },
+    }));
+  });
+
   it("passes normalized terminal settings into xterm construction", async () => {
     useSettingsStore.setState({
       settings: {

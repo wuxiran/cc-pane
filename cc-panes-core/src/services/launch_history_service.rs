@@ -123,6 +123,16 @@ impl LaunchHistoryService {
         )
     }
 
+    pub fn bind_pty_session(
+        &self,
+        launch_id: &str,
+        pty_session_id: &str,
+        cli_tool: &str,
+    ) -> Result<Option<i64>, String> {
+        self.repo
+            .bind_pty_session(launch_id, pty_session_id, cli_tool)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn update_session_started(
         &self,
@@ -321,6 +331,49 @@ mod tests {
             .find_by_pty_session_id("no-such")
             .expect("find ok")
             .is_none());
+    }
+
+    #[test]
+    fn bind_pty_session_requires_matching_launch_and_cli_tool() {
+        let svc = service();
+        add_record(&svc, "launch-claude", "/tmp/claude");
+        svc.add(
+            "launch-codex",
+            "codex-project",
+            "/tmp/codex",
+            "codex",
+            "wsl",
+            Some("Ubuntu"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("add codex record");
+
+        assert!(svc
+            .bind_pty_session("launch-codex", "pty-codex", "claude")
+            .expect("mismatch is not an error")
+            .is_none());
+        assert!(svc
+            .find_by_pty_session_id("pty-codex")
+            .expect("find")
+            .is_none());
+
+        let id = svc
+            .bind_pty_session("launch-codex", "pty-codex", "codex")
+            .expect("bind")
+            .expect("record id");
+        let record = svc
+            .find_by_pty_session_id("pty-codex")
+            .expect("find")
+            .expect("record");
+        assert_eq!(record.id, id);
+        assert_eq!(record.project_id, "launch-codex");
+        assert_eq!(record.cli_tool, "codex");
     }
 
     #[test]

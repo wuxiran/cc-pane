@@ -5,6 +5,7 @@ pub mod command;
 pub mod error;
 pub mod error_codes;
 pub mod git_command;
+pub mod host_path;
 pub mod launch_request;
 pub mod orchestrator_manifest;
 pub mod path_normalize;
@@ -20,6 +21,10 @@ pub use git_command::{
     git_https_credential_env, output_with_timeout, output_with_timeout_limit,
     prepare_git_clone_auth, redact_git_url, GIT_CHECKOUT_TIMEOUT, GIT_LOCAL_TIMEOUT,
     GIT_MAX_OUTPUT_BYTES, GIT_NETWORK_TIMEOUT,
+};
+pub use host_path::{
+    classify_launch_cwd_for_host, validate_launch_cwd, validate_spawn_cwd, HostPlatform,
+    LaunchRuntime,
 };
 pub use launch_request::{
     normalize_session_request_for_current_host, normalize_session_request_for_host,

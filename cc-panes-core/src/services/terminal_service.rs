@@ -11,7 +11,7 @@ use crate::services::{
     SshCredentialService, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
-use crate::utils::{orchestrator_manifest, AppPaths};
+use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
 use anyhow::{anyhow, Result};
 use cc_cli_adapters::{CliAdapterContext, CliProvider, CliToolRegistry};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1294,6 +1294,14 @@ impl TerminalService {
             let trimmed = rid.trim();
             !trimmed.is_empty() && trimmed != "new"
         });
+        let runtime = if ssh.is_some() {
+            LaunchRuntime::Ssh
+        } else if wsl.is_some() {
+            LaunchRuntime::Wsl
+        } else {
+            LaunchRuntime::Local
+        };
+        validate_launch_cwd(project_path, workspace_path, runtime).map_err(anyhow::Error::new)?;
         let is_ssh = ssh.is_some();
         let resolved_workspace = workspace_name.and_then(|name| {
             self.workspace_service
@@ -1897,6 +1905,27 @@ impl TerminalService {
         );
         let command_for_log = command.clone();
         let cwd_for_log = cwd.display().to_string();
+        let launch_started_at = std::time::SystemTime::now();
+        let rollout_cwds = if let Some(wsl) = wsl {
+            let mut paths = Vec::new();
+            if let Some(workspace_remote_path) = wsl
+                .workspace_remote_path
+                .as_deref()
+                .filter(|path| !path.trim().is_empty())
+            {
+                paths.push(workspace_remote_path.to_string());
+            }
+            if !wsl.remote_path.trim().is_empty()
+                && !paths.iter().any(|path| path == &wsl.remote_path)
+            {
+                paths.push(wsl.remote_path.clone());
+            }
+            paths
+        } else if ssh.is_none() {
+            vec![workspace_path.unwrap_or(project_path).to_string()]
+        } else {
+            Vec::new()
+        };
 
         // resume 启动诊断上下文：会话短时间内退出时输出取证 WARN
         // （绑定的 resume id 失效会表现为 CLI 启动即报错退出）。
@@ -2095,6 +2124,9 @@ impl TerminalService {
                     project_path: project_path.to_string(),
                     workspace_path: workspace_path.map(str::to_string),
                     wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                    rollout_cwds,
+                    launch_started_at,
+                    rollout_fallback: resume_id.is_none() && ssh.is_none(),
                 },
                 emitter.clone(),
             )

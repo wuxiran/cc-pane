@@ -406,7 +406,11 @@ impl WorkspaceService {
         }
 
         // 默认工作空间不可删除（启动时会自动重建，删除只会造成困惑）
-        if self.get_workspace(name).map(|ws| ws.is_default).unwrap_or(false) {
+        if self
+            .get_workspace(name)
+            .map(|ws| ws.is_default)
+            .unwrap_or(false)
+        {
             return Err(format!(
                 "DEFAULT_WORKSPACE_PROTECTED: Workspace '{}' is the default workspace and cannot be deleted",
                 name

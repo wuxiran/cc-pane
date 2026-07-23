@@ -8,6 +8,7 @@ import type {
   WorkspaceProject,
   WorkspaceLaunchEnvironment,
   LaunchProviderSelection,
+  TerminalLaunchError,
 } from "@/types";
 import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import { isWslUncPath, toWslPath } from "./path";
@@ -17,6 +18,7 @@ export type WorkspaceProjectKind = "local" | "wsl" | "ssh";
 
 export type WorkspaceLaunchIssueCode =
   | "local_path_missing"
+  | "path_platform_mismatch"
   | "wsl_unsupported"
   | "wsl_path_missing"
   | "wsl_local_path_missing"
@@ -58,6 +60,38 @@ export function detectAppPlatform(): AppPlatform {
   if (platform.startsWith("mac")) return "macos";
   if (platform.includes("linux")) return "linux";
   return "unknown";
+}
+
+export function classifyTerminalLaunchPath(
+  params: Pick<OpenTerminalOptions, "path" | "workspacePath" | "ssh" | "wsl">,
+  platform: AppPlatform = detectAppPlatform(),
+): TerminalLaunchError | null {
+  if (params.ssh) return null;
+  if (params.wsl) {
+    if (platform !== "windows" && platform !== "unknown") {
+      return {
+        code: "WSL_UNSUPPORTED",
+        message: "WSL launch is only supported on Windows",
+      };
+    }
+    return null;
+  }
+  if (platform === "unknown") return null;
+
+  const path = params.workspacePath?.trim() || params.path.trim();
+  if (!path) return null;
+  const windowsAbsolute = /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+  const unixAbsolute = path.startsWith("/");
+  const mismatch = platform === "windows"
+    ? unixAbsolute && !windowsAbsolute
+    : windowsAbsolute;
+  if (!mismatch) return null;
+
+  return {
+    code: "PATH_PLATFORM_MISMATCH",
+    message: `Path does not match the ${platform} host: ${path}`,
+    params: { path, platform },
+  };
 }
 
 export function getWorkspaceDefaultEnvironment(
@@ -159,6 +193,8 @@ export function getWorkspaceLaunchIssueKey(
   switch (issue.code) {
     case "local_path_missing":
       return "workspaceEnv.issue.localPathMissing";
+    case "path_platform_mismatch":
+      return "workspaceEnv.issue.pathPlatformMismatch";
     case "wsl_unsupported":
       return "workspaceEnv.issue.wslUnsupported";
     case "wsl_path_missing":
@@ -179,6 +215,9 @@ export function getWorkspaceLaunchIssueValues(
 ): Record<string, string> {
   if (issue.code === "ssh_machine_not_found") {
     return { machineId: issue.detail ?? "" };
+  }
+  if (issue.code === "path_platform_mismatch") {
+    return { path: issue.detail ?? "" };
   }
   return {};
 }
@@ -263,7 +302,21 @@ export function resolveWorkspaceProjectLaunchOptions(
     ?? resolveBoundLaunchProfileId(boundProfileId, cliTool, environment);
 
   switch (environment) {
-    case "local":
+    case "local": {
+      const pathError = classifyTerminalLaunchPath({
+        path: project.path,
+        workspacePath: workspace.path,
+      }, platform);
+      if (pathError) {
+        return {
+          options: null,
+          issue: {
+            environment,
+            code: "path_platform_mismatch",
+            detail: pathError.params?.path,
+          },
+        };
+      }
       return {
         options: {
           path: project.path,
@@ -276,6 +329,7 @@ export function resolveWorkspaceProjectLaunchOptions(
         },
         issue: null,
       };
+    }
 
     case "wsl": {
       if (platform !== "windows") {
@@ -380,6 +434,17 @@ function resolveWorkspaceLaunchOptionsInternal(
     case "local": {
       const localPath = workspace.path?.trim();
       if (localPath) {
+        const pathError = classifyTerminalLaunchPath({ path: localPath }, platform);
+        if (pathError) {
+          return {
+            options: null,
+            issue: {
+              environment,
+              code: "path_platform_mismatch",
+              detail: pathError.params?.path,
+            },
+          };
+        }
         return {
           options: {
             path: localPath,
@@ -398,6 +463,17 @@ function resolveWorkspaceLaunchOptionsInternal(
         (project) => !project.ssh,
       );
       if (fallbackProject) {
+        const pathError = classifyTerminalLaunchPath({ path: fallbackProject.path }, platform);
+        if (pathError) {
+          return {
+            options: null,
+            issue: {
+              environment,
+              code: "path_platform_mismatch",
+              detail: pathError.params?.path,
+            },
+          };
+        }
         return {
           options: {
             path: fallbackProject.path,

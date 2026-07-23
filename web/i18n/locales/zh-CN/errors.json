@@ -6,6 +6,9 @@
   "PATH_NOT_FOUND": "路径不存在",
   "PATH_ALREADY_EXISTS": "路径已存在: {{path}}",
   "PATH_NOT_DIRECTORY": "路径不是目录",
+  "PATH_PLATFORM_MISMATCH": "路径与当前系统不匹配: {{path}}",
+  "PATH_INACCESSIBLE": "无法访问路径: {{path}}",
+  "WSL_UNSUPPORTED": "当前系统不支持 WSL",
   "TRASH_FAILED": "无法移入回收站（文件可能被占用，或该位置没有回收站）：{{detail}}",
 
   "WORKSPACE_NOT_FOUND": "工作空间 '{{name}}' 不存在",

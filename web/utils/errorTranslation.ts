@@ -1,4 +1,5 @@
 import i18n from "@/i18n";
+import type { TerminalLaunchError } from "@/types";
 
 /**
  * 后端错误结构（AppError 序列化后的格式）
@@ -115,4 +116,31 @@ export function getErrorCode(error: unknown): string | null {
 
   const prefixed = /^\[([A-Z0-9_]+)\]/.exec(msg);
   return prefixed ? prefixed[1] : null;
+}
+
+export function toTerminalLaunchError(error: unknown): TerminalLaunchError {
+  if (isBackendError(error)) {
+    return {
+      code: error.code,
+      message: error.message,
+      params: error.params,
+    };
+  }
+
+  if (typeof error === "string") {
+    try {
+      const parsed = JSON.parse(error) as BackendError;
+      if (isBackendError(parsed)) return toTerminalLaunchError(parsed);
+    } catch {
+      // Plain REST error text is handled below.
+    }
+  }
+
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message: unknown }).message)
+    : String(error);
+  return {
+    code: getErrorCode(error) ?? undefined,
+    message,
+  };
 }

@@ -147,6 +147,8 @@ function createTab(opts: CreateTabOptions): Tab {
     activeTerminalPaneId: terminalLeaf.id,
     parentTabId,
     launchExtras: terminalLeaf.launchExtras,
+    launchError: terminalLeaf.launchError,
+    launchAttempt: terminalLeaf.launchAttempt,
   };
 }
 
@@ -158,6 +160,8 @@ function cloneTerminalLeaf(source: TerminalPaneLeaf): TerminalPaneLeaf {
     disconnected: false,
     restoring: false,
     savedSessionId: undefined,
+    launchError: undefined,
+    launchAttempt: 0,
     // initialPrompt 仅首启生效：分屏克隆的新 leaf 不得重放
     launchExtras: stripInitialPrompt(source.launchExtras),
   };
@@ -229,6 +233,8 @@ function syncTabTerminalState(tab: Tab): void {
       disconnected: tab.disconnected,
       restoring: tab.restoring,
       savedSessionId: tab.savedSessionId,
+      launchError: tab.launchError,
+      launchAttempt: tab.launchAttempt,
     };
     tab.terminalRootPane = fallbackLeaf;
     tab.activeTerminalPaneId = fallbackLeaf.id;
@@ -260,6 +266,8 @@ function syncTabTerminalState(tab: Tab): void {
   tab.disconnected = activeLeaf.disconnected;
   tab.restoring = activeLeaf.restoring;
   tab.savedSessionId = activeLeaf.savedSessionId;
+  tab.launchError = activeLeaf.launchError;
+  tab.launchAttempt = activeLeaf.launchAttempt;
 }
 
 function findTabLocation(rootPane: PaneNode, tabId: string): { panel: Panel; tab: Tab } | null {
@@ -1005,6 +1013,13 @@ interface PanesState {
   selectTab: (paneId: string, tabId: string) => void;
   setActivePane: (paneId: string) => void;
   updateTabSession: (paneId: string, tabId: string, sessionId: string, terminalPaneId?: string) => void;
+  setTerminalLaunchError: (
+    tabId: string,
+    terminalPaneId: string,
+    error: import("@/types").TerminalLaunchError,
+  ) => void;
+  retryTerminalLaunch: (tabId: string, terminalPaneId: string) => void;
+  removeTerminalLaunch: (tabId: string, terminalPaneId: string) => void;
   setActiveTerminalPane: (tabId: string, terminalPaneId: string) => void;
   splitTerminalPane: (tabId: string, terminalPaneId: string, direction: SplitDirection) => void;
   closeTerminalPane: (tabId: string, terminalPaneId: string) => void;
@@ -2046,10 +2061,64 @@ export const usePanesStore = create<PanesState>()(
           : null;
         if (leaf?.type !== "leaf") return;
         leaf.sessionId = sessionId;
+        leaf.launchError = undefined;
         syncTabTerminalState(tab);
       });
       // 写入会话 sessionId 也要落快照——否则手机镜像看不到新会话，直到 60s 兜底保存。
       notifyTerminalLayoutChanged("session.update");
+    },
+
+    setTerminalLaunchError: (tabId, terminalPaneId, error) => {
+      set((state) => {
+        const location = findTabAcrossLayouts(state, tabId);
+        if (!location || location.tab.contentType !== "terminal" || !location.tab.terminalRootPane) return;
+        const leaf = findTerminalPane(location.tab.terminalRootPane, terminalPaneId);
+        if (leaf?.type !== "leaf" || leaf.sessionId) return;
+        leaf.launchError = error;
+        syncTabTerminalState(location.tab);
+      });
+      notifyTerminalLayoutChanged("terminal.launch-error");
+    },
+
+    retryTerminalLaunch: (tabId, terminalPaneId) => {
+      set((state) => {
+        const location = findTabAcrossLayouts(state, tabId);
+        if (!location || location.tab.contentType !== "terminal" || !location.tab.terminalRootPane) return;
+        const leaf = findTerminalPane(location.tab.terminalRootPane, terminalPaneId);
+        if (leaf?.type !== "leaf") return;
+        leaf.launchError = undefined;
+        leaf.launchAttempt = (leaf.launchAttempt ?? 0) + 1;
+        syncTabTerminalState(location.tab);
+      });
+      notifyTerminalLayoutChanged("terminal.launch-retry");
+    },
+
+    removeTerminalLaunch: (tabId, terminalPaneId) => {
+      set((state) => {
+        const location = findTabAcrossLayouts(state, tabId);
+        if (!location || location.tab.contentType !== "terminal") return;
+        if (closeTerminalLeafInTab(location.tab, terminalPaneId)) return;
+        if (location.tab.pinned) return;
+
+        const isCurrent = location.layoutId === state.currentLayoutId;
+        const nextTree = closeTabInTree(location.tree, location.panel.id, tabId);
+        if (isCurrent) {
+          state.rootPane = nextTree;
+          const activePane = findPane(state.rootPane, state.activePaneId);
+          if (activePane?.type !== "panel") {
+            state.activePaneId = collectPanels(state.rootPane)[0]?.id ?? state.rootPane.id;
+          }
+        } else {
+          const layout = state.layouts.find((item) => item.id === location.layoutId);
+          if (!layout) return;
+          layout.rootPane = nextTree;
+          const activePane = findPane(layout.rootPane, layout.activePaneId);
+          if (activePane?.type !== "panel") {
+            layout.activePaneId = collectPanels(layout.rootPane)[0]?.id ?? layout.rootPane.id;
+          }
+        }
+      });
+      notifyTerminalLayoutChanged("terminal.launch-remove");
     },
 
     setActiveTerminalPane: (tabId, terminalPaneId) => {

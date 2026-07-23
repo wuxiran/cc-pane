@@ -7,7 +7,7 @@ use crate::services::{
     TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
-use crate::utils::{validate_path, validate_ssh_info, AppResult};
+use crate::utils::{validate_launch_cwd, validate_ssh_info, AppResult, LaunchRuntime};
 use cc_cli_adapters::{CliToolInfo, CliToolRegistry};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -82,6 +82,7 @@ fn summarize_terminal_input(data: &str) -> serde_json::Value {
 pub async fn create_terminal_session(
     app_handle: AppHandle,
     service: State<'_, Arc<TerminalBackendState>>,
+    launch_history_service: State<'_, Arc<LaunchHistoryService>>,
     history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
     request: Option<CreateSessionRequest>,
 ) -> AppResult<String> {
@@ -104,10 +105,16 @@ pub async fn create_terminal_session(
     if let Some(ref ssh_info) = request.ssh {
         validate_ssh_info(ssh_info)?;
     } else {
-        validate_path(&request.project_path)?;
-        if let Some(ref ws_path) = request.workspace_path {
-            validate_path(ws_path)?;
-        }
+        let runtime = if request.wsl.is_some() {
+            LaunchRuntime::Wsl
+        } else {
+            LaunchRuntime::Local
+        };
+        validate_launch_cwd(
+            &request.project_path,
+            request.workspace_path.as_deref(),
+            runtime,
+        )?;
     }
 
     // 安全网：orchestrator 只绑了回环时，WSL 内 CLI 无法回连宿主 MCP 端点。
@@ -117,6 +124,10 @@ pub async fn create_terminal_session(
     }
 
     let project_path = request.project_path.clone();
+    let launch_binding = request
+        .launch_id
+        .clone()
+        .map(|launch_id| (launch_id, request.effective_cli_tool().as_id().to_string()));
     let backend = service.backend();
     let create_backend = backend.clone();
     let result =
@@ -124,6 +135,29 @@ pub async fn create_terminal_session(
             .await
             .map_err(|e| AppError::from(e.to_string()))?;
     let session_id = result?;
+
+    if let Some((launch_id, cli_tool)) = launch_binding {
+        let mut bound = false;
+        for attempt in 0..10 {
+            match launch_history_service.bind_pty_session(&launch_id, &session_id, &cli_tool) {
+                Ok(Some(_)) => {
+                    bound = true;
+                    break;
+                }
+                Ok(None) if attempt < 9 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(launch_id = %launch_id, session_id = %session_id, cli_tool = %cli_tool, error = %error, "failed to bind PTY to launch history");
+                    break;
+                }
+            }
+        }
+        if !bound {
+            warn!(launch_id = %launch_id, session_id = %session_id, cli_tool = %cli_tool, "launch history row was not available for exact PTY binding");
+        }
+    }
 
     if let Err(error) = history_watch_manager.on_session_created(&session_id, &project_path) {
         warn!(session_id = %session_id, error = %error, "failed to start local history watcher");

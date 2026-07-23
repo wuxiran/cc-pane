@@ -17,6 +17,7 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
   const { t } = useTranslation("sidebar");
 
   const sessionId = record.resumeSessionId ?? "";
+  const canResume = sessionId.length > 0;
   const truncatedId = sessionId.length > 16 ? `${sessionId.slice(0, 8)}...${sessionId.slice(-8)}` : sessionId;
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -78,14 +79,17 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
               {t("sessionId")}:
             </span>
             <code className="text-[10px] font-mono px-1 py-0.5 rounded" style={{ background: "var(--app-input-bg)", color: "var(--app-text-secondary)" }}>
-              {truncatedId}
+              {canResume ? truncatedId : t("resumeIdMissing")}
             </code>
-            <button
-              onClick={handleCopy}
-              className="p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] text-[var(--app-text-tertiary)]"
-            >
-              <Copy className="w-3 h-3" />
-            </button>
+            {canResume && (
+              <button
+                onClick={handleCopy}
+                aria-label={t("copySessionId")}
+                className="p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] text-[var(--app-text-tertiary)]"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
           {/* 启动时间 */}
@@ -114,7 +118,9 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleResume}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-[var(--app-status-success)] text-white hover:bg-[color-mix(in_srgb,var(--app-status-success)_85%,transparent)] transition-colors"
+              disabled={!canResume}
+              title={!canResume ? t("resumeIdMissing") : undefined}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-[var(--app-status-success)] text-white hover:bg-[color-mix(in_srgb,var(--app-status-success)_85%,transparent)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Play className="w-3 h-3" />
               {t("resumeButton")}

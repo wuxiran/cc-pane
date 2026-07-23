@@ -97,7 +97,12 @@ impl TerminalBackend for TerminalService {
             request.ssh.as_ref(),
             request.wsl.as_ref(),
         )
-        .map_err(AppError::from)
+        .map_err(|error| {
+            error
+                .downcast_ref::<AppError>()
+                .cloned()
+                .unwrap_or_else(|| AppError::from(error))
+        })
     }
 
     fn write(&self, session_id: &str, data: &str) -> AppResult<()> {

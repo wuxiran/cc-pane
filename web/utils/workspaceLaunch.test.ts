@@ -115,6 +115,42 @@ describe("workspaceLaunch", () => {
     expect(issue?.code).toBe("wsl_unsupported");
   });
 
+  it("returns path_platform_mismatch for a Windows local path on macOS", () => {
+    const workspace = createTestWorkspace({ path: "D:\\repo" });
+
+    const { options, issue } = resolveWorkspaceLaunchOptions({
+      workspace,
+      environment: "local",
+      machines: [],
+      platform: "macos",
+    });
+
+    expect(options).toBeNull();
+    expect(issue).toMatchObject({
+      environment: "local",
+      code: "path_platform_mismatch",
+      detail: "D:\\repo",
+    });
+  });
+
+  it("does not classify an SSH display path as a local platform mismatch", () => {
+    const workspace = createTestWorkspace({
+      path: "D:\\repo",
+      defaultEnvironment: "ssh",
+      sshLaunch: { machineId: "machine-1", remotePath: "/srv/repo" },
+    });
+
+    const { options, issue } = resolveWorkspaceLaunchOptions({
+      workspace,
+      environment: "ssh",
+      machines: [createMachine()],
+      platform: "macos",
+    });
+
+    expect(issue).toBeNull();
+    expect(options?.ssh?.remotePath).toBe("/srv/repo");
+  });
+
   it("derives workspace WSL path from workspace.path when remote root is blank", () => {
     const workspace = createTestWorkspace({
       path: "D:/workspace-root",

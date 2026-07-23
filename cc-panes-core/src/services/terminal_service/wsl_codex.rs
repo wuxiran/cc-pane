@@ -1327,6 +1327,11 @@ impl TerminalService {
                     resume_id = %id,
                     "codex resume target missing in ~/.codex/sessions; launching fresh session"
                 );
+                if let Some(emitter) = self.emitter.read().clone() {
+                    super::osc_resume_capture::emit_resume_downgrade_warning(
+                        &emitter, session_id, id, "wsl",
+                    );
+                }
                 None
             }
             other => other,

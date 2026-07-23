@@ -1255,7 +1255,10 @@ mod tests {
         let result = adapter.build_command(&ctx).unwrap();
 
         assert_eq!(
-            result.env_inject.get("MAX_THINKING_TOKENS").map(String::as_str),
+            result
+                .env_inject
+                .get("MAX_THINKING_TOKENS")
+                .map(String::as_str),
             Some("4096")
         );
 
@@ -1263,7 +1266,10 @@ mod tests {
             .insert("effort".to_string(), serde_json::json!("max"));
         let result = adapter.build_command(&ctx).unwrap();
         assert_eq!(
-            result.env_inject.get("MAX_THINKING_TOKENS").map(String::as_str),
+            result
+                .env_inject
+                .get("MAX_THINKING_TOKENS")
+                .map(String::as_str),
             Some("63999")
         );
     }

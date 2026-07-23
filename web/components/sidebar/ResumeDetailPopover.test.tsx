@@ -103,13 +103,16 @@ describe("ResumeDetailPopover", () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
-  it("does not call onResume when there is no resume session id", async () => {
+  it("disables resume and explains the missing capture id", async () => {
     const user = userEvent.setup();
     const { onResume } = renderPopover(createRecord({ resumeSessionId: undefined }));
 
     await user.click(screen.getByRole("button", { name: "trigger" }));
-    await user.click(await screen.findByRole("button", { name: /Resume|恢复/i }));
+    const resume = await screen.findByRole("button", { name: /Resume|恢复/i });
 
+    expect(resume).toBeDisabled();
+    expect(screen.getByText(/未捕获到恢复 ID|resume ID was not captured/i)).toBeVisible();
+    await user.click(resume);
     expect(onResume).not.toHaveBeenCalled();
   });
 

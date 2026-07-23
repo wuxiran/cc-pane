@@ -3,6 +3,7 @@ export { getFileName, getDirName, getProjectName, toWslPath, isWslUncPath } from
 export {
   buildSshConnectionDisplayPath,
   buildSshDisplayPath,
+  classifyTerminalLaunchPath,
   detectAppPlatform,
   hasWorkspaceWslPath,
   getWorkspaceDefaultEnvironment,
@@ -19,7 +20,7 @@ export { coerceCliTool } from "./cliTool";
 export { buildLaunchRecordTerminalOptions } from "./launchHistory";
 export { parseEnvLines, formatEnvLines } from "./env";
 export { handleError, handleErrorSilent } from "./errorHandler";
-export { translateError, getErrorCode } from "./errorTranslation";
+export { translateError, getErrorCode, toTerminalLaunchError } from "./errorTranslation";
 export { isTauriRuntime, isWebRuntime } from "@/services/runtime";
 
 /**

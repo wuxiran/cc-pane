@@ -10,6 +10,7 @@ import { listenWebviewIfTauri } from "@/services/runtime";
  *   profile 级设置（如 YOLO）可能未生效。
  * - `orchestratorLoopbackWsl`：orchestrator 仅监听回环时启动了 WSL 会话，
  *   WSL 内 CLI 无法回连 ccpanes MCP。
+ * - `codexResumeTargetMissing`：Codex 恢复目标在会话目录中不存在，已降级为新会话。
  */
 export interface LaunchWarningPayload {
   kind: string;
@@ -54,6 +55,13 @@ export function useLaunchWarnings(): void {
                   ns: "panes",
                   defaultValue:
                     "MCP 编排服务仅监听本机回环，且未检测到 WSL mirrored 网络，WSL 内 CLI 可能无法回连 ccpanes MCP。可在设置 → Web 访问中调整监听模式后重启应用。",
+                }),
+              );
+            } else if (payload.kind === "codexResumeTargetMissing") {
+              toast.warning(
+                t("codexResumeTargetMissing", {
+                  ns: "panes",
+                  defaultValue: "未找到 Codex 恢复目标，已改为启动新会话。",
                 }),
               );
             }

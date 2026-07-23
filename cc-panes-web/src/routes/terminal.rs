@@ -168,10 +168,7 @@ pub async fn create_session(
         .create_session(core_request)
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to create session");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to create session".to_string(),
-            )
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
         })?;
 
     Ok((
@@ -336,7 +333,7 @@ mod tests {
             SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend,
             TodoService, WorkspaceService, WorktreeService,
         },
-        utils::{AppPaths, AppResult},
+        utils::{error::AppError, AppPaths, AppResult},
     };
     use serde_json::json;
 
@@ -346,6 +343,7 @@ mod tests {
     #[derive(Default)]
     struct MockTerminalBackend {
         created: Mutex<Vec<CoreCreateSessionRequest>>,
+        create_error: Mutex<Option<AppError>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
         resizes: Mutex<Vec<(String, u16, u16)>>,
@@ -357,6 +355,9 @@ mod tests {
     impl TerminalBackend for MockTerminalBackend {
         fn create_session(&self, request: CoreCreateSessionRequest) -> AppResult<String> {
             self.created.lock().unwrap().push(request);
+            if let Some(error) = self.create_error.lock().unwrap().clone() {
+                return Err(error);
+            }
             Ok("created-session".to_string())
         }
 
@@ -606,6 +607,33 @@ mod tests {
         assert_eq!(created[0].cols, 88);
         assert_eq!(created[0].rows, 22);
         assert_eq!(created[0].initial_prompt.as_deref(), Some("run this"));
+    }
+
+    #[tokio::test]
+    async fn create_session_preserves_backend_error_details() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        *backend.create_error.lock().unwrap() = Some(AppError::coded_with_params(
+            "PATH_NOT_FOUND",
+            "Launch directory does not exist: /missing/repo",
+            std::collections::HashMap::from([("path".to_string(), "/missing/repo".to_string())]),
+        ));
+        let state = test_state(backend);
+        let request = CreateSessionRequest {
+            core: PartialCreateSessionRequest {
+                project_path: Some("/missing/repo".to_string()),
+                ..Default::default()
+            },
+            cwd: None,
+        };
+
+        let error = match create_session(State(state), Json(request)).await {
+            Ok(_) => panic!("backend launch error must be returned"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(error.1.contains("PATH_NOT_FOUND"));
+        assert!(error.1.contains("/missing/repo"));
     }
 
     #[tokio::test]

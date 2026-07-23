@@ -207,7 +207,10 @@ autoplay = true
         assert_eq!(settings.wallpaper.file.as_deref(), Some("old-clip.mp4"));
         assert_eq!(settings.wallpaper.opacity, 0.8);
         assert_eq!(settings.wallpaper.terminal_opacity, 0.5);
-        assert_eq!(settings.wallpaper.music.file.as_deref(), Some("old-bgm.mp3"));
+        assert_eq!(
+            settings.wallpaper.music.file.as_deref(),
+            Some("old-bgm.mp3")
+        );
         assert_eq!(settings.wallpaper.music.volume, 0.3);
         // 视频的失焦暂停保持原样，音乐的新字段落到 false
         assert!(settings.wallpaper.video.pause_when_unfocused);

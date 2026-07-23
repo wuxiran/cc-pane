@@ -22,6 +22,7 @@ export type {
   LaunchEffort,
   LaunchAdapterOptions,
   LaunchExtras,
+  TerminalLaunchError,
   TerminalPaneNode,
   TerminalPaneLeaf,
   TerminalPaneSplit,

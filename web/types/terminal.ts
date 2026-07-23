@@ -68,6 +68,12 @@ export interface LaunchExtras {
   adapterOptions?: LaunchAdapterOptions;
 }
 
+export interface TerminalLaunchError {
+  code?: string;
+  message: string;
+  params?: Record<string, string>;
+}
+
 /** WSL 启动信息 */
 export interface WslLaunchInfo {
   remotePath: string;
@@ -100,6 +106,8 @@ export interface TerminalPaneLeaf {
   restoring?: boolean;
   savedSessionId?: string;
   launchExtras?: LaunchExtras;
+  launchError?: TerminalLaunchError;
+  launchAttempt?: number;
 }
 
 export interface TerminalPaneSplit {
@@ -146,6 +154,8 @@ export interface Tab {
   terminalRootPane?: TerminalPaneNode;
   activeTerminalPaneId?: string;
   launchExtras?: LaunchExtras;
+  launchError?: TerminalLaunchError;
+  launchAttempt?: number;
   /**
    * Parent tab id when this tab was created by `launch_task` from another
    * cc-panes-managed Claude instance. Drives hierarchical numbering

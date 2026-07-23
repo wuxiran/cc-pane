@@ -42,31 +42,111 @@ pub struct ResumeIdDetectedPayload {
 const BIND_MAX_ATTEMPTS: u32 = 10;
 const BIND_RETRY_DELAY_MS: u64 = 500;
 
+fn expected_cli_for_uuid(resume_session_id: &str) -> Option<&'static str> {
+    let version = uuid::Uuid::parse_str(resume_session_id)
+        .ok()?
+        .get_version_num();
+    match version {
+        7 => Some("codex"),
+        4 => Some("claude"),
+        _ => None,
+    }
+}
+
+fn source_priority(source: &str) -> u8 {
+    match source {
+        "manual" => 40,
+        "issued" | "osc-title" => 30,
+        "rollout-scan" | "backfill" => 10,
+        "rescue" => 5,
+        _ => 0,
+    }
+}
+
+fn should_replace_source(existing: Option<&str>, incoming: &str) -> bool {
+    existing
+        .map(|source| source_priority(incoming) >= source_priority(source))
+        .unwrap_or(true)
+}
+
 /// 将确定性获得的 resume id 绑定到 launch_history，并转发 history-updated。
 pub async fn bind_resume_id(
     app_handle: AppHandle,
     service: Arc<LaunchHistoryService>,
     payload: ResumeIdDetectedPayload,
 ) {
-    // 同一 resume id 被分配给其他 launch 时高声告警（理论上确定性通道不会发生；
-    // 出现即说明上游捕获有 bug 或 backfill 开关期间产生了脏数据）
-    match service.find_by_resume_session_id(&payload.resume_session_id) {
-        Ok(Some(existing)) if existing.pty_session_id.as_deref() != Some(&payload.session_id) => {
+    if let (Some(expected), Some(actual)) = (
+        expected_cli_for_uuid(&payload.resume_session_id),
+        payload.cli_tool.as_deref(),
+    ) {
+        if expected != actual {
             warn!(
                 resume_session_id = %payload.resume_session_id,
-                existing_record_id = existing.id,
-                existing_pty_session_id = ?existing.pty_session_id,
-                current_pty_session_id = %payload.session_id,
-                source = %payload.source,
-                "bind_resume_id: resume id already assigned to another launch record"
+                expected_cli_tool = expected,
+                actual_cli_tool = actual,
+                "bind_resume_id: resume id UUID version does not match CLI tool"
             );
         }
-        _ => {}
     }
 
     let mut record_id: Option<i64> = None;
+    let mut selected_resume_id = payload.resume_session_id.clone();
+    let mut selected_source = payload.source.clone();
+    let mut rejected = false;
     for attempt in 0..BIND_MAX_ATTEMPTS {
-        // 优先按 pty_session_id 命中（orchestrator add_with_pty_session 路径）
+        let record = match service.find_by_pty_session_id(&payload.session_id) {
+            Ok(record) => record,
+            Err(error) => {
+                warn!(session_id = %payload.session_id, error = %error, "bind_resume_id: lookup by pty failed");
+                None
+            }
+        };
+        let Some(record) = record else {
+            debug!(
+                session_id = %payload.session_id,
+                attempt,
+                "bind_resume_id: exact PTY launch_history row not found yet; retrying"
+            );
+            tokio::time::sleep(Duration::from_millis(BIND_RETRY_DELAY_MS)).await;
+            continue;
+        };
+
+        if let Some(event_cli_tool) = payload.cli_tool.as_deref() {
+            if record.cli_tool != "none" && record.cli_tool != event_cli_tool {
+                warn!(
+                    record_id = record.id,
+                    pty_session_id = %payload.session_id,
+                    record_cli_tool = %record.cli_tool,
+                    event_cli_tool,
+                    "bind_resume_id: rejected event because exact PTY belongs to another CLI tool"
+                );
+                rejected = true;
+                break;
+            }
+        }
+
+        if !should_replace_source(record.resume_source.as_deref(), &payload.source) {
+            if let Some(existing_resume_id) = record.resume_session_id {
+                if existing_resume_id != payload.resume_session_id {
+                    warn!(
+                        record_id = record.id,
+                        pty_session_id = %payload.session_id,
+                        existing_resume_session_id = %existing_resume_id,
+                        existing_source = ?record.resume_source,
+                        ignored_resume_session_id = %payload.resume_session_id,
+                        ignored_source = %payload.source,
+                        "bind_resume_id: ignored lower-priority resume source"
+                    );
+                }
+                selected_resume_id = existing_resume_id;
+                selected_source = record
+                    .resume_source
+                    .unwrap_or_else(|| payload.source.clone());
+            }
+            record_id = Some(record.id);
+            break;
+        }
+
         match service.update_resume_session_with_source_by_pty(
             &payload.session_id,
             &payload.resume_session_id,
@@ -81,39 +161,25 @@ pub async fn bind_resume_id(
                 warn!(session_id = %payload.session_id, error = %error, "bind_resume_id: update by pty failed");
             }
         }
-
-        // 其次按 launch_id 命中（GUI 路径：前端 add_launch_history 以 projectId 为 launch_id，
-        // 行里尚无 pty_session_id）。update_session_started 会同时补上 pty。
-        if let Some(launch_id) = payload.launch_id.as_deref() {
-            match service.update_session_started(
-                launch_id,
-                &payload.session_id,
-                &payload.resume_session_id,
-                payload.cli_tool.as_deref().unwrap_or("none"),
-                payload.runtime_kind.as_deref().unwrap_or("local"),
-                payload.wsl_distro.as_deref(),
-                None,
-            ) {
-                Ok(Some(id)) => {
-                    if let Err(error) = service.update_resume_source(id, &payload.source) {
-                        warn!(record_id = id, error = %error, "bind_resume_id: update_resume_source failed");
-                    }
-                    record_id = Some(id);
-                    break;
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    warn!(launch_id = %launch_id, error = %error, "bind_resume_id: update by launch_id failed");
-                }
-            }
-        }
-
-        debug!(
-            session_id = %payload.session_id,
-            attempt,
-            "bind_resume_id: launch_history row not found yet; retrying"
-        );
         tokio::time::sleep(Duration::from_millis(BIND_RETRY_DELAY_MS)).await;
+    }
+
+    if rejected {
+        return;
+    }
+
+    match service.find_by_resume_session_id(&selected_resume_id) {
+        Ok(Some(existing)) if existing.pty_session_id.as_deref() != Some(&payload.session_id) => {
+            warn!(
+                resume_session_id = %selected_resume_id,
+                existing_record_id = existing.id,
+                existing_pty_session_id = ?existing.pty_session_id,
+                current_pty_session_id = %payload.session_id,
+                source = %selected_source,
+                "bind_resume_id: resume id already assigned to another launch record"
+            );
+        }
+        _ => {}
     }
 
     match record_id {
@@ -121,16 +187,16 @@ pub async fn bind_resume_id(
             info!(
                 record_id = id,
                 pty_session_id = %payload.session_id,
-                resume_session_id = %payload.resume_session_id,
-                source = %payload.source,
+            resume_session_id = %selected_resume_id,
+            source = %selected_source,
                 "bind_resume_id: resume id bound to launch_history"
             );
         }
         None => {
             warn!(
                 pty_session_id = %payload.session_id,
-                resume_session_id = %payload.resume_session_id,
-                source = %payload.source,
+                resume_session_id = %selected_resume_id,
+                source = %selected_source,
                 launch_id = ?payload.launch_id,
                 "bind_resume_id: no launch_history row matched; DB record skipped (tab binding via event still works)"
             );
@@ -144,15 +210,15 @@ pub async fn bind_resume_id(
             "source": "resume-binding",
             "recordId": record_id,
             "ptySessionId": payload.session_id,
-            "resumeSessionId": payload.resume_session_id,
-            "resumeSource": payload.source,
+            "resumeSessionId": selected_resume_id,
+            "resumeSource": selected_source,
         }),
     );
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ResumeIdDetectedPayload;
+    use super::{expected_cli_for_uuid, should_replace_source, ResumeIdDetectedPayload};
 
     // bind_resume_id 依赖运行中的 tauri AppHandle，无法脱离应用构造；
     // 这里覆盖事件载荷的反序列化契约（与 terminal_service emit 的 JSON 对应）。
@@ -209,5 +275,25 @@ mod tests {
         // 事件契约是 camelCase，snake_case 键不被接受
         let snake = r#"{"session_id": "pty-4", "resume_session_id": "r", "source": "issued"}"#;
         assert!(serde_json::from_str::<ResumeIdDetectedPayload>(snake).is_err());
+    }
+
+    #[test]
+    fn uuid_version_is_only_a_cli_sanity_signal() {
+        assert_eq!(
+            expected_cli_for_uuid("019f9057-c7cf-7f73-9fa9-44ae21234567"),
+            Some("codex")
+        );
+        assert_eq!(
+            expected_cli_for_uuid("7a1e2f64-6168-4cb2-9308-9adf0e2d91df"),
+            Some("claude")
+        );
+        assert_eq!(expected_cli_for_uuid("not-a-uuid"), None);
+    }
+
+    #[test]
+    fn osc_title_has_priority_over_rollout_scan() {
+        assert!(should_replace_source(Some("rollout-scan"), "osc-title"));
+        assert!(!should_replace_source(Some("osc-title"), "rollout-scan"));
+        assert!(should_replace_source(None, "rollout-scan"));
     }
 }

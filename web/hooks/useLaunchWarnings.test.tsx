@@ -62,6 +62,20 @@ describe("useLaunchWarnings", () => {
     expect(toast.warning).toHaveBeenCalledTimes(1);
   });
 
+  it("Codex 恢复目标缺失降级时给出明确警告", async () => {
+    const { handler } = await mount();
+    handler({
+      payload: {
+        kind: "codexResumeTargetMissing",
+        cliTool: "codex",
+        runtimeKind: "wsl",
+      },
+    });
+
+    expect(toast.warning).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast.warning).mock.calls[0][0]).toContain("codexResumeTargetMissing");
+  });
+
   it("其他 kind 不触发 toast", async () => {
     const { handler } = await mount();
     handler({ payload: { kind: "somethingElse" } });

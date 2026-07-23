@@ -594,6 +594,77 @@ describe("usePanesStore", () => {
       const tab = (usePanesStore.getState().rootPane as Panel).tabs[0];
       expect(tab.sessionId).toBe("session-123");
     });
+
+    it("应持久记录结构化启动错误，并在重试时清除错误和递增 attempt", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, {
+        projectId: "proj-launch-error",
+        projectPath: "/tmp/launch-error",
+      });
+      let tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      const leafId = tab.activeTerminalPaneId!;
+
+      usePanesStore.getState().setTerminalLaunchError(tab.id, leafId, {
+        code: "PATH_NOT_FOUND",
+        message: "Launch directory does not exist",
+        params: { path: "/tmp/launch-error" },
+      });
+
+      tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      expect(tab.launchError).toMatchObject({ code: "PATH_NOT_FOUND" });
+      expect(tab.terminalRootPane).toMatchObject({
+        type: "leaf",
+        launchError: { code: "PATH_NOT_FOUND" },
+      });
+
+      usePanesStore.getState().retryTerminalLaunch(tab.id, leafId);
+
+      tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      expect(tab.launchError).toBeUndefined();
+      expect(tab.launchAttempt).toBe(1);
+      expect(tab.terminalRootPane).toMatchObject({
+        type: "leaf",
+        launchError: undefined,
+        launchAttempt: 1,
+      });
+    });
+
+    it("单终端启动失败时移除整个标签", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, {
+        projectId: "proj-remove-error",
+        projectPath: "/tmp/remove-error",
+      });
+      const tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+
+      usePanesStore.getState().removeTerminalLaunch(tab.id, tab.activeTerminalPaneId!);
+
+      expect((usePanesStore.getState().rootPane as Panel).tabs).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: tab.id })]),
+      );
+    });
+
+    it("分屏中的终端启动失败时只移除对应子窗格", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, {
+        projectId: "proj-remove-leaf-error",
+        projectPath: "/tmp/remove-leaf-error",
+      });
+      let tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
+      tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      const failedLeafId = tab.activeTerminalPaneId!;
+
+      usePanesStore.getState().removeTerminalLaunch(tab.id, failedLeafId);
+
+      tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
+      expect(tab.id).toBeDefined();
+      expect(tab.activeTerminalPaneId).not.toBe(failedLeafId);
+      expect(tab.terminalRootPane).toMatchObject({
+        type: "split",
+        children: [expect.not.objectContaining({ id: failedLeafId })],
+      });
+    });
   });
 
   // ========== 项目打开 ==========

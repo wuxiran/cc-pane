@@ -120,7 +120,9 @@ impl SharedMcpService {
                 .lock()
                 .map_err(|e| format!("Lock error: {}", e))?;
             if config.servers.contains_key(name) {
-                return Err(format!("已存在同名共享 MCP：{name}（如需更新请在资源中心操作）"));
+                return Err(format!(
+                    "已存在同名共享 MCP：{name}（如需更新请在资源中心操作）"
+                ));
             }
             let used: std::collections::HashSet<u16> =
                 config.servers.values().map(|s| s.port).collect();
