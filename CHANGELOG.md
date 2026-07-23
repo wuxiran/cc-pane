@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.11.0 - Unreleased
+
+> 草稿:随 Worker F(Codex resume + 黑屏修复)落地后补齐并定稿。
+
+### Changed — Local History watcher rework (the real fix behind 0.10.21's revert)
+
+- **File watchers now follow active terminal sessions instead of every registered project.** Previously the app started one watcher per registered project at startup (129 on the reporting machine) — cheap with native notifications, catastrophic with 0.10.20's polling scanner (~28.6 cores busy, see `docs/41`). A new `HistoryWatchManager` starts a watcher when a project's first terminal session opens and stops it 45s after the last one closes (generation-guarded against re-open races). Windows directory-handle locks (#35) now apply only to the handful of actively-used projects, and explicit stops before workspace delete/rename/migration keep `fs::rename` from being blocked.
+- **Ignore patterns finally prune nested directories.** Bare-name patterns (`node_modules/**`) now match at any depth — monorepo nested dependencies no longer flood the event pipeline. Built-in ignores (`.venv`, `.next`, `.turbo`, `.dart_tool`, `coverage`, `__pycache__`, …) are unioned with user config, so existing projects with stale ignore lists benefit automatically.
+- **Event-flood defenses**: bounded 30k event channel with whole-batch drop + single warn on overflow, 128-path debounce batch cap, explicit handling of notify `Rescan`/error. A global Local History switch (Settings → General) and a `get_history_watch_stats` command round it out.
+
+### Added
+
+- **Git commit timeline + diff view.** Per-project commit history (NUL-delimited field protocol — control characters in commit subjects can't corrupt parsing), master-detail panel (commits → structured file list → DiffView), worktree-vs-HEAD content diff, merge commits default to first-parent with a parent switcher. Backed by a hardened git layer: process output draining with hard byte limits (no more fake timeouts on large `git show`), `--porcelain=v1 -z` status parsing sunk into core (Tauri/Web parity, no more duplicated text parsing), repo-root-unified worktree operations, and OID-pinned revision arguments (`rev-parse --verify --end-of-options`).
+- **Project identity unification.** `D:\...`, `/mnt/d/...` and `\\wsl.localhost\...` spellings of the same project are now one project: canonical-form comparison in registration, dedup and `launch_task` validation (any spelling is accepted; runtime conversion happens at launch). An idempotent migration merges existing duplicate entries (with `.bak` backups) and regenerates `projects.csv`.
+- **Layout auto-binding** — a new layout binds itself to the workspace of the first terminal tab that lands in it. **Files view follows the active terminal's workspace** (toggleable, manual navigation is never interrupted). (#4 plan)
+
+### Fixed
+
+- **`/clear` no longer kills the session.** Claude Code's `/clear` fires a SessionEnd hook with `reason="clear"`; the hook layer treated every SessionEnd as a process exit, the state machine marked the live session Exited, and the daemon bridge emitted a synthetic `terminal-exit(-1)` and stopped streaming. The hook now filters by reason on both channels (HTTP + OSC), and the bridge no longer trusts hook-derived Exited while the session still exists. (`docs/44`)
+- **Chinese-path projects launch correctly**: WSL launch scripts get a UTF-8 locale fallback, worktree branch-name sanitizing keeps CJK characters (Unicode-aware regex), and npm-shim/WSL launches log diagnostics for path issues.
+- Windows `git rev-parse --show-toplevel` output is normalized to native separators before path comparison.
+
+### Pending in this release (Worker F, in progress)
+
+- Codex resume capture (OSC title chain dead on Codex CLI v0.145; rollout-scan fallback; binding attribution fix; visible degradation) — `docs/45`
+- Cross-platform launch black screen + portable-pty silent HOME-fallback hardening — `docs/46-cross-platform-launch-blackscreen.md`
+
 ## 0.10.21 - 2026-07-23
 
 ### Fixed
