@@ -96,6 +96,10 @@ fn dispatch_with_business(event_name: &str, kind: DispatchKind) {
     let mut raw = String::new();
     let _ = std::io::stdin().read_to_string(&mut raw);
 
+    if !should_dispatch_event(event_name, &raw) {
+        return;
+    }
+
     events::dispatch::report_with_payload(event_name, &raw);
 
     // OSC in-band 通道：仅纯状态子命令与 stdout 无输出的业务子命令可发
@@ -112,5 +116,59 @@ fn dispatch_with_business(event_name: &str, kind: DispatchKind) {
         DispatchKind::None => {}
         DispatchKind::SessionStart => session_start::run_with_stdin(&raw),
         DispatchKind::PlanArchive => plan_archive::run_with_stdin(&raw),
+    }
+}
+
+fn should_dispatch_event(event_name: &str, raw_stdin: &str) -> bool {
+    if event_name != "session-end" {
+        return true;
+    }
+
+    let Ok(payload) = serde_json::from_str::<serde_json::Value>(raw_stdin) else {
+        return true;
+    };
+
+    !matches!(
+        payload.get("reason").and_then(serde_json::Value::as_str),
+        Some("clear" | "prompt_input_exit")
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_end_clear_and_prompt_input_exit_skip_both_report_channels() {
+        assert!(!should_dispatch_event(
+            "session-end",
+            r#"{"reason":"clear"}"#
+        ));
+        assert!(!should_dispatch_event(
+            "session-end",
+            r#"{"reason":"prompt_input_exit"}"#,
+        ));
+    }
+
+    #[test]
+    fn session_end_logout_missing_reason_and_invalid_json_remain_fail_open() {
+        assert!(should_dispatch_event(
+            "session-end",
+            r#"{"reason":"logout"}"#,
+        ));
+        assert!(should_dispatch_event(
+            "session-end",
+            r#"{"reason":"other"}"#,
+        ));
+        assert!(should_dispatch_event(
+            "session-end",
+            r#"{"session_id":"s1"}"#
+        ));
+        assert!(should_dispatch_event("session-end", "not-json"));
+    }
+
+    #[test]
+    fn reason_filter_does_not_affect_other_events() {
+        assert!(should_dispatch_event("turn-end", r#"{"reason":"clear"}"#,));
     }
 }
