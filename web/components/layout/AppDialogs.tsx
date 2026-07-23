@@ -2,6 +2,7 @@
 import SettingsPanel from "@/components/SettingsPanel";
 import JournalPanel from "@/components/JournalPanel";
 import LocalHistoryPanel from "@/components/LocalHistoryPanel";
+import GitTimelinePanel from "@/components/GitTimelinePanel";
 import SessionCleanerPanel from "@/components/SessionCleanerPanel";
 import TodoPanel from "@/components/TodoPanel";
 import PlansPanel from "@/components/PlansPanel";
@@ -22,6 +23,9 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
   const localHistoryOpen = useDialogStore((s) => s.localHistoryOpen);
   const localHistoryProjectPath = useDialogStore((s) => s.localHistoryProjectPath);
   const localHistoryFilePath = useDialogStore((s) => s.localHistoryFilePath);
+  const gitTimelineOpen = useDialogStore((s) => s.gitTimelineOpen);
+  const gitTimelineProjectPath = useDialogStore((s) => s.gitTimelineProjectPath);
+  const gitTimelineInitialFile = useDialogStore((s) => s.gitTimelineInitialFile);
   const sessionCleanerOpen = useDialogStore((s) => s.sessionCleanerOpen);
   const sessionCleanerProjectPath = useDialogStore((s) => s.sessionCleanerProjectPath);
   const todoOpen = useDialogStore((s) => s.todoOpen);
@@ -50,6 +54,14 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
         onOpenFileHistory={(filePath, worktreePath) => {
           useDialogStore.getState().openLocalHistory(worktreePath || localHistoryProjectPath, filePath);
         }}
+      />
+      <GitTimelinePanel
+        open={gitTimelineOpen}
+        onOpenChange={(open) => open
+          ? useDialogStore.getState().openGitTimeline(gitTimelineProjectPath, gitTimelineInitialFile ?? undefined)
+          : useDialogStore.getState().closeGitTimeline()}
+        projectPath={gitTimelineProjectPath}
+        initialFile={gitTimelineInitialFile}
       />
       <SessionCleanerPanel
         open={sessionCleanerOpen}

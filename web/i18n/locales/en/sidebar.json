@@ -345,5 +345,7 @@
   "explorer.gitUnknownError": "Unknown error",
   "explorer.gitRepoRoot": "Repository root: {{path}}",
   "explorer.gitLoading": "Loading...",
-  "explorer.noChanges": "No changes"
+  "explorer.noChanges": "No changes",
+  "explorer.gitTimeline": "Open Git timeline",
+  "explorer.gitContentComparison": "Content comparison"
 }

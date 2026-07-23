@@ -114,14 +114,7 @@ fn service_error(error: impl ToString) -> (StatusCode, String) {
 }
 
 fn decode_content(content: Vec<u8>) -> String {
-    match String::from_utf8(content) {
-        Ok(content) => content,
-        Err(error) => {
-            let bytes = error.into_bytes();
-            let (decoded, _, _) = encoding_rs::GBK.decode(&bytes);
-            decoded.to_string()
-        }
-    }
+    cc_panes_core::utils::decode_text_lossy_gbk(&content)
 }
 
 pub async fn init_project_history(

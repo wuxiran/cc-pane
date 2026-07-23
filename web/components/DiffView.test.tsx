@@ -17,6 +17,9 @@ function makeDiff(overrides: Partial<DiffResult> = {}): DiffResult {
   return {
     isBinary: false,
     truncated: false,
+    truncationReason: null,
+    oldSize: 24,
+    newSize: 24,
     stats: { additions: 1, deletions: 1, changes: 0 },
     hunks: [
       {
@@ -51,9 +54,19 @@ describe("DiffView", () => {
     expect(screen.getByText(/二进制文件|Binary/i)).toBeInTheDocument();
   });
 
-  it("超大文件（truncated）显示跳过提示", () => {
-    render(<DiffView diff={makeDiff({ truncated: true })} />);
+  it("行数截断显示 10000 行提示", () => {
+    render(<DiffView diff={makeDiff({ truncated: true, truncationReason: "lineCount" })} />);
     expect(screen.getByText(/超过 10000 行|too large|skipped/i)).toBeInTheDocument();
+  });
+
+  it("文件大小截断显示两侧字节大小", () => {
+    render(<DiffView diff={makeDiff({
+      truncated: true,
+      truncationReason: "fileSize",
+      oldSize: 1024,
+      newSize: 6 * 1024 * 1024,
+    })} />);
+    expect(screen.getByText(/1 KB.*6 MB|6 MB.*1 KB/i)).toBeInTheDocument();
   });
 
   it("无 hunks 时显示无变更提示", () => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "@/types";
 import ExplorerGitSection from "./ExplorerGitSection";
 import { gitService } from "@/services/gitService";
+import { useDialogStore } from "@/stores/useDialogStore";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -14,7 +15,7 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/services/gitService", () => ({
   gitService: {
     getRepoInfo: vi.fn(),
-    getFileStatuses: vi.fn(),
+    getChangedFiles: vi.fn(),
   },
 }));
 
@@ -41,24 +42,29 @@ const okInfo = (index: number) => ({
 describe("ExplorerGitSection C1 loading", () => {
   beforeEach(() => {
     vi.mocked(gitService.getRepoInfo).mockReset();
-    vi.mocked(gitService.getFileStatuses).mockReset();
+    vi.mocked(gitService.getChangedFiles).mockReset();
     vi.mocked(gitService.getRepoInfo).mockImplementation(async (path) => {
       const parts = path.split("-");
       const index = Number(parts[parts.length - 1]);
       return okInfo(index);
     });
-    vi.mocked(gitService.getFileStatuses).mockResolvedValue({});
+    vi.mocked(gitService.getChangedFiles).mockResolvedValue([]);
+    useDialogStore.setState({
+      gitTimelineOpen: false,
+      gitTimelineProjectPath: "",
+      gitTimelineInitialFile: null,
+    });
   });
 
   it("折叠态只查询轻量 repo info，不拉文件详情", async () => {
     render(<ExplorerGitSection workspace={workspace()} selectedProjectId={null} />);
 
     await waitFor(() => expect(gitService.getRepoInfo).toHaveBeenCalledTimes(2));
-    expect(gitService.getFileStatuses).not.toHaveBeenCalled();
+    expect(gitService.getChangedFiles).not.toHaveBeenCalled();
   });
 
   it("展开后才拉文件详情，并把详情失败显示出来", async () => {
-    vi.mocked(gitService.getFileStatuses).mockRejectedValue(new Error("status failed"));
+    vi.mocked(gitService.getChangedFiles).mockRejectedValue(new Error("status failed"));
     render(<ExplorerGitSection workspace={workspace(1)} selectedProjectId={null} />);
     await screen.findByText("main");
 
@@ -82,20 +88,20 @@ describe("ExplorerGitSection C1 loading", () => {
     render(<ExplorerGitSection workspace={workspace(1)} selectedProjectId="project-0" />);
 
     expect(await screen.findAllByText(expected)).not.toHaveLength(0);
-    expect(gitService.getFileStatuses).not.toHaveBeenCalled();
+    expect(gitService.getChangedFiles).not.toHaveBeenCalled();
   });
 
   it("限制多个展开项目的详情查询并发", async () => {
     let active = 0;
     let maxActive = 0;
-    vi.mocked(gitService.getFileStatuses).mockImplementation(
+    vi.mocked(gitService.getChangedFiles).mockImplementation(
       () =>
         new Promise((resolve) => {
           active += 1;
           maxActive = Math.max(maxActive, active);
           setTimeout(() => {
             active -= 1;
-            resolve({});
+            resolve([]);
           }, 20);
         }),
     );
@@ -106,8 +112,31 @@ describe("ExplorerGitSection C1 loading", () => {
       fireEvent.click(screen.getByText(`project-${index}`));
     }
 
-    await waitFor(() => expect(gitService.getFileStatuses).toHaveBeenCalledTimes(8));
+    await waitFor(() => expect(gitService.getChangedFiles).toHaveBeenCalledTimes(8));
     await waitFor(() => expect(active).toBe(0));
     expect(maxActive).toBeLessThanOrEqual(4);
+  });
+
+  it("时间线图标和变更文件行分别打开 timeline 与内容对比", async () => {
+    const file = {
+      status: "modified" as const,
+      oldPath: "src/a.ts",
+      newPath: "src/a.ts",
+      oldMode: null,
+      newMode: null,
+    };
+    vi.mocked(gitService.getChangedFiles).mockResolvedValue([file]);
+    render(<ExplorerGitSection workspace={workspace(1)} selectedProjectId={null} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "explorer.gitTimeline" }));
+    expect(useDialogStore.getState()).toMatchObject({
+      gitTimelineOpen: true,
+      gitTimelineProjectPath: "/repos/project-0",
+      gitTimelineInitialFile: null,
+    });
+
+    fireEvent.click(screen.getByText("project-0"));
+    fireEvent.click(await screen.findByText("src/a.ts"));
+    expect(useDialogStore.getState().gitTimelineInitialFile).toEqual(file);
   });
 });

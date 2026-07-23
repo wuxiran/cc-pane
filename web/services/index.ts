@@ -40,7 +40,16 @@ export type {
   WorktreeRecentChange,
 } from "./localHistoryService";
 export type { JournalIndex } from "./journalService";
-export type { GitRepoInfo, GitRepoState } from "./gitService";
+export type {
+  GitChangeStatus,
+  GitChangedFile,
+  GitCommit,
+  GitDiffSpec,
+  GitLogPage,
+  GitLogQuery,
+  GitRepoInfo,
+  GitRepoState,
+} from "./gitService";
 export type { WorktreeInfo } from "./worktreeService";
 export type { PlanEntry } from "./planService";
 export { filesystemService } from "./filesystemService";

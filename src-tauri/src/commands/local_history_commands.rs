@@ -46,16 +46,7 @@ pub async fn get_version_content(
     let content =
         history_service.get_version_content(Path::new(&project_path), &file_path, &version_id)?;
 
-    // 尝试 UTF-8 解码，失败尝试 GBK
-    match String::from_utf8(content) {
-        Ok(s) => Ok(s),
-        Err(e) => {
-            // 尝试 GBK 解码（中文 Windows 常见）
-            let bytes = e.into_bytes();
-            let (decoded, _, _) = encoding_rs::GBK.decode(&bytes);
-            Ok(decoded.to_string())
-        }
-    }
+    Ok(cc_panes_core::utils::decode_text_lossy_gbk(&content))
 }
 
 #[tauri::command]

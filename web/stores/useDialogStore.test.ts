@@ -10,6 +10,9 @@ describe("useDialogStore", () => {
       localHistoryOpen: false,
       localHistoryProjectPath: "",
       localHistoryFilePath: "",
+      gitTimelineOpen: false,
+      gitTimelineProjectPath: "",
+      gitTimelineInitialFile: null,
       sessionCleanerOpen: false,
       sessionCleanerProjectPath: "",
       todoOpen: false,
@@ -120,6 +123,28 @@ describe("useDialogStore", () => {
 
       useDialogStore.getState().closeSessionCleaner();
       expect(useDialogStore.getState().sessionCleanerOpen).toBe(false);
+    });
+  });
+
+  describe("Git Timeline dialog", () => {
+    it("携带结构化文件打开并在关闭时清理", () => {
+      const file = {
+        status: "renamed" as const,
+        oldPath: "old.txt",
+        newPath: "new.txt",
+        oldMode: "100644",
+        newMode: "100644",
+      };
+      useDialogStore.getState().openGitTimeline("/repo", file);
+      expect(useDialogStore.getState()).toMatchObject({
+        gitTimelineOpen: true,
+        gitTimelineProjectPath: "/repo",
+        gitTimelineInitialFile: file,
+      });
+
+      useDialogStore.getState().closeGitTimeline();
+      expect(useDialogStore.getState().gitTimelineOpen).toBe(false);
+      expect(useDialogStore.getState().gitTimelineInitialFile).toBeNull();
     });
   });
 

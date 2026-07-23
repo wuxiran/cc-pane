@@ -38,6 +38,13 @@ function getSegments(line: DiffLine): Segment[] {
   return segments;
 }
 
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  const megabytes = size / (1024 * 1024);
+  return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(1)} MB`;
+}
+
 export default memo(function DiffView({ diff, loading }: DiffViewProps) {
   const { t } = useTranslation("dialogs");
   const totalLines = useMemo(() => {
@@ -70,9 +77,15 @@ export default memo(function DiffView({ diff, loading }: DiffViewProps) {
   }
 
   if (diff.truncated) {
+    const message = diff.truncationReason === "fileSize"
+      ? t("diffFileTooLarge", {
+          oldSize: formatBytes(diff.oldSize ?? 0),
+          newSize: formatBytes(diff.newSize ?? 0),
+        })
+      : t("diffTooLarge");
     return (
       <div className="h-full flex items-center justify-center text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
-        {t("diffTooLarge")}
+        {message}
       </div>
     );
   }

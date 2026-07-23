@@ -1,4 +1,6 @@
-use crate::models::GitRepoInfo;
+use crate::models::{
+    DiffResult, GitChangedFile, GitDiffSpec, GitLogPage, GitLogQuery, GitRepoInfo,
+};
 use crate::services::{GitService, HistoryService};
 use crate::utils::{
     output_with_timeout, validate_git_url, validate_path, AppError, AppResult, GIT_NETWORK_TIMEOUT,
@@ -37,6 +39,65 @@ pub async fn get_git_status(path: String) -> AppResult<Option<bool>> {
     spawn_git_task(move || {
         GitService::new()
             .get_status_compat(Path::new(&path))
+            .map_err(AppError::from)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_git_log(path: String, query: GitLogQuery) -> AppResult<GitLogPage> {
+    validate_path(&path)?;
+    spawn_git_task(move || {
+        GitService::new()
+            .get_log(Path::new(&path), &query)
+            .map_err(AppError::from)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_git_local_branches(path: String) -> AppResult<Vec<String>> {
+    validate_path(&path)?;
+    spawn_git_task(move || {
+        GitService::new()
+            .list_local_branches(Path::new(&path))
+            .map_err(AppError::from)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_git_changed_files(path: String) -> AppResult<Vec<GitChangedFile>> {
+    validate_path(&path)?;
+    spawn_git_task(move || {
+        GitService::new()
+            .status_files(Path::new(&path))
+            .map_err(AppError::from)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_git_commit_files(
+    path: String,
+    commit: String,
+    parent_index: Option<usize>,
+) -> AppResult<Vec<GitChangedFile>> {
+    validate_path(&path)?;
+    spawn_git_task(move || {
+        GitService::new()
+            .list_commit_files(Path::new(&path), &commit, parent_index)
+            .map_err(AppError::from)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_git_diff(path: String, spec: GitDiffSpec) -> AppResult<DiffResult> {
+    validate_path(&path)?;
+    spawn_git_task(move || {
+        GitService::new()
+            .get_diff(Path::new(&path), &spec)
             .map_err(AppError::from)
     })
     .await
@@ -461,5 +522,53 @@ mod tests {
         assert_eq!(get_git_status(missing.clone()).await.unwrap(), None);
         let info = get_git_repo_info(missing).await.unwrap();
         assert_eq!(info.state, crate::models::GitRepoState::PathNotFound);
+    }
+
+    #[tokio::test]
+    async fn git_c2_commands_cover_log_files_branches_and_diff() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "user.email", "test@example.com"]);
+        git(root, &["config", "user.name", "test"]);
+        std::fs::write(root.join("tracked.txt"), "v1\n").unwrap();
+        git(root, &["add", "tracked.txt"]);
+        git(root, &["commit", "-q", "-m", "initial"]);
+        git(root, &["branch", "local-only"]);
+        std::fs::write(root.join("tracked.txt"), "v2\n").unwrap();
+
+        let path = root.to_string_lossy().to_string();
+        let log = get_git_log(
+            path.clone(),
+            crate::models::GitLogQuery {
+                limit: 1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(log.commits.len(), 1);
+        assert!(!log.has_more);
+
+        let branches = get_git_local_branches(path.clone()).await.unwrap();
+        assert!(branches.iter().any(|branch| branch == "local-only"));
+
+        let changed = get_git_changed_files(path.clone()).await.unwrap();
+        assert_eq!(changed.len(), 1);
+        let diff = get_git_diff(
+            path.clone(),
+            crate::models::GitDiffSpec::WorktreeVsHead {
+                file: changed[0].clone(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(diff.stats.changes, 1);
+
+        let commit_files = list_git_commit_files(path, log.commits[0].hash.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(commit_files.len(), 1);
+        assert_eq!(commit_files[0].new_mode.as_deref(), Some("100644"));
     }
 }

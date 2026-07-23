@@ -10,6 +10,7 @@ pub mod orchestrator_manifest;
 pub mod path_normalize;
 pub mod path_validator;
 pub mod project_identity;
+pub mod text_encoding;
 
 pub use app_paths::{AppPaths, APP_DIR_NAME};
 pub use claude_path::{encode_claude_project_path, is_claude_project_match};
@@ -34,3 +35,4 @@ pub use path_validator::{
 pub use project_identity::{
     canonical_project_path, project_identity_key, project_paths_equivalent,
 };
+pub use text_encoding::decode_text_lossy_gbk;

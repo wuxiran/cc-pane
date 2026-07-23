@@ -16,6 +16,7 @@
 - [x] 会话修复面板 (SessionCleanerPanel.tsx) - 清理异常会话
 - [x] 文件历史面板 (LocalHistoryPanel.tsx) - 查看和恢复文件历史版本
 - [x] Worktree 管理器 (WorktreeManager.tsx) - Git worktree 管理
+- [x] Git 时间线与内容 Diff - 本地分支、提交文件、merge parent 对比
 - [x] 工作空间别名 - 自定义工作空间显示名称
 - [x] 项目别名 - 自定义项目显示名称
 - [x] 侧边栏右键菜单（工作空间级 / 项目级）
@@ -47,6 +48,18 @@
 ### Worktree 管理器 (WorktreeManager)
 
 管理 Git worktree，方便在多个分支间并行工作。每个 worktree 可以关联独立的 Claude Code 实例。
+
+### Git 时间线与内容 Diff
+
+Explorer 的 Git 分组提供提交时间线入口，分支选择首版只列本地分支。提交分页由后端显式返回 `hasMore` 和 `nextOffset`；日志进程使用 NUL 结尾的固定字段协议，任一记录畸形时整次请求失败，不跳过坏记录。
+
+提交详情按 `GitChangedFile` 展示 old/new path 与 mode，可表达新增、删除、重命名、symlink 和 submodule。root commit 与 unborn worktree 的缺失侧按空内容处理；merge commit 默认对比 first parent，并可切换其他 parent。Explorer 未提交文件入口标为“工作区 vs HEAD · 内容对比”，不表示 index 或元数据级比较。
+
+Diff 内容复用 Local History 的 `HistoryFileRepository::compute_diff` 和前端 `DiffView`。读取前先在 raw bytes 上判断 binary，再做 UTF-8/GBK 解码；5 MB 文件上限与 10000 行上限分别返回截断原因和两侧字节数。读取文件大小配置只读 `.ccpanes/config.toml`，不会打开或迁移 History SQLite。
+
+Tauri 命令与 Web API 都是 core `GitService` 的薄包装，异步读取在线程池中执行。前端 log、文件列表和 diff 各自使用 request-id，切分支、切提交或切文件后会丢弃过期响应。
+
+回滚顺序固定为 **C2 -> C1**：先移除时间线/diff UI、新 service 方法及新增命令/路由，再回滚 C1 的 GitService、runner 和安全固化。不得先撤 C1，否则 C2 会失去受限输出、修订固化和路径校验基础。
 
 ### 别名功能
 

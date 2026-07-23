@@ -32,7 +32,7 @@ pub struct VersionsMetadata {
 
 /// 历史记录配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct HistoryConfig {
     pub enabled: bool,
     pub ignore_patterns: Vec<String>,
@@ -137,6 +137,14 @@ pub struct DiffHunk {
     pub lines: Vec<DiffLine>,
 }
 
+/// Diff 截断原因
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DiffTruncationReason {
+    FileSize,
+    LineCount,
+}
+
 /// Diff 结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -145,6 +153,12 @@ pub struct DiffResult {
     pub stats: DiffStats,
     pub is_binary: bool,
     pub truncated: bool,
+    #[serde(default)]
+    pub truncation_reason: Option<DiffTruncationReason>,
+    #[serde(default)]
+    pub old_size: u64,
+    #[serde(default)]
+    pub new_size: u64,
 }
 
 // ============ 标签模型 ============

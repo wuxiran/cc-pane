@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use cc_panes_core::{
-    models::GitRepoInfo,
+    models::{DiffResult, GitChangedFile, GitDiffSpec, GitLogPage, GitLogQuery, GitRepoInfo},
     services::{GitService, WorktreeInfo},
     utils::{
         output_with_timeout, prepare_git_clone_auth, validate_git_url, validate_path, AppResult,
@@ -23,6 +23,29 @@ const GIT_CLONE_TIMEOUT: Duration = Duration::from_secs(300);
 #[serde(rename_all = "camelCase")]
 pub struct PathQuery {
     pub path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLogHttpQuery {
+    pub path: String,
+    #[serde(flatten)]
+    pub query: GitLogQuery,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitFilesQuery {
+    pub path: String,
+    pub commit: String,
+    pub parent_index: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffRequest {
+    pub path: String,
+    pub spec: GitDiffSpec,
 }
 
 #[derive(Deserialize)]
@@ -219,6 +242,71 @@ pub async fn get_git_file_statuses(
     spawn_git(move || get_git_file_statuses_inner(&path))
         .await
         .map(Json)
+}
+
+pub async fn get_git_log(
+    Query(query): Query<GitLogHttpQuery>,
+) -> Result<Json<GitLogPage>, (StatusCode, String)> {
+    spawn_git(move || {
+        validate_path(&query.path)?;
+        GitService::new()
+            .get_log(Path::new(&query.path), &query.query)
+            .map_err(Into::into)
+    })
+    .await
+    .map(Json)
+}
+
+pub async fn get_git_local_branches(
+    Query(query): Query<PathQuery>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    spawn_git(move || {
+        validate_path(&query.path)?;
+        GitService::new()
+            .list_local_branches(Path::new(&query.path))
+            .map_err(Into::into)
+    })
+    .await
+    .map(Json)
+}
+
+pub async fn get_git_changed_files(
+    Query(query): Query<PathQuery>,
+) -> Result<Json<Vec<GitChangedFile>>, (StatusCode, String)> {
+    spawn_git(move || {
+        validate_path(&query.path)?;
+        GitService::new()
+            .status_files(Path::new(&query.path))
+            .map_err(Into::into)
+    })
+    .await
+    .map(Json)
+}
+
+pub async fn list_git_commit_files(
+    Query(query): Query<GitCommitFilesQuery>,
+) -> Result<Json<Vec<GitChangedFile>>, (StatusCode, String)> {
+    spawn_git(move || {
+        validate_path(&query.path)?;
+        GitService::new()
+            .list_commit_files(Path::new(&query.path), &query.commit, query.parent_index)
+            .map_err(Into::into)
+    })
+    .await
+    .map(Json)
+}
+
+pub async fn get_git_diff(
+    Json(request): Json<GitDiffRequest>,
+) -> Result<Json<DiffResult>, (StatusCode, String)> {
+    spawn_git(move || {
+        validate_path(&request.path)?;
+        GitService::new()
+            .get_diff(Path::new(&request.path), &request.spec)
+            .map_err(Into::into)
+    })
+    .await
+    .map(Json)
 }
 
 pub async fn git_pull(

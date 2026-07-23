@@ -345,5 +345,7 @@
   "explorer.gitUnknownError": "未知错误",
   "explorer.gitRepoRoot": "仓库根目录：{{path}}",
   "explorer.gitLoading": "加载中...",
-  "explorer.noChanges": "无变更"
+  "explorer.noChanges": "无变更",
+  "explorer.gitTimeline": "打开 Git 时间线",
+  "explorer.gitContentComparison": "内容对比"
 }

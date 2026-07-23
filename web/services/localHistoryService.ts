@@ -58,6 +58,9 @@ export interface DiffResult {
   stats: DiffStats;
   isBinary: boolean;
   truncated: boolean;
+  truncationReason?: "fileSize" | "lineCount" | null;
+  oldSize?: number;
+  newSize?: number;
 }
 
 // ============ 标签类型 ============

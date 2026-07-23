@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight, GitBranch, RefreshCw } from "lucide-react";
-import { gitService, type GitRepoInfo } from "@/services/gitService";
+import { ChevronDown, ChevronRight, GitBranch, History, RefreshCw } from "lucide-react";
+import {
+  gitService,
+  type GitChangedFile,
+  type GitRepoInfo,
+} from "@/services/gitService";
+import { useDialogStore } from "@/stores/useDialogStore";
 import { getProjectName } from "@/utils/path";
 import type { Workspace, WorkspaceProject } from "@/types";
 
@@ -18,7 +23,7 @@ interface GitProjectState {
   repoRoot: string | null;
   branch: string | null;
   hasChanges: boolean;
-  changes: Array<[string, string]>;
+  changes: GitChangedFile[];
   detailsLoading: boolean;
   detailError: string | null;
   message: string | null;
@@ -82,22 +87,22 @@ function stateFromRepoInfo(info: GitRepoInfo): GitProjectState {
 }
 
 /** 与 FileTreeNode 的 GIT_STATUS_COLORS 同源的状态配色 + 单字母标记 */
-const STATUS_BADGES: Record<string, { letter: string; className: string }> = {
+const STATUS_BADGES: Record<GitChangedFile["status"], { letter: string; className: string }> = {
   modified: { letter: "M", className: "text-[var(--app-status-warning)]" },
   added: { letter: "A", className: "text-[var(--app-status-success)]" },
   deleted: { letter: "D", className: "text-[var(--app-status-danger)]" },
   untracked: { letter: "U", className: "text-[var(--app-status-success)]" },
   renamed: { letter: "R", className: "text-[var(--app-accent)]" },
   copied: { letter: "C", className: "text-[var(--app-accent)]" },
+  typeChanged: { letter: "T", className: "text-[var(--app-status-warning)]" },
+  conflicted: { letter: "!", className: "text-[var(--app-status-danger)]" },
 };
 
-function toRelativePath(filePath: string, rootPath: string): string {
-  const normalizedFile = filePath.replace(/\\/g, "/");
-  const normalizedRoot = rootPath.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (normalizedFile.toLowerCase().startsWith(`${normalizedRoot.toLowerCase()}/`)) {
-    return normalizedFile.slice(normalizedRoot.length + 1);
+function displayPath(file: GitChangedFile): string {
+  if (file.oldPath && file.newPath && file.oldPath !== file.newPath) {
+    return `${file.oldPath} -> ${file.newPath}`;
   }
-  return normalizedFile;
+  return file.newPath ?? file.oldPath ?? "";
 }
 
 interface GitProjectGroupProps {
@@ -111,44 +116,46 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
   const { t } = useTranslation("sidebar");
   const [state, setState] = useState<GitProjectState>(LOADING_STATE);
   const [reloadTick, setReloadTick] = useState(0);
+  const repoRequestId = useRef(0);
+  const detailsRequestId = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const requestId = ++repoRequestId.current;
     setState({ ...LOADING_STATE });
     gitService
       .getRepoInfo(project.path)
       .then((info) => {
-        if (!cancelled) setState(stateFromRepoInfo(info));
+        if (repoRequestId.current === requestId) setState(stateFromRepoInfo(info));
       })
       .catch((error) => {
-        if (!cancelled) {
+        if (repoRequestId.current === requestId) {
           setState({ ...LOADING_STATE, kind: "unavailable", message: messageOf(error) });
         }
       });
     return () => {
-      cancelled = true;
+      if (repoRequestId.current === requestId) repoRequestId.current += 1;
     };
   }, [project.path, reloadTick]);
 
   useEffect(() => {
     if (!expanded || state.kind !== "git") return;
-    let cancelled = false;
+    const requestId = ++detailsRequestId.current;
     setState((current) => ({ ...current, detailsLoading: true, detailError: null }));
     loadDetails(() => {
-      if (cancelled) return Promise.resolve(null);
-      return gitService.getFileStatuses(project.path);
+      if (detailsRequestId.current !== requestId) return Promise.resolve(null);
+      return gitService.getChangedFiles(project.path);
     })
-      .then((statuses) => {
-        if (!cancelled && statuses) {
+      .then((files) => {
+        if (detailsRequestId.current === requestId && files) {
           setState((current) => ({
             ...current,
-            changes: Object.entries(statuses).sort((a, b) => a[0].localeCompare(b[0])),
+            changes: [...files].sort((a, b) => displayPath(a).localeCompare(displayPath(b))),
             detailsLoading: false,
           }));
         }
       })
       .catch((error) => {
-        if (!cancelled) {
+        if (detailsRequestId.current === requestId) {
           setState((current) => ({
             ...current,
             detailsLoading: false,
@@ -157,7 +164,7 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
         }
       });
     return () => {
-      cancelled = true;
+      if (detailsRequestId.current === requestId) detailsRequestId.current += 1;
     };
   }, [expanded, loadDetails, project.path, reloadTick, state.kind]);
 
@@ -165,6 +172,11 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
     event.stopPropagation();
     setReloadTick((tick) => tick + 1);
   }, []);
+
+  const handleOpenTimeline = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    useDialogStore.getState().openGitTimeline(project.path);
+  }, [project.path]);
 
   const name = project.alias || getProjectName(project.path);
   const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -219,12 +231,23 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
             {stateHint}
           </span>
         )}
+        {state.kind === "git" && (
+          <button
+            type="button"
+            aria-label={t("explorer.gitTimeline")}
+            title={t("explorer.gitTimeline")}
+            onClick={handleOpenTimeline}
+            className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
+          >
+            <History className="h-3 w-3" />
+          </button>
+        )}
         <button
           type="button"
           aria-label={t("refresh")}
           title={t("refresh")}
           onClick={handleRefresh}
-          className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
+          className={`${state.kind === "git" ? "" : "ml-auto"} flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]`}
         >
           <RefreshCw className="h-3 w-3" />
         </button>
@@ -250,22 +273,24 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
           ) : state.changes.length === 0 ? (
             <div className="px-2 py-1.5 text-xs text-[var(--app-text-tertiary)]">{t("explorer.noChanges")}</div>
           ) : (
-            state.changes.map(([filePath, status]) => {
-              const badge = STATUS_BADGES[status];
-              const relPath = toRelativePath(filePath, project.path);
+            state.changes.map((file) => {
+              const badge = STATUS_BADGES[file.status];
+              const path = displayPath(file);
               return (
-                <div
-                  key={filePath}
-                  className="flex items-center gap-1.5 rounded px-2 py-1 text-xs hover:bg-[var(--app-hover)]"
-                  title={relPath}
+                <button
+                  type="button"
+                  key={`${file.oldPath ?? ""}:${file.newPath ?? ""}`}
+                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-[var(--app-hover)]"
+                  title={`${path} · ${t("explorer.gitContentComparison")}`}
+                  onClick={() => useDialogStore.getState().openGitTimeline(project.path, file)}
                 >
                   <span className={`w-3 shrink-0 text-center font-semibold ${badge?.className ?? "text-[var(--app-text-tertiary)]"}`}>
                     {badge?.letter ?? "?"}
                   </span>
-                  <span className={`truncate text-[var(--app-text-secondary)] ${status === "deleted" ? "line-through" : ""}`}>
-                    {relPath}
+                  <span className={`truncate text-[var(--app-text-secondary)] ${file.status === "deleted" ? "line-through" : ""}`}>
+                    {path}
                   </span>
-                </div>
+                </button>
               );
             })
           )}

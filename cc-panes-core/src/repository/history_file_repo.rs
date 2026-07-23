@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::models::{
-    DiffChangeType, DiffHunk, DiffLine, DiffResult, DiffStats, FileVersion, HistoryConfig,
-    HistoryLabel, InlineChange, LabelFileSnapshot, ProjectConfig, RecentChange, VersionsMetadata,
+    DiffChangeType, DiffHunk, DiffLine, DiffResult, DiffStats, DiffTruncationReason, FileVersion,
+    HistoryConfig, HistoryLabel, InlineChange, LabelFileSnapshot, ProjectConfig, RecentChange,
+    VersionsMetadata,
 };
 
 use crate::constants::history::{CONTEXT_LINES, MAX_DIFF_LINES};
@@ -240,7 +241,12 @@ impl HistoryFileRepository {
     // ============ 配置管理 ============
 
     pub fn read_config(&self) -> Result<ProjectConfig> {
-        let config_path = self.config_path();
+        Self::read_project_config(&self.project_path)
+    }
+
+    /// 只读取项目配置，不创建历史目录、打开数据库或执行迁移。
+    pub fn read_project_config(project_path: &Path) -> Result<ProjectConfig> {
+        let config_path = project_path.join(CCPANES_DIR).join(CONFIG_FILE);
         if config_path.exists() {
             let content = fs::read_to_string(&config_path).context("Failed to read config file")?;
             toml::from_str(&content).context("Failed to parse config file")
@@ -687,6 +693,9 @@ impl HistoryFileRepository {
                 stats: DiffStats::default(),
                 is_binary: true,
                 truncated: false,
+                truncation_reason: None,
+                old_size: old_text.len() as u64,
+                new_size: new_text.len() as u64,
             };
         }
 
@@ -706,6 +715,9 @@ impl HistoryFileRepository {
                 stats,
                 is_binary: false,
                 truncated: true,
+                truncation_reason: Some(DiffTruncationReason::LineCount),
+                old_size: old_text.len() as u64,
+                new_size: new_text.len() as u64,
             };
         }
 
@@ -848,6 +860,9 @@ impl HistoryFileRepository {
             stats,
             is_binary: false,
             truncated: false,
+            truncation_reason: None,
+            old_size: old_text.len() as u64,
+            new_size: new_text.len() as u64,
         }
     }
 

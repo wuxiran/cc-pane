@@ -6,6 +6,7 @@ import type {
   SshConnectionInfo,
   WslLaunchInfo,
 } from "@/types";
+import type { GitChangedFile } from "@/services/gitService";
 
 export interface PendingLaunch {
   path: string;
@@ -54,6 +55,13 @@ interface DialogState {
   localHistoryFilePath: string;
   openLocalHistory: (projectPath: string, filePath?: string) => void;
   closeLocalHistory: () => void;
+
+  // Git Timeline
+  gitTimelineOpen: boolean;
+  gitTimelineProjectPath: string;
+  gitTimelineInitialFile: GitChangedFile | null;
+  openGitTimeline: (projectPath: string, initialFile?: GitChangedFile) => void;
+  closeGitTimeline: () => void;
 
   // Session Cleaner
   sessionCleanerOpen: boolean;
@@ -121,6 +129,18 @@ export const useDialogStore = create<DialogState>((set) => ({
   openLocalHistory: (projectPath, filePath) =>
     set({ localHistoryOpen: true, localHistoryProjectPath: projectPath, localHistoryFilePath: filePath || "" }),
   closeLocalHistory: () => set({ localHistoryOpen: false, localHistoryFilePath: "" }),
+
+  // Git Timeline
+  gitTimelineOpen: false,
+  gitTimelineProjectPath: "",
+  gitTimelineInitialFile: null,
+  openGitTimeline: (projectPath, initialFile) =>
+    set({
+      gitTimelineOpen: true,
+      gitTimelineProjectPath: projectPath,
+      gitTimelineInitialFile: initialFile ?? null,
+    }),
+  closeGitTimeline: () => set({ gitTimelineOpen: false, gitTimelineInitialFile: null }),
 
   // Session Cleaner
   sessionCleanerOpen: false,

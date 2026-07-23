@@ -24,7 +24,10 @@ pub mod workspace_snapshot;
 pub mod wsl;
 
 pub use external_skill::{DiscoveredExternalSkill, ExternalSkillSource};
-pub use git::{GitChangeStatus, GitChangedFile, GitRepoInfo, GitRepoState};
+pub use git::{
+    GitChangeStatus, GitChangedFile, GitCommit, GitDiffSpec, GitLogPage, GitLogQuery, GitRepoInfo,
+    GitRepoState,
+};
 pub use history::{
     // Diff 模型
     DiffChangeType,
@@ -32,6 +35,7 @@ pub use history::{
     DiffLine,
     DiffResult,
     DiffStats,
+    DiffTruncationReason,
     FileVersion,
     HistoryConfig,
     HistoryLabel,

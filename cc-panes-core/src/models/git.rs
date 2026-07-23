@@ -64,6 +64,82 @@ pub struct GitChangedFile {
     pub status: GitChangeStatus,
     pub old_path: Option<String>,
     pub new_path: Option<String>,
+    #[serde(default)]
+    pub old_mode: Option<String>,
+    #[serde(default)]
+    pub new_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub author: String,
+    pub author_email: String,
+    pub date: String,
+    pub subject: String,
+    pub refs: String,
+    pub parents: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLogQuery {
+    #[serde(default = "default_log_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub file: Option<String>,
+}
+
+const fn default_log_limit() -> usize {
+    50
+}
+
+impl Default for GitLogQuery {
+    fn default() -> Self {
+        Self {
+            limit: default_log_limit(),
+            offset: 0,
+            branch: None,
+            file: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLogPage {
+    pub commits: Vec<GitCommit>,
+    pub has_more: bool,
+    pub next_offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "mode",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum GitDiffSpec {
+    WorktreeVsHead {
+        file: GitChangedFile,
+    },
+    CommitVsCommit {
+        old_rev: String,
+        new_rev: String,
+        file: GitChangedFile,
+    },
+    CommitVsParent {
+        commit: String,
+        #[serde(default)]
+        parent_index: Option<usize>,
+        file: GitChangedFile,
+    },
 }
 
 #[cfg(test)]

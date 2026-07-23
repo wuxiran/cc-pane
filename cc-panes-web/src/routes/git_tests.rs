@@ -268,6 +268,56 @@ async fn git_read_routes_match_tauri_git_commands() {
         statuses.get(&repo.join("new.txt").to_string_lossy().to_string()),
         Some(&"untracked".to_string())
     );
+
+    let Json(log) = get_git_log(Query(GitLogHttpQuery {
+        path: repo.to_string_lossy().to_string(),
+        query: cc_panes_core::models::GitLogQuery {
+            limit: 1,
+            ..Default::default()
+        },
+    }))
+    .await
+    .expect("git log");
+    assert_eq!(log.commits.len(), 1);
+    assert!(!log.has_more);
+
+    let Json(branches) = get_git_local_branches(Query(PathQuery {
+        path: repo.to_string_lossy().to_string(),
+    }))
+    .await
+    .expect("local branches");
+    assert_eq!(branches.len(), 1);
+
+    let Json(changed) = get_git_changed_files(Query(PathQuery {
+        path: repo.to_string_lossy().to_string(),
+    }))
+    .await
+    .expect("changed files");
+    assert_eq!(changed.len(), 2);
+
+    let Json(diff) = get_git_diff(Json(GitDiffRequest {
+        path: repo.to_string_lossy().to_string(),
+        spec: cc_panes_core::models::GitDiffSpec::WorktreeVsHead {
+            file: changed
+                .iter()
+                .find(|file| file.new_path.as_deref() == Some("README.md"))
+                .unwrap()
+                .clone(),
+        },
+    }))
+    .await
+    .expect("worktree diff");
+    assert_eq!(diff.stats.changes, 1);
+
+    let Json(commit_files) = list_git_commit_files(Query(GitCommitFilesQuery {
+        path: repo.to_string_lossy().to_string(),
+        commit: log.commits[0].hash.clone(),
+        parent_index: None,
+    }))
+    .await
+    .expect("commit files");
+    assert_eq!(commit_files.len(), 1);
+    assert_eq!(commit_files[0].new_mode.as_deref(), Some("100644"));
 }
 
 #[tokio::test]

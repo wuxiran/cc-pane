@@ -332,6 +332,8 @@ impl GitService {
                 status,
                 old_path,
                 new_path,
+                old_mode: None,
+                new_mode: None,
             });
         }
         Ok(result)
@@ -391,3 +393,5 @@ impl GitService {
         }
     }
 }
+
+mod c2;
