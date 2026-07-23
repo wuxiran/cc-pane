@@ -16,6 +16,7 @@ export const DEFAULT_WALLPAPER: WallpaperSettings = {
   blur: 0,
   dim: 0.35,
   terminalOpacity: 0.85,
+  glassBlur: 0,
   video: {
     autoplay: true,
     playbackRate: 1,
@@ -29,6 +30,7 @@ export const DEFAULT_WALLPAPER: WallpaperSettings = {
     loopPlayback: true,
     autoplay: true,
     pauseWhenUnfocused: false,
+    useVideoAudio: false,
   },
 };
 
@@ -50,7 +52,8 @@ export function clampWallpaper(settings: WallpaperSettings): WallpaperSettings {
     opacity: clampNumber(settings.opacity, 0.1, 1, 1),
     blur: clampNumber(settings.blur, 0, 64, 0),
     dim: clampNumber(settings.dim, 0, 0.9, 0.35),
-    terminalOpacity: clampNumber(settings.terminalOpacity, 0.3, 1, 0.85),
+    terminalOpacity: clampNumber(settings.terminalOpacity, 0, 1, 0.85),
+    glassBlur: clampNumber(settings.glassBlur, 0, 24, 0),
     video: {
       ...settings.video,
       playbackRate: clampNumber(settings.video.playbackRate, 0.25, 2, 1),
@@ -84,6 +87,27 @@ function definedFields<T extends object>(value: T): Partial<T> {
     }
   }
   return out;
+}
+
+/** 音乐源判定结果：videoAudio = 复用视频的 asset URL；file = 需按音频单独解析的文件名 */
+export type WallpaperMusicSource =
+  | { kind: "videoAudio" }
+  | { kind: "file"; file: string }
+  | null;
+
+/**
+ * 判定 BGM 从哪来。抽成纯函数是为了能独立单测——store 的 recompute 里
+ * 混着 Tauri 调用，那段分支不好覆盖。
+ *
+ * useVideoAudio 只在 kind=video 时成立：图片壁纸没有音轨可用，
+ * 此时回落到 music.file，避免勾了开关就彻底没声还找不到原因。
+ */
+export function resolveMusicSource(settings: WallpaperSettings): WallpaperMusicSource {
+  if (!settings.music.enabled) return null;
+  if (settings.music.useVideoAudio && settings.kind === "video") {
+    return { kind: "videoAudio" };
+  }
+  return settings.music.file ? { kind: "file", file: settings.music.file } : null;
 }
 
 /**

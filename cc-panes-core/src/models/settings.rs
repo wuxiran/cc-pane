@@ -81,9 +81,14 @@ pub struct WallpaperSettings {
     /// 压暗遮罩不透明度 0..=0.9
     #[serde(default = "default_wallpaper_dim")]
     pub dim: f64,
-    /// 终端背景不透明度 0.3..=1（1 = 不透明，走原路径）
+    /// 终端背景不透明度 0..=1（1 = 不透明走原路径；0 = 全透明，字直接浮在壁纸上）
     #[serde(default = "default_wallpaper_terminal_opacity")]
     pub terminal_opacity: f64,
+    /// 面板玻璃模糊 px 0..=24：壁纸激活时面板背景变透明，面板自身的
+    /// `backdrop-filter: blur(--app-glass-blur)` 会直接糊在壁纸上（视频会被糊没）。
+    /// 这个值在壁纸激活时接管该 token，默认 0 = 壁纸之上不再叠玻璃模糊。
+    #[serde(default)]
+    pub glass_blur: f64,
     #[serde(default)]
     pub video: WallpaperVideoSettings,
     #[serde(default)]
@@ -124,6 +129,13 @@ pub struct WallpaperMusicSettings {
     /// 切走窗口未必想停，所以默认 false（老配置升级后音乐不再随失焦暂停）。
     #[serde(default)]
     pub pause_when_unfocused: bool,
+    /// 用视频壁纸自带的音轨当 BGM（仅 kind=video 有意义），忽略 `file`。
+    ///
+    /// 实现走**独立 audio 元素喂同一个文件**，不给 `<video>` 解除静音：
+    /// 有声 video 的 autoplay 会被浏览器拒掉（整个视频停在首帧），
+    /// 且省电策略一暂停视频声音就断。独立 audio 才能复用音乐的手势兜底与暂停规则。
+    #[serde(default)]
+    pub use_video_audio: bool,
 }
 
 /// 工作空间壁纸覆盖配置：**每个字段都是 Option**，未设 = 回落全局。
@@ -150,6 +162,8 @@ pub struct WallpaperOverrideConfig {
     pub dim: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_opacity: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glass_blur: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<WallpaperVideoOverride>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -184,6 +198,8 @@ pub struct WallpaperMusicOverride {
     pub autoplay: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pause_when_unfocused: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_video_audio: Option<bool>,
 }
 
 impl Default for WallpaperSettings {
@@ -197,6 +213,7 @@ impl Default for WallpaperSettings {
             blur: 0.0,
             dim: default_wallpaper_dim(),
             terminal_opacity: default_wallpaper_terminal_opacity(),
+            glass_blur: 0.0,
             video: WallpaperVideoSettings::default(),
             music: WallpaperMusicSettings::default(),
         }
@@ -223,6 +240,7 @@ impl Default for WallpaperMusicSettings {
             loop_playback: true,
             autoplay: true,
             pause_when_unfocused: false,
+            use_video_audio: false,
         }
     }
 }
@@ -244,8 +262,11 @@ impl WallpaperSettings {
         if !self.dim.is_finite() || !(0.0..=0.9).contains(&self.dim) {
             self.dim = default_wallpaper_dim();
         }
-        if !self.terminal_opacity.is_finite() || !(0.3..=1.0).contains(&self.terminal_opacity) {
+        if !self.terminal_opacity.is_finite() || !(0.0..=1.0).contains(&self.terminal_opacity) {
             self.terminal_opacity = default_wallpaper_terminal_opacity();
+        }
+        if !self.glass_blur.is_finite() || !(0.0..=24.0).contains(&self.glass_blur) {
+            self.glass_blur = 0.0;
         }
         if !self.video.playback_rate.is_finite()
             || !(0.25..=2.0).contains(&self.video.playback_rate)
@@ -1440,6 +1461,27 @@ mod tests {
         assert_eq!(settings.wallpaper.music.volume, 0.4);
         assert!(settings.wallpaper.video.pause_when_unfocused);
         assert!(!settings.wallpaper.music.pause_when_unfocused);
+        // 老配置没有 glassBlur：落 0，壁纸之上不再叠面板玻璃模糊
+        assert_eq!(settings.wallpaper.glass_blur, 0.0);
+        // 老配置没有 useVideoAudio：落 false，仍走 music.file
+        assert!(!settings.wallpaper.music.use_video_audio);
+    }
+
+    #[test]
+    fn glass_blur_clamps_out_of_range_to_zero() {
+        let mut settings = WallpaperSettings {
+            glass_blur: 999.0,
+            ..WallpaperSettings::default()
+        };
+        settings.merge_missing_defaults();
+        assert_eq!(settings.glass_blur, 0.0);
+
+        let mut ok = WallpaperSettings {
+            glass_blur: 12.0,
+            ..WallpaperSettings::default()
+        };
+        ok.merge_missing_defaults();
+        assert_eq!(ok.glass_blur, 12.0);
     }
 
     #[test]
@@ -1513,7 +1555,7 @@ mod tests {
             opacity: 3.0,
             blur: -1.0,
             dim: f64::NAN,
-            terminal_opacity: 0.0,
+            terminal_opacity: -1.0,
             ..WallpaperSettings::default()
         };
         settings.video.playback_rate = 10.0;
@@ -1531,6 +1573,24 @@ mod tests {
         assert_eq!(settings.video.playback_rate, 1.0);
         assert_eq!(settings.video.power_saver, "auto");
         assert_eq!(settings.music.volume, 0.5);
+    }
+
+    /// terminalOpacity 下限从 0.3 放宽到 0：0 = 全透明，字直接浮在壁纸上。
+    #[test]
+    fn terminal_opacity_zero_is_valid_full_transparency() {
+        let mut settings = WallpaperSettings {
+            terminal_opacity: 0.0,
+            ..WallpaperSettings::default()
+        };
+        settings.merge_missing_defaults();
+        assert_eq!(settings.terminal_opacity, 0.0);
+
+        let mut low = WallpaperSettings {
+            terminal_opacity: 0.1,
+            ..WallpaperSettings::default()
+        };
+        low.merge_missing_defaults();
+        assert_eq!(low.terminal_opacity, 0.1);
     }
 
     #[test]

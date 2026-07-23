@@ -262,17 +262,37 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
 
       <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
         {sliderRow(t("wallpaperOpacity"), value.opacity, 0.1, 1, 0.05, (v) => `${Math.round(v * 100)}%`, (v) => update("opacity", v))}
+        {/* 「壁纸浓度」调低是壁纸变淡，「终端底色浓度」调低是壁纸变清楚——
+            两条方向相反，实测用户会把两条一起拉到最左，必须写明 */}
+        <p className="text-xs -mt-1" style={{ color: "var(--app-text-tertiary)" }}>
+          {t("wallpaperOpacityHint")}
+        </p>
         {sliderRow(t("wallpaperBlur"), value.blur, 0, 64, 1, (v) => `${v}px`, (v) => update("blur", v))}
         {sliderRow(t("wallpaperDim"), value.dim, 0, 0.9, 0.05, (v) => `${Math.round(v * 100)}%`, (v) => update("dim", v))}
         {sliderRow(
           t("wallpaperTerminalOpacity"),
           value.terminalOpacity,
-          0.3,
+          0,
           1,
           0.05,
           (v) => `${Math.round(v * 100)}%`,
           (v) => update("terminalOpacity", v),
         )}
+        <p className="text-xs -mt-1" style={{ color: "var(--app-text-tertiary)" }}>
+          {t("wallpaperTerminalOpacityHint")}
+        </p>
+        {sliderRow(
+          t("wallpaperGlassBlur"),
+          value.glassBlur,
+          0,
+          24,
+          1,
+          (v) => `${v}px`,
+          (v) => update("glassBlur", v),
+        )}
+        <p className="text-xs -mt-1" style={{ color: "var(--app-text-tertiary)" }}>
+          {t("wallpaperGlassBlurHint")}
+        </p>
       </div>
 
       {/* 视频选项 */}
@@ -344,21 +364,43 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
         </label>
         {value.music.enabled && (
           <>
-            <div className="flex items-center justify-between gap-3">
-              <span className="max-w-[280px] truncate text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                {value.music.file ?? t("wallpaperMusicNoFile")}
-              </span>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" disabled={importing} onClick={pickMusic}>
-                  {t("wallpaperMusicPick")}
-                </Button>
-                {value.music.file && (
-                  <Button size="sm" variant="ghost" onClick={clearMusic}>
-                    {t("wallpaperClearImage")}
+            {/* 视频壁纸才有音轨可用；勾上后忽略下面的音乐文件 */}
+            {value.kind === "video" && (
+              <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+                <span>
+                  {t("wallpaperMusicUseVideoAudio")}
+                  <span className="ml-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+                    {t("wallpaperMusicUseVideoAudioHint")}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={value.music.useVideoAudio}
+                  className="h-4 w-4 cursor-pointer"
+                  style={{ accentColor: "var(--app-accent)" }}
+                  onChange={(event) =>
+                    update("music", { ...value.music, useVideoAudio: event.target.checked })
+                  }
+                />
+              </label>
+            )}
+            {!(value.music.useVideoAudio && value.kind === "video") && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="max-w-[280px] truncate text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+                  {value.music.file ?? t("wallpaperMusicNoFile")}
+                </span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" disabled={importing} onClick={pickMusic}>
+                    {t("wallpaperMusicPick")}
                   </Button>
-                )}
+                  {value.music.file && (
+                    <Button size="sm" variant="ghost" onClick={clearMusic}>
+                      {t("wallpaperClearImage")}
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
             {sliderRow(
               t("wallpaperMusicVolume"),
               value.music.volume,

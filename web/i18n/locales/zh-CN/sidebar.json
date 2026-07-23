@@ -11,10 +11,11 @@
     "overrideField": "覆盖此项",
     "paramsTitle": "参数覆盖",
     "paramsHint": "勾选后该项按本工作空间生效，未勾选的回落全局设置。",
-    "opacity": "不透明度",
+    "opacity": "壁纸浓度",
     "blur": "模糊",
     "dim": "压暗",
-    "terminalOpacity": "终端不透明度",
+    "terminalOpacity": "终端底色浓度",
+    "glassBlur": "面板玻璃模糊",
     "videoTitle": "视频",
     "videoAutoplay": "自动播放",
     "videoPauseUnfocused": "失焦时暂停",
@@ -28,7 +29,8 @@
     "musicVolume": "音量",
     "musicLoop": "循环播放",
     "musicAutoplay": "自动播放",
-    "musicPauseUnfocused": "失焦时暂停"
+    "musicPauseUnfocused": "失焦时暂停",
+    "musicUseVideoAudio": "用视频自带的声音"
   },
   "home": "首页",
   "workspaces": "工作空间",

@@ -11,10 +11,11 @@
     "overrideField": "Override this setting",
     "paramsTitle": "Parameter overrides",
     "paramsHint": "Checked settings apply to this workspace; unchecked ones fall back to the global wallpaper.",
-    "opacity": "Opacity",
+    "opacity": "Wallpaper opacity",
     "blur": "Blur",
     "dim": "Dim",
-    "terminalOpacity": "Terminal opacity",
+    "terminalOpacity": "Terminal background opacity",
+    "glassBlur": "Panel glass blur",
     "videoTitle": "Video",
     "videoAutoplay": "Autoplay",
     "videoPauseUnfocused": "Pause when unfocused",
@@ -28,7 +29,8 @@
     "musicVolume": "Volume",
     "musicLoop": "Loop",
     "musicAutoplay": "Autoplay",
-    "musicPauseUnfocused": "Pause when unfocused"
+    "musicPauseUnfocused": "Pause when unfocused",
+    "musicUseVideoAudio": "Use the video's own audio"
   },
   "home": "Home",
   "workspaces": "Workspaces",

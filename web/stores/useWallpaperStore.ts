@@ -7,7 +7,7 @@ import { create } from "zustand";
 import type { WallpaperSettings } from "@/types";
 import { setTerminalTransparencyProvider } from "@/components/panes/terminalRenderer";
 import { initWallpaperMusicController } from "@/utils/wallpaperMusicController";
-import { resolveWallpaper } from "@/utils/wallpaper";
+import { resolveMusicSource, resolveWallpaper } from "@/utils/wallpaper";
 import {
   collectWallpaperVideoPolicyEnvironment,
   decideWallpaperVideoPolicy,
@@ -81,9 +81,15 @@ export const useWallpaperStore = create<WallpaperState>((set) => ({
         assetUrl = null; // 文件缺失/校验失败：壁纸层静默不显示，不打断主界面
       }
     }
-    if (resolved.music.enabled && resolved.music.file) {
+    // 「用视频自带的声音」：直接复用已解析出的视频 asset URL 喂 audio 单例，
+    // 不给 <video> 解除静音（有声 video 的 autoplay 会被拒 + 省电暂停会断声）。
+    // 同一文件被 video/audio 各解一次，音画会漂移——BGM 场景可接受。
+    const musicSource = resolveMusicSource(resolved);
+    if (musicSource?.kind === "videoAudio") {
+      musicUrl = assetUrl;
+    } else if (musicSource?.kind === "file") {
       try {
-        musicUrl = await wallpaperService.resolveWallpaperAsset(resolved.music.file, "audio");
+        musicUrl = await wallpaperService.resolveWallpaperAsset(musicSource.file, "audio");
       } catch {
         musicUrl = null;
       }

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_WALLPAPER, clampWallpaper, resolveWallpaper } from "./wallpaper";
+import {
+  DEFAULT_WALLPAPER,
+  clampWallpaper,
+  resolveMusicSource,
+  resolveWallpaper,
+} from "./wallpaper";
 import type { WallpaperSettings } from "@/types";
 
 function enabledGlobal(partial: Partial<WallpaperSettings> = {}): WallpaperSettings {
@@ -66,6 +71,18 @@ describe("resolveWallpaper", () => {
     expect(resolved?.blur).toBe(20);
     expect(resolved?.dim).toBe(0.7);
     expect(resolved?.terminalOpacity).toBe(0.4);
+  });
+
+  it("glassBlur 默认 0：壁纸之上不叠面板玻璃模糊（否则视频被糊没）", () => {
+    expect(DEFAULT_WALLPAPER.glassBlur).toBe(0);
+    const resolved = resolveWallpaper(enabledGlobal(), null);
+    expect(resolved?.glassBlur).toBe(0);
+  });
+
+  it("custom：glassBlur 可按工作空间覆盖", () => {
+    const global = enabledGlobal({ glassBlur: 0 });
+    const resolved = resolveWallpaper(global, { mode: "custom", config: { glassBlur: 8 } });
+    expect(resolved?.glassBlur).toBe(8);
   });
 
   it("custom：只覆盖部分滑杆时，其余滑杆仍回落全局", () => {
@@ -149,16 +166,23 @@ describe("clampWallpaper", () => {
       opacity: 5,
       blur: -3,
       dim: 2,
-      terminalOpacity: 0,
+      terminalOpacity: -1,
+      glassBlur: 999,
       video: { ...DEFAULT_WALLPAPER.video, playbackRate: 99 },
       music: { ...DEFAULT_WALLPAPER.music, volume: -1 },
     });
     expect(clamped.opacity).toBe(1);
     expect(clamped.blur).toBe(0);
     expect(clamped.dim).toBe(0.9);
-    expect(clamped.terminalOpacity).toBe(0.3);
+    expect(clamped.terminalOpacity).toBe(0);
+    expect(clamped.glassBlur).toBe(24);
     expect(clamped.video.playbackRate).toBe(2);
     expect(clamped.music.volume).toBe(0);
+  });
+
+  it("terminalOpacity=0 是合法的全透明（字直接浮在壁纸上）", () => {
+    const clamped = clampWallpaper({ ...enabledGlobal(), terminalOpacity: 0 });
+    expect(clamped.terminalOpacity).toBe(0);
   });
 
   it("非法枚举与非数值回落默认", () => {
@@ -173,5 +197,52 @@ describe("clampWallpaper", () => {
     expect(clamped.fit).toBe("cover");
     expect(clamped.opacity).toBe(1);
     expect(clamped.video.powerSaver).toBe("auto");
+  });
+});
+
+describe("resolveMusicSource", () => {
+  function withMusic(
+    music: Partial<WallpaperSettings["music"]>,
+    kind: WallpaperSettings["kind"] = "video",
+  ): WallpaperSettings {
+    return {
+      ...DEFAULT_WALLPAPER,
+      enabled: true,
+      kind,
+      file: "bg.mp4",
+      music: { ...DEFAULT_WALLPAPER.music, enabled: true, ...music },
+    };
+  }
+
+  it("音乐未启用：无源", () => {
+    expect(resolveMusicSource(withMusic({ enabled: false, file: "bgm.mp3" }))).toBeNull();
+  });
+
+  it("useVideoAudio + kind=video：复用视频音轨，忽略 music.file", () => {
+    const source = resolveMusicSource(withMusic({ useVideoAudio: true, file: "bgm.mp3" }));
+    expect(source).toEqual({ kind: "videoAudio" });
+  });
+
+  it("useVideoAudio 但壁纸是图片：图片没有音轨，回落到 music.file", () => {
+    const source = resolveMusicSource(
+      withMusic({ useVideoAudio: true, file: "bgm.mp3" }, "image"),
+    );
+    expect(source).toEqual({ kind: "file", file: "bgm.mp3" });
+  });
+
+  it("useVideoAudio 但壁纸是图片且没有音乐文件：无源（不是静默播视频）", () => {
+    expect(resolveMusicSource(withMusic({ useVideoAudio: true }, "image"))).toBeNull();
+  });
+
+  it("默认走 music.file；没选文件则无源", () => {
+    expect(resolveMusicSource(withMusic({ file: "bgm.mp3" }))).toEqual({
+      kind: "file",
+      file: "bgm.mp3",
+    });
+    expect(resolveMusicSource(withMusic({}))).toBeNull();
+  });
+
+  it("默认 useVideoAudio 为 false —— 老配置行为不变", () => {
+    expect(DEFAULT_WALLPAPER.music.useVideoAudio).toBe(false);
   });
 });

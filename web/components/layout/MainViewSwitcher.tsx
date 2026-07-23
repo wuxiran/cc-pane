@@ -38,6 +38,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   const closeOrchestrationOverlay = useActivityBarStore((s) => s.closeOrchestrationOverlay);
   // 原子字段 selector（布尔），不在 selector 里做对象解析
   const wallpaperActive = useWallpaperStore((s) => s.resolved !== null && s.assetUrl !== null);
+  const wallpaperGlassBlur = useWallpaperStore((s) => s.resolved?.glassBlur ?? 0);
 
   const showOrchestrationOverlay =
     orchestrationOverlayOpen ||
@@ -128,7 +129,13 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           style={{
             background: "var(--app-panel-bg)",
             ...(wallpaperActive
-              ? ({ "--app-panel-bg-effective": "transparent" } as React.CSSProperties)
+              ? ({
+                  "--app-panel-bg-effective": "transparent",
+                  // 面板背景一透明，它自己的 backdrop-filter 就直接糊在壁纸上——
+                  // 壁纸的 blur 滑杆管不到这层，默认 12px 会把视频糊没。
+                  // 壁纸激活时由壁纸设置接管该 token（默认 0 = 不叠）。
+                  "--app-glass-blur": `${wallpaperGlassBlur}px`,
+                } as React.CSSProperties)
               : null),
             ...viewStyle("panes"),
           }}

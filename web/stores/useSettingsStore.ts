@@ -62,6 +62,7 @@ export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
   blur: 0,
   dim: 0.35,
   terminalOpacity: 0.85,
+  glassBlur: 0,
   video: {
     autoplay: true,
     playbackRate: 1,
@@ -75,6 +76,7 @@ export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
     loopPlayback: true,
     autoplay: true,
     pauseWhenUnfocused: false,
+    useVideoAudio: false,
   },
 };
 

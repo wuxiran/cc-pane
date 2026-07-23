@@ -65,7 +65,11 @@ import {
   type RestoreLaunchState,
 } from "./terminalRestoreQueue";
 import { resolveTerminalRendererModeForSession } from "./terminalRenderer";
-import { getTerminalTheme, type TerminalThemePalette } from "./terminalTheme";
+import {
+  getTerminalTheme,
+  withTransparentTerminalBackground,
+  type TerminalThemePalette,
+} from "./terminalTheme";
 import { normalizeTerminalFontFamily } from "./terminalFont";
 import TerminalContextMenu from "./TerminalContextMenu";
 import { buildTerminalExportFileName, serializeTerminalBuffer } from "./terminalBufferSnapshot";
@@ -368,6 +372,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const terminalTheme = useMemo(
       () => getTerminalTheme(isDark, terminalThemeMode, wallpaperTerminalAlpha),
       [isDark, terminalThemeMode, wallpaperTerminalAlpha],
+    );
+    // 底色由外层容器独占（见 withTransparentTerminalBackground 注释）：
+    // xterm 侧一律用全透明 background，否则同一层 rgba 被画两遍。
+    const xtermTheme = useMemo(
+      () => withTransparentTerminalBackground(terminalTheme, wallpaperTerminalAlpha),
+      [terminalTheme, wallpaperTerminalAlpha],
     );
     const terminalRef = useRef<HTMLDivElement>(null);
     const terminalInstanceRef = useRef<Terminal | null>(null);
@@ -999,14 +1009,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               buildNumber,
             },
           }),
-          theme: terminalTheme,
+          theme: xtermTheme,
         });
 
         const fit = new FitAddon();
         term.loadAddon(fit);
 
         term.open(terminalRef.current);
-        applyTerminalElementTheme(term, terminalTheme);
+        applyTerminalElementTheme(term, xtermTheme);
         focusReportModeRef.current = false;
         writeFlowControlRef.current = createTerminalWriteFlowControl(term, {
           enabled: IS_WINDOWS,
@@ -1773,10 +1783,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       const term = terminalInstanceRef.current;
       if (!term) return;
 
-      term.options.theme = terminalTheme;
-      applyTerminalElementTheme(term, terminalTheme);
+      term.options.theme = xtermTheme;
+      applyTerminalElementTheme(term, xtermTheme);
       layoutSchedulerRef.current?.schedule("theme.change");
-    }, [terminalTheme]);
+    }, [xtermTheme]);
 
     useEffect(() => {
       const term = terminalInstanceRef.current;

@@ -184,6 +184,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       blur: 0,
       dim: 0.35,
       terminalOpacity: 0.85,
+      glassBlur: 0,
       video: {
         autoplay: true,
         playbackRate: 1,
@@ -197,6 +198,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
         loopPlayback: true,
         autoplay: true,
         pauseWhenUnfocused: false,
+        useVideoAudio: false,
       },
     },
     ...overrides,

@@ -122,6 +122,23 @@ export function withTerminalBackgroundAlpha(
   };
 }
 
+/**
+ * xterm 自身用的调色板：background 完全透明。
+ *
+ * 壁纸激活时外层容器已经画了一层 rgba 底色，xterm 元素若再画同一个 rgba，
+ * 同一层色就被叠了两遍（0.3 叠 0.3 实际 ≈ 0.51，视觉上「隔了两层」），
+ * 且 terminalOpacity 永远到不了真正的全透明。底色归容器独占，xterm 只画字。
+ *
+ * `alpha >= 1` 时返回**原对象引用**（同 withTerminalBackgroundAlpha 的恒等约定）。
+ */
+export function withTransparentTerminalBackground(
+  palette: TerminalThemePalette,
+  alpha: number,
+): TerminalThemePalette {
+  if (!Number.isFinite(alpha) || alpha >= 1) return palette;
+  return { ...palette, background: "rgba(0, 0, 0, 0)" };
+}
+
 export function getTerminalTheme(
   isDark: boolean,
   themeMode?: TerminalThemeMode | string | null,

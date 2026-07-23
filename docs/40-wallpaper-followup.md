@@ -145,11 +145,94 @@
   所以断言必须同时检查老配置里的**其它**值（language / opacity / music.file）
   真的被读到了，否则「wallpaper 字段是默认值」会被误判成通过。
 
+### 追加：dev 实测暴露的三处壁纸缺陷（docs/39 遗留）
+
+用户在 dev 实测时发现「blur 调到 0 壁纸still 模糊」，顺藤摸出三处相关缺陷，一并修了。
+
+**1. 面板玻璃模糊糊在壁纸上，壁纸的 blur 滑杆管不到**
+
+`Panel.tsx:495` 无条件加 `backdrop-filter: blur(var(--app-glass-blur))`（暗色 12px）。
+平时面板有不透明底色，backdrop-filter 背后没东西可糊；但壁纸激活时
+`MainViewSwitcher.tsx:131` 把 `--app-panel-bg-effective` 覆盖成 transparent，
+面板一透明，它自己那层 12px 就**直接糊在壁纸上**——视频会被糊没，
+而壁纸的 `blur` 滑杆只控制壁纸层自己的 `filter`，两层完全独立。
+
+改为可配置：`WallpaperSettings` 新增 `glass_blur: f64`（0..=24，`#[serde(default)]`，
+默认 **0**），壁纸激活时在 panes 根节点接管 `--app-glass-blur`。默认 0 = 壁纸之上
+不再叠玻璃模糊；想要磨砂自己调上去。全局与工作空间覆盖两处都有滑杆。
+
+**2. 终端底色被画了两层**
+
+`terminalOpacity` 的 rgba 同时被外层容器（`TerminalView.tsx:2201`）和 xterm 元素
+（`applyTerminalElementTheme` + 构造时的 `theme`）各画一遍，0.3 叠 0.3 实际 ≈ 0.51，
+视觉上「隔了两层」，且 terminalOpacity 永远到不了真正的全透明。
+
+新增 `withTransparentTerminalBackground()`：底色归外层容器独占，xterm 侧 background
+一律 `rgba(0,0,0,0)`。`alpha >= 1`（壁纸未激活）返回原对象引用，零行为变化。
+
+**3. terminalOpacity 下限从 0.3 放宽到 0**
+
+有了 1 和 2，0 才是真的全透明——字直接浮在视频上。Rust clamp、TS clamp、
+两处滑杆 min 同步改。0.3 这个旧下限本来就是被双层叠加逼出来的保守值。
+
+三处都补了测试：`terminalTheme.test.ts` 三例（xterm 侧全透明 / alpha>=1 恒等引用 /
+terminalOpacity=0）、`wallpaper.test.ts` 的 glassBlur 默认值与覆盖、clamp 边界，
+Rust 侧 glass_blur 收敛与 terminal_opacity=0 合法性。
+
+⚠️ **glassBlur 要持久化必须重启 dev**：新字段在 Rust 结构里，旧后端二进制会把
+前端发来的 `glassBlur` 当未知字段丢掉，值存不进 config.toml。前端 HMR 只是让
+默认值 0 立刻生效（所以视频当场就清楚了）。
+
+建议往 CLAUDE.md 的 Known Gotchas 加一条：**任何 `backdrop-filter` 面板叠在壁纸上
+都会绕过壁纸自己的模糊设置；任何半透明底色都要确认只有一层在画**。
+
+### 追加：视频自带音轨当 BGM + 两个滑杆改名
+
+**视频音轨当 BGM**（`music.use_video_audio`，`#[serde(default)]` 默认 false）
+
+实现走**独立 audio 元素喂同一个文件**，不给 `<video>` 解除静音。理由：
+浏览器对有声 video 的 autoplay 策略严格得多，`play()` 会被拒 → 整个视频停在首帧
+（现在能自动播正是因为 muted）；且省电策略一暂停视频，声音就跟着断。
+独立 audio 能复用音乐已有的手势兜底 / 音量 / 循环 / 独立失焦暂停。
+代价是同一文件被 video 与 audio 各解一次、音画会漂移——BGM 场景可接受。
+
+判定逻辑抽成纯函数 `resolveMusicSource()` 放进 `utils/wallpaper.ts`（store 的
+`recompute` 混着 Tauri 调用，那段分支不好覆盖）。`useVideoAudio` 只在 `kind=video`
+时成立：图片壁纸没有音轨，此时回落 `music.file`，避免勾了开关就彻底没声且找不到原因。
+
+**两个滑杆改名**（纯 i18n）
+
+`不透明度`→`壁纸浓度`、`终端不透明度`→`终端底色浓度`，各加一句方向说明。
+起因是用户连续两次把两条一起拉到最左：两者名字几乎一样但方向相反——
+前者调低是壁纸变淡，后者调低是壁纸变清楚。这是命名缺陷不是用户失误。
+
+### 收尾复验（2026-07-22，含未提交的「追加」改动）
+
+上面「验收结果」表跑在任务 1/2 落盘（commit `337ef25`）时；三段「追加」改动
+（glassBlur / 终端双层底色 / terminalOpacity 放宽到 0 / 视频音轨当 BGM / 两滑杆改名）
+当时留在工作树未提交。本次对**含全部追加改动的当前工作树**整体复验：
+
+| 项 | 结果 |
+|----|------|
+| `npx tsc --noEmit` | 干净 |
+| `npx vitest run web/utils/ web/components/panes/terminalRenderer.test.ts terminalTheme.test.ts designTokens.test.ts --maxWorkers=3` | 16 文件 / 188 测试全绿 |
+| `cargo check -p cc-panes-core` | 干净 |
+| `cargo clippy -p cc-panes-core -- -D warnings` | 干净 |
+| `cargo test -p cc-panes-core` | 722 passed（较提交时 720 多出 glass_blur 两例） |
+
+- **`cargo check/clippy --workspace` 无法整跑**：运行中的 `cc-panes-daemon.exe`
+  持有文件锁，`cc-panes`（src-tauri）build script 复制该二进制时 `os error 32`。
+  按通用约束不杀用户进程，改分 crate 跑。**src-tauri crate 未能编译验证**——但本任务
+  工作树里唯一的 Rust 改动是 `cc-panes-core/src/models/settings.rs`（新增 `glass_blur`），
+  src-tauri 源码零改动、仅通过 core 依赖间接引用，core 编译通过即无接口断裂风险；
+  待 daemon 释放锁后可补一次 `cargo check --workspace` 确认。
+
 ### 未做
 
 - 手动/视觉验收（像素级对比、可读性、H.265 降级）按 spec 不在范围内。
 - 未新增 Rust 侧的壁纸数值 clamp（覆盖值的收敛仍只在前端 `clampWallpaper`，
   与 docs/39 现状一致，未扩大范围）。
+- 未做任何 git 写操作，全部改动留工作树等用户验收（按通用约束）。
 
 ## 不做
 

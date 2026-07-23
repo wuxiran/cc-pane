@@ -214,7 +214,7 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
   }
 
   function sliderField(
-    key: "opacity" | "blur" | "dim" | "terminalOpacity",
+    key: "opacity" | "blur" | "dim" | "terminalOpacity" | "glassBlur",
     text: string,
     min: number,
     max: number,
@@ -385,11 +385,12 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
             {sliderField(
               "terminalOpacity",
               label("terminalOpacity", "终端不透明度"),
-              0.3,
+              0,
               1,
               0.05,
               formatPercent,
             )}
+            {sliderField("glassBlur", label("glassBlur", "面板玻璃模糊"), 0, 24, 1, (v) => `${v}px`)}
           </div>
 
           <div className={groupClass}>
@@ -422,6 +423,11 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
               "music",
               "pauseWhenUnfocused",
               label("musicPauseUnfocused", "失焦时暂停"),
+            )}
+            {nestedToggleField(
+              "music",
+              "useVideoAudio",
+              label("musicUseVideoAudio", "用视频自带的声音"),
             )}
           </div>
         </>
