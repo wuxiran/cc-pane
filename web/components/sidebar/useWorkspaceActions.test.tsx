@@ -233,6 +233,24 @@ describe("useWorkspaceActions", () => {
       expect(storeActions.addProject).not.toHaveBeenCalled();
     });
 
+    it("导入 canonical 重复项目时显示已存在提示", async () => {
+      vi.mocked(open).mockResolvedValue("/mnt/d/repos/alpha");
+      storeActions.addProject.mockRejectedValue({
+        code: "PROJECT_ALREADY_EXISTS",
+        message: "duplicate",
+        params: { path: "/mnt/d/repos/alpha" },
+      });
+      const { result } = setup();
+
+      await act(async () => {
+        await result.current.handleImportProject(makeWorkspace());
+      });
+
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.stringContaining("项目已存在: /mnt/d/repos/alpha")
+      );
+    });
+
     it("移除项目走确认流程，确认后按项目 id 删除", async () => {
       const ws = makeWorkspace();
       const project = makeProject({ id: "proj-9", alias: "别名项目" });

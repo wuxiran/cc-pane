@@ -183,3 +183,14 @@ daemon/web 子进程近乎空闲。该采样不是逐函数 profiler，但“壁
 4. P2（假设 A）：对 `allowTransparency=true` 做 wallpaper-off A/B benchmark；视频壁纸
    禁止或限制实时 CSS blur，优先预模糊静态资源/poster；保持 `glassBlur=0` 默认，并对
    双媒体管线、视频分辨率和多 Panel 场景建立 GPU/帧率回归基线。
+
+## 项目身份迁移边界
+
+项目注册身份统一使用独立 canonical key：Windows 盘符、`/mnt/<drive>` 和指向该盘符的
+WSL UNC 视为同一项目；WSL Linux 路径、distro、普通 UNC 和 SSH 路径保持大小写敏感。
+启动迁移按最早注册记录合并 `workspace.json` 与 SQLite `projects` 重复项，修改 JSON 前
+保留 `workspace.json.bak`，并在工作空间根可访问时重生成 `.ccpanes/projects.csv`。
+
+该迁移不重写既有启动历史或 Local History 的路径键。旧记录仍按原路径读取；后续通过
+canonical 项目路径访问和新增的记录会自然收敛。此边界是兼容旧历史数据的有意取舍，
+不能把“侧栏/注册身份已去重”解读为所有历史表都已做破坏性重键。

@@ -81,5 +81,5 @@ pub use todo_service::TodoService;
 pub use usage_stats_service::UsageStatsService;
 pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillService};
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
-pub use workspace_service::WorkspaceService;
+pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};
 pub use worktree_service::{WorktreeInfo, WorktreeService};

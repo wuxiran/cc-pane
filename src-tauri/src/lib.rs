@@ -1234,6 +1234,18 @@ pub fn run() {
     };
     boot_mark!("database initialized");
     let project_repo = Arc::new(ProjectRepository::new(db.clone()));
+    match project_repo.migrate_project_identities() {
+        Ok(report) if report.projects_updated > 0 || report.duplicates_removed > 0 => info!(
+            updated = report.projects_updated,
+            removed = report.duplicates_removed,
+            "[project-identity] SQLite projects migrated"
+        ),
+        Ok(_) => {}
+        Err(error) => warn!(
+            "[project-identity] SQLite project migration failed: {}",
+            error
+        ),
+    }
     let history_repo = Arc::new(HistoryRepository::new(db.clone()));
     let todo_repo = Arc::new(TodoRepository::new(db.clone()));
     let spec_repo = Arc::new(SpecRepository::new(db.clone()));
@@ -1258,6 +1270,21 @@ pub fn run() {
     let journal_service = Arc::new(JournalService::new(app_paths.workspaces_dir()));
     let worktree_service = Arc::new(WorktreeService::new());
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
+    match workspace_service.migrate_project_identities() {
+        Ok(report) if report.workspaces_updated > 0 => info!(
+            workspaces = report.workspaces_updated,
+            updated = report.projects_updated,
+            removed = report.duplicates_removed,
+            backups = report.backups_created,
+            csv = report.csv_regenerated,
+            "[project-identity] workspace projects migrated"
+        ),
+        Ok(_) => {}
+        Err(error) => warn!(
+            "[project-identity] workspace project migration failed: {}",
+            error
+        ),
+    }
     // 默认工作空间：缺失自动创建（锚点为应用数据目录下的 workspaces/default）
     match workspace_service.ensure_default_workspace() {
         Ok(Some(ws)) => info!("[workspace] default workspace ensured at {:?}", ws.path),

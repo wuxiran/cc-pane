@@ -6,7 +6,7 @@ import { useWorkspacesStore, usePanesStore, useDialogStore } from "@/stores";
 import { worktreeService, type WorktreeInfo } from "@/services";
 import { apiGet, invokeOrApi } from "@/services/apiClient";
 import { scanDirectory, type ScannedRepo } from "@/services/workspaceService";
-import { getProjectName, isTauriRuntime } from "@/utils";
+import { getProjectName, isTauriRuntime, translateError } from "@/utils";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
 
 interface UseWorkspaceActionsParams {
@@ -212,7 +212,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
         await addProject(ws.name, String(selected));
       }
     } catch (e) {
-      toast.error(tNotify("importFailed", { error: String(e) }));
+      toast.error(tNotify("importFailed", { error: translateError(e) }));
     }
   }
 
@@ -322,7 +322,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
       try {
         await addProject(gitCloneTargetWorkspace, clonedPath);
       } catch (e) {
-        toast.error(tNotify("addProjectFailed", { error: String(e) }));
+        toast.error(tNotify("addProjectFailed", { error: translateError(e) }));
       }
     }
   }

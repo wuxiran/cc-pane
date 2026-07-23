@@ -9,6 +9,7 @@ pub mod launch_request;
 pub mod orchestrator_manifest;
 pub mod path_normalize;
 pub mod path_validator;
+pub mod project_identity;
 
 pub use app_paths::{AppPaths, APP_DIR_NAME};
 pub use claude_path::{encode_claude_project_path, is_claude_project_match};
@@ -28,4 +29,7 @@ pub use path_normalize::{
 pub use path_validator::{
     sanitize_path_display, validate_command, validate_git_url, validate_mcp_name, validate_path,
     validate_relative_path, validate_ssh_info, validate_ssh_machine, validate_worktree_name,
+};
+pub use project_identity::{
+    canonical_project_path, project_identity_key, project_paths_equivalent,
 };

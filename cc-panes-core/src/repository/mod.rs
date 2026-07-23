@@ -16,7 +16,7 @@ pub use history_file_repo::HistoryFileRepository;
 pub use history_repo::{HistoryRepository, LaunchRecord};
 pub use layout_snapshot_repo::LayoutSnapshotRepository;
 pub use plan_repo::PlanRepository;
-pub use project_repo::ProjectRepository;
+pub use project_repo::{ProjectIdentityMigrationReport, ProjectRepository};
 pub use runner_repo::RunnerRepository;
 pub use session_restore_repo::SessionRestoreRepository;
 pub use spec_repo::SpecRepository;

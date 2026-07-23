@@ -1,5 +1,6 @@
 use crate::models::Project;
 use crate::repository::ProjectRepository;
+use crate::utils::canonical_project_path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -31,13 +32,14 @@ impl ProjectService {
             return Err("Path is not a directory".to_string());
         }
 
-        // 检查是否已存在（可选，insert 也会检查）
-        if self.repo.exists_by_path(path)? {
+        let canonical_path = canonical_project_path(path);
+
+        if self.repo.exists_by_identity(&canonical_path)? {
             return Err("Project already exists".to_string());
         }
 
         // 创建项目
-        let project = Project::new(path);
+        let project = Project::new(&canonical_path);
 
         // 保存到数据库
         self.repo.insert(&project)?;
