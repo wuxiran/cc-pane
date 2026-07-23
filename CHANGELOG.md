@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.21 - 2026-07-23
+
+### Fixed
+
+- **Windows: severe whole-app slowdown after updating to 0.10.20.** The Local History polling scanner introduced in 0.10.20 (PR #35) spawned one scan thread per registered project — with 120+ registered projects that meant 120+ threads each doing a full recursive stat sweep every 2 seconds, and root-anchored ignore patterns failed to prune nested `node_modules` in monorepos. Measured: the backend process saturated ~27 of 32 cores minutes after startup. The polling scanner is reverted; Windows is back on native `ReadDirectoryChangesW` notifications. This reintroduces the known limitation that the watcher holds a handle on the project root (#35) — a scoped rework (watch only active projects, shared scan queue, nested-dir pruning) will follow.
+
 ## 0.10.20 - 2026-07-23
 
 ### Added
