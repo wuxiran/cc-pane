@@ -309,11 +309,12 @@ impl TerminalDaemonEventBridge {
             .await
             .map_err(|error| anyhow::anyhow!(error.to_string()))?
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let poll_status = poll_status_from_session_presence(status.as_ref());
 
         let Some(status) = status else {
             self.emit_terminal_status_once(synthesized_exited_status(session_id))?;
             self.emit_terminal_exit_once(session_id, -1)?;
-            return Ok(PollStatus::Done);
+            return Ok(poll_status);
         };
 
         if self.should_emit_status(session_id, &status) {
@@ -321,12 +322,7 @@ impl TerminalDaemonEventBridge {
                 .emit(EV::TERMINAL_STATUS, serde_json::to_value(&status)?)?;
         }
 
-        if status.status.is_terminal() {
-            self.emit_terminal_exit_once(session_id, status.exit_code.unwrap_or(-1))?;
-            return Ok(PollStatus::Done);
-        }
-
-        Ok(PollStatus::Continue)
+        Ok(poll_status)
     }
 
     fn apply_snapshot_delta(
@@ -429,6 +425,16 @@ where
 enum PollStatus {
     Continue,
     Done,
+}
+
+fn poll_status_from_session_presence(status: Option<&SessionStatusInfo>) -> PollStatus {
+    // Hook 状态只描述 CLI 生命周期，不是 PTY 进程退出证据。daemon 仍能返回
+    // 会话时继续桥接；真实退出由 WS exit/killed 或 sessions map 移除确认。
+    if status.is_some() {
+        PollStatus::Continue
+    } else {
+        PollStatus::Done
+    }
 }
 
 fn replay_snapshot_delta(previous: &str, current: &str) -> Option<String> {
@@ -534,6 +540,17 @@ mod tests {
         assert!(same_status_payload(&first, &same));
         assert!(!same_status_payload(&first, &changed));
         assert!(!same_status_payload(&first, &changed_exit_code));
+    }
+
+    #[test]
+    fn hook_exited_for_present_session_is_not_process_exit_evidence() {
+        let exited = status("s1", SessionStatus::Exited, 10);
+
+        assert_eq!(
+            poll_status_from_session_presence(Some(&exited)),
+            PollStatus::Continue
+        );
+        assert_eq!(poll_status_from_session_presence(None), PollStatus::Done);
     }
 
     #[test]
