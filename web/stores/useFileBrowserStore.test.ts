@@ -8,6 +8,7 @@ describe("useFileBrowserStore", () => {
       history: [],
       historyIndex: -1,
       refreshKey: 0,
+      followTerminal: true,
     });
   });
 
@@ -138,6 +139,18 @@ describe("useFileBrowserStore", () => {
       expect(useFileBrowserStore.getState().refreshKey).toBe(1);
       useFileBrowserStore.getState().refresh();
       expect(useFileBrowserStore.getState().refreshKey).toBe(2);
+    });
+  });
+
+  describe("followTerminal", () => {
+    it("默认开启并可切换", () => {
+      expect(useFileBrowserStore.getState().followTerminal).toBe(true);
+
+      useFileBrowserStore.getState().setFollowTerminal(false);
+      expect(useFileBrowserStore.getState().followTerminal).toBe(false);
+
+      useFileBrowserStore.getState().setFollowTerminal(true);
+      expect(useFileBrowserStore.getState().followTerminal).toBe(true);
     });
   });
 

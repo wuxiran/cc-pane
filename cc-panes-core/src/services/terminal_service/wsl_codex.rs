@@ -169,12 +169,38 @@ fn sanitize_wsl_script_component(value: &str) -> String {
 }
 
 fn render_wsl_launch_script(commands: &[String]) -> String {
-    let mut script = String::from("#!/usr/bin/env bash\nset -e\n");
+    let mut script = String::from(
+        "#!/usr/bin/env bash\nset -e\ncase \"${LC_ALL:-${LANG:-}}\" in *[Uu][Tt][Ff]-8|*[Uu][Tt][Ff]8) ;; *) export LC_ALL=C.UTF-8 LANG=C.UTF-8 ;; esac\n",
+    );
     for command in commands {
         script.push_str(command);
         script.push('\n');
     }
     script
+}
+
+#[cfg(windows)]
+fn probe_wsl_locale_summary(wsl_path: &Path, distro: &str) -> Option<String> {
+    let args = vec![
+        "-d".to_string(),
+        distro.to_string(),
+        "--".to_string(),
+        "locale".to_string(),
+    ];
+    let output =
+        cc_cli_adapters::run_with_timeout(wsl_path, &args, std::time::Duration::from_secs(2))?;
+    let mut summary = output
+        .lines()
+        .filter(|line| line.starts_with("LANG=") || line.starts_with("LC_ALL="))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if summary.is_empty() {
+        summary = output.lines().next().unwrap_or_default().to_string();
+    }
+    if summary.chars().count() > 200 {
+        summary = summary.chars().take(200).collect();
+    }
+    (!summary.is_empty()).then_some(summary)
 }
 
 #[cfg(windows)]
@@ -615,9 +641,20 @@ impl TerminalService {
         wsl: &ResolvedWslLaunch,
         session_id: &str,
         label: &str,
+        launch_cwd: &str,
         commands: Vec<String>,
     ) -> Result<(String, Vec<String>)> {
         let script_path = self.write_wsl_launch_script(session_id, label, &commands)?;
+        let locale = probe_wsl_locale_summary(&wsl.wsl_path, &wsl.distro)
+            .unwrap_or_else(|| "unavailable".to_string());
+        info!(
+            session_id = %session_id,
+            distro = %wsl.distro,
+            cli = %label,
+            locale = %locale,
+            cwd_non_ascii = !launch_cwd.is_ascii(),
+            "wsl launch diagnostics"
+        );
         let args = vec![
             "-d".to_string(),
             wsl.distro.clone(),
@@ -1033,7 +1070,7 @@ impl TerminalService {
             format!("exec {} {}", command, escaped_cli_args)
         });
 
-        self.build_wsl_script_command(wsl, session_id, command, remote_parts)
+        self.build_wsl_script_command(wsl, session_id, command, launch_cwd, remote_parts)
     }
 
     #[cfg(not(windows))]
@@ -1334,7 +1371,13 @@ impl TerminalService {
             "codex(wsl): build_wsl_command result"
         );
 
-        self.build_wsl_script_command(wsl, session_id, "codex", remote_parts)
+        self.build_wsl_script_command(
+            wsl,
+            session_id,
+            "codex",
+            wsl.remote_path.as_str(),
+            remote_parts,
+        )
     }
 
     #[cfg(not(windows))]
@@ -1640,7 +1683,7 @@ mod tests {
 
         assert_eq!(
             script,
-            "#!/usr/bin/env bash\nset -e\nexport TOKEN='secret'\nexec codex '-C' '/mnt/d/repo'\n"
+            "#!/usr/bin/env bash\nset -e\ncase \"${LC_ALL:-${LANG:-}}\" in *[Uu][Tt][Ff]-8|*[Uu][Tt][Ff]8) ;; *) export LC_ALL=C.UTF-8 LANG=C.UTF-8 ;; esac\nexport TOKEN='secret'\nexec codex '-C' '/mnt/d/repo'\n"
         );
     }
 

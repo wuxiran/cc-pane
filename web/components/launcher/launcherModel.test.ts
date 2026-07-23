@@ -171,6 +171,10 @@ describe("worktree helpers", () => {
     expect(worktreeNameFromBranch("cc/260719-0905")).toBe("cc-260719-0905");
     expect(worktreeNameFromBranch("///")).toBe("cc-worktree");
   });
+
+  it("worktreeNameFromBranch 保留中文分支名", () => {
+    expect(worktreeNameFromBranch("功能/中文路径修复")).toBe("功能-中文路径修复");
+  });
 });
 
 describe("resolveDraftProjectPath / isDraftLocalEnvironment", () => {

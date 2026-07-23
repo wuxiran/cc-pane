@@ -8,12 +8,14 @@ interface FileBrowserState {
   history: string[];
   historyIndex: number;
   refreshKey: number;
+  followTerminal: boolean;
 
   navigateTo: (path: string) => void;
   goBack: () => void;
   goForward: () => void;
   goUp: () => void;
   refresh: () => void;
+  setFollowTerminal: (value: boolean) => void;
   canGoBack: () => boolean;
   canGoForward: () => boolean;
 }
@@ -36,6 +38,7 @@ export const useFileBrowserStore = create<FileBrowserState>()(
       history: [],
       historyIndex: -1,
       refreshKey: 0,
+      followTerminal: true,
 
       navigateTo: (path: string) => {
         const state = get();
@@ -85,6 +88,10 @@ export const useFileBrowserStore = create<FileBrowserState>()(
         set((s) => ({ refreshKey: s.refreshKey + 1 }));
       },
 
+      setFollowTerminal: (value) => {
+        set({ followTerminal: value });
+      },
+
       canGoBack: () => get().historyIndex > 0,
       canGoForward: () => get().historyIndex < get().history.length - 1,
     }),
@@ -92,6 +99,7 @@ export const useFileBrowserStore = create<FileBrowserState>()(
       name: STORAGE_KEY,
       partialize: (state) => ({
         currentPath: state.currentPath,
+        followTerminal: state.followTerminal,
       }),
     }
   )
