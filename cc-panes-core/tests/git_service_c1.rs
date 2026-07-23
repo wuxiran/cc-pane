@@ -100,6 +100,10 @@ fn status_is_scoped_to_registered_subdirectory_and_uses_repo_relative_paths() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows 文件系统不允许文件名含换行等字符,该用例仅在 Unix 侧覆盖"
+)]
 fn porcelain_z_preserves_arrow_newline_and_rename_paths() {
     let (_guard, repo) = init_repo();
     let old_name = "old -> name\nline.txt";

@@ -45,6 +45,10 @@ impl GitService {
                 message: "Git returned an empty repository root".to_string(),
             });
         }
+        // Windows 的 git 输出正斜杠形式(C:/...);转回原生分隔符再归一化,
+        // 否则 repo_root 与其它路径(原生反斜杠)字符串比较必然不等。
+        #[cfg(windows)]
+        let root = root.replace('/', "\\");
         Ok(normalize_project_path(root))
     }
 
