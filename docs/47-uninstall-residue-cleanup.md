@@ -21,10 +21,14 @@
 - `tauri.conf.json` 配 `bundle.windows.nsis.installerHooks` 自定义 NSIS hook 文件;`NSIS_HOOK_PREUNINSTALL` 中 `taskkill /F /IM cc-panes.exe /IM cc-panes-daemon.exe /IM cc-panes-web.exe`(容错:进程不存在不报错)。
 - 同时覆盖升级路径(updater passive 安装前同样需要,配 `NSIS_HOOK_PREINSTALL`)。
 
-### 2. 卸载可选删除用户数据(修复 #1/#2)
+### 2. 卸载可选删除用户数据(修复 #1/#2)——2026-07-24 修订
 
-- 配 `deleteAppDataOnUninstall: true` → NSIS 卸载器出现"删除应用数据"勾选框,覆盖两个 identifier 目录(%APPDATA%/%LOCALAPPDATA%\com.ccpanes.app)。
-- `~/.cc-panes/` 不在 identifier 目录下:在 `NSIS_HOOK_POSTUNINSTALL` 中读取同一勾选状态,勾选时删 `$PROFILE\.cc-panes`(**默认不勾**——工作空间配置/记忆库属用户数据,误删不可恢复;自定义 data_dir 场景 hook 无法感知,文档注明)。
+> 原方案的 `deleteAppDataOnUninstall` 在本项目 Tauri 2.11.0 的 NsisConfig schema 中不存在
+> (additionalProperties: false,配置即构建非法),Worker G 查实后按纪律停工。修订如下:
+
+- **不用配置字段,改在 `NSIS_HOOK_POSTUNINSTALL` 里用 `MessageBox MB_YESNO|MB_ICONQUESTION`** 询问"是否同时删除应用数据(设置、工作空间、会话历史)?此操作不可恢复"——选是则删:`$APPDATA\com.ccpanes.app`、`$LOCALAPPDATA\com.ccpanes.app`、`$PROFILE\.cc-panes`;选否(**默认按钮设为否**,`MB_DEFBUTTON2`)全部保留。
+- 静默卸载(`/S`,含 updater 的 passive 卸载路径)检测 `IfSilent` **一律不删**——升级绝不能清数据。
+- 删除实现用固定字面路径 + `RMDir /r`,拒绝跟随 junction 的额外防护若 NSIS 原语不支持则在文档注明残留边界;自定义 data_dir 场景 hook 无法感知,文档注明需应用内清理(第 3 件套)或手动。
 
 ### 3. 应用内「干净卸载」入口(修复 #3/#4,只有应用自己知道注入过哪)
 
