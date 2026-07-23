@@ -51,8 +51,10 @@ use cc_panes_core::models::{
 use cc_panes_core::services::mcp_config_service::McpServerConfig;
 use cc_panes_core::services::terminal_service::{KillReason, SessionStatus, SessionStatusInfo};
 use cc_panes_core::services::TerminalBackend;
+#[cfg(target_os = "windows")]
+use cc_panes_core::utils::canonical_project_path;
 use cc_panes_core::utils::orchestrator_manifest;
-use cc_panes_core::utils::simplify_path_str;
+use cc_panes_core::utils::{project_identity_key, simplify_path_str};
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
@@ -3870,6 +3872,7 @@ impl McpToolHandler {
     async fn list_projects(&self) -> String {
         debug!("mcp::list_projects");
         let mut infos: Vec<serde_json::Value> = Vec::new();
+        let mut seen = HashSet::new();
 
         // DB 项目
         for p in self
@@ -3878,6 +3881,9 @@ impl McpToolHandler {
             .list_projects()
             .unwrap_or_default()
         {
+            if !mark_project_path_seen(&mut seen, &p.path) {
+                continue;
+            }
             infos.push(serde_json::json!({
                 "id": p.id.to_string(),
                 "name": p.name,
@@ -3894,11 +3900,7 @@ impl McpToolHandler {
             .unwrap_or_default()
         {
             for p in &ws.projects {
-                let norm = normalize_path(&p.path);
-                let already_listed = infos
-                    .iter()
-                    .any(|i| i["path"].as_str().map(normalize_path) == Some(norm.clone()));
-                if already_listed {
+                if !mark_project_path_seen(&mut seen, &p.path) {
                     continue;
                 }
                 infos.push(serde_json::json!({
@@ -5709,15 +5711,21 @@ fn join_remote_path(root: &str, relative: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn workspace_relative_path(project_path: &str, workspace_path: &str) -> Option<String> {
-    let normalized_project = normalize_path(project_path);
-    let normalized_workspace = normalize_path(workspace_path);
-    if normalized_project == normalized_workspace {
+    let display_project = canonical_project_path(project_path).replace('\\', "/");
+    let display_workspace = canonical_project_path(workspace_path).replace('\\', "/");
+    let identity_project = project_identity_key(project_path).replace('\\', "/");
+    let identity_workspace = project_identity_key(workspace_path).replace('\\', "/");
+    if identity_project == identity_workspace {
         return Some(String::new());
     }
-    let prefix = format!("{}/", normalized_workspace.trim_end_matches('/'));
-    normalized_project
-        .strip_prefix(&prefix)
-        .map(|value| value.to_string())
+    let identity_prefix = format!("{}/", identity_workspace.trim_end_matches('/'));
+    if !identity_project.starts_with(&identity_prefix) {
+        return None;
+    }
+    let display_prefix_len = display_workspace.trim_end_matches('/').len() + 1;
+    display_project
+        .get(display_prefix_len..)
+        .map(str::to_string)
 }
 
 #[cfg(target_os = "windows")]
@@ -6012,20 +6020,26 @@ fn resolve_launch_runtime(
 
 // ============ 路径白名单 ============
 
-/// 规范化路径（统一正斜杠、去尾部分隔符）用于白名单比较
+/// Canonical project identity key used by registration and runtime lookups.
 fn normalize_path(p: &str) -> String {
-    p.replace('\\', "/").trim_end_matches('/').to_string()
+    project_identity_key(p)
+}
+
+fn registered_path_matches(registered: &str, requested: &str) -> bool {
+    normalize_path(registered) == normalize_path(requested)
+}
+
+fn mark_project_path_seen(seen: &mut HashSet<String>, path: &str) -> bool {
+    seen.insert(normalize_path(path))
 }
 
 /// 检查项目路径是否在已注册列表中（DB 项目 + 工作空间项目）
 fn is_project_registered(state: &AppState, path: &str) -> bool {
-    let normalized = normalize_path(path);
-
     // 1. 查 DB projects 表
     if let Ok(projects) = state.project_service.list_projects() {
         if projects
             .iter()
-            .any(|p| normalize_path(&p.path) == normalized)
+            .any(|p| registered_path_matches(&p.path, path))
         {
             return true;
         }
@@ -6037,7 +6051,7 @@ fn is_project_registered(state: &AppState, path: &str) -> bool {
             if ws
                 .projects
                 .iter()
-                .any(|p| normalize_path(&p.path) == normalized)
+                .any(|p| registered_path_matches(&p.path, path))
             {
                 return true;
             }
@@ -6330,9 +6344,13 @@ async fn handle_list_projects(
     }
 
     let mut project_infos: Vec<ProjectInfo> = Vec::new();
+    let mut seen = HashSet::new();
 
     // DB 项目
     for p in state.project_service.list_projects().unwrap_or_default() {
+        if !mark_project_path_seen(&mut seen, &p.path) {
+            continue;
+        }
         project_infos.push(ProjectInfo {
             id: p.id.to_string(),
             name: p.name.clone(),
@@ -6348,11 +6366,7 @@ async fn handle_list_projects(
         .unwrap_or_default()
     {
         for p in &ws.projects {
-            let norm = normalize_path(&p.path);
-            let already_listed = project_infos
-                .iter()
-                .any(|i| normalize_path(&i.path) == norm);
-            if already_listed {
+            if !mark_project_path_seen(&mut seen, &p.path) {
                 continue;
             }
             project_infos.push(ProjectInfo {
@@ -8047,6 +8061,41 @@ fn local_orchestrator_endpoint_reachable(port: u16) -> bool {
 mod tests {
     use super::*;
     use crate::models::WorkspaceCliEnvironmentDefaults;
+
+    #[test]
+    fn registered_project_path_matches_all_windows_runtime_forms() {
+        let registered = r"D:\Repos\App";
+        assert!(registered_path_matches(registered, r"d:\repos\app\"));
+        assert!(registered_path_matches(registered, "/mnt/d/REPOS/APP"));
+        assert!(registered_path_matches(
+            registered,
+            r"\\wsl.localhost\Ubuntu\mnt\d\Repos\App"
+        ));
+    }
+
+    #[test]
+    fn registration_and_list_dedup_keep_wsl_linux_identity_sensitive() {
+        let mut seen = HashSet::new();
+        assert!(mark_project_path_seen(&mut seen, r"D:\Repos\App"));
+        assert!(!mark_project_path_seen(&mut seen, "/mnt/d/repos/app"));
+        assert!(!mark_project_path_seen(
+            &mut seen,
+            r"\\wsl$\Ubuntu\mnt\d\REPOS\APP"
+        ));
+
+        assert!(mark_project_path_seen(
+            &mut seen,
+            r"\\wsl.localhost\Ubuntu\home\User\App"
+        ));
+        assert!(mark_project_path_seen(
+            &mut seen,
+            r"\\wsl.localhost\ubuntu\home\User\App"
+        ));
+        assert!(mark_project_path_seen(
+            &mut seen,
+            r"\\wsl.localhost\Ubuntu\home\user\App"
+        ));
+    }
 
     #[test]
     fn decode_terminal_escapes_restores_control_bytes() {

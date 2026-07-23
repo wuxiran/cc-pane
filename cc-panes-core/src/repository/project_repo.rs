@@ -1,8 +1,24 @@
 use crate::models::Project;
 use crate::repository::Database;
+use crate::utils::{canonical_project_path, project_identity_key};
 use rusqlite::params;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::error;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ProjectIdentityMigrationReport {
+    pub projects_updated: usize,
+    pub duplicates_removed: usize,
+}
+
+struct ProjectIdentityWinner {
+    id: String,
+    original_path: String,
+    canonical_path: String,
+    original_alias: Option<String>,
+    merged_alias: Option<String>,
+}
 
 /// 项目数据访问层 - 纯 CRUD 操作，不含业务逻辑
 pub struct ProjectRepository {
@@ -12,6 +28,82 @@ pub struct ProjectRepository {
 impl ProjectRepository {
     pub fn new(db: Arc<Database>) -> Self {
         Self { db }
+    }
+
+    /// Canonicalize and deduplicate legacy SQLite project registrations in one transaction.
+    ///
+    /// The earliest `(created_at, rowid)` record wins. A later non-empty alias only fills an
+    /// empty winner alias; conflicting non-empty values keep the earliest registration.
+    pub fn migrate_project_identities(&self) -> Result<ProjectIdentityMigrationReport, String> {
+        let mut conn = self.db.connection().map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let mut stmt = tx
+            .prepare(
+                "SELECT id, path, alias
+                   FROM projects
+               ORDER BY created_at ASC, rowid ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut winners = Vec::<ProjectIdentityWinner>::new();
+        let mut winner_by_identity = HashMap::<String, usize>::new();
+        let mut duplicate_ids = Vec::<String>::new();
+        for row in rows {
+            let (id, path, alias) = row.map_err(|e| e.to_string())?;
+            let canonical_path = canonical_project_path(&path);
+            let identity = project_identity_key(&canonical_path);
+            if let Some(index) = winner_by_identity.get(&identity).copied() {
+                let winner = &mut winners[index];
+                fill_non_empty(&mut winner.merged_alias, alias);
+                duplicate_ids.push(id);
+                continue;
+            }
+
+            winner_by_identity.insert(identity, winners.len());
+            winners.push(ProjectIdentityWinner {
+                id,
+                original_path: path,
+                canonical_path,
+                original_alias: alias.clone(),
+                merged_alias: alias,
+            });
+        }
+        drop(stmt);
+
+        for id in &duplicate_ids {
+            tx.execute("DELETE FROM projects WHERE id = ?1", params![id])
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut projects_updated = 0;
+        for winner in &winners {
+            if winner.original_path == winner.canonical_path
+                && winner.original_alias == winner.merged_alias
+            {
+                continue;
+            }
+            tx.execute(
+                "UPDATE projects SET path = ?1, alias = ?2 WHERE id = ?3",
+                params![winner.canonical_path, winner.merged_alias, winner.id],
+            )
+            .map_err(|e| e.to_string())?;
+            projects_updated += 1;
+        }
+
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(ProjectIdentityMigrationReport {
+            projects_updated,
+            duplicates_removed: duplicate_ids.len(),
+        })
     }
 
     /// 获取所有项目列表
@@ -139,6 +231,24 @@ impl ProjectRepository {
         Ok(count > 0)
     }
 
+    /// Check project identity across local Windows, `/mnt`, and WSL UNC representations.
+    pub fn exists_by_identity(&self, path: &str) -> Result<bool, String> {
+        let identity = project_identity_key(path);
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare("SELECT path FROM projects").map_err(|e| {
+            error!(table = "projects", err = %e, "SQL exists_by_identity prepare failed");
+            e.to_string()
+        })?;
+        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let registered: String = row.get(0).map_err(|e| e.to_string())?;
+            if project_identity_key(&registered) == identity {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// 更新项目别名
     pub fn update_alias(&self, id: &str, alias: Option<&str>) -> Result<bool, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
@@ -153,6 +263,18 @@ impl ProjectRepository {
             })?;
 
         Ok(affected > 0)
+    }
+}
+
+fn fill_non_empty(target: &mut Option<String>, candidate: Option<String>) {
+    let target_has_value = target
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
+    let candidate_has_value = candidate
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
+    if !target_has_value && candidate_has_value {
+        *target = candidate;
     }
 }
 
@@ -271,6 +393,69 @@ mod tests {
 
         assert!(repo.exists_by_path("/tmp/exists-test").unwrap());
         assert!(!repo.exists_by_path("/tmp/not-exists").unwrap());
+    }
+
+    #[test]
+    fn test_exists_by_identity_matches_windows_wsl_variants() {
+        let repo = setup();
+        let project = make_project(r"D:\Repos\App");
+        repo.insert(&project).unwrap();
+
+        assert!(repo.exists_by_identity("/mnt/d/repos/app").unwrap());
+        assert!(repo
+            .exists_by_identity(r"\\wsl.localhost\Ubuntu\mnt\d\REPOS\APP")
+            .unwrap());
+        assert!(!repo.exists_by_identity(r"D:\Repos\Other").unwrap());
+    }
+
+    #[test]
+    fn migrate_project_identities_deduplicates_and_is_idempotent() {
+        let repo = setup();
+        let mut first = make_project(r"D:\Repos\App");
+        first.id = "first".to_string();
+        first.created_at = "2026-01-01T00:00:00Z".to_string();
+        let mut second = make_project("/mnt/d/repos/app");
+        second.id = "second".to_string();
+        second.created_at = "2026-01-02T00:00:00Z".to_string();
+        let mut third = make_project(r"\\wsl$\Ubuntu\mnt\d\REPOS\APP");
+        third.id = "third".to_string();
+        third.created_at = "2026-01-03T00:00:00Z".to_string();
+        let mut linux_a = make_project(r"\\wsl$\Ubuntu\home\User\App");
+        linux_a.id = "linux-a".to_string();
+        linux_a.created_at = "2026-01-04T00:00:00Z".to_string();
+        let mut linux_b = make_project(r"\\wsl$\ubuntu\home\User\App");
+        linux_b.id = "linux-b".to_string();
+        linux_b.created_at = "2026-01-05T00:00:00Z".to_string();
+
+        for project in [&first, &second, &third, &linux_a, &linux_b] {
+            repo.insert(project).unwrap();
+        }
+        repo.update_alias(&second.id, Some("merged alias")).unwrap();
+        repo.update_alias(&third.id, Some("later conflict"))
+            .unwrap();
+
+        let first_report = repo.migrate_project_identities().unwrap();
+        assert_eq!(first_report.duplicates_removed, 2);
+        let projects = repo.list().unwrap();
+        assert_eq!(projects.len(), 3);
+
+        let winner = projects
+            .iter()
+            .find(|project| project.id == "first")
+            .unwrap();
+        assert_eq!(winner.path, r"D:\Repos\App");
+        assert_eq!(winner.alias.as_deref(), Some("merged alias"));
+        assert!(projects.iter().any(|project| {
+            project.id == "linux-a" && project.path == r"\\wsl.localhost\Ubuntu\home\User\App"
+        }));
+        assert!(projects.iter().any(|project| {
+            project.id == "linux-b" && project.path == r"\\wsl.localhost\ubuntu\home\User\App"
+        }));
+
+        assert_eq!(
+            repo.migrate_project_identities().unwrap(),
+            ProjectIdentityMigrationReport::default()
+        );
     }
 
     #[test]

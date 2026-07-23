@@ -7,7 +7,9 @@ use crate::models::{
     WorkspaceMigrationResult, WorkspaceMigrationRollbackResult, WorkspaceMigrationStatus,
     WorkspaceMigrationTargetKind, WorkspaceProject, WorkspaceWslConfig,
 };
-use crate::utils::{output_with_timeout, GIT_LOCAL_TIMEOUT};
+use crate::utils::{
+    canonical_project_path, output_with_timeout, project_identity_key, GIT_LOCAL_TIMEOUT,
+};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::fs;
@@ -37,6 +39,15 @@ const MIGRATION_PROJECTS_CSV_RELATIVE_PATH: &str = ".ccpanes/projects.csv";
 struct CopyStats {
     files: u64,
     bytes: u64,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct WorkspaceProjectIdentityMigrationReport {
+    pub workspaces_updated: usize,
+    pub projects_updated: usize,
+    pub duplicates_removed: usize,
+    pub backups_created: usize,
+    pub csv_regenerated: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -81,6 +92,82 @@ impl WorkspaceService {
             _watcher: Mutex::new(None),
             watcher_stop: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Canonicalize and deduplicate every persisted workspace project list.
+    ///
+    /// Each changed `workspace.json` is backed up once as `workspace.json.bak` before writing.
+    /// CSV is regenerated when the configured workspace root is accessible on this host.
+    pub fn migrate_project_identities(
+        &self,
+    ) -> Result<WorkspaceProjectIdentityMigrationReport, String> {
+        let mut report = WorkspaceProjectIdentityMigrationReport::default();
+        if !self.base_dir.exists() {
+            return Ok(report);
+        }
+
+        let mut workspace_files = fs::read_dir(&self.base_dir)
+            .map_err(|e| format!("Failed to read workspaces directory: {e}"))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace.json"))
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        workspace_files.sort();
+
+        for json_path in workspace_files {
+            let original = fs::read(&json_path).map_err(|e| {
+                format!(
+                    "Failed to read workspace identity migration source '{}': {e}",
+                    json_path.display()
+                )
+            })?;
+            let mut workspace: Workspace = serde_json::from_slice(&original).map_err(|e| {
+                format!(
+                    "Failed to parse workspace identity migration source '{}': {e}",
+                    json_path.display()
+                )
+            })?;
+            let (projects_updated, duplicates_removed) =
+                canonicalize_workspace_projects(&mut workspace.projects);
+            if projects_updated == 0 && duplicates_removed == 0 {
+                continue;
+            }
+
+            let backup_path = json_path.with_extension("json.bak");
+            if !backup_path.exists() {
+                fs::write(&backup_path, &original).map_err(|e| {
+                    format!(
+                        "Failed to back up workspace identity migration source '{}': {e}",
+                        json_path.display()
+                    )
+                })?;
+                report.backups_created += 1;
+            }
+
+            if let Some(root) = workspace
+                .path
+                .as_deref()
+                .map(Path::new)
+                .filter(|p| p.is_dir())
+            {
+                self.write_projects_csv_for_root(root, &workspace)?;
+                report.csv_regenerated += 1;
+            }
+
+            let content = serde_json::to_string_pretty(&workspace)
+                .map_err(|e| format!("Failed to serialize migrated workspace: {e}"))?;
+            fs::write(&json_path, content).map_err(|e| {
+                format!(
+                    "Failed to write migrated workspace '{}': {e}",
+                    json_path.display()
+                )
+            })?;
+            report.workspaces_updated += 1;
+            report.projects_updated += projects_updated;
+            report.duplicates_removed += duplicates_removed;
+        }
+
+        Ok(report)
     }
 
     /// 启动文件系统监控，检测 workspace.json 变化后通知前端刷新
@@ -331,16 +418,6 @@ impl WorkspaceService {
         Ok(())
     }
 
-    /// 归一化项目路径用于比较：统一分隔符为 /、去除尾部斜杠、Windows 上转小写
-    fn normalize_project_path(p: &str) -> String {
-        let normalized = p.replace('\\', "/").trim_end_matches('/').to_string();
-        if cfg!(windows) {
-            normalized.to_lowercase()
-        } else {
-            normalized
-        }
-    }
-
     /// 添加项目到工作空间
     pub fn add_project(
         &self,
@@ -349,12 +426,12 @@ impl WorkspaceService {
     ) -> Result<WorkspaceProject, String> {
         let mut workspace = self.get_workspace(workspace_name)?;
 
-        // 检查路径是否已存在（归一化比较：统一分隔符、去尾部斜杠、Windows 忽略大小写）
-        let norm_input = Self::normalize_project_path(path);
+        let canonical_path = canonical_project_path(path);
+        let identity = project_identity_key(&canonical_path);
         if workspace
             .projects
             .iter()
-            .any(|p| Self::normalize_project_path(&p.path) == norm_input)
+            .any(|project| project_identity_key(&project.path) == identity)
         {
             return Err(format!(
                 "PROJECT_ALREADY_EXISTS: Project path '{}' already exists in workspace",
@@ -362,7 +439,7 @@ impl WorkspaceService {
             ));
         }
 
-        let project = WorkspaceProject::new(path.to_string());
+        let project = WorkspaceProject::new(canonical_path);
         workspace.projects.push(project.clone());
         self.write_workspace_json(workspace_name, &workspace)?;
 
@@ -402,11 +479,11 @@ impl WorkspaceService {
         );
 
         // 去重检查（基于 display_path）
-        let norm_input = Self::normalize_project_path(&display_path);
+        let identity = project_identity_key(&display_path);
         if workspace
             .projects
             .iter()
-            .any(|p| Self::normalize_project_path(&p.path) == norm_input)
+            .any(|project| project_identity_key(&project.path) == identity)
         {
             return Err(format!(
                 "PROJECT_ALREADY_EXISTS: SSH project '{}' already exists in workspace",
@@ -1983,6 +2060,65 @@ impl WorkspaceService {
     }
 }
 
+fn canonicalize_workspace_projects(projects: &mut Vec<WorkspaceProject>) -> (usize, usize) {
+    let original = std::mem::take(projects);
+    let mut canonical = Vec::<WorkspaceProject>::with_capacity(original.len());
+    let mut winner_by_identity = HashMap::<String, usize>::new();
+    let mut projects_updated = 0;
+    let mut duplicates_removed = 0;
+
+    for mut project in original {
+        let canonical_path = canonical_project_path(&project.path);
+        let path_changed = project.path != canonical_path;
+        project.path = canonical_path;
+        let identity = project_identity_key(&project.path);
+
+        if let Some(index) = winner_by_identity.get(&identity).copied() {
+            if merge_workspace_project(&mut canonical[index], project) {
+                projects_updated += 1;
+            }
+            duplicates_removed += 1;
+            continue;
+        }
+
+        if path_changed {
+            projects_updated += 1;
+        }
+        winner_by_identity.insert(identity, canonical.len());
+        canonical.push(project);
+    }
+
+    *projects = canonical;
+    (projects_updated, duplicates_removed)
+}
+
+fn merge_workspace_project(winner: &mut WorkspaceProject, candidate: WorkspaceProject) -> bool {
+    let mut changed = false;
+    changed |= fill_non_empty_string(&mut winner.alias, candidate.alias);
+    changed |= fill_non_empty_string(&mut winner.launch_profile_id, candidate.launch_profile_id);
+    changed |= fill_non_empty_string(&mut winner.wsl_remote_path, candidate.wsl_remote_path);
+    if winner.ssh.is_none() && candidate.ssh.is_some() {
+        winner.ssh = candidate.ssh;
+        changed = true;
+    }
+    changed
+}
+
+fn fill_non_empty_string(target: &mut Option<String>, candidate: Option<String>) -> bool {
+    let target_has_value = target
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
+    let candidate_has_value = candidate
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
+    if !target_has_value && candidate_has_value {
+        *target = candidate;
+        true
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2187,16 +2323,98 @@ mod tests {
         assert!(err.contains("PROJECT_ALREADY_EXISTS"));
     }
 
-    #[cfg(windows)]
     #[test]
-    fn add_project_duplicate_check_ignores_case_on_windows() {
+    fn add_project_rejects_cross_runtime_drive_duplicates() {
         let dir = tempfile::tempdir().unwrap();
         let service = make_service(&dir);
         service.create_workspace("ws", None).unwrap();
-        service.add_project("ws", "C:/Repo/Demo").unwrap();
+        let project = service.add_project("ws", "/mnt/d/Repo/Demo").unwrap();
+        assert_eq!(project.path, r"D:\Repo\Demo");
 
-        let err = service.add_project("ws", "c:/repo/demo").unwrap_err();
+        let err = service.add_project("ws", r"d:\repo\demo").unwrap_err();
         assert!(err.contains("PROJECT_ALREADY_EXISTS"));
+        let err = service
+            .add_project("ws", r"\\wsl$\Ubuntu\mnt\d\REPO\DEMO")
+            .unwrap_err();
+        assert!(err.contains("PROJECT_ALREADY_EXISTS"));
+    }
+
+    #[test]
+    fn migrate_workspace_project_identities_backs_up_deduplicates_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let root = dir.path().join("workspace-root");
+        fs::create_dir_all(&root).unwrap();
+        service
+            .create_workspace("ws", Some(&path_str(&root)))
+            .unwrap();
+
+        let project = |id: &str, path: &str| WorkspaceProject {
+            id: id.to_string(),
+            path: path.to_string(),
+            alias: None,
+            launch_profile_id: None,
+            wsl_remote_path: None,
+            ssh: None,
+        };
+        let mut workspace = service.get_workspace("ws").unwrap();
+        let mut first = project("first", "/mnt/d/Repos/App");
+        first.launch_profile_id = Some("first-profile".to_string());
+        let mut second = project("second", r"D:\repos\app");
+        second.alias = Some("merged alias".to_string());
+        second.launch_profile_id = Some("later-profile".to_string());
+        second.wsl_remote_path = Some("/mnt/d/repos/app".to_string());
+        let mut third = project("third", r"\\wsl$\Ubuntu\mnt\d\REPOS\APP");
+        third.alias = Some("later conflict".to_string());
+        let linux_a = project("linux-a", r"\\wsl$\Ubuntu\home\User\App");
+        let linux_b = project("linux-b", r"\\wsl.localhost\ubuntu\home\User\App");
+        workspace.projects = vec![first, second, third, linux_a, linux_b];
+        service.write_workspace_json("ws", &workspace).unwrap();
+
+        let json_path = service.workspace_dir("ws").join("workspace.json");
+        let backup_path = service.workspace_dir("ws").join("workspace.json.bak");
+        let original = fs::read(&json_path).unwrap();
+
+        let first_report = service.migrate_project_identities().unwrap();
+        assert_eq!(first_report.workspaces_updated, 1);
+        assert_eq!(first_report.duplicates_removed, 2);
+        assert_eq!(first_report.backups_created, 1);
+        assert_eq!(first_report.csv_regenerated, 1);
+        assert_eq!(fs::read(&backup_path).unwrap(), original);
+
+        let migrated = service.get_workspace("ws").unwrap();
+        assert_eq!(migrated.projects.len(), 3);
+        let winner = migrated
+            .projects
+            .iter()
+            .find(|project| project.id == "first")
+            .unwrap();
+        assert_eq!(winner.path, r"D:\Repos\App");
+        assert_eq!(winner.alias.as_deref(), Some("merged alias"));
+        assert_eq!(winner.launch_profile_id.as_deref(), Some("first-profile"));
+        assert_eq!(winner.wsl_remote_path.as_deref(), Some("/mnt/d/repos/app"));
+        assert!(migrated
+            .projects
+            .iter()
+            .any(|project| { project.path == r"\\wsl.localhost\Ubuntu\home\User\App" }));
+        assert!(migrated
+            .projects
+            .iter()
+            .any(|project| { project.path == r"\\wsl.localhost\ubuntu\home\User\App" }));
+
+        let csv_path = root.join(".ccpanes").join("projects.csv");
+        let first_json = fs::read(&json_path).unwrap();
+        let first_backup = fs::read(&backup_path).unwrap();
+        let first_csv = fs::read(&csv_path).unwrap();
+        assert_eq!(String::from_utf8_lossy(&first_csv).lines().count(), 4);
+
+        assert_eq!(
+            service.migrate_project_identities().unwrap(),
+            WorkspaceProjectIdentityMigrationReport::default()
+        );
+        assert_eq!(fs::read(&json_path).unwrap(), first_json);
+        assert_eq!(fs::read(&backup_path).unwrap(), first_backup);
+        assert_eq!(fs::read(&csv_path).unwrap(), first_csv);
     }
 
     fn make_ssh_info(user: Option<&str>, port: u16) -> SshConnectionInfo {
@@ -2365,19 +2583,6 @@ mod tests {
     }
 
     // ============ 纯函数辅助 ============
-
-    #[test]
-    fn normalize_project_path_unifies_separators_and_trailing_slash() {
-        let a = WorkspaceService::normalize_project_path("/x/y/");
-        let b = WorkspaceService::normalize_project_path("\\x\\y");
-        assert_eq!(a, b);
-        if cfg!(windows) {
-            assert_eq!(
-                WorkspaceService::normalize_project_path("C:\\Foo"),
-                "c:/foo"
-            );
-        }
-    }
 
     #[test]
     fn csv_escape_quotes_special_fields() {

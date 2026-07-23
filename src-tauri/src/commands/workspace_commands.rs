@@ -5,8 +5,9 @@ use crate::models::{
     WorkspaceMigrationRollbackResult, WorkspaceProject,
 };
 use crate::services::{HistoryWatchManager, WorkspaceService};
-use crate::utils::{validate_path, validate_ssh_info, AppResult};
+use crate::utils::{validate_path, validate_ssh_info, AppError, AppResult};
 use cc_panes_core::utils::{normalize_project_path, paths_equivalent};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
@@ -86,7 +87,20 @@ pub fn add_workspace_project(
     service: State<'_, Arc<WorkspaceService>>,
 ) -> AppResult<WorkspaceProject> {
     debug!(workspace_name = %workspace_name, path = %path, "cmd::add_workspace_project");
-    Ok(service.add_project(&workspace_name, &path)?)
+    service
+        .add_project(&workspace_name, &path)
+        .map_err(|error| project_add_error(error, &path))
+}
+
+fn project_add_error(error: String, path: &str) -> AppError {
+    if error.starts_with("PROJECT_ALREADY_EXISTS:") {
+        return AppError::coded_with_params(
+            "PROJECT_ALREADY_EXISTS",
+            error,
+            HashMap::from([("path".to_string(), path.to_string())]),
+        );
+    }
+    AppError::from(error)
 }
 
 #[tauri::command]
@@ -328,7 +342,7 @@ pub async fn rollback_project_migration(
 
 #[cfg(test)]
 mod tests {
-    use super::{path_is_within, workspaces_reference_path};
+    use super::{path_is_within, project_add_error, workspaces_reference_path};
     use crate::models::{Workspace, WorkspaceProject};
     use std::path::Path;
 
@@ -358,6 +372,22 @@ mod tests {
 
         assert!(workspaces_reference_path(&workspaces, r"d:\code\app\"));
         assert!(!workspaces_reference_path(&workspaces, r"D:\Code\Other"));
+    }
+
+    #[test]
+    fn duplicate_project_error_keeps_translatable_code_and_path() {
+        let error = project_add_error(
+            "PROJECT_ALREADY_EXISTS: duplicate".to_string(),
+            "/mnt/d/repos/app",
+        );
+        assert_eq!(error.code(), Some("PROJECT_ALREADY_EXISTS"));
+        assert_eq!(
+            error
+                .params()
+                .and_then(|params| params.get("path"))
+                .map(String::as_str),
+            Some("/mnt/d/repos/app")
+        );
     }
 
     #[test]
