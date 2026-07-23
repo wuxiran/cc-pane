@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -17,6 +19,11 @@ use crate::utils::{normalize_project_path, paths_equivalent};
 
 type WatcherMap = Arc<Mutex<HashMap<PathBuf, RecommendedWatcher>>>;
 type RepoMap = Arc<Mutex<HashMap<PathBuf, Arc<HistoryFileRepository>>>>;
+type HistoryEventBatch = Vec<HistoryEvent>;
+type HistoryEventSender = SyncSender<HistoryEventBatch>;
+
+const HISTORY_EVENT_BUFFER_CAPACITY: usize = 30_000;
+const DEBOUNCE_BATCH_PATH_LIMIT: usize = 128;
 
 fn equivalent_path_key<T>(map: &HashMap<PathBuf, T>, path: &Path) -> Option<PathBuf> {
     map.keys().find(|key| paths_equivalent(key, path)).cloned()
@@ -41,11 +48,71 @@ enum HistoryEvent {
     },
 }
 
+#[derive(Default)]
+struct DebounceBatch {
+    events: Vec<HistoryEvent>,
+    file_paths: HashSet<PathBuf>,
+    overflowed: bool,
+}
+
+impl DebounceBatch {
+    /// 返回 true 表示本次追加首次触发上限，调用方应记录一次 warn。
+    fn push(&mut self, mut events: HistoryEventBatch) -> bool {
+        if self.overflowed {
+            return false;
+        }
+
+        for event in &events {
+            let file_path = match event {
+                HistoryEvent::FileChanged { file_path, .. }
+                | HistoryEvent::FileRemoved { file_path, .. } => file_path,
+                HistoryEvent::BranchSwitched { .. } => continue,
+            };
+            self.file_paths.insert(file_path.clone());
+            if self.file_paths.len() > DEBOUNCE_BATCH_PATH_LIMIT {
+                self.events.clear();
+                self.file_paths.clear();
+                self.overflowed = true;
+                return true;
+            }
+        }
+
+        self.events.append(&mut events);
+        false
+    }
+
+    fn into_events(self) -> Option<Vec<HistoryEvent>> {
+        (!self.overflowed).then_some(self.events)
+    }
+}
+
+/// 非阻塞地整批入队。返回 true 表示本次超限需要记录首次 warn。
+fn enqueue_history_batch(
+    tx: &HistoryEventSender,
+    batch: HistoryEventBatch,
+    overflow_warned: &AtomicBool,
+) -> bool {
+    if batch.is_empty() {
+        return false;
+    }
+
+    match tx.try_send(batch) {
+        Ok(()) => false,
+        Err(TrySendError::Full(_)) => !overflow_warned.swap(true, Ordering::Relaxed),
+        Err(TrySendError::Disconnected(_)) => {
+            warn!("history event channel disconnected; dropping event batch");
+            false
+        }
+    }
+}
+
 pub struct HistoryService {
     watchers: WatcherMap,
     repos: RepoMap,
     /// 事件发送端（单写者模型）
-    event_tx: std::sync::mpsc::Sender<HistoryEvent>,
+    event_tx: HistoryEventSender,
+    /// 通道首次溢出后不再重复告警，避免洪峰期间刷日志
+    event_overflow_warned: Arc<AtomicBool>,
     /// 分支缓存：project_path -> 当前分支名
     branch_cache: Arc<Mutex<HashMap<PathBuf, String>>>,
     /// 静默窗口：project_path -> 静默截止时间
@@ -64,7 +131,8 @@ impl HistoryService {
         let debounce_state: Arc<Mutex<HashMap<PathBuf, Instant>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        let (tx, rx) = std::sync::mpsc::channel::<HistoryEvent>();
+        let (tx, rx) =
+            std::sync::mpsc::sync_channel::<HistoryEventBatch>(HISTORY_EVENT_BUFFER_CAPACITY);
 
         // 启动单写者后台线程
         let repos_clone = repos.clone();
@@ -77,6 +145,7 @@ impl HistoryService {
             watchers: Arc::new(Mutex::new(HashMap::new())),
             repos,
             event_tx: tx,
+            event_overflow_warned: Arc::new(AtomicBool::new(false)),
             branch_cache: Arc::new(Mutex::new(HashMap::new())),
             silence_until: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -117,7 +186,7 @@ impl HistoryService {
     /// 单写者事件循环：从队列中取事件，debounce 后处理
     /// 采用 "trailing edge" debounce：收集 DEBOUNCE_MS 窗口内的事件后统一处理
     fn event_loop(
-        rx: std::sync::mpsc::Receiver<HistoryEvent>,
+        rx: Receiver<HistoryEventBatch>,
         repos: RepoMap,
         debounce_state: Arc<Mutex<HashMap<PathBuf, Instant>>>,
     ) {
@@ -132,7 +201,13 @@ impl HistoryService {
             };
 
             // 收集 DEBOUNCE_MS 窗口内的所有事件（trailing edge debounce）
-            let mut batch = vec![first];
+            let mut batch = DebounceBatch::default();
+            if batch.push(first) {
+                warn!(
+                    limit = DEBOUNCE_BATCH_PATH_LIMIT,
+                    "history debounce batch exceeded path limit; dropping entire batch"
+                );
+            }
             let deadline = Instant::now() + Duration::from_millis(DEBOUNCE_MS);
             loop {
                 let remaining = deadline.saturating_duration_since(Instant::now());
@@ -140,11 +215,22 @@ impl HistoryService {
                     break;
                 }
                 match rx.recv_timeout(remaining) {
-                    Ok(e) => batch.push(e),
+                    Ok(events) => {
+                        if batch.push(events) {
+                            warn!(
+                                limit = DEBOUNCE_BATCH_PATH_LIMIT,
+                                "history debounce batch exceeded path limit; dropping entire batch"
+                            );
+                        }
+                    }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                 }
             }
+
+            let Some(batch) = batch.into_events() else {
+                continue;
+            };
 
             // 分离 BranchSwitched 事件（优先处理）和文件事件
             let mut branch_events: Vec<HistoryEvent> = Vec::new();
@@ -491,20 +577,20 @@ impl HistoryService {
 
         let project_path_clone = project_path.clone();
         let tx = self.event_tx.clone();
+        let event_overflow_warned = self.event_overflow_warned.clone();
         let branch_cache = self.branch_cache.clone();
         let silence_until = self.silence_until.clone();
 
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
-                if let Ok(event) = res {
-                    Self::dispatch_event(
-                        &project_path_clone,
-                        event,
-                        &tx,
-                        &branch_cache,
-                        &silence_until,
-                    );
-                }
+                Self::handle_notify_result(
+                    &project_path_clone,
+                    res,
+                    &tx,
+                    &branch_cache,
+                    &silence_until,
+                    &event_overflow_warned,
+                );
             },
             Config::default(),
         )
@@ -566,12 +652,46 @@ impl HistoryService {
     }
 
     /// 分发文件事件到队列，检测分支切换
+    fn handle_notify_result(
+        project_path: &Path,
+        result: Result<Event, notify::Error>,
+        tx: &HistoryEventSender,
+        branch_cache: &Arc<Mutex<HashMap<PathBuf, String>>>,
+        silence_until: &Arc<Mutex<HashMap<PathBuf, Instant>>>,
+        overflow_warned: &AtomicBool,
+    ) {
+        match result {
+            Ok(event) if event.need_rescan() => {
+                warn!(
+                    project = %project_path.display(),
+                    "history watcher requested rescan; ignoring event"
+                );
+            }
+            Ok(event) => Self::dispatch_event(
+                project_path,
+                event,
+                tx,
+                branch_cache,
+                silence_until,
+                overflow_warned,
+            ),
+            Err(error) => {
+                warn!(
+                    project = %project_path.display(),
+                    error = %error,
+                    "history watcher error; ignoring event"
+                );
+            }
+        }
+    }
+
     fn dispatch_event(
         project_path: &Path,
         event: Event,
-        tx: &std::sync::mpsc::Sender<HistoryEvent>,
+        tx: &HistoryEventSender,
         branch_cache: &Arc<Mutex<HashMap<PathBuf, String>>>,
         silence_until: &Arc<Mutex<HashMap<PathBuf, Instant>>>,
+        overflow_warned: &AtomicBool,
     ) {
         use notify::EventKind;
 
@@ -585,11 +705,20 @@ impl HistoryService {
             let cached = cache.get(project_path).cloned().unwrap_or_default();
             if !cached.is_empty() && cached != current_branch {
                 // 分支切换！发送 BranchSwitched 事件
-                let _ = tx.send(HistoryEvent::BranchSwitched {
-                    project_path: project_path.to_path_buf(),
-                    old_branch: cached,
-                    new_branch: current_branch.clone(),
-                });
+                if enqueue_history_batch(
+                    tx,
+                    vec![HistoryEvent::BranchSwitched {
+                        project_path: project_path.to_path_buf(),
+                        old_branch: cached,
+                        new_branch: current_branch.clone(),
+                    }],
+                    overflow_warned,
+                ) {
+                    warn!(
+                        capacity = HISTORY_EVENT_BUFFER_CAPACITY,
+                        "history event channel full; dropping entire event batch"
+                    );
+                }
                 cache.insert(project_path.to_path_buf(), current_branch.clone());
 
                 // 设置静默窗口
@@ -613,26 +742,33 @@ impl HistoryService {
             return;
         }
 
-        match event.kind {
-            EventKind::Create(_) | EventKind::Modify(_) => {
-                for path in event.paths {
-                    let _ = tx.send(HistoryEvent::FileChanged {
-                        project_path: project_path.to_path_buf(),
-                        file_path: path,
-                        branch: current_branch.clone(),
-                    });
-                }
-            }
-            EventKind::Remove(_) => {
-                for path in event.paths {
-                    let _ = tx.send(HistoryEvent::FileRemoved {
-                        project_path: project_path.to_path_buf(),
-                        file_path: path,
-                        branch: current_branch.clone(),
-                    });
-                }
-            }
-            _ => {}
+        let events = match event.kind {
+            EventKind::Create(_) | EventKind::Modify(_) => event
+                .paths
+                .into_iter()
+                .map(|path| HistoryEvent::FileChanged {
+                    project_path: project_path.to_path_buf(),
+                    file_path: path,
+                    branch: current_branch.clone(),
+                })
+                .collect(),
+            EventKind::Remove(_) => event
+                .paths
+                .into_iter()
+                .map(|path| HistoryEvent::FileRemoved {
+                    project_path: project_path.to_path_buf(),
+                    file_path: path,
+                    branch: current_branch.clone(),
+                })
+                .collect(),
+            _ => return,
+        };
+
+        if enqueue_history_batch(tx, events, overflow_warned) {
+            warn!(
+                capacity = HISTORY_EVENT_BUFFER_CAPACITY,
+                "history event channel full; dropping entire event batch"
+            );
         }
     }
 
@@ -1063,10 +1199,93 @@ impl HistoryService {
 
 #[cfg(test)]
 mod tests {
-    use super::{equivalent_path_key, HistoryService};
+    use super::{
+        enqueue_history_batch, equivalent_path_key, DebounceBatch, HistoryEvent, HistoryService,
+        DEBOUNCE_BATCH_PATH_LIMIT,
+    };
+    use notify::{event::Flag, Event, EventKind};
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
+
+    fn file_changed(path: impl Into<PathBuf>) -> HistoryEvent {
+        HistoryEvent::FileChanged {
+            project_path: PathBuf::from("/project"),
+            file_path: path.into(),
+            branch: "main".to_string(),
+        }
+    }
+
+    #[test]
+    fn bounded_event_channel_drops_overflowing_batch_and_warns_once() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let overflow_warned = AtomicBool::new(false);
+
+        assert!(!enqueue_history_batch(
+            &tx,
+            vec![file_changed("first.rs")],
+            &overflow_warned,
+        ));
+        assert!(enqueue_history_batch(
+            &tx,
+            vec![file_changed("second.rs"), file_changed("third.rs")],
+            &overflow_warned,
+        ));
+        assert!(!enqueue_history_batch(
+            &tx,
+            vec![file_changed("fourth.rs")],
+            &overflow_warned,
+        ));
+
+        let queued = rx.try_recv().unwrap();
+        assert_eq!(queued.len(), 1);
+        assert!(rx.try_recv().is_err());
+        assert!(overflow_warned.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn debounce_batch_drops_every_event_after_path_limit_is_exceeded() {
+        let mut batch = DebounceBatch::default();
+        let at_limit = (0..DEBOUNCE_BATCH_PATH_LIMIT)
+            .map(|index| file_changed(format!("file-{index}.rs")))
+            .collect();
+
+        assert!(!batch.push(at_limit));
+        assert!(batch.push(vec![file_changed("overflow.rs")]));
+        assert!(!batch.push(vec![file_changed("ignored-after-overflow.rs")]));
+        assert!(batch.into_events().is_none());
+    }
+
+    #[test]
+    fn notify_rescan_and_error_events_are_warned_and_ignored() {
+        let project_path = PathBuf::from("/project");
+        let (tx, rx) = std::sync::mpsc::sync_channel(2);
+        let branch_cache = Arc::new(Mutex::new(HashMap::new()));
+        let silence_until = Arc::new(Mutex::new(HashMap::new()));
+        let overflow_warned = AtomicBool::new(false);
+        let rescan = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+
+        HistoryService::handle_notify_result(
+            &project_path,
+            Ok(rescan),
+            &tx,
+            &branch_cache,
+            &silence_until,
+            &overflow_warned,
+        );
+        HistoryService::handle_notify_result(
+            &project_path,
+            Err(notify::Error::generic("watcher overflow")),
+            &tx,
+            &branch_cache,
+            &silence_until,
+            &overflow_warned,
+        );
+
+        assert!(rx.try_recv().is_err());
+    }
 
     #[test]
     fn init_project_history_does_not_start_watcher() {
