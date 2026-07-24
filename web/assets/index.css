@@ -352,6 +352,12 @@
   --app-status-success: #3FB950;
   --app-status-warning: #D6A625;
   --app-status-danger: #F85149;
+  --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-success-border: color-mix(in srgb, var(--app-status-success) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-danger-border: color-mix(in srgb, var(--app-status-danger) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   /* 身份色（暗色亮化） */
   --app-identity-wsl: #FCD34D;
   --app-identity-ssh: #67E8F9;

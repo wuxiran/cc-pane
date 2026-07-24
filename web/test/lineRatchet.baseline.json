@@ -1,0 +1,23 @@
+{
+  "ccchan/CCChanApp.tsx": 992,
+  "ccchan/ChatPanel.tsx": 982,
+  "components/home/HomeUsageStats.tsx": 541,
+  "components/localhistory/LocalHistoryPanel.tsx": 597,
+  "components/mobile/MobilePrototype.tsx": 1041,
+  "components/orchestration/OrchestrationFullView.tsx": 511,
+  "components/panes/Panel.tsx": 668,
+  "components/panes/TabBar.tsx": 807,
+  "components/panes/TerminalView.tsx": 2288,
+  "components/providers/LaunchProfilesPanel.tsx": 2094,
+  "components/providers/ProviderFormPanel.tsx": 640,
+  "components/settings/SharedMcpSection.tsx": 608,
+  "components/sidebar/SshMachineDialog.tsx": 603,
+  "components/sidebar/SshMachinesView.tsx": 525,
+  "components/sidebar/WorkspaceEnvironmentPanel.tsx": 925,
+  "components/sidebar/WorkspaceItem.tsx": 703,
+  "components/todo/TodoEditor.tsx": 614,
+  "components/todo/TodoManager.tsx": 507,
+  "services/terminalService.ts": 734,
+  "stores/usePanesStore.ts": 3095,
+  "utils/workspaceLaunch.ts": 663
+}
