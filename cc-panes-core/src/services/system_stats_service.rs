@@ -4,7 +4,38 @@ use crate::models::{
 };
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+
+#[cfg(any(windows, test))]
+mod process_math;
+#[cfg(windows)]
+mod windows;
+#[cfg(any(windows, test))]
+use process_math::cpu_percent_since;
+
+#[cfg(not(windows))]
+use sysinfo::{Pid, UpdateKind};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ProcessIdentity {
+    pid: u32,
+    started_at: u64,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy)]
+struct WindowsCpuSample {
+    creation_time_100ns: u64,
+    total_time_100ns: u64,
+    sampled_at: std::time::Instant,
+}
+
+#[derive(Default)]
+struct ResourceProcessSampler {
+    known_family: HashSet<ProcessIdentity>,
+    #[cfg(windows)]
+    cpu_samples: HashMap<u32, WindowsCpuSample>,
+}
 
 #[derive(Debug, Clone)]
 struct ProcessSnapshot {
@@ -12,6 +43,7 @@ struct ProcessSnapshot {
     parent_pid: Option<u32>,
     name: String,
     command: String,
+    started_at: Option<u64>,
     cpu_percent: f32,
     memory_bytes: u64,
 }
@@ -67,6 +99,7 @@ impl<'a> ProcessIndex<'a> {
 /// 按调用采样整机资源，不创建线程或定时任务。
 pub struct SystemStatsService {
     system: Mutex<System>,
+    resource_process_sampler: Mutex<ResourceProcessSampler>,
 }
 
 impl Default for SystemStatsService {
@@ -79,6 +112,7 @@ impl SystemStatsService {
     pub fn new() -> Self {
         Self {
             system: Mutex::new(System::new()),
+            resource_process_sampler: Mutex::new(ResourceProcessSampler::default()),
         }
     }
 
@@ -94,7 +128,9 @@ impl SystemStatsService {
     pub fn get_resource_tree(&self, sessions: &[ManagedSessionRoot]) -> ResourceTree {
         let started = std::time::Instant::now();
         let mut system = self.system.lock();
-        let processes = refresh_resource_snapshot(&mut system, std::process::id(), sessions);
+        let mut sampler = self.resource_process_sampler.lock();
+        let processes =
+            refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
         let stats = system_stats(&system);
         let elapsed = started.elapsed().as_micros() as u64;
         let tree = build_resource_tree_from_snapshot(
@@ -102,6 +138,7 @@ impl SystemStatsService {
             &processes,
             sessions,
             std::process::id(),
+            &sampler.known_family,
             elapsed,
         );
         tracing::debug!(
@@ -120,13 +157,22 @@ impl SystemStatsService {
         pids: &[u32],
         sessions: &[ManagedSessionRoot],
     ) -> Vec<KillProcessResult> {
-        let processes = {
+        let (processes, known_family) = {
             let mut system = self.system.lock();
-            refresh_resource_snapshot(&mut system, std::process::id(), sessions)
+            let mut sampler = self.resource_process_sampler.lock();
+            let processes =
+                refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
+            let known_family = sampler.known_family.clone();
+            (processes, known_family)
         };
-        kill_orphans_from_snapshot(&processes, sessions, pids, std::process::id(), |pid| {
-            crate::pty::kill_process_tree_by_pid(pid).map_err(|error| error.to_string())
-        })
+        kill_orphans_from_snapshot(
+            &processes,
+            sessions,
+            pids,
+            std::process::id(),
+            &known_family,
+            |pid| crate::pty::kill_process_tree_by_pid(pid).map_err(|error| error.to_string()),
+        )
     }
 }
 
@@ -134,7 +180,9 @@ fn refresh_resource_snapshot(
     system: &mut System,
     self_pid: u32,
     sessions: &[ManagedSessionRoot],
+    sampler: &mut ResourceProcessSampler,
 ) -> Vec<ProcessSnapshot> {
+    #[cfg(not(windows))]
     system.refresh_cpu_usage();
     system.refresh_memory();
 
@@ -150,7 +198,16 @@ fn refresh_resource_snapshot(
                 .iter()
                 .flat_map(|session| index.descendants_including(session.root_pid)),
         )
+        .chain(
+            sampler
+                .known_family
+                .iter()
+                .flat_map(|identity| index.descendants_including(identity.pid)),
+        )
         .collect::<HashSet<_>>();
+    #[cfg(windows)]
+    windows::refresh_process_details(&mut processes, &relevant, sampler);
+    #[cfg(not(windows))]
     if !relevant.is_empty() {
         let relevant_pids = relevant
             .iter()
@@ -178,11 +235,31 @@ fn refresh_resource_snapshot(
                 .map(|part| part.to_string_lossy())
                 .collect::<Vec<_>>()
                 .join(" ");
+            process.started_at = Some(details.start_time());
             process.cpu_percent = details.cpu_usage();
             process.memory_bytes = details.memory();
         }
     }
+    remember_live_family_identities(&processes, self_pid, sampler);
     processes
+}
+
+fn remember_live_family_identities(
+    processes: &[ProcessSnapshot],
+    self_pid: u32,
+    sampler: &mut ResourceProcessSampler,
+) {
+    sampler.known_family.extend(
+        processes
+            .iter()
+            .filter(|process| process.pid == self_pid || is_cc_panes_family(&process.name))
+            .filter_map(|process| {
+                process.started_at.map(|started_at| ProcessIdentity {
+                    pid: process.pid,
+                    started_at,
+                })
+            }),
+    );
 }
 
 fn system_stats(system: &System) -> SystemStats {
@@ -208,6 +285,7 @@ fn capture_processes(system: &System) -> Vec<ProcessSnapshot> {
                 .map(|part| part.to_string_lossy())
                 .collect::<Vec<_>>()
                 .join(" "),
+            started_at: Some(process.start_time()),
             cpu_percent: process.cpu_usage(),
             memory_bytes: process.memory(),
         })
@@ -238,6 +316,7 @@ fn capture_process_topology(_system: &mut System) -> Vec<ProcessSnapshot> {
                 parent_pid,
                 name,
                 command: String::new(),
+                started_at: None,
                 cpu_percent: 0.0,
                 memory_bytes: 0,
             })
@@ -260,8 +339,8 @@ fn capture_process_topology(system: &mut System) -> Vec<ProcessSnapshot> {
 
 #[cfg(windows)]
 fn capture_windows_process_topology() -> Result<Vec<ProcessSnapshot>, String> {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Diagnostics::ToolHelp::{
+    use ::windows::Win32::Foundation::CloseHandle;
+    use ::windows::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,
     };
@@ -289,6 +368,7 @@ fn capture_windows_process_topology() -> Result<Vec<ProcessSnapshot>, String> {
                         .then_some(entry.th32ParentProcessID),
                     name: String::from_utf16_lossy(&entry.szExeFile[..name_len]),
                     command: String::new(),
+                    started_at: None,
                     cpu_percent: 0.0,
                     memory_bytes: 0,
                 });
@@ -313,11 +393,12 @@ fn build_resource_tree_from_snapshot(
     processes: &[ProcessSnapshot],
     sessions: &[ManagedSessionRoot],
     self_pid: u32,
+    known_family: &HashSet<ProcessIdentity>,
     elapsed_micros: u64,
 ) -> ResourceTree {
     let index = ProcessIndex::new(processes);
     let family = family_pids(processes, self_pid);
-    let analysis = analyze_process_ownership(&index, processes, sessions, &family);
+    let analysis = analyze_process_ownership(&index, processes, sessions, &family, known_family);
     let mut assigned = HashSet::new();
     let mut session_usage = sessions
         .iter()
@@ -389,7 +470,7 @@ struct OwnershipAnalysis {
     protected_family: HashSet<u32>,
     managed: HashSet<u32>,
     managed_context: HashSet<u32>,
-    family_descendants: HashSet<u32>,
+    dead_family_descendants: HashSet<u32>,
 }
 
 fn analyze_process_ownership(
@@ -397,10 +478,16 @@ fn analyze_process_ownership(
     processes: &[ProcessSnapshot],
     sessions: &[ManagedSessionRoot],
     family: &HashSet<u32>,
+    known_family: &HashSet<ProcessIdentity>,
 ) -> OwnershipAnalysis {
     let protected_family = family
         .iter()
         .flat_map(|pid| index.ancestors_including(*pid))
+        .chain(
+            family
+                .iter()
+                .flat_map(|pid| live_family_descendants(index, *pid)),
+        )
         .collect();
     let managed = sessions
         .iter()
@@ -411,17 +498,103 @@ fn analyze_process_ownership(
         .flat_map(|session| index.ancestors_including(session.root_pid))
         .chain(managed.iter().copied())
         .collect();
-    let family_descendants = family
+    let dead_family_descendants = known_family
         .iter()
-        .flat_map(|pid| index.descendants_including(*pid))
+        .flat_map(|identity| dead_family_descendants(index, *identity))
         .collect();
     debug_assert!(processes.len() >= family.len());
     OwnershipAnalysis {
         protected_family,
         managed,
         managed_context,
-        family_descendants,
+        dead_family_descendants,
     }
+}
+
+fn live_family_descendants(index: &ProcessIndex<'_>, root_pid: u32) -> HashSet<u32> {
+    let root_started_at = index
+        .by_pid
+        .get(&root_pid)
+        .and_then(|process| process.started_at);
+    descendants_with_valid_start_order(index, root_pid, root_started_at)
+}
+
+fn dead_family_descendants(index: &ProcessIndex<'_>, identity: ProcessIdentity) -> HashSet<u32> {
+    let replacement = index.by_pid.get(&identity.pid).copied();
+    if replacement.and_then(|process| process.started_at) == Some(identity.started_at) {
+        return HashSet::new();
+    }
+    let replacement_started_at = match replacement {
+        Some(process) => match process.started_at {
+            Some(started_at) => Some(started_at),
+            None => return HashSet::new(),
+        },
+        None => None,
+    };
+    let mut descendants = HashSet::new();
+    let mut frontier = index
+        .children
+        .get(&identity.pid)
+        .cloned()
+        .unwrap_or_default();
+    while let Some(pid) = frontier.pop() {
+        let Some(process) = index.by_pid.get(&pid).copied() else {
+            continue;
+        };
+        let Some(started_at) = process.started_at else {
+            continue;
+        };
+        if process.parent_pid == Some(identity.pid)
+            && (started_at < identity.started_at
+                || replacement_started_at.is_some_and(|replacement| started_at >= replacement))
+        {
+            continue;
+        }
+        if !descendants.insert(pid) {
+            continue;
+        }
+        if let Some(children) = index.children.get(&pid) {
+            frontier.extend(children.iter().copied().filter(|child_pid| {
+                index
+                    .by_pid
+                    .get(child_pid)
+                    .and_then(|child| child.started_at)
+                    .is_some_and(|child_started_at| child_started_at >= started_at)
+            }));
+        }
+    }
+    descendants
+}
+
+fn descendants_with_valid_start_order(
+    index: &ProcessIndex<'_>,
+    root_pid: u32,
+    root_started_at: Option<u64>,
+) -> HashSet<u32> {
+    let mut descendants = HashSet::new();
+    let mut frontier = vec![(root_pid, root_started_at)];
+    while let Some((pid, parent_started_at)) = frontier.pop() {
+        if !descendants.insert(pid) {
+            continue;
+        }
+        if let Some(children) = index.children.get(&pid) {
+            for child_pid in children {
+                let child_started_at = index
+                    .by_pid
+                    .get(child_pid)
+                    .and_then(|child| child.started_at);
+                let valid = match (parent_started_at, child_started_at) {
+                    (Some(parent), Some(child)) => child >= parent,
+                    (_, None) => true,
+                    (None, Some(_)) => true,
+                };
+                if valid {
+                    frontier.push((*child_pid, child_started_at));
+                }
+            }
+        }
+    }
+    descendants
 }
 
 fn family_pids(processes: &[ProcessSnapshot], self_pid: u32) -> HashSet<u32> {
@@ -531,7 +704,7 @@ fn orphan_roots(
 ) -> HashSet<u32> {
     let eligible = processes
         .iter()
-        .filter(|process| analysis.family_descendants.contains(&process.pid))
+        .filter(|process| analysis.dead_family_descendants.contains(&process.pid))
         .filter(|process| !analysis.protected_family.contains(&process.pid))
         .filter(|process| !analysis.managed_context.contains(&process.pid))
         .filter(|process| is_terminal_process(process))
@@ -563,6 +736,7 @@ fn kill_orphans_from_snapshot<F>(
     sessions: &[ManagedSessionRoot],
     pids: &[u32],
     self_pid: u32,
+    known_family: &HashSet<ProcessIdentity>,
     mut kill: F,
 ) -> Vec<KillProcessResult>
 where
@@ -570,7 +744,7 @@ where
 {
     let index = ProcessIndex::new(processes);
     let family = family_pids(processes, self_pid);
-    let analysis = analyze_process_ownership(&index, processes, sessions, &family);
+    let analysis = analyze_process_ownership(&index, processes, sessions, &family, known_family);
     let allowed = orphan_roots(&index, processes, &analysis);
     let mut seen = HashSet::new();
 
@@ -578,10 +752,12 @@ where
         .map(|pid| {
             let guard_error = if !seen.insert(*pid) {
                 Some("duplicate pid".to_string())
-            } else if *pid == self_pid || analysis.protected_family.contains(pid) {
+            } else if *pid == self_pid || family.contains(pid) {
                 Some("protected CC-Panes process".to_string())
             } else if analysis.managed.contains(pid) || analysis.managed_context.contains(pid) {
                 Some("managed session process".to_string())
+            } else if analysis.protected_family.contains(pid) {
+                Some("protected CC-Panes process".to_string())
             } else if !allowed.contains(pid) {
                 Some("not a current orphan process".to_string())
             } else {
@@ -620,170 +796,4 @@ fn now_millis() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::ManagedSessionRoot;
-
-    fn process(
-        pid: u32,
-        parent_pid: Option<u32>,
-        name: &str,
-        command: &str,
-        cpu_percent: f32,
-        memory_bytes: u64,
-    ) -> ProcessSnapshot {
-        ProcessSnapshot {
-            pid,
-            parent_pid,
-            name: name.to_string(),
-            command: command.to_string(),
-            cpu_percent,
-            memory_bytes,
-        }
-    }
-
-    fn snapshot() -> Vec<ProcessSnapshot> {
-        vec![
-            process(1, None, "explorer.exe", "explorer.exe", 0.0, 1_000),
-            process(10, Some(1), "cc-panes.exe", "cc-panes.exe", 1.0, 100),
-            // Active session: its ConPTY ancestor must not be reported as orphaned.
-            process(
-                19,
-                Some(10),
-                "conhost.exe",
-                "conhost.exe --headless",
-                1.0,
-                10,
-            ),
-            process(20, Some(19), "pwsh.exe", "pwsh.exe", 10.0, 50),
-            process(21, Some(20), "codex.exe", "codex.exe", 20.0, 100),
-            // Genuine orphan terminal tree.
-            process(
-                30,
-                Some(10),
-                "conhost.exe",
-                "conhost.exe --headless",
-                2.0,
-                20,
-            ),
-            process(31, Some(30), "powershell.exe", "powershell.exe", 3.0, 30),
-            // Conservative exclusions: MCP, dev server, and active package manager.
-            process(40, Some(10), "node.exe", "node mcp-server.js", 4.0, 40),
-            process(50, Some(10), "cmd.exe", "cmd /c npm run dev", 5.0, 50),
-            process(51, Some(50), "node.exe", "node vite.js", 6.0, 60),
-            process(60, Some(10), "node.exe", "node npm-cli.js install", 7.0, 70),
-        ]
-    }
-
-    #[test]
-    fn resource_tree_aggregates_managed_session_descendants_once() {
-        let tree = build_resource_tree_from_snapshot(
-            SystemStats {
-                cpu_percent: 50.0,
-                mem_used: 4_000,
-                mem_total: 10_000,
-            },
-            &snapshot(),
-            &[ManagedSessionRoot {
-                session_id: "session-1".to_string(),
-                root_pid: 20,
-            }],
-            10,
-            250,
-        );
-
-        assert_eq!(tree.sessions.len(), 1);
-        assert_eq!(tree.sessions[0].session_id, "session-1");
-        assert_eq!(tree.sessions[0].root_pid, 20);
-        assert_eq!(tree.sessions[0].process_count, 2);
-        assert_eq!(tree.sessions[0].cpu_percent, 30.0);
-        assert_eq!(tree.sessions[0].memory_bytes, 150);
-        assert_eq!(tree.app_memory_bytes, 100);
-        assert_eq!(tree.app_memory_percent, 1.0);
-        assert_eq!(tree.elapsed_micros, 250);
-    }
-
-    #[test]
-    fn orphan_detection_excludes_active_conpty_family_and_whitelisted_branches() {
-        let tree = build_resource_tree_from_snapshot(
-            SystemStats {
-                cpu_percent: 0.0,
-                mem_used: 0,
-                mem_total: 1_000,
-            },
-            &snapshot(),
-            &[ManagedSessionRoot {
-                session_id: "session-1".to_string(),
-                root_pid: 20,
-            }],
-            10,
-            0,
-        );
-
-        let orphan = tree.orphans.first().expect("one conservative orphan root");
-        assert_eq!(tree.orphans.len(), 1);
-        assert_eq!(orphan.pid, 30);
-        assert_eq!(orphan.process_count, 2);
-        assert_eq!(orphan.cpu_percent, 5.0);
-        assert_eq!(orphan.memory_bytes, 50);
-    }
-
-    #[test]
-    fn kill_guard_rejects_self_managed_unknown_and_reports_partial_failure() {
-        let sessions = [ManagedSessionRoot {
-            session_id: "session-1".to_string(),
-            root_pid: 20,
-        }];
-        let results =
-            kill_orphans_from_snapshot(&snapshot(), &sessions, &[10, 20, 30, 999], 10, |pid| {
-                if pid == 30 {
-                    Err("simulated taskkill failure".to_string())
-                } else {
-                    Ok(())
-                }
-            });
-
-        assert_eq!(results.len(), 4);
-        assert!(!results[0].success);
-        assert!(results[0].error.as_deref().unwrap().contains("protected"));
-        assert!(!results[1].success);
-        assert!(results[1]
-            .error
-            .as_deref()
-            .unwrap()
-            .contains("managed session"));
-        assert!(!results[2].success);
-        assert_eq!(
-            results[2].error.as_deref(),
-            Some("simulated taskkill failure")
-        );
-        assert!(!results[3].success);
-        assert!(results[3]
-            .error
-            .as_deref()
-            .unwrap()
-            .contains("current orphan"));
-    }
-
-    #[test]
-    fn live_resource_tree_enumeration_stays_within_budget() {
-        let service = SystemStatsService::new();
-        let tree = service.get_resource_tree(&[]);
-        println!(
-            "resource tree enumeration: {} us ({} sessions, {} orphans)",
-            tree.elapsed_micros,
-            tree.sessions.len(),
-            tree.orphans.len()
-        );
-        assert!(
-            tree.app_memory_bytes > 0,
-            "self process resources were not refreshed"
-        );
-
-        assert!(
-            tree.elapsed_micros < 100_000,
-            "resource tree enumeration exceeded 100ms budget: {} us",
-            tree.elapsed_micros
-        );
-    }
-}
+mod tests;
