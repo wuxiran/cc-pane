@@ -1891,7 +1891,7 @@ struct McpSubmitToSessionParams {
     /// 终端会话 ID（由 launch_task 返回）
     #[serde(rename = "sessionId")]
     session_id: String,
-    /// 要提交的文本（不含换行符）。工具会自动拆分为"写文本 → 延迟 → 发 Enter"，确保 Claude Code (ink) 正确识别提交。
+    /// 要提交的单行或多行文本。工具会用 bracketed-paste 整体写入，等待后再单独发送 CR。
     text: String,
 }
 
@@ -4660,15 +4660,13 @@ impl McpToolHandler {
         }
     }
 
-    /// 向 PTY 会话提交文本（自动处理 Enter 键时序）。内部先写入文本，按长度等待 min(200 + (len/512)*30, 5000) ms，再单独发送 CR，确保 Claude Code (ink) 正确识别为提交。适用于发送 slash command（如 "/plan"）或输入 prompt。控制键请改用 write_to_session。
+    /// 向 PTY 会话提交单行或多行文本（自动处理 Enter 键时序）。内部用 bracketed-paste 写入完整文本，按长度等待 min(200 + (len/512)*30, 5000) ms，再单独发送 CR。适用于发送 slash command（如 "/plan"）或输入 prompt。控制键请改用 write_to_session。
     #[tool]
     async fn submit_to_session(
         &self,
         Parameters(params): Parameters<McpSubmitToSessionParams>,
     ) -> String {
         info!(session_id = %params.session_id, text_len = params.text.len(), "mcp::submit_to_session");
-        // 去除文本中的换行符，防止意外提交
-        let clean_text = params.text.replace(['\r', '\n'], "");
         // 安全网：长文本外部化为文件，避免 PTY 处理异常
         let fallback_dir = self
             .state
@@ -4676,8 +4674,11 @@ impl McpToolHandler {
             .data_dir()
             .to_string_lossy()
             .to_string();
-        let effective_text =
-            externalize_long_prompt(&fallback_dir, &uuid::Uuid::new_v4().to_string(), clean_text);
+        let effective_text = externalize_long_prompt(
+            &fallback_dir,
+            &uuid::Uuid::new_v4().to_string(),
+            params.text,
+        );
         match submit_text_to_session(
             self.state.terminal_backend.backend(),
             &params.session_id,
@@ -7087,12 +7088,10 @@ async fn handle_submit_to_session(
         );
     }
 
-    // 去除文本中的换行符，防止意外提交
-    let clean_text = req.text.replace(['\r', '\n'], "");
     // 安全网：长文本外部化为文件，避免 PTY 处理异常
     let fallback_dir = state.app_paths.data_dir().to_string_lossy().to_string();
     let effective_text =
-        externalize_long_prompt(&fallback_dir, &uuid::Uuid::new_v4().to_string(), clean_text);
+        externalize_long_prompt(&fallback_dir, &uuid::Uuid::new_v4().to_string(), req.text);
 
     match submit_text_to_session(
         state.terminal_backend.backend(),

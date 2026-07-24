@@ -842,6 +842,23 @@ const DEAD_OUTPUT_MAX_LINES: usize = 20_000;
 const DEAD_OUTPUT_MAX_BYTES: usize = 10 * 1024 * 1024;
 const DEAD_REPLAY_MAX_BYTES: usize = 4 * 1024 * 1024;
 const SUBMIT_TEXT_MAX_BYTES: usize = 256 * 1024;
+const BRACKETED_PASTE_START: &str = "\x1b[200~";
+const BRACKETED_PASTE_END: &str = "\x1b[201~";
+
+/// 把文本包进终端 bracketed-paste 协议，并移除所有内嵌结束标记。
+///
+/// 在完整字符串上清洗后才进入分块写入，因此结束标记即使原输入跨调用方分片拼接，
+/// 也无法提前逃逸粘贴块。
+pub fn wrap_bracketed_paste(text: &str) -> String {
+    let sanitized = text.replace(BRACKETED_PASTE_END, "");
+    let mut wrapped = String::with_capacity(
+        BRACKETED_PASTE_START.len() + sanitized.len() + BRACKETED_PASTE_END.len(),
+    );
+    wrapped.push_str(BRACKETED_PASTE_START);
+    wrapped.push_str(&sanitized);
+    wrapped.push_str(BRACKETED_PASTE_END);
+    wrapped
+}
 
 fn summarize_input_bytes(data: &[u8]) -> serde_json::Value {
     let text = String::from_utf8_lossy(data);
@@ -2758,7 +2775,7 @@ impl TerminalService {
             .clone())
     }
 
-    /// 原子提交一条用户消息：清洗换行后写入文本，短延迟，再单独发送 Enter。
+    /// 原子提交一条用户消息：bracketed-paste 写入完整文本，短延迟，再单独发送 Enter。
     pub fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()> {
         if text.len() > SUBMIT_TEXT_MAX_BYTES {
             // fix(H1) review: submit 文本后端限制 256KB。
@@ -2768,15 +2785,15 @@ impl TerminalService {
             )));
         }
 
-        let clean_text = text.replace(['\r', '\n'], "");
-        let text_len = clean_text.len();
+        let text_len = text.len();
+        let wrapped_text = wrap_bracketed_paste(text);
         let mutex = self.input_mutex_for_session(session_id)?;
         let _guard = mutex
             .lock()
             .map_err(|_| AppError::from("terminal input lock poisoned"))?;
 
         // fix(C2) review: 持有 per-session 锁覆盖“写文本 + sleep + 写 Enter”的完整序列。
-        self.write_unlocked(session_id, &clean_text)
+        self.write_unlocked(session_id, &wrapped_text)
             .map_err(AppError::from)?;
         let delay_ms = std::cmp::min(200 + (text_len as u64 / 512) * 30, 5000);
         std::thread::sleep(std::time::Duration::from_millis(delay_ms));
@@ -3895,9 +3912,59 @@ mod tests {
             .clone();
         // fix(C2) review: 并发 submit 不能交错成 text/text/Enter/Enter。
         assert!(
-            writes == vec!["alpha", "\r", "beta", "\r"]
-                || writes == vec!["beta", "\r", "alpha", "\r"],
+            writes
+                == vec![
+                    "\x1b[200~alpha\x1b[201~",
+                    "\r",
+                    "\x1b[200~beta\x1b[201~",
+                    "\r"
+                ]
+                || writes
+                    == vec![
+                        "\x1b[200~beta\x1b[201~",
+                        "\r",
+                        "\x1b[200~alpha\x1b[201~",
+                        "\r"
+                    ],
             "unexpected submit write order: {writes:?}"
+        );
+    }
+
+    #[test]
+    fn wrap_bracketed_paste_preserves_multiline_and_removes_embedded_end_markers() {
+        assert_eq!(
+            wrap_bracketed_paste("line 1\nline 2"),
+            "\x1b[200~line 1\nline 2\x1b[201~"
+        );
+        assert_eq!(
+            wrap_bracketed_paste("before\x1b[201~middle\x1b[201~after"),
+            "\x1b[200~beforemiddleafter\x1b[201~"
+        );
+        let assembled_from_fragments = ["before", "\x1b[20", "1~after"].concat();
+        assert_eq!(
+            wrap_bracketed_paste(&assembled_from_fragments),
+            "\x1b[200~beforeafter\x1b[201~"
+        );
+        assert_eq!(wrap_bracketed_paste(""), "\x1b[200~\x1b[201~");
+        assert_eq!(wrap_bracketed_paste("\n"), "\x1b[200~\n\x1b[201~");
+    }
+
+    #[test]
+    fn submit_to_session_writes_multiline_paste_then_cr() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session(&service, "session-multiline", writes.clone());
+
+        service
+            .submit_text_to_session("session-multiline", "first\nsecond\nthird")
+            .expect("submit multiline text");
+
+        assert_eq!(
+            writes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_slice(),
+            ["\x1b[200~first\nsecond\nthird\x1b[201~", "\r"]
         );
     }
 
@@ -3918,7 +3985,7 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .as_slice()
-                == ["alpha"];
+                == ["\x1b[200~alpha\x1b[201~"];
             if has_text {
                 break;
             }
@@ -3939,7 +4006,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone();
-        assert_eq!(writes, vec!["alpha", "\r", "z"]);
+        assert_eq!(writes, vec!["\x1b[200~alpha\x1b[201~", "\r", "z"]);
     }
 
     #[test]
