@@ -1,6 +1,6 @@
 use crate::models::Project;
 use crate::repository::Database;
-use crate::utils::{canonical_project_path, project_identity_key};
+use crate::utils::{project_identity_key, repair_persisted_project_path};
 use rusqlite::params;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ pub struct ProjectIdentityMigrationReport {
 struct ProjectIdentityWinner {
     id: String,
     original_path: String,
-    canonical_path: String,
+    persisted_path: String,
     original_alias: Option<String>,
     merged_alias: Option<String>,
 }
@@ -30,7 +30,8 @@ impl ProjectRepository {
         Self { db }
     }
 
-    /// Canonicalize and deduplicate legacy SQLite project registrations in one transaction.
+    /// Deduplicate legacy SQLite registrations and repair unusable cross-host paths in one
+    /// transaction. The identity key is never used as the persisted launch path.
     ///
     /// The earliest `(created_at, rowid)` record wins. A later non-empty alias only fills an
     /// empty winner alias; conflicting non-empty values keep the earliest registration.
@@ -59,8 +60,7 @@ impl ProjectRepository {
         let mut duplicate_ids = Vec::<String>::new();
         for row in rows {
             let (id, path, alias) = row.map_err(|e| e.to_string())?;
-            let canonical_path = canonical_project_path(&path);
-            let identity = project_identity_key(&canonical_path);
+            let identity = project_identity_key(&path);
             if let Some(index) = winner_by_identity.get(&identity).copied() {
                 let winner = &mut winners[index];
                 fill_non_empty(&mut winner.merged_alias, alias);
@@ -71,8 +71,8 @@ impl ProjectRepository {
             winner_by_identity.insert(identity, winners.len());
             winners.push(ProjectIdentityWinner {
                 id,
+                persisted_path: repair_persisted_project_path(&path),
                 original_path: path,
-                canonical_path,
                 original_alias: alias.clone(),
                 merged_alias: alias,
             });
@@ -86,14 +86,14 @@ impl ProjectRepository {
 
         let mut projects_updated = 0;
         for winner in &winners {
-            if winner.original_path == winner.canonical_path
+            if winner.original_path == winner.persisted_path
                 && winner.original_alias == winner.merged_alias
             {
                 continue;
             }
             tx.execute(
                 "UPDATE projects SET path = ?1, alias = ?2 WHERE id = ?3",
-                params![winner.canonical_path, winner.merged_alias, winner.id],
+                params![winner.persisted_path, winner.merged_alias, winner.id],
             )
             .map_err(|e| e.to_string())?;
             projects_updated += 1;
@@ -411,10 +411,10 @@ mod tests {
     #[test]
     fn migrate_project_identities_deduplicates_and_is_idempotent() {
         let repo = setup();
-        let mut first = make_project(r"D:\Repos\App");
+        let mut first = make_project("/mnt/d/Repos/App");
         first.id = "first".to_string();
         first.created_at = "2026-01-01T00:00:00Z".to_string();
-        let mut second = make_project("/mnt/d/repos/app");
+        let mut second = make_project(r"D:\repos\app");
         second.id = "second".to_string();
         second.created_at = "2026-01-02T00:00:00Z".to_string();
         let mut third = make_project(r"\\wsl$\Ubuntu\mnt\d\REPOS\APP");
@@ -443,15 +443,40 @@ mod tests {
             .iter()
             .find(|project| project.id == "first")
             .unwrap();
-        assert_eq!(winner.path, r"D:\Repos\App");
+        assert_eq!(winner.path, "/mnt/d/Repos/App");
         assert_eq!(winner.alias.as_deref(), Some("merged alias"));
         assert!(projects.iter().any(|project| {
-            project.id == "linux-a" && project.path == r"\\wsl.localhost\Ubuntu\home\User\App"
+            project.id == "linux-a" && project.path == r"\\wsl$\Ubuntu\home\User\App"
         }));
         assert!(projects.iter().any(|project| {
-            project.id == "linux-b" && project.path == r"\\wsl.localhost\ubuntu\home\User\App"
+            project.id == "linux-b" && project.path == r"\\wsl$\ubuntu\home\User\App"
         }));
 
+        assert_eq!(
+            repo.migrate_project_identities().unwrap(),
+            ProjectIdentityMigrationReport::default()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn migrate_project_identities_repairs_reachable_mnt_path_on_unix() {
+        let current = std::env::current_dir().unwrap();
+        let current = current.to_string_lossy().replace('\\', "/");
+        if !current.starts_with("/mnt/") {
+            return;
+        }
+        let broken = crate::utils::canonical_project_path(&current);
+        assert_ne!(broken, current);
+
+        let repo = setup();
+        let mut project = make_project(&broken);
+        project.id = "broken-cross-host-path".to_string();
+        repo.insert(&project).unwrap();
+
+        let first = repo.migrate_project_identities().unwrap();
+        assert_eq!(first.projects_updated, 1);
+        assert_eq!(repo.get(&project.id).unwrap().unwrap().path, current);
         assert_eq!(
             repo.migrate_project_identities().unwrap(),
             ProjectIdentityMigrationReport::default()

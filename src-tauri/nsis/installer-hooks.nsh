@@ -1,7 +1,8 @@
 !macro CCPANES_KILL_INSTALLED_PROCESSES
   ; Resolve exact executable paths under this install directory, then taskkill by PID.
   ; This keeps dev/release and side-by-side installs outside $INSTDIR untouched.
-  nsExec::ExecToLog `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { @('$INSTDIR\cc-panes.exe', '$INSTDIR\binaries\cc-panes-daemon.exe', '$INSTDIR\binaries\cc-panes-web.exe') -contains $$PSItem.ExecutablePath } | ForEach-Object { $$targetPid = $$PSItem.ProcessId; & taskkill.exe /F /T /PID $$targetPid 2>$$null | Out-Null }; exit 0 }"`
+  System::Call 'Kernel32::SetEnvironmentVariable(t, t) i("CCPANES_INSTALL_DIR", "$INSTDIR").r0'
+  nsExec::ExecToLog `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& { $$installDir = $$env:CCPANES_INSTALL_DIR; $$targets = @((Join-Path $$installDir 'cc-panes.exe'), (Join-Path $$installDir 'binaries\cc-panes-daemon.exe'), (Join-Path $$installDir 'binaries\cc-panes-web.exe')); Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $$targets -contains $$PSItem.ExecutablePath } | ForEach-Object { $$targetPid = $$PSItem.ProcessId; & taskkill.exe /F /T /PID $$targetPid 2>$$null | Out-Null }; exit 0 }"`
   Pop $0
 !macroend
 

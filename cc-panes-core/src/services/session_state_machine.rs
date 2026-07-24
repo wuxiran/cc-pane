@@ -344,7 +344,7 @@ impl SessionStateMachine {
         self.entries.lock().ok()?.get(pty_session_id).cloned()
     }
 
-    /// 返回面向 UI/编排判定的有效状态。陈旧 busy 只在查询结果中回落为 Idle，
+    /// 返回面向 UI/stats 展示的有效状态。陈旧 busy 只在查询结果中回落为 Idle，
     /// 状态机条目和 TerminalSession.status 均保持原值，后续新事件仍可正常接续。
     pub fn status_for_query(
         &self,
@@ -379,6 +379,63 @@ impl SessionStateMachine {
             SessionStatus::Idle
         } else {
             stored_status
+        }
+    }
+
+    /// 返回允许自动向终端提交文本的严格状态。
+    ///
+    /// UI 可以在 hook 陈旧后降级显示 Idle；自动提交还必须确认 PTY 输出同样陈旧。
+    /// 显式的 TurnEnd/WaitingInput 跃迁不需要等待陈旧阈值。
+    pub fn status_for_automatic_submit(
+        &self,
+        pty_session_id: &str,
+        backend_status: SessionStatus,
+        last_output_at: u64,
+    ) -> SessionStatus {
+        let stale_output_ms = crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS * 1_000;
+        let pty_output_stale =
+            current_epoch_millis().saturating_sub(last_output_at) > stale_output_ms;
+        self.status_for_automatic_submit_at(
+            pty_session_id,
+            backend_status,
+            pty_output_stale,
+            Instant::now(),
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn status_for_automatic_submit_at(
+        &self,
+        pty_session_id: &str,
+        backend_status: SessionStatus,
+        pty_output_stale: bool,
+        now: Instant,
+    ) -> SessionStatus {
+        if matches!(backend_status, SessionStatus::Exited | SessionStatus::Error) {
+            return backend_status;
+        }
+        let entries = match self.entries.lock() {
+            Ok(entries) => entries,
+            Err(error) => error.into_inner(),
+        };
+        let Some(entry) = entries.get(pty_session_id) else {
+            return backend_status;
+        };
+
+        match entry.status {
+            SessionStatus::Idle | SessionStatus::WaitingInput => entry.status,
+            status if status.is_busy() => {
+                let hook_stale = now
+                    .saturating_duration_since(entry.last_hook_event_at)
+                    .as_secs()
+                    > crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS;
+                if hook_stale && pty_output_stale {
+                    SessionStatus::Idle
+                } else {
+                    status
+                }
+            }
+            status => status,
         }
     }
 
@@ -590,6 +647,46 @@ mod tests {
         assert_eq!(
             sm.status_for_query_at(sid, SessionStatus::Thinking, query_time),
             SessionStatus::Thinking
+        );
+    }
+
+    #[test]
+    fn automatic_submit_requires_stale_hook_and_stale_pty_output() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-stale-auto-submit";
+        sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
+        let snapshot = sm.snapshot(sid).expect("state entry");
+        let query_time = snapshot.last_hook_event_at
+            + std::time::Duration::from_secs(
+                crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS + 1,
+            );
+
+        assert_eq!(
+            sm.status_for_automatic_submit_at(sid, SessionStatus::Idle, false, query_time),
+            SessionStatus::Thinking,
+            "display fallback must not authorize submit while PTY output is fresh"
+        );
+        assert_eq!(
+            sm.status_for_automatic_submit_at(sid, SessionStatus::Idle, true, query_time),
+            SessionStatus::Idle,
+            "stale hook plus stale PTY output may authorize submit"
+        );
+    }
+
+    #[test]
+    fn automatic_submit_accepts_explicit_waiting_input_without_stale_fallback() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-explicit-waiting-input";
+        sm.on_event(sid, &CcPaneEvent::WaitingInput, None, &empty_payload());
+
+        assert_eq!(
+            sm.status_for_automatic_submit_at(
+                sid,
+                SessionStatus::WaitingInput,
+                false,
+                Instant::now(),
+            ),
+            SessionStatus::WaitingInput
         );
     }
 

@@ -51,42 +51,44 @@ enum HistoryEvent {
 #[derive(Default)]
 struct DebounceBatch {
     events: Vec<HistoryEvent>,
-    file_paths: HashSet<PathBuf>,
-    overflowed: bool,
+    changed_paths: HashSet<PathBuf>,
+    changes_overflowed: bool,
 }
 
 impl DebounceBatch {
     /// 返回 true 表示本次追加首次触发上限，调用方应记录一次 warn。
-    fn push(&mut self, mut events: HistoryEventBatch) -> bool {
-        if self.overflowed {
-            return false;
-        }
-
-        for event in &events {
-            let file_path = match event {
-                HistoryEvent::FileChanged { file_path, .. }
-                | HistoryEvent::FileRemoved { file_path, .. } => file_path,
-                HistoryEvent::BranchSwitched { .. } => continue,
-            };
-            self.file_paths.insert(file_path.clone());
-            if self.file_paths.len() > DEBOUNCE_BATCH_PATH_LIMIT {
-                self.events.clear();
-                self.file_paths.clear();
-                self.overflowed = true;
-                return true;
+    fn push(&mut self, events: HistoryEventBatch) -> bool {
+        let mut overflow_started = false;
+        for event in events {
+            match &event {
+                HistoryEvent::FileChanged { file_path, .. } => {
+                    if self.changes_overflowed {
+                        continue;
+                    }
+                    self.changed_paths.insert(file_path.clone());
+                    if self.changed_paths.len() > DEBOUNCE_BATCH_PATH_LIMIT {
+                        self.events
+                            .retain(|event| !matches!(event, HistoryEvent::FileChanged { .. }));
+                        self.changed_paths.clear();
+                        self.changes_overflowed = true;
+                        overflow_started = true;
+                        continue;
+                    }
+                }
+                HistoryEvent::FileRemoved { .. } | HistoryEvent::BranchSwitched { .. } => {}
             }
+            self.events.push(event);
         }
-
-        self.events.append(&mut events);
-        false
+        overflow_started
     }
 
     fn into_events(self) -> Option<Vec<HistoryEvent>> {
-        (!self.overflowed).then_some(self.events)
+        Some(self.events)
     }
 }
 
-/// 非阻塞地整批入队。返回 true 表示本次超限需要记录首次 warn。
+/// 修改类事件非阻塞入队；通道满时允许丢弃。删除事件改用背压等待容量，确保 tombstone
+/// 语义不会随有界通道溢出丢失。返回 true 表示本次超限需要记录首次 warn。
 fn enqueue_history_batch(
     tx: &HistoryEventSender,
     batch: HistoryEventBatch,
@@ -98,7 +100,17 @@ fn enqueue_history_batch(
 
     match tx.try_send(batch) {
         Ok(()) => false,
-        Err(TrySendError::Full(_)) => !overflow_warned.swap(true, Ordering::Relaxed),
+        Err(TrySendError::Full(batch)) => {
+            let should_warn = !overflow_warned.swap(true, Ordering::Relaxed);
+            let removals = batch
+                .into_iter()
+                .filter(|event| matches!(event, HistoryEvent::FileRemoved { .. }))
+                .collect::<Vec<_>>();
+            if !removals.is_empty() && tx.send(removals).is_err() {
+                warn!("history event channel disconnected while preserving removal batch");
+            }
+            should_warn
+        }
         Err(TrySendError::Disconnected(_)) => {
             warn!("history event channel disconnected; dropping event batch");
             false
@@ -205,7 +217,7 @@ impl HistoryService {
             if batch.push(first) {
                 warn!(
                     limit = DEBOUNCE_BATCH_PATH_LIMIT,
-                    "history debounce batch exceeded path limit; dropping entire batch"
+                    "history debounce batch exceeded path limit; dropping modification events"
                 );
             }
             let deadline = Instant::now() + Duration::from_millis(DEBOUNCE_MS);
@@ -219,7 +231,7 @@ impl HistoryService {
                         if batch.push(events) {
                             warn!(
                                 limit = DEBOUNCE_BATCH_PATH_LIMIT,
-                                "history debounce batch exceeded path limit; dropping entire batch"
+                                "history debounce batch exceeded path limit; dropping modification events"
                             );
                         }
                     }
@@ -1218,6 +1230,14 @@ mod tests {
         }
     }
 
+    fn file_removed(path: impl Into<PathBuf>) -> HistoryEvent {
+        HistoryEvent::FileRemoved {
+            project_path: PathBuf::from("/project"),
+            file_path: path.into(),
+            branch: "main".to_string(),
+        }
+    }
+
     #[test]
     fn bounded_event_channel_drops_overflowing_batch_and_warns_once() {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
@@ -1246,7 +1266,43 @@ mod tests {
     }
 
     #[test]
-    fn debounce_batch_drops_every_event_after_path_limit_is_exceeded() {
+    fn bounded_event_channel_backpressures_instead_of_dropping_removals() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let overflow_warned = Arc::new(AtomicBool::new(false));
+        assert!(!enqueue_history_batch(
+            &tx,
+            vec![file_changed("queued.rs")],
+            &overflow_warned,
+        ));
+
+        let warned = overflow_warned.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = enqueue_history_batch(&tx, vec![file_removed("removed.rs")], &warned);
+            done_tx.send(result).unwrap();
+        });
+
+        assert!(done_rx
+            .recv_timeout(std::time::Duration::from_millis(50))
+            .is_err());
+        assert_eq!(
+            rx.recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(done_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap());
+        let preserved = rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            preserved.as_slice(),
+            [HistoryEvent::FileRemoved { .. }]
+        ));
+    }
+
+    #[test]
+    fn debounce_batch_drops_changes_but_preserves_removals_after_path_limit() {
         let mut batch = DebounceBatch::default();
         let at_limit = (0..DEBOUNCE_BATCH_PATH_LIMIT)
             .map(|index| file_changed(format!("file-{index}.rs")))
@@ -1254,8 +1310,54 @@ mod tests {
 
         assert!(!batch.push(at_limit));
         assert!(batch.push(vec![file_changed("overflow.rs")]));
-        assert!(!batch.push(vec![file_changed("ignored-after-overflow.rs")]));
-        assert!(batch.into_events().is_none());
+        assert!(!batch.push(vec![file_removed("removed-after-overflow.rs")]));
+        let events = batch
+            .into_events()
+            .expect("removal events must survive overflow");
+        assert!(matches!(
+            events.as_slice(),
+            [HistoryEvent::FileRemoved { file_path, .. }]
+                if file_path == &PathBuf::from("removed-after-overflow.rs")
+        ));
+    }
+
+    #[test]
+    fn deleting_two_hundred_files_produces_two_hundred_tombstones() {
+        let dir = tempdir().unwrap();
+        let service = HistoryService::new();
+        service.init_project_history(dir.path()).unwrap();
+        let repo = service.get_or_create_repo(dir.path()).unwrap();
+        let mut batch = DebounceBatch::default();
+
+        for index in 0..200 {
+            let relative = format!("src/file-{index}.rs");
+            repo.save_version(&relative, b"before delete", false, "main", 0)
+                .unwrap();
+            batch.push(vec![HistoryEvent::FileRemoved {
+                project_path: dir.path().to_path_buf(),
+                file_path: dir.path().join(&relative),
+                branch: "main".to_string(),
+            }]);
+        }
+
+        for event in batch.into_events().expect("removals must not overflow") {
+            if let HistoryEvent::FileRemoved {
+                project_path,
+                file_path,
+                branch,
+            } = event
+            {
+                HistoryService::process_file_removed(
+                    &service.repos,
+                    &project_path,
+                    &file_path,
+                    &branch,
+                )
+                .unwrap();
+            }
+        }
+
+        assert_eq!(service.list_deleted_files(dir.path()).unwrap().len(), 200);
     }
 
     #[test]

@@ -4,13 +4,16 @@
 //! equate a Windows drive path with a WSL mount. Project registration, however, needs that
 //! cross-runtime identity so one project record can serve local and WSL launches.
 
-use super::normalize_project_path;
+use std::path::Path;
 
-/// Return the canonical stored representation for a project path.
+use super::{normalize_project_path, HostPlatform};
+
+/// Return the canonical identity representation for a project path.
 ///
 /// Windows drive paths, `/mnt/<drive>` paths, and WSL UNC paths pointing at a mounted Windows
 /// drive converge on `D:\\...`. Linux paths exposed through WSL UNC converge on
-/// `\\\\wsl.localhost\\<distro>\\...`. SSH URLs and ordinary POSIX paths are preserved.
+/// `\\\\wsl.localhost\\<distro>\\...`. SSH URLs and ordinary POSIX paths are preserved. This
+/// value is a comparison key input and must not replace the user-visible or executable path.
 pub fn canonical_project_path(path: &str) -> String {
     if is_ssh_url(path) {
         return path.to_string();
@@ -54,6 +57,36 @@ pub fn project_paths_equivalent(a: &str, b: &str) -> bool {
     project_identity_key(a) == project_identity_key(b)
 }
 
+/// Preserve the persisted path when it is usable on this host. If an older migration stored an
+/// unusable cross-host form, repair it to an equivalent directory that is usable here.
+pub fn repair_persisted_project_path(path: &str) -> String {
+    repair_project_path_for_host_with(path, HostPlatform::current(), |candidate| {
+        Path::new(candidate).is_dir()
+    })
+}
+
+fn repair_project_path_for_host_with<F>(
+    path: &str,
+    host: HostPlatform,
+    is_usable_directory: F,
+) -> String
+where
+    F: Fn(&str) -> bool,
+{
+    if is_ssh_url(path) || is_usable_directory(path) {
+        return path.to_string();
+    }
+
+    let canonical = canonical_project_path(path);
+    let candidate = match host {
+        HostPlatform::Windows => Some(canonical),
+        HostPlatform::Unix => windows_drive_to_mnt_path(&canonical),
+    };
+    candidate
+        .filter(|candidate| candidate != path && is_usable_directory(candidate))
+        .unwrap_or_else(|| path.to_string())
+}
+
 fn is_ssh_url(path: &str) -> bool {
     path.get(..6)
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("ssh://"))
@@ -79,6 +112,19 @@ fn canonical_windows_drive_path(path: &str) -> Option<String> {
     }
 
     Some(format_drive_path(drive, rest.trim_start_matches('/')))
+}
+
+fn windows_drive_to_mnt_path(path: &str) -> Option<String> {
+    if !is_windows_drive_path(path) {
+        return None;
+    }
+    let drive = (path.as_bytes()[0] as char).to_ascii_lowercase();
+    let tail = path[2..].trim_start_matches(['/', '\\']).replace('\\', "/");
+    if tail.is_empty() {
+        Some(format!("/mnt/{drive}"))
+    } else {
+        Some(format!("/mnt/{drive}/{tail}"))
+    }
 }
 
 fn canonical_mnt_drive_path(path: &str) -> Option<String> {
@@ -188,6 +234,34 @@ mod tests {
             r"\\wsl$\Ubuntu\mnt\d\Repos\App",
             r"d:\repos\app"
         ));
+    }
+
+    #[test]
+    fn persisted_path_repair_preserves_usable_unix_mnt_form() {
+        let repaired = repair_project_path_for_host_with(
+            "/mnt/d/Repos/App",
+            super::super::HostPlatform::Unix,
+            |path| path == "/mnt/d/Repos/App",
+        );
+
+        assert_eq!(repaired, "/mnt/d/Repos/App");
+    }
+
+    #[test]
+    fn persisted_path_repair_recovers_unusable_cross_host_forms() {
+        let unix = repair_project_path_for_host_with(
+            r"D:\Repos\App",
+            super::super::HostPlatform::Unix,
+            |path| path == "/mnt/d/Repos/App",
+        );
+        let windows = repair_project_path_for_host_with(
+            "/mnt/d/Repos/App",
+            super::super::HostPlatform::Windows,
+            |path| path == r"D:\Repos\App",
+        );
+
+        assert_eq!(unix, "/mnt/d/Repos/App");
+        assert_eq!(windows, r"D:\Repos\App");
     }
 
     #[test]

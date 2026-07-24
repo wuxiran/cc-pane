@@ -39,5 +39,6 @@ pub use path_validator::{
 };
 pub use project_identity::{
     canonical_project_path, project_identity_key, project_paths_equivalent,
+    repair_persisted_project_path,
 };
 pub use text_encoding::decode_text_lossy_gbk;

@@ -8,7 +8,7 @@ use crate::models::{
     WorkspaceMigrationTargetKind, WorkspaceProject, WorkspaceWslConfig,
 };
 use crate::utils::{
-    canonical_project_path, output_with_timeout, project_identity_key, GIT_LOCAL_TIMEOUT,
+    output_with_timeout, project_identity_key, repair_persisted_project_path, GIT_LOCAL_TIMEOUT,
 };
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
@@ -94,7 +94,7 @@ impl WorkspaceService {
         }
     }
 
-    /// Canonicalize and deduplicate every persisted workspace project list.
+    /// Deduplicate every persisted workspace project list and repair unusable cross-host paths.
     ///
     /// Each changed `workspace.json` is backed up once as `workspace.json.bak` before writing.
     /// CSV is regenerated when the configured workspace root is accessible on this host.
@@ -128,7 +128,7 @@ impl WorkspaceService {
                 )
             })?;
             let (projects_updated, duplicates_removed) =
-                canonicalize_workspace_projects(&mut workspace.projects);
+                deduplicate_workspace_projects(&mut workspace.projects);
             if projects_updated == 0 && duplicates_removed == 0 {
                 continue;
             }
@@ -430,8 +430,7 @@ impl WorkspaceService {
     ) -> Result<WorkspaceProject, String> {
         let mut workspace = self.get_workspace(workspace_name)?;
 
-        let canonical_path = canonical_project_path(path);
-        let identity = project_identity_key(&canonical_path);
+        let identity = project_identity_key(path);
         if workspace
             .projects
             .iter()
@@ -443,7 +442,7 @@ impl WorkspaceService {
             ));
         }
 
-        let project = WorkspaceProject::new(canonical_path);
+        let project = WorkspaceProject::new(path.to_string());
         workspace.projects.push(project.clone());
         self.write_workspace_json(workspace_name, &workspace)?;
 
@@ -2064,7 +2063,7 @@ impl WorkspaceService {
     }
 }
 
-fn canonicalize_workspace_projects(projects: &mut Vec<WorkspaceProject>) -> (usize, usize) {
+fn deduplicate_workspace_projects(projects: &mut Vec<WorkspaceProject>) -> (usize, usize) {
     let original = std::mem::take(projects);
     let mut canonical = Vec::<WorkspaceProject>::with_capacity(original.len());
     let mut winner_by_identity = HashMap::<String, usize>::new();
@@ -2072,9 +2071,9 @@ fn canonicalize_workspace_projects(projects: &mut Vec<WorkspaceProject>) -> (usi
     let mut duplicates_removed = 0;
 
     for mut project in original {
-        let canonical_path = canonical_project_path(&project.path);
-        let path_changed = project.path != canonical_path;
-        project.path = canonical_path;
+        let persisted_path = repair_persisted_project_path(&project.path);
+        let path_changed = project.path != persisted_path;
+        project.path = persisted_path;
         let identity = project_identity_key(&project.path);
 
         if let Some(index) = winner_by_identity.get(&identity).copied() {
@@ -2333,7 +2332,7 @@ mod tests {
         let service = make_service(&dir);
         service.create_workspace("ws", None).unwrap();
         let project = service.add_project("ws", "/mnt/d/Repo/Demo").unwrap();
-        assert_eq!(project.path, r"D:\Repo\Demo");
+        assert_eq!(project.path, "/mnt/d/Repo/Demo");
 
         let err = service.add_project("ws", r"d:\repo\demo").unwrap_err();
         assert!(err.contains("PROJECT_ALREADY_EXISTS"));
@@ -2393,14 +2392,14 @@ mod tests {
             .iter()
             .find(|project| project.id == "first")
             .unwrap();
-        assert_eq!(winner.path, r"D:\Repos\App");
+        assert_eq!(winner.path, "/mnt/d/Repos/App");
         assert_eq!(winner.alias.as_deref(), Some("merged alias"));
         assert_eq!(winner.launch_profile_id.as_deref(), Some("first-profile"));
         assert_eq!(winner.wsl_remote_path.as_deref(), Some("/mnt/d/repos/app"));
         assert!(migrated
             .projects
             .iter()
-            .any(|project| { project.path == r"\\wsl.localhost\Ubuntu\home\User\App" }));
+            .any(|project| { project.path == r"\\wsl$\Ubuntu\home\User\App" }));
         assert!(migrated
             .projects
             .iter()

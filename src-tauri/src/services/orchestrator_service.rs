@@ -467,6 +467,21 @@ async fn query_session_status(
     Ok(status)
 }
 
+async fn query_session_status_for_automatic_submit(
+    state: &AppState,
+    session_id: &str,
+) -> std::result::Result<Option<SessionStatus>, String> {
+    let sid = session_id.to_string();
+    let status = backend_call(state, move |backend| backend.get_session_status(&sid)).await?;
+    Ok(status.map(|status| {
+        state.session_state_machine.status_for_automatic_submit(
+            &status.session_id,
+            status.status,
+            status.last_output_at,
+        )
+    }))
+}
+
 // ============ OrchestratorService ============
 
 /// 监听绑定决策（供状态查询与 WSL 安全网提示）
@@ -7903,7 +7918,7 @@ async fn flush_pending_reports(state: AppState, leader_session_id: String) {
 
 /// busy/initializing 入队 + 竞态双重检查：入队后 leader 可能已恰好跃迁回空闲
 /// （边沿已过、无人再触发 flush），重读一次状态，空闲则立即补投。
-fn read_session_status_for_query(
+fn read_session_status_for_automatic_submit(
     state: &AppState,
     session_id: &str,
 ) -> std::result::Result<Option<SessionStatus>, String> {
@@ -7913,9 +7928,11 @@ fn read_session_status_for_query(
         .get_session_status(session_id)
         .map(|status| {
             status.map(|status| {
-                state
-                    .session_state_machine
-                    .status_for_query(session_id, status.status)
+                state.session_state_machine.status_for_automatic_submit(
+                    session_id,
+                    status.status,
+                    status.last_output_at,
+                )
             })
         })
         .map_err(|error| error.to_string())
@@ -7948,7 +7965,7 @@ fn enqueue_and_recheck(
         "worker report queued for redelivery"
     );
 
-    let now_idle = read_session_status_for_query(state, leader_session_id)
+    let now_idle = read_session_status_for_automatic_submit(state, leader_session_id)
         .ok()
         .flatten()
         .is_some_and(|status| matches!(status, SessionStatus::Idle | SessionStatus::WaitingInput));
@@ -7975,8 +7992,8 @@ async fn scan_pending_reports_once(state: &AppState) {
 
     for leader_session_id in leader_session_ids {
         let sid = leader_session_id.clone();
-        let status = match query_session_status(state, &sid).await {
-            Ok(status) => status.map(|status| status.status),
+        let status = match query_session_status_for_automatic_submit(state, &sid).await {
+            Ok(status) => status,
             Err(error) => {
                 warn!(
                     session_id = %leader_session_id,
@@ -8106,7 +8123,7 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
         return LeaderReportResult::skipped("leader session missing");
     };
 
-    let leader_status = match read_session_status_for_query(&state, &leader_session_id) {
+    let leader_status = match read_session_status_for_automatic_submit(&state, &leader_session_id) {
         Ok(status) => status,
         Err(e) => {
             warn!(
@@ -8542,7 +8559,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_busy_level_scan_flushes_once_even_with_edge_trigger() {
+    fn level_scan_uses_automatic_submit_status_and_flushes_once() {
         let state_machine = cc_panes_core::services::SessionStateMachine::new();
         let sid = "leader-stale";
         state_machine.on_event(
@@ -8556,7 +8573,12 @@ mod tests {
             + std::time::Duration::from_secs(
                 cc_panes_core::constants::session_state::STALE_BUSY_TIMEOUT_SECS + 1,
             );
-        let effective = state_machine.status_for_query_at(sid, SessionStatus::Thinking, query_time);
+        let effective = state_machine.status_for_automatic_submit_at(
+            sid,
+            SessionStatus::Idle,
+            true,
+            query_time,
+        );
         assert_eq!(
             pending_level_action(Some(effective)),
             PendingFlushAction::Flush
