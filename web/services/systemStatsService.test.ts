@@ -24,4 +24,20 @@ describe("systemStatsService", () => {
 
     await expect(systemStatsService.get()).resolves.toBeNull();
   });
+
+  it("通过 get_resource_tree 命令读取会话资源树", async () => {
+    const tree = { sessions: [], orphans: [], elapsedMicros: 42 };
+    vi.mocked(invokeIfTauri).mockResolvedValue(tree);
+
+    await expect(systemStatsService.getResourceTree()).resolves.toEqual(tree);
+    expect(invokeIfTauri).toHaveBeenCalledWith("get_resource_tree");
+  });
+
+  it("通过 kill_orphan_processes 命令批量终止孤立进程", async () => {
+    const results = [{ pid: 42, success: true, error: null }];
+    vi.mocked(invokeIfTauri).mockResolvedValue(results);
+
+    await expect(systemStatsService.killOrphans([42])).resolves.toEqual(results);
+    expect(invokeIfTauri).toHaveBeenCalledWith("kill_orphan_processes", { pids: [42] });
+  });
 });
