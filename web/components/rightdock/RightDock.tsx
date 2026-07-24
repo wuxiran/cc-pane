@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
+import { ChevronDown, Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
-import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
+import ExplorerGitSection, {
+  type GitProjectSummary,
+} from "@/components/sidebar/ExplorerGitSection";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setDragging } from "@/stores/splitDragState";
@@ -14,19 +24,13 @@ import {
   type RightDockView,
 } from "@/stores/useRightDockStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
-import type { Workspace } from "@/types";
+import type { Workspace, WorkspaceProject } from "@/types";
 import { getProjectName } from "@/utils/path";
-
-interface RightDockRenderContext {
-  workspace: Workspace;
-  selectedProjectId: string;
-}
 
 interface RightDockViewDefinition {
   id: RightDockView;
   icon: LucideIcon;
   titleKey: "rightDock.git" | "rightDock.files";
-  render: (context: RightDockRenderContext) => React.ReactNode;
 }
 
 const RIGHT_DOCK_VIEWS: readonly RightDockViewDefinition[] = [
@@ -34,19 +38,23 @@ const RIGHT_DOCK_VIEWS: readonly RightDockViewDefinition[] = [
     id: "git",
     icon: GitBranch,
     titleKey: "rightDock.git",
-    render: ({ workspace, selectedProjectId }) => (
-      <ExplorerGitSection workspace={workspace} selectedProjectId={selectedProjectId} />
-    ),
   },
   {
     id: "files",
     icon: Files,
     titleKey: "rightDock.files",
-    render: ({ workspace, selectedProjectId }) => (
-      <ExplorerFilesSection workspace={workspace} selectedProjectId={selectedProjectId} />
-    ),
   },
 ];
+
+export function resolveRightDockProject(
+  workspace: Workspace | null,
+  selectedProjectId: string | null,
+): WorkspaceProject | null {
+  if (!workspace) return null;
+  return workspace.projects.find((project) => project.id === selectedProjectId)
+    ?? workspace.projects[0]
+    ?? null;
+}
 
 export default function RightDock() {
   const { t } = useTranslation("sidebar");
@@ -57,17 +65,37 @@ export default function RightDock() {
   const setWidth = useRightDockStore((state) => state.setWidth);
   const setVisible = useRightDockStore((state) => state.setVisible);
   const workspace = useWorkspacesStore(
-    (state) => state.workspaces.find((item) => item.id === state.expandedWorkspaceId) ?? null,
+    (state) => state.workspaces.find((item) => item.id === state.expandedWorkspaceId)
+      ?? state.workspaces[0]
+      ?? null,
   );
   const selectedProjectId = useWorkspacesStore((state) => state.expandedProjectId);
-  const selectedProject = workspace?.projects.find((project) => project.id === selectedProjectId) ?? null;
-  const activeDefinition = RIGHT_DOCK_VIEWS.find((view) => view.id === activeView) ?? RIGHT_DOCK_VIEWS[0];
+  const selectedProject = resolveRightDockProject(workspace, selectedProjectId);
+  const [gitSummaryState, setGitSummaryState] = useState<{
+    projectId: string | null;
+    summary: GitProjectSummary | null;
+  }>({ projectId: null, summary: null });
+  const gitSummary = gitSummaryState.projectId === selectedProject?.id
+    ? gitSummaryState.summary
+    : null;
   const panelRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef(width);
 
   useEffect(() => {
     widthRef.current = width;
   }, [width]);
+
+  const handleGitSummaryChange = useCallback((summary: GitProjectSummary | null) => {
+    setGitSummaryState({ projectId: selectedProject?.id ?? null, summary });
+  }, [selectedProject?.id]);
+
+  const handleProjectChange = useCallback((projectId: string) => {
+    if (!workspace) return;
+    useWorkspacesStore.setState({
+      expandedWorkspaceId: workspace.id,
+      expandedProjectId: projectId,
+    });
+  }, [workspace]);
 
   const handleResizePointerDown = useCallback((event: React.PointerEvent) => {
     event.preventDefault();
@@ -144,14 +172,54 @@ export default function RightDock() {
         }}
       />
 
-      <div className="flex h-12 shrink-0 items-center gap-2 px-3 pl-4">
+      <div className="flex h-11 shrink-0 items-center gap-2 px-2 pl-3">
         {projectName && (
-          <div
-            className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--app-text-primary)]"
-            title={selectedProject?.path}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("rightDock.switchProject")}
+                className="flex min-w-0 max-w-[42%] items-center gap-1 rounded-md px-1.5 py-1 text-[13px] font-semibold text-[var(--app-text-primary)] outline-none hover:bg-[var(--app-hover)] focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
+                title={selectedProject?.path}
+              >
+                <span className="truncate">{projectName}</span>
+                <ChevronDown className="h-3 w-3 shrink-0 text-[var(--app-text-tertiary)]" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="max-w-[320px]">
+              <DropdownMenuRadioGroup
+                value={selectedProject?.id}
+                onValueChange={handleProjectChange}
+              >
+                {workspace?.projects.map((project) => (
+                  <DropdownMenuRadioItem
+                    key={project.id}
+                    value={project.id}
+                    className="text-[13px]"
+                  >
+                    <span className="truncate" title={project.path}>
+                      {project.alias || getProjectName(project.path)}
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {gitSummary?.kind === "git" && gitSummary.branch && (
+          <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-[var(--app-text-secondary)]">
+            <GitBranch className="h-3 w-3 shrink-0 text-[var(--app-accent)]" />
+            <span className="truncate" title={gitSummary.branch}>{gitSummary.branch}</span>
+          </span>
+        )}
+        {gitSummary?.kind === "git" && (
+          <Badge
+            variant="outline"
+            aria-label={t("rightDock.changeCount", { count: gitSummary.changeCount })}
+            className="h-5 px-1.5 text-[11px] tabular-nums text-[var(--app-text-secondary)]"
           >
-            {projectName}
-          </div>
+            {gitSummary.changeCount}
+          </Badge>
         )}
         <div
           className="ml-auto flex items-center gap-0.5"
@@ -191,18 +259,39 @@ export default function RightDock() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {workspace && selectedProjectId && selectedProject ? (
-          activeDefinition.render({ workspace, selectedProjectId })
-        ) : (
+      {workspace && selectedProject ? (
+        <>
+          <div
+            className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2"
+            style={activeView === "git" ? undefined : { display: "none" }}
+          >
+            <ExplorerGitSection
+              workspace={workspace}
+              selectedProjectId={selectedProject.id}
+              mode="project"
+              onSelectedProjectSummaryChange={handleGitSummaryChange}
+            />
+          </div>
+          {activeView === "files" && (
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2">
+              <ExplorerFilesSection
+                workspace={workspace}
+                selectedProjectId={selectedProject.id}
+                mode="project"
+              />
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2">
           <EmptyState
             icon={FolderOpen}
             title={t("rightDock.noProject")}
             description={t("rightDock.selectProject")}
             className="h-full"
           />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

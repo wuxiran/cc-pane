@@ -36,14 +36,17 @@ export const useRightDockStore = create<RightDockState>()(
     {
       name: RIGHT_DOCK_STORAGE_KEY,
       partialize: (state) => ({
-        visible: state.visible,
+        activeView: state.activeView,
         width: state.width,
       }),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<RightDockState>;
         return {
           ...currentState,
-          visible: typeof persisted.visible === "boolean" ? persisted.visible : currentState.visible,
+          visible: false,
+          activeView: persisted.activeView === "git" || persisted.activeView === "files"
+            ? persisted.activeView
+            : currentState.activeView,
           width: typeof persisted.width === "number"
             ? clampRightDockWidth(persisted.width)
             : currentState.width,
