@@ -350,6 +350,11 @@ fn kill_process_by_pid(pid: u32) -> Result<()> {
     }
 }
 
+/// 供经过业务层安全校验的进程树清理复用。
+pub(crate) fn kill_process_tree_by_pid(pid: u32) -> Result<()> {
+    kill_process_by_pid(pid)
+}
+
 /// Unix: 回收子进程，防止僵尸进程
 #[cfg(unix)]
 fn reap_child(pid: u32) {
