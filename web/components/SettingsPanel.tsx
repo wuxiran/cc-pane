@@ -247,7 +247,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
                     <h1 className="text-[18px] font-semibold text-[var(--app-text-primary)]">{t(activePane.titleKey)}</h1>
                     {activePane.descriptionKey && (
                       <p className="mt-1 text-[12px] text-[var(--app-text-tertiary)]">
-                        {t(activePane.descriptionKey as never)}
+                        {t(activePane.descriptionKey)}
                       </p>
                     )}
                   </div>

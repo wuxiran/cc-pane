@@ -1,3 +1,4 @@
+import type { ParseKeys } from "i18next";
 import type { LucideIcon } from "lucide-react";
 import {
   Bell,
@@ -42,6 +43,8 @@ export type SettingsPaneId =
   | "experimental"
   | "about";
 
+type SettingsTranslationKey = ParseKeys<"settings">;
+
 export interface SettingsSearchEntry {
   id: string;
   titleKey: string;
@@ -53,8 +56,8 @@ export interface SettingsSearchEntry {
 export interface SettingsPaneDefinition {
   id: SettingsPaneId;
   icon: LucideIcon;
-  titleKey: string;
-  descriptionKey?: string;
+  titleKey: SettingsTranslationKey;
+  descriptionKey?: SettingsTranslationKey;
   group: SettingsGroupId;
   searchEntries: readonly SettingsSearchEntry[];
   availability?: "tauri" | "non-mac";
@@ -68,7 +71,7 @@ export interface SettingsEnvironment {
 
 export const SETTINGS_GROUPS: ReadonlyArray<{
   id: SettingsGroupId;
-  titleKey: string;
+  titleKey: SettingsTranslationKey;
 }> = [
   { id: "appearance", titleKey: "groups.appearance" },
   { id: "ai", titleKey: "groups.ai" },
