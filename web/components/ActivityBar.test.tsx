@@ -1,10 +1,14 @@
 import "@/i18n";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ActivityBar from "./ActivityBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import {
+  createDefaultModulePreferences,
+  useModulePrefsStore,
+} from "@/stores/useModulePrefsStore";
 import { useDialogStore, useOrchestratorStore } from "@/stores";
 import type { TaskBinding } from "@/types";
 
@@ -42,6 +46,7 @@ function resetStores() {
   });
   useDialogStore.setState({ settingsOpen: false });
   useOrchestratorStore.setState({ bindings: [] });
+  useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
 }
 
 describe("ActivityBar", () => {
@@ -124,6 +129,40 @@ describe("ActivityBar", () => {
     renderBar();
     // 2 个 running/waiting → 徽标数字 2
     expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  it("只渲染启用且位于左栏的注册模块", () => {
+    useModulePrefsStore.getState().setPosition("resources", "rightDock");
+    useModulePrefsStore.getState().setPosition("todo", "hidden");
+    useModulePrefsStore.getState().setEnabled("orchestration", false);
+
+    const { container } = renderBar();
+
+    expect(container.querySelector('[data-module-id="ssh"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-module-id="orchestration"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-module-id="resources"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-module-id="todo"]')).not.toBeInTheDocument();
+  });
+
+  it("在左栏空白处打开模块菜单并把模块移到右坞", async () => {
+    const user = userEvent.setup();
+    renderBar();
+
+    fireEvent.contextMenu(screen.getByTestId("activity-bar"), {
+      clientX: 20,
+      clientY: 120,
+    });
+    const todoMenu = await screen.findByTestId("module-menu-todo");
+    act(() => todoMenu.focus());
+    await user.keyboard("[ArrowRight]");
+    const rightDockItem = await screen.findByTestId("module-position-todo-rightDock");
+    act(() => rightDockItem.focus());
+    await user.keyboard("[Enter]");
+
+    expect(useModulePrefsStore.getState().preferences.todo).toEqual({
+      enabled: true,
+      position: "rightDock",
+    });
   });
 
   it("Home 处于激活态时按钮带激活背景样式与左缘 accent 竖条", () => {

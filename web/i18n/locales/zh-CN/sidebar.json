@@ -35,6 +35,20 @@
   "home": "首页",
   "workspaces": "工作空间",
   "tools": "工具",
+  "moduleNames": {
+    "ssh": "SSH 机器",
+    "orchestration": "任务编排",
+    "resources": "资源中心",
+    "todo": "TodoList"
+  },
+  "moduleMenu": {
+    "title": "模块位置",
+    "enabled": "启用",
+    "activityBar": "显示在左栏",
+    "rightDock": "移到右侧",
+    "hidden": "隐藏",
+    "placementHint": "移动模块只会调整入口；隐藏后仍可从命令面板打开。"
+  },
   "fileHistory": "文件历史",
   "todoList": "TodoList",
   "importProject": "导入项目",

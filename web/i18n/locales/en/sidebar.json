@@ -35,6 +35,20 @@
   "home": "Home",
   "workspaces": "Workspaces",
   "tools": "Tools",
+  "moduleNames": {
+    "ssh": "SSH Machines",
+    "orchestration": "Orchestration",
+    "resources": "Resources",
+    "todo": "TodoList"
+  },
+  "moduleMenu": {
+    "title": "Module placement",
+    "enabled": "Enabled",
+    "activityBar": "Show in Activity Bar",
+    "rightDock": "Move to Right Dock",
+    "hidden": "Hide",
+    "placementHint": "Moving a module only changes its entry. Hidden modules remain available from the Command Palette."
+  },
   "fileHistory": "File History",
   "todoList": "TodoList",
   "importProject": "Import Project",
