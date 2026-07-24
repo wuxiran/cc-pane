@@ -349,5 +349,11 @@
   "explorer.gitLoading": "Loading...",
   "explorer.noChanges": "No changes",
   "explorer.gitTimeline": "Open Git timeline",
-  "explorer.gitContentComparison": "Content comparison"
+  "explorer.gitContentComparison": "Content comparison",
+  "rightDock.git": "Git",
+  "rightDock.files": "Files",
+  "rightDock.collapse": "Collapse right panel",
+  "rightDock.resize": "Resize right panel",
+  "rightDock.noProject": "No project selected",
+  "rightDock.selectProject": "Select a project in the left Explorer"
 }
