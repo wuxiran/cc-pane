@@ -429,6 +429,7 @@
   "orphanSessionReclaimedBody": "Cleaned up {{count}} background terminal sessions with no panel reference.",
   "disableWslUsageScan": "Skip WSL usage scanning",
   "disableWslUsageScanDesc": "Stop scanning usage data inside WSL so the app never wakes the WSL VM (Vmmem memory usage)",
+  "showSystemResources": "Show system resources in the status bar",
   "sharedMcp": {
     "title": "Shared MCP",
     "add": "Add",

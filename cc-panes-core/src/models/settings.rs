@@ -538,6 +538,9 @@ pub struct GeneralSettings {
     /// 禁用 WSL 用量统计扫描（禁用后启动/定时/手动刷新都不再触碰 \\wsl$ 与 wsl.exe）
     #[serde(default)]
     pub disable_wsl_usage_scan: bool,
+    /// 是否在状态栏显示整机 CPU 与内存占用。
+    #[serde(default = "default_true")]
+    pub show_system_resources: bool,
 }
 
 fn default_cli_tool() -> String {
@@ -1124,6 +1127,7 @@ impl Default for GeneralSettings {
             // #[serde(default)] 保持 false：老 config.toml 缺该键时行为不变。
             hide_non_favorite_launch_actions: true,
             disable_wsl_usage_scan: false,
+            show_system_resources: true,
         }
     }
 }
@@ -1627,6 +1631,21 @@ mod tests {
         let settings: GeneralSettings = toml::from_str(toml_str).expect("parse legacy general");
         assert!(!settings.disable_wsl_usage_scan);
         assert!(!GeneralSettings::default().disable_wsl_usage_scan);
+    }
+
+    #[test]
+    fn general_show_system_resources_defaults_true_for_legacy_config() {
+        let settings: GeneralSettings = toml::from_str(
+            r#"
+                closeToTray = true
+                autoStart = false
+                language = "zh-CN"
+            "#,
+        )
+        .expect("parse legacy general");
+
+        assert!(settings.show_system_resources);
+        assert!(GeneralSettings::default().show_system_resources);
     }
 
     #[test]

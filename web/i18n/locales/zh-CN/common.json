@@ -56,5 +56,8 @@
   "selfChat.injecting": "注入中...",
   "selfChat.notInjected": "未注入",
   "selfChat.reinject": "重新注入",
-  "selfChat.endSession": "结束会话"
+  "selfChat.endSession": "结束会话",
+  "systemResources": "系统资源占用",
+  "cpuShort": "CPU",
+  "memoryShort": "内存"
 }

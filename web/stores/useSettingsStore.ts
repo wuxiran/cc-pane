@@ -242,6 +242,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       // 避免一上来就是 ~30 条密密麻麻的长列表。老用户的已存设置不受影响。
       hideNonFavoriteLaunchActions: true,
       disableWslUsageScan: false,
+      showSystemResources: true,
     },
     localHistory: DEFAULT_LOCAL_HISTORY_SETTINGS,
     notification: {

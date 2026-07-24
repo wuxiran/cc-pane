@@ -1,6 +1,6 @@
 import "@/i18n";
 import i18n from "@/i18n";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import StatusBar from "./StatusBar";
@@ -23,6 +23,10 @@ vi.mock("@tauri-apps/api/window", () => ({
     isMaximized: () => Promise.resolve(false),
     onResized: () => Promise.resolve(() => {}),
   }),
+}));
+
+vi.mock("@/components/statusbar/SystemResourceSegment", () => ({
+  default: () => <span data-testid="system-resource-segment">system resources</span>,
 }));
 
 // triggerUpdate 走真实 updater 流程，这里桩掉，保留其余 services 真实导出
@@ -86,6 +90,28 @@ describe("StatusBar", () => {
     useTerminalStatusStore.setState({ statusMap: new Map([["s1", makeStatus("idle")]]) });
     renderSB();
     expect(screen.queryByText("1")).not.toBeInTheDocument();
+  });
+
+  it("按通用设置开关挂载或隐藏系统资源段", async () => {
+    const settings = createTestSettings();
+    useSettingsStore.setState({
+      settings: {
+        ...settings,
+        general: { ...settings.general, showSystemResources: false },
+      },
+    });
+    renderSB();
+    expect(screen.queryByTestId("system-resource-segment")).not.toBeInTheDocument();
+
+    act(() => {
+      useSettingsStore.setState({
+        settings: {
+          ...settings,
+          general: { ...settings.general, showSystemResources: true },
+        },
+      });
+    });
+    expect(screen.getByTestId("system-resource-segment")).toBeInTheDocument();
   });
 
   it("切换语言时更新 i18n 并持久化到设置", async () => {
