@@ -233,9 +233,11 @@ async fn git_read_routes_match_tauri_git_commands() {
     .await
     .expect("repo info");
     assert_eq!(info.state, cc_panes_core::models::GitRepoState::Ok);
+    // CI runner %TEMP% 为 8.3 短路径,与 git 输出的长形式不等;canonical 后比较
+    // (std canonicalize 两侧同带 \\?\ 前缀,等值成立,免引 dunce)
     assert_eq!(
-        info.repo_root.as_deref(),
-        Some(repo.to_string_lossy().as_ref())
+        std::fs::canonicalize(info.repo_root.as_deref().unwrap()).unwrap(),
+        std::fs::canonicalize(&repo).unwrap()
     );
 
     let Json(branch) = get_git_branch(Query(PathQuery {
