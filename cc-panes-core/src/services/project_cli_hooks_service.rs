@@ -556,7 +556,12 @@ mod tests {
 
         assert_eq!(upgraded, 1);
         let content = fs::read_to_string(settings_path).unwrap();
-        assert!(content.contains("if [ -x"));
+        // 守卫按宿主平台生成:Windows 为 cmd if exist,Unix 为 if [ -x
+        if cfg!(windows) {
+            assert!(content.contains("if exist"));
+        } else {
+            assert!(content.contains("if [ -x"));
+        }
         assert!(content.contains("session-init"));
     }
 
