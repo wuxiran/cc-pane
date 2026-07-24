@@ -102,3 +102,7 @@ docs/.vitepress/cache/
 
 # 本地临时产物（日志/截图/审阅中间文件）
 tmp/
+
+# opencode adapter runtime artifacts
+.opencode/
+src-tauri/.opencode/

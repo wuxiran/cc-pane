@@ -11,7 +11,7 @@ trigger: |
 
 # plantocc — Plan → Claude Code worker 执行交接
 
-把 plan 派给**另一个 Claude Code 实例**执行。编排骨架（Phase 1-7：写 plan → 注册 leader → launch worker → 注册 worker → 监控 → 读输出验证 → 汇报）**完全复用 [`/ccbook:plantocodex`](plantocodex.md)**，只需把 `cliTool` 换成 `"claude"` 并注意下面的 Claude 特有差异。
+把 plan 派给**另一个 Claude Code 实例**执行。编排骨架（Phase 1-7：写 plan → 注册 leader → launch worker → 注册 worker → 监控 → 读输出验证 → 汇报）**完全复用 [`/ccbook:plantocodex`](plantocodex.md)**，只需把 `cliTool` 换成 `"claude"` 并注意下面的 Claude 特有差异。plantocodex 的「可选：worktree 隔离模式」对 Claude worker 同样适用（触发条件与增量步骤原样沿用）。
 
 > **主 Agent（leader）不写代码**——代码由 Claude worker 完成。
 

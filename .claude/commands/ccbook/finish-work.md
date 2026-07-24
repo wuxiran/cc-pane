@@ -29,6 +29,12 @@ cargo test --workspace
 - [ ] 无遗留的 `console.log`？
 - [ ] 无 `any` 类型？
 
+### 1.5 worktree 收尾（仅当本次工作在 git worktree 中进行）
+
+- [ ] 分支已合并回主仓库（或用户明确弃置）？
+- [ ] worktree 内无未提交改动，`git worktree remove` + 删分支已执行？
+- [ ] 已提醒用户在 CC-Panes UI 移除对应项目节点？
+
 ### 2. 文档同步
 
 - [ ] `.trellis/spec/backend/` 需要更新？（新模式、新模块）
