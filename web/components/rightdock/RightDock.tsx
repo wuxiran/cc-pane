@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
@@ -24,6 +24,11 @@ import {
   type RightDockView,
 } from "@/stores/useRightDockStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
+import { usePanesStore } from "@/stores/usePanesStore";
+import {
+  resolveActiveTerminalSelection,
+  selectActiveTerminalKey,
+} from "@/hooks/useFollowActiveTerminalContext";
 import type { Workspace, WorkspaceProject } from "@/types";
 import { getProjectName } from "@/utils/path";
 
@@ -56,6 +61,41 @@ export function resolveRightDockProject(
     ?? null;
 }
 
+/**
+ * 面板目标工作空间的纵深解析：显式选中项目所在 ws > 显式展开 ws >
+ * 活跃终端派生 ws > 首个有项目的 ws > 首个 ws。
+ * 防止 store 同步失效时兜底落在空工作空间上（"永不空白"约定）。
+ */
+export function resolveRightDockWorkspace(
+  workspaces: Workspace[],
+  expandedWorkspaceId: string | null,
+  expandedProjectId: string | null,
+  activeSelection: { workspaceId: string; projectId: string } | null,
+): { workspace: Workspace | null; projectId: string | null } {
+  const byProject = expandedProjectId
+    ? workspaces.find((w) => w.projects.some((p) => p.id === expandedProjectId))
+    : undefined;
+  if (byProject) return { workspace: byProject, projectId: expandedProjectId };
+
+  const byId = expandedWorkspaceId
+    ? workspaces.find((w) => w.id === expandedWorkspaceId)
+    : undefined;
+  if (byId && byId.projects.length > 0) return { workspace: byId, projectId: null };
+
+  if (activeSelection) {
+    const byActive = workspaces.find((w) => w.id === activeSelection.workspaceId);
+    if (byActive) return { workspace: byActive, projectId: activeSelection.projectId };
+  }
+
+  return {
+    workspace: byId
+      ?? workspaces.find((w) => w.projects.length > 0)
+      ?? workspaces[0]
+      ?? null,
+    projectId: null,
+  };
+}
+
 export default function RightDock() {
   const { t } = useTranslation("sidebar");
   const visible = useRightDockStore((state) => state.visible);
@@ -64,12 +104,19 @@ export default function RightDock() {
   const setActiveView = useRightDockStore((state) => state.setActiveView);
   const setWidth = useRightDockStore((state) => state.setWidth);
   const setVisible = useRightDockStore((state) => state.setVisible);
-  const workspace = useWorkspacesStore(
-    (state) => state.workspaces.find((item) => item.id === state.expandedWorkspaceId)
-      ?? state.workspaces[0]
-      ?? null,
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const expandedWorkspaceId = useWorkspacesStore((state) => state.expandedWorkspaceId);
+  const expandedProjectId = useWorkspacesStore((state) => state.expandedProjectId);
+  const activeTerminalKey = usePanesStore(selectActiveTerminalKey);
+  const { workspace, projectId: selectedProjectId } = useMemo(
+    () => resolveRightDockWorkspace(
+      workspaces,
+      expandedWorkspaceId,
+      expandedProjectId,
+      activeTerminalKey ? resolveActiveTerminalSelection(workspaces) : null,
+    ),
+    [workspaces, expandedWorkspaceId, expandedProjectId, activeTerminalKey],
   );
-  const selectedProjectId = useWorkspacesStore((state) => state.expandedProjectId);
   const selectedProject = resolveRightDockProject(workspace, selectedProjectId);
   const [gitSummaryState, setGitSummaryState] = useState<{
     projectId: string | null;
