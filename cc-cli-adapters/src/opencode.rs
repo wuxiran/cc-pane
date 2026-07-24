@@ -53,11 +53,21 @@ impl OpenCodeAdapter {
         }
     }
 
+    fn adapter_root(ctx: &CliAdapterContext) -> PathBuf {
+        ctx.data_dir
+            .join("cli-adapters/opencode")
+            .join(&ctx.session_id)
+    }
+
     /// 生成 per-session 的 opencode.json，注入 orchestrator MCP、系统 prompt
     /// (instructions) 与 provider 凭证，返回配置文件路径（经 `OPENCODE_CONFIG` 注入）。
     ///
     /// 没有任何可注入内容时返回 `Ok(None)`，调用方则不设置 `OPENCODE_CONFIG`。
-    fn write_session_config(&self, ctx: &CliAdapterContext) -> Result<Option<String>> {
+    fn write_session_config(
+        &self,
+        ctx: &CliAdapterContext,
+        theme: Option<&serde_json::Value>,
+    ) -> Result<Option<String>> {
         let mut config = serde_json::Map::new();
         config.insert(
             "$schema".to_string(),
@@ -65,11 +75,20 @@ impl OpenCodeAdapter {
         );
         let mut has_content = false;
 
-        let adapter_root = ctx
-            .data_dir
-            .join("cli-adapters")
-            .join("opencode")
-            .join(&ctx.session_id);
+        let adapter_root = Self::adapter_root(ctx);
+
+        if let Some(theme) = theme {
+            for path in [
+                adapter_root.join("tui.json"),
+                adapter_root.join("opencode.json.tui-migration.bak"),
+            ] {
+                if path.is_file() {
+                    std::fs::remove_file(path)?;
+                }
+            }
+            config.insert("theme".to_string(), theme.clone());
+            has_content = true;
+        }
 
         // ---- MCP 注入（orchestrator + 共享 MCP）----
         if !ctx.skip_mcp {
@@ -176,12 +195,46 @@ impl OpenCodeAdapter {
         Ok(Some(config_path.to_string_lossy().into_owned()))
     }
 
-    fn default_tui_config_path() -> Option<PathBuf> {
+    fn default_user_config_path(file_name: &str) -> Option<PathBuf> {
         let config_root = std::env::var_os("XDG_CONFIG_HOME")
             .filter(|path| !path.is_empty())
             .map(PathBuf::from)
             .or_else(|| dirs::home_dir().map(|home| home.join(".config")))?;
-        Some(config_root.join("opencode").join("tui.json"))
+        Some(config_root.join("opencode").join(file_name))
+    }
+
+    fn read_user_config(
+        path: Option<&Path>,
+        kind: &str,
+    ) -> std::result::Result<Option<serde_json::Map<String, serde_json::Value>>, ()> {
+        let Some(path) = path.filter(|path| path.is_file()) else {
+            return Ok(None);
+        };
+        let bytes = std::fs::read(path).map_err(|error| {
+            warn!(
+                path = %path.display(),
+                %error,
+                "opencode: unable to read user {kind} config; skipping session theme"
+            );
+        })?;
+        match serde_json::from_slice(&bytes) {
+            Ok(serde_json::Value::Object(config)) => Ok(Some(config)),
+            Ok(_) => {
+                warn!(
+                    path = %path.display(),
+                    "opencode: user {kind} config is not an object; skipping session theme"
+                );
+                Err(())
+            }
+            Err(error) => {
+                warn!(
+                    path = %path.display(),
+                    %error,
+                    "opencode: invalid user {kind} config; skipping session theme"
+                );
+                Err(())
+            }
+        }
     }
 
     fn write_session_tui_config(
@@ -189,42 +242,26 @@ impl OpenCodeAdapter {
         ctx: &CliAdapterContext,
         custom_tui_config: Option<&OsStr>,
         user_tui_config: Option<&Path>,
+        user_main_config: Option<&Path>,
     ) -> Result<Option<String>> {
         if custom_tui_config.is_some() {
             return Ok(None);
         }
 
-        let mut config = serde_json::Map::new();
-        if let Some(path) = user_tui_config.filter(|path| path.is_file()) {
-            let bytes = match std::fs::read(path) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    warn!(
-                        path = %path.display(),
-                        %error,
-                        "opencode: unable to read user tui config; skipping session theme"
-                    );
-                    return Ok(None);
-                }
+        let mut config = match Self::read_user_config(user_tui_config, "tui") {
+            Ok(Some(config)) => config,
+            Ok(None) => serde_json::Map::new(),
+            Err(()) => return Ok(None),
+        };
+
+        if !config.contains_key("theme") {
+            let legacy = match Self::read_user_config(user_main_config, "main") {
+                Ok(config) => config,
+                Err(()) => return Ok(None),
             };
-            config = match serde_json::from_slice(&bytes) {
-                Ok(serde_json::Value::Object(config)) => config,
-                Ok(_) => {
-                    warn!(
-                        path = %path.display(),
-                        "opencode: user tui config is not an object; skipping session theme"
-                    );
-                    return Ok(None);
-                }
-                Err(error) => {
-                    warn!(
-                        path = %path.display(),
-                        %error,
-                        "opencode: invalid user tui config; skipping session theme"
-                    );
-                    return Ok(None);
-                }
-            };
+            if let Some(theme) = legacy.and_then(|config| config.get("theme").cloned()) {
+                config.insert("theme".to_string(), theme);
+            }
         }
 
         config
@@ -234,18 +271,44 @@ impl OpenCodeAdapter {
             .entry("theme".to_string())
             .or_insert_with(|| serde_json::json!("system"));
 
-        let adapter_root = ctx
-            .data_dir
-            .join("cli-adapters")
-            .join("opencode")
-            .join(&ctx.session_id);
+        let adapter_root = Self::adapter_root(ctx);
         std::fs::create_dir_all(&adapter_root)?;
-        let config_path = adapter_root.join("tui.json");
+        // OpenCode 1.4 migrates legacy theme next to opencode.json as tui.json.
+        // Keep the explicit TUI config on a distinct path so both channels work.
+        let config_path = adapter_root.join("ccpanes-tui.json");
         std::fs::write(
             &config_path,
             serde_json::to_vec_pretty(&serde_json::Value::Object(config))?,
         )?;
         Ok(Some(config_path.to_string_lossy().into_owned()))
+    }
+
+    fn write_session_configs(
+        &self,
+        ctx: &CliAdapterContext,
+        custom_tui_config: Option<&OsStr>,
+        user_tui_config: Option<&Path>,
+        user_main_config: Option<&Path>,
+    ) -> Result<HashMap<String, String>> {
+        let mut env_inject = HashMap::new();
+        let tui_config_path = self.write_session_tui_config(
+            ctx,
+            custom_tui_config,
+            user_tui_config,
+            user_main_config,
+        )?;
+        let session_theme = tui_config_path.as_deref().and_then(|path| {
+            let bytes = std::fs::read(path).ok()?;
+            let config: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+            config.get("theme").cloned()
+        });
+        if let Some(config_path) = self.write_session_config(ctx, session_theme.as_ref())? {
+            env_inject.insert("OPENCODE_CONFIG".to_string(), config_path);
+        }
+        if let Some(config_path) = tui_config_path {
+            env_inject.insert("OPENCODE_TUI_CONFIG".to_string(), config_path);
+        }
+        Ok(env_inject)
     }
 
     fn plugin_path(project_path: &Path) -> std::path::PathBuf {
@@ -323,19 +386,17 @@ impl CliToolAdapter for OpenCodeAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let mut env_inject = HashMap::new();
-        if let Some(config_path) = self.write_session_config(ctx)? {
-            env_inject.insert("OPENCODE_CONFIG".to_string(), config_path);
-        }
         let custom_tui_config = std::env::var_os("OPENCODE_TUI_CONFIG");
-        let user_tui_config = Self::default_tui_config_path();
-        if let Some(config_path) = self.write_session_tui_config(
+        let user_tui_config = Self::default_user_config_path("tui.json");
+        let user_main_config = std::env::var_os("OPENCODE_CONFIG")
+            .map(PathBuf::from)
+            .or_else(|| Self::default_user_config_path("opencode.json"));
+        let env_inject = self.write_session_configs(
             ctx,
             custom_tui_config.as_deref(),
             user_tui_config.as_deref(),
-        )? {
-            env_inject.insert("OPENCODE_TUI_CONFIG".to_string(), config_path);
-        }
+            user_main_config.as_deref(),
+        )?;
 
         let mut args = Vec::new();
 
@@ -410,37 +471,44 @@ mod tests {
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
     }
 
+    fn write_config(path: &Path, config: serde_json::Value) {
+        std::fs::write(path, serde_json::to_vec(&config).unwrap()).unwrap();
+    }
+
     #[test]
     fn tui_config_defaults_to_system_theme() {
         let c = ctx(fresh_data_dir("tui_default"));
 
         let path = OpenCodeAdapter::new()
-            .write_session_tui_config(&c, None, None)
+            .write_session_tui_config(&c, None, None, None)
             .unwrap()
             .expect("tui config should be written");
         let cfg = read_config(&path);
 
         assert_eq!(cfg["$schema"], "https://opencode.ai/tui.json");
         assert_eq!(cfg["theme"], "system");
+        assert!(path.ends_with("ccpanes-tui.json"));
+        assert!(!c
+            .data_dir
+            .join("cli-adapters/opencode/sess-1/tui.json")
+            .exists());
     }
 
     #[test]
     fn tui_config_preserves_user_theme_and_settings() {
         let data_dir = fresh_data_dir("tui_user_theme");
         let user_config = data_dir.join("user-tui.json");
-        std::fs::write(
+        write_config(
             &user_config,
-            serde_json::to_vec(&serde_json::json!({
+            serde_json::json!({
                 "theme": "catppuccin",
                 "mouse": false
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+            }),
+        );
         let c = ctx(data_dir);
 
         let path = OpenCodeAdapter::new()
-            .write_session_tui_config(&c, None, Some(&user_config))
+            .write_session_tui_config(&c, None, Some(&user_config), None)
             .unwrap()
             .expect("tui config should be written");
         let cfg = read_config(&path);
@@ -453,19 +521,17 @@ mod tests {
     fn tui_config_adds_system_theme_to_user_settings_without_theme() {
         let data_dir = fresh_data_dir("tui_user_settings");
         let user_config = data_dir.join("user-tui.json");
-        std::fs::write(
+        write_config(
             &user_config,
-            serde_json::to_vec(&serde_json::json!({
+            serde_json::json!({
                 "scroll_speed": 2,
                 "diff_style": "stacked"
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+            }),
+        );
         let c = ctx(data_dir);
 
         let path = OpenCodeAdapter::new()
-            .write_session_tui_config(&c, None, Some(&user_config))
+            .write_session_tui_config(&c, None, Some(&user_config), None)
             .unwrap()
             .expect("tui config should be written");
         let cfg = read_config(&path);
@@ -476,25 +542,6 @@ mod tests {
     }
 
     #[test]
-    fn tui_config_skips_injection_when_custom_env_is_present() {
-        let data_dir = fresh_data_dir("tui_custom_env");
-        let c = ctx(data_dir.clone());
-
-        let path = OpenCodeAdapter::new()
-            .write_session_tui_config(
-                &c,
-                Some(std::ffi::OsStr::new("/custom/opencode/tui.json")),
-                None,
-            )
-            .unwrap();
-
-        assert!(path.is_none());
-        assert!(!data_dir
-            .join("cli-adapters/opencode/sess-1/tui.json")
-            .exists());
-    }
-
-    #[test]
     fn tui_config_skips_injection_when_user_config_cannot_be_merged() {
         let data_dir = fresh_data_dir("tui_invalid_user_config");
         let user_config = data_dir.join("user-tui.json");
@@ -502,13 +549,114 @@ mod tests {
         let c = ctx(data_dir.clone());
 
         let path = OpenCodeAdapter::new()
-            .write_session_tui_config(&c, None, Some(&user_config))
+            .write_session_tui_config(&c, None, Some(&user_config), None)
             .unwrap();
 
         assert!(path.is_none());
         assert!(!data_dir
-            .join("cli-adapters/opencode/sess-1/tui.json")
+            .join("cli-adapters/opencode/sess-1/ccpanes-tui.json")
             .exists());
+    }
+
+    #[test]
+    fn tui_config_preserves_legacy_user_theme_from_main_config() {
+        let data_dir = fresh_data_dir("legacy_user_theme");
+        let user_tui_config = data_dir.join("user-tui.json");
+        let user_main_config = data_dir.join("user-opencode.json");
+        write_config(&user_tui_config, serde_json::json!({ "mouse": false }));
+        write_config(&user_main_config, serde_json::json!({ "theme": "dracula" }));
+        let c = ctx(data_dir);
+
+        let path = OpenCodeAdapter::new()
+            .write_session_tui_config(&c, None, Some(&user_tui_config), Some(&user_main_config))
+            .unwrap()
+            .expect("tui config should be written");
+        let cfg = read_config(&path);
+
+        assert_eq!(cfg["theme"], "dracula");
+        assert_eq!(cfg["mouse"], false);
+    }
+
+    #[test]
+    fn main_config_injects_same_theme_for_legacy_versions() {
+        let c = ctx(fresh_data_dir("legacy_main_theme"));
+        let theme = serde_json::json!("system");
+
+        let path = OpenCodeAdapter::new()
+            .write_session_config(&c, Some(&theme))
+            .unwrap()
+            .expect("main config should be written");
+        let cfg = read_config(&path);
+
+        assert_eq!(cfg["theme"], "system");
+    }
+
+    #[test]
+    fn session_configs_inject_same_theme_through_both_channels() {
+        let mut c = ctx(fresh_data_dir("dual_theme_channels"));
+        c.skip_mcp = true;
+
+        let env = OpenCodeAdapter::new()
+            .write_session_configs(&c, None, None, None)
+            .unwrap();
+        let main_path = env
+            .get("OPENCODE_CONFIG")
+            .expect("legacy main config should be injected");
+        let tui_path = env
+            .get("OPENCODE_TUI_CONFIG")
+            .expect("dedicated tui config should be injected");
+
+        assert_eq!(read_config(main_path)["theme"], "system");
+        assert_eq!(read_config(tui_path)["theme"], "system");
+        assert!(tui_path.ends_with("ccpanes-tui.json"));
+        assert!(!std::path::Path::new(main_path)
+            .with_file_name("tui.json")
+            .exists());
+    }
+
+    #[test]
+    fn session_configs_skip_both_theme_channels_for_custom_tui_env() {
+        let mut c = ctx(fresh_data_dir("custom_tui_channels"));
+        c.skip_mcp = true;
+        c.append_system_prompt = Some("keep non-theme config".to_string());
+
+        let env = OpenCodeAdapter::new()
+            .write_session_configs(
+                &c,
+                Some(std::ffi::OsStr::new("/custom/opencode/tui.json")),
+                None,
+                None,
+            )
+            .unwrap();
+
+        let main_path = env
+            .get("OPENCODE_CONFIG")
+            .expect("non-theme main config should still be injected");
+        assert!(read_config(main_path).get("theme").is_none());
+        assert!(!env.contains_key("OPENCODE_TUI_CONFIG"));
+    }
+
+    #[test]
+    fn session_configs_clear_owned_legacy_migration_files_on_relaunch() {
+        let mut c = ctx(fresh_data_dir("legacy_migration_relaunch"));
+        c.skip_mcp = true;
+        let adapter = OpenCodeAdapter::new();
+        let first = adapter.write_session_configs(&c, None, None, None).unwrap();
+        let main_path = std::path::PathBuf::from(first.get("OPENCODE_CONFIG").unwrap());
+        let migrated_tui = main_path.with_file_name("tui.json");
+        let migration_backup =
+            std::path::PathBuf::from(format!("{}.tui-migration.bak", main_path.to_string_lossy()));
+        std::fs::write(&migrated_tui, r#"{"theme":"system"}"#).unwrap();
+        std::fs::write(&migration_backup, r#"{"theme":"system"}"#).unwrap();
+
+        let second = adapter.write_session_configs(&c, None, None, None).unwrap();
+
+        assert!(!migrated_tui.exists());
+        assert!(!migration_backup.exists());
+        assert_eq!(
+            read_config(second.get("OPENCODE_CONFIG").unwrap())["theme"],
+            "system"
+        );
     }
 
     #[test]
@@ -519,7 +667,7 @@ mod tests {
         c.launch_id = Some("launch-9".to_string());
 
         let path = OpenCodeAdapter::new()
-            .write_session_config(&c)
+            .write_session_config(&c, None)
             .unwrap()
             .expect("config should be written");
         let cfg = read_config(&path);
@@ -540,7 +688,7 @@ mod tests {
         c.orchestrator_token = Some("tok".to_string());
         // 仅 MCP 可注入但被 skip → 无内容 → None
         assert!(OpenCodeAdapter::new()
-            .write_session_config(&c)
+            .write_session_config(&c, None)
             .unwrap()
             .is_none());
     }
@@ -551,7 +699,7 @@ mod tests {
         c.append_system_prompt = Some("you are a worker".to_string());
 
         let path = OpenCodeAdapter::new()
-            .write_session_config(&c)
+            .write_session_config(&c, None)
             .unwrap()
             .unwrap();
         let cfg = read_config(&path);
@@ -575,7 +723,7 @@ mod tests {
         });
 
         let path = OpenCodeAdapter::new()
-            .write_session_config(&c)
+            .write_session_config(&c, None)
             .unwrap()
             .unwrap();
         let cfg = read_config(&path);
