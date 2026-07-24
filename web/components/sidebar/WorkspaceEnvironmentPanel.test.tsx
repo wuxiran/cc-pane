@@ -247,13 +247,19 @@ describe("WorkspaceEnvironmentPanel", () => {
 
   it("blocks save and shows a toast when a CLI default is not configured", async () => {
     const user = userEvent.setup();
+    // 路径须匹配宿主平台:黑屏修复(docs/46)后跨平台路径会触发 platform-mismatch
+    // issue 直接禁用保存按钮,本用例要测的是 CLI 默认环境校验,需给合法本机路径
+    const hostPath =
+      process.platform === "win32" ? "C:\\tmp\\workspace-alpha" : "/tmp/workspace-alpha";
     const workspace = createTestWorkspace({
       id: "ws-1",
       name: "workspace-alpha",
-      path: "/tmp/workspace-alpha",
+      path: hostPath,
       defaultEnvironment: "local",
+      // claude 默认 ssh 且无 ssh 配置 → 任何平台都必然"未配置":
+      // wsl 前提在 Windows 上会被盘符路径自动推导补全,不再产生 issue
       cliEnvironmentDefaults: {
-        claude: "wsl",
+        claude: "ssh",
       },
     });
 
