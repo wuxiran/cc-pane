@@ -16,7 +16,8 @@ interface RightDockState {
   visible: boolean;
   activeView: RightDockView;
   width: number;
-  toggleView: (view: RightDockView) => void;
+  setActiveView: (view: RightDockView) => void;
+  toggleVisible: () => void;
   setWidth: (width: number) => void;
   setVisible: (visible: boolean) => void;
 }
@@ -27,11 +28,8 @@ export const useRightDockStore = create<RightDockState>()(
       visible: false,
       activeView: "git",
       width: DEFAULT_RIGHT_DOCK_WIDTH,
-      toggleView: (view) =>
-        set((state) => ({
-          activeView: view,
-          visible: state.activeView === view ? !state.visible : true,
-        })),
+      setActiveView: (activeView) => set({ activeView }),
+      toggleVisible: () => set((state) => ({ visible: !state.visible })),
       setWidth: (width) => set({ width: clampRightDockWidth(width) }),
       setVisible: (visible) => set({ visible }),
     }),

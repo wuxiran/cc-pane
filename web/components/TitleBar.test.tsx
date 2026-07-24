@@ -17,6 +17,8 @@ const mockMaximizeWindow = vi.fn();
 const mockToggleFullscreenWindow = vi.fn();
 const mockToggleSidebar = vi.fn();
 const mockSidebarVisible = vi.fn<() => boolean>();
+const mockToggleRightDock = vi.fn();
+const mockRightDockVisible = vi.fn<() => boolean>();
 
 vi.mock("@/stores", () => ({
   useActivityBarStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -36,6 +38,11 @@ vi.mock("@/stores", () => ({
     }),
   useDialogStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({ openSettings: () => {} }),
+  useRightDockStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      visible: mockRightDockVisible(),
+      toggleVisible: mockToggleRightDock,
+    }),
 }));
 
 vi.mock("@/hooks/useWindowControl", () => ({
@@ -54,6 +61,7 @@ describe("TitleBar", () => {
     vi.clearAllMocks();
     mockUseBorderlessStore.mockReturnValue(false);
     mockSidebarVisible.mockReturnValue(true);
+    mockRightDockVisible.mockReturnValue(false);
   });
 
   it("marks the whole titlebar as a native drag region", () => {
@@ -133,6 +141,39 @@ describe("TitleBar", () => {
     );
     expect(
       screen.getByTestId("titlebar-toggle-sidebar").querySelector(".lucide-panel-left"),
+    ).not.toBeNull();
+  });
+
+  it("toggles the right dock from the titlebar switch without starting a drag", () => {
+    renderTitleBar(<TitleBar />);
+
+    fireEvent.click(screen.getByTestId("titlebar-toggle-right-dock"));
+
+    expect(mockToggleRightDock).toHaveBeenCalledTimes(1);
+    expect(mockStartDrag).not.toHaveBeenCalled();
+  });
+
+  it("swaps the right dock switch icon and label with visibility", () => {
+    const { unmount } = renderTitleBar(<TitleBar />);
+
+    expect(screen.getByTestId("titlebar-toggle-right-dock")).toHaveAttribute(
+      "aria-label",
+      "展开右侧面板",
+    );
+    expect(
+      screen.getByTestId("titlebar-toggle-right-dock").querySelector(".lucide-panel-right"),
+    ).not.toBeNull();
+    unmount();
+
+    mockRightDockVisible.mockReturnValue(true);
+    renderTitleBar(<TitleBar />);
+
+    expect(screen.getByTestId("titlebar-toggle-right-dock")).toHaveAttribute(
+      "aria-label",
+      "折叠右侧面板",
+    );
+    expect(
+      screen.getByTestId("titlebar-toggle-right-dock").querySelector(".lucide-panel-right-close"),
     ).not.toBeNull();
   });
 

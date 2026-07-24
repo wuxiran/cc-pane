@@ -352,6 +352,7 @@
   "explorer.gitContentComparison": "Content comparison",
   "rightDock.git": "Git",
   "rightDock.files": "Files",
+  "rightDock.expand": "Expand right panel",
   "rightDock.collapse": "Collapse right panel",
   "rightDock.resize": "Resize right panel",
   "rightDock.noProject": "No project selected",
