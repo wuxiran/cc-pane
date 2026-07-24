@@ -45,3 +45,8 @@ export { useOrchestratorStore } from "./useOrchestratorStore";
 export { useVoiceInputStore } from "./useVoiceInputStore";
 export { useWallpaperStore } from "./useWallpaperStore";
 export { useRightDockStore, type RightDockView } from "./useRightDockStore";
+export {
+  useModulePrefsStore,
+  type ModulePreference,
+  type ModulePreferences,
+} from "./useModulePrefsStore";

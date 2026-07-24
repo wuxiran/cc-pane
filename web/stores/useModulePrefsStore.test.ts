@@ -1,0 +1,74 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  createDefaultModulePreferences,
+  MODULE_PREFS_STORAGE_KEY,
+  useModulePrefsStore,
+} from "./useModulePrefsStore";
+
+describe("useModulePrefsStore", () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    useModulePrefsStore.setState({
+      preferences: createDefaultModulePreferences(),
+    });
+    await useModulePrefsStore.persist.rehydrate();
+  });
+
+  it("defaults every v1 module to enabled in the Activity Bar", () => {
+    expect(useModulePrefsStore.getState().preferences).toEqual({
+      ssh: { enabled: true, position: "activityBar" },
+      orchestration: { enabled: true, position: "activityBar" },
+      resources: { enabled: true, position: "activityBar" },
+      todo: { enabled: true, position: "activityBar" },
+    });
+  });
+
+  it("updates enabled and position independently so hidden does not mean disabled", () => {
+    const store = useModulePrefsStore.getState();
+
+    store.setPosition("todo", "hidden");
+    expect(useModulePrefsStore.getState().preferences.todo).toEqual({
+      enabled: true,
+      position: "hidden",
+    });
+
+    useModulePrefsStore.getState().setEnabled("todo", false);
+    expect(useModulePrefsStore.getState().preferences.todo).toEqual({
+      enabled: false,
+      position: "hidden",
+    });
+  });
+
+  it("persists preference changes", () => {
+    useModulePrefsStore.getState().setPosition("ssh", "rightDock");
+
+    expect(JSON.parse(localStorage.getItem(MODULE_PREFS_STORAGE_KEY) ?? "null")).toMatchObject({
+      state: {
+        preferences: {
+          ssh: { enabled: true, position: "rightDock" },
+        },
+      },
+    });
+  });
+
+  it("fills missing modules and rejects invalid persisted values during upgrades", async () => {
+    localStorage.setItem(MODULE_PREFS_STORAGE_KEY, JSON.stringify({
+      state: {
+        preferences: {
+          ssh: { enabled: false, position: "rightDock" },
+          todo: { enabled: "yes", position: "somewhere" },
+        },
+      },
+      version: 0,
+    }));
+
+    await useModulePrefsStore.persist.rehydrate();
+
+    expect(useModulePrefsStore.getState().preferences).toEqual({
+      ssh: { enabled: false, position: "rightDock" },
+      orchestration: { enabled: true, position: "activityBar" },
+      resources: { enabled: true, position: "activityBar" },
+      todo: { enabled: true, position: "activityBar" },
+    });
+  });
+});
