@@ -13,6 +13,7 @@ import OnboardingGuide from "@/components/OnboardingGuide";
 import DarkOrbsBackground from "@/components/layout/DarkOrbsBackground";
 import MainViewSwitcher from "@/components/layout/MainViewSwitcher";
 import AppDialogs from "@/components/layout/AppDialogs";
+import RightDock from "@/components/rightdock/RightDock";
 import { useThemeStore, useMiniModeStore, useWorkspacesStore } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
 
@@ -46,6 +47,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
             <div className="flex-1 flex overflow-hidden relative z-[1]">
               <ActivityBar />
               <MainViewSwitcher onOpenTerminal={onOpenTerminal} />
+              <RightDock />
             </div>
             <StatusBar />
           </>

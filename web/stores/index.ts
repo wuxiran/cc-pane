@@ -44,3 +44,4 @@ export { useSharedMcpStore } from "./useSharedMcpStore";
 export { useOrchestratorStore } from "./useOrchestratorStore";
 export { useVoiceInputStore } from "./useVoiceInputStore";
 export { useWallpaperStore } from "./useWallpaperStore";
+export { useRightDockStore, type RightDockView } from "./useRightDockStore";
