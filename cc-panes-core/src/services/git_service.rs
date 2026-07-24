@@ -244,6 +244,14 @@ impl GitService {
                 message: "Registered project path escapes its Git repository".to_string(),
             })?
             .to_path_buf();
+        // 8.3 短路径等别名会让入口的 paths_equivalent 早退失效:规范化后
+        // 若 scope 为空,说明注册路径就是仓库根,等价于无 scope。
+        if scope.as_os_str().is_empty() {
+            return Ok(RepoContext {
+                repo_root,
+                scope: None,
+            });
+        }
         Self::validate_repo_relative_path(&scope)
             .map_err(|message| GitRepoState::GitError { message })?;
         Ok(RepoContext {
