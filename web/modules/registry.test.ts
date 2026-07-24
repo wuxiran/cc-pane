@@ -4,6 +4,7 @@ import { useRightDockStore } from "@/stores/useRightDockStore";
 import type { TaskBinding } from "@/types";
 import {
   MODULE_IDS,
+  MODULE_CONSUMERS,
   MODULE_REGISTRY,
   type ModuleBadgeContext,
 } from "./registry";
@@ -48,6 +49,17 @@ describe("module registry", () => {
     ]);
   });
 
+  it("shares one registry instance across every entry consumer", () => {
+    expect(Object.keys(MODULE_CONSUMERS)).toEqual([
+      "activityBar",
+      "contextMenu",
+      "rightDock",
+      "settings",
+      "commandPalette",
+    ]);
+    expect(Object.values(MODULE_CONSUMERS).every((modules) => modules === MODULE_REGISTRY)).toBe(true);
+  });
+
   it("keeps the orchestration badge source in its module declaration", () => {
     const orchestration = MODULE_REGISTRY.find((module) => module.id === "orchestration");
 
@@ -86,6 +98,13 @@ describe("module registry", () => {
     expect(useRightDockStore.getState()).toMatchObject({
       activeView: "ssh",
       visible: true,
+    });
+
+    ssh?.open("hidden");
+    expect(useActivityBarStore.getState()).toMatchObject({
+      activeView: "ssh",
+      appViewMode: "panes",
+      sidebarVisible: true,
     });
   });
 });

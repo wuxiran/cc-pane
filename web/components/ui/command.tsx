@@ -2,7 +2,12 @@ import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { SearchIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
@@ -32,6 +37,7 @@ function CommandDialog({ title = "命令面板", children, ...props }: CommandDi
         className="overflow-hidden p-0 top-[20%] translate-y-0 max-w-[560px] border-[var(--app-border)] bg-[var(--app-overlay)] shadow-[var(--sh-lg)] data-[state=open]:animate-none data-[state=closed]:animate-none"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
+        <DialogDescription className="sr-only">{title}</DialogDescription>
         <Command
           shouldFilter
           className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--app-text-tertiary)]"

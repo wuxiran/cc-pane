@@ -46,4 +46,17 @@ describe("settings registry", () => {
       targetSectionId: "general-root",
     }));
   });
+
+  it("registers the module pane and its placement search target", () => {
+    const modules = SETTINGS_PANES.find((pane) => pane.id === "modules");
+
+    expect(modules).toMatchObject({
+      titleKey: "modules.title",
+      group: "appearance",
+    });
+    expect(modules?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "placement",
+      targetSectionId: "modules-root",
+    }));
+  });
 });

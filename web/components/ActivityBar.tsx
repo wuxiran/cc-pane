@@ -21,7 +21,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  MODULE_REGISTRY,
+  MODULE_CONSUMERS,
   type ModuleBadge,
   type ModuleId,
   type ModulePosition,
@@ -112,7 +112,7 @@ function ModuleContextMenu() {
         {t("moduleMenu.title")}
       </ContextMenuLabel>
       <ContextMenuSeparator />
-      {MODULE_REGISTRY.map((module) => {
+      {MODULE_CONSUMERS.contextMenu.map((module) => {
         const Icon = module.icon;
         const preference = preferences[module.id];
         return (
@@ -140,6 +140,7 @@ function ModuleContextMenu() {
                 <ContextMenuRadioItem
                   data-testid={`module-position-${module.id}-activityBar`}
                   value="activityBar"
+                  aria-label={t("moduleMenu.activityBar")}
                   className="text-[13px]"
                   onSelect={() => changePosition(module.id, "activityBar")}
                 >
@@ -148,6 +149,7 @@ function ModuleContextMenu() {
                 <ContextMenuRadioItem
                   data-testid={`module-position-${module.id}-rightDock`}
                   value="rightDock"
+                  aria-label={t("moduleMenu.rightDock")}
                   className="text-[13px]"
                   onSelect={() => changePosition(module.id, "rightDock")}
                 >
@@ -157,6 +159,7 @@ function ModuleContextMenu() {
                 <ContextMenuRadioItem
                   data-testid={`module-position-${module.id}-hidden`}
                   value="hidden"
+                  aria-label={t("moduleMenu.hidden")}
                   className="text-[13px]"
                   onSelect={() => changePosition(module.id, "hidden")}
                 >
@@ -184,7 +187,7 @@ export default function ActivityBar() {
   const bindings = useOrchestratorStore((state) => state.bindings);
   const preferences = useModulePrefsStore((state) => state.preferences);
 
-  const visibleModules = MODULE_REGISTRY.filter((module) => {
+  const visibleModules = MODULE_CONSUMERS.activityBar.filter((module) => {
     const preference = preferences[module.id];
     return preference.enabled && preference.position === "activityBar";
   });

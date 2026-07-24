@@ -24,6 +24,7 @@ import { isTauriRuntime } from "@/services/runtime";
 import { getVisibleSettingsPanes } from "@/components/settings/settingsRegistry";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { getSettingsCommandTargets } from "@/components/settings/settingsSearch";
+import { MODULE_CONSUMERS } from "@/modules/registry";
 
 export const COMMAND_PALETTE_TOGGLE_EVENT = "cc-panes:command-palette-toggle";
 
@@ -96,6 +97,28 @@ export default function CommandPalette() {
               )}
             </CommandItem>
           ))}
+        </CommandGroup>
+
+        <CommandGroup heading={t("modules.commandGroup", { ns: "settings" })}>
+          {MODULE_CONSUMERS.commandPalette.map((module) => {
+            const Icon = module.icon;
+            const moduleName = t(module.titleKey as never, { ns: "sidebar" });
+            const actionLabel = t("modules.openAction", {
+              ns: "settings",
+              module: moduleName,
+            });
+            return (
+              <CommandItem
+                key={module.id}
+                data-testid={`module-command-${module.id}`}
+                value={`${actionLabel} ${module.id}`}
+                onSelect={() => runAndClose(() => module.open("hidden"))}
+              >
+                <Icon strokeWidth={1.5} />
+                <span className="truncate">{actionLabel}</span>
+              </CommandItem>
+            );
+          })}
         </CommandGroup>
 
         <CommandGroup heading={t("searchCommandGroup", { ns: "settings" })}>

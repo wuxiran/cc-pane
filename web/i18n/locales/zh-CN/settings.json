@@ -18,6 +18,7 @@
     "wallpaper": "图片 视频 背景 音乐 透明度 模糊",
     "font": "字体 字号 font family 中文 CJK",
     "shortcuts": "快捷键 热键 键盘 绑定",
+    "modules": "模块 入口 左栏 右坞 隐藏 命令面板",
     "provider": "Provider 供应商 API Key 模型",
     "mcp": "MCP server 工具 共享",
     "proxy": "代理 HTTP SOCKS 网络",
@@ -42,6 +43,20 @@
     "description": "尚未稳定的功能会在这里集中管理，并在毕业时保留原有选择。",
     "emptyTitle": "暂无实验性功能",
     "emptyDescription": "当前版本没有需要手动开启的实验项。"
+  },
+  "modules": {
+    "title": "模块",
+    "description": "管理模块入口；隐藏后仍可从命令面板打开。",
+    "enabledLabel": "启用 {{module}}",
+    "positionLabel": "{{module}} 的位置",
+    "placementHint": "移动模块只会调整入口；隐藏后仍可从命令面板打开。",
+    "commandGroup": "模块",
+    "openAction": "打开 {{module}}",
+    "positions": {
+      "activityBar": "左侧活动栏",
+      "rightDock": "右侧坞",
+      "hidden": "隐藏"
+    }
   },
   "general": "通用",
   "notification": "通知",

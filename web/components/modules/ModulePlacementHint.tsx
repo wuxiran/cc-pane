@@ -30,7 +30,6 @@ export default function ModulePlacementHint({ label }: ModulePlacementHintProps)
       <TooltipTrigger asChild>
         <span
           role="img"
-          tabIndex={0}
           aria-label={label}
           className="ml-auto inline-flex size-4 items-center justify-center text-[var(--app-text-tertiary)]"
         >

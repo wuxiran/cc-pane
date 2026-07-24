@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
 import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
+import SshMachinesView from "@/components/sidebar/SshMachinesView";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setDragging } from "@/stores/splitDragState";
@@ -19,7 +20,9 @@ import {
   resolveActiveTerminalSelection,
   selectActiveTerminalKey,
 } from "@/hooks/useFollowActiveTerminalContext";
-import type { Workspace, WorkspaceProject } from "@/types";
+import type { OpenTerminalOptions, Workspace, WorkspaceProject } from "@/types";
+import { MODULE_CONSUMERS } from "@/modules/registry";
+import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 
 interface RightDockViewDefinition {
   id: RightDockView;
@@ -85,7 +88,11 @@ export function resolveRightDockWorkspace(
   };
 }
 
-export default function RightDock() {
+interface RightDockProps {
+  onOpenTerminal: (options: OpenTerminalOptions) => void;
+}
+
+export default function RightDock({ onOpenTerminal }: RightDockProps) {
   const { t } = useTranslation("sidebar");
   const visible = useRightDockStore((state) => state.visible);
   const activeView = useRightDockStore((state) => state.activeView);
@@ -93,6 +100,7 @@ export default function RightDock() {
   const setActiveView = useRightDockStore((state) => state.setActiveView);
   const setWidth = useRightDockStore((state) => state.setWidth);
   const setVisible = useRightDockStore((state) => state.setVisible);
+  const modulePreferences = useModulePrefsStore((state) => state.preferences);
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((state) => state.expandedWorkspaceId);
   const expandedProjectId = useWorkspacesStore((state) => state.expandedProjectId);
@@ -109,10 +117,22 @@ export default function RightDock() {
   const selectedProject = resolveRightDockProject(workspace, selectedProjectId);
   const panelRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef(width);
+  const dockModules = MODULE_CONSUMERS.rightDock.filter((module) => {
+    const preference = modulePreferences[module.id];
+    return preference.enabled
+      && preference.position === "rightDock"
+      && module.surfaces.includes("rightDock");
+  });
+  const sshDocked = dockModules.some((module) => module.id === "ssh");
+  const resolvedActiveView = activeView === "ssh" && !sshDocked ? "git" : activeView;
 
   useEffect(() => {
     widthRef.current = width;
   }, [width]);
+
+  useEffect(() => {
+    if (activeView === "ssh" && !sshDocked) setActiveView("git");
+  }, [activeView, setActiveView, sshDocked]);
 
   const handleResizePointerDown = useCallback((event: React.PointerEvent) => {
     event.preventDefault();
@@ -190,10 +210,14 @@ export default function RightDock() {
         <div
           className="flex items-center gap-0.5"
           role="tablist"
-          aria-label={`${t("rightDock.git")} / ${t("rightDock.files")}`}
+          aria-label={[
+            t("rightDock.git"),
+            t("rightDock.files"),
+            ...dockModules.map((module) => t(module.titleKey as never)),
+          ].join(" / ")}
         >
           {RIGHT_DOCK_VIEWS.map(({ id, icon: Icon, titleKey }) => {
-            const selected = id === activeView;
+            const selected = id === resolvedActiveView;
             return (
               <Tooltip key={id}>
                 <TooltipTrigger asChild>
@@ -224,21 +248,60 @@ export default function RightDock() {
               </Tooltip>
             );
           })}
+          {dockModules.map((module) => {
+            const Icon = module.icon;
+            const selected = module.id === "ssh" && resolvedActiveView === "ssh";
+            const label = t(module.titleKey as never);
+            return (
+              <Tooltip key={module.id}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    role="tab"
+                    data-module-id={module.id}
+                    aria-selected={selected}
+                    aria-label={label}
+                    onClick={() => module.open("rightDock")}
+                    className={`relative flex h-[36px] w-[38px] items-center justify-center transition-colors duration-[var(--dur-fast)] ${
+                      selected ? "" : "hover:text-[var(--app-text-primary)]"
+                    }`}
+                    style={{
+                      color: selected ? "var(--app-text-primary)" : "var(--app-text-tertiary)",
+                    }}
+                  >
+                    <Icon className="h-[19px] w-[19px]" strokeWidth={1.6} />
+                    {selected && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-x-2 bottom-0 h-[2px] rounded-full"
+                        style={{ background: "var(--app-text-primary)" }}
+                      />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{label}</TooltipContent>
+              </Tooltip>
+            );
+          })}
         </div>
       </div>
 
-      {workspace && selectedProject ? (
+      {resolvedActiveView === "ssh" ? (
+        <div className="min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2">
+          <SshMachinesView onOpenTerminal={onOpenTerminal} />
+        </div>
+      ) : workspace && selectedProject ? (
         <>
           <div
             className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2"
-            style={activeView === "git" ? undefined : { display: "none" }}
+            style={resolvedActiveView === "git" ? undefined : { display: "none" }}
           >
             <ExplorerGitSection
               workspace={workspace}
               selectedProjectId={selectedProject.id}
             />
           </div>
-          {activeView === "files" && (
+          {resolvedActiveView === "files" && (
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2">
               <ExplorerFilesSection
                 workspace={workspace}

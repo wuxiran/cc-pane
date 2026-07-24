@@ -18,6 +18,7 @@
     "wallpaper": "image video background music opacity blur",
     "font": "font size family typography CJK",
     "shortcuts": "shortcut hotkey keyboard binding",
+    "modules": "module entry Activity Bar right dock hidden command palette",
     "provider": "provider API key model",
     "mcp": "MCP server tools shared",
     "proxy": "proxy HTTP SOCKS network",
@@ -42,6 +43,20 @@
     "description": "Unstable features are managed here and retain their choices when they graduate.",
     "emptyTitle": "No experimental features",
     "emptyDescription": "This release has no experimental options that require manual activation."
+  },
+  "modules": {
+    "title": "Modules",
+    "description": "Manage module entries. Hidden modules remain available from the Command Palette.",
+    "enabledLabel": "Enable {{module}}",
+    "positionLabel": "Position for {{module}}",
+    "placementHint": "Moving a module only changes its entry. Hidden modules remain available from the Command Palette.",
+    "commandGroup": "Modules",
+    "openAction": "Open {{module}}",
+    "positions": {
+      "activityBar": "Activity Bar",
+      "rightDock": "Right Dock",
+      "hidden": "Hidden"
+    }
   },
   "general": "General",
   "notification": "Notification",

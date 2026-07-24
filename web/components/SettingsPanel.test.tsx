@@ -141,6 +141,16 @@ describe("SettingsPanel", () => {
     expect(await screen.findByTestId("shared-mcp-section")).toBeInTheDocument();
   });
 
+  it("opens the registry-backed module settings pane", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("modules.title") }));
+
+    expect(await screen.findByTestId("module-setting-ssh")).toBeInTheDocument();
+    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(4);
+  });
+
   it("shows the screenshot section on non-mac platforms", () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 

@@ -9,6 +9,7 @@ const CCChanSettings = lazy(() => import("./CCChanSettings"));
 const CliLaunchersSection = lazy(() => import("./CliLaunchersSection"));
 const ExperimentalSection = lazy(() => import("./ExperimentalSection"));
 const GeneralSection = lazy(() => import("./GeneralSection"));
+const ModulesSection = lazy(() => import("./ModulesSection"));
 const NotificationSection = lazy(() => import("./NotificationSection"));
 const ProviderSection = lazy(() => import("./ProviderSection"));
 const ProxySection = lazy(() => import("./ProxySection"));
@@ -41,6 +42,8 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
       );
     case "notification":
       return <NotificationSection value={draft.notification} onChange={(notification) => updateDraft({ ...draft, notification })} />;
+    case "modules":
+      return <ModulesSection />;
     case "web-access":
       return (
         <WebAccessSection

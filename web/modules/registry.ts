@@ -38,7 +38,16 @@ function openSsh(position: ModulePosition) {
     useRightDockStore.setState({ visible: true, activeView: "ssh" });
     return;
   }
-  useActivityBarStore.getState().toggleView("ssh");
+  if (position === "activityBar") {
+    useActivityBarStore.getState().toggleView("ssh");
+    return;
+  }
+  useActivityBarStore.setState({
+    activeView: "ssh",
+    sidebarVisible: true,
+    appViewMode: "panes",
+    orchestrationOverlayOpen: false,
+  });
 }
 
 function openOrchestration(position: ModulePosition) {
@@ -117,3 +126,11 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
     minimal: false,
   },
 ];
+
+export const MODULE_CONSUMERS = {
+  activityBar: MODULE_REGISTRY,
+  contextMenu: MODULE_REGISTRY,
+  rightDock: MODULE_REGISTRY,
+  settings: MODULE_REGISTRY,
+  commandPalette: MODULE_REGISTRY,
+} as const;

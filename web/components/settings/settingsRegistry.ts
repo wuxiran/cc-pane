@@ -12,6 +12,7 @@ import {
   Info,
   Keyboard,
   Mic,
+  PanelsTopLeft,
   Settings,
   Share2,
   Terminal,
@@ -31,6 +32,7 @@ export type SettingsPaneId =
   | "wallpaper"
   | "terminal"
   | "shortcuts"
+  | "modules"
   | "provider"
   | "cli-launchers"
   | "shared-mcp"
@@ -127,6 +129,22 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     group: "appearance",
     searchEntries: [
       { id: "bindings", titleKey: "shortcutsTitle", descriptionKey: "shortcutsHint", keywordsKey: "searchKeywords.shortcuts", targetSectionId: "shortcuts-list" },
+    ],
+  },
+  {
+    id: "modules",
+    icon: PanelsTopLeft,
+    titleKey: "modules.title",
+    descriptionKey: "modules.description",
+    group: "appearance",
+    searchEntries: [
+      {
+        id: "placement",
+        titleKey: "modules.title",
+        descriptionKey: "modules.description",
+        keywordsKey: "searchKeywords.modules",
+        targetSectionId: "modules-root",
+      },
     ],
   },
   {

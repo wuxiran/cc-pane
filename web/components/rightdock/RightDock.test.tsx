@@ -5,8 +5,13 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useRightDockStore } from "@/stores/useRightDockStore";
+import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import {
+  createDefaultModulePreferences,
+  useModulePrefsStore,
+} from "@/stores/useModulePrefsStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
-import type { Workspace } from "@/types";
+import type { OpenTerminalOptions, Workspace } from "@/types";
 import RightDock from "./RightDock";
 
 vi.mock("@/components/sidebar/ExplorerGitSection", () => ({
@@ -38,6 +43,18 @@ vi.mock("@/components/sidebar/ExplorerFilesSection", () => ({
   ),
 }));
 
+vi.mock("@/components/sidebar/SshMachinesView", () => ({
+  default: ({ onOpenTerminal }: { onOpenTerminal: (options: OpenTerminalOptions) => void }) => (
+    <button
+      type="button"
+      data-testid="right-dock-ssh"
+      onClick={() => onOpenTerminal({ path: "ssh://host/project" } as OpenTerminalOptions)}
+    >
+      SSH
+    </button>
+  ),
+}));
+
 const workspace: Workspace = {
   id: "workspace-1",
   name: "Workspace One",
@@ -48,10 +65,10 @@ const workspace: Workspace = {
   ],
 };
 
-function renderDock() {
+function renderDock(onOpenTerminal = vi.fn()) {
   return render(
     <TooltipProvider>
-      <RightDock />
+      <RightDock onOpenTerminal={onOpenTerminal} />
     </TooltipProvider>,
   );
 }
@@ -60,6 +77,13 @@ describe("RightDock", () => {
   beforeEach(() => {
     localStorage.clear();
     useRightDockStore.setState({ visible: true, activeView: "git", width: 340 });
+    useActivityBarStore.setState({
+      activeView: "explorer",
+      sidebarVisible: true,
+      appViewMode: "panes",
+      orchestrationOverlayOpen: false,
+    });
+    useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
     useWorkspacesStore.setState({
       workspaces: [workspace],
       expandedWorkspaceId: workspace.id,
@@ -147,6 +171,51 @@ describe("RightDock", () => {
 
     await user.click(screen.getByRole("tab", { name: "文件" }));
     expect(useRightDockStore.getState().visible).toBe(true);
+  });
+
+  it("只为启用且位于右坞的模块注册扩展 tab", () => {
+    useModulePrefsStore.getState().setPosition("ssh", "rightDock");
+    useModulePrefsStore.getState().setPosition("resources", "rightDock");
+    useModulePrefsStore.getState().setPosition("todo", "hidden");
+    useModulePrefsStore.getState().setEnabled("orchestration", false);
+
+    renderDock();
+
+    expect(screen.getByRole("tab", { name: "SSH 机器" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "资源中心" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "TodoList" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "任务编排" })).not.toBeInTheDocument();
+  });
+
+  it("SSH tab 驻留坞内并复用终端打开回调", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn();
+    useModulePrefsStore.getState().setPosition("ssh", "rightDock");
+    renderDock(onOpenTerminal);
+
+    await user.click(screen.getByRole("tab", { name: "SSH 机器" }));
+
+    expect(useRightDockStore.getState().activeView).toBe("ssh");
+    expect(screen.getByTestId("right-dock-ssh")).toBeInTheDocument();
+    expect(screen.queryByTestId("right-dock-git")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("right-dock-ssh"));
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      path: "ssh://host/project",
+    }));
+  });
+
+  it("非驻留模块 tab 按下即打开原全屏形态且不抢占当前 tab", async () => {
+    const user = userEvent.setup();
+    useModulePrefsStore.getState().setPosition("resources", "rightDock");
+    renderDock();
+
+    const resourcesTab = screen.getByRole("tab", { name: "资源中心" });
+    await user.click(resourcesTab);
+
+    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
+    expect(useRightDockStore.getState().activeView).toBe("git");
+    expect(resourcesTab).toHaveAttribute("aria-selected", "false");
   });
 
   it("双击拖柄可折叠", () => {

@@ -49,7 +49,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
             <div className="flex-1 flex overflow-hidden relative z-[1]">
               <ActivityBar />
               <MainViewSwitcher onOpenTerminal={onOpenTerminal} />
-              <RightDock />
+              <RightDock onOpenTerminal={onOpenTerminal} />
             </div>
             <StatusBar />
           </>
