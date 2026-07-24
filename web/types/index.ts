@@ -178,7 +178,13 @@ export type {
   ProcessScanResult,
   ResourceStats,
 } from "./process";
-export type { SystemStats } from "./systemStats";
+export type {
+  KillProcessResult,
+  OrphanProcessInfo,
+  ResourceTree,
+  SessionResourceUsage,
+  SystemStats,
+} from "./systemStats";
 export type {
   BridgeMode,
   SharedMcpServerConfig,

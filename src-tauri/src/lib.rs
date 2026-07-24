@@ -138,6 +138,7 @@ use commands::{
     get_recent_changes,
     get_recent_journal,
     get_resource_stats,
+    get_resource_tree,
     // Settings 命令
     get_settings,
     // 共享 MCP 命令
@@ -184,6 +185,7 @@ use commands::{
     is_git_repo,
     kill_claude_process,
     kill_claude_processes,
+    kill_orphan_processes,
     kill_terminal,
     kill_terminal_idempotent,
     list_all_claude_sessions,
@@ -2438,6 +2440,8 @@ pub fn run() {
             kill_claude_processes,
             get_resource_stats,
             get_system_stats,
+            get_resource_tree,
+            kill_orphan_processes,
             // Runner Registry 命令
             runner_list_profiles,
             runner_get_profile,
