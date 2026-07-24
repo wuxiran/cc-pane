@@ -1,7 +1,7 @@
 name: cc_panes_mobile
 description: CC-Panes 移动端 —— 远程连接桌面端 cc-panes-web 的终端客户端。
 publish_to: "none"
-version: 0.10.21+1
+version: 0.11.0+1
 
 environment:
   sdk: ^3.5.0

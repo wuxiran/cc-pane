@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.11.0 - Unreleased
-
-> 草稿:随 Worker F(Codex resume + 黑屏修复)落地后补齐并定稿。
+## 0.11.0 - 2026-07-24
 
 ### Changed — Local History watcher rework (the real fix behind 0.10.21's revert)
 
@@ -21,11 +19,16 @@
 - **`/clear` no longer kills the session.** Claude Code's `/clear` fires a SessionEnd hook with `reason="clear"`; the hook layer treated every SessionEnd as a process exit, the state machine marked the live session Exited, and the daemon bridge emitted a synthetic `terminal-exit(-1)` and stopped streaming. The hook now filters by reason on both channels (HTTP + OSC), and the bridge no longer trusts hook-derived Exited while the session still exists. (`docs/44`)
 - **Chinese-path projects launch correctly**: WSL launch scripts get a UTF-8 locale fallback, worktree branch-name sanitizing keeps CJK characters (Unicode-aware regex), and npm-shim/WSL launches log diagnostics for path issues.
 - Windows `git rev-parse --show-toplevel` output is normalized to native separators before path comparison.
+- **Codex resume works again.** The OSC title capture chain was dead against Codex CLI v0.145 (every recent codex launch had a null `resumeSessionId` — resume silently opened a fresh session), and captured Codex ids could even land on Claude history rows. Fixed the title parsing against measured v0.145 output, added a rollout-directory scan fallback (honors `CODEX_HOME`), made resume bindings route strictly by PTY session id, surfaced the WSL "resume target missing" downgrade as a visible warning, and disabled the resume entry when no id was ever captured. (`docs/45`)
+- **Cross-platform launch no longer black-screens — and no longer silently runs in the wrong directory.** A Windows-path workspace opened on macOS failed with an opaque error and a dead black tab. Deeper: `portable-pty` silently falls back to HOME for an invalid cwd on every platform, so a bad path could "successfully" start an agent in the wrong repo. Now a host/path classifier rejects mismatched/missing/non-directory paths with structured errors (SSH exempt, WSL-on-non-Windows keeps its explicit unsupported error), `spawn_pty` blocks the HOME fallback outright, failed tabs render an error panel with retry/remove, and launch entries pre-warn on cross-platform local paths. (`docs/46`)
+- **`kill_session` closes the tab again.** Sessions whose hook lifecycle had reported "Exited" (while the process lived on) had their daemon bridge torn down early, so the later `session-killed` event had no subscriber and the UI tab survived every kill. The `/clear` fix's bridge half resolves it; this release adds the regression test, a control-channel fallback broadcast when no bridge is attached, and pinned tabs no longer silently ignore backend-driven kills. (`docs/48`)
+- **Worker exit is no longer mislabeled "completed".** Session reconciliation marked a crashed-in-10s worker as completed/100% with exit code 0. Bindings now keep worker-written completion only; anything else is recorded as failed with the real exit code.
+- **Queued worker reports actually get delivered.** Leader-busy reports were queued for redelivery on the leader's next idle transition — but a long-lived leader session could wedge in a busy state and the edge never fired, so reports silently expired after 30 minutes. Redelivery is now edge + 60s level-scan dual-triggered, TTL drops are logged and recorded on the binding, and stale busy states (10 min without any hook/OSC event) fall back to idle at query time — which also fixes tab status lights stuck on busy. (`docs/49`)
+- **Terminal fit**: dragging a split divider now refits every terminal in the affected panes (including inactive sub-tabs; hidden terminals refit when they become visible), PTY resizes are debounced per session, and the terminal context menu gains "Fit" / "Fit all terminals" as a manual fallback. (`docs/48`)
 
-### Pending in this release (Worker F, in progress)
+### Uninstall
 
-- Codex resume capture (OSC title chain dead on Codex CLI v0.145; rollout-scan fallback; binding attribution fix; visible degradation) — `docs/45`
-- Cross-platform launch black screen + portable-pty silent HOME-fallback hardening — `docs/46-cross-platform-launch-blackscreen.md`
+- **Uninstalling now actually cleans up.** The NSIS uninstaller kills this install's processes first (full-path filtered — dev instances untouched), then optionally deletes app data behind an explicit prompt (defaults to No; silent/updater uninstalls always preserve data). A new "pre-uninstall cleanup" in Settings → About de-injects everything CC-Panes ever wrote into other CLIs' global dirs (`~/.claude`, `~/.codex`, `~/.grok` — including the tokened MCP URL) and removes per-project hook entries, with a cleanup report. Injected hook commands now guard on binary existence, so projects touched by an uninstalled CC-Panes no longer spawn dead-path errors on every session. (`docs/47`)
 
 ## 0.10.21 - 2026-07-23
 
