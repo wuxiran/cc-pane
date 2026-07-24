@@ -105,6 +105,31 @@ npm run tauri build
 
 自动更新通过 `plugins.updater` 配置，需要生成签名密钥对，并在 `endpoints` 中指向 GitHub Releases 的 `latest.json`。
 
+## Windows 卸载
+
+NSIS 安装器通过 `src-tauri/nsis/installer-hooks.nsh` 处理升级和卸载：
+
+- 安装、升级或卸载前，只结束可执行路径位于当前 `$INSTDIR` 的 `cc-panes.exe`、`binaries/cc-panes-daemon.exe` 和 `binaries/cc-panes-web.exe`。同机的开发版或其他安装目录不受影响。
+- 交互卸载完成后会询问是否同时删除应用数据，默认按钮是“否”。选择“是”只删除 `%APPDATA%\com.ccpanes.app`、`%LOCALAPPDATA%\com.ccpanes.app` 和 `%USERPROFILE%\.cc-panes` 三个固定路径。
+- `/S` 静默卸载和 updater 的 passive 升级路径不会显示询问，也绝不删除用户数据。
+
+固定路径删除无法发现“设置 → 通用 → 数据目录”配置的自定义 `data_dir`。卸载前应先在“设置 → 关于 → 卸载前清理”撤销 CLI 注入，再自行备份或删除自定义目录。
+
+NSIS 的 `RMDir /r` 没有在此 hook 中提供可靠的 junction/reparse-point 拒绝机制。如果上述任一固定目录被改造成 junction，请在询问中选择“否”，核验真实目标后再手动处理，避免把链接目标当普通应用数据递归删除。
+
+“卸载前清理”只反向移除能够用 CC-Panes 命名空间、hook 二进制名、内置插件内容或受管 MCP URL 签名证明所有权的条目。用户手写的同名配置会保留；不可达项目和解析失败的文件会列入清理报告，而不会强制覆盖。
+
+不选择删除数据时，卸载后可能保留：
+
+| 范围 | 可能残留 |
+|------|----------|
+| 应用数据 | `%USERPROFILE%\.cc-panes` 或自定义 `data_dir` |
+| Tauri / WebView2 | `%APPDATA%\com.ccpanes.app`、`%LOCALAPPDATA%\com.ccpanes.app` |
+| CLI 全局注入 | `~/.claude/commands/ccpanes`、Claude/Codex 的 `ccpanes-*` skills、受管 Grok MCP 配置 |
+| 项目注入 | `.claude/settings.local.json`、`.codex/hooks.json`、`.opencode/plugins/ccpanes.js` 中由 CC-Panes 写入的条目 |
+
+已经卸载或需要逐项核验时，参见[附录 A：数据存在哪 / 备份与排障](guide/appendix-a-data-and-troubleshooting.md#卸载与手动清理)。
+
 ## GitHub Actions Release 工作流概要
 
 ```yaml

@@ -9,7 +9,7 @@ import {
   createTestSettings,
   resetTestDataCounter,
 } from "@/test/utils/testData";
-import type { DataDirInfo } from "@/types";
+import type { DataDirInfo, UninstallCleanupReport } from "@/types";
 
 describe("settingsService", () => {
   beforeEach(() => {
@@ -99,6 +99,22 @@ describe("settingsService", () => {
       expect(invoke).toHaveBeenCalledWith("migrate_data_dir", {
         targetDir: "/new/data/dir",
       });
+    });
+  });
+
+  describe("cleanupBeforeUninstall", () => {
+    it("应该调用 cleanup_before_uninstall 并返回清理报告", async () => {
+      const report: UninstallCleanupReport = {
+        cleaned: ["~/.claude/commands/ccpanes"],
+        skipped: [],
+        failed: [],
+      };
+      mockTauriInvoke({ cleanup_before_uninstall: report });
+
+      const result = await settingsService.cleanupBeforeUninstall();
+
+      expect(invoke).toHaveBeenCalledWith("cleanup_before_uninstall");
+      expect(result).toEqual(report);
     });
   });
 });

@@ -4,16 +4,35 @@ import { getVersion } from "@tauri-apps/api/app";
 import packageJson from "../../../package.json";
 import { useUpdateStore } from "@/stores";
 import { logService } from "@/services";
+import { settingsService } from "@/services/settingsService";
+import type { UninstallCleanupReport } from "@/types";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, FolderOpen } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { RefreshCw, FolderOpen, ShieldCheck } from "lucide-react";
 import { isTauriRuntime } from "@/services/runtime";
 
 export default function AboutSection() {
   const { t } = useTranslation("settings");
   const [version, setVersion] = useState("...");
   const [checking, setChecking] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const [cleanupReport, setCleanupReport] = useState<UninstallCleanupReport | null>(null);
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
+  const cleanupReportLabels = {
+    cleaned: t("cleanupReportCleaned"),
+    skipped: t("cleanupReportSkipped"),
+    failed: t("cleanupReportFailed"),
+  };
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -34,6 +53,20 @@ export default function AboutSection() {
       console.error("[AboutSection] 检查更新失败:", error);
     } finally {
       setChecking(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    setCleaning(true);
+    setCleanupError(null);
+    try {
+      const report = await settingsService.cleanupBeforeUninstall();
+      setCleanupReport(report);
+      setCleanupOpen(false);
+    } catch (error) {
+      setCleanupError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCleaning(false);
     }
   };
 
@@ -75,7 +108,7 @@ export default function AboutSection() {
         </div>
       )}
 
-      <div className="flex gap-2 mt-2">
+      <div className="flex flex-wrap gap-2 mt-2">
         {isTauriRuntime() && (
         <Button
           variant="outline"
@@ -104,7 +137,65 @@ export default function AboutSection() {
           {t("openLogDir")}
         </Button>
         )}
+
+        {isTauriRuntime() && (
+          <Button variant="outline" size="sm" onClick={() => setCleanupOpen(true)}>
+            <ShieldCheck className="w-4 h-4 mr-1.5" />
+            {t("cleanupBeforeUninstall")}
+          </Button>
+        )}
       </div>
+
+      {cleanupReport && (
+        <div
+          className="mt-2 space-y-2 border-t pt-3 text-[12px]"
+          style={{ borderColor: "var(--app-border)" }}
+          aria-live="polite"
+        >
+          <h4 className="text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
+            {t("cleanupReport")}
+          </h4>
+          {(["cleaned", "skipped", "failed"] as const).map((kind) => (
+            <div key={kind}>
+              <div className="font-medium" style={{ color: "var(--app-text-secondary)" }}>
+                {cleanupReportLabels[kind]} ({cleanupReport[kind].length})
+              </div>
+              {cleanupReport[kind].map((item) => (
+                <div
+                  key={`${kind}-${item}`}
+                  className="break-all"
+                  style={{ color: "var(--app-text-primary)" }}
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={cleanupOpen} onOpenChange={(open) => !cleaning && setCleanupOpen(open)}>
+        <DialogContent role="alertdialog" showCloseButton={!cleaning}>
+          <DialogHeader>
+            <DialogTitle>{t("cleanupConfirmTitle")}</DialogTitle>
+            <DialogDescription>{t("cleanupConfirmDescription")}</DialogDescription>
+          </DialogHeader>
+          {cleanupError && (
+            <div className="text-sm text-destructive break-all" role="alert">
+              {cleanupError}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" disabled={cleaning} onClick={() => setCleanupOpen(false)}>
+              {t("cleanupCancel")}
+            </Button>
+            <Button disabled={cleaning} onClick={handleCleanup}>
+              <ShieldCheck className="w-4 h-4 mr-1.5" />
+              {cleaning ? t("cleaning") : t("cleanupNow")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

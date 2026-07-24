@@ -347,6 +347,75 @@ impl ProjectCliHooksService {
             .map_err(|e| e.to_string())
     }
 
+    /// 启动维护：只升级项目中已经存在的旧格式 CC-Panes hook，不新增 hook。
+    pub fn upgrade_existing_project_hooks(&self, project_path: &str) -> Result<usize, String> {
+        self.upgrade_existing_project_hooks_with(project_path, Self::get_hook_binary_path)
+    }
+
+    fn upgrade_existing_project_hooks_with<F>(
+        &self,
+        project_path: &str,
+        mut resolve_hook_binary: F,
+    ) -> Result<usize, String>
+    where
+        F: FnMut() -> Result<PathBuf, String>,
+    {
+        let project_path = Path::new(project_path);
+        let mut hook_binary_path: Option<Result<PathBuf, String>> = None;
+        let mut upgraded = 0;
+        let mut failures = Vec::new();
+
+        for (cli_tool, capabilities) in self.cli_registry.list_capabilities() {
+            if !capabilities.supports_project_hooks {
+                continue;
+            }
+            let Some(adapter) = self.cli_registry.get(&cli_tool) else {
+                continue;
+            };
+
+            match adapter.project_hooks_need_command_upgrade(project_path) {
+                Ok(false) => continue,
+                Err(error) => {
+                    failures.push(format!("{cli_tool}: {error}"));
+                    continue;
+                }
+                Ok(true) => {}
+            }
+
+            let statuses = match adapter.get_project_hook_statuses(project_path) {
+                Ok(statuses) => statuses,
+                Err(error) => {
+                    failures.push(format!("{cli_tool}: {error}"));
+                    continue;
+                }
+            };
+            let desired = statuses
+                .into_iter()
+                .map(|status| (status.name, status.supported && status.enabled))
+                .collect::<HashMap<_, _>>();
+
+            let binary_result = hook_binary_path.get_or_insert_with(&mut resolve_hook_binary);
+            let binary_path = match binary_result {
+                Ok(path) => path,
+                Err(error) => {
+                    failures.push(format!("{cli_tool}: {error}"));
+                    continue;
+                }
+            };
+
+            match adapter.sync_project_hooks(project_path, Some(binary_path), &desired) {
+                Ok(()) => upgraded += 1,
+                Err(error) => failures.push(format!("{cli_tool}: {error}")),
+            }
+        }
+
+        if failures.is_empty() {
+            Ok(upgraded)
+        } else {
+            Err(failures.join("; "))
+        }
+    }
+
     fn sync_project_cli_hooks_for_state(
         &self,
         project_path: &Path,
@@ -451,5 +520,64 @@ mod tests {
         assert!(ProjectCliHooksService::get_state_path(&project_path).exists());
 
         std::env::remove_var("CC_PANES_CLI_HOOK_BINARY");
+    }
+
+    #[test]
+    fn startup_upgrade_only_rewrites_existing_legacy_hooks() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path().join("project");
+        let settings_path = project_path.join(".claude").join("settings.local.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": "startup|resume",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "\"/old/cc-panes-cli-hook\" session-init"
+                        }]
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let hook_binary = dir.path().join("cc-panes-cli-hook");
+        fs::write(&hook_binary, b"hook").unwrap();
+
+        let service = ProjectCliHooksService::new(build_registry());
+        let upgraded = service
+            .upgrade_existing_project_hooks_with(project_path.to_string_lossy().as_ref(), || {
+                Ok(hook_binary.clone())
+            })
+            .unwrap();
+
+        assert_eq!(upgraded, 1);
+        let content = fs::read_to_string(settings_path).unwrap();
+        assert!(content.contains("if [ -x"));
+        assert!(content.contains("session-init"));
+    }
+
+    #[test]
+    fn startup_upgrade_does_not_create_hooks_for_uninjected_project() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path().join("project");
+        fs::create_dir_all(&project_path).unwrap();
+        let service = ProjectCliHooksService::new(build_registry());
+        let mut binary_resolved = false;
+
+        let upgraded = service
+            .upgrade_existing_project_hooks_with(project_path.to_string_lossy().as_ref(), || {
+                binary_resolved = true;
+                Err("binary should not be requested".to_string())
+            })
+            .unwrap();
+
+        assert_eq!(upgraded, 0);
+        assert!(!binary_resolved);
+        assert!(!project_path.join(".claude").exists());
+        assert!(!project_path.join(".codex").exists());
     }
 }

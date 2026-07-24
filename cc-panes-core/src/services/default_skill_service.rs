@@ -37,6 +37,12 @@ pub struct BundledSkillInfo {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Default)]
+pub struct DefaultSkillCleanupReport {
+    pub removed: Vec<PathBuf>,
+    pub failed: Vec<(PathBuf, String)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RenderedCommand {
     file_name: String,
@@ -146,6 +152,59 @@ impl DefaultSkillService {
         for (tool_id, skills_dir) in &skill_dirs {
             self.inject_codex_skills_for_tool(tool_id, skills_dir, &rendered, app_version);
         }
+    }
+
+    pub fn cleanup_injected(registry: &CliToolRegistry) -> DefaultSkillCleanupReport {
+        let mut report = DefaultSkillCleanupReport::default();
+
+        for (_, commands_root) in registry.global_commands_dirs() {
+            let target = commands_root.join(BUNDLED_NAMESPACE);
+            if !target.exists() {
+                continue;
+            }
+            match std::fs::remove_dir_all(&target) {
+                Ok(()) => report.removed.push(target),
+                Err(error) => report.failed.push((target, error.to_string())),
+            }
+        }
+
+        for (_, skills_root) in registry.global_skills_dirs() {
+            match Self::cleanup_injected_skill_dirs(&skills_root) {
+                Ok(paths) => report.removed.extend(paths),
+                Err(error) => report.failed.push((skills_root, error.to_string())),
+            }
+        }
+
+        report
+    }
+
+    fn cleanup_injected_skill_dirs(target_root: &Path) -> std::io::Result<Vec<PathBuf>> {
+        let mut removed = Vec::new();
+        if !target_root.exists() {
+            return Ok(removed);
+        }
+
+        let prefix = format!("{BUNDLED_NAMESPACE}-");
+        for entry in std::fs::read_dir(target_root)? {
+            let entry = entry?;
+            let path = entry.path();
+            let owned = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with(&prefix))
+                .unwrap_or(false);
+            if owned && path.is_dir() {
+                std::fs::remove_dir_all(&path)?;
+                removed.push(path);
+            }
+        }
+
+        let version_path = target_root.join(VERSION_FILE_NAME);
+        if version_path.is_file() {
+            std::fs::remove_file(&version_path)?;
+            removed.push(version_path);
+        }
+        Ok(removed)
     }
 
     /// 加载 manifest.json
@@ -581,6 +640,24 @@ mod tests {
 
         assert!(root.join("ccpanes-launch-task").is_dir());
         assert!(!root.join("ccpanes-old-skill").exists());
+        assert!(root.join("user-skill").is_dir());
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn test_cleanup_injected_skill_dirs_removes_only_owned_namespace() {
+        let root = unique_temp_dir("uninstall-skills");
+        fs::create_dir_all(root.join("ccpanes-launch-task")).unwrap();
+        fs::create_dir_all(root.join("ccpanes-old-skill")).unwrap();
+        fs::create_dir_all(root.join("user-skill")).unwrap();
+        fs::write(root.join(VERSION_FILE_NAME), "1.2.3").unwrap();
+
+        let removed = DefaultSkillService::cleanup_injected_skill_dirs(&root).unwrap();
+
+        assert_eq!(removed.len(), 3);
+        assert!(!root.join("ccpanes-launch-task").exists());
+        assert!(!root.join("ccpanes-old-skill").exists());
+        assert!(!root.join(VERSION_FILE_NAME).exists());
         assert!(root.join("user-skill").is_dir());
         remove_dir(&root);
     }

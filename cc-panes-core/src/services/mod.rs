@@ -34,6 +34,7 @@ mod task_binding_service;
 mod terminal_backend;
 pub mod terminal_service;
 mod todo_service;
+mod uninstall_cleanup_service;
 pub mod usage_stats_service;
 mod user_skill_service;
 mod wallpaper_service;
@@ -80,6 +81,7 @@ pub use terminal_service::{
     KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo, TerminalService,
 };
 pub use todo_service::TodoService;
+pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupService};
 pub use usage_stats_service::UsageStatsService;
 pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillService};
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};

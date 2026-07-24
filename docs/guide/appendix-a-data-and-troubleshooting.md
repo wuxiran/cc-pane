@@ -41,6 +41,34 @@ CC-Panes 的数据分两层。
 
 最简单：整个复制 `~/.cc-panes/` 目录（发布版）。如果还想保住 AI 的历史对话，连 `~/.claude/`、`~/.codex/` 一起备份。
 
+## 卸载与手动清理
+
+仍能打开 CC-Panes 时，先使用**设置 → 关于 → 卸载前清理**。它会撤销能确认由 CC-Panes 写入的 CLI 全局文件和已注册项目 hook，并报告已清理、已跳过和失败项；不会删除工作空间、会话或其他应用数据。
+
+Windows 交互卸载随后会询问是否删除应用数据，默认选择“否”。选择“是”只处理下列三个固定路径；`/S` 静默卸载和 updater 升级始终保留数据：
+
+- `%APPDATA%\com.ccpanes.app`
+- `%LOCALAPPDATA%\com.ccpanes.app`
+- `%USERPROFILE%\.cc-panes`
+
+自定义 `data_dir` 不在卸载器的删除范围内。可以在卸载前从**设置 → 通用 → 数据目录**确认实际位置；已经卸载时，需从原配置或备份中确认后手动处理。若上述固定目录是 junction/reparse point，不要让卸载器递归删除，应选择“否”并先确认链接的真实目标。
+
+已经卸载的老版本可按下面清单逐项检查。删除前先备份；配置文件只删除明确带 CC-Panes 所有权特征的条目，不要整文件删除。
+
+| 位置 | 手动处理边界 |
+| --- | --- |
+| `~/.claude/commands/ccpanes/` | 整个目录属于 CC-Panes 命名空间，可删除 |
+| `~/.claude/skills/ccpanes-*`、`~/.codex/skills/ccpanes-*` | 只删除 `ccpanes-` 前缀目录和 `.ccpanes-default-skills-version` |
+| `~/.grok/config.toml` | 只删除 URL 为 loopback、路径含 `/mcp` 且带 `token=` 的 `[mcp_servers.ccpanes]`；其他同名 server 保留 |
+| `~/.claude.json.ccpanes.bak` | 确认不再需要恢复 Claude 配置后删除 |
+| `<项目>/.claude/settings.local.json` | 只移除 command 含 `cc-panes-cli-hook` 或旧名 `cc-panes-hook` 的 hook entry |
+| `<项目>/.codex/hooks.json` | 同上，只移除带 hook 二进制签名的 entry |
+| `<项目>/.opencode/plugins/ccpanes.js` | 仅在确认内容是 CC-Panes 内置插件时删除 |
+
+`.codex/config.toml` 的通用 `hooks` / `codex_hooks` feature flag 没有独立所有权标记，应用内清理会保守地保留它们。除非确认没有其他 Codex hook 依赖，否则不要手动删除。
+
+Windows 卸载器通常会移除 `ccpanes://` 协议注册。仍有残留时检查当前用户注册表的 `HKEY_CURRENT_USER\Software\Classes\ccpanes`；只有键值仍指向已卸载的 CC-Panes 可执行文件时才删除该键。开发版协议是独立的 `ccpanes-dev`，不要一并删除。
+
 ## 常见排障
 
 - **项目打不开 / 找不到**：项目目录被移动或删除了 → 在侧边栏重新导入。

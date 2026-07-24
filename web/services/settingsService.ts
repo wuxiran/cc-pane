@@ -2,7 +2,13 @@
  * 设置服务 - 与后端设置交互
  */
 
-import type { AppSettings, DataDirInfo, TailscaleStatus, WebAccessStatus } from "@/types/settings";
+import type {
+  AppSettings,
+  DataDirInfo,
+  TailscaleStatus,
+  UninstallCleanupReport,
+  WebAccessStatus,
+} from "@/types/settings";
 import { invoke } from "@tauri-apps/api/core";
 import { apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
 
@@ -105,6 +111,12 @@ export const settingsService = {
   async migrateDataDir(targetDir: string): Promise<void> {
     return invokeOrApi<void>("migrate_data_dir", { targetDir }, async () => {
       throw new Error("Data directory migration is only available in the desktop app");
+    });
+  },
+
+  async cleanupBeforeUninstall(): Promise<UninstallCleanupReport> {
+    return invokeOrApi<UninstallCleanupReport>("cleanup_before_uninstall", undefined, async () => {
+      throw new Error("Uninstall cleanup is only available in the desktop app");
     });
   },
 

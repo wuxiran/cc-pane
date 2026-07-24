@@ -1,9 +1,10 @@
 //! Claude Code CLI 适配器
 
 use crate::{
-    resolve_executable, CcPaneEvent, CliAdapterContext, CliCommandResult, CliToolAdapter,
-    CliToolCapabilities, CliToolInfo, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus,
-    ToolKind, ToolMatcher,
+    build_guarded_hook_command, is_guarded_hook_command, resolve_executable, CcPaneEvent,
+    CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
+    HookCommandShell, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus, ToolKind,
+    ToolMatcher,
 };
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
@@ -402,8 +403,12 @@ impl ClaudeAdapter {
     }
 
     fn build_hook_command(binary_path: &Path, def: &HookDef) -> String {
-        let path_str = binary_path.to_string_lossy().replace('\\', "\\\\");
-        format!("\"{}\" {}", path_str, def.subcommand)
+        let shell = if cfg!(windows) {
+            HookCommandShell::Windows
+        } else {
+            HookCommandShell::Posix
+        };
+        build_guarded_hook_command(binary_path, def.subcommand, shell)
     }
 
     fn is_ccpanes_hook_entry(entry: &serde_json::Value) -> bool {
@@ -415,9 +420,7 @@ impl ClaudeAdapter {
                     hook.get("command")
                         .and_then(|cmd| cmd.as_str())
                         .map(|cmd| {
-                            cmd.contains(HOOK_BINARY_NAME)
-                                || cmd.contains(LEGACY_HOOK_BINARY_NAME)
-                                || cmd.contains("ccpanes")
+                            cmd.contains(HOOK_BINARY_NAME) || cmd.contains(LEGACY_HOOK_BINARY_NAME)
                         })
                         .unwrap_or(false)
                 })
@@ -448,7 +451,7 @@ impl ClaudeAdapter {
             return false;
         }
         let matcher = entry.get("matcher").and_then(|v| v.as_str()).unwrap_or("");
-        if matcher != def.matcher {
+        if matcher != def.matcher && !Self::legacy_matchers_for_def(def).contains(&matcher) {
             return false;
         }
         let command = entry
@@ -467,6 +470,13 @@ impl ClaudeAdapter {
         match def.name {
             "session-inject" => &["session-start"],
             "plan-archive" => &["plan-archive"],
+            _ => &[],
+        }
+    }
+
+    fn legacy_matchers_for_def(def: &HookDef) -> &'static [&'static str] {
+        match def.name {
+            "session-inject" => &["startup|resume"],
             _ => &[],
         }
     }
@@ -867,6 +877,69 @@ impl CliToolAdapter for ClaudeAdapter {
         Ok(())
     }
 
+    fn project_hooks_need_command_upgrade(&self, project_path: &Path) -> Result<bool> {
+        let settings_path = Self::get_settings_path(project_path);
+        if !settings_path.exists() {
+            return Ok(false);
+        }
+
+        let settings: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(settings_path)?)?;
+        Ok(settings
+            .get("hooks")
+            .and_then(serde_json::Value::as_object)
+            .into_iter()
+            .flat_map(|hooks| hooks.values())
+            .filter_map(serde_json::Value::as_array)
+            .flatten()
+            .filter_map(|entry| entry.get("hooks").and_then(serde_json::Value::as_array))
+            .flatten()
+            .filter_map(|hook| hook.get("command").and_then(serde_json::Value::as_str))
+            .any(|command| {
+                (command.contains(HOOK_BINARY_NAME) || command.contains(LEGACY_HOOK_BINARY_NAME))
+                    && !is_guarded_hook_command(command)
+            }))
+    }
+
+    fn cleanup_project_hooks(&self, project_path: &Path) -> Result<Vec<PathBuf>> {
+        let settings_path = Self::get_settings_path(project_path);
+        if !settings_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let content = fs::read_to_string(&settings_path)?;
+        let mut settings: serde_json::Value = serde_json::from_str(&content)?;
+        let Some(hooks_obj) = settings
+            .as_object_mut()
+            .and_then(|root| root.get_mut("hooks"))
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            return Ok(Vec::new());
+        };
+
+        let mut changed = false;
+        for entries in hooks_obj
+            .values_mut()
+            .filter_map(serde_json::Value::as_array_mut)
+        {
+            let old_len = entries.len();
+            entries.retain(|entry| !Self::is_ccpanes_hook_entry(entry));
+            changed |= entries.len() != old_len;
+        }
+        hooks_obj.retain(|_, value| {
+            value
+                .as_array()
+                .map(|items| !items.is_empty())
+                .unwrap_or(true)
+        });
+
+        if !changed {
+            return Ok(Vec::new());
+        }
+        Self::write_settings(&settings_path, &settings)?;
+        Ok(vec![settings_path])
+    }
+
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let mut args = Vec::new();
 
@@ -1098,6 +1171,7 @@ mod tests {
         // session-init / session-resume 子命令出现
         assert!(content.contains("session-init"));
         assert!(content.contains("session-resume"));
+        assert!(content.contains("if [ -x"));
         // tool-after（旧 plan-archive 重命名）不出现，因为被 desired 关闭
         assert!(!content.contains("tool-after"));
 
@@ -1114,6 +1188,91 @@ mod tests {
         assert!(!plan.enabled);
         assert!(session.supported);
         assert!(plan.supported);
+    }
+
+    #[test]
+    fn sync_project_hooks_upgrades_legacy_command_and_preserves_user_hook() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path();
+        let hook_binary = project_path.join("cc-panes-cli-hook");
+        fs::write(&hook_binary, b"hook").unwrap();
+        let settings_path = project_path.join(".claude").join("settings.local.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "startup|resume",
+                            "hooks": [{
+                                "type": "command",
+                                "command": format!("\"{}\" session-init", hook_binary.display())
+                            }]
+                        },
+                        {
+                            "matcher": "startup",
+                            "hooks": [{"type": "command", "command": "user-context-hook"}]
+                        }
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let mut desired = HOOK_DEFS
+            .iter()
+            .map(|def| (def.name.to_string(), false))
+            .collect::<HashMap<_, _>>();
+        desired.insert("session-inject".to_string(), true);
+        ClaudeAdapter::new()
+            .sync_project_hooks(project_path, Some(&hook_binary), &desired)
+            .unwrap();
+
+        let content = fs::read_to_string(settings_path).unwrap();
+        assert!(content.contains("if [ -x"));
+        assert!(content.contains("user-context-hook"));
+        let settings: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(
+            settings["hooks"]["SessionStart"].as_array().unwrap().len(),
+            2
+        );
+    }
+
+    #[test]
+    fn cleanup_project_hooks_removes_only_ccpanes_entries() {
+        let dir = tempdir().unwrap();
+        let settings_path = dir.path().join(".claude").join("settings.local.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "startup|resume",
+                            "hooks": [{"type": "command", "command": "\"/opt/cc-panes-cli-hook\" session-init"}]
+                        },
+                        {
+                            "matcher": "startup",
+                            "hooks": [{"type": "command", "command": "user-context-hook"}]
+                        }
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let changed = ClaudeAdapter::new()
+            .cleanup_project_hooks(dir.path())
+            .unwrap();
+
+        assert_eq!(changed, vec![settings_path.clone()]);
+        let content = fs::read_to_string(settings_path).unwrap();
+        assert!(!content.contains("cc-panes-cli-hook"));
+        assert!(content.contains("user-context-hook"));
     }
 
     #[test]

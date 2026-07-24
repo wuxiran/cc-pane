@@ -36,6 +36,7 @@ use commands::{
     check_todo_reminders,
     clean_all_broken_sessions,
     clean_session_file,
+    cleanup_before_uninstall,
     cleanup_project_history,
     clear_launch_history,
     clear_layout_snapshot,
@@ -364,7 +365,8 @@ use services::{
     SkillMarketService, SkillService, SpecService, SshCredentialService, SshMachineService,
     StartLocks, TaskBindingService, TerminalBackendKind, TerminalBackendState,
     TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
-    UsageStatsService, WebAccessLifecycle, WorkspaceService, WorktreeService,
+    UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
+    WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1330,6 +1332,7 @@ pub fn run() {
     let plan_service = Arc::new(PlanService::new());
     let filesystem_service = Arc::new(FileSystemService::new());
     let project_cli_hooks_service = Arc::new(ProjectCliHooksService::new(cli_registry.clone()));
+    let uninstall_cleanup_service = Arc::new(UninstallCleanupService::new(cli_registry.clone()));
     let ssh_credential_service = Arc::new(SshCredentialService::new());
     let terminal_service = Arc::new(TerminalService::new(
         settings_service.clone(),
@@ -1455,6 +1458,7 @@ pub fn run() {
         .manage(history_service)
         .manage(history_watch_manager)
         .manage(project_cli_hooks_service)
+        .manage(uninstall_cleanup_service)
         .manage(project_context_service)
         .manage(journal_service)
         .manage(worktree_service)
@@ -1525,6 +1529,35 @@ pub fn run() {
                 "[boot] +{}ms: setup callback entered",
                 boot_t0.elapsed().as_millis()
             );
+
+            // ---- 升级已注入项目的旧格式 hook 命令（不会给未注入项目新增 hook）----
+            {
+                let project_service = app.state::<Arc<ProjectService>>();
+                let hooks_service = app.state::<Arc<ProjectCliHooksService>>();
+                match project_service.list_projects() {
+                    Ok(projects) => {
+                        for project in projects {
+                            match hooks_service.upgrade_existing_project_hooks(&project.path) {
+                                Ok(count) if count > 0 => info!(
+                                    project = %project.path,
+                                    tools = count,
+                                    "[cli-hooks] upgraded guarded hook commands"
+                                ),
+                                Ok(_) => {}
+                                Err(error) => warn!(
+                                    project = %project.path,
+                                    error = %error,
+                                    "[cli-hooks] startup hook upgrade skipped"
+                                ),
+                            }
+                        }
+                    }
+                    Err(error) => warn!(
+                        error = %error,
+                        "[cli-hooks] unable to list projects for startup hook upgrade"
+                    ),
+                }
+            }
 
             // ---- 提取打包的 .claude/ 配置到数据目录（Release 模式）----
             {
@@ -2263,6 +2296,7 @@ pub fn run() {
             rollback_project_migration,
             // Settings 命令
             get_settings,
+            cleanup_before_uninstall,
             update_settings,
             test_proxy,
             test_cli_launcher,

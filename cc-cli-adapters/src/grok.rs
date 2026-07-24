@@ -325,6 +325,17 @@ impl CliToolAdapter for GrokAdapter {
         &self.caps
     }
 
+    fn cleanup_user_injections(&self) -> Result<Vec<PathBuf>> {
+        let Some(path) = Self::user_config_path() else {
+            return Ok(Vec::new());
+        };
+        if Self::remove_ccpanes_entry_at(&path)? {
+            Ok(vec![path])
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let mut args = Vec::new();
 

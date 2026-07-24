@@ -1,9 +1,10 @@
 //! Codex CLI 适配器
 
 use crate::{
-    resolve_executable, CcPaneEvent, CliAdapterContext, CliCommandResult, CliToolAdapter,
-    CliToolCapabilities, CliToolInfo, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus,
-    ToolKind, ToolMatcher,
+    build_guarded_hook_command, is_guarded_hook_command, resolve_executable, CcPaneEvent,
+    CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
+    HookCommandShell, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus, ToolKind,
+    ToolMatcher,
 };
 use anyhow::{anyhow, Context, Result};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -541,9 +542,8 @@ impl CodexAdapter {
         Self::project_path_conflict_reason(project_path)
     }
 
-    fn build_hook_command(binary_path: &Path, def: &HookDef) -> String {
-        let path_str = binary_path.to_string_lossy().replace('\\', "\\\\");
-        format!("\"{}\" {}", path_str, def.subcommand)
+    fn build_hook_command(binary_path: &Path, def: &HookDef, shell: HookCommandShell) -> String {
+        build_guarded_hook_command(binary_path, def.subcommand, shell)
     }
 
     fn unsupported_statuses(reason: &str) -> Vec<ProjectHookStatus> {
@@ -615,9 +615,7 @@ impl CodexAdapter {
                     hook.get("command")
                         .and_then(|cmd| cmd.as_str())
                         .map(|cmd| {
-                            cmd.contains(HOOK_BINARY_NAME)
-                                || cmd.contains(LEGACY_HOOK_BINARY_NAME)
-                                || cmd.contains("ccpanes")
+                            cmd.contains(HOOK_BINARY_NAME) || cmd.contains(LEGACY_HOOK_BINARY_NAME)
                         })
                         .unwrap_or(false)
                 })
@@ -786,9 +784,15 @@ impl CodexAdapter {
             }
 
             if desired.get(def.name).copied().unwrap_or(true) {
+                let shell = if allow_windows_host || !cfg!(windows) {
+                    HookCommandShell::Posix
+                } else {
+                    HookCommandShell::Windows
+                };
                 let command = Self::build_hook_command(
                     hook_binary_path.expect("checked above when session hook enabled"),
                     def,
+                    shell,
                 );
                 let entry = serde_json::json!({
                     "matcher": def.matcher,
@@ -885,6 +889,67 @@ impl CliToolAdapter for CodexAdapter {
         desired: &HashMap<String, bool>,
     ) -> Result<()> {
         self.sync_project_hooks_inner(project_path, hook_binary_path, desired, false)
+    }
+
+    fn project_hooks_need_command_upgrade(&self, project_path: &Path) -> Result<bool> {
+        let hooks_path = Self::hooks_path(project_path);
+        if !hooks_path.exists() {
+            return Ok(false);
+        }
+
+        let hooks_json = Self::read_hooks_json(project_path)?;
+        Ok(hooks_json
+            .get("hooks")
+            .and_then(serde_json::Value::as_object)
+            .into_iter()
+            .flat_map(|hooks| hooks.values())
+            .filter_map(serde_json::Value::as_array)
+            .flatten()
+            .filter_map(|entry| entry.get("hooks").and_then(serde_json::Value::as_array))
+            .flatten()
+            .filter_map(|hook| hook.get("command").and_then(serde_json::Value::as_str))
+            .any(|command| {
+                (command.contains(HOOK_BINARY_NAME) || command.contains(LEGACY_HOOK_BINARY_NAME))
+                    && !is_guarded_hook_command(command)
+            }))
+    }
+
+    fn cleanup_project_hooks(&self, project_path: &Path) -> Result<Vec<PathBuf>> {
+        let hooks_path = Self::hooks_path(project_path);
+        if !hooks_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let mut hooks_json = Self::read_hooks_json(project_path)?;
+        let Some(hooks_obj) = hooks_json
+            .as_object_mut()
+            .and_then(|root| root.get_mut("hooks"))
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            return Ok(Vec::new());
+        };
+
+        let mut changed = false;
+        for entries in hooks_obj
+            .values_mut()
+            .filter_map(serde_json::Value::as_array_mut)
+        {
+            let old_len = entries.len();
+            entries.retain(|entry| !Self::is_ccpanes_hook_entry(entry));
+            changed |= entries.len() != old_len;
+        }
+        hooks_obj.retain(|_, value| {
+            value
+                .as_array()
+                .map(|items| !items.is_empty())
+                .unwrap_or(true)
+        });
+
+        if !changed {
+            return Ok(Vec::new());
+        }
+        Self::write_hooks_json(project_path, &hooks_json)?;
+        Ok(vec![hooks_path])
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
@@ -1069,6 +1134,7 @@ mod tests {
 
         let config = fs::read_to_string(project_path.join(".codex").join("config.toml")).unwrap();
         let hooks = fs::read_to_string(project_path.join(".codex").join("hooks.json")).unwrap();
+        assert!(hooks.contains("if [ -x"));
 
         // codex_hooks 是否写入取决于 host codex 版本（版本门控）；integration 测试只断言
         // 版本无关的 hooks=true，版本门控行为由 apply_hooks_feature_keys 单测覆盖。
@@ -1123,11 +1189,47 @@ mod tests {
 
         let config = fs::read_to_string(project_path.join(".codex").join("config.toml")).unwrap();
         let hooks = fs::read_to_string(project_path.join(".codex").join("hooks.json")).unwrap();
+        assert!(hooks.contains("if [ -x"));
 
         // 见上：codex_hooks 受 host codex 版本门控，integration 测试只断言 hooks=true。
         assert!(config.contains("hooks = true"));
         assert!(hooks.contains("/mnt/c/Users/wuxiran"));
         assert!(hooks.contains("session-init"));
+    }
+
+    #[test]
+    fn cleanup_project_hooks_removes_only_ccpanes_entries() {
+        let dir = tempdir().unwrap();
+        let hooks_path = dir.path().join(".codex").join("hooks.json");
+        fs::create_dir_all(hooks_path.parent().unwrap()).unwrap();
+        fs::write(
+            &hooks_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "startup|resume",
+                            "hooks": [{"type": "command", "command": "\"/opt/cc-panes-cli-hook\" session-init"}]
+                        },
+                        {
+                            "matcher": "startup",
+                            "hooks": [{"type": "command", "command": "user-context-hook"}]
+                        }
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let changed = CodexAdapter::new()
+            .cleanup_project_hooks(dir.path())
+            .unwrap();
+
+        assert_eq!(changed, vec![hooks_path.clone()]);
+        let content = fs::read_to_string(hooks_path).unwrap();
+        assert!(!content.contains("cc-panes-cli-hook"));
+        assert!(content.contains("user-context-hook"));
     }
 
     #[test]

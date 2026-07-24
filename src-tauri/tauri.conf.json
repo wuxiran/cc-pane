@@ -56,6 +56,11 @@
     "macOS": {
       "minimumSystemVersion": "10.15"
     },
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/installer-hooks.nsh"
+      }
+    },
     "linux": {
       "deb": {
         "depends": [

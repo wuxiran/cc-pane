@@ -1,6 +1,9 @@
 use crate::models::settings::AppSettings;
 use crate::models::Workspace;
-use crate::services::{HistoryWatchManager, SettingsService};
+use crate::services::{
+    HistoryWatchManager, ProjectService, SettingsService, UninstallCleanupReport,
+    UninstallCleanupService,
+};
 use crate::utils::AppPaths;
 use crate::utils::AppResult;
 use cc_cli_adapters::{no_window_command, normalize_cli_command};
@@ -34,6 +37,20 @@ pub fn update_settings(
         history_watch_manager.set_enabled(is_enabled);
     }
     Ok(())
+}
+
+/// 移除 CC-Panes 写入其他 CLI 和已注册项目的配置，供卸载前显式调用。
+#[tauri::command]
+pub fn cleanup_before_uninstall(
+    cleanup_service: State<'_, Arc<UninstallCleanupService>>,
+    project_service: State<'_, Arc<ProjectService>>,
+) -> AppResult<UninstallCleanupReport> {
+    let project_paths = project_service
+        .list_projects()?
+        .into_iter()
+        .map(|project| project.path)
+        .collect::<Vec<_>>();
+    Ok(cleanup_service.cleanup(&project_paths))
 }
 
 /// 测试代理连接

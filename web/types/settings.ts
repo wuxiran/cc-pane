@@ -286,6 +286,12 @@ export interface DataDirInfo {
   sizeBytes: number;
 }
 
+export interface UninstallCleanupReport {
+  cleaned: string[];
+  skipped: string[];
+  failed: string[];
+}
+
 /** 终端状态
  *
  * 阶段 2 扩充：与 Rust 端 SessionStatus 对齐（详见 cc-panes-core/src/services/terminal_service.rs:309）。
