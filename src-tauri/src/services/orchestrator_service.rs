@@ -23,8 +23,8 @@ use crate::models::{
 use crate::services::{
     ExternalSkillRegistry, LaunchHistoryService, LaunchProfileService, MemoryService,
     NotificationRequest, NotificationService, ProjectService, ProviderService, SettingsService,
-    SharedMcpService, SkillService, SpecService, SshMachineService, TerminalBackendState,
-    TerminalService, TodoService, WorkspaceService,
+    SharedMcpService, SkillService, SpecService, SshMachineService, TerminalBackendKind,
+    TerminalBackendState, TerminalService, TodoService, WorkspaceService,
 };
 use crate::utils::{validate_command, validate_mcp_name, validate_path, AppPaths};
 use anyhow::Result;
@@ -3540,16 +3540,12 @@ impl McpToolHandler {
             Err(error) => return format!("错误: {}", error),
         };
 
-        // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
-        // 安全网：长 prompt 自动外部化为文件，避免终端黑屏
-        let initial_prompt_owned = if !is_resume {
-            params
-                .prompt
-                .map(|p| externalize_long_prompt(&params.project_path, &task_id, p))
-        } else {
-            None
-        };
-        let initial_prompt = initial_prompt_owned.as_deref();
+        let prompt_delivery = prepare_launch_prompt(
+            &params.project_path,
+            &task_id,
+            if is_resume { None } else { params.prompt },
+            self.state.terminal_backend.kind(),
+        );
         let runtime = match resolve_launch_runtime(
             &params.project_path,
             ws_name.as_deref(),
@@ -3587,16 +3583,19 @@ impl McpToolHandler {
             resume_id: params.resume_id.clone(),
             skip_mcp: false,
             append_system_prompt: None,
-            initial_prompt: initial_prompt.map(str::to_string),
+            initial_prompt: prompt_delivery.initial_prompt,
             yolo_mode: None,
             adapter_options: None,
             extra_env: None,
             ssh: runtime.ssh.clone(),
             wsl: runtime.wsl.clone(),
         };
-        let session_id = match backend_call(&self.state, move |backend| {
-            backend.create_session(create_request)
-        })
+        let session_id = match create_launch_session(
+            self.state.terminal_backend.clone(),
+            create_request,
+            prompt_delivery.deferred_prompt,
+            PASTE_READY_WAIT_TIMEOUT,
+        )
         .await
         {
             Ok(sid) => sid,
@@ -4718,7 +4717,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 向 PTY 会话提交单行或多行文本（自动处理 Enter 键时序）。内部用 bracketed-paste 写入完整文本，按长度等待 min(200 + (len/512)*30, 5000) ms，再单独发送 CR。适用于发送 slash command（如 "/plan"）或输入 prompt。控制键请改用 write_to_session。
+    /// 向 PTY 会话提交单行或多行文本（自动处理 Enter 键时序）。内部用 bracketed-paste 写入完整文本；TUI 已宣告 paste ready 时固定等待 200ms，否则回退长度档，然后单独发送 CR。适用于发送 slash command（如 "/plan"）或输入 prompt。控制键请改用 write_to_session。
     #[tool]
     async fn submit_to_session(
         &self,
@@ -6647,15 +6646,12 @@ async fn handle_launch_task(
         }
     }
 
-    // 非 resume 时通过 CLI 位置参数注入 prompt（避免 PTY stdin 时序问题）
-    // 安全网：长 prompt 自动外部化为文件，避免终端黑屏
-    let initial_prompt_owned = if !is_resume {
-        req.prompt
-            .map(|p| externalize_long_prompt(&req.project_path, &task_id, p))
-    } else {
-        None
-    };
-    let initial_prompt = initial_prompt_owned.as_deref();
+    let prompt_delivery = prepare_launch_prompt(
+        &req.project_path,
+        &task_id,
+        if is_resume { None } else { req.prompt },
+        state.terminal_backend.kind(),
+    );
     let runtime = match resolve_launch_runtime(
         &req.project_path,
         workspace_name.as_deref(),
@@ -6689,16 +6685,19 @@ async fn handle_launch_task(
         resume_id: req.resume_id.clone(),
         skip_mcp: false,
         append_system_prompt: None,
-        initial_prompt: initial_prompt.map(str::to_string),
+        initial_prompt: prompt_delivery.initial_prompt,
         yolo_mode: None,
         adapter_options: None,
         extra_env: None,
         ssh: runtime.ssh.clone(),
         wsl: runtime.wsl.clone(),
     };
-    let session_id = match backend_call(&state, move |backend| {
-        backend.create_session(create_request)
-    })
+    let session_id = match create_launch_session(
+        state.terminal_backend.clone(),
+        create_request,
+        prompt_delivery.deferred_prompt,
+        PASTE_READY_WAIT_TIMEOUT,
+    )
     .await
     {
         Ok(sid) => {
@@ -8025,6 +8024,45 @@ fn refresh_task_status(task: &mut TaskStatus, statuses: &[SessionStatusInfo]) {
 /// 长 prompt 阈值（字节）。超过此长度的 prompt 将被写入文件，用短引用替代。
 /// 8KB 足以避免 Windows 命令行长度限制和 ConPTY/ink 处理异常。
 const PROMPT_FILE_THRESHOLD: usize = 8192;
+const PASTE_READY_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const PASTE_READY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
+struct LaunchPromptDelivery {
+    initial_prompt: Option<String>,
+    deferred_prompt: Option<String>,
+}
+
+fn prepare_launch_prompt(
+    project_path: &str,
+    task_id: &str,
+    prompt: Option<String>,
+    backend_kind: TerminalBackendKind,
+) -> LaunchPromptDelivery {
+    let Some(prompt) = prompt else {
+        return LaunchPromptDelivery {
+            initial_prompt: None,
+            deferred_prompt: None,
+        };
+    };
+
+    let can_defer = backend_kind == TerminalBackendKind::InProcess
+        && prompt.len() <= PROMPT_FILE_THRESHOLD
+        && prompt.contains('\n');
+    if can_defer {
+        return LaunchPromptDelivery {
+            initial_prompt: None,
+            deferred_prompt: Some(prompt),
+        };
+    }
+
+    // In daemon mode the PTY reader and paste_ready flag live in the daemon process,
+    // while launch_task runs in Tauri. Until the flag is bridged, preserve the positional
+    // prompt path instead of waiting ten seconds on an unreadable readiness signal.
+    LaunchPromptDelivery {
+        initial_prompt: Some(externalize_long_prompt(project_path, task_id, prompt)),
+        deferred_prompt: None,
+    }
+}
 
 /// 将长 prompt 写入 `.ccpanes/prompts/<id>.md`，返回文件路径
 fn write_prompt_file(project_path: &str, id: &str, prompt: &str) -> std::io::Result<PathBuf> {
@@ -8059,6 +8097,75 @@ fn externalize_long_prompt(project_path: &str, id: &str, prompt: String) -> Stri
             prompt
         }
     }
+}
+
+async fn wait_for_paste_ready(
+    terminal_backend: Arc<TerminalBackendState>,
+    session_id: &str,
+    timeout: std::time::Duration,
+) -> std::result::Result<bool, String> {
+    let started_at = std::time::Instant::now();
+    loop {
+        let sid = session_id.to_string();
+        let ready = backend_call_for_state(terminal_backend.clone(), move |backend| {
+            backend.is_paste_ready(&sid)
+        })
+        .await?;
+        if ready {
+            return Ok(true);
+        }
+
+        let elapsed = started_at.elapsed();
+        if elapsed >= timeout {
+            return Ok(false);
+        }
+        tokio::time::sleep(std::cmp::min(
+            PASTE_READY_POLL_INTERVAL,
+            timeout.saturating_sub(elapsed),
+        ))
+        .await;
+    }
+}
+
+async fn create_launch_session(
+    terminal_backend: Arc<TerminalBackendState>,
+    mut request: CoreCreateSessionRequest,
+    deferred_prompt: Option<String>,
+    ready_timeout: std::time::Duration,
+) -> std::result::Result<String, String> {
+    let first_request = request.clone();
+    let session_id = backend_call_for_state(terminal_backend.clone(), move |backend| {
+        backend.create_session(first_request)
+    })
+    .await?;
+
+    let Some(prompt) = deferred_prompt else {
+        return Ok(session_id);
+    };
+
+    if wait_for_paste_ready(terminal_backend.clone(), &session_id, ready_timeout).await? {
+        submit_text_to_session(terminal_backend.backend(), &session_id, &prompt)
+            .await
+            .map_err(|error| error.to_string())?;
+        return Ok(session_id);
+    }
+
+    warn!(
+        session_id = %session_id,
+        timeout_ms = ready_timeout.as_millis() as u64,
+        "paste readiness timed out; restarting launch with positional prompt"
+    );
+    let stale_session_id = session_id.clone();
+    backend_call_for_state(terminal_backend.clone(), move |backend| {
+        backend.kill(&stale_session_id)
+    })
+    .await?;
+
+    request.initial_prompt = Some(prompt);
+    backend_call_for_state(terminal_backend, move |backend| {
+        backend.create_session(request)
+    })
+    .await
 }
 
 /// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交
@@ -9284,7 +9391,7 @@ fn local_orchestrator_endpoint_reachable(port: u16) -> bool {
 mod tests {
     use super::*;
     use crate::models::WorkspaceCliEnvironmentDefaults;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     fn wait_test_status(session_id: &str, status: SessionStatus) -> SessionStatusInfo {
         SessionStatusInfo {
@@ -9298,6 +9405,247 @@ mod tests {
             current_tool_summary: None,
             updated_at: 0,
         }
+    }
+
+    #[derive(Default)]
+    struct LaunchPromptTestBackend {
+        creates: Mutex<Vec<CoreCreateSessionRequest>>,
+        submits: Mutex<Vec<(String, String)>>,
+        kills: Mutex<Vec<String>>,
+        ready: AtomicBool,
+        sequence: AtomicUsize,
+    }
+
+    impl TerminalBackend for LaunchPromptTestBackend {
+        fn create_session(
+            &self,
+            request: CoreCreateSessionRequest,
+        ) -> cc_panes_core::utils::AppResult<String> {
+            self.creates
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(request);
+            let sequence = self.sequence.fetch_add(1, Ordering::SeqCst) + 1;
+            Ok(format!("launch-session-{sequence}"))
+        }
+
+        fn write(&self, _session_id: &str, _data: &str) -> cc_panes_core::utils::AppResult<()> {
+            Ok(())
+        }
+
+        fn submit_text_to_session(
+            &self,
+            session_id: &str,
+            text: &str,
+        ) -> cc_panes_core::utils::AppResult<()> {
+            self.submits
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push((session_id.to_string(), text.to_string()));
+            Ok(())
+        }
+
+        fn is_paste_ready(&self, _session_id: &str) -> cc_panes_core::utils::AppResult<bool> {
+            Ok(self.ready.load(Ordering::SeqCst))
+        }
+
+        fn resize(
+            &self,
+            _session_id: &str,
+            _cols: u16,
+            _rows: u16,
+        ) -> cc_panes_core::utils::AppResult<()> {
+            Ok(())
+        }
+
+        fn kill(&self, session_id: &str) -> cc_panes_core::utils::AppResult<()> {
+            self.kills
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(session_id.to_string());
+            Ok(())
+        }
+
+        fn get_all_status(&self) -> cc_panes_core::utils::AppResult<Vec<SessionStatusInfo>> {
+            Ok(Vec::new())
+        }
+
+        fn get_session_status(
+            &self,
+            _session_id: &str,
+        ) -> cc_panes_core::utils::AppResult<Option<SessionStatusInfo>> {
+            Ok(None)
+        }
+
+        fn get_session_output(
+            &self,
+            session_id: &str,
+            _lines: usize,
+        ) -> cc_panes_core::utils::AppResult<cc_panes_core::services::terminal_service::SessionOutput>
+        {
+            Ok(cc_panes_core::services::terminal_service::SessionOutput {
+                session_id: session_id.to_string(),
+                lines: Vec::new(),
+            })
+        }
+
+        fn get_session_replay_snapshot(
+            &self,
+            _session_id: &str,
+        ) -> cc_panes_core::utils::AppResult<Option<cc_panes_core::models::TerminalReplaySnapshot>>
+        {
+            Ok(None)
+        }
+    }
+
+    fn launch_prompt_test_request() -> CoreCreateSessionRequest {
+        CoreCreateSessionRequest {
+            launch_id: Some("launch-id".to_string()),
+            project_path: "/tmp/project".to_string(),
+            cols: 120,
+            rows: 30,
+            workspace_name: None,
+            provider_id: None,
+            provider_selection: LaunchProviderSelection::default(),
+            launch_profile_id: None,
+            workspace_path: None,
+            workspace_snapshot_id: None,
+            launch_claude: true,
+            cli_tool: CliTool::Claude,
+            resume_id: None,
+            skip_mcp: false,
+            append_system_prompt: None,
+            initial_prompt: None,
+            yolo_mode: None,
+            adapter_options: None,
+            extra_env: None,
+            ssh: None,
+            wsl: None,
+        }
+    }
+
+    #[test]
+    fn launch_prompt_selection_defers_only_in_process_multiline_text() {
+        let multiline = prepare_launch_prompt(
+            "/tmp/project",
+            "task",
+            Some("first\nsecond".to_string()),
+            TerminalBackendKind::InProcess,
+        );
+        assert_eq!(multiline.initial_prompt, None);
+        assert_eq!(multiline.deferred_prompt.as_deref(), Some("first\nsecond"));
+
+        let single_line = prepare_launch_prompt(
+            "/tmp/project",
+            "task",
+            Some("single line".to_string()),
+            TerminalBackendKind::InProcess,
+        );
+        assert_eq!(single_line.initial_prompt.as_deref(), Some("single line"));
+        assert_eq!(single_line.deferred_prompt, None);
+
+        let daemon = prepare_launch_prompt(
+            "/tmp/project",
+            "task",
+            Some("first\nsecond".to_string()),
+            TerminalBackendKind::Daemon,
+        );
+        assert_eq!(daemon.initial_prompt.as_deref(), Some("first\nsecond"));
+        assert_eq!(daemon.deferred_prompt, None);
+    }
+
+    #[test]
+    fn launch_prompt_selection_keeps_long_prompt_externalization() {
+        let project = tempfile::tempdir().expect("create project dir");
+        let prompt = format!("first line\n{}", "x".repeat(PROMPT_FILE_THRESHOLD));
+
+        let delivery = prepare_launch_prompt(
+            project.path().to_str().expect("project path"),
+            "long-task",
+            Some(prompt.clone()),
+            TerminalBackendKind::InProcess,
+        );
+
+        assert_eq!(delivery.deferred_prompt, None);
+        assert!(delivery
+            .initial_prompt
+            .as_deref()
+            .is_some_and(|text| text.starts_with("Read the detailed task description")));
+        let prompt_file = project
+            .path()
+            .join(".ccpanes")
+            .join("prompts")
+            .join("long-task.md");
+        assert_eq!(std::fs::read_to_string(prompt_file).unwrap(), prompt);
+    }
+
+    #[tokio::test]
+    async fn launch_multiline_prompt_submits_after_ready() {
+        let backend = Arc::new(LaunchPromptTestBackend::default());
+        backend.ready.store(true, Ordering::SeqCst);
+        let state = Arc::new(TerminalBackendState::new(backend.clone()));
+
+        let session_id = create_launch_session(
+            state,
+            launch_prompt_test_request(),
+            Some("first\nsecond".to_string()),
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("create ready launch");
+
+        assert_eq!(session_id, "launch-session-1");
+        let creates = backend
+            .creates
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert_eq!(creates.len(), 1);
+        assert_eq!(creates[0].initial_prompt, None);
+        assert_eq!(
+            backend
+                .submits
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_slice(),
+            [("launch-session-1".to_string(), "first\nsecond".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn launch_multiline_prompt_timeout_restarts_with_positional_prompt() {
+        let backend = Arc::new(LaunchPromptTestBackend::default());
+        let state = Arc::new(TerminalBackendState::new(backend.clone()));
+
+        let session_id = create_launch_session(
+            state,
+            launch_prompt_test_request(),
+            Some("first\nsecond".to_string()),
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("create fallback launch");
+
+        assert_eq!(session_id, "launch-session-2");
+        let creates = backend
+            .creates
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert_eq!(creates.len(), 2);
+        assert_eq!(creates[0].initial_prompt, None);
+        assert_eq!(creates[1].initial_prompt.as_deref(), Some("first\nsecond"));
+        assert_eq!(
+            backend
+                .kills
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_slice(),
+            ["launch-session-1"]
+        );
+        assert!(backend
+            .submits
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_empty());
     }
 
     #[derive(Default)]

@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+mod csi_mode_detect;
 mod osc_resume_capture;
 mod osc_state_detect;
 mod shell_integration;
@@ -724,6 +725,8 @@ struct TerminalSession {
     output_buffer: Arc<Mutex<OutputBuffer>>,
     /// attach-existing 时重建屏幕用的原始 VT 缓冲
     replay_buffer: Arc<Mutex<ReplayBuffer>>,
+    /// TUI 已通过 DECSET 2004 宣告可接收 bracketed paste。
+    paste_ready: Arc<AtomicBool>,
 }
 
 /// Orchestrator 连接信息（port + token），启动后注入
@@ -844,6 +847,7 @@ const DEAD_REPLAY_MAX_BYTES: usize = 4 * 1024 * 1024;
 const SUBMIT_TEXT_MAX_BYTES: usize = 256 * 1024;
 const BRACKETED_PASTE_START: &str = "\x1b[200~";
 const BRACKETED_PASTE_END: &str = "\x1b[201~";
+const PASTE_READY_SUBMIT_DELAY_MS: u64 = 200;
 
 /// 把文本包进终端 bracketed-paste 协议，并移除所有内嵌结束标记。
 ///
@@ -858,6 +862,14 @@ pub fn wrap_bracketed_paste(text: &str) -> String {
     wrapped.push_str(&sanitized);
     wrapped.push_str(BRACKETED_PASTE_END);
     wrapped
+}
+
+fn submit_delay_ms(text_len: usize, paste_ready: bool) -> u64 {
+    if paste_ready {
+        PASTE_READY_SUBMIT_DELAY_MS
+    } else {
+        std::cmp::min(200 + (text_len as u64 / 512) * 30, 5000)
+    }
 }
 
 fn summarize_input_bytes(data: &[u8]) -> serde_json::Value {
@@ -2037,6 +2049,7 @@ impl TerminalService {
             LIVE_OUTPUT_MAX_BYTES,
         )));
         let replay_buffer = Arc::new(Mutex::new(ReplayBuffer::new(LIVE_REPLAY_MAX_BYTES)));
+        let paste_ready = Arc::new(AtomicBool::new(false));
 
         // sanitize 可开关兜底（默认关闭 — dwFlags=0 应该解决了根本问题）
         #[cfg(windows)]
@@ -2070,6 +2083,7 @@ impl TerminalService {
                     cancelled: cancelled.clone(),
                     output_buffer: output_buffer.clone(),
                     replay_buffer: replay_buffer.clone(),
+                    paste_ready: paste_ready.clone(),
                 },
             );
         }
@@ -2175,6 +2189,7 @@ impl TerminalService {
         let _settings_svc = settings_service.clone();
         let read_output_buffer = output_buffer.clone();
         let read_replay_buffer = replay_buffer.clone();
+        let read_paste_ready = paste_ready.clone();
         let reader_pid = session_pid;
         let read_ssh_auth_runtime = ssh_auth_runtime.clone();
         // 阶段 2.8：把状态机引用 clone 进 read 线程，用于"ANSI 推断降级"判定
@@ -2196,6 +2211,7 @@ impl TerminalService {
             #[cfg(windows)]
             let mut sanitize_state = WindowsOutputSanitizeState::default();
             let mut osc_detector = osc_state_detect::OscStateDetector::new();
+            let mut csi_mode_detector = csi_mode_detect::CsiModeDetector::new();
             loop {
                 if read_cancelled.load(Ordering::Relaxed) {
                     break;
@@ -2272,6 +2288,15 @@ impl TerminalService {
                         if let Some(capture) = osc_capture.as_mut() {
                             capture.scan(&data);
                         }
+
+                        csi_mode_detector.process(data.as_bytes(), |signal| match signal {
+                            csi_mode_detect::CsiModeSignal::PasteReady(ready) => {
+                                read_paste_ready.store(ready, Ordering::Release);
+                            }
+                            csi_mode_detect::CsiModeSignal::AlternateBufferExited => {
+                                read_paste_ready.store(false, Ordering::Release);
+                            }
+                        });
 
                         // OSC 状态信号（in-band 通道）：hook 的 terminalSequence 标记、
                         // shell 集成的 133 命令边界、OSC 9 通知。信号汇入状态机，
@@ -2433,6 +2458,7 @@ impl TerminalService {
         let sessions_for_wait = Arc::clone(&self.sessions);
         let dead_buffers_for_wait = Arc::clone(&self.dead_buffers);
         let input_mutexes_for_wait = Arc::clone(&self.input_mutexes);
+        let wait_paste_ready = paste_ready;
         let wait_pid = session_pid;
         let wait_resume_diag = resume_diag;
         let wait_output_buffer = output_buffer.clone();
@@ -2497,6 +2523,7 @@ impl TerminalService {
             }
 
             // 标记为已退出
+            wait_paste_ready.store(false, Ordering::Release);
             {
                 let mut s = exit_status.lock().unwrap_or_else(|e| {
                     warn!("exit_status lock poisoned, using fallback value");
@@ -2588,6 +2615,17 @@ impl TerminalService {
         sessions.iter().find_map(|(session_id, session)| {
             (session.launch_id.as_deref() == Some(launch_id)).then(|| session_id.clone())
         })
+    }
+
+    pub fn is_paste_ready(&self, session_id: &str) -> AppResult<bool> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| AppError::from("sessions lock poisoned"))?;
+        let session = sessions
+            .get(session_id)
+            .ok_or_else(|| AppError::from(format!("Session not found: {session_id}")))?;
+        Ok(session.paste_ready.load(Ordering::Acquire))
     }
 
     /// 获取所有会话状态
@@ -2785,7 +2823,7 @@ impl TerminalService {
             )));
         }
 
-        let text_len = text.len();
+        let paste_ready = self.is_paste_ready(session_id)?;
         let wrapped_text = wrap_bracketed_paste(text);
         let mutex = self.input_mutex_for_session(session_id)?;
         let _guard = mutex
@@ -2795,7 +2833,7 @@ impl TerminalService {
         // fix(C2) review: 持有 per-session 锁覆盖“写文本 + sleep + 写 Enter”的完整序列。
         self.write_unlocked(session_id, &wrapped_text)
             .map_err(AppError::from)?;
-        let delay_ms = std::cmp::min(200 + (text_len as u64 / 512) * 30, 5000);
+        let delay_ms = submit_delay_ms(text.len(), paste_ready);
         std::thread::sleep(std::time::Duration::from_millis(delay_ms));
         self.write_unlocked(session_id, "\r")
             .map_err(AppError::from)?;
@@ -2853,6 +2891,7 @@ impl TerminalService {
         wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), session_id);
 
         if let Some(session) = session {
+            session.paste_ready.store(false, Ordering::Release);
             // 保存 output_buffer 到 dead_buffers，供事后读取
             // 保留足够输出供用户在关闭/断连后短时间回看。
             if let Ok(mut buf) = session.output_buffer.lock() {
@@ -3814,6 +3853,7 @@ mod tests {
                     cancelled: Arc::new(AtomicBool::new(false)),
                     output_buffer: Arc::new(Mutex::new(OutputBuffer::new(10, 1024))),
                     replay_buffer: Arc::new(Mutex::new(ReplayBuffer::new(1024))),
+                    paste_ready: Arc::new(AtomicBool::new(false)),
                 },
             );
     }
@@ -3950,6 +3990,13 @@ mod tests {
     }
 
     #[test]
+    fn submit_delay_uses_ready_and_length_tiers() {
+        assert_eq!(submit_delay_ms(64 * 1024, true), 200);
+        assert_eq!(submit_delay_ms(64 * 1024, false), 4040);
+        assert_eq!(submit_delay_ms(1024 * 1024, false), 5000);
+    }
+
+    #[test]
     fn submit_to_session_writes_multiline_paste_then_cr() {
         let (service, _temp_dir) = terminal_service_for_test();
         let writes = Arc::new(Mutex::new(Vec::new()));
@@ -3965,6 +4012,25 @@ mod tests {
                 .unwrap_or_else(|error| error.into_inner())
                 .as_slice(),
             ["\x1b[200~first\nsecond\nthird\x1b[201~", "\r"]
+        );
+    }
+
+    #[test]
+    fn submit_to_session_writes_slash_command_then_cr() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session(&service, "session-slash", writes.clone());
+
+        service
+            .submit_text_to_session("session-slash", "/clear")
+            .expect("submit slash command");
+
+        assert_eq!(
+            writes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_slice(),
+            ["\x1b[200~/clear\x1b[201~", "\r"]
         );
     }
 

@@ -19,6 +19,11 @@ pub trait TerminalBackend: Send + Sync {
     fn create_session(&self, request: CreateSessionRequest) -> AppResult<String>;
     fn write(&self, session_id: &str, data: &str) -> AppResult<()>;
     fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()>;
+    /// Returns whether the terminal has enabled DEC private mode 2004.
+    /// Backends without a readiness bridge return false.
+    fn is_paste_ready(&self, _session_id: &str) -> AppResult<bool> {
+        Ok(false)
+    }
     fn resize(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()>;
     fn kill(&self, session_id: &str) -> AppResult<()>;
     /// 带来源的 kill。默认委托 `kill`（reason 丢失），真实后端覆盖之以便
@@ -113,6 +118,10 @@ impl TerminalBackend for TerminalService {
         TerminalService::submit_text_to_session(self, session_id, text)
     }
 
+    fn is_paste_ready(&self, session_id: &str) -> AppResult<bool> {
+        TerminalService::is_paste_ready(self, session_id)
+    }
+
     fn resize(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
         TerminalService::resize(self, session_id, cols, rows).map_err(AppError::from)
     }
@@ -171,6 +180,10 @@ impl TerminalBackend for InProcessTerminalBackend {
             session_id,
             text,
         )
+    }
+
+    fn is_paste_ready(&self, session_id: &str) -> AppResult<bool> {
+        <TerminalService as TerminalBackend>::is_paste_ready(self.service.as_ref(), session_id)
     }
 
     fn resize(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
