@@ -268,7 +268,10 @@ async fn git_read_routes_match_tauri_git_commands() {
         statuses
             .iter()
             .find(|(path, _)| {
-                std::path::Path::new(path).file_name().and_then(|n| n.to_str()) == Some(name)
+                std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    == Some(name)
             })
             .map(|(_, status)| status.as_str())
     };
