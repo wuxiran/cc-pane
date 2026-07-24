@@ -1171,7 +1171,12 @@ mod tests {
         // session-init / session-resume 子命令出现
         assert!(content.contains("session-init"));
         assert!(content.contains("session-resume"));
-        assert!(content.contains("if [ -x"));
+        // 存在性守卫按宿主平台生成:Windows 是 cmd.exe if exist,Unix 是 if [ -x
+        if cfg!(windows) {
+            assert!(content.contains("if exist"));
+        } else {
+            assert!(content.contains("if [ -x"));
+        }
         // tool-after（旧 plan-archive 重命名）不出现，因为被 desired 关闭
         assert!(!content.contains("tool-after"));
 
@@ -1231,7 +1236,11 @@ mod tests {
             .unwrap();
 
         let content = fs::read_to_string(settings_path).unwrap();
-        assert!(content.contains("if [ -x"));
+        if cfg!(windows) {
+            assert!(content.contains("if exist"));
+        } else {
+            assert!(content.contains("if [ -x"));
+        }
         assert!(content.contains("user-context-hook"));
         let settings: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert_eq!(
