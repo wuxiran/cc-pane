@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
 import type { NotificationSettings } from "@/types";
+import { SearchableSetting } from "./SettingsSearchContext";
 
 interface NotificationSectionProps {
   value: NotificationSettings;
@@ -23,6 +24,8 @@ export default function NotificationSection({ value, onChange }: NotificationSec
         {t("notificationDesc", { ns: "dialogs" })}
       </p>
 
+      <SearchableSetting sectionId="notification-controls">
+      <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <Label>{t("enableNotification")}</Label>
         <input
@@ -69,6 +72,8 @@ export default function NotificationSection({ value, onChange }: NotificationSec
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
+      </div>
+      </SearchableSetting>
     </div>
   );
 }

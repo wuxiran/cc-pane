@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { parseKeyEvent, formatKeyCombo, findConflict } from "@/stores";
 import type { ShortcutSettings } from "@/types";
+import { SearchableSetting } from "./SettingsSearchContext";
 
 interface ShortcutsSectionProps {
   value: ShortcutSettings;
@@ -86,6 +87,7 @@ export default function ShortcutsSection({ value, onChange }: ShortcutsSectionPr
         {t("settings:shortcutsHint")}
       </p>
 
+      <SearchableSetting sectionId="shortcuts-list">
       <div className="flex flex-col gap-0.5">
         {Object.entries(value.bindings).map(([action, combo]) => (
           <div
@@ -110,6 +112,7 @@ export default function ShortcutsSection({ value, onChange }: ShortcutsSectionPr
           </div>
         ))}
       </div>
+      </SearchableSetting>
     </div>
   );
 }

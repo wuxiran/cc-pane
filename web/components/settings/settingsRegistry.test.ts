@@ -4,6 +4,7 @@ import {
   SETTINGS_GROUPS,
   SETTINGS_PANES,
 } from "./settingsRegistry";
+import { getSettingsCommandTargets } from "./settingsSearch";
 
 describe("settings registry", () => {
   it("declares unique panes in known groups", () => {
@@ -24,5 +25,15 @@ describe("settings registry", () => {
     expect(windowsDesktop.map((pane) => pane.id)).toContain("wallpaper");
     expect(windowsDesktop.map((pane) => pane.id)).toContain("screenshot");
     expect(macDesktop.map((pane) => pane.id)).not.toContain("screenshot");
+  });
+
+  it("drives sidebar panes and command targets from the same visible registry", () => {
+    const visiblePanes = getVisibleSettingsPanes({ isMac: false, isTauri: true });
+    const sidebarPaneIds = visiblePanes.map((pane) => pane.id);
+    const commandPaneIds = [...new Set(
+      getSettingsCommandTargets(visiblePanes).map(({ pane }) => pane.id),
+    )];
+
+    expect(commandPaneIds).toEqual(sidebarPaneIds);
   });
 });

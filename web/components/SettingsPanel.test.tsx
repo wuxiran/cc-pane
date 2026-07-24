@@ -144,6 +144,16 @@ describe("SettingsPanel", () => {
     expect(screen.getByRole("button", { name: tSettings("screenshot") })).toBeInTheDocument();
   });
 
+  it("searches the registry and lazily opens the highest-ranked pane", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.type(screen.getByRole("searchbox", { name: tSettings("searchLabel") }), "字体");
+
+    expect(await screen.findByTestId("terminal-section")).toBeInTheDocument();
+    expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
+  });
+
   it("auto-saves edits after debounce, preserving live web-access credentials", async () => {
     const onOpenChange = vi.fn();
     render(<SettingsPanel open onOpenChange={onOpenChange} />);

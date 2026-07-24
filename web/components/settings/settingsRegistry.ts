@@ -74,41 +74,94 @@ export const SETTINGS_GROUPS: ReadonlyArray<{
 ];
 
 export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
-  { id: "general", icon: Settings, titleKey: "general", group: "appearance", searchEntries: [] },
+  {
+    id: "general",
+    icon: Settings,
+    titleKey: "general",
+    group: "appearance",
+    searchEntries: [
+      { id: "startup", titleKey: "autoStart", keywordsKey: "searchKeywords.general", targetSectionId: "general-root" },
+      { id: "history", titleKey: "localHistoryEnabled", descriptionKey: "localHistoryEnabledDesc", targetSectionId: "general-root" },
+      { id: "language", titleKey: "language", targetSectionId: "general-root" },
+      { id: "cli", titleKey: "defaultCliTool", descriptionKey: "defaultCliToolDesc", targetSectionId: "general-root" },
+      { id: "data", titleKey: "dataDir", descriptionKey: "dataDirDesc", targetSectionId: "general-root" },
+    ],
+  },
   {
     id: "wallpaper",
     icon: Image,
     titleKey: "wallpaper",
     group: "appearance",
-    searchEntries: [],
+    searchEntries: [
+      { id: "media", titleKey: "wallpaperImage", descriptionKey: "wallpaperImageHint", keywordsKey: "searchKeywords.wallpaper", targetSectionId: "wallpaper-root" },
+    ],
     availability: "tauri",
   },
-  { id: "terminal", icon: Terminal, titleKey: "terminal", group: "appearance", searchEntries: [] },
-  { id: "shortcuts", icon: Keyboard, titleKey: "shortcuts", group: "appearance", searchEntries: [] },
+  {
+    id: "terminal",
+    icon: Terminal,
+    titleKey: "terminal",
+    group: "appearance",
+    searchEntries: [
+      { id: "font", titleKey: "fontSize", descriptionKey: "fontFamilyCjkHint", keywordsKey: "searchKeywords.font", targetSectionId: "terminal-font" },
+      { id: "theme", titleKey: "terminalTheme", targetSectionId: "terminal-root" },
+      { id: "renderer", titleKey: "rendererMode", descriptionKey: "rendererHint", targetSectionId: "terminal-root" },
+      { id: "daemon", titleKey: "terminalDaemon", descriptionKey: "terminalDaemonHint", targetSectionId: "terminal-root" },
+    ],
+  },
+  {
+    id: "shortcuts",
+    icon: Keyboard,
+    titleKey: "shortcuts",
+    group: "appearance",
+    searchEntries: [
+      { id: "bindings", titleKey: "shortcutsTitle", descriptionKey: "shortcutsHint", keywordsKey: "searchKeywords.shortcuts", targetSectionId: "shortcuts-list" },
+    ],
+  },
   {
     id: "provider",
     icon: Cloud,
     titleKey: "provider",
     group: "ai",
-    searchEntries: [],
+    searchEntries: [
+      { id: "providers", titleKey: "providerTitle", descriptionKey: "providerDesc", keywordsKey: "searchKeywords.provider", targetSectionId: "provider-root" },
+    ],
     layout: "wide",
   },
-  { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", group: "ai", searchEntries: [] },
-  { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", group: "ai", searchEntries: [] },
-  { id: "proxy", icon: Globe, titleKey: "proxy", group: "system", searchEntries: [] },
-  { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", group: "system", searchEntries: [] },
-  { id: "notification", icon: Bell, titleKey: "notification", group: "system", searchEntries: [] },
+  { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", group: "ai", searchEntries: [
+    { id: "commands", titleKey: "cliLaunchersTitle", descriptionKey: "cliLaunchersDesc", targetSectionId: "cli-launchers-root" },
+  ] },
+  { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", group: "ai", searchEntries: [
+    { id: "servers", titleKey: "sharedMcp.title", keywordsKey: "searchKeywords.mcp", targetSectionId: "shared-mcp-root" },
+  ] },
+  { id: "proxy", icon: Globe, titleKey: "proxy", group: "system", searchEntries: [
+    { id: "connection", titleKey: "proxyTitle", keywordsKey: "searchKeywords.proxy", targetSectionId: "proxy-root" },
+  ] },
+  { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", group: "system", searchEntries: [
+    { id: "remote", titleKey: "webAccessTitle", keywordsKey: "searchKeywords.webAccess", targetSectionId: "web-access-root" },
+  ] },
+  { id: "notification", icon: Bell, titleKey: "notification", group: "system", searchEntries: [
+    { id: "events", titleKey: "notificationTitle", keywordsKey: "searchKeywords.notification", targetSectionId: "notification-controls" },
+  ] },
   {
     id: "screenshot",
     icon: Camera,
     titleKey: "screenshot",
     group: "system",
-    searchEntries: [],
+    searchEntries: [
+      { id: "capture", titleKey: "screenshotTitle", descriptionKey: "screenshotDesc", keywordsKey: "searchKeywords.screenshot", targetSectionId: "screenshot-root" },
+    ],
     availability: "non-mac",
   },
-  { id: "voice", icon: Mic, titleKey: "voice", group: "system", searchEntries: [] },
-  { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", group: "companion", searchEntries: [] },
-  { id: "about", icon: Info, titleKey: "about", group: "about", searchEntries: [] },
+  { id: "voice", icon: Mic, titleKey: "voice", group: "system", searchEntries: [
+    { id: "input", titleKey: "voiceTitle", descriptionKey: "voiceDesc", keywordsKey: "searchKeywords.voice", targetSectionId: "voice-root" },
+  ] },
+  { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", group: "companion", searchEntries: [
+    { id: "companion", titleKey: "ccchanTitle", keywordsKey: "searchKeywords.ccchan", targetSectionId: "ccchan-root" },
+  ] },
+  { id: "about", icon: Info, titleKey: "about", group: "about", searchEntries: [
+    { id: "application", titleKey: "aboutTitle", keywordsKey: "searchKeywords.about", targetSectionId: "about-root" },
+  ] },
 ];
 
 export function isSettingsPaneAvailable(

@@ -77,8 +77,10 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
   return (
-    <Suspense fallback={null}>
-      <Pane {...props} />
-    </Suspense>
+    <div data-settings-section={`${props.paneId}-root`} className="scroll-m-8">
+      <Suspense fallback={null}>
+        <Pane {...props} />
+      </Suspense>
+    </div>
   );
 }

@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { terminalService } from "@/services/terminalService";
 import type { ShellInfo, TerminalSettings } from "@/types";
+import { SearchableSetting } from "./SettingsSearchContext";
 
 interface TerminalSectionProps {
   value: TerminalSettings;
@@ -42,33 +43,34 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         {t("terminalTitle")}
       </h3>
 
-      <div className="flex gap-2 items-end">
-        <div className="flex flex-col gap-1 w-28">
-          <Label>{t("fontSize")}</Label>
-          <Input
-            type="number"
-            min={10}
-            max={32}
-            step={1}
-            value={value.fontSize}
-            onChange={(e) => update("fontSize", Number(e.target.value))}
-            onBlur={(e) => {
-              const next = Math.min(32, Math.max(10, Number(e.target.value) || 15));
-              if (next !== value.fontSize) update("fontSize", next);
-            }}
-          />
+      <SearchableSetting sectionId="terminal-font">
+        <div className="space-y-2">
+          <div className="flex gap-2 items-end">
+            <div className="flex flex-col gap-1 w-28">
+              <Label>{t("fontSize")}</Label>
+              <Input
+                type="number"
+                min={10}
+                max={32}
+                step={1}
+                value={value.fontSize}
+                onChange={(e) => update("fontSize", Number(e.target.value))}
+                onBlur={(e) => {
+                  const next = Math.min(32, Math.max(10, Number(e.target.value) || 15));
+                  if (next !== value.fontSize) update("fontSize", next);
+                }}
+              />
+            </div>
+            <div className="flex flex-col gap-1 flex-1">
+              <Label>{t("fontFamily")}</Label>
+              <Input value={value.fontFamily} onChange={(e) => update("fontFamily", e.target.value)} />
+            </div>
+          </div>
+          <p className="text-[12px]" style={{ color: "var(--app-text-secondary)" }}>
+            {t("fontFamilyCjkHint")}
+          </p>
         </div>
-        <div className="flex flex-col gap-1 flex-1">
-          <Label>{t("fontFamily")}</Label>
-          <Input
-            value={value.fontFamily}
-            onChange={(e) => update("fontFamily", e.target.value)}
-          />
-        </div>
-      </div>
-      <p className="text-[12px] -mt-1" style={{ color: "var(--app-text-secondary)" }}>
-        {t("fontFamilyCjkHint")}
-      </p>
+      </SearchableSetting>
 
       <div className="flex flex-col gap-1">
         <Label>{t("terminalTheme")}</Label>

@@ -20,11 +20,15 @@ import {
   useActivityBarStore,
 } from "@/stores";
 import { formatKeyCombo } from "@/stores/useShortcutsStore";
+import { isTauriRuntime } from "@/services/runtime";
+import { getVisibleSettingsPanes } from "@/components/settings/settingsRegistry";
+import { navigateToSettings } from "@/components/settings/settingsNavigation";
+import { getSettingsCommandTargets } from "@/components/settings/settingsSearch";
 
 export const COMMAND_PALETTE_TOGGLE_EVENT = "cc-panes:command-palette-toggle";
 
 export default function CommandPalette() {
-  const { t } = useTranslation(["shortcuts", "sidebar", "common"]);
+  const { t } = useTranslation(["shortcuts", "sidebar", "common", "settings"]);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -38,6 +42,10 @@ export default function CommandPalette() {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const layouts = usePanesStore((s) => s.layouts);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
+  const settingsPanes = getVisibleSettingsPanes({
+    isMac: navigator.platform.toUpperCase().includes("MAC"),
+    isTauri: isTauriRuntime(),
+  });
 
   const runAndClose = useCallback((fn: () => void) => {
     setOpen(false);
@@ -88,6 +96,34 @@ export default function CommandPalette() {
               )}
             </CommandItem>
           ))}
+        </CommandGroup>
+
+        <CommandGroup heading={t("searchCommandGroup", { ns: "settings" })}>
+          {getSettingsCommandTargets(settingsPanes).map(({ pane, entry }) => {
+            const Icon = pane.icon;
+            const paneTitle = t(pane.titleKey as never, { ns: "settings" });
+            const title = t(entry.titleKey as never, { ns: "settings" });
+            const description = entry.descriptionKey
+              ? t(entry.descriptionKey as never, { ns: "settings" })
+              : "";
+            const keywords = entry.keywordsKey
+              ? t(entry.keywordsKey as never, { ns: "settings" })
+              : "";
+            return (
+              <CommandItem
+                key={`settings-${pane.id}-${entry.id}`}
+                value={`settings ${paneTitle} ${title} ${description} ${keywords}`}
+                onSelect={() => runAndClose(() => navigateToSettings({
+                  paneId: pane.id,
+                  targetSectionId: entry.targetSectionId,
+                }))}
+              >
+                <Icon strokeWidth={1.5} />
+                <span className="min-w-0 flex-1 truncate">{title}</span>
+                <span className="truncate text-[11px] text-[var(--app-text-tertiary)]">{paneTitle}</span>
+              </CommandItem>
+            );
+          })}
         </CommandGroup>
 
         {workspaces.length > 0 && (

@@ -15,6 +15,11 @@ import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import SettingsPaneContent from "./settings/SettingsPaneContent";
+import SettingsSearchBox from "./settings/SettingsSearchBox";
+import {
+  SettingsSearchProvider,
+  scrollToSettingsSection,
+} from "./settings/SettingsSearchContext";
 import SettingsSidebar from "./settings/SettingsSidebar";
 import {
   createSettingsDraft,
@@ -26,6 +31,11 @@ import {
   getVisibleSettingsPanes,
   type SettingsPaneId,
 } from "./settings/settingsRegistry";
+import {
+  SETTINGS_NAVIGATE_EVENT,
+  type SettingsNavigationTarget,
+} from "./settings/settingsNavigation";
+import { searchSettings, type SettingsSearchResult } from "./settings/settingsSearch";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -39,6 +49,9 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   const getDefaults = useSettingsStore((state) => state.getDefaults);
   const [draft, setDraft] = useState<SettingsDraft>(() => createSettingsDraft(getDefaults()));
   const [activePaneId, setActivePaneId] = useState<SettingsPaneId>("general");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [highlightedSectionId, setHighlightedSectionId] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
   const dirtyRef = useRef(false);
@@ -51,6 +64,18 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   }), []);
   const activePane = getSettingsPane(activePaneId);
   const resettableKeys = SECTION_DRAFT_KEYS[activePaneId];
+  const translate = (key: string) => t(key as never);
+  const searchResults = useMemo(
+    () => searchSettings(panes, translate, appliedQuery),
+    // Rebuild translated search documents when the active locale changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [appliedQuery, panes, t],
+  );
+  const matchedSectionIds = useMemo(() => new Set(
+    searchResults
+      .filter((result) => result.paneId === activePaneId)
+      .map((result) => result.targetSectionId),
+  ), [activePaneId, searchResults]);
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +89,37 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
       setDraft(createSettingsDraft(structuredClone(settings)));
     }
   }, [open, settings]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAppliedQuery(searchQuery), 150);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!appliedQuery) {
+      setHighlightedSectionId(null);
+      return;
+    }
+    const first = searchResults[0];
+    if (!first) return;
+    setActivePaneId(first.paneId);
+    setHighlightedSectionId(first.targetSectionId);
+    scrollToSettingsSection(first.targetSectionId);
+  }, [appliedQuery, searchResults]);
+
+  useEffect(() => {
+    const handleNavigate = (event: Event) => {
+      const target = (event as CustomEvent<SettingsNavigationTarget>).detail;
+      setActivePaneId(target.paneId);
+      setSearchQuery("");
+      setAppliedQuery("");
+      const sectionId = target.targetSectionId ?? `${target.paneId}-root`;
+      setHighlightedSectionId(sectionId);
+      scrollToSettingsSection(sectionId);
+    };
+    window.addEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
+    return () => window.removeEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
+  }, []);
 
   function updateDraft(next: SettingsDraft) {
     dirtyRef.current = true;
@@ -120,7 +176,16 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
 
   function handleSelectPane(paneId: SettingsPaneId) {
     setActivePaneId(paneId);
+    setSearchQuery("");
+    setAppliedQuery("");
+    setHighlightedSectionId(null);
     setResetArmed(false);
+  }
+
+  function handleSelectSearchResult(result: SettingsSearchResult) {
+    setActivePaneId(result.paneId);
+    setHighlightedSectionId(result.targetSectionId);
+    scrollToSettingsSection(result.targetSectionId);
   }
 
   function handleResetSection() {
@@ -155,6 +220,12 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
           </span>
           <DialogTitle className="text-[15px] font-semibold">{t("title")}</DialogTitle>
           <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
+          <SettingsSearchBox
+            query={searchQuery}
+            results={searchResults}
+            onQueryChange={setSearchQuery}
+            onSelect={handleSelectSearchResult}
+          />
           <button
             type="button"
             aria-label={t("close", { ns: "common" })}
@@ -175,7 +246,13 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
                   <h1 className="text-[18px] font-semibold text-[var(--app-text-primary)]">{t(activePane.titleKey)}</h1>
                 </div>
               )}
-              <SettingsPaneContent paneId={activePaneId} draft={draft} updateDraft={updateDraft} />
+              <SettingsSearchProvider value={{
+                query: appliedQuery,
+                matchedSectionIds,
+                highlightedSectionId,
+              }}>
+                <SettingsPaneContent paneId={activePaneId} draft={draft} updateDraft={updateDraft} />
+              </SettingsSearchProvider>
             </div>
           </main>
         </div>
