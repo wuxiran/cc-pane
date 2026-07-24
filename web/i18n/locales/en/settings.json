@@ -1,5 +1,14 @@
 {
   "title": "Settings",
+  "panelDescription": "Manage CC-Panes application preferences",
+  "navigation": "Settings navigation",
+  "groups": {
+    "appearance": "Appearance & Interaction",
+    "ai": "AI & Launch",
+    "system": "System",
+    "companion": "Companion",
+    "about": "About"
+  },
   "general": "General",
   "notification": "Notification",
   "proxy": "Proxy",
@@ -9,6 +18,7 @@
   "provider": "Provider",
   "cliLaunchers": "CLI",
   "about": "About",
+  "ccchanTitle": "cc-chan",
   "saved": "Settings saved",
   "resetDone": "Defaults restored (click Save to apply)",
   "autoSaved": "Auto-saved {{time}}",

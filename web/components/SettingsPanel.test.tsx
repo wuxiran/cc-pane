@@ -112,18 +112,18 @@ describe("SettingsPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("opens on the general section with the settings dialog title", () => {
+  it("opens on the general section with the settings dialog title", async () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
     expect(screen.getByText(tSettings("title"))).toBeInTheDocument();
-    expect(screen.getByTestId("general-section")).toBeInTheDocument();
+    expect(await screen.findByTestId("general-section")).toBeInTheDocument();
     expect(screen.queryByTestId("terminal-section")).not.toBeInTheDocument();
   });
 
-  it("syncs the draft from the stored settings when opened", () => {
+  it("syncs the draft from the stored settings when opened", async () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    expect(generalSectionProps?.value).toEqual(makeSettings().general);
+    await waitFor(() => expect(generalSectionProps?.value).toEqual(makeSettings().general));
   });
 
   it("switches sections via the left navigation", async () => {
@@ -131,11 +131,11 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: tSettings("terminal") }));
-    expect(screen.getByTestId("terminal-section")).toBeInTheDocument();
+    expect(await screen.findByTestId("terminal-section")).toBeInTheDocument();
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Shared MCP" }));
-    expect(screen.getByTestId("shared-mcp-section")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: tSettings("sharedMcp.title") }));
+    expect(await screen.findByTestId("shared-mcp-section")).toBeInTheDocument();
   });
 
   it("shows the screenshot section on non-mac platforms", () => {

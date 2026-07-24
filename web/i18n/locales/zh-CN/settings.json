@@ -1,5 +1,14 @@
 {
   "title": "设置",
+  "panelDescription": "管理 CC-Panes 的应用偏好",
+  "navigation": "设置导航",
+  "groups": {
+    "appearance": "外观与交互",
+    "ai": "AI 与启动",
+    "system": "系统",
+    "companion": "伙伴",
+    "about": "关于"
+  },
   "general": "通用",
   "notification": "通知",
   "proxy": "代理",
@@ -9,6 +18,7 @@
   "provider": "Provider",
   "cliLaunchers": "CLI",
   "about": "关于",
+  "ccchanTitle": "cc酱",
   "saved": "设置已保存",
   "resetDone": "已恢复默认设置（需点击保存生效）",
   "autoSaved": "已自动保存 {{time}}",
