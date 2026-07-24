@@ -26,6 +26,7 @@
     "screenshot": "截图 屏幕 快捷键 保留",
     "voice": "语音 录音 转写 麦克风",
     "ccchan": "cc酱 宠物 伙伴 浮窗",
+    "experimental": "实验 预览 测试 beta feature flag",
     "about": "版本 更新 日志 卸载 清理"
   },
   "groups": {
@@ -33,7 +34,14 @@
     "ai": "AI 与启动",
     "system": "系统",
     "companion": "伙伴",
+    "experimental": "实验",
     "about": "关于"
+  },
+  "experimental": {
+    "title": "实验性功能",
+    "description": "尚未稳定的功能会在这里集中管理，并在毕业时保留原有选择。",
+    "emptyTitle": "暂无实验性功能",
+    "emptyDescription": "当前版本没有需要手动开启的实验项。"
   },
   "general": "通用",
   "notification": "通知",

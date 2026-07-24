@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const AboutSection = lazy(() => import("./AboutSection"));
 const CCChanSettings = lazy(() => import("./CCChanSettings"));
 const CliLaunchersSection = lazy(() => import("./CliLaunchersSection"));
+const ExperimentalSection = lazy(() => import("./ExperimentalSection"));
 const GeneralSection = lazy(() => import("./GeneralSection"));
 const NotificationSection = lazy(() => import("./NotificationSection"));
 const ProviderSection = lazy(() => import("./ProviderSection"));
@@ -73,11 +74,13 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
         : null;
     case "about":
       return <AboutSection />;
+    case "experimental":
+      return <ExperimentalSection />;
   }
 }
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
-  const hasOwnCardLayout = ["provider", "cli-launchers", "shared-mcp"].includes(props.paneId);
+  const hasOwnCardLayout = ["provider", "cli-launchers", "shared-mcp", "experimental"].includes(props.paneId);
   return (
     <div
       data-settings-section={`${props.paneId}-root`}

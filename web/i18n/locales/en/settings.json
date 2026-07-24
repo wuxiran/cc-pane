@@ -26,6 +26,7 @@
     "screenshot": "screenshot screen shortcut retention",
     "voice": "voice recording transcription microphone",
     "ccchan": "cc-chan pet companion window",
+    "experimental": "experimental preview beta feature flag",
     "about": "version update logs uninstall cleanup"
   },
   "groups": {
@@ -33,7 +34,14 @@
     "ai": "AI & Launch",
     "system": "System",
     "companion": "Companion",
+    "experimental": "Experimental",
     "about": "About"
+  },
+  "experimental": {
+    "title": "Experimental",
+    "description": "Unstable features are managed here and retain their choices when they graduate.",
+    "emptyTitle": "No experimental features",
+    "emptyDescription": "This release has no experimental options that require manual activation."
   },
   "general": "General",
   "notification": "Notification",

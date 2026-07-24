@@ -62,6 +62,9 @@ vi.mock("./settings/WebAccessSection", () => ({
 vi.mock("./settings/CCChanSettings", () => ({
   default: () => <div data-testid="ccchan-section" />,
 }));
+vi.mock("./settings/ExperimentalSection", () => ({
+  default: () => <div data-testid="experimental-section" />,
+}));
 
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
@@ -151,6 +154,16 @@ describe("SettingsPanel", () => {
     await user.type(screen.getByRole("searchbox", { name: tSettings("searchLabel") }), "字体");
 
     expect(await screen.findByTestId("terminal-section")).toBeInTheDocument();
+    expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
+  });
+
+  it("renders the experimental shell without mounting another pane", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("experimental.title") }));
+
+    expect(await screen.findByTestId("experimental-section")).toBeInTheDocument();
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
   });
 

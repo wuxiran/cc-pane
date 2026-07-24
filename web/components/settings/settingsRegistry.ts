@@ -5,6 +5,7 @@ import {
   Cable,
   Camera,
   Cloud,
+  FlaskConical,
   Globe,
   Image,
   Info,
@@ -21,6 +22,7 @@ export type SettingsGroupId =
   | "ai"
   | "system"
   | "companion"
+  | "experimental"
   | "about";
 
 export type SettingsPaneId =
@@ -37,6 +39,7 @@ export type SettingsPaneId =
   | "screenshot"
   | "voice"
   | "ccchan"
+  | "experimental"
   | "about";
 
 export interface SettingsSearchEntry {
@@ -71,6 +74,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<{
   { id: "ai", titleKey: "groups.ai" },
   { id: "system", titleKey: "groups.system" },
   { id: "companion", titleKey: "groups.companion" },
+  { id: "experimental", titleKey: "groups.experimental" },
   { id: "about", titleKey: "groups.about" },
 ];
 
@@ -164,6 +168,20 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", group: "companion", searchEntries: [
     { id: "companion", titleKey: "ccchanTitle", keywordsKey: "searchKeywords.ccchan", targetSectionId: "ccchan-root" },
   ] },
+  {
+    id: "experimental",
+    icon: FlaskConical,
+    titleKey: "experimental.title",
+    descriptionKey: "experimental.description",
+    group: "experimental",
+    searchEntries: [{
+      id: "features",
+      titleKey: "experimental.title",
+      descriptionKey: "experimental.description",
+      keywordsKey: "searchKeywords.experimental",
+      targetSectionId: "experimental-root",
+    }],
+  },
   { id: "about", icon: Info, titleKey: "about", group: "about", searchEntries: [
     { id: "application", titleKey: "aboutTitle", keywordsKey: "searchKeywords.about", targetSectionId: "about-root" },
   ] },
