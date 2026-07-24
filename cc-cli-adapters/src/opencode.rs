@@ -17,7 +17,7 @@ use tracing::{info, warn};
 const CCPANES_PLUGIN_JS: &str = include_str!("../assets/opencode/ccpanes-plugin.js");
 
 /// OpenCode 自定义主题必须包含完整颜色表；它不会把 partial theme 与内置主题合并。
-/// 此资产以 OpenCode 1.18.4 的内置 opencode 主题为基底，仅将根背景改为 `none`。
+/// 此资产固化 OpenCode 1.18.4 内置主题的 dark 值，并让根、面板与控件背景透明。
 const CCPANES_THEME_JSON: &str = include_str!("../assets/opencode/ccpanes-theme.json");
 const CCPANES_THEME_NAME: &str = "ccpanes";
 
@@ -453,6 +453,46 @@ impl OpenCodeAdapter {
         Ok(env_inject)
     }
 
+    fn build_command_with_config_sources(
+        &self,
+        ctx: &CliAdapterContext,
+        custom_tui_config: Option<&OsStr>,
+        user_tui_config: Option<&Path>,
+        user_main_config: Option<&Path>,
+        user_theme_path: Option<&Path>,
+    ) -> Result<CliCommandResult> {
+        let env_inject = self.write_session_configs(
+            ctx,
+            custom_tui_config,
+            user_tui_config,
+            user_main_config,
+            user_theme_path,
+        )?;
+        let mut args = Vec::new();
+
+        if let Some(resume_id) = ctx.resume_id.as_ref() {
+            args.push("--session".to_string());
+            args.push(resume_id.clone());
+        }
+        if let Some(ref prompt) = ctx.initial_prompt {
+            args.push("--prompt".to_string());
+            args.push(prompt.clone());
+        }
+
+        let (command, args) = ctx.resolve_launch("opencode", args)?;
+        info!(
+            session_id = %ctx.session_id,
+            command = %command,
+            "opencode: building command"
+        );
+        Ok(CliCommandResult {
+            command,
+            args,
+            env_remove: vec![],
+            env_inject,
+        })
+    }
+
     fn plugin_path(project_path: &Path) -> std::path::PathBuf {
         project_path
             .join(".opencode")
@@ -534,44 +574,13 @@ impl CliToolAdapter for OpenCodeAdapter {
             .map(PathBuf::from)
             .or_else(|| Self::default_user_config_path("opencode.json"));
         let user_theme_path = Self::default_user_config_path("themes/ccpanes.json");
-        let env_inject = self.write_session_configs(
+        self.build_command_with_config_sources(
             ctx,
             custom_tui_config.as_deref(),
             user_tui_config.as_deref(),
             user_main_config.as_deref(),
             user_theme_path.as_deref(),
-        )?;
-
-        let mut args = Vec::new();
-
-        // Resume：opencode 用 --session <id> 续接既有会话
-        if let Some(resume_id) = ctx.resume_id.as_ref() {
-            args.push("--session".to_string());
-            args.push(resume_id.clone());
-        }
-
-        // 初始 prompt 经 --prompt 传入 TUI；opencode 的位置参数是 [project]
-        // （启动目录），把 prompt 当位置参数会导致 opencode 启动即报
-        // "Failed to change directory to <prompt>" 退出。
-        if let Some(ref prompt) = ctx.initial_prompt {
-            args.push("--prompt".to_string());
-            args.push(prompt.clone());
-        }
-
-        let (command, args) = ctx.resolve_launch("opencode", args)?;
-
-        info!(
-            session_id = %ctx.session_id,
-            command = %command,
-            "opencode: building command"
-        );
-
-        Ok(CliCommandResult {
-            command,
-            args,
-            env_remove: vec![],
-            env_inject,
-        })
+        )
     }
 }
 
@@ -777,6 +786,51 @@ mod tests {
         assert!(!std::path::Path::new(main_path)
             .with_file_name("tui.json")
             .exists());
+    }
+
+    #[test]
+    fn ccpanes_theme_is_mode_independent_and_transparent() {
+        let config: serde_json::Value = serde_json::from_str(CCPANES_THEME_JSON).unwrap();
+        let theme = config["theme"].as_object().unwrap();
+
+        assert_eq!(theme.len(), 50);
+        for (name, value) in theme {
+            assert!(
+                value.is_string(),
+                "theme color {name} must not depend on dark/light mode: {value}"
+            );
+        }
+        assert_eq!(theme["background"], "none");
+        assert_eq!(theme["backgroundPanel"], "none");
+        assert_eq!(theme["backgroundElement"], "none");
+        assert!(theme.get("backgroundMenu").is_none());
+        assert_eq!(theme["diffAddedBg"], "#20303b");
+        assert_eq!(theme["diffRemovedBg"], "#37222c");
+        assert_eq!(theme["diffContextBg"], "#141414");
+        assert_eq!(theme["diffAddedLineNumberBg"], "#1b2b34");
+        assert_eq!(theme["diffRemovedLineNumberBg"], "#2d1f26");
+        assert_eq!(theme["text"], "#eeeeee");
+        assert_eq!(theme["primary"], "#fab283");
+        assert!(!CCPANES_THEME_JSON.contains("lightStep"));
+    }
+
+    #[test]
+    fn build_command_injects_native_absolute_session_config_paths() {
+        let mut c = ctx(fresh_data_dir("build_command_session_paths"));
+        c.executable_override = Some("opencode-test-executable".to_string());
+        c.skip_mcp = true;
+
+        let cmd = OpenCodeAdapter::new()
+            .build_command_with_config_sources(&c, None, None, None, None)
+            .unwrap();
+
+        for key in ["OPENCODE_CONFIG", "OPENCODE_TUI_CONFIG"] {
+            let path = Path::new(cmd.env_inject.get(key).unwrap());
+            assert!(path.is_absolute(), "{key} must use a native absolute path");
+            assert!(path.is_file(), "{key} must reference an existing file");
+            assert!(path.starts_with(OpenCodeAdapter::adapter_root(&c)));
+        }
+        assert!(project_theme_path(&c).is_file());
     }
 
     #[test]
