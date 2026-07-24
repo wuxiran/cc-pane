@@ -63,8 +63,8 @@ export default function ExplorerFilesSection({
               className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-[var(--app-hover)]"
               title={project.path}
             >
-              <Chevron className="h-3 w-3 shrink-0 text-[var(--app-text-tertiary)]" />
-              <span className="shrink-0 text-xs font-semibold text-[var(--app-text-primary)]">
+              <Chevron className="h-4 w-4 shrink-0 text-[var(--app-text-tertiary)]" />
+              <span className="shrink-0 text-[13px] font-semibold text-[var(--app-text-primary)]">
                 {name}
               </span>
               <span className="min-w-0 truncate text-[10px] text-[var(--app-text-tertiary)]">

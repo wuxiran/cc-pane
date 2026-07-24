@@ -245,11 +245,11 @@ function GitProjectGroup({
           className="group/gitgroup flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-[var(--app-hover)]"
           title={state.repoRoot ?? project.path}
         >
-          <Chevron className="h-3 w-3 shrink-0 text-[var(--app-text-tertiary)]" />
+          <Chevron className="h-4 w-4 shrink-0 text-[var(--app-text-tertiary)]" />
           <span className="shrink-0 text-xs font-semibold text-[var(--app-text-primary)]">{name}</span>
           {state.kind === "git" && state.branch && (
             <span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--app-text-secondary)]">
-              <GitBranch className="h-3 w-3 shrink-0 text-[var(--app-accent)]" />
+              <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--app-accent)]" />
               <span className="truncate" title={state.branch}>{state.branch}</span>
             </span>
           )}
