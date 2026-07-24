@@ -11,26 +11,26 @@ interface StatusIndicatorProps {
 
 /**
  * 状态点。阶段 2 扩充为 8 状态：
- *   - thinking / toolRunning / compacting → 绿色家族（在干活）
- *   - waitingInput → 橙（等用户）
+ *   - thinking / toolRunning / compacting → accent（在干活）
+ *   - waitingInput → warning（等用户）
  *   - error → 红（出错）
  *   - idle → 灰（真·空闲，TurnEnd hook 上报）
  *   - exited → 暗灰
  *   - initializing → 灰渐变 + 闪烁
  *   - toolRunning / compacting 叠加 pulse 动效
  *
- * legacy `active` 颜色保持原绿色（兼容 hook 未启用时的 PTY 推断回退）。
+ * legacy `active` 沿用 accent（兼容 hook 未启用时的 PTY 推断回退）。
  */
 const statusColors: Record<string, string> = {
-  initializing: "#8e8e93",
-  idle: "#8e8e93",
-  thinking: "#30d158",
-  toolRunning: "#30d158",
-  compacting: "#0a84ff",
-  waitingInput: "#ffd60a",
-  error: "#ff453a",
-  exited: "#48484a",
-  active: "#30d158", // legacy
+  initializing: "var(--app-text-tertiary)",
+  idle: "var(--app-text-tertiary)",
+  thinking: "var(--app-accent)",
+  toolRunning: "var(--app-accent)",
+  compacting: "var(--app-accent)",
+  waitingInput: "var(--app-status-warning)",
+  error: "var(--app-status-danger)",
+  exited: "var(--app-text-tertiary)",
+  active: "var(--app-accent)", // legacy
 };
 
 const PULSING_STATUSES = new Set(["toolRunning", "compacting", "initializing"]);
@@ -67,7 +67,7 @@ export default memo(function StatusIndicator({ status, toolName, size = 8 }: Sta
       style={{
         width: size,
         height: size,
-        backgroundColor: statusColors[status] ?? "#6e6e73",
+        backgroundColor: statusColors[status] ?? "var(--app-text-tertiary)",
       }}
     />
   );

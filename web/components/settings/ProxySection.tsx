@@ -65,9 +65,9 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
               <div
                 className="mt-1 px-2.5 py-2 text-xs leading-relaxed rounded-md"
                 style={{
-                  color: "#92700c",
-                  background: "#fef9c3",
-                  border: "1px solid #fde047",
+                  color: "var(--app-status-warning)",
+                  background: "var(--app-status-warning-bg)",
+                  border: "1px solid var(--app-status-warning-border)",
                 }}
               >
                 &#9888; {t("socksWarning")}

@@ -17,12 +17,11 @@ describe("StatusIndicator", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("thinking 状态渲染绿色圆点且不带 pulse 动效", () => {
+  it("thinking 状态渲染强调色圆点且不带 pulse 动效", () => {
     const { container } = render(<StatusIndicator status="thinking" />);
     const dot = getDot(container);
     expect(dot).not.toBeNull();
-    // #30d158 → rgb(48, 209, 88)
-    expect(dot).toHaveStyle({ backgroundColor: "rgb(48, 209, 88)" });
+    expect(dot?.style.backgroundColor).toBe("var(--app-accent)");
     expect(dot?.className).not.toContain("cc-status-pulse");
     expect(dot?.getAttribute("title")).toBeTruthy();
   });
@@ -35,10 +34,9 @@ describe("StatusIndicator", () => {
     expect(dot?.getAttribute("title")).toMatch(/:\s*Bash$/);
   });
 
-  it("waitingInput 状态渲染橙色圆点", () => {
+  it("waitingInput 状态渲染警告色圆点", () => {
     const { container } = render(<StatusIndicator status="waitingInput" />);
-    // #ffd60a → rgb(255, 214, 10)
-    expect(getDot(container)).toHaveStyle({ backgroundColor: "rgb(255, 214, 10)" });
+    expect(getDot(container)?.style.backgroundColor).toBe("var(--app-status-warning)");
   });
 
   it("size prop 决定圆点宽高", () => {

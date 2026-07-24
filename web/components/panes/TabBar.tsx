@@ -304,7 +304,7 @@ function SortableTab({
             <Link2
               size={d.pinSize}
               style={{
-                color: tab.resumeId ? "#16a34a" : "var(--app-text-tertiary)",
+                color: tab.resumeId ? "var(--app-status-success)" : "var(--app-text-tertiary)",
                 opacity: tab.resumeId ? 0.95 : 0.5,
               }}
             />

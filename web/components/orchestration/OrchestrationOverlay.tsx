@@ -32,7 +32,7 @@ export default function OrchestrationOverlay({ onClose }: OrchestrationOverlayPr
           maxWidth: "calc(100vw - 80px)",
           border: "1px solid var(--app-border)",
           borderRadius: 8,
-          boxShadow: "0 24px 80px rgba(0, 0, 0, 0.42)",
+          boxShadow: "var(--sh-lg)",
         }}
         onClick={(event) => event.stopPropagation()}
       >

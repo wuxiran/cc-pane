@@ -13,33 +13,7 @@ const DIRECT_COLOR_RE =
 const EXEMPT_DIRS = new Set(["dev", "mobile", "ui"]);
 
 const ALLOWLIST: Record<string, string[]> = {
-  // 当前存量在后续主题清欠 Part 1 中逐项迁移或确认保留；先精确冻结，不允许新增。
-  "DiffView.tsx": [
-    "#22c55e",
-    "#ef4444",
-    "rgba(34, 197, 94, 0.1)",
-    "rgba(239, 68, 68, 0.1)",
-    "rgba(34, 197, 94, 0.3)",
-    "rgba(239, 68, 68, 0.3)",
-  ],
-  "OnboardingGuide.tsx": ["#22c55e", "#ef4444"],
-  "PopupTerminalWindow.tsx": ["#ef4444", "#1a1a1a", "#888"],
-  "SessionCleanerPanel.tsx": [
-    "hsl(142 76% 36% / 0.1)",
-    "hsl(0 84% 60% / 0.1)",
-    "hsl(142 76% 36%)",
-    "hsl(0 84% 60%)",
-  ],
-  "StatusIndicator.tsx": [
-    "#8e8e93",
-    "#30d158",
-    "#0a84ff",
-    "#ffd60a",
-    "#ff453a",
-    "#48484a",
-    "#6e6e73",
-  ],
-  "editor/ImagePreview.tsx": ["#e0e0e0", "#ffffff"],
+  // 编辑器语法高亮属于内容类别编码，不随应用 chrome 主题色变化。
   "editor/JsonEditor.tsx": ["#22863a", "#005cc5", "#d73a49", "#6f42c1", "#e36209", "#586069"],
   // 文件类型图标品牌色与语言类别编码，不随应用主题变化。
   "filetree/FileTreeNode.tsx": [
@@ -61,10 +35,9 @@ const ALLOWLIST: Record<string, string[]> = {
     "#E44D26",
     "#F16529",
   ],
-  "launcher/LauncherDialog.tsx": ["#e5484d"],
+  // 壁纸 dim 层必须使用中性黑混合，避免随主题产生彩色遮罩。
   "layout/MainWallpaperLayer.tsx": ["#000"],
-  "localhistory/LocalHistoryPanel.tsx": ["#6366f1"],
-  "localhistory/VersionListSidebar.tsx": ["#6366f1"],
+  // Local History 标签来源色区分 git/会话/用户/构建/恢复，属于类别编码。
   "localhistory/useLocalHistoryData.ts": [
     "#f59e0b",
     "#8b5cf6",
@@ -73,35 +46,7 @@ const ALLOWLIST: Record<string, string[]> = {
     "#ef4444",
     "#6b7280",
   ],
-  "orchestration/OrchestrationOverlay.tsx": ["rgba(0, 0, 0, 0.42)"],
-  "panes/TabBar.tsx": ["#16a34a"],
-  "panes/TabContentRenderer.tsx": [
-    "#1a1a1a",
-    "rgba(255,255,255,0.4)",
-    "rgba(255,255,255,0.5)",
-    "rgba(255,255,255,0.7)",
-    "rgba(255,255,255,0.1)",
-    "rgba(255,255,255,0.15)",
-    "rgba(255,255,255,0.2)",
-  ],
-  "panes/TerminalTabContent.tsx": [
-    "rgba(255,255,255,0.05)",
-    "rgba(255,255,255,0.08)",
-    "rgba(0,0,0,0.22)",
-    "rgba(255,255,255,0.42)",
-    "rgba(255,255,255,0.84)",
-    "rgba(255,255,255,0.45)",
-  ],
-  "panes/VoiceInputButton.tsx": [
-    "rgba(239,68,68,0.18)",
-    "rgba(127,29,29,0.32)",
-    "rgba(14,165,233,0.16)",
-    "rgba(12,74,110,0.28)",
-    "rgba(37,99,235,0.16)",
-    "rgba(15,23,42,0.36)",
-    "rgba(15,23,42,0.28)",
-  ],
-  // ANSI 16 色与终端核心色当前由 xterm 专用调色板管理。
+  // ANSI 16 色与透明背景算法由 xterm 专用调色板管理，不属于应用 chrome。
   "panes/terminalTheme.ts": [
     "#17191E",
     "#f5f5f7",
@@ -157,8 +102,8 @@ const ALLOWLIST: Record<string, string[]> = {
     "#fff",
   ],
   "providers/ProviderCard.tsx": ["#6B7280"],
+  // 导入类型使用 Provider/Skill/MCP 类别色；背板黑色仅用于模态 dim。
   "resources/ImportConfirmDialog.tsx": ["#E8590C", "#8B5CF6", "#0EA5E9", "rgba(0,0,0,0.5)"],
-  "settings/ProxySection.tsx": ["#92700c", "#fef9c3", "#fde047"],
 };
 
 const RAW_MODULES = import.meta.glob("../components/**/*.{ts,tsx}", {

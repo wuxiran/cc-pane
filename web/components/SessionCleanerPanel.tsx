@@ -154,8 +154,8 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
                     key={result.file_path}
                     className="flex items-center gap-2 px-3 py-2 rounded-md text-[13px]"
                     style={{
-                      background: result.success ? "hsl(142 76% 36% / 0.1)" : "hsl(0 84% 60% / 0.1)",
-                      color: result.success ? "hsl(142 76% 36%)" : "hsl(0 84% 60%)",
+                      background: result.success ? "var(--app-status-success-bg)" : "var(--app-status-danger-bg)",
+                      color: result.success ? "var(--app-status-success)" : "var(--app-status-danger)",
                     }}
                   >
                     {result.success ? <CheckCircle size={14} /> : <XCircle size={14} />}

@@ -61,25 +61,25 @@ export default memo(function TabContentRenderer({
         return (
           <div
             className="flex flex-col items-center justify-center h-full select-none gap-4"
-            style={{ background: "#1a1a1a" }}
+            style={{ background: "var(--app-terminal-bg)" }}
           >
-            <ExternalLink size={48} className="opacity-30" style={{ color: "rgba(255,255,255,0.4)" }} />
-            <p className="text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>
+            <ExternalLink size={48} className="opacity-30" style={{ color: "var(--app-terminal-fg)" }} />
+            <p className="text-sm opacity-50" style={{ color: "var(--app-terminal-fg)" }}>
               {t("poppedOutPlaceholder")}
             </p>
             <button
               onClick={handleReclaim}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-colors"
               style={{
-                color: "rgba(255,255,255,0.7)",
-                background: "rgba(255,255,255,0.1)",
-                border: "1px solid rgba(255,255,255,0.15)",
+                color: "var(--app-terminal-fg)",
+                background: "var(--app-hover)",
+                border: "1px solid var(--app-border)",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(255,255,255,0.2)";
+                e.currentTarget.style.background = "var(--app-active-bg)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(255,255,255,0.1)";
+                e.currentTarget.style.background = "var(--app-hover)";
               }}
             >
               <Undo2 size={14} />

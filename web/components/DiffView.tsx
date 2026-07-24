@@ -105,8 +105,8 @@ export default memo(function DiffView({ diff, loading }: DiffViewProps) {
         className="flex gap-3 px-3 py-2 text-xs"
         style={{ borderBottom: "1px solid var(--app-border)", background: "var(--app-sidebar)" }}
       >
-        <span className="font-semibold" style={{ color: "#22c55e" }}>+{diff.stats.additions}</span>
-        <span className="font-semibold" style={{ color: "#ef4444" }}>-{diff.stats.deletions}</span>
+        <span className="font-semibold" style={{ color: "var(--app-status-success)" }}>+{diff.stats.additions}</span>
+        <span className="font-semibold" style={{ color: "var(--app-status-danger)" }}>-{diff.stats.deletions}</span>
         <span style={{ color: "var(--app-text-tertiary)" }}>{t("diffLineCount", { count: totalLines })}</span>
       </div>
 
@@ -128,15 +128,15 @@ export default memo(function DiffView({ diff, loading }: DiffViewProps) {
           {hunk.lines.map((line, li) => {
             const bgColor =
               line.changeType === "insert"
-                ? "rgba(34, 197, 94, 0.1)"
+                ? "var(--app-status-success-bg)"
                 : line.changeType === "delete"
-                  ? "rgba(239, 68, 68, 0.1)"
+                  ? "var(--app-status-danger-bg)"
                   : "transparent";
             const signColor =
               line.changeType === "insert"
-                ? "#22c55e"
+                ? "var(--app-status-success)"
                 : line.changeType === "delete"
-                  ? "#ef4444"
+                  ? "var(--app-status-danger)"
                   : undefined;
             const sign =
               line.changeType === "insert"
@@ -166,8 +166,8 @@ export default memo(function DiffView({ diff, loading }: DiffViewProps) {
                             ? {
                                 background:
                                   line.changeType === "insert"
-                                    ? "rgba(34, 197, 94, 0.3)"
-                                    : "rgba(239, 68, 68, 0.3)",
+                                    ? "var(--app-status-success-border)"
+                                    : "var(--app-status-danger-border)",
                                 borderRadius: 2,
                               }
                             : undefined

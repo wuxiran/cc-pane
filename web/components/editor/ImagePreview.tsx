@@ -245,13 +245,13 @@ export default function ImagePreview({ filePath }: ImagePreviewProps) {
         className="flex-1 overflow-auto flex items-center justify-center"
         style={{
           backgroundImage:
-            "linear-gradient(45deg, var(--checkerboard-color, #e0e0e0) 25%, transparent 25%), " +
-            "linear-gradient(-45deg, var(--checkerboard-color, #e0e0e0) 25%, transparent 25%), " +
-            "linear-gradient(45deg, transparent 75%, var(--checkerboard-color, #e0e0e0) 75%), " +
-            "linear-gradient(-45deg, transparent 75%, var(--checkerboard-color, #e0e0e0) 75%)",
+            "linear-gradient(45deg, var(--checkerboard-color) 25%, transparent 25%), " +
+            "linear-gradient(-45deg, var(--checkerboard-color) 25%, transparent 25%), " +
+            "linear-gradient(45deg, transparent 75%, var(--checkerboard-color) 75%), " +
+            "linear-gradient(-45deg, transparent 75%, var(--checkerboard-color) 75%)",
           backgroundSize: "16px 16px",
           backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
-          backgroundColor: "var(--checkerboard-bg, #ffffff)",
+          backgroundColor: "var(--checkerboard-bg)",
         }}
       >
         <img

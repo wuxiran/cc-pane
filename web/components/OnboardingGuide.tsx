@@ -115,7 +115,7 @@ export default function OnboardingGuide() {
               {!checking && envInfo && (
                 <p
                   className="text-xs mt-1"
-                  style={{ color: envReady ? "var(--app-success, #22c55e)" : "var(--app-accent)" }}
+                  style={{ color: envReady ? "var(--app-status-success)" : "var(--app-accent)" }}
                 >
                   {envReady ? t("envReady") : t("envNotReady")}
                 </p>
@@ -244,9 +244,9 @@ function EnvItem({
       {checking ? (
         <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
       ) : installed ? (
-        <CheckCircle2 className="w-4 h-4" style={{ color: "var(--app-success, #22c55e)" }} />
+        <CheckCircle2 className="w-4 h-4" style={{ color: "var(--app-status-success)" }} />
       ) : installed === false ? (
-        <XCircle className="w-4 h-4" style={{ color: "var(--destructive, #ef4444)" }} />
+        <XCircle className="w-4 h-4" style={{ color: "var(--app-status-danger)" }} />
       ) : (
         <div className="w-4 h-4" />
       )}
@@ -273,8 +273,8 @@ function EnvItem({
           color: checking
             ? "var(--app-text-tertiary)"
             : installed
-              ? "var(--app-success, #22c55e)"
-              : "var(--destructive, #ef4444)",
+              ? "var(--app-status-success)"
+              : "var(--app-status-danger)",
         }}
       >
         {!checking && installed !== null && (installed ? t("installed") : t("notInstalled"))}
@@ -320,7 +320,7 @@ function CliOptionCard({
       className="flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-center transition-colors cursor-pointer"
       style={{
         borderColor: selected ? "var(--app-accent)" : "var(--app-border)",
-        backgroundColor: selected ? "var(--app-accent-muted, rgba(var(--app-accent-rgb, 59,130,246), 0.08))" : "transparent",
+        backgroundColor: selected ? "var(--app-active-bg)" : "transparent",
       }}
     >
       <div
@@ -342,7 +342,7 @@ function CliOptionCard({
       </span>
       <span
         className="text-xs flex items-center gap-1"
-        style={{ color: detected ? "var(--app-success, #22c55e)" : "var(--app-text-tertiary)" }}
+        style={{ color: detected ? "var(--app-status-success)" : "var(--app-text-tertiary)" }}
       >
         {detected ? (
           <CheckCircle2 className="w-3 h-3" />

@@ -263,7 +263,7 @@ export default function LauncherDialog() {
           />
 
           {error && (
-            <div className="text-[11.5px]" style={{ color: "var(--app-status-error, #e5484d)" }}>
+            <div className="text-[11.5px]" style={{ color: "var(--app-status-danger)" }}>
               {error}
             </div>
           )}
