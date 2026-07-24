@@ -166,7 +166,7 @@ describe("ExplorerView", () => {
     expect(screen.getByText("explorer.selectWorkspaceHint")).toBeVisible();
   });
 
-  it("lists all projects in the files tab and lazily mounts only the selected project's tree", () => {
+  it("lists all projects in the files tab with all roots collapsed by default", () => {
     selectWorkspaceWithProject("proj-1");
     useExplorerSectionsStore.setState({ activeSection: "files" });
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
@@ -174,10 +174,8 @@ describe("ExplorerView", () => {
     // 两个项目根都列出
     expect(screen.getByText("demo")).toBeVisible();
     expect(screen.getByText("other")).toBeVisible();
-    // 仅选中项目挂载 FileTree（懒加载）
-    const trees = screen.getAllByTestId("file-tree");
-    expect(trees).toHaveLength(1);
-    expect(trees[0]).toHaveTextContent("D:/repos/demo");
+    // 默认全折叠：不挂载任何 FileTree（懒加载）
+    expect(screen.queryAllByTestId("file-tree")).toHaveLength(0);
   });
 
   it("mounts a collapsed project's tree when its root node is expanded", () => {
@@ -188,22 +186,22 @@ describe("ExplorerView", () => {
     fireEvent.click(screen.getByText("other"));
 
     const trees = screen.getAllByTestId("file-tree");
-    expect(trees).toHaveLength(2);
+    expect(trees).toHaveLength(1);
+    expect(trees[0]).toHaveTextContent("D:/repos/other");
   });
 
-  it("follows expandedProjectId changes in the files tab", () => {
+  it("selection changes do not auto-expand roots in the files tab", () => {
     selectWorkspaceWithProject("proj-1");
     useExplorerSectionsStore.setState({ activeSection: "files" });
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.getByTestId("file-tree")).toHaveTextContent("D:/repos/demo");
+    expect(screen.queryAllByTestId("file-tree")).toHaveLength(0);
 
     act(() => {
       useWorkspacesStore.setState({ expandedProjectId: "proj-2" });
     });
 
-    const trees = screen.getAllByTestId("file-tree");
-    expect(trees).toHaveLength(1);
-    expect(trees[0]).toHaveTextContent("D:/repos/other");
+    // 跟随选中不再强制展开，仍需用户点击展开
+    expect(screen.queryAllByTestId("file-tree")).toHaveLength(0);
   });
 
   it("lists all projects as groups in the git tab with not-a-git-repo hints", async () => {
