@@ -237,19 +237,21 @@ export default function RightDock() {
                     aria-selected={selected}
                     aria-label={t(titleKey)}
                     onClick={() => setActiveView(id)}
-                    className={`flex h-[32px] w-[36px] items-center justify-center rounded-md transition-colors duration-[var(--dur-fast)] ${
-                      selected ? "" : "hover:bg-[var(--app-hover)]"
+                    className={`relative flex h-[36px] w-[38px] items-center justify-center transition-colors duration-[var(--dur-fast)] ${
+                      selected ? "" : "hover:text-[var(--app-text-primary)]"
                     }`}
-                    style={
-                      selected
-                        ? {
-                            background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
-                            color: "var(--app-accent)",
-                          }
-                        : { color: "var(--app-text-secondary)" }
-                    }
+                    style={{
+                      color: selected ? "var(--app-text-primary)" : "var(--app-text-tertiary)",
+                    }}
                   >
                     <Icon className="h-[19px] w-[19px]" strokeWidth={1.6} />
+                    {selected && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-x-2 bottom-0 h-[2px] rounded-full"
+                        style={{ background: "var(--app-text-primary)" }}
+                      />
+                    )}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t(titleKey)}</TooltipContent>
