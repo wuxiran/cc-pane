@@ -33,18 +33,6 @@ const EXEMPT_DIRS = new Set(["mobile", "ui"]);
  * 每一项都是「无对应语义 token、按拍板决定保留原色」的场景。
  */
 const ALLOWLIST: Record<string, string[]> = {
-  // 文件类型图标的品牌 / 区分色：按扩展名区分文件种类，属信息编码而非主题状态。
-  "filetree/FileTreeNode.tsx": [
-    "text-yellow-500", // JSON
-    "text-amber-400", // YAML / TOML / config
-    "text-orange-500", // Java / XML / SVG
-    "text-emerald-500", // Shell 脚本
-    "text-violet-500", // 图片
-    "text-amber-600", // 压缩包
-    "text-blue-500", // C / C++
-    "text-blue-400", // SQL / 其他语言
-    "text-blue-600", // Markdown 图标
-  ],
   // 评分金星：金色星标是通用「重要度 / 收藏」隐喻，无对应语义 token。
   "memory/MemoryManager.tsx": ["fill-amber-400", "text-amber-400", "hover:text-amber-300"],
   "memory/MemoryPickerDialog.tsx": ["fill-amber-400", "text-amber-400"],

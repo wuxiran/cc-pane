@@ -55,8 +55,10 @@ describe("getFileIcon", () => {
 
   it("is case-insensitive for known extensions", () => {
     const { container } = render(<>{getFileIcon("JSON")}</>);
-    // JSON 分支使用 FileJson 图标 + text-yellow-500
-    expect(container.querySelector("svg.text-yellow-500")).not.toBeNull();
+    const icon = container.querySelector("svg");
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveClass("text-[var(--app-text-tertiary)]");
+    expect(icon).not.toHaveClass("lucide-file");
   });
 
   it("maps shell scripts to the terminal icon and unknown extensions to the fallback", () => {
@@ -139,11 +141,18 @@ describe("FileTreeNode", () => {
     expect(screen.getByText("sub")).toBeInTheDocument();
   });
 
-  it("applies git status color classes to the file name", () => {
+  it.each([
+    ["modified", "M", "text-[var(--app-status-warning)]"],
+    ["untracked", "U", "text-[var(--app-status-success)]"],
+    ["deleted", "D", "text-[var(--app-status-danger)]"],
+  ])("renders %s as a colored letter badge while keeping the file name neutral", (status, letter, colorClass) => {
     renderNode(makeNode(entry("/proj/a.ts", false)), {
-      gitStatuses: { "/proj/a.ts": "modified" },
+      gitStatuses: { "/proj/a.ts": status },
     });
-    expect(screen.getByText("a.ts")).toHaveClass("text-[var(--app-status-warning)]");
+
+    expect(screen.getByText("a.ts")).toHaveClass("text-[var(--app-text-primary)]");
+    expect(screen.getByText("a.ts")).not.toHaveClass(colorClass);
+    expect(screen.getByText(letter)).toHaveClass("text-xs", colorClass);
   });
 
   it("highlights the selected file", () => {
@@ -155,10 +164,32 @@ describe("FileTreeNode", () => {
     expect(row).toHaveAttribute("data-current", "true");
   });
 
-  it("紧凑模式使用侧栏密集列表的 13px 字号", () => {
-    renderNode(makeNode(entry("/proj/a.ts", false)), { compact: true });
+  it("所有入口统一使用 13px 字号、28px 行高和 16px 图标", () => {
+    const { container } = render(
+      <FileTreeNode
+        node={makeNode(entry("/proj/a.ts", false))}
+        depth={0}
+        rootPath="/proj"
+        onToggle={vi.fn()}
+        onFileClick={vi.fn()}
+        onContextMenu={vi.fn()}
+      />
+    );
 
     expect(screen.getByText("a.ts")).toHaveClass("text-[13px]");
+    const row = screen.getByText("a.ts").closest("div[data-file-path]") as HTMLElement;
+    expect(row).toHaveClass("h-7");
+    expect(container.querySelector("svg.lucide-file-code")).toHaveAttribute("width", "16");
+  });
+
+  it("uses primary text with stronger weight for directories", () => {
+    renderNode(makeNode(entry("/proj/src", true)));
+
+    expect(screen.getByText("src")).toHaveClass(
+      "text-[13px]",
+      "font-semibold",
+      "text-[var(--app-text-primary)]",
+    );
   });
 
   it("indents by depth", () => {

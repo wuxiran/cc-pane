@@ -129,16 +129,21 @@ describe("FileTree", () => {
     expect(actions.openEditor).not.toHaveBeenCalled();
   });
 
-  it("bubbles git status colors up to parent directories", () => {
+  it("bubbles git status badges up to parent directories", () => {
     setupStores({
       gitStatuses: { [ROOT]: { [`${ROOT}/src/deep/file.ts`]: "modified" } },
     });
     render(<FileTree rootPath={ROOT} />);
-    expect(screen.getByText("file.ts")).toHaveClass("text-[var(--app-status-warning)]");
-    expect(screen.getByText("deep")).toHaveClass("text-[var(--app-status-warning)]");
-    expect(screen.getByText("src")).toHaveClass("text-[var(--app-status-warning)]");
+    for (const name of ["file.ts", "deep", "src"]) {
+      const row = screen.getByText(name).closest("div[data-file-path]") as HTMLElement;
+      expect(row.querySelector('span[title="modified"]')).toHaveTextContent("M");
+      expect(row.querySelector('span[title="modified"]')).toHaveClass(
+        "text-[var(--app-status-warning)]",
+      );
+    }
     // 根目录本身（长度 <= rootPath）不冒泡
-    expect(screen.getByText("README.md")).not.toHaveClass("text-[var(--app-status-warning)]");
+    const readmeRow = screen.getByText("README.md").closest("div[data-file-path]") as HTMLElement;
+    expect(readmeRow.querySelector("span[title]")).toBeNull();
   });
 
   it("keeps the higher-priority git status when bubbling multiple children", () => {
@@ -152,8 +157,10 @@ describe("FileTree", () => {
     });
     render(<FileTree rootPath={ROOT} />);
     // modified(3) 优先于 untracked(1)
-    expect(screen.getByText("src")).toHaveClass("text-[var(--app-status-warning)]");
-    expect(screen.getByText("other.ts")).toHaveClass("text-[var(--app-status-success)]");
+    const srcRow = screen.getByText("src").closest("div[data-file-path]") as HTMLElement;
+    const otherRow = screen.getByText("other.ts").closest("div[data-file-path]") as HTMLElement;
+    expect(srcRow.querySelector('span[title="modified"]')).toHaveTextContent("M");
+    expect(otherRow.querySelector('span[title="untracked"]')).toHaveTextContent("U");
   });
 
   it("syncs selection when the active pane switches to an editor tab", async () => {
