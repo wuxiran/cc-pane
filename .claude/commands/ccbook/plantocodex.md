@@ -40,6 +40,33 @@ trigger: |
 
 ---
 
+## 可选：worktree 隔离模式
+
+**何时启用**（任一命中，或用户提到 "worktree"，或经 `/plantoworktree` 入口进来）：
+- 任务预计长时间运行，且用户要继续在主树干活
+- 高风险改动（大范围重构 / 批量删改文件）
+- 同一仓库已有另一个写代码的 worker 在跑
+
+**派发前增量**（替代"直接用主仓库路径"）：
+
+1. 建 worktree（命名约定 `<repo>@<slug>`，与主仓库同级）：
+   `git -C <主仓库> worktree add ../<repo>@<slug> -b <slug>`
+2. 拷贝未跟踪运行时文件——`git worktree` 不带未跟踪文件，漏拷会构建失败。常见清单：`.env`、`.env.local`、本地证书；按项目实际情况问一句用户
+3. 注册进工作空间（provider/launch/runtime 配置自动继承自工作空间，无需任何额外配置）：
+   `mcp__ccpanes__add_project_to_workspace(workspaceName, projectPath: <worktree 绝对路径>)`
+4. 之后 Phase 3/4 的 `projectPath` 全部指向 worktree 路径（WSL 转换规则同下表）
+
+**收尾增量**（Phase 7 用户确认后追加）：
+
+1. 主仓库 merge / cherry-pick 该分支（或用户明确弃置）
+2. 脏树检查：worktree 内无未提交改动才允许移除，有则先问用户
+3. `git worktree remove <路径>` + `git branch -d <slug>`
+4. 提醒用户在 CC-Panes UI 手动移除该项目节点（移除项目无 MCP 工具，是刻意的破坏性操作限制）
+
+**不启用时**：一切照旧，worker 直接在主仓库路径干活。
+
+---
+
 ## 执行步骤
 
 ### Phase 1：完成 plan + 记下路径

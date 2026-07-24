@@ -1,8 +1,34 @@
 # CC-Panes Markdown-First Memory 方案
 
-状态：Draft
-日期：2026-05-02
-目标：把 CC-Panes Memory 从当前 DB-first、手工管理、独立 MCP 的形态，升级为工作空间优先、Markdown 可读可审计、JSON 索引加速、Hooks 自动捕获与注入的自有记忆系统。
+状态：Draft（rev.2）
+日期：2026-05-02（2026-07-24 修订索引层设计，未实施）
+目标：把 CC-Panes Memory 从当前 DB-first、手工管理、独立 MCP 的形态，升级为工作空间优先、Markdown 可读可审计、~~JSON 索引加速~~ **SQLite 索引加速**、Hooks 自动捕获与注入的自有记忆系统。
+
+---
+
+## 0. 2026-07-24 修订：索引层改用 SQLite（替代 `_index.json`）
+
+> 修订动机：原方案把索引层降级为 JSON，丢掉了 v1 最值钱的部分（FTS5），且未认真处理多写入方并发。重新权衡后，正确架构是 **markdown 真实源 + SQLite 可重建索引** 的混合——这也是参考项目 Basic Memory 的真实架构（原方案只借了它"文件优先"的理念，漏了索引层的精髓）。
+
+**修订内容：**
+
+1. **`_index.json` → `_index.db`（SQLite）**。检索保留 v1 的 FTS5（分词/排名/scope+importance+时间组合过滤一条 SQL 搞定）；索引可随时从 markdown 全量重建（真实源不变，坏了就重建，与原 JSON 索引的可重建承诺一致）。
+2. **易变统计字段只进 DB、不进 frontmatter**。`access_count` / `last_accessed_at` 从 markdown frontmatter 字段表中移除——否则每次召回都改 md 文件，git diff 全是噪音、mtime 全乱。md 文件保持"内容变了才变"。
+3. **并发模型明确化**。写入方有四个（Claude 会话 / Codex 会话 / hook 收割 / UI）：md 内容层靠"一事一文件 + tmp+rename 原子写"（创建为主、编辑罕见，文件级冲突概率极低）；索引与统计写全走 SQLite 事务（WAL）。原方案的 JSON 索引在双 agent 并发写时有索引-文件不一致的竞态窗口，此问题随本修订消除。
+4. **`_index.md`（给人看的目录）保留不变。**
+
+**决策依据（记忆系统的头号死因是污染，不是检索慢）：**
+
+| 维度 | 纯 SQLite（v1） | 纯 markdown+JSON（原 v2） | 混合（本修订） |
+|---|---|---|---|
+| 可审计/可园艺（防污染生死项） | ❌ DB 是只写坟场 | ✅ | ✅ |
+| 零协议可达（任意 agent 直接 Read，双写桥可退役） | ❌ | ✅ | ✅ |
+| FTS5 检索/组合过滤 | ✅ | ❌ 手写索引 | ✅ |
+| 并发写安全 | ✅ | ❌ 竞态窗口 | ✅ |
+| 高频统计写入 | ✅ | ❌ md 抖动 | ✅ |
+| git 可版本化 | ❌ | ✅ | ✅（DB 入 .gitignore） |
+
+**实施时机（本修订不触发动工）**：v1 继续跑。动工信号任一出现即启动：①池内出现错误记忆且修正费劲（污染已现形）②双写桥断线导致 Codex 缺记忆 ③需要记忆随工作空间进 git。动工前本文档整体交 WSL Codex 只读评审。
 
 ---
 
