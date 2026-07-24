@@ -15,6 +15,7 @@ import MainViewSwitcher from "@/components/layout/MainViewSwitcher";
 import AppDialogs from "@/components/layout/AppDialogs";
 import RightDock from "@/components/rightdock/RightDock";
 import { useThemeStore, useMiniModeStore, useWorkspacesStore } from "@/stores";
+import { useFollowActiveTerminalContext } from "@/hooks/useFollowActiveTerminalContext";
 import type { OpenTerminalOptions } from "@/types";
 
 interface AppShellProps {
@@ -27,6 +28,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
   const isDark = useThemeStore((s) => s.isDark);
   const isMiniMode = useMiniModeStore((s) => s.isMiniMode);
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
+  useFollowActiveTerminalContext();
 
   return (
     <TooltipProvider delayDuration={300}>
