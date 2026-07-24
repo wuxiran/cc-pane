@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.11.1 - 2026-07-25
+
+### Added — orchestration primitives (`docs/44`)
+
+- **`wait_for_session` MCP tool.** Long-poll a session until it reaches a target state (event-driven off the state-machine broadcast, no busy polling): snapshot fast path, subscribe-then-recheck race guard, `blockedReason` early-return when the session lands in WaitingInput/Error, 15s effective-status re-evaluation so a hook-starved stale-busy session still resolves, 180s timeout with zero-cost re-call semantics. `/clear` (SessionEnd reason="clear") does not satisfy `waitFor:["exited"]` — locked by test.
+- **`send_to_worker` MCP tool.** The leader→worker downlink symmetric to `report_to_leader`: `[leader-directive]` formatting, busy gating with idle-edge redelivery (session-generic message substrate keyed by sessionId), planId broadcast, leader-identity enforcement, plan-collaboration audit trail.
+- **Bracketed-paste delivery (Phase A+B).** `submit_to_session` no longer flattens newlines — text is wrapped in `\x1b[200~ … \x1b[201~` (embedded end-marker sanitized), so multiline prompts arrive intact as one submission. A CSI detector tracks DECSET 2004 (`paste_ready`) per session: when the TUI has an input box mounted, submit delay collapses to ~200ms; `launch_task` medium-length multiline prompts route through paste (daemon-mode flag bridging deferred — falls back to the CLI-arg path). The `write_to_session` control-key path is never wrapped.
+
+### Added — UI
+
+- **Right dock panel** (v1→v3 in one release): toggled from a TitleBar button (mirroring the left sidebar toggle, with an aligned divider line through the titlebar), Files/Git tabs inside the panel (flat icons + underline indicator), reusing the Explorer section internals. Width drag persisted (10px grab zone straddling the border), starts closed on every launch. Multi-project workspaces resolve the shown project as active-terminal > explicitly-selected > first, with a project dropdown in the header — the panel is never blank.
+- **Context follows the active terminal.** Switching terminal tabs syncs the sidebar's selected workspace/project (and thus the right dock) via canonical project-identity reverse lookup — last action wins, plain-shell tabs don't clobber the selection.
+- **Settings revamp, batch 1** (`docs/53`): a single pane registry drives a grouped sidebar and the search index (layered scoring: pane > entry > description > keyword; control-level filtering with deep-link anchors; wired into CommandPalette), one-pane-at-a-time lazy mounting, form anatomy + soft-card bands per the style constitution (written back into `docs/46`), and an Experimental pane shell with the graduation hydration pattern (`new ?? legacy ?? default` + idempotent markers). No settings were added or removed.
+- **System resources in the StatusBar + session resource manager** (learned from Orca, evolved): a pull-based CPU/memory segment (no resident backend sampling; paused while the window is hidden) opens a popover showing managed sessions grouped by workspace with per-session process-tree CPU/memory aggregation — click a row to focus its terminal tab, kill via the standard tree-kill path with inline confirm. Orphaned CC-Panes-derived processes get an amber count and batch cleanup; live-instance process trees (any instance — dev or release) are protected wholesale, PID reuse is start-time-checked, and MCP/dev-server/package-manager branches are excluded. Windows enumeration runs ~30ms via a Toolhelp snapshot with native counters for selected PIDs only.
+- **Frontend machine guardrails** (four vitest suites): line-count ratchet (monolith baseline only shrinks, new files ≤500 lines), en/zh-CN i18n key parity (empty strings count as missing), raw-CJK-text ratchet, and a color guard covering hex/arbitrary values, inline style colors, and light/dark `--app-*` token-set parity. The parity guard caught its first real debt on day one (six `.dark` status tokens implicitly inheriting light values — now explicit).
+- **Theme is now one file away.** Semantic color debt migrated to `--app-*` tokens (brand/category/ANSI colors precisely allowlisted), and terminal core colors (background/foreground/cursor/selection) read CSS tokens at theme-apply time with per-value fallback — zero visual change today, but editing `index.css` now restyles components and terminals together.
+- Taller chrome: TitleBar 38→44px, StatusBar 24→28px.
+
+### Fixed
+
+- **opencode panes finally respect wallpaper transparency** (`docs/54`). Root-caused across four rounds: opencode's `system` theme depends on a terminal palette probe that fails under xterm.js/ConPTY, and the code then *falls back to the opaque built-in theme* (`#0a0a0a` painted on every cell). The adapter now ships a full 50-key theme frozen to the built-in dark values with `background`/`backgroundPanel`/`backgroundElement` set to `none` (no probe, no fallback path), injected version-compatibly through both the legacy `opencode.json` channel and the 1.18+ `tui.json`/`OPENCODE_TUI_CONFIG` channel, never overriding a user-configured theme. A background-behavior compatibility archive for all CLI TUIs (probe direction, alt-screen usage, intervention points) landed as `docs/54`.
+
+### Dev notes
+
+- `tauri dev` does not rebuild external binaries (`cc-panes-daemon` & co.) — documented in CLAUDE.md after it cost three "green tests, no effect" rounds this release: rebuild and copy into `binaries/` after touching `cc-cli-adapters`/`cc-panes-daemon`.
+- New direction docs: `docs/52` (module registry breakdown: 135 UI units → 16 modules, five-surface schema, clean-split criteria, full/minimal presets), `docs/53` (settings revamp), `docs/54` (CLI background compat).
+
 ## 0.11.0 - 2026-07-24
 
 ### Changed — Local History watcher rework (the real fix behind 0.10.21's revert)
