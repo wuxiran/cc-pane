@@ -108,7 +108,7 @@ function HtmlIcon({ size = 14 }: { size?: number }) {
 
 /** 根据扩展名返回彩色文件图标 */
 export function getFileIcon(ext: string | null, size = 14): React.ReactNode {
-  if (!ext) return <File size={size} className="shrink-0 text-slate-400" />;
+  if (!ext) return <File size={size} className="shrink-0 text-[var(--app-text-tertiary)]" />;
   switch (ext.toLowerCase()) {
     // TypeScript / TSX
     case "ts":
@@ -188,7 +188,7 @@ export function getFileIcon(ext: string | null, size = 14): React.ReactNode {
     case "txt":
     case "log":
     case "csv":
-      return <FileText size={size} className="shrink-0 text-slate-400" />;
+      return <FileText size={size} className="shrink-0 text-[var(--app-text-tertiary)]" />;
     // C / C++
     case "c":
     case "cpp":
@@ -208,7 +208,7 @@ export function getFileIcon(ext: string | null, size = 14): React.ReactNode {
     case "graphql":
       return <FileCode size={size} className="shrink-0 text-blue-400" />;
     default:
-      return <File size={size} className="shrink-0 text-slate-400" />;
+      return <File size={size} className="shrink-0 text-[var(--app-text-tertiary)]" />;
   }
 }
 

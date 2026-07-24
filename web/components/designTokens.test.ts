@@ -35,7 +35,6 @@ const EXEMPT_DIRS = new Set(["mobile", "ui"]);
 const ALLOWLIST: Record<string, string[]> = {
   // 文件类型图标的品牌 / 区分色：按扩展名区分文件种类，属信息编码而非主题状态。
   "filetree/FileTreeNode.tsx": [
-    "text-slate-400", // 默认文件 / 文本 / 日志
     "text-yellow-500", // JSON
     "text-amber-400", // YAML / TOML / config
     "text-orange-500", // Java / XML / SVG
@@ -54,7 +53,6 @@ const ALLOWLIST: Record<string, string[]> = {
     "text-blue-400", // claude_cli
     "text-yellow-400", // claude_node
     "text-purple-400", // mcp_server
-    "text-slate-400", // other
   ],
   // WSL 默认发行版金色星标：与评分金星同源的「默认 / 收藏」隐喻。
   "sidebar/WslDiscoverDialog.tsx": ["fill-yellow-400", "text-yellow-400"],
