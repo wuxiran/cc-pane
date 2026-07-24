@@ -85,7 +85,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
   return (
     <div
-      className="relative flex items-center h-[38px] shrink-0 select-none z-10"
+      className="relative flex items-center h-[44px] shrink-0 select-none z-10"
       data-tauri-drag-region=""
       style={{
         paddingLeft: isMac ? 78 : 12,
@@ -225,7 +225,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
           data-testid="titlebar-toggle-sidebar"
           label={sidebarVisible ? tSidebar("collapseSidebar") : tSidebar("expandSidebar")}
           side="bottom"
-          className="ml-1 h-[26px] w-[26px] shrink-0 rounded-[5px] p-0"
+          className="ml-1 h-[30px] w-[30px] shrink-0 rounded-[6px] p-0"
           style={noDrag}
           onClick={toggleSidebar}
         >
@@ -262,7 +262,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             rightDockVisible ? tSidebar("rightDock.collapse") : tSidebar("rightDock.expand")
           }
           side="bottom"
-          className="mr-1 h-[26px] w-[26px] shrink-0 rounded-[5px] p-0"
+          className="mr-1 h-[30px] w-[30px] shrink-0 rounded-[6px] p-0"
           style={noDrag}
           onClick={toggleRightDock}
         >
