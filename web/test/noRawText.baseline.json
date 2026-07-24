@@ -1,7 +1,6 @@
 {
   "ActivityBar.tsx": 1,
   "CommandPalette.tsx": 7,
-  "SettingsPanel.tsx": 1,
   "StatusBar.tsx": 10,
   "WebAuthGate.tsx": 4,
   "WorktreeManager.tsx": 1,

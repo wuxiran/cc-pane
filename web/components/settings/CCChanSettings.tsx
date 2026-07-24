@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, FolderOpen, Footprints, MapPin, Music, Power, RefreshCw, Ruler, Sparkles } from "lucide-react";
+import { FolderOpen, Footprints, MapPin, Music, Power, RefreshCw, Ruler, Sparkles } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -50,16 +50,6 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="mb-1 flex items-center gap-2 text-[15px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
-          <Bot size={16} />
-          <span>cc酱</span>
-        </h3>
-        <p className="m-0 text-[12px]" style={{ color: "var(--app-text-tertiary)" }}>
-          桌面浮窗、chat 引擎和角色设置。
-        </p>
-      </div>
-
       <div className="flex flex-col gap-2">
         <Label className="flex items-center gap-2">
           <Sparkles size={14} />

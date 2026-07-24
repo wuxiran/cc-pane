@@ -135,15 +135,6 @@ export default function WebAccessSection({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-          Web 访问
-        </h3>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          启动本机 Web 端，使用同一套 CC-Panes 数据。局域网访问必须先配置账号密码。
-        </p>
-      </div>
-
       <div className="flex items-center justify-between">
         <div>
           <Label>启动时启用 Web 端</Label>
