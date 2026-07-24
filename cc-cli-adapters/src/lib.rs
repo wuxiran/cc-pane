@@ -32,6 +32,34 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HookCommandShell {
+    Posix,
+    Windows,
+}
+
+pub(crate) fn build_guarded_hook_command(
+    binary_path: &Path,
+    subcommand: &str,
+    shell: HookCommandShell,
+) -> String {
+    let path = binary_path.to_string_lossy();
+    match shell {
+        HookCommandShell::Posix => {
+            let quoted = format!("'{}'", path.replace('\'', "'\\''"));
+            format!("if [ -x {quoted} ]; then {quoted} {subcommand}; fi")
+        }
+        HookCommandShell::Windows => {
+            format!(r#"cmd.exe /D /C if exist "{path}" "{path}" {subcommand}"#)
+        }
+    }
+}
+
+pub(crate) fn is_guarded_hook_command(command: &str) -> bool {
+    let command = command.trim_start();
+    command.starts_with("if [ -x ") || command.starts_with("cmd.exe /D /C if exist ")
+}
+
 /// 创建不弹窗的 Command（Windows 自动设置 CREATE_NO_WINDOW）
 ///
 /// 独立于 cc-panes-core，避免循环依赖。
@@ -343,6 +371,21 @@ pub trait CliToolAdapter: Send + Sync {
         _desired: &HashMap<String, bool>,
     ) -> Result<()> {
         Ok(())
+    }
+
+    /// 是否存在仍以裸二进制路径运行的 CC-Panes hook，需要升级为存在性守卫命令。
+    fn project_hooks_need_command_upgrade(&self, _project_path: &Path) -> Result<bool> {
+        Ok(false)
+    }
+
+    /// 删除此 adapter 写入的用户级配置，返回实际变更的路径。
+    fn cleanup_user_injections(&self) -> Result<Vec<PathBuf>> {
+        Ok(Vec::new())
+    }
+
+    /// 删除此 adapter 写入的项目 hook，必须保留用户自定义条目。
+    fn cleanup_project_hooks(&self, _project_path: &Path) -> Result<Vec<PathBuf>> {
+        Ok(Vec::new())
     }
 
     /// 把 cc-pane 抽象事件映射为该 CLI 的原生 hook 绑定。
@@ -990,6 +1033,29 @@ impl Default for CliToolRegistry {
 #[cfg(test)]
 mod registry_tests {
     use super::*;
+
+    #[test]
+    fn guarded_hook_command_is_silent_when_binary_is_missing() {
+        let posix = build_guarded_hook_command(
+            Path::new("/opt/CC Panes/it's-hook"),
+            "session-end",
+            HookCommandShell::Posix,
+        );
+        assert_eq!(
+            posix,
+            "if [ -x '/opt/CC Panes/it'\\''s-hook' ]; then '/opt/CC Panes/it'\\''s-hook' session-end; fi"
+        );
+
+        let windows = build_guarded_hook_command(
+            Path::new(r"C:\Program Files\CC-Panes\cc-panes-cli-hook.exe"),
+            "session-end",
+            HookCommandShell::Windows,
+        );
+        assert_eq!(
+            windows,
+            r#"cmd.exe /D /C if exist "C:\Program Files\CC-Panes\cc-panes-cli-hook.exe" "C:\Program Files\CC-Panes\cc-panes-cli-hook.exe" session-end"#
+        );
+    }
 
     fn test_context(executable_override: Option<&str>) -> CliAdapterContext {
         CliAdapterContext {

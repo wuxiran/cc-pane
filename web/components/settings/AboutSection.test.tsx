@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getVersion } from "@tauri-apps/api/app";
 import packageJson from "../../../package.json";
 import { logService } from "@/services";
+import { settingsService } from "@/services/settingsService";
 import { checkForAppUpdates } from "@/services/updaterService";
 import { isTauriRuntime } from "@/services/runtime";
 import { useUpdateStore } from "@/stores";
@@ -35,6 +36,16 @@ vi.mock("@/services/updaterService", () => ({
   checkForAppUpdates: vi.fn(async () => {}),
   checkUpdateSilent: vi.fn(async () => {}),
   triggerUpdate: vi.fn(async () => {}),
+}));
+
+vi.mock("@/services/settingsService", () => ({
+  settingsService: {
+    cleanupBeforeUninstall: vi.fn(async () => ({
+      cleaned: ["~/.claude/commands/ccpanes"],
+      skipped: ["D:/missing-project: project unavailable"],
+      failed: [],
+    })),
+  },
 }));
 
 describe("AboutSection", () => {
@@ -90,6 +101,20 @@ describe("AboutSection", () => {
     await act(async () => {});
 
     expect(screen.getByText(/2\.0\.0/)).toBeInTheDocument();
+  });
+
+  it("confirms cleanup and renders the cleanup report", async () => {
+    const user = userEvent.setup();
+    render(<AboutSection />);
+    await act(async () => {});
+
+    await user.click(screen.getByRole("button", { name: /卸载前清理|Cleanup before uninstall/i }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /确认清理|Clean up now/i }));
+
+    await waitFor(() => expect(settingsService.cleanupBeforeUninstall).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("~/.claude/commands/ccpanes")).toBeInTheDocument();
+    expect(screen.getByText(/D:\/missing-project/)).toBeInTheDocument();
   });
 
   it("swallows update-check failures without crashing", async () => {

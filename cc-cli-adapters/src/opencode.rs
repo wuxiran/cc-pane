@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 /// CC-Panes opencode 插件源码（随 crate 编译进二进制），由 `sync_project_hooks`
@@ -234,6 +234,19 @@ impl CliToolAdapter for OpenCodeAdapter {
             std::fs::remove_file(&plugin_path)?;
         }
         Ok(())
+    }
+
+    fn cleanup_project_hooks(&self, project_path: &Path) -> Result<Vec<PathBuf>> {
+        let plugin_path = Self::plugin_path(project_path);
+        if !plugin_path.is_file() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&plugin_path)?;
+        if content != CCPANES_PLUGIN_JS {
+            return Ok(Vec::new());
+        }
+        std::fs::remove_file(&plugin_path)?;
+        Ok(vec![plugin_path])
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {

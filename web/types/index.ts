@@ -94,6 +94,7 @@ export type {
   TerminalStatusType,
   TerminalStatusInfo,
   DataDirInfo,
+  UninstallCleanupReport,
   ShellInfo,
   SearchScope,
   ScreenshotSettings,
