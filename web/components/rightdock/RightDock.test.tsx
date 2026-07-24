@@ -1,5 +1,5 @@
 import "@/i18n";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -76,25 +76,36 @@ describe("RightDock", () => {
     expect(screen.queryByTestId("right-dock-git")).not.toBeInTheDocument();
   });
 
-  it("折叠时只保留常驻图标条，点击当前图标重新展开", async () => {
-    const user = userEvent.setup();
+  it("折叠时不再渲染面板或常驻图标条", () => {
     useRightDockStore.setState({ visible: false, activeView: "git" });
 
     renderDock();
 
     expect(screen.queryByTestId("right-dock-panel")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Git" }));
-    expect(screen.getByTestId("right-dock-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Git" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "文件" })).not.toBeInTheDocument();
   });
 
-  it("点击当前激活图标或双击拖柄可折叠", async () => {
+  it("在面板内切换 Git 与文件视图且不折叠", async () => {
     const user = userEvent.setup();
     renderDock();
 
-    await user.click(screen.getByRole("button", { name: "Git" }));
-    expect(screen.queryByTestId("right-dock-panel")).not.toBeInTheDocument();
+    const gitTab = screen.getByRole("tab", { name: "Git" });
+    const filesTab = screen.getByRole("tab", { name: "文件" });
+    expect(gitTab).toHaveAttribute("aria-selected", "true");
+    expect(filesTab).toHaveAttribute("aria-selected", "false");
 
-    act(() => useRightDockStore.getState().setVisible(true));
+    await user.click(filesTab);
+    expect(useRightDockStore.getState()).toMatchObject({ visible: true, activeView: "files" });
+    expect(screen.getByTestId("right-dock-files")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "文件" }));
+    expect(useRightDockStore.getState().visible).toBe(true);
+  });
+
+  it("双击拖柄可折叠", () => {
+    renderDock();
+
     fireEvent.doubleClick(screen.getByRole("separator", { name: "调整右侧面板宽度" }));
     expect(screen.queryByTestId("right-dock-panel")).not.toBeInTheDocument();
   });

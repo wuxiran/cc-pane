@@ -6,6 +6,8 @@ import {
   Copy,
   PanelLeft,
   PanelLeftClose,
+  PanelRight,
+  PanelRightClose,
   Settings,
   X,
 } from "lucide-react";
@@ -22,6 +24,7 @@ import {
   useActivityBarStore,
   useBorderlessStore,
   useDialogStore,
+  useRightDockStore,
   useWorkspacesStore,
 } from "@/stores";
 import { useWindowControl } from "@/hooks/useWindowControl";
@@ -52,6 +55,8 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
   const isBorderless = useBorderlessStore((s) => s.isBorderless);
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const toggleSidebar = useActivityBarStore((s) => s.toggleSidebar);
+  const rightDockVisible = useRightDockStore((s) => s.visible);
+  const toggleRightDock = useRightDockStore((s) => s.toggleVisible);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
   const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
@@ -251,6 +256,22 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
       {/* 右侧：工具按钮 + 窗口控件 */}
       <div className="flex items-center shrink-0" style={noDrag}>
+        <IconTooltipButton
+          data-testid="titlebar-toggle-right-dock"
+          label={
+            rightDockVisible ? tSidebar("rightDock.collapse") : tSidebar("rightDock.expand")
+          }
+          side="bottom"
+          className="mr-1 h-[26px] w-[26px] shrink-0 rounded-[5px] p-0"
+          style={noDrag}
+          onClick={toggleRightDock}
+        >
+          {rightDockVisible ? (
+            <PanelRightClose className="h-[15px] w-[15px]" strokeWidth={1.5} />
+          ) : (
+            <PanelRight className="h-[15px] w-[15px]" strokeWidth={1.5} />
+          )}
+        </IconTooltipButton>
         <Tooltip>
           <TooltipTrigger asChild>
             <button

@@ -29,18 +29,30 @@ describe("useRightDockStore", () => {
     expect(state.width).toBe(DEFAULT_RIGHT_DOCK_WIDTH);
   });
 
-  it("切换到不同视图时展开，重复点击当前视图时折叠", () => {
-    useRightDockStore.getState().toggleView("files");
+  it("切换视图时保持面板可见性不变", () => {
+    useRightDockStore.getState().setVisible(true);
+    useRightDockStore.getState().setActiveView("files");
     expect(useRightDockStore.getState()).toMatchObject({
       visible: true,
       activeView: "files",
     });
 
-    useRightDockStore.getState().toggleView("files");
-    expect(useRightDockStore.getState().visible).toBe(false);
+    useRightDockStore.getState().setVisible(false);
+    useRightDockStore.getState().setActiveView("git");
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: false,
+      activeView: "git",
+    });
+  });
 
-    useRightDockStore.getState().toggleView("files");
-    expect(useRightDockStore.getState().visible).toBe(true);
+  it("切换面板可见性时保留当前视图", () => {
+    useRightDockStore.getState().setActiveView("files");
+
+    useRightDockStore.getState().toggleVisible();
+    expect(useRightDockStore.getState()).toMatchObject({ visible: true, activeView: "files" });
+
+    useRightDockStore.getState().toggleVisible();
+    expect(useRightDockStore.getState()).toMatchObject({ visible: false, activeView: "files" });
   });
 
   it("宽度始终钳制在允许范围内", () => {
