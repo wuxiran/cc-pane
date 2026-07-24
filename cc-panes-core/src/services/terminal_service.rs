@@ -2864,6 +2864,15 @@ impl TerminalService {
                 let mut s = session.status.lock().unwrap_or_else(|e| e.into_inner());
                 *s = SessionStatus::Exited;
             }
+            if let Some(state_machine) = self
+                .state_machine
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_ref()
+                .cloned()
+            {
+                state_machine.force_exited(session_id);
+            }
             let _ = session.process.kill();
             // session-killed 已在 sessions.remove 后立即广播（见上），此处不再重复 emit
             // session 在此 drop，不再持有 sessions lock
@@ -3619,6 +3628,32 @@ mod tests {
             .expect_err("missing session must error");
 
         assert!(matches!(error, AppError::NotFound(_)));
+    }
+
+    #[test]
+    fn kill_with_reason_forces_state_machine_to_exited() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let state_machine = Arc::new(crate::services::SessionStateMachine::new());
+        service.set_state_machine(state_machine.clone());
+        install_recording_session(&service, "session-kill", Arc::new(Mutex::new(Vec::new())));
+        state_machine.on_event(
+            "session-kill",
+            &cc_cli_adapters::CcPaneEvent::PromptBefore,
+            None,
+            &serde_json::json!({}),
+        );
+
+        service
+            .kill_with_reason("session-kill", KillReason::Mcp)
+            .expect("kill session");
+
+        assert_eq!(
+            state_machine
+                .snapshot("session-kill")
+                .expect("state entry")
+                .status,
+            SessionStatus::Exited
+        );
     }
 
     fn write_orchestrator_manifest(data_dir: &std::path::Path, port: u16, token: &str) {

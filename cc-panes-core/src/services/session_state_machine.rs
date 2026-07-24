@@ -112,13 +112,16 @@ pub type TransitionListener = Arc<dyn Fn(&StateTransition) + Send + Sync>;
 pub struct SessionStateMachine {
     entries: Mutex<HashMap<String, SessionStateEntry>>,
     listeners: Mutex<Vec<TransitionListener>>,
+    transition_tx: tokio::sync::broadcast::Sender<StateTransition>,
 }
 
 impl SessionStateMachine {
     pub fn new() -> Self {
+        let (transition_tx, _) = tokio::sync::broadcast::channel(256);
         Self {
             entries: Mutex::new(HashMap::new()),
             listeners: Mutex::new(Vec::new()),
+            transition_tx,
         }
     }
 
@@ -127,6 +130,11 @@ impl SessionStateMachine {
         if let Ok(mut listeners) = self.listeners.lock() {
             listeners.push(listener);
         }
+    }
+
+    /// 订阅真实状态跃迁。接收方落后时应重查当前状态，而不是依赖逐条回放。
+    pub fn subscribe_transitions(&self) -> tokio::sync::broadcast::Receiver<StateTransition> {
+        self.transition_tx.subscribe()
     }
 
     /// 处理一个 hook 事件（HTTP 通道，保持原签名兼容）。
@@ -461,6 +469,8 @@ impl SessionStateMachine {
                 listener(transition);
             }));
         }
+        // listener 先写回 TerminalSession.status，再唤醒异步等待方，避免读到旧快照。
+        let _ = self.transition_tx.send(transition.clone());
     }
 }
 
@@ -780,6 +790,51 @@ mod tests {
         // 再次 PromptBefore：Thinking → Thinking，不发
         sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn transition_broadcast_only_publishes_notified_events() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-broadcast";
+        let mut receiver = sm.subscribe_transitions();
+
+        sm.on_event(sid, &CcPaneEvent::SessionInit, None, &empty_payload());
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+
+        sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
+        let transition = receiver.try_recv().expect("real transition is broadcast");
+        assert_eq!(transition.pty_session_id, sid);
+        assert_eq!(transition.to, SessionStatus::Thinking);
+    }
+
+    #[test]
+    fn transition_broadcast_recovers_with_a_fresh_subscription_after_lag() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-broadcast-lag";
+        let mut lagged = sm.subscribe_transitions();
+        sm.on_event(sid, &CcPaneEvent::SessionInit, None, &empty_payload());
+        for index in 0..300 {
+            let event = if index % 2 == 0 {
+                CcPaneEvent::PromptBefore
+            } else {
+                CcPaneEvent::TurnEnd
+            };
+            sm.on_event(sid, &event, None, &empty_payload());
+        }
+        assert!(matches!(
+            lagged.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_))
+        ));
+
+        let mut fresh = sm.subscribe_transitions();
+        sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
+        assert_eq!(
+            fresh.try_recv().expect("fresh receiver remains usable").to,
+            SessionStatus::Thinking
+        );
     }
 
     #[test]

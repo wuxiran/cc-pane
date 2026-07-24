@@ -467,6 +467,187 @@ async fn query_session_status(
     Ok(status)
 }
 
+const WAIT_FOR_SESSION_DEFAULT_TIMEOUT_MS: u64 = 180_000;
+const WAIT_FOR_SESSION_MIN_TIMEOUT_MS: u64 = 1_000;
+const WAIT_FOR_SESSION_MAX_TIMEOUT_MS: u64 = 570_000;
+const WAIT_FOR_SESSION_RECHECK_SECS: u64 = 15;
+
+fn normalized_wait_timeout_ms(timeout_ms: Option<u64>) -> u64 {
+    timeout_ms
+        .unwrap_or(WAIT_FOR_SESSION_DEFAULT_TIMEOUT_MS)
+        .clamp(
+            WAIT_FOR_SESSION_MIN_TIMEOUT_MS,
+            WAIT_FOR_SESSION_MAX_TIMEOUT_MS,
+        )
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct WaitForSessionResult {
+    satisfied: bool,
+    final_status: SessionStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked_reason: Option<String>,
+    waited_ms: u64,
+    turn_seq: u64,
+}
+
+enum WaitObservation {
+    Done(WaitForSessionResult),
+    Continue {
+        final_status: SessionStatus,
+        turn_seq: u64,
+    },
+}
+
+fn observe_wait_status(
+    state_machine: &cc_panes_core::services::SessionStateMachine,
+    session_id: &str,
+    wait_for: &[SessionStatus],
+    status: Option<SessionStatusInfo>,
+    waited_ms: u64,
+) -> std::result::Result<WaitObservation, String> {
+    let turn_seq = state_machine
+        .snapshot(session_id)
+        .map_or(0, |entry| entry.turn_seq);
+    let Some(status) = status else {
+        if wait_for.contains(&SessionStatus::Exited) {
+            return Ok(WaitObservation::Done(WaitForSessionResult {
+                satisfied: true,
+                final_status: SessionStatus::Exited,
+                blocked_reason: None,
+                waited_ms,
+                turn_seq,
+            }));
+        }
+        return Err(format!("会话 '{}' 不存在", session_id));
+    };
+
+    if wait_for.contains(&status.status) {
+        return Ok(WaitObservation::Done(WaitForSessionResult {
+            satisfied: true,
+            final_status: status.status,
+            blocked_reason: None,
+            waited_ms,
+            turn_seq,
+        }));
+    }
+
+    let blocked_reason = match status.status {
+        SessionStatus::WaitingInput => Some("waiting-input"),
+        SessionStatus::Error => Some("error"),
+        _ => None,
+    };
+    if let Some(blocked_reason) = blocked_reason {
+        return Ok(WaitObservation::Done(WaitForSessionResult {
+            satisfied: false,
+            final_status: status.status,
+            blocked_reason: Some(blocked_reason.to_string()),
+            waited_ms,
+            turn_seq,
+        }));
+    }
+
+    Ok(WaitObservation::Continue {
+        final_status: status.status,
+        turn_seq,
+    })
+}
+
+async fn wait_for_session_with_query<F, Fut>(
+    state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
+    session_id: String,
+    wait_for: Vec<SessionStatus>,
+    timeout: std::time::Duration,
+    mut query: F,
+) -> std::result::Result<WaitForSessionResult, String>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = std::result::Result<Option<SessionStatusInfo>, String>>,
+{
+    let started = std::time::Instant::now();
+    if let WaitObservation::Done(result) =
+        observe_wait_status(&state_machine, &session_id, &wait_for, query().await?, 0)?
+    {
+        return Ok(result);
+    }
+
+    // 先订阅再重查，覆盖第一次快照与订阅建立之间发生的跃迁。
+    let mut transitions = state_machine.subscribe_transitions();
+    if let WaitObservation::Done(result) = observe_wait_status(
+        &state_machine,
+        &session_id,
+        &wait_for,
+        query().await?,
+        started.elapsed().as_millis() as u64,
+    )? {
+        return Ok(result);
+    }
+
+    let deadline = tokio::time::Instant::now() + timeout;
+    let mut recheck = tokio::time::interval(std::time::Duration::from_secs(
+        WAIT_FOR_SESSION_RECHECK_SECS,
+    ));
+    recheck.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    recheck.tick().await;
+
+    loop {
+        enum Wake {
+            Transition(
+                std::result::Result<
+                    cc_panes_core::services::StateTransition,
+                    tokio::sync::broadcast::error::RecvError,
+                >,
+            ),
+            Recheck,
+            Timeout,
+        }
+
+        let wake = tokio::select! {
+            transition = transitions.recv() => Wake::Transition(transition),
+            _ = recheck.tick() => Wake::Recheck,
+            _ = tokio::time::sleep_until(deadline) => Wake::Timeout,
+        };
+        let timed_out = matches!(&wake, Wake::Timeout);
+        match wake {
+            Wake::Transition(Ok(transition)) if transition.pty_session_id != session_id => {
+                continue;
+            }
+            Wake::Transition(Err(tokio::sync::broadcast::error::RecvError::Closed)) => {
+                return Err("会话状态广播已关闭".to_string());
+            }
+            Wake::Transition(Ok(_))
+            | Wake::Transition(Err(tokio::sync::broadcast::error::RecvError::Lagged(_)))
+            | Wake::Recheck
+            | Wake::Timeout => {}
+        }
+
+        let waited_ms = started.elapsed().as_millis() as u64;
+        match observe_wait_status(
+            &state_machine,
+            &session_id,
+            &wait_for,
+            query().await?,
+            waited_ms,
+        )? {
+            WaitObservation::Done(result) => return Ok(result),
+            WaitObservation::Continue {
+                final_status,
+                turn_seq,
+            } if timed_out => {
+                return Ok(WaitForSessionResult {
+                    satisfied: false,
+                    final_status,
+                    blocked_reason: None,
+                    waited_ms,
+                    turn_seq,
+                });
+            }
+            WaitObservation::Continue { .. } => {}
+        }
+    }
+}
+
 async fn query_session_status_for_automatic_submit(
     state: &AppState,
     session_id: &str,
@@ -1719,6 +1900,23 @@ struct McpGetSessionStatusParams {
     /// 终端会话 ID
     #[serde(rename = "sessionId")]
     session_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpWaitForSessionParams {
+    /// 终端会话 ID；与 launchId 二选一
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    /// launch_task 的 launch ID；与 sessionId 二选一
+    #[serde(rename = "launchId")]
+    launch_id: Option<String>,
+    /// 任一状态命中即返回；状态名与 get_session_status 一致
+    #[serde(rename = "waitFor")]
+    #[schemars(with = "Vec<String>")]
+    wait_for: Vec<SessionStatus>,
+    /// 最长等待毫秒数，默认 180000，范围 1000..=570000
+    #[serde(rename = "timeoutMs")]
+    timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4518,6 +4716,61 @@ impl McpToolHandler {
         }
     }
 
+    /// 阻塞到指定会话进入 waitFor 中任一状态或超时。事件驱动且无忙轮询；WaitingInput/Error 会立即以 blockedReason 返回。超时后重新调用即可续等。
+    #[tool]
+    async fn wait_for_session(
+        &self,
+        Parameters(params): Parameters<McpWaitForSessionParams>,
+    ) -> String {
+        if params.wait_for.is_empty() {
+            return "错误: waitFor 至少需要一个目标状态".to_string();
+        }
+        let session_id = match (params.session_id, params.launch_id) {
+            (Some(session_id), None) if !session_id.trim().is_empty() => session_id,
+            (None, Some(launch_id)) if !launch_id.trim().is_empty() => {
+                let lookup_id = launch_id.clone();
+                match backend_call(&self.state, move |backend| {
+                    backend.find_session_id_by_launch_id(&lookup_id)
+                })
+                .await
+                {
+                    Ok(Some(session_id)) => session_id,
+                    Ok(None) => return format!("错误: launchId '{}' 对应的会话不存在", launch_id),
+                    Err(error) => return format!("错误: 解析 launchId 失败: {}", error),
+                }
+            }
+            (Some(_), Some(_)) => return "错误: sessionId 与 launchId 只能提供一个".to_string(),
+            _ => return "错误: 必须提供 sessionId 或 launchId".to_string(),
+        };
+        let timeout_ms = normalized_wait_timeout_ms(params.timeout_ms);
+        info!(
+            session_id = %session_id,
+            timeout_ms,
+            wait_for = ?params.wait_for,
+            "mcp::wait_for_session"
+        );
+
+        let query_state = self.state.clone();
+        let query_session_id = session_id.clone();
+        match wait_for_session_with_query(
+            self.state.session_state_machine.clone(),
+            session_id,
+            params.wait_for,
+            std::time::Duration::from_millis(timeout_ms),
+            move || {
+                let state = query_state.clone();
+                let session_id = query_session_id.clone();
+                async move { query_session_status(&state, &session_id).await }
+            },
+        )
+        .await
+        {
+            Ok(result) => serde_json::to_string(&result)
+                .unwrap_or_else(|error| format!("错误: 序列化等待结果失败: {}", error)),
+            Err(error) => format!("错误: 等待会话状态失败: {}", error),
+        }
+    }
+
     /// 列出所有活跃的终端会话及其状态，返回 sessionId、status、lastOutputAt。
     #[tool]
     async fn list_sessions(&self) -> String {
@@ -5677,7 +5930,7 @@ impl ServerHandler for McpToolHandler {
             .with_instructions(concat!(
                 "CC-Panes Orchestrator: 多 CLI（Claude/Codex）多实例编排与工作空间管理。\n",
                 "工具按需调用，完整列表见 tools/list。\n",
-                "典型流程: launch_task → get_session_status → get_session_output。\n",
+                "典型流程: launch_task → wait_for_session → get_session_output。\n",
                 "布局分流: list_panes 查看 layoutId/paneId，launch_task 可传 layoutId 或 layoutName；layoutName 不存在时前端会自动创建布局。\n",
                 "项目接入: scan_directory → create_workspace → add_project_to_workspace → launch_task。\n",
                 "Resume: list_launch_history(projectPath) → 取 resumeSessionId/cliTool/runtimeKind → launch_task(resumeId, cliTool, runtimeKind)。",
@@ -8257,6 +8510,21 @@ fn local_orchestrator_endpoint_reachable(port: u16) -> bool {
 mod tests {
     use super::*;
     use crate::models::WorkspaceCliEnvironmentDefaults;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn wait_test_status(session_id: &str, status: SessionStatus) -> SessionStatusInfo {
+        SessionStatusInfo {
+            session_id: session_id.to_string(),
+            status,
+            last_output_at: 0,
+            pid: Some(1),
+            exit_code: None,
+            current_tool_name: None,
+            current_tool_use_id: None,
+            current_tool_summary: None,
+            updated_at: 0,
+        }
+    }
 
     #[test]
     fn registered_project_path_matches_all_windows_runtime_forms() {
@@ -8326,6 +8594,238 @@ mod tests {
         assert_eq!(decode_terminal_escapes("\\xZZ"), "\\xZZ");
         assert_eq!(decode_terminal_escapes("\\u12"), "\\u12");
         assert_eq!(decode_terminal_escapes("trailing\\"), "trailing\\");
+    }
+
+    #[test]
+    fn wait_timeout_uses_default_and_clamps_bounds() {
+        assert_eq!(
+            normalized_wait_timeout_ms(None),
+            WAIT_FOR_SESSION_DEFAULT_TIMEOUT_MS
+        );
+        assert_eq!(
+            normalized_wait_timeout_ms(Some(1)),
+            WAIT_FOR_SESSION_MIN_TIMEOUT_MS
+        );
+        assert_eq!(
+            normalized_wait_timeout_ms(Some(u64::MAX)),
+            WAIT_FOR_SESSION_MAX_TIMEOUT_MS
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_session_fast_path_and_missing_exited_are_immediate() {
+        let state_machine = Arc::new(cc_panes_core::services::SessionStateMachine::new());
+        let idle = wait_for_session_with_query(
+            state_machine.clone(),
+            "idle-session".to_string(),
+            vec![SessionStatus::Idle],
+            std::time::Duration::from_secs(1),
+            || async { Ok(Some(wait_test_status("idle-session", SessionStatus::Idle))) },
+        )
+        .await
+        .expect("idle fast path");
+        assert!(idle.satisfied);
+        assert_eq!(idle.final_status, SessionStatus::Idle);
+        assert_eq!(idle.waited_ms, 0);
+
+        let missing = wait_for_session_with_query(
+            state_machine,
+            "missing-session".to_string(),
+            vec![SessionStatus::Exited],
+            std::time::Duration::from_secs(1),
+            || async { Ok(None) },
+        )
+        .await
+        .expect("missing session satisfies exited");
+        assert!(missing.satisfied);
+        assert_eq!(missing.final_status, SessionStatus::Exited);
+        assert_eq!(missing.waited_ms, 0);
+    }
+
+    #[tokio::test]
+    async fn wait_for_session_second_snapshot_closes_subscribe_race() {
+        let state_machine = Arc::new(cc_panes_core::services::SessionStateMachine::new());
+        let status = Arc::new(Mutex::new(SessionStatus::Thinking));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let query_state_machine = state_machine.clone();
+        let query_status = status.clone();
+        let query_calls = calls.clone();
+
+        let result = wait_for_session_with_query(
+            state_machine,
+            "race-session".to_string(),
+            vec![SessionStatus::Idle],
+            std::time::Duration::from_secs(1),
+            move || {
+                let observed = *query_status
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if query_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    *query_status
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner()) = SessionStatus::Idle;
+                    query_state_machine.on_event(
+                        "race-session",
+                        &cc_cli_adapters::CcPaneEvent::TurnEnd,
+                        None,
+                        &serde_json::json!({}),
+                    );
+                }
+                async move { Ok(Some(wait_test_status("race-session", observed))) }
+            },
+        )
+        .await
+        .expect("second snapshot catches transition");
+
+        assert!(result.satisfied);
+        assert_eq!(result.final_status, SessionStatus::Idle);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn wait_for_session_wakes_on_matching_transition() {
+        let state_machine = Arc::new(cc_panes_core::services::SessionStateMachine::new());
+        state_machine.on_event(
+            "event-session",
+            &cc_cli_adapters::CcPaneEvent::PromptBefore,
+            None,
+            &serde_json::json!({}),
+        );
+        let status = Arc::new(Mutex::new(SessionStatus::Thinking));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let query_status = status.clone();
+        let query_calls = calls.clone();
+        let waiter_state_machine = state_machine.clone();
+        let waiter = tokio::spawn(wait_for_session_with_query(
+            waiter_state_machine,
+            "event-session".to_string(),
+            vec![SessionStatus::Idle],
+            std::time::Duration::from_secs(1),
+            move || {
+                query_calls.fetch_add(1, Ordering::SeqCst);
+                let observed = *query_status
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                async move { Ok(Some(wait_test_status("event-session", observed))) }
+            },
+        ));
+        while calls.load(Ordering::SeqCst) < 2 {
+            tokio::task::yield_now().await;
+        }
+
+        *status.lock().unwrap_or_else(|error| error.into_inner()) = SessionStatus::Idle;
+        state_machine.on_event(
+            "event-session",
+            &cc_cli_adapters::CcPaneEvent::TurnEnd,
+            None,
+            &serde_json::json!({}),
+        );
+
+        let result = waiter.await.expect("wait task").expect("wait result");
+        assert!(result.satisfied);
+        assert_eq!(result.final_status, SessionStatus::Idle);
+        assert_eq!(result.turn_seq, 1);
+    }
+
+    #[tokio::test]
+    async fn wait_for_session_returns_blocked_states_without_waiting() {
+        for (status, reason) in [
+            (SessionStatus::WaitingInput, "waiting-input"),
+            (SessionStatus::Error, "error"),
+        ] {
+            let result = wait_for_session_with_query(
+                Arc::new(cc_panes_core::services::SessionStateMachine::new()),
+                "blocked-session".to_string(),
+                vec![SessionStatus::Idle],
+                std::time::Duration::from_secs(1),
+                || async { Ok(Some(wait_test_status("blocked-session", status))) },
+            )
+            .await
+            .expect("blocked result");
+            assert!(!result.satisfied);
+            assert_eq!(result.final_status, status);
+            assert_eq!(result.blocked_reason.as_deref(), Some(reason));
+            assert_eq!(result.waited_ms, 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn clear_like_turn_end_does_not_satisfy_wait_for_exited() {
+        let state_machine = Arc::new(cc_panes_core::services::SessionStateMachine::new());
+        state_machine.on_event(
+            "clear-session",
+            &cc_cli_adapters::CcPaneEvent::PromptBefore,
+            None,
+            &serde_json::json!({}),
+        );
+        let status = Arc::new(Mutex::new(SessionStatus::Thinking));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let query_status = status.clone();
+        let query_calls = calls.clone();
+        let waiter_state_machine = state_machine.clone();
+        let waiter = tokio::spawn(wait_for_session_with_query(
+            waiter_state_machine,
+            "clear-session".to_string(),
+            vec![SessionStatus::Exited],
+            std::time::Duration::from_millis(40),
+            move || {
+                query_calls.fetch_add(1, Ordering::SeqCst);
+                let observed = *query_status
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                async move { Ok(Some(wait_test_status("clear-session", observed))) }
+            },
+        ));
+        while calls.load(Ordering::SeqCst) < 2 {
+            tokio::task::yield_now().await;
+        }
+
+        // CLI hook 已过滤 reason=clear 的 SessionEnd；可能到达的 TurnEnd 只能进入 Idle。
+        *status.lock().unwrap_or_else(|error| error.into_inner()) = SessionStatus::Idle;
+        state_machine.on_event(
+            "clear-session",
+            &cc_cli_adapters::CcPaneEvent::TurnEnd,
+            None,
+            &serde_json::json!({ "reason": "clear" }),
+        );
+
+        let result = waiter.await.expect("wait task").expect("wait result");
+        assert!(!result.satisfied);
+        assert_eq!(result.final_status, SessionStatus::Idle);
+        assert!(result.blocked_reason.is_none());
+    }
+
+    #[test]
+    fn periodic_wait_recheck_observes_stale_busy_fallback() {
+        let state_machine = cc_panes_core::services::SessionStateMachine::new();
+        let session_id = "stale-session";
+        state_machine.on_event(
+            session_id,
+            &cc_cli_adapters::CcPaneEvent::PromptBefore,
+            None,
+            &serde_json::json!({}),
+        );
+        let snapshot = state_machine.snapshot(session_id).expect("state entry");
+        let query_time = snapshot.last_hook_event_at
+            + std::time::Duration::from_secs(
+                cc_panes_core::constants::session_state::STALE_BUSY_TIMEOUT_SECS + 1,
+            );
+        let effective =
+            state_machine.status_for_query_at(session_id, SessionStatus::Thinking, query_time);
+
+        let observation = observe_wait_status(
+            &state_machine,
+            session_id,
+            &[SessionStatus::Idle],
+            Some(wait_test_status(session_id, effective)),
+            WAIT_FOR_SESSION_RECHECK_SECS * 1_000,
+        )
+        .expect("wait observation");
+        let WaitObservation::Done(result) = observation else {
+            panic!("stale busy fallback should satisfy idle wait");
+        };
+        assert!(result.satisfied);
+        assert_eq!(result.final_status, SessionStatus::Idle);
     }
 
     #[test]
