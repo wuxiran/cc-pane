@@ -651,7 +651,7 @@ async fn ws_session(
 }
 
 /// 客户端存在性控制连接：桌面实例启动后保持一条，daemon 据此统计
-/// `desktopClientCount`。不承载业务消息，仅回 ping/pong 维持连接。
+/// `desktopClientCount`。同时承载没有 session WS 订阅者时的低频兜底事件。
 async fn ws_control(
     State(config): State<DaemonConfig>,
     Query(query): Query<ControlWsQuery>,
@@ -672,7 +672,7 @@ async fn ws_control(
     Ok(ws.on_upgrade(move |socket| handle_control_ws(socket, config, is_desktop)))
 }
 
-async fn handle_control_ws(mut socket: WebSocket, config: DaemonConfig, is_desktop: bool) {
+async fn handle_control_ws(socket: WebSocket, config: DaemonConfig, is_desktop: bool) {
     let _guard = is_desktop.then(|| config.register_desktop_client());
     if is_desktop {
         info!(
@@ -681,15 +681,28 @@ async fn handle_control_ws(mut socket: WebSocket, config: DaemonConfig, is_deskt
         );
     }
 
-    while let Some(Ok(msg)) = socket.next().await {
-        match msg {
-            Message::Ping(payload) => {
-                if socket.send(Message::Pong(payload)).await.is_err() {
+    let mut control_rx = config.ws_emitter().subscribe_control();
+    let (mut ws_tx, mut ws_rx) = socket.split();
+    loop {
+        tokio::select! {
+            message = control_rx.recv() => {
+                let Some(message) = message else { break };
+                if ws_tx.send(Message::Text(message.into())).await.is_err() {
                     break;
                 }
             }
-            Message::Close(_) => break,
-            _ => {}
+            message = ws_rx.next() => {
+                let Some(Ok(message)) = message else { break };
+                match message {
+                    Message::Ping(payload) => {
+                        if ws_tx.send(Message::Pong(payload)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
+            }
         }
     }
 

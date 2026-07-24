@@ -8,6 +8,8 @@ import {
   FileDown,
   FolderOpen,
   Hash,
+  Maximize2,
+  PanelsTopLeft,
   RefreshCw,
   TextSelect,
 } from "lucide-react";
@@ -33,6 +35,8 @@ interface TerminalContextMenuProps {
   onCopySelection: () => void;
   onSelectAll: () => void;
   onPaste: () => void;
+  onFitTerminal: () => void;
+  onFitAllTerminals: () => void;
   /** 刷新显示：清字形图集 + 强制 refit + 重绘，修花屏/变形/未铺满。 */
   onRefreshTerminal: () => void;
   onClearBuffer: () => void;
@@ -52,6 +56,8 @@ export default function TerminalContextMenu({
   onCopySelection,
   onSelectAll,
   onPaste,
+  onFitTerminal,
+  onFitAllTerminals,
   onRefreshTerminal,
   onClearBuffer,
   onCopyBuffer,
@@ -89,6 +95,12 @@ export default function TerminalContextMenu({
           <ClipboardPaste /> {t("terminalPaste")}
         </ContextMenuItem>
         <ContextMenuSeparator />
+        <ContextMenuItem onSelect={onFitTerminal}>
+          <Maximize2 /> {t("terminalFit")}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onFitAllTerminals}>
+          <PanelsTopLeft /> {t("terminalFitAll")}
+        </ContextMenuItem>
         <ContextMenuItem onSelect={onRefreshTerminal}>
           <RefreshCw /> {t("terminalRefresh")}
         </ContextMenuItem>

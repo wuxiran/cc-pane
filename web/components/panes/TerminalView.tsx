@@ -54,6 +54,7 @@ import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import { getCliInstallHint } from "./terminalCliInstallHint";
 import {
   createTerminalLayoutScheduler,
+  type TerminalLayoutRequestOptions,
   type TerminalLayoutScheduler,
 } from "./terminalLayoutScheduler";
 import {
@@ -73,6 +74,7 @@ import {
 } from "./terminalTheme";
 import { normalizeTerminalFontFamily } from "./terminalFont";
 import TerminalContextMenu from "./TerminalContextMenu";
+import { requestTerminalFitAll, TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
 import { buildTerminalExportFileName, serializeTerminalBuffer } from "./terminalBufferSnapshot";
 import "@xterm/xterm/css/xterm.css";
 
@@ -318,6 +320,8 @@ interface TerminalViewProps {
   isActive: boolean;
   /** Whether this terminal belongs to the current top-level layout. */
   layoutActive?: boolean;
+  /** False for read-only/shared PTY mirrors that must only fit their local xterm view. */
+  drivesBackendPty?: boolean;
   workspaceName?: string;
   providerId?: string;
   providerSelection?: CreateSessionRequest["providerSelection"];
@@ -360,6 +364,7 @@ export interface TerminalViewHandle {
 const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   function TerminalView(props, ref) {
     const { t } = useTranslation("panes");
+    const drivesBackendPty = props.drivesBackendPty ?? true;
     const isDark = useThemeStore((s) => s.isDark);
     const terminalThemeMode = useSettingsStore((s): TerminalThemeMode => s.settings?.terminal.themeMode ?? "followApp");
     const terminalFontSize = useSettingsStore((s) => normalizeTerminalFontSize(s.settings?.terminal.fontSize));
@@ -562,7 +567,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     const refitAndRepaintTerminal = useCallback((
       reason: string,
-      options: { focusIfSafe?: boolean } = {},
+      options: TerminalLayoutRequestOptions = {},
     ): Terminal | null => {
       return layoutSchedulerRef.current?.flush(reason, options) ?? null;
     }, []);
@@ -677,6 +682,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (typeof window === "undefined") return;
 
       const handleLayoutChanged = (event: Event) => {
+        if (!layoutActiveRef.current) return;
         const reason =
           event instanceof CustomEvent && typeof event.detail?.reason === "string"
             ? event.detail.reason
@@ -684,12 +690,25 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // schedule 内部双 RAF 执行，保证 fit 落在 React commit 之后
         // （store 事件的 RAF 派发可能早于非批处理路径的 commit），连发事件自动合并。
         debugLog("layout-change.refit.schedule", { reason });
-        layoutSchedulerRef.current?.schedule(`layout-change.${reason}`, { force: true });
+        layoutSchedulerRef.current?.schedule(`layout-change.${reason}`, {
+          force: true,
+          allowInactive: true,
+        });
+      };
+
+      const handleFitAll = () => {
+        if (!layoutActiveRef.current) return;
+        layoutSchedulerRef.current?.schedule("context-menu.fit-all", {
+          force: true,
+          allowInactive: true,
+        });
       };
 
       window.addEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, handleLayoutChanged);
+      window.addEventListener(TERMINAL_FIT_ALL_EVENT, handleFitAll);
       return () => {
         window.removeEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, handleLayoutChanged);
+        window.removeEventListener(TERMINAL_FIT_ALL_EVENT, handleFitAll);
       };
     }, [debugLog]);
 
@@ -1033,6 +1052,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           getHost: () => terminalRef.current,
           getSessionId: () => currentSessionIdRef.current,
           isActive: () => isActiveRef.current,
+          canResizeBackend: () => drivesBackendPty,
           repaint: repaintTerminal,
           resizeBackend: (cols, rows) => {
             const sessionId = currentSessionIdRef.current;
@@ -1495,6 +1515,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             layoutSchedulerRef.current?.flush("resize-observer.drag.fit", {
               containerSize: { width, height },
               minContainerDelta: DRAG_CONTAINER_CHANGE,
+              allowInactive: true,
             });
             return;
           }
@@ -1503,6 +1524,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             delayMs: 150,
             containerSize: { width, height },
             minContainerDelta: MIN_CONTAINER_CHANGE,
+            allowInactive: true,
           });
         });
         observer.observe(terminalRef.current);
@@ -1724,7 +1746,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
 
             // Keep PTY size aligned when attaching to an existing session.
-            if (attachSessionId) {
+            if (attachSessionId && drivesBackendPty) {
               terminalService.resize({ sessionId, cols: term.cols, rows: term.rows });
             }
           } catch (error) {
@@ -1917,7 +1939,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       const scheduleRefit = (onReady?: (term: Terminal) => void) => {
         layoutSchedulerRef.current?.schedule("active.refit", {
           focusIfSafe: props.isActive,
-          allowInactive: Boolean(onReady),
+          allowInactive: Boolean(onReady) || Boolean(props.isVisible && (props.layoutActive ?? true)),
           onAfterLayout: (term) => {
             if (activationCancelled) return;
             onReady?.(term);
@@ -2084,7 +2106,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         };
       }
 
-      if (props.isActive && fitAddonRef.current) {
+      if (props.isVisible && (props.layoutActive ?? true) && fitAddonRef.current) {
         scheduleRefit();
         return () => {
           activationCancelled = true;
@@ -2142,6 +2164,18 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       refitAndRepaintTerminal("context-menu.refresh", { focusIfSafe: true });
       repaintTerminal("context-menu.refresh");
     }, [refitAndRepaintTerminal, repaintTerminal]);
+
+    const handleMenuFitTerminal = useCallback(() => {
+      refitAndRepaintTerminal("context-menu.fit", {
+        force: true,
+        focusIfSafe: true,
+        allowInactive: true,
+      });
+    }, [refitAndRepaintTerminal]);
+
+    const handleMenuFitAllTerminals = useCallback(() => {
+      requestTerminalFitAll();
+    }, []);
 
     const handleMenuCopySessionId = useCallback(() => {
       const sessionId = currentSessionIdRef.current ?? props.sessionId;
@@ -2226,6 +2260,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onCopySelection={handleMenuCopySelection}
           onSelectAll={handleMenuSelectAll}
           onPaste={handleMenuPaste}
+          onFitTerminal={handleMenuFitTerminal}
+          onFitAllTerminals={handleMenuFitAllTerminals}
           onRefreshTerminal={handleMenuRefreshTerminal}
           onCopySessionId={handleMenuCopySessionId}
           onClearBuffer={handleMenuClearBuffer}

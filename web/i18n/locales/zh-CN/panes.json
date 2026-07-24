@@ -140,6 +140,8 @@
   "terminalOpenProjectDir": "打开项目目录",
   "terminalOpenDirFailed": "打开目录失败: {{error}}",
   "terminalRefresh": "刷新终端显示",
+  "terminalFit": "适应大小",
+  "terminalFitAll": "全部终端适应大小",
   "terminalCopySessionId": "复制会话 ID",
   "terminalSessionIdCopied": "已复制会话 ID: {{id}}",
   "bindWorkspace": "绑定工作空间…",

@@ -140,6 +140,8 @@
   "terminalOpenProjectDir": "Open Project Folder",
   "terminalOpenDirFailed": "Failed to open folder: {{error}}",
   "terminalRefresh": "Refresh Terminal Display",
+  "terminalFit": "Fit Terminal",
+  "terminalFitAll": "Fit All Terminals",
   "terminalCopySessionId": "Copy Session ID",
   "terminalSessionIdCopied": "Session ID copied: {{id}}",
   "bindWorkspace": "Bind Workspace…",

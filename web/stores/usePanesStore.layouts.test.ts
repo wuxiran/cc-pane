@@ -541,7 +541,7 @@ describe("usePanesStore layouts", () => {
     expect(panel(starred!.rootPane).tabs.map((tab) => tab.id)).not.toContain("starred-mirror");
   });
 
-  it("closeTabBySessionId 对 pinned 标签不谎报关闭成功", () => {
+  it("closeTabBySessionId 强制关闭 backend kill 对应的 pinned 标签", () => {
     const pinnedTab = { ...makeTerminalTab("pinned-tab", "session-pinned"), pinned: true };
     const sibling = makeTerminalTab("sibling-tab", "session-sibling");
     usePanesStore.setState((state) => {
@@ -550,9 +550,8 @@ describe("usePanesStore layouts", () => {
 
     const result = usePanesStore.getState().closeTabBySessionId("session-pinned");
 
-    // 后端 kill 被 pinned 吞掉：标签必须留着，且结果如实反映没关成
-    expect(result).toEqual({ closed: 0, blockedByPinned: 1 });
-    expect(panel(usePanesStore.getState().rootPane).tabs.map((tab) => tab.id)).toContain(
+    expect(result).toEqual({ closed: 1, blockedByPinned: 0 });
+    expect(panel(usePanesStore.getState().rootPane).tabs.map((tab) => tab.id)).not.toContain(
       "pinned-tab"
     );
   });

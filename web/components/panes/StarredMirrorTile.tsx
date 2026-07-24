@@ -61,6 +61,7 @@ export default function StarredMirrorTile({ tile, onJump }: StarredMirrorTilePro
             isActive={layoutVisible}
             isVisible={layoutVisible}
             layoutActive={layoutVisible}
+            drivesBackendPty={false}
             onSessionCreated={noop}
           />
         ) : (

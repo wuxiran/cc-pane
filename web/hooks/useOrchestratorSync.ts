@@ -5,12 +5,13 @@ import {
 } from "@/stores";
 import type { TaskBindingChangedEvent } from "@/types";
 import { listenWebviewIfTauri } from "@/services/runtime";
+import { taskBindingService } from "@/services/taskBindingService";
 
 /**
  * 编排同步 Hook — 事件增量更新 TaskBinding，并保留轮询兜底。
  */
 export default function useOrchestratorSync() {
-  const updateBySessionId = useOrchestratorStore((s) => s.updateBySessionId);
+  const updatePatch = useOrchestratorStore((s) => s.updatePatch);
   const loadBindings = useOrchestratorStore((s) => s.loadBindings);
   const applyChangedEvent = useOrchestratorStore((s) => s.applyChangedEvent);
   const selectedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
@@ -33,21 +34,20 @@ export default function useOrchestratorSync() {
     listenWebviewIfTauri<{ sessionId: string; exitCode?: number }>("terminal-exit", async (event) => {
         if (cancelled) return;
         const { sessionId, exitCode } = event.payload;
-        const code = exitCode ?? 0;
+        const code = exitCode ?? -1;
 
         try {
-          if (code === 0) {
-            await updateBySessionId(sessionId, {
-              status: "completed",
-              progress: 100,
-              exitCode: code,
-            });
-          } else {
-            await updateBySessionId(sessionId, {
-              status: "failed",
-              exitCode: code,
-            });
-          }
+          const binding = await taskBindingService.findBySession(sessionId);
+          if (!binding) return;
+
+          const completedByWorker =
+            binding.status === "completed" && Boolean(binding.completionSummary?.trim());
+          await updatePatch(
+            binding.id,
+            completedByWorker
+              ? { exitCode: code }
+              : { status: "failed", exitCode: code },
+          );
         } catch {
           // Session may not be associated with a TaskBinding.
         }
@@ -61,7 +61,7 @@ export default function useOrchestratorSync() {
       cancelled = true;
       for (const unlisten of unlisteners) unlisten();
     };
-  }, [applyChangedEvent, updateBySessionId]);
+  }, [applyChangedEvent, updatePatch]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {

@@ -608,11 +608,16 @@ function findSessionInTab(tab: Tab, sessionId: string): TerminalPaneLeaf | null 
     : null;
 }
 
-function closeTabInTree(rootPane: PaneNode, paneId: string, tabId: string): PaneNode {
+function closeTabInTree(
+  rootPane: PaneNode,
+  paneId: string,
+  tabId: string,
+  force = false,
+): PaneNode {
   const pane = findPane(rootPane, paneId);
   if (pane?.type !== "panel") return rootPane;
   const idx = pane.tabs.findIndex((tab) => tab.id === tabId);
-  if (idx === -1 || pane.tabs[idx].pinned) return rootPane;
+  if (idx === -1 || (!force && pane.tabs[idx].pinned)) return rootPane;
 
   if (pane.tabs.length > 1) {
     pane.tabs.splice(idx, 1);
@@ -2817,21 +2822,9 @@ export const usePanesStore = create<PanesState>()(
               closed += 1;
               break;
             }
-            if (tab.pinned) {
-              // closeTabInTree 对 pinned 静默 return——此处必须如实上报没关成，
-              // 否则后端 kill 被静默吞掉：标签留着且调用方以为关掉了。
-              // 是否强制关闭 pinned 属于产品决策，此处只反映状态、不擅自关闭。
-              console.warn("[panes] closeTabBySessionId: 标签为 pinned，后端 kill 未能关闭标签", {
-                sessionId,
-                layoutId: layout.id,
-                paneId: panel.id,
-                tabId: tab.id,
-                tabTitle: tab.title,
-              });
-              blockedByPinned += 1;
-              break;
-            }
-            const nextTree = closeTabInTree(tree, panel.id, tab.id);
+            // backend-driven kill 表示 PTY 已不存在；即使标签 pinned 也必须关闭，
+            // pinned 只保护用户手动关闭，不应留下已死亡的终端壳。
+            const nextTree = closeTabInTree(tree, panel.id, tab.id, true);
             if (isCurrent) {
               state.rootPane = nextTree;
               const activePane = findPane(state.rootPane, state.activePaneId);

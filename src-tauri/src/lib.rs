@@ -1606,7 +1606,7 @@ pub fn run() {
                 .state::<Arc<TerminalBackendState>>()
                 .daemon_client()
             {
-                crate::services::spawn_terminal_daemon_control_link(client);
+                crate::services::spawn_terminal_daemon_control_link(client, app.handle().clone());
             }
 
             // ---- Web 端访问服务 lifecycle ----

@@ -10,6 +10,7 @@ function createRenderableHost(width = 640, height = 360): HTMLElement {
   const host = document.createElement("div");
   document.body.appendChild(host);
   Object.defineProperty(host, "getBoundingClientRect", {
+    configurable: true,
     value: () => ({
       width,
       height,
@@ -88,6 +89,47 @@ describe("terminal layout scheduler", () => {
     expect(scheduler.flush("inactive")).toBeNull();
     expect(fitAddon.fit).not.toHaveBeenCalled();
     expect(scheduler.hasPendingLayout()).toBe(true);
+  });
+
+  it("keeps zero-sized hosts dirty and fits once the host becomes visible", () => {
+    const host = createRenderableHost(0, 0);
+    const fitAddon = { fit: vi.fn() } as unknown as FitAddon;
+    let width = 0;
+    let height = 0;
+    Object.defineProperty(host, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        width,
+        height,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: height,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      }),
+    });
+    const scheduler = createTerminalLayoutScheduler({
+      getTerminal: () => ({ cols: 80, rows: 24 } as Terminal),
+      getFitAddon: () => fitAddon,
+      getHost: () => host,
+      getSessionId: () => "session-1",
+      isActive: () => false,
+      repaint: vi.fn(),
+      resizeBackend: vi.fn(),
+      logger: vi.fn(),
+    });
+
+    expect(scheduler.flush("hidden", { allowInactive: true })).toBeNull();
+    expect(scheduler.hasPendingLayout()).toBe(true);
+    expect(fitAddon.fit).not.toHaveBeenCalled();
+
+    width = 640;
+    height = 360;
+    scheduler.flush("visible", { allowInactive: true });
+    expect(fitAddon.fit).toHaveBeenCalledOnce();
+    expect(scheduler.hasPendingLayout()).toBe(false);
   });
 
   it("can layout a visible inactive pane when explicitly allowed", () => {
@@ -229,6 +271,42 @@ describe("terminal layout scheduler", () => {
     }
   });
 
+  it("keeps inactive-pane permission for the verify refit", () => {
+    vi.useFakeTimers();
+    try {
+      const host = createRenderableHost();
+      const term = { cols: 80, rows: 24 } as Terminal;
+      let proposed = { cols: 100, rows: 30 };
+      const fitAddon = {
+        fit: vi.fn(() => {
+          (term as unknown as { cols: number; rows: number }).cols = proposed.cols;
+          (term as unknown as { cols: number; rows: number }).rows = proposed.rows;
+        }),
+        proposeDimensions: vi.fn(() => proposed),
+      } as unknown as FitAddon;
+      const scheduler = createTerminalLayoutScheduler({
+        getTerminal: () => term,
+        getFitAddon: () => fitAddon,
+        getHost: () => host,
+        getSessionId: () => "session-1",
+        isActive: () => false,
+        repaint: vi.fn(),
+        resizeBackend: vi.fn(),
+        logger: vi.fn(),
+      });
+
+      scheduler.flush("inactive-pane", { allowInactive: true });
+      proposed = { cols: 90, rows: 28 };
+      vi.advanceTimersByTime(200);
+
+      expect(fitAddon.fit).toHaveBeenCalledTimes(2);
+      expect(term.cols).toBe(90);
+      expect(term.rows).toBe(28);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("debounces rapid backend resizes to leading and trailing sends", () => {
     vi.useFakeTimers();
     vi.setSystemTime(60_000);
@@ -276,5 +354,27 @@ describe("terminal layout scheduler", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("fits a mirror view without resizing the shared backend PTY", () => {
+    const host = createRenderableHost();
+    const term = { cols: 100, rows: 30 } as Terminal;
+    const fitAddon = { fit: vi.fn() } as unknown as FitAddon;
+    const resizeBackend = vi.fn();
+    const scheduler = createTerminalLayoutScheduler({
+      getTerminal: () => term,
+      getFitAddon: () => fitAddon,
+      getHost: () => host,
+      getSessionId: () => "shared-session",
+      isActive: () => true,
+      canResizeBackend: () => false,
+      repaint: vi.fn(),
+      resizeBackend,
+      logger: vi.fn(),
+    });
+
+    expect(scheduler.flush("mirror.fit")).toBe(term);
+    expect(fitAddon.fit).toHaveBeenCalledOnce();
+    expect(resizeBackend).not.toHaveBeenCalled();
   });
 });

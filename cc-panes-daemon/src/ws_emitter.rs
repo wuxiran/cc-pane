@@ -10,6 +10,7 @@ use tracing::debug;
 #[derive(Clone, Default)]
 pub struct WsEmitter {
     subscribers: Arc<RwLock<HashMap<String, Vec<mpsc::UnboundedSender<String>>>>>,
+    control_subscribers: Arc<RwLock<Vec<mpsc::UnboundedSender<String>>>>,
 }
 
 impl WsEmitter {
@@ -25,6 +26,13 @@ impl WsEmitter {
             .or_default()
             .push(tx);
         debug!(session_id, "daemon ws subscriber registered");
+        rx
+    }
+
+    pub fn subscribe_control(&self) -> mpsc::UnboundedReceiver<String> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.control_subscribers.write().push(tx);
+        debug!("daemon control subscriber registered");
         rx
     }
 
@@ -46,13 +54,22 @@ impl WsEmitter {
         }
     }
 
-    fn publish(&self, session_id: &str, msg: String) {
-        let subscribers = self.subscribers.read();
-        if let Some(senders) = subscribers.get(session_id) {
-            for sender in senders {
-                let _ = sender.send(msg.clone());
-            }
+    fn publish(&self, session_id: &str, msg: String) -> bool {
+        let mut subscribers = self.subscribers.write();
+        let delivered = subscribers.get_mut(session_id).is_some_and(|senders| {
+            senders.retain(|sender| sender.send(msg.clone()).is_ok());
+            !senders.is_empty()
+        });
+        if !delivered {
+            subscribers.remove(session_id);
         }
+        delivered
+    }
+
+    fn publish_control(&self, msg: String) {
+        self.control_subscribers
+            .write()
+            .retain(|sender| sender.send(msg.clone()).is_ok());
     }
 }
 
@@ -98,7 +115,7 @@ impl EventEmitter for WsEmitter {
                     .get("reason")
                     .and_then(|value| value.as_str())
                     .unwrap_or("unknown");
-                self.publish(
+                let delivered = self.publish(
                     session_id,
                     serde_json::json!({
                         "type": "killed",
@@ -106,6 +123,16 @@ impl EventEmitter for WsEmitter {
                     })
                     .to_string(),
                 );
+                if !delivered {
+                    self.publish_control(
+                        serde_json::json!({
+                            "type": "sessionKilled",
+                            "sessionId": session_id,
+                            "reason": reason,
+                        })
+                        .to_string(),
+                    );
+                }
             }
             _ => {}
         }
@@ -196,5 +223,51 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&killed).expect("killed json"),
             serde_json::json!({"type":"killed","reason":"unknown"})
         );
+    }
+
+    #[test]
+    fn publishes_session_killed_to_control_when_session_has_no_subscribers() {
+        let emitter = WsEmitter::new();
+        let mut control_rx = emitter.subscribe_control();
+
+        emitter
+            .emit(
+                EV::SESSION_KILLED,
+                serde_json::json!({
+                    "sessionId": "session-without-bridge",
+                    "reason": "mcp",
+                }),
+            )
+            .expect("killed emit");
+
+        let killed = control_rx.try_recv().expect("control killed message");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&killed).expect("control killed json"),
+            serde_json::json!({
+                "type": "sessionKilled",
+                "sessionId": "session-without-bridge",
+                "reason": "mcp",
+            })
+        );
+    }
+
+    #[test]
+    fn session_subscriber_prevents_duplicate_control_killed() {
+        let emitter = WsEmitter::new();
+        let mut session_rx = emitter.subscribe("session-1");
+        let mut control_rx = emitter.subscribe_control();
+
+        emitter
+            .emit(
+                EV::SESSION_KILLED,
+                serde_json::json!({
+                    "sessionId": "session-1",
+                    "reason": "mcp",
+                }),
+            )
+            .expect("killed emit");
+
+        assert!(session_rx.try_recv().is_ok());
+        assert!(control_rx.try_recv().is_err());
     }
 }

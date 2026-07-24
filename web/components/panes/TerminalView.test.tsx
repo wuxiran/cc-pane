@@ -3,9 +3,15 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useSettingsStore, useTerminalStatusStore } from "@/stores";
+import {
+  TERMINAL_LAYOUT_CHANGED_EVENT,
+  useSettingsStore,
+  useTerminalStatusStore,
+} from "@/stores";
 import { historyService, sessionRestoreService, terminalService } from "@/services";
 import { createTerminalRendererController } from "./terminalRendererController";
+import { createTerminalLayoutScheduler } from "./terminalLayoutScheduler";
+import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
 import TerminalView from "./TerminalView";
 
 /* ------------------------------------------------------------------ */
@@ -213,6 +219,8 @@ function renderTerminalView(props?: Partial<React.ComponentProps<typeof Terminal
       projectId="proj-1"
       projectPath="/tmp/proj"
       isActive
+      paneId="pane-1"
+      tabId="tab-1"
       onSessionCreated={vi.fn()}
       {...props}
     />
@@ -297,6 +305,69 @@ describe("TerminalView", () => {
     // attach 路径要对齐后端 PTY 尺寸，且不再回报 onSessionCreated
     expect(resize).toHaveBeenCalledWith({ sessionId: "existing-1", cols: 80, rows: 24 });
     expect(onSessionCreated).not.toHaveBeenCalled();
+  });
+
+  it("mirror attach and fit never resize the shared PTY", async () => {
+    renderTerminalView({
+      sessionId: "shared-session",
+      paneId: undefined,
+      tabId: undefined,
+      drivesBackendPty: false,
+    });
+
+    await waitFor(() =>
+      expect(registerOutput).toHaveBeenCalledWith("shared-session", expect.any(Function)),
+    );
+    expect(resize).not.toHaveBeenCalled();
+    const schedulerCalls = vi.mocked(createTerminalLayoutScheduler).mock.calls;
+    const schedulerOptions = schedulerCalls[schedulerCalls.length - 1]?.[0];
+    expect(schedulerOptions?.canResizeBackend?.()).toBe(false);
+  });
+
+  it("standalone primary views still resize the backend PTY", async () => {
+    renderTerminalView({
+      sessionId: "standalone-session",
+      paneId: undefined,
+      tabId: undefined,
+    });
+
+    await waitFor(() =>
+      expect(registerOutput).toHaveBeenCalledWith("standalone-session", expect.any(Function)),
+    );
+    expect(resize).toHaveBeenCalledWith({
+      sessionId: "standalone-session",
+      cols: 80,
+      rows: 24,
+    });
+    const schedulerCalls = vi.mocked(createTerminalLayoutScheduler).mock.calls;
+    const schedulerOptions = schedulerCalls[schedulerCalls.length - 1]?.[0];
+    expect(schedulerOptions?.canResizeBackend?.()).toBe(true);
+  });
+
+  it("layout resize lets a visible terminal in an unfocused pane fit", async () => {
+    renderTerminalView({
+      sessionId: "inactive-pane-session",
+      isActive: false,
+      isVisible: true,
+      layoutActive: true,
+    });
+    await waitFor(() => expect(registerOutput).toHaveBeenCalled());
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      schedule: ReturnType<typeof vi.fn>;
+    };
+    scheduler.schedule.mockClear();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(TERMINAL_LAYOUT_CHANGED_EVENT, {
+        detail: { reason: "pane.resize" },
+      }));
+    });
+
+    expect(scheduler.schedule).toHaveBeenCalledWith("layout-change.pane.resize", {
+      force: true,
+      allowInactive: true,
+    });
   });
 
   it("defers PTY creation for a hidden layout and reports the restore state", async () => {
@@ -485,6 +556,44 @@ describe("TerminalView", () => {
     fireEvent.contextMenu(host!);
     await user.click(await screen.findByRole("menuitem", { name: /复制会话 ID|Copy Session ID/i }));
     await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("new-session-1"));
+  });
+
+  it("terminal context menu fits the current terminal and requests all terminals to fit", async () => {
+    const user = userEvent.setup();
+    const view = renderTerminalView();
+    await waitFor(() => expect(createSession).toHaveBeenCalled());
+    const host = view.container.querySelector(".cc-terminal-host");
+    expect(host).not.toBeNull();
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      schedule: ReturnType<typeof vi.fn>;
+      flush: ReturnType<typeof vi.fn>;
+    };
+    scheduler.schedule.mockClear();
+    scheduler.flush.mockClear();
+    const fitAllListener = vi.fn();
+    window.addEventListener(TERMINAL_FIT_ALL_EVENT, fitAllListener);
+
+    fireEvent.contextMenu(host!);
+    await user.click(
+      await screen.findByRole("menuitem", { name: /^(适应大小|Fit Terminal)$/i }),
+    );
+    expect(scheduler.flush).toHaveBeenCalledWith("context-menu.fit", {
+      force: true,
+      focusIfSafe: true,
+      allowInactive: true,
+    });
+
+    fireEvent.contextMenu(host!);
+    await user.click(
+      await screen.findByRole("menuitem", { name: /全部终端适应大小|Fit All Terminals/i }),
+    );
+    expect(fitAllListener).toHaveBeenCalledTimes(1);
+    expect(scheduler.schedule).toHaveBeenCalledWith("context-menu.fit-all", {
+      force: true,
+      allowInactive: true,
+    });
+    window.removeEventListener(TERMINAL_FIT_ALL_EVENT, fitAllListener);
   });
 
   it("disposes the terminal on unmount", async () => {

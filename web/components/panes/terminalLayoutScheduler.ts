@@ -32,6 +32,8 @@ interface CreateTerminalLayoutSchedulerOptions {
   getHost: () => HTMLElement | null;
   getSessionId: () => string | null;
   isActive: () => boolean;
+  /** 共享 PTY 只允许主视图驱动后端尺寸；镜像视图仍可本地 fit。 */
+  canResizeBackend?: () => boolean;
   repaint: (reason: string) => void;
   resizeBackend: (cols: number, rows: number) => void;
   logger: LayoutLogger;
@@ -82,6 +84,7 @@ export function createTerminalLayoutScheduler({
   getHost,
   getSessionId,
   isActive,
+  canResizeBackend = () => true,
   repaint,
   resizeBackend,
   logger,
@@ -216,7 +219,7 @@ export function createTerminalLayoutScheduler({
     const { cols, rows } = term;
     if (lastSize?.cols !== cols || lastSize?.rows !== rows) {
       lastSize = { cols, rows };
-      if (getSessionId()) {
+      if (getSessionId() && canResizeBackend()) {
         scheduleBackendResize(cols, rows);
       }
     }
@@ -276,7 +279,9 @@ export function createTerminalLayoutScheduler({
         attempt: verifyAttempts + 1,
       });
       verifyAttempts += 1;
-      applyLayout(VERIFY_REFIT_REASON, { force: true });
+      // A successful inactive-pane fit was explicitly authorized by the caller.
+      // Keep that permission for the post-reflow verification pass.
+      applyLayout(VERIFY_REFIT_REASON, { force: true, allowInactive: true });
     }, VERIFY_REFIT_DELAY_MS);
   };
 

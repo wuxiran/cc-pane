@@ -229,10 +229,7 @@ impl TerminalDaemonEventBridge {
                 // 并照 Exit 路径 synthesize 退出状态：保留标签时终端能显示进程退出。
                 self.app_handle.emit(
                     EV::SESSION_KILLED,
-                    serde_json::json!({
-                        "sessionId": session_id,
-                        "reason": reason.as_deref().unwrap_or("unknown"),
-                    }),
+                    session_killed_event_payload(session_id, reason.as_deref()),
                 )?;
                 self.emit_terminal_status_once(synthesized_exited_status(session_id))?;
                 self.emit_terminal_exit_once(session_id, -1)?;
@@ -385,6 +382,13 @@ impl TerminalDaemonEventBridge {
 
         Ok(())
     }
+}
+
+fn session_killed_event_payload(session_id: &str, reason: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "sessionId": session_id,
+        "reason": reason.unwrap_or("unknown"),
+    })
 }
 
 /// `drain_ready_messages` 的纯流处理部分：把消息取舍与事件 emit 解耦，便于脱离
@@ -601,6 +605,46 @@ mod tests {
         );
         assert_eq!(seen.len(), 2, "killed 之后的消息不再消费");
         assert!(seen[1].contains(r#""reason":"mcp""#), "reason 必须完整送达");
+    }
+
+    /// 完整回归：hook Exited 只改变 CLI 状态，daemon session 仍存在时桥接必须继续；
+    /// 随后的 backend kill 要消费 killed 帧并构造前端 session-killed 事件载荷。
+    #[tokio::test]
+    async fn hook_exited_session_stays_bridged_until_killed_event_is_forwarded() {
+        let exited = status("s-hook-exited", SessionStatus::Exited, 10);
+        assert_eq!(
+            poll_status_from_session_presence(Some(&exited)),
+            PollStatus::Continue
+        );
+
+        let mut stream =
+            futures_util::stream::iter(vec![text_frame(r#"{"type":"killed","reason":"mcp"}"#)]);
+        let mut forwarded = Vec::new();
+        let terminated = drain_ready_messages_with(&mut stream, Duration::ZERO, |text| {
+            let message = serde_json::from_str::<DaemonStreamMessage>(text)?;
+            if let DaemonStreamMessage::Killed { reason } = message {
+                forwarded.push((
+                    EV::SESSION_KILLED,
+                    session_killed_event_payload("s-hook-exited", reason.as_deref()),
+                ));
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .await
+        .expect("killed frame must be consumed");
+
+        assert!(terminated, "killed 帧应结束会话桥接");
+        assert_eq!(
+            forwarded,
+            vec![(
+                EV::SESSION_KILLED,
+                serde_json::json!({
+                    "sessionId": "s-hook-exited",
+                    "reason": "mcp",
+                }),
+            )]
+        );
     }
 
     #[tokio::test]

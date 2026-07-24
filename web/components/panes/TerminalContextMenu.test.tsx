@@ -11,6 +11,8 @@ function renderMenu(overrides: Partial<React.ComponentProps<typeof TerminalConte
     onCopySelection: vi.fn(),
     onSelectAll: vi.fn(),
     onPaste: vi.fn(),
+    onFitTerminal: vi.fn(),
+    onFitAllTerminals: vi.fn(),
     onRefreshTerminal: vi.fn(),
     onClearBuffer: vi.fn(),
     onCopyBuffer: vi.fn(),
@@ -38,6 +40,10 @@ describe("TerminalContextMenu", () => {
     expect(copyItem).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("menuitem", { name: /全选|Select All/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /粘贴|^Paste$/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /^(适应大小|Fit Terminal)$/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /全部终端适应大小|Fit All Terminals/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /刷新终端|Refresh Terminal/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /清空缓冲区|Clear Buffer/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /复制整个缓冲区|Copy Entire Buffer/i })).toBeInTheDocument();
@@ -57,6 +63,23 @@ describe("TerminalContextMenu", () => {
     openMenu();
     await user.click(await screen.findByRole("menuitem", { name: /复制会话 ID|Copy Session ID/i }));
     expect(props.onCopySessionId).toHaveBeenCalledTimes(1);
+  });
+
+  it("适应大小菜单项分别触发当前终端与全部终端回调", async () => {
+    const user = userEvent.setup();
+    const props = renderMenu();
+
+    openMenu();
+    await user.click(
+      await screen.findByRole("menuitem", { name: /^(适应大小|Fit Terminal)$/i }),
+    );
+    expect(props.onFitTerminal).toHaveBeenCalledTimes(1);
+
+    openMenu();
+    await user.click(
+      await screen.findByRole("menuitem", { name: /全部终端适应大小|Fit All Terminals/i }),
+    );
+    expect(props.onFitAllTerminals).toHaveBeenCalledTimes(1);
   });
 
   it("无会话时复制会话 ID 禁用", async () => {
