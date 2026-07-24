@@ -319,8 +319,11 @@ pub async fn submit_to_session(
 #[tauri::command]
 pub fn get_all_terminal_status(
     service: State<'_, Arc<TerminalBackendState>>,
+    orchestrator: State<'_, Arc<crate::services::OrchestratorService>>,
 ) -> AppResult<Vec<SessionStatusInfo>> {
-    service.backend().get_all_status()
+    let mut statuses = service.backend().get_all_status()?;
+    orchestrator.adjust_terminal_statuses_for_query(&mut statuses);
+    Ok(statuses)
 }
 
 /// 获取可用 Shell 列表

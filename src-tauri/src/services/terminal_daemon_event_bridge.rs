@@ -8,7 +8,7 @@ use cc_panes_core::services::terminal_service::{SessionStatus, SessionStatusInfo
 use cc_panes_core::services::{HistoryWatchManager, TerminalBackend};
 use futures_util::StreamExt;
 use serde::Deserialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message as WsMessage};
 use tracing::{debug, warn};
@@ -308,11 +308,18 @@ impl TerminalDaemonEventBridge {
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
         let poll_status = poll_status_from_session_presence(status.as_ref());
 
-        let Some(status) = status else {
+        let Some(mut status) = status else {
             self.emit_terminal_status_once(synthesized_exited_status(session_id))?;
             self.emit_terminal_exit_once(session_id, -1)?;
             return Ok(poll_status);
         };
+
+        if let Some(orchestrator) = self
+            .app_handle
+            .try_state::<Arc<crate::services::OrchestratorService>>()
+        {
+            orchestrator.adjust_terminal_statuses_for_query(std::slice::from_mut(&mut status));
+        }
 
         if self.should_emit_status(session_id, &status) {
             self.app_handle

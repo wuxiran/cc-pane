@@ -1128,21 +1128,37 @@ fn build_session_status_info(
     state_machine: Option<&Arc<crate::services::SessionStateMachine>>,
 ) -> SessionStatusInfo {
     let snapshot = state_machine.and_then(|sm| sm.snapshot(&session_id));
+    let effective_status = state_machine
+        .map(|sm| sm.status_for_query(&session_id, status))
+        .unwrap_or(status);
+    let stale_busy_fallback = status.is_busy() && effective_status == SessionStatus::Idle;
     SessionStatusInfo {
         session_id,
-        status,
+        status: effective_status,
         last_output_at,
         pid,
         exit_code,
-        current_tool_name: snapshot
-            .as_ref()
-            .and_then(|entry| entry.current_tool_name.clone()),
-        current_tool_use_id: snapshot
-            .as_ref()
-            .and_then(|entry| entry.current_tool_use_id.clone()),
-        current_tool_summary: snapshot
-            .as_ref()
-            .and_then(|entry| entry.current_tool_summary.clone()),
+        current_tool_name: if stale_busy_fallback {
+            None
+        } else {
+            snapshot
+                .as_ref()
+                .and_then(|entry| entry.current_tool_name.clone())
+        },
+        current_tool_use_id: if stale_busy_fallback {
+            None
+        } else {
+            snapshot
+                .as_ref()
+                .and_then(|entry| entry.current_tool_use_id.clone())
+        },
+        current_tool_summary: if stale_busy_fallback {
+            None
+        } else {
+            snapshot
+                .as_ref()
+                .and_then(|entry| entry.current_tool_summary.clone())
+        },
         updated_at: snapshot
             .as_ref()
             .map(|entry| entry.updated_at)

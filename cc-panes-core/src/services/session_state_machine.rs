@@ -344,6 +344,44 @@ impl SessionStateMachine {
         self.entries.lock().ok()?.get(pty_session_id).cloned()
     }
 
+    /// 返回面向 UI/编排判定的有效状态。陈旧 busy 只在查询结果中回落为 Idle，
+    /// 状态机条目和 TerminalSession.status 均保持原值，后续新事件仍可正常接续。
+    pub fn status_for_query(
+        &self,
+        pty_session_id: &str,
+        stored_status: SessionStatus,
+    ) -> SessionStatus {
+        self.status_for_query_at(pty_session_id, stored_status, Instant::now())
+    }
+
+    #[doc(hidden)]
+    pub fn status_for_query_at(
+        &self,
+        pty_session_id: &str,
+        stored_status: SessionStatus,
+        now: Instant,
+    ) -> SessionStatus {
+        if !stored_status.is_busy() {
+            return stored_status;
+        }
+        let entries = match self.entries.lock() {
+            Ok(entries) => entries,
+            Err(error) => error.into_inner(),
+        };
+        let Some(entry) = entries.get(pty_session_id) else {
+            return stored_status;
+        };
+        if !entry.status.is_busy() {
+            return stored_status;
+        }
+        let stale_for = now.saturating_duration_since(entry.last_hook_event_at);
+        if stale_for.as_secs() > crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS {
+            SessionStatus::Idle
+        } else {
+            stored_status
+        }
+    }
+
     /// 查询自上次 hook 事件以来已过去多少秒（供 2.8 ANSI 推断降级判定）。
     /// 没有任何 hook 事件记录时返回 None（ANSI 推断可以照常运行）。
     pub fn seconds_since_last_hook(&self, pty_session_id: &str) -> Option<u64> {
@@ -515,6 +553,44 @@ mod tests {
         assert_eq!(s3, SessionStatus::Idle);
         let snap = sm.snapshot(sid).unwrap();
         assert_eq!(snap.turn_seq, 1);
+    }
+
+    #[test]
+    fn stale_busy_status_falls_back_to_idle_only_for_queries() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-stale-busy";
+        sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
+        let snapshot = sm.snapshot(sid).expect("state entry");
+        let query_time = snapshot.last_hook_event_at
+            + std::time::Duration::from_secs(
+                crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS + 1,
+            );
+
+        assert_eq!(
+            sm.status_for_query_at(sid, SessionStatus::Thinking, query_time),
+            SessionStatus::Idle
+        );
+        assert_eq!(
+            sm.snapshot(sid).expect("raw state remains").status,
+            SessionStatus::Thinking
+        );
+    }
+
+    #[test]
+    fn fresh_busy_status_does_not_fall_back_while_events_are_flowing() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-fresh-busy";
+        sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
+        let snapshot = sm.snapshot(sid).expect("state entry");
+        let query_time = snapshot.last_hook_event_at
+            + std::time::Duration::from_secs(
+                crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS - 1,
+            );
+
+        assert_eq!(
+            sm.status_for_query_at(sid, SessionStatus::Thinking, query_time),
+            SessionStatus::Thinking
+        );
     }
 
     #[test]

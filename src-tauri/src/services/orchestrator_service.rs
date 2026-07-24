@@ -432,6 +432,41 @@ where
     backend_call_for_state(state.terminal_backend.clone(), operation).await
 }
 
+fn adjust_session_status_info_for_query(
+    state_machine: &cc_panes_core::services::SessionStateMachine,
+    status: &mut SessionStatusInfo,
+) {
+    let effective = state_machine.status_for_query(&status.session_id, status.status);
+    if effective != status.status {
+        status.status = effective;
+        status.current_tool_name = None;
+        status.current_tool_use_id = None;
+        status.current_tool_summary = None;
+    }
+}
+
+async fn query_all_session_statuses(
+    state: &AppState,
+) -> std::result::Result<Vec<SessionStatusInfo>, String> {
+    let mut statuses = backend_call(state, |backend| backend.get_all_status()).await?;
+    for status in &mut statuses {
+        adjust_session_status_info_for_query(&state.session_state_machine, status);
+    }
+    Ok(statuses)
+}
+
+async fn query_session_status(
+    state: &AppState,
+    session_id: &str,
+) -> std::result::Result<Option<SessionStatusInfo>, String> {
+    let sid = session_id.to_string();
+    let mut status = backend_call(state, move |backend| backend.get_session_status(&sid)).await?;
+    if let Some(status) = status.as_mut() {
+        adjust_session_status_info_for_query(&state.session_state_machine, status);
+    }
+    Ok(status)
+}
+
 // ============ OrchestratorService ============
 
 /// 监听绑定决策（供状态查询与 WSL 安全网提示）
@@ -695,6 +730,13 @@ impl OrchestratorService {
     /// 获取 SessionStateMachine 共享引用（terminal_service::set_state_machine 用）
     pub fn session_state_machine(&self) -> Arc<cc_panes_core::services::SessionStateMachine> {
         self.session_state_machine.clone()
+    }
+
+    /// 校正用户可见的状态查询结果；不改写 backend 或状态机中的原始状态。
+    pub fn adjust_terminal_statuses_for_query(&self, statuses: &mut [SessionStatusInfo]) {
+        for status in statuses {
+            adjust_session_status_info_for_query(&self.session_state_machine, status);
+        }
     }
 
     /// 获取 pending_queries 引用（用于 respond command）
@@ -1009,6 +1051,7 @@ impl OrchestratorService {
             };
 
             rt.block_on(async move {
+                let level_scan_state = state.clone();
                 let app = build_router(state);
 
                 // 固定端口（跨重启稳定：让重启/更新后仍在跑的 CLI 会话里写死的 MCP 端点依旧有效）。
@@ -1043,6 +1086,8 @@ impl OrchestratorService {
                 if let Ok(mut p) = port_mutex_clone.lock() {
                     *p = Some(port);
                 }
+
+                tokio::spawn(run_pending_report_level_scan(level_scan_state));
 
                 // 启动服务器
                 info!("[orchestrator] axum::serve starting...");
@@ -3924,9 +3969,7 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpGetTaskStatusParams>,
     ) -> String {
         debug!(task_id = %params.task_id, "mcp::get_task_status");
-        let statuses = backend_call(&self.state, |backend| backend.get_all_status())
-            .await
-            .ok();
+        let statuses = query_all_session_statuses(&self.state).await.ok();
         let mut tasks = self.state.tasks.lock().unwrap_or_else(|e| e.into_inner());
         match tasks.get_mut(&params.task_id) {
             Some(status) => {
@@ -4448,8 +4491,7 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpGetSessionStatusParams>,
     ) -> String {
         debug!(session_id = %params.session_id, "mcp::get_session_status");
-        let sid = params.session_id.clone();
-        match backend_call(&self.state, move |backend| backend.get_session_status(&sid)).await {
+        match query_session_status(&self.state, &params.session_id).await {
             Ok(Some(status)) => serde_json::json!({
                 "sessionId": status.session_id,
                 "status": status.status,
@@ -4465,7 +4507,7 @@ impl McpToolHandler {
     #[tool]
     async fn list_sessions(&self) -> String {
         debug!("mcp::list_sessions");
-        match backend_call(&self.state, |backend| backend.get_all_status()).await {
+        match query_all_session_statuses(&self.state).await {
             Ok(statuses) => {
                 let sessions: Vec<serde_json::Value> = statuses
                     .iter()
@@ -6407,9 +6449,7 @@ async fn handle_task_status(
         );
     }
 
-    let statuses = backend_call(&state, |backend| backend.get_all_status())
-        .await
-        .ok();
+    let statuses = query_all_session_statuses(&state).await.ok();
     let mut tasks = state.tasks.lock().unwrap_or_else(|e| e.into_inner());
     match tasks.get_mut(&task_id) {
         Some(status) => {
@@ -6638,7 +6678,7 @@ async fn handle_list_sessions(
         );
     }
 
-    match backend_call(&state, |backend| backend.get_all_status()).await {
+    match query_all_session_statuses(&state).await {
         Ok(statuses) => {
             let sessions: Vec<serde_json::Value> = statuses
                 .iter()
@@ -6682,8 +6722,7 @@ async fn handle_session_status(
         );
     }
 
-    let sid = session_id.clone();
-    match backend_call(&state, move |backend| backend.get_session_status(&sid)).await {
+    match query_session_status(&state, &session_id).await {
         Ok(Some(status)) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -7678,6 +7717,7 @@ impl LeaderReportResult {
 
 const PENDING_REPORT_TTL_SECS: u64 = 30 * 60;
 const PENDING_REPORT_MAX_PER_LEADER: usize = 32;
+const PENDING_REPORT_SCAN_INTERVAL_SECS: u64 = 60;
 
 #[derive(Debug, Clone)]
 pub struct PendingWorkerReport {
@@ -7688,19 +7728,53 @@ pub struct PendingWorkerReport {
 /// key = leader 的 PTY session_id（与 StateTransition.pty_session_id 同域）
 pub type PendingReportMap = HashMap<String, Vec<PendingWorkerReport>>;
 
+#[derive(Debug, PartialEq, Eq)]
+struct ExpiredPendingReport {
+    worker_id: String,
+    age_secs: u64,
+}
+
+struct PendingEnqueueResult {
+    queue_len: usize,
+    expired: Vec<ExpiredPendingReport>,
+}
+
+struct PendingReportBatch {
+    reports: Vec<PendingWorkerReport>,
+    expired: Vec<ExpiredPendingReport>,
+}
+
 fn pending_report_expired(report: &PendingWorkerReport, now: std::time::Instant) -> bool {
     now.saturating_duration_since(report.queued_at).as_secs() > PENDING_REPORT_TTL_SECS
 }
 
-/// 入队：TTL 剪枝 → 同 worker.id 去重（保留最新）→ push → 超上限丢最老。返回队列长度。
+fn expired_pending_report(
+    report: &PendingWorkerReport,
+    now: std::time::Instant,
+) -> ExpiredPendingReport {
+    ExpiredPendingReport {
+        worker_id: report.worker.id.clone(),
+        age_secs: now.saturating_duration_since(report.queued_at).as_secs(),
+    }
+}
+
+/// 入队：TTL 剪枝 → 同 worker.id 去重（保留最新）→ push → 超上限丢最老。
 fn enqueue_pending_report(
     map: &mut PendingReportMap,
     leader_session_id: &str,
     worker: TaskBinding,
     now: std::time::Instant,
-) -> usize {
+) -> PendingEnqueueResult {
     let queue = map.entry(leader_session_id.to_string()).or_default();
-    queue.retain(|report| !pending_report_expired(report, now) && report.worker.id != worker.id);
+    let mut expired = Vec::new();
+    queue.retain(|report| {
+        if pending_report_expired(report, now) {
+            expired.push(expired_pending_report(report, now));
+            false
+        } else {
+            report.worker.id != worker.id
+        }
+    });
     queue.push(PendingWorkerReport {
         worker,
         queued_at: now,
@@ -7713,7 +7787,10 @@ fn enqueue_pending_report(
             "pending worker report queue overflow; dropped oldest"
         );
     }
-    queue.len()
+    PendingEnqueueResult {
+        queue_len: queue.len(),
+        expired,
+    }
 }
 
 /// 取走并清空该 leader 的全部排队 report（TTL 过滤）
@@ -7721,12 +7798,44 @@ fn take_pending_reports(
     map: &mut PendingReportMap,
     leader_session_id: &str,
     now: std::time::Instant,
-) -> Vec<PendingWorkerReport> {
-    map.remove(leader_session_id)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|report| !pending_report_expired(report, now))
-        .collect()
+) -> PendingReportBatch {
+    let mut reports = Vec::new();
+    let mut expired = Vec::new();
+    for report in map.remove(leader_session_id).unwrap_or_default() {
+        if pending_report_expired(&report, now) {
+            expired.push(expired_pending_report(&report, now));
+        } else {
+            reports.push(report);
+        }
+    }
+    PendingReportBatch { reports, expired }
+}
+
+fn record_expired_pending_reports(
+    task_binding_service: &crate::services::TaskBindingService,
+    expired: &[ExpiredPendingReport],
+) -> usize {
+    let mut updated = 0;
+    for report in expired {
+        warn!(
+            worker_id = %report.worker_id,
+            age_secs = report.age_secs,
+            "pending worker report expired before delivery"
+        );
+        match task_binding_service.update_patch(
+            &report.worker_id,
+            serde_json::json!({ "metadata": { "reportDropped": true } }),
+        ) {
+            Ok(_) => updated += 1,
+            Err(error) => warn!(
+                worker_id = %report.worker_id,
+                age_secs = report.age_secs,
+                error = %error,
+                "failed to persist expired worker report metadata"
+            ),
+        }
+    }
+    updated
 }
 
 /// 丢弃该 leader 的全部排队 report，返回丢弃条数
@@ -7755,25 +7864,30 @@ fn pending_flush_action(to: SessionStatus) -> PendingFlushAction {
     }
 }
 
+fn pending_level_action(status: Option<SessionStatus>) -> PendingFlushAction {
+    status.map_or(PendingFlushAction::Clear, pending_flush_action)
+}
+
 /// 补投：锁内取走队列立即放锁，逐条顺序重跑 send_worker_report_to_leader
 /// （保序；期间 leader 再次变 busy 时其内部会重新入队等下次边沿）。
 async fn flush_pending_reports(state: AppState, leader_session_id: String) {
-    let reports = {
+    let batch = {
         let mut map = state
             .pending_worker_reports
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         take_pending_reports(&mut map, &leader_session_id, std::time::Instant::now())
     };
-    if reports.is_empty() {
+    record_expired_pending_reports(&state.task_binding_service, &batch.expired);
+    if batch.reports.is_empty() {
         return;
     }
     info!(
         leader_session_id,
-        count = reports.len(),
+        count = batch.reports.len(),
         "flushing pending worker reports to leader"
     );
-    for report in reports {
+    for report in batch.reports {
         let worker_id = report.worker.id.clone();
         let result = send_worker_report_to_leader(state.clone(), report.worker).await;
         debug!(
@@ -7789,19 +7903,21 @@ async fn flush_pending_reports(state: AppState, leader_session_id: String) {
 
 /// busy/initializing 入队 + 竞态双重检查：入队后 leader 可能已恰好跃迁回空闲
 /// （边沿已过、无人再触发 flush），重读一次状态，空闲则立即补投。
-fn read_session_status_from_truth_then_backend(
+fn read_session_status_for_query(
     state: &AppState,
     session_id: &str,
 ) -> std::result::Result<Option<SessionStatus>, String> {
-    if let Some(snapshot) = state.session_state_machine.snapshot(session_id) {
-        return Ok(Some(snapshot.status));
-    }
-
     state
         .terminal_backend
         .backend()
         .get_session_status(session_id)
-        .map(|status| status.map(|status| status.status))
+        .map(|status| {
+            status.map(|status| {
+                state
+                    .session_state_machine
+                    .status_for_query(session_id, status.status)
+            })
+        })
         .map_err(|error| error.to_string())
 }
 
@@ -7811,7 +7927,7 @@ fn enqueue_and_recheck(
     worker: &TaskBinding,
     reason: &'static str,
 ) -> LeaderReportResult {
-    let queue_len = {
+    let enqueue_result = {
         let mut map = state
             .pending_worker_reports
             .lock()
@@ -7823,15 +7939,16 @@ fn enqueue_and_recheck(
             std::time::Instant::now(),
         )
     };
+    record_expired_pending_reports(&state.task_binding_service, &enqueue_result.expired);
     info!(
         worker_id = %worker.id,
         leader_session_id,
-        queue_len,
+        queue_len = enqueue_result.queue_len,
         reason,
         "worker report queued for redelivery"
     );
 
-    let now_idle = read_session_status_from_truth_then_backend(state, leader_session_id)
+    let now_idle = read_session_status_for_query(state, leader_session_id)
         .ok()
         .flatten()
         .is_some_and(|status| matches!(status, SessionStatus::Idle | SessionStatus::WaitingInput));
@@ -7842,6 +7959,69 @@ fn enqueue_and_recheck(
     }
 
     LeaderReportResult::queued(reason)
+}
+
+async fn scan_pending_reports_once(state: &AppState) {
+    let leader_session_ids = {
+        let map = state
+            .pending_worker_reports
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        map.iter()
+            .filter(|(_, queue)| !queue.is_empty())
+            .map(|(session_id, _)| session_id.clone())
+            .collect::<Vec<_>>()
+    };
+
+    for leader_session_id in leader_session_ids {
+        let sid = leader_session_id.clone();
+        let status = match query_session_status(state, &sid).await {
+            Ok(status) => status.map(|status| status.status),
+            Err(error) => {
+                warn!(
+                    session_id = %leader_session_id,
+                    error,
+                    "pending worker report level scan could not read leader status"
+                );
+                continue;
+            }
+        };
+
+        match pending_level_action(status) {
+            PendingFlushAction::Flush => {
+                flush_pending_reports(state.clone(), leader_session_id).await;
+            }
+            PendingFlushAction::Clear => {
+                let dropped = {
+                    let mut map = state
+                        .pending_worker_reports
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    clear_pending_reports(&mut map, &leader_session_id)
+                };
+                if dropped > 0 {
+                    warn!(
+                        session_id = %leader_session_id,
+                        dropped,
+                        "leader session unavailable; dropped pending worker reports"
+                    );
+                }
+            }
+            PendingFlushAction::None => {}
+        }
+    }
+}
+
+async fn run_pending_report_level_scan(state: AppState) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+        PENDING_REPORT_SCAN_INTERVAL_SECS,
+    ));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    interval.tick().await;
+    loop {
+        interval.tick().await;
+        scan_pending_reports_once(&state).await;
+    }
 }
 
 fn should_notify_terminal_transition(
@@ -7926,20 +8106,19 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
         return LeaderReportResult::skipped("leader session missing");
     };
 
-    let leader_status =
-        match read_session_status_from_truth_then_backend(&state, &leader_session_id) {
-            Ok(status) => status,
-            Err(e) => {
-                warn!(
-                    worker_id = %worker.id,
-                    leader_id = %leader.id,
-                    session_id = %leader_session_id,
-                    err = %e,
-                    "worker report skipped: failed to read leader session status"
-                );
-                return LeaderReportResult::skipped(format!("failed to read leader status: {}", e));
-            }
-        };
+    let leader_status = match read_session_status_for_query(&state, &leader_session_id) {
+        Ok(status) => status,
+        Err(e) => {
+            warn!(
+                worker_id = %worker.id,
+                leader_id = %leader.id,
+                session_id = %leader_session_id,
+                err = %e,
+                "worker report skipped: failed to read leader session status"
+            );
+            return LeaderReportResult::skipped(format!("failed to read leader status: {}", e));
+        }
+    };
 
     let Some(leader_status) = leader_status else {
         warn!(
@@ -8262,9 +8441,10 @@ mod tests {
         enqueue_pending_report(&mut map, "leader-s", test_pending_report_worker("w1"), now);
         let mut updated = test_pending_report_worker("w1");
         updated.completion_summary = Some("newer".to_string());
-        let len = enqueue_pending_report(&mut map, "leader-s", updated, now);
+        let result = enqueue_pending_report(&mut map, "leader-s", updated, now);
 
-        assert_eq!(len, 1);
+        assert_eq!(result.queue_len, 1);
+        assert!(result.expired.is_empty());
         let queue = map.get("leader-s").expect("queue exists");
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0].worker.completion_summary.as_deref(), Some("newer"));
@@ -8300,13 +8480,110 @@ mod tests {
         let later = now + std::time::Duration::from_secs(PENDING_REPORT_TTL_SECS + 1);
         map.get_mut("leader-s").unwrap()[1].queued_at = now + std::time::Duration::from_secs(2);
 
-        let taken = take_pending_reports(&mut map, "leader-s", later);
-        assert_eq!(taken.len(), 1);
-        assert_eq!(taken[0].worker.id, "w2");
+        let batch = take_pending_reports(&mut map, "leader-s", later);
+        assert_eq!(batch.reports.len(), 1);
+        assert_eq!(batch.reports[0].worker.id, "w2");
+        assert_eq!(batch.expired.len(), 1);
+        assert_eq!(batch.expired[0].worker_id, "w1");
+        assert!(batch.expired[0].age_secs > PENDING_REPORT_TTL_SECS);
         assert!(!map.contains_key("leader-s"));
 
         // 空 map 再取
-        assert!(take_pending_reports(&mut map, "leader-s", later).is_empty());
+        assert!(take_pending_reports(&mut map, "leader-s", later)
+            .reports
+            .is_empty());
+    }
+
+    #[test]
+    fn ttl_drop_during_enqueue_is_persisted_in_worker_metadata() {
+        use crate::models::task_binding::{CreateTaskBindingRequest, TaskBindingRole};
+
+        let db = Arc::new(
+            cc_panes_core::repository::Database::new_fallback().expect("fallback database"),
+        );
+        let service = crate::services::TaskBindingService::new(Arc::new(
+            cc_panes_core::repository::TaskBindingRepository::new(db),
+        ));
+        let worker = service
+            .create(CreateTaskBindingRequest {
+                title: "worker".to_string(),
+                role: Some(TaskBindingRole::Worker),
+                parent_id: Some("leader-1".to_string()),
+                plan_path: None,
+                normalized_plan_path: None,
+                prompt: None,
+                session_id: Some("worker-session".to_string()),
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                todo_id: None,
+                project_path: "D:/repo".to_string(),
+                workspace_name: None,
+                cli_tool: Some("codex".to_string()),
+                metadata: Some(serde_json::json!({ "kept": true })),
+            })
+            .expect("create worker binding");
+        let now = std::time::Instant::now();
+        let mut map = PendingReportMap::new();
+        enqueue_pending_report(&mut map, "leader-s", worker.clone(), now);
+        let later = now + std::time::Duration::from_secs(PENDING_REPORT_TTL_SECS + 1);
+
+        let result = enqueue_pending_report(&mut map, "leader-s", worker.clone(), later);
+        assert_eq!(record_expired_pending_reports(&service, &result.expired), 1);
+        assert_eq!(result.queue_len, 1);
+
+        let persisted = service
+            .get(&worker.id)
+            .expect("load binding")
+            .expect("binding exists");
+        let metadata = persisted.metadata.expect("metadata");
+        assert_eq!(metadata["kept"], true);
+        assert_eq!(metadata["reportDropped"], true);
+    }
+
+    #[test]
+    fn stale_busy_level_scan_flushes_once_even_with_edge_trigger() {
+        let state_machine = cc_panes_core::services::SessionStateMachine::new();
+        let sid = "leader-stale";
+        state_machine.on_event(
+            sid,
+            &cc_cli_adapters::CcPaneEvent::PromptBefore,
+            None,
+            &serde_json::json!({}),
+        );
+        let snapshot = state_machine.snapshot(sid).expect("state entry");
+        let query_time = snapshot.last_hook_event_at
+            + std::time::Duration::from_secs(
+                cc_panes_core::constants::session_state::STALE_BUSY_TIMEOUT_SECS + 1,
+            );
+        let effective = state_machine.status_for_query_at(sid, SessionStatus::Thinking, query_time);
+        assert_eq!(
+            pending_level_action(Some(effective)),
+            PendingFlushAction::Flush
+        );
+
+        let now = std::time::Instant::now();
+        let map = Arc::new(Mutex::new(PendingReportMap::new()));
+        enqueue_pending_report(
+            &mut map.lock().expect("queue lock"),
+            sid,
+            test_pending_report_worker("worker-once"),
+            now,
+        );
+
+        let take = |map: Arc<Mutex<PendingReportMap>>| {
+            std::thread::spawn(move || {
+                take_pending_reports(&mut map.lock().expect("queue lock"), sid, now)
+                    .reports
+                    .len()
+            })
+        };
+        let edge = take(map.clone());
+        let level = take(map);
+        assert_eq!(
+            edge.join().expect("edge trigger") + level.join().expect("level trigger"),
+            1
+        );
     }
 
     #[test]
@@ -8322,6 +8599,7 @@ mod tests {
 
     #[test]
     fn test_pending_flush_action_covers_all_statuses() {
+        assert_eq!(pending_level_action(None), PendingFlushAction::Clear);
         let cases = [
             (SessionStatus::Idle, PendingFlushAction::Flush),
             (SessionStatus::WaitingInput, PendingFlushAction::Flush),

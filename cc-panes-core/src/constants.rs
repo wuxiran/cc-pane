@@ -78,3 +78,10 @@ pub mod terminal {
     /// v0.9.38 及更早版本的默认回滚缓冲行数。
     pub const LEGACY_DEFAULT_SCROLLBACK: u32 = 1_000;
 }
+
+/// Hook/OSC 驱动的会话状态查询策略。
+pub mod session_state {
+    /// busy 状态超过该时长未收到新的 hook/OSC 事件时，查询侧回落为 Idle。
+    /// 只修正查询结果，不改写状态机或终端会话中的原始状态。
+    pub const STALE_BUSY_TIMEOUT_SECS: u64 = 10 * 60;
+}
