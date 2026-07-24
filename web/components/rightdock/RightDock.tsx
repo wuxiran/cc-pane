@@ -1,18 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
+import { Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
-import ExplorerGitSection, {
-  type GitProjectSummary,
-} from "@/components/sidebar/ExplorerGitSection";
-import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setDragging } from "@/stores/splitDragState";
@@ -30,7 +20,6 @@ import {
   selectActiveTerminalKey,
 } from "@/hooks/useFollowActiveTerminalContext";
 import type { Workspace, WorkspaceProject } from "@/types";
-import { getProjectName } from "@/utils/path";
 
 interface RightDockViewDefinition {
   id: RightDockView;
@@ -118,31 +107,12 @@ export default function RightDock() {
     [workspaces, expandedWorkspaceId, expandedProjectId, activeTerminalKey],
   );
   const selectedProject = resolveRightDockProject(workspace, selectedProjectId);
-  const [gitSummaryState, setGitSummaryState] = useState<{
-    projectId: string | null;
-    summary: GitProjectSummary | null;
-  }>({ projectId: null, summary: null });
-  const gitSummary = gitSummaryState.projectId === selectedProject?.id
-    ? gitSummaryState.summary
-    : null;
   const panelRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef(width);
 
   useEffect(() => {
     widthRef.current = width;
   }, [width]);
-
-  const handleGitSummaryChange = useCallback((summary: GitProjectSummary | null) => {
-    setGitSummaryState({ projectId: selectedProject?.id ?? null, summary });
-  }, [selectedProject?.id]);
-
-  const handleProjectChange = useCallback((projectId: string) => {
-    if (!workspace) return;
-    useWorkspacesStore.setState({
-      expandedWorkspaceId: workspace.id,
-      expandedProjectId: projectId,
-    });
-  }, [workspace]);
 
   const handleResizePointerDown = useCallback((event: React.PointerEvent) => {
     event.preventDefault();
@@ -175,10 +145,6 @@ export default function RightDock() {
     document.addEventListener("pointermove", handlePointerMove);
     document.addEventListener("pointerup", handlePointerUp);
   }, [setWidth]);
-
-  const projectName = selectedProject
-    ? selectedProject.alias || getProjectName(selectedProject.path)
-    : null;
 
   if (!visible) return null;
 
@@ -259,56 +225,6 @@ export default function RightDock() {
             );
           })}
         </div>
-        <div className="ml-auto flex min-w-0 items-center gap-2">
-        {projectName && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("rightDock.switchProject")}
-                className="flex min-w-0 max-w-[42%] items-center gap-1 rounded-md px-1.5 py-1 text-[13px] font-semibold text-[var(--app-text-primary)] outline-none hover:bg-[var(--app-hover)] focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
-                title={selectedProject?.path}
-              >
-                <span className="truncate">{projectName}</span>
-                <ChevronDown className="h-3 w-3 shrink-0 text-[var(--app-text-tertiary)]" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-w-[320px]">
-              <DropdownMenuRadioGroup
-                value={selectedProject?.id}
-                onValueChange={handleProjectChange}
-              >
-                {workspace?.projects.map((project) => (
-                  <DropdownMenuRadioItem
-                    key={project.id}
-                    value={project.id}
-                    className="text-[13px]"
-                  >
-                    <span className="truncate" title={project.path}>
-                      {project.alias || getProjectName(project.path)}
-                    </span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        {gitSummary?.kind === "git" && gitSummary.branch && (
-          <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-[var(--app-text-secondary)]">
-            <GitBranch className="h-3 w-3 shrink-0 text-[var(--app-accent)]" />
-            <span className="truncate" title={gitSummary.branch}>{gitSummary.branch}</span>
-          </span>
-        )}
-        {gitSummary?.kind === "git" && (
-          <Badge
-            variant="outline"
-            aria-label={t("rightDock.changeCount", { count: gitSummary.changeCount })}
-            className="h-5 px-1.5 text-[11px] tabular-nums text-[var(--app-text-secondary)]"
-          >
-            {gitSummary.changeCount}
-          </Badge>
-        )}
-        </div>
       </div>
 
       {workspace && selectedProject ? (
@@ -320,7 +236,6 @@ export default function RightDock() {
             <ExplorerGitSection
               workspace={workspace}
               selectedProjectId={selectedProject.id}
-                            onSelectedProjectSummaryChange={handleGitSummaryChange}
             />
           </div>
           {activeView === "files" && (

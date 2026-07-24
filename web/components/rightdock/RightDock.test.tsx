@@ -72,7 +72,6 @@ describe("RightDock", () => {
 
     renderDock();
 
-    expect(screen.getByRole("button", { name: "切换项目" })).toHaveTextContent("Alpha");
     expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
     expect(screen.queryByText("工作空间中没有项目")).not.toBeInTheDocument();
   });
@@ -82,7 +81,6 @@ describe("RightDock", () => {
 
     renderDock();
 
-    expect(screen.getByRole("button", { name: "切换项目" })).toHaveTextContent("Beta");
     expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-2");
   });
 
@@ -91,19 +89,7 @@ describe("RightDock", () => {
 
     renderDock();
 
-    expect(screen.getByRole("button", { name: "切换项目" })).toHaveTextContent("Alpha");
     expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
-  });
-
-  it("项目下拉可切换当前工作空间的目标项目", async () => {
-    const user = userEvent.setup();
-    renderDock();
-
-    await user.click(screen.getByRole("button", { name: "切换项目" }));
-    await user.click(screen.getByRole("menuitemradio", { name: "Beta" }));
-
-    expect(useWorkspacesStore.getState().expandedProjectId).toBe("project-2");
-    expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-2");
   });
 
   it("工作空间没有项目时才显示空态", () => {
@@ -119,15 +105,12 @@ describe("RightDock", () => {
     expect(screen.queryByTestId("right-dock-files")).not.toBeInTheDocument();
   });
 
-  it("Git 视图显示当前项目名并直挂 Git section", () => {
+  it("Git 视图直挂 Git section", () => {
     renderDock();
 
     expect(screen.getByTestId("right-dock-panel")).toHaveStyle({ width: "340px" });
-    expect(screen.getByRole("button", { name: "切换项目" })).toHaveTextContent("Alpha");
     expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
     expect(screen.queryByTestId("right-dock-files")).not.toBeInTheDocument();
-    expect(screen.getByText("feature/rightdock")).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
   });
 
   it("文件视图直挂文件 section", () => {
