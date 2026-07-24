@@ -127,6 +127,18 @@ export default function GeneralSection({
       </div>
 
       <div className="flex items-center justify-between">
+        <Label>{t("showSystemResources")}</Label>
+        <input
+          type="checkbox"
+          aria-label={t("showSystemResources")}
+          checked={value.showSystemResources ?? true}
+          onChange={(e) => update("showSystemResources", e.target.checked)}
+          className="w-4 h-4 cursor-pointer shrink-0"
+          style={{ accentColor: "var(--app-accent)" }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
         <div className="flex flex-col pr-4">
           <Label>{t("localHistoryEnabled")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>

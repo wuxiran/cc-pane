@@ -56,5 +56,8 @@
   "selfChat.injecting": "Injecting...",
   "selfChat.notInjected": "Not injected",
   "selfChat.reinject": "Re-inject",
-  "selfChat.endSession": "End Session"
+  "selfChat.endSession": "End Session",
+  "systemResources": "System resource usage",
+  "cpuShort": "CPU",
+  "memoryShort": "Memory"
 }

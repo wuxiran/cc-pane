@@ -146,6 +146,7 @@ use commands::{
     get_skill,
     get_spec_content,
     get_ssh_machine,
+    get_system_stats,
     get_task_binding,
     get_terminal_daemon_client_info,
     get_terminal_output,
@@ -363,7 +364,7 @@ use services::{
     ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
     ProviderService, ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService,
     SkillMarketService, SkillService, SpecService, SshCredentialService, SshMachineService,
-    StartLocks, TaskBindingService, TerminalBackendKind, TerminalBackendState,
+    StartLocks, SystemStatsService, TaskBindingService, TerminalBackendKind, TerminalBackendState,
     TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
     UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
     WorktreeService,
@@ -1364,6 +1365,7 @@ pub fn run() {
     ));
 
     let process_monitor_service = Arc::new(ProcessMonitorService::new());
+    let system_stats_service = Arc::new(SystemStatsService::new());
 
     let runner_repository = Arc::new(cc_panes_core::repository::RunnerRepository::new(db.clone()));
     let runner_service = Arc::new(cc_panes_core::services::RunnerService::new(
@@ -1481,6 +1483,7 @@ pub fn run() {
         .manage(memory_service)
         .manage(ssh_machine_service)
         .manage(process_monitor_service)
+        .manage(system_stats_service)
         .manage(runner_service)
         .manage(start_locks)
         .manage(web_access_lifecycle.clone())
@@ -2434,6 +2437,7 @@ pub fn run() {
             kill_claude_process,
             kill_claude_processes,
             get_resource_stats,
+            get_system_stats,
             // Runner Registry 命令
             runner_list_profiles,
             runner_get_profile,

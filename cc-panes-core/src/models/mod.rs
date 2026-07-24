@@ -15,6 +15,7 @@ pub mod settings;
 pub mod shared_mcp;
 pub mod spec;
 pub mod ssh_machine;
+pub mod system_stats;
 pub mod task_binding;
 mod terminal;
 pub mod todo;
@@ -65,6 +66,7 @@ pub use runner::{
 pub use screenshot::ScreenshotResult;
 pub use session_restore::SavedSession;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};
+pub use system_stats::SystemStats;
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,
     TerminalReplaySnapshot, WslLaunchInfo,

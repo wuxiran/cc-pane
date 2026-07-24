@@ -166,6 +166,8 @@ export interface GeneralSettings {
   hideNonFavoriteLaunchActions: boolean;
   /** 禁用 WSL 用量统计扫描（不再触碰 \\wsl$ 与 wsl.exe，避免唤醒 WSL VM） */
   disableWslUsageScan: boolean;
+  /** 是否在状态栏显示整机 CPU 与内存占用 */
+  showSystemResources: boolean;
 }
 
 /** 环境检测原始结果（来自 Rust check_environment 命令） */
