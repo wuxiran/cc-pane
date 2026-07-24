@@ -7,14 +7,16 @@ use axum::{
 use cc_panes_core::{
     constants::fs_limits::MAX_READ_SIZE,
     models::{
-        filesystem::{DirListing, FileContent, FsEntry},
+        filesystem::{
+            DirListing, FileContent, FsEntry, ProjectContentSearchResult, ProjectFileSearchResult,
+        },
         provider::Provider,
         Project, ProjectMigrationPlan, ProjectMigrationRequest, ProjectMigrationResult,
         ProjectMigrationRollbackResult, ScannedRepo, SshConnectionInfo, Workspace,
         WorkspaceMigrationPlan, WorkspaceMigrationRequest, WorkspaceMigrationResult,
         WorkspaceMigrationRollbackResult, WorkspaceProject,
     },
-    services::WorkspaceService,
+    services::{ContentSearchLimits, WorkspaceService},
     utils::{validate_path, validate_ssh_info},
 };
 use serde::Deserialize;
@@ -119,6 +121,14 @@ pub struct FsListQuery {
     pub path: String,
     #[serde(default)]
     pub show_hidden: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsSearchQuery {
+    pub root: String,
+    pub query: String,
+    pub limit: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -598,6 +608,39 @@ pub async fn fs_read_file(
     state
         .filesystem_service
         .read_file(&query.path)
+        .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn search_project_files(
+    State(state): State<AppState>,
+    Query(query): Query<FsSearchQuery>,
+) -> Result<Json<ProjectFileSearchResult>, (StatusCode, String)> {
+    state
+        .filesystem_service
+        .search_project_files(
+            &query.root,
+            &query.query,
+            query.limit.unwrap_or(200).clamp(1, 200),
+        )
+        .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn search_project_contents(
+    State(state): State<AppState>,
+    Query(query): Query<FsSearchQuery>,
+) -> Result<Json<ProjectContentSearchResult>, (StatusCode, String)> {
+    state
+        .filesystem_service
+        .search_project_contents(
+            &query.root,
+            &query.query,
+            ContentSearchLimits {
+                max_results: query.limit.unwrap_or(300).clamp(1, 300),
+                ..ContentSearchLimits::default()
+            },
+        )
         .map(Json)
         .map_err(service_error)
 }

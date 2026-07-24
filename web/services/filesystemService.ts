@@ -2,6 +2,8 @@ import type {
   DirListing,
   FileContent,
   FsEntry,
+  ProjectContentSearchResult,
+  ProjectFileSearchResult,
 } from "@/types/filesystem";
 import { apiGet, apiJson, invokeOrApi } from "./apiClient";
 
@@ -81,6 +83,26 @@ export const filesystemService = {
   getGitFileStatuses(rootPath: string): Promise<Record<string, string>> {
     return invokeOrApi<Record<string, string>>("get_git_file_statuses", { path: rootPath }, () =>
       apiGet<Record<string, string>>("/api/git/file-statuses", { path: rootPath }),
+    );
+  },
+
+  searchProjectFiles(root: string, query: string, limit = 200): Promise<ProjectFileSearchResult> {
+    return invokeOrApi<ProjectFileSearchResult>(
+      "search_project_files",
+      { root, query, limit },
+      () => apiGet<ProjectFileSearchResult>("/api/fs/search/files", { root, query, limit }),
+    );
+  },
+
+  searchProjectContents(
+    root: string,
+    query: string,
+    limit = 300,
+  ): Promise<ProjectContentSearchResult> {
+    return invokeOrApi<ProjectContentSearchResult>(
+      "search_project_contents",
+      { root, query, limit },
+      () => apiGet<ProjectContentSearchResult>("/api/fs/search/contents", { root, query, limit }),
     );
   },
 };

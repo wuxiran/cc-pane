@@ -33,3 +33,26 @@ pub struct FileContent {
     pub size: u64,
     pub language: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFileSearchResult {
+    pub paths: Vec<String>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectContentMatch {
+    pub path: String,
+    pub line: usize,
+    pub preview: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectContentSearchResult {
+    pub matches: Vec<ProjectContentMatch>,
+    pub truncated: bool,
+    pub timed_out: bool,
+}

@@ -543,6 +543,11 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/fs/list", get(resources::fs_list_directory))
         .route("/api/fs/read", get(resources::fs_read_file))
+        .route("/api/fs/search/files", get(resources::search_project_files))
+        .route(
+            "/api/fs/search/contents",
+            get(resources::search_project_contents),
+        )
         .route("/api/fs/raw", get(resources::fs_read_raw_file))
         .route("/api/fs/write", post(resources::fs_write_file))
         .route("/api/fs/create-file", post(resources::fs_create_file))

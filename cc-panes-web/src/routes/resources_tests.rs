@@ -575,6 +575,32 @@ async fn filesystem_routes_match_core_service_operations() {
     .expect("list dir");
     assert_eq!(listing.entries.len(), 1);
 
+    let Json(name_search) = search_project_files(
+        State(state.clone()),
+        Query(FsSearchQuery {
+            root: base.to_string_lossy().to_string(),
+            query: "note".to_string(),
+            limit: Some(200),
+        }),
+    )
+    .await
+    .expect("search file names");
+    assert_eq!(name_search.paths, vec!["nested/note.txt"]);
+
+    let Json(content_search) = search_project_contents(
+        State(state.clone()),
+        Query(FsSearchQuery {
+            root: base.to_string_lossy().to_string(),
+            query: "hello".to_string(),
+            limit: Some(300),
+        }),
+    )
+    .await
+    .expect("search file contents");
+    assert_eq!(content_search.matches.len(), 1);
+    assert_eq!(content_search.matches[0].path, "nested/note.txt");
+    assert_eq!(content_search.matches[0].line, 1);
+
     let Json(info) = fs_get_entry_info(
         State(state.clone()),
         Query(FsPathQuery {

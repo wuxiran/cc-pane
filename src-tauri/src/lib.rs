@@ -305,6 +305,8 @@ use commands::{
     screenshot_update_shortcut,
     // Memory 命令
     search_memory,
+    search_project_contents,
+    search_project_files,
     set_decorations,
     set_default_launch_profile,
     set_default_provider,
@@ -2390,6 +2392,8 @@ pub fn run() {
             fs_copy_entry,
             fs_move_entry,
             fs_get_entry_info,
+            search_project_files,
+            search_project_contents,
             // Screenshot 命令
             screenshot_save_clipboard_image,
             screenshot_update_shortcut,

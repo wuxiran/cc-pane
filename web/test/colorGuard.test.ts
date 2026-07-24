@@ -15,26 +15,6 @@ const EXEMPT_DIRS = new Set(["dev", "mobile", "ui"]);
 const ALLOWLIST: Record<string, string[]> = {
   // 编辑器语法高亮属于内容类别编码，不随应用 chrome 主题色变化。
   "editor/JsonEditor.tsx": ["#22863a", "#005cc5", "#d73a49", "#6f42c1", "#e36209", "#586069"],
-  // 文件类型图标品牌色与语言类别编码，不随应用主题变化。
-  "filetree/FileTreeNode.tsx": [
-    "text-[#CE412B]",
-    "#F7DF1E",
-    "#323330",
-    "#3178C6",
-    "#fff",
-    "#3572A5",
-    "#FFD43B",
-    "#41B883",
-    "#34495E",
-    "#264DE4",
-    "#2965F1",
-    "#EBEBEB",
-    "#FFF",
-    "#00ADD8",
-    "#CE412B",
-    "#E44D26",
-    "#F16529",
-  ],
   // 壁纸 dim 层必须使用中性黑混合，避免随主题产生彩色遮罩。
   "layout/MainWallpaperLayer.tsx": ["#000"],
   // Local History 标签来源色区分 git/会话/用户/构建/恢复，属于类别编码。

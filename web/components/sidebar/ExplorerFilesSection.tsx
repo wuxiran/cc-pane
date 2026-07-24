@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { FileTree } from "@/components/filetree";
+import FileSearchView from "@/components/filetree/FileSearchView";
 import { getProjectName } from "@/utils/path";
 import type { Workspace } from "@/types";
 
@@ -41,12 +42,11 @@ export default function ExplorerFilesSection({
     );
   }
 
-  if (mode === "project") {
-    const project = workspace.projects.find((item) => item.id === selectedProjectId);
-    return project ? <FileTree rootPath={project.path} compact /> : null;
-  }
-
-  return (
+  const selectedProject =
+    workspace.projects.find((item) => item.id === selectedProjectId) ?? workspace.projects[0];
+  const treeContent = mode === "project" ? (
+    <FileTree rootPath={selectedProject.path} compact />
+  ) : (
     <div className="flex flex-col gap-0.5">
       {workspace.projects.map((project) => {
         const expanded = overrides[project.id] ?? project.id === selectedProjectId;
@@ -81,4 +81,6 @@ export default function ExplorerFilesSection({
       })}
     </div>
   );
+
+  return <FileSearchView rootPath={selectedProject.path}>{treeContent}</FileSearchView>;
 }

@@ -1,5 +1,7 @@
-use crate::models::filesystem::{DirListing, FileContent, FsEntry};
-use crate::services::FileSystemService;
+use crate::models::filesystem::{
+    DirListing, FileContent, FsEntry, ProjectContentSearchResult, ProjectFileSearchResult,
+};
+use crate::services::{ContentSearchLimits, FileSystemService};
 use crate::utils::AppResult;
 use std::sync::Arc;
 use tauri::State;
@@ -99,4 +101,31 @@ pub fn fs_get_entry_info(
     service: State<'_, Arc<FileSystemService>>,
 ) -> AppResult<FsEntry> {
     service.get_entry_info(&path)
+}
+
+#[tauri::command]
+pub fn search_project_files(
+    root: String,
+    query: String,
+    limit: Option<usize>,
+    service: State<'_, Arc<FileSystemService>>,
+) -> AppResult<ProjectFileSearchResult> {
+    service.search_project_files(&root, &query, limit.unwrap_or(200).clamp(1, 200))
+}
+
+#[tauri::command]
+pub fn search_project_contents(
+    root: String,
+    query: String,
+    limit: Option<usize>,
+    service: State<'_, Arc<FileSystemService>>,
+) -> AppResult<ProjectContentSearchResult> {
+    service.search_project_contents(
+        &root,
+        &query,
+        ContentSearchLimits {
+            max_results: limit.unwrap_or(300).clamp(1, 300),
+            ..ContentSearchLimits::default()
+        },
+    )
 }

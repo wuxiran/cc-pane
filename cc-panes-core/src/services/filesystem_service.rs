@@ -1,16 +1,46 @@
-use crate::constants::fs_limits::{MAX_DIR_ENTRIES, MAX_READ_SIZE, MAX_WRITE_SIZE};
-use crate::models::filesystem::{DirListing, FileContent, FsEntry};
+use crate::constants::{
+    fs_limits::{MAX_DIR_ENTRIES, MAX_READ_SIZE, MAX_WRITE_SIZE},
+    history::BUILTIN_IGNORE_PATTERNS,
+};
+use crate::models::filesystem::{
+    DirListing, FileContent, FsEntry, ProjectContentMatch, ProjectContentSearchResult,
+    ProjectFileSearchResult,
+};
 use crate::utils::error::AppError;
 use crate::utils::path_normalize::simplify_path;
 use crate::utils::AppResult;
 use encoding_rs::Encoding;
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use tracing::debug;
 
 /// 只读目录前缀（这些目录下的文件不允许编辑）
 const READONLY_PREFIXES: &[&str] = &["node_modules", ".git"];
+
+#[derive(Debug, Clone, Copy)]
+pub struct ContentSearchLimits {
+    pub max_results: usize,
+    pub max_file_size: u64,
+    pub timeout: Duration,
+}
+
+impl Default for ContentSearchLimits {
+    fn default() -> Self {
+        Self {
+            max_results: 300,
+            max_file_size: 1024 * 1024,
+            timeout: Duration::from_secs(5),
+        }
+    }
+}
+
+enum ContentFileSearchOutcome {
+    Continue,
+    LimitReached,
+    TimedOut,
+}
 
 pub struct FileSystemService;
 
@@ -327,6 +357,145 @@ impl FileSystemService {
         Some(lang.to_string())
     }
 
+    fn relative_search_path(root: &Path, path: &Path) -> Option<String> {
+        path.strip_prefix(root)
+            .ok()
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+    }
+
+    fn is_search_ignored(path: &str) -> bool {
+        BUILTIN_IGNORE_PATTERNS
+            .iter()
+            .any(|pattern| Self::matches_ignore_pattern(path, pattern))
+    }
+
+    fn matches_ignore_pattern(path: &str, pattern: &str) -> bool {
+        if let Some(prefix) = pattern.strip_suffix("/**") {
+            if !prefix.contains('/') {
+                return path.split('/').any(|component| component == prefix);
+            }
+            return path == prefix || path.starts_with(&format!("{prefix}/"));
+        }
+        if let Some(ext) = pattern.strip_prefix("*.") {
+            return path.ends_with(&format!(".{ext}"));
+        }
+        if !pattern.contains('/') {
+            return path.split('/').any(|component| component == pattern);
+        }
+        path == pattern || path.starts_with(&format!("{pattern}/"))
+    }
+
+    fn fuzzy_match_score(candidate: &str, query: &str) -> Option<(usize, usize)> {
+        let candidate = candidate.to_lowercase();
+        let query = query.to_lowercase();
+        if let Some(position) = candidate.find(&query) {
+            return Some((0, position));
+        }
+
+        let chars: Vec<char> = candidate.chars().collect();
+        let mut cursor = 0;
+        let mut gap_score = 0;
+        let mut previous = None;
+        for wanted in query.chars() {
+            let relative = chars[cursor..].iter().position(|ch| *ch == wanted)?;
+            let index = cursor + relative;
+            if let Some(previous) = previous {
+                gap_score += index - previous - 1;
+            }
+            previous = Some(index);
+            cursor = index + 1;
+        }
+        Some((1, gap_score))
+    }
+
+    fn search_entries(root: &Path) -> Vec<PathBuf> {
+        let mut directories = vec![root.to_path_buf()];
+        let mut files = Vec::new();
+
+        while let Some(directory) = directories.pop() {
+            let Ok(entries) = fs::read_dir(directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Some(relative) = Self::relative_search_path(root, &path) else {
+                    continue;
+                };
+                if Self::is_search_ignored(&relative) {
+                    continue;
+                }
+                let Ok(file_type) = entry.file_type() else {
+                    continue;
+                };
+                if file_type.is_symlink() {
+                    continue;
+                }
+                if file_type.is_dir() {
+                    directories.push(path);
+                } else if file_type.is_file() {
+                    files.push(path);
+                }
+            }
+        }
+
+        files
+    }
+
+    fn search_file_contents(
+        path: &Path,
+        relative: &str,
+        query: &str,
+        limits: ContentSearchLimits,
+        started: Instant,
+        matches: &mut Vec<ProjectContentMatch>,
+    ) -> ContentFileSearchOutcome {
+        let Ok(metadata) = fs::metadata(path) else {
+            return ContentFileSearchOutcome::Continue;
+        };
+        if metadata.len() > limits.max_file_size {
+            return ContentFileSearchOutcome::Continue;
+        }
+        let Ok(file) = fs::File::open(path) else {
+            return ContentFileSearchOutcome::Continue;
+        };
+        let mut reader = BufReader::new(file);
+        if reader
+            .fill_buf()
+            .map(|buffer| buffer.contains(&0))
+            .unwrap_or(true)
+        {
+            return ContentFileSearchOutcome::Continue;
+        }
+
+        let mut line_bytes = Vec::new();
+        let mut line_number = 0;
+        loop {
+            if started.elapsed() >= limits.timeout {
+                return ContentFileSearchOutcome::TimedOut;
+            }
+            line_bytes.clear();
+            let Ok(read) = reader.read_until(b'\n', &mut line_bytes) else {
+                return ContentFileSearchOutcome::Continue;
+            };
+            if read == 0 {
+                return ContentFileSearchOutcome::Continue;
+            }
+            line_number += 1;
+            let line = String::from_utf8_lossy(&line_bytes);
+            if !line.to_lowercase().contains(query) {
+                continue;
+            }
+            if matches.len() >= limits.max_results.max(1) {
+                return ContentFileSearchOutcome::LimitReached;
+            }
+            matches.push(ProjectContentMatch {
+                path: relative.to_string(),
+                line: line_number,
+                preview: line.trim().chars().take(300).collect(),
+            });
+        }
+    }
+
     // ===== 公开 API =====
 
     /// 列出一级目录内容
@@ -434,6 +603,137 @@ impl FileSystemService {
             size: meta.len(),
             language,
         })
+    }
+
+    pub fn search_project_files(
+        &self,
+        root: &str,
+        query: &str,
+        limit: usize,
+    ) -> AppResult<ProjectFileSearchResult> {
+        let root = Self::validate_path(root)?;
+        if !root.is_dir() {
+            return Err(format!("'{}' is not a directory", root.display()).into());
+        }
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(ProjectFileSearchResult {
+                paths: Vec::new(),
+                truncated: false,
+            });
+        }
+
+        let mut matches = Self::search_entries(&root)
+            .into_iter()
+            .filter_map(|path| {
+                let relative = Self::relative_search_path(&root, &path)?;
+                let score = Self::fuzzy_match_score(&relative, query)?;
+                Some((score, relative))
+            })
+            .collect::<Vec<_>>();
+        matches.sort_by(|(left_score, left_path), (right_score, right_path)| {
+            left_score
+                .cmp(right_score)
+                .then_with(|| left_path.to_lowercase().cmp(&right_path.to_lowercase()))
+        });
+
+        let limit = limit.max(1);
+        let truncated = matches.len() > limit;
+        matches.truncate(limit);
+        Ok(ProjectFileSearchResult {
+            paths: matches.into_iter().map(|(_, path)| path).collect(),
+            truncated,
+        })
+    }
+
+    pub fn search_project_contents(
+        &self,
+        root: &str,
+        query: &str,
+        limits: ContentSearchLimits,
+    ) -> AppResult<ProjectContentSearchResult> {
+        let root = Self::validate_path(root)?;
+        if !root.is_dir() {
+            return Err(format!("'{}' is not a directory", root.display()).into());
+        }
+        let query = query.trim().to_lowercase();
+        if query.is_empty() {
+            return Ok(ProjectContentSearchResult {
+                matches: Vec::new(),
+                truncated: false,
+                timed_out: false,
+            });
+        }
+
+        let started = Instant::now();
+        let mut result = ProjectContentSearchResult {
+            matches: Vec::new(),
+            truncated: false,
+            timed_out: false,
+        };
+
+        let mut directories = vec![root.clone()];
+        'search: while let Some(directory) = directories.pop() {
+            if started.elapsed() >= limits.timeout {
+                result.truncated = true;
+                result.timed_out = true;
+                break;
+            }
+            let Ok(entries) = fs::read_dir(directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                if started.elapsed() >= limits.timeout {
+                    result.truncated = true;
+                    result.timed_out = true;
+                    break 'search;
+                }
+                let path = entry.path();
+                let Some(relative) = Self::relative_search_path(&root, &path) else {
+                    continue;
+                };
+                if Self::is_search_ignored(&relative) {
+                    continue;
+                }
+                let Ok(file_type) = entry.file_type() else {
+                    continue;
+                };
+                if file_type.is_symlink() {
+                    continue;
+                }
+                if file_type.is_dir() {
+                    directories.push(path);
+                    continue;
+                }
+                if !file_type.is_file() {
+                    continue;
+                }
+                match Self::search_file_contents(
+                    &path,
+                    &relative,
+                    &query,
+                    limits,
+                    started,
+                    &mut result.matches,
+                ) {
+                    ContentFileSearchOutcome::Continue => {}
+                    ContentFileSearchOutcome::LimitReached => {
+                        result.truncated = true;
+                        break 'search;
+                    }
+                    ContentFileSearchOutcome::TimedOut => {
+                        result.truncated = true;
+                        result.timed_out = true;
+                        break 'search;
+                    }
+                }
+            }
+        }
+
+        result
+            .matches
+            .sort_by(|left, right| left.path.cmp(&right.path).then(left.line.cmp(&right.line)));
+        Ok(result)
     }
 
     /// 写入文件
@@ -835,6 +1135,125 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let err = svc().read_file(&path_str(tmp.path())).unwrap_err();
         assert!(err.message().contains("not a file"));
+    }
+
+    // ===== project search =====
+
+    #[test]
+    fn search_project_files_matches_subsequence_and_prunes_builtin_ignores() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("src")).unwrap();
+        fs::create_dir_all(tmp.path().join("node_modules/pkg")).unwrap();
+        fs::create_dir_all(tmp.path().join("target/debug")).unwrap();
+        fs::write(tmp.path().join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(tmp.path().join("node_modules/pkg/main.rs"), "ignored").unwrap();
+        fs::write(tmp.path().join("target/debug/main.rs"), "ignored").unwrap();
+
+        let result = svc()
+            .search_project_files(&path_str(tmp.path()), "mnrs", 200)
+            .unwrap();
+
+        assert_eq!(result.paths, vec!["src/main.rs"]);
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn search_project_files_marks_limit_truncation() {
+        let tmp = TempDir::new().unwrap();
+        for name in ["match-a.txt", "match-b.txt", "match-c.txt"] {
+            fs::write(tmp.path().join(name), "x").unwrap();
+        }
+
+        let result = svc()
+            .search_project_files(&path_str(tmp.path()), "match", 2)
+            .unwrap();
+
+        assert_eq!(result.paths.len(), 2);
+        assert!(result.truncated);
+    }
+
+    #[test]
+    fn search_project_contents_returns_lines_and_prunes_builtin_ignores() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("src")).unwrap();
+        fs::create_dir_all(tmp.path().join("node_modules/pkg")).unwrap();
+        fs::write(
+            tmp.path().join("src/app.ts"),
+            "const first = 1;\nconst needle = first;\n",
+        )
+        .unwrap();
+        fs::write(tmp.path().join("node_modules/pkg/app.ts"), "needle").unwrap();
+
+        let result = svc()
+            .search_project_contents(
+                &path_str(tmp.path()),
+                "needle",
+                ContentSearchLimits::default(),
+            )
+            .unwrap();
+
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.matches[0].path, "src/app.ts");
+        assert_eq!(result.matches[0].line, 2);
+        assert_eq!(result.matches[0].preview, "const needle = first;");
+        assert!(!result.truncated);
+        assert!(!result.timed_out);
+    }
+
+    #[test]
+    fn search_project_contents_skips_binary_and_oversized_files() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("binary.dat"), b"needle\0binary").unwrap();
+        fs::write(tmp.path().join("large.txt"), b"needle-too-large").unwrap();
+        fs::write(tmp.path().join("small.txt"), b"needle").unwrap();
+
+        let result = svc()
+            .search_project_contents(
+                &path_str(tmp.path()),
+                "needle",
+                ContentSearchLimits {
+                    max_results: 300,
+                    max_file_size: 8,
+                    timeout: std::time::Duration::from_secs(5),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.matches[0].path, "small.txt");
+    }
+
+    #[test]
+    fn search_project_contents_marks_result_limit_and_timeout_truncation() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("matches.txt"), "needle one\nneedle two\n").unwrap();
+
+        let limited = svc()
+            .search_project_contents(
+                &path_str(tmp.path()),
+                "needle",
+                ContentSearchLimits {
+                    max_results: 1,
+                    ..ContentSearchLimits::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(limited.matches.len(), 1);
+        assert!(limited.truncated);
+        assert!(!limited.timed_out);
+
+        let timed_out = svc()
+            .search_project_contents(
+                &path_str(tmp.path()),
+                "needle",
+                ContentSearchLimits {
+                    timeout: std::time::Duration::ZERO,
+                    ..ContentSearchLimits::default()
+                },
+            )
+            .unwrap();
+        assert!(timed_out.truncated);
+        assert!(timed_out.timed_out);
     }
 
     // ===== write_file =====
