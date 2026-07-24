@@ -324,7 +324,6 @@ export default function SharedMcpSection() {
       {/* 标题 + 操作 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium">{t("sharedMcp.title")}</h3>
           <Badge variant="secondary" className="text-xs">
             {runningCount}/{servers.length}
           </Badge>
@@ -349,10 +348,6 @@ export default function SharedMcpSection() {
           </Button>
         </div>
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        {t("sharedMcp.importHint")}
-      </p>
 
       {editing && (
         <div className="rounded-lg border-2 border-primary/30 bg-card p-4 space-y-3">

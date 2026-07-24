@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { isTauriRuntime } from "@/services/runtime";
 import type { SettingsDraft } from "./settingsDraft";
 import type { SettingsPaneId } from "./settingsRegistry";
+import { cn } from "@/lib/utils";
 
 const AboutSection = lazy(() => import("./AboutSection"));
 const CCChanSettings = lazy(() => import("./CCChanSettings"));
@@ -76,8 +77,20 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
 }
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
+  const hasOwnCardLayout = ["provider", "cli-launchers", "shared-mcp"].includes(props.paneId);
   return (
-    <div data-settings-section={`${props.paneId}-root`} className="scroll-m-8">
+    <div
+      data-settings-section={`${props.paneId}-root`}
+      className={cn(
+        "scroll-m-8 [&>div>h3:first-child]:hidden [&>div>p:first-of-type]:hidden",
+        !hasOwnCardLayout && [
+          "[&>div]:gap-4",
+          "[&>div>div]:rounded-lg [&>div>div]:border [&>div>div]:border-[var(--app-border)] [&>div>div]:bg-[var(--app-panel-bg)] [&>div>div]:px-5 [&>div>div]:py-4 [&>div>div]:shadow-sm",
+          "[&>div>label]:rounded-lg [&>div>label]:border [&>div>label]:border-[var(--app-border)] [&>div>label]:bg-[var(--app-panel-bg)] [&>div>label]:px-5 [&>div>label]:py-4 [&>div>label]:shadow-sm",
+          "[&_label]:text-[13px] [&_p]:text-[12px]",
+        ],
+      )}
+    >
       <Suspense fallback={null}>
         <Pane {...props} />
       </Suspense>

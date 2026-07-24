@@ -51,6 +51,7 @@ export interface SettingsPaneDefinition {
   id: SettingsPaneId;
   icon: LucideIcon;
   titleKey: string;
+  descriptionKey?: string;
   group: SettingsGroupId;
   searchEntries: readonly SettingsSearchEntry[];
   availability?: "tauri" | "non-mac";
@@ -91,6 +92,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     id: "wallpaper",
     icon: Image,
     titleKey: "wallpaper",
+    descriptionKey: "wallpaperDesc",
     group: "appearance",
     searchEntries: [
       { id: "media", titleKey: "wallpaperImage", descriptionKey: "wallpaperImageHint", keywordsKey: "searchKeywords.wallpaper", targetSectionId: "wallpaper-root" },
@@ -113,6 +115,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     id: "shortcuts",
     icon: Keyboard,
     titleKey: "shortcuts",
+    descriptionKey: "shortcutsHint",
     group: "appearance",
     searchEntries: [
       { id: "bindings", titleKey: "shortcutsTitle", descriptionKey: "shortcutsHint", keywordsKey: "searchKeywords.shortcuts", targetSectionId: "shortcuts-list" },
@@ -122,41 +125,43 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     id: "provider",
     icon: Cloud,
     titleKey: "provider",
+    descriptionKey: "providerDesc",
     group: "ai",
     searchEntries: [
       { id: "providers", titleKey: "providerTitle", descriptionKey: "providerDesc", keywordsKey: "searchKeywords.provider", targetSectionId: "provider-root" },
     ],
     layout: "wide",
   },
-  { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", group: "ai", searchEntries: [
+  { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", descriptionKey: "cliLaunchersDesc", group: "ai", searchEntries: [
     { id: "commands", titleKey: "cliLaunchersTitle", descriptionKey: "cliLaunchersDesc", targetSectionId: "cli-launchers-root" },
   ] },
-  { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", group: "ai", searchEntries: [
+  { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", descriptionKey: "sharedMcp.importHint", group: "ai", searchEntries: [
     { id: "servers", titleKey: "sharedMcp.title", keywordsKey: "searchKeywords.mcp", targetSectionId: "shared-mcp-root" },
   ] },
   { id: "proxy", icon: Globe, titleKey: "proxy", group: "system", searchEntries: [
     { id: "connection", titleKey: "proxyTitle", keywordsKey: "searchKeywords.proxy", targetSectionId: "proxy-root" },
   ] },
-  { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", group: "system", searchEntries: [
+  { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", descriptionKey: "webAccessDescription", group: "system", searchEntries: [
     { id: "remote", titleKey: "webAccessTitle", keywordsKey: "searchKeywords.webAccess", targetSectionId: "web-access-root" },
   ] },
-  { id: "notification", icon: Bell, titleKey: "notification", group: "system", searchEntries: [
+  { id: "notification", icon: Bell, titleKey: "notification", descriptionKey: "notificationDescription", group: "system", searchEntries: [
     { id: "events", titleKey: "notificationTitle", keywordsKey: "searchKeywords.notification", targetSectionId: "notification-controls" },
   ] },
   {
     id: "screenshot",
     icon: Camera,
     titleKey: "screenshot",
+    descriptionKey: "screenshotDesc",
     group: "system",
     searchEntries: [
       { id: "capture", titleKey: "screenshotTitle", descriptionKey: "screenshotDesc", keywordsKey: "searchKeywords.screenshot", targetSectionId: "screenshot-root" },
     ],
     availability: "non-mac",
   },
-  { id: "voice", icon: Mic, titleKey: "voice", group: "system", searchEntries: [
+  { id: "voice", icon: Mic, titleKey: "voice", descriptionKey: "voiceDesc", group: "system", searchEntries: [
     { id: "input", titleKey: "voiceTitle", descriptionKey: "voiceDesc", keywordsKey: "searchKeywords.voice", targetSectionId: "voice-root" },
   ] },
-  { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", group: "companion", searchEntries: [
+  { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", group: "companion", searchEntries: [
     { id: "companion", titleKey: "ccchanTitle", keywordsKey: "searchKeywords.ccchan", targetSectionId: "ccchan-root" },
   ] },
   { id: "about", icon: Info, titleKey: "about", group: "about", searchEntries: [

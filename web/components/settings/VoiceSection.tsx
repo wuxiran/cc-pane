@@ -40,15 +40,6 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-          {t("voiceTitle")}
-        </h3>
-        <p className="text-[12px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("voiceDesc")}
-        </p>
-      </div>
-
       <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
         <input
           type="checkbox"

@@ -243,7 +243,14 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
               {activePane.layout !== "wide" && (
                 <div className="mb-5 flex items-center gap-2.5">
                   <activePane.icon aria-hidden="true" size={18} className="text-[var(--app-text-secondary)]" />
-                  <h1 className="text-[18px] font-semibold text-[var(--app-text-primary)]">{t(activePane.titleKey)}</h1>
+                  <div className="min-w-0">
+                    <h1 className="text-[18px] font-semibold text-[var(--app-text-primary)]">{t(activePane.titleKey)}</h1>
+                    {activePane.descriptionKey && (
+                      <p className="mt-1 text-[12px] text-[var(--app-text-tertiary)]">
+                        {t(activePane.descriptionKey as never)}
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
               <SettingsSearchProvider value={{

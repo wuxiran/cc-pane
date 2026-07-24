@@ -48,15 +48,6 @@ export default function CliLaunchersSection({ value, onChange }: CliLaunchersSec
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
-          {t("cliLaunchersTitle")}
-        </h3>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("cliLaunchersDesc")}
-        </p>
-      </div>
-
       <div className="flex flex-col gap-2">
         {loading && (
           <div className="text-xs py-3" style={{ color: "var(--app-text-tertiary)" }}>
