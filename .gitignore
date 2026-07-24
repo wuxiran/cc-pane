@@ -106,3 +106,10 @@ tmp/
 # opencode adapter runtime artifacts
 .opencode/
 src-tauri/.opencode/
+
+# internal-only design research notes
+docs/42-*.md
+docs/43-*.md
+docs/45-o*.md
+docs/52-*.md
+docs/53-*.md

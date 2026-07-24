@@ -2,8 +2,8 @@
 
 > 状态:构想已定型,待 spike 验证
 > 来源:2026-07-24 用户提出。背景痛点:会话数量已超出 tab/分屏的承载力("会话太多了,急需一个大的画布");且需要一眼看清 leader/worker 关系、跨工作空间协作、会话自由组合。
-> 定位:**进攻型差异化**——非对标任何竞品(Orca/Superset 均为列表/tab 形态),而是给 CC-Panes 已有的编排引擎(leader/worker、谱系、消息原语)一个空间化的操作面。
-> 关联:[docs/44-orchestration-primitives.md](./44-orchestration-primitives.md)(边语义的底层原语)、[docs/45-orca-frontend-comparison.md](./45-orca-frontend-comparison.md)(P1-6 右坞等并行推进项)、[docs/46-frontend-styleguide.md](./46-frontend-styleguide.md)(交互约定归口)。
+> 定位:**进攻型差异化**——非对标任何竞品(主流形态均为列表/tab),而是给 CC-Panes 已有的编排引擎(leader/worker、谱系、消息原语)一个空间化的操作面。
+> 关联:[docs/44-orchestration-primitives.md](./44-orchestration-primitives.md)(边语义的底层原语)、[docs/46-frontend-styleguide.md](./46-frontend-styleguide.md)(交互约定归口)。
 
 ## 1. 核心命题
 

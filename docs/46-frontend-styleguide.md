@@ -1,6 +1,6 @@
 # 46. CC-Panes 前端风格宪法
 
-> 本文是 UI/视觉/交互的**决策规则文档**——回答“该用什么、何时用、不许用什么”。token 具体值以 `web/assets/index.css` 为唯一真源；分区/明度/巨石拆分史见 [docs/22](./22-frontend-design-refactor.md)；与竞品的对照论证见 [docs/45](./45-orca-frontend-comparison.md)。
+> 本文是 UI/视觉/交互的**决策规则文档**——回答“该用什么、何时用、不许用什么”。token 具体值以 `web/assets/index.css` 为唯一真源；分区/明度/巨石拆分史见 [docs/22](./22-frontend-design-refactor.md)。
 > **约束力**：所有 UI 类改动（人写或 AI worker 写）提交前对照本文；派工 prompt 应回引本文。机器护栏拦截的是底线，本文覆盖测试拦不住的判断题。
 > **标记约定**：带 `[目标态:P0-x/P1-x]` 的规则指向尚未落地的组件/测试——在对应改进项完成前，按“最接近的现有做法”执行，落地后强制切换。其余规则当前即生效。
 

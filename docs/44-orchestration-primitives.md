@@ -1,12 +1,12 @@
 # 编排原语三件套实施计划：wait / bracketed-paste 投递 / send_to_worker
 
-> 来源：[43-orca-competitor-analysis.md](./43-orca-competitor-analysis.md) §3.1 原语差异对照经三道滤网（自身工作流疼点 / 哲学契合 / 人力性价比）过滤后的落地清单。参考实现均已在 43 号文档考证（Orca 源码快照 `../references/orca`）。
+> 来源：竞品原语能力对照经三道滤网（自身工作流疼点 / 哲学契合 / 人力性价比）过滤后的落地清单。
 > 状态：**计划待评审**——按惯例先交 WSL Codex 只读交叉评审，再动手。
-> **rev.2（2026-07-24 重审）**：①排序改从 43 §9.0 统一序列——**paste 第一波（现役 bug），wait+send 第二波** ②wait 的 exited 语义对齐 docs/44-clear-sessionend-exit-bug 的 reason 过滤修复 ③waitFor 状态名对齐真实 TerminalStatusType ④send_to_worker 底层按"会话通用消息基座"建模，为画布(docs/47)临时通信边预留 ⑤新增消费者：docs/47 画布 Phase C 依赖本文原语 1/3。
+> **rev.2（2026-07-24 重审）**：①排序改从统一优先级排序——**paste 第一波（现役 bug），wait+send 第二波** ②wait 的 exited 语义对齐 docs/44-clear-sessionend-exit-bug 的 reason 过滤修复 ③waitFor 状态名对齐真实 TerminalStatusType ④send_to_worker 底层按"会话通用消息基座"建模，为画布(docs/47)临时通信边预留 ⑤新增消费者：docs/47 画布 Phase C 依赖本文原语 1/3。
 
 ---
 
-## 排序与依赖（rev.2，与 43 §9.0 一致）
+## 排序与依赖（rev.2，与统一优先级排序一致）
 
 | 波次 | 原语 | 解决什么 | 预估 |
 |---|---|---|---|
@@ -41,7 +41,7 @@ wait_for_session({
 }
 ```
 
-**blocked 语义（学 Orca 的 blockedReason）**：等 `idle` 时若会话进入 `WaitingInput` 或 `Error`——这两个状态不等人干预永远到不了 idle——立即返回 `satisfied:false, blockedReason:"waiting-input"|"error"`，让调用方决定是注入回答还是升级。不困在死等里。
+**blocked 语义**：等 `idle` 时若会话进入 `WaitingInput` 或 `Error`——这两个状态不等人干预永远到不了 idle——立即返回 `satisfied:false, blockedReason:"waiting-input"|"error"`，让调用方决定是注入回答还是升级。不困在死等里。
 
 ### 接线点
 
@@ -53,7 +53,7 @@ wait_for_session({
 
 ### 边界与坑
 
-- **MCP 长调用**：默认 180s 而非 Orca 的 600s——MCP over HTTP 的工具调用不宜挂太久；超时返回 `satisfied:false, finalStatus` 让 agent **重新调用续等**（无状态可续，snapshot 快路径保证重调零成本）。工具 description 里写明这个续等模式。
+- **MCP 长调用**：默认 180s——MCP over HTTP 的工具调用不宜挂太久；超时返回 `satisfied:false, finalStatus` 让 agent **重新调用续等**（无状态可续，snapshot 快路径保证重调零成本）。工具 description 里写明这个续等模式。
 - 会话不存在/已 Exited：快路径直接返回（waitFor 含 exited 则 satisfied:true），不报错。
 - launchId 解析走现有 `find_session_id_by_launch_id`（daemon 模式已修好，docs/18 #2）。
 
@@ -93,7 +93,7 @@ fn wrap_bracketed_paste(text: &str) -> String {
 ### Phase B（1 天）
 
 - **就绪信号**：在 PTY 输出处理管线（`osc_state_detect.rs` 同位置）识别 `\x1b[?2004h`（DECSET 2004，TUI 挂载输入框时开启 bracketed paste 的宣告），per-session 记 `paste_ready` 标志（TUI 退出/alt-buffer 切换时复位——与 docs/32 alt buffer stripper 的接线互查）。
-- `submit_to_session`：`paste_ready` 时延迟缩到固定小值（200ms 量级，Codex/Claude 需要一个渲染回合再收 CR——Orca 注释同款结论）；未就绪回退现有长度启发式。
+- `submit_to_session`：`paste_ready` 时延迟缩到固定小值（200ms 量级，Codex/Claude 需要一个渲染回合再收 CR——实测结论）；未就绪回退现有长度启发式。
 - launch_task 中等长度多行 prompt 改走"等 paste_ready → paste → submit"路径。
 
 ### 验证（按 verify skill 驱动真实流程）
@@ -129,7 +129,7 @@ send_to_worker({
 - **busy 门控复用**：worker 忙（Thinking/ToolRunning/Compacting）时入队，空闲边沿补投——直接复用 2026-07-04 落地的"leader busy 排队 + 空闲边沿自动补投"机制（orchestrator_service `enqueue_and_recheck` :7612 一带），方向反过来，队列按 worker sessionId 键控。
 - **投递动作**：走原语 2 的 bracketed-paste 路径（这就是 3 依赖 2 的原因）。
 - **留痕**：写入 plan collaboration 存储，`get_plan_collaboration` 可见（leader 事后可审计"我给谁下过什么指令"）。
-- **身份校验**：调用方必须是该 plan 注册的 leader（register_plan_leader 已有的注册制身份，比 Orca 的 pane_key 事后对账更强——用现成的）。
+- **身份校验**：调用方必须是该 plan 注册的 leader（register_plan_leader 已有的注册制身份——用现成的）。
 
 ### 测试
 
@@ -145,8 +145,8 @@ send_to_worker({
 1. **本文档交 WSL Codex 只读评审**（惯例：重大修复计划先交叉评审）——重点审：wait 的订阅-快照竞态处理、广播 lagged 补偿、Phase B 就绪信号与 alt-buffer 的交互、send_to_worker 队列与现有 leader 队列的共存
 2. 评审意见回写本文档后，按 1 → 2A → 2B → 3 顺序实施，**每项独立提交独立验证**（worker 过程禁跑测试，每项收尾一次最小范围）
 3. 每项验收：`cargo test --workspace` + `clippy -D warnings` + `fmt --check` + 该项的真实流程验证
-4. 全部落地后：skill 改写（wait 替换轮询、send_to_worker 替换裸注入）单独一批提交；43 号文档 P0 条目标记完成
+4. 全部落地后：skill 改写（wait 替换轮询、send_to_worker 替换裸注入）单独一批提交；内部研究档 P0 条目标记完成
 
 ## 不做清单（过滤掉的，留档防反复）
 
-decision gate、消息 thread/群发/@all、todo DAG deps + 自动推进、确定性 coordinator、匿名信箱制——当前 plan 级人在回路的协作规模不疼；参考实现已在 43 号文档 §7.1 留档，规模上去疼了再取。
+decision gate、消息 thread/群发/@all、todo DAG deps + 自动推进、确定性 coordinator、匿名信箱制——当前 plan 级人在回路的协作规模不疼；参考对照已在内部研究档留档，规模上去疼了再取。
