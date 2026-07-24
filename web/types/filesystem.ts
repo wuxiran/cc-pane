@@ -33,3 +33,20 @@ export interface FileTreeNode {
   expanded: boolean;
   loading: boolean;
 }
+
+export interface ProjectFileSearchResult {
+  paths: string[];
+  truncated: boolean;
+}
+
+export interface ProjectContentMatch {
+  path: string;
+  line: number;
+  preview: string;
+}
+
+export interface ProjectContentSearchResult {
+  matches: ProjectContentMatch[];
+  truncated: boolean;
+  timedOut: boolean;
+}

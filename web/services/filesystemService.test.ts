@@ -170,4 +170,38 @@ describe("filesystemService", () => {
       expect(result).toEqual(statuses);
     });
   });
+
+  describe("project search", () => {
+    it("maps file-name search to search_project_files", async () => {
+      const response = { paths: ["src/main.ts"], truncated: false };
+      mockTauriInvoke({ search_project_files: response });
+
+      const result = await filesystemService.searchProjectFiles("/repo", "main", 200);
+
+      expect(invoke).toHaveBeenCalledWith("search_project_files", {
+        root: "/repo",
+        query: "main",
+        limit: 200,
+      });
+      expect(result).toEqual(response);
+    });
+
+    it("maps content search to search_project_contents", async () => {
+      const response = {
+        matches: [{ path: "src/main.ts", line: 3, preview: "needle" }],
+        truncated: false,
+        timedOut: false,
+      };
+      mockTauriInvoke({ search_project_contents: response });
+
+      const result = await filesystemService.searchProjectContents("/repo", "needle", 300);
+
+      expect(invoke).toHaveBeenCalledWith("search_project_contents", {
+        root: "/repo",
+        query: "needle",
+        limit: 300,
+      });
+      expect(result).toEqual(response);
+    });
+  });
 });

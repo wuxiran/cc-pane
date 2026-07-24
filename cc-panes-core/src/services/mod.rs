@@ -49,7 +49,7 @@ pub mod wsl_discovery_service;
 pub use daemon_client::{TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus};
 pub use default_skill_service::{BundledSkillInfo, DefaultSkillService};
 pub use external_skill_registry::ExternalSkillRegistry;
-pub use filesystem_service::FileSystemService;
+pub use filesystem_service::{ContentSearchLimits, FileSystemService};
 pub use git_service::GitService;
 pub use history_service::HistoryService;
 pub use history_watch_manager::{HistoryWatchManager, HistoryWatchStats};
