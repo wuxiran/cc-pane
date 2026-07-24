@@ -35,14 +35,14 @@ interface RightDockViewDefinition {
 
 const RIGHT_DOCK_VIEWS: readonly RightDockViewDefinition[] = [
   {
-    id: "git",
-    icon: GitBranch,
-    titleKey: "rightDock.git",
-  },
-  {
     id: "files",
     icon: Files,
     titleKey: "rightDock.files",
+  },
+  {
+    id: "git",
+    icon: GitBranch,
+    titleKey: "rightDock.git",
   },
 ];
 
@@ -139,7 +139,7 @@ export default function RightDock() {
     <div
       ref={panelRef}
       data-testid="right-dock-panel"
-      className="relative flex h-full shrink-0 flex-col overflow-hidden"
+      className="relative flex h-full shrink-0 flex-col"
       style={{
         width,
         background: "var(--app-sidebar-bg)",
@@ -172,7 +172,46 @@ export default function RightDock() {
         }}
       />
 
-      <div className="flex h-11 shrink-0 items-center gap-2 px-2 pl-3">
+      <div className="flex h-11 shrink-0 items-center gap-2 px-2 pl-2">
+        <div
+          className="flex items-center gap-0.5"
+          role="tablist"
+          aria-label={`${t("rightDock.git")} / ${t("rightDock.files")}`}
+        >
+          {RIGHT_DOCK_VIEWS.map(({ id, icon: Icon, titleKey }) => {
+            const selected = id === activeView;
+            return (
+              <Tooltip key={id}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-label={t(titleKey)}
+                    onClick={() => setActiveView(id)}
+                    className={`relative flex h-[36px] w-[38px] items-center justify-center transition-colors duration-[var(--dur-fast)] ${
+                      selected ? "" : "hover:text-[var(--app-text-primary)]"
+                    }`}
+                    style={{
+                      color: selected ? "var(--app-text-primary)" : "var(--app-text-tertiary)",
+                    }}
+                  >
+                    <Icon className="h-[19px] w-[19px]" strokeWidth={1.6} />
+                    {selected && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-x-2 bottom-0 h-[2px] rounded-full"
+                        style={{ background: "var(--app-text-primary)" }}
+                      />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t(titleKey)}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+        <div className="ml-auto flex min-w-0 items-center gap-2">
         {projectName && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -221,43 +260,6 @@ export default function RightDock() {
             {gitSummary.changeCount}
           </Badge>
         )}
-        <div
-          className="ml-auto flex items-center gap-0.5"
-          role="tablist"
-          aria-label={`${t("rightDock.git")} / ${t("rightDock.files")}`}
-        >
-          {RIGHT_DOCK_VIEWS.map(({ id, icon: Icon, titleKey }) => {
-            const selected = id === activeView;
-            return (
-              <Tooltip key={id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    aria-label={t(titleKey)}
-                    onClick={() => setActiveView(id)}
-                    className={`relative flex h-[36px] w-[38px] items-center justify-center transition-colors duration-[var(--dur-fast)] ${
-                      selected ? "" : "hover:text-[var(--app-text-primary)]"
-                    }`}
-                    style={{
-                      color: selected ? "var(--app-text-primary)" : "var(--app-text-tertiary)",
-                    }}
-                  >
-                    <Icon className="h-[19px] w-[19px]" strokeWidth={1.6} />
-                    {selected && (
-                      <span
-                        aria-hidden
-                        className="absolute inset-x-2 bottom-0 h-[2px] rounded-full"
-                        style={{ background: "var(--app-text-primary)" }}
-                      />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{t(titleKey)}</TooltipContent>
-              </Tooltip>
-            );
-          })}
         </div>
       </div>
 
