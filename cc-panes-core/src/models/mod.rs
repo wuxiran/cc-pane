@@ -66,7 +66,10 @@ pub use runner::{
 pub use screenshot::ScreenshotResult;
 pub use session_restore::SavedSession;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};
-pub use system_stats::SystemStats;
+pub use system_stats::{
+    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionResourceUsage,
+    SystemStats,
+};
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,
     TerminalReplaySnapshot, WslLaunchInfo,
