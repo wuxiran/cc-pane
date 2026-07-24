@@ -30,6 +30,7 @@ pub mod skill_service;
 mod spec_service;
 mod ssh_credential_service;
 mod ssh_machine_service;
+mod system_stats_service;
 mod task_binding_service;
 mod terminal_backend;
 pub mod terminal_service;
@@ -75,6 +76,7 @@ pub use skill_service::SkillService;
 pub use spec_service::SpecService;
 pub use ssh_credential_service::SshCredentialService;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
+pub use system_stats_service::SystemStatsService;
 pub use task_binding_service::TaskBindingService;
 pub use terminal_backend::{DaemonTerminalBackend, InProcessTerminalBackend, TerminalBackend};
 pub use terminal_service::{

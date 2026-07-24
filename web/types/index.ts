@@ -178,6 +178,7 @@ export type {
   ProcessScanResult,
   ResourceStats,
 } from "./process";
+export type { SystemStats } from "./systemStats";
 export type {
   BridgeMode,
   SharedMcpServerConfig,

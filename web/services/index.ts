@@ -61,6 +61,7 @@ export { popOutTab, isTabPoppedOut, markTabReclaimed, getPoppedTabs } from "./po
 export type { PopupTabData } from "./popupWindowService";
 export * as sshMachineService from "./sshMachineService";
 export { processService } from "./processService";
+export { systemStatsService } from "./systemStatsService";
 export { logService } from "./logService";
 export { sharedMcpService } from "./sharedMcpService";
 export { sessionRestoreService } from "./sessionRestoreService";

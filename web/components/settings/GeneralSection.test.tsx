@@ -64,6 +64,7 @@ function createValue(overrides: Partial<GeneralSettings> = {}): GeneralSettings 
     launchFavorites: [],
     hideNonFavoriteLaunchActions: false,
     disableWslUsageScan: false,
+    showSystemResources: true,
     ...overrides,
   };
 }
@@ -129,6 +130,16 @@ describe("GeneralSection", () => {
     expect(
       screen.getByText(/项目级设置不能覆盖此开关|Project settings cannot override it/i),
     ).toBeInTheDocument();
+  });
+
+  it("toggles the status bar system resource setting", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<GeneralSection value={createValue()} onChange={onChange} />);
+
+    await user.click(screen.getByRole("checkbox", { name: /状态栏显示系统资源|Show system resources in the status bar/i }));
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showSystemResources: false }));
   });
 
   it("emits language changes and lists CLI tools from the hook", async () => {

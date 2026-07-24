@@ -23,6 +23,7 @@ import { webAuthService, type WebAuthStatus } from "@/services/webAuthService";
 import { useWindowControl } from "@/hooks/useWindowControl";
 import { isBusyStatus } from "@/types";
 import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
+import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment";
 
 export default function StatusBar() {
   const { t, i18n } = useTranslation();
@@ -41,6 +42,9 @@ export default function StatusBar() {
   const musicPlaying = useWallpaperStore((s) => s.musicPlaying);
   const musicGestureNeeded = useWallpaperStore((s) => s.musicGestureNeeded);
   const [webAuthStatus, setWebAuthStatus] = useState<WebAuthStatus | null>(null);
+  const showSystemResources = useSettingsStore(
+    (s) => s.settings?.general.showSystemResources ?? true,
+  );
   const { isPinned, togglePin } = useWindowControl();
 
   const activeWorkspace = selectedWorkspace();
@@ -161,28 +165,6 @@ export default function StatusBar() {
           </span>
         )}
 
-        {/* CPU / 内存指标 — 已禁用（macOS 卡顿排查）
-        {resourceStats && resourceStats.processCount > 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex items-center gap-2">
-                <span className="flex items-center gap-0.5">
-                  <Cpu className="w-3 h-3" />
-                  <span>{resourceStats.totalCpuPercent.toFixed(1)}%</span>
-                </span>
-                <span className="flex items-center gap-0.5">
-                  <MemoryStick className="w-3 h-3" />
-                  <span>{formatBytes(resourceStats.totalMemoryBytes)}</span>
-                </span>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>{resourceStats.processCount} processes | CPU {resourceStats.totalCpuPercent.toFixed(1)}% | Mem {formatBytes(resourceStats.totalMemoryBytes)}</p>
-            </TooltipContent>
-          </Tooltip>
-        )}
-        */}
-
         {/* 版本更新提示 */}
         {isTauriRuntime() && updateAvailable && updateVersion && (
           <Tooltip>
@@ -209,6 +191,7 @@ export default function StatusBar() {
 
       {/* 右侧工具 */}
       <div className="flex items-center gap-0.5">
+        {isTauriRuntime() && showSystemResources && <SystemResourceSegment />}
         {/* 壁纸音乐：autoplay 被拒时这里是显式起播入口，平时是播放/暂停开关 */}
         {isTauriRuntime() && musicAvailable && (
           <Tooltip>

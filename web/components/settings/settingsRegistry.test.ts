@@ -36,4 +36,14 @@ describe("settings registry", () => {
 
     expect(commandPaneIds).toEqual(sidebarPaneIds);
   });
+
+  it("registers the status bar system resource setting for search", () => {
+    const general = SETTINGS_PANES.find((pane) => pane.id === "general");
+
+    expect(general?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "system-resources",
+      titleKey: "showSystemResources",
+      targetSectionId: "general-root",
+    }));
+  });
 });
