@@ -262,14 +262,18 @@ async fn git_read_routes_match_tauri_git_commands() {
     }))
     .await
     .expect("file statuses");
-    assert_eq!(
-        statuses.get(&repo.join("README.md").to_string_lossy().to_string()),
-        Some(&"modified".to_string())
-    );
-    assert_eq!(
-        statuses.get(&repo.join("new.txt").to_string_lossy().to_string()),
-        Some(&"untracked".to_string())
-    );
+    // map key 由 git 输出的长形式 repo_root 拼出,CI 短路径 tempdir 直拼查不到;
+    // 与 tauri 侧测试同款,按文件名匹配
+    let status_of = |name: &str| {
+        statuses
+            .iter()
+            .find(|(path, _)| {
+                std::path::Path::new(path).file_name().and_then(|n| n.to_str()) == Some(name)
+            })
+            .map(|(_, status)| status.as_str())
+    };
+    assert_eq!(status_of("README.md"), Some("modified"));
+    assert_eq!(status_of("new.txt"), Some("untracked"));
 
     let Json(log) = get_git_log(Query(GitLogHttpQuery {
         path: repo.to_string_lossy().to_string(),
