@@ -320,8 +320,7 @@ export default function RightDock() {
             <ExplorerGitSection
               workspace={workspace}
               selectedProjectId={selectedProject.id}
-              mode="project"
-              onSelectedProjectSummaryChange={handleGitSummaryChange}
+                            onSelectedProjectSummaryChange={handleGitSummaryChange}
             />
           </div>
           {activeView === "files" && (
@@ -329,8 +328,7 @@ export default function RightDock() {
               <ExplorerFilesSection
                 workspace={workspace}
                 selectedProjectId={selectedProject.id}
-                mode="project"
-              />
+                              />
             </div>
           )}
         </>
