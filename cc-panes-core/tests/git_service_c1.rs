@@ -49,10 +49,10 @@ fn repo_info_distinguishes_missing_plain_and_git_paths() {
     let (_guard, repo) = init_repo();
     let info = service.repo_info(&repo.join("nested"));
     assert_eq!(info.state, GitRepoState::Ok);
-    assert_eq!(
-        info.repo_root.as_deref(),
-        Some(repo.to_string_lossy().as_ref())
-    );
+    // CI runner 的 %TEMP% 是 8.3 短路径,git 输出长路径;canonical 后比较
+    let actual_root = dunce::canonicalize(info.repo_root.as_deref().unwrap()).unwrap();
+    let expected_root = dunce::canonicalize(&repo).unwrap();
+    assert_eq!(actual_root, expected_root);
     assert!(info.branch.is_some());
     assert_eq!(info.has_changes, Some(false));
 }
