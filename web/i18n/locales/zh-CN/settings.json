@@ -429,6 +429,7 @@
   "orphanSessionReclaimedBody": "清理了 {{count}} 个无面板引用的后台终端会话。",
   "disableWslUsageScan": "WSL 免打扰（用量统计）",
   "disableWslUsageScanDesc": "关闭后不再扫描 WSL 内的用量数据，避免启动时唤醒 WSL 虚拟机（Vmmem 内存占用）",
+  "showSystemResources": "状态栏显示系统资源",
   "sharedMcp": {
     "title": "共享 MCP",
     "add": "新增",
