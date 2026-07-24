@@ -139,4 +139,39 @@ describe("ExplorerGitSection C1 loading", () => {
     fireEvent.click(await screen.findByText("src/a.ts"));
     expect(useDialogStore.getState().gitTimelineInitialFile).toEqual(file);
   });
+
+  it("项目模式只加载目标项目，并向头部报告分支和变更数", async () => {
+    const onSummaryChange = vi.fn();
+    vi.mocked(gitService.getChangedFiles).mockResolvedValue([
+      {
+        status: "modified",
+        oldPath: "src/features/rightdock/very-long-file-name.ts",
+        newPath: "src/features/rightdock/very-long-file-name.ts",
+        oldMode: null,
+        newMode: null,
+      },
+    ]);
+
+    render(
+      <ExplorerGitSection
+        workspace={workspace()}
+        selectedProjectId="project-1"
+        mode="project"
+        onSelectedProjectSummaryChange={onSummaryChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onSummaryChange).toHaveBeenLastCalledWith({
+        kind: "git",
+        branch: "main",
+        changeCount: 1,
+      });
+    });
+    expect(gitService.getRepoInfo).toHaveBeenCalledTimes(1);
+    expect(gitService.getRepoInfo).toHaveBeenCalledWith("/repos/project-1");
+    expect(screen.queryByText("project-1")).not.toBeInTheDocument();
+    expect(screen.getByText("very-long-file-name.ts")).toBeInTheDocument();
+    expect(screen.getByText("src/features/rightdock/")).toHaveClass("truncate");
+  });
 });

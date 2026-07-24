@@ -29,6 +29,12 @@ interface GitProjectState {
   message: string | null;
 }
 
+export interface GitProjectSummary {
+  kind: GitProjectKind;
+  branch: string | null;
+  changeCount: number;
+}
+
 const LOADING_STATE: GitProjectState = {
   kind: "loading",
   repoRoot: null,
@@ -105,14 +111,34 @@ function displayPath(file: GitChangedFile): string {
   return file.newPath ?? file.oldPath ?? "";
 }
 
+function MiddleTruncatedPath({ path }: { path: string }) {
+  const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  if (separatorIndex < 0) return <span className="min-w-0 truncate">{path}</span>;
+  return (
+    <span className="flex min-w-0 flex-1">
+      <span className="min-w-0 truncate">{path.slice(0, separatorIndex + 1)}</span>
+      <span className="shrink-0">{path.slice(separatorIndex + 1)}</span>
+    </span>
+  );
+}
+
 interface GitProjectGroupProps {
   project: WorkspaceProject;
   expanded: boolean;
   onToggle: () => void;
   loadDetails: GitDetailLoader;
+  showHeader?: boolean;
+  onSummaryChange?: (summary: GitProjectSummary) => void;
 }
 
-function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjectGroupProps) {
+function GitProjectGroup({
+  project,
+  expanded,
+  onToggle,
+  loadDetails,
+  showHeader = true,
+  onSummaryChange,
+}: GitProjectGroupProps) {
   const { t } = useTranslation("sidebar");
   const [state, setState] = useState<GitProjectState>(LOADING_STATE);
   const [reloadTick, setReloadTick] = useState(0);
@@ -168,6 +194,14 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
     };
   }, [expanded, loadDetails, project.path, reloadTick, state.kind]);
 
+  useEffect(() => {
+    onSummaryChange?.({
+      kind: state.kind,
+      branch: state.branch,
+      changeCount: state.changes.length,
+    });
+  }, [onSummaryChange, state.branch, state.changes.length, state.kind]);
+
   const handleRefresh = useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
     setReloadTick((tick) => tick + 1);
@@ -199,62 +233,64 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
 
   return (
     <div className="flex flex-col">
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={onToggle}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") onToggle();
-        }}
-        className="group/gitgroup flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-[var(--app-hover)]"
-        title={state.repoRoot ?? project.path}
-      >
-        <Chevron className="h-3 w-3 shrink-0 text-[var(--app-text-tertiary)]" />
-        <span className="shrink-0 text-xs font-semibold text-[var(--app-text-primary)]">{name}</span>
-        {state.kind === "git" && state.branch && (
-          <span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--app-text-secondary)]">
-            <GitBranch className="h-3 w-3 shrink-0 text-[var(--app-accent)]" />
-            <span className="truncate" title={state.branch}>{state.branch}</span>
-          </span>
-        )}
-        {state.kind === "git" && state.changes.length > 0 && (
-          <span
-            className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums leading-none text-[var(--app-text-tertiary)]"
-            style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
-          >
-            {state.changes.length}
-          </span>
-        )}
-        {stateHint && (
-          <span className="min-w-0 truncate text-[11px] text-[var(--app-status-danger)]" title={stateHint}>
-            {stateHint}
-          </span>
-        )}
-        {state.kind === "git" && (
+      {showHeader && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={expanded}
+          onClick={onToggle}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") onToggle();
+          }}
+          className="group/gitgroup flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-[var(--app-hover)]"
+          title={state.repoRoot ?? project.path}
+        >
+          <Chevron className="h-3 w-3 shrink-0 text-[var(--app-text-tertiary)]" />
+          <span className="shrink-0 text-xs font-semibold text-[var(--app-text-primary)]">{name}</span>
+          {state.kind === "git" && state.branch && (
+            <span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--app-text-secondary)]">
+              <GitBranch className="h-3 w-3 shrink-0 text-[var(--app-accent)]" />
+              <span className="truncate" title={state.branch}>{state.branch}</span>
+            </span>
+          )}
+          {state.kind === "git" && state.changes.length > 0 && (
+            <span
+              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums leading-none text-[var(--app-text-tertiary)]"
+              style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
+            >
+              {state.changes.length}
+            </span>
+          )}
+          {stateHint && (
+            <span className="min-w-0 truncate text-[11px] text-[var(--app-status-danger)]" title={stateHint}>
+              {stateHint}
+            </span>
+          )}
+          {state.kind === "git" && (
+            <button
+              type="button"
+              aria-label={t("explorer.gitTimeline")}
+              title={t("explorer.gitTimeline")}
+              onClick={handleOpenTimeline}
+              className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
+            >
+              <History className="h-3 w-3" />
+            </button>
+          )}
           <button
             type="button"
-            aria-label={t("explorer.gitTimeline")}
-            title={t("explorer.gitTimeline")}
-            onClick={handleOpenTimeline}
-            className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
+            aria-label={t("refresh")}
+            title={t("refresh")}
+            onClick={handleRefresh}
+            className={`${state.kind === "git" ? "" : "ml-auto"} flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]`}
           >
-            <History className="h-3 w-3" />
+            <RefreshCw className="h-3 w-3" />
           </button>
-        )}
-        <button
-          type="button"
-          aria-label={t("refresh")}
-          title={t("refresh")}
-          onClick={handleRefresh}
-          className={`${state.kind === "git" ? "" : "ml-auto"} flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/gitgroup:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]`}
-        >
-          <RefreshCw className="h-3 w-3" />
-        </button>
-      </div>
+        </div>
+      )}
 
       {expanded && (
-        <div className="flex flex-col pb-1 pl-3">
+        <div className={`flex flex-col ${showHeader ? "pb-1 pl-3" : ""}`}>
           {state.kind === "git" && state.repoRoot && state.repoRoot !== project.path && (
             <div className="truncate px-2 py-1 text-[11px] text-[var(--app-text-tertiary)]" title={state.repoRoot}>
               {t("explorer.gitRepoRoot", { path: state.repoRoot })}
@@ -280,15 +316,15 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
                 <button
                   type="button"
                   key={`${file.oldPath ?? ""}:${file.newPath ?? ""}`}
-                  className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-[var(--app-hover)]"
+                  className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-[var(--app-hover)] ${showHeader ? "text-xs" : "text-[13px]"}`}
                   title={`${path} · ${t("explorer.gitContentComparison")}`}
                   onClick={() => useDialogStore.getState().openGitTimeline(project.path, file)}
                 >
                   <span className={`w-3 shrink-0 text-center font-semibold ${badge?.className ?? "text-[var(--app-text-tertiary)]"}`}>
                     {badge?.letter ?? "?"}
                   </span>
-                  <span className={`truncate text-[var(--app-text-secondary)] ${file.status === "deleted" ? "line-through" : ""}`}>
-                    {path}
+                  <span className={`flex min-w-0 flex-1 text-[var(--app-text-secondary)] ${file.status === "deleted" ? "line-through" : ""}`}>
+                    {showHeader ? <span className="truncate">{path}</span> : <MiddleTruncatedPath path={path} />}
                   </span>
                 </button>
               );
@@ -303,9 +339,16 @@ function GitProjectGroup({ project, expanded, onToggle, loadDetails }: GitProjec
 interface ExplorerGitSectionProps {
   workspace: Workspace | null;
   selectedProjectId: string | null;
+  mode?: "workspace" | "project";
+  onSelectedProjectSummaryChange?: (summary: GitProjectSummary | null) => void;
 }
 
-export default function ExplorerGitSection({ workspace, selectedProjectId }: ExplorerGitSectionProps) {
+export default function ExplorerGitSection({
+  workspace,
+  selectedProjectId,
+  mode = "workspace",
+  onSelectedProjectSummaryChange,
+}: ExplorerGitSectionProps) {
   const { t } = useTranslation("sidebar");
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const loadDetails = useMemo(
@@ -317,6 +360,11 @@ export default function ExplorerGitSection({ workspace, selectedProjectId }: Exp
     setOverrides({});
   }, [selectedProjectId, workspace?.id]);
 
+  const selectedProject = workspace?.projects.find((project) => project.id === selectedProjectId);
+  useEffect(() => {
+    if (mode === "project" && !selectedProject) onSelectedProjectSummaryChange?.(null);
+  }, [mode, onSelectedProjectSummaryChange, selectedProject]);
+
   if (!workspace) {
     return <div className="px-4 py-3 text-xs text-[var(--app-text-tertiary)]">{t("explorer.selectWorkspaceHint")}</div>;
   }
@@ -324,10 +372,11 @@ export default function ExplorerGitSection({ workspace, selectedProjectId }: Exp
     return <div className="px-4 py-3 text-xs text-[var(--app-text-tertiary)]">{t("explorer.noProjects")}</div>;
   }
 
+  const projects = mode === "project" ? (selectedProject ? [selectedProject] : []) : workspace.projects;
   return (
     <div className="flex flex-col gap-0.5">
-      {workspace.projects.map((project) => {
-        const expanded = overrides[project.id] ?? project.id === selectedProjectId;
+      {projects.map((project) => {
+        const expanded = mode === "project" || (overrides[project.id] ?? project.id === selectedProjectId);
         return (
           <GitProjectGroup
             key={project.id}
@@ -335,6 +384,8 @@ export default function ExplorerGitSection({ workspace, selectedProjectId }: Exp
             expanded={expanded}
             loadDetails={loadDetails}
             onToggle={() => setOverrides((current) => ({ ...current, [project.id]: !expanded }))}
+            showHeader={mode === "workspace"}
+            onSummaryChange={mode === "project" ? onSelectedProjectSummaryChange : undefined}
           />
         );
       })}
