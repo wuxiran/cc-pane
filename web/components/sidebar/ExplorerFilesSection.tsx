@@ -10,11 +10,13 @@ import type { Workspace } from "@/types";
 interface ExplorerFilesSectionProps {
   workspace: Workspace | null;
   selectedProjectId: string | null;
+  mode?: "workspace" | "project";
 }
 
 export default function ExplorerFilesSection({
   workspace,
   selectedProjectId,
+  mode = "workspace",
 }: ExplorerFilesSectionProps) {
   const { t } = useTranslation("sidebar");
   // 用户手动开合的覆盖项；选中项目/工作空间变化时清空，让新选中的项目根立即自动展开
@@ -37,6 +39,11 @@ export default function ExplorerFilesSection({
         {t("explorer.noProjects")}
       </div>
     );
+  }
+
+  if (mode === "project") {
+    const project = workspace.projects.find((item) => item.id === selectedProjectId);
+    return project ? <FileTree rootPath={project.path} compact /> : null;
   }
 
   return (

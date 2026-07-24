@@ -1,4 +1,5 @@
 import "@/i18n";
+import { useEffect } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,9 +10,26 @@ import type { Workspace } from "@/types";
 import RightDock from "./RightDock";
 
 vi.mock("@/components/sidebar/ExplorerGitSection", () => ({
-  default: ({ selectedProjectId }: { selectedProjectId: string | null }) => (
-    <div data-testid="right-dock-git">{selectedProjectId}</div>
-  ),
+  default: ({
+    selectedProjectId,
+    onSelectedProjectSummaryChange,
+  }: {
+    selectedProjectId: string | null;
+    onSelectedProjectSummaryChange?: (summary: {
+      kind: "git";
+      branch: string;
+      changeCount: number;
+    }) => void;
+  }) => {
+    useEffect(() => {
+      onSelectedProjectSummaryChange?.({
+        kind: "git",
+        branch: "feature/rightdock",
+        changeCount: 3,
+      });
+    }, [onSelectedProjectSummaryChange]);
+    return <div data-testid="right-dock-git">{selectedProjectId}</div>;
+  },
 }));
 
 vi.mock("@/components/sidebar/ExplorerFilesSection", () => ({
@@ -26,6 +44,7 @@ const workspace: Workspace = {
   createdAt: "2026-07-24T00:00:00Z",
   projects: [
     { id: "project-1", path: "/workspace/alpha", alias: "Alpha" },
+    { id: "project-2", path: "/workspace/beta", alias: "Beta" },
   ],
 };
 
@@ -48,12 +67,54 @@ describe("RightDock", () => {
     });
   });
 
-  it("无选中项目时显示空态，不挂载住户", () => {
+  it("多项目工作空间无显式选中时兜底第一个项目", () => {
     useWorkspacesStore.setState({ expandedProjectId: null });
 
     renderDock();
 
-    expect(screen.getByText("请在左侧选择项目")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "切换项目" })).toHaveTextContent("Alpha");
+    expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
+    expect(screen.queryByText("工作空间中没有项目")).not.toBeInTheDocument();
+  });
+
+  it("显式选中的项目优先于首项目兜底", () => {
+    useWorkspacesStore.setState({ expandedProjectId: "project-2" });
+
+    renderDock();
+
+    expect(screen.getByRole("button", { name: "切换项目" })).toHaveTextContent("Beta");
+    expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-2");
+  });
+
+  it("选中项目已不在工作空间时回退第一个项目", () => {
+    useWorkspacesStore.setState({ expandedProjectId: "removed-project" });
+
+    renderDock();
+
+    expect(screen.getByRole("button", { name: "切换项目" })).toHaveTextContent("Alpha");
+    expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
+  });
+
+  it("项目下拉可切换当前工作空间的目标项目", async () => {
+    const user = userEvent.setup();
+    renderDock();
+
+    await user.click(screen.getByRole("button", { name: "切换项目" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Beta" }));
+
+    expect(useWorkspacesStore.getState().expandedProjectId).toBe("project-2");
+    expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-2");
+  });
+
+  it("工作空间没有项目时才显示空态", () => {
+    useWorkspacesStore.setState({
+      workspaces: [{ ...workspace, projects: [] }],
+      expandedProjectId: null,
+    });
+
+    renderDock();
+
+    expect(screen.getByText("工作空间中没有项目")).toBeInTheDocument();
     expect(screen.queryByTestId("right-dock-git")).not.toBeInTheDocument();
     expect(screen.queryByTestId("right-dock-files")).not.toBeInTheDocument();
   });
@@ -62,9 +123,11 @@ describe("RightDock", () => {
     renderDock();
 
     expect(screen.getByTestId("right-dock-panel")).toHaveStyle({ width: "340px" });
-    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "切换项目" })).toHaveTextContent("Alpha");
     expect(screen.getByTestId("right-dock-git")).toHaveTextContent("project-1");
     expect(screen.queryByTestId("right-dock-files")).not.toBeInTheDocument();
+    expect(screen.getByText("feature/rightdock")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
   });
 
   it("文件视图直挂文件 section", () => {
@@ -73,7 +136,7 @@ describe("RightDock", () => {
     renderDock();
 
     expect(screen.getByTestId("right-dock-files")).toHaveTextContent("project-1");
-    expect(screen.queryByTestId("right-dock-git")).not.toBeInTheDocument();
+    expect(screen.getByTestId("right-dock-git")).not.toBeVisible();
   });
 
   it("折叠时不再渲染面板或常驻图标条", () => {

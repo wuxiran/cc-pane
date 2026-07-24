@@ -66,19 +66,30 @@ describe("useRightDockStore", () => {
     expect(useRightDockStore.getState().width).toBe(412);
   });
 
-  it("只恢复持久化的可见性和宽度", async () => {
-    useRightDockStore.setState({ activeView: "files" });
+  it("启动时强制关闭，只恢复持久化的视图和宽度", async () => {
+    useRightDockStore.setState({ visible: true, activeView: "git" });
     localStorage.setItem(
       RIGHT_DOCK_STORAGE_KEY,
-      JSON.stringify({ state: { visible: true, width: 428 }, version: 0 }),
+      JSON.stringify({ state: { visible: true, activeView: "files", width: 428 }, version: 0 }),
     );
 
     await useRightDockStore.persist.rehydrate();
 
     expect(useRightDockStore.getState()).toMatchObject({
-      visible: true,
+      visible: false,
       activeView: "files",
       width: 428,
     });
+  });
+
+  it("会话内打开面板时不把 visible 写入持久化数据", () => {
+    useRightDockStore.getState().setVisible(true);
+
+    const persisted = JSON.parse(localStorage.getItem(RIGHT_DOCK_STORAGE_KEY) ?? "{}");
+    expect(persisted.state).toMatchObject({
+      activeView: "git",
+      width: DEFAULT_RIGHT_DOCK_WIDTH,
+    });
+    expect(persisted.state).not.toHaveProperty("visible");
   });
 });

@@ -269,6 +269,7 @@ export default memo(function FileTreeNode({
         }`}
         style={{ paddingLeft }}
         data-file-path={node.entry.path}
+        data-current={isSelected ? "true" : undefined}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
@@ -298,7 +299,9 @@ export default memo(function FileTreeNode({
         )}
 
         {/* 文件名 */}
-        <span className={`truncate text-sm leading-tight flex-1 ${gitColorClass || ""}`}>{node.entry.name}</span>
+        <span className={`flex-1 truncate leading-tight ${compact ? "text-[13px]" : "text-sm"} ${gitColorClass || ""}`}>
+          {node.entry.name}
+        </span>
       </div>
 
       {/* 递归子节点 */}

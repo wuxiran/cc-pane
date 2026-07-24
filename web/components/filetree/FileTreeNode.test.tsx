@@ -152,6 +152,13 @@ describe("FileTreeNode", () => {
     });
     const row = screen.getByText("a.ts").closest("div[data-file-path]") as HTMLElement;
     expect(row.className).toContain("bg-[var(--editor-selection-bg)]");
+    expect(row).toHaveAttribute("data-current", "true");
+  });
+
+  it("紧凑模式使用侧栏密集列表的 13px 字号", () => {
+    renderNode(makeNode(entry("/proj/a.ts", false)), { compact: true });
+
+    expect(screen.getByText("a.ts")).toHaveClass("text-[13px]");
   });
 
   it("indents by depth", () => {

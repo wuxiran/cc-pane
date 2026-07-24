@@ -355,6 +355,8 @@
   "rightDock.expand": "Expand right panel",
   "rightDock.collapse": "Collapse right panel",
   "rightDock.resize": "Resize right panel",
-  "rightDock.noProject": "No project selected",
-  "rightDock.selectProject": "Select a project in the left Explorer"
+  "rightDock.noProject": "No projects in this workspace",
+  "rightDock.selectProject": "Add a project in the left Explorer to browse Git and files",
+  "rightDock.switchProject": "Switch project",
+  "rightDock.changeCount": "{{count}} changes"
 }
