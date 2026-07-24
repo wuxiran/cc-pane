@@ -17,7 +17,7 @@ const TYPE_LABELS: Record<ClaudeProcessType, { label: string; color: string }> =
   claude_cli: { label: "CLI", color: "text-blue-400" },
   claude_node: { label: "Node", color: "text-yellow-400" },
   mcp_server: { label: "MCP", color: "text-purple-400" },
-  other: { label: "Other", color: "text-slate-400" },
+  other: { label: "Other", color: "text-[var(--app-text-tertiary)]" },
 };
 
 /** 格式化运行时长 */

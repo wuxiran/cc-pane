@@ -42,7 +42,7 @@ export default function PopupTerminalWindow() {
 
   if (error) {
     return (
-      <div style={{ color: "#ef4444", padding: 20, background: "#1a1a1a", height: "100vh" }}>
+      <div style={{ color: "var(--app-status-danger)", padding: 20, background: "var(--app-terminal-bg)", height: "100vh" }}>
         {error}
       </div>
     );
@@ -50,14 +50,14 @@ export default function PopupTerminalWindow() {
 
   if (!tabData) {
     return (
-      <div style={{ color: "#888", padding: 20, background: "#1a1a1a", height: "100vh" }}>
+      <div style={{ color: "var(--app-text-tertiary)", padding: 20, background: "var(--app-terminal-bg)", height: "100vh" }}>
         Loading...
       </div>
     );
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden" style={{ background: "#1a1a1a" }}>
+    <div className="h-screen w-screen overflow-hidden" style={{ background: "var(--app-terminal-bg)" }}>
       <TerminalView
         sessionId={tabData.sessionId}
         projectId={tabData.tabId}

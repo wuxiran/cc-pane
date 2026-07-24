@@ -220,8 +220,10 @@
   --app-close-btn-hover-bg: #CF222E;
   --app-close-btn-hover-fg: #FFFFFF;
   --app-tab-active-border: #2563EB;
-  --app-terminal-bg: #FFFFFF;
-  --app-terminal-fg: #1A1D21;
+  --app-terminal-bg: #ffffff;
+  --app-terminal-fg: #000000;
+  --app-terminal-cursor: #919191;
+  --app-terminal-selection: rgba(178, 212, 255, 0.8);
 
   /* 壁纸间接 token —— 不改各区 --app-panel-bg 的所有权（docs/22 分区背景约定）：
      壁纸激活时仅在主区 panes 根节点把 effective 覆盖为 transparent，
@@ -352,6 +354,12 @@
   --app-status-success: #3FB950;
   --app-status-warning: #D6A625;
   --app-status-danger: #F85149;
+  --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-success-border: color-mix(in srgb, var(--app-status-success) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  --app-status-danger-border: color-mix(in srgb, var(--app-status-danger) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   /* 身份色（暗色亮化） */
   --app-identity-wsl: #FCD34D;
   --app-identity-ssh: #67E8F9;
@@ -369,8 +377,10 @@
   --app-close-btn-hover-bg: #F85149;
   --app-close-btn-hover-fg: #FFFFFF;
   --app-tab-active-border: #4C8DF5;
-  --app-terminal-bg: #1A1C20;
-  --app-terminal-fg: #E6E8EB;
+  --app-terminal-bg: #17191E;
+  --app-terminal-fg: #f5f5f7;
+  --app-terminal-cursor: #0a84ff;
+  --app-terminal-selection: rgba(10, 132, 255, 0.3);
 
   /* 壁纸间接 token（暗色同语义；effective 恒等 panel-bg，由主区根节点按需覆盖） */
   --app-panel-bg-effective: var(--app-panel-bg);

@@ -99,8 +99,8 @@ describe("DiffView", () => {
     const deleteRow = screen.getByText("removed line").closest("div") as HTMLElement;
     const contextRow = screen.getByText("context line").closest("div") as HTMLElement;
 
-    expect(insertRow.style.background).toContain("34, 197, 94");
-    expect(deleteRow.style.background).toContain("239, 68, 68");
+    expect(insertRow.style.background).toBe("var(--app-status-success-bg)");
+    expect(deleteRow.style.background).toBe("var(--app-status-danger-bg)");
     expect(contextRow.style.background).toBe("transparent");
   });
 
@@ -138,7 +138,7 @@ describe("DiffView", () => {
     const changed = screen.getByText("world");
     expect(changed).toBeInTheDocument();
     // 变化段带高亮背景
-    expect((changed as HTMLElement).style.background).toContain("34, 197, 94");
+    expect((changed as HTMLElement).style.background).toBe("var(--app-status-success-border)");
     expect(screen.getByText("hello", { exact: false })).toBeInTheDocument();
   });
 });

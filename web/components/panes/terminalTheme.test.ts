@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   DARK_TERMINAL_THEME,
   LIGHT_TERMINAL_THEME,
@@ -7,6 +7,25 @@ import {
   withTerminalBackgroundAlpha,
   withTransparentTerminalBackground,
 } from "./terminalTheme";
+
+const CORE_COLOR_VARIABLES = [
+  "--app-terminal-bg",
+  "--app-terminal-fg",
+  "--app-terminal-cursor",
+  "--app-terminal-selection",
+] as const;
+
+function setCoreColorVariables(values: Partial<Record<(typeof CORE_COLOR_VARIABLES)[number], string>>) {
+  for (const [name, value] of Object.entries(values)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+}
+
+afterEach(() => {
+  for (const name of CORE_COLOR_VARIABLES) {
+    document.documentElement.style.removeProperty(name);
+  }
+});
 
 describe("terminalTheme", () => {
   it("follows the app theme by default", () => {
@@ -24,6 +43,52 @@ describe("terminalTheme", () => {
   it("normalizes unknown theme modes to followApp", () => {
     expect(resolveTerminalThemeMode("unknown")).toBe("followApp");
     expect(resolveTerminalThemeMode(null)).toBe("followApp");
+  });
+
+  it("核心四色跟随当前应用主题的 CSS 变量", () => {
+    setCoreColorVariables({
+      "--app-terminal-bg": "#112233",
+      "--app-terminal-fg": "#ddeeff",
+      "--app-terminal-cursor": "#abcdef",
+      "--app-terminal-selection": "rgba(12, 34, 56, 0.4)",
+    });
+
+    const themed = getTerminalTheme(true, "followApp");
+
+    expect(themed).not.toBe(DARK_TERMINAL_THEME);
+    expect(themed).toMatchObject({
+      background: "#112233",
+      foreground: "#ddeeff",
+      cursor: "#abcdef",
+      selectionBackground: "rgba(12, 34, 56, 0.4)",
+    });
+    expect(themed.red).toBe(DARK_TERMINAL_THEME.red);
+  });
+
+  it("CSS 变量缺失或非法时逐项回退到现有终端常量", () => {
+    setCoreColorVariables({
+      "--app-terminal-bg": "not-a-color",
+      "--app-terminal-fg": "#123456",
+    });
+
+    expect(getTerminalTheme(true, "followApp")).toMatchObject({
+      background: DARK_TERMINAL_THEME.background,
+      foreground: "#123456",
+      cursor: DARK_TERMINAL_THEME.cursor,
+      selectionBackground: DARK_TERMINAL_THEME.selectionBackground,
+    });
+  });
+
+  it("显式终端主题与应用主题相反时不读取当前应用的 CSS 核心色", () => {
+    setCoreColorVariables({
+      "--app-terminal-bg": "#112233",
+      "--app-terminal-fg": "#ddeeff",
+      "--app-terminal-cursor": "#abcdef",
+      "--app-terminal-selection": "rgba(12, 34, 56, 0.4)",
+    });
+
+    expect(getTerminalTheme(true, "light")).toBe(LIGHT_TERMINAL_THEME);
+    expect(getTerminalTheme(false, "dark")).toBe(DARK_TERMINAL_THEME);
   });
 
   describe("withTerminalBackgroundAlpha", () => {

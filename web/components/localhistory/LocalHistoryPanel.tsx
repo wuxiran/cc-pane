@@ -204,7 +204,7 @@ export default function LocalHistoryPanel({
             <Badge
               variant="outline"
               className="text-[10px] px-1 h-[18px]"
-              style={{ borderColor: "#6366f1", color: "#6366f1" }}
+              style={{ borderColor: "var(--app-accent)", color: "var(--app-accent)" }}
             >
               <GitBranch size={10} className="mr-0.5" />
               {change.branch}
@@ -294,7 +294,7 @@ export default function LocalHistoryPanel({
                       <Badge
                         variant="outline"
                         className="text-[10px] px-1 h-4"
-                        style={{ borderColor: "#6366f1", color: "#6366f1" }}
+                        style={{ borderColor: "var(--app-accent)", color: "var(--app-accent)" }}
                       >
                         <GitBranch size={10} className="mr-1" />
                         {group.branch || t("recentChangesUnknownBranch")}

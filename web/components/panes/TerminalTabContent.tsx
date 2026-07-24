@@ -192,25 +192,25 @@ export default memo(function TerminalTabContent({
               <div
                 className="flex items-center gap-2 rounded-lg px-3 py-2"
                 style={{
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
+                  background: "var(--app-hover)",
+                  border: "1px solid var(--app-border)",
+                  boxShadow: "var(--sh-md)",
                 }}
               >
                 <Terminal
                   className="h-4 w-4 shrink-0"
-                  style={{ color: "rgba(255,255,255,0.42)" }}
+                  style={{ color: "var(--app-text-tertiary)" }}
                 />
                 <div className="flex min-w-0 flex-col">
                   <span
                     className="text-xs font-medium tracking-wide"
-                    style={{ color: "rgba(255,255,255,0.84)" }}
+                    style={{ color: "var(--app-text-primary)" }}
                   >
                     {isLaunching ? t("startingTerminal") : t("ready")}
                   </span>
                   <span
                     className="text-[11px] leading-4"
-                    style={{ color: "rgba(255,255,255,0.45)" }}
+                    style={{ color: "var(--app-text-secondary)" }}
                   >
                     {isLaunching ? t("startingTerminalHint") : t("selectProject")}
                   </span>
@@ -226,25 +226,25 @@ export default memo(function TerminalTabContent({
               <div
                 className="flex items-center gap-2 rounded-lg px-3 py-2"
                 style={{
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
+                  background: "var(--app-hover)",
+                  border: "1px solid var(--app-border)",
+                  boxShadow: "var(--sh-md)",
                 }}
               >
                 <Terminal
                   className="h-4 w-4 shrink-0"
-                  style={{ color: "rgba(255,255,255,0.42)" }}
+                  style={{ color: "var(--app-text-tertiary)" }}
                 />
                 <div className="flex min-w-0 flex-col">
                   <span
                     className="text-xs font-medium tracking-wide"
-                    style={{ color: "rgba(255,255,255,0.84)" }}
+                    style={{ color: "var(--app-text-primary)" }}
                   >
                     {restoreTitle}
                   </span>
                   <span
                     className="text-[11px] leading-4"
-                    style={{ color: "rgba(255,255,255,0.45)" }}
+                    style={{ color: "var(--app-text-secondary)" }}
                   >
                     {restoreHint}
                   </span>
@@ -297,7 +297,7 @@ export default memo(function TerminalTabContent({
     <div
       className="relative h-full w-full min-h-0 min-w-0 overflow-hidden"
       style={{
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+        boxShadow: "inset 0 1px 0 var(--app-border)",
         ["--splitview-line-inset-top" as string]: "calc(var(--notch-bar-height, 0px) + 10px)",
         ["--splitview-line-inset-bottom" as string]: "10px",
         ["--splitview-line-inset-left" as string]: "10px",
@@ -309,7 +309,7 @@ export default memo(function TerminalTabContent({
         style={{
           top: "var(--notch-bar-height, 0px)",
           height: "1px",
-          background: "rgba(255,255,255,0.08)",
+          background: "var(--app-border)",
         }}
       />
       {renderNode(tab.terminalRootPane)}

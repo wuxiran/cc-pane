@@ -76,6 +76,44 @@ export const LIGHT_TERMINAL_THEME: TerminalThemePalette = {
   brightWhite: "#ebebeb",
 };
 
+// 应用主题 token 是核心四色真源；下方调色板常量同时承担无 DOM/非法值回退与 ANSI 色表。
+const TERMINAL_CORE_COLOR_VARIABLES = {
+  background: "--app-terminal-bg",
+  foreground: "--app-terminal-fg",
+  cursor: "--app-terminal-cursor",
+  selectionBackground: "--app-terminal-selection",
+} as const;
+
+function isValidCssColor(value: string): boolean {
+  if (typeof document === "undefined") return false;
+  const probe = document.createElement("span").style;
+  probe.color = value;
+  return probe.color !== "";
+}
+
+function withCssCoreColors(base: TerminalThemePalette): TerminalThemePalette {
+  if (typeof window === "undefined" || typeof document === "undefined") return base;
+
+  let styles: CSSStyleDeclaration;
+  try {
+    styles = window.getComputedStyle(document.documentElement);
+  } catch {
+    return base;
+  }
+
+  const colors = Object.fromEntries(
+    Object.entries(TERMINAL_CORE_COLOR_VARIABLES).map(([key, variable]) => {
+      const value = styles.getPropertyValue(variable).trim();
+      return [key, value && isValidCssColor(value) ? value : base[key as keyof typeof base]];
+    }),
+  ) as Pick<TerminalThemePalette, keyof typeof TERMINAL_CORE_COLOR_VARIABLES>;
+
+  if (Object.entries(colors).every(([key, value]) => base[key as keyof typeof base] === value)) {
+    return base;
+  }
+  return { ...base, ...colors };
+}
+
 export function resolveTerminalThemeMode(
   themeMode?: TerminalThemeMode | string | null,
 ): TerminalThemeMode {
@@ -153,5 +191,8 @@ export function getTerminalTheme(
         : isDark
           ? DARK_TERMINAL_THEME
           : LIGHT_TERMINAL_THEME;
-  return alpha === undefined ? base : withTerminalBackgroundAlpha(base, alpha);
+  const appThemeMatches =
+    resolvedMode === "followApp" || (resolvedMode === "dark") === isDark;
+  const themedBase = appThemeMatches ? withCssCoreColors(base) : base;
+  return alpha === undefined ? themedBase : withTerminalBackgroundAlpha(themedBase, alpha);
 }

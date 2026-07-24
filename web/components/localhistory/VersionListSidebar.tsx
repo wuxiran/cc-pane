@@ -63,7 +63,7 @@ export default function VersionListSidebar({
             <div className="text-[11px] mt-1 pl-[18px] flex items-center gap-2" style={{ color: "var(--app-text-tertiary)" }}>
               <span>{formatSize(version.size)}</span>
               {version.branch ? (
-                <Badge variant="outline" className="text-[10px] px-1 h-[18px]" style={{ borderColor: "#6366f1", color: "#6366f1" }}>
+                <Badge variant="outline" className="text-[10px] px-1 h-[18px]" style={{ borderColor: "var(--app-accent)", color: "var(--app-accent)" }}>
                   <GitBranch size={10} className="mr-1" />{version.branch}
                 </Badge>
               ) : fileBranches.length > 1 ? (
