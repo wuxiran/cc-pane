@@ -155,6 +155,7 @@ impl TaskBindingService {
     /// fields follow UpdateTaskBindingRequest's existing "present means update"
     /// semantics.
     pub fn update_patch(&self, id: &str, patch: serde_json::Value) -> AppResult<TaskBinding> {
+        let _guard = self.update_lock.lock().unwrap_or_else(|e| e.into_inner());
         let existing = self
             .repo
             .get(id)?
@@ -163,7 +164,64 @@ impl TaskBindingService {
         if req.normalized_plan_path.is_none() {
             req.normalized_plan_path = req.plan_path.as_deref().map(normalize_plan_path);
         }
-        self.update(id, req)
+        self.update_with_emit(id, req, true)
+    }
+
+    /// Atomically append an item to a metadata array while preserving the
+    /// binding's other metadata fields. Oldest items are trimmed first.
+    pub fn append_metadata_array_item(
+        &self,
+        id: &str,
+        key: &str,
+        item: serde_json::Value,
+        max_items: usize,
+    ) -> AppResult<TaskBinding> {
+        if key.trim().is_empty() {
+            return Err(AppError::from(
+                "TaskBinding metadata array key cannot be empty",
+            ));
+        }
+        if max_items == 0 {
+            return Err(AppError::from(
+                "TaskBinding metadata array max_items must be greater than zero",
+            ));
+        }
+
+        let _guard = self.update_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let existing = self
+            .repo
+            .get(id)?
+            .ok_or_else(|| AppError::from(format!("TaskBinding '{}' not found", id)))?;
+        let mut metadata = existing
+            .metadata
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+        if !metadata.is_object() {
+            metadata = serde_json::Value::Object(serde_json::Map::new());
+        }
+        let items = metadata
+            .as_object_mut()
+            .expect("metadata was normalized to an object")
+            .entry(key.to_string())
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        if !items.is_array() {
+            *items = serde_json::Value::Array(Vec::new());
+        }
+        let items = items
+            .as_array_mut()
+            .expect("metadata field was normalized to an array");
+        items.push(item);
+        if items.len() > max_items {
+            items.drain(..items.len() - max_items);
+        }
+
+        self.update_with_emit(
+            id,
+            UpdateTaskBindingRequest {
+                metadata: Some(metadata),
+                ..Default::default()
+            },
+            true,
+        )
     }
 
     /// 删除 TaskBinding
@@ -933,6 +991,48 @@ mod tests {
         assert_eq!(updated.pane_id.as_deref(), Some("pane-old"));
         assert_eq!(updated.tab_id.as_deref(), Some("tab-old"));
         assert_eq!(updated.metadata.unwrap()["ui"]["muted"], true);
+    }
+
+    #[test]
+    fn append_metadata_array_item_preserves_fields_and_trims_oldest() {
+        let service = service();
+        let binding = service
+            .create(CreateTaskBindingRequest {
+                title: "Leader".into(),
+                role: Some(TaskBindingRole::Leader),
+                parent_id: None,
+                plan_path: None,
+                normalized_plan_path: None,
+                prompt: None,
+                session_id: Some("leader-session".into()),
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                todo_id: None,
+                project_path: "D:/repo".into(),
+                workspace_name: None,
+                cli_tool: Some("claude".into()),
+                metadata: Some(serde_json::json!({ "kept": true })),
+            })
+            .expect("create");
+
+        for index in 0..3 {
+            service
+                .append_metadata_array_item(
+                    &binding.id,
+                    "events",
+                    serde_json::json!({ "index": index }),
+                    2,
+                )
+                .expect("append event");
+        }
+
+        let updated = service.get(&binding.id).unwrap().unwrap();
+        let metadata = updated.metadata.expect("metadata");
+        assert_eq!(metadata["kept"], true);
+        assert_eq!(metadata["events"].as_array().unwrap().len(), 2);
+        assert_eq!(metadata["events"][0]["index"], 1);
+        assert_eq!(metadata["events"][1]["index"], 2);
     }
 
     #[test]

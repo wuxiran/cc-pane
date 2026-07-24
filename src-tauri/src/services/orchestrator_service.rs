@@ -10,7 +10,7 @@
 //! - 请求频率限制
 
 use crate::ccchan_service::{CCChanService, CCChanWindowMode};
-use crate::models::task_binding::{TaskBinding, TaskBindingStatus};
+use crate::models::task_binding::{TaskBinding, TaskBindingRole, TaskBindingStatus};
 use crate::models::todo::{
     CreateTodoRequest, TodoPriority, TodoQuery, TodoScope, TodoStatus, UpdateTodoRequest,
 };
@@ -49,7 +49,9 @@ use cc_panes_core::models::{
     RunnerInstanceStatus, RunnerProfile, RunnerStartResult, RunnerStartStatus,
 };
 use cc_panes_core::services::mcp_config_service::McpServerConfig;
-use cc_panes_core::services::terminal_service::{KillReason, SessionStatus, SessionStatusInfo};
+use cc_panes_core::services::terminal_service::{
+    wrap_bracketed_paste, KillReason, SessionStatus, SessionStatusInfo,
+};
 use cc_panes_core::services::TerminalBackend;
 #[cfg(target_os = "windows")]
 use cc_panes_core::utils::canonical_project_path;
@@ -407,6 +409,8 @@ pub struct AppState {
     /// leader busy 时排队的 worker report（key = leader 的 PTY session_id），
     /// leader 状态跃迁回 Idle/WaitingInput 时由状态机 listener 补投
     pub pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
+    pub pending_directives: Arc<Mutex<PendingDirectiveMap>>,
 }
 
 async fn backend_call_for_state<T, F>(
@@ -443,6 +447,46 @@ fn adjust_session_status_info_for_query(
         status.current_tool_use_id = None;
         status.current_tool_summary = None;
     }
+}
+
+fn caller_launch_id_from_extensions(extensions: &Extensions) -> Option<String> {
+    extensions
+        .get::<http::request::Parts>()
+        .and_then(|parts| parts.uri.query())
+        .and_then(|query| {
+            query.split('&').find_map(|pair| {
+                pair.strip_prefix("launchId=")
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            })
+        })
+}
+
+fn resolve_caller_session_id(
+    state: &AppState,
+    extensions: &Extensions,
+) -> std::result::Result<String, String> {
+    let launch_id = caller_launch_id_from_extensions(extensions)
+        .ok_or_else(|| "拒绝 send_to_worker：调用方缺少 launchId 身份上下文".to_string())?;
+    if let Some(session_id) = state
+        .terminal_backend
+        .backend()
+        .find_session_id_by_launch_id(&launch_id)
+        .map_err(|error| format!("解析调用方 launchId 失败: {}", error))?
+    {
+        return Ok(session_id);
+    }
+    state
+        .launch_history_service
+        .find_by_launch_id(&launch_id)
+        .map_err(|error| format!("查询调用方 launch history 失败: {}", error))?
+        .and_then(|record| record.pty_session_id)
+        .ok_or_else(|| {
+            format!(
+                "拒绝 send_to_worker：launchId '{}' 未关联活动会话",
+                launch_id
+            )
+        })
 }
 
 async fn query_all_session_statuses(
@@ -872,6 +916,7 @@ pub struct OrchestratorService {
     bind_decision: Mutex<Option<OrchestratorBindDecision>>,
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    pending_directives: Arc<Mutex<PendingDirectiveMap>>,
     /// hook 驱动状态机：进程级单例，所有 session 共享
     session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
 }
@@ -901,6 +946,7 @@ impl OrchestratorService {
             bind_decision: Mutex::new(None),
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             pending_worker_reports: Arc::new(Mutex::new(HashMap::new())),
+            pending_directives: Arc::new(Mutex::new(HashMap::new())),
             session_state_machine: Arc::new(cc_panes_core::services::SessionStateMachine::new()),
         }
     }
@@ -1016,6 +1062,7 @@ impl OrchestratorService {
             last_request_times: Arc::new(Mutex::new(Vec::new())),
             pending_queries: self.pending_queries.clone(),
             pending_worker_reports: self.pending_worker_reports.clone(),
+            pending_directives: self.pending_directives.clone(),
         };
 
         // ============ 阶段 2.6：把 SessionStateMachine 的状态跃迁桥接到 NotificationService ============
@@ -1248,6 +1295,8 @@ impl OrchestratorService {
 
             rt.block_on(async move {
                 let level_scan_state = state.clone();
+                let directive_runtime = DirectiveRuntime::from_app_state(&state);
+                let directive_transitions = state.session_state_machine.subscribe_transitions();
                 let app = build_router(state);
 
                 // 固定端口（跨重启稳定：让重启/更新后仍在跑的 CLI 会话里写死的 MCP 端点依旧有效）。
@@ -1284,6 +1333,11 @@ impl OrchestratorService {
                 }
 
                 tokio::spawn(run_pending_report_level_scan(level_scan_state));
+                tokio::spawn(run_pending_directive_level_scan(directive_runtime.clone()));
+                tokio::spawn(run_pending_directive_transition_consumer(
+                    directive_runtime,
+                    directive_transitions,
+                ));
 
                 // 启动服务器
                 info!("[orchestrator] axum::serve starting...");
@@ -2256,6 +2310,19 @@ struct McpReportToLeaderParams {
     status: Option<String>,
     /// 可覆盖上报摘要；默认使用 worker.completion_summary
     summary: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpSendToWorkerParams {
+    /// 目标 worker 的 PTY session ID；与 planId 二选一
+    worker_session_id: Option<String>,
+    /// leader TaskBinding ID；向其全部已注册 worker 广播，与 workerSessionId 二选一
+    plan_id: Option<String>,
+    /// leader 下发的单行或多行指令
+    message: String,
+    /// true（默认）时粘贴后发送 CR；false 时仅放入输入框
+    submit: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3417,16 +3484,7 @@ impl McpToolHandler {
         // 从 HTTP 请求 URL 上的 `?launchId=...` 提取 caller launch_id（由 cli-adapters
         // 在写 MCP URL 时附带）。读不到时调用方可能不是 cc-pane 启动的 Claude（外部
         // claude code、REST、测试），此时父信息留空 → 顶层编号。
-        let caller_launch_id: Option<String> = extensions
-            .get::<http::request::Parts>()
-            .and_then(|p| p.uri.query())
-            .and_then(|q| {
-                q.split('&').find_map(|pair| {
-                    pair.strip_prefix("launchId=")
-                        .filter(|v| !v.is_empty())
-                        .map(|v| v.to_string())
-                })
-            });
+        let caller_launch_id = caller_launch_id_from_extensions(&extensions);
 
         // 参数校验：prompt 和 resumeId 互斥，必须且只能提供其一
         if params.prompt.is_some() && params.resume_id.is_some() {
@@ -5209,6 +5267,89 @@ impl McpToolHandler {
             .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
     }
 
+    /// Leader 向一个 worker 或该 plan 的全部 worker 下发指令。worker busy 时自动排队，回到 Idle/WaitingInput 后补投。
+    #[tool]
+    async fn send_to_worker(
+        &self,
+        Parameters(params): Parameters<McpSendToWorkerParams>,
+        extensions: Extensions,
+    ) -> String {
+        info!(
+            worker_session_id = params.worker_session_id.as_deref().unwrap_or(""),
+            plan_id = params.plan_id.as_deref().unwrap_or(""),
+            message_len = params.message.len(),
+            "mcp::send_to_worker"
+        );
+        let mut result = SendToWorkerResult::default();
+        if params.message.trim().is_empty() {
+            result.error = Some("message 不能为空".to_string());
+            return serde_json::to_string(&result).unwrap_or_default();
+        }
+
+        let caller_session_id = match resolve_caller_session_id(&self.state, &extensions) {
+            Ok(session_id) => session_id,
+            Err(error) => {
+                result.error = Some(error);
+                return serde_json::to_string(&result).unwrap_or_default();
+            }
+        };
+        let (leader, targets) = match resolve_directive_targets(
+            &self.state.task_binding_service,
+            &caller_session_id,
+            params.worker_session_id.as_deref(),
+            params.plan_id.as_deref(),
+        ) {
+            Ok(targets) => targets,
+            Err(error) => {
+                result.error = Some(error);
+                return serde_json::to_string(&result).unwrap_or_default();
+            }
+        };
+
+        let runtime = DirectiveRuntime::from_app_state(&self.state);
+        let submit = params.submit.unwrap_or(true);
+        for target in targets {
+            let Some(session_id) = target.session_id.clone() else {
+                result.failed.push(DirectiveFailure {
+                    worker_session_id: None,
+                    worker_binding_id: target.worker_binding_id,
+                    reason: "worker TaskBinding 缺少 sessionId".to_string(),
+                });
+                continue;
+            };
+            let directive_id = uuid::Uuid::new_v4().to_string();
+            let message = externalize_long_prompt(
+                &target.project_path,
+                &directive_id,
+                params.message.clone(),
+            );
+            let directive = PendingDirective {
+                id: directive_id,
+                logical_key: leader.id.clone(),
+                leader_binding_id: leader.id.clone(),
+                worker_binding_id: target.worker_binding_id.clone(),
+                worker_session_id: session_id.clone(),
+                message,
+                submit,
+                queued_at: std::time::Instant::now(),
+            };
+            match dispatch_directive(runtime.clone(), directive, DirectiveDeliverySource::Initial)
+                .await
+            {
+                DirectiveAttempt::Delivered => result.delivered.push(session_id),
+                DirectiveAttempt::Queued => result.queued.push(session_id),
+                DirectiveAttempt::Failed(reason) => result.failed.push(DirectiveFailure {
+                    worker_session_id: Some(session_id),
+                    worker_binding_id: target.worker_binding_id,
+                    reason,
+                }),
+            }
+        }
+
+        serde_json::to_string(&result)
+            .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
+    }
+
     /// 查询编排任务列表（按状态、项目路径过滤）
     #[tool]
     async fn query_task_bindings(
@@ -5932,6 +6073,7 @@ impl ServerHandler for McpToolHandler {
                 "CC-Panes Orchestrator: 多 CLI（Claude/Codex）多实例编排与工作空间管理。\n",
                 "工具按需调用，完整列表见 tools/list。\n",
                 "典型流程: launch_task → wait_for_session → get_session_output。\n",
+                "Leader 下行: register_plan_leader/register_plan_worker → send_to_worker；目标 busy 时自动排队并在空闲边沿补投。\n",
                 "布局分流: list_panes 查看 layoutId/paneId，launch_task 可传 layoutId 或 layoutName；layoutName 不存在时前端会自动创建布局。\n",
                 "项目接入: scan_directory → create_workspace → add_project_to_workspace → launch_task。\n",
                 "Resume: list_launch_history(projectPath) → 取 resumeSessionId/cliTool/runtimeKind → launch_task(resumeId, cliTool, runtimeKind)。",
@@ -7976,6 +8118,639 @@ impl LeaderReportResult {
     }
 }
 
+// ============ leader directive 补投队列 ============
+
+const PENDING_DIRECTIVE_TTL_SECS: u64 = 30 * 60;
+const PENDING_DIRECTIVE_MAX_PER_SESSION: usize = 32;
+const PENDING_DIRECTIVE_SCAN_INTERVAL_SECS: u64 = 60;
+const DIRECTIVE_EVENT_MAX_ITEMS: usize = 100;
+
+#[derive(Clone)]
+struct DirectiveRuntime {
+    terminal_backend: Arc<TerminalBackendState>,
+    session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
+    task_binding_service: Arc<crate::services::TaskBindingService>,
+    pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+}
+
+impl DirectiveRuntime {
+    fn from_app_state(state: &AppState) -> Self {
+        Self {
+            terminal_backend: state.terminal_backend.clone(),
+            session_state_machine: state.session_state_machine.clone(),
+            task_binding_service: state.task_binding_service.clone(),
+            pending_directives: state.pending_directives.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DirectiveTarget {
+    worker_binding_id: String,
+    session_id: Option<String>,
+    project_path: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingDirective {
+    id: String,
+    logical_key: String,
+    leader_binding_id: String,
+    worker_binding_id: String,
+    worker_session_id: String,
+    message: String,
+    submit: bool,
+    queued_at: std::time::Instant,
+}
+
+/// 通用目标 session 队列；角色和授权规则不进入存储层。
+pub type PendingDirectiveMap = HashMap<String, Vec<PendingDirective>>;
+
+#[derive(Debug)]
+struct DiscardedDirective {
+    directive: PendingDirective,
+    reason: &'static str,
+}
+
+struct DirectiveEnqueueResult {
+    queue_len: usize,
+    discarded: Vec<DiscardedDirective>,
+}
+
+struct PendingDirectiveBatch {
+    directives: Vec<PendingDirective>,
+    discarded: Vec<DiscardedDirective>,
+}
+
+fn pending_directive_expired(directive: &PendingDirective, now: std::time::Instant) -> bool {
+    now.saturating_duration_since(directive.queued_at).as_secs() > PENDING_DIRECTIVE_TTL_SECS
+}
+
+/// TTL 剪枝 → 同 logical_key 保留最新 → 超上限丢最老。
+fn enqueue_pending_directive(
+    map: &mut PendingDirectiveMap,
+    target_session_id: &str,
+    directive: PendingDirective,
+    now: std::time::Instant,
+) -> DirectiveEnqueueResult {
+    let queue = map.entry(target_session_id.to_string()).or_default();
+    let mut discarded = Vec::new();
+    queue.retain(|queued| {
+        let reason = if pending_directive_expired(queued, now) {
+            Some("expired")
+        } else if queued.logical_key == directive.logical_key {
+            Some("superseded")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            discarded.push(DiscardedDirective {
+                directive: queued.clone(),
+                reason,
+            });
+            false
+        } else {
+            true
+        }
+    });
+    queue.push(directive);
+    if queue.len() > PENDING_DIRECTIVE_MAX_PER_SESSION {
+        discarded.push(DiscardedDirective {
+            directive: queue.remove(0),
+            reason: "queue-overflow",
+        });
+    }
+    DirectiveEnqueueResult {
+        queue_len: queue.len(),
+        discarded,
+    }
+}
+
+fn take_pending_directives(
+    map: &mut PendingDirectiveMap,
+    target_session_id: &str,
+    now: std::time::Instant,
+) -> PendingDirectiveBatch {
+    let mut directives = Vec::new();
+    let mut discarded = Vec::new();
+    for directive in map.remove(target_session_id).unwrap_or_default() {
+        if pending_directive_expired(&directive, now) {
+            discarded.push(DiscardedDirective {
+                directive,
+                reason: "expired",
+            });
+        } else {
+            directives.push(directive);
+        }
+    }
+    PendingDirectiveBatch {
+        directives,
+        discarded,
+    }
+}
+
+fn clear_pending_directives(
+    map: &mut PendingDirectiveMap,
+    target_session_id: &str,
+) -> Vec<PendingDirective> {
+    map.remove(target_session_id).unwrap_or_default()
+}
+
+fn prune_expired_pending_directives(
+    map: &mut PendingDirectiveMap,
+    target_session_id: &str,
+    now: std::time::Instant,
+) -> Vec<DiscardedDirective> {
+    let mut discarded = Vec::new();
+    let remove_key = {
+        let Some(queue) = map.get_mut(target_session_id) else {
+            return discarded;
+        };
+        queue.retain(|directive| {
+            if pending_directive_expired(directive, now) {
+                discarded.push(DiscardedDirective {
+                    directive: directive.clone(),
+                    reason: "expired",
+                });
+                false
+            } else {
+                true
+            }
+        });
+        queue.is_empty()
+    };
+    if remove_key {
+        map.remove(target_session_id);
+    }
+    discarded
+}
+
+fn directive_message_preview(message: &str) -> String {
+    message.chars().take(2_000).collect()
+}
+
+fn record_directive_event(
+    runtime: &DirectiveRuntime,
+    directive: &PendingDirective,
+    event_type: &str,
+    reason: Option<&str>,
+) {
+    let mut event = serde_json::json!({
+        "type": event_type,
+        "directiveId": directive.id,
+        "workerBindingId": directive.worker_binding_id,
+        "workerSessionId": directive.worker_session_id,
+        "submit": directive.submit,
+        "message": directive_message_preview(&directive.message),
+        "at": chrono::Utc::now().to_rfc3339(),
+    });
+    if let Some(reason) = reason {
+        event["reason"] = serde_json::Value::String(reason.to_string());
+    }
+    if let Err(error) = runtime.task_binding_service.append_metadata_array_item(
+        &directive.leader_binding_id,
+        "directiveEvents",
+        event,
+        DIRECTIVE_EVENT_MAX_ITEMS,
+    ) {
+        warn!(
+            leader_id = %directive.leader_binding_id,
+            directive_id = %directive.id,
+            error = %error,
+            "failed to persist leader directive event"
+        );
+    }
+}
+
+fn record_discarded_directives(runtime: &DirectiveRuntime, discarded: Vec<DiscardedDirective>) {
+    for discarded in discarded {
+        record_directive_event(
+            runtime,
+            &discarded.directive,
+            "failed",
+            Some(discarded.reason),
+        );
+    }
+}
+
+async fn query_directive_session_status(
+    runtime: &DirectiveRuntime,
+    session_id: &str,
+) -> std::result::Result<Option<SessionStatus>, String> {
+    let backend = runtime.terminal_backend.backend();
+    let state_machine = runtime.session_state_machine.clone();
+    let session_id = session_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        backend
+            .get_session_status(&session_id)
+            .map(|status| {
+                status.map(|status| state_machine.status_for_query(&session_id, status.status))
+            })
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+async fn deliver_directive_text(
+    runtime: &DirectiveRuntime,
+    directive: &PendingDirective,
+) -> std::result::Result<(), String> {
+    let text = format!("[leader-directive] {}", directive.message);
+    if directive.submit {
+        return submit_text_to_session(
+            runtime.terminal_backend.backend(),
+            &directive.worker_session_id,
+            &text,
+        )
+        .await
+        .map_err(|error| error.to_string());
+    }
+
+    let backend = runtime.terminal_backend.backend();
+    let session_id = directive.worker_session_id.clone();
+    let wrapped = wrap_bracketed_paste(&text);
+    tokio::task::spawn_blocking(move || backend.write(&session_id, &wrapped))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Clone, Copy)]
+enum DirectiveDeliverySource {
+    Initial,
+    Redelivery,
+}
+
+enum DirectiveAttempt {
+    Delivered,
+    Queued,
+    Failed(String),
+}
+
+fn schedule_ready_directive_flush(runtime: DirectiveRuntime, session_id: String) {
+    tokio::spawn(async move {
+        flush_ready_pending_directives(runtime, session_id).await;
+    });
+}
+
+async fn dispatch_directive(
+    runtime: DirectiveRuntime,
+    directive: PendingDirective,
+    source: DirectiveDeliverySource,
+) -> DirectiveAttempt {
+    let status = match query_directive_session_status(&runtime, &directive.worker_session_id).await
+    {
+        Ok(status) => status,
+        Err(error) => {
+            record_directive_event(&runtime, &directive, "failed", Some(&error));
+            return DirectiveAttempt::Failed(format!("读取 worker 状态失败: {}", error));
+        }
+    };
+
+    match status {
+        Some(SessionStatus::Idle | SessionStatus::WaitingInput) => {
+            match deliver_directive_text(&runtime, &directive).await {
+                Ok(()) => {
+                    record_directive_event(
+                        &runtime,
+                        &directive,
+                        match source {
+                            DirectiveDeliverySource::Initial => "delivered",
+                            DirectiveDeliverySource::Redelivery => "redelivered",
+                        },
+                        None,
+                    );
+                    DirectiveAttempt::Delivered
+                }
+                Err(error) => {
+                    record_directive_event(&runtime, &directive, "failed", Some(&error));
+                    DirectiveAttempt::Failed(format!("投递失败: {}", error))
+                }
+            }
+        }
+        Some(
+            SessionStatus::Initializing
+            | SessionStatus::Thinking
+            | SessionStatus::ToolRunning
+            | SessionStatus::Compacting
+            | SessionStatus::Active,
+        ) => {
+            let enqueue_result = {
+                let mut map = runtime
+                    .pending_directives
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                enqueue_pending_directive(
+                    &mut map,
+                    &directive.worker_session_id,
+                    directive.clone(),
+                    std::time::Instant::now(),
+                )
+            };
+            record_discarded_directives(&runtime, enqueue_result.discarded);
+            record_directive_event(&runtime, &directive, "queued", None);
+            info!(
+                session_id = %directive.worker_session_id,
+                directive_id = %directive.id,
+                queue_len = enqueue_result.queue_len,
+                "leader directive queued for redelivery"
+            );
+
+            // 入队后双检，堵住 busy→idle 边沿恰好发生在入队前的窗口。
+            if query_directive_session_status(&runtime, &directive.worker_session_id)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|status| {
+                    matches!(status, SessionStatus::Idle | SessionStatus::WaitingInput)
+                })
+            {
+                schedule_ready_directive_flush(
+                    runtime.clone(),
+                    directive.worker_session_id.clone(),
+                );
+            }
+            DirectiveAttempt::Queued
+        }
+        Some(SessionStatus::Error) => {
+            discard_target_directives(
+                &runtime,
+                &directive.worker_session_id,
+                "worker session error",
+            );
+            record_directive_event(&runtime, &directive, "failed", Some("worker session error"));
+            DirectiveAttempt::Failed("worker session error".to_string())
+        }
+        Some(SessionStatus::Exited) => {
+            discard_target_directives(
+                &runtime,
+                &directive.worker_session_id,
+                "worker session exited",
+            );
+            record_directive_event(
+                &runtime,
+                &directive,
+                "failed",
+                Some("worker session exited"),
+            );
+            DirectiveAttempt::Failed("worker session exited".to_string())
+        }
+        None => {
+            discard_target_directives(
+                &runtime,
+                &directive.worker_session_id,
+                "worker session not found",
+            );
+            record_directive_event(
+                &runtime,
+                &directive,
+                "failed",
+                Some("worker session not found"),
+            );
+            DirectiveAttempt::Failed("worker session not found".to_string())
+        }
+    }
+}
+
+/// 入队后双检已经确认目标空闲；直接取走并补投，避免错过已经发生的空闲边沿。
+async fn flush_ready_pending_directives(runtime: DirectiveRuntime, target_session_id: String) {
+    let batch = {
+        let mut map = runtime
+            .pending_directives
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        take_pending_directives(&mut map, &target_session_id, std::time::Instant::now())
+    };
+    record_discarded_directives(&runtime, batch.discarded);
+    for directive in batch.directives {
+        match deliver_directive_text(&runtime, &directive).await {
+            Ok(()) => record_directive_event(&runtime, &directive, "redelivered", None),
+            Err(error) => record_directive_event(&runtime, &directive, "failed", Some(&error)),
+        }
+    }
+}
+
+async fn flush_pending_directives(runtime: DirectiveRuntime, target_session_id: String) {
+    let batch = {
+        let mut map = runtime
+            .pending_directives
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        take_pending_directives(&mut map, &target_session_id, std::time::Instant::now())
+    };
+    record_discarded_directives(&runtime, batch.discarded);
+    for directive in batch.directives {
+        let _ = dispatch_directive(
+            runtime.clone(),
+            directive,
+            DirectiveDeliverySource::Redelivery,
+        )
+        .await;
+    }
+}
+
+fn discard_target_directives(
+    runtime: &DirectiveRuntime,
+    target_session_id: &str,
+    reason: &'static str,
+) {
+    let directives = {
+        let mut map = runtime
+            .pending_directives
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        clear_pending_directives(&mut map, target_session_id)
+    };
+    record_discarded_directives(
+        runtime,
+        directives
+            .into_iter()
+            .map(|directive| DiscardedDirective { directive, reason })
+            .collect(),
+    );
+}
+
+async fn scan_pending_directives_once(runtime: &DirectiveRuntime) {
+    let session_ids = {
+        let map = runtime
+            .pending_directives
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        map.iter()
+            .filter(|(_, queue)| !queue.is_empty())
+            .map(|(session_id, _)| session_id.clone())
+            .collect::<Vec<_>>()
+    };
+    for session_id in session_ids {
+        let discarded = {
+            let mut map = runtime
+                .pending_directives
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            prune_expired_pending_directives(&mut map, &session_id, std::time::Instant::now())
+        };
+        record_discarded_directives(runtime, discarded);
+        let still_pending = runtime
+            .pending_directives
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(&session_id);
+        if !still_pending {
+            continue;
+        }
+        match query_directive_session_status(runtime, &session_id).await {
+            Ok(Some(SessionStatus::Idle | SessionStatus::WaitingInput)) => {
+                flush_pending_directives(runtime.clone(), session_id).await;
+            }
+            Ok(Some(SessionStatus::Error)) => {
+                discard_target_directives(runtime, &session_id, "worker session error");
+            }
+            Ok(Some(SessionStatus::Exited)) | Ok(None) => {
+                discard_target_directives(runtime, &session_id, "worker session unavailable");
+            }
+            Ok(Some(_)) => {}
+            Err(error) => warn!(
+                session_id,
+                error, "pending directive level scan could not read worker status"
+            ),
+        }
+    }
+}
+
+async fn run_pending_directive_level_scan(runtime: DirectiveRuntime) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+        PENDING_DIRECTIVE_SCAN_INTERVAL_SECS,
+    ));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    interval.tick().await;
+    loop {
+        interval.tick().await;
+        scan_pending_directives_once(&runtime).await;
+    }
+}
+
+async fn run_pending_directive_transition_consumer(
+    runtime: DirectiveRuntime,
+    mut transitions: tokio::sync::broadcast::Receiver<cc_panes_core::services::StateTransition>,
+) {
+    loop {
+        match transitions.recv().await {
+            Ok(transition) => match pending_flush_action(transition.to) {
+                PendingFlushAction::Flush => {
+                    flush_pending_directives(runtime.clone(), transition.pty_session_id).await;
+                }
+                PendingFlushAction::Clear => {
+                    discard_target_directives(
+                        &runtime,
+                        &transition.pty_session_id,
+                        "worker session terminated",
+                    );
+                }
+                PendingFlushAction::None => {}
+            },
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                scan_pending_directives_once(&runtime).await;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+        }
+    }
+}
+
+fn resolve_directive_targets(
+    service: &crate::services::TaskBindingService,
+    caller_session_id: &str,
+    worker_session_id: Option<&str>,
+    plan_id: Option<&str>,
+) -> std::result::Result<(TaskBinding, Vec<DirectiveTarget>), String> {
+    let leader = service
+        .find_by_session_id(caller_session_id)
+        .map_err(|error| format!("查询调用方 TaskBinding 失败: {}", error))?
+        .ok_or_else(|| "拒绝 send_to_worker：调用方未登记 TaskBinding".to_string())?;
+    if leader.role != TaskBindingRole::Leader {
+        return Err("拒绝 send_to_worker：调用方不是已登记的 plan leader".to_string());
+    }
+
+    match (worker_session_id, plan_id) {
+        (Some(worker_session_id), None) => {
+            let worker_session_id = worker_session_id.trim();
+            if worker_session_id.is_empty() {
+                return Err("workerSessionId 不能为空".to_string());
+            }
+            let worker = service
+                .find_by_session_id(worker_session_id)
+                .map_err(|error| format!("查询 worker TaskBinding 失败: {}", error))?
+                .ok_or_else(|| format!("workerSessionId '{}' 未登记", worker_session_id))?;
+            if worker.role != TaskBindingRole::Worker
+                || worker.parent_id.as_deref() != Some(leader.id.as_str())
+            {
+                return Err("拒绝 send_to_worker：目标不是该 leader 的已登记 worker".to_string());
+            }
+            Ok((
+                leader,
+                vec![DirectiveTarget {
+                    worker_binding_id: worker.id,
+                    session_id: worker.session_id,
+                    project_path: worker.project_path,
+                }],
+            ))
+        }
+        (None, Some(plan_id)) => {
+            let plan_id = plan_id.trim();
+            if plan_id.is_empty() {
+                return Err("planId 不能为空".to_string());
+            }
+            if plan_id != leader.id {
+                return Err("拒绝 send_to_worker：planId 不属于调用方 leader".to_string());
+            }
+            let collaboration = service
+                .get_plan_collaboration(
+                    crate::models::task_binding::PlanCollaborationKey {
+                        leader_id: Some(plan_id.to_string()),
+                        plan_path: None,
+                        normalized_plan_path: None,
+                    },
+                    true,
+                )
+                .map_err(|error| format!("查询 plan workers 失败: {}", error))?;
+            if collaboration.workers.is_empty() {
+                return Err("planId 尚未登记 worker".to_string());
+            }
+            let targets = collaboration
+                .workers
+                .into_iter()
+                .map(|worker| DirectiveTarget {
+                    worker_binding_id: worker.id,
+                    session_id: worker.session_id,
+                    project_path: worker.project_path,
+                })
+                .collect();
+            Ok((leader, targets))
+        }
+        (Some(_), Some(_)) => Err("workerSessionId 与 planId 只能提供一个".to_string()),
+        (None, None) => Err("必须提供 workerSessionId 或 planId".to_string()),
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DirectiveFailure {
+    worker_session_id: Option<String>,
+    worker_binding_id: String,
+    reason: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SendToWorkerResult {
+    delivered: Vec<String>,
+    queued: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    failed: Vec<DirectiveFailure>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 // ============ worker report 补投队列 ============
 //
 // leader busy/initializing 时 report 不丢弃而是入队（key = leader PTY session_id），
@@ -8525,6 +9300,206 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct DirectiveTestBackend {
+        statuses: Mutex<HashMap<String, SessionStatus>>,
+        writes: Mutex<Vec<(String, String)>>,
+        submits: Mutex<Vec<(String, String)>>,
+    }
+
+    impl DirectiveTestBackend {
+        fn set_status(&self, session_id: &str, status: SessionStatus) {
+            self.statuses
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(session_id.to_string(), status);
+        }
+
+        fn writes(&self) -> Vec<(String, String)> {
+            self.writes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
+        }
+
+        fn submits(&self) -> Vec<(String, String)> {
+            self.submits
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
+        }
+    }
+
+    impl TerminalBackend for DirectiveTestBackend {
+        fn create_session(
+            &self,
+            _request: CoreCreateSessionRequest,
+        ) -> cc_panes_core::utils::AppResult<String> {
+            Ok("directive-session".to_string())
+        }
+
+        fn write(&self, session_id: &str, data: &str) -> cc_panes_core::utils::AppResult<()> {
+            self.writes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push((session_id.to_string(), data.to_string()));
+            Ok(())
+        }
+
+        fn submit_text_to_session(
+            &self,
+            session_id: &str,
+            text: &str,
+        ) -> cc_panes_core::utils::AppResult<()> {
+            self.submits
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push((session_id.to_string(), text.to_string()));
+            Ok(())
+        }
+
+        fn resize(
+            &self,
+            _session_id: &str,
+            _cols: u16,
+            _rows: u16,
+        ) -> cc_panes_core::utils::AppResult<()> {
+            Ok(())
+        }
+
+        fn kill(&self, _session_id: &str) -> cc_panes_core::utils::AppResult<()> {
+            Ok(())
+        }
+
+        fn get_all_status(&self) -> cc_panes_core::utils::AppResult<Vec<SessionStatusInfo>> {
+            Ok(self
+                .statuses
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .iter()
+                .map(|(session_id, status)| wait_test_status(session_id, *status))
+                .collect())
+        }
+
+        fn get_session_status(
+            &self,
+            session_id: &str,
+        ) -> cc_panes_core::utils::AppResult<Option<SessionStatusInfo>> {
+            Ok(self
+                .statuses
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .get(session_id)
+                .copied()
+                .map(|status| wait_test_status(session_id, status)))
+        }
+
+        fn get_session_output(
+            &self,
+            session_id: &str,
+            _lines: usize,
+        ) -> cc_panes_core::utils::AppResult<cc_panes_core::services::terminal_service::SessionOutput>
+        {
+            Ok(cc_panes_core::services::terminal_service::SessionOutput {
+                session_id: session_id.to_string(),
+                lines: Vec::new(),
+            })
+        }
+
+        fn get_session_replay_snapshot(
+            &self,
+            _session_id: &str,
+        ) -> cc_panes_core::utils::AppResult<Option<cc_panes_core::models::TerminalReplaySnapshot>>
+        {
+            Ok(None)
+        }
+    }
+
+    fn directive_test_service() -> Arc<crate::services::TaskBindingService> {
+        let db = Arc::new(
+            cc_panes_core::repository::Database::new_fallback().expect("fallback database"),
+        );
+        Arc::new(crate::services::TaskBindingService::new(Arc::new(
+            cc_panes_core::repository::TaskBindingRepository::new(db),
+        )))
+    }
+
+    fn register_directive_plan(
+        service: &crate::services::TaskBindingService,
+        worker_sessions: &[&str],
+    ) -> (TaskBinding, Vec<TaskBinding>) {
+        use crate::models::task_binding::{RegisterPlanLeaderRequest, RegisterPlanWorkerRequest};
+
+        let leader = service
+            .register_plan_leader(RegisterPlanLeaderRequest {
+                plan_path: "D:/repo/.claude/plans/directive.md".to_string(),
+                project_path: "D:/repo".to_string(),
+                title: Some("Directive leader".to_string()),
+                prompt: None,
+                session_id: Some("leader-session".to_string()),
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                workspace_name: None,
+                cli_tool: None,
+                metadata: Some(serde_json::json!({ "kept": true })),
+            })
+            .expect("register leader");
+        let workers = worker_sessions
+            .iter()
+            .map(|session_id| {
+                service
+                    .register_plan_worker(RegisterPlanWorkerRequest {
+                        leader_id: Some(leader.id.clone()),
+                        plan_path: None,
+                        session_id: (*session_id).to_string(),
+                        project_path: "D:/repo".to_string(),
+                        title: None,
+                        prompt: None,
+                        resume_id: None,
+                        pane_id: None,
+                        tab_id: None,
+                        workspace_name: None,
+                        cli_tool: None,
+                        metadata: None,
+                    })
+                    .expect("register worker")
+            })
+            .collect();
+        (leader, workers)
+    }
+
+    fn directive_test_runtime(
+        backend: Arc<DirectiveTestBackend>,
+        service: Arc<crate::services::TaskBindingService>,
+    ) -> DirectiveRuntime {
+        DirectiveRuntime {
+            terminal_backend: Arc::new(TerminalBackendState::new(backend)),
+            session_state_machine: Arc::new(cc_panes_core::services::SessionStateMachine::new()),
+            task_binding_service: service,
+            pending_directives: Arc::new(Mutex::new(PendingDirectiveMap::new())),
+        }
+    }
+
+    fn test_pending_directive(
+        leader_id: &str,
+        worker_id: &str,
+        session_id: &str,
+        logical_key: &str,
+        queued_at: std::time::Instant,
+    ) -> PendingDirective {
+        PendingDirective {
+            id: uuid::Uuid::new_v4().to_string(),
+            logical_key: logical_key.to_string(),
+            leader_binding_id: leader_id.to_string(),
+            worker_binding_id: worker_id.to_string(),
+            worker_session_id: session_id.to_string(),
+            message: format!("message-{logical_key}"),
+            submit: true,
+            queued_at,
+        }
+    }
+
     #[test]
     fn registered_project_path_matches_all_windows_runtime_forms() {
         let registered = r"D:\Repos\App";
@@ -8825,6 +9800,248 @@ mod tests {
         };
         assert!(result.satisfied);
         assert_eq!(result.final_status, SessionStatus::Idle);
+    }
+
+    #[test]
+    fn pending_directive_queue_enforces_dedupe_ttl_and_limit() {
+        let now = std::time::Instant::now();
+        let mut map = PendingDirectiveMap::new();
+        let first = test_pending_directive("leader", "worker", "session", "leader", now);
+        let second = test_pending_directive("leader", "worker", "session", "leader", now);
+        enqueue_pending_directive(&mut map, "session", first, now);
+        let deduped = enqueue_pending_directive(&mut map, "session", second.clone(), now);
+        assert_eq!(deduped.queue_len, 1);
+        assert_eq!(deduped.discarded.len(), 1);
+        assert_eq!(deduped.discarded[0].reason, "superseded");
+        assert_eq!(map["session"][0].id, second.id);
+
+        let later = now + std::time::Duration::from_secs(PENDING_DIRECTIVE_TTL_SECS + 1);
+        let batch = take_pending_directives(&mut map, "session", later);
+        assert!(batch.directives.is_empty());
+        assert_eq!(batch.discarded.len(), 1);
+        assert_eq!(batch.discarded[0].reason, "expired");
+
+        for index in 0..=PENDING_DIRECTIVE_MAX_PER_SESSION {
+            let directive = test_pending_directive(
+                "leader",
+                "worker",
+                "session",
+                &format!("logical-{index}"),
+                now,
+            );
+            enqueue_pending_directive(&mut map, "session", directive, now);
+        }
+        assert_eq!(map["session"].len(), PENDING_DIRECTIVE_MAX_PER_SESSION);
+        assert!(map["session"]
+            .iter()
+            .all(|directive| directive.logical_key != "logical-0"));
+    }
+
+    #[test]
+    fn directive_target_resolution_authorizes_leader_and_plan_broadcast() {
+        let service = directive_test_service();
+        let (leader, workers) = register_directive_plan(&service, &["worker-idle", "worker-busy"]);
+
+        let (_, plan_targets) =
+            resolve_directive_targets(&service, "leader-session", None, Some(&leader.id))
+                .expect("leader plan broadcast");
+        assert_eq!(plan_targets.len(), 2);
+
+        let (_, single_target) =
+            resolve_directive_targets(&service, "leader-session", Some("worker-idle"), None)
+                .expect("leader single worker");
+        assert_eq!(single_target.len(), 1);
+        assert_eq!(single_target[0].worker_binding_id, workers[0].id);
+
+        let denied = resolve_directive_targets(&service, "worker-idle", Some("worker-busy"), None)
+            .expect_err("worker cannot impersonate leader");
+        assert!(denied.contains("不是已登记的 plan leader"));
+    }
+
+    #[tokio::test]
+    async fn idle_directive_delivers_immediately_and_records_trace() {
+        let service = directive_test_service();
+        let (leader, workers) = register_directive_plan(&service, &["worker-idle"]);
+        let backend = Arc::new(DirectiveTestBackend::default());
+        backend.set_status("worker-idle", SessionStatus::Idle);
+        let runtime = directive_test_runtime(backend.clone(), service.clone());
+        let directive = test_pending_directive(
+            &leader.id,
+            &workers[0].id,
+            "worker-idle",
+            &leader.id,
+            std::time::Instant::now(),
+        );
+
+        assert!(matches!(
+            dispatch_directive(runtime, directive, DirectiveDeliverySource::Initial).await,
+            DirectiveAttempt::Delivered
+        ));
+        assert_eq!(
+            backend.submits(),
+            vec![(
+                "worker-idle".to_string(),
+                "[leader-directive] message-".to_string() + &leader.id
+            )]
+        );
+        let persisted = service.get(&leader.id).unwrap().unwrap();
+        let metadata = persisted.metadata.expect("leader metadata");
+        assert_eq!(metadata["kept"], true);
+        assert_eq!(metadata["directiveEvents"][0]["type"], "delivered");
+    }
+
+    #[tokio::test]
+    async fn draft_directive_uses_bracketed_paste_without_cr() {
+        let service = directive_test_service();
+        let (leader, workers) = register_directive_plan(&service, &["worker-draft"]);
+        let backend = Arc::new(DirectiveTestBackend::default());
+        backend.set_status("worker-draft", SessionStatus::WaitingInput);
+        let runtime = directive_test_runtime(backend.clone(), service);
+        let mut directive = test_pending_directive(
+            &leader.id,
+            &workers[0].id,
+            "worker-draft",
+            &leader.id,
+            std::time::Instant::now(),
+        );
+        directive.message = "line one\nline two".to_string();
+        directive.submit = false;
+
+        assert!(matches!(
+            dispatch_directive(runtime, directive, DirectiveDeliverySource::Initial).await,
+            DirectiveAttempt::Delivered
+        ));
+        let writes = backend.writes();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].0, "worker-draft");
+        assert_eq!(
+            writes[0].1,
+            "\x1b[200~[leader-directive] line one\nline two\x1b[201~"
+        );
+        assert!(!writes[0].1.contains('\r'));
+        assert!(backend.submits().is_empty());
+    }
+
+    #[tokio::test]
+    async fn busy_directive_redelivers_on_idle_transition_broadcast() {
+        let service = directive_test_service();
+        let (leader, workers) = register_directive_plan(&service, &["worker-busy"]);
+        let backend = Arc::new(DirectiveTestBackend::default());
+        backend.set_status("worker-busy", SessionStatus::Thinking);
+        let runtime = directive_test_runtime(backend.clone(), service.clone());
+        runtime.session_state_machine.on_event(
+            "worker-busy",
+            &cc_cli_adapters::CcPaneEvent::PromptBefore,
+            None,
+            &serde_json::json!({}),
+        );
+        let transitions = runtime.session_state_machine.subscribe_transitions();
+        let consumer = tokio::spawn(run_pending_directive_transition_consumer(
+            runtime.clone(),
+            transitions,
+        ));
+        let directive = test_pending_directive(
+            &leader.id,
+            &workers[0].id,
+            "worker-busy",
+            &leader.id,
+            std::time::Instant::now(),
+        );
+
+        assert!(matches!(
+            dispatch_directive(runtime.clone(), directive, DirectiveDeliverySource::Initial).await,
+            DirectiveAttempt::Queued
+        ));
+        assert_eq!(
+            runtime.pending_directives.lock().unwrap()["worker-busy"].len(),
+            1
+        );
+
+        backend.set_status("worker-busy", SessionStatus::Idle);
+        runtime.session_state_machine.on_event(
+            "worker-busy",
+            &cc_cli_adapters::CcPaneEvent::TurnEnd,
+            None,
+            &serde_json::json!({}),
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let event_count = service
+                    .get(&leader.id)
+                    .ok()
+                    .flatten()
+                    .and_then(|binding| binding.metadata)
+                    .and_then(|metadata| {
+                        metadata["directiveEvents"]
+                            .as_array()
+                            .map(|events| events.len())
+                    })
+                    .unwrap_or(0);
+                if !backend.submits().is_empty() && event_count >= 2 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("idle transition should redeliver");
+        consumer.abort();
+
+        assert!(!runtime
+            .pending_directives
+            .lock()
+            .unwrap()
+            .contains_key("worker-busy"));
+        let metadata = service
+            .get(&leader.id)
+            .unwrap()
+            .unwrap()
+            .metadata
+            .expect("leader metadata");
+        let event_types = metadata["directiveEvents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["type"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(event_types, vec!["queued", "redelivered"]);
+    }
+
+    #[tokio::test]
+    async fn plan_targets_gate_each_worker_independently() {
+        let service = directive_test_service();
+        let (leader, workers) = register_directive_plan(&service, &["worker-idle", "worker-busy"]);
+        let backend = Arc::new(DirectiveTestBackend::default());
+        backend.set_status("worker-idle", SessionStatus::Idle);
+        backend.set_status("worker-busy", SessionStatus::ToolRunning);
+        let runtime = directive_test_runtime(backend, service.clone());
+        let (_, targets) =
+            resolve_directive_targets(&service, "leader-session", None, Some(&leader.id))
+                .expect("plan targets");
+
+        let mut delivered = Vec::new();
+        let mut queued = Vec::new();
+        for target in targets {
+            let session_id = target.session_id.unwrap();
+            let directive = test_pending_directive(
+                &leader.id,
+                &target.worker_binding_id,
+                &session_id,
+                &leader.id,
+                std::time::Instant::now(),
+            );
+            match dispatch_directive(runtime.clone(), directive, DirectiveDeliverySource::Initial)
+                .await
+            {
+                DirectiveAttempt::Delivered => delivered.push(session_id),
+                DirectiveAttempt::Queued => queued.push(session_id),
+                DirectiveAttempt::Failed(reason) => panic!("unexpected failure: {reason}"),
+            }
+        }
+
+        assert_eq!(delivered, vec!["worker-idle"]);
+        assert_eq!(queued, vec!["worker-busy"]);
+        assert_eq!(workers.len(), 2);
     }
 
     #[test]
