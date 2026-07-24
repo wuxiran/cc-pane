@@ -1,5 +1,5 @@
 import "@/i18n";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Workspace } from "@/types";
 import ExplorerFilesSection from "./ExplorerFilesSection";
@@ -25,10 +25,15 @@ const workspace: Workspace = {
 };
 
 describe("ExplorerFilesSection", () => {
-  it("uses the selected project as the shared search root", () => {
+  it("uses the selected project as the shared search root, all roots collapsed by default", () => {
     render(<ExplorerFilesSection workspace={workspace} selectedProjectId="beta" />);
 
     expect(screen.getByTestId("file-search")).toHaveAttribute("data-root-path", "/workspace/beta");
+    // 默认全折叠：任何项目根都不挂载 FileTree
+    expect(screen.queryByTestId("file-tree")).toBeNull();
+
+    // 手动展开 beta 后才挂载
+    fireEvent.click(screen.getByText("beta"));
     expect(screen.getByTestId("file-tree")).toHaveTextContent("/workspace/beta");
   });
 

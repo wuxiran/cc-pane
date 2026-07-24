@@ -49,7 +49,7 @@ export default function ExplorerFilesSection({
   ) : (
     <div className="flex flex-col gap-0.5">
       {workspace.projects.map((project) => {
-        const expanded = overrides[project.id] ?? project.id === selectedProjectId;
+        const expanded = overrides[project.id] ?? false;
         const name = project.alias || getProjectName(project.path);
         const Chevron = expanded ? ChevronDown : ChevronRight;
         return (

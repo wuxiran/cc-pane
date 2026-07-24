@@ -164,7 +164,7 @@ function GitProjectGroup({
   }, [project.path, reloadTick]);
 
   useEffect(() => {
-    if (!expanded || state.kind !== "git") return;
+    if (state.kind !== "git") return;
     const requestId = ++detailsRequestId.current;
     setState((current) => ({ ...current, detailsLoading: true, detailError: null }));
     loadDetails(() => {
@@ -376,7 +376,7 @@ export default function ExplorerGitSection({
   return (
     <div className="flex flex-col gap-0.5">
       {projects.map((project) => {
-        const expanded = mode === "project" || (overrides[project.id] ?? project.id === selectedProjectId);
+        const expanded = mode === "project" || (overrides[project.id] ?? false);
         return (
           <GitProjectGroup
             key={project.id}
