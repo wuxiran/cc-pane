@@ -157,7 +157,8 @@ export default function RightDock() {
         aria-valuemax={MAX_RIGHT_DOCK_WIDTH}
         aria-valuenow={width}
         tabIndex={0}
-        className="splitview-sash vertical absolute inset-y-0 left-0 z-20"
+        className="splitview-sash vertical absolute inset-y-0 z-20"
+        style={{ width: 10, minWidth: 10, left: -5, cursor: "col-resize" }}
         onPointerDown={handleResizePointerDown}
         onDoubleClick={() => setVisible(false)}
         onKeyDown={(event) => {
