@@ -249,8 +249,9 @@ describe("WorkspaceEnvironmentPanel", () => {
     const user = userEvent.setup();
     // 路径须匹配宿主平台:黑屏修复(docs/46)后跨平台路径会触发 platform-mismatch
     // issue 直接禁用保存按钮,本用例要测的是 CLI 默认环境校验,需给合法本机路径
-    const hostPath =
-      process.platform === "win32" ? "C:\\tmp\\workspace-alpha" : "/tmp/workspace-alpha";
+    const hostPath = navigator.platform.toLowerCase().startsWith("win")
+      ? "C:\\tmp\\workspace-alpha"
+      : "/tmp/workspace-alpha";
     const workspace = createTestWorkspace({
       id: "ws-1",
       name: "workspace-alpha",
