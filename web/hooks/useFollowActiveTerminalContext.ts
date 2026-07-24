@@ -44,7 +44,7 @@ function getActiveTab(state: PanesContextState) {
   return tab ? { pane, tab } : null;
 }
 
-function selectActiveTerminalKey(state: PanesContextState): string | null {
+export function selectActiveTerminalKey(state: PanesContextState): string | null {
   const active = getActiveTab(state);
   if (!active || active.tab.contentType !== "terminal") return null;
   return `${active.pane.id}\u0000${active.tab.id}`;
@@ -57,6 +57,15 @@ function getActiveTerminalContext(state: PanesContextState): TerminalContext | n
     projectPath: active.tab.projectPath,
     workspaceName: active.tab.workspaceName,
   };
+}
+
+/** 供右坞等消费方按需派生"活跃终端所属选中"，作为 store 同步失效时的兜底。 */
+export function resolveActiveTerminalSelection(
+  workspaces: Workspace[],
+): TerminalContextSelection | null {
+  const context = getActiveTerminalContext(usePanesStore.getState());
+  if (!context) return null;
+  return resolveTerminalContextSelection(context, workspaces);
 }
 
 export function useFollowActiveTerminalContext(): void {
