@@ -466,6 +466,7 @@ fn compact_text(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::IdentityConfidence;
 
     fn read_http_request(stream: &mut std::net::TcpStream) -> String {
         use std::io::Read;
@@ -545,6 +546,7 @@ mod tests {
             pid: 1,
             started_at: 2,
             data_dir: std::path::PathBuf::from("/tmp"),
+            identity: IdentityConfidence::Verified,
         };
         let client = McpClient::new(endpoint, Some("launch id/1".to_string()));
         let url = client.mcp_url().unwrap();
@@ -617,6 +619,7 @@ mod tests {
             pid: 1,
             started_at: 2,
             data_dir: std::path::PathBuf::from("/tmp"),
+            identity: IdentityConfidence::Verified,
         };
         let mut client = McpClient::new(endpoint, Some("launch/42".to_string()))
             .with_timeout(Duration::from_secs(2));

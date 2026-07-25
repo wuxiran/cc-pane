@@ -7,7 +7,8 @@ use crate::api::{path_with_segment, ApiClient};
 use crate::cli::CliExit;
 use crate::discovery::{
     data_dir_candidates, discover_daemon_endpoint, discover_orchestrator_endpoint,
-    DataDirCandidate, DataDirMode, DiscoveryError, InstanceKind, ServiceEndpoint,
+    DataDirCandidate, DataDirMode, DiscoveryError, IdentityConfidence, InstanceKind,
+    ServiceEndpoint,
 };
 use crate::mcp::{McpClient, ToolDefinition};
 use crate::offline_db::{self, OfflineCloseRequest, OfflineDbError};
@@ -48,6 +49,9 @@ pub(crate) fn status(context: &CommandContext) -> Result<(), CliExit> {
             for service in ["orchestrator", "daemon"] {
                 if let Some(error) = instance[service]["error"].as_str() {
                     println!("  {service}: {error}");
+                }
+                if let Some(warning) = instance[service]["warning"].as_str() {
+                    println!("  {service}: 警告 — {warning}");
                 }
             }
         }
@@ -455,13 +459,22 @@ fn select_db_path(context: &CommandContext) -> Result<PathBuf, CliExit> {
 
 fn lifecycle_value(result: Result<ServiceEndpoint, DiscoveryError>) -> Value {
     match result {
-        Ok(endpoint) => json!({
-            "lifecycle": "ready",
-            "service": endpoint.kind.name(),
-            "baseUrl": endpoint.base_url,
-            "pid": endpoint.pid,
-            "startedAt": endpoint.started_at,
-        }),
+        Ok(endpoint) => {
+            let legacy = endpoint.identity == IdentityConfidence::Legacy;
+            json!({
+                "lifecycle": "ready",
+                "service": endpoint.kind.name(),
+                "baseUrl": endpoint.base_url,
+                "pid": endpoint.pid,
+                "startedAt": endpoint.started_at,
+                "identity": if legacy { "legacy" } else { "verified" },
+                // 降级必须可见：旧版服务未上报身份字段，仅 token 认证通过。
+                "warning": legacy.then(|| format!(
+                    "{} 未上报身份字段（旧版二进制），仅 token 认证；重启该实例后可完整核对",
+                    endpoint.kind.name()
+                )),
+            })
+        }
         Err(error) => json!({ "lifecycle": "failed", "error": error.to_string() }),
     }
 }

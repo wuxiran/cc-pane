@@ -7,7 +7,7 @@ use serde_json::json;
 use tempfile::tempdir;
 
 use super::*;
-use crate::discovery::ServiceKind;
+use crate::discovery::{IdentityConfidence, ServiceKind};
 
 fn initialize_message(id: u64) -> Value {
     json!({
@@ -30,6 +30,7 @@ fn endpoint(addr: std::net::SocketAddr, data_dir: &Path) -> ServiceEndpoint {
         pid: 7,
         started_at: 11,
         data_dir: data_dir.to_path_buf(),
+        identity: IdentityConfidence::Verified,
     }
 }
 

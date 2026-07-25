@@ -34,6 +34,8 @@ pub struct ServiceEndpoint {
     pub pid: u32,
     pub started_at: u64,
     pub data_dir: PathBuf,
+    /// 身份核对置信度：`Legacy` 表示对面是未上报身份字段的旧版服务。
+    pub identity: IdentityConfidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,9 +167,9 @@ pub fn discover_orchestrator_endpoint(data_dir: &Path) -> Result<ServiceEndpoint
             DiscoveryError::new("orchestrator manifest 缺少 startedAt，请启动新版 CC-Panes")
         })?,
         data_dir: data_dir.to_path_buf(),
+        identity: IdentityConfidence::Verified,
     };
-    verify_endpoint_identity(&endpoint)?;
-    Ok(endpoint)
+    finalize_identity(endpoint)
 }
 
 /// 从 `runtime/daemon-manifest.json` 严格发现 daemon。
@@ -186,12 +188,20 @@ pub fn discover_daemon_endpoint(data_dir: &Path) -> Result<ServiceEndpoint, Disc
         pid: manifest.pid,
         started_at: manifest.started_at,
         data_dir: data_dir.to_path_buf(),
+        identity: IdentityConfidence::Verified,
     };
-    verify_endpoint_identity(&endpoint)?;
+    finalize_identity(endpoint)
+}
+
+/// 探活并回填身份置信度。
+fn finalize_identity(mut endpoint: ServiceEndpoint) -> Result<ServiceEndpoint, DiscoveryError> {
+    endpoint.identity = verify_endpoint_identity(&endpoint)?;
     Ok(endpoint)
 }
 
-fn verify_endpoint_identity(endpoint: &ServiceEndpoint) -> Result<(), DiscoveryError> {
+fn verify_endpoint_identity(
+    endpoint: &ServiceEndpoint,
+) -> Result<IdentityConfidence, DiscoveryError> {
     let url = format!("{}/api/health", endpoint.base_url.trim_end_matches('/'));
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_millis(750)))
@@ -217,35 +227,73 @@ fn verify_endpoint_identity(endpoint: &ServiceEndpoint) -> Result<(), DiscoveryE
     validate_identity(endpoint, &health)
 }
 
+/// 身份核对置信度。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityConfidence {
+    /// service/pid/startedAt 全部提供且与 manifest 一致。
+    Verified,
+    /// 旧版服务未上报身份字段，仅由 Bearer token 认证（token 是主认证，身份字段是纵深防御）。
+    Legacy,
+}
+
+/// 分级判定身份。
+///
+/// - 字段**存在但对不上** → 硬失败（这才是真正的冒充/串实例信号）；
+/// - 字段**缺失** → `Legacy`，带警告继续可用（token 已认证成功）。
 fn validate_identity(
     endpoint: &ServiceEndpoint,
     health: &HealthIdentity,
-) -> Result<(), DiscoveryError> {
-    if health.status != "ok"
-        || health.service != endpoint.kind.name()
-        || health.pid != endpoint.pid
-        || health.started_at != endpoint.started_at
-    {
+) -> Result<IdentityConfidence, DiscoveryError> {
+    if health.status != "ok" {
+        return Err(DiscoveryError::new(format!(
+            "{} health 状态异常: status={}",
+            endpoint.kind.name(),
+            health.status
+        )));
+    }
+
+    let mismatch = health
+        .service
+        .as_deref()
+        .is_some_and(|service| service != endpoint.kind.name())
+        || health.pid.is_some_and(|pid| pid != endpoint.pid)
+        || health
+            .started_at
+            .is_some_and(|started_at| started_at != endpoint.started_at);
+    if mismatch {
         return Err(DiscoveryError::new(format!(
             "{} 身份不匹配: manifest pid/startedAt={}/{}, health service/pid/startedAt={}/{}/{}",
             endpoint.kind.name(),
             endpoint.pid,
             endpoint.started_at,
-            health.service,
-            health.pid,
-            health.started_at
+            health.service.as_deref().unwrap_or("-"),
+            display_opt(health.pid),
+            display_opt(health.started_at)
         )));
     }
-    Ok(())
+
+    if health.service.is_none() && health.pid.is_none() && health.started_at.is_none() {
+        return Ok(IdentityConfidence::Legacy);
+    }
+    Ok(IdentityConfidence::Verified)
 }
 
+fn display_opt<T: std::fmt::Display>(value: Option<T>) -> String {
+    value.map(|v| v.to_string()).unwrap_or_else(|| "-".into())
+}
+
+/// health 响应的身份字段。
+///
+/// `service`/`pid`/`startedAt` 是 2026-07-25 才加到 daemon 与 orchestrator 上的，
+/// 因此**必须可缺失**：升级窗口期内跑着的仍是旧二进制（安装版更要等下次发版）。
+/// 把缺失当失败会让 ctl 恰好在最需要它的版本错配时段完全不可用。
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HealthIdentity {
     status: String,
-    service: String,
-    pid: u32,
-    started_at: u64,
+    service: Option<String>,
+    pid: Option<u32>,
+    started_at: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -561,21 +609,98 @@ mod tests {
             pid: 42,
             started_at: 100,
             data_dir: PathBuf::from("/tmp/test"),
+            identity: IdentityConfidence::Verified,
         };
         let wrong_service = HealthIdentity {
             status: "ok".to_string(),
-            service: ORCHESTRATOR_SERVICE.to_string(),
-            pid: 42,
-            started_at: 100,
+            service: Some(ORCHESTRATOR_SERVICE.to_string()),
+            pid: Some(42),
+            started_at: Some(100),
         };
         assert!(validate_identity(&endpoint, &wrong_service).is_err());
         let stale = HealthIdentity {
             status: "ok".to_string(),
-            service: DAEMON_SERVICE.to_string(),
-            pid: 42,
-            started_at: 99,
+            service: Some(DAEMON_SERVICE.to_string()),
+            pid: Some(42),
+            started_at: Some(99),
         };
         assert!(validate_identity(&endpoint, &stale).is_err());
+    }
+
+    fn daemon_endpoint_fixture() -> ServiceEndpoint {
+        ServiceEndpoint {
+            kind: ServiceKind::Daemon,
+            base_url: "http://127.0.0.1:1".to_string(),
+            token: "secret".to_string(),
+            pid: 42,
+            started_at: 100,
+            data_dir: PathBuf::from("/tmp/test"),
+            identity: IdentityConfidence::Verified,
+        }
+    }
+
+    #[test]
+    fn full_identity_match_is_verified() {
+        let health = HealthIdentity {
+            status: "ok".to_string(),
+            service: Some(DAEMON_SERVICE.to_string()),
+            pid: Some(42),
+            started_at: Some(100),
+        };
+        assert_eq!(
+            validate_identity(&daemon_endpoint_fixture(), &health),
+            Ok(IdentityConfidence::Verified)
+        );
+    }
+
+    /// 旧版 daemon/orchestrator 不上报身份字段：必须降级可用而非硬失败，
+    /// 否则 ctl 恰好在版本错配（最需要兜底）的时段完全不可用。
+    #[test]
+    fn missing_identity_fields_degrade_to_legacy() {
+        let health = HealthIdentity {
+            status: "ok".to_string(),
+            service: None,
+            pid: None,
+            started_at: None,
+        };
+        assert_eq!(
+            validate_identity(&daemon_endpoint_fixture(), &health),
+            Ok(IdentityConfidence::Legacy)
+        );
+    }
+
+    /// 旧版 health 的原始响应体（只有 status）必须能反序列化。
+    #[test]
+    fn legacy_health_body_parses() {
+        let health: HealthIdentity =
+            serde_json::from_str(r#"{"status":"ok"}"#).expect("legacy health parses");
+        assert_eq!(
+            validate_identity(&daemon_endpoint_fixture(), &health),
+            Ok(IdentityConfidence::Legacy)
+        );
+    }
+
+    /// 部分上报但对不上 → 仍然硬失败（真冒充信号）。
+    #[test]
+    fn partial_identity_mismatch_still_fails() {
+        let health = HealthIdentity {
+            status: "ok".to_string(),
+            service: None,
+            pid: Some(999),
+            started_at: None,
+        };
+        assert!(validate_identity(&daemon_endpoint_fixture(), &health).is_err());
+    }
+
+    #[test]
+    fn non_ok_status_fails() {
+        let health = HealthIdentity {
+            status: "degraded".to_string(),
+            service: Some(DAEMON_SERVICE.to_string()),
+            pid: Some(42),
+            started_at: Some(100),
+        };
+        assert!(validate_identity(&daemon_endpoint_fixture(), &health).is_err());
     }
 
     #[test]
