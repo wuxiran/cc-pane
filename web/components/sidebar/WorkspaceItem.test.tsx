@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useLaunchProfilesStore, useProvidersStore, useSettingsStore } from "@/stores";
+import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useWorkspacesStore } from "@/stores";
 import { createTestProvider, createTestSettings, createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
 import type { LaunchProfile, Workspace } from "@/types";
 import WorkspaceItem from "./WorkspaceItem";
@@ -44,6 +44,7 @@ function renderWorkspaceItem(
     providerId: "provider-codex",
     ...workspaceOverrides,
   });
+  useWorkspacesStore.setState({ workspaces: [ws] });
 
   render(
     <TooltipProvider>
@@ -144,6 +145,31 @@ describe("WorkspaceItem", () => {
 
     expect(screen.getByText("workspace-alpha")).toBeVisible();
     expect(screen.getByText("0")).toBeVisible();
+  });
+
+  it("在工作空间名称前渲染颜色点", () => {
+    renderWorkspaceItem("local", false, { color: "blue" });
+
+    expect(screen.getByTestId("workspace-color-dot")).toHaveAttribute("data-color", "blue");
+  });
+
+  it("非默认工作空间右键菜单提供分组和颜色设置入口", async () => {
+    renderWorkspaceItem("local");
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
+
+    expect(await screen.findByRole("menuitem", { name: /设置分组|Set Group/i })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: /设置颜色|Set Color/i })).toBeVisible();
+  });
+
+  it("默认工作空间不显示分组和颜色设置入口", async () => {
+    renderWorkspaceItem("local", false, { isDefault: true });
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /默认工作空间|Default Workspace/i }));
+
+    expect(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: /设置分组|Set Group/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /设置颜色|Set Color/i })).not.toBeInTheDocument();
   });
 
   it("兼容旧版常用启动项配置且不触发渲染循环", async () => {
@@ -517,7 +543,7 @@ describe("WorkspaceItem", () => {
     const user = userEvent.setup();
     renderWorkspaceItem("local");
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
-    await user.hover(await screen.findByRole("menuitem", { name: /设置|Settings/ }));
+    await user.hover(await screen.findByRole("menuitem", { name: /^设置$|^Settings$/ }));
     expect(await screen.findByRole("menuitem", { name: "Hooks" })).toBeVisible();
   });
 });

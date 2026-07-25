@@ -52,6 +52,9 @@ import type {
   WorkspaceProject,
 } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
+import WorkspaceAppearanceMenu from "./WorkspaceAppearanceMenu";
+import WorkspaceColorDot from "./WorkspaceColorDot";
+import WorkspaceGroupDialog from "./WorkspaceGroupDialog";
 import {
   buildSidebarCliLaunchItems,
   buildSidebarLaunchActions,
@@ -127,6 +130,7 @@ export default function WorkspaceItem({
   const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
   const [hookGroups, setHookGroups] = useState<ProjectCliHookGroupStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
 
   const isDefaultWorkspace = !!workspace.isDefault;
   const displayName = workspace.alias
@@ -442,6 +446,7 @@ export default function WorkspaceItem({
               ) : (
                 <Folder className="w-4 h-4 shrink-0 text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors" />
               )}
+              {workspace.color ? <WorkspaceColorDot color={workspace.color} /> : null}
               <span className="truncate text-[14px] font-medium">{displayName}</span>
               {isDefaultWorkspace ? (
                 <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
@@ -679,6 +684,11 @@ export default function WorkspaceItem({
           {!isDefaultWorkspace ? (
             <>
               <ContextMenuSeparator />
+              <WorkspaceAppearanceMenu
+                workspace={workspace}
+                onNewGroup={() => setGroupDialogOpen(true)}
+              />
+              <ContextMenuSeparator />
               <ContextMenuItem variant="destructive" onClick={() => onDelete(workspace)}>
                 <Trash2 /> {t("deleteWorkspace")}
               </ContextMenuItem>
@@ -697,6 +707,11 @@ export default function WorkspaceItem({
         open={sshDialogOpen}
         onOpenChange={setSshDialogOpen}
         workspaceName={workspace.name}
+      />
+      <WorkspaceGroupDialog
+        workspace={workspace}
+        open={groupDialogOpen}
+        onOpenChange={setGroupDialogOpen}
       />
     </div>
   );
