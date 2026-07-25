@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
-import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2, Star, CopyPlus, Maximize2, Minimize2, Globe2, Play } from "lucide-react";
+import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2, Star, CopyPlus, Maximize2, Minimize2, Globe2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -14,21 +13,14 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import {
-  filterQuickCommandsForProject,
-  useQuickCommandsStore,
-  useTerminalStatusStore,
-} from "@/stores";
+import { useTerminalStatusStore } from "@/stores";
 import StatusIndicator from "@/components/StatusIndicator";
 import InlineRename from "@/components/ui/InlineRename";
 import SessionBindDialog from "@/components/panes/SessionBindDialog";
 import { computeTabNumbers } from "@/lib/tabNumbering";
-import type { ScopedQuickCommand, Tab, TerminalStatusType } from "@/types";
+import type { Tab, TerminalStatusType } from "@/types";
 import type { TFunction } from "i18next";
-import {
-  executeQuickCommand,
-  getQuickCommandSessionId,
-} from "@/lib/quickCommandExecution";
+import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 
 /** Notch 风格密度配置 */
 // 标题不再单独限宽（min-w-0 flex-1 truncate 由 tabMaxW 统一约束）：
@@ -204,7 +196,6 @@ function SortableTab({
   onCloneTab?: (tab: Tab) => void;
   onToggleFullscreen?: (tabId: string) => void;
   isPaneFullscreen?: boolean;
-  activeTabBg?: string;
   activeTabFg?: string;
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
   registerTabNode: (tabId: string, node: HTMLDivElement | null) => void;
@@ -231,39 +222,6 @@ function SortableTab({
     tab.contentType === "terminal" && tab.terminalRootPane
       ? countTerminalLeaves(tab.terminalRootPane)
       : 0;
-  const quickCommands = useQuickCommandsStore((state) => state.commands);
-  const quickCommandsProjectPath = useQuickCommandsStore((state) => state.activeProjectPath);
-  const visibleQuickCommands = filterQuickCommandsForProject(
-    quickCommands,
-    quickCommandsProjectPath,
-    tab.projectPath,
-  );
-
-  const quickCommandDisabledReason = (command: ScopedQuickCommand): string | undefined => {
-    if (command.target === "currentPane" && !getQuickCommandSessionId(tab)) {
-      return t("quickCommandNoActiveTerminal");
-    }
-    if (command.target === "newTab" && !tab.projectPath) {
-      return t("quickCommandNoActiveProject");
-    }
-    if (
-      command.kind === "agentPrompt"
-      && command.target === "newTab"
-      && (!command.cliTool || command.cliTool === "none")
-    ) {
-      return t("quickCommandNoCliTool");
-    }
-    return undefined;
-  };
-
-  const runQuickCommand = (command: ScopedQuickCommand) => {
-    if (quickCommandDisabledReason(command)) return;
-    const { scope: _scope, ...quickCommand } = command;
-    void executeQuickCommand(quickCommand, { paneId, tab }).catch((error) => {
-      toast.error(t("quickCommandExecuteFailed", { error: String(error) }));
-    });
-  };
-
   const showSeparator = index > 0
     && tab.id !== activeId
     && tabs[index - 1].id !== activeId;
@@ -462,31 +420,7 @@ function SortableTab({
             <Settings2 /> {t("editWorkspaceEnvironment")}
           </ContextMenuItem>
         ) : null}
-        {visibleQuickCommands.length > 0 && (
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <Play /> {t("runQuickCommand")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-64">
-              {visibleQuickCommands.map((command) => {
-                const disabledReason = quickCommandDisabledReason(command);
-                return (
-                  <ContextMenuItem
-                    key={`${command.scope}-${command.id}`}
-                    disabled={Boolean(disabledReason)}
-                    title={disabledReason}
-                    onClick={() => runQuickCommand(command)}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{command.name}</span>
-                    <span className="text-xs text-[var(--app-text-tertiary)]">
-                      {command.scope === "global" ? t("quickCommandGlobal") : t("quickCommandProject")}
-                    </span>
-                  </ContextMenuItem>
-                );
-              })}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-        )}
+        <TabQuickCommandsMenu tab={tab} paneId={paneId} />
         <ContextMenuSeparator />
         <ContextMenuItem onClick={onSplitRight}>
           <PanelRight /> {t("splitPanelRight")}
@@ -644,7 +578,6 @@ export default memo(function TabBar({
   onCloneTab,
   onToggleFullscreen,
   isPaneFullscreen,
-  activeTabBg,
   activeTabFg,
 }: TabBarProps) {
   const { t } = useTranslation("panes");
@@ -824,7 +757,6 @@ export default memo(function TabBar({
                 onCloneTab={onCloneTab}
                 onToggleFullscreen={onToggleFullscreen}
                 isPaneFullscreen={isPaneFullscreen}
-                activeTabBg={activeTabBg}
                 activeTabFg={activeTabFg}
                 getStatus={getStatus}
                 registerTabNode={registerTabNode}
