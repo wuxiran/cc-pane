@@ -1,12 +1,9 @@
-import { useMemo } from "react";
 import type { SyntheticEvent } from "react";
 import { Check, GripVertical, Star, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { TFunction } from "i18next";
-import { aggregatePaneStatus } from "@/utils/layoutStatus";
 import InlineRename from "@/components/ui/InlineRename";
-import StatusIndicator from "@/components/StatusIndicator";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -15,10 +12,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { LayoutWorkspaceBadge, LayoutWorkspaceMenuItems } from "./LayoutWorkspaceMenu";
-import { collectPanels } from "@/stores/paneTreeHelpers";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
-
-const MAX_LAYOUT_STATUS_DOTS = 6;
+import LayoutStatusDots from "./LayoutStatusDots";
 
 export function layoutRowStyle(selected: boolean): React.CSSProperties {
   return {
@@ -30,46 +25,6 @@ export function layoutRowStyle(selected: boolean): React.CSSProperties {
 function stopLayoutRowAction(event: SyntheticEvent) {
   event.preventDefault();
   event.stopPropagation();
-}
-
-function LayoutStatusDots({
-  rootPane,
-  statusMap,
-}: {
-  rootPane: PaneNode;
-  statusMap: Map<string, TerminalStatusInfo>;
-}) {
-  const paneStatuses = useMemo(
-    () => collectPanels(rootPane).map((panel) =>
-      aggregatePaneStatus(
-        panel.tabs.map((tab) => (tab.sessionId ? statusMap.get(tab.sessionId)?.status ?? null : null)),
-      ),
-    ),
-    [rootPane, statusMap],
-  );
-  const visibleStatuses = paneStatuses.slice(0, MAX_LAYOUT_STATUS_DOTS);
-  const overflow = paneStatuses.length - visibleStatuses.length;
-
-  return (
-    <span className="flex shrink-0 items-center gap-[3px]">
-      {visibleStatuses.map((status, index) => (
-        status ? (
-          <StatusIndicator key={index} status={status} size={6} />
-        ) : (
-          <span
-            key={index}
-            className="inline-block h-[6px] w-[6px] shrink-0 rounded-full border"
-            style={{ borderColor: "var(--app-border)" }}
-          />
-        )
-      ))}
-      {overflow > 0 ? (
-        <span className="text-[9px] leading-none" style={{ color: "var(--app-text-tertiary)" }}>
-          +{overflow}
-        </span>
-      ) : null}
-    </span>
-  );
 }
 
 export function SortableLayoutRow({

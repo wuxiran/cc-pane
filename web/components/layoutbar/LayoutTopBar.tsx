@@ -2,7 +2,7 @@
 // 点击切换、双击重命名、悬停删除、＋新建；与左下角 LayoutBar 共用同一份
 // layouts 状态（usePanesStore），只是展示位置不同。右端按钮可切回 corner 模式。
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownLeft, Command, Plus, Star, X } from "lucide-react";
+import { ArrowDownLeft, Command, Plus, Rows2, Rows3, Star, X } from "lucide-react";
 import {
   DndContext,
   PointerSensor,
@@ -18,15 +18,31 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   ContextMenu,
   ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { LayoutWorkspaceBadge, LayoutWorkspaceMenuItems } from "./LayoutWorkspaceMenu";
-import { useActivityBarStore, useLayoutUiStore, usePanesStore } from "@/stores";
+import {
+  useActivityBarStore,
+  useLayoutUiStore,
+  usePanesStore,
+  useTerminalStatusStore,
+  useWorkspacesStore,
+  type LayoutBarDensity,
+} from "@/stores";
 import { matchLayoutPreset } from "@/stores/usePanesStore";
 import { collectTerminalTabs } from "@/lib/paneSessions";
-import type { LayoutEntry, PaneNode } from "@/types";
+import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
+import LayoutProjectSummaryView from "./LayoutProjectSummaryView";
+import LayoutStatusDots from "./LayoutStatusDots";
+import {
+  deriveLayoutProjectSummary,
+  type LayoutProjectSummary as LayoutProjectSummaryData,
+} from "./layoutProjectSummary";
 
 // 预设示意图标：16×16 小色块拼出目标分屏结构
 const PRESET_ICONS: Record<LayoutPresetId, React.ReactNode> = {
@@ -82,27 +98,57 @@ function SortableLayoutTab({
   tree,
   selected,
   tabCount,
+  density,
+  projectSummary,
+  statusMap,
+  idleLabel,
+  densityToggleLabel,
   deletable,
   deleteLabel,
   onSelect,
   onStartRename,
   onRequestDelete,
+  onToggleDensity,
 }: {
   layout: LayoutEntry;
   tree: PaneNode;
   selected: boolean;
   tabCount: number;
+  density: LayoutBarDensity;
+  projectSummary: LayoutProjectSummaryData;
+  statusMap: Map<string, TerminalStatusInfo>;
+  idleLabel: string;
+  densityToggleLabel: string;
   deletable: boolean;
   deleteLabel: string;
   onSelect: () => void;
   onStartRename: () => void;
   onRequestDelete: () => void;
+  onToggleDensity: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: layout.id,
   });
 
-  // ContextMenuTrigger asChild 通过 Radix Slot 合并 ref，与 dnd-kit 的 setNodeRef 共存
+  const DensityIcon = density === "comfortable" ? Rows2 : Rows3;
+  const statusDots = layout.kind === "starred"
+    ? null
+    : <LayoutStatusDots rootPane={tree} statusMap={statusMap} />;
+  const deleteButton = deletable ? (
+    <span
+      role="button"
+      aria-label={deleteLabel}
+      className="hidden h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm group-hover:flex hover:bg-[var(--app-hover)]"
+      onClick={(event) => {
+        event.stopPropagation();
+        onRequestDelete();
+      }}
+    >
+      <X className="h-3 w-3" />
+    </span>
+  ) : null;
+
+  // ContextMenuTrigger asChild 通过 Radix Slot 合并 ref，与 dnd-kit 的 setNodeRef 共存。
   const tabButton = (
     <button
       ref={setNodeRef}
@@ -112,7 +158,12 @@ function SortableLayoutTab({
       role="tab"
       aria-selected={selected}
       title={layout.name}
-      className={`group flex h-[30px] flex-shrink-0 cursor-pointer select-none items-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-[13px] transition-colors duration-[var(--dur-fast)] ${
+      data-density={density}
+      className={`group flex flex-shrink-0 cursor-pointer select-none whitespace-nowrap rounded-md border px-3 text-[13px] transition-colors duration-[var(--dur-fast)] ${
+        density === "comfortable"
+          ? "h-[50px] min-w-[176px] max-w-[240px] flex-col justify-center gap-0.5 py-1.5 text-left"
+          : "h-[30px] items-center gap-1.5"
+      } ${
         selected ? "" : "hover:bg-[var(--app-hover)]"
       }`}
       style={{
@@ -135,42 +186,64 @@ function SortableLayoutTab({
       onClick={onSelect}
       onDoubleClick={onStartRename}
     >
-      {layout.kind === "starred" && <Star className="h-3 w-3" aria-hidden />}
-      <span className="max-w-[140px] overflow-hidden text-ellipsis">{layout.name}</span>
-      {layout.kind !== "starred" && <LayoutWorkspaceBadge layout={layout} rootPane={tree} mini />}
-      {tabCount > 0 && (
-        <span
-          className="text-[11px] tabular-nums"
-          style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
-        >
-          {tabCount}
-        </span>
-      )}
-      {deletable && (
-        <span
-          role="button"
-          aria-label={deleteLabel}
-          className="hidden h-3.5 w-3.5 items-center justify-center rounded-sm group-hover:flex hover:bg-[var(--app-hover)]"
-          onClick={(event) => {
-            event.stopPropagation();
-            onRequestDelete();
-          }}
-        >
-          <X className="h-3 w-3" />
-        </span>
+      {density === "comfortable" ? (
+        <>
+          <span className="flex w-full min-w-0 items-center gap-1.5">
+            {layout.kind === "starred" && <Star className="h-3 w-3 shrink-0" aria-hidden />}
+            <span className="min-w-0 flex-1 overflow-hidden text-ellipsis">{layout.name}</span>
+            {layout.kind !== "starred" && <LayoutWorkspaceBadge layout={layout} rootPane={tree} mini />}
+            {tabCount > 0 ? (
+              <span
+                className="shrink-0 text-[11px] tabular-nums"
+                style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
+              >
+                {tabCount}
+              </span>
+            ) : null}
+            {statusDots}
+            {deleteButton}
+          </span>
+          <span
+            className="flex w-full min-w-0 items-center overflow-hidden text-[11px] leading-none"
+            style={{ color: "var(--app-text-tertiary)" }}
+          >
+            <LayoutProjectSummaryView summary={projectSummary} idleLabel={idleLabel} />
+          </span>
+        </>
+      ) : (
+        <>
+          {layout.kind === "starred" && <Star className="h-3 w-3 shrink-0" aria-hidden />}
+          <span className="max-w-[140px] overflow-hidden text-ellipsis">{layout.name}</span>
+          {layout.kind !== "starred" && <LayoutWorkspaceBadge layout={layout} rootPane={tree} mini />}
+          {tabCount > 0 ? (
+            <span
+              className="text-[11px] tabular-nums"
+              style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
+            >
+              {tabCount}
+            </span>
+          ) : null}
+          {statusDots}
+          {deleteButton}
+        </>
       )}
     </button>
   );
-
-  if (layout.kind === "starred") {
-    return tabButton;
-  }
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{tabButton}</ContextMenuTrigger>
       <ContextMenuContent className="z-[120] w-44">
-        <LayoutWorkspaceMenuItems layout={layout} />
+        {layout.kind !== "starred" ? (
+          <>
+            <LayoutWorkspaceMenuItems layout={layout} />
+            <ContextMenuSeparator />
+          </>
+        ) : null}
+        <ContextMenuItem onSelect={onToggleDensity}>
+          <DensityIcon />
+          {densityToggleLabel}
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -186,7 +259,11 @@ export default function LayoutTopBar() {
   const renameLayout = usePanesStore((s) => s.renameLayout);
   const reorderLayouts = usePanesStore((s) => s.reorderLayouts);
   const applyLayoutPreset = usePanesStore((s) => s.applyLayoutPreset);
+  const statusMap = useTerminalStatusStore((s) => s.statusMap);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
+  const density = useLayoutUiStore((s) => s.layoutBarDensity);
+  const setDensity = useLayoutUiStore((s) => s.setLayoutBarDensity);
   const setSwitcherMode = useLayoutUiStore((s) => s.setSwitcherMode);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -203,6 +280,10 @@ export default function LayoutTopBar() {
   const currentLayoutStarred =
     layouts.find((layout) => layout.id === currentLayoutId)?.kind === "starred";
   const matchedPreset = currentLayoutStarred ? null : matchLayoutPreset(liveRootPane);
+  const nextDensity = density === "comfortable" ? "compact" : "comfortable";
+  const densityToggleLabel = t(
+    nextDensity === "compact" ? "layoutDensityCompact" : "layoutDensityComfortable",
+  );
 
   function selectLayout(layoutId: string) {
     setAppViewMode("panes");
@@ -250,13 +331,16 @@ export default function LayoutTopBar() {
 
   return (
     <div
-      className="flex h-9 flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2"
+      className={`flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2 ${
+        density === "comfortable" ? "h-[58px]" : "h-9"
+      }`}
       style={{
         background: "var(--app-panel-bg)",
         borderColor: "var(--app-border)",
       }}
       role="tablist"
       aria-label={t("layouts")}
+      data-density={density}
     >
       <Command
         aria-hidden
@@ -270,6 +354,7 @@ export default function LayoutTopBar() {
             const selected = layout.id === currentLayoutId;
             const tree = selected ? liveRootPane : layout.rootPane;
             const tabCount = layout.kind === "starred" ? 0 : collectTerminalTabs(tree).length;
+            const projectSummary = deriveLayoutProjectSummary(tree, workspaces, statusMap);
             const isEditing = editingId === layout.id;
 
             if (isEditing) {
@@ -301,11 +386,17 @@ export default function LayoutTopBar() {
                 tree={tree}
                 selected={selected}
                 tabCount={tabCount}
+                density={density}
+                projectSummary={projectSummary}
+                statusMap={statusMap}
+                idleLabel={t("layoutIdle")}
+                densityToggleLabel={densityToggleLabel}
                 deletable={layout.kind !== "starred" && !deletingLastLayout}
                 deleteLabel={t("deleteLayout")}
                 onSelect={() => selectLayout(layout.id)}
                 onStartRename={() => startRename(layout)}
                 onRequestDelete={() => requestDelete(layout)}
+                onToggleDensity={() => setDensity(nextDensity)}
               />
             );
           })}
@@ -398,6 +489,17 @@ export default function LayoutTopBar() {
           </TooltipTrigger>
           <TooltipContent>{t("layoutModeCorner")}</TooltipContent>
         </Tooltip>
+        <IconTooltipButton
+          label={densityToggleLabel}
+          className="h-[26px] w-[26px] p-0 text-[var(--app-text-tertiary)]"
+          onClick={() => setDensity(nextDensity)}
+        >
+          {density === "comfortable" ? (
+            <Rows2 className="h-3.5 w-3.5" />
+          ) : (
+            <Rows3 className="h-3.5 w-3.5" />
+          )}
+        </IconTooltipButton>
       </div>
 
       <LayoutDeleteDialog

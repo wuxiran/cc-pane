@@ -1,12 +1,19 @@
 import "@/i18n";
 import type { ReactElement } from "react";
-import { fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
+import { act, fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import LayoutTopBar from "./LayoutTopBar";
-import { useActivityBarStore, usePanesStore } from "@/stores";
+import {
+  useActivityBarStore,
+  useLayoutUiStore,
+  usePanesStore,
+  useTerminalStatusStore,
+  useWorkspacesStore,
+} from "@/stores";
 import { createPanel } from "@/stores/paneTreeHelpers";
-import type { Panel, PaneNode, SplitPane } from "@/types";
+import type { Panel, PaneNode, SplitPane, Tab, TerminalStatusInfo } from "@/types";
 
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
@@ -56,6 +63,50 @@ function resetStores(rootPane: PaneNode = createPanel()) {
     appViewMode: "panes",
     orchestrationOverlayOpen: false,
   });
+  useLayoutUiStore.setState({
+    switcherMode: "topbar",
+    layoutBarDensity: "comfortable",
+  });
+  useTerminalStatusStore.setState({ statusMap: new Map() });
+  useWorkspacesStore.setState({
+    workspaces: [
+      {
+        id: "workspace-1",
+        name: "workspace",
+        createdAt: "2026-07-25",
+        projects: [
+          { id: "project-a", path: "/work/cc-book" },
+          { id: "project-b", path: "/work/vms" },
+          { id: "project-c", path: "/work/erp" },
+        ],
+      },
+    ],
+  });
+}
+
+function terminalTab(
+  id: string,
+  projectId: string,
+  projectPath: string,
+  sessionId: string | null = null,
+): Tab {
+  return {
+    id,
+    title: id,
+    contentType: "terminal",
+    projectId,
+    projectPath,
+    sessionId,
+  };
+}
+
+function status(sessionId: string, value: TerminalStatusInfo["status"]): TerminalStatusInfo {
+  return {
+    sessionId,
+    status: value,
+    lastOutputAt: 1,
+    updatedAt: 1,
+  };
 }
 
 function presetButtons() {
@@ -110,5 +161,97 @@ describe("LayoutTopBar 布局预设按钮", () => {
     usePanesStore.setState({ currentLayoutId: "layout-starred" });
     render(<LayoutTopBar />);
     expect(screen.queryByRole("group")).toBeNull();
+  });
+});
+
+describe("LayoutTopBar 布局条密度", () => {
+  beforeEach(() => {
+    resetStores();
+  });
+
+  it("默认渲染舒适档，切换后渲染紧凑档且星标布局保持可用", async () => {
+    const user = userEvent.setup();
+    render(<LayoutTopBar />);
+
+    expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "comfortable");
+    expect(screen.getAllByText(/空闲|Idle/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("tab", { name: /星标/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /切换到紧凑档|Switch to compact/i }));
+
+    expect(useLayoutUiStore.getState().layoutBarDensity).toBe("compact");
+    expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "compact");
+    expect(screen.queryAllByText(/空闲|Idle/i)).toHaveLength(0);
+    expect(screen.getByRole("tab", { name: /星标/ })).toBeInTheDocument();
+  });
+
+  it("舒适档展示去重后的项目摘要和溢出计数", () => {
+    const rootPane = createPanel();
+    rootPane.tabs = [
+      terminalTab("tab-a-1", "project-a", "/work/cc-book"),
+      terminalTab("tab-a-2", "project-a", "/work/cc-book"),
+      terminalTab("tab-b", "project-b", "/work/vms"),
+      terminalTab("tab-c", "project-c", "/work/erp"),
+    ];
+    resetStores(rootPane);
+
+    render(<LayoutTopBar />);
+
+    expect(screen.getByText("cc-book")).toBeInTheDocument();
+    expect(screen.getByText("vms")).toBeInTheDocument();
+    expect(screen.getByText("+1")).toBeInTheDocument();
+    expect(screen.queryByText("erp")).not.toBeInTheDocument();
+  });
+
+  it("项目摘要随 panes store 更新即时重新派生", () => {
+    render(<LayoutTopBar />);
+    expect(screen.getAllByText(/空闲|Idle/i).length).toBeGreaterThan(0);
+
+    const rootPane = createPanel(terminalTab("tab-a", "project-a", "/work/cc-book"));
+    act(() => {
+      usePanesStore.setState({ rootPane, activePaneId: rootPane.id });
+    });
+
+    expect(screen.getByText("cc-book")).toBeInTheDocument();
+  });
+
+  it("旧 pane 状态点在两档中保持相同语义", async () => {
+    const user = userEvent.setup();
+    const busyPanel = createPanel(terminalTab("tab-busy", "project-a", "/work/cc-book", "busy"));
+    const errorPanel = createPanel(terminalTab("tab-error", "project-b", "/work/vms", "error"));
+    const rootPane: SplitPane = {
+      type: "split",
+      id: "split-root",
+      direction: "horizontal",
+      children: [busyPanel, errorPanel],
+      sizes: [50, 50],
+    };
+    resetStores(rootPane);
+    useTerminalStatusStore.setState({
+      statusMap: new Map([
+        ["busy", status("busy", "toolRunning")],
+        ["error", status("error", "error")],
+      ]),
+    });
+
+    render(<LayoutTopBar />);
+
+    expect(screen.getAllByTitle(/工具运行|Running tool/i)).toHaveLength(2);
+    expect(screen.getAllByTitle(/错误|Error/i)).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: /切换到紧凑档|Switch to compact/i }));
+
+    expect(screen.getAllByTitle(/工具运行|Running tool/i)).toHaveLength(1);
+    expect(screen.getAllByTitle(/错误|Error/i)).toHaveLength(1);
+  });
+
+  it("右键菜单提供同一密度切换动作", async () => {
+    const user = userEvent.setup();
+    render(<LayoutTopBar />);
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /布局 1/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /切换到紧凑档|Switch to compact/i }));
+
+    expect(useLayoutUiStore.getState().layoutBarDensity).toBe("compact");
   });
 });
