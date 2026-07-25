@@ -6,18 +6,25 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type LayoutSwitcherMode = "corner" | "topbar";
+export type LayoutBarDensity = "comfortable" | "compact";
+
+export const LAYOUT_UI_STORAGE_KEY = "cc-panes-layout-ui";
 
 interface LayoutUiState {
   switcherMode: LayoutSwitcherMode;
+  layoutBarDensity: LayoutBarDensity;
   setSwitcherMode: (mode: LayoutSwitcherMode) => void;
+  setLayoutBarDensity: (density: LayoutBarDensity) => void;
 }
 
 export const useLayoutUiStore = create<LayoutUiState>()(
   persist(
     (set) => ({
       switcherMode: "corner",
+      layoutBarDensity: "comfortable",
       setSwitcherMode: (mode) => set({ switcherMode: mode }),
+      setLayoutBarDensity: (density) => set({ layoutBarDensity: density }),
     }),
-    { name: "cc-panes-layout-ui" },
+    { name: LAYOUT_UI_STORAGE_KEY },
   ),
 );

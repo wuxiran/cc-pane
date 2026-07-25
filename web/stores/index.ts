@@ -9,7 +9,11 @@ export { useProvidersStore } from "./useProvidersStore";
 export { useLaunchProfilesStore } from "./useLaunchProfilesStore";
 export { useTerminalStatusStore } from "./useTerminalStatusStore";
 export { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
-export { useLayoutUiStore, type LayoutSwitcherMode } from "./useLayoutUiStore";
+export {
+  useLayoutUiStore,
+  type LayoutBarDensity,
+  type LayoutSwitcherMode,
+} from "./useLayoutUiStore";
 export { useExplorerSectionsStore, type ExplorerSectionId } from "./useExplorerSectionsStore";
 export { useShortcutsStore } from "./useShortcutsStore";
 export { useDialogStore } from "./useDialogStore";
