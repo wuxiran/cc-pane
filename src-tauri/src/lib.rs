@@ -361,6 +361,7 @@ use repository::{
     Database, HistoryRepository, PlanRepository, ProjectRepository, SpecRepository,
     TaskBindingRepository, TodoRepository, UsageStatsRepository,
 };
+use services::BrowserTabManager;
 use services::{
     ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager, JournalService,
     LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
@@ -1498,6 +1499,7 @@ pub fn run() {
         .manage(layout_switcher_snapshot_store)
         .manage(orchestrator_service.clone())
         .manage(wallpaper_service)
+        .manage(Arc::new(BrowserTabManager::default()))
         .manage(cli_registry)
         .manage(crate::import::PendingImportStore::default())
         .setup(move |app| {
