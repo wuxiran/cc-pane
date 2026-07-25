@@ -250,14 +250,14 @@ describe("LayoutTopBar 布局条密度", () => {
 
     render(<LayoutTopBar />);
 
-    // 舒适档：名称行 pane 状态点(工具运行/错误) + 摘要行状态桶(运行中/错误)
-    expect(screen.getAllByTitle(/工具运行|Running tool/i)).toHaveLength(1);
+    // 舒适档：名称行不再放状态点，状态只出现在摘要行状态桶(运行中/错误)
+    expect(screen.queryAllByTitle(/工具运行|Running tool/i)).toHaveLength(0);
     expect(screen.getAllByTitle(/^(运行中|Running)$/)).toHaveLength(1);
-    expect(screen.getAllByTitle(/^(错误|Error)$/)).toHaveLength(2);
+    expect(screen.getAllByTitle(/^(错误|Error)$/)).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: /切换到紧凑档|Switch to compact/i }));
 
-    // 紧凑档无摘要行：只剩名称行状态点
+    // 紧凑档无摘要行：名称行状态点是唯一状态信号
     expect(screen.getAllByTitle(/工具运行|Running tool/i)).toHaveLength(1);
     expect(screen.queryAllByTitle(/^(运行中|Running)$/)).toHaveLength(0);
     expect(screen.getAllByTitle(/^(错误|Error)$/)).toHaveLength(1);

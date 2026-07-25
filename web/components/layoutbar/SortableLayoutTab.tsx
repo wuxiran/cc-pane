@@ -124,7 +124,7 @@ export default function SortableLayoutTab({
                 {tabCount}
               </span>
             ) : null}
-            {statusDots}
+            {/* 舒适档不再放名称行状态点：摘要行的状态桶已承载同一信息 */}
             {deleteButton}
           </span>
           <span
