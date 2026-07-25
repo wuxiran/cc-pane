@@ -1,0 +1,5 @@
+{"type":"user","cwd":"/workspace/alpha","message":{"content":"Investigate the session index"}}
+{"type":"assistant","cwd":"/workspace/alpha","message":{"content":[{"type":"text","text":"I will inspect the data flow"}]}}
+not valid json
+{"type":"user","cwd":"/workspace/alpha","message":{"content":[{"type":"text","text":"Please finish it"}]}}
+{"type":"assistant","cwd":"/workspace/alpha","message":{"content":[{"type":"thinking","thinking":"hidden"},{"type":"text","text":"The indexed result is ready"}]}}

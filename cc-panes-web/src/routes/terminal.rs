@@ -541,6 +541,9 @@ mod tests {
                 app_paths.user_skills_dir(),
             )),
             usage_stats_service,
+            session_index_service: crate::state::test_session_index_service(
+                app_paths.workspaces_dir(),
+            ),
             ws_emitter: Arc::new(WsEmitter::new()),
             web_auth: Arc::new(crate::web_auth::WebAuthStore::default()),
             default_cwd: "/default/project".to_string(),

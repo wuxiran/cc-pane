@@ -22,6 +22,7 @@ describe("useModulePrefsStore", () => {
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
       aiPanel: { enabled: true, position: "rightDock", autoOpen: false },
+      sessionHistory: { enabled: true, position: "rightDock" },
     });
   });
 
@@ -35,6 +36,7 @@ describe("useModulePrefsStore", () => {
       resources: { enabled: false, position: "activityBar" },
       todo: { enabled: false, position: "activityBar" },
       aiPanel: { enabled: false, position: "rightDock", autoOpen: false },
+      sessionHistory: { enabled: false, position: "rightDock" },
     });
   });
 
@@ -98,6 +100,7 @@ describe("useModulePrefsStore", () => {
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
       aiPanel: { enabled: true, position: "rightDock", autoOpen: false },
+      sessionHistory: { enabled: true, position: "rightDock" },
     });
   });
 

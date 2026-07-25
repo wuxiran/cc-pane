@@ -34,9 +34,16 @@ describe("module registry", () => {
   });
 
   it("defines the v1 module list once with compatible defaults", () => {
-    expect(MODULE_IDS).toEqual(["ssh", "orchestration", "resources", "todo", "aiPanel"]);
+    expect(MODULE_IDS).toEqual([
+      "ssh",
+      "orchestration",
+      "resources",
+      "todo",
+      "aiPanel",
+      "sessionHistory",
+    ]);
     expect(MODULE_REGISTRY.map((module) => module.id)).toEqual(MODULE_IDS);
-    expect(MODULE_REGISTRY).toHaveLength(5);
+    expect(MODULE_REGISTRY).toHaveLength(6);
     expect(MODULE_REGISTRY.every((module) => module.minimal === false)).toBe(true);
     expect(MODULE_REGISTRY.find((module) => module.id === "aiPanel")?.defaultPosition)
       .toBe("rightDock");
@@ -49,6 +56,7 @@ describe("module registry", () => {
       ["resources", ["activityBar", "rightDock", "fullscreen"]],
       ["todo", ["activityBar", "rightDock", "fullscreen"]],
       ["aiPanel", ["rightDock", "dialog"]],
+      ["sessionHistory", ["rightDock", "commandPalette", "settings"]],
     ]);
   });
 
@@ -135,5 +143,22 @@ describe("module registry", () => {
 
     aiPanel?.open("hidden");
     expect(useDialogStore.getState().aiPanelOpen).toBe(true);
+  });
+
+  it("opens session history in the right dock from every entry surface", () => {
+    const history = MODULE_REGISTRY.find((module) => module.id === "sessionHistory");
+
+    history?.open("rightDock");
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "sessionHistory",
+    });
+
+    useRightDockStore.setState({ visible: false, activeView: "git" });
+    history?.open("hidden");
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "sessionHistory",
+    });
   });
 });

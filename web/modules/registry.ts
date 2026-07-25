@@ -1,5 +1,6 @@
 import {
   Boxes,
+  History,
   ListTodo,
   PanelTopOpen,
   Server,
@@ -12,11 +13,25 @@ import { useDialogStore } from "@/stores/useDialogStore";
 import { useRightDockStore } from "@/stores/useRightDockStore";
 import type { TaskBinding } from "@/types";
 
-export const MODULE_IDS = ["ssh", "orchestration", "resources", "todo", "aiPanel"] as const;
+export const MODULE_IDS = [
+  "ssh",
+  "orchestration",
+  "resources",
+  "todo",
+  "aiPanel",
+  "sessionHistory",
+] as const;
 
 export type ModuleId = (typeof MODULE_IDS)[number];
 export type ModulePosition = "activityBar" | "rightDock" | "hidden";
-export type ModuleSurface = "activityBar" | "rightDock" | "dialog" | "overlay" | "fullscreen";
+export type ModuleSurface =
+  | "activityBar"
+  | "rightDock"
+  | "settings"
+  | "commandPalette"
+  | "dialog"
+  | "overlay"
+  | "fullscreen";
 export type ModuleBadge = number | { tone: "red" | "blue" | "amber"; value?: number };
 
 export interface ModuleBadgeContext {
@@ -90,6 +105,10 @@ function openAiPanel(position: ModulePosition) {
   useAiPanelStore.getState().markActiveRead();
 }
 
+function openSessionHistory() {
+  useRightDockStore.setState({ visible: true, activeView: "sessionHistory" });
+}
+
 function orchestrationBadge({ bindings }: ModuleBadgeContext): ModuleBadge | undefined {
   if (bindings.some((binding) => binding.status === "failed")) {
     return { tone: "red" };
@@ -152,6 +171,15 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
     defaultPosition: "rightDock",
     open: openAiPanel,
     badge: aiPanelBadge,
+    minimal: false,
+  },
+  {
+    id: "sessionHistory",
+    icon: History,
+    titleKey: "moduleNames.sessionHistory",
+    surfaces: ["rightDock", "commandPalette", "settings"],
+    defaultPosition: "rightDock",
+    open: openSessionHistory,
     minimal: false,
   },
 ];

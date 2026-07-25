@@ -61,6 +61,12 @@ vi.mock("@/components/aipanel/AiPanelView", () => ({
   default: () => <div data-testid="right-dock-ai-panel">AI Panel</div>,
 }));
 
+vi.mock("./SessionHistoryView", () => ({
+  default: ({ project }: { project: { id: string } | null }) => (
+    <div data-testid="right-dock-session-history">{project?.id}</div>
+  ),
+}));
+
 const workspace: Workspace = {
   id: "workspace-1",
   name: "Workspace One",
@@ -207,6 +213,16 @@ describe("RightDock", () => {
     expect(useRightDockStore.getState().activeView).toBe("aiPanel");
     expect(screen.getByTestId("right-dock-ai-panel")).toBeInTheDocument();
     expect(useAiPanelStore.getState().unreadPanelIds).toEqual([]);
+  });
+
+  it("会话历史模块驻留右坞并接收当前项目上下文", async () => {
+    const user = userEvent.setup();
+    renderDock();
+
+    await user.click(screen.getByRole("tab", { name: "会话历史" }));
+
+    expect(useRightDockStore.getState().activeView).toBe("sessionHistory");
+    expect(screen.getByTestId("right-dock-session-history")).toHaveTextContent("project-1");
   });
 
   it("SSH tab 驻留坞内并复用终端打开回调", async () => {

@@ -41,6 +41,7 @@ use commands::{
     browser_reload,
     browser_set_bounds,
     browser_set_visible,
+    check_codex_rollout_exists,
     check_environment,
     check_ssh_connectivity,
     check_todo_reminders,
@@ -228,6 +229,7 @@ use commands::{
     list_projects,
     list_providers,
     list_quick_commands,
+    list_session_index,
     list_skill_market_entries,
     list_skills,
     list_specs,
@@ -266,6 +268,7 @@ use commands::{
     reconcile_plan_collaboration,
     record_ai_panel_event,
     record_terminal_input,
+    refresh_session_index,
     refresh_usage_stats,
     register_plan_child,
     register_plan_leader,
@@ -378,8 +381,8 @@ use commands::{
     write_terminal,
 };
 use repository::{
-    Database, HistoryRepository, PlanRepository, ProjectRepository, SpecRepository,
-    TaskBindingRepository, TodoRepository, UsageStatsRepository,
+    Database, HistoryRepository, PlanRepository, ProjectRepository, SessionIndexRepository,
+    SpecRepository, TaskBindingRepository, TodoRepository, UsageStatsRepository,
 };
 use services::BrowserTabManager;
 use services::{
@@ -387,7 +390,8 @@ use services::{
     LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
     MemoryService, NotificationService, OrchestratorService, PlanArchiveService, PlanService,
     ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
-    ProviderService, QuickCommandService, ScreenshotService, SessionRestoreService,
+    ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
+    SessionRestoreService,
     SettingsService, SharedMcpService, SkillMarketService, SkillService, SpecService,
     SshCredentialService, SshMachineService, StartLocks, SystemStatsService, TaskBindingService,
     TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge, TerminalDaemonLifecycle,
@@ -1286,6 +1290,7 @@ pub fn run() {
     let task_binding_repo = Arc::new(TaskBindingRepository::new(db.clone()));
     let plan_repo = Arc::new(PlanRepository::new(db.clone()));
     let usage_stats_repo = Arc::new(UsageStatsRepository::new(db.clone()));
+    let session_index_repo = Arc::new(SessionIndexRepository::new(db.clone()));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
@@ -1325,6 +1330,12 @@ pub fn run() {
         Ok(None) => {}
         Err(e) => warn!("[workspace] ensure default workspace failed: {}", e),
     }
+    let session_index_service = Arc::new(SessionIndexService::new_with_settings(
+        session_index_repo,
+        launch_history_service.clone(),
+        workspace_service.clone(),
+        settings_service.clone(),
+    ));
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let cli_registry = {
         let mut reg = cc_cli_adapters::CliToolRegistry::new();
@@ -1484,6 +1495,7 @@ pub fn run() {
         .manage(terminal_backend_state)
         .manage(launch_history_service)
         .manage(usage_stats_service)
+        .manage(session_index_service)
         .manage(history_service)
         .manage(history_watch_manager)
         .manage(project_cli_hooks_service)
@@ -2022,8 +2034,14 @@ pub fn run() {
                     svc.start_background_tasks();
                 });
             }
+            {
+                let svc = app.state::<Arc<SessionIndexService>>().inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    svc.start_background_tasks();
+                });
+            }
             info!(
-                "[boot] +{}ms: usage stats background jobs started",
+                "[boot] +{}ms: usage stats and session index background jobs started",
                 boot_t0.elapsed().as_millis()
             );
 
@@ -2193,6 +2211,9 @@ pub fn run() {
             record_terminal_input,
             query_usage_stats,
             refresh_usage_stats,
+            list_session_index,
+            refresh_session_index,
+            check_codex_rollout_exists,
             // 窗口命令
             browser_create,
             browser_set_bounds,

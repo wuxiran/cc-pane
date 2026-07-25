@@ -5,6 +5,7 @@ import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
 import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
 import AiPanelView from "@/components/aipanel/AiPanelView";
+import SessionHistoryView from "./SessionHistoryView";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setDragging } from "@/stores/splitDragState";
@@ -316,6 +317,15 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
       ) : resolvedActiveView === "ssh" ? (
         <div className="min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2">
           <SshMachinesView onOpenTerminal={onOpenTerminal} />
+        </div>
+      ) : resolvedActiveView === "sessionHistory" ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <SessionHistoryView
+            workspaces={workspaces}
+            workspace={workspace}
+            project={selectedProject}
+            onOpenTerminal={onOpenTerminal}
+          />
         </div>
       ) : workspace && selectedProject ? (
         <>

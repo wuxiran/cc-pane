@@ -325,6 +325,18 @@ pub fn build_router(state: AppState) -> Router {
             "/api/usage-stats/refresh",
             post(usage_stats::refresh_usage_stats),
         )
+        .route(
+            "/api/session-index",
+            get(agent_sessions::list_session_index),
+        )
+        .route(
+            "/api/session-index/refresh",
+            post(agent_sessions::refresh_session_index),
+        )
+        .route(
+            "/api/session-index/codex-rollout-exists",
+            get(agent_sessions::check_codex_rollout_exists),
+        )
         .route("/api/memories/search", post(memory::search_memory))
         .route("/api/memories", get(memory::list_memories))
         .route("/api/memories", post(memory::store_memory))

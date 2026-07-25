@@ -74,6 +74,7 @@ export { systemStatsService } from "./systemStatsService";
 export { logService } from "./logService";
 export { sharedMcpService } from "./sharedMcpService";
 export { sessionRestoreService } from "./sessionRestoreService";
+export { sessionIndexService } from "./sessionIndexService";
 export { layoutSnapshotService } from "./layoutSnapshotService";
 export { browserService } from "./browserService";
 export type {

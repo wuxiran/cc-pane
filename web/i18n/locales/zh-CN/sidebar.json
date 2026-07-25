@@ -40,7 +40,8 @@
     "orchestration": "任务编排",
     "resources": "资源中心",
     "todo": "TodoList",
-    "aiPanel": "AI 面板"
+    "aiPanel": "AI 面板",
+    "sessionHistory": "会话历史"
   },
   "moduleMenu": {
     "title": "模块位置",
@@ -411,6 +412,31 @@
   "rightDock.expand": "展开右侧面板",
   "rightDock.collapse": "折叠右侧面板",
   "rightDock.resize": "调整右侧面板宽度",
+  "sessionHistory": {
+    "scopeLabel": "会话范围",
+    "scope": {
+      "all": "全部",
+      "workspace": "当前工作空间",
+      "project": "当前项目"
+    },
+    "searchPlaceholder": "搜索会话",
+    "clearSearch": "清空搜索",
+    "cliFilter": "按 CLI 筛选",
+    "refresh": "刷新会话索引",
+    "loading": "正在加载会话...",
+    "loadError": "无法加载会话历史",
+    "refreshError": "无法刷新会话索引",
+    "retry": "重试",
+    "empty": "没有匹配的会话",
+    "untitled": "未命名会话",
+    "unknownProject": "未知项目",
+    "messages_one": "{{count}} 条消息",
+    "messages_other": "{{count}} 条消息",
+    "resume": "恢复",
+    "loadMore": "加载更多",
+    "rolloutMissing": "Codex 会话文件已不存在，无法恢复",
+    "rolloutCheckFailed": "无法验证 Codex 会话文件，将继续尝试恢复"
+  },
   "aiPanel": {
     "empty": "暂无 AI 面板",
     "drivenBy": "由 {{name}} 驱动",
