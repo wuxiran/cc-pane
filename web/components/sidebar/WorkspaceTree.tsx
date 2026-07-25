@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from "react";
+import { Fragment, useState, useCallback, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -18,27 +18,74 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { Plus, FolderGit2 } from "lucide-react";
+import { Plus, FolderGit2, ListFilter } from "lucide-react";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useWorkspacesStore } from "@/stores";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores/useDialogStore";
+import { useLayoutUiStore } from "@/stores/useLayoutUiStore";
+import {
+  filterWorkspaces,
+  normalizedWorkspaceGroup,
+} from "@/stores/useWorkspacesStore";
 import { worktreeService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import WorktreeManager from "@/components/WorktreeManager";
 import { useWorkspaceActions } from "./useWorkspaceActions";
 import WorkspaceDialogs from "./WorkspaceDialogs";
 import WorkspaceItem from "./WorkspaceItem";
+import WorkspaceFilterBar from "./WorkspaceFilterBar";
+import WorkspaceGroupHeader from "./WorkspaceGroupHeader";
 import ProjectListView from "./ProjectListView";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
 
 interface WorkspaceTreeProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
   /** Explorer 分区模式：由外层提供分区头（替换内置的「工作空间」分组头），拿到计数与新建入口 */
-  renderSectionHeader?: (ctx: { count: number; onCreateWorkspace: () => void }) => ReactNode;
+  renderSectionHeader?: (ctx: {
+    count: number;
+    filterActive: boolean;
+    filterOpen: boolean;
+    onCreateWorkspace: () => void;
+    onToggleFilter: () => void;
+  }) => ReactNode;
   /** Explorer 分区模式：折叠时隐藏树主体（Dialogs 保持挂载） */
   collapsed?: boolean;
+}
+
+interface WorkspacePartition {
+  defaults: Workspace[];
+  groups: Array<{ group: string; workspaces: Workspace[] }>;
+  ungrouped: Workspace[];
+}
+
+function partitionWorkspaces(workspaces: Workspace[]): WorkspacePartition {
+  const defaults: Workspace[] = [];
+  const ungrouped: Workspace[] = [];
+  const groupMap = new Map<string, Workspace[]>();
+
+  for (const workspace of workspaces) {
+    if (workspace.isDefault) {
+      defaults.push(workspace);
+      continue;
+    }
+    const group = normalizedWorkspaceGroup(workspace);
+    if (!group) {
+      ungrouped.push(workspace);
+      continue;
+    }
+    const members = groupMap.get(group) ?? [];
+    members.push(workspace);
+    groupMap.set(group, members);
+  }
+
+  return {
+    defaults,
+    groups: [...groupMap].map(([group, members]) => ({ group, workspaces: members })),
+    ungrouped,
+  };
 }
 
 export function getReorderedWorkspaceNames(
@@ -59,6 +106,11 @@ export function getReorderedWorkspaceNames(
     return null;
   }
   if (!!activeWorkspace.pinned !== !!overWorkspace.pinned) {
+    return null;
+  }
+  const activeGroup = activeWorkspace.group?.trim() || null;
+  const overGroup = overWorkspace.group?.trim() || null;
+  if (activeGroup !== overGroup) {
     return null;
   }
 
@@ -118,11 +170,27 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const { t } = useTranslation(["sidebar", "common"]);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const loading = useWorkspacesStore((s) => s.loading);
+  const workspaceFilter = useWorkspacesStore((s) => s.workspaceFilter);
+  const clearWorkspaceFilter = useWorkspacesStore((s) => s.clearWorkspaceFilter);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
   const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
   const updateWorkspacePath = useWorkspacesStore((s) => s.updateWorkspacePath);
   const reorderWorkspaces = useWorkspacesStore((s) => s.reorder);
+  const collapsedWorkspaceGroups = useLayoutUiStore((s) => s.collapsedWorkspaceGroups);
+  const toggleWorkspaceGroup = useLayoutUiStore((s) => s.toggleWorkspaceGroup);
   const openWorkspaceEnvironment = useDialogStore((s) => s.openWorkspaceEnvironment);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const visibleWorkspaces = useMemo(
+    () => filterWorkspaces(workspaces, workspaceFilter),
+    [workspaces, workspaceFilter],
+  );
+  const partition = useMemo(
+    () => partitionWorkspaces(visibleWorkspaces),
+    [visibleWorkspaces],
+  );
+  const filterActive = workspaceFilter.query.trim() !== ""
+    || workspaceFilter.colors.length > 0
+    || workspaceFilter.group != null;
 
   // useWorkspaceActions 处理 dialog 状态 + 工作空间/项目 CRUD
   const actions = useWorkspaceActions({
@@ -192,11 +260,50 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
     }
   }, [reorderWorkspaces, t]);
 
+  const renderWorkspace = (ws: Workspace) => (
+    <SortableWorkspaceItem
+      key={ws.id}
+      ws={ws}
+      expanded={expandedWorkspaceId === ws.id}
+      onExpand={expandWorkspace}
+      onOpenTerminal={onOpenTerminal}
+      onRename={actions.handleRenameWorkspace}
+      onDelete={actions.handleDeleteWorkspace}
+      onSetAlias={actions.handleSetWorkspaceAlias}
+      onImportProject={actions.handleImportProject}
+      onScanImport={actions.handleScanImport}
+      onGitClone={actions.handleGitClone}
+      onSetPath={handleSetWorkspacePath}
+      onClearPath={handleClearWorkspacePath}
+      onOpenEnvironment={(workspace) => openWorkspaceEnvironment(workspace.id)}
+      onOpenInFileBrowser={handleOpenInFileBrowser}
+    >
+      <ProjectListView
+        projects={ws.projects}
+        ws={ws}
+        gitBranches={actions.gitBranches}
+        onOpenTerminal={onOpenTerminal}
+        onRemoveProject={actions.handleRemoveProject}
+        onSetProjectAlias={actions.handleSetAlias}
+        onImportProject={actions.handleImportProject}
+        onMigrateProject={actions.handleMigrateProject}
+        onOpenWorktreeManager={handleOpenWorktreeManager}
+        onOpenInFileBrowser={handleOpenInFileBrowser}
+      />
+    </SortableWorkspaceItem>
+  );
+
   return (
     <>
       {/* Section: 工作空间（Explorer 分区模式下由外层渲染分区头） */}
       {renderSectionHeader ? (
-        renderSectionHeader({ count: workspaces.length, onCreateWorkspace: actions.handleCreateWorkspace })
+        renderSectionHeader({
+          count: workspaces.length,
+          filterActive,
+          filterOpen,
+          onCreateWorkspace: actions.handleCreateWorkspace,
+          onToggleFilter: () => setFilterOpen((open) => !open),
+        })
       ) : (
       <div className="flex items-center justify-between px-3 pt-2 pb-1.5 group/section">
         <div className="flex items-center gap-2">
@@ -210,27 +317,35 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
             {workspaces.length}
           </span>
         </div>
-        <button
-          type="button"
-          aria-label={t("newWorkspace")}
-          title={t("newWorkspace")}
-          onClick={actions.handleCreateWorkspace}
-          className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--app-text-tertiary)] opacity-0 transition-all duration-[var(--dur-fast)] group-hover/section:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-accent)]"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <IconTooltipButton
+            label={t("workspaceFilterToggle")}
+            onClick={() => setFilterOpen((open) => !open)}
+            className={`size-5 p-0 ${filterActive ? "text-[var(--app-accent)]" : filterOpen ? "text-[var(--app-text-secondary)]" : "text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100"}`}
+          >
+            <ListFilter className="size-3.5" />
+          </IconTooltipButton>
+          <IconTooltipButton
+            label={t("newWorkspace")}
+            onClick={actions.handleCreateWorkspace}
+            className="size-5 p-0 text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100 hover:text-[var(--app-accent)]"
+          >
+            <Plus className="size-3.5" />
+          </IconTooltipButton>
+        </div>
       </div>
       )}
 
       {!collapsed && (
       <>
+      {filterOpen ? <WorkspaceFilterBar /> : null}
       <DndContext
         collisionDetection={closestCenter}
         onDragEnd={(event: DragEndEvent) => void handleDragEnd(event)}
         sensors={sensors}
       >
         <SortableContext
-          items={workspaces.map((workspace) => workspace.id)}
+          items={visibleWorkspaces.map((workspace) => workspace.id)}
           strategy={verticalListSortingStrategy}
         >
           <div className="flex flex-col gap-1">
@@ -243,38 +358,22 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
               ))
             ) : (
               <>
-            {workspaces.map((ws) => (
-              <SortableWorkspaceItem
-                key={ws.id}
-                ws={ws}
-                expanded={expandedWorkspaceId === ws.id}
-                onExpand={expandWorkspace}
-                onOpenTerminal={onOpenTerminal}
-                onRename={actions.handleRenameWorkspace}
-                onDelete={actions.handleDeleteWorkspace}
-                onSetAlias={actions.handleSetWorkspaceAlias}
-                onImportProject={actions.handleImportProject}
-                onScanImport={actions.handleScanImport}
-                onGitClone={actions.handleGitClone}
-                onSetPath={handleSetWorkspacePath}
-                onClearPath={handleClearWorkspacePath}
-                onOpenEnvironment={(workspace) => openWorkspaceEnvironment(workspace.id)}
-                onOpenInFileBrowser={handleOpenInFileBrowser}
-              >
-                <ProjectListView
-                  projects={ws.projects}
-                  ws={ws}
-                  gitBranches={actions.gitBranches}
-                  onOpenTerminal={onOpenTerminal}
-                  onRemoveProject={actions.handleRemoveProject}
-                  onSetProjectAlias={actions.handleSetAlias}
-                  onImportProject={actions.handleImportProject}
-                  onMigrateProject={actions.handleMigrateProject}
-                  onOpenWorktreeManager={handleOpenWorktreeManager}
-                  onOpenInFileBrowser={handleOpenInFileBrowser}
-                />
-              </SortableWorkspaceItem>
-            ))}
+            {partition.defaults.map(renderWorkspace)}
+            {partition.groups.map(({ group, workspaces: members }) => {
+              const groupCollapsed = collapsedWorkspaceGroups.includes(group);
+              return (
+                <Fragment key={group}>
+                  <WorkspaceGroupHeader
+                    group={group}
+                    count={members.length}
+                    collapsed={groupCollapsed}
+                    onToggle={() => toggleWorkspaceGroup(group)}
+                  />
+                  {!groupCollapsed ? members.map(renderWorkspace) : null}
+                </Fragment>
+              );
+            })}
+            {partition.ungrouped.map(renderWorkspace)}
 
             {workspaces.length === 0 && (
               <EmptyState
@@ -284,6 +383,14 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
                 className="py-8"
               />
             )}
+            {workspaces.length > 0 && visibleWorkspaces.length === 0 ? (
+              <EmptyState
+                icon={ListFilter}
+                title={t("noWorkspaceMatches")}
+                action={{ label: t("clearWorkspaceFilters"), onClick: clearWorkspaceFilter }}
+                className="py-8"
+              />
+            ) : null}
               </>
             )}
           </div>

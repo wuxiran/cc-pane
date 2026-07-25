@@ -6,6 +6,13 @@ import WorkspaceTree, { getReorderedWorkspaceNames } from "./WorkspaceTree";
 // --- i18n: t 直接回 key，便于断言 ---
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
+  initReactI18next: { type: "3rdParty", init: vi.fn() },
+}));
+
+vi.mock("@/components/ui/IconTooltipButton", () => ({
+  IconTooltipButton: ({ label, children, ...props }: React.ComponentProps<"button"> & { label: string }) => (
+    <button aria-label={label} {...props}>{children}</button>
+  ),
 }));
 
 // --- dnd-kit: 渲染 children，屏蔽真实拖拽逻辑 ---
@@ -77,6 +84,11 @@ vi.mock("@/stores", () => ({
   ),
 }));
 
+let layoutState: Record<string, unknown>;
+vi.mock("@/stores/useLayoutUiStore", () => ({
+  useLayoutUiStore: (selector: (s: unknown) => unknown) => selector(layoutState),
+}));
+
 function makeWorkspace(over: Partial<Workspace>): Workspace {
   return {
     id: over.id ?? "ws",
@@ -112,6 +124,12 @@ describe("getReorderedWorkspaceNames", () => {
     expect(getReorderedWorkspaceNames([pinned, b, c], "a", "b")).toBeNull();
   });
 
+  it("跨 workspace group 返回 null", () => {
+    const frontend = makeWorkspace({ id: "a", name: "alpha", group: "Frontend" });
+    const backend = makeWorkspace({ id: "b", name: "bravo", group: "Backend" });
+    expect(getReorderedWorkspaceNames([frontend, backend], "a", "b")).toBeNull();
+  });
+
   it("合法重排返回新顺序的 name 数组", () => {
     expect(getReorderedWorkspaceNames([a, b, c], "a", "c")).toEqual(["bravo", "charlie", "alpha"]);
   });
@@ -128,10 +146,17 @@ describe("WorkspaceTree component", () => {
     handleCreateWorkspace.mockClear();
     storeState = {
       workspaces: [],
+      workspaceFilter: { query: "", colors: [], group: null },
       expandedWorkspaceId: null,
       expandWorkspace: vi.fn(),
       updateWorkspacePath: vi.fn(),
       reorder: vi.fn(),
+      setWorkspaceFilter: vi.fn(),
+      clearWorkspaceFilter: vi.fn(),
+    };
+    layoutState = {
+      collapsedWorkspaceGroups: [],
+      toggleWorkspaceGroup: vi.fn(),
     };
   });
 
@@ -157,5 +182,66 @@ describe("WorkspaceTree component", () => {
     // 空态下存在多个「新建工作空间」入口（空状态 CTA + 底部按钮），点击其一即可
     fireEvent.click(screen.getAllByText("newWorkspace")[0]);
     expect(handleCreateWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("按分组分段渲染并让未分组工作空间保持无组头", () => {
+    storeState.workspaces = [
+      makeWorkspace({ id: "default", name: "default", isDefault: true }),
+      makeWorkspace({ id: "a", name: "alpha", group: "Frontend" }),
+      makeWorkspace({ id: "b", name: "bravo", group: "Frontend" }),
+      makeWorkspace({ id: "c", name: "charlie" }),
+    ];
+
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+
+    expect(screen.getByText("Frontend")).toBeVisible();
+    expect(screen.getByText("2")).toBeVisible();
+    expect(screen.queryByText("ungrouped")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("ws-item")).toHaveLength(4);
+  });
+
+  it("隐藏已折叠分组的工作空间但保留组头", () => {
+    storeState.workspaces = [
+      makeWorkspace({ id: "a", name: "alpha", group: "Frontend" }),
+      makeWorkspace({ id: "b", name: "bravo", group: "Frontend" }),
+      makeWorkspace({ id: "c", name: "charlie" }),
+    ];
+    layoutState.collapsedWorkspaceGroups = ["Frontend"];
+
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+
+    expect(screen.getByText("Frontend")).toBeVisible();
+    expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+    expect(screen.queryByText("bravo")).not.toBeInTheDocument();
+    expect(screen.getByText("charlie")).toBeVisible();
+  });
+
+  it("筛选时仍置顶显示默认工作空间", () => {
+    storeState.workspaces = [
+      makeWorkspace({ id: "default", name: "default", isDefault: true }),
+      makeWorkspace({ id: "api", name: "api", group: "Backend", color: "green" }),
+      makeWorkspace({ id: "web", name: "web", group: "Frontend", color: "blue" }),
+    ];
+    storeState.workspaceFilter = { query: "api", colors: ["green"], group: "Backend" };
+
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+
+    expect(screen.getAllByTestId("ws-item").map((item) => item.textContent)).toEqual([
+      "default",
+      "api",
+    ]);
+  });
+
+  it("点击筛选图标显示筛选条", () => {
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+
+    expect(screen.queryByPlaceholderText("workspaceSearchPlaceholder")).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "workspaceFilterToggle" });
+    expect(toggle).toHaveClass("opacity-0");
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByPlaceholderText("workspaceSearchPlaceholder")).toBeVisible();
+    expect(toggle).not.toHaveClass("opacity-0");
   });
 });
