@@ -791,11 +791,12 @@ describe("usePanesStore", () => {
 
   describe("openBrowser", () => {
     it("creates an active browser tab and updates its URL and title metadata", () => {
-      usePanesStore.getState().openBrowser("http://localhost:5173/", "Preview");
+      usePanesStore.getState().openBrowser("http://localhost:5173/", "Preview", "browser-tab-1");
 
       const pane = usePanesStore.getState().activePane()!;
       const browserTab = pane.tabs.find((tab) => tab.contentType === "browser")!;
       expect(browserTab).toMatchObject({
+        id: "browser-tab-1",
         title: "Preview",
         browserUrl: "http://localhost:5173/",
         projectPath: "",

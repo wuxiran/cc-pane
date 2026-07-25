@@ -240,6 +240,7 @@ describe("useOrchestratorListener layout placement", () => {
     await act(async () => {
       await listeners.get("orchestrator-open-browser-tab")?.({
         payload: {
+          tabId: "browser-tab-1",
           url: "http://localhost:5173/",
           title: "Local preview",
         },
@@ -250,6 +251,7 @@ describe("useOrchestratorListener layout placement", () => {
       (tab) => tab.contentType === "browser",
     );
     expect(browserTab).toMatchObject({
+      id: "browser-tab-1",
       browserUrl: "http://localhost:5173/",
       title: "Local preview",
     });

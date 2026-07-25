@@ -272,12 +272,16 @@ export function useOrchestratorListener() {
 
     // 5. open-browser-tab 事件
     getCurrentWebview()
-      .listen<{ url: string; title?: string }>("orchestrator-open-browser-tab", (event) => {
+      .listen<{ tabId: string; url: string; title?: string }>("orchestrator-open-browser-tab", (event) => {
         const activity = useActivityBarStore.getState();
         if (activity.appViewMode !== "panes") {
           activity.setAppViewMode("panes");
         }
-        usePanesStore.getState().openBrowser(event.payload.url, event.payload.title);
+        usePanesStore.getState().openBrowser(
+          event.payload.url,
+          event.payload.title,
+          event.payload.tabId,
+        );
       })
       .then((fn) => unlisteners.push(fn));
 

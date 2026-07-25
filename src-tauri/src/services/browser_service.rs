@@ -3,6 +3,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{
     webview::{PageLoadEvent, WebviewBuilder},
@@ -12,6 +13,7 @@ use tauri::{
 pub const CDP_SPIKE_METHODS: [&str; 2] = ["Runtime.evaluate", "Page.captureScreenshot"];
 const MAX_WEBVIEW_LABEL_LEN: usize = 64;
 const SPIKE_RESULT_LIMIT_BYTES: usize = 4096;
+const EVALUATE_RESULT_LIMIT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +35,7 @@ pub struct BrowserSpikeReport {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserOpenTabEvent {
+    pub tab_id: String,
     pub url: String,
     pub title: String,
 }
@@ -42,6 +45,7 @@ impl BrowserOpenTabEvent {
         let parsed = validate_browser_url(url)?;
         let default_title = parsed.host_str().unwrap_or("Browser");
         Ok(Self {
+            tab_id: format!("tab-{}", uuid::Uuid::new_v4()),
             url: parsed.to_string(),
             title: title
                 .map(str::trim)
@@ -116,11 +120,20 @@ pub fn truncate_cdp_result(value: &str, max_bytes: usize) -> String {
         return value.to_string();
     }
 
-    let mut end = max_bytes.min(value.len());
+    const SUFFIX: &str = "...[truncated]";
+    let content_limit = if max_bytes < SUFFIX.len() {
+        max_bytes
+    } else {
+        max_bytes - SUFFIX.len()
+    };
+    let mut end = content_limit.min(value.len());
     while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}...[truncated]", &value[..end])
+    if max_bytes < SUFFIX.len() {
+        return value[..end].to_string();
+    }
+    format!("{}{SUFFIX}", &value[..end])
 }
 
 #[derive(Default)]
@@ -242,8 +255,9 @@ impl BrowserTabManager {
     }
 
     pub fn navigate(&self, app: &AppHandle, tab_id: &str, url: &str) -> AppResult<()> {
+        let webview = self.webview(app, tab_id)?;
         let url = validate_browser_url(url)?;
-        self.webview(app, tab_id)?
+        webview
             .navigate(url)
             .map_err(|error| format!("failed to navigate browser webview: {error}").into())
     }
@@ -292,6 +306,43 @@ impl BrowserTabManager {
         call_devtools_protocol(self.webview(app, tab_id)?, method, params_json).await
     }
 
+    pub async fn evaluate(&self, app: &AppHandle, tab_id: &str, script: &str) -> AppResult<String> {
+        let result = self
+            .call_cdp(
+                app,
+                tab_id,
+                "Runtime.evaluate",
+                &browser_evaluate_params(script),
+            )
+            .await?;
+        Ok(truncate_cdp_result(&result, EVALUATE_RESULT_LIMIT_BYTES))
+    }
+
+    pub async fn screenshot(
+        &self,
+        app: &AppHandle,
+        tab_id: &str,
+        screenshots_dir: &Path,
+    ) -> AppResult<PathBuf> {
+        let result = self
+            .call_cdp(
+                app,
+                tab_id,
+                "Page.captureScreenshot",
+                r#"{"format":"png","captureBeyondViewport":false}"#,
+            )
+            .await?;
+        save_browser_screenshot(&result, screenshots_dir, tab_id)
+    }
+
+    pub async fn click(&self, app: &AppHandle, tab_id: &str, x: f64, y: f64) -> AppResult<()> {
+        for params in browser_click_params(x, y)? {
+            self.call_cdp(app, tab_id, "Input.dispatchMouseEvent", &params)
+                .await?;
+        }
+        Ok(())
+    }
+
     pub async fn run_spike_probes(
         &self,
         app: &AppHandle,
@@ -325,16 +376,62 @@ impl BrowserTabManager {
     }
 
     fn webview(&self, app: &AppHandle, tab_id: &str) -> AppResult<Webview> {
-        let label = self
-            .labels
+        let label = self.registered_label(tab_id)?;
+        app.get_webview(&label)
+            .ok_or_else(|| format!("browser webview is unavailable for tab: {tab_id}").into())
+    }
+
+    fn registered_label(&self, tab_id: &str) -> AppResult<String> {
+        self.labels
             .lock()
             .map_err(|_| "browser tab registry lock is poisoned".to_string())?
             .get(tab_id)
             .cloned()
-            .ok_or_else(|| format!("unknown browser tab: {tab_id}"))?;
-        app.get_webview(&label)
-            .ok_or_else(|| format!("browser webview is unavailable for tab: {tab_id}").into())
+            .ok_or_else(|| format!("unknown browser tab: {tab_id}").into())
     }
+}
+
+fn browser_evaluate_params(script: &str) -> String {
+    serde_json::json!({
+        "expression": script,
+        "returnByValue": true,
+        "awaitPromise": true,
+    })
+    .to_string()
+}
+
+fn browser_click_params(x: f64, y: f64) -> AppResult<[String; 2]> {
+    if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 {
+        return Err("browser click coordinates must be finite non-negative values".into());
+    }
+    let params = |event_type: &str| {
+        serde_json::json!({
+            "type": event_type,
+            "x": x,
+            "y": y,
+            "button": "left",
+            "clickCount": 1,
+        })
+        .to_string()
+    };
+    Ok([params("mousePressed"), params("mouseReleased")])
+}
+
+fn save_browser_screenshot(response: &str, dir: &Path, tab_id: &str) -> AppResult<PathBuf> {
+    let png = decode_cdp_screenshot(response)?;
+    std::fs::create_dir_all(dir)
+        .map_err(|error| format!("failed to create browser screenshots directory: {error}"))?;
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+    let filename = format!(
+        "{}_{}_{}.png",
+        browser_webview_label(tab_id),
+        timestamp,
+        uuid::Uuid::new_v4().simple(),
+    );
+    let path = dir.join(filename);
+    std::fs::write(&path, png)
+        .map_err(|error| format!("failed to save browser screenshot: {error}"))?;
+    Ok(path)
 }
 
 fn decode_cdp_screenshot(response: &str) -> AppResult<Vec<u8>> {
@@ -441,8 +538,9 @@ async fn call_devtools_protocol(
 #[cfg(test)]
 mod tests {
     use super::{
-        browser_webview_label, decode_cdp_screenshot, truncate_cdp_result, BrowserBounds,
-        BrowserOpenTabEvent, CDP_SPIKE_METHODS,
+        browser_click_params, browser_evaluate_params, browser_webview_label,
+        decode_cdp_screenshot, save_browser_screenshot, truncate_cdp_result, BrowserBounds,
+        BrowserOpenTabEvent, BrowserTabManager, CDP_SPIKE_METHODS,
     };
 
     #[test]
@@ -487,9 +585,10 @@ mod tests {
 
     #[test]
     fn cdp_results_are_truncated_on_utf8_boundaries() {
-        let result = truncate_cdp_result("abc中文def", 7);
+        let result = truncate_cdp_result("abc中文defghijklmnop", 20);
 
         assert_eq!(result, "abc中...[truncated]");
+        assert!(result.len() <= 20);
         assert!(result.is_char_boundary(result.len()));
     }
 
@@ -509,14 +608,67 @@ mod tests {
     }
 
     #[test]
-    fn open_tab_event_validates_url_and_derives_title() {
+    fn evaluate_params_preserve_script_and_request_return_value() {
+        let params: serde_json::Value =
+            serde_json::from_str(&browser_evaluate_params("document.title")).unwrap();
+
+        assert_eq!(params["expression"], "document.title");
+        assert_eq!(params["returnByValue"], true);
+        assert_eq!(params["awaitPromise"], true);
+    }
+
+    #[test]
+    fn click_params_emit_pressed_and_released_mouse_events() {
+        let params = browser_click_params(12.5, 24.0).unwrap();
+        let pressed: serde_json::Value = serde_json::from_str(&params[0]).unwrap();
+        let released: serde_json::Value = serde_json::from_str(&params[1]).unwrap();
+
+        assert_eq!(pressed["type"], "mousePressed");
+        assert_eq!(released["type"], "mouseReleased");
+        assert_eq!(pressed["x"], 12.5);
+        assert_eq!(pressed["y"], 24.0);
+        assert_eq!(pressed["button"], "left");
+        assert_eq!(pressed["clickCount"], 1);
+        assert!(browser_click_params(f64::NAN, 0.0).is_err());
+        assert!(browser_click_params(-1.0, 0.0).is_err());
+    }
+
+    #[test]
+    fn browser_screenshot_is_saved_with_a_safe_png_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let png = [137, 80, 78, 71, 13, 10, 26, 10, 0];
+        let data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, png);
+
+        let path = save_browser_screenshot(
+            &serde_json::json!({ "data": data }).to_string(),
+            temp.path(),
+            "tab/unsafe:id",
+        )
+        .unwrap();
+
+        assert_eq!(path.parent(), Some(temp.path()));
         assert_eq!(
-            BrowserOpenTabEvent::try_new("http://localhost:5173", None).unwrap(),
-            BrowserOpenTabEvent {
-                url: "http://localhost:5173/".to_string(),
-                title: "localhost".to_string(),
-            }
+            path.extension().and_then(|value| value.to_str()),
+            Some("png")
         );
+        assert!(!path.file_name().unwrap().to_string_lossy().contains('/'));
+        assert_eq!(std::fs::read(path).unwrap(), png);
+    }
+
+    #[test]
+    fn manager_rejects_tabs_outside_its_registry() {
+        let manager = BrowserTabManager::default();
+
+        assert!(manager.registered_label("unknown-tab").is_err());
+    }
+
+    #[test]
+    fn open_tab_event_validates_url_and_derives_title() {
+        let event = BrowserOpenTabEvent::try_new("http://localhost:5173", None).unwrap();
+
+        assert_eq!(event.url, "http://localhost:5173/");
+        assert_eq!(event.title, "localhost");
+        assert!(event.tab_id.starts_with("tab-"));
         assert_eq!(
             BrowserOpenTabEvent::try_new("https://example.com", Some(" Preview "))
                 .unwrap()

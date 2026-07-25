@@ -21,10 +21,11 @@ use crate::models::{
     WorkspaceLaunchEnvironment, WslLaunchInfo,
 };
 use crate::services::{
-    BrowserOpenTabEvent, ExternalSkillRegistry, LaunchHistoryService, LaunchProfileService,
-    MemoryService, NotificationRequest, NotificationService, ProjectService, ProviderService,
-    SettingsService, SharedMcpService, SkillService, SpecService, SshMachineService,
-    TerminalBackendKind, TerminalBackendState, TerminalService, TodoService, WorkspaceService,
+    BrowserOpenTabEvent, BrowserTabManager, ExternalSkillRegistry, LaunchHistoryService,
+    LaunchProfileService, MemoryService, NotificationRequest, NotificationService, ProjectService,
+    ProviderService, ScreenshotService, SettingsService, SharedMcpService, SkillService,
+    SpecService, SshMachineService, TerminalBackendKind, TerminalBackendState, TerminalService,
+    TodoService, WorkspaceService,
 };
 use crate::utils::{validate_command, validate_mcp_name, validate_path, AppPaths};
 use anyhow::Result;
@@ -1846,6 +1847,42 @@ struct McpOpenFileParams {
 struct McpOpenBrowserTabParams {
     /// 要在 CC-Panes 浏览器标签中打开的 http/https URL
     url: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpBrowserNavigateParams {
+    /// Browser tab ID returned by CC-Panes
+    #[serde(rename = "tabId")]
+    tab_id: String,
+    /// 要导航到的完整 http/https URL
+    url: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpBrowserEvaluateParams {
+    /// Browser tab ID returned by CC-Panes
+    #[serde(rename = "tabId")]
+    tab_id: String,
+    /// 要在页面上下文执行的 JavaScript
+    js: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpBrowserTabParams {
+    /// Browser tab ID returned by CC-Panes
+    #[serde(rename = "tabId")]
+    tab_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpBrowserClickParams {
+    /// Browser tab ID returned by CC-Panes
+    #[serde(rename = "tabId")]
+    tab_id: String,
+    /// Browser viewport X coordinate in logical CSS pixels
+    x: f64,
+    /// Browser viewport Y coordinate in logical CSS pixels
+    y: f64,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4607,10 +4644,118 @@ impl McpToolHandler {
         }
         serde_json::json!({
             "success": true,
+            "tabId": event.tab_id,
             "url": event.url,
             "title": event.title,
         })
         .to_string()
+    }
+
+    /// 导航已由 CC-Panes 创建的浏览器标签；只接受 http/https URL。
+    #[tool]
+    async fn browser_navigate(
+        &self,
+        Parameters(params): Parameters<McpBrowserNavigateParams>,
+    ) -> String {
+        debug!(tab_id = %params.tab_id, url = %params.url, "mcp::browser_navigate");
+        let manager = Arc::clone(
+            self.state
+                .app_handle
+                .state::<Arc<BrowserTabManager>>()
+                .inner(),
+        );
+        match manager.navigate(&self.state.app_handle, &params.tab_id, &params.url) {
+            Ok(()) => serde_json::json!({
+                "success": true,
+                "tabId": params.tab_id,
+                "url": params.url,
+            })
+            .to_string(),
+            Err(error) => format!("错误: {error}"),
+        }
+    }
+
+    /// 在已由 CC-Panes 创建的浏览器标签页面上下文执行任意 JavaScript。脚本可读取或修改页面数据，请仅对可信页面和脚本使用；返回结果最大 64 KiB。
+    #[tool]
+    async fn browser_evaluate(
+        &self,
+        Parameters(params): Parameters<McpBrowserEvaluateParams>,
+    ) -> String {
+        debug!(tab_id = %params.tab_id, script_len = params.js.len(), "mcp::browser_evaluate");
+        let manager = Arc::clone(
+            self.state
+                .app_handle
+                .state::<Arc<BrowserTabManager>>()
+                .inner(),
+        );
+        match manager
+            .evaluate(&self.state.app_handle, &params.tab_id, &params.js)
+            .await
+        {
+            Ok(result) => serde_json::json!({
+                "success": true,
+                "tabId": params.tab_id,
+                "result": result,
+            })
+            .to_string(),
+            Err(error) => format!("错误: {error}"),
+        }
+    }
+
+    /// 截取已由 CC-Panes 创建的浏览器标签当前可视区域，保存为 PNG 并返回文件路径。
+    #[tool]
+    async fn browser_screenshot(
+        &self,
+        Parameters(params): Parameters<McpBrowserTabParams>,
+    ) -> String {
+        debug!(tab_id = %params.tab_id, "mcp::browser_screenshot");
+        let manager = Arc::clone(
+            self.state
+                .app_handle
+                .state::<Arc<BrowserTabManager>>()
+                .inner(),
+        );
+        match manager
+            .screenshot(
+                &self.state.app_handle,
+                &params.tab_id,
+                &ScreenshotService::screenshots_dir(),
+            )
+            .await
+        {
+            Ok(path) => serde_json::json!({
+                "success": true,
+                "tabId": params.tab_id,
+                "path": path.to_string_lossy(),
+            })
+            .to_string(),
+            Err(error) => format!("错误: {error}"),
+        }
+    }
+
+    /// 在已由 CC-Panes 创建的浏览器标签可视区域按逻辑 CSS 像素坐标单击鼠标左键。
+    #[tool]
+    async fn browser_click(&self, Parameters(params): Parameters<McpBrowserClickParams>) -> String {
+        debug!(tab_id = %params.tab_id, x = params.x, y = params.y, "mcp::browser_click");
+        let manager = Arc::clone(
+            self.state
+                .app_handle
+                .state::<Arc<BrowserTabManager>>()
+                .inner(),
+        );
+        match manager
+            .click(&self.state.app_handle, &params.tab_id, params.x, params.y)
+            .await
+        {
+            Ok(()) => serde_json::json!({
+                "success": true,
+                "tabId": params.tab_id,
+                "x": params.x,
+                "y": params.y,
+            })
+            .to_string(),
+            Err(error) => format!("错误: {error}"),
+        }
     }
 
     /// 关闭 CC-Panes 编辑器中匹配的文件标签页
@@ -11343,6 +11488,31 @@ mod tests {
                 .iter()
                 .any(|field| field.as_str() == Some("metadata")));
         }
+    }
+
+    #[test]
+    fn browser_agent_tools_are_registered_with_camel_case_tab_ids_and_risk_text() {
+        let router = McpToolHandler::tool_router();
+        for name in [
+            "browser_navigate",
+            "browser_evaluate",
+            "browser_screenshot",
+            "browser_click",
+        ] {
+            let route = router
+                .map
+                .get(name)
+                .unwrap_or_else(|| panic!("missing {name}"));
+            assert!(route.attr.input_schema["properties"]["tabId"].is_object());
+        }
+
+        let description = router.map["browser_evaluate"]
+            .attr
+            .description
+            .as_deref()
+            .unwrap_or_default();
+        assert!(description.contains("任意 JavaScript"));
+        assert!(description.contains("64 KiB"));
     }
 
     #[test]
