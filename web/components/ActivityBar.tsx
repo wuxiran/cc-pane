@@ -189,6 +189,7 @@ export default function ActivityBar() {
   const layoutSwitcherMode = useLayoutUiStore((state) => state.switcherMode);
   const activeView = useActivityBarStore((state) => state.activeView);
   const sidebarVisible = useActivityBarStore((state) => state.sidebarVisible);
+  const activityBarVisible = useActivityBarStore((state) => state.activityBarVisible);
   const toggleView = useActivityBarStore((state) => state.toggleView);
   const appViewMode = useActivityBarStore((state) => state.appViewMode);
   const orchestrationOverlayOpen = useActivityBarStore((state) => state.orchestrationOverlayOpen);
@@ -203,6 +204,9 @@ export default function ActivityBar() {
       && preference.position === "activityBar"
       && module.surfaces.includes("activityBar");
   });
+
+  // 标题栏折叠按钮把两者一起收起；任何路径重新拉出侧栏时图标条自动跟随回归
+  if (!activityBarVisible && !sidebarVisible) return null;
 
   const isModuleActive = (id: ModuleId) => {
     if (id === "orchestration") return orchestrationOverlayOpen;

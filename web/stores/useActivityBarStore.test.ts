@@ -5,6 +5,7 @@ function reset() {
   useActivityBarStore.setState({
     activeView: "explorer",
     sidebarVisible: true,
+    activityBarVisible: true,
     appViewMode: "home",
     orchestrationOverlayOpen: false,
   });
@@ -146,12 +147,21 @@ describe("useActivityBarStore", () => {
       expect(useActivityBarStore.getState().sidebarVisible).toBe(false);
     });
 
-    it("toggleSidebar 应翻转可见性", () => {
-      useActivityBarStore.setState({ sidebarVisible: true });
+    it("toggleSidebar 应连同最左图标条一起收/放", () => {
+      useActivityBarStore.setState({ sidebarVisible: true, activityBarVisible: true });
       useActivityBarStore.getState().toggleSidebar();
-      expect(useActivityBarStore.getState().sidebarVisible).toBe(false);
+      let s = useActivityBarStore.getState();
+      expect(s.sidebarVisible).toBe(false);
+      expect(s.activityBarVisible).toBe(false);
       useActivityBarStore.getState().toggleSidebar();
-      expect(useActivityBarStore.getState().sidebarVisible).toBe(true);
+      s = useActivityBarStore.getState();
+      expect(s.sidebarVisible).toBe(true);
+      expect(s.activityBarVisible).toBe(true);
+    });
+
+    it("图标条自身折叠面板(setSidebarVisible)不影响图标条显隐", () => {
+      useActivityBarStore.getState().setSidebarVisible(false);
+      expect(useActivityBarStore.getState().activityBarVisible).toBe(true);
     });
   });
 

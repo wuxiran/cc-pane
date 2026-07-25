@@ -7,6 +7,8 @@ export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files" | "pr
 interface ActivityBarState {
   activeView: ActivityView;
   sidebarVisible: boolean;
+  /** 最左图标条显隐：标题栏折叠按钮连同侧栏一起收起；图标条自身折叠面板时保持 true */
+  activityBarVisible: boolean;
   appViewMode: AppViewMode;
   orchestrationOverlayOpen: boolean;
 
@@ -30,6 +32,7 @@ export const useActivityBarStore = create<ActivityBarState>()(
     (set, get) => ({
       activeView: "explorer",
       sidebarVisible: true,
+      activityBarVisible: true,
       appViewMode: "home",
       orchestrationOverlayOpen: false,
 
@@ -74,7 +77,12 @@ export const useActivityBarStore = create<ActivityBarState>()(
 
       setSidebarVisible: (visible: boolean) => set({ sidebarVisible: visible }),
 
-      toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),
+      // 标题栏折叠按钮：侧栏与最左图标条一起收/放
+      toggleSidebar: () =>
+        set((s) => {
+          const next = !s.sidebarVisible;
+          return { sidebarVisible: next, activityBarVisible: next };
+        }),
 
       setAppViewMode: (mode: AppViewMode) =>
         set((state) => {
@@ -153,6 +161,7 @@ export const useActivityBarStore = create<ActivityBarState>()(
       partialize: (state) => ({
         activeView: state.activeView,
         sidebarVisible: state.sidebarVisible,
+        activityBarVisible: state.activityBarVisible,
         // appViewMode 不持久化（每次启动默认回到 home 模式）
       }),
     }
