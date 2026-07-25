@@ -10,6 +10,7 @@ mod project;
 pub mod provider;
 pub mod runner;
 pub mod screenshot;
+pub mod session_index;
 pub mod session_restore;
 pub mod settings;
 pub mod shared_mcp;
@@ -64,6 +65,10 @@ pub use runner::{
     RunnerStartResult, RunnerStartStatus,
 };
 pub use screenshot::ScreenshotResult;
+pub use session_index::{
+    ParsedSessionTranscript, SessionIndexEntry, SessionIndexQuery, SessionIndexScanReport,
+    SessionIndexScope, SessionScanState,
+};
 pub use session_restore::SavedSession;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};
 pub use system_stats::{

@@ -33,6 +33,11 @@ mod wsl_mcp_proxy;
 
 use self::wsl_codex::{strip_wsl_proxy_env_vars, windows_path_to_wsl, WSL_PROXY_ENV_KEYS};
 
+/// 供会话历史在恢复 Codex 前复用现有 rollout 预检，不改变捕获链行为。
+pub fn codex_rollout_exists(session_id: &str, distro: Option<&str>) -> Option<bool> {
+    osc_resume_capture::codex_rollout_exists(session_id, distro)
+}
+
 fn to_cli_provider(provider: crate::models::provider::Provider) -> CliProvider {
     CliProvider {
         id: provider.id,

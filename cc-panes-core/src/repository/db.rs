@@ -32,6 +32,7 @@ struct Migration {
 /// V21 = launch_history 添加 resume_source（resume id 来源：issued/osc-title/backfill/rescue/manual）
 /// V22 = layout_snapshots shared desktop/Web pane layout state
 /// V23 = 洗掉 launch_history 里被 CLI hook 回填污染的 `\\?\` 路径（数据迁移，非 schema）
+/// V24 = Claude/Codex 本地会话索引与增量扫描状态
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -492,6 +493,44 @@ const MIGRATIONS: &[Migration] = &[
                AND substr(workspace_path, 1, 8) <> '\\\\?\\UNC\\';
         ",
     },
+    Migration {
+        version: 24,
+        description: "session index cache and incremental scan state",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS session_index (
+                session_id TEXT PRIMARY KEY,
+                cli_tool TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                project_path_norm TEXT NOT NULL,
+                project_name TEXT NOT NULL,
+                workspace_name TEXT,
+                first_prompt TEXT NOT NULL DEFAULT '',
+                last_summary TEXT NOT NULL DEFAULT '',
+                message_count INTEGER NOT NULL DEFAULT 0,
+                mtime_ms INTEGER NOT NULL,
+                size INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                wsl_distro TEXT,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_index_cli_tool
+                ON session_index(cli_tool);
+            CREATE INDEX IF NOT EXISTS idx_session_index_project_path
+                ON session_index(project_path_norm);
+            CREATE INDEX IF NOT EXISTS idx_session_index_mtime
+                ON session_index(mtime_ms DESC);
+            CREATE INDEX IF NOT EXISTS idx_session_index_workspace
+                ON session_index(workspace_name);
+
+            CREATE TABLE IF NOT EXISTS session_scan_state (
+                file_path TEXT PRIMARY KEY,
+                mtime_ms INTEGER NOT NULL,
+                size INTEGER NOT NULL,
+                scanned_at TEXT NOT NULL
+            );
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -735,6 +774,8 @@ mod tests {
             "runner_instances",
             "port_claims",
             "layout_snapshots",
+            "session_index",
+            "session_scan_state",
         ];
         for table in &tables {
             let exists: bool = conn

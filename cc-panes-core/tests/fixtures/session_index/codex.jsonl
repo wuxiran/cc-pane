@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"019f9550-2ba8-72e0-bb93-a41016243883","cwd":"/workspace/beta"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Build the indexed history view"}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I will add the cache first"}]}}
+{"type":"response_item","payload":{"type":"function_call","name":"shell"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Continue with the UI"}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Session history is complete"}]}}

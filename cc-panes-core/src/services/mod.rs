@@ -23,6 +23,9 @@ mod project_context_service;
 mod project_service;
 mod provider_service;
 mod runner_service;
+mod session_index_parser;
+mod session_index_roots;
+pub mod session_index_service;
 mod session_restore_service;
 pub mod session_state_machine;
 mod settings_service;
@@ -69,6 +72,7 @@ pub use project_context_service::ProjectContextService;
 pub use project_service::ProjectService;
 pub use provider_service::ProviderService;
 pub use runner_service::RunnerService;
+pub use session_index_service::SessionIndexService;
 pub use session_restore_service::SessionRestoreService;
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;
@@ -81,7 +85,8 @@ pub use system_stats_service::SystemStatsService;
 pub use task_binding_service::TaskBindingService;
 pub use terminal_backend::{DaemonTerminalBackend, InProcessTerminalBackend, TerminalBackend};
 pub use terminal_service::{
-    KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo, TerminalService,
+    codex_rollout_exists, KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo,
+    TerminalService,
 };
 pub use todo_service::TodoService;
 pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupService};
