@@ -391,12 +391,11 @@ use services::{
     MemoryService, NotificationService, OrchestratorService, PlanArchiveService, PlanService,
     ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
     ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
-    SessionRestoreService,
-    SettingsService, SharedMcpService, SkillMarketService, SkillService, SpecService,
-    SshCredentialService, SshMachineService, StartLocks, SystemStatsService, TaskBindingService,
-    TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge, TerminalDaemonLifecycle,
-    TerminalService, TodoService, UninstallCleanupService, UsageStatsService, WebAccessLifecycle,
-    WorkspaceService, WorktreeService,
+    SessionRestoreService, SettingsService, SharedMcpService, SkillMarketService, SkillService,
+    SpecService, SshCredentialService, SshMachineService, StartLocks, SystemStatsService,
+    TaskBindingService, TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge,
+    TerminalDaemonLifecycle, TerminalService, TodoService, UninstallCleanupService,
+    UsageStatsService, WebAccessLifecycle, WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
