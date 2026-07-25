@@ -65,6 +65,25 @@ struct WebPathResolution {
     source: &'static str,
 }
 
+#[cfg(not(windows))]
+fn bind_non_inheritable_listener(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+    let listener = std::net::TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
+    tokio::net::TcpListener::from_std(listener)
+}
+
+#[cfg(windows)]
+fn bind_non_inheritable_listener(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+    use socket2::{Domain, Protocol, Socket, Type};
+
+    // Socket::new uses WSASocketW with OVERLAPPED and NO_HANDLE_INHERIT on Windows.
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
+    socket.bind(&addr.into())?;
+    socket.listen(128)?;
+    socket.set_nonblocking(true)?;
+    tokio::net::TcpListener::from_std(socket.into())
+}
+
 fn resolve_web_paths(explicit_data_dir: Option<&str>) -> WebPathResolution {
     if let Some(dir) = non_empty_path(explicit_data_dir) {
         let path = normalize_current_host_path(dir);
@@ -350,7 +369,7 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = format!("{host}:{}", args.port).parse()?;
     info!(addr = %addr, cwd = cwd_str, "CC-Panes Web starting");
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = bind_non_inheritable_listener(addr)?;
     info!("Listening on http://{}", addr);
 
     axum::serve(
