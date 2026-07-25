@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
-import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2, Star, CopyPlus, Maximize2, Minimize2 } from "lucide-react";
+import { X, Plus, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2, Star, CopyPlus, Maximize2, Minimize2, Globe2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -280,7 +280,7 @@ function SortableTab({
             style={{ background: "var(--app-accent)" }}
           />
         ) : null}
-        <StatusIndicator status={getStatus(tab.sessionId ?? null)} size={d.statusSize} />
+        {tab.contentType === "browser" ? <Globe2 size={d.pinSize} className="shrink-0 text-[var(--app-text-tertiary)]" aria-hidden="true" /> : <StatusIndicator status={getStatus(tab.sessionId ?? null)} size={d.statusSize} />}
         {/* 会话绑定标志：绿=已确定 resume id（重启可恢复），灰=未绑定（点击手动绑定） */}
         {tab.contentType === "terminal" && tab.cliTool && tab.cliTool !== "none" && (
           <button

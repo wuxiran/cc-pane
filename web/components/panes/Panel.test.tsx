@@ -138,6 +138,23 @@ describe("Panel", () => {
     expect(screen.getByText(tPanes("selectProject"))).toBeInTheDocument();
   });
 
+  it("does not cover a browser tab with the empty terminal state", () => {
+    const pane = makePane([
+      makeTab("browser-1", {
+        contentType: "browser",
+        projectPath: "",
+        browserUrl: "http://localhost:5173/",
+        terminalRootPane: undefined,
+      }),
+    ]);
+    setPanesState(pane);
+
+    render(<Panel pane={pane} />);
+
+    expect(screen.queryByText(tPanes("selectProject"))).not.toBeInTheDocument();
+    expect(screen.getByTestId("tab-content-browser-1")).toBeInTheDocument();
+  });
+
   it("kills all terminal sessions of a tab and closes it", () => {
     const closeTab = vi.fn();
     const pane = makePane([

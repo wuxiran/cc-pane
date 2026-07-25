@@ -789,6 +789,31 @@ describe("usePanesStore", () => {
     });
   });
 
+  describe("openBrowser", () => {
+    it("creates an active browser tab and updates its URL and title metadata", () => {
+      usePanesStore.getState().openBrowser("http://localhost:5173/", "Preview");
+
+      const pane = usePanesStore.getState().activePane()!;
+      const browserTab = pane.tabs.find((tab) => tab.contentType === "browser")!;
+      expect(browserTab).toMatchObject({
+        title: "Preview",
+        browserUrl: "http://localhost:5173/",
+        projectPath: "",
+        sessionId: null,
+      });
+      expect(pane.activeTabId).toBe(browserTab.id);
+
+      usePanesStore.getState().updateBrowserTab(browserTab.id, {
+        browserUrl: "https://example.com/",
+        title: "Example",
+      });
+      expect(usePanesStore.getState().findTabAcrossLayouts(browserTab.id)?.tab).toMatchObject({
+        browserUrl: "https://example.com/",
+        title: "Example",
+      });
+    });
+  });
+
   // ========== 标签导航 ==========
 
   describe("reopenClosedTab", () => {

@@ -231,4 +231,28 @@ describe("useOrchestratorListener layout placement", () => {
     expect(data.layouts.find((layout) => layout.id === secondLayoutId)?.name).toBe("第二布局");
     expect(data.layoutCount).toBe(2);
   });
+
+  it("open-browser-tab 事件切回 panes 并打开 browser tab", async () => {
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-open-browser-tab")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-open-browser-tab")?.({
+        payload: {
+          url: "http://localhost:5173/",
+          title: "Local preview",
+        },
+      });
+    });
+
+    const browserTab = usePanesStore.getState().activePane()?.tabs.find(
+      (tab) => tab.contentType === "browser",
+    );
+    expect(browserTab).toMatchObject({
+      browserUrl: "http://localhost:5173/",
+      title: "Local preview",
+    });
+    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+  });
 });

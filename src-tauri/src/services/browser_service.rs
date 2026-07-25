@@ -5,7 +5,8 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{
-    webview::WebviewBuilder, AppHandle, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl,
+    webview::{PageLoadEvent, WebviewBuilder},
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl,
 };
 
 pub const CDP_SPIKE_METHODS: [&str; 2] = ["Runtime.evaluate", "Page.captureScreenshot"];
@@ -27,6 +28,43 @@ pub struct BrowserSpikeReport {
     pub runtime_evaluate_result: String,
     pub screenshot_png_bytes: usize,
     pub devtools_requested: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserOpenTabEvent {
+    pub url: String,
+    pub title: String,
+}
+
+impl BrowserOpenTabEvent {
+    pub fn try_new(url: &str, title: Option<&str>) -> AppResult<Self> {
+        let parsed = validate_browser_url(url)?;
+        let default_title = parsed.host_str().unwrap_or("Browser");
+        Ok(Self {
+            url: parsed.to_string(),
+            title: title
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(default_title)
+                .to_string(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserPageLoadEvent {
+    tab_id: String,
+    url: String,
+    loading: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserTitleChangedEvent {
+    tab_id: String,
+    title: String,
 }
 
 impl BrowserBounds {
@@ -118,12 +156,31 @@ impl BrowserTabManager {
         let main_window = app
             .get_window("main")
             .ok_or_else(|| "main window is unavailable".to_string())?;
+        let load_app = app.clone();
+        let load_tab_id = tab_id.to_string();
+        let title_app = app.clone();
+        let title_tab_id = tab_id.to_string();
         let webview = main_window
             .add_child(
                 WebviewBuilder::new(label.clone(), WebviewUrl::External(parsed_url))
                     .focused(false)
                     .devtools(true)
-                    .enable_clipboard_access(),
+                    .enable_clipboard_access()
+                    .on_page_load(move |_webview, payload| {
+                        let event = BrowserPageLoadEvent {
+                            tab_id: load_tab_id.clone(),
+                            url: payload.url().to_string(),
+                            loading: payload.event() == PageLoadEvent::Started,
+                        };
+                        let _ = load_app.emit_to("main", "browser-page-load", event);
+                    })
+                    .on_document_title_changed(move |_webview, title| {
+                        let event = BrowserTitleChangedEvent {
+                            tab_id: title_tab_id.clone(),
+                            title,
+                        };
+                        let _ = title_app.emit_to("main", "browser-title-changed", event);
+                    }),
                 bounds.logical_position(),
                 bounds.logical_size(),
             )
@@ -385,7 +442,7 @@ async fn call_devtools_protocol(
 mod tests {
     use super::{
         browser_webview_label, decode_cdp_screenshot, truncate_cdp_result, BrowserBounds,
-        CDP_SPIKE_METHODS,
+        BrowserOpenTabEvent, CDP_SPIKE_METHODS,
     };
 
     #[test]
@@ -449,5 +506,23 @@ mod tests {
         );
         assert!(decode_cdp_screenshot(r#"{"data":"bm90LXBuZw=="}"#).is_err());
         assert!(decode_cdp_screenshot(r#"{"missing":"data"}"#).is_err());
+    }
+
+    #[test]
+    fn open_tab_event_validates_url_and_derives_title() {
+        assert_eq!(
+            BrowserOpenTabEvent::try_new("http://localhost:5173", None).unwrap(),
+            BrowserOpenTabEvent {
+                url: "http://localhost:5173/".to_string(),
+                title: "localhost".to_string(),
+            }
+        );
+        assert_eq!(
+            BrowserOpenTabEvent::try_new("https://example.com", Some(" Preview "))
+                .unwrap()
+                .title,
+            "Preview"
+        );
+        assert!(BrowserOpenTabEvent::try_new("file:///tmp/a.html", None).is_err());
     }
 }

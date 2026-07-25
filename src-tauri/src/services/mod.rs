@@ -18,7 +18,9 @@ mod terminal_daemon_event_bridge;
 mod terminal_daemon_lifecycle;
 mod web_access_lifecycle;
 
-pub use browser_service::{BrowserBounds, BrowserSpikeReport, BrowserTabManager};
+pub use browser_service::{
+    BrowserBounds, BrowserOpenTabEvent, BrowserSpikeReport, BrowserTabManager,
+};
 pub(crate) use launch_backfill_service::detect_resume_session;
 pub use launch_backfill_service::rescue_null_codex_records;
 pub use launch_backfill_service::run_launch_history_backfill;

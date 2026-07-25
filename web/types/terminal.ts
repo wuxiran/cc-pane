@@ -122,7 +122,7 @@ export interface TerminalPaneSplit {
 export interface Tab {
   id: string;
   title: string;
-  contentType: "terminal" | "mcp-config" | "skill-manager" | "memory-manager" | "file-explorer" | "editor";
+  contentType: "terminal" | "browser" | "mcp-config" | "skill-manager" | "memory-manager" | "file-explorer" | "editor";
   projectId: string;
   projectPath: string;
   /** Live PTY session id owned by CC-Panes. */
@@ -143,6 +143,7 @@ export interface Tab {
   launchClaude?: boolean;
   cliTool?: CliTool;
   filePath?: string;
+  browserUrl?: string;
   dirty?: boolean;
   reclaimKey?: number;
   ssh?: import("./workspace").SshConnectionInfo;

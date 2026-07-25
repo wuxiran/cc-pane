@@ -21,10 +21,10 @@ use crate::models::{
     WorkspaceLaunchEnvironment, WslLaunchInfo,
 };
 use crate::services::{
-    ExternalSkillRegistry, LaunchHistoryService, LaunchProfileService, MemoryService,
-    NotificationRequest, NotificationService, ProjectService, ProviderService, SettingsService,
-    SharedMcpService, SkillService, SpecService, SshMachineService, TerminalBackendKind,
-    TerminalBackendState, TerminalService, TodoService, WorkspaceService,
+    BrowserOpenTabEvent, ExternalSkillRegistry, LaunchHistoryService, LaunchProfileService,
+    MemoryService, NotificationRequest, NotificationService, ProjectService, ProviderService,
+    SettingsService, SharedMcpService, SkillService, SpecService, SshMachineService,
+    TerminalBackendKind, TerminalBackendState, TerminalService, TodoService, WorkspaceService,
 };
 use crate::utils::{validate_command, validate_mcp_name, validate_path, AppPaths};
 use anyhow::Result;
@@ -1840,6 +1840,12 @@ struct McpOpenFileParams {
     /// 文件所属项目路径（可选，自动推断）
     #[serde(rename = "projectPath")]
     project_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpOpenBrowserTabParams {
+    /// 要在 CC-Panes 浏览器标签中打开的 http/https URL
+    url: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4577,6 +4583,32 @@ impl McpToolHandler {
             "success": true,
             "filePath": canonical_file,
             "projectPath": project_path,
+        })
+        .to_string()
+    }
+
+    /// 在 CC-Panes 当前窗格中打开浏览器标签。优先用于 localhost 或内网开发预览；仅支持 http/https URL。
+    #[tool]
+    async fn open_browser_tab(
+        &self,
+        Parameters(params): Parameters<McpOpenBrowserTabParams>,
+    ) -> String {
+        info!(url = %params.url, "mcp::open_browser_tab");
+        let event = match BrowserOpenTabEvent::try_new(&params.url, None) {
+            Ok(event) => event,
+            Err(error) => return format!("错误: {error}"),
+        };
+        if let Err(error) =
+            self.state
+                .app_handle
+                .emit_to("main", "orchestrator-open-browser-tab", &event)
+        {
+            return format!("错误: 无法打开浏览器标签: {error}");
+        }
+        serde_json::json!({
+            "success": true,
+            "url": event.url,
+            "title": event.title,
         })
         .to_string()
     }
