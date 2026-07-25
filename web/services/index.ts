@@ -16,6 +16,7 @@ export { webAuthService } from "./webAuthService";
 export { layoutSwitcherService } from "./layoutSwitcherService";
 export { providerService } from "./providerService";
 export { launchProfileService } from "./launchProfileService";
+export { quickCommandService } from "./quickCommandService";
 export { todoService } from "./todoService";
 export { specService } from "./specService";
 export { memoryService } from "./memoryService";

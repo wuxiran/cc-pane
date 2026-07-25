@@ -69,6 +69,14 @@ export { WORKSPACE_COLORS } from "./workspace";
 export type { Provider, ProviderType } from "./provider";
 export { PROVIDER_TYPE_META } from "./provider";
 export type {
+  QuickCommand,
+  QuickCommandDraft,
+  QuickCommandKind,
+  QuickCommandScope,
+  QuickCommandTarget,
+  ScopedQuickCommand,
+} from "./quick-command";
+export type {
   LaunchProfile,
   LaunchProfileAdapterOptions,
   LaunchProfileDraft,

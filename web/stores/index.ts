@@ -7,6 +7,7 @@ export { useProjectsStore } from "./useProjectsStore";
 export { useWorkspacesStore } from "./useWorkspacesStore";
 export { useProvidersStore } from "./useProvidersStore";
 export { useLaunchProfilesStore } from "./useLaunchProfilesStore";
+export { useQuickCommandsStore } from "./useQuickCommandsStore";
 export { useTerminalStatusStore } from "./useTerminalStatusStore";
 export { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
 export {
