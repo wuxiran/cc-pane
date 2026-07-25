@@ -110,6 +110,7 @@ export type {
   OrchestratorSettings,
   OrchestratorBindMode,
   OrchestratorBindDecision,
+  OrchestratorLifecycle,
   OrchestratorStatus,
   TailscaleStatus,
   EnvironmentInfo,

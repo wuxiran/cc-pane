@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { mcpService, settingsService } from "@/services";
+import { settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
+import { useOrchestratorStatus } from "@/hooks/useOrchestratorStatus";
 import type {
   OrchestratorBindMode,
   OrchestratorSettings,
-  OrchestratorStatus,
   TailscaleStatus,
   WebAccessSettings,
   WebAccessStatus,
@@ -50,9 +51,10 @@ export default function WebAccessSection({
   orchestrator,
   onOrchestratorChange,
 }: WebAccessSectionProps) {
+  const { t } = useTranslation("settings");
   const [status, setStatus] = useState<WebAccessStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
-  const [orchestratorStatus, setOrchestratorStatus] = useState<OrchestratorStatus | null>(null);
+  const orchestratorStatus = useOrchestratorStatus();
   const [tailscale, setTailscale] = useState<TailscaleStatus | null>(null);
   const [detectingTailscale, setDetectingTailscale] = useState(false);
   const [password, setPassword] = useState("");
@@ -81,10 +83,6 @@ export default function WebAccessSection({
 
   useEffect(() => {
     void refreshStatus();
-    void mcpService
-      .getOrchestratorStatus()
-      .then(setOrchestratorStatus)
-      .catch(() => setOrchestratorStatus(null));
   }, []);
 
   async function handleSetPassword() {
@@ -348,6 +346,34 @@ export default function WebAccessSection({
             <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
               当前实际监听 {orchestratorStatus.bind.host}
               {orchestratorStatus.port != null ? `:${orchestratorStatus.port}` : ""}（{orchestratorStatus.bind.reason}）
+            </p>
+          )}
+          {orchestratorStatus && (
+            <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
+              {t("orchestratorStatus.summary", {
+                lifecycle:
+                  orchestratorStatus.lifecycle === "binding"
+                    ? t("orchestratorStatus.binding")
+                    : orchestratorStatus.lifecycle === "ready"
+                      ? t("orchestratorStatus.ready")
+                      : t("orchestratorStatus.failed"),
+              })}
+              {orchestratorStatus.attempt != null
+                ? ` · ${t("orchestratorStatus.attempt", { attempt: orchestratorStatus.attempt })}`
+                : ""}
+              {orchestratorStatus.nextRetryAt != null
+                ? ` · ${t("orchestratorStatus.nextRetry", {
+                    time: new Date(orchestratorStatus.nextRetryAt).toLocaleTimeString(),
+                  })}`
+                : ""}
+            </p>
+          )}
+          {orchestratorStatus?.lastError && (
+            <p
+              className="text-xs m-0 whitespace-pre-wrap break-words"
+              style={{ color: "var(--app-status-danger)" }}
+            >
+              {t("orchestratorStatus.lastError", { error: orchestratorStatus.lastError })}
             </p>
           )}
         </div>

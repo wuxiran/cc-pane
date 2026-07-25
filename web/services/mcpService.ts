@@ -4,6 +4,9 @@
 import type { McpServerConfig, OrchestratorStatus } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
 import { apiDeleteJson, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
+import { listenWebviewIfTauri } from "./runtime";
+
+const ORCHESTRATOR_STATUS_CHANGED_EVENT = "orchestrator-status-changed";
 
 export const mcpService = {
   /** 列出项目的所有 MCP Server 配置 */
@@ -59,5 +62,14 @@ export const mcpService = {
   async getOrchestratorStatus(): Promise<OrchestratorStatus | null> {
     if (!isTauriRuntime()) return null;
     return invoke<OrchestratorStatus>("get_orchestrator_status");
+  },
+
+  async onOrchestratorStatusChanged(
+    handler: (status: OrchestratorStatus) => void,
+  ): Promise<() => void> {
+    return listenWebviewIfTauri<OrchestratorStatus>(
+      ORCHESTRATOR_STATUS_CHANGED_EVENT,
+      (event) => handler(event.payload),
+    );
   },
 };

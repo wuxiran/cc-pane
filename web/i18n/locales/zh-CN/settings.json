@@ -452,6 +452,24 @@
   "disableWslUsageScan": "WSL 免打扰（用量统计）",
   "disableWslUsageScanDesc": "关闭后不再扫描 WSL 内的用量数据，避免启动时唤醒 WSL 虚拟机（Vmmem 内存占用）",
   "showSystemResources": "状态栏显示系统资源",
+  "orchestratorStatus": {
+    "binding": "正在绑定",
+    "ready": "已就绪",
+    "failed": "启动失败",
+    "summary": "运行状态：{{lifecycle}}",
+    "attempt": "第 {{attempt}} 次绑定",
+    "nextRetry": "下次重试：{{time}}",
+    "lastError": "最近错误：{{error}}"
+  },
+  "orchestratorAlert": {
+    "failedTitle": "MCP 服务未启动",
+    "retrying": "MCP 服务绑定失败，正在等待第 {{attempt}} 次重试。下次重试：{{time}}",
+    "attempting": "MCP 服务正在进行第 {{attempt}} 次绑定尝试。",
+    "impact": "已注入的 CLI 会话无法使用 MCP 工具。",
+    "escapePrefix": "请释放固定端口后重启，或设置逃生阀环境变量",
+    "escapeSuffix": "为另一个确定端口后重启应用。",
+    "errorDetails": "错误详情"
+  },
   "sharedMcp": {
     "title": "共享 MCP",
     "add": "新增",

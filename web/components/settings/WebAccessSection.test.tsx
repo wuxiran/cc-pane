@@ -5,8 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
+import { useOrchestratorStatus } from "@/hooks/useOrchestratorStatus";
 import { useSettingsStore } from "@/stores";
-import type { AppSettings, WebAccessSettings, WebAccessStatus } from "@/types";
+import type { AppSettings, OrchestratorStatus, WebAccessSettings, WebAccessStatus } from "@/types";
 import WebAccessSection from "./WebAccessSection";
 
 vi.mock("@/services/runtime", () => ({
@@ -18,6 +19,10 @@ vi.mock("@/services/runtime", () => ({
   getCurrentWindowIfTauri: vi.fn(() => null),
   logErrorSafe: vi.fn(),
   logInfoSafe: vi.fn(),
+}));
+
+vi.mock("@/hooks/useOrchestratorStatus", () => ({
+  useOrchestratorStatus: vi.fn(() => null),
 }));
 
 vi.mock("@/services/settingsService", () => ({
@@ -74,6 +79,7 @@ const loadSettingsMock = vi.fn(async () => {});
 describe("WebAccessSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useOrchestratorStatus).mockReturnValue(null);
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     vi.mocked(settingsService.getWebAccessStatus).mockResolvedValue(idleStatus);
     useSettingsStore.setState({
@@ -224,5 +230,30 @@ describe("WebAccessSection", () => {
     expect(screen.getByRole("button", { name: /打开 Web/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^启动$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /停止/ })).not.toBeInTheDocument();
+  });
+
+  it("shows orchestrator lifecycle, retry timing, and the last bind error", async () => {
+    vi.mocked(useOrchestratorStatus).mockReturnValue({
+      port: null,
+      bind: { host: "127.0.0.1", mode: "auto", reason: "test" },
+      lifecycle: "binding",
+      attempt: 2,
+      lastError: "port occupied",
+      nextRetryAt: Date.now() + 1_000,
+    } satisfies OrchestratorStatus);
+
+    render(
+      <WebAccessSection
+        value={createValue()}
+        onChange={vi.fn()}
+        orchestrator={{ bindMode: "auto" }}
+        onOrchestratorChange={vi.fn()}
+      />,
+    );
+    await act(async () => {});
+
+    expect(screen.getByText(/运行状态：正在绑定/)).toBeInTheDocument();
+    expect(screen.getByText(/第 2 次绑定/)).toBeInTheDocument();
+    expect(screen.getByText(/最近错误：port occupied/)).toBeInTheDocument();
   });
 });

@@ -14,6 +14,7 @@ import DarkOrbsBackground from "@/components/layout/DarkOrbsBackground";
 import MainViewSwitcher from "@/components/layout/MainViewSwitcher";
 import AppDialogs from "@/components/layout/AppDialogs";
 import RightDock from "@/components/rightdock/RightDock";
+import OrchestratorAlertBanner from "@/components/OrchestratorAlertBanner";
 import { useThemeStore, useMiniModeStore, useWorkspacesStore } from "@/stores";
 import { useFollowActiveTerminalContext } from "@/hooks/useFollowActiveTerminalContext";
 import type { OpenTerminalOptions } from "@/types";
@@ -37,6 +38,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
 
         {/* Sonner Toast */}
         <Toaster position="top-center" theme={isDark ? "dark" : "light"} richColors />
+        <OrchestratorAlertBanner />
 
         {isMiniMode ? (
           <MiniView />
