@@ -156,14 +156,22 @@ impl ClaudeAdapter {
     }
 
     /// 生成 MCP 配置文件，返回路径
-    /// 配置 CC-Panes 的 Streamable HTTP MCP 端点 + 用户全局 MCP 服务器
+    /// 配置 CC-Panes 的 HTTP/stdio MCP 端点 + 用户全局 MCP 服务器
     fn generate_mcp_config(&self, ctx: &CliAdapterContext) -> Option<String> {
-        let port = ctx.orchestrator_port?;
-        let token = ctx.orchestrator_token.as_ref()?;
+        let proxy = crate::mcp_proxy_invocation(ctx);
+        let http_endpoint = if proxy.is_none() {
+            Some((ctx.orchestrator_port?, ctx.orchestrator_token.as_ref()?))
+        } else {
+            None
+        };
 
         info!(
-            "[claude] generate_mcp_config: port={}, shared_mcp={} servers, session={}",
-            port,
+            "[claude] generate_mcp_config: mode={}, shared_mcp={} servers, session={}",
+            if proxy.is_some() {
+                "stdio-proxy"
+            } else {
+                "http"
+            },
             ctx.shared_mcp_urls.len(),
             ctx.session_id
         );
@@ -196,22 +204,29 @@ impl ClaudeAdapter {
             }
         }
 
-        // token 同时通过 headers 和 URL query 传递（后者为后备方案，
-        // 因为 Claude Code 某些版本可能忽略 headers 配置 — Issue #7290）
-        // launchId 用于让 Orchestrator 在 launch_task 时识别 caller，
-        // 自动推导 parent_tab_id。
-        let mut mcp_url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
-        if let Some(launch_id) = ctx.launch_id.as_deref() {
-            mcp_url.push_str("&launchId=");
-            mcp_url.push_str(launch_id);
-        }
-        let ccpanes_server = serde_json::json!({
-            "type": "http",
-            "url": mcp_url,
-            "headers": {
-                "Authorization": format!("Bearer {}", token)
+        let ccpanes_server = if let Some(proxy) = proxy {
+            serde_json::json!({
+                "type": "stdio",
+                "command": proxy.command,
+                "args": proxy.args,
+            })
+        } else {
+            let (port, token) = http_endpoint?;
+            // HTTP 灰度关闭路径保持原行为。launchId 继续传给 orchestrator，
+            // token 同时走 header 与 query 以兼容旧 Claude Code。
+            let mut mcp_url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
+            if let Some(launch_id) = ctx.launch_id.as_deref() {
+                mcp_url.push_str("&launchId=");
+                mcp_url.push_str(launch_id);
             }
-        });
+            serde_json::json!({
+                "type": "http",
+                "url": mcp_url,
+                "headers": {
+                    "Authorization": format!("Bearer {}", token)
+                }
+            })
+        };
 
         let mut mcp_servers = serde_json::Map::new();
         Self::cleanup_legacy_global_mcp_servers();
@@ -1519,6 +1534,10 @@ mod tests {
                     "old-proxy": {
                         "command": "/tmp/ccpanes-proxy.mjs"
                     },
+                    "new-proxy": {
+                        "command": "/opt/cc-panes-ctl",
+                        "args": ["--data-dir", "/tmp/data", "mcp-proxy"]
+                    },
                     "fetch": {
                         "command": "fetch-mcp"
                     }
@@ -1534,6 +1553,7 @@ mod tests {
         let servers = servers.as_object().unwrap();
         assert!(servers.contains_key("ccpanes"));
         assert!(servers.contains_key("fetch"));
+        assert!(servers.contains_key("new-proxy"));
         assert!(!servers.contains_key("ccpanes-fixed"));
         assert!(!servers.contains_key("old-proxy"));
     }
@@ -1556,6 +1576,69 @@ mod tests {
             "fetch",
             &serde_json::json!({"command": "fetch-mcp"})
         ));
+        assert!(!ClaudeAdapter::should_skip_user_global_mcp_server(
+            "new-proxy",
+            &serde_json::json!({
+                "command": "/opt/cc-panes-ctl",
+                "args": ["mcp-proxy"]
+            })
+        ));
+    }
+
+    #[test]
+    fn mcp_proxy_config_is_opt_in_and_preserves_launch_identity() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some("/opt/claude"));
+        ctx.skip_mcp = false;
+        ctx.data_dir = dir.path().to_path_buf();
+        ctx.launch_id = Some("launch/42".to_string());
+        ctx.adapter_options
+            .insert("mcpProxyEnabled".to_string(), serde_json::json!(true));
+        ctx.adapter_options.insert(
+            "mcpProxyCommand".to_string(),
+            serde_json::json!("/opt/cc-panes-ctl"),
+        );
+
+        let config_path = adapter.generate_mcp_config(&ctx).expect("config");
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        let ccpanes = &config["mcpServers"]["ccpanes"];
+        assert_eq!(ccpanes["type"], "stdio");
+        assert_eq!(ccpanes["command"], "/opt/cc-panes-ctl");
+        assert_eq!(
+            ccpanes["args"],
+            serde_json::json!([
+                "--data-dir",
+                dir.path().to_string_lossy(),
+                "mcp-proxy",
+                "--launch-id",
+                "launch/42"
+            ])
+        );
+        assert!(ccpanes.get("url").is_none());
+        assert!(ccpanes.get("headers").is_none());
+    }
+
+    #[test]
+    fn mcp_proxy_is_off_by_default() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some("/opt/claude"));
+        ctx.skip_mcp = false;
+        ctx.data_dir = dir.path().to_path_buf();
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("secret-token".to_string());
+
+        let config_path = adapter.generate_mcp_config(&ctx).expect("config");
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        let ccpanes = &config["mcpServers"]["ccpanes"];
+        assert_eq!(ccpanes["type"], "http");
+        assert!(ccpanes["url"]
+            .as_str()
+            .is_some_and(|url| url.contains("127.0.0.1:37123")));
+        assert!(ccpanes.get("command").is_none());
     }
 
     // ============ cc-pane 抽象事件映射测试 ============

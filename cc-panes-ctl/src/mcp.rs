@@ -18,7 +18,12 @@ pub struct ToolDefinition {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpErrorKind {
+    /// DNS、拒绝连接等可以确认请求未到达服务端的失败。
     Unreachable,
+    /// 下游明确返回旧 MCP session 不存在；原请求未进入工具执行。
+    SessionExpired,
+    /// 请求可能已到达服务端，但响应在 reset、超时或读取阶段丢失。
+    Indeterminate,
     Http,
     Protocol,
     InvalidResponse,
@@ -36,6 +41,20 @@ impl McpError {
             kind,
             message: message.into(),
         }
+    }
+
+    pub fn retryable_before_execution(&self) -> bool {
+        matches!(
+            self.kind,
+            McpErrorKind::Unreachable | McpErrorKind::SessionExpired
+        )
+    }
+
+    pub fn execution_uncertain(&self) -> bool {
+        matches!(
+            self.kind,
+            McpErrorKind::Indeterminate | McpErrorKind::InvalidResponse
+        )
     }
 }
 
@@ -85,9 +104,6 @@ impl McpClient {
     }
 
     pub fn initialize(&mut self) -> Result<Value, McpError> {
-        if self.initialized {
-            return Ok(json!({ "protocolVersion": self.protocol_version }));
-        }
         let params = json!({
             "protocolVersion": DEFAULT_PROTOCOL_VERSION,
             "capabilities": {},
@@ -96,6 +112,22 @@ impl McpClient {
                 "version": env!("CARGO_PKG_VERSION")
             }
         });
+        self.initialize_with(params)
+    }
+
+    pub fn initialize_with(&mut self, params: Value) -> Result<Value, McpError> {
+        if self.initialized {
+            return Ok(json!({ "protocolVersion": self.protocol_version }));
+        }
+        if !params.is_object() {
+            return Err(McpError::new(
+                McpErrorKind::Protocol,
+                "initialize params 必须是 JSON object",
+            ));
+        }
+        if let Some(version) = params.get("protocolVersion").and_then(Value::as_str) {
+            self.protocol_version = version.to_string();
+        }
         let result = self.request("initialize", params)?;
         if let Some(version) = result.get("protocolVersion").and_then(Value::as_str) {
             self.protocol_version = version.to_string();
@@ -106,25 +138,46 @@ impl McpClient {
     }
 
     pub fn list_tools(&mut self) -> Result<Vec<ToolDefinition>, McpError> {
+        let value = self.list_tools_value()?;
+        let page: ToolsPage = serde_json::from_value(value).map_err(|error| {
+            McpError::new(
+                McpErrorKind::InvalidResponse,
+                format!("tools/list 响应结构无效: {error}"),
+            )
+        })?;
+        Ok(page.tools.into_iter().map(ToolDefinition::from).collect())
+    }
+
+    /// 返回已经展开分页的原始 tools/list 结果，保留服务端未来新增的 schema 字段。
+    pub fn list_tools_value(&mut self) -> Result<Value, McpError> {
         self.ensure_initialized()?;
         let mut cursor: Option<String> = None;
-        let mut tools = Vec::new();
+        let mut tools: Vec<Value> = Vec::new();
         loop {
             let params = cursor
                 .as_ref()
                 .map(|cursor| json!({ "cursor": cursor }))
                 .unwrap_or_else(|| json!({}));
             let result = self.request("tools/list", params)?;
-            let page: ToolsPage = serde_json::from_value(result).map_err(|error| {
-                McpError::new(
-                    McpErrorKind::InvalidResponse,
-                    format!("tools/list 响应结构无效: {error}"),
-                )
-            })?;
-            tools.extend(page.tools.into_iter().map(ToolDefinition::from));
-            match page.next_cursor.filter(|value| !value.is_empty()) {
+            let page_tools = result
+                .get("tools")
+                .and_then(Value::as_array)
+                .cloned()
+                .ok_or_else(|| {
+                    McpError::new(
+                        McpErrorKind::InvalidResponse,
+                        "tools/list 响应缺少 tools 数组",
+                    )
+                })?;
+            tools.extend(page_tools);
+            let next_cursor = result
+                .get("nextCursor")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            match next_cursor {
                 Some(next) => cursor = Some(next),
-                None => return Ok(tools),
+                None => return Ok(json!({ "tools": tools })),
             }
         }
     }
@@ -141,6 +194,16 @@ impl McpClient {
             "tools/call",
             json!({ "name": name, "arguments": arguments }),
         )
+    }
+
+    pub fn request_method(&mut self, method: &str, params: Value) -> Result<Value, McpError> {
+        self.ensure_initialized()?;
+        self.request(method, params)
+    }
+
+    pub fn notification_method(&mut self, method: &str, params: Value) -> Result<(), McpError> {
+        self.ensure_initialized()?;
+        self.notification(method, params)
     }
 
     fn ensure_initialized(&mut self) -> Result<(), McpError> {
@@ -194,6 +257,7 @@ impl McpClient {
         })?;
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(self.timeout))
+            .http_status_as_error(false)
             .build()
             .new_agent();
         let mut request = agent
@@ -205,22 +269,14 @@ impl McpClient {
         if let Some(session_id) = self.session_id.as_deref() {
             request = request.header("Mcp-Session-Id", session_id);
         }
-        let response = request.send(payload.as_slice()).map_err(|error| {
-            let kind = match error {
-                ureq::Error::Io(_) | ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => {
-                    McpErrorKind::Unreachable
-                }
-                _ => McpErrorKind::Http,
-            };
-            McpError::new(kind, format!("MCP HTTP 请求失败: {error}"))
-        })?;
-        if self.session_id.is_none() {
-            self.session_id = response
-                .headers()
-                .get("Mcp-Session-Id")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string);
-        }
+        let response = request
+            .send(payload.as_slice())
+            .map_err(classify_transport_error)?;
+        let new_session_id = response
+            .headers()
+            .get("Mcp-Session-Id")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let status = response.status().as_u16();
         let body = response
             .into_body()
@@ -229,18 +285,26 @@ impl McpClient {
             .read_to_string()
             .map_err(|error| {
                 McpError::new(
-                    McpErrorKind::InvalidResponse,
-                    format!("读取 MCP 响应失败: {error}"),
+                    McpErrorKind::Indeterminate,
+                    format!("读取 MCP 响应失败，执行状态未知: {error}"),
                 )
             })?;
-        if !expects_response && (body.trim().is_empty() || status == 202 || status == 204) {
-            return Ok(String::new());
-        }
         if !(200..300).contains(&status) {
+            let kind = if status == 404 && self.session_id.is_some() {
+                McpErrorKind::SessionExpired
+            } else {
+                McpErrorKind::Http
+            };
             return Err(McpError::new(
-                McpErrorKind::Http,
+                kind,
                 format!("MCP HTTP {status}: {}", compact_text(&body)),
             ));
+        }
+        if self.session_id.is_none() {
+            self.session_id = new_session_id;
+        }
+        if !expects_response && (body.trim().is_empty() || status == 202 || status == 204) {
+            return Ok(String::new());
         }
         Ok(body)
     }
@@ -261,12 +325,38 @@ impl McpClient {
     }
 }
 
+fn classify_transport_error(error: ureq::Error) -> McpError {
+    use std::io::ErrorKind;
+
+    let kind = match &error {
+        ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => McpErrorKind::Unreachable,
+        ureq::Error::Io(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::ConnectionRefused
+                    | ErrorKind::NotConnected
+                    | ErrorKind::AddrNotAvailable
+            ) =>
+        {
+            McpErrorKind::Unreachable
+        }
+        ureq::Error::Io(_) | ureq::Error::Timeout(_) | ureq::Error::Protocol(_) => {
+            McpErrorKind::Indeterminate
+        }
+        _ => McpErrorKind::Http,
+    };
+    let uncertainty = if kind == McpErrorKind::Indeterminate {
+        "，执行状态未知"
+    } else {
+        ""
+    };
+    McpError::new(kind, format!("MCP HTTP 请求失败{uncertainty}: {error}"))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ToolsPage {
     tools: Vec<WireToolDefinition>,
-    #[serde(default)]
-    next_cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

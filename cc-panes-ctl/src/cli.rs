@@ -1,9 +1,11 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 
 use crate::commands::{self, CommandContext};
-use crate::discovery::DataDirMode;
+use crate::discovery::{data_dir_candidates, DataDirMode};
+use crate::proxy;
 
 #[derive(Debug, Parser)]
 #[command(name = "cc-panes-ctl", about = "CC-Panes control-plane CLI")]
@@ -68,6 +70,13 @@ enum Command {
         arguments_json: Option<String>,
         #[arg(long = "arg", value_name = "KEY=VALUE")]
         arg: Vec<String>,
+    },
+    /// Run a resilient stdio MCP proxy for Claude Code or Codex.
+    McpProxy {
+        #[arg(long, value_name = "ID")]
+        launch_id: Option<String>,
+        #[arg(long, default_value_t = 3000)]
+        startup_wait_ms: u64,
     },
 }
 
@@ -257,7 +266,32 @@ pub fn execute(cli: Cli) -> Result<(), CliExit> {
             arguments_json,
             arg,
         } => commands::call(&context, &tool, arguments_json.as_deref(), &arg),
+        Command::McpProxy {
+            launch_id,
+            startup_wait_ms,
+        } => execute_proxy(&context, launch_id, startup_wait_ms),
     }
+}
+
+fn execute_proxy(
+    context: &CommandContext,
+    launch_id: Option<String>,
+    startup_wait_ms: u64,
+) -> Result<(), CliExit> {
+    let mut selected =
+        data_dir_candidates(&context.mode).map_err(|error| CliExit::argument(error.to_string()))?;
+    if selected.len() != 1 {
+        return Err(CliExit::argument(
+            "mcp-proxy 需要唯一数据目录；请使用 --dev、--release、--data-dir，\
+             或设置 CC_PANES_DATA_DIR",
+        ));
+    }
+    proxy::run_stdio(
+        selected.remove(0).path,
+        launch_id.or_else(|| context.launch_id.clone()),
+        Duration::from_millis(startup_wait_ms),
+    )
+    .map_err(|error| CliExit::source(format!("mcp-proxy 失败: {error}")))
 }
 
 fn data_mode(cli: &Cli) -> DataDirMode {

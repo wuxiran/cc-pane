@@ -119,6 +119,30 @@ impl CodexAdapter {
         ));
     }
 
+    fn push_mcp_stdio_override(
+        args: &mut Vec<String>,
+        name: &str,
+        invocation: &crate::McpProxyInvocation,
+    ) {
+        let key = Self::format_toml_key_segment_for_cli(name);
+        args.push("-c".to_string());
+        args.push(format!(
+            "mcp_servers.{key}.command={}",
+            Self::format_toml_string_for_cli(&invocation.command)
+        ));
+        let values = invocation
+            .args
+            .iter()
+            .cloned()
+            .map(toml::Value::String)
+            .collect();
+        args.push("-c".to_string());
+        args.push(format!(
+            "mcp_servers.{key}.args={}",
+            toml::Value::Array(values)
+        ));
+    }
+
     fn push_mcp_enabled_override(args: &mut Vec<String>, name: &str, enabled: bool) {
         args.push("-c".to_string());
         args.push(format!(
@@ -155,7 +179,12 @@ impl CodexAdapter {
     }
 
     fn push_mcp_overrides(&self, args: &mut Vec<String>, ctx: &CliAdapterContext) {
-        if let (Some(port), Some(token)) = (ctx.orchestrator_port, ctx.orchestrator_token.as_ref())
+        let proxy = crate::mcp_proxy_invocation(ctx);
+        if let Some(invocation) = proxy.as_ref() {
+            Self::push_mcp_stdio_override(args, "ccpanes", invocation);
+            Self::push_mcp_enabled_override(args, "ccpanes", true);
+        } else if let (Some(port), Some(token)) =
+            (ctx.orchestrator_port, ctx.orchestrator_token.as_ref())
         {
             let mut url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
             if let Some(launch_id) = ctx.launch_id.as_deref() {
@@ -177,6 +206,7 @@ impl CodexAdapter {
         info!(
             session_id = %ctx.session_id,
             shared_mcp = ctx.shared_mcp_urls.len(),
+            ccpanes_mode = if proxy.is_some() { "stdio-proxy" } else { "http" },
             "codex: MCP configured via per-launch CLI overrides"
         );
     }
@@ -1637,6 +1667,47 @@ mod tests {
             .iter()
             .any(|arg| arg == "mcp_servers.ccpanes.enabled=true"));
         assert!(!args.iter().any(|arg| arg.contains("bearer_token_env_var")));
+    }
+
+    #[test]
+    fn ccpanes_mcp_proxy_override_is_opt_in_and_precedes_resume() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex"));
+        ctx.skip_mcp = false;
+        ctx.launch_id = Some("launch/42".to_string());
+        ctx.data_dir = PathBuf::from("/var/lib/cc-panes");
+        ctx.adapter_options
+            .insert("mcpProxyEnabled".to_string(), serde_json::json!(true));
+        ctx.adapter_options.insert(
+            "mcpProxyCommand".to_string(),
+            serde_json::json!("/opt/cc-panes-ctl"),
+        );
+
+        let result = adapter.build_command(&ctx).expect("build command");
+        let command_pos = result
+            .args
+            .iter()
+            .position(|arg| arg.contains("mcp_servers.ccpanes.command="))
+            .expect("stdio command override");
+        let args_override = result
+            .args
+            .iter()
+            .find(|arg| arg.contains("mcp_servers.ccpanes.args="))
+            .expect("stdio args override");
+        let resume_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "resume")
+            .expect("resume");
+
+        assert!(command_pos < resume_pos, "-c must precede resume");
+        assert!(args_override.contains("mcp-proxy"));
+        assert!(args_override.contains("launch/42"));
+        assert!(!result
+            .args
+            .iter()
+            .any(|arg| arg.contains("mcp_servers.ccpanes.url=")));
+        assert!(!result.args.iter().any(|arg| arg.contains("secret-token")));
     }
 
     #[test]

@@ -9,3 +9,5 @@ pub mod discovery;
 pub mod mcp;
 #[cfg(feature = "full")]
 pub mod offline_db;
+#[cfg(feature = "full")]
+pub mod proxy;

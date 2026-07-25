@@ -572,6 +572,46 @@ impl CliAdapterContext {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct McpProxyInvocation {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+/// mcp-proxy 灰度开关。默认关闭；只有显式启用且 sidecar 路径为绝对路径时生效。
+pub(crate) fn mcp_proxy_invocation(ctx: &CliAdapterContext) -> Option<McpProxyInvocation> {
+    let enabled = ctx
+        .adapter_options
+        .get("mcpProxyEnabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+    let command = ctx
+        .adapter_options
+        .get("mcpProxyCommand")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if !Path::new(command).is_absolute() {
+        return None;
+    }
+    let mut args = vec![
+        "--data-dir".to_string(),
+        ctx.data_dir.to_string_lossy().into_owned(),
+        "mcp-proxy".to_string(),
+    ];
+    if let Some(launch_id) = ctx.launch_id.as_deref() {
+        args.push("--launch-id".to_string());
+        args.push(launch_id.to_string());
+    }
+    Some(McpProxyInvocation {
+        command: command.to_string(),
+        args,
+    })
+}
+
 /// adapter_options 约定键（effort/extraArgs/verbose/maxTurns）的解析 helper，
 /// 供 claude/codex adapter 与 WSL 命令构建复用。
 ///
