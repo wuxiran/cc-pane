@@ -188,6 +188,7 @@ use commands::{
     kill_orphan_processes,
     kill_terminal,
     kill_terminal_idempotent,
+    list_ai_panels,
     list_all_claude_sessions,
     // Provider 命令
     list_bundled_skills,
@@ -247,6 +248,7 @@ use commands::{
     read_config_dir_info,
     read_session_state,
     reconcile_plan_collaboration,
+    record_ai_panel_event,
     record_terminal_input,
     refresh_usage_stats,
     register_plan_child,
@@ -2405,6 +2407,8 @@ pub fn run() {
             get_orchestrator_status,
             get_orchestrator_token,
             respond_orchestrator_query,
+            list_ai_panels,
+            record_ai_panel_event,
             // TaskBinding 命令
             create_task_binding,
             get_task_binding,
