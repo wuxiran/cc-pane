@@ -33,7 +33,7 @@ impl ApiEndpoint {
 
     /// Resolve from env first, then fallback to the current orchestrator manifest.
     pub fn resolve() -> Result<Self, String> {
-        crate::common::orchestrator::resolve_api_endpoint()
+        crate::common::orchestrator::resolve_orchestrator_endpoint()
             .map(|(base_url, token)| Self {
                 base_url: base_url.trim_end_matches('/').to_string(),
                 token,

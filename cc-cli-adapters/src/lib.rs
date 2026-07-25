@@ -572,6 +572,57 @@ impl CliAdapterContext {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpProxyInvocation {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+/// 从 adapter options 构造 mcp-proxy 调用。只有显式启用且 sidecar 路径为
+/// 绝对路径时生效；本地 adapter 与 WSL 启动链共用这份参数契约。
+pub fn mcp_proxy_invocation_from_options(
+    adapter_options: &HashMap<String, serde_json::Value>,
+    data_dir: &Path,
+    launch_id: Option<&str>,
+) -> Option<McpProxyInvocation> {
+    let enabled = adapter_options
+        .get("mcpProxyEnabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if !enabled {
+        return None;
+    }
+    let command = adapter_options
+        .get("mcpProxyCommand")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if !Path::new(command).is_absolute() {
+        return None;
+    }
+    let mut args = vec![
+        "--data-dir".to_string(),
+        data_dir.to_string_lossy().into_owned(),
+        "mcp-proxy".to_string(),
+    ];
+    if let Some(launch_id) = launch_id {
+        args.push("--launch-id".to_string());
+        args.push(launch_id.to_string());
+    }
+    Some(McpProxyInvocation {
+        command: command.to_string(),
+        args,
+    })
+}
+
+fn mcp_proxy_invocation(ctx: &CliAdapterContext) -> Option<McpProxyInvocation> {
+    mcp_proxy_invocation_from_options(
+        &ctx.adapter_options,
+        &ctx.data_dir,
+        ctx.launch_id.as_deref(),
+    )
+}
+
 /// adapter_options 约定键（effort/extraArgs/verbose/maxTurns）的解析 helper，
 /// 供 claude/codex adapter 与 WSL 命令构建复用。
 ///

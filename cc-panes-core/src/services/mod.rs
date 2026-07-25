@@ -1,5 +1,6 @@
 pub mod claude_session_service;
 pub mod codex_session_service;
+mod ctl_sidecar;
 mod daemon_client;
 pub mod default_skill_service;
 mod external_skill_registry;

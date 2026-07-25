@@ -15,7 +15,13 @@ function resolveProfile() {
 const targetTriple = readFlagValue("--target") || process.env.TAURI_ENV_TARGET_TRIPLE || "";
 const profile = resolveProfile();
 
-const args = ["build", "-p", "cc-panes-cli-hook", "-p", "cc-panes-daemon", "-p", "cc-panes-web"];
+const args = [
+  "build",
+  "-p", "cc-panes-cli-hook",
+  "-p", "cc-panes-ctl",
+  "-p", "cc-panes-daemon",
+  "-p", "cc-panes-web",
+];
 if (profile === "release") {
   args.push("--release");
 }

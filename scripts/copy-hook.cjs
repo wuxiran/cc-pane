@@ -26,6 +26,7 @@ fs.mkdirSync(d, { recursive: true });
 for (const f of fs.readdirSync(d).filter(f =>
   f.startsWith("cc-panes-hook") ||
   f.startsWith("cc-panes-cli-hook") ||
+  f.startsWith("cc-panes-ctl") ||
   f.startsWith("cc-panes-daemon") ||
   f.startsWith("cc-panes-web")
 )) {
@@ -58,6 +59,7 @@ function copyBinary(baseName) {
 }
 
 copyBinary("cc-panes-cli-hook");
+copyBinary("cc-panes-ctl");
 copyBinary("cc-panes-daemon");
 copyBinary("cc-panes-web");
 

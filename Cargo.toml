@@ -6,6 +6,7 @@ members = [
     "cc-panes-api",
     "cc-panes-daemon",
     "cc-panes-cli-hook",
+    "cc-panes-ctl",
     "cc-panes-web",
     "cc-memory",
     "cc-memory-mcp",
