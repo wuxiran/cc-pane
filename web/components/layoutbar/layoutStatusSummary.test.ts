@@ -43,10 +43,12 @@ describe("deriveLayoutStatusSummary", () => {
       running: 2,
       waitingInput: 1,
       blocked: 1,
+      idle: 0,
+      total: 4,
     });
   });
 
-  it("idle/exited/initializing 与无状态会话不计入任何桶", () => {
+  it("idle 计入灰桶, exited/initializing/无状态只计入 total", () => {
     const rootPane = createPanel();
     rootPane.tabs = [
       terminalTab("tab-1", "s-idle"),
@@ -65,6 +67,12 @@ describe("deriveLayoutStatusSummary", () => {
       running: 0,
       waitingInput: 0,
       blocked: 0,
+      idle: 1,
+      total: 4,
     });
+  });
+
+  it("无会话布局 total 为 0", () => {
+    expect(deriveLayoutStatusSummary(createPanel(), new Map()).total).toBe(0);
   });
 });

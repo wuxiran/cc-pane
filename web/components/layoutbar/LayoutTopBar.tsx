@@ -216,7 +216,7 @@ export default function LayoutTopBar() {
                 density={density}
                 statusSummary={statusSummary}
                 statusMap={statusMap}
-                idleLabel={t("layoutIdle")}
+                idleLabel={t("layoutNoSessions")}
                 densityToggleLabel={densityToggleLabel}
                 deletable={layout.kind !== "starred" && !deletingLastLayout}
                 deleteLabel={t("deleteLayout")}

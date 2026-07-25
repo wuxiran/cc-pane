@@ -72,6 +72,7 @@
   "layoutDensityCompact": "切换到紧凑档",
   "layoutDensityComfortable": "切换到舒适档",
   "layoutIdle": "空闲",
+  "layoutNoSessions": "无会话",
   "layoutPresets": "布局预设",
   "layoutPresetSingle": "单格",
   "layoutPresetTwoCol": "左右分栏",

@@ -72,6 +72,7 @@
   "layoutDensityCompact": "Switch to compact density",
   "layoutDensityComfortable": "Switch to comfortable density",
   "layoutIdle": "Idle",
+  "layoutNoSessions": "No sessions",
   "layoutPresets": "Layout presets",
   "layoutPresetSingle": "Single",
   "layoutPresetTwoCol": "Two columns",

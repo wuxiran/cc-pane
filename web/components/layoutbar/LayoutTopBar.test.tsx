@@ -174,14 +174,14 @@ describe("LayoutTopBar 布局条密度", () => {
     render(<LayoutTopBar />);
 
     expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "comfortable");
-    expect(screen.getAllByText(/空闲|Idle/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/无会话|No sessions/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: /星标/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /切换到紧凑档|Switch to compact/i }));
 
     expect(useLayoutUiStore.getState().layoutBarDensity).toBe("compact");
     expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "compact");
-    expect(screen.queryAllByText(/空闲|Idle/i)).toHaveLength(0);
+    expect(screen.queryAllByText(/无会话|No sessions/i)).toHaveLength(0);
     expect(screen.getByRole("tab", { name: /星标/ })).toBeInTheDocument();
   });
 
@@ -216,7 +216,7 @@ describe("LayoutTopBar 布局条密度", () => {
 
   it("状态摘要随 panes/status store 更新即时重新派生", () => {
     render(<LayoutTopBar />);
-    expect(screen.getAllByText(/空闲|Idle/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/无会话|No sessions/i).length).toBeGreaterThan(0);
 
     const rootPane = createPanel(terminalTab("tab-a", "project-a", "/work/cc-book", "s-run"));
     act(() => {
