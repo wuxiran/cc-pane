@@ -45,8 +45,10 @@ pub fn spawn_terminal_daemon_control_link(
                         }
                         match parse_control_event(message.to_text().unwrap_or_default()) {
                             Ok(Some(event)) => {
-                                if let Err(error) = app_handle.emit(event.name, event.payload) {
-                                    warn!(error = %error, "terminal daemon control event emit failed");
+                                if crate::webview_reliability::webview_emits_allowed() {
+                                    if let Err(error) = app_handle.emit(event.name, event.payload) {
+                                        warn!(error = %error, "terminal daemon control event emit failed");
+                                    }
                                 }
                             }
                             Ok(None) => {}

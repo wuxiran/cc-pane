@@ -3,8 +3,8 @@ use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::terminal_service;
 use crate::services::terminal_service::{KillReason, SessionOutput};
 use crate::services::{
-    HistoryWatchManager, LaunchHistoryService, SessionStatusInfo, ShellInfo, TerminalBackendKind,
-    TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
+    BridgeStats, HistoryWatchManager, LaunchHistoryService, SessionStatusInfo, ShellInfo,
+    TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
 use crate::utils::{validate_launch_cwd, validate_ssh_info, AppResult, LaunchRuntime};
@@ -192,6 +192,14 @@ pub async fn create_terminal_session(
     }
 
     Ok(session_id)
+}
+
+/// 获取 daemon 事件 bridge 的连接模式与重试统计。
+#[tauri::command]
+pub fn get_bridge_stats(
+    bridge: State<'_, Arc<TerminalDaemonEventBridge>>,
+) -> AppResult<BridgeStats> {
+    Ok(bridge.stats())
 }
 
 /// 向终端写入数据

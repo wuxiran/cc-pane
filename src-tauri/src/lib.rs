@@ -11,6 +11,7 @@ pub mod pty;
 pub mod repository;
 pub mod services;
 pub mod utils;
+mod webview_reliability;
 
 use ccchan_commands::{
     get_ccchan_pets, get_ccchan_pets_dir, get_ccchan_settings, hide_ccchan,
@@ -110,6 +111,7 @@ use commands::{
     get_all_terminal_status,
     get_app_cwd,
     get_available_shells,
+    get_bridge_stats,
     // Local History - 分支感知 + Worktree
     get_current_branch,
     get_data_dir_info,
@@ -1704,6 +1706,8 @@ pub fn run() {
                 let _ = main_window.set_decorations(false);
             }
 
+            webview_reliability::install_main_webview_process_failed_handler(app.handle())?;
+
             // ---- 注册 updater 插件（需在 setup 中注册以访问 app handle）----
             #[cfg(desktop)]
             app.handle()
@@ -2163,6 +2167,7 @@ pub fn run() {
             kill_terminal_idempotent,
             submit_to_session,
             get_all_terminal_status,
+            get_bridge_stats,
             get_available_shells,
             get_windows_build_number,
             check_environment,
@@ -2527,6 +2532,12 @@ pub fn run() {
         .run(move |_app_handle, event| {
             // 注：macOS 的 RunEvent::Opened 已由 tauri-plugin-deep-link 转成 on_open_url（见 setup），
             // 这里不再手动处理，避免重复分发同一个导入链接。
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                if webview_reliability::webview_recovery_holds_exit() {
+                    info!("[webview-recovery] holding app open while main window rebuilds");
+                    api.prevent_exit();
+                }
+            }
             if let tauri::RunEvent::Exit = event {
                 info!("[cleanup] Application exiting, cleaning up resources...");
 
