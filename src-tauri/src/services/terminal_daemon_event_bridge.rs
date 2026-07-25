@@ -13,8 +13,12 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message as WsMessage};
 use tracing::{debug, warn};
 
-/// 状态轮询判定会话消失后，退出前额外等待 daemon 补发 `killed` 的窗口。
-/// 只在即将退出时生效，正常运行期不引入延迟。
+use super::terminal_daemon_bridge_reliability::{
+    connect_with_retry, skip_missed_interval, BridgeMode, BridgeStats, BridgeTelemetry,
+    ConnectRetryPolicy, PollWork, PollingSchedule, POLL_INTERVAL, WEBSOCKET_STATUS_INTERVAL,
+};
+
+/// 会话消失后，退出前额外等待 daemon 补发 `killed`；正常运行期不引入延迟。
 const DRAIN_WINDOW: Duration = Duration::from_millis(150);
 
 #[derive(Clone)]
@@ -22,6 +26,8 @@ pub struct TerminalDaemonEventBridge {
     app_handle: tauri::AppHandle,
     sessions: Arc<Mutex<HashMap<String, SessionBridgeState>>>,
     history_watch_manager: Arc<HistoryWatchManager>,
+    retry_policy: ConnectRetryPolicy,
+    telemetry: BridgeTelemetry,
 }
 
 #[derive(Debug, Default)]
@@ -30,6 +36,21 @@ struct SessionBridgeState {
     last_status: Option<SessionStatusInfo>,
     started: bool,
     terminal_exit_emitted: bool,
+    mode: BridgeMode,
+}
+
+impl SessionBridgeState {
+    fn websocket_connect_allowed(&self) -> bool {
+        self.mode.websocket_connect_allowed()
+    }
+
+    fn enter_websocket(&mut self) {
+        self.mode.enter_websocket();
+    }
+
+    fn enter_polling(&mut self) {
+        self.mode.enter_polling();
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,11 +77,20 @@ impl TerminalDaemonEventBridge {
         app_handle: tauri::AppHandle,
         history_watch_manager: Arc<HistoryWatchManager>,
     ) -> Self {
+        let retry_policy = ConnectRetryPolicy::default();
         Self {
             app_handle,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             history_watch_manager,
+            retry_policy,
+            telemetry: BridgeTelemetry::new(retry_policy.max_concurrent),
         }
+    }
+
+    pub fn stats(&self) -> BridgeStats {
+        let sessions = self.sessions.lock().unwrap_or_else(|err| err.into_inner());
+        self.telemetry
+            .bridge_stats(sessions.values().map(|state| state.mode))
     }
 
     pub fn start_session(&self, session_id: impl Into<String>, backend: Arc<dyn TerminalBackend>) {
@@ -112,6 +142,18 @@ impl TerminalDaemonEventBridge {
         sessions.remove(session_id);
     }
 
+    fn set_session_mode(&self, session_id: &str, mode: BridgeMode) {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|err| err.into_inner());
+        let Some(state) = sessions.get_mut(session_id) else {
+            return;
+        };
+        match mode {
+            BridgeMode::Connecting => {}
+            BridgeMode::Websocket => state.enter_websocket(),
+            BridgeMode::Polling => state.enter_polling(),
+        }
+    }
+
     fn emit_to_webview(&self, event: &str, payload: serde_json::Value) -> anyhow::Result<()> {
         if crate::webview_reliability::webview_emits_allowed() {
             self.app_handle.emit(event, payload)?;
@@ -120,33 +162,72 @@ impl TerminalDaemonEventBridge {
     }
 
     async fn run_session(&self, session_id: String, backend: Arc<dyn TerminalBackend>) {
+        let mut websocket_failed = false;
         if let Some(url) = backend.event_stream_url(&session_id) {
-            match self
-                .stream_session(session_id.clone(), url, backend.clone())
+            let connect_allowed = {
+                let sessions = self.sessions.lock().unwrap_or_else(|err| err.into_inner());
+                sessions
+                    .get(&session_id)
+                    .is_some_and(SessionBridgeState::websocket_connect_allowed)
+            };
+            if connect_allowed {
+                let connect_url = url.clone();
+                match connect_with_retry(self.retry_policy, self.telemetry.clone(), move || {
+                    let attempt_url = connect_url.clone();
+                    async move {
+                        let (websocket, _) = connect_async(&attempt_url).await?;
+                        Ok(websocket)
+                    }
+                })
                 .await
-            {
-                Ok(()) => {
-                    self.stop_session(&session_id);
-                    debug!(session_id = %session_id, "terminal daemon websocket bridge stopped");
-                    return;
-                }
-                Err(error) => {
-                    warn!(session_id = %session_id, error = %error, "terminal daemon websocket bridge failed; falling back to polling");
+                {
+                    Ok(websocket) => {
+                        self.set_session_mode(&session_id, BridgeMode::Websocket);
+                        match self
+                            .stream_session(session_id.clone(), websocket, backend.clone())
+                            .await
+                        {
+                            Ok(()) => {
+                                self.stop_session(&session_id);
+                                debug!(session_id = %session_id, "terminal daemon websocket bridge stopped");
+                                return;
+                            }
+                            Err(error) => {
+                                websocket_failed = true;
+                                warn!(session_id = %session_id, error = %error, "terminal daemon websocket stream failed; falling back to polling");
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        websocket_failed = true;
+                        warn!(
+                            session_id = %session_id,
+                            attempts = self.retry_policy.max_attempts,
+                            error = %error,
+                            "terminal daemon websocket retries exhausted; falling back to polling"
+                        );
+                    }
                 }
             }
         }
 
+        self.set_session_mode(&session_id, BridgeMode::Polling);
+        if websocket_failed {
+            self.telemetry.record_fallback();
+        }
         self.poll_session(session_id, backend).await;
     }
 
-    async fn stream_session(
+    async fn stream_session<S>(
         &self,
         session_id: String,
-        url: String,
+        mut ws: S,
         backend: Arc<dyn TerminalBackend>,
-    ) -> anyhow::Result<()> {
-        let (mut ws, _) = connect_async(&url).await?;
-        let mut status_interval = tokio::time::interval(Duration::from_millis(500));
+    ) -> anyhow::Result<()>
+    where
+        S: futures_util::Stream<Item = Result<WsMessage, WsError>> + Unpin,
+    {
+        let mut status_interval = skip_missed_interval(WEBSOCKET_STATUS_INTERVAL);
 
         loop {
             tokio::select! {
@@ -247,14 +328,20 @@ impl TerminalDaemonEventBridge {
     }
 
     async fn poll_session(&self, session_id: String, backend: Arc<dyn TerminalBackend>) {
-        let mut interval = tokio::time::interval(Duration::from_millis(100));
+        let mut interval = skip_missed_interval(POLL_INTERVAL);
+        let mut schedule = PollingSchedule::default();
         loop {
             interval.tick().await;
+            let work = schedule.next_work();
 
             if let Err(error) = self.poll_snapshot(&session_id, backend.clone()).await {
                 warn!(session_id = %session_id, error = %error, "terminal daemon output bridge failed");
                 self.stop_session(&session_id);
                 break;
+            }
+
+            if work == PollWork::SnapshotOnly {
+                continue;
             }
 
             match self.poll_status(&session_id, backend.clone()).await {
@@ -590,8 +677,7 @@ mod tests {
         Ok(WsMessage::Text(payload.into()))
     }
 
-    /// 竞态回归：500ms 状态轮询判定会话消失时，队列里已就绪的 killed 不能被丢掉，
-    /// 否则 socket 被 drop、reason 永远读不到 → 标签关不掉。
+    /// 竞态回归：状态轮询判定会话消失时，队列里的 killed/reason 不能因 socket drop 丢失。
     #[tokio::test]
     async fn drain_delivers_queued_killed_before_bridge_exits() {
         let mut stream = futures_util::stream::iter(vec![
