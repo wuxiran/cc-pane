@@ -341,6 +341,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/46-cross-platform-launch-blackscreen.md` | 跨平台启动黑屏 + portable-pty HOME 回退暗雷（与 46 风格宪法同号不同文件） |
 | `docs/61-wsl-codex-prompt-unsubmitted.md` | WSL Codex 派工静默卡死：prompt 传入未提交，判活不能只看 status |
 | `docs/62-agent-instance-identity.md` | agent 不知道自己挂在哪个实例：dev/release 静默串台的因果链与四层修复 |
+| `docs/63-0113-orchestration-reliability.md` | 0.11.3 编排可靠性修复清单（R1-R5，收录静默失败类问题） |
 | `docs/57-ccpanes-ctl-and-mcp-orphan.md` | cc-panes-ctl 规格 + MCP 孤儿缺口（经 Codex 同行评审重写） |
 | `docs/58-feature-tips.md` | 功能提示（tips）系统：让积累的能力偶尔冒出来 |
 | `docs/59-update-notification.md` | 版本更新右下角提示卡片 |
