@@ -25,7 +25,7 @@ leader 会话（release 侧，`CC_PANES_PTY_SESSION_ID=0c4d3e1e…`）：
 | API 身份 env 的注入有前置条件 | `cc-panes-core/src/services/terminal_service.rs:1606-1620`：`healthy_orchestrator_info()` 返回 `None` 时，`CC_PANES_API_PORT/TOKEN/BASE_URL` **一个都不注入** |
 | 该会话所在实例的 orchestrator 确实不健康 | `cc-panes-ctl --release status` → `orchestrator=failed  daemon=ready`，原因 `读取 ~/.cc-panes/mcp-orchestrator.json 失败 (os error 2)` |
 | 该会话没有专属 MCP 配置 | `~/.cc-panes/` 下只有 `mcp-bed93f4d-….json`（另一会话），**没有** `mcp-0c4d3e1e-….json` |
-| 回退到的项目级配置属于另一实例 | `~/.claude.json` 的 `projects["D:/04_workspace_rust/cc-book"].mcpServers.ccpanes` = `http://127.0.0.1:47822/...`（**47822 = dev**，token `55cc8c3e…`）；而 release 给别的会话写的专属配置是 `http://127.0.0.1:47821/...`（token `0751ab11…`） |
+| 回退到的项目级配置属于另一实例 | `~/.claude.json` 的 `projects["D:/04_workspace_rust/cc-book"].mcpServers.ccpanes` = `http://127.0.0.1:<devPort>/...`（**dev 实例的端口与 token**）；而 release 给别的会话写的专属配置指向 `http://127.0.0.1:<releasePort>/...`（**另一套端口与 token**）——两者端口、token 均不同 |
 | 身份自相矛盾且无人校验 | 会话真实 `CC_PANES_LAUNCH_ID=proj-8beebc9a…`，而所连 MCP URL 里的 `launchId=proj-15cbc54f…`。**两者不等，服务端照常提供服务** |
 
 ## 3. 为什么很难自察
