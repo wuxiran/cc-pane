@@ -8,6 +8,7 @@ import {
   createDefaultModulePreferences,
   useModulePrefsStore,
 } from "@/stores/useModulePrefsStore";
+import { MODULE_REGISTRY } from "@/modules/registry";
 import ModulesSection from "./ModulesSection";
 
 const t = (key: string, options?: Record<string, unknown>) => i18n.t(key as never, {
@@ -31,9 +32,9 @@ describe("ModulesSection", () => {
   it("renders every registry module with an enabled switch and position menu", () => {
     renderSection();
 
-    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(5);
-    expect(screen.getAllByRole("switch")).toHaveLength(6);
-    expect(screen.getAllByTestId(/^module-position-trigger-/)).toHaveLength(5);
+    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(MODULE_REGISTRY.length);
+    expect(screen.getAllByRole("switch")).toHaveLength(MODULE_REGISTRY.length + 1);
+    expect(screen.getAllByTestId(/^module-position-trigger-/)).toHaveLength(MODULE_REGISTRY.length);
   });
 
   it("updates enabled independently from placement", async () => {

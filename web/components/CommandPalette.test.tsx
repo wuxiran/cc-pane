@@ -13,6 +13,7 @@ import {
 } from "@/stores";
 import type { QuickCommand } from "@/types";
 import { createDefaultModulePreferences } from "@/stores/useModulePrefsStore";
+import { MODULE_REGISTRY } from "@/modules/registry";
 import CommandPalette, { COMMAND_PALETTE_TOGGLE_EVENT } from "./CommandPalette";
 
 const executeQuickCommand = vi.fn();
@@ -142,13 +143,13 @@ describe("CommandPalette modules", () => {
     vi.restoreAllMocks();
   });
 
-  it("lists all five registry modules even when one is hidden", async () => {
+  it("lists every registry module even when one is hidden", async () => {
     useModulePrefsStore.getState().setPosition("todo", "hidden");
     render(<CommandPalette />);
 
     act(() => window.dispatchEvent(new Event(COMMAND_PALETTE_TOGGLE_EVENT)));
 
-    expect(await screen.findAllByTestId(/^module-command-/)).toHaveLength(5);
+    expect(await screen.findAllByTestId(/^module-command-/)).toHaveLength(MODULE_REGISTRY.length);
     expect(screen.getByTestId("module-command-todo")).toBeInTheDocument();
   });
 
