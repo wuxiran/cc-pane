@@ -18,7 +18,7 @@ import type {
   TerminalStatusInfo,
   TerminalSessionOutput,
 } from "@/types";
-import type { EnvironmentInfoRaw } from "@/types/settings";
+import { checkEnvironment } from "./environmentService";
 import { usageStatsService } from "./usageStatsService";
 import { devDebugLog } from "@/utils/devLogger";
 import { apiDelete, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
@@ -50,25 +50,6 @@ function summarizeTerminalInput(data: string): Record<string, unknown> {
     utf16Length: data.length,
     codePoints: chars.slice(0, 24).map((char) => char.codePointAt(0)?.toString(16) ?? ""),
     truncated: chars.length > 24,
-  };
-}
-
-/** 将 Rust 返回的 cliTools 数组规范化为含向后兼容字段的 EnvironmentInfo */
-function normalizeEnvironmentInfo(raw: EnvironmentInfoRaw): EnvironmentInfo {
-  const findTool = (id: string) => {
-    const tool = raw.cliTools?.find((t) => t.id === id);
-    return {
-      installed: tool?.installed ?? false,
-      version: tool?.version ?? null,
-    };
-  };
-  return {
-    ...raw,
-    git: raw.git ?? { installed: false, version: null },
-    wsl: raw.wsl ?? { installed: false, version: null, applicable: false },
-    cliTools: raw.cliTools ?? [],
-    claude: findTool("claude"),
-    codex: findTool("codex"),
   };
 }
 
@@ -725,14 +706,8 @@ export const terminalService = {
     return invokeOrApi<ShellInfo[]>("get_available_shells", undefined, async () => []);
   },
 
-  /** 检测开发环境（Node.js + Git + WSL + CLI 工具） */
+  /** 检测开发环境（委托 environmentService，见行数棘轮拆分说明） */
   async checkEnvironment(): Promise<EnvironmentInfo> {
-    const raw = await invokeOrApi<EnvironmentInfoRaw>("check_environment", undefined, async () => ({
-      node: { installed: false, version: null },
-      git: { installed: false, version: null },
-      wsl: { installed: false, version: null, applicable: false },
-      cliTools: [],
-    }));
-    return normalizeEnvironmentInfo(raw);
+    return checkEnvironment();
   },
 };

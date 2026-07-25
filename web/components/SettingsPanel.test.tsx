@@ -3,6 +3,7 @@ import i18n from "i18next";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MODULE_REGISTRY } from "@/modules/registry";
 import { toast } from "sonner";
 import type { AppSettings } from "@/types";
 import { useSettingsStore } from "@/stores";
@@ -151,7 +152,8 @@ describe("SettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: tSettings("modules.title") }));
 
     expect(await screen.findByTestId("module-setting-ssh")).toBeInTheDocument();
-    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(4);
+    // 行数随模块注册表演化，动态断言防漂移（aiPanel 加入后曾因写死 4 而回归）
+    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(MODULE_REGISTRY.length);
   });
 
   it("opens the persistent setup guide from the settings navigation", async () => {
