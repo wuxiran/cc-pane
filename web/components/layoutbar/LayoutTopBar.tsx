@@ -20,7 +20,6 @@ import {
   useLayoutUiStore,
   usePanesStore,
   useTerminalStatusStore,
-  useWorkspacesStore,
 } from "@/stores";
 import { matchLayoutPreset } from "@/stores/usePanesStore";
 import { collectTerminalTabs } from "@/lib/paneSessions";
@@ -28,7 +27,7 @@ import type { LayoutEntry } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
 import SortableLayoutTab from "./SortableLayoutTab";
-import { deriveLayoutProjectSummary } from "./layoutProjectSummary";
+import { deriveLayoutStatusSummary } from "./layoutStatusSummary";
 
 // 预设示意图标：16×16 小色块拼出目标分屏结构
 const PRESET_ICONS: Record<LayoutPresetId, React.ReactNode> = {
@@ -89,7 +88,6 @@ export default function LayoutTopBar() {
   const reorderLayouts = usePanesStore((s) => s.reorderLayouts);
   const applyLayoutPreset = usePanesStore((s) => s.applyLayoutPreset);
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const density = useLayoutUiStore((s) => s.layoutBarDensity);
   const setDensity = useLayoutUiStore((s) => s.setLayoutBarDensity);
@@ -183,7 +181,7 @@ export default function LayoutTopBar() {
             const selected = layout.id === currentLayoutId;
             const tree = selected ? liveRootPane : layout.rootPane;
             const tabCount = layout.kind === "starred" ? 0 : collectTerminalTabs(tree).length;
-            const projectSummary = deriveLayoutProjectSummary(tree, workspaces, statusMap);
+            const statusSummary = deriveLayoutStatusSummary(tree, statusMap);
             const isEditing = editingId === layout.id;
 
             if (isEditing) {
@@ -216,7 +214,7 @@ export default function LayoutTopBar() {
                 selected={selected}
                 tabCount={tabCount}
                 density={density}
-                projectSummary={projectSummary}
+                statusSummary={statusSummary}
                 statusMap={statusMap}
                 idleLabel={t("layoutIdle")}
                 densityToggleLabel={densityToggleLabel}

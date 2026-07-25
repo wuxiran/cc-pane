@@ -1,5 +1,5 @@
 // 布局条上的单个可拖拽布局标签：拖动阈值 8px，点击/双击行为不受影响。
-// 舒适档为两行卡片（名称行 + 运行项目摘要行），紧凑档为单行；右键菜单含密度切换。
+// 舒适档为两行卡片（名称行 + 状态计数摘要行），紧凑档为单行；右键菜单含密度切换。
 import { Rows2, Rows3, Star, X } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -13,9 +13,9 @@ import {
 import { LayoutWorkspaceBadge, LayoutWorkspaceMenuItems } from "./LayoutWorkspaceMenu";
 import type { LayoutBarDensity } from "@/stores";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
-import LayoutProjectSummaryView from "./LayoutProjectSummaryView";
 import LayoutStatusDots from "./LayoutStatusDots";
-import type { LayoutProjectSummary as LayoutProjectSummaryData } from "./layoutProjectSummary";
+import LayoutStatusSummaryView from "./LayoutStatusSummaryView";
+import type { LayoutStatusSummary } from "./layoutStatusSummary";
 
 export default function SortableLayoutTab({
   layout,
@@ -23,7 +23,7 @@ export default function SortableLayoutTab({
   selected,
   tabCount,
   density,
-  projectSummary,
+  statusSummary,
   statusMap,
   idleLabel,
   densityToggleLabel,
@@ -39,7 +39,7 @@ export default function SortableLayoutTab({
   selected: boolean;
   tabCount: number;
   density: LayoutBarDensity;
-  projectSummary: LayoutProjectSummaryData;
+  statusSummary: LayoutStatusSummary;
   statusMap: Map<string, TerminalStatusInfo>;
   idleLabel: string;
   densityToggleLabel: string;
@@ -131,7 +131,7 @@ export default function SortableLayoutTab({
             className="flex w-full min-w-0 items-center overflow-hidden text-[11px] leading-none"
             style={{ color: "var(--app-text-tertiary)" }}
           >
-            <LayoutProjectSummaryView summary={projectSummary} idleLabel={idleLabel} />
+            <LayoutStatusSummaryView summary={statusSummary} idleLabel={idleLabel} />
           </span>
         </>
       ) : (

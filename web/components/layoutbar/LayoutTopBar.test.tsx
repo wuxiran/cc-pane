@@ -185,34 +185,48 @@ describe("LayoutTopBar 布局条密度", () => {
     expect(screen.getByRole("tab", { name: /星标/ })).toBeInTheDocument();
   });
 
-  it("舒适档展示去重后的项目摘要和溢出计数", () => {
+  it("舒适档摘要行按状态桶展示计数，零桶隐藏且不再出现项目名", () => {
     const rootPane = createPanel();
     rootPane.tabs = [
-      terminalTab("tab-a-1", "project-a", "/work/cc-book"),
-      terminalTab("tab-a-2", "project-a", "/work/cc-book"),
-      terminalTab("tab-b", "project-b", "/work/vms"),
+      terminalTab("tab-a-1", "project-a", "/work/cc-book", "s-run-1"),
+      terminalTab("tab-a-2", "project-a", "/work/cc-book", "s-run-2"),
+      terminalTab("tab-b", "project-b", "/work/vms", "s-wait"),
       terminalTab("tab-c", "project-c", "/work/erp"),
     ];
     resetStores(rootPane);
+    useTerminalStatusStore.setState({
+      statusMap: new Map([
+        ["s-run-1", status("s-run-1", "thinking")],
+        ["s-run-2", status("s-run-2", "toolRunning")],
+        ["s-wait", status("s-wait", "waitingInput")],
+      ]),
+    });
 
     render(<LayoutTopBar />);
 
-    expect(screen.getByText("cc-book")).toBeInTheDocument();
-    expect(screen.getByText("vms")).toBeInTheDocument();
-    expect(screen.getByText("+1")).toBeInTheDocument();
+    // 运行中 2、等待授权 1；无 error 会话 → 阻塞桶隐藏。
+    // 等待授权 title 与名称行状态点共用文案，按"含计数"过滤出摘要桶。
+    expect(screen.getByTitle(/^(运行中|Running)$/).textContent).toBe("2");
+    const waitBuckets = screen.getAllByTitle(/^(等待授权|Awaiting approval)$/);
+    expect(waitBuckets.some((el) => el.textContent === "1")).toBe(true);
+    expect(screen.queryAllByTitle(/^(错误|Error)$/)).toHaveLength(0);
+    expect(screen.queryByText("cc-book")).not.toBeInTheDocument();
     expect(screen.queryByText("erp")).not.toBeInTheDocument();
   });
 
-  it("项目摘要随 panes store 更新即时重新派生", () => {
+  it("状态摘要随 panes/status store 更新即时重新派生", () => {
     render(<LayoutTopBar />);
     expect(screen.getAllByText(/空闲|Idle/i).length).toBeGreaterThan(0);
 
-    const rootPane = createPanel(terminalTab("tab-a", "project-a", "/work/cc-book"));
+    const rootPane = createPanel(terminalTab("tab-a", "project-a", "/work/cc-book", "s-run"));
     act(() => {
       usePanesStore.setState({ rootPane, activePaneId: rootPane.id });
+      useTerminalStatusStore.setState({
+        statusMap: new Map([["s-run", status("s-run", "thinking")]]),
+      });
     });
 
-    expect(screen.getByText("cc-book")).toBeInTheDocument();
+    expect(screen.getByTitle(/^(运行中|Running)$/).textContent).toBe("1");
   });
 
   it("旧 pane 状态点在两档中保持相同语义", async () => {
@@ -236,13 +250,17 @@ describe("LayoutTopBar 布局条密度", () => {
 
     render(<LayoutTopBar />);
 
-    expect(screen.getAllByTitle(/工具运行|Running tool/i)).toHaveLength(2);
-    expect(screen.getAllByTitle(/错误|Error/i)).toHaveLength(2);
+    // 舒适档：名称行 pane 状态点(工具运行/错误) + 摘要行状态桶(运行中/错误)
+    expect(screen.getAllByTitle(/工具运行|Running tool/i)).toHaveLength(1);
+    expect(screen.getAllByTitle(/^(运行中|Running)$/)).toHaveLength(1);
+    expect(screen.getAllByTitle(/^(错误|Error)$/)).toHaveLength(2);
 
     await user.click(screen.getByRole("button", { name: /切换到紧凑档|Switch to compact/i }));
 
+    // 紧凑档无摘要行：只剩名称行状态点
     expect(screen.getAllByTitle(/工具运行|Running tool/i)).toHaveLength(1);
-    expect(screen.getAllByTitle(/错误|Error/i)).toHaveLength(1);
+    expect(screen.queryAllByTitle(/^(运行中|Running)$/)).toHaveLength(0);
+    expect(screen.getAllByTitle(/^(错误|Error)$/)).toHaveLength(1);
   });
 
   it("右键菜单提供同一密度切换动作", async () => {
