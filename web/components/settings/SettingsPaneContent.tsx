@@ -41,6 +41,10 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
           onLocalHistoryEnabledChange={(enabled) =>
             updateDraft({ ...draft, localHistory: { enabled } })
           }
+          updateNotifyEnabled={draft.update.notifyEnabled}
+          onUpdateNotifyEnabledChange={(notifyEnabled) =>
+            updateDraft({ ...draft, update: { ...draft.update, notifyEnabled } })
+          }
         />
       );
     case "notification":

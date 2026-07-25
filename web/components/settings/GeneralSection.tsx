@@ -17,6 +17,8 @@ interface GeneralSectionProps {
   onChange: (value: GeneralSettings) => void;
   localHistoryEnabled?: boolean;
   onLocalHistoryEnabledChange?: (enabled: boolean) => void;
+  updateNotifyEnabled?: boolean;
+  onUpdateNotifyEnabledChange?: (enabled: boolean) => void;
 }
 
 export default function GeneralSection({
@@ -24,6 +26,8 @@ export default function GeneralSection({
   onChange,
   localHistoryEnabled = true,
   onLocalHistoryEnabledChange,
+  updateNotifyEnabled = true,
+  onUpdateNotifyEnabledChange,
 }: GeneralSectionProps) {
   const { t, i18n } = useTranslation("settings");
   const [dataDirInfo, setDataDirInfo] = useState<DataDirInfo | null>(null);
@@ -133,6 +137,23 @@ export default function GeneralSection({
           aria-label={t("showSystemResources")}
           checked={value.showSystemResources ?? true}
           onChange={(e) => update("showSystemResources", e.target.checked)}
+          className="w-4 h-4 cursor-pointer shrink-0"
+          style={{ accentColor: "var(--app-accent)" }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col pr-4">
+          <Label>{t("updateNotifyEnabled")}</Label>
+          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("updateNotifyEnabledDesc")}
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          aria-label={t("updateNotifyEnabled")}
+          checked={updateNotifyEnabled}
+          onChange={(event) => onUpdateNotifyEnabledChange?.(event.target.checked)}
           className="w-4 h-4 cursor-pointer shrink-0"
           style={{ accentColor: "var(--app-accent)" }}
         />

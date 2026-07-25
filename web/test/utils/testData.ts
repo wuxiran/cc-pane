@@ -136,6 +136,11 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       onWaitingInput: true,
       onlyWhenUnfocused: true,
     },
+    update: {
+      notifyEnabled: true,
+      skippedVersion: null,
+      lastNotifiedAt: null,
+    },
     screenshot: {
       shortcut: "Ctrl+Shift+S",
       retentionDays: 7,

@@ -56,7 +56,15 @@ export { filesystemService } from "./filesystemService";
 export { selfChatService } from "./selfChatService";
 export { screenshotService } from "./screenshotService";
 export { voiceService } from "./voiceService";
-export { checkForAppUpdates, checkUpdateSilent, triggerUpdate } from "./updaterService";
+export {
+  checkForAppUpdates,
+  checkForAvailableUpdate,
+  checkUpdateSilent,
+  downloadAndInstallUpdate,
+  getUpdateErrorHint,
+  triggerUpdate,
+} from "./updaterService";
+export type { UpdateInstallProgress } from "./updaterService";
 export { popOutTab, isTabPoppedOut, markTabReclaimed, getPoppedTabs } from "./popupWindowService";
 export type { PopupTabData } from "./popupWindowService";
 export * as sshMachineService from "./sshMachineService";

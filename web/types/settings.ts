@@ -7,6 +7,7 @@ export interface AppSettings {
   general: GeneralSettings;
   localHistory: LocalHistorySettings;
   notification: NotificationSettings;
+  update: UpdateSettings;
   screenshot: ScreenshotSettings;
   voice: VoiceSettings;
   cliLaunchers: CliLauncherSettings;
@@ -144,6 +145,13 @@ export interface NotificationSettings {
   onExit: boolean;
   onWaitingInput: boolean;
   onlyWhenUnfocused: boolean;
+}
+
+/** 应用版本更新提示设置（镜像 cc-panes-core UpdateSettings） */
+export interface UpdateSettings {
+  notifyEnabled: boolean;
+  skippedVersion: string | null;
+  lastNotifiedAt: string | null;
 }
 
 /** 搜索范围 */

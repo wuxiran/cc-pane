@@ -142,6 +142,23 @@ describe("GeneralSection", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showSystemResources: false }));
   });
 
+  it("toggles proactive update notifications", async () => {
+    const user = userEvent.setup();
+    const onUpdateNotifyEnabledChange = vi.fn();
+    render(
+      <GeneralSection
+        value={createValue()}
+        onChange={vi.fn()}
+        updateNotifyEnabled
+        onUpdateNotifyEnabledChange={onUpdateNotifyEnabledChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: /有新版本时提示|Notify me about new versions/i }));
+
+    expect(onUpdateNotifyEnabledChange).toHaveBeenCalledWith(false);
+  });
+
   it("emits language changes and lists CLI tools from the hook", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

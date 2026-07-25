@@ -57,6 +57,12 @@ const DEFAULT_LOCAL_HISTORY_SETTINGS = {
   enabled: true,
 };
 
+const DEFAULT_UPDATE_SETTINGS = {
+  notifyEnabled: true,
+  skippedVersion: null,
+  lastNotifiedAt: null,
+};
+
 export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
   enabled: false,
   kind: "none",
@@ -112,6 +118,10 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
     localHistory: {
       ...DEFAULT_LOCAL_HISTORY_SETTINGS,
       ...maybeSettings.localHistory,
+    },
+    update: {
+      ...DEFAULT_UPDATE_SETTINGS,
+      ...maybeSettings.update,
     },
     // wallpaper 是三层嵌套结构：老配置升级后 settings.wallpaper 或其 video/music
     // 子块可能是 undefined，必须逐层合并默认，否则读 settings.wallpaper.video.* 直接崩
@@ -251,6 +261,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       onWaitingInput: true,
       onlyWhenUnfocused: true,
     },
+    update: DEFAULT_UPDATE_SETTINGS,
     screenshot: {
       shortcut: "Ctrl+Shift+S",
       retentionDays: 7,
