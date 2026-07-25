@@ -175,6 +175,24 @@ describe("OnboardingGuide", () => {
     expect(screen.getByText("你的工作台已就绪")).toBeVisible();
   });
 
+  it("opens the concierge from the agent hint with its system prompt injected", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn<(options: OpenTerminalOptions) => void>();
+    useWorkspacesStore.setState({
+      workspaces: [{ ...workspace, projects: [project] }],
+      expandedWorkspaceId: workspace.id,
+      expandedProjectId: project.id,
+    });
+    render(<OnboardingGuide onOpenTerminal={onOpenTerminal} />);
+
+    await user.click(await screen.findByRole("button", { name: "对 agent 说" }));
+
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      appendSystemPrompt: expect.stringContaining("老板模式"),
+      skipMcp: false,
+    }));
+  });
+
   it("skip all persists completion and closes the dialog", async () => {
     const user = userEvent.setup();
     render(<OnboardingGuide onOpenTerminal={vi.fn()} />);

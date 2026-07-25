@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import GuidedDialog from "@/components/onboarding/GuidedDialog";
 import EnvironmentPreflightCard from "@/components/onboarding/EnvironmentPreflightCard";
 import OnboardingVisual from "@/components/onboarding/OnboardingVisual";
+import AgentConciergeEntry from "@/components/onboarding/AgentConciergeEntry";
 import {
   useActivityBarStore,
   useDialogStore,
@@ -72,13 +73,22 @@ function scannedPaths(repos: readonly ScannedRepo[]): string[] {
   return repos.flatMap((repo) => [repo.mainPath, ...repo.worktrees.map((worktree) => worktree.path)]);
 }
 
-function AgentHint() {
+function AgentHint({
+  environment,
+  onOpenTerminal,
+}: {
+  environment: EnvironmentInfo | null;
+  onOpenTerminal: (options: OpenTerminalOptions) => void;
+}) {
   const { t } = useTranslation("onboarding");
   return (
-    <p className="mt-5 flex items-center gap-2 text-xs text-[var(--app-text-tertiary)]">
-      <MessageSquareText className="size-3.5 shrink-0" aria-hidden="true" />
-      {t("agentHint")}
-    </p>
+    <div className="mt-5 flex flex-wrap items-center gap-2 text-xs text-[var(--app-text-tertiary)]">
+      <span className="flex items-center gap-2">
+        <MessageSquareText className="size-3.5 shrink-0" aria-hidden="true" />
+        {t("agentHint")}
+      </span>
+      <AgentConciergeEntry environment={environment} onOpenTerminal={onOpenTerminal} compact />
+    </div>
   );
 }
 
@@ -454,7 +464,7 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
       {flowError && step !== 2 && (
         <p className="mt-4 text-xs text-[var(--app-status-danger)]">{flowError}</p>
       )}
-      <AgentHint />
+      <AgentHint environment={environment} onOpenTerminal={onOpenTerminal} />
     </GuidedDialog>
   );
 }

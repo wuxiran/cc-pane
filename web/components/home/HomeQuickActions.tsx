@@ -3,9 +3,12 @@ import { useTranslation } from "react-i18next";
 import { Terminal, FolderTree, Settings } from "lucide-react";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores";
+import AgentConciergeEntry from "@/components/onboarding/AgentConciergeEntry";
+import type { OpenTerminalOptions } from "@/types";
 
 interface HomeQuickActionsProps {
   onNewTerminal: () => void;
+  onOpenTerminal: (options: OpenTerminalOptions) => void;
 }
 
 interface QuickAction {
@@ -15,7 +18,7 @@ interface QuickAction {
   onClick: () => void;
 }
 
-export default function HomeQuickActions({ onNewTerminal }: HomeQuickActionsProps) {
+export default function HomeQuickActions({ onNewTerminal, onOpenTerminal }: HomeQuickActionsProps) {
   const { t } = useTranslation("home");
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const toggleView = useActivityBarStore((s) => s.toggleView);
@@ -68,6 +71,7 @@ export default function HomeQuickActions({ onNewTerminal }: HomeQuickActionsProp
           </span>
         </button>
       ))}
+      <AgentConciergeEntry onOpenTerminal={onOpenTerminal} compact />
     </div>
   );
 }

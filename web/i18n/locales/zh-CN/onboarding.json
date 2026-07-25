@@ -83,6 +83,13 @@
     "rightDock": "右坞：让常驻工具保持可见但不遮挡终端。",
     "skills": "进阶：用编排 skill 派工、跟踪与汇报。"
   },
+  "concierge": {
+    "action": "对 agent 说",
+    "detecting": "正在检测 agent 环境",
+    "repair": "修复运行环境",
+    "importFirst": "先导入项目",
+    "launchFailed": "当前工作空间无法启动管家会话，请检查项目运行配置。"
+  },
   "errors": {
     "settingsUnavailable": "设置尚未加载，暂时无法保存引导状态。",
     "saveFailed": "引导状态保存失败，请重试。"

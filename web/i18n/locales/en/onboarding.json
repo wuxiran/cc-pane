@@ -83,6 +83,13 @@
     "rightDock": "Right Dock: keep tools visible without covering terminals.",
     "skills": "Advanced: use orchestration skills to dispatch, track, and report work."
   },
+  "concierge": {
+    "action": "Tell the agent",
+    "detecting": "Detecting agent environment",
+    "repair": "Repair environment",
+    "importFirst": "Import a project first",
+    "launchFailed": "The current workspace cannot launch a concierge session. Check its runtime configuration."
+  },
   "errors": {
     "settingsUnavailable": "Settings are not loaded, so onboarding state cannot be saved yet.",
     "saveFailed": "Could not save onboarding state. Try again."
