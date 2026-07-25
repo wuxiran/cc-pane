@@ -65,7 +65,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
         <AppDialogs recentFilesOpen={recentFilesOpen} onCloseRecentFiles={onCloseRecentFiles} />
 
         {/* 新手引导 */}
-        <OnboardingGuide />
+        <OnboardingGuide onOpenTerminal={onOpenTerminal} />
       </div>
     </TooltipProvider>
   );

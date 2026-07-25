@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   MODULE_IDS,
+  MODULE_REGISTRY,
   type ModuleId,
   type ModulePosition,
 } from "@/modules/registry";
@@ -12,11 +13,13 @@ export interface ModulePreference {
 }
 
 export type ModulePreferences = Record<ModuleId, ModulePreference>;
+export type ModulePreset = "full" | "minimal";
 
 interface ModulePrefsState {
   preferences: ModulePreferences;
   setEnabled: (id: ModuleId, enabled: boolean) => void;
   setPosition: (id: ModuleId, position: ModulePosition) => void;
+  applyPreset: (preset: ModulePreset) => void;
 }
 
 export const MODULE_PREFS_STORAGE_KEY = "cc-panes-module-prefs";
@@ -25,6 +28,16 @@ export function createDefaultModulePreferences(): ModulePreferences {
   return Object.fromEntries(MODULE_IDS.map((id) => [
     id,
     { enabled: true, position: "activityBar" },
+  ])) as ModulePreferences;
+}
+
+export function createModulePreferencesForPreset(preset: ModulePreset): ModulePreferences {
+  return Object.fromEntries(MODULE_REGISTRY.map((module) => [
+    module.id,
+    {
+      enabled: preset === "full" || module.minimal,
+      position: module.defaultPosition,
+    },
   ])) as ModulePreferences;
 }
 
@@ -66,6 +79,9 @@ export const useModulePrefsStore = create<ModulePrefsState>()(
           [id]: { ...state.preferences[id], position },
         },
       })),
+      applyPreset: (preset) => set({
+        preferences: createModulePreferencesForPreset(preset),
+      }),
     }),
     {
       name: MODULE_PREFS_STORAGE_KEY,

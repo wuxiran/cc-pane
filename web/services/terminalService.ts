@@ -64,6 +64,8 @@ function normalizeEnvironmentInfo(raw: EnvironmentInfoRaw): EnvironmentInfo {
   };
   return {
     ...raw,
+    git: raw.git ?? { installed: false, version: null },
+    wsl: raw.wsl ?? { installed: false, version: null, applicable: false },
     cliTools: raw.cliTools ?? [],
     claude: findTool("claude"),
     codex: findTool("codex"),
@@ -723,10 +725,12 @@ export const terminalService = {
     return invokeOrApi<ShellInfo[]>("get_available_shells", undefined, async () => []);
   },
 
-  /** 检测开发环境（Node.js + CLI 工具） */
+  /** 检测开发环境（Node.js + Git + WSL + CLI 工具） */
   async checkEnvironment(): Promise<EnvironmentInfo> {
     const raw = await invokeOrApi<EnvironmentInfoRaw>("check_environment", undefined, async () => ({
       node: { installed: false, version: null },
+      git: { installed: false, version: null },
+      wsl: { installed: false, version: null, applicable: false },
       cliTools: [],
     }));
     return normalizeEnvironmentInfo(raw);

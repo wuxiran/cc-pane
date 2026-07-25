@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  createModulePreferencesForPreset,
   createDefaultModulePreferences,
   MODULE_PREFS_STORAGE_KEY,
   useModulePrefsStore,
@@ -20,6 +21,31 @@ describe("useModulePrefsStore", () => {
       orchestration: { enabled: true, position: "activityBar" },
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
+    });
+  });
+
+  it("builds full and minimal onboarding snapshots from registry metadata", () => {
+    expect(createModulePreferencesForPreset("full")).toEqual(
+      createDefaultModulePreferences(),
+    );
+    expect(createModulePreferencesForPreset("minimal")).toEqual({
+      ssh: { enabled: false, position: "activityBar" },
+      orchestration: { enabled: false, position: "activityBar" },
+      resources: { enabled: false, position: "activityBar" },
+      todo: { enabled: false, position: "activityBar" },
+    });
+  });
+
+  it("applies an onboarding preset as one persisted snapshot", () => {
+    useModulePrefsStore.getState().applyPreset("minimal");
+
+    expect(useModulePrefsStore.getState().preferences).toEqual(
+      createModulePreferencesForPreset("minimal"),
+    );
+    expect(JSON.parse(localStorage.getItem(MODULE_PREFS_STORAGE_KEY) ?? "null")).toMatchObject({
+      state: {
+        preferences: createModulePreferencesForPreset("minimal"),
+      },
     });
   });
 

@@ -173,6 +173,8 @@ export interface GeneralSettings {
 /** 环境检测原始结果（来自 Rust check_environment 命令） */
 export interface EnvironmentInfoRaw {
   node: { installed: boolean; version: string | null };
+  git?: { installed: boolean; version: string | null };
+  wsl?: { installed: boolean; version: string | null; applicable: boolean };
   /** 动态 CLI 工具检测结果 */
   cliTools: import("./terminal").CliToolInfo[];
 }

@@ -11,6 +11,7 @@ import {
   useLaunchProfilesStore,
   useResourceStatsStore,
   useEnvironmentStore,
+  useDialogStore,
 } from "@/stores";
 import {
   historyService,
@@ -21,6 +22,7 @@ import {
 import { isTauriRuntime, listenIfTauri } from "@/services/runtime";
 import { waitForDesktopRuntime } from "@/utils/desktopRuntime";
 import { logRestoreReport } from "@/utils/restoreReport";
+import { shouldOpenOnboarding } from "@/utils/onboardingStartup";
 import i18n from "@/i18n";
 
 export function useAppLifecycleLate(): {
@@ -58,13 +60,10 @@ export function useAppLifecycleLate(): {
       if (isTauriRuntime()) {
         checkUpdateSilent().catch(console.error);
       }
-      // [暂时禁用] macOS 下 Dialog 按钮不可点击，暂停 onboarding 引导
-      // const loadedSettings = useSettingsStore.getState().settings;
-      // if (loadedSettings && !loadedSettings.general.onboardingCompleted) {
-      //   localStorage.removeItem("cc-panes-layout");
-      //   usePanesStore.persist.rehydrate();
-      //   useDialogStore.getState().openOnboarding();
-      // }
+      const loadedSettings = useSettingsStore.getState().settings;
+      if (shouldOpenOnboarding(loadedSettings?.general ?? null)) {
+        useDialogStore.getState().openOnboarding();
+      }
     });
     return () => {
       cancelled = true;

@@ -524,7 +524,7 @@ pub struct GeneralSettings {
     #[serde(default = "default_log_level")]
     pub log_level: String,
     /// 新手引导是否已完成
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub onboarding_completed: bool,
     /// 默认 CLI 工具（用于自我对话等场景）: "claude" | "codex"
     #[serde(default = "default_cli_tool")]
