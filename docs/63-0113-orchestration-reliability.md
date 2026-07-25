@@ -75,6 +75,73 @@ daemon 的设计目标本就是"活过应用重启"（见 CLAUDE.md：daemon 是
 
 > **本文未独立验证 R5**，仅记录来源与影响面，待验证后再决定是否纳入本批次。
 
+## 4.5 能力面缺口：编排链路里"必须依赖人"的环节
+
+前面 R1-R5 是"会静默失败"的问题；这一节是另一面——**有些操作根本没有 API，无人值守链路在此必断**。
+两者本质相同：**在派工之前看不出来**。
+
+### 4.5.1 无 MCP 也无 CLI 的操作（本次实际踩到）
+
+| 操作 | 现状 | 本次影响 |
+|---|---|---|
+| 从工作空间移除项目节点 | ❌ 无（**刻意的破坏性限制**） | 注册的 worktree 项目只能人工在 UI 删 |
+| 删除工作空间 | ❌ 无（同上，合理） | — |
+| **启动配置（launch profile）CRUD / 绑定** | ❌ 无 | 派 Claude worker 需要 YOLO 配置，全库没有 → **只能人工在 UI 建** → 本次因此改派 Codex |
+| 关闭标签页 / 解除重复绑定 | ❌ 无（仅有 `kill_session` 杀 PTY） | 同一 sessionId 占两个 tab（R3）时**无任何工具可收拾** |
+| MCP 客户端重连 | ❌（客户端侧） | 连接断开只能人工 `/mcp` |
+| 布局 CRUD | 半个（`launch_task` 传 `layoutName` 可隐式创建） | 不能删除/重命名 |
+
+前两条是刻意设计，不必改。**第 3 条是真缺口**：派工是编排的核心动作，而它的前置条件却只能人工准备。
+注意别与 `*_runner_profile`（进程运行器）、`*_cli_launcher_override`（启动器覆盖）混淆，是三回事。
+
+### 4.5.2 orchestrator 挂掉后的能力断崖
+
+实测：release `orchestrator=failed / daemon=ready`（`cc-panes-ctl --release status`）。
+
+| 操作 | orchestrator 在 | orchestrator 挂 |
+|---|---|---|
+| `sessions list/read/submit/write/kill`、`status` | ✅ | ✅ **daemon 降级可用** |
+| `launch`（派新 worker） | ✅ | ❌ 显式不降级 |
+| `tools` / `call`（**全部 80+ MCP 工具**） | ✅ | ❌ 全灭 |
+| `list_panes` 等面板查询 | ✅（**且需前端响应**） | ❌ |
+| `bindings` 写 | ✅ | 默认禁止，逃生阀 `--force-offline-db` |
+
+额外实测：`list_panes` 有**两个失败点**——orchestrator 可达且 MCP 正常应答时，仍可能因前端无响应而
+5 秒超时（dev 重启后复现）。会话类查询只有一个失败点。
+
+### 4.5.3 关键发现：`launch` 不降级是策略，不是能力
+
+```rust
+// cc-panes-ctl/src/commands.rs:345,360
+let endpoint = select_endpoint(context, "orchestrator", discover_orchestrator_endpoint)?;
+... CliExit::source(format!("launch 需要 orchestrator，且不提供 daemon 降级: {error}"))
+```
+
+但 daemon 侧 `POST /api/sessions`（`cc-panes-daemon/src/server.rs:349` → `create_session`，:461 注释
+明确其内部执行 "WSL 冷启动 + 探活 + spawn_pty"）接受的参数几乎就是 `launch_task` 的全集：
+
+`cliTool` / `initialPrompt`（别名 `prompt`）/ `resumeId` / **`yoloMode`** / `launchProfileId` /
+`projectPath` / `workspaceName` / `providerId` / `providerSelection` / `wsl` / `ssh` / `extraEnv` / `cwd`
+（`server.rs:244-286`）。
+
+**即：daemon 完全有能力起一个带 prompt、带 YOLO、跑在 WSL 里的 agent 会话。**
+`launch` 之所以不降级，是编排语义没有接线，而不是底层做不到。
+
+降级 launch **拿不到**的东西（部分为推断，需实现时逐条确认）：
+
+- UI 上的 tab/pane 落位（daemon 不认识前端布局）——会话存在但界面上看不见；
+- 工作空间/Provider 的**名称解析**（daemon 收的是已解析的 id，orchestrator 负责由名字解析）；
+- 子会话的 MCP 配置生成（`mcp-<sessionId>.json`）与 TaskBinding 登记；
+- 启动历史记录。
+
+> 一个**未验证的关联**：本次观察到有 active 会话完全不出现在 `list_panes` 里。
+> 是否正是"经 daemon 直创、未经 orchestrator 落位"所致，尚未确认，不作结论。
+
+**建议**：给 `ctl launch` 加一个显式的 `--daemon-fallback`（或独立子命令），
+要求调用方自行提供已解析的 id，并**明确告知"该会话不会出现在 UI 布局中"**。
+理由：orchestrator 挂掉恰恰是最需要派工救场的时刻，而这正是当前唯一完全断掉的核心动作。
+**不要做成自动静默降级**——那会退回本文档反复批评的模式（看起来成功，实则语义不同）。
+
 ## 5. 批次建议
 
 优先级：**R2② > R1（含对照实验）> R2①③④ > R4 > R3 > R5**。
