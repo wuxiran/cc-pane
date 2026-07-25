@@ -227,6 +227,74 @@ fn test_multiple_workspaces_sort_order() {
 }
 
 #[test]
+fn test_grouped_workspaces_sort_by_group_minimum_order() {
+    let (_dir, service) = setup();
+
+    for name in [
+        "default",
+        "alpha-first",
+        "alpha-pinned",
+        "beta-first",
+        "beta-later",
+        "ungrouped-pinned",
+    ] {
+        service.create_workspace(name, None).unwrap();
+    }
+
+    let cases = [
+        ("default", None, Some(99), false, true),
+        ("alpha-first", Some("Alpha"), Some(2), false, false),
+        ("alpha-pinned", Some("Alpha"), Some(3), true, false),
+        ("beta-first", Some("Beta"), Some(0), false, false),
+        ("beta-later", Some("Beta"), Some(4), false, false),
+        ("ungrouped-pinned", None, Some(1), true, false),
+    ];
+
+    for (name, group, sort_order, pinned, is_default) in cases {
+        let mut workspace = service.get_workspace(name).unwrap();
+        workspace.group = group.map(str::to_string);
+        workspace.sort_order = sort_order;
+        workspace.pinned = pinned;
+        workspace.is_default = is_default;
+        service.write_workspace_json(name, &workspace).unwrap();
+    }
+
+    let names: Vec<_> = service
+        .list_workspaces()
+        .unwrap()
+        .into_iter()
+        .map(|workspace| workspace.name)
+        .collect();
+
+    assert_eq!(
+        names,
+        [
+            "default",
+            "beta-first",
+            "beta-later",
+            "alpha-pinned",
+            "alpha-first",
+            "ungrouped-pinned",
+        ]
+    );
+}
+
+#[test]
+fn test_workspace_group_and_color_persist_through_full_update() {
+    let (_dir, service) = setup();
+    service.create_workspace("styled", None).unwrap();
+
+    let mut workspace = service.get_workspace("styled").unwrap();
+    workspace.group = Some("服务端".to_string());
+    workspace.color = Some("green".to_string());
+    service.write_workspace_json("styled", &workspace).unwrap();
+
+    let restored = service.get_workspace("styled").unwrap();
+    assert_eq!(restored.group.as_deref(), Some("服务端"));
+    assert_eq!(restored.color.as_deref(), Some("green"));
+}
+
+#[test]
 fn test_reorder_validation() {
     let (_dir, service) = setup();
 

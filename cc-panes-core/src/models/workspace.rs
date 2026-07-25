@@ -97,6 +97,10 @@ pub struct Workspace {
     pub hidden: bool,
     #[serde(default)]
     pub sort_order: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
     /// 默认工作空间：启动时缺失自动创建，列表恒置顶，不可删除
     #[serde(default)]
     pub is_default: bool,
@@ -272,6 +276,8 @@ impl Workspace {
             pinned: false,
             hidden: false,
             sort_order: None,
+            group: None,
+            color: None,
             is_default: false,
             wallpaper_override: None,
         }
@@ -352,6 +358,8 @@ mod tests {
         assert!(workspace.cli_environment_defaults.is_none());
         assert!(workspace.wsl.is_none());
         assert!(workspace.ssh_launch.is_none());
+        assert!(workspace.group.is_none());
+        assert!(workspace.color.is_none());
     }
 
     #[test]
@@ -396,5 +404,31 @@ mod tests {
 
         assert_eq!(value["cliEnvironmentDefaults"]["claude"], "wsl");
         assert!(value["cliEnvironmentDefaults"].get("codex").is_none());
+    }
+
+    #[test]
+    fn workspace_group_and_color_round_trip() {
+        let mut workspace = Workspace::new("workspace-1".to_string(), None);
+        workspace.group = Some("客户端".to_string());
+        workspace.color = Some("blue".to_string());
+
+        let value = serde_json::to_value(&workspace).expect("serialize workspace");
+        assert_eq!(value["group"], "客户端");
+        assert_eq!(value["color"], "blue");
+
+        let restored: Workspace =
+            serde_json::from_value(value).expect("workspace should deserialize");
+        assert_eq!(restored.group.as_deref(), Some("客户端"));
+        assert_eq!(restored.color.as_deref(), Some("blue"));
+    }
+
+    #[test]
+    fn serialize_workspace_skips_empty_group_and_color() {
+        let workspace = Workspace::new("workspace-1".to_string(), None);
+
+        let value = serde_json::to_value(&workspace).expect("serialize workspace");
+
+        assert!(value.get("group").is_none());
+        assert!(value.get("color").is_none());
     }
 }

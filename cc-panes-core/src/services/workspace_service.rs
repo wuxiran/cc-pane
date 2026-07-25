@@ -276,11 +276,48 @@ impl WorkspaceService {
             }
         }
 
-        // 排序：默认工作空间恒第一 → pinned 优先 → sort_order 升序 → 创建时间升序
+        let mut group_min_orders = HashMap::<String, i32>::new();
+        for workspace in &workspaces {
+            let Some(group) = workspace
+                .group
+                .as_deref()
+                .map(str::trim)
+                .filter(|group| !group.is_empty())
+            else {
+                continue;
+            };
+            let order = workspace.sort_order.unwrap_or(i32::MAX);
+            group_min_orders
+                .entry(group.to_string())
+                .and_modify(|minimum| *minimum = (*minimum).min(order))
+                .or_insert(order);
+        }
+
+        // 排序：默认工作空间恒第一 → 分组（未分组殿后）→ pinned → sort_order → 创建时间
         workspaces.sort_by(|a, b| {
+            let a_group = a
+                .group
+                .as_deref()
+                .map(str::trim)
+                .filter(|group| !group.is_empty());
+            let b_group = b
+                .group
+                .as_deref()
+                .map(str::trim)
+                .filter(|group| !group.is_empty());
+
             // 默认工作空间置顶
             b.is_default
                 .cmp(&a.is_default)
+                // 有分组在前；组间按组内成员最小 sort_order 排序
+                .then_with(|| match (a_group, b_group) {
+                    (Some(a_group), Some(b_group)) => group_min_orders[a_group]
+                        .cmp(&group_min_orders[b_group])
+                        .then_with(|| a_group.cmp(b_group)),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                })
                 // pinned 在前
                 .then_with(|| b.pinned.cmp(&a.pinned))
                 // sort_order 升序（None 排在最后）
