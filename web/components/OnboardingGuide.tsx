@@ -8,6 +8,10 @@ import EnvironmentPreflightCard from "@/components/onboarding/EnvironmentPreflig
 import OnboardingVisual from "@/components/onboarding/OnboardingVisual";
 import AgentConciergeEntry from "@/components/onboarding/AgentConciergeEntry";
 import {
+  notifySetupGuideProgress,
+  ONBOARDING_MULTI_LAUNCH_KEY,
+} from "@/components/onboarding/setupGuideProgress";
+import {
   useActivityBarStore,
   useDialogStore,
   useModulePrefsStore,
@@ -31,7 +35,7 @@ import type { ScannedRepo } from "@/services/workspaceService";
 type StepIndex = 0 | 1 | 2 | 3 | 4;
 type Preset = "full" | "minimal";
 
-export const ONBOARDING_MULTI_LAUNCH_KEY = "cc-panes-onboarding-multi-launch";
+export { ONBOARDING_MULTI_LAUNCH_KEY } from "@/components/onboarding/setupGuideProgress";
 
 interface OnboardingGuideProps {
   onOpenTerminal: (options: OpenTerminalOptions) => void;
@@ -397,6 +401,7 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
     if (paneId) usePanesStore.getState().splitRight(paneId);
     onOpenTerminal(second.options);
     localStorage.setItem(ONBOARDING_MULTI_LAUNCH_KEY, "true");
+    notifySetupGuideProgress();
     setStep(4);
   }, [cliPair, onOpenTerminal, t, target]);
 

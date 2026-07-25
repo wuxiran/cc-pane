@@ -18,6 +18,7 @@
     "wallpaper": "image video background music opacity blur",
     "font": "font size family typography CJK",
     "shortcuts": "shortcut hotkey keyboard binding",
+    "setupGuide": "getting started onboarding workspace project parallel dispatch skill progress",
     "modules": "module entry Activity Bar right dock hidden command palette",
     "provider": "provider API key model",
     "mcp": "MCP server tools shared",
@@ -31,12 +32,17 @@
     "about": "version update logs uninstall cleanup"
   },
   "groups": {
+    "guide": "Start",
     "appearance": "Appearance & Interaction",
     "ai": "AI & Launch",
     "system": "System",
     "companion": "Companion",
     "experimental": "Experimental",
     "about": "About"
+  },
+  "setupGuide": {
+    "title": "Setup Guide",
+    "description": "Revisit the golden five-minute path and track real progress through the core parallel workflow."
   },
   "experimental": {
     "title": "Experimental",

@@ -90,6 +90,43 @@
     "importFirst": "Import a project first",
     "launchFailed": "The current workspace cannot launch a concierge session. Check its runtime configuration."
   },
+  "setupGuide": {
+    "title": "Golden Five-Minute Checklist",
+    "description": "Complete the core path from gathering projects to parallel dispatch. Progress follows real actions.",
+    "progress": "{{completed}} / {{total}} complete",
+    "progressLabel": "Core workflow progress",
+    "completed": "Complete",
+    "pending": "To do",
+    "replay": "Replay the five-minute guide",
+    "items": {
+      "workspace": {
+        "title": "Create a workspace",
+        "description": "Create a portable work context for projects, configuration, and collaboration materials.",
+        "action": "Create"
+      },
+      "project": {
+        "title": "Import your first project",
+        "description": "Scan a directory or add code repositories and working materials manually.",
+        "action": "Import"
+      },
+      "multiLaunch": {
+        "title": "Complete your first multi-launch",
+        "description": "Launch two agent sessions side by side in the same project.",
+        "action": "Start multi-launch"
+      },
+      "dispatch": {
+        "title": "Complete your first dispatch",
+        "description": "Give an agent a task with clear boundaries and acceptance criteria.",
+        "action": "Open orchestration"
+      },
+      "skill": {
+        "title": "Install your first Skill",
+        "description": "Install a reusable advanced workflow from Resources.",
+        "checkFailed": "Installed Skills could not be read. You can still inspect them in Resources.",
+        "action": "Browse Skills"
+      }
+    }
+  },
   "errors": {
     "settingsUnavailable": "Settings are not loaded, so onboarding state cannot be saved yet.",
     "saveFailed": "Could not save onboarding state. Try again."

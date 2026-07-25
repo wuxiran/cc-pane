@@ -59,4 +59,18 @@ describe("settings registry", () => {
       targetSectionId: "modules-root",
     }));
   });
+
+  it("registers the setup guide and its searchable checklist target", () => {
+    const setupGuide = SETTINGS_PANES.find((pane) => pane.id === "setup-guide");
+
+    expect(setupGuide).toMatchObject({
+      titleKey: "setupGuide.title",
+      group: "guide",
+    });
+    expect(setupGuide?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "workflow-checklist",
+      keywordsKey: "searchKeywords.setupGuide",
+      targetSectionId: "setup-guide-root",
+    }));
+  });
 });

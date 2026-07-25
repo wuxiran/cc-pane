@@ -90,6 +90,43 @@
     "importFirst": "先导入项目",
     "launchFailed": "当前工作空间无法启动管家会话，请检查项目运行配置。"
   },
+  "setupGuide": {
+    "title": "黄金五分钟上手清单",
+    "description": "完成从收束项目到并行派工的核心路径，进度会随真实操作自动更新。",
+    "progress": "{{completed}} / {{total}} 已完成",
+    "progressLabel": "核心工作流完成度",
+    "completed": "已完成",
+    "pending": "待完成",
+    "replay": "重新查看五分钟引导",
+    "items": {
+      "workspace": {
+        "title": "创建工作空间",
+        "description": "建立可携带的工作上下文，收束项目、配置与协作材料。",
+        "action": "去创建"
+      },
+      "project": {
+        "title": "导入第一个项目",
+        "description": "扫描目录或手动加入代码仓库与工作材料。",
+        "action": "去导入"
+      },
+      "multiLaunch": {
+        "title": "完成首次多开",
+        "description": "在同一项目中并排启动两个 agent 会话。",
+        "action": "开始多开"
+      },
+      "dispatch": {
+        "title": "完成首次派工",
+        "description": "把有明确边界与验收条件的任务交给 agent。",
+        "action": "打开编排"
+      },
+      "skill": {
+        "title": "安装第一个 Skill",
+        "description": "从资源中心安装一个可复用的进阶工作流。",
+        "checkFailed": "暂时无法读取已安装 Skill，仍可前往资源中心查看。",
+        "action": "浏览 Skills"
+      }
+    }
+  },
   "errors": {
     "settingsUnavailable": "设置尚未加载，暂时无法保存引导状态。",
     "saveFailed": "引导状态保存失败，请重试。"

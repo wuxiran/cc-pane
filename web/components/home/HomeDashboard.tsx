@@ -142,7 +142,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
           <div className="min-w-0 flex flex-col gap-6">
             {isNewUser ? (
               <>
-                <HomeGettingStarted onNewTerminal={handleNewTerminal} />
+                <HomeGettingStarted />
                 <HomeDesignHighlights />
               </>
             ) : (

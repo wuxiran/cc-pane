@@ -13,6 +13,7 @@ import type {
   SkillMarketEntry,
 } from "@/types";
 import { handleErrorSilent } from "@/utils";
+import { notifySetupGuideProgress } from "@/components/onboarding/setupGuideProgress";
 
 function externalSourceLabel(s: ExternalSkillSource): string {
   if (s.kind === "plugin") return `plugin:${s.pluginId}`;
@@ -61,6 +62,7 @@ export default function GlobalSkillsPanel() {
       const installed = await skillService.installMarketSkill(id);
       toast.success(t("skillInstalled", { defaultValue: "已安装 {{name}}", name: installed.name }));
       setUserSkills((prev) => [installed, ...prev.filter((s) => s.id !== installed.id)]);
+      notifySetupGuideProgress();
     } catch (err) {
       toast.error(t("skillInstallFailed", { defaultValue: "安装失败：{{error}}", error: String(err) }));
     } finally {
@@ -72,6 +74,7 @@ export default function GlobalSkillsPanel() {
     try {
       await skillService.removeUserSkill(id);
       setUserSkills((prev) => prev.filter((s) => s.id !== id));
+      notifySetupGuideProgress();
       toast.success(t("skillRemoved", { defaultValue: "已移除" }));
     } catch (err) {
       toast.error(t("deleteFailed", { defaultValue: "删除失败：{{error}}", error: String(err) }));

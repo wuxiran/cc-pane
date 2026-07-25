@@ -5,6 +5,7 @@ import type { SettingsPaneId } from "./settingsRegistry";
 import { cn } from "@/lib/utils";
 
 const AboutSection = lazy(() => import("./AboutSection"));
+const SetupGuideChecklist = lazy(() => import("@/components/onboarding/SetupGuideChecklist"));
 const CCChanSettings = lazy(() => import("./CCChanSettings"));
 const CliLaunchersSection = lazy(() => import("./CliLaunchersSection"));
 const ExperimentalSection = lazy(() => import("./ExperimentalSection"));
@@ -29,6 +30,8 @@ interface SettingsPaneContentProps {
 
 function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
   switch (paneId) {
+    case "setup-guide":
+      return <SetupGuideChecklist />;
     case "general":
       return (
         <GeneralSection
@@ -83,7 +86,7 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
 }
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
-  const hasOwnCardLayout = ["provider", "cli-launchers", "shared-mcp", "experimental"].includes(props.paneId);
+  const hasOwnCardLayout = ["setup-guide", "provider", "cli-launchers", "shared-mcp", "experimental"].includes(props.paneId);
   return (
     <div
       data-settings-section={`${props.paneId}-root`}
