@@ -106,6 +106,10 @@ export default function EditorView({
   const [readOnlyReason, setReadOnlyReason] = useState<"path" | "encoding" | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
   const lastSavedMtime = useRef<string | null>(null);
+  // 分栏滚动同步：previewModeRef 供 Monaco 事件闭包读最新值；syncLock 防两侧互相回声
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const previewModeRef = useRef<PreviewMode>("edit");
+  const syncLock = useRef<"editor" | "preview" | null>(null);
 
   const isDark = useThemeStore((s) => s.isDark);
   const setTabDirty = usePanesStore((s) => s.setTabDirty);
@@ -217,10 +221,46 @@ export default function EditorView({
     }
   }, [filePath, content, readOnly, dirty]);
 
+  useEffect(() => {
+    previewModeRef.current = previewMode;
+  }, [previewMode]);
+
+  // 编辑侧滚动 → 预览侧按比例跟随（仅分栏模式）
+  const syncPreviewFromEditor = useCallback(() => {
+    if (previewModeRef.current !== "split" || syncLock.current === "preview") return;
+    const editor = editorRef.current;
+    const preview = previewRef.current;
+    if (!editor || !preview) return;
+    const editorMax = editor.getScrollHeight() - editor.getLayoutInfo().height;
+    const previewMax = preview.scrollHeight - preview.clientHeight;
+    if (editorMax <= 0 || previewMax <= 0) return;
+    syncLock.current = "editor";
+    preview.scrollTop = (editor.getScrollTop() / editorMax) * previewMax;
+    requestAnimationFrame(() => {
+      syncLock.current = null;
+    });
+  }, []);
+
+  // 预览侧滚动 → 编辑侧按比例跟随
+  const handlePreviewScroll = useCallback((el: HTMLDivElement) => {
+    if (previewModeRef.current !== "split" || syncLock.current === "editor") return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    const previewMax = el.scrollHeight - el.clientHeight;
+    const editorMax = editor.getScrollHeight() - editor.getLayoutInfo().height;
+    if (previewMax <= 0 || editorMax <= 0) return;
+    syncLock.current = "preview";
+    editor.setScrollTop((el.scrollTop / previewMax) * editorMax);
+    requestAnimationFrame(() => {
+      syncLock.current = null;
+    });
+  }, []);
+
   // Monaco mount
   const handleEditorMount: OnMount = useCallback(
     (editor) => {
       editorRef.current = editor;
+      editor.onDidScrollChange(syncPreviewFromEditor);
 
       // Ctrl+S 快捷键
       editor.addAction({
@@ -331,7 +371,7 @@ export default function EditorView({
 
         {showPreview && (
           <div className={showEditor ? "w-1/2" : "flex-1"}>
-            <MarkdownPreview content={content} />
+            <MarkdownPreview ref={previewRef} content={content} onScroll={handlePreviewScroll} />
           </div>
         )}
       </div>

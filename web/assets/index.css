@@ -827,3 +827,61 @@
     transition-duration: 60ms !important;
   }
 }
+
+/* ===== Markdown 预览代码高亮 =====
+   内容类别编码色（同 JsonEditor 语法色的定位），不随应用 chrome 主题 token 变化；
+   亮/暗各给一套（GitHub light/dark 系），供 rehype-highlight 的 hljs 类消费。 */
+:root {
+  --code-keyword: #d73a49;
+  --code-string: #22863a;
+  --code-number: #005cc5;
+  --code-comment: #6a737d;
+  --code-title: #6f42c1;
+  --code-attr: #e36209;
+}
+.dark {
+  --code-keyword: #ff7b72;
+  --code-string: #7ee787;
+  --code-number: #79c0ff;
+  --code-comment: #8b949e;
+  --code-title: #d2a8ff;
+  --code-attr: #ffa657;
+}
+
+.markdown-preview .hljs-keyword,
+.markdown-preview .hljs-selector-tag,
+.markdown-preview .hljs-literal,
+.markdown-preview .hljs-type {
+  color: var(--code-keyword);
+}
+.markdown-preview .hljs-string,
+.markdown-preview .hljs-regexp,
+.markdown-preview .hljs-addition {
+  color: var(--code-string);
+}
+.markdown-preview .hljs-number,
+.markdown-preview .hljs-built_in,
+.markdown-preview .hljs-symbol,
+.markdown-preview .hljs-bullet {
+  color: var(--code-number);
+}
+.markdown-preview .hljs-comment,
+.markdown-preview .hljs-quote,
+.markdown-preview .hljs-meta,
+.markdown-preview .hljs-deletion {
+  color: var(--code-comment);
+}
+.markdown-preview .hljs-title,
+.markdown-preview .hljs-section,
+.markdown-preview .hljs-name,
+.markdown-preview .hljs-selector-class,
+.markdown-preview .hljs-selector-id {
+  color: var(--code-title);
+}
+.markdown-preview .hljs-attr,
+.markdown-preview .hljs-attribute,
+.markdown-preview .hljs-variable,
+.markdown-preview .hljs-template-variable,
+.markdown-preview .hljs-params {
+  color: var(--code-attr);
+}
