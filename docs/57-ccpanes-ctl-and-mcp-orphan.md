@@ -36,9 +36,45 @@
 - **代理的降级语义**：orchestrator 不可达时，mcp-proxy 对工具调用返回明确错误（含"orchestrator down, N 秒后重试"），**不静默吞**；会话级 MCP 工具（submit/output 类）可考虑 daemon 直连兜底。
 - 二进制归属：新 crate `cc-panes-ctl`（workspace member），端点解析逻辑从 cli-hook 抽到共享处（cc-panes-core 或独立小 crate），**不复制粘贴**。
 
-### 2.3 工量与验收
+### 2.3 实施清单（2026-07-25 规划定稿）
 
-- 工量：命令面 ~0.5d + mcp-proxy ~0.5-1d（解析逻辑是现成的）。
+#### Phase 0：共享端点解析抽取（~0.25d，前置）
+
+- [ ] `resolve_api_endpoint()` 及其探活/WSL host 改写从 `cc-panes-cli-hook/src/common/orchestrator.rs` 抽到共享处（`cc-panes-core/src/utils/` 或独立小 crate），cli-hook 改为引用，行为不变；
+- [ ] 解析链扩展**daemon 第二源**：orchestrator（env→探活→mcp-orchestrator.json）不可达 → 读 `runtime/daemon-manifest.json` 探活 daemon。返回值带 `EndpointKind::Orchestrator | Daemon`，调用方据此决定能力面；
+- [ ] dev/release 双目录：`--dev/--release/--auto`。auto 优先 `CC_PANES_*` env 推断（在管控会话内），否则两套目录都探，报告各自状态。
+
+#### Phase 1：命令面 MVP（~0.5d）
+
+新 crate `cc-panes-ctl`（workspace member，clap 派生），全局 flag：`--dev/--release/--auto`、`--json`。
+
+| 子命令 | 后端 | orchestrator 死时 |
+|---|---|---|
+| `status` | 双源探活 | ✅ 照常（这正是它的主场：报告"orchestrator down, daemon ok"） |
+| `sessions list` | orch `/api/sessions`，降级 daemon `/api/sessions` | ✅ daemon |
+| `sessions read <id> [--lines N]` | daemon `/api/sessions/{id}/output`（daemon 是 PTY 真身，直连） | ✅ |
+| `sessions submit <id> <text>` | daemon `/api/sessions/{id}/submit` | ✅ |
+| `sessions write <id> --key esc\|ctrl-c\|ctrl-d\|cr` | daemon `/api/sessions/{id}/write`（控制键白名单映射真字节，杜绝 `\x03` 四字符事故） | ✅ |
+| `sessions kill <id>` | daemon `/api/sessions/{id}` DELETE | ✅ |
+| `bindings list [--stale]` | 只读 SQLite（`data.db`，WAL 只读连接） | ✅ |
+| `bindings close <id> --status --summary` / `bindings reconcile` | orch REST 优先；orch 死时直写 SQLite（**必须参数绑定写 UTF-8**——2026-07-25 sqlite3.exe GBK 损坏 38 条摘要的教训） | ✅ 降级直写 |
+| `launch <project-path> [--prompt\|--resume] [--cli claude\|codex]` | orch `/api/launch-task` | ❌ 明确报错（launch 需要 UI/布局，不做降级） |
+
+- [ ] 输出：人读表格默认，`--json` 给 AI/脚本；错误一律带"哪个源试过、为什么失败、下一步建议"；
+- [ ] 退出码：0 成功 / 2 目标源不可达 / 3 参数错，脚本可判。
+
+#### Phase 2：mcp-proxy（~0.5-1d）
+
+- [ ] `cc-panes-ctl mcp-proxy [--dev]`：stdio MCP server，转发 JSON-RPC 至 orchestrator `/mcp`（streamable HTTP + Bearer）；
+- [ ] **每请求重解析**端点（Phase 0 共享链）；端点变更（端口/token 轮换）时对上游透明——对 CLI 而言 MCP 永不断线；
+- [ ] orchestrator 不可达：工具调用返回明确 MCP error（含重试提示），**不静默吞**；恢复后自动续接，无需重启 CLI 会话；
+- [ ] 适配器切换：`claude.rs`/`codex.rs` 注入从 http url 改为 stdio proxy 命令，配置开关灰度（默认先 off，验证后翻转）；
+- [ ] 核证 `claude.rs` 对 legacy `ccpanes-proxy` 死条目的剥离逻辑不误伤新条目（新名字 `cc-panes-ctl mcp-proxy` 已避开，加测试钉死）；
+- [ ] 二进制分发：进 `build.rs` external binaries 清单（注意 CLAUDE.md「tauri dev 不重建 external binaries」暗雷——dev 改动后需手动拷贝）。
+
+#### Phase 3：验收（半天内含在上两阶段）
+
+- 工量：Phase 0 ~0.25d + 命令面 ~0.5d + mcp-proxy ~0.5-1d（解析逻辑是现成的）。
 - 验收：
   1. 杀掉 orchestrator（模拟事故）→ `sessions list/read/submit` 经 daemon 照常工作；
   2. 注入 mcp-proxy 的 Claude 会话在 CC-Panes 重启（端口/token 轮换）后 MCP 工具**不断线**；
