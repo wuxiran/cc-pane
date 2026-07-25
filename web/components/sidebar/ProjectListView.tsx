@@ -28,6 +28,7 @@ import {
   getDefaultSidebarFavoriteLaunchActionIds,
   groupSidebarCliLaunchItems,
 } from "./launchMenu";
+import { normalizeWorkspaceProjects } from "./workspaceProjects";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 
 interface ProjectListViewProps {
@@ -41,20 +42,6 @@ interface ProjectListViewProps {
   onMigrateProject: (ws: Workspace, project: WorkspaceProject) => void;
   onOpenWorktreeManager: (project: WorkspaceProject, ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
-}
-
-function isRenderableWorkspaceProject(project: unknown): project is WorkspaceProject {
-  return typeof project === "object"
-    && project !== null
-    && typeof (project as WorkspaceProject).id === "string"
-    && typeof (project as WorkspaceProject).path === "string"
-    && (project as WorkspaceProject).path.trim() !== "";
-}
-
-function normalizeProjects(projects: WorkspaceProject[]): WorkspaceProject[] {
-  if (!Array.isArray(projects)) return [];
-  const renderableProjects = projects.filter(isRenderableWorkspaceProject);
-  return renderableProjects.length === projects.length ? projects : renderableProjects;
 }
 
 function getSshDisplayName(ssh: SshConnectionInfo): string {
@@ -102,7 +89,7 @@ export default function ProjectListView({
   const onOpenTodo = useDialogStore((s) => s.openTodo);
   const [projectSpecs, setProjectSpecs] = useState<Record<string, SpecEntry[]>>({});
   const isWindows = detectAppPlatform() === "windows";
-  const safeProjects = normalizeProjects(projects);
+  const safeProjects = normalizeWorkspaceProjects(projects);
   const invalidProjectCount = Array.isArray(projects)
     ? projects.length - safeProjects.length
     : 0;

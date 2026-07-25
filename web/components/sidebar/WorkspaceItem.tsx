@@ -47,14 +47,13 @@ import type {
   OpenTerminalOptions,
   ProjectCliHookGroupStatus,
   ProjectCliHookStatus,
-  Workspace,
-  WorkspaceLaunchEnvironment,
-  WorkspaceProject,
+  Workspace, WorkspaceLaunchEnvironment,
 } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
 import WorkspaceAppearanceMenu from "./WorkspaceAppearanceMenu";
 import WorkspaceColorDot from "./WorkspaceColorDot";
 import WorkspaceGroupDialog from "./WorkspaceGroupDialog";
+import { normalizeWorkspaceProjects } from "./workspaceProjects";
 import {
   buildSidebarCliLaunchItems,
   buildSidebarLaunchActions,
@@ -84,20 +83,6 @@ interface WorkspaceItemProps {
   dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
 }
 
-function isRenderableWorkspaceProject(project: unknown): project is WorkspaceProject {
-  return typeof project === "object"
-    && project !== null
-    && typeof (project as WorkspaceProject).id === "string"
-    && typeof (project as WorkspaceProject).path === "string"
-    && (project as WorkspaceProject).path.trim() !== "";
-}
-
-function normalizeWorkspaceProjects(ws: Workspace): WorkspaceProject[] {
-  if (!Array.isArray(ws.projects)) return [];
-  const projects = ws.projects.filter(isRenderableWorkspaceProject);
-  return projects.length === ws.projects.length ? ws.projects : projects;
-}
-
 export default function WorkspaceItem({
   ws,
   expanded,
@@ -117,7 +102,7 @@ export default function WorkspaceItem({
   dragHandleProps,
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
-  const projects = normalizeWorkspaceProjects(ws);
+  const projects = normalizeWorkspaceProjects(ws.projects);
   const workspace = projects === ws.projects ? ws : { ...ws, projects };
   const providerList = useProvidersStore((s) => s.providers);
   const settings = useSettingsStore((s) => s.settings);
