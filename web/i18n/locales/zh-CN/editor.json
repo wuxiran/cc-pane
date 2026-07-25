@@ -14,5 +14,6 @@
   "newFile": "新建文件",
   "newFolder": "新建文件夹",
   "showHidden": "显示隐藏文件",
-  "hideHidden": "隐藏隐藏文件"
+  "hideHidden": "隐藏隐藏文件",
+  "mermaidError": "Mermaid 图渲染失败，已回落为源码"
 }

@@ -371,7 +371,12 @@ export default function EditorView({
 
         {showPreview && (
           <div className={showEditor ? "w-1/2" : "flex-1"}>
-            <MarkdownPreview ref={previewRef} content={content} onScroll={handlePreviewScroll} />
+            <MarkdownPreview
+              ref={previewRef}
+              content={content}
+              filePath={filePath}
+              onScroll={handlePreviewScroll}
+            />
           </div>
         )}
       </div>
