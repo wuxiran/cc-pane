@@ -93,4 +93,4 @@ pub async fn preview_launch_profile_resolution(
 
 #[cfg(test)]
 #[path = "launch_profiles_tests.rs"]
-mod launch_profiles_tests;
+pub(crate) mod launch_profiles_tests;

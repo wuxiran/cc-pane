@@ -109,7 +109,7 @@ fn test_dir(name: &str) -> std::path::PathBuf {
     path
 }
 
-fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
+pub(crate) fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
     let root = test_dir(name);
     let app_paths = Arc::new(AppPaths::new(Some(
         root.join("data").to_string_lossy().to_string(),
@@ -157,6 +157,9 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         launch_history_service,
         layout_snapshot_service: Arc::new(LayoutSnapshotService::new(db.clone())),
         launch_profile_service,
+        quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(
+            app_paths.quick_commands_path(),
+        )),
         memory_service,
         ssh_machine_service,
         session_restore_service: Arc::new(SessionRestoreService::new(db, app_paths.clone())),

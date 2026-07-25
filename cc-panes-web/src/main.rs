@@ -17,9 +17,9 @@ use cc_panes_core::{
         DaemonTerminalBackend, FileSystemService, HistoryService, InProcessTerminalBackend,
         JournalService, LaunchHistoryService, LaunchProfileService, LayoutSnapshotService,
         McpConfigService, MemoryService, PlanService, ProcessMonitorService,
-        ProjectCliHooksService, ProjectService, ProviderService, RunnerService,
-        SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
-        SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend,
+        ProjectCliHooksService, ProjectService, ProviderService, QuickCommandService,
+        RunnerService, SessionRestoreService, SettingsService, SharedMcpService, SkillService,
+        SpecService, SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend,
         TerminalDaemonClient, TerminalService, TodoService, UsageStatsService, UserSkillService,
         WorkspaceService, WorktreeService,
     },
@@ -295,6 +295,7 @@ async fn main() -> anyhow::Result<()> {
         app_paths.launch_profiles_path(),
         external_skill_registry.clone(),
     ));
+    let quick_command_service = Arc::new(QuickCommandService::new(app_paths.quick_commands_path()));
     let memory_service = Arc::new(
         MemoryService::new(app_paths.data_dir().join("memory.db")).unwrap_or_else(|error| {
             tracing::error!(
@@ -340,6 +341,7 @@ async fn main() -> anyhow::Result<()> {
         launch_history_service,
         layout_snapshot_service,
         launch_profile_service,
+        quick_command_service,
         memory_service,
         ssh_machine_service,
         session_restore_service,

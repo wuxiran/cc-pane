@@ -505,6 +505,9 @@ mod tests {
             launch_history_service,
             layout_snapshot_service: Arc::new(LayoutSnapshotService::new(database.clone())),
             launch_profile_service,
+            quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(
+                app_paths.quick_commands_path(),
+            )),
             memory_service,
             ssh_machine_service,
             session_restore_service: Arc::new(SessionRestoreService::new(
