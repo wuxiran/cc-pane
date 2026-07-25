@@ -28,6 +28,7 @@ import {
 } from "@/modules/registry";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
+import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useDialogStore, useLayoutUiStore, useOrchestratorStore } from "@/stores";
 
 interface ActivityBarIconProps {
@@ -79,7 +80,11 @@ function ActivityBarIcon({
             {showBadge && (
               <span
                 className={`absolute right-[4px] top-[4px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-[3px] text-[9px] font-bold leading-none text-white ${
-                  badgeTone === "red" ? "bg-[var(--app-status-danger)]" : "bg-[var(--app-accent)]"
+                  badgeTone === "red"
+                    ? "bg-[var(--app-status-danger)]"
+                    : badgeTone === "amber"
+                      ? "bg-[var(--app-status-warning)]"
+                      : "bg-[var(--app-accent)]"
                 }`}
               >
                 {badgeValue != null && badgeValue > 0 ? (badgeValue > 999 ? "999+" : badgeValue) : ""}
@@ -137,6 +142,7 @@ function ModuleContextMenu() {
               <ContextMenuRadioGroup
                 value={preference.position}
               >
+                {module.surfaces.includes("activityBar") && (
                 <ContextMenuRadioItem
                   data-testid={`module-position-${module.id}-activityBar`}
                   value="activityBar"
@@ -146,6 +152,8 @@ function ModuleContextMenu() {
                 >
                   {t("moduleMenu.activityBar")}
                 </ContextMenuRadioItem>
+                )}
+                {module.surfaces.includes("rightDock") && (
                 <ContextMenuRadioItem
                   data-testid={`module-position-${module.id}-rightDock`}
                   value="rightDock"
@@ -156,6 +164,7 @@ function ModuleContextMenu() {
                   <span>{t("moduleMenu.rightDock")}</span>
                   <ModulePlacementHint label={t("moduleMenu.placementHint")} />
                 </ContextMenuRadioItem>
+                )}
                 <ContextMenuRadioItem
                   data-testid={`module-position-${module.id}-hidden`}
                   value="hidden"
@@ -185,11 +194,14 @@ export default function ActivityBar() {
   const orchestrationOverlayOpen = useActivityBarStore((state) => state.orchestrationOverlayOpen);
   const openSettings = useDialogStore((state) => state.openSettings);
   const bindings = useOrchestratorStore((state) => state.bindings);
+  const aiPanelUnreadCount = useAiPanelStore((state) => state.unreadPanelIds.length);
   const preferences = useModulePrefsStore((state) => state.preferences);
 
   const visibleModules = MODULE_CONSUMERS.activityBar.filter((module) => {
     const preference = preferences[module.id];
-    return preference.enabled && preference.position === "activityBar";
+    return preference.enabled
+      && preference.position === "activityBar"
+      && module.surfaces.includes("activityBar");
   });
 
   const isModuleActive = (id: ModuleId) => {
@@ -244,7 +256,7 @@ export default function ActivityBar() {
                   label={t(module.titleKey as never)}
                   active={isModuleActive(module.id)}
                   onClick={() => module.open("activityBar")}
-                  badge={module.badge?.({ bindings })}
+                  badge={module.badge?.({ bindings, aiPanelUnreadCount })}
                 />
               );
             })}

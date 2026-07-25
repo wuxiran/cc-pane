@@ -39,7 +39,8 @@
     "ssh": "SSH Machines",
     "orchestration": "Orchestration",
     "resources": "Resources",
-    "todo": "TodoList"
+    "todo": "TodoList",
+    "aiPanel": "AI Panel"
   },
   "moduleMenu": {
     "title": "Module placement",
@@ -378,6 +379,14 @@
   "rightDock.expand": "Expand right panel",
   "rightDock.collapse": "Collapse right panel",
   "rightDock.resize": "Resize right panel",
+  "aiPanel": {
+    "empty": "No AI panels",
+    "drivenBy": "Driven by {{name}}",
+    "updatedAt": "Updated {{time}}",
+    "switchPanel": "Switch AI panel",
+    "dialogDescription": "Session-driven AI panel",
+    "eventFailed": "Failed to send panel action"
+  },
   "rightDock.noProject": "No projects in this workspace",
   "rightDock.selectProject": "Add a project in the left Explorer to browse Git and files",
   "rightDock.switchProject": "Switch project",

@@ -28,6 +28,7 @@ import {
   useWorkspacesStore,
 } from "@/stores";
 import { useWindowControl } from "@/hooks/useWindowControl";
+import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import type { WorkspaceProject } from "@/types";
 
 // 项目没有独立 name 字段：显示别名，否则取路径最后一段
@@ -58,6 +59,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
   const rightDockVisible = useRightDockStore((s) => s.visible);
   const rightDockWidth = useRightDockStore((s) => s.width);
   const toggleRightDock = useRightDockStore((s) => s.toggleVisible);
+  const aiPanelUnreadCount = useAiPanelStore((s) => s.unreadPanelIds.length);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
   const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
@@ -273,7 +275,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             rightDockVisible ? tSidebar("rightDock.collapse") : tSidebar("rightDock.expand")
           }
           side="bottom"
-          className="mr-1 h-[30px] w-[30px] shrink-0 rounded-[6px] p-0"
+          className="relative mr-1 h-[30px] w-[30px] shrink-0 rounded-[6px] p-0"
           style={noDrag}
           onClick={toggleRightDock}
         >
@@ -281,6 +283,13 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             <PanelRightClose className="h-[15px] w-[15px]" strokeWidth={1.5} />
           ) : (
             <PanelRight className="h-[15px] w-[15px]" strokeWidth={1.5} />
+          )}
+          {aiPanelUnreadCount > 0 && (
+            <span
+              data-testid="titlebar-ai-panel-badge"
+              aria-hidden="true"
+              className="absolute right-1 top-1 size-1.5 rounded-full bg-[var(--app-status-warning)]"
+            />
           )}
         </IconTooltipButton>
         <Tooltip>

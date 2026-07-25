@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useRightDockStore } from "@/stores/useRightDockStore";
+import { useDialogStore } from "@/stores/useDialogStore";
+import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import type { TaskBinding } from "@/types";
 import {
   MODULE_IDS,
@@ -32,12 +34,12 @@ describe("module registry", () => {
   });
 
   it("defines the v1 module list once with compatible defaults", () => {
-    expect(MODULE_IDS).toEqual(["ssh", "orchestration", "resources", "todo"]);
+    expect(MODULE_IDS).toEqual(["ssh", "orchestration", "resources", "todo", "aiPanel"]);
     expect(MODULE_REGISTRY.map((module) => module.id)).toEqual(MODULE_IDS);
-    expect(MODULE_REGISTRY).toHaveLength(4);
-    expect(MODULE_REGISTRY.every((module) => (
-      module.defaultPosition === "activityBar" && module.minimal === false
-    ))).toBe(true);
+    expect(MODULE_REGISTRY).toHaveLength(5);
+    expect(MODULE_REGISTRY.every((module) => module.minimal === false)).toBe(true);
+    expect(MODULE_REGISTRY.find((module) => module.id === "aiPanel")?.defaultPosition)
+      .toBe("rightDock");
   });
 
   it("declares the existing presentation shape without moving module content", () => {
@@ -46,6 +48,7 @@ describe("module registry", () => {
       ["orchestration", ["activityBar", "rightDock", "overlay"]],
       ["resources", ["activityBar", "rightDock", "fullscreen"]],
       ["todo", ["activityBar", "rightDock", "fullscreen"]],
+      ["aiPanel", ["rightDock", "dialog"]],
     ]);
   });
 
@@ -71,6 +74,16 @@ describe("module registry", () => {
       tone: "red",
     });
     expect(orchestration?.badge?.(badgeContext("completed"))).toBeUndefined();
+  });
+
+  it("declares an amber unread badge for AI panels", () => {
+    const aiPanel = MODULE_REGISTRY.find((module) => module.id === "aiPanel");
+
+    expect(aiPanel?.badge?.({ bindings: [], aiPanelUnreadCount: 2 })).toEqual({
+      tone: "amber",
+      value: 2,
+    });
+    expect(aiPanel?.badge?.({ bindings: [], aiPanelUnreadCount: 0 })).toBeUndefined();
   });
 
   it("opens hidden modules through their existing views", () => {
@@ -106,5 +119,21 @@ describe("module registry", () => {
       appViewMode: "panes",
       sidebarVisible: true,
     });
+  });
+
+  it("opens AI panels in right dock or dialog surfaces", () => {
+    useAiPanelStore.setState({
+      panels: [],
+      activePanelId: null,
+      unreadPanelIds: ["panel-1"],
+    });
+    useDialogStore.setState({ aiPanelOpen: false });
+    const aiPanel = MODULE_REGISTRY.find((module) => module.id === "aiPanel");
+
+    aiPanel?.open("rightDock");
+    expect(useRightDockStore.getState()).toMatchObject({ visible: true, activeView: "aiPanel" });
+
+    aiPanel?.open("hidden");
+    expect(useDialogStore.getState().aiPanelOpen).toBe(true);
   });
 });

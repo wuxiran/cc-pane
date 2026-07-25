@@ -31,9 +31,9 @@ describe("ModulesSection", () => {
   it("renders every registry module with an enabled switch and position menu", () => {
     renderSection();
 
-    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(4);
-    expect(screen.getAllByRole("switch")).toHaveLength(4);
-    expect(screen.getAllByTestId(/^module-position-trigger-/)).toHaveLength(4);
+    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(5);
+    expect(screen.getAllByRole("switch")).toHaveLength(6);
+    expect(screen.getAllByTestId(/^module-position-trigger-/)).toHaveLength(5);
   });
 
   it("updates enabled independently from placement", async () => {
@@ -63,5 +63,16 @@ describe("ModulesSection", () => {
       enabled: true,
       position: "hidden",
     });
+  });
+
+  it("keeps AI panel auto-open disabled until explicitly enabled", async () => {
+    const user = userEvent.setup();
+    renderSection();
+
+    const autoOpen = screen.getByRole("switch", { name: t("modules.autoOpenLabel") });
+    expect(autoOpen).not.toBeChecked();
+    await user.click(autoOpen);
+
+    expect(useModulePrefsStore.getState().preferences.aiPanel.autoOpen).toBe(true);
   });
 });

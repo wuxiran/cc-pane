@@ -4,6 +4,7 @@ import { Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
 import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
+import AiPanelView from "@/components/aipanel/AiPanelView";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setDragging } from "@/stores/splitDragState";
@@ -23,6 +24,8 @@ import {
 import type { OpenTerminalOptions, Workspace, WorkspaceProject } from "@/types";
 import { MODULE_CONSUMERS } from "@/modules/registry";
 import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
+import { useAiPanelStore } from "@/stores/useAiPanelStore";
+import { useOrchestratorStore } from "@/stores/useOrchestratorStore";
 
 interface RightDockViewDefinition {
   id: RightDockView;
@@ -101,6 +104,8 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
   const setWidth = useRightDockStore((state) => state.setWidth);
   const setVisible = useRightDockStore((state) => state.setVisible);
   const modulePreferences = useModulePrefsStore((state) => state.preferences);
+  const bindings = useOrchestratorStore((state) => state.bindings);
+  const aiPanelUnreadCount = useAiPanelStore((state) => state.unreadPanelIds.length);
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((state) => state.expandedWorkspaceId);
   const expandedProjectId = useWorkspacesStore((state) => state.expandedProjectId);
@@ -124,15 +129,18 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
       && module.surfaces.includes("rightDock");
   });
   const sshDocked = dockModules.some((module) => module.id === "ssh");
-  const resolvedActiveView = activeView === "ssh" && !sshDocked ? "git" : activeView;
+  const aiPanelDocked = dockModules.some((module) => module.id === "aiPanel");
+  const activeDockModuleMissing = (activeView === "ssh" && !sshDocked)
+    || (activeView === "aiPanel" && !aiPanelDocked);
+  const resolvedActiveView = activeDockModuleMissing ? "git" : activeView;
 
   useEffect(() => {
     widthRef.current = width;
   }, [width]);
 
   useEffect(() => {
-    if (activeView === "ssh" && !sshDocked) setActiveView("git");
-  }, [activeView, setActiveView, sshDocked]);
+    if (activeDockModuleMissing) setActiveView("git");
+  }, [activeDockModuleMissing, setActiveView]);
 
   const handleResizePointerDown = useCallback((event: React.PointerEvent) => {
     event.preventDefault();
@@ -250,8 +258,10 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
           })}
           {dockModules.map((module) => {
             const Icon = module.icon;
-            const selected = module.id === "ssh" && resolvedActiveView === "ssh";
+            const selected = module.id === resolvedActiveView;
             const label = t(module.titleKey as never);
+            const badge = module.badge?.({ bindings, aiPanelUnreadCount });
+            const badgeTone = typeof badge === "number" ? "blue" : badge?.tone;
             return (
               <Tooltip key={module.id}>
                 <TooltipTrigger asChild>
@@ -270,6 +280,19 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
                     }}
                   >
                     <Icon className="h-[19px] w-[19px]" strokeWidth={1.6} />
+                    {badge != null && (
+                      <span
+                        data-testid={`right-dock-module-badge-${module.id}`}
+                        aria-hidden="true"
+                        className={`absolute right-1.5 top-1.5 size-1.5 rounded-full ${
+                          badgeTone === "red"
+                            ? "bg-[var(--app-status-danger)]"
+                            : badgeTone === "amber"
+                              ? "bg-[var(--app-status-warning)]"
+                              : "bg-[var(--app-accent)]"
+                        }`}
+                      />
+                    )}
                     {selected && (
                       <span
                         aria-hidden
@@ -286,7 +309,11 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
         </div>
       </div>
 
-      {resolvedActiveView === "ssh" ? (
+      {resolvedActiveView === "aiPanel" ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <AiPanelView />
+        </div>
+      ) : resolvedActiveView === "ssh" ? (
         <div className="min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2">
           <SshMachinesView onOpenTerminal={onOpenTerminal} />
         </div>

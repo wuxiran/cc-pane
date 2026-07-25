@@ -39,7 +39,8 @@
     "ssh": "SSH 机器",
     "orchestration": "任务编排",
     "resources": "资源中心",
-    "todo": "TodoList"
+    "todo": "TodoList",
+    "aiPanel": "AI 面板"
   },
   "moduleMenu": {
     "title": "模块位置",
@@ -378,6 +379,14 @@
   "rightDock.expand": "展开右侧面板",
   "rightDock.collapse": "折叠右侧面板",
   "rightDock.resize": "调整右侧面板宽度",
+  "aiPanel": {
+    "empty": "暂无 AI 面板",
+    "drivenBy": "由 {{name}} 驱动",
+    "updatedAt": "更新于 {{time}}",
+    "switchPanel": "切换 AI 面板",
+    "dialogDescription": "会话驱动的 AI 面板",
+    "eventFailed": "面板操作回传失败"
+  },
   "rightDock.noProject": "工作空间中没有项目",
   "rightDock.selectProject": "在左侧添加项目后即可浏览 Git 与文件",
   "rightDock.switchProject": "切换项目",
