@@ -1,0 +1,29 @@
+[package]
+name = "cc-panes-ctl"
+version = "0.1.0"
+description = "CC-Panes control-plane CLI and MCP proxy"
+authors = ["wuxiran"]
+license = "GPL-3.0"
+edition = "2021"
+
+[lib]
+name = "cc_panes_ctl"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cc-panes-ctl"
+path = "src/main.rs"
+
+[dependencies]
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3"
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+# Phase 4 才把本 crate 纳入根 workspace 和 sidecar 分发。此前保持可独立测试，
+# 同时允许 cli-hook 以 path dependency 复用端点解析。
+[workspace]

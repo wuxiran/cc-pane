@@ -221,6 +221,9 @@ pub struct DaemonStatus {
 #[serde(rename_all = "camelCase")]
 pub struct HealthResponse {
     pub status: String,
+    pub service: String,
+    pub pid: u32,
+    pub started_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -387,9 +390,12 @@ pub fn read_manifest(runtime_dir: &FsPath) -> Option<DaemonManifest> {
     serde_json::from_slice(&content).ok()
 }
 
-async fn health() -> Json<HealthResponse> {
+async fn health(State(config): State<DaemonConfig>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
+        service: "cc-panes-daemon".to_string(),
+        pid: std::process::id(),
+        started_at: config.inner.started_at,
     })
 }
 
@@ -982,6 +988,33 @@ mod tests {
         assert_eq!(manifest.addr, "127.0.0.1:18081");
         assert_eq!(manifest.token, "test-token");
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[tokio::test]
+    async fn health_reports_identity_matching_manifest_generation() {
+        let config = test_config(
+            "secret",
+            "127.0.0.1:18082",
+            Arc::new(MockTerminalBackend::default()),
+        );
+        let expected_started_at = config.inner.started_at;
+        let response = router(config)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let health: HealthResponse = serde_json::from_slice(&bytes).expect("health");
+        assert_eq!(health.service, "cc-panes-daemon");
+        assert_eq!(health.pid, std::process::id());
+        assert_eq!(health.started_at, expected_started_at);
     }
 
     #[tokio::test]

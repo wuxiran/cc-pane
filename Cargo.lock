@@ -996,6 +996,7 @@ dependencies = [
 name = "cc-panes-cli-hook"
 version = "0.94.0"
 dependencies = [
+ "cc-panes-ctl",
  "chrono",
  "clap",
  "dirs",
@@ -1046,6 +1047,17 @@ dependencies = [
  "uuid",
  "which",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "cc-panes-ctl"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "serde",
+ "serde_json",
+ "ureq",
+ "url",
 ]
 
 [[package]]

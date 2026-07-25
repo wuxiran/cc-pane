@@ -653,6 +653,7 @@ impl StartLocks {
 #[derive(Clone)]
 pub struct AppState {
     pub token: String,
+    pub started_at: u64,
     pub local_terminal_service: Arc<TerminalService>,
     pub terminal_backend: Arc<TerminalBackendState>,
     pub provider_service: Arc<ProviderService>,
@@ -1223,6 +1224,7 @@ fn bind_fixed_port(bind_host: &str, port: u16) -> Result<tokio::net::TcpListener
 pub struct OrchestratorService {
     port: Mutex<Option<u16>>,
     token: String,
+    started_at: u64,
     /// 本次要监听的端口：固定端口，或逃生阀 `CC_PANES_ORCHESTRATOR_PORT` 指定的确定值。
     /// **不再来自 manifest**——manifest 里可能残留旧版本 `:0` 分配的 ephemeral 端口。
     listen_port: u16,
@@ -1256,6 +1258,10 @@ impl OrchestratorService {
         Self {
             port: Mutex::new(None),
             token,
+            started_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
             listen_port: decide_port(),
             bind_decision: Mutex::new(None),
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
@@ -1366,6 +1372,7 @@ impl OrchestratorService {
         let bind_host = bind.host;
         let state = AppState {
             token: self.token.clone(),
+            started_at: self.started_at,
             local_terminal_service,
             terminal_backend,
             provider_service,
@@ -1707,6 +1714,9 @@ impl OrchestratorService {
                     // dev 写 ~/.cc-panes-dev/、release 写 ~/.cc-panes/，与端口一一对应
                     // （见 ORCHESTRATOR_FIXED_PORT 文档表格）。
                     let config = serde_json::json!({
+                        "service": "cc-panes-orchestrator",
+                        "pid": std::process::id(),
+                        "startedAt": self.started_at,
                         "mcpServers": {
                             "ccpanes": {
                                 "type": "http",
@@ -7238,8 +7248,16 @@ fn check_rate_limit(times: &Arc<Mutex<Vec<std::time::Instant>>>) -> bool {
 
 // ============ REST API Handler ============
 
-async fn handle_health() -> impl IntoResponse {
-    (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
+async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "ok",
+            "service": "cc-panes-orchestrator",
+            "pid": std::process::id(),
+            "startedAt": state.started_at,
+        })),
+    )
 }
 
 async fn handle_launch_task(
