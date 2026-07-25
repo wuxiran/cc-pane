@@ -210,6 +210,297 @@ impl CodexAdapter {
             .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
     }
 
+    fn prewrite_trusted_projects_at(
+        path: &Path,
+        trust_keys: &[String],
+        yolo_mode: bool,
+    ) -> Result<bool> {
+        if !yolo_mode {
+            return Ok(false);
+        }
+
+        let trust_keys = trust_keys
+            .iter()
+            .map(String::as_str)
+            .filter(|key| !key.is_empty())
+            .collect::<BTreeSet<_>>();
+        if trust_keys.is_empty() {
+            return Ok(false);
+        }
+
+        use std::sync::{Mutex, OnceLock};
+        static TRUST_CONFIG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = TRUST_CONFIG_WRITE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| anyhow!("Codex trust config write lock is poisoned"))?;
+
+        let content = if path.is_file() {
+            fs::read_to_string(path)
+                .with_context(|| format!("failed to read Codex config {}", path.display()))?
+        } else {
+            String::new()
+        };
+        let mut document = if content.trim().is_empty() {
+            DocumentMut::new()
+        } else {
+            content
+                .parse::<DocumentMut>()
+                .with_context(|| format!("failed to parse Codex config {}", path.display()))?
+        };
+        if !Self::merge_trusted_projects(&mut document, path, &trust_keys)? {
+            return Ok(false);
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create Codex config directory {}",
+                    parent.display()
+                )
+            })?;
+        }
+        Self::write_file_via_temp_rename(path, &document.to_string())?;
+        Ok(true)
+    }
+
+    fn merge_trusted_projects(
+        document: &mut DocumentMut,
+        path: &Path,
+        trust_keys: &BTreeSet<&str>,
+    ) -> Result<bool> {
+        let projects_item = document.entry("projects").or_insert_with(|| {
+            let mut table = toml_edit::Table::new();
+            table.set_implicit(true);
+            Item::Table(table)
+        });
+        let projects_are_inline = projects_item.is_inline_table();
+        let projects = projects_item.as_table_like_mut().ok_or_else(|| {
+            anyhow!(
+                "Codex config {} has a non-table projects entry",
+                path.display()
+            )
+        })?;
+
+        let mut changed = false;
+        for trust_key in trust_keys {
+            if let Some(project) = projects.get_mut(trust_key) {
+                let project = project.as_table_like_mut().ok_or_else(|| {
+                    anyhow!(
+                        "Codex config {} has a non-table project entry for {trust_key}",
+                        path.display()
+                    )
+                })?;
+                // An existing value, including explicit `untrusted`, is a user decision.
+                if !project.contains_key("trust_level") {
+                    project.insert("trust_level", toml_edit::value("trusted"));
+                    changed = true;
+                }
+                continue;
+            }
+
+            let project = Self::new_trusted_project_item(projects_are_inline);
+            projects.insert(trust_key, project);
+            changed = true;
+        }
+        Ok(changed)
+    }
+
+    fn new_trusted_project_item(inline: bool) -> Item {
+        if inline {
+            let mut table = toml_edit::InlineTable::new();
+            table.insert("trust_level", toml_edit::Value::from("trusted"));
+            Item::Value(toml_edit::Value::InlineTable(table))
+        } else {
+            let mut table = toml_edit::Table::new();
+            table.insert("trust_level", toml_edit::value("trusted"));
+            Item::Table(table)
+        }
+    }
+
+    fn host_project_trust_key(project_path: &str) -> String {
+        if cfg!(windows) {
+            project_path.to_ascii_lowercase()
+        } else {
+            project_path.to_string()
+        }
+    }
+
+    #[cfg(any(windows, test))]
+    fn posix_parent(path: &str) -> Option<&str> {
+        let path = path.trim_end_matches('/');
+        let index = path.rfind('/')?;
+        Some(if index == 0 { "/" } else { &path[..index] })
+    }
+
+    #[cfg(any(windows, test))]
+    fn posix_file_name(path: &str) -> Option<&str> {
+        path.trim_end_matches('/').rsplit('/').next()
+    }
+
+    #[cfg(any(windows, test))]
+    fn wsl_main_repo_trust_key(project_path: &str, dot_git_content: &str) -> Option<String> {
+        let git_dir = dot_git_content.trim().strip_prefix("gitdir:")?.trim();
+        if git_dir.is_empty() {
+            return None;
+        }
+
+        // On WSL, a Windows drive path such as `D:/repo/.git/...` is relative.
+        let resolved = if git_dir.starts_with('/') {
+            git_dir.to_string()
+        } else {
+            format!("{}/{git_dir}", project_path.trim_end_matches('/'))
+        };
+        let worktrees_dir = Self::posix_parent(&resolved)?;
+        if Self::posix_file_name(worktrees_dir) != Some("worktrees") {
+            return None;
+        }
+        let common_dir = Self::posix_parent(worktrees_dir)?;
+        if Self::posix_file_name(common_dir) != Some(".git") {
+            return None;
+        }
+        Self::posix_parent(common_dir).map(str::to_string)
+    }
+
+    #[cfg(any(windows, test))]
+    fn wsl_project_trust_keys(project_path: &str, dot_git_content: Option<&str>) -> Vec<String> {
+        let project_path = if project_path.len() > 1 {
+            project_path.trim_end_matches('/')
+        } else {
+            project_path
+        };
+        if project_path.is_empty() {
+            return Vec::new();
+        }
+
+        let mut keys = vec![project_path.to_string()];
+        if let Some(main_repo) = dot_git_content
+            .and_then(|content| Self::wsl_main_repo_trust_key(project_path, content))
+            .filter(|key| key != project_path)
+        {
+            keys.push(main_repo);
+        }
+        keys
+    }
+
+    fn ensure_yolo_local_project_trust(ctx: &CliAdapterContext) {
+        if !ctx.yolo_mode {
+            return;
+        }
+        let Some(home) = Self::real_codex_home() else {
+            tracing::warn!("codex: unable to resolve CODEX_HOME for project trust prewrite");
+            return;
+        };
+        let project_path = ctx
+            .workspace_path
+            .as_deref()
+            .unwrap_or(ctx.project_path.as_str());
+        let trust_keys = vec![Self::host_project_trust_key(project_path)];
+        let config_path = home.join("config.toml");
+        match Self::prewrite_trusted_projects_at(&config_path, &trust_keys, true) {
+            Ok(true) => info!(
+                config = %config_path.display(),
+                project_path,
+                "codex: trusted YOLO launch directory"
+            ),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(
+                config = %config_path.display(),
+                project_path,
+                error = %error,
+                "codex: failed to prewrite YOLO project trust; continuing launch"
+            ),
+        }
+    }
+
+    #[cfg(windows)]
+    fn resolve_wsl_trust_paths(
+        wsl_path: &Path,
+        distro: &str,
+        project_path: &str,
+    ) -> Option<(PathBuf, String, PathBuf)> {
+        let script = r#"cfg="${CODEX_HOME:-$HOME/.codex}/config.toml"
+mkdir -p "$(dirname "$cfg")" || exit 1
+target="$1"
+case "$target" in
+  "~"|"~/") target="$HOME" ;;
+  "~/"*) target="$HOME/${target:2}" ;;
+esac
+cd -- "$target" || exit 1
+cwd="$(pwd -P)" || exit 1
+printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""#;
+        let output = crate::no_window_command(&wsl_path.to_string_lossy())
+            .args([
+                "-d",
+                distro,
+                "bash",
+                "-lc",
+                script,
+                "ccpanes-auto-trust",
+                project_path,
+            ])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut lines = stdout.lines().map(|line| line.trim_end_matches('\r'));
+        let config_path = PathBuf::from(lines.next()?);
+        let project_path = lines.next()?.to_string();
+        let dot_git_path = PathBuf::from(lines.next()?);
+        Some((config_path, project_path, dot_git_path))
+    }
+
+    #[cfg(windows)]
+    pub fn ensure_yolo_wsl_project_trust(
+        wsl_path: &Path,
+        distro: &str,
+        project_path: &str,
+        yolo_mode: bool,
+    ) {
+        if !yolo_mode {
+            return;
+        }
+        let Some((config_path, project_path, dot_git_path)) =
+            Self::resolve_wsl_trust_paths(wsl_path, distro, project_path)
+        else {
+            tracing::warn!(
+                distro,
+                project_path,
+                "codex(wsl): failed to resolve project trust paths; continuing launch"
+            );
+            return;
+        };
+        let dot_git_content = fs::read_to_string(dot_git_path).ok();
+        let trust_keys = Self::wsl_project_trust_keys(&project_path, dot_git_content.as_deref());
+        match Self::prewrite_trusted_projects_at(&config_path, &trust_keys, true) {
+            Ok(true) => info!(
+                config = %config_path.display(),
+                distro,
+                project_path,
+                trust_keys = ?trust_keys,
+                "codex(wsl): trusted YOLO launch directory"
+            ),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(
+                config = %config_path.display(),
+                distro,
+                project_path,
+                error = %error,
+                "codex(wsl): failed to prewrite YOLO project trust; continuing launch"
+            ),
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn ensure_yolo_wsl_project_trust(
+        _wsl_path: &Path,
+        _distro: &str,
+        _project_path: &str,
+        _yolo_mode: bool,
+    ) {
+    }
+
     fn migrate_stale_global_ccpanes_mcp_config() {
         #[cfg(test)]
         {
@@ -962,6 +1253,7 @@ impl CliToolAdapter for CodexAdapter {
         // 一次性把历史遗留的隔离会话救回真实 home（带 marker，幂等、best-effort）。
         Self::migrate_legacy_isolated_sessions();
         Self::migrate_stale_global_ccpanes_mcp_config();
+        Self::ensure_yolo_local_project_trust(ctx);
 
         // MCP 注入使用 Codex 的 per-launch -c override，避免写入用户全局 config.toml。
         if ctx.skip_mcp {
@@ -1345,6 +1637,154 @@ mod tests {
             .iter()
             .any(|arg| arg == "mcp_servers.ccpanes.enabled=true"));
         assert!(!args.iter().any(|arg| arg.contains("bearer_token_env_var")));
+    }
+
+    #[test]
+    fn trust_prewrite_is_disabled_outside_yolo_mode() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let original = "# user config\nmodel = \"gpt-5\"\n";
+        fs::write(&config_path, original).unwrap();
+
+        let changed = CodexAdapter::prewrite_trusted_projects_at(
+            &config_path,
+            &["/workspace/project".to_string()],
+            false,
+        )
+        .unwrap();
+
+        assert!(!changed);
+        assert_eq!(fs::read_to_string(config_path).unwrap(), original);
+    }
+
+    #[test]
+    fn trust_prewrite_is_idempotent_and_preserves_existing_toml() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        fs::write(
+            &config_path,
+            r#"# keep root comment
+model = "gpt-5"
+
+# keep project comment
+[projects."/workspace/already-trusted"]
+trust_level = "trusted"
+
+[mcp_servers.fetch]
+url = "https://example.com/mcp"
+"#,
+        )
+        .unwrap();
+        let trust_keys = vec![
+            "/workspace/already-trusted".to_string(),
+            "/workspace/new-project".to_string(),
+        ];
+
+        assert!(
+            CodexAdapter::prewrite_trusted_projects_at(&config_path, &trust_keys, true).unwrap()
+        );
+        let first_write = fs::read_to_string(&config_path).unwrap();
+        assert!(
+            !CodexAdapter::prewrite_trusted_projects_at(&config_path, &trust_keys, true).unwrap()
+        );
+        let second_write = fs::read_to_string(&config_path).unwrap();
+
+        assert_eq!(second_write, first_write);
+        assert!(first_write.contains("# keep root comment"));
+        assert!(first_write.contains("# keep project comment"));
+        assert!(first_write.contains("[mcp_servers.fetch]"));
+        let parsed = first_write.parse::<toml::Value>().unwrap();
+        let projects = parsed
+            .get("projects")
+            .and_then(toml::Value::as_table)
+            .unwrap();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(
+            projects["/workspace/new-project"]["trust_level"].as_str(),
+            Some("trusted")
+        );
+    }
+
+    #[test]
+    fn trust_prewrite_serializes_windows_and_wsl_project_keys() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let trust_keys = vec![
+            r"D:\Work Trees\cc-book-wt-trust".to_string(),
+            "/mnt/d/Work Trees/cc-book-wt-trust".to_string(),
+        ];
+
+        assert!(
+            CodexAdapter::prewrite_trusted_projects_at(&config_path, &trust_keys, true).unwrap()
+        );
+
+        let parsed = fs::read_to_string(config_path)
+            .unwrap()
+            .parse::<toml::Value>()
+            .unwrap();
+        let projects = parsed
+            .get("projects")
+            .and_then(toml::Value::as_table)
+            .unwrap();
+        for trust_key in trust_keys {
+            assert_eq!(
+                projects[&trust_key]["trust_level"].as_str(),
+                Some("trusted")
+            );
+        }
+    }
+
+    #[test]
+    fn trust_prewrite_preserves_explicit_untrusted_decision() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        fs::write(
+            &config_path,
+            "[projects.\"/workspace/project\"]\ntrust_level = \"untrusted\"\n",
+        )
+        .unwrap();
+
+        assert!(!CodexAdapter::prewrite_trusted_projects_at(
+            &config_path,
+            &["/workspace/project".to_string()],
+            true,
+        )
+        .unwrap());
+
+        let parsed = fs::read_to_string(config_path)
+            .unwrap()
+            .parse::<toml::Value>()
+            .unwrap();
+        assert_eq!(
+            parsed["projects"]["/workspace/project"]["trust_level"].as_str(),
+            Some("untrusted")
+        );
+    }
+
+    #[test]
+    fn wsl_trust_keys_follow_codex_worktree_gitdir_resolution() {
+        let cwd = "/mnt/d/04_workspace_rust/cc-book-wt-trust";
+
+        assert_eq!(
+            CodexAdapter::wsl_project_trust_keys(
+                cwd,
+                Some("gitdir: D:/04_workspace_rust/cc-book/.git/worktrees/cc-book-wt-trust\n"),
+            ),
+            vec![
+                cwd.to_string(),
+                format!("{cwd}/D:/04_workspace_rust/cc-book"),
+            ]
+        );
+        assert_eq!(
+            CodexAdapter::wsl_project_trust_keys(
+                cwd,
+                Some("gitdir: /mnt/d/04_workspace_rust/cc-book/.git/worktrees/cc-book-wt-trust\n",),
+            ),
+            vec![
+                cwd.to_string(),
+                "/mnt/d/04_workspace_rust/cc-book".to_string(),
+            ]
+        );
     }
 
     #[test]
