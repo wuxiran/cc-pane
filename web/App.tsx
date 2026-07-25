@@ -8,6 +8,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
+import { useAiPanelListener } from "@/hooks/useAiPanelListener";
 import { useOrphanSessionReconciler } from "@/hooks/useOrphanSessionReconciler";
 import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import useLayoutSwitcherSync from "@/hooks/useLayoutSwitcherSync";
@@ -66,6 +67,9 @@ function MainApp() {
 
   // 监听 Orchestrator 编排事件（自我对话 Claude 启动新任务）
   useOrchestratorListener();
+
+  // 接收 MCP 会话驱动的 AI 面板更新与关闭事件。
+  useAiPanelListener();
 
   // 孤儿终端会话对账回收（仅桌面端；daemon TTL 兜底覆盖 app 关闭时段）
   useOrphanSessionReconciler();

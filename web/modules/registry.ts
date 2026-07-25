@@ -1,23 +1,27 @@
 import {
   Boxes,
   ListTodo,
+  PanelTopOpen,
   Server,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useAiPanelStore } from "@/stores/useAiPanelStore";
+import { useDialogStore } from "@/stores/useDialogStore";
 import { useRightDockStore } from "@/stores/useRightDockStore";
 import type { TaskBinding } from "@/types";
 
-export const MODULE_IDS = ["ssh", "orchestration", "resources", "todo"] as const;
+export const MODULE_IDS = ["ssh", "orchestration", "resources", "todo", "aiPanel"] as const;
 
 export type ModuleId = (typeof MODULE_IDS)[number];
 export type ModulePosition = "activityBar" | "rightDock" | "hidden";
-export type ModuleSurface = "activityBar" | "rightDock" | "overlay" | "fullscreen";
-export type ModuleBadge = number | { tone: "red" | "blue"; value?: number };
+export type ModuleSurface = "activityBar" | "rightDock" | "dialog" | "overlay" | "fullscreen";
+export type ModuleBadge = number | { tone: "red" | "blue" | "amber"; value?: number };
 
 export interface ModuleBadgeContext {
   bindings: readonly TaskBinding[];
+  aiPanelUnreadCount?: number;
 }
 
 export type BadgeSource = (context: ModuleBadgeContext) => ModuleBadge | undefined;
@@ -27,7 +31,7 @@ export interface ModuleDef {
   icon: LucideIcon;
   titleKey: string;
   surfaces: readonly ModuleSurface[];
-  defaultPosition: "activityBar";
+  defaultPosition: ModulePosition;
   open: (position: ModulePosition) => void;
   badge?: BadgeSource;
   minimal: boolean;
@@ -77,6 +81,15 @@ function openTodo(position: ModulePosition) {
   activity.setAppViewMode("todo");
 }
 
+function openAiPanel(position: ModulePosition) {
+  if (position === "rightDock") {
+    useRightDockStore.setState({ visible: true, activeView: "aiPanel" });
+  } else {
+    useDialogStore.getState().openAiPanel();
+  }
+  useAiPanelStore.getState().markActiveRead();
+}
+
 function orchestrationBadge({ bindings }: ModuleBadgeContext): ModuleBadge | undefined {
   if (bindings.some((binding) => binding.status === "failed")) {
     return { tone: "red" };
@@ -85,6 +98,12 @@ function orchestrationBadge({ bindings }: ModuleBadgeContext): ModuleBadge | und
     (binding) => binding.status === "running" || binding.status === "waiting",
   ).length;
   return activeCount > 0 ? { tone: "blue", value: activeCount } : undefined;
+}
+
+function aiPanelBadge({ aiPanelUnreadCount = 0 }: ModuleBadgeContext): ModuleBadge | undefined {
+  return aiPanelUnreadCount > 0
+    ? { tone: "amber", value: aiPanelUnreadCount }
+    : undefined;
 }
 
 export const MODULE_REGISTRY: readonly ModuleDef[] = [
@@ -123,6 +142,16 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
     surfaces: ["activityBar", "rightDock", "fullscreen"],
     defaultPosition: "activityBar",
     open: openTodo,
+    minimal: false,
+  },
+  {
+    id: "aiPanel",
+    icon: PanelTopOpen,
+    titleKey: "moduleNames.aiPanel",
+    surfaces: ["rightDock", "dialog"],
+    defaultPosition: "rightDock",
+    open: openAiPanel,
+    badge: aiPanelBadge,
     minimal: false,
   },
 ];

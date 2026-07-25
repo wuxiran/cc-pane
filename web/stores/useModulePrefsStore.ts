@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   MODULE_IDS,
+  MODULE_REGISTRY,
   type ModuleId,
   type ModulePosition,
 } from "@/modules/registry";
@@ -9,6 +10,7 @@ import {
 export interface ModulePreference {
   enabled: boolean;
   position: ModulePosition;
+  autoOpen?: boolean;
 }
 
 export type ModulePreferences = Record<ModuleId, ModulePreference>;
@@ -17,14 +19,19 @@ interface ModulePrefsState {
   preferences: ModulePreferences;
   setEnabled: (id: ModuleId, enabled: boolean) => void;
   setPosition: (id: ModuleId, position: ModulePosition) => void;
+  setAutoOpen: (id: ModuleId, autoOpen: boolean) => void;
 }
 
 export const MODULE_PREFS_STORAGE_KEY = "cc-panes-module-prefs";
 
 export function createDefaultModulePreferences(): ModulePreferences {
-  return Object.fromEntries(MODULE_IDS.map((id) => [
-    id,
-    { enabled: true, position: "activityBar" },
+  return Object.fromEntries(MODULE_REGISTRY.map((module) => [
+    module.id,
+    {
+      enabled: true,
+      position: module.defaultPosition,
+      ...(module.id === "aiPanel" ? { autoOpen: false } : {}),
+    },
   ])) as ModulePreferences;
 }
 
@@ -44,7 +51,10 @@ function normalizePreferences(value: unknown): ModulePreferences {
       enabled: typeof preference.enabled === "boolean" ? preference.enabled : true,
       position: isModulePosition(preference.position)
         ? preference.position
-        : "activityBar",
+        : defaults[id].position,
+      ...(id === "aiPanel" ? {
+        autoOpen: typeof preference.autoOpen === "boolean" ? preference.autoOpen : false,
+      } : {}),
     };
   }
   return defaults;
@@ -64,6 +74,12 @@ export const useModulePrefsStore = create<ModulePrefsState>()(
         preferences: {
           ...state.preferences,
           [id]: { ...state.preferences[id], position },
+        },
+      })),
+      setAutoOpen: (id, autoOpen) => set((state) => ({
+        preferences: {
+          ...state.preferences,
+          [id]: { ...state.preferences[id], autoOpen },
         },
       })),
     }),

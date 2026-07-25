@@ -65,7 +65,7 @@ use rmcp::{
     tool, tool_handler, tool_router, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -342,6 +342,284 @@ pub struct OrchestratorQueryEvent {
     pub request_id: String,
 }
 
+const AI_PANEL_CONTENT_MAX_BYTES: usize = 256 * 1024;
+const AI_PANEL_EVENT_PAYLOAD_MAX_BYTES: usize = 4 * 1024;
+const AI_PANEL_EVENTS_MAX_ITEMS: usize = 100;
+const AI_PANELS_MAX_PER_SESSION: usize = 3;
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AiPanelFormat {
+    Html,
+    Markdown,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiPanel {
+    pub panel_id: String,
+    pub title: String,
+    pub format: AiPanelFormat,
+    pub content: String,
+    pub driver_name: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiPanelEvent {
+    pub seq: u64,
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiPanelChangedEvent {
+    operation: String,
+    panel_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    panel: Option<AiPanel>,
+}
+
+struct AiPanelRecord {
+    owner_session_id: String,
+    panel: AiPanel,
+    events: VecDeque<AiPanelEvent>,
+    next_seq: u64,
+}
+
+#[derive(Default)]
+struct AiPanelRegistry {
+    panels: HashMap<String, AiPanelRecord>,
+}
+
+impl AiPanelRegistry {
+    fn open(
+        &mut self,
+        owner_session_id: &str,
+        driver_name: &str,
+        title: &str,
+        format: AiPanelFormat,
+        content: &str,
+        panel_id: Option<&str>,
+    ) -> std::result::Result<AiPanel, String> {
+        validate_ai_panel_title(title)?;
+        validate_ai_panel_content(content)?;
+        let panel_id = match panel_id {
+            Some(panel_id) => validate_ai_panel_id(panel_id)?.to_string(),
+            None => uuid::Uuid::new_v4().to_string(),
+        };
+
+        if let Some(existing) = self.panels.get_mut(&panel_id) {
+            ensure_ai_panel_owner(existing, owner_session_id)?;
+            existing.panel.title = title.trim().to_string();
+            existing.panel.format = format;
+            existing.panel.content = content.to_string();
+            existing.panel.driver_name = driver_name.to_string();
+            existing.panel.updated_at = chrono::Utc::now().to_rfc3339();
+            return Ok(existing.panel.clone());
+        }
+
+        let owned_count = self
+            .panels
+            .values()
+            .filter(|panel| panel.owner_session_id == owner_session_id)
+            .count();
+        if owned_count >= AI_PANELS_MAX_PER_SESSION {
+            return Err(format!(
+                "每个会话最多打开 {} 个 AI 面板；请先关闭不再使用的面板",
+                AI_PANELS_MAX_PER_SESSION
+            ));
+        }
+
+        let panel = AiPanel {
+            panel_id: panel_id.clone(),
+            title: title.trim().to_string(),
+            format,
+            content: content.to_string(),
+            driver_name: driver_name.to_string(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.panels.insert(
+            panel_id,
+            AiPanelRecord {
+                owner_session_id: owner_session_id.to_string(),
+                panel: panel.clone(),
+                events: VecDeque::new(),
+                next_seq: 1,
+            },
+        );
+        Ok(panel)
+    }
+
+    fn update(
+        &mut self,
+        owner_session_id: &str,
+        panel_id: &str,
+        content: &str,
+        title: Option<&str>,
+    ) -> std::result::Result<AiPanel, String> {
+        validate_ai_panel_content(content)?;
+        if let Some(title) = title {
+            validate_ai_panel_title(title)?;
+        }
+        let record = self
+            .panels
+            .get_mut(panel_id)
+            .ok_or_else(|| format!("AI 面板 '{}' 不存在", panel_id))?;
+        ensure_ai_panel_owner(record, owner_session_id)?;
+        record.panel.content = content.to_string();
+        if let Some(title) = title {
+            record.panel.title = title.trim().to_string();
+        }
+        record.panel.updated_at = chrono::Utc::now().to_rfc3339();
+        Ok(record.panel.clone())
+    }
+
+    fn close(
+        &mut self,
+        owner_session_id: &str,
+        panel_id: &str,
+    ) -> std::result::Result<AiPanel, String> {
+        let record = self
+            .panels
+            .get(panel_id)
+            .ok_or_else(|| format!("AI 面板 '{}' 不存在", panel_id))?;
+        ensure_ai_panel_owner(record, owner_session_id)?;
+        Ok(self
+            .panels
+            .remove(panel_id)
+            .expect("panel exists after ownership check")
+            .panel)
+    }
+
+    fn events(
+        &self,
+        owner_session_id: &str,
+        panel_id: &str,
+        after_seq: Option<u64>,
+    ) -> std::result::Result<Vec<AiPanelEvent>, String> {
+        let record = self
+            .panels
+            .get(panel_id)
+            .ok_or_else(|| format!("AI 面板 '{}' 不存在", panel_id))?;
+        ensure_ai_panel_owner(record, owner_session_id)?;
+        let after_seq = after_seq.unwrap_or(0);
+        Ok(record
+            .events
+            .iter()
+            .filter(|event| event.seq > after_seq)
+            .cloned()
+            .collect())
+    }
+
+    fn record_event(
+        &mut self,
+        panel_id: &str,
+        action: &str,
+        payload: Option<serde_json::Value>,
+    ) -> std::result::Result<(), String> {
+        validate_ai_panel_action(action)?;
+        if let Some(payload) = payload.as_ref() {
+            let payload_len = serde_json::to_vec(payload)
+                .map_err(|error| format!("事件 payload 无法序列化: {}", error))?
+                .len();
+            if payload_len > AI_PANEL_EVENT_PAYLOAD_MAX_BYTES {
+                return Err(format!(
+                    "事件 payload 超过 {} 字节上限",
+                    AI_PANEL_EVENT_PAYLOAD_MAX_BYTES
+                ));
+            }
+        }
+        let record = self
+            .panels
+            .get_mut(panel_id)
+            .ok_or_else(|| format!("AI 面板 '{}' 不存在", panel_id))?;
+        let event = AiPanelEvent {
+            seq: record.next_seq,
+            action: action.to_string(),
+            payload,
+            at: chrono::Utc::now().to_rfc3339(),
+        };
+        record.next_seq += 1;
+        record.events.push_back(event);
+        while record.events.len() > AI_PANEL_EVENTS_MAX_ITEMS {
+            record.events.pop_front();
+        }
+        Ok(())
+    }
+
+    fn list(&self) -> Vec<AiPanel> {
+        let mut panels = self
+            .panels
+            .values()
+            .map(|record| record.panel.clone())
+            .collect::<Vec<_>>();
+        panels.sort_by(|left, right| left.updated_at.cmp(&right.updated_at));
+        panels
+    }
+}
+
+fn validate_ai_panel_title(title: &str) -> std::result::Result<(), String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("AI 面板标题不能为空".to_string());
+    }
+    if title.len() > 512 {
+        return Err("AI 面板标题超过 512 字节上限".to_string());
+    }
+    Ok(())
+}
+
+fn validate_ai_panel_content(content: &str) -> std::result::Result<(), String> {
+    if content.len() > AI_PANEL_CONTENT_MAX_BYTES {
+        return Err(format!(
+            "AI 面板内容超过 {}KB 上限，请精简后重试",
+            AI_PANEL_CONTENT_MAX_BYTES / 1024
+        ));
+    }
+    Ok(())
+}
+
+fn validate_ai_panel_id(panel_id: &str) -> std::result::Result<&str, String> {
+    let panel_id = panel_id.trim();
+    if panel_id.is_empty() || panel_id.len() > 128 {
+        return Err("panelId 必须为 1..=128 个字符".to_string());
+    }
+    if !panel_id
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err("panelId 只能包含 ASCII 字母、数字、'-' 或 '_'".to_string());
+    }
+    Ok(panel_id)
+}
+
+fn validate_ai_panel_action(action: &str) -> std::result::Result<(), String> {
+    if action.is_empty() || action.len() > 128 {
+        return Err("AI 面板事件 action 必须为 1..=128 个字符".to_string());
+    }
+    if !action.chars().all(|character| {
+        character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | ':')
+    }) {
+        return Err("AI 面板事件 action 包含不允许的字符".to_string());
+    }
+    Ok(())
+}
+
+fn ensure_ai_panel_owner(
+    record: &AiPanelRecord,
+    owner_session_id: &str,
+) -> std::result::Result<(), String> {
+    if record.owner_session_id != owner_session_id {
+        return Err("拒绝操作：不能访问其他会话创建的 AI 面板".to_string());
+    }
+    Ok(())
+}
+
 /// API 错误响应
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -412,6 +690,7 @@ pub struct AppState {
     pub pending_worker_reports: Arc<Mutex<PendingReportMap>>,
     /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
     pub pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+    ai_panels: Arc<Mutex<AiPanelRegistry>>,
 }
 
 async fn backend_call_for_state<T, F>(
@@ -467,8 +746,16 @@ fn resolve_caller_session_id(
     state: &AppState,
     extensions: &Extensions,
 ) -> std::result::Result<String, String> {
+    resolve_caller_session_id_for(state, extensions, "send_to_worker")
+}
+
+fn resolve_caller_session_id_for(
+    state: &AppState,
+    extensions: &Extensions,
+    operation: &str,
+) -> std::result::Result<String, String> {
     let launch_id = caller_launch_id_from_extensions(extensions)
-        .ok_or_else(|| "拒绝 send_to_worker：调用方缺少 launchId 身份上下文".to_string())?;
+        .ok_or_else(|| format!("拒绝 {}：调用方缺少 launchId 身份上下文", operation))?;
     if let Some(session_id) = state
         .terminal_backend
         .backend()
@@ -484,8 +771,8 @@ fn resolve_caller_session_id(
         .and_then(|record| record.pty_session_id)
         .ok_or_else(|| {
             format!(
-                "拒绝 send_to_worker：launchId '{}' 未关联活动会话",
-                launch_id
+                "拒绝 {}：launchId '{}' 未关联活动会话",
+                operation, launch_id
             )
         })
 }
@@ -918,6 +1205,7 @@ pub struct OrchestratorService {
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
     pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+    ai_panels: Arc<Mutex<AiPanelRegistry>>,
     /// hook 驱动状态机：进程级单例，所有 session 共享
     session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
 }
@@ -948,6 +1236,7 @@ impl OrchestratorService {
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             pending_worker_reports: Arc::new(Mutex::new(HashMap::new())),
             pending_directives: Arc::new(Mutex::new(HashMap::new())),
+            ai_panels: Arc::new(Mutex::new(AiPanelRegistry::default())),
             session_state_machine: Arc::new(cc_panes_core::services::SessionStateMachine::new()),
         }
     }
@@ -987,6 +1276,25 @@ impl OrchestratorService {
         &self,
     ) -> Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>> {
         self.pending_queries.clone()
+    }
+
+    pub fn list_ai_panels(&self) -> Vec<AiPanel> {
+        self.ai_panels
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .list()
+    }
+
+    pub fn record_ai_panel_event(
+        &self,
+        panel_id: &str,
+        action: &str,
+        payload: Option<serde_json::Value>,
+    ) -> std::result::Result<(), String> {
+        self.ai_panels
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .record_event(panel_id, action, payload)
     }
 
     /// 启动 HTTP + MCP 服务器（在 tokio runtime 中运行）
@@ -1064,6 +1372,7 @@ impl OrchestratorService {
             pending_queries: self.pending_queries.clone(),
             pending_worker_reports: self.pending_worker_reports.clone(),
             pending_directives: self.pending_directives.clone(),
+            ai_panels: self.ai_panels.clone(),
         };
 
         // ============ 阶段 2.6：把 SessionStateMachine 的状态跃迁桥接到 NotificationService ============
@@ -2720,6 +3029,36 @@ struct McpRuntimeConfigResult {
     bound_project: Option<String>,
     warnings: Vec<String>,
     dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpOpenAiPanelParams {
+    title: String,
+    format: AiPanelFormat,
+    content: String,
+    panel_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpUpdateAiPanelParams {
+    panel_id: String,
+    content: String,
+    title: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpAiPanelIdParams {
+    panel_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpGetAiPanelEventsParams {
+    panel_id: String,
+    after_seq: Option<u64>,
 }
 
 fn trim_optional_string(value: Option<String>) -> Option<String> {
@@ -5924,6 +6263,158 @@ impl McpToolHandler {
         match self.state.runner_service.kill_instance(&params.instance_id) {
             Ok(killed) => serde_json::json!({ "killed": killed }).to_string(),
             Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 打开新的 AI 面板，或用相同 panelId 替换调用会话自己的面板。
+    #[tool]
+    async fn open_ai_panel(
+        &self,
+        Parameters(params): Parameters<McpOpenAiPanelParams>,
+        extensions: Extensions,
+    ) -> String {
+        let owner_session_id =
+            match resolve_caller_session_id_for(&self.state, &extensions, "open_ai_panel") {
+                Ok(session_id) => session_id,
+                Err(error) => return format!("错误: {}", error),
+            };
+        let driver_name = match self
+            .state
+            .task_binding_service
+            .find_by_session_id(&owner_session_id)
+        {
+            Ok(Some(binding)) => binding.title,
+            Ok(None) => owner_session_id.clone(),
+            Err(error) => {
+                warn!(session_id = %owner_session_id, err = %error, "mcp::open_ai_panel failed to resolve driver name");
+                owner_session_id.clone()
+            }
+        };
+        let panel = {
+            let mut registry = self
+                .state
+                .ai_panels
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            registry.open(
+                &owner_session_id,
+                &driver_name,
+                &params.title,
+                params.format,
+                &params.content,
+                params.panel_id.as_deref(),
+            )
+        };
+        match panel {
+            Ok(panel) => {
+                let event = AiPanelChangedEvent {
+                    operation: "open".to_string(),
+                    panel_id: panel.panel_id.clone(),
+                    panel: Some(panel.clone()),
+                };
+                if let Err(error) = self.state.app_handle.emit("ai-panel-changed", &event) {
+                    warn!(panel_id = %panel.panel_id, err = %error, "mcp::open_ai_panel failed to emit");
+                }
+                serde_json::json!({ "panelId": panel.panel_id }).to_string()
+            }
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 整块替换调用会话自己的 AI 面板内容。
+    #[tool]
+    async fn update_ai_panel(
+        &self,
+        Parameters(params): Parameters<McpUpdateAiPanelParams>,
+        extensions: Extensions,
+    ) -> String {
+        let owner_session_id =
+            match resolve_caller_session_id_for(&self.state, &extensions, "update_ai_panel") {
+                Ok(session_id) => session_id,
+                Err(error) => return format!("错误: {}", error),
+            };
+        let panel = self
+            .state
+            .ai_panels
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .update(
+                &owner_session_id,
+                &params.panel_id,
+                &params.content,
+                params.title.as_deref(),
+            );
+        match panel {
+            Ok(panel) => {
+                let event = AiPanelChangedEvent {
+                    operation: "update".to_string(),
+                    panel_id: panel.panel_id.clone(),
+                    panel: Some(panel.clone()),
+                };
+                if let Err(error) = self.state.app_handle.emit("ai-panel-changed", &event) {
+                    warn!(panel_id = %panel.panel_id, err = %error, "mcp::update_ai_panel failed to emit");
+                }
+                serde_json::json!({ "panelId": panel.panel_id }).to_string()
+            }
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 关闭调用会话自己的 AI 面板。
+    #[tool]
+    async fn close_ai_panel(
+        &self,
+        Parameters(params): Parameters<McpAiPanelIdParams>,
+        extensions: Extensions,
+    ) -> String {
+        let owner_session_id =
+            match resolve_caller_session_id_for(&self.state, &extensions, "close_ai_panel") {
+                Ok(session_id) => session_id,
+                Err(error) => return format!("错误: {}", error),
+            };
+        let result = self
+            .state
+            .ai_panels
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .close(&owner_session_id, &params.panel_id);
+        match result {
+            Ok(panel) => {
+                let event = AiPanelChangedEvent {
+                    operation: "close".to_string(),
+                    panel_id: panel.panel_id.clone(),
+                    panel: None,
+                };
+                if let Err(error) = self.state.app_handle.emit("ai-panel-changed", &event) {
+                    warn!(panel_id = %panel.panel_id, err = %error, "mcp::close_ai_panel failed to emit");
+                }
+                serde_json::json!({ "panelId": panel.panel_id }).to_string()
+            }
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 拉取调用会话自己面板中的用户操作事件。
+    #[tool]
+    async fn get_ai_panel_events(
+        &self,
+        Parameters(params): Parameters<McpGetAiPanelEventsParams>,
+        extensions: Extensions,
+    ) -> String {
+        let owner_session_id =
+            match resolve_caller_session_id_for(&self.state, &extensions, "get_ai_panel_events") {
+                Ok(session_id) => session_id,
+                Err(error) => return format!("错误: {}", error),
+            };
+        match self
+            .state
+            .ai_panels
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .events(&owner_session_id, &params.panel_id, params.after_seq)
+        {
+            Ok(events) => serde_json::json!({ "events": events }).to_string(),
+            Err(error) => format!("错误: {}", error),
         }
     }
 }
@@ -11830,5 +12321,130 @@ mod tests {
     #[test]
     fn test_resolve_wsl_launch_info_is_disabled_on_non_windows() {
         assert!(resolve_wsl_launch_info(r"\\wsl.localhost\Ubuntu\home\dev\repo", None).is_none());
+    }
+
+    #[test]
+    fn test_ai_panel_registry_crud_and_owner_enforcement() {
+        let mut registry = AiPanelRegistry::default();
+        let panel = registry
+            .open(
+                "session-a",
+                "Worker A",
+                "Progress",
+                AiPanelFormat::Markdown,
+                "# Step 1",
+                Some("progress"),
+            )
+            .expect("open panel");
+        assert_eq!(panel.panel_id, "progress");
+        assert_eq!(panel.format, AiPanelFormat::Markdown);
+
+        let updated = registry
+            .update(
+                "session-a",
+                "progress",
+                "<button>Approve</button>",
+                Some("Decision"),
+            )
+            .expect("update own panel");
+        assert_eq!(updated.title, "Decision");
+        assert_eq!(updated.content, "<button>Approve</button>");
+
+        let error = registry
+            .update("session-b", "progress", "stolen", None)
+            .expect_err("other session must not update panel");
+        assert!(error.contains("其他会话"));
+        assert!(registry.close("session-b", "progress").is_err());
+        assert!(registry.events("session-b", "progress", None).is_err());
+
+        let closed = registry
+            .close("session-a", "progress")
+            .expect("close own panel");
+        assert_eq!(closed.panel_id, "progress");
+        assert!(registry.list().is_empty());
+    }
+
+    #[test]
+    fn test_ai_panel_registry_enforces_panel_and_content_limits() {
+        let mut registry = AiPanelRegistry::default();
+        for index in 0..AI_PANELS_MAX_PER_SESSION {
+            registry
+                .open(
+                    "session-a",
+                    "Worker A",
+                    "Panel",
+                    AiPanelFormat::Html,
+                    "<p>ok</p>",
+                    Some(&format!("panel-{}", index)),
+                )
+                .expect("open within limit");
+        }
+        let panel_limit_error = registry
+            .open(
+                "session-a",
+                "Worker A",
+                "Panel",
+                AiPanelFormat::Html,
+                "<p>too many</p>",
+                Some("panel-overflow"),
+            )
+            .expect_err("fourth panel must fail");
+        assert!(panel_limit_error.contains("最多打开 3 个"));
+
+        let oversized = "x".repeat(AI_PANEL_CONTENT_MAX_BYTES + 1);
+        let content_error = registry
+            .update("session-a", "panel-0", &oversized, None)
+            .expect_err("oversized content must fail");
+        assert!(content_error.contains("256KB"));
+    }
+
+    #[test]
+    fn test_ai_panel_event_ring_after_seq_and_payload_limit() {
+        let mut registry = AiPanelRegistry::default();
+        registry
+            .open(
+                "session-a",
+                "Worker A",
+                "Actions",
+                AiPanelFormat::Html,
+                "<button data-action=\"next\">Next</button>",
+                Some("actions"),
+            )
+            .expect("open panel");
+
+        for index in 1..=105 {
+            registry
+                .record_event(
+                    "actions",
+                    "select",
+                    Some(serde_json::json!({ "index": index })),
+                )
+                .expect("record event");
+        }
+        let events = registry
+            .events("session-a", "actions", None)
+            .expect("list events");
+        assert_eq!(events.len(), AI_PANEL_EVENTS_MAX_ITEMS);
+        assert_eq!(events.first().map(|event| event.seq), Some(6));
+        assert_eq!(events.last().map(|event| event.seq), Some(105));
+
+        let after = registry
+            .events("session-a", "actions", Some(103))
+            .expect("list events after sequence");
+        assert_eq!(
+            after.iter().map(|event| event.seq).collect::<Vec<_>>(),
+            vec![104, 105]
+        );
+
+        let payload_error = registry
+            .record_event(
+                "actions",
+                "select",
+                Some(serde_json::Value::String(
+                    "x".repeat(AI_PANEL_EVENT_PAYLOAD_MAX_BYTES),
+                )),
+            )
+            .expect_err("oversized payload must fail");
+        assert!(payload_error.contains("4096 字节"));
     }
 }

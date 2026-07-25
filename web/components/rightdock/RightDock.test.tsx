@@ -11,6 +11,8 @@ import {
   useModulePrefsStore,
 } from "@/stores/useModulePrefsStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
+import { useAiPanelStore } from "@/stores/useAiPanelStore";
+import { useOrchestratorStore } from "@/stores/useOrchestratorStore";
 import type { OpenTerminalOptions, Workspace } from "@/types";
 import RightDock from "./RightDock";
 
@@ -55,6 +57,10 @@ vi.mock("@/components/sidebar/SshMachinesView", () => ({
   ),
 }));
 
+vi.mock("@/components/aipanel/AiPanelView", () => ({
+  default: () => <div data-testid="right-dock-ai-panel">AI Panel</div>,
+}));
+
 const workspace: Workspace = {
   id: "workspace-1",
   name: "Workspace One",
@@ -84,6 +90,8 @@ describe("RightDock", () => {
       orchestrationOverlayOpen: false,
     });
     useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
+    useAiPanelStore.setState({ panels: [], activePanelId: null, unreadPanelIds: [] });
+    useOrchestratorStore.setState({ bindings: [] });
     useWorkspacesStore.setState({
       workspaces: [workspace],
       expandedWorkspaceId: workspace.id,
@@ -185,6 +193,20 @@ describe("RightDock", () => {
     expect(screen.getByRole("tab", { name: "资源中心" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "TodoList" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "任务编排" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "AI 面板" })).toBeInTheDocument();
+  });
+
+  it("AI 面板 tab 显示琥珀未读点并切换到驻留内容", async () => {
+    const user = userEvent.setup();
+    useAiPanelStore.setState({ activePanelId: "panel-1", unreadPanelIds: ["panel-1"] });
+    renderDock();
+
+    expect(screen.getByTestId("right-dock-module-badge-aiPanel")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "AI 面板" }));
+
+    expect(useRightDockStore.getState().activeView).toBe("aiPanel");
+    expect(screen.getByTestId("right-dock-ai-panel")).toBeInTheDocument();
+    expect(useAiPanelStore.getState().unreadPanelIds).toEqual([]);
   });
 
   it("SSH tab 驻留坞内并复用终端打开回调", async () => {

@@ -11,6 +11,7 @@ import {
 } from "@/stores/useModulePrefsStore";
 import { useDialogStore, useOrchestratorStore } from "@/stores";
 import type { TaskBinding } from "@/types";
+import { useAiPanelStore } from "@/stores/useAiPanelStore";
 
 // jsdom 缺少 ResizeObserver，Radix Tooltip 依赖它（否则 hover 交互抛错中断 userEvent）
 class ResizeObserverStub {
@@ -47,6 +48,7 @@ function resetStores() {
   useDialogStore.setState({ settingsOpen: false });
   useOrchestratorStore.setState({ bindings: [] });
   useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
+  useAiPanelStore.setState({ panels: [], activePanelId: null, unreadPanelIds: [] });
 }
 
 describe("ActivityBar", () => {

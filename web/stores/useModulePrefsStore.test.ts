@@ -14,12 +14,13 @@ describe("useModulePrefsStore", () => {
     await useModulePrefsStore.persist.rehydrate();
   });
 
-  it("defaults every v1 module to enabled in the Activity Bar", () => {
+  it("defaults modules to their registered enabled positions", () => {
     expect(useModulePrefsStore.getState().preferences).toEqual({
       ssh: { enabled: true, position: "activityBar" },
       orchestration: { enabled: true, position: "activityBar" },
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
+      aiPanel: { enabled: true, position: "rightDock", autoOpen: false },
     });
   });
 
@@ -69,6 +70,17 @@ describe("useModulePrefsStore", () => {
       orchestration: { enabled: true, position: "activityBar" },
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
+      aiPanel: { enabled: true, position: "rightDock", autoOpen: false },
+    });
+  });
+
+  it("persists the AI panel auto-open preference independently", () => {
+    useModulePrefsStore.getState().setAutoOpen("aiPanel", true);
+
+    expect(useModulePrefsStore.getState().preferences.aiPanel).toEqual({
+      enabled: true,
+      position: "rightDock",
+      autoOpen: true,
     });
   });
 });

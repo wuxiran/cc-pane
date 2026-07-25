@@ -18,6 +18,7 @@ describe("useDialogStore", () => {
       todoOpen: false,
       todoScope: "",
       todoScopeRef: "",
+      aiPanelOpen: false,
     });
   });
 
@@ -35,6 +36,17 @@ describe("useDialogStore", () => {
       expect(state.todoOpen).toBe(false);
       expect(state.todoScope).toBe("");
       expect(state.todoScopeRef).toBe("");
+      expect(state.aiPanelOpen).toBe(false);
+    });
+  });
+
+  describe("AI Panel dialog", () => {
+    it("opens and closes through the global dialog store", () => {
+      useDialogStore.getState().openAiPanel();
+      expect(useDialogStore.getState().aiPanelOpen).toBe(true);
+
+      useDialogStore.getState().closeAiPanel();
+      expect(useDialogStore.getState().aiPanelOpen).toBe(false);
     });
   });
 

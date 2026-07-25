@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import TitleBar from "./TitleBar";
+import { useAiPanelStore } from "@/stores/useAiPanelStore";
 
 function renderTitleBar(ui: ReactElement) {
   return render(<TooltipProvider>{ui}</TooltipProvider>);
@@ -62,6 +63,7 @@ describe("TitleBar", () => {
     mockUseBorderlessStore.mockReturnValue(false);
     mockSidebarVisible.mockReturnValue(true);
     mockRightDockVisible.mockReturnValue(false);
+    useAiPanelStore.setState({ panels: [], activePanelId: null, unreadPanelIds: [] });
   });
 
   it("marks the whole titlebar as a native drag region", () => {
@@ -175,6 +177,14 @@ describe("TitleBar", () => {
     expect(
       screen.getByTestId("titlebar-toggle-right-dock").querySelector(".lucide-panel-right-close"),
     ).not.toBeNull();
+  });
+
+  it("shows an amber dot on the right dock entry for unread AI panels", () => {
+    useAiPanelStore.setState({ unreadPanelIds: ["panel-1"] });
+
+    renderTitleBar(<TitleBar />);
+
+    expect(screen.getByTestId("titlebar-ai-panel-badge")).toBeInTheDocument();
   });
 
   it("hides itself in borderless mode", () => {

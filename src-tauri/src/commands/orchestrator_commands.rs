@@ -1,6 +1,6 @@
-use crate::services::orchestrator_service::OrchestratorBindDecision;
+use crate::services::orchestrator_service::{AiPanel, OrchestratorBindDecision};
 use crate::services::OrchestratorService;
-use crate::utils::error::AppResult;
+use crate::utils::error::{AppError, AppResult};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
@@ -52,4 +52,25 @@ pub fn respond_orchestrator_query(
         let _ = tx.send(data);
     }
     Ok(())
+}
+
+/// 获取当前进程内仍打开的 AI 面板，供前端启动时补领。
+#[tauri::command]
+pub fn list_ai_panels(
+    orchestrator: State<'_, Arc<OrchestratorService>>,
+) -> AppResult<Vec<AiPanel>> {
+    Ok(orchestrator.list_ai_panels())
+}
+
+/// 记录 sandbox iframe 经宿主白名单校验后的用户操作事件。
+#[tauri::command]
+pub fn record_ai_panel_event(
+    orchestrator: State<'_, Arc<OrchestratorService>>,
+    panel_id: String,
+    action: String,
+    payload: Option<serde_json::Value>,
+) -> AppResult<()> {
+    orchestrator
+        .record_ai_panel_event(&panel_id, &action, payload)
+        .map_err(AppError::from)
 }

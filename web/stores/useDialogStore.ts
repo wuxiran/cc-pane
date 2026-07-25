@@ -87,6 +87,11 @@ interface DialogState {
   openSelfChat: () => void;
   closeSelfChat: () => void;
 
+  // AI Panel
+  aiPanelOpen: boolean;
+  openAiPanel: () => void;
+  closeAiPanel: () => void;
+
   // Onboarding
   onboardingOpen: boolean;
   openOnboarding: () => void;
@@ -165,6 +170,11 @@ export const useDialogStore = create<DialogState>((set) => ({
   selfChatOpen: false,
   openSelfChat: () => set({ selfChatOpen: true }),
   closeSelfChat: () => set({ selfChatOpen: false }),
+
+  // AI Panel
+  aiPanelOpen: false,
+  openAiPanel: () => set({ aiPanelOpen: true }),
+  closeAiPanel: () => set({ aiPanelOpen: false }),
 
   // Onboarding
   onboardingOpen: false,

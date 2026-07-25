@@ -37,13 +37,13 @@ describe("CommandPalette modules", () => {
     vi.restoreAllMocks();
   });
 
-  it("lists all four registry modules even when one is hidden", async () => {
+  it("lists all five registry modules even when one is hidden", async () => {
     useModulePrefsStore.getState().setPosition("todo", "hidden");
     render(<CommandPalette />);
 
     act(() => window.dispatchEvent(new Event(COMMAND_PALETTE_TOGGLE_EVENT)));
 
-    expect(await screen.findAllByTestId(/^module-command-/)).toHaveLength(4);
+    expect(await screen.findAllByTestId(/^module-command-/)).toHaveLength(5);
     expect(screen.getByTestId("module-command-todo")).toBeInTheDocument();
   });
 
