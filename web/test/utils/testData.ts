@@ -191,6 +191,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
     },
     orchestrator: {
       bindMode: "auto",
+      allowMcpYoloProfiles: false,
     },
     wallpaper: {
       enabled: false,

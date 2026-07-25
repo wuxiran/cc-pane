@@ -36,6 +36,7 @@ interface OrchestratorLaunchPayload {
   workspaceName?: string;
   providerId?: string;
   providerSelection?: LaunchProviderSelection;
+  launchProfileId?: string;
   workspacePath?: string;
   title?: string;
   resumeId?: string;  // 对应 Rust OrchestratorLaunchEvent.resume_id
@@ -79,6 +80,7 @@ export function useOrchestratorListener() {
             workspaceName,
             providerId,
             providerSelection,
+            launchProfileId,
             workspacePath,
             title,
             paneId: targetPaneId,
@@ -178,6 +180,7 @@ export function useOrchestratorListener() {
             workspaceName,
             providerId,
             providerSelection,
+            launchProfileId,
             workspacePath,
             cliTool: resolvedCliTool,
             wsl,

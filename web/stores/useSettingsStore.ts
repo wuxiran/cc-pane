@@ -51,6 +51,7 @@ const DEFAULT_CLI_LAUNCHER_SETTINGS: CliLauncherSettings = {
 
 const DEFAULT_ORCHESTRATOR_SETTINGS: OrchestratorSettings = {
   bindMode: "auto",
+  allowMcpYoloProfiles: false,
 };
 
 const DEFAULT_LOCAL_HISTORY_SETTINGS = {
