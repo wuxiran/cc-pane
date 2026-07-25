@@ -1,10 +1,21 @@
 import i18n from "@/i18n";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DndContext } from "@dnd-kit/core";
+import { useQuickCommandsStore } from "@/stores";
 import TabBar from "./TabBar";
-import type { Tab } from "@/types";
+import type { QuickCommand, Tab } from "@/types";
+
+const executeQuickCommand = vi.fn();
+
+vi.mock("@/lib/quickCommandExecution", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/quickCommandExecution")>();
+  return {
+    ...original,
+    executeQuickCommand: (...args: unknown[]) => executeQuickCommand(...args),
+  };
+});
 
 const scrollIntoViewMock = vi.fn();
 
@@ -27,6 +38,20 @@ function makeTab(id: string, title: string): Tab {
       sessionId: null,
     },
     activeTerminalPaneId: `terminal-pane-${id}`,
+  };
+}
+
+function quickCommand(overrides: Partial<QuickCommand> = {}): QuickCommand {
+  return {
+    id: "quick-1",
+    name: "Run tests",
+    kind: "terminal",
+    text: "cargo test",
+    appendEnter: true,
+    target: "currentPane",
+    createdAt: "2026-07-25T00:00:00.000Z",
+    updatedAt: "2026-07-25T00:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -93,6 +118,12 @@ function renderTabBar({
 }
 
 describe("TabBar", () => {
+  beforeEach(() => {
+    executeQuickCommand.mockReset();
+    executeQuickCommand.mockResolvedValue(undefined);
+    useQuickCommandsStore.setState({ commands: [], activeProjectPath: null });
+  });
+
   afterEach(() => {
     scrollIntoViewMock.mockReset();
     vi.restoreAllMocks();
@@ -182,6 +213,66 @@ describe("TabBar", () => {
     await user.click(await screen.findByRole("menuitem", { name: /克隆终端|Clone Terminal/i }));
 
     expect(onCloneTab).toHaveBeenCalledWith(tab);
+  });
+
+  it("快捷命令子菜单禁用无会话的当前 pane 命令并执行可用命令", async () => {
+    const user = userEvent.setup();
+    const tab = makeTab("tab-1", "Alpha");
+    const current = quickCommand({ id: "current", name: "Current command" });
+    const newTab = quickCommand({ id: "new", name: "New tab command", target: "newTab" });
+    const invalidAgent = quickCommand({
+      id: "invalid-agent",
+      name: "Invalid agent",
+      kind: "agentPrompt",
+      target: "newTab",
+      cliTool: "none",
+    });
+    useQuickCommandsStore.setState({
+      activeProjectPath: tab.projectPath,
+      commands: [
+        { ...current, scope: "global" },
+        { ...newTab, scope: "project" },
+        { ...invalidAgent, scope: "global" },
+      ],
+    });
+    renderTabBar({ tabs: [tab] });
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    const trigger = await screen.findByText(/运行快捷命令|Run Quick Command/i);
+    await user.hover(trigger);
+
+    const currentItem = await screen.findByRole("menuitem", { name: /Current command/ });
+    const newTabItem = await screen.findByRole("menuitem", { name: /New tab command/ });
+    const invalidAgentItem = await screen.findByRole("menuitem", { name: /Invalid agent/ });
+    expect(currentItem).toHaveAttribute("aria-disabled", "true");
+    expect(newTabItem).not.toHaveAttribute("aria-disabled", "true");
+    expect(invalidAgentItem).toHaveAttribute("aria-disabled", "true");
+
+    fireEvent.click(newTabItem);
+
+    expect(executeQuickCommand).toHaveBeenCalledWith(newTab, {
+      paneId: "pane-1",
+      tab,
+    });
+  });
+
+  it("右键标签不显示其他项目的项目级快捷命令", async () => {
+    const user = userEvent.setup();
+    const tab = makeTab("tab-1", "Alpha");
+    useQuickCommandsStore.setState({
+      activeProjectPath: "/tmp/other-project",
+      commands: [
+        { ...quickCommand({ id: "global", name: "Global command" }), scope: "global" },
+        { ...quickCommand({ id: "project", name: "Other project command" }), scope: "project" },
+      ],
+    });
+    renderTabBar({ tabs: [tab] });
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    await user.hover(await screen.findByText(/运行快捷命令|Run Quick Command/i));
+
+    expect(await screen.findByRole("menuitem", { name: /Global command/ })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Other project command/ })).not.toBeInTheDocument();
   });
 
   it("无 projectPath 的标签不显示克隆终端", async () => {

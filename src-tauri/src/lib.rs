@@ -59,6 +59,7 @@ use commands::{
     create_auto_label,
     create_launch_profile,
     create_popup_terminal_window,
+    create_quick_command,
     // Spec 命令
     create_spec,
     // TaskBinding 命令
@@ -73,6 +74,7 @@ use commands::{
     delete_launch_profile,
     delete_memory,
     delete_plan,
+    delete_quick_command,
     delete_skill,
     delete_spec,
     delete_task_binding,
@@ -222,8 +224,10 @@ use commands::{
     list_memories,
     // Plan 命令
     list_plans,
+    list_project_quick_commands,
     list_projects,
     list_providers,
+    list_quick_commands,
     list_skill_market_entries,
     list_skills,
     list_specs,
@@ -305,6 +309,7 @@ use commands::{
     save_layout_snapshot,
     save_layout_switcher_snapshot,
     save_layout_switcher_state,
+    save_project_quick_commands,
     save_skill,
     save_spec_content,
     // Session Restore 命令
@@ -354,6 +359,7 @@ use commands::{
     update_project_alias,
     update_project_name,
     update_provider,
+    update_quick_command,
     update_settings,
     update_shared_mcp_global_config,
     update_spec,
@@ -381,12 +387,12 @@ use services::{
     LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
     MemoryService, NotificationService, OrchestratorService, PlanArchiveService, PlanService,
     ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
-    ProviderService, ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService,
-    SkillMarketService, SkillService, SpecService, SshCredentialService, SshMachineService,
-    StartLocks, SystemStatsService, TaskBindingService, TerminalBackendKind, TerminalBackendState,
-    TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
-    UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
-    WorktreeService,
+    ProviderService, QuickCommandService, ScreenshotService, SessionRestoreService,
+    SettingsService, SharedMcpService, SkillMarketService, SkillService, SpecService,
+    SshCredentialService, SshMachineService, StartLocks, SystemStatsService, TaskBindingService,
+    TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge, TerminalDaemonLifecycle,
+    TerminalService, TodoService, UninstallCleanupService, UsageStatsService, WebAccessLifecycle,
+    WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1337,6 +1343,7 @@ pub fn run() {
         app_paths.launch_profiles_path(),
         external_skill_registry.clone(),
     ));
+    let quick_command_service = Arc::new(QuickCommandService::new(app_paths.quick_commands_path()));
     let notification_service = Arc::new(NotificationService::new());
     let ccchan_service = Arc::new(CCChanService::new(
         settings_service.clone(),
@@ -1488,6 +1495,7 @@ pub fn run() {
         .manage(settings_service)
         .manage(provider_service)
         .manage(launch_profile_service)
+        .manage(quick_command_service)
         .manage(notification_service)
         .manage(ccchan_service)
         .manage(todo_service)
@@ -2356,6 +2364,12 @@ pub fn run() {
             delete_launch_profile,
             set_default_launch_profile,
             preview_launch_profile_resolution,
+            list_quick_commands,
+            create_quick_command,
+            update_quick_command,
+            delete_quick_command,
+            list_project_quick_commands,
+            save_project_quick_commands,
             list_providers,
             get_provider,
             get_default_provider,

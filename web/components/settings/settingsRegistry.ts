@@ -11,6 +11,7 @@ import {
   Image,
   Info,
   Keyboard,
+  LibraryBig,
   ListChecks,
   Mic,
   PanelsTopLeft,
@@ -35,6 +36,7 @@ export type SettingsPaneId =
   | "wallpaper"
   | "terminal"
   | "shortcuts"
+  | "quick-commands"
   | "modules"
   | "provider"
   | "cli-launchers"
@@ -190,6 +192,21 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", descriptionKey: "webAccessDescription", group: "system", searchEntries: [
     { id: "remote", titleKey: "webAccessTitle", keywordsKey: "searchKeywords.webAccess", targetSectionId: "web-access-root" },
   ] },
+  {
+    id: "quick-commands",
+    icon: LibraryBig,
+    titleKey: "quickCommands.title",
+    descriptionKey: "quickCommands.description",
+    group: "system",
+    layout: "wide",
+    searchEntries: [{
+      id: "library",
+      titleKey: "quickCommands.title",
+      descriptionKey: "quickCommands.description",
+      keywordsKey: "searchKeywords.quickCommands",
+      targetSectionId: "quick-commands-root",
+    }],
+  },
   { id: "notification", icon: Bell, titleKey: "notification", descriptionKey: "notificationDescription", group: "system", searchEntries: [
     { id: "events", titleKey: "notificationTitle", keywordsKey: "searchKeywords.notification", targetSectionId: "notification-controls" },
   ] },

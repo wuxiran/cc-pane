@@ -8,6 +8,7 @@ pub mod plan;
 pub mod process_info;
 mod project;
 pub mod provider;
+pub mod quick_command;
 pub mod runner;
 pub mod screenshot;
 pub mod session_restore;
@@ -58,6 +59,9 @@ pub use launch_profile::{
 pub use layout_snapshot::{LayoutSnapshot, SaveLayoutSnapshotRequest};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 pub use project::Project;
+pub use quick_command::{
+    QuickCommand, QuickCommandConfig, QuickCommandDraft, QuickCommandKind, QuickCommandTarget,
+};
 pub use runner::{
     PortClaim, PortConflict, PortReservation, RunnerInstance, RunnerInstanceStatus,
     RunnerLaunchPlan, RunnerLaunchSuggestedAction, RunnerProfile, RunnerProfileDraft,

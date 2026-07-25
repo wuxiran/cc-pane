@@ -166,5 +166,12 @@
   "workspaceEmptyProjectHint": "目标项目：{{name}}",
   "workspaceEmptyTerminal": "仅终端",
   "workspaceEmptyFrequent": "常用方式",
-  "workspaceEmptyLaunchFailed": "无法解析启动配置，请检查工作空间运行环境"
+  "workspaceEmptyLaunchFailed": "无法解析启动配置，请检查工作空间运行环境",
+  "runQuickCommand": "运行快捷命令",
+  "quickCommandGlobal": "全局",
+  "quickCommandProject": "项目",
+  "quickCommandNoActiveTerminal": "没有可用的活动终端会话",
+  "quickCommandNoActiveProject": "没有可用的活动项目",
+  "quickCommandNoCliTool": "Agent Prompt 未配置 CLI 工具",
+  "quickCommandExecuteFailed": "运行快捷命令失败: {{error}}"
 }

@@ -14,6 +14,7 @@ const ModulesSection = lazy(() => import("./ModulesSection"));
 const NotificationSection = lazy(() => import("./NotificationSection"));
 const ProviderSection = lazy(() => import("./ProviderSection"));
 const ProxySection = lazy(() => import("./ProxySection"));
+const QuickCommandsSection = lazy(() => import("./QuickCommandsSection"));
 const ScreenshotSection = lazy(() => import("./ScreenshotSection"));
 const SharedMcpSection = lazy(() => import("./SharedMcpSection"));
 const ShortcutsSection = lazy(() => import("./ShortcutsSection"));
@@ -70,6 +71,8 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
       return <CliLaunchersSection value={draft.cliLaunchers} onChange={(cliLaunchers) => updateDraft({ ...draft, cliLaunchers })} />;
     case "proxy":
       return <ProxySection value={draft.proxy} onChange={(proxy) => updateDraft({ ...draft, proxy })} />;
+    case "quick-commands":
+      return <QuickCommandsSection />;
     case "terminal":
       return <TerminalSection value={draft.terminal} onChange={(terminal) => updateDraft({ ...draft, terminal })} />;
     case "voice":
@@ -94,7 +97,7 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
 }
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
-  const hasOwnCardLayout = ["setup-guide", "provider", "cli-launchers", "shared-mcp", "experimental"].includes(props.paneId);
+  const hasOwnCardLayout = ["setup-guide", "provider", "cli-launchers", "shared-mcp", "quick-commands", "experimental"].includes(props.paneId);
   return (
     <div
       data-settings-section={`${props.paneId}-root`}

@@ -8,6 +8,7 @@ pub mod mcp;
 pub mod memory;
 pub mod plans;
 pub mod process;
+pub mod quick_commands;
 pub mod resources;
 pub mod runner;
 pub mod skills;
@@ -290,6 +291,30 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/launch-profiles/preview",
             post(launch_profiles::preview_launch_profile_resolution),
+        )
+        .route(
+            "/api/quick-commands",
+            get(quick_commands::list_quick_commands),
+        )
+        .route(
+            "/api/quick-commands",
+            post(quick_commands::create_quick_command),
+        )
+        .route(
+            "/api/quick-commands/project",
+            get(quick_commands::list_project_quick_commands),
+        )
+        .route(
+            "/api/quick-commands/project",
+            put(quick_commands::save_project_quick_commands),
+        )
+        .route(
+            "/api/quick-commands/{id}",
+            put(quick_commands::update_quick_command),
+        )
+        .route(
+            "/api/quick-commands/{id}",
+            delete(quick_commands::delete_quick_command),
         )
         .route("/api/usage-stats", get(usage_stats::query_usage_stats))
         .route(

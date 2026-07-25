@@ -22,6 +22,7 @@ import { useAppLifecycleEarly } from "@/hooks/useAppLifecycleEarly";
 import { useAppLifecycleLate } from "@/hooks/useAppLifecycleLate";
 import { useShortcutRegistrations } from "@/hooks/useShortcutRegistrations";
 import { useOpenTerminal } from "@/hooks/useOpenTerminal";
+import { useQuickCommandsSync } from "@/hooks/useQuickCommandsSync";
 import LauncherDialog from "@/components/launcher/LauncherDialog";
 
 export default function App() {
@@ -89,6 +90,7 @@ function MainApp() {
   useTerminalResumeIdBridge();
   const { recentFilesOpen, closeRecentFiles } = useAppLifecycleLate();
   useShortcutRegistrations();
+  useQuickCommandsSync();
   const handleOpenTerminal = useOpenTerminal();
 
   return (

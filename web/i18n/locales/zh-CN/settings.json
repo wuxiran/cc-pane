@@ -20,6 +20,7 @@
     "shortcuts": "快捷键 热键 键盘 绑定",
     "setupGuide": "新手 入门 引导 工作空间 项目 多开 派工 skill 完成度",
     "modules": "模块 入口 左栏 右坞 隐藏 命令面板",
+    "quickCommands": "快捷命令 命令库 prompt 终端 项目 全局 执行",
     "provider": "Provider 供应商 API Key 模型",
     "mcp": "MCP server 工具 共享",
     "proxy": "代理 HTTP SOCKS 网络",
@@ -521,6 +522,52 @@
     "escapePrefix": "请释放固定端口后重启，或设置逃生阀环境变量",
     "escapeSuffix": "为另一个确定端口后重启应用。",
     "errorDetails": "错误详情"
+  },
+  "quickCommands": {
+    "title": "快捷命令",
+    "description": "保存常用终端命令和 Agent Prompt，并从命令面板或标签页菜单快速运行。",
+    "commandGroup": "快捷命令",
+    "add": "新增快捷命令",
+    "newTitle": "新增快捷命令",
+    "editTitle": "编辑快捷命令",
+    "dialogDescription": "设置命令内容、保存范围与运行目标。",
+    "fieldName": "名称",
+    "fieldKind": "类型",
+    "fieldScope": "范围",
+    "fieldCliTool": "CLI 工具",
+    "fieldText": "内容",
+    "fieldTarget": "运行目标",
+    "fieldAppendEnter": "投递后按 Enter",
+    "kind": {
+      "terminal": "终端命令",
+      "agentPrompt": "Agent Prompt"
+    },
+    "scope": {
+      "global": "全局",
+      "project": "项目"
+    },
+    "target": {
+      "currentPane": "当前终端",
+      "newTab": "新标签页"
+    },
+    "projectScopeUnavailable": "激活项目后才可保存项目级命令。",
+    "emptyTitle": "还没有快捷命令",
+    "emptyDescription": "新增一条命令后，可从命令面板和标签页右键菜单运行。",
+    "editCommand": "编辑 {{name}}",
+    "deleteCommand": "删除 {{name}}",
+    "deleteConfirm": "确定删除快捷命令“{{name}}”吗？",
+    "saving": "保存中...",
+    "created": "快捷命令已新增",
+    "updated": "快捷命令已更新",
+    "deleted": "快捷命令已删除",
+    "loadFailed": "加载快捷命令失败: {{error}}",
+    "saveFailed": "保存快捷命令失败: {{error}}",
+    "deleteFailed": "删除快捷命令失败: {{error}}",
+    "executeFailed": "运行快捷命令失败: {{error}}",
+    "noActiveTab": "没有可用的活动标签页",
+    "noActiveTerminal": "没有可用的活动终端会话",
+    "noActiveProject": "没有可用的活动项目",
+    "noCliTool": "Agent Prompt 未配置 CLI 工具"
   },
   "sharedMcp": {
     "title": "共享 MCP",

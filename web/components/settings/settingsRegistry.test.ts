@@ -73,4 +73,19 @@ describe("settings registry", () => {
       targetSectionId: "setup-guide-root",
     }));
   });
+
+  it("registers quick commands as a wide system pane", () => {
+    const quickCommands = SETTINGS_PANES.find((pane) => pane.id === "quick-commands");
+
+    expect(quickCommands).toMatchObject({
+      titleKey: "quickCommands.title",
+      group: "system",
+      layout: "wide",
+    });
+    expect(quickCommands?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "library",
+      keywordsKey: "searchKeywords.quickCommands",
+      targetSectionId: "quick-commands-root",
+    }));
+  });
 });

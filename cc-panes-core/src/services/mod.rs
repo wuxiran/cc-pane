@@ -22,6 +22,7 @@ mod project_cli_hooks_service;
 mod project_context_service;
 mod project_service;
 mod provider_service;
+mod quick_command_service;
 mod runner_service;
 mod session_restore_service;
 pub mod session_state_machine;
@@ -68,6 +69,7 @@ pub use project_cli_hooks_service::{ProjectCliHookGroupStatus, ProjectCliHooksSe
 pub use project_context_service::ProjectContextService;
 pub use project_service::ProjectService;
 pub use provider_service::ProviderService;
+pub use quick_command_service::QuickCommandService;
 pub use runner_service::RunnerService;
 pub use session_restore_service::SessionRestoreService;
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};

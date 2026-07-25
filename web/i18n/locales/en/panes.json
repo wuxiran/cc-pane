@@ -166,5 +166,12 @@
   "workspaceEmptyProjectHint": "Target project: {{name}}",
   "workspaceEmptyTerminal": "Terminal Only",
   "workspaceEmptyFrequent": "Frequent Methods",
-  "workspaceEmptyLaunchFailed": "Could not resolve launch options; check the workspace environment"
+  "workspaceEmptyLaunchFailed": "Could not resolve launch options; check the workspace environment",
+  "runQuickCommand": "Run Quick Command",
+  "quickCommandGlobal": "Global",
+  "quickCommandProject": "Project",
+  "quickCommandNoActiveTerminal": "No active terminal session is available",
+  "quickCommandNoActiveProject": "No active project is available",
+  "quickCommandNoCliTool": "The agent prompt has no CLI tool configured",
+  "quickCommandExecuteFailed": "Failed to run quick command: {{error}}"
 }

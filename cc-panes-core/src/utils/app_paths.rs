@@ -72,6 +72,11 @@ impl AppPaths {
         self.data_dir.join("launch-profiles.json")
     }
 
+    /// 用户级快捷命令配置路径
+    pub fn quick_commands_path(&self) -> PathBuf {
+        self.data_dir.join("quick-commands.json")
+    }
+
     /// 终端输出文件目录
     pub fn sessions_dir(&self) -> PathBuf {
         self.data_dir.join("sessions")
@@ -332,6 +337,10 @@ mod tests {
         assert_eq!(
             paths.launch_profiles_path(),
             base.join("launch-profiles.json")
+        );
+        assert_eq!(
+            paths.quick_commands_path(),
+            base.join("quick-commands.json")
         );
         assert_eq!(paths.launch_profiles_dir(), base.join("launch-profiles"));
         assert_eq!(paths.sessions_dir(), base.join("sessions"));

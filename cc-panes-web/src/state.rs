@@ -4,10 +4,10 @@ use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::services::{
     ExternalSkillRegistry, FileSystemService, HistoryService, JournalService, LaunchHistoryService,
     LaunchProfileService, LayoutSnapshotService, McpConfigService, MemoryService, PlanService,
-    ProcessMonitorService, ProjectCliHooksService, ProjectService, ProviderService, RunnerService,
-    SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
-    SshMachineService, TaskBindingService, TerminalBackend, TodoService, UsageStatsService,
-    UserSkillService, WorkspaceService, WorktreeService,
+    ProcessMonitorService, ProjectCliHooksService, ProjectService, ProviderService,
+    QuickCommandService, RunnerService, SessionRestoreService, SettingsService, SharedMcpService,
+    SkillService, SpecService, SshMachineService, TaskBindingService, TerminalBackend, TodoService,
+    UsageStatsService, UserSkillService, WorkspaceService, WorktreeService,
 };
 
 use crate::web_auth::WebAuthStore;
@@ -34,6 +34,7 @@ pub struct AppState {
     pub launch_history_service: Arc<LaunchHistoryService>,
     pub layout_snapshot_service: Arc<LayoutSnapshotService>,
     pub launch_profile_service: Arc<LaunchProfileService>,
+    pub quick_command_service: Arc<QuickCommandService>,
     pub memory_service: Arc<MemoryService>,
     pub ssh_machine_service: Arc<SshMachineService>,
     pub session_restore_service: Arc<SessionRestoreService>,
