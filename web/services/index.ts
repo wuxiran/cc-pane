@@ -66,5 +66,11 @@ export { logService } from "./logService";
 export { sharedMcpService } from "./sharedMcpService";
 export { sessionRestoreService } from "./sessionRestoreService";
 export { layoutSnapshotService } from "./layoutSnapshotService";
+export { browserService } from "./browserService";
+export type {
+  BrowserBounds,
+  BrowserPageLoadEvent,
+  BrowserTitleChangedEvent,
+} from "./browserService";
 export { workspaceSnapshotService } from "./workspaceSnapshotService";
 export { taskBindingService } from "./taskBindingService";

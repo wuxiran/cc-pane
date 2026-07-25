@@ -13,6 +13,7 @@ const SkillManager = lazy(() => import("@/components/skill/SkillManager"));
 const MemoryManager = lazy(() => import("@/components/memory/MemoryManager"));
 const FileExplorerView = lazy(() => import("@/components/explorer/FileExplorerView"));
 const EditorView = lazy(() => import("@/components/editor/EditorView"));
+const BrowserTabContent = lazy(() => import("./BrowserTabContent"));
 
 interface TabContentRendererProps {
   tab: Tab;
@@ -107,6 +108,14 @@ export default memo(function TabContentRenderer({
       return (
         <Suspense fallback={<LoadingFallback />}>
           <FileExplorerView projectPath={tab.projectPath} />
+        </Suspense>
+      );
+
+    case "browser":
+      if (!tab.browserUrl) return null;
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <BrowserTabContent tab={tab} isVisible={isVisible} isActive={isActive} />
         </Suspense>
       );
 

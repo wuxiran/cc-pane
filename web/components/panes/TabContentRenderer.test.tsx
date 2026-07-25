@@ -19,6 +19,17 @@ vi.mock("./TerminalTabContent", () => ({
   ),
 }));
 
+vi.mock("./BrowserTabContent", () => ({
+  default: ({ tab, isVisible, isActive }: { tab: Tab; isVisible: boolean; isActive: boolean }) => (
+    <div
+      data-testid="browser-tab-content"
+      data-tab-id={tab.id}
+      data-visible={String(isVisible)}
+      data-active={String(isActive)}
+    />
+  ),
+}));
+
 vi.mock("@/services/popupWindowService", () => ({
   popOutTab: vi.fn(),
   isTabPoppedOut: vi.fn(() => false),
@@ -157,5 +168,17 @@ describe("TabContentRenderer", () => {
     const { container } = renderContent(makeTab({ contentType: "unknown" as Tab["contentType"] }));
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders browser content with visibility and active state", async () => {
+    renderContent(makeTab({
+      contentType: "browser",
+      browserUrl: "http://localhost:5173/",
+    }));
+
+    const browser = await screen.findByTestId("browser-tab-content");
+    expect(browser).toHaveAttribute("data-tab-id", "tab-1");
+    expect(browser).toHaveAttribute("data-visible", "true");
+    expect(browser).toHaveAttribute("data-active", "true");
   });
 });

@@ -570,7 +570,7 @@ export default memo(function Panel({ pane }: PanelProps) {
         ))}
 
         {/* 空状态 — 深色背景与终端一致，确保毛玻璃标签可见 */}
-        {(!activeTab || !activeTab.projectPath) && (
+        {(!activeTab || (activeTab.contentType === "terminal" && !activeTab.projectPath)) && (
           <div
             className="absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden"
             style={{ background: "var(--app-panel-bg-effective)", paddingTop: tabBarHeight }}

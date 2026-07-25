@@ -972,6 +972,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+ "webview2-com",
  "which",
  "windows 0.62.2",
  "xcap",

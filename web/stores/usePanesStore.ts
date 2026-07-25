@@ -10,6 +10,7 @@ import { devDebugLog } from "@/utils/devLogger";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 import { createPanel } from "./paneTreeHelpers";
+import { createBrowserTabActions, type BrowserTabActions } from "./browserTabActions";
 import type {
   PaneNode,
   Panel,
@@ -943,14 +944,13 @@ interface ClosedTabSnapshot {
   machineName?: string;
 }
 
-interface PanesState {
+interface PanesState extends BrowserTabActions {
   rootPane: PaneNode;
   activePaneId: string;
   layouts: LayoutEntry[];
   currentLayoutId: string;
   closedTabs: ClosedTabSnapshot[];
   poppedOutTabs: Set<string>;
-
   // Derived helpers
   allPanels: () => Panel[];
   allPanelsAcrossLayouts: () => Panel[];
@@ -2546,7 +2546,7 @@ export const usePanesStore = create<PanesState>()(
         pane.activeTabId = newTab.id;
       });
     },
-
+    ...createBrowserTabActions(set),
     openFileExplorer: (projectPath, title) => {
       const active = get().activePane();
       if (!active) return;

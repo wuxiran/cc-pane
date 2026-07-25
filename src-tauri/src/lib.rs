@@ -31,6 +31,15 @@ use commands::{
     add_workspace_project,
     add_worktree,
     batch_update_todo_status,
+    browser_back,
+    browser_close,
+    browser_create,
+    browser_forward,
+    browser_navigate,
+    browser_open_devtools,
+    browser_reload,
+    browser_set_bounds,
+    browser_set_visible,
     check_environment,
     check_ssh_connectivity,
     check_todo_reminders,
@@ -230,6 +239,7 @@ use commands::{
     maximize_window,
     migrate_data_dir,
     minimize_window,
+    open_browser_tab,
     open_layout_switcher_window,
     open_path_in_explorer,
     open_web_access,
@@ -361,6 +371,7 @@ use repository::{
     Database, HistoryRepository, PlanRepository, ProjectRepository, SpecRepository,
     TaskBindingRepository, TodoRepository, UsageStatsRepository,
 };
+use services::BrowserTabManager;
 use services::{
     ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager, JournalService,
     LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
@@ -1498,6 +1509,7 @@ pub fn run() {
         .manage(layout_switcher_snapshot_store)
         .manage(orchestrator_service.clone())
         .manage(wallpaper_service)
+        .manage(Arc::new(BrowserTabManager::default()))
         .manage(cli_registry)
         .manage(crate::import::PendingImportStore::default())
         .setup(move |app| {
@@ -2161,6 +2173,16 @@ pub fn run() {
             query_usage_stats,
             refresh_usage_stats,
             // 窗口命令
+            browser_create,
+            browser_set_bounds,
+            browser_set_visible,
+            browser_navigate,
+            browser_back,
+            browser_forward,
+            browser_reload,
+            browser_open_devtools,
+            browser_close,
+            open_browser_tab,
             close_window,
             minimize_window,
             maximize_window,

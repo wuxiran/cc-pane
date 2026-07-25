@@ -5,6 +5,7 @@
  * - orchestrator-launch-task: 自动创建新标签页并连接 PTY 会话
  * - orchestrator-open-folder: 文件浏览器导航到目录
  * - orchestrator-open-file: 编辑器打开文件标签
+ * - orchestrator-open-browser-tab: 打开浏览器标签
  * - orchestrator-close-file: 关闭编辑器标签
  * - orchestrator-query-open-files: 查询已打开文件并响应
  * - orchestrator-query-panes: 查询当前面板布局并响应
@@ -269,7 +270,22 @@ export function useOrchestratorListener() {
       })
       .then((fn) => unlisteners.push(fn));
 
-    // 5. query-open-files 事件
+    // 5. open-browser-tab 事件
+    getCurrentWebview()
+      .listen<{ tabId: string; url: string; title?: string }>("orchestrator-open-browser-tab", (event) => {
+        const activity = useActivityBarStore.getState();
+        if (activity.appViewMode !== "panes") {
+          activity.setAppViewMode("panes");
+        }
+        usePanesStore.getState().openBrowser(
+          event.payload.url,
+          event.payload.title,
+          event.payload.tabId,
+        );
+      })
+      .then((fn) => unlisteners.push(fn));
+
+    // 6. query-open-files 事件
     getCurrentWebview()
       .listen<{ requestId: string }>(
         "orchestrator-query-open-files",
@@ -300,7 +316,7 @@ export function useOrchestratorListener() {
       )
       .then((fn) => unlisteners.push(fn));
 
-    // 6. query-panes 事件
+    // 7. query-panes 事件
     getCurrentWebview()
       .listen<{ requestId: string }>(
         "orchestrator-query-panes",
