@@ -63,6 +63,13 @@
 - [ ] 输出：人读表格默认，`--json` 给 AI/脚本；错误一律带"哪个源试过、为什么失败、下一步建议"；
 - [ ] 退出码：0 成功 / 2 目标源不可达 / 3 参数错，脚本可判。
 
+#### Phase 1.5：MCP 全工具面通用调用器（~0.25d，2026-07-25 用户拍板加入）
+
+- [ ] `tools [--schema <name>]`：经 `/mcp` 的 `tools/list` 列全部工具（88 个，schema 驱动，服务端加工具 CLI 零改动同步）；
+- [ ] `call <tool> --json '<args>' | --arg k=v ...`：`tools/call` 通用调用器，`--arg` 按 schema 做基本转型；输出 content 块，`--json` 原样、人读做基本美化（不做 per-tool 定制渲染）；
+- [ ] 与 mcp-proxy 共享 MCP HTTP 客户端（initialize 握手 + 会话管理一处实现）；
+- [ ] 边界如实呈现：`call` 依赖 orchestrator 存活；不可达时报错并提示可用的 daemon 降级子命令。`sessions`/`bindings` 别名保留为高频人体工学层 + 降级层。
+
 #### Phase 2：mcp-proxy（~0.5-1d）
 
 - [ ] `cc-panes-ctl mcp-proxy [--dev]`：stdio MCP server，转发 JSON-RPC 至 orchestrator `/mcp`（streamable HTTP + Bearer）；
