@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ExplorerView from "./ExplorerView";
@@ -106,25 +106,19 @@ describe("ExplorerView", () => {
     });
   });
 
-  it("renders the EXPLORER header and four segmented tabs, workspaces active by default", () => {
+  it("renders the EXPLORER header and two segmented tabs, workspaces active by default", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("EXPLORER")).toBeVisible();
     expect(screen.getByRole("tab", { name: "explorer.tabWorkspaces" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("tab", { name: "explorer.tabFiles" })).toHaveAttribute(
-      "aria-selected",
-      "false",
-    );
-    expect(screen.getByRole("tab", { name: "explorer.tabGit" })).toHaveAttribute(
-      "aria-selected",
-      "false",
-    );
     expect(screen.getByRole("tab", { name: "recentLaunches" })).toHaveAttribute(
       "aria-selected",
       "false",
     );
+    // 文件 / Git 已迁往 RightDock，左侧不再有入口
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
   });
 
@@ -156,66 +150,6 @@ describe("ExplorerView", () => {
     expect(onOpenTerminal).toHaveBeenCalledWith({ path: "/tmp/from-tree" });
   });
 
-  it("switches to the files tab, persists the active section, and keeps the tree alive but hidden", () => {
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    fireEvent.click(screen.getByRole("tab", { name: "explorer.tabFiles" }));
-
-    expect(useExplorerSectionsStore.getState().activeSection).toBe("files");
-    // keep-alive：树仍挂载（Dialogs 不丢），仅 display:none 隐藏
-    expect(screen.getByText("workspace-tree-stub")).not.toBeVisible();
-    expect(screen.getByText("explorer.selectWorkspaceHint")).toBeVisible();
-  });
-
-  it("lists all projects in the files tab with all roots collapsed by default", () => {
-    selectWorkspaceWithProject("proj-1");
-    useExplorerSectionsStore.setState({ activeSection: "files" });
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-
-    // 两个项目根都列出
-    expect(screen.getByText("demo")).toBeVisible();
-    expect(screen.getByText("other")).toBeVisible();
-    // 默认全折叠：不挂载任何 FileTree（懒加载）
-    expect(screen.queryAllByTestId("file-tree")).toHaveLength(0);
-  });
-
-  it("mounts a collapsed project's tree when its root node is expanded", () => {
-    selectWorkspaceWithProject("proj-1");
-    useExplorerSectionsStore.setState({ activeSection: "files" });
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-
-    fireEvent.click(screen.getByText("other"));
-
-    const trees = screen.getAllByTestId("file-tree");
-    expect(trees).toHaveLength(1);
-    expect(trees[0]).toHaveTextContent("D:/repos/other");
-  });
-
-  it("selection changes do not auto-expand roots in the files tab", () => {
-    selectWorkspaceWithProject("proj-1");
-    useExplorerSectionsStore.setState({ activeSection: "files" });
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.queryAllByTestId("file-tree")).toHaveLength(0);
-
-    act(() => {
-      useWorkspacesStore.setState({ expandedProjectId: "proj-2" });
-    });
-
-    // 跟随选中不再强制展开，仍需用户点击展开
-    expect(screen.queryAllByTestId("file-tree")).toHaveLength(0);
-  });
-
-  it("lists all projects as groups in the git tab with not-a-git-repo hints", async () => {
-    selectWorkspaceWithProject("proj-1");
-    useExplorerSectionsStore.setState({ activeSection: "git" });
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-
-    expect(screen.getByText("demo")).toBeVisible();
-    expect(screen.getByText("other")).toBeVisible();
-    // 组头（两个非 git 项目）+ 选中项目展开的组体各一条
-    const hints = await screen.findAllByText("explorer.notGitRepo");
-    expect(hints.length).toBeGreaterThanOrEqual(2);
-  });
-
   it("opens the global launcher from the persistent bottom button with the workspace context", () => {
     selectWorkspaceWithProject(null);
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
@@ -238,21 +172,9 @@ describe("ExplorerView", () => {
     });
   });
 
-  it("keeps the bottom launch button mounted while the git tab is active", () => {
-    useExplorerSectionsStore.setState({ activeSection: "git" });
+  it("keeps the bottom launch button mounted while the sessions tab is active", () => {
+    useExplorerSectionsStore.setState({ activeSection: "sessions" });
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByRole("button", { name: /launchTerminal/ })).toBeVisible();
-  });
-
-  it("shows an unavailable hint when the git query fails (silent tolerance)", async () => {
-    vi.mocked(gitService.getRepoInfo).mockImplementation(async () => {
-      throw new Error("ssh timeout");
-    });
-    selectWorkspaceWithProject("proj-1");
-    useExplorerSectionsStore.setState({ activeSection: "git" });
-    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-
-    const hints = await screen.findAllByText("explorer.gitUnavailableReason");
-    expect(hints.length).toBeGreaterThanOrEqual(2);
   });
 });

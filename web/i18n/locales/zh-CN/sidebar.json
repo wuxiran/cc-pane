@@ -392,8 +392,6 @@
   "launchTerminalShortcut": "Ctrl+T",
   "explorer.git": "Git",
   "explorer.tabWorkspaces": "工作区",
-  "explorer.tabFiles": "文件",
-  "explorer.tabGit": "Git",
   "explorer.selectProjectHint": "选择项目后显示",
   "explorer.selectWorkspaceHint": "选择工作空间后显示",
   "explorer.noProjects": "暂无项目",

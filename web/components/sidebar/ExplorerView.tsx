@@ -1,10 +1,10 @@
-// Explorer 侧栏：EXPLORER 标题下三按钮 segmented（工作区 / 文件 / Git）单选切换，
-// 同一时刻只显示选中的视图，占满高度自己滚动。工作空间树 keep-alive（display 翻转），
-// 保证其挂载的 Dialogs 在切换视图时不丢失。
+// Explorer 侧栏：EXPLORER 标题下双按钮 segmented（工作区 / 最近启动）单选切换。
+// 文件 / Git 视图已迁往右侧 RightDock（跟随激活终端、多根），左侧不再重复入口。
+// 工作空间树 keep-alive（display 翻转），保证其挂载的 Dialogs 在切换视图时不丢失。
 // 底部常驻「启动终端」入口：只调 useDialogStore.openLauncher 唤起全局启动器（含 Provider 凭证选择），
 // 绝不在此挂 useOpenTerminal —— 全应用只有 App.tsx 一处挂载，重复挂会双消费 pendingLaunch。
 import { useTranslation } from "react-i18next";
-import { Files, GitBranch, History, LayoutGrid, Rocket } from "lucide-react";
+import { History, LayoutGrid, Rocket } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
 import SessionsView from "@/components/sidebar/SessionsView";
@@ -14,21 +14,17 @@ import {
   useWorkspacesStore,
   type ExplorerSectionId,
 } from "@/stores";
-import ExplorerFilesSection from "./ExplorerFilesSection";
-import ExplorerGitSection from "./ExplorerGitSection";
 import type { OpenTerminalOptions } from "@/types";
 
 // IDEA 风格图标 tab：图标 + tooltip，紧凑不占宽
 const SECTIONS = [
   { id: "workspaces", labelKey: "explorer.tabWorkspaces", Icon: LayoutGrid },
-  { id: "files", labelKey: "explorer.tabFiles", Icon: Files },
-  { id: "git", labelKey: "explorer.tabGit", Icon: GitBranch },
   // 「最近启动」原为 ActivityBar 竖排项，复用已有的 recentLaunches key（不新增 i18n）
   { id: "sessions", labelKey: "recentLaunches", Icon: History },
 ] as const satisfies ReadonlyArray<{
   id: ExplorerSectionId;
   labelKey: string;
-  Icon: typeof Files;
+  Icon: typeof LayoutGrid;
 }>;
 
 interface ExplorerViewProps {
@@ -123,18 +119,6 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       >
         <WorkspaceTree onOpenTerminal={onOpenTerminal} />
       </div>
-
-      {activeSection === "files" && (
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          <ExplorerFilesSection workspace={workspace} selectedProjectId={expandedProjectId} />
-        </div>
-      )}
-
-      {activeSection === "git" && (
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          <ExplorerGitSection workspace={workspace} selectedProjectId={expandedProjectId} />
-        </div>
-      )}
 
       {/* 最近启动：keep-alive，隐藏而不卸载（保住 launchHistory 与 history-updated 监听，切走再切回不丢状态） */}
       <div
