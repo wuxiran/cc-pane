@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.11.2 - 2026-07-26
+
+### Added — session history (unified local transcript index)
+
+- **Session History dock view.** A new right-dock module indexes every local Claude + Codex transcript (including sessions not launched from CC-Panes, and WSL-side Codex rollouts): last-message summary, message count, CLI badge, relative time; scope filter (all / current workspace / current project, following the active terminal), keyword search, CLI chips, one-click resume. Codex resume runs a rollout-existence precheck — an invalid rollout disables the entry with a warning instead of silently starting a fresh session.
+- **Incremental index cache.** `session_index` + `session_scan_state` tables with mtime/size skip (steady-state cycles read zero transcript bytes), a parse-algorithm version gate that forces a clean rescan when semantics change, 300s background cycle, and a first-scan that never wakes the WSL VM.
+
+### Added — quick commands library
+
+- **User quick commands.** Save reusable terminal commands or agent prompts with global or per-project scope (`quick-commands.json`, atomic writes), an append-Enter toggle, and a target of the current pane (split-aware leaf delivery) or a new tab. Three entry points: Command Palette group, tab context-menu submenu, and a Settings pane with full CRUD.
+
+### Added — workspace organization
+
+- **Workspace groups + color tags + filtering.** Assign workspaces to derived groups (create from the header, the create-workspace dialog, or per-workspace context menu), tag them with one of eight theme-paired colors, and filter the sidebar by keyword / colors / group. Groups render as collapsible sections with within-group drag ordering; the default workspace stays pinned and always visible.
+
+### Added — desktop chrome & editor
+
+- **Update notification card + interrupt gate.** A bottom-right non-modal card offers one-click download-install-restart; a shared interrupt gate keeps it (and feature tips) from firing while any agent is thinking/active/awaiting input.
+- **Markdown editing upgrades.** Split-view scroll sync (both directions, echo-guarded), fenced-code syntax highlighting with theme-paired token colors, lazy-loaded Mermaid diagram rendering, and relative image-path resolution against the file's directory.
+- **Layout tab status buckets.** The layout-bar summary row now shows colored status counts (error / awaiting input / running) instead of project names, hiding empty buckets.
+- **Title-bar collapse hides the activity bar.** The sidebar toggle now collapses the icon strip together with the panel; any path that reopens the sidebar restores the strip.
+- **Explorer dedup.** The left Files/Git tabs were removed in favor of the right dock's stronger equivalents (multi-root, follows the active terminal); persisted selections migrate back to Workspaces.
+
+### Added — control plane
+
+- **`cc-panes-ctl`.** A sidecar binary exposing endpoint discovery, a generic MCP tool caller, session/binding management commands, and a resumable stdio MCP proxy — the recovery surface for orchestrator outages.
+- **Orchestrator bind observability.** `OrchestratorStatus` gains lifecycle/attempt/lastError; bind failures now raise a visible alert banner with an escape-hatch env var instead of failing silently, with bounded retry.
+
+### Fixed — reliability
+
+- **WebView2 process-failure recovery.** Renderer crashes reload in place; a browser-process crash triggers exactly one window rebuild, then a clean exit(70) that releases the single-instance lock — no more headless zombies holding the lock.
+- **Daemon bridge connection storm.** WebSocket retry policy (3 attempts, capped backoff), a global handshake semaphore, and a 1s/5s poll schedule cut worst-case short-connection churn ~94% at 31 sessions; `get_bridge_stats` exposes live counters.
+- **Zombie listener ports.** Orchestrator and web listener sockets are now created non-inheritable (`WSA_FLAG_NO_HANDLE_INHERIT`), so child processes can no longer hold a dead instance's port open and force port drift.
+- **Test binaries load on Windows again.** comctl32 v6's `TaskDialogIndirect` import (via tauri-runtime-wry 2.11) crashed manifest-less test executables at load; comctl32 is now delay-loaded.
+
 ## 0.11.1 - 2026-07-25
 
 ### Added — orchestration primitives (`docs/44`)
