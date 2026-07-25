@@ -1,8 +1,9 @@
 // 命令面板（Ctrl+K）：聚合已注册快捷键动作 / 工作空间跳转 / 布局切换。
 // 打开入口走 shortcuts 体系（action id: command-palette），终端聚焦时放行给终端。
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Zap, FolderOpen, LayoutGrid } from "lucide-react";
+import { toast } from "sonner";
+import { Zap, FolderOpen, LayoutGrid, Play } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -18,6 +19,7 @@ import {
   useWorkspacesStore,
   usePanesStore,
   useActivityBarStore,
+  useQuickCommandsStore,
 } from "@/stores";
 import { formatKeyCombo } from "@/stores/useShortcutsStore";
 import { isTauriRuntime } from "@/services/runtime";
@@ -25,6 +27,12 @@ import { getVisibleSettingsPanes } from "@/components/settings/settingsRegistry"
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { getSettingsCommandTargets } from "@/components/settings/settingsSearch";
 import { MODULE_CONSUMERS } from "@/modules/registry";
+import { findPane } from "@/stores/paneTreeHelpers";
+import {
+  executeQuickCommand,
+  getQuickCommandSessionId,
+} from "@/lib/quickCommandExecution";
+import type { ScopedQuickCommand } from "@/types";
 
 export const COMMAND_PALETTE_TOGGLE_EVENT = "cc-panes:command-palette-toggle";
 
@@ -43,6 +51,15 @@ export default function CommandPalette() {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const layouts = usePanesStore((s) => s.layouts);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
+  const rootPane = usePanesStore((s) => s.rootPane);
+  const activePaneId = usePanesStore((s) => s.activePaneId);
+  const quickCommands = useQuickCommandsStore((s) => s.commands);
+  const activeContext = useMemo(() => {
+    const pane = findPane(rootPane, activePaneId);
+    if (pane?.type !== "panel") return null;
+    const tab = pane.tabs.find((item) => item.id === pane.activeTabId);
+    return tab ? { paneId: pane.id, tab } : null;
+  }, [activePaneId, rootPane]);
   const settingsPanes = getVisibleSettingsPanes({
     isMac: navigator.platform.toUpperCase().includes("MAC"),
     isTauri: isTauriRuntime(),
@@ -64,6 +81,37 @@ export default function CommandPalette() {
       useWorkspacesStore.getState().expandWorkspace(workspaceId);
     });
   }, [runAndClose]);
+
+  const quickCommandDisabledReason = useCallback((command: ScopedQuickCommand) => {
+    if (!activeContext) return t("quickCommands.noActiveTab", { ns: "settings" });
+    if (command.target === "currentPane" && !getQuickCommandSessionId(activeContext.tab)) {
+      return t("quickCommands.noActiveTerminal", { ns: "settings" });
+    }
+    if (command.target === "newTab" && !activeContext.tab.projectPath) {
+      return t("quickCommands.noActiveProject", { ns: "settings" });
+    }
+    if (
+      command.kind === "agentPrompt"
+      && command.target === "newTab"
+      && (!command.cliTool || command.cliTool === "none")
+    ) {
+      return t("quickCommands.noCliTool", { ns: "settings" });
+    }
+    return undefined;
+  }, [activeContext, t]);
+
+  const runQuickCommand = useCallback((command: ScopedQuickCommand) => {
+    if (!activeContext || quickCommandDisabledReason(command)) return;
+    const { scope: _scope, ...quickCommand } = command;
+    runAndClose(() => {
+      void executeQuickCommand(quickCommand, activeContext).catch((error) => {
+        toast.error(t("quickCommands.executeFailed", {
+          ns: "settings",
+          error: String(error),
+        }));
+      });
+    });
+  }, [activeContext, quickCommandDisabledReason, runAndClose, t]);
 
   // 面板打开的动作本身（command-palette）不列入清单
   const listedActions = Array.from(actions.values()).filter(
@@ -120,6 +168,29 @@ export default function CommandPalette() {
             );
           })}
         </CommandGroup>
+
+        {quickCommands.length > 0 && (
+          <CommandGroup heading={t("quickCommands.commandGroup", { ns: "settings" })}>
+            {quickCommands.map((command) => {
+              const disabledReason = quickCommandDisabledReason(command);
+              return (
+                <CommandItem
+                  key={`${command.scope}-${command.id}`}
+                  value={`${command.name} ${command.text} ${t(`quickCommands.scope.${command.scope}`, { ns: "settings" })}`}
+                  disabled={Boolean(disabledReason)}
+                  title={disabledReason}
+                  onSelect={() => runQuickCommand(command)}
+                >
+                  <Play strokeWidth={1.5} />
+                  <span className="min-w-0 flex-1 truncate">{command.name}</span>
+                  <span className="truncate text-[11px] text-[var(--app-text-tertiary)]">
+                    {t(`quickCommands.scope.${command.scope}`, { ns: "settings" })}
+                  </span>
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        )}
 
         <CommandGroup heading={t("searchCommandGroup", { ns: "settings" })}>
           {getSettingsCommandTargets(settingsPanes).map(({ pane, entry }) => {

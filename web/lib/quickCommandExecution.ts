@@ -94,7 +94,7 @@ function dispatchToSession(
 
 function waitForTabSession(tabId: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    let unsubscribe = () => undefined;
+    let unsubscribe: () => void = () => {};
     const timeout = window.setTimeout(() => {
       unsubscribe();
       reject(new Error("Timed out waiting for the quick command terminal session"));
