@@ -67,6 +67,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -1174,25 +1175,49 @@ fn decide_port() -> u16 {
     }
 }
 
+#[cfg(not(windows))]
+fn bind_non_inheritable_listener(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+    let listener = std::net::TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
+    tokio::net::TcpListener::from_std(listener)
+}
+
+#[cfg(windows)]
+fn bind_non_inheritable_listener(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+    use socket2::{Domain, Protocol, Socket, Type};
+
+    // Socket::new uses WSASocketW with OVERLAPPED and NO_HANDLE_INHERIT on Windows.
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
+    socket.bind(&addr.into())?;
+    socket.listen(128)?;
+    socket.set_nonblocking(true)?;
+    tokio::net::TcpListener::from_std(socket.into())
+}
+
 /// 绑定固定端口。**失败不回退 `:0`**——端口一漂移，已运行 CLI 会话的 MCP client
 /// （只在进程启动时解析一次端点）会永久失联，静默换端口比起不来更难排查。
-async fn bind_fixed_port(bind_host: &str, port: u16) -> Result<tokio::net::TcpListener, String> {
-    tokio::net::TcpListener::bind(format!("{bind_host}:{port}"))
-        .await
-        .map_err(|error| {
-            format!(
-                "无法绑定 {bind_host}:{port}（{error}）。本构建为 {build}，固定端口 {fixed}。排查：\
+fn bind_fixed_port(bind_host: &str, port: u16) -> Result<tokio::net::TcpListener, String> {
+    let addr = format!("{bind_host}:{port}")
+        .parse::<SocketAddr>()
+        .map_err(|error| format!("无效监听地址 {bind_host}:{port}（{error}）"))?;
+    bind_non_inheritable_listener(addr).map_err(|error| {
+        format!(
+            "无法绑定 {bind_host}:{port}（{error}）。本构建为 {build}，固定端口 {fixed}。排查：\
                  1) 是否已有另一个同类型（{build}）的 CC-Panes 实例在跑——dev 与 release 端口本就错开，\
                  只有同类型重复启动才会撞；\
                  2) `netstat -ano | findstr :{port}`（Windows）/ `lsof -i :{port}`（macOS/Linux）看占用进程；\
                  3) 确实被别的程序长期占用时，设 {env}=<另一个确定端口> 后重启应用\
                  （不要填 0，那是 OS 随机分配，会让已运行的 CLI 会话重启后永久失联）。\
                  macOS 上还需确认系统设置 > 隐私与安全性 > 防火墙已放行本应用。",
-                build = if cfg!(debug_assertions) { "dev" } else { "release" },
-                fixed = orchestrator_manifest::ORCHESTRATOR_FIXED_PORT,
-                env = orchestrator_manifest::ORCHESTRATOR_PORT_ENV,
-            )
-        })
+            build = if cfg!(debug_assertions) {
+                "dev"
+            } else {
+                "release"
+            },
+            fixed = orchestrator_manifest::ORCHESTRATOR_FIXED_PORT,
+            env = orchestrator_manifest::ORCHESTRATOR_PORT_ENV,
+        )
+    })
 }
 
 pub struct OrchestratorService {
@@ -1613,7 +1638,7 @@ impl OrchestratorService {
                 // 绑不上就报错退出，不静默漂移到随机端口。
                 // auto/all 下绑 0.0.0.0 供 WSL 访问；loopback 只绑回环，缩小 LAN 暴露面。
                 // macOS Ventura+ 首次绑定非回环可能触发防火墙授权弹窗，这是正常行为
-                let listener = match bind_fixed_port(&bind_host, listen_port).await {
+                let listener = match bind_fixed_port(&bind_host, listen_port) {
                     Ok(l) => l,
                     Err(message) => {
                         error!("[orchestrator] {}", message);
@@ -11119,6 +11144,33 @@ mod tests {
         assert!(!parse_wsl_networking_mirrored(
             "[wsl2]\nnetworkingMode=nat\n"
         ));
+    }
+
+    #[tokio::test]
+    async fn orchestrator_listener_releases_fixed_port_after_drop() {
+        let first = bind_non_inheritable_listener("127.0.0.1:0".parse().unwrap())
+            .expect("bind first listener");
+        let addr = first.local_addr().expect("first listener addr");
+
+        drop(first);
+
+        let second = bind_non_inheritable_listener(addr).expect("rebind fixed port");
+        assert_eq!(second.local_addr().expect("second listener addr"), addr);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn orchestrator_listener_handle_is_not_inheritable() {
+        use std::os::windows::io::AsRawSocket;
+        use windows::Win32::Foundation::{GetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
+
+        let listener =
+            bind_non_inheritable_listener("127.0.0.1:0".parse().unwrap()).expect("bind listener");
+        let handle = HANDLE(listener.as_raw_socket() as *mut std::ffi::c_void);
+        let mut flags = 0;
+        unsafe { GetHandleInformation(handle, &mut flags) }.expect("read listener handle flags");
+
+        assert_eq!(flags & HANDLE_FLAG_INHERIT.0, 0);
     }
 
     #[test]

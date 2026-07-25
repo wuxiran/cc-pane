@@ -30,5 +30,8 @@ encoding_rs = "0.8"
 chrono = "0.4"
 rand = "0.8"
 
+[target.'cfg(windows)'.dependencies]
+socket2 = "0.6"
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
