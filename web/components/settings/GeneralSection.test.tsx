@@ -159,6 +159,23 @@ describe("GeneralSection", () => {
     expect(onUpdateNotifyEnabledChange).toHaveBeenCalledWith(false);
   });
 
+  it("toggles feature tips", async () => {
+    const user = userEvent.setup();
+    const onFeatureTipsEnabledChange = vi.fn();
+    render(
+      <GeneralSection
+        value={createValue()}
+        onChange={vi.fn()}
+        featureTipsEnabled
+        onFeatureTipsEnabledChange={onFeatureTipsEnabledChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: /功能提示|Feature tips/i }));
+
+    expect(onFeatureTipsEnabledChange).toHaveBeenCalledWith(false);
+  });
+
   it("emits language changes and lists CLI tools from the hook", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

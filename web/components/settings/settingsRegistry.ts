@@ -112,6 +112,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       { id: "history", titleKey: "localHistoryEnabled", descriptionKey: "localHistoryEnabledDesc", targetSectionId: "general-root" },
       { id: "system-resources", titleKey: "showSystemResources", targetSectionId: "general-root" },
       { id: "update-notify", titleKey: "updateNotifyEnabled", descriptionKey: "updateNotifyEnabledDesc", targetSectionId: "general-root" },
+      { id: "feature-tips", titleKey: "featureTipsEnabled", descriptionKey: "featureTipsEnabledDesc", targetSectionId: "general-root" },
       { id: "language", titleKey: "language", targetSectionId: "general-root" },
       { id: "cli", titleKey: "defaultCliTool", descriptionKey: "defaultCliToolDesc", targetSectionId: "general-root" },
       { id: "data", titleKey: "dataDir", descriptionKey: "dataDirDesc", targetSectionId: "general-root" },

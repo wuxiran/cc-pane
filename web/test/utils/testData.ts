@@ -141,6 +141,14 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       skippedVersion: null,
       lastNotifiedAt: null,
     },
+    tips: {
+      enabled: true,
+      lastShownAt: null,
+      seen: [],
+      tried: [],
+      dismissRun: 0,
+      sessionCount: 0,
+    },
     screenshot: {
       shortcut: "Ctrl+Shift+S",
       retentionDays: 7,

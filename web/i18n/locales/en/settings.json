@@ -14,7 +14,7 @@
     "keywords": "Keyword"
   },
   "searchKeywords": {
-    "general": "startup tray language history data directory search scope version update notification",
+    "general": "startup tray language history data directory search scope version update notification feature tips",
     "wallpaper": "image video background music opacity blur",
     "font": "font size family typography CJK",
     "shortcuts": "shortcut hotkey keyboard binding",
@@ -91,6 +91,8 @@
   "autoStart": "Start on boot",
   "updateNotifyEnabled": "Notify me about new versions",
   "updateNotifyEnabledDesc": "Show an update card in the bottom-right when idle. The status bar entry remains available.",
+  "featureTipsEnabled": "Feature tips",
+  "featureTipsEnabledDesc": "Occasionally introduce unused capabilities at natural idle moments.",
   "localHistoryEnabled": "Enable Local History file watching",
   "localHistoryEnabledDesc": "Turning this off stops file watching for every project. Project settings cannot override it; new sessions resume watching on demand after re-enabling.",
   "language": "Language",
@@ -233,6 +235,34 @@
   "updateFailed": "Update failed",
   "updateRetry": "Retry",
   "updateDownloadPage": "Download page",
+  "featureTips": {
+    "badge": "TIP",
+    "try": "Try it",
+    "gotIt": "Got it",
+    "disable": "Stop showing all tips",
+    "rebind": "Rebind this shortcut any time",
+    "shortcutSettings": "Settings → Shortcuts",
+    "commandPalette": {
+      "title": "Jump anywhere with the Command Palette",
+      "body": "Find commands, workspaces, and layouts without leaving the keyboard.",
+      "bodyUnbound": "Bind the Command Palette in Settings, then find commands, workspaces, and layouts quickly."
+    },
+    "layoutSwitcher": {
+      "title": "Switch task layouts at any time",
+      "body": "Open the compact layout picker and move quickly between task views.",
+      "bodyUnbound": "Bind the layout picker in Settings to move quickly between task views."
+    },
+    "miniMode": {
+      "title": "Collapse into a mini terminal",
+      "body": "Use Mini Mode when you only need to watch a focused stream of terminal output.",
+      "bodyUnbound": "Bind Mini Mode in Settings to collapse the window into a lightweight terminal."
+    },
+    "launcher": {
+      "title": "Create tabs from one launcher",
+      "body": "Choose the project, CLI, runtime, and launch options from one place.",
+      "bodyUnbound": "Bind New Tab in Settings to open the unified project, CLI, and runtime launcher."
+    }
+  },
   "openLogDir": "Open Log Directory",
   "cleanupBeforeUninstall": "Cleanup before uninstall",
   "cleanupConfirmTitle": "Remove CC-Panes injections?",

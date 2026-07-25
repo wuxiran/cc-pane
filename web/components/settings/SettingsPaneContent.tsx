@@ -45,6 +45,10 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
           onUpdateNotifyEnabledChange={(notifyEnabled) =>
             updateDraft({ ...draft, update: { ...draft.update, notifyEnabled } })
           }
+          featureTipsEnabled={draft.tips.enabled}
+          onFeatureTipsEnabledChange={(enabled) =>
+            updateDraft({ ...draft, tips: { ...draft.tips, enabled } })
+          }
         />
       );
     case "notification":

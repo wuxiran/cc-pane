@@ -63,6 +63,15 @@ const DEFAULT_UPDATE_SETTINGS = {
   lastNotifiedAt: null,
 };
 
+const DEFAULT_TIPS_SETTINGS = {
+  enabled: true,
+  lastShownAt: null,
+  seen: [],
+  tried: [],
+  dismissRun: 0,
+  sessionCount: 0,
+};
+
 export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
   enabled: false,
   kind: "none",
@@ -122,6 +131,12 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
     update: {
       ...DEFAULT_UPDATE_SETTINGS,
       ...maybeSettings.update,
+    },
+    tips: {
+      ...DEFAULT_TIPS_SETTINGS,
+      ...maybeSettings.tips,
+      seen: maybeSettings.tips?.seen ?? [],
+      tried: maybeSettings.tips?.tried ?? [],
     },
     // wallpaper 是三层嵌套结构：老配置升级后 settings.wallpaper 或其 video/music
     // 子块可能是 undefined，必须逐层合并默认，否则读 settings.wallpaper.video.* 直接崩
@@ -262,6 +277,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       onlyWhenUnfocused: true,
     },
     update: DEFAULT_UPDATE_SETTINGS,
+    tips: DEFAULT_TIPS_SETTINGS,
     screenshot: {
       shortcut: "Ctrl+Shift+S",
       retentionDays: 7,

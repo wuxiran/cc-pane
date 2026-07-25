@@ -14,7 +14,7 @@
     "keywords": "关键词"
   },
   "searchKeywords": {
-    "general": "启动 托盘 语言 历史 数据目录 搜索范围 版本更新提示",
+    "general": "启动 托盘 语言 历史 数据目录 搜索范围 版本更新提示 功能提示",
     "wallpaper": "图片 视频 背景 音乐 透明度 模糊",
     "font": "字体 字号 font family 中文 CJK",
     "shortcuts": "快捷键 热键 键盘 绑定",
@@ -91,6 +91,8 @@
   "autoStart": "开机自启",
   "updateNotifyEnabled": "有新版本时提示",
   "updateNotifyEnabledDesc": "空闲时在右下角显示更新卡片，状态栏入口始终保留。",
+  "featureTipsEnabled": "功能提示",
+  "featureTipsEnabledDesc": "在自然空闲边界低频介绍尚未用过的能力。",
   "localHistoryEnabled": "启用 Local History 文件监听",
   "localHistoryEnabledDesc": "全局关闭会停止所有项目的文件监听，项目级设置不能覆盖此开关；重新开启后由新会话按需恢复。",
   "language": "语言",
@@ -233,6 +235,34 @@
   "updateFailed": "更新失败",
   "updateRetry": "重试",
   "updateDownloadPage": "去下载页",
+  "featureTips": {
+    "badge": "TIP",
+    "try": "试试看",
+    "gotIt": "知道了",
+    "disable": "不再显示任何提示",
+    "rebind": "随时重新绑定快捷方式",
+    "shortcutSettings": "设置 → 快捷键",
+    "commandPalette": {
+      "title": "用命令面板快速直达",
+      "body": "快速查找命令、工作空间和布局，不必离开键盘。",
+      "bodyUnbound": "去设置绑定命令面板快捷键，然后快速查找命令、工作空间和布局。"
+    },
+    "layoutSwitcher": {
+      "title": "随时切换工作布局",
+      "body": "打开紧凑布局选择器，在不同任务视图之间快速切换。",
+      "bodyUnbound": "去设置绑定布局选择器快捷键，在不同任务视图之间快速切换。"
+    },
+    "miniMode": {
+      "title": "把窗口收成迷你终端",
+      "body": "需要专注一段输出时，切到迷你模式减少其他界面占用。",
+      "bodyUnbound": "去设置绑定迷你模式快捷键，需要时把窗口收成轻量终端。"
+    },
+    "launcher": {
+      "title": "从统一启动器新建标签",
+      "body": "在一个入口选择项目、CLI、运行环境和启动参数。",
+      "bodyUnbound": "去设置绑定新建标签快捷键，从统一启动器选择项目、CLI 和环境。"
+    }
+  },
   "openLogDir": "打开日志目录",
   "cleanupBeforeUninstall": "卸载前清理",
   "cleanupConfirmTitle": "清理 CC-Panes 注入项？",

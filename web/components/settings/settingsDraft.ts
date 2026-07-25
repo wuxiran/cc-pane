@@ -8,7 +8,7 @@ export type SettingsDraft = AppSettings & { ccchan: CCChanSettings };
 export const SECTION_DRAFT_KEYS: Partial<
   Record<SettingsPaneId, (keyof SettingsDraft)[]>
 > = {
-  general: ["general", "localHistory", "update"],
+  general: ["general", "localHistory", "update", "tips"],
   notification: ["notification"],
   "web-access": ["webAccess", "orchestrator"],
   "cli-launchers": ["cliLaunchers"],
@@ -34,6 +34,15 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
       skippedVersion: null,
       lastNotifiedAt: null,
       ...maybeWithCCChan.update,
+    },
+    tips: {
+      enabled: true,
+      lastShownAt: null,
+      dismissRun: 0,
+      sessionCount: 0,
+      ...maybeWithCCChan.tips,
+      seen: maybeWithCCChan.tips?.seen ?? [],
+      tried: maybeWithCCChan.tips?.tried ?? [],
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
