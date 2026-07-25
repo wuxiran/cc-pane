@@ -94,6 +94,8 @@ export type {
   ShortcutSettings,
   GeneralSettings,
   NotificationSettings,
+  UpdateSettings,
+  TipsSettings,
   TerminalStatusType,
   TerminalStatusInfo,
   DataDirInfo,

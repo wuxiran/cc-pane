@@ -26,6 +26,10 @@ pub struct AppSettings {
     #[serde(default)]
     pub notification: NotificationSettings,
     #[serde(default)]
+    pub update: UpdateSettings,
+    #[serde(default)]
+    pub tips: TipsSettings,
+    #[serde(default)]
     pub screenshot: ScreenshotSettings,
     #[serde(default)]
     pub voice: VoiceSettings,
@@ -541,6 +545,36 @@ pub struct GeneralSettings {
     /// 是否在状态栏显示整机 CPU 与内存占用。
     #[serde(default = "default_true")]
     pub show_system_resources: bool,
+}
+
+/// 应用版本更新提示设置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSettings {
+    #[serde(default = "default_true")]
+    pub notify_enabled: bool,
+    #[serde(default)]
+    pub skipped_version: Option<String>,
+    #[serde(default)]
+    pub last_notified_at: Option<String>,
+}
+
+/// 低频功能提示设置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TipsSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub last_shown_at: Option<String>,
+    #[serde(default)]
+    pub seen: Vec<String>,
+    #[serde(default)]
+    pub tried: Vec<String>,
+    #[serde(default)]
+    pub dismiss_run: u32,
+    #[serde(default)]
+    pub session_count: u32,
 }
 
 fn default_cli_tool() -> String {
@@ -1132,6 +1166,29 @@ impl Default for GeneralSettings {
     }
 }
 
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            notify_enabled: true,
+            skipped_version: None,
+            last_notified_at: None,
+        }
+    }
+}
+
+impl Default for TipsSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            last_shown_at: None,
+            seen: Vec::new(),
+            tried: Vec::new(),
+            dismiss_run: 0,
+            session_count: 0,
+        }
+    }
+}
+
 impl ProxySettings {
     /// 将代理配置转换为环境变量
     pub fn to_env_vars(&self) -> HashMap<String, String> {
@@ -1646,6 +1703,26 @@ mod tests {
 
         assert!(settings.show_system_resources);
         assert!(GeneralSettings::default().show_system_resources);
+    }
+
+    #[test]
+    fn update_notifications_default_enabled_for_legacy_config() {
+        let settings: AppSettings = toml::from_str("").expect("parse legacy settings");
+
+        assert!(settings.update.notify_enabled);
+        assert_eq!(settings.update.skipped_version, None);
+        assert_eq!(settings.update.last_notified_at, None);
+    }
+
+    #[test]
+    fn feature_tips_default_enabled_for_legacy_config() {
+        let settings: AppSettings = toml::from_str("").expect("parse legacy settings");
+
+        assert!(settings.tips.enabled);
+        assert!(settings.tips.seen.is_empty());
+        assert!(settings.tips.tried.is_empty());
+        assert_eq!(settings.tips.dismiss_run, 0);
+        assert_eq!(settings.tips.session_count, 0);
     }
 
     #[test]

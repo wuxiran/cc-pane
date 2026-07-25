@@ -1,4 +1,4 @@
-import { check } from "@tauri-apps/plugin-updater";
+import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getErrorMessage } from "@/utils";
@@ -6,6 +6,18 @@ import { useUpdateStore } from "@/stores";
 import { isTauriRuntime } from "./runtime";
 // 直接从模块导入（不走 @/services 桶文件）避免服务间循环依赖
 import { settingsService } from "./settingsService";
+
+export interface UpdateInstallProgress {
+  phase: "starting" | "downloading" | "installing";
+  downloadedBytes: number;
+  totalBytes: number | null;
+  percent: number | null;
+}
+
+export async function checkForAvailableUpdate(): Promise<Update | null> {
+  if (!isTauriRuntime()) return null;
+  return check();
+}
 
 /**
  * 静默检查更新，结果写入 useUpdateStore（不弹窗）
@@ -89,9 +101,12 @@ export async function triggerUpdate(): Promise<void> {
 
 // ---- internal ----
 
-function getUpdateErrorHint(message: string): string {
+export function getUpdateErrorHint(message: string, language = "zh-CN"): string {
+  const isChinese = language.toLowerCase().startsWith("zh");
   if (message.includes("fallback platforms") || message.includes("platforms object")) {
-    return "\n\n提示：当前发布清单缺少本机平台的自动更新包，请从 GitHub Release 手动下载对应平台版本，或等待补发新版。";
+    return isChinese
+      ? "\n\n提示：当前发布清单缺少本机平台的自动更新包，请从下载页手动获取对应平台版本，或等待补发新版。"
+      : "\n\nThe release manifest does not include an automatic update for this platform. Download it manually or wait for a corrected release.";
   }
 
   if (
@@ -99,7 +114,9 @@ function getUpdateErrorHint(message: string): string {
     message.includes("connect") ||
     message.includes("timed out")
   ) {
-    return "\n\n提示：如果无法访问 GitHub，请确认代理工具已开启「系统代理」模式，或在 设置 → 代理 中手动配置。";
+    return isChinese
+      ? "\n\n提示：如果无法访问 GitHub，请确认代理工具已开启「系统代理」模式，或在 设置 → 代理 中手动配置。"
+      : "\n\nIf GitHub is unreachable, enable system proxy mode or configure a proxy in Settings → Proxy.";
   }
 
   return "";
@@ -115,6 +132,14 @@ async function promptAndInstallUpdate(update: Awaited<ReturnType<typeof check>>)
 
   if (!confirmed) return;
 
+  await downloadAndInstallUpdate(update);
+}
+
+/** 下载并安装指定更新；卡片和原生确认路径共享同一套真实进度与重启流程。 */
+export async function downloadAndInstallUpdate(
+  update: Update,
+  onProgress?: (progress: UpdateInstallProgress) => void,
+): Promise<void> {
   // 安装前先停掉 cc-panes-web + cc-panes-daemon（释放它们对 binaries 下二进制的
   // 文件锁）：否则 Windows NSIS 安装程序无法替换正在运行的
   // binaries/cc-panes-web.exe / cc-panes-daemon.exe，会静默失败并留下旧二进制
@@ -131,15 +156,39 @@ async function promptAndInstallUpdate(update: Awaited<ReturnType<typeof check>>)
     console.warn("[updater] 安装前停止终端 daemon 失败（继续更新）:", error);
   }
 
-  await update.downloadAndInstall((progress) => {
-    if (progress.event === "Started" && progress.data.contentLength) {
-      console.debug(`[updater] 开始下载，大小: ${progress.data.contentLength} bytes`);
+  let downloadedBytes = 0;
+  let totalBytes: number | null = null;
+  const reportProgress = (progress: DownloadEvent) => {
+    if (progress.event === "Started") {
+      totalBytes = progress.data.contentLength ?? null;
+      console.debug(`[updater] 开始下载，大小: ${totalBytes ?? "unknown"} bytes`);
+      onProgress?.({
+        phase: "starting",
+        downloadedBytes,
+        totalBytes,
+        percent: totalBytes === null ? null : 0,
+      });
     } else if (progress.event === "Progress") {
+      downloadedBytes += progress.data.chunkLength;
       console.debug(`[updater] 已下载: ${progress.data.chunkLength} bytes`);
+      onProgress?.({
+        phase: "downloading",
+        downloadedBytes,
+        totalBytes,
+        percent: totalBytes === null ? null : Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)),
+      });
     } else if (progress.event === "Finished") {
       console.debug("[updater] 下载完成");
+      onProgress?.({
+        phase: "installing",
+        downloadedBytes,
+        totalBytes,
+        percent: 100,
+      });
     }
-  });
+  };
+
+  await update.downloadAndInstall(reportProgress);
 
   // Windows NSIS passive 模式：安装后应用会自动退出并运行安装程序
   // 其他平台需要手动重启

@@ -5,6 +5,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import {
   checkUpdateSilent,
   checkForAppUpdates,
+  downloadAndInstallUpdate,
+  getUpdateErrorHint,
   triggerUpdate,
 } from "./updaterService";
 import { useUpdateStore } from "@/stores";
@@ -15,6 +17,18 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
 
 vi.mock("@tauri-apps/plugin-process", () => ({
   relaunch: vi.fn(() => Promise.resolve()),
+}));
+
+const { stopWebAccessMock, stopTerminalDaemonMock } = vi.hoisted(() => ({
+  stopWebAccessMock: vi.fn(async () => undefined),
+  stopTerminalDaemonMock: vi.fn(async () => undefined),
+}));
+
+vi.mock("./settingsService", () => ({
+  settingsService: {
+    stopWebAccess: stopWebAccessMock,
+    stopTerminalDaemon: stopTerminalDaemonMock,
+  },
 }));
 
 const checkMock = check as unknown as ReturnType<typeof vi.fn>;
@@ -179,6 +193,38 @@ describe("updaterService", () => {
       await triggerUpdate();
 
       expect(checkMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("downloadAndInstallUpdate", () => {
+    it("报告真实累计下载进度并在安装前停止后台服务", async () => {
+      const downloadAndInstall = vi.fn(async (onProgress: (event: unknown) => void) => {
+        onProgress({ event: "Started", data: { contentLength: 100 } });
+        onProgress({ event: "Progress", data: { chunkLength: 40 } });
+        onProgress({ event: "Progress", data: { chunkLength: 60 } });
+        onProgress({ event: "Finished" });
+      });
+      const progress = vi.fn();
+
+      await downloadAndInstallUpdate(createUpdate({ downloadAndInstall }) as never, progress);
+
+      expect(stopWebAccessMock).toHaveBeenCalledOnce();
+      expect(stopTerminalDaemonMock).toHaveBeenCalledOnce();
+      expect(progress).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        phase: "downloading",
+        downloadedBytes: 40,
+        percent: 40,
+      }));
+      expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({
+        phase: "installing",
+        percent: 100,
+      }));
+      expect(relaunch).toHaveBeenCalledOnce();
+    });
+
+    it("为中英文返回可读网络错误提示", () => {
+      expect(getUpdateErrorHint("request timed out", "zh-CN")).toContain("设置 → 代理");
+      expect(getUpdateErrorHint("request timed out", "en")).toContain("Settings → Proxy");
     });
   });
 });
