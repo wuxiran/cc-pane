@@ -19,6 +19,9 @@ impl TauriEmitter {
 
 impl EventEmitter for TauriEmitter {
     fn emit(&self, event: &str, payload: Value) -> anyhow::Result<()> {
+        if !crate::webview_reliability::webview_emits_allowed() {
+            return Ok(());
+        }
         self.app_handle.emit(event, payload)?;
         Ok(())
     }
@@ -88,13 +91,15 @@ impl SessionNotifier for TauriSessionNotifier {
                     let _ = self
                         .launch_history_service
                         .update_last_prompt_by_pty_session_id(session_id, &last_prompt);
-                    let _ = self.app_handle.emit(
-                        "history-updated",
-                        serde_json::json!({
-                            "source": "session-exit",
-                            "ptySessionId": session_id,
-                        }),
-                    );
+                    if crate::webview_reliability::webview_emits_allowed() {
+                        let _ = self.app_handle.emit(
+                            "history-updated",
+                            serde_json::json!({
+                                "source": "session-exit",
+                                "ptySessionId": session_id,
+                            }),
+                        );
+                    }
                 }
             }
         }

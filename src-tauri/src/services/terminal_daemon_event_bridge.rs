@@ -112,6 +112,13 @@ impl TerminalDaemonEventBridge {
         sessions.remove(session_id);
     }
 
+    fn emit_to_webview(&self, event: &str, payload: serde_json::Value) -> anyhow::Result<()> {
+        if crate::webview_reliability::webview_emits_allowed() {
+            self.app_handle.emit(event, payload)?;
+        }
+        Ok(())
+    }
+
     async fn run_session(&self, session_id: String, backend: Arc<dyn TerminalBackend>) {
         if let Some(url) = backend.event_stream_url(&session_id) {
             match self
@@ -207,7 +214,7 @@ impl TerminalDaemonEventBridge {
         let message: DaemonStreamMessage = serde_json::from_str(text)?;
         match message {
             DaemonStreamMessage::Output { data } => {
-                self.app_handle.emit(
+                self.emit_to_webview(
                     EV::TERMINAL_OUTPUT,
                     serde_json::to_value(TerminalOutput {
                         session_id: session_id.to_string(),
@@ -227,7 +234,7 @@ impl TerminalDaemonEventBridge {
             DaemonStreamMessage::Killed { reason } => {
                 // 转发 kill 事件给前端（daemon 模式下此前会被丢弃），
                 // 并照 Exit 路径 synthesize 退出状态：保留标签时终端能显示进程退出。
-                self.app_handle.emit(
+                self.emit_to_webview(
                     EV::SESSION_KILLED,
                     session_killed_event_payload(session_id, reason.as_deref()),
                 )?;
@@ -284,7 +291,7 @@ impl TerminalDaemonEventBridge {
         };
 
         if let Some(delta) = self.apply_snapshot_delta(session_id, &snapshot) {
-            self.app_handle.emit(
+            self.emit_to_webview(
                 EV::TERMINAL_OUTPUT,
                 serde_json::to_value(TerminalOutput {
                     session_id: session_id.to_string(),
@@ -322,8 +329,7 @@ impl TerminalDaemonEventBridge {
         }
 
         if self.should_emit_status(session_id, &status) {
-            self.app_handle
-                .emit(EV::TERMINAL_STATUS, serde_json::to_value(&status)?)?;
+            self.emit_to_webview(EV::TERMINAL_STATUS, serde_json::to_value(&status)?)?;
         }
 
         Ok(poll_status)
@@ -369,7 +375,7 @@ impl TerminalDaemonEventBridge {
 
         if should_emit {
             self.history_watch_manager.on_session_ended(session_id);
-            self.app_handle.emit(
+            self.emit_to_webview(
                 EV::TERMINAL_EXIT,
                 serde_json::to_value(TerminalExit {
                     session_id: session_id.to_string(),
@@ -383,8 +389,7 @@ impl TerminalDaemonEventBridge {
 
     fn emit_terminal_status_once(&self, status: SessionStatusInfo) -> anyhow::Result<()> {
         if self.should_emit_status(&status.session_id, &status) {
-            self.app_handle
-                .emit(EV::TERMINAL_STATUS, serde_json::to_value(&status)?)?;
+            self.emit_to_webview(EV::TERMINAL_STATUS, serde_json::to_value(&status)?)?;
         }
 
         Ok(())
