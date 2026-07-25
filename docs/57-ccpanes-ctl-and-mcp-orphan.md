@@ -1,96 +1,140 @@
 # 57. cc-panes-ctl 立项 + MCP 孤儿最后缺口
 
-> 2026-07-25 立项。起因：release 实例 orchestrator 死亡（47821 幽灵 socket）导致全部在途会话 MCP 失联、leader 汇报链路瘫痪的实战事故。继任 leader 靠 daemon REST + 手写 curl + sqlite 直写完成接管——每一步都有 API 兜着，但没有一个现成命令。本文定义两个工作项的边界与验收。
+> 2026-07-25 立项，同日经 WSL Codex 独立同行评审（19 必修 / 4 开放）后**整体重写**。起因：release 实例 orchestrator 死亡（47821 幽灵 socket）导致全部在途会话 MCP 失联、leader 汇报链路瘫痪的实战事故。继任 leader 靠 daemon REST + 手写 curl + sqlite 直写完成接管——每一步都有 API 兜着，但没有一个现成命令。
 
-## 0. 事故还原（为什么是这两个件）
+## 0. 已评审决议（拒绝/收窄项，勿重提）
 
-1. release 实例崩溃重启后，固定端口 47821 被前一个死进程的幽灵 socket 占住（netstat 显示 LISTENING 但 owner pid 已不存在、连接被拒），新实例绑定失败后**静默放弃**——release 实例带病运行：UI 正常、orchestrator 不存在、无任何提示。
-2. 在途会话（leader + 4 worker）的 MCP 全部孤儿化：CLI 的 MCP client 只在进程启动时读一次配置（docs/18:507），端口/token 再对也连不上一个不存在的服务。
-3. worker 双保险纪律第三次救场：交付靠 worktree git log + WORKER-REPORT.md 被继任 leader 发现；绑定落账靠 leader 直写 SQLite 代账。
-4. 接管全程可行但全是手工：daemon-manifest 取 token → curl daemon REST 读会话 → sqlite 清绑定。
+| 原提法 | 决议 |
+|---|---|
+| `bindings` 走 orchestrator REST 优先 | **删除**——REST 无 binding 端点，只有 `/mcp` 的 `query_task_bindings`/`update_task_binding`/`reconcile_plan_collaboration`。改为经 MCP 客户端 |
+| mcp-proxy「每请求重解析端点 → 永不断线」 | **收窄**——每请求换 URL 不能续接 MCP 会话；需完整会话状态机，且失败重试只限"明确未执行"场景（见 §3.2） |
+| 「88 个 MCP 工具」 | **改为 86**（源码实际 `#[tool]` 数），且验收以运行时 `tools/list` 快照为准，不写死数字 |
+| `resolve_api_endpoint()` 扩展为返回 daemon | **拒绝**——hook 依赖多个 orchestrator-only 路由，返回 daemon 会让 hook 静默走错。改为两个独立函数 |
+| bindings 降级"直写 SQLite"作为常规路径 | **降级为紧急逃生阀**（`--force-offline-db` + 强校验），默认禁止（见 §4） |
+| 幽灵 socket 靠"退避重试"解决 | **根因已由 `059f386` 消除**（见 §1），重试降为纵深防御，报警才是主件 |
 
-**结论**：方案 A（固定端口 + token 复用，docs/37，已落地）解决了"正常重启后失联"；剩两个缺口——①绑定失败静默降级 ②没有 CLI 兜底通道。
+## 1. 事故还原与工作项一（orchestrator 绑定可观测性）
 
-## 1. 工作项一：orchestrator 绑定失败硬化（小件，可先行）
+### 1.1 幽灵 socket 根因已修（2026-07-25，`059f386`）
 
-- **重试**：`bind_fixed_port` 失败后带退避重试（幽灵 socket 通常随 TIME_WAIT 类状态在数十秒内释放），重试期间 orchestrator 状态为 `binding`；
-- **可见报警**：重试穷尽后**必须**在 UI 上可见地报警（状态栏/横幅，附逃生阀 `CC_PANES_ORCHESTRATOR_PORT` 指引），禁止静默降级——同 CLAUDE.md"降级必须对用户可见"教训（docs/45 Codex resume 同族）；
-- **验收**：人工制造端口占用 → 启动 → 观察重试与报警；释放端口 → 观察自动恢复。
+Windows 监听 socket 句柄被 PTY/Web **子进程继承**，父进程退出后子进程仍攥着句柄 → 端口显示 LISTENING 但无人 accept。修复：`socket2` 经 `WSASocketW` 以 `NO_HANDLE_INHERIT` 创建监听 socket（`orchestrator_service.rs`、`cc-panes-web/src/main.rs`），并有 drop-后-可重绑单测。**本文原设想的"退避重试"因此不再是主要手段。**
 
-## 2. 工作项二：cc-panes-ctl（CLI 薄壳 + stdio MCP 代理，二合一）
+### 1.2 剩余缺口：绑定失败仍然静默
 
-### 2.1 定位
+端口被**第三方程序**真占用时，绑定失败依旧静默——UI 正常、orchestrator 不存在、无任何提示（本次事故中 release 实例即处于此状态）。
 
-服务端接口早已齐备（orchestrator MCP 88 工具 + REST 18 路由、daemon REST 16 路由），缺的只是消费端薄壳。一个二进制、两个角色：
+- [ ] `OrchestratorStatus` 现仅有 `port`/`bind`；**新增** `lifecycle`（binding/ready/failed）、`attempt`、`lastError`、`nextRetryAt`；
+- [ ] 定义前端获取方式（事件 emit 或轮询）、重试取消规则、单实例约束；
+- [ ] UI 可见报警（状态栏/横幅 + 逃生阀 `CC_PANES_ORCHESTRATOR_PORT` 指引），**禁止静默降级**（同 CLAUDE.md「降级必须对用户可见」）；
+- [ ] 纵深防御：有界退避重试（根因已除，此处只防第三方占用的瞬时态）。
+- 验收：人工占用端口 → 启动 → 观察 lifecycle 变化与报警；释放 → 自动恢复。
 
-| 角色 | 子命令形态 | 解决什么 |
-|------|-----------|---------|
-| **人类/AI 命令面** | `cc-panes-ctl sessions list / read <id> / submit <id> <text> / kill <id>`、`bindings list / reconcile`、`status` | orchestrator 死了也能经 daemon 接管会话（本次事故的手工流程命令化） |
-| **stdio MCP 代理** | `cc-panes-ctl mcp-proxy`（作为 CLI 会话注入的 stdio MCP server） | docs/37 方案 C：CLI 配置里彻底不出现端口，每次请求实时解析真实端点 → 根治 MCP 孤儿 |
+## 2. cc-panes-ctl 定位
 
-### 2.2 关键设计约束
+服务端接口早已齐备（orchestrator：18 REST 路由 + `/mcp` 86 工具；daemon：16 HTTP/WS 操作），缺的只是消费端薄壳。一个二进制、两个角色：
 
-- **端点解析复用 hook 模式**：`cc-panes-cli-hook` 从不失联，因为它每次调用都重新解析（探活 → 失败重读 manifest，`resolve_api_endpoint()`）。ctl 的两个角色都必须用同一模式，且为**双源降级**：orchestrator manifest → 探活失败 → daemon manifest（runtime/daemon-manifest.json）。
-- **dev/release 双数据目录**：跟随 `ORCHESTRATOR_FIXED_PORT` 的对应关系（dev 47822/`~/.cc-panes-dev`，release 47821/`~/.cc-panes`）；ctl 需 `--dev` 开关或自动探测两套。
-- **mcp-proxy 历史包袱**：曾有 `ccpanes-proxy.mjs` 遗留死条目（docs/18:330——.mjs 从未被任何版本生成过，属未走通的实验），`claude.rs` 现在会主动剥离这些条目。新代理落地时：①换名（`cc-panes-ctl mcp-proxy`）避开剥离逻辑 ②确认剥离逻辑不误伤新条目。
-- **代理的降级语义**：orchestrator 不可达时，mcp-proxy 对工具调用返回明确错误（含"orchestrator down, N 秒后重试"），**不静默吞**；会话级 MCP 工具（submit/output 类）可考虑 daemon 直连兜底。
-- 二进制归属：新 crate `cc-panes-ctl`（workspace member），端点解析逻辑从 cli-hook 抽到共享处（cc-panes-core 或独立小 crate），**不复制粘贴**。
+| 角色 | 形态 | 解决什么 |
+|------|-----|---------|
+| 人类/AI 命令面 | `sessions` / `bindings` / `tools` / `call` / `status` | orchestrator 死了也能经 daemon 接管会话 |
+| stdio MCP 代理 | `mcp-proxy` | docs/37 方案 C：CLI 配置里不出现端口，根治 MCP 孤儿 |
 
-### 2.3 实施清单（2026-07-25 规划定稿）
+## 3. 实施清单
 
-#### Phase 0：共享端点解析抽取（~0.25d，前置）
+### Phase 0：端点发现（~0.4d，前置）
 
-- [ ] `resolve_api_endpoint()` 及其探活/WSL host 改写从 `cc-panes-cli-hook/src/common/orchestrator.rs` 抽到共享处（`cc-panes-core/src/utils/` 或独立小 crate），cli-hook 改为引用，行为不变；
-- [ ] 解析链扩展**daemon 第二源**：orchestrator（env→探活→mcp-orchestrator.json）不可达 → 读 `runtime/daemon-manifest.json` 探活 daemon。返回值带 `EndpointKind::Orchestrator | Daemon`，调用方据此决定能力面；
-- [ ] dev/release 双目录：`--dev/--release/--auto`。auto 优先 `CC_PANES_*` env 推断（在管控会话内），否则两套目录都探，报告各自状态。
+- [ ] **两个独立函数，不合并**：
+  - `resolve_orchestrator_endpoint()`：从 cli-hook 抽出，行为**完全不变**（env→探活→`mcp-orchestrator.json`→兜底 env + WSL host 改写），cli-hook 改引用；
+  - `discover_daemon_endpoint()`：新增，读 `runtime/daemon-manifest.json`（camelCase `addr/token/pid/startedAt`）；
+- [ ] **探活升级为身份核对**：两侧 `/api/health` 都只回 `{"status":"ok"}`，裸 TCP/health 无法辨认对面是谁。核对服务名 + `pid` + `startedAt`（与 manifest 一致才认），日志全链路脱敏 token；
+- [ ] **安全边界如实记录**：无法防御能读取同用户 manifest 的恶意进程（同用户即同信任域），文档写明，不假装解决；
+- [ ] 数据目录选择：`--dev/--release/--auto` + 自定义数据目录；auto 规则见 §5；
+- [ ] 回归护栏：cli-hook 现有行为的测试必须先绿再动（抽取零行为变更）。
 
-#### Phase 1：命令面 MVP（~0.5d）
+### Phase 1：MCP 客户端 + 全工具面（~0.4d）
 
-新 crate `cc-panes-ctl`（workspace member，clap 派生），全局 flag：`--dev/--release/--auto`、`--json`。
+> 提前到命令面之前——`bindings` 依赖它。
 
-| 子命令 | 后端 | orchestrator 死时 |
-|---|---|---|
-| `status` | 双源探活 | ✅ 照常（这正是它的主场：报告"orchestrator down, daemon ok"） |
-| `sessions list` | orch `/api/sessions`，降级 daemon `/api/sessions` | ✅ daemon |
-| `sessions read <id> [--lines N]` | daemon `/api/sessions/{id}/output`（daemon 是 PTY 真身，直连） | ✅ |
-| `sessions submit <id> <text>` | daemon `/api/sessions/{id}/submit` | ✅ |
-| `sessions write <id> --key esc\|ctrl-c\|ctrl-d\|cr` | daemon `/api/sessions/{id}/write`（控制键白名单映射真字节，杜绝 `\x03` 四字符事故） | ✅ |
-| `sessions kill <id>` | daemon `/api/sessions/{id}` DELETE | ✅ |
-| `bindings list [--stale]` | 只读 SQLite（`data.db`，WAL 只读连接） | ✅ |
-| `bindings close <id> --status --summary` / `bindings reconcile` | orch REST 优先；orch 死时直写 SQLite（**必须参数绑定写 UTF-8**——2026-07-25 sqlite3.exe GBK 损坏 38 条摘要的教训） | ✅ 降级直写 |
-| `launch <project-path> [--prompt\|--resume] [--cli claude\|codex]` | orch `/api/launch-task` | ❌ 明确报错（launch 需要 UI/布局，不做降级） |
+- [ ] MCP HTTP 客户端（streamable HTTP + Bearer + `Mcp-Session-Id`），与 Phase 3 代理**共用**；
+- [ ] `tools [--schema <name>]`：运行时 `tools/list`，schema 驱动，服务端加工具零改动同步（**不写死工具数**）；
+- [ ] `call <tool> --json '<args>' | --arg k=v`：`tools/call` 通用调用器，`--arg` 按 schema 转型；输出 content 块（`--json` 原样，人读基本美化，不做 per-tool 定制）；
+- [ ] 依赖 orchestrator 存活；不可达时报错并指路可用的 daemon 降级子命令。
 
-- [ ] 输出：人读表格默认，`--json` 给 AI/脚本；错误一律带"哪个源试过、为什么失败、下一步建议"；
-- [ ] 退出码：0 成功 / 2 目标源不可达 / 3 参数错，脚本可判。
+### Phase 2：命令面（~0.5d）
 
-#### Phase 1.5：MCP 全工具面通用调用器（~0.25d，2026-07-25 用户拍板加入）
+全局 flag：`--dev/--release/--auto`、`--json`。
 
-- [ ] `tools [--schema <name>]`：经 `/mcp` 的 `tools/list` 列全部工具（88 个，schema 驱动，服务端加工具 CLI 零改动同步）；
-- [ ] `call <tool> --json '<args>' | --arg k=v ...`：`tools/call` 通用调用器，`--arg` 按 schema 做基本转型；输出 content 块，`--json` 原样、人读做基本美化（不做 per-tool 定制渲染）；
-- [ ] 与 mcp-proxy 共享 MCP HTTP 客户端（initialize 握手 + 会话管理一处实现）；
-- [ ] 边界如实呈现：`call` 依赖 orchestrator 存活；不可达时报错并提示可用的 daemon 降级子命令。`sessions`/`bindings` 别名保留为高频人体工学层 + 降级层。
+| 子命令 | 后端 | orchestrator 死时 | 备注 |
+|---|---|---|---|
+| `status` | 双源身份核对 | ✅ 主场 | 报告 orch/daemon 各自 lifecycle |
+| `sessions list` | orch `/api/sessions`（`{sessions:[…]}`）或 daemon（`Vec<SessionStatusInfo>`） | ✅ daemon | **两种响应结构不同，必须各自反序列化后归一**，不可共用类型 |
+| `sessions read <id> [--lines N]` | daemon `/api/sessions/{id}/output` | ✅ 尽力而为 | 仅内存尾部：活会话上限 20000 行/20MiB，死会话仅留 5 分钟，响应无 `truncated`/`availableLines` → **输出必须标注"尽力而为"**，或推动 daemon 补元数据 |
+| `sessions submit <id> <text>` | daemon `/api/sessions/{id}/submit` | ✅ 受限 | daemon 侧无 orchestrator 的限流与长 prompt 外置 → ctl 自行限制输入大小并提示差异，不宣称完全等价 |
+| `sessions write <id> --key esc\|ctrl-c\|ctrl-d\|cr` | daemon `/write` | ✅ | 控制键白名单映射真字节（杜绝 `\x03` 四字符事故） |
+| `sessions kill <id>` | daemon DELETE | ✅ | |
+| `bindings list [--stale]` | MCP `query_task_bindings`（只读 SQLite 仅作 orch 死时的降级读） | ⚠️ 受限 | `--stale` 需联查 daemon 活会话；orch 死时标注数据可能不全 |
+| `bindings close/reconcile` | MCP `update_task_binding` / `reconcile_plan_collaboration` | ❌ 默认禁止 | 完整 reconcile 还依赖前端 pane/tab 快照，orch 死时**不能宣称等价**；逃生阀见 §4 |
+| `launch <project> [--prompt\|--resume]` | orch `/api/launch-task` | ❌ 明确报错 | 不降级 |
 
-#### Phase 2：mcp-proxy（~0.5-1d）
+- [ ] 输出：人读表格默认，`--json` 给 AI/脚本；错误必须含"试过哪个源、为何失败、下一步建议"；
+- [ ] 退出码：0 成功 / 2 源不可达 / 3 参数错 / 4 写冲突。
 
-- [ ] `cc-panes-ctl mcp-proxy [--dev]`：stdio MCP server，转发 JSON-RPC 至 orchestrator `/mcp`（streamable HTTP + Bearer）；
-- [ ] **每请求重解析**端点（Phase 0 共享链）；端点变更（端口/token 轮换）时对上游透明——对 CLI 而言 MCP 永不断线；
-- [ ] orchestrator 不可达：工具调用返回明确 MCP error（含重试提示），**不静默吞**；恢复后自动续接，无需重启 CLI 会话；
-- [ ] 适配器切换：`claude.rs`/`codex.rs` 注入从 http url 改为 stdio proxy 命令，配置开关灰度（默认先 off，验证后翻转）；
-- [ ] 核证 `claude.rs` 对 legacy `ccpanes-proxy` 死条目的剥离逻辑不误伤新条目（新名字 `cc-panes-ctl mcp-proxy` 已避开，加测试钉死）；
-- [ ] 二进制分发：进 `build.rs` external binaries 清单（注意 CLAUDE.md「tauri dev 不重建 external binaries」暗雷——dev 改动后需手动拷贝）。
+### Phase 3：mcp-proxy（~1d，最难的一段）
 
-#### Phase 3：验收（半天内含在上两阶段）
+#### 3.1 会话状态机（不是无状态转发）
 
-- 工量：Phase 0 ~0.25d + 命令面 ~0.5d + mcp-proxy ~0.5-1d（解析逻辑是现成的）。
-- 验收：
-  1. 杀掉 orchestrator（模拟事故）→ `sessions list/read/submit` 经 daemon 照常工作；
-  2. 注入 mcp-proxy 的 Claude 会话在 CC-Panes 重启（端口/token 轮换）后 MCP 工具**不断线**；
-  3. `bindings reconcile` 能完成本次事故中手写 sqlite 的落账动作；
-  4. 常规检查（clippy/fmt/test）+ 双数据目录各验一遍。
+- [ ] **代理自己终结上游 stdio `initialize`**：保存 client 的 initialize 参数与协议版本；
+- [ ] **对下游独立维护会话**：`Mcp-Session-Id`、protocol-version、`notifications/initialized`、**连接代次（generation）**；端点轮换 = 新代次 → 用保存的参数**重新握手**，而非把新 URL 塞进旧会话；
+- [ ] **启动时 orchestrator 已不可达**也必须能起：代理独立完成上游握手，工具目录取 **last-known-good 缓存**（持久化）；无缓存则有界等待 initialize，超时给明确错误（开放问题2 决议：A+B）；
+- [ ] 重连后若工具集变化 → 发 `notifications/tools/list_changed`；若 CLI 不支持则明确告知需重启会话；
+- [ ] **`launchId` 必须透传**：orchestrator 用 `/mcp?launchId=` 做 worker 授权与父子关系（`orchestrator_service.rs:733-778`）。代理接收该参数并附加到下游 URL——**漏了这条派工链直接废**。
 
-## 3. 关系与顺序
+#### 3.2 重试语义（at-most-once，不许自动重放）
 
-- 工作项一独立、先行（改动小，防再犯）；
-- 工作项二依赖 docs/37 的 manifest 体系（已在 main），不依赖工作项一；
-- 两项完成后，"MCP 端口重启即孤儿"问题族闭环：正常重启 → 方案 A 覆盖；异常绑定失败 → 工作项一可见化；任何情况下的接管/自愈 → ctl 兜底。
-- leader 会话不可迁移（本次"重注册真身"的根源）不在本文范围，另行立项。
+| 失败类型 | 处理 |
+|---|---|
+| 连接被拒、DNS/端口不可达、旧 session 404（**明确未执行**） | 可重试 |
+| 连接 reset、读超时、响应丢失（**执行状态未知**） | **报告"结果不确定"，禁止自动重放** |
+
+`launch_task`/`submit`/`write` 等有副作用的工具尤其适用后者——重放会导致重复启动会话、重复注入输入。**"永不断线"只适用于连接层，不适用于调用语义。**
+
+#### 3.3 注入链切换与灰度
+
+- [ ] `claude.rs`/`codex.rs` 注入从 http url 改为 stdio proxy 命令，配置开关灰度（默认 off，验证后翻转）；
+- [ ] 核证不被 legacy 清理误伤：`claude.rs:358-367` 只匹配 `ccpanes-fixed` 或 command 含 `ccpanes-proxy`；新名 `cc-panes-ctl mcp-proxy` 已避开——**加测试钉死这个边界**；
+- [ ] 钉死 Codex `-c` 覆盖仍在 `resume` **之前**，OSC/rollout fallback 不变（docs/45 教训）；
+- [ ] 灰度验收矩阵：{local, WSL} × {Claude, Codex} × {新会话, resume} × {proxy on, off} × {skip_mcp} + shared MCP 共存。
+
+### Phase 4：分发（~0.2d）
+
+- [ ] 不止 `build.rs`：还需更新 workspace 成员、`scripts/build-hook.cjs`、`scripts/copy-hook.cjs`、`tauri.conf.json` 的 resources/placeholder；
+- [ ] 本地与 WSL 均注入**绝对 sidecar 路径**；
+- [ ] WSL 形态（开放问题3 决议）：MVP 走 A——`cmd.exe /C <Windows绝对路径>\cc-panes-ctl.exe mcp-proxy`；**必须验证** stdio 透传、引号转义、取消信号、以及 interop 被禁用时的可读提示；
+- [ ] ⚠️ CLAUDE.md 暗雷：`tauri dev` 不重建 external binaries——改动后必须手动 `cargo build` 并拷贝到 `<target-dir>\debug\binaries\`，否则"测试全绿却不生效"。
+
+## 4. 数据红线：bindings 离线写
+
+默认**禁止**（开放问题1 决议：A 为默认 + B 作逃生阀，C 为后续正解）。
+
+- **默认（A）**：orchestrator 不可达时 `bindings close/reconcile` 直接失败，提示等待 orchestrator 或用逃生阀；
+- **逃生阀（B）**：`--force-offline-db` 才允许直写，且必须全部满足——精确 schema/`user_version` 校验、`BEGIN IMMEDIATE`、busy timeout、基于 `updated_at`+`status` 的 CAS、字段白名单、事务后回读校验、冲突时退出码 4；
+- **必须在文档与命令输出中明示**：直写绕过 `TaskBindingService` 的 update lock、字段校验、事件 emit、leader 通知与补投队列——"参数绑定 UTF-8"只解决编码，不解决这些副作用（编码坑本身见记忆 `sqlite3-cli-gbk-corruption`）；
+- **后续正解（C）**：daemon 增加复用 `TaskBindingService` 的认证端点，让离线写也走服务层不变式。本批不做，记为下一件。
+
+## 5. auto 数据目录选择（开放问题4 决议）
+
+- 只读聚合（`sessions list`、`status`）：**A**——两实例都健康时聚合展示并标注 dev/release；
+- 写操作（`submit`/`write`/`kill`/`bindings` 写/`launch`）：**B**——歧义时**失败**并要求显式 `--dev`/`--release`。绝不静默替用户选一个执行写操作；
+- 在管控会话内可用 `CC_PANES_*` env 直接判定，无歧义。
+
+## 6. 工量与验收
+
+工量：Phase 0 ~0.4d + Phase 1 ~0.4d + Phase 2 ~0.5d + Phase 3 ~1d + Phase 4 ~0.2d ≈ **2.5d**（比评审前估的 1.75d 高，主要来自代理会话状态机与分发链）。
+
+验收：
+1. 杀掉 orchestrator → `status`/`sessions *` 经 daemon 照常工作，且受限项如实标注（不谎报等价）；
+2. 注入 mcp-proxy 的 Claude/Codex 会话在 CC-Panes 重启（端口/token 轮换）后 MCP 工具不断线；`launchId` 相关的 worker 授权与父子关系仍成立；
+3. 代理在"orchestrator 启动即不可达"下能起，缓存目录可用，恢复后自动续接；
+4. 有副作用的工具在 reset/超时后**不自动重放**，返回"结果不确定"；
+5. `bindings` 默认拒绝离线写；逃生阀路径的 CAS/校验/回读全覆盖；
+6. 灰度矩阵（§3.3）全绿；cli-hook 回归测试零变更通过；
+7. 常规检查：`npx tsc --noEmit`、`cargo clippy --workspace -- -D warnings`（**注意用 PIPESTATUS 取真实退码，别被 tail 掩码**）、`cargo fmt --all -- --check`、定向测试。
