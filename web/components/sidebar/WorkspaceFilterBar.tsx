@@ -65,17 +65,19 @@ export default function WorkspaceFilterBar() {
   };
 
   return (
-    <div className="flex h-9 items-center gap-1.5 overflow-x-auto border-y border-[var(--app-border)] px-2">
-      <div className="relative min-w-20 flex-1">
+    // 两行布局：搜索独占一行不被挤压，分组/颜色筛选在第二行
+    <div className="flex flex-col gap-1.5 border-y border-[var(--app-border)] px-2 py-1.5">
+      <div className="relative w-full">
         <Search className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-[var(--app-text-tertiary)]" />
         <Input
           value={filter.query}
           onChange={(event) => setFilter({ query: event.target.value })}
           placeholder={t("workspaceSearchPlaceholder")}
-          className="h-6 rounded-md pl-6 pr-2 text-xs"
+          className="h-6 w-full rounded-md pl-6 pr-2 text-xs"
         />
       </div>
 
+      <div className="flex items-center gap-1.5">
       <Popover open={groupOpen} onOpenChange={setGroupOpen}>
         <PopoverTrigger asChild>
           <button
@@ -145,6 +147,7 @@ export default function WorkspaceFilterBar() {
           <X className="size-3.5" />
         </IconTooltipButton>
       ) : null}
+      </div>
     </div>
   );
 }

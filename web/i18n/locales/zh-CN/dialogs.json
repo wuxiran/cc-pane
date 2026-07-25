@@ -291,5 +291,6 @@
     "migrationDone": "项目迁移完成，源目录未删除。",
     "rollbackDone": "迁移配置已回滚，已复制到目标的文件保留。"
   },
-  "workspaceAnchorPathPlaceholder": "可选的工作空间锚点路径"
+  "workspaceAnchorPathPlaceholder": "可选的工作空间锚点路径",
+  "newWorkspaceGroupPlaceholder": "分组（可选，输入即新建）"
 }

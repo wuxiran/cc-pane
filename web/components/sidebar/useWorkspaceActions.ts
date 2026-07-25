@@ -18,6 +18,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   const { t: tNotify } = useTranslation("notifications");
 
   const createWorkspace = useWorkspacesStore((s) => s.create);
+  const saveWorkspaceMeta = useWorkspacesStore((s) => s.saveWorkspace);
   const renameWs = useWorkspacesStore((s) => s.rename);
   const removeWorkspace = useWorkspacesStore((s) => s.remove);
   const addProject = useWorkspacesStore((s) => s.addProject);
@@ -39,6 +40,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [newWorkspacePath, setNewWorkspacePath] = useState("");
+  const [newWorkspaceGroup, setNewWorkspaceGroup] = useState("");
   const [renameWorkspaceOpen, setRenameWorkspaceOpen] = useState(false);
   const [renameWorkspaceOldName, setRenameWorkspaceOldName] = useState("");
   const [renameWorkspaceNewName, setRenameWorkspaceNewName] = useState("");
@@ -140,6 +142,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   function handleCreateWorkspace() {
     setNewWorkspaceName("");
     setNewWorkspacePath("");
+    setNewWorkspaceGroup("");
     setNewWorkspaceOpen(true);
   }
 
@@ -162,7 +165,11 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   async function confirmCreateWorkspace() {
     if (!newWorkspaceName.trim()) return;
     try {
-      await createWorkspace(newWorkspaceName.trim(), newWorkspacePath.trim() || undefined);
+      const ws = await createWorkspace(newWorkspaceName.trim(), newWorkspacePath.trim() || undefined);
+      const group = newWorkspaceGroup.trim();
+      if (group) {
+        await saveWorkspaceMeta({ ...ws, group });
+      }
       setNewWorkspaceOpen(false);
     } catch (e) {
       toast.error(tNotify("createFailed", { error: String(e) }));
@@ -395,6 +402,8 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
         setName: setNewWorkspaceName,
         path: newWorkspacePath,
         setPath: setNewWorkspacePath,
+        group: newWorkspaceGroup,
+        setGroup: setNewWorkspaceGroup,
         onSelectPath: handleSelectNewWorkspacePath,
         onConfirm: confirmCreateWorkspace,
       },

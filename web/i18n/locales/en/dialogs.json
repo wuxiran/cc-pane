@@ -291,5 +291,6 @@
     "migrationDone": "Project migration completed. Source directory was not deleted.",
     "rollbackDone": "Project migration config rolled back. Copied target files were kept."
   },
-  "workspaceAnchorPathPlaceholder": "Optional workspace anchor path"
+  "workspaceAnchorPathPlaceholder": "Optional workspace anchor path",
+  "newWorkspaceGroupPlaceholder": "Group (optional, type to create)"
 }

@@ -56,6 +56,8 @@ function makeProps(overrides: DeepPartial<WorkspaceDialogsProps> = {}): {
       setName: spies.newSetName,
       path: "",
       setPath: spies.newSetPath,
+      group: "",
+      setGroup: vi.fn(),
       onSelectPath: spies.newSelectPath,
       onConfirm: spies.newConfirm,
     },

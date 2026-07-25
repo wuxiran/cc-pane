@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { FolderOpen } from "lucide-react";
+import { useWorkspacesStore, normalizedWorkspaceGroup } from "@/stores/useWorkspacesStore";
 import {
   Dialog,
   DialogContent,
@@ -122,6 +124,8 @@ export interface WorkspaceDialogsProps {
     setName: (v: string) => void;
     path: string;
     setPath: (v: string) => void;
+    group: string;
+    setGroup: (v: string) => void;
     onSelectPath: () => void;
     onConfirm: () => void;
   };
@@ -179,6 +183,16 @@ export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
     projectMigration,
     confirm,
   } = props;
+  // 现有分组名 → 新建弹窗分组输入的 datalist 补全
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const existingGroups = useMemo(() => {
+    const values = new Set<string>();
+    for (const ws of workspaces) {
+      const group = normalizedWorkspaceGroup(ws);
+      if (group) values.add(group);
+    }
+    return [...values];
+  }, [workspaces]);
 
   return (
     <>
@@ -214,6 +228,18 @@ export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
                 <FolderOpen size={14} className="mr-1" /> Browse
               </Button>
             </div>
+            <Input
+              value={newWorkspace.group}
+              onChange={(event) => newWorkspace.setGroup(event.target.value)}
+              placeholder={t("newWorkspaceGroupPlaceholder")}
+              list="new-workspace-group-options"
+              onKeyDown={(event) => event.key === "Enter" && newWorkspace.onConfirm()}
+            />
+            <datalist id="new-workspace-group-options">
+              {existingGroups.map((group) => (
+                <option key={group} value={group} />
+              ))}
+            </datalist>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => newWorkspace.setOpen(false)}>
