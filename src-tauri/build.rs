@@ -7,6 +7,18 @@ fn main() {
     ensure_hook_binary_placeholder();
     ensure_web_dist_placeholder();
 
+    // tauri-runtime-wry 2.11.x 静态导入 comctl32 v6 独有的 TaskDialogIndirect。
+    // 测试二进制没有 Tauri 注入的应用清单，加载期即 STATUS_ENTRYPOINT_NOT_FOUND
+    // (0xC0000139)。注意 `rustc-link-arg-tests` 只覆盖 tests/ 集成测试目标、
+    // 不覆盖 lib 单测（cargo 缺口），清单方案走不通。改为延迟加载 comctl32：
+    // 测试从不调用 TaskDialog 则永不解析；主程序清单里已有 v6 依赖，延迟解析
+    // 走进程默认激活上下文，行为不变。
+    #[cfg(windows)]
+    {
+        println!("cargo:rustc-link-arg=/DELAYLOAD:comctl32.dll");
+        println!("cargo:rustc-link-arg=delayimp.lib");
+    }
+
     tauri_build::build();
 }
 
