@@ -112,7 +112,7 @@ function SortableLayoutTab({
       role="tab"
       aria-selected={selected}
       title={layout.name}
-      className={`group flex h-[26px] flex-shrink-0 cursor-pointer select-none items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs transition-colors duration-[var(--dur-fast)] ${
+      className={`group flex h-[30px] flex-shrink-0 cursor-pointer select-none items-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-[13px] transition-colors duration-[var(--dur-fast)] ${
         selected ? "" : "hover:bg-[var(--app-hover)]"
       }`}
       style={{
@@ -140,7 +140,7 @@ function SortableLayoutTab({
       {layout.kind !== "starred" && <LayoutWorkspaceBadge layout={layout} rootPane={tree} mini />}
       {tabCount > 0 && (
         <span
-          className="text-[10px] tabular-nums"
+          className="text-[11px] tabular-nums"
           style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
         >
           {tabCount}
