@@ -1594,7 +1594,11 @@ mod tests {
         ctx.data_dir = dir.path().to_path_buf();
         ctx.launch_id = Some("launch/42".to_string());
         // 代理命令必须是平台原生绝对路径（"/opt/..." 在 Windows 上不算绝对路径）
-        let proxy_cmd = dir.path().join("cc-panes-ctl").to_string_lossy().into_owned();
+        let proxy_cmd = dir
+            .path()
+            .join("cc-panes-ctl")
+            .to_string_lossy()
+            .into_owned();
         ctx.adapter_options
             .insert("mcpProxyEnabled".to_string(), serde_json::json!(true));
         ctx.adapter_options.insert(
