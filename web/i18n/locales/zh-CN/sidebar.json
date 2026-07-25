@@ -448,5 +448,6 @@
   "rightDock.noProject": "工作空间中没有项目",
   "rightDock.selectProject": "在左侧添加项目后即可浏览 Git 与文件",
   "rightDock.switchProject": "切换项目",
-  "rightDock.changeCount": "{{count}} 个变更"
+  "rightDock.changeCount": "{{count}} 个变更",
+  "workspaceGroupCreateDescription": "输入组名并勾选要加入的工作空间。"
 }

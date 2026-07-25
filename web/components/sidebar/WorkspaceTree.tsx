@@ -18,8 +18,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { Plus, FolderGit2, ListFilter } from "lucide-react";
+import { Plus, FolderGit2, FolderTree, ListFilter } from "lucide-react";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import WorkspaceCreateGroupDialog from "./WorkspaceCreateGroupDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useWorkspacesStore } from "@/stores";
@@ -180,6 +181,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const toggleWorkspaceGroup = useLayoutUiStore((s) => s.toggleWorkspaceGroup);
   const openWorkspaceEnvironment = useDialogStore((s) => s.openWorkspaceEnvironment);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const visibleWorkspaces = useMemo(
     () => filterWorkspaces(workspaces, workspaceFilter),
     [workspaces, workspaceFilter],
@@ -326,6 +328,13 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
             <ListFilter className="size-3.5" />
           </IconTooltipButton>
           <IconTooltipButton
+            label={t("workspaceNewGroup")}
+            onClick={() => setCreateGroupOpen(true)}
+            className="size-5 p-0 text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100 hover:text-[var(--app-accent)]"
+          >
+            <FolderTree className="size-3.5" />
+          </IconTooltipButton>
+          <IconTooltipButton
             label={t("newWorkspace")}
             onClick={actions.handleCreateWorkspace}
             className="size-5 p-0 text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100 hover:text-[var(--app-accent)]"
@@ -410,6 +419,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
 
       {/* Dialogs */}
       <WorkspaceDialogs {...actions.dialogs} />
+      <WorkspaceCreateGroupDialog open={createGroupOpen} setOpen={setCreateGroupOpen} />
 
       <WorktreeManager
         open={worktreeManagerOpen}

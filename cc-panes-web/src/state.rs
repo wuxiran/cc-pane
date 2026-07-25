@@ -7,8 +7,8 @@ use cc_panes_core::services::{
     ProcessMonitorService, ProjectCliHooksService, ProjectService, ProviderService,
     QuickCommandService, RunnerService, SessionIndexService, SessionRestoreService,
     SettingsService, SharedMcpService, SkillService, SpecService, SshMachineService,
-    TaskBindingService, TerminalBackend, TodoService,
-    UsageStatsService, UserSkillService, WorkspaceService, WorktreeService,
+    TaskBindingService, TerminalBackend, TodoService, UsageStatsService, UserSkillService,
+    WorkspaceService, WorktreeService,
 };
 
 use crate::web_auth::WebAuthStore;
