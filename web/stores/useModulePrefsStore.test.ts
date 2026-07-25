@@ -34,6 +34,7 @@ describe("useModulePrefsStore", () => {
       orchestration: { enabled: false, position: "activityBar" },
       resources: { enabled: false, position: "activityBar" },
       todo: { enabled: false, position: "activityBar" },
+      aiPanel: { enabled: false, position: "rightDock", autoOpen: false },
     });
   });
 

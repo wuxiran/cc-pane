@@ -43,6 +43,7 @@ export function createModulePreferencesForPreset(preset: ModulePreset): ModulePr
     {
       enabled: preset === "full" || module.minimal,
       position: module.defaultPosition,
+      ...(module.id === "aiPanel" ? { autoOpen: false } : {}),
     },
   ])) as ModulePreferences;
 }
