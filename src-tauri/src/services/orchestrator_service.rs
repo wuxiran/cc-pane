@@ -70,6 +70,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager};
 use tracing::{debug, error, info, warn};
@@ -1221,14 +1222,159 @@ fn bind_fixed_port(bind_host: &str, port: u16) -> Result<tokio::net::TcpListener
     })
 }
 
+pub const ORCHESTRATOR_STATUS_CHANGED_EVENT: &str = "orchestrator-status-changed";
+
+// The inherited-socket root cause is fixed. These retries only cover a short-lived
+// third-party port conflict: five attempts over 15 seconds keep recovery bounded
+// while leaving enough time for a user or updater to release the fixed port.
+const ORCHESTRATOR_BIND_RETRY_DELAYS_MS: [u64; 4] = [1_000, 2_000, 4_000, 8_000];
+const ORCHESTRATOR_BIND_MAX_ATTEMPTS: u32 = ORCHESTRATOR_BIND_RETRY_DELAYS_MS.len() as u32 + 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OrchestratorLifecycle {
+    Binding,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorStatus {
+    pub port: Option<u16>,
+    pub bind: Option<OrchestratorBindDecision>,
+    pub lifecycle: OrchestratorLifecycle,
+    pub attempt: Option<u32>,
+    pub last_error: Option<String>,
+    pub next_retry_at: Option<u64>,
+}
+
+impl Default for OrchestratorStatus {
+    fn default() -> Self {
+        Self {
+            port: None,
+            bind: None,
+            lifecycle: OrchestratorLifecycle::Binding,
+            attempt: None,
+            last_error: None,
+            next_retry_at: None,
+        }
+    }
+}
+
+impl OrchestratorStatus {
+    fn begin_attempt(&mut self, attempt: u32) {
+        self.port = None;
+        self.lifecycle = OrchestratorLifecycle::Binding;
+        self.attempt = Some(attempt);
+        self.next_retry_at = None;
+    }
+
+    fn record_bind_failure(&mut self, attempt: u32, message: String, now_ms: u64) {
+        self.port = None;
+        self.attempt = Some(attempt);
+        self.last_error = Some(message);
+        if attempt < ORCHESTRATOR_BIND_MAX_ATTEMPTS {
+            self.lifecycle = OrchestratorLifecycle::Binding;
+            self.next_retry_at = ORCHESTRATOR_BIND_RETRY_DELAYS_MS
+                .get((attempt - 1) as usize)
+                .map(|delay| now_ms.saturating_add(*delay));
+        } else {
+            self.lifecycle = OrchestratorLifecycle::Failed;
+            self.next_retry_at = None;
+        }
+    }
+
+    fn mark_ready(&mut self, port: u16) {
+        self.port = Some(port);
+        self.lifecycle = OrchestratorLifecycle::Ready;
+        self.attempt = None;
+        self.last_error = None;
+        self.next_retry_at = None;
+    }
+
+    fn mark_failed(&mut self, message: String) {
+        self.port = None;
+        self.lifecycle = OrchestratorLifecycle::Failed;
+        self.last_error = Some(message);
+        self.next_retry_at = None;
+    }
+}
+
+fn unix_time_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn update_orchestrator_status(
+    status: &Arc<Mutex<OrchestratorStatus>>,
+    app_handle: &AppHandle,
+    update: impl FnOnce(&mut OrchestratorStatus),
+) {
+    let snapshot = {
+        let mut status = status.lock().unwrap_or_else(|error| error.into_inner());
+        update(&mut status);
+        status.clone()
+    };
+    if let Err(error) = app_handle.emit(ORCHESTRATOR_STATUS_CHANGED_EVENT, snapshot) {
+        warn!(error = %error, "failed to emit orchestrator status change");
+    }
+}
+
+async fn wait_for_bind_retry(
+    mut cancel_rx: tokio::sync::watch::Receiver<bool>,
+    delay: std::time::Duration,
+) -> bool {
+    if *cancel_rx.borrow() {
+        return false;
+    }
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => true,
+        changed = cancel_rx.changed() => changed.is_ok() && !*cancel_rx.borrow(),
+    }
+}
+
+async fn wait_for_orchestrator_shutdown(mut cancel_rx: tokio::sync::watch::Receiver<bool>) {
+    if *cancel_rx.borrow() {
+        return;
+    }
+    while cancel_rx.changed().await.is_ok() {
+        if *cancel_rx.borrow() {
+            return;
+        }
+    }
+}
+
+struct BindingLoopGuard {
+    active: Arc<AtomicBool>,
+}
+
+impl BindingLoopGuard {
+    fn acquire(active: Arc<AtomicBool>) -> Option<Self> {
+        active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| Self { active })
+    }
+}
+
+impl Drop for BindingLoopGuard {
+    fn drop(&mut self) {
+        self.active.store(false, Ordering::Release);
+    }
+}
+
 pub struct OrchestratorService {
-    port: Mutex<Option<u16>>,
+    status: Arc<Mutex<OrchestratorStatus>>,
     token: String,
     started_at: u64,
     /// 本次要监听的端口：固定端口，或逃生阀 `CC_PANES_ORCHESTRATOR_PORT` 指定的确定值。
     /// **不再来自 manifest**——manifest 里可能残留旧版本 `:0` 分配的 ephemeral 端口。
     listen_port: u16,
-    bind_decision: Mutex<Option<OrchestratorBindDecision>>,
+    binding_loop_active: Arc<AtomicBool>,
+    cancel_tx: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
     pending_directives: Arc<Mutex<PendingDirectiveMap>>,
@@ -1256,14 +1402,15 @@ impl OrchestratorService {
             None => generate_token(),
         };
         Self {
-            port: Mutex::new(None),
+            status: Arc::new(Mutex::new(OrchestratorStatus::default())),
             token,
             started_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64,
             listen_port: decide_port(),
-            bind_decision: Mutex::new(None),
+            binding_loop_active: Arc::new(AtomicBool::new(false)),
+            cancel_tx: Mutex::new(None),
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             pending_worker_reports: Arc::new(Mutex::new(HashMap::new())),
             pending_directives: Arc::new(Mutex::new(HashMap::new())),
@@ -1274,15 +1421,37 @@ impl OrchestratorService {
 
     /// 获取服务器端口
     pub fn port(&self) -> Option<u16> {
-        *self.port.lock().unwrap_or_else(|e| e.into_inner())
+        self.status
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .port
     }
 
     /// 获取当前监听绑定决策（None = 尚未启动）
     pub fn bind_decision(&self) -> Option<OrchestratorBindDecision> {
-        self.bind_decision
+        self.status
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(|error| error.into_inner())
+            .bind
             .clone()
+    }
+
+    pub fn status(&self) -> OrchestratorStatus {
+        self.status
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    pub fn shutdown(&self) {
+        if let Some(cancel_tx) = self
+            .cancel_tx
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        {
+            let _ = cancel_tx.send(true);
+        }
     }
 
     /// 获取认证 token
@@ -1358,7 +1527,19 @@ impl OrchestratorService {
         app_handle: AppHandle,
         app_paths: Arc<AppPaths>,
     ) -> Result<()> {
+        let Some(binding_loop_guard) = BindingLoopGuard::acquire(self.binding_loop_active.clone())
+        else {
+            warn!("[orchestrator] binding loop already active; duplicate start ignored");
+            return Ok(());
+        };
+
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        *self
+            .cancel_tx
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(cancel_tx);
         let app_paths_for_config = app_paths.clone();
+
         let bind = resolve_bind_decision(
             &settings_service,
             &workspace_service,
@@ -1368,7 +1549,14 @@ impl OrchestratorService {
             "[orchestrator] bind decision: host={} mode={} ({})",
             bind.host, bind.mode, bind.reason
         );
-        *self.bind_decision.lock().unwrap_or_else(|e| e.into_inner()) = Some(bind.clone());
+        update_orchestrator_status(&self.status, &app_handle, |status| {
+            status.bind = Some(bind.clone());
+            status.port = None;
+            status.lifecycle = OrchestratorLifecycle::Binding;
+            status.attempt = None;
+            status.last_error = None;
+            status.next_retry_at = None;
+        });
         let bind_host = bind.host;
         let state = AppState {
             token: self.token.clone(),
@@ -1595,134 +1783,123 @@ impl OrchestratorService {
             ));
         }
 
-        {
-            let mut port_guard = self.port.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(port) = *port_guard {
-                if local_orchestrator_endpoint_reachable(port) {
-                    warn!("[orchestrator] Server already running on port {}", port);
-                    return Ok(());
-                }
-                warn!(
-                    "[orchestrator] Stored port {} is not reachable; restarting server",
-                    port
-                );
-                *port_guard = None;
-            }
-        }
-
-        let port_mutex = Arc::new(Mutex::new(None::<u16>));
-        let port_mutex_clone = port_mutex.clone();
-        // 绑定失败要让主线程立刻知道并醒目报错，而不是干等 5 秒超时。
-        let bind_error = Arc::new(Mutex::new(None::<String>));
-        let bind_error_clone = bind_error.clone();
         let listen_port = self.listen_port;
+        let token = self.token.clone();
+        let started_at = self.started_at;
+        let status = self.status.clone();
+        let status_for_spawn_error = status.clone();
+        let app_handle_for_status = state.app_handle.clone();
+        let app_handle_for_spawn_error = app_handle_for_status.clone();
 
-        // 在独立线程中启动 tokio runtime + axum 服务器
-        std::thread::spawn(move || {
-            info!("[orchestrator] Creating dedicated tokio runtime (2 worker threads)...");
-            let rt = match tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => {
-                    info!("[orchestrator] Tokio runtime created successfully");
-                    rt
-                }
-                Err(e) => {
-                    error!("[orchestrator] Failed to create tokio runtime: {}", e);
-                    return;
-                }
-            };
-
-            rt.block_on(async move {
-                let level_scan_state = state.clone();
-                let directive_runtime = DirectiveRuntime::from_app_state(&state);
-                let directive_transitions = state.session_state_machine.subscribe_transitions();
-                let app = build_router(state);
-
-                // 固定端口（跨重启稳定：让重启/更新后仍在跑的 CLI 会话里写死的 MCP 端点依旧有效）。
-                // 绑不上就报错退出，不静默漂移到随机端口。
-                // auto/all 下绑 0.0.0.0 供 WSL 访问；loopback 只绑回环，缩小 LAN 暴露面。
-                // macOS Ventura+ 首次绑定非回环可能触发防火墙授权弹窗，这是正常行为
-                let listener = match bind_fixed_port(&bind_host, listen_port) {
-                    Ok(l) => l,
-                    Err(message) => {
-                        error!("[orchestrator] {}", message);
-                        if let Ok(mut slot) = bind_error_clone.lock() {
-                            *slot = Some(message);
-                        }
-                        return;
+        // The setup thread must not wait through the whole backoff window: the WebView
+        // needs to mount so users can see binding/failed state while retries continue.
+        let spawn_result = std::thread::Builder::new()
+            .name("cc-panes-orchestrator".to_string())
+            .spawn(move || {
+                let _binding_loop_guard = binding_loop_guard;
+                info!("[orchestrator] Creating dedicated tokio runtime (2 worker threads)...");
+                let rt = match tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => {
+                        info!("[orchestrator] Tokio runtime created successfully");
+                        rt
                     }
-                };
-
-                let addr = match listener.local_addr() {
-                    Ok(a) => a,
                     Err(e) => {
-                        error!("[orchestrator] Failed to get local addr: {}", e);
+                        error!("[orchestrator] Failed to create tokio runtime: {}", e);
+                        update_orchestrator_status(&status, &app_handle_for_status, |current| {
+                            current.mark_failed(format!("Orchestrator runtime 创建失败：{e}"))
+                        });
                         return;
                     }
                 };
-                let port = addr.port();
-                info!(
-                    "[orchestrator] HTTP + MCP server listening on {}:{}",
-                    bind_host, port
-                );
 
-                // 通知主线程端口号
-                if let Ok(mut p) = port_mutex_clone.lock() {
-                    *p = Some(port);
-                }
+                rt.block_on(async move {
+                    let listener = loop {
+                        if *cancel_rx.borrow() {
+                            info!("[orchestrator] binding cancelled before next attempt");
+                            return;
+                        }
 
-                tokio::spawn(run_pending_report_level_scan(level_scan_state));
-                tokio::spawn(run_pending_directive_level_scan(directive_runtime.clone()));
-                tokio::spawn(run_pending_directive_transition_consumer(
-                    directive_runtime,
-                    directive_transitions,
-                ));
+                        let attempt = status
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .attempt
+                            .unwrap_or(0)
+                            .saturating_add(1);
+                        update_orchestrator_status(&status, &app_handle_for_status, |current| {
+                            current.begin_attempt(attempt);
+                        });
 
-                // 启动服务器
-                info!("[orchestrator] axum::serve starting...");
-                if let Err(e) = axum::serve(listener, app).await {
-                    error!("[orchestrator] Server error: {}", e);
-                }
-                warn!("[orchestrator] axum::serve returned — server stopped");
-            });
-            warn!("[orchestrator] rt.block_on returned — runtime thread exiting");
-        });
+                        match bind_fixed_port(&bind_host, listen_port) {
+                            Ok(listener) => break listener,
+                            Err(message) => {
+                                error!(
+                                    "[orchestrator] bind attempt {}/{} failed: {}",
+                                    attempt, ORCHESTRATOR_BIND_MAX_ATTEMPTS, message
+                                );
+                                update_orchestrator_status(
+                                    &status,
+                                    &app_handle_for_status,
+                                    |current| {
+                                        current.record_bind_failure(
+                                            attempt,
+                                            message,
+                                            unix_time_millis(),
+                                        );
+                                    },
+                                );
+                                if attempt >= ORCHESTRATOR_BIND_MAX_ATTEMPTS {
+                                    return;
+                                }
+                                let delay = std::time::Duration::from_millis(
+                                    ORCHESTRATOR_BIND_RETRY_DELAYS_MS[(attempt - 1) as usize],
+                                );
+                                if !wait_for_bind_retry(cancel_rx.clone(), delay).await {
+                                    info!("[orchestrator] binding retry cancelled");
+                                    return;
+                                }
+                            }
+                        }
+                    };
 
-        // 等待端口绑定完成（最多 5 秒）；绑定失败则立即返回 Err，让调用方/用户看见
-        let start = std::time::Instant::now();
-        loop {
-            if let Ok(slot) = bind_error.lock() {
-                if let Some(message) = slot.clone() {
-                    return Err(anyhow::anyhow!("orchestrator 未能启动：{message}"));
-                }
-            }
-            if start.elapsed() > std::time::Duration::from_secs(5) {
-                error!("[orchestrator] Timeout waiting for port assignment");
-                break;
-            }
-            if let Ok(p) = port_mutex.lock() {
-                if let Some(port) = *p {
-                    let mut self_port = self.port.lock().unwrap_or_else(|e| e.into_inner());
-                    *self_port = Some(port);
+                    let addr = match listener.local_addr() {
+                        Ok(addr) => addr,
+                        Err(error) => {
+                            let message = format!("Orchestrator 无法读取监听地址：{error}");
+                            error!("[orchestrator] {message}");
+                            update_orchestrator_status(
+                                &status,
+                                &app_handle_for_status,
+                                |current| current.mark_failed(message),
+                            );
+                            return;
+                        }
+                    };
+                    let port = addr.port();
+                    info!(
+                        "[orchestrator] HTTP + MCP server listening on {}:{}",
+                        bind_host, port
+                    );
 
-                    // 启动时立即写入 mcp-orchestrator.json，确保 token 与端口同步。
-                    // 端口固定后 manifest 依然必要：token 跨重启复用，且逃生阀覆盖端口时
-                    // 这里记录的是**实际**监听端口。写入的是本进程数据目录下的 manifest——
-                    // dev 写 ~/.cc-panes-dev/、release 写 ~/.cc-panes/，与端口一一对应
-                    // （见 ORCHESTRATOR_FIXED_PORT 文档表格）。
+                    // Async binding means the caller cannot inject this immediately after start().
+                    // Publish the actual endpoint at the point it becomes ready instead.
+                    state
+                        .local_terminal_service
+                        .set_orchestrator_info(port, token.clone());
+
                     let config = serde_json::json!({
                         "service": "cc-panes-orchestrator",
                         "pid": std::process::id(),
-                        "startedAt": self.started_at,
+                        "startedAt": started_at,
                         "mcpServers": {
                             "ccpanes": {
                                 "type": "http",
-                                "url": format!("http://127.0.0.1:{}/mcp?token={}", port, self.token),
+                                "url": format!("http://127.0.0.1:{}/mcp?token={}", port, token),
                                 "headers": {
-                                    "Authorization": format!("Bearer {}", self.token)
+                                    "Authorization": format!("Bearer {}", token)
                                 }
                             }
                         }
@@ -1730,8 +1907,6 @@ impl OrchestratorService {
                     let config_path = app_paths_for_config
                         .data_dir()
                         .join(orchestrator_manifest::ORCHESTRATOR_MANIFEST_FILE);
-                    // 原子写：裸 fs::write 在崩溃/断电时可能留下截断的 manifest，
-                    // 下次启动 read_endpoint 返回 None → token 丢失。
                     match cc_panes_core::utils::atomic_file::write_atomic(
                         &config_path,
                         serde_json::to_string_pretty(&config).unwrap_or_default(),
@@ -1740,13 +1915,61 @@ impl OrchestratorService {
                             "[orchestrator] MCP config written to {}",
                             config_path.display()
                         ),
-                        Err(e) => error!("[orchestrator] Failed to write MCP config: {}", e),
+                        Err(error) => {
+                            error!("[orchestrator] Failed to write MCP config: {}", error)
+                        }
                     }
 
-                    break;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
+                    update_orchestrator_status(&status, &app_handle_for_status, |current| {
+                        current.mark_ready(port);
+                    });
+
+                    let level_scan_state = state.clone();
+                    let directive_runtime = DirectiveRuntime::from_app_state(&state);
+                    let directive_transitions = state.session_state_machine.subscribe_transitions();
+                    let app = build_router(state);
+
+                    tokio::spawn(run_pending_report_level_scan(level_scan_state));
+                    tokio::spawn(run_pending_directive_level_scan(directive_runtime.clone()));
+                    tokio::spawn(run_pending_directive_transition_consumer(
+                        directive_runtime,
+                        directive_transitions,
+                    ));
+
+                    // 启动服务器
+                    info!("[orchestrator] axum::serve starting...");
+                    let serve_result = axum::serve(listener, app)
+                        .with_graceful_shutdown(wait_for_orchestrator_shutdown(cancel_rx.clone()))
+                        .await;
+                    let cancelled = *cancel_rx.borrow();
+                    if let Err(ref error) = serve_result {
+                        error!("[orchestrator] Server error: {}", error);
+                    }
+                    if cancelled {
+                        info!("[orchestrator] server stopped after application shutdown");
+                    } else {
+                        let message = serve_result
+                            .as_ref()
+                            .err()
+                            .map(|error| format!("Orchestrator server 已停止：{error}"))
+                            .unwrap_or_else(|| "Orchestrator server 意外停止".to_string());
+                        warn!("[orchestrator] {message}");
+                        update_orchestrator_status(&status, &app_handle_for_status, |current| {
+                            current.mark_failed(message)
+                        });
+                    }
+                });
+                warn!("[orchestrator] rt.block_on returned — runtime thread exiting");
+            });
+
+        if let Err(error) = spawn_result {
+            let message = format!("Orchestrator 启动线程创建失败：{error}");
+            update_orchestrator_status(
+                &status_for_spawn_error,
+                &app_handle_for_spawn_error,
+                |current| current.mark_failed(message.clone()),
+            );
+            return Err(anyhow::anyhow!(message));
         }
 
         Ok(())
@@ -10093,11 +10316,6 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
     }
 }
 
-fn local_orchestrator_endpoint_reachable(port: u16) -> bool {
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(250)).is_ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -11145,6 +11363,87 @@ mod tests {
         let decision = decide_bind("auto", Some(Err("boom".to_string())), Some(true));
         assert_eq!(decision.host, "0.0.0.0");
         assert!(decision.reason.contains("fail-open"));
+    }
+
+    #[test]
+    fn orchestrator_status_exposes_bounded_retry_then_terminal_failure() {
+        let mut status = OrchestratorStatus::default();
+
+        status.begin_attempt(1);
+        status.record_bind_failure(1, "port occupied".to_string(), 1_000);
+
+        assert_eq!(status.lifecycle, OrchestratorLifecycle::Binding);
+        assert_eq!(status.attempt, Some(1));
+        assert_eq!(status.last_error.as_deref(), Some("port occupied"));
+        assert_eq!(
+            status.next_retry_at,
+            Some(1_000 + ORCHESTRATOR_BIND_RETRY_DELAYS_MS[0])
+        );
+
+        status.begin_attempt(ORCHESTRATOR_BIND_MAX_ATTEMPTS);
+        status.record_bind_failure(
+            ORCHESTRATOR_BIND_MAX_ATTEMPTS,
+            "still occupied".to_string(),
+            2_000,
+        );
+
+        assert_eq!(status.lifecycle, OrchestratorLifecycle::Failed);
+        assert_eq!(status.attempt, Some(ORCHESTRATOR_BIND_MAX_ATTEMPTS));
+        assert_eq!(status.last_error.as_deref(), Some("still occupied"));
+        assert_eq!(status.next_retry_at, None);
+    }
+
+    #[test]
+    fn orchestrator_ready_status_clears_transient_failure_details() {
+        let mut status = OrchestratorStatus::default();
+        status.begin_attempt(2);
+        status.record_bind_failure(2, "temporary".to_string(), 5_000);
+
+        status.mark_ready(47822);
+
+        assert_eq!(status.lifecycle, OrchestratorLifecycle::Ready);
+        assert_eq!(status.port, Some(47822));
+        assert_eq!(status.attempt, None);
+        assert_eq!(status.last_error, None);
+        assert_eq!(status.next_retry_at, None);
+    }
+
+    #[test]
+    fn orchestrator_status_serializes_frontend_field_names() {
+        let mut status = OrchestratorStatus::default();
+        status.begin_attempt(1);
+        status.record_bind_failure(1, "occupied".to_string(), 10_000);
+
+        let value = serde_json::to_value(status).expect("serialize orchestrator status");
+
+        assert_eq!(value["lifecycle"], "binding");
+        assert_eq!(value["attempt"], 1);
+        assert_eq!(value["lastError"], "occupied");
+        assert!(value["nextRetryAt"].is_number());
+    }
+
+    #[tokio::test]
+    async fn orchestrator_retry_wait_is_cancelled_without_waiting_for_backoff() {
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let waiter = tokio::spawn(wait_for_bind_retry(
+            cancel_rx,
+            std::time::Duration::from_secs(60),
+        ));
+
+        cancel_tx.send(true).expect("send cancellation");
+
+        assert!(!waiter.await.expect("join retry waiter"));
+    }
+
+    #[test]
+    fn binding_loop_guard_allows_only_one_active_loop() {
+        let active = Arc::new(AtomicBool::new(false));
+        let first = BindingLoopGuard::acquire(active.clone()).expect("acquire first loop");
+
+        assert!(BindingLoopGuard::acquire(active.clone()).is_none());
+
+        drop(first);
+        assert!(BindingLoopGuard::acquire(active).is_some());
     }
 
     #[test]
