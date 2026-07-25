@@ -66,8 +66,8 @@ pub use runner::{
 };
 pub use screenshot::ScreenshotResult;
 pub use session_index::{
-    ParsedSessionTranscript, SessionIndexEntry, SessionIndexQuery, SessionIndexScanReport,
-    SessionIndexScope, SessionScanState,
+    ParsedSessionTranscript, SessionIndexEntry, SessionIndexListParams, SessionIndexQuery,
+    SessionIndexScanReport, SessionIndexScope, SessionScanState,
 };
 pub use session_restore::SavedSession;
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};

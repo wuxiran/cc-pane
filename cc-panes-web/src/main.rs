@@ -10,18 +10,18 @@ use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::{
     events::NoopNotifier,
     repository::{
-        Database, HistoryRepository, ProjectRepository, RunnerRepository, SpecRepository,
-        TaskBindingRepository, TodoRepository, UsageStatsRepository,
+        Database, HistoryRepository, ProjectRepository, RunnerRepository, SessionIndexRepository,
+        SpecRepository, TaskBindingRepository, TodoRepository, UsageStatsRepository,
     },
     services::{
         DaemonTerminalBackend, FileSystemService, HistoryService, InProcessTerminalBackend,
         JournalService, LaunchHistoryService, LaunchProfileService, LayoutSnapshotService,
         McpConfigService, MemoryService, PlanService, ProcessMonitorService,
         ProjectCliHooksService, ProjectService, ProviderService, RunnerService,
-        SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
-        SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend,
-        TerminalDaemonClient, TerminalService, TodoService, UsageStatsService, UserSkillService,
-        WorkspaceService, WorktreeService,
+        SessionIndexService, SessionRestoreService, SettingsService, SharedMcpService,
+        SkillService, SpecService, SshCredentialService, SshMachineService, TaskBindingService,
+        TerminalBackend, TerminalDaemonClient, TerminalService, TodoService, UsageStatsService,
+        UserSkillService, WorkspaceService, WorktreeService,
     },
     utils::{simplify_path, AppPaths, APP_DIR_NAME},
 };
@@ -259,6 +259,7 @@ async fn main() -> anyhow::Result<()> {
     let history_repo = Arc::new(HistoryRepository::new(database.clone()));
     let runner_repo = Arc::new(RunnerRepository::new(database.clone()));
     let usage_stats_repo = Arc::new(UsageStatsRepository::new(database.clone()));
+    let session_index_repo = Arc::new(SessionIndexRepository::new(database.clone()));
     let workspace_service = Arc::new(WorkspaceService::new(app_paths.workspaces_dir()));
     let project_service = Arc::new(ProjectService::new(project_repo));
     let todo_service = Arc::new(TodoService::new(todo_repo));
@@ -266,7 +267,10 @@ async fn main() -> anyhow::Result<()> {
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let layout_snapshot_service = Arc::new(LayoutSnapshotService::new(database.clone()));
-    let session_restore_service = Arc::new(SessionRestoreService::new(database, app_paths.clone()));
+    let session_restore_service = Arc::new(SessionRestoreService::new(
+        database.clone(),
+        app_paths.clone(),
+    ));
     let history_service = Arc::new(HistoryService::new());
     let worktree_service = Arc::new(WorktreeService::new());
     let process_monitor_service = Arc::new(ProcessMonitorService::new());
@@ -311,6 +315,13 @@ async fn main() -> anyhow::Result<()> {
         settings_service.clone(),
     ));
     usage_stats_service.start_background_tasks();
+    let session_index_service = Arc::new(SessionIndexService::new_with_settings(
+        session_index_repo,
+        launch_history_service.clone(),
+        workspace_service.clone(),
+        settings_service.clone(),
+    ));
+    session_index_service.start_background_tasks();
 
     let ws_emitter = Arc::new(WsEmitter::new());
     let backend_config = BackendConfig {
@@ -357,6 +368,7 @@ async fn main() -> anyhow::Result<()> {
         external_skill_registry,
         user_skill_service,
         usage_stats_service,
+        session_index_service,
         ws_emitter,
         web_auth: Arc::new(web_auth::WebAuthStore::default()),
         default_cwd: cwd_str.clone(),

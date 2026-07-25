@@ -5,9 +5,9 @@ use cc_panes_core::services::{
     ExternalSkillRegistry, FileSystemService, HistoryService, JournalService, LaunchHistoryService,
     LaunchProfileService, LayoutSnapshotService, McpConfigService, MemoryService, PlanService,
     ProcessMonitorService, ProjectCliHooksService, ProjectService, ProviderService, RunnerService,
-    SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
-    SshMachineService, TaskBindingService, TerminalBackend, TodoService, UsageStatsService,
-    UserSkillService, WorkspaceService, WorktreeService,
+    SessionIndexService, SessionRestoreService, SettingsService, SharedMcpService, SkillService,
+    SpecService, SshMachineService, TaskBindingService, TerminalBackend, TodoService,
+    UsageStatsService, UserSkillService, WorkspaceService, WorktreeService,
 };
 
 use crate::web_auth::WebAuthStore;
@@ -51,8 +51,25 @@ pub struct AppState {
     pub external_skill_registry: Arc<ExternalSkillRegistry>,
     pub user_skill_service: Arc<UserSkillService>,
     pub usage_stats_service: Arc<UsageStatsService>,
+    pub session_index_service: Arc<SessionIndexService>,
     pub ws_emitter: Arc<WsEmitter>,
     pub web_auth: Arc<WebAuthStore>,
     pub default_cwd: String,
     pub output_mode: TerminalOutputMode,
+}
+
+#[cfg(test)]
+pub fn test_session_index_service(workspaces_dir: std::path::PathBuf) -> Arc<SessionIndexService> {
+    let db = Arc::new(
+        cc_panes_core::repository::Database::new_fallback().expect("session index test database"),
+    );
+    Arc::new(SessionIndexService::new(
+        Arc::new(cc_panes_core::repository::SessionIndexRepository::new(
+            db.clone(),
+        )),
+        Arc::new(LaunchHistoryService::new(Arc::new(
+            cc_panes_core::repository::HistoryRepository::new(db),
+        ))),
+        Arc::new(WorkspaceService::new(workspaces_dir)),
+    ))
 }
