@@ -14,12 +14,14 @@ export interface ModulePreference {
 }
 
 export type ModulePreferences = Record<ModuleId, ModulePreference>;
+export type ModulePreset = "full" | "minimal";
 
 interface ModulePrefsState {
   preferences: ModulePreferences;
   setEnabled: (id: ModuleId, enabled: boolean) => void;
   setPosition: (id: ModuleId, position: ModulePosition) => void;
   setAutoOpen: (id: ModuleId, autoOpen: boolean) => void;
+  applyPreset: (preset: ModulePreset) => void;
 }
 
 export const MODULE_PREFS_STORAGE_KEY = "cc-panes-module-prefs";
@@ -29,6 +31,17 @@ export function createDefaultModulePreferences(): ModulePreferences {
     module.id,
     {
       enabled: true,
+      position: module.defaultPosition,
+      ...(module.id === "aiPanel" ? { autoOpen: false } : {}),
+    },
+  ])) as ModulePreferences;
+}
+
+export function createModulePreferencesForPreset(preset: ModulePreset): ModulePreferences {
+  return Object.fromEntries(MODULE_REGISTRY.map((module) => [
+    module.id,
+    {
+      enabled: preset === "full" || module.minimal,
       position: module.defaultPosition,
       ...(module.id === "aiPanel" ? { autoOpen: false } : {}),
     },
@@ -82,6 +95,9 @@ export const useModulePrefsStore = create<ModulePrefsState>()(
           [id]: { ...state.preferences[id], autoOpen },
         },
       })),
+      applyPreset: (preset) => set({
+        preferences: createModulePreferencesForPreset(preset),
+      }),
     }),
     {
       name: MODULE_PREFS_STORAGE_KEY,

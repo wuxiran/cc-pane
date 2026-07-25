@@ -18,6 +18,7 @@
     "wallpaper": "图片 视频 背景 音乐 透明度 模糊",
     "font": "字体 字号 font family 中文 CJK",
     "shortcuts": "快捷键 热键 键盘 绑定",
+    "setupGuide": "新手 入门 引导 工作空间 项目 多开 派工 skill 完成度",
     "modules": "模块 入口 左栏 右坞 隐藏 命令面板",
     "provider": "Provider 供应商 API Key 模型",
     "mcp": "MCP server 工具 共享",
@@ -31,12 +32,17 @@
     "about": "版本 更新 日志 卸载 清理"
   },
   "groups": {
+    "guide": "开始",
     "appearance": "外观与交互",
     "ai": "AI 与启动",
     "system": "系统",
     "companion": "伙伴",
     "experimental": "实验",
     "about": "关于"
+  },
+  "setupGuide": {
+    "title": "上手清单",
+    "description": "回访黄金五分钟路径，查看核心并行协作工作流的真实完成度。"
   },
   "experimental": {
     "title": "实验性功能",

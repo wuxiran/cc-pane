@@ -11,6 +11,7 @@ import {
   Image,
   Info,
   Keyboard,
+  ListChecks,
   Mic,
   PanelsTopLeft,
   Settings,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 
 export type SettingsGroupId =
+  | "guide"
   | "appearance"
   | "ai"
   | "system"
@@ -28,6 +30,7 @@ export type SettingsGroupId =
   | "about";
 
 export type SettingsPaneId =
+  | "setup-guide"
   | "general"
   | "wallpaper"
   | "terminal"
@@ -75,6 +78,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<{
   id: SettingsGroupId;
   titleKey: SettingsTranslationKey;
 }> = [
+  { id: "guide", titleKey: "groups.guide" },
   { id: "appearance", titleKey: "groups.appearance" },
   { id: "ai", titleKey: "groups.ai" },
   { id: "system", titleKey: "groups.system" },
@@ -84,6 +88,20 @@ export const SETTINGS_GROUPS: ReadonlyArray<{
 ];
 
 export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
+  {
+    id: "setup-guide",
+    icon: ListChecks,
+    titleKey: "setupGuide.title",
+    descriptionKey: "setupGuide.description",
+    group: "guide",
+    searchEntries: [{
+      id: "workflow-checklist",
+      titleKey: "setupGuide.title",
+      descriptionKey: "setupGuide.description",
+      keywordsKey: "searchKeywords.setupGuide",
+      targetSectionId: "setup-guide-root",
+    }],
+  },
   {
     id: "general",
     icon: Settings,

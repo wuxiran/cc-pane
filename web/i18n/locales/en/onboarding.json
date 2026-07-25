@@ -1,40 +1,136 @@
 {
-  "envCheck": "Environment Check",
-  "envCheckDesc": "Check the development tools required for CC-Panes",
-  "nodeJs": "Node.js",
-  "claudeCode": "Claude Code",
-  "installed": "Installed",
-  "notInstalled": "Not installed",
-  "installNodeHint": "Please install Node.js: https://nodejs.org/",
-  "installClaudeHint": "Please install Claude Code: npm install -g @anthropic-ai/claude-code",
-  "envReady": "Environment ready, you can continue",
-  "envNotReady": "Please install the missing tools first",
-  "cliChoice": "Choose Your AI Coding Tool",
-  "cliChoiceDesc": "CC-Panes supports multiple CLI tools. Choose the one you primarily use",
-  "claudeCodeName": "Claude Code",
-  "claudeCodeDesc": "Official CLI by Anthropic",
-  "codexCliName": "Codex CLI",
-  "codexCliDesc": "Official CLI by OpenAI",
-  "geminiCliDesc": "Official CLI by Google",
-  "kimiCliDesc": "Official CLI by Moonshot AI",
-  "glmCliDesc": "GLM workflow powered by Crush",
-  "opencodeCliDesc": "OpenCode CLI",
-  "cursorCliDesc": "Cursor Agent CLI",
-  "cliDetected": "Detected",
-  "cliNotDetected": "Not detected",
-  "next": "Next",
-  "skip": "Skip",
-  "back": "Back",
-  "welcome": "Welcome to CC-Panes!",
-  "welcomeDesc": "CC-Panes is a multi-instance split-pane manager for Claude Code.",
-  "conceptTitle": "Three-Layer Model",
-  "conceptDesc": "CC-Panes uses a three-layer model to organize your work:",
-  "conceptWorkspace": "Workspace — A collection of projects with configuration and session logs",
-  "conceptProject": "Project — Corresponds to a Git repository or code directory",
-  "conceptTask": "Task — A specific task under a project, displayed as a terminal tab",
-  "aiGuideIntro": "Next, the AI assistant will guide you to create your first workspace and import projects.",
-  "startAiGuide": "Start AI Guide",
-  "startAiGuideDisabled": "Please complete the environment check first",
+  "progress": "Step {{current}} of {{total}}",
+  "agentHint": "You can also tell the agent directly",
+  "actions": {
+    "choosePreset": "Choose a mode",
+    "continue": "Continue",
+    "useCurrentProject": "Continue with imported project",
+    "launchPair": "Launch side by side",
+    "finish": "Finish guide",
+    "skipStep": "Skip this step",
+    "skipAll": "Skip all",
+    "back": "Back"
+  },
+  "steps": {
+    "environment": {
+      "title": "Check your environment",
+      "description": "Check the CLIs and tools used by multi-session workflows, with copyable repair commands for missing items."
+    },
+    "preset": {
+      "title": "Choose your workbench mode",
+      "description": "The mode only sets initial module preferences. You can adjust every module later in Settings."
+    },
+    "workspace": {
+      "title": "Create your first workspace",
+      "description": "Gather related projects and working materials into a portable work context."
+    },
+    "parallel": {
+      "title": "Launch two sessions side by side",
+      "description": "Run two available agents in the same project and see parallel work immediately."
+    },
+    "finish": {
+      "title": "Your workbench is ready",
+      "description": "Move from observing the workspace to dispatching and collaboration."
+    }
+  },
+  "environment": {
+    "checking": "Checking environment...",
+    "installed": "Installed",
+    "missing": "Not installed",
+    "notApplicable": "Not applicable on this platform",
+    "copy": "Copy command",
+    "copied": "Copied",
+    "copyRepair": "Copy {{name}} repair command",
+    "copyFailed": "Could not write to the clipboard. Check system permissions.",
+    "checkFailed": "Environment check failed. Skip this step and retry from Settings."
+  },
+  "preset": {
+    "groupLabel": "Workbench mode",
+    "full": {
+      "title": "Full mode",
+      "description": "Enable SSH, orchestration, resources, and Todo for the complete collaboration surface."
+    },
+    "minimal": {
+      "title": "Minimal mode",
+      "description": "Keep terminals, projects, the editor, and launcher while hiding every optional module."
+    }
+  },
+  "workspace": {
+    "principleGather": "Gather: collaboration settings, sessions, and plans live outside your code repositories.",
+    "principleMaterials": "Materials: designs, samples, and documents can sit beside code projects in one workspace.",
+    "principlePortable": "Move devices: sync workspace materials, restore code from the project list, and resume work.",
+    "currentProject": "The next step will use {{workspace}} / {{project}}",
+    "nameLabel": "Workspace name",
+    "namePlaceholder": "For example: Product development",
+    "pathLabel": "Project directory",
+    "pathPlaceholder": "Enter a directory containing projects",
+    "scan": "Scan directory",
+    "found": "Found {{count}} projects",
+    "createAndImport": "Create and import",
+    "noneFound": "No importable Git projects were found in this directory.",
+    "scanFailed": "Directory scan failed. Check the path and access permissions.",
+    "importFailed": "Creation or import failed. Existing results remain visible so you can correct and retry."
+  },
+  "parallel": {
+    "description": "Two sessions will start side by side in {{project}}.",
+    "noCli": "No CLI is available. Return to Environment to copy a repair command, or skip and retry in Settings.",
+    "noProject": "There is no launchable project. Return to Workspace to import one, or skip this step.",
+    "launchFailed": "The current project runtime cannot launch a session. Check its runtime configuration."
+  },
+  "finish": {
+    "description": "The workspace gathers context while multiple agents work across the same projects in parallel.",
+    "explorer": "Explorer: inspect projects, files, and Git state.",
+    "rightDock": "Right Dock: keep tools visible without covering terminals.",
+    "skills": "Advanced: use orchestration skills to dispatch, track, and report work."
+  },
+  "concierge": {
+    "action": "Tell the agent",
+    "detecting": "Detecting agent environment",
+    "repair": "Repair environment",
+    "importFirst": "Import a project first",
+    "launchFailed": "The current workspace cannot launch a concierge session. Check its runtime configuration."
+  },
+  "setupGuide": {
+    "title": "Golden Five-Minute Checklist",
+    "description": "Complete the core path from gathering projects to parallel dispatch. Progress follows real actions.",
+    "progress": "{{completed}} / {{total}} complete",
+    "progressLabel": "Core workflow progress",
+    "completed": "Complete",
+    "pending": "To do",
+    "replay": "Replay the five-minute guide",
+    "items": {
+      "workspace": {
+        "title": "Create a workspace",
+        "description": "Create a portable work context for projects, configuration, and collaboration materials.",
+        "action": "Create"
+      },
+      "project": {
+        "title": "Import your first project",
+        "description": "Scan a directory or add code repositories and working materials manually.",
+        "action": "Import"
+      },
+      "multiLaunch": {
+        "title": "Complete your first multi-launch",
+        "description": "Launch two agent sessions side by side in the same project.",
+        "action": "Start multi-launch"
+      },
+      "dispatch": {
+        "title": "Complete your first dispatch",
+        "description": "Give an agent a task with clear boundaries and acceptance criteria.",
+        "action": "Open orchestration"
+      },
+      "skill": {
+        "title": "Install your first Skill",
+        "description": "Install a reusable advanced workflow from Resources.",
+        "checkFailed": "Installed Skills could not be read. You can still inspect them in Resources.",
+        "action": "Browse Skills"
+      }
+    }
+  },
+  "errors": {
+    "settingsUnavailable": "Settings are not loaded, so onboarding state cannot be saved yet.",
+    "saveFailed": "Could not save onboarding state. Try again."
+  },
   "restartOnboarding": "Restart Onboarding Guide",
   "restartOnboardingDesc": "Reopen the onboarding wizard"
 }

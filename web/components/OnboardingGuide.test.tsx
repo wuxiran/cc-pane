@@ -1,23 +1,29 @@
 import "@/i18n";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OnboardingGuide from "./OnboardingGuide";
 import {
+  createDefaultModulePreferences,
+  createModulePreferencesForPreset,
   useDialogStore,
+  useModulePrefsStore,
+  usePanesStore,
   useSettingsStore,
-  useActivityBarStore,
-  useSelfChatStore,
+  useWorkspacesStore,
 } from "@/stores";
 import { terminalService } from "@/services";
+import * as workspaceService from "@/services/workspaceService";
 import { createTestSettings } from "@/test/utils/testData";
 import { mockTauriInvoke } from "@/test/utils/mockTauriInvoke";
-import type { EnvironmentInfo } from "@/types";
+import type { EnvironmentInfo, OpenTerminalOptions, Workspace, WorkspaceProject } from "@/types";
 
-function makeEnv(claudeInstalled: boolean, nodeInstalled = true): EnvironmentInfo {
+function makeEnv(claudeInstalled = true, codexInstalled = true): EnvironmentInfo {
   return {
-    node: { installed: nodeInstalled, version: nodeInstalled ? "v20.0.0" : null },
+    node: { installed: true, version: "v22.0.0" },
+    git: { installed: true, version: "git version 2.46.0" },
+    wsl: { installed: false, version: null, applicable: false },
     cliTools: [
       {
         id: "claude",
@@ -33,146 +39,174 @@ function makeEnv(claudeInstalled: boolean, nodeInstalled = true): EnvironmentInf
         displayName: "Codex CLI",
         executable: "codex",
         versionArgs: ["--version"],
-        installed: false,
-        version: null,
-        path: null,
+        installed: codexInstalled,
+        version: codexInstalled ? "1.0.0" : null,
+        path: codexInstalled ? "/usr/bin/codex" : null,
       },
     ],
     claude: { installed: claudeInstalled, version: null },
-    codex: { installed: false, version: null },
+    codex: { installed: codexInstalled, version: null },
   };
 }
 
-function setupEnv(env: EnvironmentInfo) {
-  return vi.spyOn(terminalService, "checkEnvironment").mockResolvedValue(env);
+const workspace: Workspace = {
+  id: "workspace-1",
+  name: "demo",
+  createdAt: "2026-07-25T00:00:00Z",
+  projects: [],
+};
+
+const project: WorkspaceProject = {
+  id: "project-1",
+  path: "/workspace/demo",
+};
+
+async function goToPresetStep(user: ReturnType<typeof userEvent.setup>) {
+  const next = await screen.findByRole("button", { name: "继续选择模式" });
+  await waitFor(() => expect(next).toBeEnabled());
+  await user.click(next);
+}
+
+async function goToParallelStep(user: ReturnType<typeof userEvent.setup>) {
+  await goToPresetStep(user);
+  await user.click(screen.getByRole("radio", { name: /全功能模式/ }));
+  await user.click(screen.getByRole("button", { name: "继续" }));
+  await user.click(screen.getByRole("button", { name: "跳过此步" }));
 }
 
 describe("OnboardingGuide", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mockTauriInvoke({ update_settings: null });
+    vi.spyOn(terminalService, "checkEnvironment").mockResolvedValue(makeEnv());
     useDialogStore.setState({ onboardingOpen: true });
     useSettingsStore.setState({ settings: createTestSettings() });
-    useSelfChatStore.setState({ activeSession: null, isOnboarding: false });
-    useActivityBarStore.setState({ appViewMode: "panes" });
-  });
-
-  it("未打开时不渲染对话框", () => {
-    setupEnv(makeEnv(true));
-    useDialogStore.setState({ onboardingOpen: false });
-    render(<OnboardingGuide />);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("打开后进行环境检测并展示 Node/CLI 状态", async () => {
-    setupEnv(makeEnv(true));
-    render(<OnboardingGuide />);
-
-    expect(await screen.findByText(/环境检测|Environment Check/)).toBeInTheDocument();
-    expect(screen.getByText("Node.js")).toBeInTheDocument();
-    expect(screen.getByText("Claude Code")).toBeInTheDocument();
-    // 检测完成后至少出现一个"已安装"标记
-    await waitFor(() => expect(screen.getAllByText(/已安装|Installed/).length).toBeGreaterThan(0));
-  });
-
-  it("Node 与所选 CLI 均安装时显示环境就绪提示", async () => {
-    setupEnv(makeEnv(true));
-    render(<OnboardingGuide />);
-    expect(await screen.findByText(/环境就绪|Environment ready/)).toBeInTheDocument();
-  });
-
-  it("缺少所选 CLI 时显示环境未就绪提示", async () => {
-    setupEnv(makeEnv(false));
-    render(<OnboardingGuide />);
-    expect(await screen.findByText(/请先安装|Please install the missing/)).toBeInTheDocument();
-  });
-
-  it("可从环境检测经 CLI 选择走到欢迎页并返回", async () => {
-    const user = userEvent.setup();
-    setupEnv(makeEnv(true));
-    render(<OnboardingGuide />);
-
-    // 等检测完成，Next 可用
-    const next = await screen.findByRole("button", { name: /下一步|Next/ });
-    await waitFor(() => expect(next).toBeEnabled());
-    await user.click(next);
-
-    // CLI 选择步骤
-    expect(await screen.findByText(/选择你的 AI 编程工具|Choose Your AI Coding Tool/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /下一步|Next/ }));
-
-    // 欢迎步骤
-    expect(await screen.findByText(/欢迎使用|Welcome to CC-Panes/)).toBeInTheDocument();
-
-    // 返回到 CLI 选择
-    await user.click(screen.getByRole("button", { name: /上一步|Back/ }));
-    expect(await screen.findByText(/选择你的 AI 编程工具|Choose Your AI Coding Tool/)).toBeInTheDocument();
-  });
-
-  it("跳过时标记 onboarding 完成并关闭对话框", async () => {
-    const user = userEvent.setup();
-    setupEnv(makeEnv(true));
-    render(<OnboardingGuide />);
-
-    await screen.findByRole("button", { name: /下一步|Next/ });
-    await user.click(screen.getByRole("button", { name: /跳过|Skip/ }));
-
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith(
-        "update_settings",
-        expect.objectContaining({
-          settings: expect.objectContaining({
-            general: expect.objectContaining({ onboardingCompleted: true }),
-          }),
-        }),
-      ),
-    );
-    expect(useDialogStore.getState().onboardingOpen).toBe(false);
-  });
-
-  it("环境就绪时开始 AI 引导会保存 CLI 选择并切换到 SelfChat", async () => {
-    const user = userEvent.setup();
-    setupEnv(makeEnv(true));
-    render(<OnboardingGuide />);
-
-    await waitFor(async () => {
-      const nextBtn = await screen.findByRole("button", { name: /下一步|Next/ });
-      expect(nextBtn).toBeEnabled();
+    useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
+    useWorkspacesStore.setState({
+      workspaces: [],
+      expandedWorkspaceId: null,
+      expandedProjectId: null,
     });
-    await user.click(screen.getByRole("button", { name: /下一步|Next/ }));
-    await user.click(await screen.findByRole("button", { name: /下一步|Next/ }));
-
-    const startBtn = await screen.findByRole("button", { name: /开始 AI 引导|Start AI Guide/ });
-    expect(startBtn).toBeEnabled();
-    await user.click(startBtn);
-
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith(
-        "update_settings",
-        expect.objectContaining({
-          settings: expect.objectContaining({
-            general: expect.objectContaining({
-              onboardingCompleted: true,
-              defaultCliTool: "claude",
-            }),
-          }),
-        }),
-      ),
-    );
-    expect(useDialogStore.getState().onboardingOpen).toBe(false);
-    expect(useSelfChatStore.getState().isOnboarding).toBe(true);
-    expect(useActivityBarStore.getState().appViewMode).toBe("selfchat");
   });
 
-  it("环境未就绪时开始 AI 引导按钮禁用", async () => {
+  it("renders the five-step preflight with persistent repair actions", async () => {
+    vi.mocked(terminalService.checkEnvironment).mockResolvedValue(makeEnv(false, true));
+    render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
+
+    expect(await screen.findByText("先确认运行环境")).toBeVisible();
+    expect(screen.getByText("第 1 / 5 步")).toBeVisible();
+    const copyRegion = within(screen.getByTestId("guided-dialog-copy"));
+    expect(copyRegion.getByText("Git")).toBeVisible();
+    expect(copyRegion.getByText("WSL")).toBeVisible();
+    expect(screen.getByRole("button", { name: "复制 Claude Code 修复命令" })).toBeVisible();
+    expect(screen.getByText("也可以直接对 agent 说")).toBeVisible();
+  });
+
+  it("supports next, back, per-step skip and applies the minimal preset", async () => {
     const user = userEvent.setup();
-    setupEnv(makeEnv(false));
-    render(<OnboardingGuide />);
+    render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: /下一步|Next/ }));
-    await user.click(await screen.findByRole("button", { name: /下一步|Next/ }));
+    await goToPresetStep(user);
+    expect(screen.getByText("选择你的工作台模式")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "上一步" }));
+    expect(screen.getByText("先确认运行环境")).toBeVisible();
 
-    const startBtn = await screen.findByRole("button", { name: /开始 AI 引导|Start AI Guide/ });
-    expect(startBtn).toBeDisabled();
+    await goToPresetStep(user);
+    await user.click(screen.getByRole("radio", { name: /极简模式/ }));
+    await user.click(screen.getByRole("button", { name: "继续" }));
+
+    expect(useModulePrefsStore.getState().preferences).toEqual(
+      createModulePreferencesForPreset("minimal"),
+    );
+    expect(screen.getByText("创建第一个工作空间")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "跳过此步" }));
+    expect(screen.getByText("并排启动两个会话")).toBeVisible();
+  });
+
+  it("scans a directory, creates a workspace and imports discovered projects", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(workspaceService, "scanDirectory").mockResolvedValue([{
+      mainPath: project.path,
+      mainBranch: "main",
+      worktrees: [],
+    }]);
+    vi.spyOn(workspaceService, "createWorkspace").mockResolvedValue(workspace);
+    vi.spyOn(workspaceService, "addWorkspaceProject").mockResolvedValue(project);
+    render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
+
+    await goToPresetStep(user);
+    await user.click(screen.getByRole("radio", { name: /全功能模式/ }));
+    await user.click(screen.getByRole("button", { name: "继续" }));
+    await user.type(screen.getByRole("textbox", { name: "工作空间名称" }), "demo");
+    await user.type(screen.getByRole("textbox", { name: "项目目录" }), project.path);
+    await user.click(screen.getByRole("button", { name: "扫描目录" }));
+
+    expect(await screen.findByText("发现 1 个项目")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "创建并导入" }));
+
+    await waitFor(() => {
+      expect(workspaceService.createWorkspace).toHaveBeenCalledWith("demo", project.path);
+      expect(workspaceService.addWorkspaceProject).toHaveBeenCalledWith("demo", project.path);
+    });
+    expect(await screen.findByText("并排启动两个会话")).toBeVisible();
+  });
+
+  it("launches Claude and Codex beside each other for the selected project", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn<(options: OpenTerminalOptions) => void>();
+    const splitRight = vi.spyOn(usePanesStore.getState(), "splitRight");
+    useWorkspacesStore.setState({
+      workspaces: [{ ...workspace, projects: [project] }],
+      expandedWorkspaceId: workspace.id,
+      expandedProjectId: project.id,
+    });
+    render(<OnboardingGuide onOpenTerminal={onOpenTerminal} />);
+
+    await goToParallelStep(user);
+    await user.click(screen.getByRole("button", { name: "一键并排启动" }));
+
+    expect(onOpenTerminal).toHaveBeenCalledTimes(2);
+    expect(onOpenTerminal.mock.calls.map(([options]) => options.cliTool)).toEqual([
+      "claude",
+      "codex",
+    ]);
+    expect(splitRight).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("你的工作台已就绪")).toBeVisible();
+  });
+
+  it("opens the concierge from the agent hint with its system prompt injected", async () => {
+    const user = userEvent.setup();
+    const onOpenTerminal = vi.fn<(options: OpenTerminalOptions) => void>();
+    useWorkspacesStore.setState({
+      workspaces: [{ ...workspace, projects: [project] }],
+      expandedWorkspaceId: workspace.id,
+      expandedProjectId: project.id,
+    });
+    render(<OnboardingGuide onOpenTerminal={onOpenTerminal} />);
+
+    await user.click(await screen.findByRole("button", { name: "对 agent 说" }));
+
+    expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      appendSystemPrompt: expect.stringContaining("老板模式"),
+      skipMcp: false,
+    }));
+  });
+
+  it("skip all persists completion and closes the dialog", async () => {
+    const user = userEvent.setup();
+    render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "跳过全部" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      "update_settings",
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          general: expect.objectContaining({ onboardingCompleted: true }),
+        }),
+      }),
+    ));
+    expect(useDialogStore.getState().onboardingOpen).toBe(false);
   });
 });

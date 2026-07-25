@@ -50,7 +50,10 @@ export { useVoiceInputStore } from "./useVoiceInputStore";
 export { useWallpaperStore } from "./useWallpaperStore";
 export { useRightDockStore, type RightDockView } from "./useRightDockStore";
 export {
+  createDefaultModulePreferences,
+  createModulePreferencesForPreset,
   useModulePrefsStore,
   type ModulePreference,
   type ModulePreferences,
+  type ModulePreset,
 } from "./useModulePrefsStore";

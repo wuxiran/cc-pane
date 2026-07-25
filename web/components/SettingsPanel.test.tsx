@@ -65,6 +65,9 @@ vi.mock("./settings/CCChanSettings", () => ({
 vi.mock("./settings/ExperimentalSection", () => ({
   default: () => <div data-testid="experimental-section" />,
 }));
+vi.mock("@/components/onboarding/SetupGuideChecklist", () => ({
+  default: () => <div data-testid="setup-guide-section" />,
+}));
 
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
@@ -151,6 +154,16 @@ describe("SettingsPanel", () => {
     expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(4);
   });
 
+  it("opens the persistent setup guide from the settings navigation", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("setupGuide.title") }));
+
+    expect(await screen.findByTestId("setup-guide-section")).toBeInTheDocument();
+    expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
+  });
+
   it("shows the screenshot section on non-mac platforms", () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
@@ -164,6 +177,16 @@ describe("SettingsPanel", () => {
     await user.type(screen.getByRole("searchbox", { name: tSettings("searchLabel") }), "字体");
 
     expect(await screen.findByTestId("terminal-section")).toBeInTheDocument();
+    expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
+  });
+
+  it("finds the setup guide through its workflow keywords", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.type(screen.getByRole("searchbox", { name: tSettings("searchLabel") }), "多开");
+
+    expect(await screen.findByTestId("setup-guide-section")).toBeInTheDocument();
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
   });
 

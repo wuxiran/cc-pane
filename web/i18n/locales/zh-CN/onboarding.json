@@ -1,40 +1,136 @@
 {
-  "envCheck": "环境检测",
-  "envCheckDesc": "检查运行 CC-Panes 所需的开发工具",
-  "nodeJs": "Node.js",
-  "claudeCode": "Claude Code",
-  "installed": "已安装",
-  "notInstalled": "未安装",
-  "installNodeHint": "请安装 Node.js: https://nodejs.org/",
-  "installClaudeHint": "请安装 Claude Code: npm install -g @anthropic-ai/claude-code",
-  "envReady": "环境就绪，可以继续",
-  "envNotReady": "请先安装缺失的工具",
-  "cliChoice": "选择你的 AI 编程工具",
-  "cliChoiceDesc": "CC-Panes 支持多种 CLI 工具，选择你主要使用的",
-  "claudeCodeName": "Claude Code",
-  "claudeCodeDesc": "Anthropic 官方命令行工具",
-  "codexCliName": "Codex CLI",
-  "codexCliDesc": "OpenAI 官方命令行工具",
-  "geminiCliDesc": "Google 官方命令行工具",
-  "kimiCliDesc": "Moonshot AI 官方命令行工具",
-  "glmCliDesc": "基于 Crush 的 GLM 工作流",
-  "opencodeCliDesc": "OpenCode 命令行工具",
-  "cursorCliDesc": "Cursor Agent 命令行工具",
-  "cliDetected": "已检测到",
-  "cliNotDetected": "未检测到",
-  "next": "下一步",
-  "skip": "跳过",
-  "back": "上一步",
-  "welcome": "欢迎使用 CC-Panes!",
-  "welcomeDesc": "CC-Panes 是一个 Claude Code 多实例分屏管理桌面应用。",
-  "conceptTitle": "三层管理模型",
-  "conceptDesc": "CC-Panes 采用三层管理模型来组织你的工作：",
-  "conceptWorkspace": "工作空间 — 多项目集合，包含配置和会话日志",
-  "conceptProject": "项目 — 对应一个 Git 仓库或代码目录",
-  "conceptTask": "任务 — 项目下的具体任务，对应一个终端标签页",
-  "aiGuideIntro": "接下来，AI 助手将引导你创建第一个工作空间并导入项目。",
-  "startAiGuide": "开始 AI 引导",
-  "startAiGuideDisabled": "请先完成环境检测",
+  "progress": "第 {{current}} / {{total}} 步",
+  "agentHint": "也可以直接对 agent 说",
+  "actions": {
+    "choosePreset": "继续选择模式",
+    "continue": "继续",
+    "useCurrentProject": "使用已导入项目继续",
+    "launchPair": "一键并排启动",
+    "finish": "完成引导",
+    "skipStep": "跳过此步",
+    "skipAll": "跳过全部",
+    "back": "上一步"
+  },
+  "steps": {
+    "environment": {
+      "title": "先确认运行环境",
+      "description": "检查多会话工作流需要的 CLI 与基础工具，缺项可直接复制修复命令。"
+    },
+    "preset": {
+      "title": "选择你的工作台模式",
+      "description": "模式只决定模块初值，之后可在设置中逐项调整。"
+    },
+    "workspace": {
+      "title": "创建第一个工作空间",
+      "description": "把相关项目与工作材料收束到可携带的工作上下文。"
+    },
+    "parallel": {
+      "title": "并排启动两个会话",
+      "description": "在同一项目中同时运行两个可用的 agent，看到多开协作的第一刻。"
+    },
+    "finish": {
+      "title": "你的工作台已就绪",
+      "description": "接下来从观察工作现场进入派工与协作。"
+    }
+  },
+  "environment": {
+    "checking": "正在检测环境…",
+    "installed": "已安装",
+    "missing": "未安装",
+    "notApplicable": "当前平台不适用",
+    "copy": "复制命令",
+    "copied": "已复制",
+    "copyRepair": "复制 {{name}} 修复命令",
+    "copyFailed": "无法写入剪贴板，请检查系统权限。",
+    "checkFailed": "环境检测失败，可跳过此步后在设置中重试。"
+  },
+  "preset": {
+    "groupLabel": "工作台模式",
+    "full": {
+      "title": "全功能模式",
+      "description": "启用 SSH、编排、资源中心与 Todo，适合需要完整协作面的用户。"
+    },
+    "minimal": {
+      "title": "极简模式",
+      "description": "保留终端、项目、编辑器与启动器，隐藏全部可选模块。"
+    }
+  },
+  "workspace": {
+    "principleGather": "收束：协作配置、会话与计划离开代码仓库，统一住进工作空间。",
+    "principleMaterials": "材料：设计稿、样本与文档可以和代码项目编成一组。",
+    "principlePortable": "换机：同步工作空间材料，再按项目清单恢复代码即可开工。",
+    "currentProject": "将使用 {{workspace}} / {{project}} 完成下一步",
+    "nameLabel": "工作空间名称",
+    "namePlaceholder": "例如：产品研发",
+    "pathLabel": "项目目录",
+    "pathPlaceholder": "输入包含项目的目录路径",
+    "scan": "扫描目录",
+    "found": "发现 {{count}} 个项目",
+    "createAndImport": "创建并导入",
+    "noneFound": "该目录下没有发现可导入的 Git 项目。",
+    "scanFailed": "目录扫描失败，请检查路径与访问权限。",
+    "importFailed": "创建或导入失败，现有内容未被隐藏，可修正后重试。"
+  },
+  "parallel": {
+    "description": "将在 {{project}} 中并排启动两个会话。",
+    "noCli": "未检测到可用 CLI。返回环境步骤复制修复命令，或跳过后在设置中重试。",
+    "noProject": "还没有可启动的项目。返回工作空间步骤完成导入，或跳过此步。",
+    "launchFailed": "当前项目的运行环境无法启动会话，请检查项目运行配置。"
+  },
+  "finish": {
+    "description": "工作空间负责收束上下文，多个 agent 可以围绕同一批项目并行工作。",
+    "explorer": "资源管理器：查看项目、文件与 Git 状态。",
+    "rightDock": "右坞：让常驻工具保持可见但不遮挡终端。",
+    "skills": "进阶：用编排 skill 派工、跟踪与汇报。"
+  },
+  "concierge": {
+    "action": "对 agent 说",
+    "detecting": "正在检测 agent 环境",
+    "repair": "修复运行环境",
+    "importFirst": "先导入项目",
+    "launchFailed": "当前工作空间无法启动管家会话，请检查项目运行配置。"
+  },
+  "setupGuide": {
+    "title": "黄金五分钟上手清单",
+    "description": "完成从收束项目到并行派工的核心路径，进度会随真实操作自动更新。",
+    "progress": "{{completed}} / {{total}} 已完成",
+    "progressLabel": "核心工作流完成度",
+    "completed": "已完成",
+    "pending": "待完成",
+    "replay": "重新查看五分钟引导",
+    "items": {
+      "workspace": {
+        "title": "创建工作空间",
+        "description": "建立可携带的工作上下文，收束项目、配置与协作材料。",
+        "action": "去创建"
+      },
+      "project": {
+        "title": "导入第一个项目",
+        "description": "扫描目录或手动加入代码仓库与工作材料。",
+        "action": "去导入"
+      },
+      "multiLaunch": {
+        "title": "完成首次多开",
+        "description": "在同一项目中并排启动两个 agent 会话。",
+        "action": "开始多开"
+      },
+      "dispatch": {
+        "title": "完成首次派工",
+        "description": "把有明确边界与验收条件的任务交给 agent。",
+        "action": "打开编排"
+      },
+      "skill": {
+        "title": "安装第一个 Skill",
+        "description": "从资源中心安装一个可复用的进阶工作流。",
+        "checkFailed": "暂时无法读取已安装 Skill，仍可前往资源中心查看。",
+        "action": "浏览 Skills"
+      }
+    }
+  },
+  "errors": {
+    "settingsUnavailable": "设置尚未加载，暂时无法保存引导状态。",
+    "saveFailed": "引导状态保存失败，请重试。"
+  },
   "restartOnboarding": "重新查看新手引导",
   "restartOnboardingDesc": "重新打开新手引导向导"
 }

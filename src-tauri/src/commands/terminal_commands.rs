@@ -338,7 +338,7 @@ pub fn get_windows_build_number() -> AppResult<u32> {
     Ok(terminal_service::get_windows_build_number())
 }
 
-/// 检测开发环境（Node.js + CLI 工具，所有子进程调用均带 5s 超时）
+/// 检测开发环境（Node.js + Git + WSL + CLI 工具，所有子进程调用均带 5s 超时）
 /// async + spawn_blocking 防止阻塞 IPC 线程
 #[tauri::command]
 pub async fn check_environment(
@@ -357,9 +357,29 @@ pub async fn check_environment(
         });
 
         let cli_tools = registry.detect_all();
+        let git_path = which::which("git").ok();
+        let git_installed = git_path.is_some();
+        let git_version = git_path.and_then(|path| {
+            cc_cli_adapters::run_with_timeout(
+                &path,
+                &["--version".to_string()],
+                std::time::Duration::from_secs(5),
+            )
+        });
+        let wsl_applicable = cfg!(target_os = "windows");
+        let wsl_path = if wsl_applicable {
+            which::which("wsl.exe")
+                .or_else(|_| which::which("wsl"))
+                .ok()
+        } else {
+            None
+        };
+        let wsl_installed = wsl_path.is_some();
 
         serde_json::json!({
             "node": { "installed": node_installed, "version": node_version },
+            "git": { "installed": git_installed, "version": git_version },
+            "wsl": { "installed": wsl_installed, "version": null, "applicable": wsl_applicable },
             "cliTools": cli_tools
         })
     })

@@ -12,6 +12,52 @@
   font-display: swap;
 }
 
+@keyframes onboarding-demo-scan {
+  0%, 20% { opacity: 0.35; transform: scale(0.78); }
+  45%, 100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes onboarding-demo-rise {
+  0%, 18% { opacity: 0.45; transform: translateY(5px); }
+  48%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes onboarding-demo-dock {
+  0%, 22% { transform: translateX(18px); opacity: 0.45; }
+  52%, 100% { transform: translateX(0); opacity: 1; }
+}
+
+.onboarding-demo-scan,
+.onboarding-demo-module,
+.onboarding-demo-tree,
+.onboarding-demo-terminal-line,
+.onboarding-demo-dock {
+  animation-duration: var(--dur-demo);
+  animation-timing-function: var(--ease-out);
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+
+.onboarding-demo-scan { animation-name: onboarding-demo-scan; }
+.onboarding-demo-module,
+.onboarding-demo-tree,
+.onboarding-demo-terminal-line { animation-name: onboarding-demo-rise; }
+.onboarding-demo-module:nth-child(2),
+.onboarding-demo-terminal-line:nth-child(2) { animation-delay: var(--dur-slow); }
+.onboarding-demo-module:nth-child(3) { animation-delay: calc(var(--dur-slow) + var(--dur-slow)); }
+.onboarding-demo-module:nth-child(4) { animation-delay: calc(var(--dur-slow) + var(--dur-slow) + var(--dur-slow)); }
+.onboarding-demo-dock { animation-name: onboarding-demo-dock; }
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-demo-scan,
+  .onboarding-demo-module,
+  .onboarding-demo-tree,
+  .onboarding-demo-terminal-line,
+  .onboarding-demo-dock {
+    animation: none;
+  }
+}
+
 /* 打包 Inter 变量字体(UI 正文)。系统未装 Inter 时靠此 webfont 保证跨平台一致的精致排版。 */
 @font-face {
   font-family: "Inter Variable";
@@ -91,6 +137,7 @@
   --dur-fast: 120ms;
   --dur: 160ms;
   --dur-slow: 240ms;
+  --dur-demo: 1800ms;
 
   /* shadcn 语义变量 — 冷调 off-white 色板 */
   --background: #F6F7F9;

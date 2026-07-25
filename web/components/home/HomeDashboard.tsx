@@ -134,7 +134,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
             <ArrowRight className="w-5 h-5" />
           </button>
         </div>
-        <HomeQuickActions onNewTerminal={handleNewTerminal} />
+        <HomeQuickActions onNewTerminal={handleNewTerminal} onOpenTerminal={onOpenTerminal} />
 
         {/* 宽屏（≥1600px 视口）两列：左列 引导卡/用量趋势，右列 环境+最近项目+活跃会话；窄屏单列（现状顺序） */}
         <div className="grid grid-cols-1 min-[1600px]:grid-cols-[minmax(0,1.6fr)_minmax(340px,1fr)] gap-6 items-stretch">
@@ -142,7 +142,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
           <div className="min-w-0 flex flex-col gap-6">
             {isNewUser ? (
               <>
-                <HomeGettingStarted onNewTerminal={handleNewTerminal} />
+                <HomeGettingStarted />
                 <HomeDesignHighlights />
               </>
             ) : (

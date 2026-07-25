@@ -21,7 +21,14 @@ impl SettingsService {
     }
 
     pub fn new_with_config_path(config_path: PathBuf) -> Self {
-        let mut settings = Self::load_from_file(&config_path).unwrap_or_default();
+        let existing_config = config_path.is_file();
+        let mut settings = Self::load_from_file(&config_path).unwrap_or_else(|_| {
+            let mut defaults = AppSettings::default();
+            // A missing file means a fresh data directory. An unreadable existing file
+            // belongs to an established user and must never reopen onboarding.
+            defaults.general.onboarding_completed = existing_config;
+            defaults
+        });
         settings.merge_missing_defaults();
 
         info!(config_path = %config_path.display(), "Settings loaded");
@@ -125,8 +132,49 @@ mod tests {
         };
         assert_eq!(settings.general.language, defaults.general.language);
         assert_eq!(settings.terminal.font_size, defaults.terminal.font_size);
+        assert!(!settings.general.onboarding_completed);
         // 不应因读取失败而创建文件
         assert!(!temp_config_path(&dir).exists());
+    }
+
+    #[test]
+    fn legacy_config_without_onboarding_field_does_not_interrupt_existing_users() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = temp_config_path(&dir);
+        std::fs::write(
+            &path,
+            r#"
+[general]
+autoStart = false
+language = "en-US"
+"#,
+        )
+        .unwrap();
+
+        let service = SettingsService::new_with_config_path(path);
+        let settings = service.get_settings();
+
+        assert_eq!(settings.general.language, "en-US");
+        assert!(settings.general.onboarding_completed);
+    }
+
+    #[test]
+    fn explicit_incomplete_onboarding_state_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = temp_config_path(&dir);
+        std::fs::write(
+            &path,
+            r#"
+[general]
+autoStart = false
+language = "zh-CN"
+onboardingCompleted = false
+"#,
+        )
+        .unwrap();
+
+        let service = SettingsService::new_with_config_path(path);
+        assert!(!service.get_settings().general.onboarding_completed);
     }
 
     #[test]
@@ -138,6 +186,7 @@ mod tests {
         let service = SettingsService::new_with_config_path(path);
         let settings = service.get_settings();
         assert_eq!(settings.general.language, "zh-CN");
+        assert!(settings.general.onboarding_completed);
     }
 
     #[test]
