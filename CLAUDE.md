@@ -299,6 +299,7 @@ flutter pub get && flutter analyze && flutter test
 - **Claude Code 的 SessionEnd hook 带 reason,`clear` 不是进程退出**：`/clear` 会触发 SessionEnd(reason="clear"),hook 层必须按 reason 过滤（HTTP 与 OSC 双通道）,否则活会话被状态机标 Exited、daemon 桥发合成 `terminal-exit(-1)` 并停流（docs/44）。看到 `-1` 退出码 = 合成码,非真实进程退出。
 - **Codex 的 resume id 依赖 OSC 标题捕获,Codex CLI 升版会静默打断**：v0.145 曾令捕获链全灭（launch_history 的 codex `resumeSessionId` 全 null,docs/45）,resume 静默变新会话。捕获链修改需配 rollout 目录扫描兜底,且降级必须对用户可见。
 - **`tauri dev` 不重建 external binaries（daemon/web/cli-hook）**：`build.rs` 只放占位符，`debug\binaries\` 里的 daemon 是手动构建的拷贝。改 `cc-cli-adapters`/`cc-panes-daemon` 后主程序会热重编，但**会话启动走的 daemon 还是旧二进制**——新代码"测试全绿却不生效"（0.11.1 opencode 透明修复曾因此白测三轮：binaries 里躺着 14 天前的 daemon）。修改后必须 `cargo build -p cc-panes-daemon` 并拷贝到 `<target-dir>\debug\binaries\`，再重启 dev。
+- **派出去的 WSL Codex worker 可能"活着但一动不动"，判活不能只看 `status`**：prompt 以位置参数传入后可能停在 TUI 里**从未提交**，此时进程活着、cwd/YOLO 都对，但 PTY 零输出、CPU 零占用、`lastOutputAt` 永远停在派发那一刻——与"刚启动还没输出"**完全同形**，plantocodex 基于 `lastOutputAt` 停滞的软超时兜底会一直判"继续等"，无人值守派工静默永久卡死。判定要用 `wsl.exe -d Ubuntu -- bash -lc "ps aux | grep codex"`（进程活着 + PTY 空 = 命中），解法是 `write_to_session(sessionId, "\r")` 发一个裸 CR，**不要直接 kill 重发**（大概率再次命中）。详见 docs/61。
 - **Zustand selector 里不要调用返回新集合的 store 方法**：`usePanesStore((s) => s.listLayouts())` 这类写法，因 `listLayouts` 内部是 `filter().map()` 每次返回新数组，`useSyncExternalStore` 的快照永不相等 → `Maximum update depth exceeded` 崩页。正确做法是选稳定引用（如 `s.layouts`）后用 `useMemo` 本地派生；`.getState().listLayouts()` 在渲染外调用则不受影响。
 
 ## 文档引用
@@ -320,5 +321,6 @@ flutter pub get && flutter analyze && flutter test
 | `docs/44-clear-sessionend-exit-bug.md` | `/clear` 误判会话退出：SessionEnd reason 语义与修复 |
 | `docs/45-codex-resume-capture-dead.md` | Codex resume 捕获链失效调查与修复规格 |
 | `docs/46-cross-platform-launch-blackscreen.md` | 跨平台启动黑屏 + portable-pty HOME 回退暗雷（与 46 风格宪法同号不同文件） |
+| `docs/61-wsl-codex-prompt-unsubmitted.md` | WSL Codex 派工静默卡死：prompt 传入未提交，判活不能只看 status |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
