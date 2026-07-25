@@ -142,7 +142,7 @@ unsafe fn query_command_line(handle: ::windows::Win32::Foundation::HANDLE) -> Op
     let buffer_start = buffer.as_ptr() as usize;
     let buffer_end = buffer_start.checked_add(buffer.len() * word_size)?;
     let command_end = command_start.checked_add(command_bytes)?;
-    if command_bytes % 2 != 0
+    if !command_bytes.is_multiple_of(2)
         || command_start < buffer_start
         || command_end > buffer_end
         || command_start == 0
