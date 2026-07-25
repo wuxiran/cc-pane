@@ -42,6 +42,17 @@ function mergeCommands(
   ];
 }
 
+export function filterQuickCommandsForProject(
+  commands: ScopedQuickCommand[],
+  loadedProjectPath: string | null,
+  contextProjectPath?: string,
+): ScopedQuickCommand[] {
+  const includeProjectCommands = Boolean(
+    contextProjectPath && contextProjectPath === loadedProjectPath,
+  );
+  return commands.filter((command) => command.scope === "global" || includeProjectCommands);
+}
+
 function normalizeDraft(draft: QuickCommandDraft): QuickCommandDraft {
   return {
     ...draft,
@@ -69,7 +80,12 @@ export const useQuickCommandsStore = create<QuickCommandsState>((set, get) => ({
 
   async load(projectPath) {
     const requestId = ++latestLoad;
-    set({ loading: true });
+    set((state) => ({
+      activeProjectPath: projectPath ?? null,
+      projectCommands: [],
+      commands: mergeCommands(state.globalCommands, []),
+      loading: true,
+    }));
     try {
       const [globalCommands, projectCommands] = await Promise.all([
         quickCommandService.listGlobal(),

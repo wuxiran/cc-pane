@@ -19,6 +19,7 @@ import {
   useWorkspacesStore,
   usePanesStore,
   useActivityBarStore,
+  filterQuickCommandsForProject,
   useQuickCommandsStore,
 } from "@/stores";
 import { formatKeyCombo } from "@/stores/useShortcutsStore";
@@ -54,6 +55,7 @@ export default function CommandPalette() {
   const rootPane = usePanesStore((s) => s.rootPane);
   const activePaneId = usePanesStore((s) => s.activePaneId);
   const quickCommands = useQuickCommandsStore((s) => s.commands);
+  const quickCommandsProjectPath = useQuickCommandsStore((s) => s.activeProjectPath);
   const activeContext = useMemo(() => {
     const pane = findPane(rootPane, activePaneId);
     if (pane?.type !== "panel") return null;
@@ -64,6 +66,14 @@ export default function CommandPalette() {
     isMac: navigator.platform.toUpperCase().includes("MAC"),
     isTauri: isTauriRuntime(),
   });
+  const visibleQuickCommands = useMemo(
+    () => filterQuickCommandsForProject(
+      quickCommands,
+      quickCommandsProjectPath,
+      activeContext?.tab.projectPath,
+    ),
+    [activeContext?.tab.projectPath, quickCommands, quickCommandsProjectPath],
+  );
 
   const runAndClose = useCallback((fn: () => void) => {
     setOpen(false);
@@ -169,9 +179,9 @@ export default function CommandPalette() {
           })}
         </CommandGroup>
 
-        {quickCommands.length > 0 && (
+        {visibleQuickCommands.length > 0 && (
           <CommandGroup heading={t("quickCommands.commandGroup", { ns: "settings" })}>
-            {quickCommands.map((command) => {
+            {visibleQuickCommands.map((command) => {
               const disabledReason = quickCommandDisabledReason(command);
               return (
                 <CommandItem

@@ -14,7 +14,11 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useQuickCommandsStore, useTerminalStatusStore } from "@/stores";
+import {
+  filterQuickCommandsForProject,
+  useQuickCommandsStore,
+  useTerminalStatusStore,
+} from "@/stores";
 import StatusIndicator from "@/components/StatusIndicator";
 import InlineRename from "@/components/ui/InlineRename";
 import SessionBindDialog from "@/components/panes/SessionBindDialog";
@@ -228,6 +232,12 @@ function SortableTab({
       ? countTerminalLeaves(tab.terminalRootPane)
       : 0;
   const quickCommands = useQuickCommandsStore((state) => state.commands);
+  const quickCommandsProjectPath = useQuickCommandsStore((state) => state.activeProjectPath);
+  const visibleQuickCommands = filterQuickCommandsForProject(
+    quickCommands,
+    quickCommandsProjectPath,
+    tab.projectPath,
+  );
 
   const quickCommandDisabledReason = (command: ScopedQuickCommand): string | undefined => {
     if (command.target === "currentPane" && !getQuickCommandSessionId(tab)) {
@@ -452,13 +462,13 @@ function SortableTab({
             <Settings2 /> {t("editWorkspaceEnvironment")}
           </ContextMenuItem>
         ) : null}
-        {quickCommands.length > 0 && (
+        {visibleQuickCommands.length > 0 && (
           <ContextMenuSub>
             <ContextMenuSubTrigger>
               <Play /> {t("runQuickCommand")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-64">
-              {quickCommands.map((command) => {
+              {visibleQuickCommands.map((command) => {
                 const disabledReason = quickCommandDisabledReason(command);
                 return (
                   <ContextMenuItem

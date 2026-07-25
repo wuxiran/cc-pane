@@ -121,7 +121,7 @@ describe("TabBar", () => {
   beforeEach(() => {
     executeQuickCommand.mockReset();
     executeQuickCommand.mockResolvedValue(undefined);
-    useQuickCommandsStore.setState({ commands: [] });
+    useQuickCommandsStore.setState({ commands: [], activeProjectPath: null });
   });
 
   afterEach(() => {
@@ -228,6 +228,7 @@ describe("TabBar", () => {
       cliTool: "none",
     });
     useQuickCommandsStore.setState({
+      activeProjectPath: tab.projectPath,
       commands: [
         { ...current, scope: "global" },
         { ...newTab, scope: "project" },
@@ -253,6 +254,25 @@ describe("TabBar", () => {
       paneId: "pane-1",
       tab,
     });
+  });
+
+  it("右键标签不显示其他项目的项目级快捷命令", async () => {
+    const user = userEvent.setup();
+    const tab = makeTab("tab-1", "Alpha");
+    useQuickCommandsStore.setState({
+      activeProjectPath: "/tmp/other-project",
+      commands: [
+        { ...quickCommand({ id: "global", name: "Global command" }), scope: "global" },
+        { ...quickCommand({ id: "project", name: "Other project command" }), scope: "project" },
+      ],
+    });
+    renderTabBar({ tabs: [tab] });
+
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    await user.hover(await screen.findByText(/运行快捷命令|Run Quick Command/i));
+
+    expect(await screen.findByRole("menuitem", { name: /Global command/ })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Other project command/ })).not.toBeInTheDocument();
   });
 
   it("无 projectPath 的标签不显示克隆终端", async () => {

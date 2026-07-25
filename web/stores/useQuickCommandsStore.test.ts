@@ -73,6 +73,68 @@ describe("useQuickCommandsStore", () => {
     ]);
   });
 
+  it("切换项目时立即清除上一个项目的命令", async () => {
+    let resolveProject: ((commands: QuickCommand[]) => void) | undefined;
+    const previousGlobal = command("global");
+    const previousProject = command("project-a");
+    useQuickCommandsStore.setState({
+      globalCommands: [previousGlobal],
+      projectCommands: [previousProject],
+      commands: [
+        { ...previousGlobal, scope: "global" },
+        { ...previousProject, scope: "project" },
+      ],
+      activeProjectPath: "/repo/a",
+    });
+    service.listGlobal.mockResolvedValue([previousGlobal]);
+    service.listProject.mockImplementation(() => new Promise((resolve) => {
+      resolveProject = resolve;
+    }));
+
+    const loading = useQuickCommandsStore.getState().load("/repo/b");
+
+    expect(useQuickCommandsStore.getState()).toMatchObject({
+      activeProjectPath: "/repo/b",
+      projectCommands: [],
+      commands: [{ ...previousGlobal, scope: "global" }],
+      loading: true,
+    });
+
+    resolveProject?.([command("project-b")]);
+    await loading;
+    expect(useQuickCommandsStore.getState().commands).toContainEqual({
+      ...command("project-b"),
+      scope: "project",
+    });
+  });
+
+  it("项目加载失败时不恢复上一个项目的命令", async () => {
+    const previousGlobal = command("global");
+    const previousProject = command("project-a");
+    useQuickCommandsStore.setState({
+      globalCommands: [previousGlobal],
+      projectCommands: [previousProject],
+      commands: [
+        { ...previousGlobal, scope: "global" },
+        { ...previousProject, scope: "project" },
+      ],
+      activeProjectPath: "/repo/a",
+    });
+    service.listGlobal.mockResolvedValue([previousGlobal]);
+    service.listProject.mockRejectedValue(new Error("broken project config"));
+
+    await expect(useQuickCommandsStore.getState().load("/repo/b")).rejects.toThrow(
+      "broken project config",
+    );
+
+    expect(useQuickCommandsStore.getState()).toMatchObject({
+      activeProjectPath: "/repo/b",
+      projectCommands: [],
+      commands: [{ ...previousGlobal, scope: "global" }],
+      loading: false,
+    });
+  });
+
   it("创建项目命令时保存项目完整列表", async () => {
     service.saveProject.mockImplementation(async (_path, commands) => commands);
 

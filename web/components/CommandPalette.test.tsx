@@ -122,6 +122,22 @@ describe("CommandPalette modules", () => {
     });
   });
 
+  it("does not expose project commands from a different active project", async () => {
+    useQuickCommandsStore.setState({
+      activeProjectPath: "/repo/other",
+      commands: [
+        { ...quickCommand("global", "Global build", "npm run build"), scope: "global" },
+        { ...quickCommand("project", "Other deploy", "npm run deploy"), scope: "project" },
+      ],
+    });
+    render(<CommandPalette />);
+
+    act(() => window.dispatchEvent(new Event(COMMAND_PALETTE_TOGGLE_EVENT)));
+
+    expect(await screen.findByText("Global build")).toBeInTheDocument();
+    expect(screen.queryByText("Other deploy")).not.toBeInTheDocument();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
