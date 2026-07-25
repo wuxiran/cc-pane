@@ -196,6 +196,14 @@ export type {
 } from "./shared-mcp";
 export type { SavedSession } from "./session-restore";
 export type {
+  SessionIndexCliTool,
+  SessionIndexEntry,
+  SessionIndexListParams,
+  SessionIndexScanReport,
+  SessionIndexScope,
+  SessionIndexSource,
+} from "./sessionIndex";
+export type {
   WorkspaceSnapshot,
   WorkspaceSnapshotEntry,
   WorkspaceSnapshotSummary,

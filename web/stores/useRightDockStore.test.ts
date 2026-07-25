@@ -82,6 +82,21 @@ describe("useRightDockStore", () => {
     });
   });
 
+  it("持久化白名单允许恢复会话历史视图", async () => {
+    localStorage.setItem(
+      RIGHT_DOCK_STORAGE_KEY,
+      JSON.stringify({ state: { activeView: "sessionHistory", width: 360 }, version: 0 }),
+    );
+
+    await useRightDockStore.persist.rehydrate();
+
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: false,
+      activeView: "sessionHistory",
+      width: 360,
+    });
+  });
+
   it("会话内打开面板时不把 visible 写入持久化数据", () => {
     useRightDockStore.getState().setVisible(true);
 

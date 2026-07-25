@@ -40,7 +40,8 @@
     "orchestration": "Orchestration",
     "resources": "Resources",
     "todo": "TodoList",
-    "aiPanel": "AI Panel"
+    "aiPanel": "AI Panel",
+    "sessionHistory": "Session History"
   },
   "moduleMenu": {
     "title": "Module placement",
@@ -411,6 +412,31 @@
   "rightDock.expand": "Expand right panel",
   "rightDock.collapse": "Collapse right panel",
   "rightDock.resize": "Resize right panel",
+  "sessionHistory": {
+    "scopeLabel": "Session scope",
+    "scope": {
+      "all": "All",
+      "workspace": "Workspace",
+      "project": "Project"
+    },
+    "searchPlaceholder": "Search sessions",
+    "clearSearch": "Clear search",
+    "cliFilter": "Filter by CLI",
+    "refresh": "Refresh session index",
+    "loading": "Loading sessions...",
+    "loadError": "Could not load session history",
+    "refreshError": "Could not refresh the session index",
+    "retry": "Retry",
+    "empty": "No matching sessions",
+    "untitled": "Untitled session",
+    "unknownProject": "Unknown project",
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages",
+    "resume": "Resume",
+    "loadMore": "Load more",
+    "rolloutMissing": "The Codex session file no longer exists and cannot be resumed",
+    "rolloutCheckFailed": "The Codex session could not be verified; resume will still be attempted"
+  },
   "aiPanel": {
     "empty": "No AI panels",
     "drivenBy": "Driven by {{name}}",
