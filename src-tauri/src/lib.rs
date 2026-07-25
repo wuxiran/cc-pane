@@ -1416,6 +1416,7 @@ pub fn run() {
     let session_restore_cleanup = session_restore_service.clone();
     let usage_stats_cleanup = usage_stats_service.clone();
     let web_access_cleanup = web_access_lifecycle.clone();
+    let orchestrator_cleanup = orchestrator_service.clone();
 
     boot_mark!("building tauri app...");
     with_macos_app_menu(tauri::Builder::default())
@@ -2564,6 +2565,7 @@ pub fn run() {
 
                 shared_mcp_cleanup.stop_health_check();
                 shared_mcp_cleanup.stop_all();
+                orchestrator_cleanup.shutdown();
                 if let Err(e) = usage_stats_cleanup.flush_pending() {
                     error!("[cleanup] Failed to flush usage stats: {}", e);
                 }

@@ -1,17 +1,20 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { mcpService } from "./mcpService";
 import {
   mockTauriInvoke,
   resetTauriInvoke,
 } from "@/test/utils/mockTauriInvoke";
 import { resetTestDataCounter } from "@/test/utils/testData";
-import type { McpServerConfig } from "@/types";
+import type { McpServerConfig, OrchestratorStatus } from "@/types";
 
 describe("mcpService", () => {
   beforeEach(() => {
     resetTauriInvoke();
     resetTestDataCounter();
+    vi.mocked(getCurrentWebview().listen).mockReset();
+    vi.mocked(getCurrentWebview().listen).mockResolvedValue(vi.fn(() => {}));
   });
 
   describe("listServers", () => {
@@ -130,6 +133,42 @@ describe("mcpService", () => {
       const result = await mcpService.removeServer("/tmp/project", "non-existent");
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe("orchestrator status", () => {
+    const status: OrchestratorStatus = {
+      port: null,
+      bind: { host: "127.0.0.1", mode: "auto", reason: "test" },
+      lifecycle: "binding",
+      attempt: 2,
+      lastError: "port occupied",
+      nextRetryAt: 123_456,
+    };
+
+    it("reads the complete lifecycle snapshot", async () => {
+      mockTauriInvoke({ get_orchestrator_status: status });
+
+      await expect(mcpService.getOrchestratorStatus()).resolves.toEqual(status);
+      expect(invoke).toHaveBeenCalledWith("get_orchestrator_status");
+    });
+
+    it("maps orchestrator status events to payload callbacks", async () => {
+      let eventHandler: ((event: { payload: OrchestratorStatus }) => void) | undefined;
+      vi.mocked(getCurrentWebview().listen).mockImplementation(async (...args) => {
+        eventHandler = args[1] as unknown as (event: { payload: OrchestratorStatus }) => void;
+        return vi.fn(() => {});
+      });
+      const onStatus = vi.fn();
+
+      await mcpService.onOrchestratorStatusChanged(onStatus);
+      eventHandler?.({ payload: status });
+
+      expect(getCurrentWebview().listen).toHaveBeenCalledWith(
+        "orchestrator-status-changed",
+        expect.any(Function),
+      );
+      expect(onStatus).toHaveBeenCalledWith(status);
     });
   });
 });

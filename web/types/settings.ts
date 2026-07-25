@@ -256,9 +256,15 @@ export interface OrchestratorBindDecision {
   reason: string;
 }
 
+export type OrchestratorLifecycle = "binding" | "ready" | "failed";
+
 export interface OrchestratorStatus {
   port: number | null;
   bind: OrchestratorBindDecision | null;
+  lifecycle: OrchestratorLifecycle;
+  attempt: number | null;
+  lastError: string | null;
+  nextRetryAt: number | null;
 }
 
 /** Tailscale 探测结果（detect_tailscale_status，只读探测） */

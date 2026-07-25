@@ -452,6 +452,24 @@
   "disableWslUsageScan": "Skip WSL usage scanning",
   "disableWslUsageScanDesc": "Stop scanning usage data inside WSL so the app never wakes the WSL VM (Vmmem memory usage)",
   "showSystemResources": "Show system resources in the status bar",
+  "orchestratorStatus": {
+    "binding": "Binding",
+    "ready": "Ready",
+    "failed": "Startup failed",
+    "summary": "Runtime status: {{lifecycle}}",
+    "attempt": "Bind attempt {{attempt}}",
+    "nextRetry": "Next retry: {{time}}",
+    "lastError": "Last error: {{error}}"
+  },
+  "orchestratorAlert": {
+    "failedTitle": "MCP service did not start",
+    "retrying": "MCP service binding failed. Waiting for retry attempt {{attempt}}. Next retry: {{time}}",
+    "attempting": "MCP service is making bind attempt {{attempt}}.",
+    "impact": "Injected CLI sessions cannot use the MCP tools.",
+    "escapePrefix": "Release the fixed port and restart, or set the escape-hatch environment variable",
+    "escapeSuffix": "to another fixed port and restart the app.",
+    "errorDetails": "Error details"
+  },
   "sharedMcp": {
     "title": "Shared MCP",
     "add": "Add",
