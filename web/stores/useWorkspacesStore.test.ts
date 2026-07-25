@@ -37,6 +37,11 @@ describe("useWorkspacesStore", () => {
       expandedWorkspaceId: null,
       expandedProjectId: null,
       loading: false,
+      workspaceFilter: {
+        query: "",
+        colors: [],
+        group: null,
+      },
     });
   });
 
@@ -453,6 +458,62 @@ describe("useWorkspacesStore", () => {
       const selected = useWorkspacesStore.getState().selectedProject();
       expect(selected).not.toBeNull();
       expect(selected!.id).toBe(project.id);
+    });
+
+    it("filteredWorkspaces 按名称和别名进行不区分大小写的关键字筛选", () => {
+      const byName = createTestWorkspace({ name: "Frontend-App", alias: "界面" });
+      const byAlias = createTestWorkspace({ name: "api", alias: "Customer Portal" });
+      const hidden = createTestWorkspace({ name: "worker", alias: "任务" });
+      useWorkspacesStore.setState({ workspaces: [byName, byAlias, hidden] });
+
+      useWorkspacesStore.getState().setWorkspaceFilter({ query: "PORTAL" });
+
+      expect(useWorkspacesStore.getState().filteredWorkspaces()).toEqual([byAlias]);
+    });
+
+    it("filteredWorkspaces 对颜色使用多选并集并与分组筛选取交集", () => {
+      const redBackend = createTestWorkspace({ name: "red-backend", group: "Backend", color: "red" });
+      const blueBackend = createTestWorkspace({ name: "blue-backend", group: "Backend", color: "blue" });
+      const redFrontend = createTestWorkspace({ name: "red-frontend", group: "Frontend", color: "red" });
+      useWorkspacesStore.setState({ workspaces: [redBackend, blueBackend, redFrontend] });
+
+      useWorkspacesStore.getState().setWorkspaceFilter({
+        colors: ["red", "blue"],
+        group: "Backend",
+      });
+
+      expect(useWorkspacesStore.getState().filteredWorkspaces()).toEqual([redBackend, blueBackend]);
+    });
+
+    it("默认工作空间在任意筛选条件下始终可见且保持原顺序", () => {
+      const defaultWorkspace = createTestWorkspace({ name: "default", isDefault: true });
+      const match = createTestWorkspace({ name: "api", group: "Backend", color: "green" });
+      const miss = createTestWorkspace({ name: "web", group: "Frontend", color: "blue" });
+      useWorkspacesStore.setState({ workspaces: [defaultWorkspace, match, miss] });
+
+      useWorkspacesStore.getState().setWorkspaceFilter({
+        query: "api",
+        colors: ["green"],
+        group: "Backend",
+      });
+
+      expect(useWorkspacesStore.getState().filteredWorkspaces()).toEqual([defaultWorkspace, match]);
+    });
+
+    it("clearWorkspaceFilter 恢复默认筛选状态", () => {
+      useWorkspacesStore.getState().setWorkspaceFilter({
+        query: "api",
+        colors: ["cyan"],
+        group: "Backend",
+      });
+
+      useWorkspacesStore.getState().clearWorkspaceFilter();
+
+      expect(useWorkspacesStore.getState().workspaceFilter).toEqual({
+        query: "",
+        colors: [],
+        group: null,
+      });
     });
   });
 });

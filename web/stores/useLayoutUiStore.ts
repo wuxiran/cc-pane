@@ -13,8 +13,10 @@ export const LAYOUT_UI_STORAGE_KEY = "cc-panes-layout-ui";
 interface LayoutUiState {
   switcherMode: LayoutSwitcherMode;
   layoutBarDensity: LayoutBarDensity;
+  collapsedWorkspaceGroups: string[];
   setSwitcherMode: (mode: LayoutSwitcherMode) => void;
   setLayoutBarDensity: (density: LayoutBarDensity) => void;
+  toggleWorkspaceGroup: (group: string) => void;
 }
 
 export const useLayoutUiStore = create<LayoutUiState>()(
@@ -22,8 +24,18 @@ export const useLayoutUiStore = create<LayoutUiState>()(
     (set) => ({
       switcherMode: "corner",
       layoutBarDensity: "comfortable",
+      collapsedWorkspaceGroups: [],
       setSwitcherMode: (mode) => set({ switcherMode: mode }),
       setLayoutBarDensity: (density) => set({ layoutBarDensity: density }),
+      toggleWorkspaceGroup: (group) => set((state) => {
+        const normalized = group.trim();
+        if (!normalized) return state;
+        return {
+          collapsedWorkspaceGroups: state.collapsedWorkspaceGroups.includes(normalized)
+            ? state.collapsedWorkspaceGroups.filter((item) => item !== normalized)
+            : [...state.collapsedWorkspaceGroups, normalized],
+        };
+      }),
     }),
     { name: LAYOUT_UI_STORAGE_KEY },
   ),

@@ -61,6 +61,11 @@ export function getReorderedWorkspaceNames(
   if (!!activeWorkspace.pinned !== !!overWorkspace.pinned) {
     return null;
   }
+  const activeGroup = activeWorkspace.group?.trim() || null;
+  const overGroup = overWorkspace.group?.trim() || null;
+  if (activeGroup !== overGroup) {
+    return null;
+  }
 
   return arrayMove(workspaces, oldIndex, newIndex).map((workspace) => workspace.name);
 }

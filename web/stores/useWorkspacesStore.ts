@@ -1,10 +1,60 @@
 import { create } from "zustand";
-import type { Workspace, WorkspaceProject, SshConnectionInfo } from "@/types";
+import type {
+  SshConnectionInfo,
+  Workspace,
+  WorkspaceColor,
+  WorkspaceProject,
+} from "@/types";
 import * as workspaceService from "@/services/workspaceService";
 import { detectAppPlatform } from "@/utils";
 
+export const UNGROUPED_WORKSPACE_FILTER = "__ungrouped__";
+
+export interface WorkspaceFilter {
+  query: string;
+  colors: WorkspaceColor[];
+  group: string | null;
+}
+
+const EMPTY_WORKSPACE_FILTER: WorkspaceFilter = {
+  query: "",
+  colors: [],
+  group: null,
+};
+
+export function normalizedWorkspaceGroup(workspace: Workspace): string | null {
+  const group = workspace.group?.trim();
+  return group || null;
+}
+
+export function filterWorkspaces(
+  workspaces: Workspace[],
+  filter: WorkspaceFilter,
+): Workspace[] {
+  const query = filter.query.trim().toLocaleLowerCase();
+  const selectedColors = new Set(filter.colors);
+
+  return workspaces.filter((workspace) => {
+    if (workspace.isDefault) return true;
+
+    const matchesQuery = !query
+      || workspace.name.toLocaleLowerCase().includes(query)
+      || workspace.alias?.toLocaleLowerCase().includes(query);
+    const matchesColor = selectedColors.size === 0
+      || (workspace.color != null && selectedColors.has(workspace.color));
+    const group = normalizedWorkspaceGroup(workspace);
+    const matchesGroup = filter.group == null
+      || (filter.group === UNGROUPED_WORKSPACE_FILTER
+        ? group == null
+        : group === filter.group);
+
+    return !!matchesQuery && matchesColor && matchesGroup;
+  });
+}
+
 interface WorkspacesState {
   workspaces: Workspace[];
+  workspaceFilter: WorkspaceFilter;
   expandedWorkspaceId: string | null;
   expandedProjectId: string | null;
   loading: boolean;
@@ -13,6 +63,9 @@ interface WorkspacesState {
   pinnedWorkspaces: () => Workspace[];
   unpinnedVisibleWorkspaces: () => Workspace[];
   hiddenWorkspaces: () => Workspace[];
+  filteredWorkspaces: () => Workspace[];
+  setWorkspaceFilter: (filter: Partial<WorkspaceFilter>) => void;
+  clearWorkspaceFilter: () => void;
   load: () => Promise<void>;
   create: (name: string, path?: string | null) => Promise<Workspace>;
   rename: (oldName: string, newName: string) => Promise<void>;
@@ -95,6 +148,7 @@ function reorderWorkspaceList(
 
 export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   workspaces: [],
+  workspaceFilter: EMPTY_WORKSPACE_FILTER,
   expandedWorkspaceId: null,
   expandedProjectId: null,
   loading: false,
@@ -121,6 +175,27 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
 
   hiddenWorkspaces: () => {
     return get().workspaces.filter((ws) => ws.hidden);
+  },
+
+  filteredWorkspaces: () => {
+    const { workspaces, workspaceFilter } = get();
+    return filterWorkspaces(workspaces, workspaceFilter);
+  },
+
+  setWorkspaceFilter: (filter) => {
+    set((state) => ({
+      workspaceFilter: {
+        ...state.workspaceFilter,
+        ...filter,
+        colors: filter.colors
+          ? [...new Set(filter.colors)]
+          : state.workspaceFilter.colors,
+      },
+    }));
+  },
+
+  clearWorkspaceFilter: () => {
+    set({ workspaceFilter: { ...EMPTY_WORKSPACE_FILTER, colors: [] } });
   },
 
   load: async () => {

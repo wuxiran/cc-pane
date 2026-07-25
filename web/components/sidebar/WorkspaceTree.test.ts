@@ -23,4 +23,24 @@ describe("getReorderedWorkspaceNames", () => {
       getReorderedWorkspaceNames([pinned, normal], "ws-2", "ws-1"),
     ).toBeNull();
   });
+
+  it("ignores drag attempts across workspace groups", () => {
+    resetTestDataCounter();
+    const frontend = createTestWorkspace({ id: "ws-1", name: "ws-1", group: "Frontend" });
+    const backend = createTestWorkspace({ id: "ws-2", name: "ws-2", group: "Backend" });
+
+    expect(
+      getReorderedWorkspaceNames([frontend, backend], "ws-2", "ws-1"),
+    ).toBeNull();
+  });
+
+  it("allows drag reorder within the same workspace group", () => {
+    resetTestDataCounter();
+    const ws1 = createTestWorkspace({ id: "ws-1", name: "ws-1", group: "Frontend" });
+    const ws2 = createTestWorkspace({ id: "ws-2", name: "ws-2", group: "Frontend" });
+
+    expect(
+      getReorderedWorkspaceNames([ws1, ws2], "ws-2", "ws-1"),
+    ).toEqual(["ws-2", "ws-1"]);
+  });
 });

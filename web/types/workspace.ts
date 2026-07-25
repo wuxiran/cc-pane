@@ -5,6 +5,19 @@ import type {
   WallpaperVideoSettings,
 } from "./settings";
 
+export const WORKSPACE_COLORS = [
+  "red",
+  "amber",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "cyan",
+  "gray",
+] as const;
+
+export type WorkspaceColor = (typeof WORKSPACE_COLORS)[number];
+
 /** 工作空间壁纸覆盖模式：off 必须与 inherit 区分（明确关掉全局壁纸） */
 export type WorkspaceWallpaperOverrideMode = "inherit" | "custom" | "off";
 
@@ -89,6 +102,10 @@ export interface Workspace {
   pinned?: boolean;
   hidden?: boolean;
   sortOrder?: number;
+  /** 自由分组名；空值表示未分组 */
+  group?: string;
+  /** 颜色预设键；不持久化具体色值 */
+  color?: WorkspaceColor;
   /** 默认工作空间：启动时缺失自动创建，恒置顶，不可删除/拖拽 */
   isDefault?: boolean;
   /** 工作空间壁纸覆盖（inherit/custom/off），存 workspace.json */

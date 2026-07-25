@@ -7,6 +7,7 @@ describe("useLayoutUiStore", () => {
     useLayoutUiStore.setState({
       switcherMode: "corner",
       layoutBarDensity: "comfortable",
+      collapsedWorkspaceGroups: [],
     });
     await useLayoutUiStore.persist.rehydrate();
   });
@@ -25,5 +26,19 @@ describe("useLayoutUiStore", () => {
         layoutBarDensity: "compact",
       },
     });
+  });
+
+  it("切换工作空间分组折叠状态并持久化", () => {
+    useLayoutUiStore.getState().toggleWorkspaceGroup("Backend");
+
+    expect(useLayoutUiStore.getState().collapsedWorkspaceGroups).toEqual(["Backend"]);
+    expect(JSON.parse(localStorage.getItem(LAYOUT_UI_STORAGE_KEY) ?? "null")).toMatchObject({
+      state: {
+        collapsedWorkspaceGroups: ["Backend"],
+      },
+    });
+
+    useLayoutUiStore.getState().toggleWorkspaceGroup("Backend");
+    expect(useLayoutUiStore.getState().collapsedWorkspaceGroups).toEqual([]);
   });
 });

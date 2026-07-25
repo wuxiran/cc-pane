@@ -112,6 +112,12 @@ describe("getReorderedWorkspaceNames", () => {
     expect(getReorderedWorkspaceNames([pinned, b, c], "a", "b")).toBeNull();
   });
 
+  it("跨 workspace group 返回 null", () => {
+    const frontend = makeWorkspace({ id: "a", name: "alpha", group: "Frontend" });
+    const backend = makeWorkspace({ id: "b", name: "bravo", group: "Backend" });
+    expect(getReorderedWorkspaceNames([frontend, backend], "a", "b")).toBeNull();
+  });
+
   it("合法重排返回新顺序的 name 数组", () => {
     expect(getReorderedWorkspaceNames([a, b, c], "a", "c")).toEqual(["bravo", "charlie", "alpha"]);
   });

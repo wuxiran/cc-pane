@@ -48,6 +48,7 @@ export type {
   Workspace,
   CliEnvironmentKey,
   WorkspaceCliEnvironmentDefaults,
+  WorkspaceColor,
   WorkspaceLaunchEnvironment,
   WorkspaceMigrationItem,
   WorkspaceMigrationPlan,
@@ -64,6 +65,7 @@ export type {
   WorkspaceWallpaperOverrideMode,
   SshConnectionInfo,
 } from "./workspace";
+export { WORKSPACE_COLORS } from "./workspace";
 export type { Provider, ProviderType } from "./provider";
 export { PROVIDER_TYPE_META } from "./provider";
 export type {
