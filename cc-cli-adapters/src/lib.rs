@@ -573,23 +573,26 @@ impl CliAdapterContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct McpProxyInvocation {
+pub struct McpProxyInvocation {
     pub command: String,
     pub args: Vec<String>,
 }
 
-/// mcp-proxy 灰度开关。默认关闭；只有显式启用且 sidecar 路径为绝对路径时生效。
-pub(crate) fn mcp_proxy_invocation(ctx: &CliAdapterContext) -> Option<McpProxyInvocation> {
-    let enabled = ctx
-        .adapter_options
+/// 从 adapter options 构造 mcp-proxy 调用。只有显式启用且 sidecar 路径为
+/// 绝对路径时生效；本地 adapter 与 WSL 启动链共用这份参数契约。
+pub fn mcp_proxy_invocation_from_options(
+    adapter_options: &HashMap<String, serde_json::Value>,
+    data_dir: &Path,
+    launch_id: Option<&str>,
+) -> Option<McpProxyInvocation> {
+    let enabled = adapter_options
         .get("mcpProxyEnabled")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     if !enabled {
         return None;
     }
-    let command = ctx
-        .adapter_options
+    let command = adapter_options
         .get("mcpProxyCommand")
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
@@ -599,10 +602,10 @@ pub(crate) fn mcp_proxy_invocation(ctx: &CliAdapterContext) -> Option<McpProxyIn
     }
     let mut args = vec![
         "--data-dir".to_string(),
-        ctx.data_dir.to_string_lossy().into_owned(),
+        data_dir.to_string_lossy().into_owned(),
         "mcp-proxy".to_string(),
     ];
-    if let Some(launch_id) = ctx.launch_id.as_deref() {
+    if let Some(launch_id) = launch_id {
         args.push("--launch-id".to_string());
         args.push(launch_id.to_string());
     }
@@ -610,6 +613,14 @@ pub(crate) fn mcp_proxy_invocation(ctx: &CliAdapterContext) -> Option<McpProxyIn
         command: command.to_string(),
         args,
     })
+}
+
+fn mcp_proxy_invocation(ctx: &CliAdapterContext) -> Option<McpProxyInvocation> {
+    mcp_proxy_invocation_from_options(
+        &ctx.adapter_options,
+        &ctx.data_dir,
+        ctx.launch_id.as_deref(),
+    )
 }
 
 /// adapter_options 约定键（effort/extraArgs/verbose/maxTurns）的解析 helper，

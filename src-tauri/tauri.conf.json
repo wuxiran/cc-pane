@@ -44,6 +44,7 @@
     ],
     "resources": [
       "binaries/cc-panes-cli-hook*",
+      "binaries/cc-panes-ctl*",
       "binaries/cc-panes-daemon*",
       "binaries/cc-panes-web*",
       "resources/web-dist/**/*",

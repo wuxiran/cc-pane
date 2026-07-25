@@ -64,6 +64,11 @@ fn ensure_hook_binary_placeholder() {
         std::fs::write(daemon_placeholder, "placeholder for dev build").ok();
     }
 
+    let ctl_placeholder = binaries_dir.join("cc-panes-ctl.placeholder");
+    if !ctl_placeholder.exists() {
+        std::fs::write(ctl_placeholder, "placeholder for dev build").ok();
+    }
+
     let web_placeholder = binaries_dir.join("cc-panes-web.placeholder");
     if !web_placeholder.exists() {
         std::fs::write(web_placeholder, "placeholder for dev build").ok();

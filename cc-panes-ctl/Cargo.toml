@@ -30,7 +30,3 @@ url = "2"
 
 [dev-dependencies]
 tempfile = "3"
-
-# Phase 4 才把本 crate 纳入根 workspace 和 sidecar 分发。此前保持可独立测试，
-# 同时允许 cli-hook 以 path dependency 复用端点解析。
-[workspace]

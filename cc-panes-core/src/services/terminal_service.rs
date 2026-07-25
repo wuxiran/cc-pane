@@ -29,6 +29,7 @@ mod osc_resume_capture;
 mod osc_state_detect;
 mod shell_integration;
 mod wsl_codex;
+mod wsl_mcp_proxy;
 
 use self::wsl_codex::{strip_wsl_proxy_env_vars, windows_path_to_wsl, WSL_PROXY_ENV_KEYS};
 
@@ -815,6 +816,8 @@ pub struct TerminalService {
     ssh_credential_service: Arc<SshCredentialService>,
     /// 共享 MCP 服务引用（setup 阶段注入）
     shared_mcp_service: parking_lot::RwLock<Option<Arc<crate::services::SharedMcpService>>>,
+    /// Tauri 打包资源目录。Linux 安装布局下它不一定与主程序同目录。
+    sidecar_resource_dir: parking_lot::RwLock<Option<PathBuf>>,
     launch_profile_service: parking_lot::RwLock<Option<Arc<LaunchProfileService>>>,
     workspace_service: parking_lot::RwLock<Option<Arc<WorkspaceService>>>,
     /// 每个 session 独立串行化所有输入写入，避免键盘输入、粘贴和 submit 互相交错。
@@ -1235,6 +1238,7 @@ impl TerminalService {
             project_cli_hooks_service,
             ssh_credential_service,
             shared_mcp_service: parking_lot::RwLock::new(None),
+            sidecar_resource_dir: parking_lot::RwLock::new(None),
             launch_profile_service: parking_lot::RwLock::new(None),
             workspace_service: parking_lot::RwLock::new(None),
             input_mutexes: Arc::new(Mutex::new(HashMap::new())),
@@ -1262,6 +1266,10 @@ impl TerminalService {
     pub fn set_shared_mcp_service(&self, service: Arc<crate::services::SharedMcpService>) {
         *self.shared_mcp_service.write() = Some(service);
         info!("[terminal] SharedMcpService injected");
+    }
+
+    pub fn set_sidecar_resource_dir(&self, resource_dir: PathBuf) {
+        *self.sidecar_resource_dir.write() = Some(resource_dir);
     }
 
     pub fn set_launch_profile_service(&self, service: Arc<LaunchProfileService>) {
@@ -1410,6 +1418,19 @@ impl TerminalService {
             .map(to_cli_provider);
         let effective_skip_mcp =
             LaunchProfileService::should_skip_mcp_for_profile(resolved_profile.as_ref(), skip_mcp);
+        if !is_ssh && !effective_skip_mcp && matches!(cli_tool, CliTool::Claude | CliTool::Codex) {
+            let resource_dir = self.sidecar_resource_dir.read().clone();
+            if let Some(binary) = super::ctl_sidecar::inject_mcp_proxy_options(
+                &mut adapter_options,
+                resource_dir.as_deref(),
+            )? {
+                info!(
+                    cli_tool = cli_tool.as_id(),
+                    binary = %binary.display(),
+                    "create_session: cc-panes-ctl MCP proxy enabled"
+                );
+            }
+        }
         let shared_mcp_service = self.shared_mcp_service.read().clone();
         let shared_mcp_config = shared_mcp_service
             .as_ref()
@@ -1661,6 +1682,20 @@ impl TerminalService {
                 .collect::<Vec<_>>();
             strip_wsl_proxy_env_vars(&mut env_vars);
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
+            let wsl_mcp_proxy_enabled = !effective_skip_mcp
+                && cc_cli_adapters::mcp_proxy_invocation_from_options(
+                    &adapter_options,
+                    self.app_paths.data_dir(),
+                    launch_id,
+                )
+                .is_some();
+            if wsl_mcp_proxy_enabled {
+                wsl_mcp_proxy::configure_interop_command(
+                    &mut adapter_options,
+                    &resolved_wsl.wsl_path,
+                    &resolved_wsl.distro,
+                )?;
+            }
 
             if cli_tool_id != "none" {
                 let hooks_project_path = workspace_path.unwrap_or(project_path);
@@ -1784,12 +1819,14 @@ impl TerminalService {
                             &resolved_wsl.distro,
                         );
                     }
-                    self.ensure_wsl_codex_mcp_registered(
-                        &session_id,
-                        &resolved_wsl,
-                        &env_vars,
-                        effective_skip_mcp,
-                    )?;
+                    if !wsl_mcp_proxy_enabled {
+                        self.ensure_wsl_codex_mcp_registered(
+                            &session_id,
+                            &resolved_wsl,
+                            &env_vars,
+                            effective_skip_mcp,
+                        )?;
+                    }
                     self.build_wsl_command(
                         &resolved_wsl,
                         &session_id,

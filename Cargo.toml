@@ -6,13 +6,13 @@ members = [
     "cc-panes-api",
     "cc-panes-daemon",
     "cc-panes-cli-hook",
+    "cc-panes-ctl",
     "cc-panes-web",
     "cc-memory",
     "cc-memory-mcp",
     "cc-notify",
     "cc-cli-adapters",
 ]
-exclude = ["cc-panes-ctl"]
 
 # dev 构建的调试信息策略：自己的代码留行号级信息（够看栈回溯），依赖一律不生成。
 # 默认 debug = 2 会给全部 914 个依赖生成完整调试信息——这是 target/debug/deps 膨胀到

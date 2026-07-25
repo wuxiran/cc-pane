@@ -1053,9 +1053,12 @@ dependencies = [
 name = "cc-panes-ctl"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "dirs",
+ "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
  "ureq",
  "url",
 ]

@@ -442,7 +442,7 @@ pub(super) fn cleanup_session_mcp_configs(data_dir: &std::path::Path, session_id
     }
 }
 
-fn append_codex_resume_args(
+pub(super) fn append_codex_resume_args(
     codex_args: &mut Vec<String>,
     resume_id: Option<&str>,
     initial_prompt: Option<&str>,
@@ -965,7 +965,7 @@ impl TerminalService {
             }
             if !skip_mcp {
                 if let Some(config_path) =
-                    self.write_wsl_claude_mcp_config(session_id, wsl, env_vars)?
+                    self.write_wsl_claude_mcp_config(session_id, wsl, env_vars, adapter_options)?
                 {
                     cli_args.push("--mcp-config".to_string());
                     cli_args.push(config_path);
@@ -1099,20 +1099,33 @@ impl TerminalService {
         session_id: &str,
         wsl: &ResolvedWslLaunch,
         env_vars: &HashMap<String, String>,
+        adapter_options: &HashMap<String, serde_json::Value>,
     ) -> Result<Option<String>> {
-        let (Some(port), Some(token), Some(windows_host)) = (
-            env_vars.get("CC_PANES_API_PORT"),
-            env_vars.get("CC_PANES_API_TOKEN"),
-            wsl.windows_host.as_deref(),
-        ) else {
-            warn!(
-                distro = %wsl.distro,
-                has_port = env_vars.contains_key("CC_PANES_API_PORT"),
-                has_token = env_vars.contains_key("CC_PANES_API_TOKEN"),
-                has_windows_host = wsl.windows_host.is_some(),
-                "write_wsl_claude_mcp_config: incomplete MCP context, skipping WSL Claude MCP config"
-            );
-            return Ok(None);
+        let proxy = super::wsl_mcp_proxy::invocation(
+            adapter_options,
+            self.app_paths.data_dir(),
+            env_vars.get("CC_PANES_LAUNCH_ID").map(String::as_str),
+        )?;
+        let http_endpoint = if proxy.is_none() {
+            match (
+                env_vars.get("CC_PANES_API_PORT"),
+                env_vars.get("CC_PANES_API_TOKEN"),
+                wsl.windows_host.as_deref(),
+            ) {
+                (Some(port), Some(token), Some(windows_host)) => Some((port, token, windows_host)),
+                _ => {
+                    warn!(
+                        distro = %wsl.distro,
+                        has_port = env_vars.contains_key("CC_PANES_API_PORT"),
+                        has_token = env_vars.contains_key("CC_PANES_API_TOKEN"),
+                        has_windows_host = wsl.windows_host.is_some(),
+                        "write_wsl_claude_mcp_config: incomplete MCP context, skipping WSL Claude MCP config"
+                    );
+                    return Ok(None);
+                }
+            }
+        } else {
+            None
         };
 
         let file_name = format!(
@@ -1160,23 +1173,30 @@ impl TerminalService {
             )
         })?;
 
-        let mcp_url_with_launch = {
+        let ccpanes = if let Some(proxy) = proxy {
+            serde_json::json!({
+                "type": "stdio",
+                "command": proxy.command,
+                "args": proxy.args,
+            })
+        } else {
+            let (port, token, windows_host) = http_endpoint.expect("HTTP endpoint checked above");
             let mut url = build_wsl_mcp_url(windows_host, port, token);
             if let Some(launch_id) = env_vars.get("CC_PANES_LAUNCH_ID") {
                 url.push_str("&launchId=");
                 url.push_str(launch_id);
             }
-            url
+            serde_json::json!({
+                "type": "http",
+                "url": url,
+                "headers": {
+                    "Authorization": format!("Bearer {}", token)
+                }
+            })
         };
         let config = serde_json::json!({
             "mcpServers": {
-                "ccpanes": {
-                    "type": "http",
-                    "url": mcp_url_with_launch,
-                    "headers": {
-                        "Authorization": format!("Bearer {}", token)
-                    }
-                }
+                "ccpanes": ccpanes
             }
         });
 
@@ -1191,6 +1211,7 @@ impl TerminalService {
         _session_id: &str,
         _wsl: &ResolvedWslLaunch,
         _env_vars: &HashMap<String, String>,
+        _adapter_options: &HashMap<String, serde_json::Value>,
     ) -> Result<Option<String>> {
         unreachable!("WSL launch is only supported on Windows")
     }
@@ -1236,7 +1257,14 @@ impl TerminalService {
         let mut codex_args = Vec::new();
 
         if !skip_mcp {
-            if let (Some(port), Some(token), Some(windows_host)) = (
+            let proxy = super::wsl_mcp_proxy::invocation(
+                adapter_options,
+                self.app_paths.data_dir(),
+                env_vars.get("CC_PANES_LAUNCH_ID").map(String::as_str),
+            )?;
+            if let Some(proxy) = proxy.as_ref() {
+                super::wsl_mcp_proxy::push_codex_overrides(&mut codex_args, proxy);
+            } else if let (Some(port), Some(token), Some(windows_host)) = (
                 env_vars.get("CC_PANES_API_PORT"),
                 env_vars.get("CC_PANES_API_TOKEN"),
                 wsl.windows_host.as_deref(),
@@ -1253,22 +1281,6 @@ impl TerminalService {
                 ));
                 codex_args.push("-c".to_string());
                 codex_args.push("mcp_servers.ccpanes.enabled=true".to_string());
-                for (name, url) in shared_mcp_urls {
-                    let mcp_url = rewrite_local_mcp_url_for_wsl(url, windows_host);
-                    codex_args.push("-c".to_string());
-                    codex_args.push(format!(
-                        "mcp_servers.{}.url={}",
-                        format_toml_key_segment_for_cli(name),
-                        format_toml_value_for_cli(&toml::Value::String(mcp_url))
-                    ));
-                }
-
-                // 关闭用户全局未列出的 plugins（plugins 是 stable feature，默认开）。
-                // marketplaces 非 config section、用户 config 通常无此段，无需处理。
-                if disable_unlisted_mcp_servers {
-                    codex_args.push("--disable".to_string());
-                    codex_args.push("plugins".to_string());
-                }
             } else {
                 warn!(
                     distro = %wsl.distro,
@@ -1277,6 +1289,27 @@ impl TerminalService {
                     has_windows_host = wsl.windows_host.is_some(),
                     "build_wsl_command: skipping ccpanes MCP CLI override because WSL MCP context is incomplete"
                 );
+            }
+
+            for (name, url) in shared_mcp_urls {
+                let mcp_url = wsl
+                    .windows_host
+                    .as_deref()
+                    .map(|host| rewrite_local_mcp_url_for_wsl(url, host))
+                    .unwrap_or_else(|| url.clone());
+                codex_args.push("-c".to_string());
+                codex_args.push(format!(
+                    "mcp_servers.{}.url={}",
+                    format_toml_key_segment_for_cli(name),
+                    format_toml_value_for_cli(&toml::Value::String(mcp_url))
+                ));
+            }
+
+            // 关闭用户全局未列出的 plugins（plugins 是 stable feature，默认开）。
+            // marketplaces 非 config section、用户 config 通常无此段，无需处理。
+            if disable_unlisted_mcp_servers {
+                codex_args.push("--disable".to_string());
+                codex_args.push("plugins".to_string());
             }
         } else {
             codex_args.push("-c".to_string());

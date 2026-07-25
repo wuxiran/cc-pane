@@ -1553,6 +1553,11 @@ pub fn run() {
                 boot_t0.elapsed().as_millis()
             );
 
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                app.state::<Arc<TerminalService>>()
+                    .set_sidecar_resource_dir(resource_dir);
+            }
+
             // ---- 升级已注入项目的旧格式 hook 命令（不会给未注入项目新增 hook）----
             {
                 let project_service = app.state::<Arc<ProjectService>>();
