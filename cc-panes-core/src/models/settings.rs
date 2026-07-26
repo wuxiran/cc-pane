@@ -342,12 +342,17 @@ pub struct OrchestratorSettings {
     /// "loopback"：始终 127.0.0.1；"all"：始终 0.0.0.0
     #[serde(default = "default_orchestrator_bind_mode")]
     pub bind_mode: String,
+    /// 允许 MCP agent 创建、绑定或显式启动带危险权限参数的 YOLO profile。
+    /// 默认关闭，避免老配置升级后扩大 agent 权限面。
+    #[serde(default)]
+    pub allow_mcp_yolo_profiles: bool,
 }
 
 impl Default for OrchestratorSettings {
     fn default() -> Self {
         Self {
             bind_mode: default_orchestrator_bind_mode(),
+            allow_mcp_yolo_profiles: false,
         }
     }
 }
@@ -1255,6 +1260,15 @@ mod tests {
             DEFAULT_DAEMON_ORPHAN_TTL_MINUTES
         );
         assert!(!settings.daemon_orphan_reaper_disabled);
+    }
+
+    #[test]
+    fn orchestrator_settings_without_mcp_yolo_permission_defaults_to_false() {
+        let settings: OrchestratorSettings =
+            toml::from_str("bindMode = \"auto\"").expect("parse legacy orchestrator settings");
+
+        assert!(!settings.allow_mcp_yolo_profiles);
+        assert!(!OrchestratorSettings::default().allow_mcp_yolo_profiles);
     }
 
     #[test]

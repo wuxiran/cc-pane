@@ -93,6 +93,32 @@ describe("useOrchestratorListener layout placement", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
+  it("launch-task 把显式 launchProfileId 保存在前端 tab 元数据", async () => {
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-profile",
+          sessionId: "session-profile",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          launchProfileId: "profile-yolo",
+          cliTool: "claude",
+        },
+      });
+    });
+
+    const tab = usePanesStore
+      .getState()
+      .allPanelsAcrossLayouts()
+      .flatMap((panel) => panel.tabs)
+      .find((item) => item.sessionId === "session-profile");
+    expect(tab?.launchProfileId).toBe("profile-yolo");
+  });
+
   it("launch-task 有调用者会话时默认在其 pane 旁边分屏打开(并排,不是后台标签)", async () => {
     const panes = usePanesStore.getState();
     panes.addTab(panes.rootPane.id, {

@@ -268,6 +268,8 @@ export type OrchestratorBindMode = "auto" | "loopback" | "all";
 
 export interface OrchestratorSettings {
   bindMode: OrchestratorBindMode;
+  /** 允许 agent 创建、绑定或显式启动带危险权限参数的 YOLO profile */
+  allowMcpYoloProfiles: boolean;
 }
 
 /** Orchestrator 运行状态（get_orchestrator_status） */

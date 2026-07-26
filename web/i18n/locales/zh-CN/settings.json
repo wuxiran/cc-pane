@@ -506,6 +506,8 @@
   "disableWslUsageScan": "WSL 免打扰（用量统计）",
   "disableWslUsageScanDesc": "关闭后不再扫描 WSL 内的用量数据，避免启动时唤醒 WSL 虚拟机（Vmmem 内存占用）",
   "showSystemResources": "状态栏显示系统资源",
+  "allowMcpYoloProfiles": "允许 agent 管理 YOLO 启动配置",
+  "allowMcpYoloProfilesHint": "允许编排 agent 创建、绑定或显式启动带 --dangerously-skip-permissions 的启动配置。开启后 agent 可绕过权限确认，仅在你接受该风险时启用。",
   "orchestratorStatus": {
     "binding": "正在绑定",
     "ready": "已就绪",

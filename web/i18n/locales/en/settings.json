@@ -506,6 +506,8 @@
   "disableWslUsageScan": "Skip WSL usage scanning",
   "disableWslUsageScanDesc": "Stop scanning usage data inside WSL so the app never wakes the WSL VM (Vmmem memory usage)",
   "showSystemResources": "Show system resources in the status bar",
+  "allowMcpYoloProfiles": "Allow agents to manage YOLO launch profiles",
+  "allowMcpYoloProfilesHint": "Allow orchestration agents to create, bind, or explicitly launch profiles with --dangerously-skip-permissions. Agents can bypass permission prompts when enabled; turn this on only if you accept that risk.",
   "orchestratorStatus": {
     "binding": "Binding",
     "ready": "Ready",

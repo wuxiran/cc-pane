@@ -161,6 +161,8 @@ pub struct OrchestratorLaunchEvent {
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
     pub provider_selection: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_profile_id: Option<String>,
     pub workspace_path: Option<String>,
     pub title: Option<String>,
     pub resume_id: Option<String>,
@@ -2178,6 +2180,10 @@ struct McpLaunchTaskParams {
     /// Provider 选择模式：inherit / explicit / none
     #[serde(rename = "providerSelection")]
     provider_selection: Option<String>,
+    /// 可选的启动配置 ID。显式指定时优先于工作空间绑定；YOLO profile 受
+    /// orchestrator.allowMcpYoloProfiles 设置门控。
+    #[serde(rename = "profileId")]
+    profile_id: Option<String>,
     /// 自定义标签名（不指定则使用默认 "${目录名} (Claude)"）
     title: Option<String>,
     /// 工作空间名称（自动解析 workspace_path 和 provider）
@@ -3312,6 +3318,9 @@ struct McpCreateRuntimeConfigParams {
     target_tools: Option<Vec<String>>,
     /// 适用运行时：local / wsl / ssh；不传表示全部
     target_runtime: Option<String>,
+    /// 是否启用 YOLO（会向 CLI 注入危险的跳过权限参数）。仅当用户在设置中显式开启
+    /// orchestrator.allowMcpYoloProfiles 时允许。
+    yolo_mode: Option<bool>,
     /// MCP 策略
     mcp_policy: Option<McpRuntimeMcpPolicyParams>,
     /// Skill 策略
@@ -3353,6 +3362,41 @@ struct McpRuntimeConfigResult {
     bound_project: Option<String>,
     warnings: Vec<String>,
     dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpLaunchProfileIdParams {
+    /// 要删除的启动配置 ID
+    profile_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpBindWorkspaceLaunchProfileParams {
+    /// 目标工作空间名称
+    workspace_name: String,
+    /// 要绑定的启动配置 ID；传 null 表示解绑
+    profile_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpLaunchProfileSummary {
+    id: String,
+    name: String,
+    cli_tool: Option<String>,
+    runtime: Option<String>,
+    yolo: bool,
+    is_default: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpBindWorkspaceLaunchProfileResult {
+    workspace_name: String,
+    profile_id: Option<String>,
+    bound: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3775,6 +3819,123 @@ fn find_runtime_project_index(
     Ok(by_id.or(by_path))
 }
 
+fn ensure_mcp_yolo_profile_allowed(
+    yolo_mode: bool,
+    allow_mcp_yolo_profiles: bool,
+) -> std::result::Result<(), String> {
+    if !yolo_mode || allow_mcp_yolo_profiles {
+        return Ok(());
+    }
+
+    Err(
+        "MCP YOLO launch profile management is disabled. 请在设置 -> Web 访问 -> MCP 编排服务中开启“允许 agent 管理 YOLO 启动配置”（orchestrator.allowMcpYoloProfiles）后重试；YOLO 会向 CLI 注入 --dangerously-skip-permissions。"
+            .to_string(),
+    )
+}
+
+fn list_launch_profiles_impl(
+    launch_profile_service: &LaunchProfileService,
+) -> Vec<McpLaunchProfileSummary> {
+    launch_profile_service
+        .list_profiles()
+        .into_iter()
+        .map(|profile| McpLaunchProfileSummary {
+            id: profile.id,
+            name: profile.name,
+            cli_tool: profile.target_tools.into_iter().next(),
+            runtime: profile.target_runtime,
+            yolo: profile.yolo_mode,
+            is_default: profile.is_default,
+        })
+        .collect()
+}
+
+fn launch_profile_bindings(profile_id: &str, workspaces: &[Workspace]) -> Vec<String> {
+    let mut bindings = Vec::new();
+    for workspace in workspaces {
+        if workspace.launch_profile_id.as_deref() == Some(profile_id) {
+            bindings.push(format!("workspace '{}'", workspace.name));
+        }
+        for project in &workspace.projects {
+            if project.launch_profile_id.as_deref() == Some(profile_id) {
+                bindings.push(format!(
+                    "project '{}' in workspace '{}'",
+                    project.alias.as_deref().unwrap_or(&project.id),
+                    workspace.name
+                ));
+            }
+        }
+    }
+    bindings
+}
+
+fn delete_launch_profile_impl(
+    launch_profile_service: &LaunchProfileService,
+    workspace_service: &WorkspaceService,
+    profile_id: &str,
+) -> std::result::Result<(), String> {
+    let profile_id = required_trimmed(profile_id, "profileId")?;
+    if launch_profile_service.get_profile(&profile_id).is_none() {
+        return Err(format!("Launch profile '{}' was not found", profile_id));
+    }
+
+    let workspaces = workspace_service
+        .list_workspaces()
+        .map_err(|error| format!("Failed to list workspace bindings: {}", error))?;
+    let bindings = launch_profile_bindings(&profile_id, &workspaces);
+    if !bindings.is_empty() {
+        return Err(format!(
+            "Launch profile '{}' cannot be deleted because it is bound to: {}. 请先在设置 -> Provider -> 启动配置中解除这些绑定；工作空间绑定也可调用 bind_workspace_launch_profile(profileId=null) 解绑。",
+            profile_id,
+            bindings.join(", ")
+        ));
+    }
+
+    launch_profile_service
+        .delete_profile(&profile_id)
+        .map_err(|error| {
+            format!(
+                "Failed to delete launch profile '{}': {}",
+                profile_id, error
+            )
+        })
+}
+
+fn bind_workspace_launch_profile_impl(
+    launch_profile_service: &LaunchProfileService,
+    workspace_service: &WorkspaceService,
+    allow_mcp_yolo_profiles: bool,
+    params: McpBindWorkspaceLaunchProfileParams,
+) -> std::result::Result<McpBindWorkspaceLaunchProfileResult, String> {
+    let workspace_name = required_trimmed(&params.workspace_name, "workspaceName")?;
+    let profile_id = trim_optional_string(params.profile_id);
+    if let Some(profile_id) = profile_id.as_deref() {
+        let profile = launch_profile_service
+            .get_profile(profile_id)
+            .ok_or_else(|| format!("Launch profile '{}' was not found", profile_id))?;
+        ensure_mcp_yolo_profile_allowed(profile.yolo_mode, allow_mcp_yolo_profiles)?;
+    }
+
+    let mut workspace = workspace_service
+        .get_workspace(&workspace_name)
+        .map_err(|error| format!("Failed to load workspace '{}': {}", workspace_name, error))?;
+    workspace.launch_profile_id = profile_id.clone();
+    workspace_service
+        .write_workspace_json(&workspace_name, &workspace)
+        .map_err(|error| {
+            format!(
+                "Failed to update launch profile binding for workspace '{}': {}",
+                workspace_name, error
+            )
+        })?;
+
+    Ok(McpBindWorkspaceLaunchProfileResult {
+        workspace_name,
+        bound: profile_id.is_some(),
+        profile_id,
+    })
+}
+
 /// MCP 工具处理器
 #[derive(Clone)]
 struct McpToolHandler {
@@ -3829,6 +3990,15 @@ impl McpToolHandler {
     ) -> std::result::Result<McpRuntimeConfigResult, String> {
         let dry_run = params.dry_run.unwrap_or(false);
         let mut warnings = Vec::new();
+        let yolo_mode = params.yolo_mode.unwrap_or(false);
+        ensure_mcp_yolo_profile_allowed(
+            yolo_mode,
+            self.state
+                .settings_service
+                .get_settings()
+                .orchestrator
+                .allow_mcp_yolo_profiles,
+        )?;
 
         let name = required_trimmed(&params.name, "name")?;
         let alias = trim_optional_string(params.alias.clone());
@@ -3868,8 +4038,7 @@ impl McpToolHandler {
             adapter_options: HashMap::new(),
             target_tools: clean_target_tools(params.target_tools.as_deref()),
             target_runtime: normalize_target_runtime(params.target_runtime.clone())?,
-            // YOLO 仅通过受控的 UI launch profile 启用，不经 MCP 播种危险 profile。
-            yolo_mode: false,
+            yolo_mode,
             mcp_policy,
             skill_policy,
             is_default: params.set_default.unwrap_or(false),
@@ -4179,6 +4348,8 @@ impl McpToolHandler {
     /// 启动一个新的 Claude Code 实例来执行指定任务，或恢复已有会话。
     /// 新任务：传 prompt（必需），会在 CC-Panes 中创建新标签页并注入 prompt。
     /// 恢复会话：传 resumeId（必需），会以 `claude --resume <id>` 启动，不注入 prompt。
+    /// profileId 显式指定启动配置并优先于工作空间绑定；若目标是 YOLO profile，必须先在
+    /// 设置中开启 orchestrator.allowMcpYoloProfiles。
     #[tool]
     async fn launch_task(
         &self,
@@ -4205,6 +4376,23 @@ impl McpToolHandler {
         // 白名单校验（DB 项目 + 工作空间项目）
         if !is_project_registered(&self.state, &params.project_path) {
             return format!("错误: 项目路径 '{}' 未注册", params.project_path);
+        }
+
+        let launch_profile_id = trim_optional_string(params.profile_id.clone());
+        if let Some(profile_id) = launch_profile_id.as_deref() {
+            let Some(profile) = self.state.launch_profile_service.get_profile(profile_id) else {
+                return format!("错误: Launch profile '{}' was not found", profile_id);
+            };
+            if let Err(error) = ensure_mcp_yolo_profile_allowed(
+                profile.yolo_mode,
+                self.state
+                    .settings_service
+                    .get_settings()
+                    .orchestrator
+                    .allow_mcp_yolo_profiles,
+            ) {
+                return format!("错误: {}", error);
+            }
         }
 
         let provider_selection =
@@ -4283,7 +4471,7 @@ impl McpToolHandler {
             workspace_name: ws_name.clone(),
             provider_id: params.provider_id.clone(),
             provider_selection,
-            launch_profile_id: None,
+            launch_profile_id: launch_profile_id.clone(),
             workspace_path: ws_path.clone(),
             workspace_snapshot_id: None,
             launch_claude: cli_tool != CliTool::None,
@@ -4369,7 +4557,7 @@ impl McpToolHandler {
             Some(&params.project_path),
             params.provider_id.as_deref(),
             provider_selection_str,
-            None,
+            launch_profile_id.as_deref(),
             None,
         ) {
             warn!(
@@ -4459,6 +4647,7 @@ impl McpToolHandler {
             workspace_name: ws_name,
             provider_id: params.provider_id.clone(),
             provider_selection: params.provider_selection.clone(),
+            launch_profile_id: launch_profile_id.clone(),
             workspace_path: ws_path,
             title: params.title.clone(),
             resume_id: params.resume_id.clone(),
@@ -4485,12 +4674,25 @@ impl McpToolHandler {
             "status": "launching",
             "runtimeKind": runtime.kind.as_str(),
             "runtimeSource": runtime.source,
+            "profileId": launch_profile_id,
             "notice": runtime.notice
         })
         .to_string()
     }
 
+    /// 列出全部启动配置的 id、名称、CLI、运行时、YOLO 标记和默认标记。
+    #[tool]
+    async fn list_launch_profiles(&self) -> String {
+        debug!("mcp::list_launch_profiles");
+        serde_json::to_string_pretty(&list_launch_profiles_impl(
+            &self.state.launch_profile_service,
+        ))
+        .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
+    }
+
     /// 创建或更新运行配置。可同时创建共享 MCP server，并可绑定到 workspace/project。
+    /// yoloMode=true 会注入 --dangerously-skip-permissions，仅当用户显式开启
+    /// orchestrator.allowMcpYoloProfiles 时允许。
     #[tool]
     async fn create_runtime_config(
         &self,
@@ -4498,6 +4700,51 @@ impl McpToolHandler {
     ) -> String {
         info!(name = %params.name, dry_run = params.dry_run.unwrap_or(false), "mcp::create_runtime_config");
         match self.create_runtime_config_impl(params) {
+            Ok(result) => serde_json::to_string_pretty(&result)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 删除指定启动配置。配置仍被工作空间或项目绑定时拒绝删除并列出全部绑定方。
+    #[tool]
+    async fn delete_launch_profile(
+        &self,
+        Parameters(params): Parameters<McpLaunchProfileIdParams>,
+    ) -> String {
+        info!(profile_id = %params.profile_id, "mcp::delete_launch_profile");
+        match delete_launch_profile_impl(
+            &self.state.launch_profile_service,
+            &self.state.workspace_service,
+            &params.profile_id,
+        ) {
+            Ok(()) => serde_json::json!({
+                "profileId": params.profile_id,
+                "deleted": true,
+            })
+            .to_string(),
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 将启动配置绑定到工作空间；profileId 传 null 表示解绑。绑定 YOLO profile 前必须在
+    /// 设置中开启 orchestrator.allowMcpYoloProfiles。
+    #[tool]
+    async fn bind_workspace_launch_profile(
+        &self,
+        Parameters(params): Parameters<McpBindWorkspaceLaunchProfileParams>,
+    ) -> String {
+        info!(workspace = %params.workspace_name, profile_id = ?params.profile_id, "mcp::bind_workspace_launch_profile");
+        match bind_workspace_launch_profile_impl(
+            &self.state.launch_profile_service,
+            &self.state.workspace_service,
+            self.state
+                .settings_service
+                .get_settings()
+                .orchestrator
+                .allow_mcp_yolo_profiles,
+            params,
+        ) {
             Ok(result) => serde_json::to_string_pretty(&result)
                 .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
             Err(error) => format!("错误: {}", error),
@@ -8067,6 +8314,7 @@ async fn handle_launch_task(
         workspace_name,
         provider_id: req.provider_id.clone(),
         provider_selection: req.provider_selection.clone(),
+        launch_profile_id: None,
         workspace_path,
         title: req.title.clone(),
         resume_id: req.resume_id.clone(),
@@ -12712,6 +12960,131 @@ mod tests {
             BridgeMode::NativeHttp
         );
         assert!(parse_runtime_mcp_mode(Some("unknown")).is_err());
+    }
+
+    #[test]
+    fn launch_profile_mcp_tools_are_registered_with_safety_schema() {
+        let router = McpToolHandler::tool_router();
+
+        for name in [
+            "list_launch_profiles",
+            "create_runtime_config",
+            "delete_launch_profile",
+            "bind_workspace_launch_profile",
+        ] {
+            assert!(router.map.contains_key(name), "missing {name}");
+        }
+
+        let create = &router.map["create_runtime_config"].attr;
+        assert!(create.input_schema["properties"]["yoloMode"].is_object());
+        assert!(create
+            .description
+            .as_deref()
+            .unwrap_or_default()
+            .contains("allowMcpYoloProfiles"));
+
+        let launch = &router.map["launch_task"].attr;
+        assert!(launch.input_schema["properties"]["profileId"].is_object());
+    }
+
+    #[test]
+    fn launch_profile_mcp_yolo_gate_requires_explicit_permission() {
+        assert!(ensure_mcp_yolo_profile_allowed(false, false).is_ok());
+        assert!(ensure_mcp_yolo_profile_allowed(true, true).is_ok());
+
+        let error = ensure_mcp_yolo_profile_allowed(true, false).unwrap_err();
+        assert!(error.contains("allowMcpYoloProfiles"));
+        assert!(error.contains("设置"));
+    }
+
+    #[test]
+    fn launch_profile_mcp_list_bind_unbind_and_delete_guard_round_trip() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let profile_service = LaunchProfileService::new(dir.path().join("launch-profiles.json"));
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        workspace_service
+            .create_workspace("workspace-a", Some("/tmp/workspace-a"))
+            .expect("create workspace");
+
+        let profile = profile_service
+            .create_profile(LaunchProfileDraft {
+                name: Some("Claude YOLO".into()),
+                alias: None,
+                description: None,
+                provider_id: None,
+                adapter_options: HashMap::new(),
+                target_tools: vec!["claude".into()],
+                target_runtime: Some("local".into()),
+                yolo_mode: true,
+                mcp_policy: Default::default(),
+                skill_policy: Default::default(),
+                is_default: false,
+            })
+            .expect("create profile");
+
+        let listed = list_launch_profiles_impl(&profile_service);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, profile.id);
+        assert_eq!(listed[0].cli_tool.as_deref(), Some("claude"));
+        assert_eq!(listed[0].runtime.as_deref(), Some("local"));
+        assert!(listed[0].yolo);
+        assert!(listed[0].is_default);
+
+        bind_workspace_launch_profile_impl(
+            &profile_service,
+            &workspace_service,
+            true,
+            McpBindWorkspaceLaunchProfileParams {
+                workspace_name: "workspace-a".into(),
+                profile_id: Some(profile.id.clone()),
+            },
+        )
+        .expect("bind profile");
+        assert_eq!(
+            workspace_service
+                .get_workspace("workspace-a")
+                .expect("load bound workspace")
+                .launch_profile_id
+                .as_deref(),
+            Some(profile.id.as_str())
+        );
+
+        let gate_error = bind_workspace_launch_profile_impl(
+            &profile_service,
+            &workspace_service,
+            false,
+            McpBindWorkspaceLaunchProfileParams {
+                workspace_name: "workspace-a".into(),
+                profile_id: Some(profile.id.clone()),
+            },
+        )
+        .unwrap_err();
+        assert!(gate_error.contains("allowMcpYoloProfiles"));
+
+        let error = delete_launch_profile_impl(&profile_service, &workspace_service, &profile.id)
+            .unwrap_err();
+        assert!(error.contains("workspace-a"));
+        assert!(error.contains("解绑"));
+
+        bind_workspace_launch_profile_impl(
+            &profile_service,
+            &workspace_service,
+            false,
+            McpBindWorkspaceLaunchProfileParams {
+                workspace_name: "workspace-a".into(),
+                profile_id: None,
+            },
+        )
+        .expect("unbind profile");
+        assert!(workspace_service
+            .get_workspace("workspace-a")
+            .expect("load unbound workspace")
+            .launch_profile_id
+            .is_none());
+
+        delete_launch_profile_impl(&profile_service, &workspace_service, &profile.id)
+            .expect("delete unbound profile");
+        assert!(profile_service.get_profile(&profile.id).is_none());
     }
 
     #[test]

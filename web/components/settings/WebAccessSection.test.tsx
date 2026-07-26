@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -77,8 +77,9 @@ function createValue(overrides: Partial<WebAccessSettings> = {}): WebAccessSetti
 const loadSettingsMock = vi.fn(async () => {});
 
 describe("WebAccessSection", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    await i18n.changeLanguage("zh-CN");
     vi.mocked(useOrchestratorStatus).mockReturnValue(null);
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     vi.mocked(settingsService.getWebAccessStatus).mockResolvedValue(idleStatus);
@@ -246,7 +247,7 @@ describe("WebAccessSection", () => {
       <WebAccessSection
         value={createValue()}
         onChange={vi.fn()}
-        orchestrator={{ bindMode: "auto" }}
+        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false }}
         onOrchestratorChange={vi.fn()}
       />,
     );
@@ -255,5 +256,41 @@ describe("WebAccessSection", () => {
     expect(screen.getByText(/运行状态：正在绑定/)).toBeInTheDocument();
     expect(screen.getByText(/第 2 次绑定/)).toBeInTheDocument();
     expect(screen.getByText(/最近错误：port occupied/)).toBeInTheDocument();
+  });
+
+  it("renders the MCP YOLO risk copy in both languages and updates the permission", async () => {
+    const user = userEvent.setup();
+    const onOrchestratorChange = vi.fn();
+    const { rerender } = render(
+      <WebAccessSection
+        value={createValue()}
+        onChange={vi.fn()}
+        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false }}
+        onOrchestratorChange={onOrchestratorChange}
+      />,
+    );
+    await act(async () => {});
+
+    const checkbox = screen.getByRole("checkbox", { name: "允许 agent 管理 YOLO 启动配置" });
+    expect(screen.getByText(/--dangerously-skip-permissions/)).toBeInTheDocument();
+    await user.click(checkbox);
+    expect(onOrchestratorChange).toHaveBeenCalledWith({
+      bindMode: "auto",
+      allowMcpYoloProfiles: true,
+    });
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+    rerender(
+      <WebAccessSection
+        value={createValue()}
+        onChange={vi.fn()}
+        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false }}
+        onOrchestratorChange={onOrchestratorChange}
+      />,
+    );
+    expect(screen.getByText("Allow agents to manage YOLO launch profiles")).toBeInTheDocument();
+    expect(screen.getByText(/--dangerously-skip-permissions/)).toBeInTheDocument();
   });
 });
