@@ -5,7 +5,7 @@
   "components/localhistory/LocalHistoryPanel.tsx": 597,
   "components/mobile/MobilePrototype.tsx": 1041,
   "components/orchestration/OrchestrationFullView.tsx": 511,
-  "components/panes/Panel.tsx": 668,
+  "components/panes/Panel.tsx": 561,
   "components/panes/TabBar.tsx": 807,
   "components/panes/TerminalView.tsx": 2278,
   "components/providers/LaunchProfilesPanel.tsx": 2094,

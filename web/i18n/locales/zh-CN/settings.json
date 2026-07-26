@@ -243,6 +243,7 @@
     "gotIt": "知道了",
     "disable": "不再显示任何提示",
     "rebind": "随时重新绑定快捷方式",
+    "terminalPassthroughHint": "终端聚焦时这个快捷键会交给终端处理，按下不会有反应。先点击终端以外的区域（如标签栏或侧边栏）再按。",
     "shortcutSettings": "设置 → 快捷键",
     "commandPalette": {
       "title": "用命令面板快速直达",

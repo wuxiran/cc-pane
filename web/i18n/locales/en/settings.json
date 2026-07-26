@@ -243,6 +243,7 @@
     "gotIt": "Got it",
     "disable": "Stop showing all tips",
     "rebind": "Rebind this shortcut any time",
+    "terminalPassthroughHint": "While the terminal has focus this shortcut is passed to the terminal, so pressing it does nothing here. Click outside the terminal first (the tab bar or sidebar), then press it.",
     "shortcutSettings": "Settings → Shortcuts",
     "commandPalette": {
       "title": "Jump anywhere with the Command Palette",

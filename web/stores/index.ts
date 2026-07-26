@@ -33,6 +33,7 @@ export {
   findConflict,
   handleKeydown,
   shouldTerminalHandleKey,
+  isTerminalPassthroughAction,
 } from "./useShortcutsStore";
 export type { ShortcutAction } from "./useShortcutsStore";
 export { useFileTreeStore } from "./useFileTreeStore";

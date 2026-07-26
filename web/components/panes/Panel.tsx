@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef, memo, useContext } from "react";
+import { useMemo, useEffect, useCallback, useRef, memo, useContext } from "react";
 import { X, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -11,7 +11,7 @@ import { isTauriRuntime } from "@/services/runtime";
 import type { PopupTabData } from "@/services/popupWindowService";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
-import { collectTerminalLeaves, collectTerminalSessionIds } from "@/lib/paneSessions";
+import { collectTerminalLeaves } from "@/lib/paneSessions";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -20,6 +20,7 @@ import { collectPanels } from "@/stores/paneTreeHelpers";
 import TabBar from "./TabBar";
 import PanelEmptyActions from "./PanelEmptyActions";
 import TabContentRenderer from "./TabContentRenderer";
+import { useTabClosing } from "./useTabClosing";
 import type { TerminalViewHandle } from "./TerminalView";
 
 interface PanelProps {
@@ -50,15 +51,13 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   // Action 选择器合并 + useShallow：浅比较避免对象引用变化导致的重渲染
   const {
-    selectTab, closeTab, togglePinTab, toggleStarTab, renameTab, addTab,
+    selectTab, togglePinTab, toggleStarTab, renameTab, addTab,
     splitRight, splitDown, splitAndMoveTab, splitTerminalPane, closeTerminalPane,
     moveTab, moveTabToLayoutPane,
-    closeTabsToLeft, closeTabsToRight, closeOtherTabs,
     setActivePane, updateTabSession, reconnectTab,
     setTabDisconnected, markTabPoppedOut, isTabPoppedOut,
   } = usePanesStore(useShallow((s) => ({
     selectTab: s.selectTab,
-    closeTab: s.closeTab,
     togglePinTab: s.togglePinTab,
     toggleStarTab: s.toggleStarTab,
     renameTab: s.renameTab,
@@ -70,9 +69,6 @@ export default memo(function Panel({ pane }: PanelProps) {
     closeTerminalPane: s.closeTerminalPane,
     moveTab: s.moveTab,
     moveTabToLayoutPane: s.moveTabToLayoutPane,
-    closeTabsToLeft: s.closeTabsToLeft,
-    closeTabsToRight: s.closeTabsToRight,
-    closeOtherTabs: s.closeOtherTabs,
     setActivePane: s.setActivePane,
     updateTabSession: s.updateTabSession,
     reconnectTab: s.reconnectTab,
@@ -91,12 +87,12 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   const terminalRefs = useRef<Map<string, TerminalViewHandle>>(new Map());
 
-  // Dirty tab 确认状态
-  const [dirtyConfirmTabId, setDirtyConfirmTabId] = useState<string | null>(null);
-  const [dirtyConfirmBatch, setDirtyConfirmBatch] = useState<{
-    tabIds: string[];
-    action: () => void;
-  } | null>(null);
+  // 关闭标签（含 pinned 保护、dirty 确认、会话回收）；close-tab 快捷键也走这里
+  const {
+    handleCloseTab, handleCloseTabsToLeft, handleCloseTabsToRight, handleCloseOtherTabs,
+    dirtyConfirmTabId, cancelDirtyConfirm, confirmCloseDirty,
+    dirtyConfirmBatchCount, cancelBatchConfirm, confirmBatchClose,
+  } = useTabClosing(pane.id, pane.tabs, pane.activeTabId);
 
   const isActivePane = activePaneId === pane.id;
   const isFullscreenPanel = isFullscreen && fullscreenPaneId === pane.id;
@@ -148,109 +144,6 @@ export default memo(function Panel({ pane }: PanelProps) {
   const handleSelectTab = useCallback(
     (tabId: string) => selectTab(pane.id, tabId),
     [pane.id, selectTab]
-  );
-
-  // 执行单个 tab 关闭（不检查 dirty）
-  const doCloseTab = useCallback(
-    (tabId: string) => {
-      const tab = pane.tabs.find((t) => t.id === tabId);
-      if (tab?.contentType === "terminal" && tab.terminalRootPane) {
-        const sessionIds = collectTerminalSessionIds(tab);
-        sessionIds.forEach((sessionId) => {
-          terminalService.killSession(sessionId).catch((e) => handleErrorSilent(e, "kill session"));
-        });
-      } else if (tab?.sessionId) {
-        terminalService.killSession(tab.sessionId).catch((e) => handleErrorSilent(e, "kill session"));
-      }
-      closeTab(pane.id, tabId);
-    },
-    [pane.id, pane.tabs, closeTab]
-  );
-
-  // 关闭 tab（检查 dirty）
-  const handleCloseTab = useCallback(
-    (tabId: string) => {
-      const tab = pane.tabs.find((t) => t.id === tabId);
-      if (!tab || tab.pinned) return;
-      if (tab.dirty) {
-        setDirtyConfirmTabId(tabId);
-        return;
-      }
-      doCloseTab(tabId);
-    },
-    [pane.tabs, doCloseTab]
-  );
-
-  // 确认关闭 dirty tab
-  const handleConfirmCloseDirty = useCallback(() => {
-    if (dirtyConfirmTabId) {
-      doCloseTab(dirtyConfirmTabId);
-      setDirtyConfirmTabId(null);
-    }
-  }, [dirtyConfirmTabId, doCloseTab]);
-
-  // 批量关闭辅助：检查是否有 dirty tabs，有则弹确认
-  const doBatchClose = useCallback(
-    (tabsToClose: typeof pane.tabs, action: () => void) => {
-      const dirtyTabs = tabsToClose.filter((t) => t.dirty && !t.pinned);
-      if (dirtyTabs.length > 0) {
-        setDirtyConfirmBatch({
-          tabIds: dirtyTabs.map((t) => t.id),
-          action: () => {
-            tabsToClose.filter((t) => !t.pinned).forEach((t) => {
-              const sessionIds = collectTerminalSessionIds(t);
-              sessionIds.forEach((sessionId) => {
-                terminalService.killSession(sessionId).catch((e) => handleErrorSilent(e, "kill session"));
-              });
-            });
-            action();
-          },
-        });
-        return;
-      }
-      tabsToClose.filter((t) => !t.pinned).forEach((t) => {
-        const sessionIds = collectTerminalSessionIds(t);
-        sessionIds.forEach((sessionId) => {
-          terminalService.killSession(sessionId).catch((e) => handleErrorSilent(e, "kill session"));
-        });
-      });
-      action();
-    },
-    []
-  );
-
-  // 确认批量关闭
-  const handleConfirmBatchClose = useCallback(() => {
-    if (dirtyConfirmBatch) {
-      dirtyConfirmBatch.action();
-      setDirtyConfirmBatch(null);
-    }
-  }, [dirtyConfirmBatch]);
-
-  const handleCloseTabsToLeft = useCallback(
-    (tabId: string) => {
-      const targetIdx = pane.tabs.findIndex((t) => t.id === tabId);
-      const tabsToClose = pane.tabs.slice(0, targetIdx);
-      doBatchClose(tabsToClose, () => closeTabsToLeft(pane.id, tabId));
-    },
-    [pane.id, pane.tabs, closeTabsToLeft, doBatchClose]
-  );
-
-  const handleCloseTabsToRight = useCallback(
-    (tabId: string) => {
-      const targetIdx = pane.tabs.findIndex((t) => t.id === tabId);
-      const tabsToClose = pane.tabs.slice(targetIdx + 1);
-      doBatchClose(tabsToClose, () => closeTabsToRight(pane.id, tabId));
-    },
-    [pane.id, pane.tabs, closeTabsToRight, doBatchClose]
-  );
-
-  const handleCloseOtherTabs = useCallback(
-    (tabId: string) => {
-      const tabsToClose = pane.tabs.filter((t) => t.id !== tabId);
-      doBatchClose(tabsToClose, () => closeOtherTabs(pane.id, tabId));
-    },
-    [pane.id, pane.tabs, closeOtherTabs, doBatchClose]
   );
 
   const handleTogglePin = useCallback(
@@ -627,17 +520,17 @@ export default memo(function Panel({ pane }: PanelProps) {
       )}
 
       {/* Dirty tab 单个关闭确认 */}
-      <Dialog open={dirtyConfirmTabId !== null} onOpenChange={() => setDirtyConfirmTabId(null)}>
+      <Dialog open={dirtyConfirmTabId !== null} onOpenChange={cancelDirtyConfirm}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>{t("unsavedChanges")}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">{t("unsavedChangesDesc")}</p>
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setDirtyConfirmTabId(null)}>
+            <Button variant="secondary" onClick={cancelDirtyConfirm}>
               {t("cancel", { ns: "common" })}
             </Button>
-            <Button variant="destructive" onClick={handleConfirmCloseDirty}>
+            <Button variant="destructive" onClick={confirmCloseDirty}>
               {t("discardAndClose")}
             </Button>
           </DialogFooter>
@@ -645,19 +538,19 @@ export default memo(function Panel({ pane }: PanelProps) {
       </Dialog>
 
       {/* Dirty tab 批量关闭确认 */}
-      <Dialog open={dirtyConfirmBatch !== null} onOpenChange={() => setDirtyConfirmBatch(null)}>
+      <Dialog open={dirtyConfirmBatchCount !== null} onOpenChange={cancelBatchConfirm}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>{t("unsavedChanges")}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            {t("unsavedTabsCount", { count: dirtyConfirmBatch?.tabIds.length ?? 0 })}
+            {t("unsavedTabsCount", { count: dirtyConfirmBatchCount ?? 0 })}
           </p>
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setDirtyConfirmBatch(null)}>
+            <Button variant="secondary" onClick={cancelBatchConfirm}>
               {t("cancel", { ns: "common" })}
             </Button>
-            <Button variant="destructive" onClick={handleConfirmBatchClose}>
+            <Button variant="destructive" onClick={confirmBatchClose}>
               {t("discardAndClose")}
             </Button>
           </DialogFooter>

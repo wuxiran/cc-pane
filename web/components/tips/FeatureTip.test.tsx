@@ -68,6 +68,56 @@ describe("FeatureTip", () => {
     expect(screen.getByText(/去设置绑定命令面板快捷键|Bind the Command Palette in Settings/i)).toBeInTheDocument();
   });
 
+  // 限制说明从 TERMINAL_PASSTHROUGH_ACTIONS 派生，不是每条 tip 手写
+  it("actionId 在终端放行清单内时渲染限制说明", () => {
+    renderTip();
+
+    expect(screen.getByTestId("feature-tip-passthrough-hint")).toBeInTheDocument();
+  });
+
+  it("actionId 不在放行清单内时不渲染限制说明", () => {
+    const current = useSettingsStore.getState().settings!;
+    useSettingsStore.setState({
+      settings: {
+        ...current,
+        shortcuts: {
+          ...current.shortcuts,
+          bindings: { ...current.shortcuts.bindings, "toggle-layouts": "Ctrl+Alt+L" },
+        },
+      },
+    });
+
+    renderTip({
+      definition: {
+        ...definition,
+        id: "layout-switcher",
+        actionId: "toggle-layouts",
+        titleKey: "featureTips.layoutSwitcher.title",
+        bodyKey: "featureTips.layoutSwitcher.body",
+        bodyUnboundKey: "featureTips.layoutSwitcher.bodyUnbound",
+      },
+    });
+
+    expect(screen.queryByTestId("feature-tip-passthrough-hint")).not.toBeInTheDocument();
+  });
+
+  it("未绑定快捷键时不同时冒出限制说明", () => {
+    const current = useSettingsStore.getState().settings!;
+    useSettingsStore.setState({
+      settings: {
+        ...current,
+        shortcuts: {
+          ...current.shortcuts,
+          bindings: { ...current.shortcuts.bindings, "command-palette": "" },
+        },
+      },
+    });
+
+    renderTip();
+
+    expect(screen.queryByTestId("feature-tip-passthrough-hint")).not.toBeInTheDocument();
+  });
+
   it("执行试试看、知道了和快捷键设置动作", async () => {
     const user = userEvent.setup();
     const props = renderTip();

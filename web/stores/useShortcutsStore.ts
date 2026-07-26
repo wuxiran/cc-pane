@@ -23,6 +23,15 @@ const TERMINAL_PASSTHROUGH_ACTIONS = new Set([
   "command-palette",
 ]);
 
+/**
+ * 该 action 的快捷键在终端聚焦时是否会被放行给终端。
+ *
+ * 供 UI（如功能提示）派生"什么时候按了没反应"的说明，避免各处手写清单副本。
+ */
+export function isTerminalPassthroughAction(actionId: string): boolean {
+  return TERMINAL_PASSTHROUGH_ACTIONS.has(actionId);
+}
+
 export interface ShortcutAction {
   id: string;
   label: string;
