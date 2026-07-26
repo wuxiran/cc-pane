@@ -57,6 +57,7 @@
     "enabledLabel": "Enable {{module}}",
     "positionLabel": "Position for {{module}}",
     "autoOpenLabel": "Open automatically when updated",
+    "allowAiDialogLabel": "Let AI request a popup panel",
     "placementHint": "Moving a module only changes its entry. Hidden modules remain available from the Command Palette.",
     "commandGroup": "Modules",
     "openAction": "Open {{module}}",

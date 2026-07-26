@@ -356,6 +356,39 @@ pub enum AiPanelFormat {
     Markdown,
 }
 
+/// 调用方请求的展示形态。`Auto` 表示完全听用户偏好（`autoOpen` + `position`）；
+/// `Dialog`/`Dock` 是显式请求，可盖过 `autoOpen=false`，但仍受用户的
+/// 「允许 AI 请求弹出面板」总闸约束；`Silent` 表示只标未读、绝不打扰。
+#[derive(
+    Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum AiPanelDisplay {
+    #[default]
+    Auto,
+    Dialog,
+    Dock,
+    Silent,
+}
+
+impl AiPanelFormat {
+    fn as_str(self) -> &'static str {
+        match self {
+            AiPanelFormat::Html => "html",
+            AiPanelFormat::Markdown => "markdown",
+        }
+    }
+
+    /// 历史行里的 format 落库为字符串；读不出来时退回 Markdown
+    /// （渲染成纯文本总比把未知内容当 HTML 塞进 iframe 安全）。
+    fn from_stored(value: &str) -> Self {
+        match value {
+            "html" => AiPanelFormat::Html,
+            _ => AiPanelFormat::Markdown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiPanel {
@@ -384,6 +417,11 @@ struct AiPanelChangedEvent {
     panel_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     panel: Option<AiPanel>,
+    /// 调用方请求的展示形态；`close` 操作固定为 `Auto`（前端忽略）。
+    display: AiPanelDisplay,
+    /// 回执 request id。为 `None` 时前端不需要应答（如 `close`）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivery_id: Option<String>,
 }
 
 struct AiPanelRecord {
@@ -563,6 +601,29 @@ impl AiPanelRegistry {
         panels.sort_by(|left, right| left.updated_at.cmp(&right.updated_at));
         panels
     }
+
+    /// 当前活跃集里该面板的持有者会话（不在活跃集 = 已是历史）。
+    fn owner_of(&self, panel_id: &str) -> Option<String> {
+        self.panels
+            .get(panel_id)
+            .map(|record| record.owner_session_id.clone())
+    }
+
+    /// 把一个历史面板收进活跃集并交给新持有者。
+    ///
+    /// 事件环**重新开始**（seq 从 1 计）：老事件属于上一任持有者的对话，
+    /// 让新主人从 0 开始轮询，避免它把陈年点击当成刚发生的用户操作。
+    fn adopt(&mut self, owner_session_id: &str, panel: AiPanel) {
+        self.panels.insert(
+            panel.panel_id.clone(),
+            AiPanelRecord {
+                owner_session_id: owner_session_id.to_string(),
+                panel,
+                events: VecDeque::new(),
+                next_seq: 1,
+            },
+        );
+    }
 }
 
 fn validate_ai_panel_title(title: &str) -> std::result::Result<(), String> {
@@ -693,7 +754,10 @@ pub struct AppState {
     pub pending_worker_reports: Arc<Mutex<PendingReportMap>>,
     /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
     pub pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+    /// 活跃面板集：持有事件环与当前持有者，进程内生命周期。
     ai_panels: Arc<Mutex<AiPanelRegistry>>,
+    /// 面板历史：跨重启持久化，按工作空间分组，只由用户显式删除。
+    ai_panel_repo: Arc<cc_panes_core::repository::AiPanelRepository>,
 }
 
 async fn backend_call_for_state<T, F>(
@@ -1523,6 +1587,7 @@ impl OrchestratorService {
         settings_service: Arc<SettingsService>,
         plan_archive_service: Arc<crate::services::PlanArchiveService>,
         runner_service: Arc<cc_panes_core::services::RunnerService>,
+        ai_panel_repo: Arc<cc_panes_core::repository::AiPanelRepository>,
         start_locks: Arc<StartLocks>,
         app_handle: AppHandle,
         app_paths: Arc<AppPaths>,
@@ -1593,6 +1658,7 @@ impl OrchestratorService {
             pending_worker_reports: self.pending_worker_reports.clone(),
             pending_directives: self.pending_directives.clone(),
             ai_panels: self.ai_panels.clone(),
+            ai_panel_repo,
         };
 
         // ============ 阶段 2.6：把 SessionStateMachine 的状态跃迁桥接到 NotificationService ============
@@ -3296,6 +3362,7 @@ struct McpOpenAiPanelParams {
     format: AiPanelFormat,
     content: String,
     panel_id: Option<String>,
+    display: Option<AiPanelDisplay>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3304,6 +3371,7 @@ struct McpUpdateAiPanelParams {
     panel_id: String,
     content: String,
     title: Option<String>,
+    display: Option<AiPanelDisplay>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -6525,6 +6593,14 @@ impl McpToolHandler {
     }
 
     /// 打开新的 AI 面板，或用相同 panelId 替换调用会话自己的面板。
+    ///
+    /// `display` 控制展示形态：`auto`（默认，听用户偏好）/ `dialog`（请求弹框）/
+    /// `dock`（请求右侧 Dock）/ `silent`（只标未读）。`dialog` 与 `dock` 可盖过用户的
+    /// 自动打开偏好，但仍受「允许 AI 请求弹出面板」总闸约束。
+    ///
+    /// **返回值里的 `delivery` 才是真实投递结果**（dialog/dock/unread/disabled/unknown）。
+    /// 调用成功不等于用户看见了——必须读 `delivery` 与 `hint` 后再向用户描述，
+    /// 不要一看到 panelId 就说“已弹出”。
     #[tool]
     async fn open_ai_panel(
         &self,
@@ -6536,18 +6612,8 @@ impl McpToolHandler {
                 Ok(session_id) => session_id,
                 Err(error) => return format!("错误: {}", error),
             };
-        let driver_name = match self
-            .state
-            .task_binding_service
-            .find_by_session_id(&owner_session_id)
-        {
-            Ok(Some(binding)) => binding.title,
-            Ok(None) => owner_session_id.clone(),
-            Err(error) => {
-                warn!(session_id = %owner_session_id, err = %error, "mcp::open_ai_panel failed to resolve driver name");
-                owner_session_id.clone()
-            }
-        };
+        let scope = resolve_ai_panel_scope(&self.state, &owner_session_id);
+        let driver_name = scope.driver_name.clone();
         let panel = {
             let mut registry = self
                 .state
@@ -6565,21 +6631,35 @@ impl McpToolHandler {
         };
         match panel {
             Ok(panel) => {
-                let event = AiPanelChangedEvent {
-                    operation: "open".to_string(),
-                    panel_id: panel.panel_id.clone(),
-                    panel: Some(panel.clone()),
-                };
-                if let Err(error) = self.state.app_handle.emit("ai-panel-changed", &event) {
-                    warn!(panel_id = %panel.panel_id, err = %error, "mcp::open_ai_panel failed to emit");
-                }
-                serde_json::json!({ "panelId": panel.panel_id }).to_string()
+                persist_ai_panel(
+                    &self.state,
+                    &panel,
+                    Some(&owner_session_id),
+                    scope.workspace_name,
+                    scope.project_path,
+                );
+                let (delivery, hint) = emit_ai_panel_change_and_await_delivery(
+                    &self.state,
+                    "open",
+                    &panel,
+                    params.display.unwrap_or_default(),
+                )
+                .await;
+                serde_json::json!({
+                    "panelId": panel.panel_id,
+                    "delivery": delivery,
+                    "hint": hint,
+                })
+                .to_string()
             }
             Err(error) => format!("错误: {}", error),
         }
     }
 
     /// 整块替换调用会话自己的 AI 面板内容。
+    ///
+    /// `display` 语义与 `open_ai_panel` 相同（默认 `auto`）；同样应读返回值里的
+    /// `delivery` / `hint` 来判断用户是否真的看见了，而不是看到成功就断言已展示。
     #[tool]
     async fn update_ai_panel(
         &self,
@@ -6604,21 +6684,37 @@ impl McpToolHandler {
             );
         match panel {
             Ok(panel) => {
-                let event = AiPanelChangedEvent {
-                    operation: "update".to_string(),
-                    panel_id: panel.panel_id.clone(),
-                    panel: Some(panel.clone()),
-                };
-                if let Err(error) = self.state.app_handle.emit("ai-panel-changed", &event) {
-                    warn!(panel_id = %panel.panel_id, err = %error, "mcp::update_ai_panel failed to emit");
-                }
-                serde_json::json!({ "panelId": panel.panel_id }).to_string()
+                let (workspace_name, project_path) =
+                    stored_or_resolved_scope(&self.state, &panel.panel_id, &owner_session_id);
+                persist_ai_panel(
+                    &self.state,
+                    &panel,
+                    Some(&owner_session_id),
+                    workspace_name,
+                    project_path,
+                );
+                let (delivery, hint) = emit_ai_panel_change_and_await_delivery(
+                    &self.state,
+                    "update",
+                    &panel,
+                    params.display.unwrap_or_default(),
+                )
+                .await;
+                serde_json::json!({
+                    "panelId": panel.panel_id,
+                    "delivery": delivery,
+                    "hint": hint,
+                })
+                .to_string()
             }
             Err(error) => format!("错误: {}", error),
         }
     }
 
     /// 关闭调用会话自己的 AI 面板。
+    ///
+    /// 关闭只是让面板离开活跃集并释放持有者，**内容仍保留在历史里**
+    /// （按工作空间分组，用户可在右侧 Dock 的 AI 面板里重看或删除）。
     #[tool]
     async fn close_ai_panel(
         &self,
@@ -6638,17 +6734,139 @@ impl McpToolHandler {
             .close(&owner_session_id, &params.panel_id);
         match result {
             Ok(panel) => {
+                // 释放持有者但保留历史行：面板从此可被其他会话认领。
+                if let Err(error) = self.state.ai_panel_repo.set_owner(&panel.panel_id, None) {
+                    warn!(panel_id = %panel.panel_id, err = %error, "failed to release ai panel owner");
+                }
                 let event = AiPanelChangedEvent {
                     operation: "close".to_string(),
                     panel_id: panel.panel_id.clone(),
                     panel: None,
+                    display: AiPanelDisplay::Auto,
+                    delivery_id: None,
                 };
                 if let Err(error) = self.state.app_handle.emit("ai-panel-changed", &event) {
                     warn!(panel_id = %panel.panel_id, err = %error, "mcp::close_ai_panel failed to emit");
                 }
-                serde_json::json!({ "panelId": panel.panel_id }).to_string()
+                serde_json::json!({
+                    "panelId": panel.panel_id,
+                    "archived": true,
+                    "hint": "面板已关闭，但内容保留在历史里（右侧 Dock 的 AI 面板，按工作空间分组）。\
+                             需要继续用它可以调 claim_ai_panel 重新认领。",
+                })
+                .to_string()
             }
             Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 认领一个历史 AI 面板，接管它的后续更新与用户点击事件。
+    ///
+    /// 用于「重开一个旧面板继续用」：认领后本会话就是持有者，可以 `update_ai_panel`
+    /// 改内容、用 `get_ai_panel_events` 收按钮事件。事件序号从 1 重新开始，
+    /// 上一任持有者收到过的老事件不会重放。
+    ///
+    /// 面板若仍被**活着的**会话持有会被拒绝——先让对方 `close_ai_panel`，
+    /// 或等它退出后再认领。用 `list_ai_panel_history` 查可认领的面板。
+    #[tool]
+    async fn claim_ai_panel(
+        &self,
+        Parameters(params): Parameters<McpAiPanelIdParams>,
+        extensions: Extensions,
+    ) -> String {
+        let caller_session_id =
+            match resolve_caller_session_id_for(&self.state, &extensions, "claim_ai_panel") {
+                Ok(session_id) => session_id,
+                Err(error) => return format!("错误: {}", error),
+            };
+
+        let stored = match self.state.ai_panel_repo.get(&params.panel_id) {
+            Ok(Some(stored)) => stored,
+            Ok(None) => return format!("错误: AI 面板 '{}' 不在历史里", params.panel_id),
+            Err(error) => return format!("错误: 读取面板历史失败: {}", error),
+        };
+
+        // 活跃集里的持有者才需要让位；不在活跃集 = 已是历史，直接可认领。
+        let live_owner = self
+            .state
+            .ai_panels
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .owner_of(&params.panel_id);
+        if let Some(owner) = live_owner {
+            if owner == caller_session_id {
+                return serde_json::json!({
+                    "panelId": params.panel_id,
+                    "claimed": true,
+                    "hint": "本会话已经是该面板的持有者，无需认领。",
+                })
+                .to_string();
+            }
+            let owner_for_probe = owner.clone();
+            let owner_alive = backend_call(&self.state, move |backend| {
+                backend.get_session_status(&owner_for_probe)
+            })
+            .await
+            .map(|status| status.is_some())
+            .unwrap_or(false);
+            if owner_alive {
+                return format!(
+                    "错误: 面板 '{}' 仍由活跃会话 '{}' 持有；请让它先 close_ai_panel，或等其退出后再认领",
+                    params.panel_id, owner
+                );
+            }
+        }
+
+        let panel = AiPanel {
+            panel_id: stored.panel_id.clone(),
+            title: stored.title.clone(),
+            format: AiPanelFormat::from_stored(&stored.format),
+            content: stored.content.clone(),
+            driver_name: resolve_ai_panel_scope(&self.state, &caller_session_id).driver_name,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.state
+            .ai_panels
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .adopt(&caller_session_id, panel.clone());
+        persist_ai_panel(
+            &self.state,
+            &panel,
+            Some(&caller_session_id),
+            stored.workspace_name,
+            stored.project_path,
+        );
+
+        let (delivery, hint) = emit_ai_panel_change_and_await_delivery(
+            &self.state,
+            "open",
+            &panel,
+            AiPanelDisplay::Auto,
+        )
+        .await;
+        serde_json::json!({
+            "panelId": panel.panel_id,
+            "claimed": true,
+            "delivery": delivery,
+            "hint": hint,
+        })
+        .to_string()
+    }
+
+    /// 列出全部历史 AI 面板（按工作空间分组，不含内容正文）。
+    ///
+    /// 用来找回以前开过的面板：拿到 panelId 后可以 `claim_ai_panel` 接管它。
+    /// `ownerSessionId` 为空表示无人持有、可直接认领。
+    #[tool]
+    async fn list_ai_panel_history(&self) -> String {
+        match self.state.ai_panel_repo.list_summaries() {
+            Ok(panels) => serde_json::json!({
+                "panels": panels,
+                "total": panels.len(),
+            })
+            .to_string(),
+            Err(error) => format!("错误: 读取面板历史失败: {}", error),
         }
     }
 
@@ -6911,6 +7129,171 @@ async fn collect_plan_live_sessions(
     }
 
     live_sessions.into_values().collect()
+}
+
+/// 面板的归属信息：展示名 + 工作空间 + 项目路径，全部来自调用会话的 TaskBinding。
+struct AiPanelScope {
+    driver_name: String,
+    workspace_name: Option<String>,
+    project_path: Option<String>,
+}
+
+/// 解析调用会话的面板归属。没有 TaskBinding 的裸会话拿不到工作空间，
+/// 历史列表里会归入「未归类」——这是可接受的降级，不该让 open 失败。
+fn resolve_ai_panel_scope(state: &AppState, session_id: &str) -> AiPanelScope {
+    match state.task_binding_service.find_by_session_id(session_id) {
+        Ok(Some(binding)) => AiPanelScope {
+            driver_name: binding.title,
+            workspace_name: binding.workspace_name,
+            project_path: Some(binding.project_path),
+        },
+        Ok(None) => AiPanelScope {
+            driver_name: session_id.to_string(),
+            workspace_name: None,
+            project_path: None,
+        },
+        Err(error) => {
+            warn!(session_id = %session_id, err = %error, "failed to resolve ai panel scope");
+            AiPanelScope {
+                driver_name: session_id.to_string(),
+                workspace_name: None,
+                project_path: None,
+            }
+        }
+    }
+}
+
+/// 把面板写进历史库。
+///
+/// 落库失败只记日志、不回传错误：持久化是历史功能的增值，
+/// 不该让一次数据库抖动把正常的面板展示也拖垮。
+fn persist_ai_panel(
+    state: &AppState,
+    panel: &AiPanel,
+    owner_session_id: Option<&str>,
+    workspace_name: Option<String>,
+    project_path: Option<String>,
+) {
+    let stored = cc_panes_core::models::ai_panel::StoredAiPanel {
+        panel_id: panel.panel_id.clone(),
+        workspace_name,
+        project_path,
+        title: panel.title.clone(),
+        format: panel.format.as_str().to_string(),
+        content: panel.content.clone(),
+        driver_name: panel.driver_name.clone(),
+        owner_session_id: owner_session_id.map(str::to_string),
+        // ON CONFLICT 分支不覆盖 created_at，所以这里传当前时间对已有行是无害的
+        created_at: panel.updated_at.clone(),
+        updated_at: panel.updated_at.clone(),
+    };
+    if let Err(error) = state.ai_panel_repo.upsert(&stored) {
+        warn!(panel_id = %panel.panel_id, err = %error, "ai panel history persist failed");
+    }
+}
+
+/// 读取历史行里已记录的归属；行不存在（面板早于本功能创建）则回退到实时解析。
+fn stored_or_resolved_scope(
+    state: &AppState,
+    panel_id: &str,
+    session_id: &str,
+) -> (Option<String>, Option<String>) {
+    match state.ai_panel_repo.get(panel_id) {
+        Ok(Some(stored)) => (stored.workspace_name, stored.project_path),
+        _ => {
+            let scope = resolve_ai_panel_scope(state, session_id);
+            (scope.workspace_name, scope.project_path)
+        }
+    }
+}
+
+/// 前端回执等待上限。回执是一次同步 store 操作，毫秒级即可返回；
+/// 面板推送是高频交互，不该像 `list_open_files` 那样让调用方干等 5 秒。
+const AI_PANEL_DELIVERY_TIMEOUT_MS: u64 = 1500;
+
+/// 把 `delivery` 翻译成给 AI 转述用的人话。
+fn ai_panel_delivery_hint(delivery: &str) -> &'static str {
+    match delivery {
+        "dialog" => "面板已作为弹框打开，用户当前可见。",
+        "dock" => "面板已在右侧 Dock 打开，用户当前可见。",
+        "unread" => {
+            "面板未展示，只在 AI 面板入口标了未读角标（用户关闭了自动打开，或关闭了\
+             「允许 AI 请求弹出面板」总闸，或本次显式传了 display=silent）。\
+             请如实告诉用户去右侧 Dock/左栏的 AI 面板入口查看，不要说“已弹出”。"
+        }
+        "disabled" => "AI 面板模块已被用户禁用：面板数据已保存，但当前没有任何可见入口。",
+        _ => {
+            "前端未在 1.5 秒内回执，无法确认是否展示（app 可能未运行、窗口已最小化或 \
+             webview 已失效）。不要断言面板已弹出。"
+        }
+    }
+}
+
+/// 广播面板变更并等待前端回执真实投递结果。
+///
+/// 复用 `pending_queries` 往返通道（前端经 `respond_orchestrator_query` 应答）。
+/// 多 webview 并存时 `queries.remove()` 天然是首个回执胜出，后到的静默丢弃。
+async fn emit_ai_panel_change_and_await_delivery(
+    state: &AppState,
+    operation: &str,
+    panel: &AiPanel,
+    display: AiPanelDisplay,
+) -> (String, &'static str) {
+    let delivery_id = uuid::Uuid::new_v4().to_string();
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    {
+        let mut queries = state
+            .pending_queries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        queries.insert(delivery_id.clone(), tx);
+    }
+
+    let remove_pending = || {
+        let mut queries = state
+            .pending_queries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        queries.remove(&delivery_id);
+    };
+
+    let event = AiPanelChangedEvent {
+        operation: operation.to_string(),
+        panel_id: panel.panel_id.clone(),
+        panel: Some(panel.clone()),
+        display,
+        delivery_id: Some(delivery_id.clone()),
+    };
+    if let Err(error) = state.app_handle.emit("ai-panel-changed", &event) {
+        warn!(panel_id = %panel.panel_id, err = %error, "ai panel emit failed");
+        remove_pending();
+        return ("unknown".to_string(), ai_panel_delivery_hint("unknown"));
+    }
+
+    let delivery = match tokio::time::timeout(
+        std::time::Duration::from_millis(AI_PANEL_DELIVERY_TIMEOUT_MS),
+        rx,
+    )
+    .await
+    {
+        Ok(Ok(data)) => serde_json::from_str::<serde_json::Value>(&data)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("delivery")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "unknown".to_string()),
+        Ok(Err(_)) => "unknown".to_string(),
+        Err(_) => {
+            remove_pending();
+            "unknown".to_string()
+        }
+    };
+
+    let hint = ai_panel_delivery_hint(&delivery);
+    (delivery, hint)
 }
 
 async fn query_frontend_panes(state: &AppState) -> Option<serde_json::Value> {
@@ -12690,6 +13073,76 @@ mod tests {
     #[test]
     fn test_resolve_wsl_launch_info_is_disabled_on_non_windows() {
         assert!(resolve_wsl_launch_info(r"\\wsl.localhost\Ubuntu\home\dev\repo", None).is_none());
+    }
+
+    #[test]
+    fn test_ai_panel_display_defaults_to_auto_when_caller_omits_it() {
+        #[derive(Deserialize)]
+        struct Wrapper {
+            display: Option<AiPanelDisplay>,
+        }
+
+        let omitted: Wrapper = serde_json::from_str("{}").expect("deserialize omitted");
+        assert_eq!(omitted.display.unwrap_or_default(), AiPanelDisplay::Auto);
+
+        for (json, expected) in [
+            ("\"auto\"", AiPanelDisplay::Auto),
+            ("\"dialog\"", AiPanelDisplay::Dialog),
+            ("\"dock\"", AiPanelDisplay::Dock),
+            ("\"silent\"", AiPanelDisplay::Silent),
+        ] {
+            let parsed: AiPanelDisplay = serde_json::from_str(json).expect("deserialize display");
+            assert_eq!(parsed, expected);
+            assert_eq!(serde_json::to_string(&parsed).expect("serialize"), json);
+        }
+    }
+
+    #[test]
+    fn test_ai_panel_changed_event_omits_delivery_id_when_absent() {
+        let panel = AiPanel {
+            panel_id: "panel-1".to_string(),
+            title: "Progress".to_string(),
+            format: AiPanelFormat::Markdown,
+            content: "# Step 1".to_string(),
+            driver_name: "Worker A".to_string(),
+            updated_at: "2026-07-26T10:00:00Z".to_string(),
+        };
+
+        let with_ack = serde_json::to_value(AiPanelChangedEvent {
+            operation: "open".to_string(),
+            panel_id: panel.panel_id.clone(),
+            panel: Some(panel.clone()),
+            display: AiPanelDisplay::Dialog,
+            delivery_id: Some("delivery-1".to_string()),
+        })
+        .expect("serialize open event");
+        assert_eq!(with_ack["display"], "dialog");
+        assert_eq!(with_ack["deliveryId"], "delivery-1");
+
+        let closed = serde_json::to_value(AiPanelChangedEvent {
+            operation: "close".to_string(),
+            panel_id: panel.panel_id.clone(),
+            panel: None,
+            display: AiPanelDisplay::Auto,
+            delivery_id: None,
+        })
+        .expect("serialize close event");
+        assert!(closed.get("deliveryId").is_none());
+        assert!(closed.get("panel").is_none());
+    }
+
+    #[test]
+    fn test_ai_panel_delivery_hint_never_claims_visibility_when_unconfirmed() {
+        assert!(ai_panel_delivery_hint("dialog").contains("用户当前可见"));
+        assert!(ai_panel_delivery_hint("dock").contains("用户当前可见"));
+        assert!(ai_panel_delivery_hint("unread").contains("未展示"));
+        assert!(ai_panel_delivery_hint("disabled").contains("已被用户禁用"));
+        assert!(ai_panel_delivery_hint("unknown").contains("无法确认"));
+        // 未知取值一律走保守分支，不能被误读成“已展示”
+        assert_eq!(
+            ai_panel_delivery_hint("something-new"),
+            ai_panel_delivery_hint("unknown")
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ export default function ModulesSection() {
   const setEnabled = useModulePrefsStore((state) => state.setEnabled);
   const setPosition = useModulePrefsStore((state) => state.setPosition);
   const setAutoOpen = useModulePrefsStore((state) => state.setAutoOpen);
+  const setAllowAiDialog = useModulePrefsStore((state) => state.setAllowAiDialog);
 
   return (
     <div className="flex flex-col gap-3">
@@ -94,6 +95,18 @@ export default function ModulesSection() {
                   checked={preference.autoOpen === true}
                   aria-label={t("modules.autoOpenLabel")}
                   onCheckedChange={(autoOpen) => setAutoOpen(module.id, autoOpen)}
+                />
+              </div>
+            )}
+            {module.id === "aiPanel" && (
+              <div className="flex items-center gap-3 pb-2 pl-11">
+                <span className="min-w-0 flex-1 text-[12px] text-[var(--app-text-secondary)]">
+                  {t("modules.allowAiDialogLabel")}
+                </span>
+                <Switch
+                  checked={preference.allowAiDialog !== false}
+                  aria-label={t("modules.allowAiDialogLabel")}
+                  onCheckedChange={(allow) => setAllowAiDialog(module.id, allow)}
                 />
               </div>
             )}

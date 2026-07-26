@@ -1,3 +1,4 @@
+pub mod ai_panel;
 pub mod external_skill;
 pub mod filesystem;
 pub mod git;

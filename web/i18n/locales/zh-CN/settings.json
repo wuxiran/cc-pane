@@ -57,6 +57,7 @@
     "enabledLabel": "启用 {{module}}",
     "positionLabel": "{{module}} 的位置",
     "autoOpenLabel": "收到更新时自动打开",
+    "allowAiDialogLabel": "允许 AI 请求弹出面板",
     "placementHint": "移动模块只会调整入口；隐藏后仍可从命令面板打开。",
     "commandGroup": "模块",
     "openAction": "打开 {{module}}",

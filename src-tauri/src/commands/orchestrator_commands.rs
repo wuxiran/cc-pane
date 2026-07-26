@@ -1,6 +1,8 @@
 use crate::services::orchestrator_service::{AiPanel, OrchestratorStatus};
 use crate::services::OrchestratorService;
 use crate::utils::error::{AppError, AppResult};
+use cc_panes_core::models::ai_panel::{AiPanelSummary, StoredAiPanel};
+use cc_panes_core::repository::AiPanelRepository;
 use std::sync::Arc;
 use tauri::State;
 
@@ -49,6 +51,35 @@ pub fn list_ai_panels(
     orchestrator: State<'_, Arc<OrchestratorService>>,
 ) -> AppResult<Vec<AiPanel>> {
     Ok(orchestrator.list_ai_panels())
+}
+
+/// 列出全部历史 AI 面板摘要（不含正文），供右侧 Dock 按工作空间分组展示。
+#[tauri::command]
+pub fn list_ai_panel_history(
+    repo: State<'_, Arc<AiPanelRepository>>,
+) -> AppResult<Vec<AiPanelSummary>> {
+    repo.list_summaries().map_err(AppError::from)
+}
+
+/// 按需取单个历史面板的正文。
+///
+/// 列表刻意不带 content（单个上限 256 KiB，历史又不自动清理），
+/// 用户点开某一条时才拉这一条的正文。
+#[tauri::command]
+pub fn get_ai_panel_content(
+    repo: State<'_, Arc<AiPanelRepository>>,
+    panel_id: String,
+) -> AppResult<Option<StoredAiPanel>> {
+    repo.get(&panel_id).map_err(AppError::from)
+}
+
+/// 用户显式删除一条历史面板。历史不自动清理，这是唯一的删除入口。
+#[tauri::command]
+pub fn delete_ai_panel(
+    repo: State<'_, Arc<AiPanelRepository>>,
+    panel_id: String,
+) -> AppResult<bool> {
+    repo.delete(&panel_id).map_err(AppError::from)
 }
 
 /// 记录 sandbox iframe 经宿主白名单校验后的用户操作事件。

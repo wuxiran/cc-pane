@@ -1,3 +1,4 @@
+mod ai_panel_repo;
 mod db;
 mod history_file_repo;
 mod history_repo;
@@ -12,6 +13,7 @@ mod task_binding_repo;
 mod todo_repo;
 mod usage_stats_repo;
 
+pub use ai_panel_repo::AiPanelRepository;
 pub use db::Database;
 pub use history_file_repo::HistoryFileRepository;
 pub use history_repo::{HistoryRepository, LaunchRecord};

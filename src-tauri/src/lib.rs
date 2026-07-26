@@ -70,6 +70,7 @@ use commands::{
     create_todo,
     create_workspace,
     debug_encode_path,
+    delete_ai_panel,
     delete_label,
     delete_launch_history,
     delete_launch_profile,
@@ -111,6 +112,7 @@ use commands::{
     fs_rename_entry,
     fs_write_file,
     generate_claude_md,
+    get_ai_panel_content,
     get_all_terminal_status,
     get_app_cwd,
     get_available_shells,
@@ -202,6 +204,7 @@ use commands::{
     kill_orphan_processes,
     kill_terminal,
     kill_terminal_idempotent,
+    list_ai_panel_history,
     list_ai_panels,
     list_all_claude_sessions,
     // Provider 命令
@@ -1290,6 +1293,9 @@ pub fn run() {
     let plan_repo = Arc::new(PlanRepository::new(db.clone()));
     let usage_stats_repo = Arc::new(UsageStatsRepository::new(db.clone()));
     let session_index_repo = Arc::new(SessionIndexRepository::new(db.clone()));
+    let ai_panel_repo = Arc::new(cc_panes_core::repository::AiPanelRepository::new(
+        db.clone(),
+    ));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
@@ -1511,6 +1517,7 @@ pub fn run() {
         .manage(ccchan_service)
         .manage(todo_service)
         .manage(task_binding_service)
+        .manage(ai_panel_repo)
         .manage(spec_service)
         .manage(mcp_config_service)
         .manage(skill_service)
@@ -1912,6 +1919,8 @@ pub fn run() {
                 let settings_svc = app.state::<Arc<SettingsService>>();
                 let plan_archive_svc = app.state::<Arc<PlanArchiveService>>();
                 let runner_svc = app.state::<Arc<cc_panes_core::services::RunnerService>>();
+                let ai_panel_repo_state =
+                    app.state::<Arc<cc_panes_core::repository::AiPanelRepository>>();
                 let start_locks = app.state::<Arc<StartLocks>>();
                 let paths = app.state::<Arc<AppPaths>>();
                 if let Err(e) = orch_svc.start(
@@ -1937,6 +1946,7 @@ pub fn run() {
                     settings_svc.inner().clone(),
                     plan_archive_svc.inner().clone(),
                     runner_svc.inner().clone(),
+                    ai_panel_repo_state.inner().clone(),
                     start_locks.inner().clone(),
                     app.handle().clone(),
                     paths.inner().clone(),
@@ -2476,6 +2486,9 @@ pub fn run() {
             respond_orchestrator_query,
             list_ai_panels,
             record_ai_panel_event,
+            list_ai_panel_history,
+            get_ai_panel_content,
+            delete_ai_panel,
             // TaskBinding 命令
             create_task_binding,
             get_task_binding,

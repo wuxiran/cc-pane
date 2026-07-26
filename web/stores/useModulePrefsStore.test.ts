@@ -21,7 +21,7 @@ describe("useModulePrefsStore", () => {
       orchestration: { enabled: true, position: "activityBar" },
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
-      aiPanel: { enabled: true, position: "rightDock", autoOpen: false },
+      aiPanel: { enabled: true, position: "rightDock", autoOpen: false, allowAiDialog: true },
       sessionHistory: { enabled: true, position: "rightDock" },
     });
   });
@@ -35,7 +35,7 @@ describe("useModulePrefsStore", () => {
       orchestration: { enabled: false, position: "activityBar" },
       resources: { enabled: false, position: "activityBar" },
       todo: { enabled: false, position: "activityBar" },
-      aiPanel: { enabled: false, position: "rightDock", autoOpen: false },
+      aiPanel: { enabled: false, position: "rightDock", autoOpen: false, allowAiDialog: true },
       sessionHistory: { enabled: false, position: "rightDock" },
     });
   });
@@ -99,7 +99,7 @@ describe("useModulePrefsStore", () => {
       orchestration: { enabled: true, position: "activityBar" },
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
-      aiPanel: { enabled: true, position: "rightDock", autoOpen: false },
+      aiPanel: { enabled: true, position: "rightDock", autoOpen: false, allowAiDialog: true },
       sessionHistory: { enabled: true, position: "rightDock" },
     });
   });
@@ -111,6 +111,22 @@ describe("useModulePrefsStore", () => {
       enabled: true,
       position: "rightDock",
       autoOpen: true,
+      allowAiDialog: true,
+    });
+  });
+
+  it("keeps the AI popup permission on for users persisted before it existed", async () => {
+    localStorage.setItem(MODULE_PREFS_STORAGE_KEY, JSON.stringify({
+      state: { preferences: { aiPanel: { enabled: true, position: "rightDock", autoOpen: false } } },
+      version: 0,
+    }));
+    await useModulePrefsStore.persist.rehydrate();
+
+    expect(useModulePrefsStore.getState().preferences.aiPanel).toEqual({
+      enabled: true,
+      position: "rightDock",
+      autoOpen: false,
+      allowAiDialog: true,
     });
   });
 });

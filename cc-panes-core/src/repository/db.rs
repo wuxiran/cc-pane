@@ -531,6 +531,31 @@ const MIGRATIONS: &[Migration] = &[
             );
         ",
     },
+    Migration {
+        version: 25,
+        description: "ai panel history: workspace-scoped persistence with claimable ownership",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS ai_panels (
+                panel_id TEXT PRIMARY KEY,
+                workspace_name TEXT,
+                project_path TEXT,
+                title TEXT NOT NULL,
+                format TEXT NOT NULL,
+                content TEXT NOT NULL,
+                driver_name TEXT NOT NULL,
+                owner_session_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ai_panels_workspace_updated
+                ON ai_panels(workspace_name, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_ai_panels_updated
+                ON ai_panels(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_ai_panels_owner
+                ON ai_panels(owner_session_id);
+        ",
+    },
 ];
 
 /// 数据库连接管理

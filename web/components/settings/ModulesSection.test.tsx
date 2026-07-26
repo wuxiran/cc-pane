@@ -33,7 +33,8 @@ describe("ModulesSection", () => {
     renderSection();
 
     expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(MODULE_REGISTRY.length);
-    expect(screen.getAllByRole("switch")).toHaveLength(MODULE_REGISTRY.length + 1);
+    // 每个模块一个启用开关，外加 aiPanel 独有的自动打开 + 允许 AI 请求弹框两个开关
+    expect(screen.getAllByRole("switch")).toHaveLength(MODULE_REGISTRY.length + 2);
     expect(screen.getAllByTestId(/^module-position-trigger-/)).toHaveLength(MODULE_REGISTRY.length);
   });
 
@@ -75,5 +76,16 @@ describe("ModulesSection", () => {
     await user.click(autoOpen);
 
     expect(useModulePrefsStore.getState().preferences.aiPanel.autoOpen).toBe(true);
+  });
+
+  it("lets the user revoke the AI popup permission that ships enabled", async () => {
+    const user = userEvent.setup();
+    renderSection();
+
+    const allowAiDialog = screen.getByRole("switch", { name: t("modules.allowAiDialogLabel") });
+    expect(allowAiDialog).toBeChecked();
+    await user.click(allowAiDialog);
+
+    expect(useModulePrefsStore.getState().preferences.aiPanel.allowAiDialog).toBe(false);
   });
 });

@@ -11,6 +11,8 @@ export interface ModulePreference {
   enabled: boolean;
   position: ModulePosition;
   autoOpen?: boolean;
+  /** 仅 aiPanel：允许 AI 显式请求弹框/侧栏，盖过 autoOpen。默认开，被打扰了可一键关死。 */
+  allowAiDialog?: boolean;
 }
 
 export type ModulePreferences = Record<ModuleId, ModulePreference>;
@@ -21,6 +23,7 @@ interface ModulePrefsState {
   setEnabled: (id: ModuleId, enabled: boolean) => void;
   setPosition: (id: ModuleId, position: ModulePosition) => void;
   setAutoOpen: (id: ModuleId, autoOpen: boolean) => void;
+  setAllowAiDialog: (id: ModuleId, allowAiDialog: boolean) => void;
   applyPreset: (preset: ModulePreset) => void;
 }
 
@@ -32,7 +35,7 @@ export function createDefaultModulePreferences(): ModulePreferences {
     {
       enabled: true,
       position: module.defaultPosition,
-      ...(module.id === "aiPanel" ? { autoOpen: false } : {}),
+      ...(module.id === "aiPanel" ? { autoOpen: false, allowAiDialog: true } : {}),
     },
   ])) as ModulePreferences;
 }
@@ -43,7 +46,7 @@ export function createModulePreferencesForPreset(preset: ModulePreset): ModulePr
     {
       enabled: preset === "full" || module.minimal,
       position: module.defaultPosition,
-      ...(module.id === "aiPanel" ? { autoOpen: false } : {}),
+      ...(module.id === "aiPanel" ? { autoOpen: false, allowAiDialog: true } : {}),
     },
   ])) as ModulePreferences;
 }
@@ -67,6 +70,10 @@ function normalizePreferences(value: unknown): ModulePreferences {
         : defaults[id].position,
       ...(id === "aiPanel" ? {
         autoOpen: typeof preference.autoOpen === "boolean" ? preference.autoOpen : false,
+        // 缺省为 true：老用户的持久化数据里没有这个键，应无缝获得新能力。
+        allowAiDialog: typeof preference.allowAiDialog === "boolean"
+          ? preference.allowAiDialog
+          : true,
       } : {}),
     };
   }
@@ -93,6 +100,12 @@ export const useModulePrefsStore = create<ModulePrefsState>()(
         preferences: {
           ...state.preferences,
           [id]: { ...state.preferences[id], autoOpen },
+        },
+      })),
+      setAllowAiDialog: (id, allowAiDialog) => set((state) => ({
+        preferences: {
+          ...state.preferences,
+          [id]: { ...state.preferences[id], allowAiDialog },
         },
       })),
       applyPreset: (preset) => set({
