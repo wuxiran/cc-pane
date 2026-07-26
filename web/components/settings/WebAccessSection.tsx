@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import McpYoloProfilesToggle from "./McpYoloProfilesToggle";
 import { toast } from "sonner";
 import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -342,27 +343,7 @@ export default function WebAccessSection({
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {ORCHESTRATOR_BIND_MODES.find((item) => item.mode === orchestrator.bindMode)?.hint}
           </p>
-          <div className="flex items-center justify-between gap-4 pt-2">
-            <div>
-              <Label>{t("allowMcpYoloProfiles")}</Label>
-              <p className="text-xs m-0" style={{ color: "var(--app-status-danger)" }}>
-                {t("allowMcpYoloProfilesHint")}
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              aria-label={t("allowMcpYoloProfiles")}
-              checked={orchestrator.allowMcpYoloProfiles}
-              onChange={(event) =>
-                onOrchestratorChange({
-                  ...orchestrator,
-                  allowMcpYoloProfiles: event.target.checked,
-                })
-              }
-              className="w-4 h-4 flex-none cursor-pointer"
-              style={{ accentColor: "var(--app-status-danger)" }}
-            />
-          </div>
+          <McpYoloProfilesToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
           {orchestratorStatus?.bind && (
             <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
               当前实际监听 {orchestratorStatus.bind.host}
