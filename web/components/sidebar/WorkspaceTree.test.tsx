@@ -184,7 +184,7 @@ describe("WorkspaceTree component", () => {
     expect(handleCreateWorkspace).toHaveBeenCalledTimes(1);
   });
 
-  it("按分组分段渲染并让未分组工作空间保持无组头", () => {
+  it("按分组分段渲染并给未分组工作空间单独的组头", () => {
     storeState.workspaces = [
       makeWorkspace({ id: "default", name: "default", isDefault: true }),
       makeWorkspace({ id: "a", name: "alpha", group: "Frontend" }),
@@ -196,8 +196,34 @@ describe("WorkspaceTree component", () => {
 
     expect(screen.getByText("Frontend")).toBeVisible();
     expect(screen.getByText("2")).toBeVisible();
-    expect(screen.queryByText("ungrouped")).not.toBeInTheDocument();
+    // 未分组项必须有自己的头，否则视觉上会被吸进上一个分组
+    expect(screen.getByText("ungrouped")).toBeVisible();
     expect(screen.getAllByTestId("ws-item")).toHaveLength(4);
+  });
+
+  it("没有任何分组时不渲染未分组组头", () => {
+    storeState.workspaces = [
+      makeWorkspace({ id: "a", name: "alpha" }),
+      makeWorkspace({ id: "b", name: "bravo" }),
+    ];
+
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+
+    expect(screen.queryByText("ungrouped")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("ws-item")).toHaveLength(2);
+  });
+
+  it("折叠未分组组头后隐藏未分组工作空间", () => {
+    storeState.workspaces = [
+      makeWorkspace({ id: "a", name: "alpha", group: "Frontend" }),
+      makeWorkspace({ id: "c", name: "charlie" }),
+    ];
+    layoutState.collapsedWorkspaceGroups = ["__ungrouped__"];
+
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+
+    expect(screen.getByText("ungrouped")).toBeVisible();
+    expect(screen.getAllByTestId("ws-item")).toHaveLength(1);
   });
 
   it("隐藏已折叠分组的工作空间但保留组头", () => {

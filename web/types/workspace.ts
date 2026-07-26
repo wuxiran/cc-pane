@@ -86,6 +86,18 @@ export interface WorkspaceProject {
   ssh?: SshConnectionInfo;
 }
 
+/**
+ * 项目路径存在性判定。三态而非布尔：WSL 发行版未运行 / SSH 远程项目无法验证，
+ * 判成 missing 会诱导用户误删仍然有效的注册。
+ */
+export type PathStatusKind = "present" | "missing" | "unverifiable";
+
+export interface ProjectPathStatus {
+  projectId: string;
+  path: string;
+  status: PathStatusKind;
+}
+
 export interface Workspace {
   id: string;
   name: string;

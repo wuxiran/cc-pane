@@ -1,17 +1,35 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import type { Draft } from "immer";
 import { useEditorTabsStore } from "./useEditorTabsStore";
 import { useActivityBarStore } from "./useActivityBarStore";
 import { useFullscreenStore } from "./useFullscreenStore";
 import { terminalService, ensureListeners } from "@/services/terminalService";
+import { waitForTerminalRestoreBarrier } from "@/services/terminalRestoreBarrier";
 import { devDebugLog } from "@/utils/devLogger";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 import { createPanel } from "./paneTreeHelpers";
-import { createBrowserTabActions, type BrowserTabActions } from "./browserTabActions";
+import { createBrowserTabActions } from "./browserTabActions";
+import type {
+  ClosedTabSnapshot,
+  CreateTabOptions,
+  DraftTabAcrossLayoutsLocation,
+  LayoutDraft,
+  PaneAcrossLayoutsLocation,
+  PaneNodeDraft,
+  PanesDraft,
+  PanesState,
+  StarredTabShortcut,
+  TabAcrossLayoutsLocation,
+} from "./panesStoreTypes";
+export type {
+  AdoptSessionMeta,
+  CloseTabBySessionIdResult,
+  SessionAnchor,
+  StarredTabShortcut,
+} from "./panesStoreTypes";
 import type {
   PaneNode,
   Panel,
@@ -19,16 +37,10 @@ import type {
   LayoutEntry,
   Tab,
   SplitDirection,
-  AutoSplitDirection,
-  CliTool,
-  SshConnectionInfo,
-  WslLaunchInfo,
   TerminalPaneNode,
   TerminalPaneLeaf,
   TerminalPaneSplit,
   LaunchExtras,
-  TerminalStatusInfo,
-  LayoutSnapshotPayload,
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
@@ -56,65 +68,6 @@ function notifyTerminalLayoutChanged(reason: string): void {
   }
 
   window.setTimeout(dispatch, 0);
-}
-
-interface CreateTabOptions {
-  projectId: string;
-  projectPath: string;
-  sessionId?: string;
-  resumeId?: string;
-  workspaceName?: string;
-  providerId?: string;
-  providerSelection?: Tab["providerSelection"];
-  launchProfileId?: string;
-  workspacePath?: string;
-  workspaceSnapshotId?: string;
-  cliTool?: CliTool;
-  customTitle?: string;
-  ssh?: SshConnectionInfo;
-  wsl?: WslLaunchInfo;
-  machineName?: string;
-  /** Parent tab id for hierarchical numbering (#N.M). Top-level tabs omit it. */
-  parentTabId?: string;
-  /** openProject 专用：非当前布局时先 switchLayout 再落位（布局绑定工作空间落位） */
-  targetLayoutId?: string;
-  /** 启动器附加参数（skipMcp/appendSystemPrompt/initialPrompt/yolo/adapterOptions）透传 */
-  launchExtras?: LaunchExtras;
-}
-
-/**
- * 接管无主会话时能拿到的元数据：来自 session_restore 表（跨实例共享）。
- * 查不到记录时只有 projectPath 兜底，仍可接管，只是标题退化。
- */
-export interface AdoptSessionMeta {
-  projectPath: string;
-  projectId?: string;
-  workspaceName?: string;
-  workspacePath?: string;
-  workspaceSnapshotId?: string;
-  providerId?: string;
-  providerSelection?: Tab["providerSelection"];
-  launchProfileId?: string;
-  cliTool?: CliTool;
-  resumeId?: string;
-  customTitle?: string;
-  /**
-   * 运行时指纹。接管本身只是 reattach 到已存在的 PTY，不受运行时影响；
-   * 但接管后的 tab 一旦被重建（关闭重开 / 下一轮 restore），缺了这些字段就会
-   * 在本地错误目录重新启动。调用方必须在指纹不完整时拒绝接管。
-   */
-  ssh?: SshConnectionInfo;
-  wsl?: WslLaunchInfo;
-}
-
-/** 启动认领的精确挂载锚点（docs/61 阶段 3） */
-export interface SessionAnchor {
-  sessionId: string;
-  layoutId?: string;
-  tabId: string;
-  terminalPaneId?: string;
-  /** session_restore 里记录的项目路径，用于防止挂到别的项目上 */
-  expectedProjectPath?: string;
 }
 
 function createTab(opts: CreateTabOptions): Tab {
@@ -197,6 +150,8 @@ function cloneTerminalLeaf(source: TerminalPaneLeaf): TerminalPaneLeaf {
     disconnected: false,
     restoring: false,
     savedSessionId: undefined,
+    restoreBlockedReason: undefined,
+    leaseReadOnly: false,
     launchError: undefined,
     launchAttempt: 0,
     // initialPrompt 仅首启生效：分屏克隆的新 leaf 不得重放
@@ -270,6 +225,8 @@ function syncTabTerminalState(tab: Tab): void {
       disconnected: tab.disconnected,
       restoring: tab.restoring,
       savedSessionId: tab.savedSessionId,
+      restoreBlockedReason: tab.restoreBlockedReason,
+      leaseReadOnly: tab.leaseReadOnly,
       launchError: tab.launchError,
       launchAttempt: tab.launchAttempt,
     };
@@ -303,6 +260,8 @@ function syncTabTerminalState(tab: Tab): void {
   tab.disconnected = activeLeaf.disconnected;
   tab.restoring = activeLeaf.restoring;
   tab.savedSessionId = activeLeaf.savedSessionId;
+  tab.restoreBlockedReason = activeLeaf.restoreBlockedReason;
+  tab.leaseReadOnly = activeLeaf.leaseReadOnly;
   tab.launchError = activeLeaf.launchError;
   tab.launchAttempt = activeLeaf.launchAttempt;
 }
@@ -313,49 +272,6 @@ function findTabLocation(rootPane: PaneNode, tabId: string): { panel: Panel; tab
     if (tab) return { panel, tab };
   }
   return null;
-}
-
-type PanesDraft = Draft<PanesState>;
-type LayoutDraft = Draft<LayoutEntry>;
-type PaneNodeDraft = Draft<PaneNode>;
-type PanelDraft = Draft<Panel>;
-type TabDraft = Draft<Tab>;
-
-interface TabAcrossLayoutsLocation {
-  layoutId: string;
-  layoutName: string;
-  tree: PaneNode;
-  panel: Panel;
-  tab: Tab;
-}
-
-interface PaneAcrossLayoutsLocation {
-  layoutId: string;
-  tree: PaneNode;
-  pane: PaneNode;
-}
-
-interface DraftTabAcrossLayoutsLocation {
-  layoutId: string;
-  layoutName: string;
-  tree: PaneNodeDraft;
-  panel: PanelDraft;
-  tab: TabDraft;
-}
-
-export interface StarredTabShortcut {
-  layoutId: string;
-  layoutName: string;
-  paneId: string;
-  tab: Tab;
-}
-
-/** `closeTabBySessionId` 的执行结果——调用方据此判断后端 kill 是否真的关掉了标签 */
-export interface CloseTabBySessionIdResult {
-  /** 实际关闭的标签（或终端分屏）数量；为 0 表示后端 kill 没能关掉任何标签 */
-  closed: number;
-  /** 因 pinned 而未能关闭的标签数量；> 0 表示 kill 被 pinned 静默吞掉 */
-  blockedByPinned: number;
 }
 
 export const STARRED_LAYOUT_NAME = "星标";
@@ -959,179 +875,6 @@ function summarizePanel(node: PaneNode | null) {
 function debugPanes(event: string, payload: Record<string, unknown>): void {
   if (!PANES_DEBUG) return;
   devDebugLog("panes-store-debug", event, payload);
-}
-
-/** Snapshot of a closed tab so it can be reopened later. */
-interface ClosedTabSnapshot {
-  projectId: string;
-  projectPath: string;
-  title: string;
-  resumeId?: string;
-  workspaceName?: string;
-  providerId?: string;
-  providerSelection?: Tab["providerSelection"];
-  launchProfileId?: string;
-  workspacePath?: string;
-  workspaceSnapshotId?: string;
-  launchClaude?: boolean;
-  cliTool?: CliTool;
-  ssh?: SshConnectionInfo;
-  wsl?: WslLaunchInfo;
-  machineName?: string;
-}
-
-interface PanesState extends BrowserTabActions {
-  rootPane: PaneNode;
-  activePaneId: string;
-  layouts: LayoutEntry[];
-  currentLayoutId: string;
-  closedTabs: ClosedTabSnapshot[];
-  poppedOutTabs: Set<string>;
-  // Derived helpers
-  allPanels: () => Panel[];
-  allPanelsAcrossLayouts: () => Panel[];
-  activePane: () => Panel | null;
-  findPaneById: (paneId: string) => PaneNode | null;
-  findPaneAcrossLayouts: (paneId: string) => PaneAcrossLayoutsLocation | null;
-  findTabAcrossLayouts: (tabId: string) => TabAcrossLayoutsLocation | null;
-  findTabBySessionAcrossLayouts: (sessionId: string) => TabAcrossLayoutsLocation | null;
-
-  // Layouts
-  createLayout: (name?: string) => string;
-  renameLayout: (id: string, name: string) => void;
-  deleteLayout: (id: string) => void;
-  switchLayout: (id: string) => void;
-  switchLayoutByIndex: (index: number) => void;
-  reorderLayouts: (fromIndex: number, toIndex: number) => void;
-  ensureStarredLayout: () => string;
-  listLayouts: () => LayoutEntry[];
-  /** 手动绑定布局到工作空间（workspaceName 为键；星标布局忽略） */
-  bindLayoutWorkspace: (layoutId: string, workspaceName: string) => void;
-  /** 解除手动绑定（不影响按标签推导的 derived 绑定） */
-  unbindLayoutWorkspace: (layoutId: string) => void;
-  /** 布局无手动绑定时，把当前布局树内首个终端 tab 的 workspaceName 固化为持久绑定 */
-  autoBindLayoutWorkspaceFromTabs: () => void;
-
-  // Pane layout
-  split: (paneId: string, direction: SplitDirection) => void;
-  splitRight: (paneId: string) => void;
-  splitDown: (paneId: string) => void;
-  closePane: (paneId: string) => void;
-  resizePanes: (paneId: string, sizes: number[]) => void;
-  /** 把当前布局的分屏树一键重排为预设结构；tabs 保序顺序填充，多余的进最后一格 */
-  applyLayoutPreset: (preset: LayoutPresetId) => void;
-
-  // Tabs
-  addTab: (paneId: string, opts: CreateTabOptions) => void;
-  closeTab: (paneId: string, tabId: string) => void;
-  togglePinTab: (paneId: string, tabId: string) => void;
-  toggleStarTab: (tabId: string) => void;
-  starredTabs: () => StarredTabShortcut[];
-  openStarredTab: (tabId: string) => boolean;
-  renameTab: (paneId: string, tabId: string, newTitle: string) => void;
-  reorderTabs: (paneId: string, fromIndex: number, toIndex: number) => void;
-  moveTab: (fromPaneId: string, toPaneId: string, tabId: string, toIndex?: number) => void;
-  moveTabToLayoutPane: (
-    fromPaneId: string,
-    toLayoutId: string,
-    tabId: string,
-    toPaneId?: string,
-    toIndex?: number
-  ) => void;
-  splitAndMoveTab: (paneId: string, tabId: string, direction: SplitDirection) => void;
-  /**
-   * 在 paneId 旁边分屏，并把新会话直接开在新窗格里并聚焦（launch_task 默认落位用）。
-   * direction 传 `"auto"` 时按父容器方向取反，连续调用形成螺旋布局。
-   */
-  openSessionBesidePane: (
-    paneId: string,
-    direction: AutoSplitDirection,
-    opts: CreateTabOptions
-  ) => void;
-  closeTabsToLeft: (paneId: string, tabId: string) => void;
-  closeTabsToRight: (paneId: string, tabId: string) => void;
-  closeOtherTabs: (paneId: string, tabId: string) => void;
-  selectTab: (paneId: string, tabId: string) => void;
-  setActivePane: (paneId: string) => void;
-  updateTabSession: (paneId: string, tabId: string, sessionId: string, terminalPaneId?: string) => void;
-  setTerminalLaunchError: (
-    tabId: string,
-    terminalPaneId: string,
-    error: import("@/types").TerminalLaunchError,
-  ) => void;
-  retryTerminalLaunch: (tabId: string, terminalPaneId: string) => void;
-  removeTerminalLaunch: (tabId: string, terminalPaneId: string) => void;
-  setActiveTerminalPane: (tabId: string, terminalPaneId: string) => void;
-  splitTerminalPane: (tabId: string, terminalPaneId: string, direction: SplitDirection) => void;
-  closeTerminalPane: (tabId: string, terminalPaneId: string) => void;
-  resizeTerminalPanes: (tabId: string, terminalPaneId: string, sizes: number[]) => void;
-  openProject: (opts: CreateTabOptions) => void;
-  openProjectInPane: (paneId: string, opts: CreateTabOptions) => void;
-  nextTab: (paneId: string) => void;
-  prevTab: (paneId: string) => void;
-  switchToTab: (paneId: string, index: number) => void;
-  minimizeTab: (paneId: string, tabId: string) => void;
-  restoreTab: (paneId: string, tabId: string) => void;
-  reopenClosedTab: (paneId: string) => void;
-  openMcpConfig: (projectPath: string, title: string) => void;
-  openSkillManager: (projectPath: string, title: string) => void;
-  openMemoryManager: (projectPath: string, title: string) => void;
-  openFileExplorer: (projectPath: string, title: string) => void;
-  openEditor: (projectPath: string, filePath: string, title: string) => void;
-  /** 跨全部布局关闭指定文件的 editor tab（MCP close_file 用） */
-  closeEditorTabsByPath: (filePath: string) => void;
-  /** 跨全部布局枚举分屏区 editor tab（MCP list_open_files 用） */
-  listEditorTabsAcrossLayouts: () => Array<{
-    filePath: string;
-    projectPath: string;
-    title: string;
-    dirty: boolean;
-    pinned: boolean;
-    active: boolean;
-  }>;
-  setTabDirty: (paneId: string, tabId: string, dirty: boolean) => void;
-  markTabPoppedOut: (tabId: string) => void;
-  markTabReclaimed: (tabId: string) => void;
-  isTabPoppedOut: (tabId: string) => boolean;
-  /** 返回是否命中某个 tab（事件可能早于 tab.sessionId 写入到达，未命中时调用方应重试） */
-  updateTabAgentResumeId: (ptySessionId: string, agentResumeId: string, resumeIdSource?: string) => boolean;
-  /** 手动绑定/换绑某个 tab 的会话 resume id（SessionBindDialog 用，source=manual） */
-  setTabResumeBinding: (tabId: string, resumeId: string | undefined, resumeIdSource?: string) => void;
-  /** @deprecated Use updateTabAgentResumeId; kept for persisted callers and older UI code. */
-  updateTabClaudeSession: (ptySessionId: string, claudeSessionId: string) => void;
-  setTabDisconnected: (paneId: string, tabId: string, disconnected: boolean, terminalPaneId?: string) => void;
-  reconnectTab: (paneId: string, tabId: string, terminalPaneId?: string) => Promise<string | null>;
-  closeTabBySessionId: (sessionId: string) => CloseTabBySessionIdResult;
-  restoreLiveDaemonSessions: (statuses: TerminalStatusInfo[]) => number;
-  exportLayoutSnapshotPayload: () => LayoutSnapshotPayload;
-  applyLayoutSnapshotPayload: (payload: LayoutSnapshotPayload) => boolean;
-  /** Clear restoring metadata after a terminal tab finishes recovery. */
-  clearRestoring: (paneId: string, tabId: string, terminalPaneId?: string) => void;
-  /** 会话创建成功后清除 initialPrompt（tab + 所有 leaf），防 restore/reattach 重放 */
-  clearTabInitialPrompt: (tabId: string) => void;
-  /** Collect terminal tabs that can be restored after restart. */
-  getRestorableTabs: () => Array<{ tab: Tab; paneId: string; layoutId: string }>;
-  setBackgroundRestoreSession: (tabId: string, savedSessionId: string) => void;
-  /**
-   * 接管一条本实例没有 tab 引用的 daemon 活会话（多实例/重启后残留的"无主会话"）。
-   * 在当前布局的活动 pane 建 tab，并按 restore 的老路子交给 TerminalView reattach，
-   * 不新建 PTY。已被引用时直接返回既有 tabId，保证可重复点击。
-   */
-  adoptSession: (sessionId: string, meta: AdoptSessionMeta) => string | null;
-  /**
-   * 按精确锚点把一条 daemon 活会话挂回它原来的分屏格子（docs/61 阶段 3）。
-   *
-   * 判据全部满足才挂：锚点 leaf 存在、该 leaf 当前没有活会话、tab 的项目路径
-   * 与记录等价（跨 Windows//mnt/UNC 形式）。任一不满足返回 false，会话保持无主，
-   * 留给用户在资源管理器里手动确认——**认领错会话比不认领严重得多**。
-   */
-  attachSessionToAnchor: (anchor: SessionAnchor) => boolean;
-  /**
-   * 收集所有布局（含星标布局与非当前布局）中被 tab 引用的 sessionId 集合，
-   * 供孤儿会话对账使用。同时收 sessionId 与 savedSessionId（rehydrate 后
-   * live id 会被搬进 savedSessionId），tab 级与 terminalRootPane leaf 级都算。
-   */
-  collectReferencedSessionIds: () => Set<string>;
 }
 
 const initialPanel = createPanel();
@@ -2783,19 +2526,20 @@ export const usePanesStore = create<PanesState>()(
     },
 
     reconnectTab: async (_paneId, tabId, terminalPaneId) => {
-      // 从 Tab 数据中提取创建参数
-      const snapshot = get();
-      const location = findTabAcrossLayouts(snapshot, tabId);
-      const tab = location?.tab;
-      if (!tab || !tab.projectPath) return null;
-      const terminalLeaf =
-        tab.contentType === "terminal" && tab.terminalRootPane
-          ? findTerminalPane(tab.terminalRootPane, terminalPaneId ?? tab.activeTerminalPaneId ?? "")
-          : null;
-      const leaf = terminalLeaf?.type === "leaf" ? terminalLeaf : null;
-
       try {
         await ensureListeners();
+        await waitForTerminalRestoreBarrier();
+        // 屏障完成后立即重读，避免 reconciliation 已认领/阻断该 leaf 后仍按旧快照重建。
+        const location = findTabAcrossLayouts(get(), tabId);
+        const tab = location?.tab;
+        if (!tab || !tab.projectPath) return null;
+        const leafId = terminalPaneId ?? tab.activeTerminalPaneId ?? "";
+        const terminalLeaf = tab.contentType === "terminal" && tab.terminalRootPane
+          ? findTerminalPane(tab.terminalRootPane, leafId)
+          : null;
+        const leaf = terminalLeaf?.type === "leaf" ? terminalLeaf : null;
+        if (leaf?.restoreBlockedReason) return null;
+        if (leaf?.sessionId && !leaf.disconnected) return leaf.sessionId;
         const sessionId = await terminalService.createSession({
           projectPath: tab.projectPath,
           cols: 80,
@@ -2809,6 +2553,9 @@ export const usePanesStore = create<PanesState>()(
           cliTool: leaf?.cliTool ?? tab.cliTool,
           ssh: leaf?.ssh ?? tab.ssh,
           wsl: leaf?.wsl ?? tab.wsl,
+          originLayoutId: location?.layoutId,
+          originTabId: tabId,
+          originTerminalPaneId: leaf?.id,
         });
 
         // 更新 tab 的 sessionId 和断连状态
@@ -2978,6 +2725,8 @@ export const usePanesStore = create<PanesState>()(
             if (leaf?.type === "leaf") {
               leaf.restoring = false;
               leaf.savedSessionId = undefined;
+              leaf.restoreBlockedReason = undefined;
+              leaf.leaseReadOnly = false;
             }
             syncTabTerminalState(tab);
           } else {
@@ -3050,25 +2799,78 @@ export const usePanesStore = create<PanesState>()(
       return referenced;
     },
 
-    setBackgroundRestoreSession: (tabId, savedSessionId) => {
+    setBackgroundRestoreSession: (tabId, terminalPaneId, savedSessionId) => {
       set((state) => {
         const location = findTabAcrossLayouts(state, tabId);
         const tab = location?.tab;
         if (!tab || tab.contentType !== "terminal" || !tab.terminalRootPane) return;
-        const leaf = findTerminalPane(tab.terminalRootPane, tab.activeTerminalPaneId ?? "");
+        const leaf = findTerminalPane(tab.terminalRootPane, terminalPaneId);
         if (leaf?.type !== "leaf") return;
-        // 后台已为该 tab 建好会话：写成"可重连的 savedSession"并保持 restoring，
+        // 后台已为该 leaf 建好会话：写成"可重连的 savedSession"并保持 restoring，
         // 用户切到该布局时 TerminalView 的 deferred 重恢复会 findLiveSavedSessionId 命中并 reattach（不重建）。
         leaf.savedSessionId = savedSessionId;
         leaf.restoring = true;
         leaf.sessionId = null;
+        leaf.restoreBlockedReason = undefined;
+        leaf.leaseReadOnly = false;
         syncTabTerminalState(tab);
       });
     },
 
+    setTerminalRestoreBlocked: (tabId, terminalPaneId, reason) => {
+      set((state) => {
+        const location = findTabAcrossLayouts(state, tabId);
+        const tab = location?.tab;
+        if (!tab || tab.contentType !== "terminal" || !tab.terminalRootPane) return;
+        const leaf = findTerminalPane(tab.terminalRootPane, terminalPaneId);
+        if (leaf?.type !== "leaf") return;
+        leaf.restoreBlockedReason = reason;
+        syncTabTerminalState(tab);
+      });
+    },
+
+    setSessionLeaseReadOnly: (sessionId, readOnly) => {
+      set((state) => {
+        for (const layout of state.layouts) {
+          const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+          if (!tree) continue;
+          for (const panel of collectPanels(tree)) {
+            for (const tab of panel.tabs) {
+              if (tab.contentType !== "terminal" || !tab.terminalRootPane) continue;
+              let changed = false;
+              for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
+                if (leaf.sessionId !== sessionId && leaf.savedSessionId !== sessionId) continue;
+                leaf.leaseReadOnly = readOnly;
+                changed = true;
+              }
+              if (changed) syncTabTerminalState(tab);
+            }
+          }
+        }
+      });
+    },
+
+    canCreateTerminalSession: (tabId, terminalPaneId) => {
+      const location = findTabAcrossLayouts(get(), tabId);
+      const tab = location?.tab;
+      if (!tab || tab.contentType !== "terminal" || !tab.terminalRootPane) return false;
+      const leaf = findTerminalPane(tab.terminalRootPane, terminalPaneId);
+      return leaf?.type === "leaf"
+        && !leaf.sessionId
+        && !leaf.restoreBlockedReason;
+    },
+
     attachSessionToAnchor: (anchor) => {
-      // 该会话已被本实例某个 leaf 引用 → 不重复挂
-      if (get().collectReferencedSessionIds().has(anchor.sessionId)) return false;
+      // 历史记录缺任一锚点维度时只允许用户显式接管，绝不做启动自动认领。
+      if (
+        !anchor.layoutId
+        || !anchor.tabId
+        || !anchor.terminalPaneId
+        || !anchor.expectedProjectPath
+      ) return false;
+      const layoutId = anchor.layoutId;
+      const terminalPaneId = anchor.terminalPaneId;
+      const expectedProjectPath = anchor.expectedProjectPath;
 
       let attached = false;
       set((state) => {
@@ -3076,7 +2878,7 @@ export const usePanesStore = create<PanesState>()(
         if (!location) return;
         // 锚点带 layoutId 时必须同布局：tab id 理论上全局唯一，但布局快照互相
         // 覆盖过的历史数据里出现过跨布局同 id，宁可不认领。
-        if (anchor.layoutId && location.layoutId !== anchor.layoutId) return;
+        if (location.layoutId !== layoutId) return;
 
         const tab = location.tab;
         if (tab.contentType !== "terminal" || !tab.terminalRootPane) return;
@@ -3084,28 +2886,42 @@ export const usePanesStore = create<PanesState>()(
         // 项目身份必须等价。直接比字符串会把 /mnt/d/x 与 D:\x 判成不同项目，
         // 所以走 projectIdentityKey（与 Rust 侧 canonical_project_path 对齐）。
         if (
-          anchor.expectedProjectPath
-          && tab.projectPath
-          && !projectPathsEquivalent(anchor.expectedProjectPath, tab.projectPath)
+          !tab.projectPath
+          || !projectPathsEquivalent(expectedProjectPath, tab.projectPath)
         ) {
           return;
         }
 
         const leaves = collectTerminalLeaves(tab.terminalRootPane);
-        // 有 terminalPaneId 就精确定位；没有（migration 26 之前的老记录）且该 tab
-        // 只有一个 leaf 时才回退——多 leaf 又没锚点，无法判断该挂哪个格子。
-        const leaf = anchor.terminalPaneId
-          ? leaves.find((item) => item.id === anchor.terminalPaneId)
-          : leaves.length === 1
-            ? leaves[0]
-            : undefined;
+        const leaf = leaves.find((item) => item.id === terminalPaneId);
         if (!leaf) return;
-        // 该格子已有活会话 → 不覆盖
-        if (leaf.sessionId) return;
+        // 该格子已有活会话或另一个待恢复会话 → 不覆盖。
+        if (leaf.sessionId || (leaf.savedSessionId && leaf.savedSessionId !== anchor.sessionId)) return;
+
+        // 同一 PTY 可以已由目标 leaf 的 savedSessionId 引用（应用重启后的正常形态），
+        // 但不得在任何其他 leaf/tab 中重复挂载。
+        for (const layout of state.layouts) {
+          const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+          if (!tree) continue;
+          for (const panel of collectPanels(tree)) {
+            for (const candidateTab of panel.tabs) {
+              if (candidateTab.contentType !== "terminal") continue;
+              for (const candidateLeaf of collectTerminalLeaves(candidateTab.terminalRootPane)) {
+                if (candidateTab.id === tab.id && candidateLeaf.id === leaf.id) continue;
+                if (
+                  candidateLeaf.sessionId === anchor.sessionId
+                  || candidateLeaf.savedSessionId === anchor.sessionId
+                ) return;
+              }
+            }
+          }
+        }
 
         leaf.savedSessionId = anchor.sessionId;
         leaf.restoring = true;
         leaf.sessionId = null;
+        leaf.restoreBlockedReason = undefined;
+        leaf.leaseReadOnly = false;
         syncTabTerminalState(tab);
         attached = true;
       });

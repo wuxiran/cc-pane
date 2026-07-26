@@ -1,5 +1,5 @@
 import { memo, useCallback, useState, type ReactNode } from "react";
-import { CircleAlert, RotateCcw, Terminal, X } from "lucide-react";
+import { CircleAlert, LockKeyhole, RotateCcw, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab, TerminalLaunchError, TerminalPaneNode } from "@/types";
 import { usePanesStore } from "@/stores";
@@ -114,6 +114,7 @@ export default memo(function TerminalTabContent({
           })
         : null;
       const launchError = leaf.launchError ?? preflightError;
+      const restoreBlocked = !leaf.sessionId && leaf.restoreBlockedReason;
       const showPlaceholder = !leaf.sessionId && !leaf.restoring;
       const showRestorePlaceholder = !leaf.sessionId && !!leaf.restoring;
       const restoreLaunchState = restoreLaunchStates[leaf.id];
@@ -134,7 +135,19 @@ export default memo(function TerminalTabContent({
           className="relative h-full w-full overflow-hidden"
           onMouseDown={() => setActiveTerminalPane(tab.id, leaf.id)}
         >
-          {launchError ? (
+          {restoreBlocked ? (
+            <div className="flex h-full w-full items-center justify-center bg-background/95 px-6 py-8">
+              <div className="flex w-full max-w-xl flex-col items-center text-center">
+                <CircleAlert className="mb-4 h-9 w-9 text-[var(--app-status-warning)]" aria-hidden="true" />
+                <h3 className="text-base font-semibold text-foreground">
+                  {t("restoreBlockedTitle")}
+                </h3>
+                <p className="mt-2 max-w-full break-words text-sm leading-6 text-muted-foreground">
+                  {t(`restoreBlocked.${restoreBlocked}`)}
+                </p>
+              </div>
+            </div>
+          ) : launchError ? (
             <LaunchErrorPanel
               error={launchError}
               onRetry={() => retryTerminalLaunch(tab.id, leaf.id)}
@@ -168,6 +181,7 @@ export default memo(function TerminalTabContent({
               wsl={leaf.wsl}
               restoring={leaf.restoring}
               savedSessionId={leaf.savedSessionId}
+              readOnly={leaf.leaseReadOnly}
               paneId={leaf.id}
               tabId={tab.id}
               onRestoreLaunchState={(state) => updateRestoreLaunchState(leaf.id, state)}
@@ -181,10 +195,10 @@ export default memo(function TerminalTabContent({
             <VoiceInputButton
               sessionId={leaf.sessionId}
               paneId={leaf.id}
-              disabled={Boolean(leaf.disconnected || leaf.restoring)}
+              disabled={Boolean(leaf.disconnected || leaf.restoring || leaf.leaseReadOnly)}
             />
           ) : null}
-          {!launchError && showPlaceholder ? (
+          {!restoreBlocked && !launchError && showPlaceholder ? (
             <div
               className="pointer-events-none absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"
               style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}
@@ -218,7 +232,7 @@ export default memo(function TerminalTabContent({
               </div>
             </div>
           ) : null}
-          {!launchError && showRestorePlaceholder ? (
+          {!restoreBlocked && !launchError && showRestorePlaceholder ? (
             <div
               className="pointer-events-none absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"
               style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}
@@ -250,6 +264,20 @@ export default memo(function TerminalTabContent({
                   </span>
                 </div>
               </div>
+            </div>
+          ) : null}
+          {leaf.sessionId && leaf.leaseReadOnly ? (
+            <div
+              className="pointer-events-none absolute left-3 top-3 z-[2] flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded px-2.5 py-1.5 text-xs"
+              style={{
+                top: "calc(var(--notch-bar-height, 0px) + 12px)",
+                color: "var(--app-status-warning)",
+                background: "var(--app-status-warning-bg)",
+                border: "1px solid var(--app-status-warning)",
+              }}
+            >
+              <LockKeyhole className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 break-words">{t("terminalLeaseReadOnly")}</span>
             </div>
           ) : null}
         </div>

@@ -12,6 +12,7 @@ import type {
   ProjectMigrationRequest,
   ProjectMigrationResult,
   ProjectMigrationRollbackResult,
+  ProjectPathStatus,
   Workspace,
   WorkspaceMigrationPlan,
   WorkspaceMigrationRequest,
@@ -36,6 +37,17 @@ export async function createWorkspace(name: string, path?: string | null): Promi
 export async function getWorkspace(name: string): Promise<Workspace> {
   return invokeOrApi<Workspace>("get_workspace", { name }, () =>
     apiGet<Workspace>(`/api/workspaces/${encodeURIComponent(name)}`),
+  );
+}
+
+/** 批量判定工作空间内各项目路径是否仍然存在（worktree 被删后记录不会自动回收）。 */
+export async function checkWorkspaceProjectPaths(name: string): Promise<ProjectPathStatus[]> {
+  return invokeOrApi<ProjectPathStatus[]>(
+    "check_workspace_project_paths",
+    { workspaceName: name },
+    () => apiGet<ProjectPathStatus[]>(
+      `/api/workspaces/${encodeURIComponent(name)}/project-path-status`,
+    ),
   );
 }
 

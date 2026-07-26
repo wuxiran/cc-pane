@@ -2,7 +2,7 @@
  * 终端会话恢复服务 — invoke 封装
  */
 import type { SavedSession } from "@/types";
-import { apiDelete, apiGet, apiNoContent, invokeOrApi } from "./apiClient";
+import { apiDelete, apiGet, apiJson, apiNoContent, invokeOrApi } from "./apiClient";
 
 class SessionRestoreService {
   /** 保存终端会话元数据 */
@@ -27,6 +27,18 @@ class SessionRestoreService {
   async clear(): Promise<void> {
     return invokeOrApi<void>("clear_terminal_sessions", undefined, () =>
       apiDelete("/api/terminal-sessions"),
+    );
+  }
+
+  /** Delete stale rows only from a complete snapshot of one daemon generation. */
+  async prune(
+    daemonGeneration: number,
+    capturedAtMs: number,
+    liveSessionIds: string[],
+  ): Promise<number> {
+    const payload = { daemonGeneration, capturedAtMs, liveSessionIds };
+    return invokeOrApi<number>("prune_terminal_sessions", payload, () =>
+      apiJson<number>("/api/terminal-sessions/prune", "POST", payload),
     );
   }
 

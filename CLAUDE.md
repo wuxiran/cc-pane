@@ -318,6 +318,9 @@ flutter pub get && flutter analyze && flutter test
 - **运行中的 exe 无法覆盖，但可以改名**：Windows 会锁住正在运行的 `debug\binaries\*.exe`（`os error 32`），`cargo build`（src-tauri 的 build.rs 要碰这些文件）会整个失败。不必杀掉用户正在跑的实例——先把旧 exe **改名**（Windows 允许重命名运行中的文件，进程继续持有旧 inode），再把新文件拷进原位；新拷贝在下次 spawn 时生效。
 - **orchestrator 死了不等于没救：daemon 是跨 app 重启存活的锚点**。PTY 会话真身活在 daemon 里（`runtime/daemon-manifest.json` 给出 addr+token），orchestrator 随 app 生死。app 侧全灭时用 `cc-panes-ctl --release sessions list/read/submit` 经 daemon 接管（0.11.2 事故中就是这么救回 5 条在途 worker 的）。**能力分层**：MCP 88 类工具与 `launch` 依赖 orchestrator；会话原语可走 daemon 降级；`bindings` 写默认禁止（绕过 TaskBindingService 不变式），逃生阀 `--force-offline-db`。
 - **服务端新增的身份/协议字段必须可缺失**：`/api/health` 的 `service`/`pid`/`startedAt` 是后加的，运行中的 daemon 与安装版都还是旧二进制。把缺失当失败会让排障工具恰好在版本错配（最需要它）的时段完全不可用。分级判定：字段**缺失**→降级可用并**打印警告**（token 是主认证）；字段**存在但对不上**→硬失败（真冒充信号）。见 `cc-panes-ctl/src/discovery.rs::validate_identity`。
+- **worktree 的项目记录是「写入自动化、删除手动化」的单向流**：skill 流程与扫描导入会自动 `add_project_to_workspace`，而 `remove_worktree` 只跑 git、`remove_project` 只删记录，两侧不联动——实测一个工作空间 21 条项目里 14 条指向已删目录。已补上三态存在性判定 + 手动批量清理 + 删除联动（docs/62）。新增「自动注册项目」的入口必须同时想清楚谁负责回收。
+- **判断项目路径是否存在，必须先过 `canonical_project_path` / `projectIdentityKey`**：注册路径可能以 `/mnt/d/x` 或 `\\wsl.localhost\Ubuntu\mnt\d\x` 形式存着，直接 `Path::exists()` 会把合法的 Windows 路径判成 missing。且判定要三态——WSL 发行版未运行时无法区分「真没了」与「暂时看不到」，判成 missing 会诱导用户误删有效注册。
+- **`git worktree list` 从任何一个 worktree 跑都返回同一份全量列表**：拿它做父子关系会互认成环。正确用法是当**分组键**（取 `isMain` 那条的身份 key），父节点定义为「自身身份 == repoKey」的那个。另需守卫「自身必须是列表里一条非 main 的 worktree 根」，否则 monorepo 子目录项目会被误认成假 worktree。
 - **Zustand selector 里不要调用返回新集合的 store 方法**：`usePanesStore((s) => s.listLayouts())` 这类写法，因 `listLayouts` 内部是 `filter().map()` 每次返回新数组，`useSyncExternalStore` 的快照永不相等 → `Maximum update depth exceeded` 崩页。正确做法是选稳定引用（如 `s.layouts`）后用 `useMemo` 本地派生；`.getState().listLayouts()` 在渲染外调用则不受影响。
 
 ## 文档引用
@@ -341,7 +344,9 @@ flutter pub get && flutter analyze && flutter test
 | `docs/46-cross-platform-launch-blackscreen.md` | 跨平台启动黑屏 + portable-pty HOME 回退暗雷（与 46 风格宪法同号不同文件） |
 | `docs/57-ccpanes-ctl-and-mcp-orphan.md` | cc-panes-ctl 规格 + MCP 孤儿缺口（经 Codex 同行评审重写） |
 | `docs/58-feature-tips.md` | 功能提示（tips）系统：让积累的能力偶尔冒出来 |
+| `docs/62-worktree-project-hygiene.md` | worktree 项目嵌套显示 + 残留记录回收（写入自动化/删除手动化的单向流根因） |
 | `docs/59-update-notification.md` | 版本更新右下角提示卡片 |
 | `docs/60-notify-ui-handoff.md` | 打扰闸门+更新卡片+功能提示 交接指令 |
+| `docs/64-ai-panel-templates.md` | AI 面板模板化 + fleet 编排拓扑视图（方向文档，0.11.3 之后） |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

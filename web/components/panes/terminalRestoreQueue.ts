@@ -25,7 +25,7 @@ export interface RestoreLaunchQueue {
   getSnapshot(): { active: number; pending: number };
 }
 
-function createCancelledError(): Error {
+export function createRestoreLaunchCancelledError(): Error {
   const error = new Error("Restore launch was cancelled");
   (error as Error & { code?: string }).code = RESTORE_LAUNCH_CANCELLED;
   return error;
@@ -70,7 +70,7 @@ export function createRestoreLaunchQueue(
 
       if (item.isCancelled?.()) {
         item.onState?.("idle");
-        item.reject(createCancelledError());
+        item.reject(createRestoreLaunchCancelledError());
         continue;
       }
 
@@ -92,7 +92,7 @@ export function createRestoreLaunchQueue(
   return {
     run<T>(task: () => Promise<T>, options: RestoreLaunchQueueOptions = {}): Promise<T> {
       if (options.isCancelled?.()) {
-        return Promise.reject(createCancelledError());
+        return Promise.reject(createRestoreLaunchCancelledError());
       }
 
       return new Promise<T>((resolve, reject) => {

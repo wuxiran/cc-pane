@@ -394,4 +394,116 @@ describe("ProjectListView", () => {
       wsl: { remotePath: "/mnt/d/workspace-root/apps/api" },
     }));
   });
+
+  describe("worktree 分组", () => {
+    const MAIN = "D:\\repo";
+    const WT = "D:\\repo-wt-a";
+    const fullList = [
+      { path: MAIN, branch: "main", commit: "aaa1111", isMain: true },
+      { path: WT, branch: "feature/a", commit: "bbb2222", isMain: false },
+    ];
+
+    function renderWithWorktrees(worktreeCache: Record<string, typeof fullList>) {
+      const workspace = createTestWorkspace({
+        projects: [
+          createTestWorkspaceProject({ alias: "main-repo", path: MAIN }),
+          createTestWorkspaceProject({ alias: "wt-a", path: WT }),
+        ],
+      });
+      render(
+        <ProjectListView
+          projects={workspace.projects}
+          ws={workspace}
+          gitBranches={{}}
+          worktreeCache={worktreeCache}
+          onOpenTerminal={vi.fn()}
+          onRemoveProject={vi.fn()}
+          onSetProjectAlias={vi.fn()}
+          onImportProject={vi.fn()}
+          onMigrateProject={vi.fn()}
+          onOpenWorktreeManager={vi.fn()}
+        />
+      );
+      return workspace;
+    }
+
+    it("默认收起：只渲染主仓库行，worktree 子行不可见", () => {
+      renderWithWorktrees({ [MAIN]: fullList, [WT]: fullList });
+
+      expect(screen.getByText("main-repo")).toBeInTheDocument();
+      expect(screen.queryByText("wt-a")).not.toBeInTheDocument();
+    });
+
+    it("点展开箭头后 worktree 子行出现并显示分支名", async () => {
+      const user = userEvent.setup();
+      renderWithWorktrees({ [MAIN]: fullList, [WT]: fullList });
+
+      await user.click(screen.getByRole("button", { name: /展开\/收起 worktree|Toggle worktrees/i }));
+
+      expect(screen.getByText("wt-a")).toBeInTheDocument();
+      expect(screen.getByText("feature/a")).toBeInTheDocument();
+    });
+
+    // 回归护栏：没有 worktree 数据时必须与改造前的平铺完全一致
+    it("worktreeCache 为空时保持平铺", () => {
+      renderWithWorktrees({});
+
+      expect(screen.getByText("main-repo")).toBeInTheDocument();
+      expect(screen.getByText("wt-a")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /展开\/收起 worktree|Toggle worktrees/i }))
+        .not.toBeInTheDocument();
+    });
+  });
+
+  describe("失效项目", () => {
+    function renderWithStatus(onCleanup?: () => void) {
+      const missing = createTestWorkspaceProject({ alias: "gone", path: "D:\\gone" });
+      const alive = createTestWorkspaceProject({ alias: "alive", path: "D:\\alive" });
+      const workspace = createTestWorkspace({ projects: [missing, alive] });
+      render(
+        <ProjectListView
+          projects={workspace.projects}
+          ws={workspace}
+          gitBranches={{}}
+          projectPathStatus={{ [missing.id]: "missing", [alive.id]: "present" }}
+          onOpenTerminal={vi.fn()}
+          onRemoveProject={vi.fn()}
+          onSetProjectAlias={vi.fn()}
+          onImportProject={vi.fn()}
+          onMigrateProject={vi.fn()}
+          onOpenWorktreeManager={vi.fn()}
+          onCleanupMissingProjects={onCleanup}
+        />
+      );
+      return workspace;
+    }
+
+    it("路径不存在的项目显示红字标记，正常项目不受影响", () => {
+      renderWithStatus(vi.fn());
+
+      expect(screen.getByText("项目路径不存在")).toBeInTheDocument();
+      expect(screen.getByText("gone")).toHaveClass("line-through");
+      expect(screen.getByText("alive")).not.toHaveClass("line-through");
+    });
+
+    it("有失效项目时显示清理横幅并可触发清理", async () => {
+      const user = userEvent.setup();
+      const onCleanup = vi.fn();
+      renderWithStatus(onCleanup);
+
+      expect(screen.getByText("1 个项目路径已不存在")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "清理失效项目" }));
+      expect(onCleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it("失效项目的右键菜单裁剪掉必然失败的入口", async () => {
+      renderWithStatus(vi.fn());
+
+      fireEvent.contextMenu(screen.getByText("gone"));
+
+      expect(await screen.findByRole("menuitem", { name: "移除项目" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Worktree 管理" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "文件历史" })).not.toBeInTheDocument();
+    });
+  });
 });

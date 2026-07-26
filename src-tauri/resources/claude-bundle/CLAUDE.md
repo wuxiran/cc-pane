@@ -114,6 +114,14 @@ cc-panes/
 │       ├── ws/                    # WebSocket
 │       └── error.rs               # HTTP 错误转换
 │
+├── cc-panes-ctl/                  # 控制面 CLI（人/AI 的兜底通道 + stdio MCP 代理）
+│   └── src/
+│       ├── discovery.rs           # 双源端点发现（orchestrator/daemon）+ 身份分级核对
+│       ├── mcp.rs                 # MCP HTTP 客户端（tools/list、tools/call）
+│       ├── commands.rs            # status/sessions/bindings/launch/tools/call
+│       ├── offline_db.rs          # bindings 离线写逃生阀（schema+CAS+回读）
+│       └── proxy.rs               # mcp-proxy：可恢复 stdio↔HTTP 代理
+│
 ├── src-tauri/                     # Tauri Rust 后端（薄包装层）
 │   └── src/
 │       ├── main.rs                # 应用入口
@@ -170,6 +178,8 @@ cc-panes/
 | `src-tauri/src/models/project.rs` | Project 数据模型 |
 | `src-tauri/src/utils/error.rs` | `AppError` + `AppResult<T>` |
 | `src-tauri/src/utils/app_paths.rs` | 应用路径管理 + `APP_DIR_NAME` 常量 |
+| `cc-panes-ctl/src/discovery.rs` | 双源端点发现 + 身份分级核对（ctl 与 mcp-proxy 共用） |
+| `cc-panes-ctl/src/proxy.rs` | mcp-proxy：可恢复 stdio↔HTTP MCP 代理（根治 MCP 孤儿） |
 | `src-tauri/tauri.dev.conf.json` | Dev 覆盖配置（identifier + 窗口标题） |
 
 ## 开发命令
@@ -204,6 +214,9 @@ npm run test:run
 
 # 运行后端测试
 cargo test --workspace
+
+# 构建控制面 CLI（改动后需拷到 <target-dir>/debug/binaries/）
+cargo build -p cc-panes-ctl
 
 # 构建 release 安装包
 npm run tauri build
@@ -299,6 +312,15 @@ flutter pub get && flutter analyze && flutter test
 - **Claude Code 的 SessionEnd hook 带 reason,`clear` 不是进程退出**：`/clear` 会触发 SessionEnd(reason="clear"),hook 层必须按 reason 过滤（HTTP 与 OSC 双通道）,否则活会话被状态机标 Exited、daemon 桥发合成 `terminal-exit(-1)` 并停流（docs/44）。看到 `-1` 退出码 = 合成码,非真实进程退出。
 - **Codex 的 resume id 依赖 OSC 标题捕获,Codex CLI 升版会静默打断**：v0.145 曾令捕获链全灭（launch_history 的 codex `resumeSessionId` 全 null,docs/45）,resume 静默变新会话。捕获链修改需配 rollout 目录扫描兜底,且降级必须对用户可见。
 - **`tauri dev` 不重建 external binaries（daemon/web/cli-hook）**：`build.rs` 只放占位符，`debug\binaries\` 里的 daemon 是手动构建的拷贝。改 `cc-cli-adapters`/`cc-panes-daemon` 后主程序会热重编，但**会话启动走的 daemon 还是旧二进制**——新代码"测试全绿却不生效"（0.11.1 opencode 透明修复曾因此白测三轮：binaries 里躺着 14 天前的 daemon）。修改后必须 `cargo build -p cc-panes-daemon` 并拷贝到 `<target-dir>\debug\binaries\`，再重启 dev。
+- **agent 可能整场都在驱动另一个实例（dev/release 串台），且完全无法自察**：`healthy_orchestrator_info()` 为 `None` 时（本实例 orchestrator 挂了），`CC_PANES_API_PORT/TOKEN/BASE_URL` 一个都不注入（`terminal_service.rs:1606-1620`），也不生成 `mcp-<sessionId>.json`，CLI 于是**静默回退**到 `~/.claude.json` 的 project 级单例——那份可能是另一个实例最后写的。表现：MCP 工具全部正常返回（只是另一个实例的数据）、派出去的 worker 在别的实例里、它的 `report_to_leader` 被丢弃（对侧日志 `leader session not found`）。自查方法：`$CC_PANES_LAUNCH_ID` 必须等于所连 MCP URL 里的 `launchId`，不等即串台。详见工作空间文档 `cc-book-workspace/docs/62-agent-instance-identity.md`（不在本仓库）。
+- **派出去的 WSL Codex worker 可能"活着但一动不动"，判活不能只看 `status`**：prompt 以位置参数传入后可能停在 TUI 里**从未提交**，此时进程活着、cwd/YOLO 都对，但 PTY 零输出、CPU 零占用、`lastOutputAt` 永远停在派发那一刻——与"刚启动还没输出"**完全同形**，plantocodex 基于 `lastOutputAt` 停滞的软超时兜底会一直判"继续等"，无人值守派工静默永久卡死。判定要用 `wsl.exe -d Ubuntu -- bash -lc "ps aux | grep codex"`（进程活着 + PTY 空 = 命中），解法是 `write_to_session(sessionId, "\r")` 发一个裸 CR，**不要直接 kill 重发**（大概率再次命中）。详见工作空间文档 `cc-book-workspace/docs/61-wsl-codex-prompt-unsubmitted.md`（不在本仓库）。
+- **`cargo clippy ... | tail` 会掩码退出码，让失败看着像通过**：管道的退出码取自最后一个命令（`tail` 永远成功），失败信息又常被 tail 截掉——0.11.2 合并期实测据此误报过一次"clippy 全绿"，实际败在一个历史遗留 lint。判定成败必须 `echo "EXIT=${PIPESTATUS[0]}"` 或干脆不加管道。同理适用于 `cargo test`、`npx tsc`。
+- **运行中的 exe 无法覆盖，但可以改名**：Windows 会锁住正在运行的 `debug\binaries\*.exe`（`os error 32`），`cargo build`（src-tauri 的 build.rs 要碰这些文件）会整个失败。不必杀掉用户正在跑的实例——先把旧 exe **改名**（Windows 允许重命名运行中的文件，进程继续持有旧 inode），再把新文件拷进原位；新拷贝在下次 spawn 时生效。
+- **orchestrator 死了不等于没救：daemon 是跨 app 重启存活的锚点**。PTY 会话真身活在 daemon 里（`runtime/daemon-manifest.json` 给出 addr+token），orchestrator 随 app 生死。app 侧全灭时用 `cc-panes-ctl --release sessions list/read/submit` 经 daemon 接管（0.11.2 事故中就是这么救回 5 条在途 worker 的）。**能力分层**：MCP 88 类工具与 `launch` 依赖 orchestrator；会话原语可走 daemon 降级；`bindings` 写默认禁止（绕过 TaskBindingService 不变式），逃生阀 `--force-offline-db`。
+- **服务端新增的身份/协议字段必须可缺失**：`/api/health` 的 `service`/`pid`/`startedAt` 是后加的，运行中的 daemon 与安装版都还是旧二进制。把缺失当失败会让排障工具恰好在版本错配（最需要它）的时段完全不可用。分级判定：字段**缺失**→降级可用并**打印警告**（token 是主认证）；字段**存在但对不上**→硬失败（真冒充信号）。见 `cc-panes-ctl/src/discovery.rs::validate_identity`。
+- **worktree 的项目记录是「写入自动化、删除手动化」的单向流**：skill 流程与扫描导入会自动 `add_project_to_workspace`，而 `remove_worktree` 只跑 git、`remove_project` 只删记录，两侧不联动——实测一个工作空间 21 条项目里 14 条指向已删目录。已补上三态存在性判定 + 手动批量清理 + 删除联动（docs/62）。新增「自动注册项目」的入口必须同时想清楚谁负责回收。
+- **判断项目路径是否存在，必须先过 `canonical_project_path` / `projectIdentityKey`**：注册路径可能以 `/mnt/d/x` 或 `\\wsl.localhost\Ubuntu\mnt\d\x` 形式存着，直接 `Path::exists()` 会把合法的 Windows 路径判成 missing。且判定要三态——WSL 发行版未运行时无法区分「真没了」与「暂时看不到」，判成 missing 会诱导用户误删有效注册。
+- **`git worktree list` 从任何一个 worktree 跑都返回同一份全量列表**：拿它做父子关系会互认成环。正确用法是当**分组键**（取 `isMain` 那条的身份 key），父节点定义为「自身身份 == repoKey」的那个。另需守卫「自身必须是列表里一条非 main 的 worktree 根」，否则 monorepo 子目录项目会被误认成假 worktree。
 - **Zustand selector 里不要调用返回新集合的 store 方法**：`usePanesStore((s) => s.listLayouts())` 这类写法，因 `listLayouts` 内部是 `filter().map()` 每次返回新数组，`useSyncExternalStore` 的快照永不相等 → `Maximum update depth exceeded` 崩页。正确做法是选稳定引用（如 `s.layouts`）后用 `useMemo` 本地派生；`.getState().listLayouts()` 在渲染外调用则不受影响。
 
 ## 文档引用
@@ -320,5 +342,11 @@ flutter pub get && flutter analyze && flutter test
 | `docs/44-clear-sessionend-exit-bug.md` | `/clear` 误判会话退出：SessionEnd reason 语义与修复 |
 | `docs/45-codex-resume-capture-dead.md` | Codex resume 捕获链失效调查与修复规格 |
 | `docs/46-cross-platform-launch-blackscreen.md` | 跨平台启动黑屏 + portable-pty HOME 回退暗雷（与 46 风格宪法同号不同文件） |
+| `docs/57-ccpanes-ctl-and-mcp-orphan.md` | cc-panes-ctl 规格 + MCP 孤儿缺口（经 Codex 同行评审重写） |
+| `docs/58-feature-tips.md` | 功能提示（tips）系统：让积累的能力偶尔冒出来 |
+| `docs/62-worktree-project-hygiene.md` | worktree 项目嵌套显示 + 残留记录回收（写入自动化/删除手动化的单向流根因） |
+| `docs/59-update-notification.md` | 版本更新右下角提示卡片 |
+| `docs/60-notify-ui-handoff.md` | 打扰闸门+更新卡片+功能提示 交接指令 |
+| `docs/64-ai-panel-templates.md` | AI 面板模板化 + fleet 编排拓扑视图（方向文档，0.11.3 之后） |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
+import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { browserService } from "@/services/browserService";
 import BrowserTabContent from "./BrowserTabContent";
@@ -72,6 +73,7 @@ describe("BrowserTabContent", () => {
       toJSON: () => ({}),
     });
     usePanesStore.setState({ updateBrowserTab: vi.fn() } as never);
+    useBrowserWebviewOverlayStore.setState({ blockers: new Set() });
   });
 
   afterEach(() => {
@@ -136,5 +138,27 @@ describe("BrowserTabContent", () => {
     });
     expect(updateBrowserTab).toHaveBeenCalledWith("browser-tab-1", { title: "Example" });
     expect(screen.getByTestId("browser-loading")).toBeInTheDocument();
+  });
+
+  it("hides the native child webview behind React overlays and restores it afterward", async () => {
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalled());
+    vi.mocked(browserService.setVisible).mockClear();
+
+    act(() => {
+      useBrowserWebviewOverlayStore.getState().setBlocked("context-menu", true);
+    });
+
+    await waitFor(() => {
+      expect(browserService.setVisible).toHaveBeenCalledWith("browser-tab-1", false, false);
+    });
+
+    act(() => {
+      useBrowserWebviewOverlayStore.getState().setBlocked("context-menu", false);
+    });
+
+    await waitFor(() => {
+      expect(browserService.setVisible).toHaveBeenCalledWith("browser-tab-1", true, false);
+    });
   });
 });

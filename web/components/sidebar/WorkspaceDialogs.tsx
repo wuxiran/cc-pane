@@ -14,8 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ScanImportDialog from "@/components/ScanImportDialog";
 import GitCloneDialog from "@/components/GitCloneDialog";
-import type { Workspace, WorkspaceProject } from "@/types";
+import type { ProjectPathStatus, Workspace, WorkspaceProject } from "@/types";
 import ProjectMigrationDialog from "./ProjectMigrationDialog";
+import MissingProjectsCleanupDialog from "./MissingProjectsCleanupDialog";
 import type { ScannedRepo } from "@/services/workspaceService";
 
 interface DialogFieldProps {
@@ -168,6 +169,13 @@ export interface WorkspaceDialogsProps {
     workspace: Workspace | null;
     project: WorkspaceProject | null;
   };
+  missingProjects: {
+    open: boolean;
+    setOpen: (v: boolean) => void;
+    workspace: Workspace | null;
+    statuses: ProjectPathStatus[];
+    onConfirm: (projectIds: string[]) => void | Promise<void>;
+  };
   confirm: ConfirmDialogState;
 }
 
@@ -181,6 +189,7 @@ export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
     scan,
     gitClone,
     projectMigration,
+    missingProjects,
     confirm,
   } = props;
   // 现有分组名 → 新建弹窗分组输入的 datalist 补全
@@ -203,6 +212,14 @@ export default function WorkspaceDialogs(props: WorkspaceDialogsProps) {
         description={confirm.description}
         onConfirm={confirm.onConfirm}
         variant={confirm.variant}
+      />
+
+      <MissingProjectsCleanupDialog
+        open={missingProjects.open}
+        setOpen={missingProjects.setOpen}
+        workspace={missingProjects.workspace}
+        statuses={missingProjects.statuses}
+        onConfirm={missingProjects.onConfirm}
       />
 
       <Dialog open={newWorkspace.open} onOpenChange={newWorkspace.setOpen}>

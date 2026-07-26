@@ -1085,6 +1085,7 @@ describe("attachSessionToAnchor", () => {
 
     const attached = usePanesStore.getState().attachSessionToAnchor({
       sessionId: "pty-1",
+      layoutId: "layout-1",
       tabId: tab.id,
       terminalPaneId: rootLeafId,
       expectedProjectPath: "D:\\work\\proj",
@@ -1103,7 +1104,9 @@ describe("attachSessionToAnchor", () => {
 
     const attached = usePanesStore.getState().attachSessionToAnchor({
       sessionId: "pty-1",
+      layoutId: "layout-1",
       tabId: tab.id,
+      terminalPaneId: tab.terminalRootPane?.id,
       expectedProjectPath: "D:\\work\\OTHER-PROJECT",
     });
 
@@ -1116,7 +1119,9 @@ describe("attachSessionToAnchor", () => {
 
     const attached = usePanesStore.getState().attachSessionToAnchor({
       sessionId: "pty-1",
+      layoutId: "layout-1",
       tabId: tab.id,
+      terminalPaneId: tab.terminalRootPane?.id,
       expectedProjectPath: "/mnt/d/work/proj",
     });
 
@@ -1135,7 +1140,9 @@ describe("attachSessionToAnchor", () => {
 
     const attached = usePanesStore.getState().attachSessionToAnchor({
       sessionId: "pty-new",
+      layoutId: "layout-1",
       tabId: tab.id,
+      terminalPaneId: tab.terminalRootPane?.id,
       expectedProjectPath: "D:\\work\\proj",
     });
 
@@ -1153,7 +1160,9 @@ describe("attachSessionToAnchor", () => {
 
     const attached = usePanesStore.getState().attachSessionToAnchor({
       sessionId: "pty-dup",
+      layoutId: "layout-1",
       tabId: tab.id,
+      terminalPaneId: tab.terminalRootPane?.id,
       expectedProjectPath: "D:\\work\\proj",
     });
 
@@ -1164,8 +1173,46 @@ describe("attachSessionToAnchor", () => {
     expect(
       usePanesStore.getState().attachSessionToAnchor({
         sessionId: "pty-1",
+        layoutId: "layout-1",
         tabId: "tab-does-not-exist",
+        terminalPaneId: "leaf-does-not-exist",
+        expectedProjectPath: "D:\\work\\proj",
       }),
     ).toBe(false);
+  });
+
+  it("缺 layoutId 或 terminalPaneId 的历史锚点只允许人工接管", () => {
+    const paneId = usePanesStore.getState().rootPane.id;
+    const tab = splitTerminalTab(paneId);
+    const terminalPaneId = tab.terminalRootPane?.id;
+
+    expect(usePanesStore.getState().attachSessionToAnchor({
+      sessionId: "pty-1",
+      tabId: tab.id,
+      terminalPaneId,
+      expectedProjectPath: tab.projectPath,
+    })).toBe(false);
+    expect(usePanesStore.getState().attachSessionToAnchor({
+      sessionId: "pty-1",
+      layoutId: "layout-1",
+      tabId: tab.id,
+      expectedProjectPath: tab.projectPath,
+    })).toBe(false);
+  });
+
+  it("租约丢失后把引用该 session 的 leaf 持久标成只读", () => {
+    const paneId = usePanesStore.getState().rootPane.id;
+    usePanesStore.getState().addTab(paneId, {
+      projectId: "proj-1",
+      projectPath: "D:\\work\\proj",
+      sessionId: "pty-readonly",
+    });
+
+    usePanesStore.getState().setSessionLeaseReadOnly("pty-readonly", true);
+
+    const pane = usePanesStore.getState().rootPane as Panel;
+    const tab = pane.tabs.find((item) => item.sessionId === "pty-readonly")!;
+    expect(tab.terminalRootPane?.type === "leaf" && tab.terminalRootPane.leaseReadOnly).toBe(true);
+    expect(tab.leaseReadOnly).toBe(true);
   });
 });

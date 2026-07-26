@@ -77,9 +77,12 @@ pub fn get_ai_panel_content(
 #[tauri::command]
 pub fn delete_ai_panel(
     repo: State<'_, Arc<AiPanelRepository>>,
+    orchestrator: State<'_, Arc<OrchestratorService>>,
     panel_id: String,
 ) -> AppResult<bool> {
-    repo.delete(&panel_id).map_err(AppError::from)
+    orchestrator
+        .delete_ai_panel(repo.inner().as_ref(), &panel_id)
+        .map_err(AppError::from)
 }
 
 /// 记录 sandbox iframe 经宿主白名单校验后的用户操作事件。

@@ -12,6 +12,17 @@
   "restoreQueuedHint": "Waiting for another terminal to finish launching...",
   "restoreFailed": "Restore failed",
   "restoreFailedHint": "Check the terminal output for details",
+  "restoreBlockedTitle": "Session restore blocked",
+  "restoreBlocked": {
+    "claims-unsupported": "This terminal backend cannot negotiate safe claims. Automatic recreation was stopped.",
+    "reconciliation-failed": "Daemon session ownership could not be verified. Automatic recreation was stopped.",
+    "missing-provenance": "This session lacks complete birth evidence and can only be adopted manually.",
+    "identity-mismatch": "The session identity or runtime does not match this terminal leaf.",
+    "ambiguous-candidates": "Multiple live sessions match this terminal leaf, so none was selected automatically.",
+    "claim-conflict": "Another CC-Panes instance currently owns this session.",
+    "auto-adopt-disabled": "Automatic adoption is disabled. The session can be adopted from the resource manager."
+  },
+  "terminalLeaseReadOnly": "Read-only: another CC-Panes instance owns the write lease",
   "waitingToRestore": "Waiting to restore",
   "waitingToRestoreHint": "Select this tab to start its saved session",
   "backToTerminal": "Back to Terminal",

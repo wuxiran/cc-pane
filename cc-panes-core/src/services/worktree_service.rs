@@ -47,7 +47,15 @@ impl WorktreeService {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        self.parse_worktree_list(&stdout, repo_root.to_string_lossy().as_ref())
+        // `git worktree list` always emits the primary worktree first. The discovered
+        // repo root is the current linked worktree when this method is called from one,
+        // so it cannot be used to decide which entry owns the repository.
+        let main_path = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("worktree "))
+            .map(str::to_owned)
+            .unwrap_or_else(|| repo_root.to_string_lossy().into_owned());
+        self.parse_worktree_list(&stdout, &main_path)
     }
 
     /// 解析 worktree 列表输出
@@ -509,6 +517,32 @@ mod tests {
         let list = svc.list_worktrees(&repo).unwrap();
         assert_eq!(list.len(), 1);
         assert!(!PathBuf::from(&wt_path).exists());
+    }
+
+    #[test]
+    fn listing_from_linked_worktree_keeps_primary_worktree_as_main() {
+        let Some((_guard, repo)) = init_git_repo() else {
+            eprintln!("git unavailable, skipping integration test");
+            return;
+        };
+        let svc = WorktreeService::new();
+        let linked_path = svc
+            .add_worktree(&repo, "linked", Some("linked"))
+            .expect("linked worktree should be created");
+
+        let list = svc
+            .list_worktrees(&linked_path)
+            .expect("listing from a linked worktree should succeed");
+        let main_entries = list
+            .iter()
+            .filter(|worktree| worktree.is_main)
+            .collect::<Vec<_>>();
+
+        assert_eq!(main_entries.len(), 1, "exactly one worktree should be main");
+        assert!(paths_equivalent(&main_entries[0].path, &repo));
+        assert!(list.iter().any(|worktree| {
+            paths_equivalent(&worktree.path, &linked_path) && !worktree.is_main
+        }));
     }
 
     #[test]

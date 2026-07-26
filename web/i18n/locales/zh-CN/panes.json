@@ -12,6 +12,17 @@
   "restoreQueuedHint": "等待其他终端完成启动...",
   "restoreFailed": "恢复失败",
   "restoreFailedHint": "查看终端输出获取详情",
+  "restoreBlockedTitle": "会话恢复已阻断",
+  "restoreBlocked": {
+    "claims-unsupported": "当前终端后端不支持安全认领，已停止自动重建。",
+    "reconciliation-failed": "无法确认 daemon 会话归属，已停止自动重建。",
+    "missing-provenance": "会话缺少完整出生证据，只能在资源管理器中人工接管。",
+    "identity-mismatch": "会话身份或运行环境与当前分屏不一致，已拒绝自动接管。",
+    "ambiguous-candidates": "同一分屏存在多个活会话候选，无法安全自动选择。",
+    "claim-conflict": "会话正由另一个 CC-Panes 实例持有。",
+    "auto-adopt-disabled": "自动认领当前处于关闭状态，可在资源管理器中人工接管。"
+  },
+  "terminalLeaseReadOnly": "只读：写权限由另一个 CC-Panes 实例持有",
   "waitingToRestore": "等待恢复",
   "waitingToRestoreHint": "切换到此标签后启动保存的会话",
   "backToTerminal": "返回终端",

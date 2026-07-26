@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.3 - 2026-07-26
+
+### Added
+
+- **AI panel delivery and history.** `open_ai_panel` can request auto/dialog/dock/silent display and now returns a frontend delivery receipt instead of treating backend creation as visible success. Panels persist in SQLite, group by workspace, retain archived history without eagerly loading large bodies, and can be safely claimed by a later session; claim ownership uses compare-and-swap semantics and the per-session panel limit is enforced during both creation and adoption.
+- **Launch-profile automation controls.** The MCP surface now supports launch-profile management, while Settings adds an explicit authorization switch for MCP-created YOLO profiles. The switch is isolated from ordinary profile editing and defaults to the conservative path.
+- **Worktree project hygiene.** Sidebar projects from the same Git worktree family are grouped under their main repository. Missing paths are detected with a present/missing/unverifiable three-state check, visibly marked, and removable through a confirmation flow that only deletes workspace records. Removing a worktree also cleans matching project registrations across workspaces.
+
+### Fixed
+
+- **Fail-closed terminal restoration across app instances.** A claim-capable daemon now exposes an atomic adoption snapshot containing generation, birth nonce, source layout/tab/leaf, runtime identity, active claims, and live sessions. Startup reconciliation only reattaches a PTY when all provenance matches; ambiguity, version mismatch, stale ownership, or missing evidence blocks automatic recreation instead of launching duplicate `--resume` processes. A restore barrier also prevents foreground, background, and reconnect paths from racing reconciliation.
+- **Daemon write leases and manual adoption.** Write, submit, resize, and WebSocket input honor per-instance leases while output remains observable. Lost claims turn matching panes read-only, resource-manager adoption performs an atomic claim before attaching, stale leases receive one bounded post-TTL retry, and old daemons remain compatible without weakening capability detection.
+- **AI panel races.** Initial history-list failure no longer disables later panel events, closing a panel cannot race with claiming and resurrect its database row, and exited sessions no longer count as active owners.
+- **Cross-platform project health.** Windows-hosted paths stored as `/mnt/<drive>/...` are repaired before existence checks, preventing valid WSL-form paths from being marked missing on Windows.
+- **Terminal compatibility.** OSC color-query handling can suppress opaque palette replies when wallpaper transparency and CLI behavior require it, while retaining normal replies for other terminals.
+
+### Changed
+
+- **Layout status density.** Comfortable layout tabs use a two-line identity area plus a 2x2 status summary; compact tabs retain the single status indicator.
+- Large terminal, resource-manager, service, and panes-store modules were split along existing responsibilities, and their source-size ratchets were tightened.
+
 ## 0.11.2 - 2026-07-26
 
 ### Added — session history (unified local transcript index)

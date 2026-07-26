@@ -105,12 +105,17 @@ export function useAiPanelListener(): void {
         return;
       }
 
-      const panels = await aiPanelService.list();
+      try {
+        const panels = await aiPanelService.list();
+        if (cancelled) return;
+        useAiPanelStore.getState().hydrate(panels);
+      } catch (error) {
+        console.warn("[AiPanel] initial panel list failed:", error);
+      }
       if (cancelled) return;
-      useAiPanelStore.getState().hydrate(panels);
       refreshAiPanelHistory();
-      pending.forEach(applyAiPanelChange);
       ready = true;
+      pending.splice(0).forEach(applyAiPanelChange);
     })();
 
     return () => {

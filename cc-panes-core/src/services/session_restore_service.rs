@@ -1,5 +1,7 @@
 use crate::models::workspace_snapshot::WorkspaceSnapshotSummary;
-use crate::models::{SavedSession, WorkspaceSnapshot, WorkspaceSnapshotEntry};
+use crate::models::{
+    SavedSession, TerminalSessionProvenance, WorkspaceSnapshot, WorkspaceSnapshotEntry,
+};
 use crate::repository::{Database, SessionRestoreRepository};
 use crate::utils::AppPaths;
 use std::collections::BTreeMap;
@@ -51,6 +53,35 @@ impl SessionRestoreService {
     /// 清空所有会话元数据
     pub fn clear_sessions(&self) -> Result<(), String> {
         self.repo.clear_sessions()
+    }
+
+    pub fn save_provenance(&self, provenance: &TerminalSessionProvenance) -> Result<(), String> {
+        self.repo.save_provenance(provenance)
+    }
+
+    /// Persist the source leaf before returning a newly created session id. Unlike periodic saves,
+    /// this does not emit a workspace snapshot file.
+    pub fn save_initial_observation(&self, session: &SavedSession) -> Result<(), String> {
+        self.repo.save_sessions(std::slice::from_ref(session))
+    }
+
+    pub fn transfer_observation_owner(
+        &self,
+        session_id: &str,
+        owner_instance_id: &str,
+    ) -> Result<(), String> {
+        self.repo
+            .transfer_observation_owner(session_id, owner_instance_id)
+    }
+
+    pub fn prune_generation(
+        &self,
+        daemon_generation: u64,
+        captured_at_ms: u64,
+        live_session_ids: &[String],
+    ) -> Result<usize, String> {
+        self.repo
+            .prune_generation(daemon_generation, captured_at_ms, live_session_ids)
     }
 
     pub fn list_workspace_snapshots(
@@ -357,6 +388,10 @@ mod tests {
             layout_id: None,
             wsl_config: None,
             machine_name: None,
+            observer_instance_id: None,
+            daemon_generation: None,
+            birth_nonce: None,
+            origin_instance_id: None,
             project_path: "D:\\proj".to_string(),
             workspace_name: workspace_name.map(|s| s.to_string()),
             workspace_path: None,

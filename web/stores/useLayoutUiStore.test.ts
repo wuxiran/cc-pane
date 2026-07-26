@@ -8,6 +8,7 @@ describe("useLayoutUiStore", () => {
       switcherMode: "corner",
       layoutBarDensity: "comfortable",
       collapsedWorkspaceGroups: [],
+      expandedWorktreeGroups: [],
     });
     await useLayoutUiStore.persist.rehydrate();
   });
@@ -40,5 +41,27 @@ describe("useLayoutUiStore", () => {
 
     useLayoutUiStore.getState().toggleWorkspaceGroup("Backend");
     expect(useLayoutUiStore.getState().collapsedWorkspaceGroups).toEqual([]);
+  });
+
+  // 存「展开」而非「折叠」：默认收起是这个功能的诉求，空数组必须等于全部收起
+  it("worktree 分组默认全部收起", () => {
+    expect(useLayoutUiStore.getInitialState().expandedWorktreeGroups).toEqual([]);
+  });
+
+  it("切换 worktree 分组展开状态并持久化", () => {
+    useLayoutUiStore.getState().toggleWorktreeGroup("d:\\repo");
+
+    expect(useLayoutUiStore.getState().expandedWorktreeGroups).toEqual(["d:\\repo"]);
+    expect(JSON.parse(localStorage.getItem(LAYOUT_UI_STORAGE_KEY) ?? "null")).toMatchObject({
+      state: { expandedWorktreeGroups: ["d:\\repo"] },
+    });
+
+    useLayoutUiStore.getState().toggleWorktreeGroup("d:\\repo");
+    expect(useLayoutUiStore.getState().expandedWorktreeGroups).toEqual([]);
+  });
+
+  it("空 repoKey 不写入展开列表", () => {
+    useLayoutUiStore.getState().toggleWorktreeGroup("   ");
+    expect(useLayoutUiStore.getState().expandedWorktreeGroups).toEqual([]);
   });
 });

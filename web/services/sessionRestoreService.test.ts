@@ -77,4 +77,19 @@ describe("sessionRestoreService", () => {
       });
     });
   });
+
+  describe("prune", () => {
+    it("只把完整 daemon generation 快照交给后端剪枝", async () => {
+      mockTauriInvoke({ prune_terminal_sessions: 3 });
+
+      const deleted = await sessionRestoreService.prune(42, 1234, ["s-1", "s-2"]);
+
+      expect(invoke).toHaveBeenCalledWith("prune_terminal_sessions", {
+        daemonGeneration: 42,
+        capturedAtMs: 1234,
+        liveSessionIds: ["s-1", "s-2"],
+      });
+      expect(deleted).toBe(3);
+    });
+  });
 });

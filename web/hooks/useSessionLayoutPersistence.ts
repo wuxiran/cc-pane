@@ -1,21 +1,28 @@
 // 布局快照持久化 + 跨端布局同步（从 App.tsx 原样搬出，勿在此做行为改动）。
 // 两个 hook 共享模块级状态（lastSeenLayoutSnapshotSavedAt / suppressLayoutSnapshotSaveUntil），
 // 必须保持模块级单例，不要把它们改成 hook 内部 state。
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePanesStore, useSettingsStore, useWorkspacesStore } from "@/stores";
-import { sessionRestoreService, layoutSnapshotService } from "@/services";
+import { sessionRestoreService, layoutSnapshotService, terminalService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime, resolveRuntimeKind } from "@/utils/desktopRuntime";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import {
-  adoptUnownedDaemonSessions,
-  restoreLiveDaemonSessionsFromBackend,
+  reconcileTerminalSessions,
   runBackgroundLayoutRestore,
 } from "@/hooks/useTerminalSessionRestore";
+import {
+  beginTerminalRestoreBarrier,
+  finishTerminalRestoreBarrier,
+  waitForTerminalRestoreBarrier,
+} from "@/services/terminalRestoreBarrier";
 import type { LayoutSnapshotPayload, SavedSession, Workspace } from "@/types";
 
 let lastSeenLayoutSnapshotSavedAt = "";
 let suppressLayoutSnapshotSaveUntil = 0;
+// daemon 默认写租约是 30 秒。应用崩溃后立即重启时，首轮会看见上一进程的有效租约；
+// 屏障先阻止重复建 PTY，再在租约自然过期后补一次自动认领。
+const STARTUP_ADOPTION_RETRY_MS = 31_000;
 
 function currentLayoutProfileId(): string {
   return "default";
@@ -75,6 +82,7 @@ export function collectRestorableSessions(): SavedSession[] {
   const tabs = usePanesStore.getState().getRestorableTabs();
   const now = new Date().toISOString();
   const sessions: SavedSession[] = [];
+  const observerInstanceId = terminalService.getCachedDaemonClientInfo()?.instanceId;
 
   for (const { tab, paneId, layoutId } of tabs) {
     if (tab.contentType !== "terminal" || !tab.projectPath) continue;
@@ -105,6 +113,7 @@ export function collectRestorableSessions(): SavedSession[] {
         sshConfig: ssh ? JSON.stringify(ssh) : undefined,
         wslConfig: wsl ? JSON.stringify(wsl) : undefined,
         machineName: leaf.machineName ?? tab.machineName,
+        observerInstanceId,
         customTitle: tab.title,
         createdAt: now,
         savedAt: now,
@@ -114,6 +123,62 @@ export function collectRestorableSessions(): SavedSession[] {
   }
 
   return sessions;
+}
+
+/**
+ * Complete one generation-consistent reconciliation before AppShell mounts. The barrier is also
+ * awaited inside terminalService.createSession, covering launches triggered by global listeners.
+ */
+export function useStartupTerminalRestoreBarrier(): boolean {
+  const [ready, setReady] = useState(false);
+  const activated = useRef(false);
+  if (!activated.current) {
+    beginTerminalRestoreBarrier();
+    activated.current = true;
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    let adoptionRetryTimer: ReturnType<typeof setTimeout> | undefined;
+    void (async () => {
+      try {
+        const runtimeReady = await waitForDesktopRuntime();
+        if (isTauriRuntime() && !runtimeReady) return;
+        await applySharedLayoutSnapshot().catch((error) => {
+          console.warn("[LayoutSnapshot] Failed to apply before terminal reconciliation:", error);
+          return false;
+        });
+        const autoAdopt = Boolean(
+          useSettingsStore.getState().settings?.terminal.autoAdoptDaemonSessions,
+        );
+        const report = await reconcileTerminalSessions({ autoAdopt });
+        if (autoAdopt && report.blocked > 0 && !cancelled) {
+          adoptionRetryTimer = setTimeout(() => {
+            if (cancelled) return;
+            void reconcileTerminalSessions({ autoAdopt: true })
+              .then(() => runBackgroundLayoutRestore())
+              .catch((error) => {
+                console.warn("[SessionRestore] Delayed adoption retry failed:", error);
+              });
+          }, STARTUP_ADOPTION_RETRY_MS);
+        }
+      } catch (error) {
+        console.warn("[SessionRestore] Startup reconciliation failed closed:", error);
+      } finally {
+        finishTerminalRestoreBarrier();
+        if (!cancelled) {
+          setReady(true);
+          setTimeout(() => void runBackgroundLayoutRestore(), 0);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (adoptionRetryTimer) clearTimeout(adoptionRetryTimer);
+    };
+  }, []);
+
+  return ready;
 }
 
 export function useSessionLayoutPersistence(): void {
@@ -197,46 +262,20 @@ export function useSharedLayoutSnapshotSync(): void {
     let layoutPoll: ReturnType<typeof setInterval> | undefined;
     waitForDesktopRuntime().then(async (ready) => {
       if (cancelled || (isTauriRuntime() && !ready)) return;
-      await applySharedLayoutSnapshot().catch((error) => {
-        console.warn("[LayoutSnapshot] Failed to apply shared layout:", error);
-        return false;
-      });
+      await waitForTerminalRestoreBarrier();
       if (cancelled) return;
       layoutPoll = setInterval(() => {
         applySharedLayoutSnapshot().then((applied) => {
           if (!applied) return;
-          return restoreLiveDaemonSessionsFromBackend();
+          return reconcileTerminalSessions({
+            autoAdopt: Boolean(
+              useSettingsStore.getState().settings?.terminal.autoAdoptDaemonSessions,
+            ),
+          }).then(() => runBackgroundLayoutRestore());
         }).catch((error) => {
           console.warn("[LayoutSnapshot] Failed to poll shared layout:", error);
         });
       }, 5_000);
-      restoreLiveDaemonSessionsFromBackend()
-        .then((restored) => {
-          if (cancelled) return;
-          if (restored > 0) {
-            console.info(`[SessionRestore] Reattached ${restored} live daemon session(s)`);
-          }
-        })
-        .catch((error) => {
-          console.warn("[SessionRestore] Failed to restore live daemon sessions:", error);
-        });
-      // 当前布局恢复发起后，稍等再后台逐步恢复其他布局（活跃布局优先，共享队列自然排在其后）。
-      setTimeout(() => {
-        if (cancelled) return;
-        // 认领轮必须跑在重建之前：runBackgroundLayoutRestore 只看 `!tab.sessionId`，
-        // 先挂回去，它才不会把仍活着的会话再建一遍（docs/61 阶段 3）。
-        void (async () => {
-          if (useSettingsStore.getState().settings?.terminal.autoAdoptDaemonSessions) {
-            try {
-              await adoptUnownedDaemonSessions();
-            } catch (error) {
-              console.warn("[SessionAdopt] adoption round failed:", error);
-            }
-          }
-          if (cancelled) return;
-          await runBackgroundLayoutRestore();
-        })();
-      }, 3_000);
     });
     return () => {
       cancelled = true;

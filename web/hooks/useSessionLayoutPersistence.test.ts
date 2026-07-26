@@ -1,21 +1,35 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { collectRestorableSessions, useSessionLayoutPersistence } from "./useSessionLayoutPersistence";
-import { sessionRestoreService } from "@/services";
+import {
+  collectRestorableSessions,
+  useSessionLayoutPersistence,
+  useStartupTerminalRestoreBarrier,
+} from "./useSessionLayoutPersistence";
+import { sessionRestoreService, terminalService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime } from "@/utils/desktopRuntime";
 import { usePanesStore } from "@/stores";
+import {
+  reconcileTerminalSessions,
+  runBackgroundLayoutRestore,
+} from "@/hooks/useTerminalSessionRestore";
 
 vi.mock("@/stores", () => ({
   usePanesStore: { getState: vi.fn() },
   useWorkspacesStore: {
     getState: vi.fn(() => ({ selectedWorkspace: () => null })),
   },
+  useSettingsStore: {
+    getState: vi.fn(() => ({
+      settings: { terminal: { autoAdoptDaemonSessions: true } },
+    })),
+  },
 }));
 
 vi.mock("@/services", () => ({
   sessionRestoreService: { save: vi.fn() },
   layoutSnapshotService: { save: vi.fn(), load: vi.fn() },
+  terminalService: { getCachedDaemonClientInfo: vi.fn(() => null) },
 }));
 
 vi.mock("@/services/runtime", () => ({
@@ -31,8 +45,42 @@ vi.mock("@/utils/desktopRuntime", async (importOriginal) => ({
 
 vi.mock("@/hooks/useTerminalSessionRestore", () => ({
   restoreLiveDaemonSessionsFromBackend: vi.fn(async () => 0),
+  reconcileTerminalSessions: vi.fn(async () => ({ attached: 0, blocked: 0, skipped: 0 })),
   runBackgroundLayoutRestore: vi.fn(async () => {}),
 }));
+
+describe("useStartupTerminalRestoreBarrier", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.mocked(isTauriRuntime).mockReturnValue(true);
+    vi.mocked(waitForDesktopRuntime).mockResolvedValue(true);
+  });
+
+  it("retries blocked adoption once after the default daemon lease expires", async () => {
+    vi.mocked(reconcileTerminalSessions)
+      .mockResolvedValueOnce({ attached: 0, blocked: 1, skipped: 0 })
+      .mockResolvedValueOnce({ attached: 1, blocked: 0, skipped: 0 });
+
+    const { result, unmount } = renderHook(() => useStartupTerminalRestoreBarrier());
+
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current).toBe(true);
+    await act(() => vi.advanceTimersByTimeAsync(30_999));
+    expect(reconcileTerminalSessions).toHaveBeenCalledTimes(1);
+
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(reconcileTerminalSessions).toHaveBeenCalledTimes(2);
+    expect(reconcileTerminalSessions).toHaveBeenLastCalledWith({ autoAdopt: true });
+    expect(runBackgroundLayoutRestore).toHaveBeenCalledTimes(2);
+
+    unmount();
+    vi.useRealTimers();
+  });
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -237,5 +285,26 @@ describe("collectRestorableSessions", () => {
     const [row] = collectRestorableSessions();
     expect(row.runtimeKind).toBe("wsl");
     expect(JSON.parse(row.wslConfig!)).toEqual({ distro: "Ubuntu", remotePath: "/mnt/d/proj" });
+  });
+
+  it("周期观察写入当前 app instance，避免其他实例覆盖锚点", () => {
+    vi.mocked(terminalService.getCachedDaemonClientInfo).mockReturnValue({
+      mode: "daemon",
+      claimsSupported: true,
+      instanceId: "app-current",
+    });
+    mockTabs([{
+      tab: {
+        id: "t-owner",
+        title: "owned",
+        contentType: "terminal",
+        projectPath: "/p1",
+        terminalRootPane: { type: "leaf", id: "leaf-owner", sessionId: "pty-owner" },
+      },
+      paneId: "pane-1",
+      layoutId: "layout-1",
+    }]);
+
+    expect(collectRestorableSessions()[0].observerInstanceId).toBe("app-current");
   });
 });

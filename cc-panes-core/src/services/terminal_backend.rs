@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::models::{CreateSessionRequest, TerminalReplaySnapshot};
+use serde::{Deserialize, Serialize};
+
+use crate::models::{CreateSessionRequest, TerminalReplaySnapshot, TerminalSessionProvenance};
 use crate::services::daemon_client::TerminalDaemonClient;
 use crate::services::terminal_service::KillReason;
 use crate::services::terminal_service::SessionOutput;
@@ -9,6 +11,29 @@ use crate::services::terminal_service::TerminalService;
 use crate::services::SessionStatusInfo;
 use crate::utils::error::AppError;
 use crate::utils::AppResult;
+
+/// One generation-consistent daemon snapshot used by startup reconciliation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalAdoptionSnapshot {
+    pub claims_supported: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_generation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_instance_id: Option<String>,
+    pub captured_at_ms: u64,
+    pub complete: bool,
+    pub sessions: Vec<SessionStatusInfo>,
+    pub claims: std::collections::HashMap<String, String>,
+    pub provenance: std::collections::HashMap<String, TerminalSessionProvenance>,
+}
+
+fn current_epoch_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Backend boundary for terminal session operations.
 ///
@@ -53,6 +78,51 @@ pub trait TerminalBackend: Send + Sync {
     fn event_stream_url(&self, _session_id: &str) -> Option<String> {
         None
     }
+
+    /// 接管一条已存在的会话：**必须先拿到写权限才算接管成功**（docs/61 评审 #1）。
+    ///
+    /// 返回 `Ok(false)` = 被别的实例持有或会话已消失，调用方应保持只读、不要挂 leaf。
+    /// 默认实现返回 `true`：进程内后端不存在跨实例竞争。
+    fn adopt_session(&self, _session_id: &str) -> AppResult<bool> {
+        Ok(true)
+    }
+
+    /// 放弃写权限但**不杀 PTY**（detach）。默认 no-op。
+    fn release_session(&self, _session_id: &str) -> AppResult<()> {
+        Ok(())
+    }
+
+    /// 当前所有有效租约：sessionId → ownerInstanceId。默认空表。
+    fn session_claims(&self) -> AppResult<std::collections::HashMap<String, String>> {
+        Ok(std::collections::HashMap::new())
+    }
+
+    /// 后端所连 daemon 是否真的做写权限裁决。
+    /// **默认 false（fail-closed）**：不确定就不要开自动接管（评审 #11）。
+    fn claims_supported(&self) -> bool {
+        false
+    }
+
+    /// Complete adoption snapshot. Non-daemon backends expose statuses but no ownership facts.
+    fn adoption_snapshot(&self) -> AppResult<TerminalAdoptionSnapshot> {
+        Ok(TerminalAdoptionSnapshot {
+            claims_supported: false,
+            daemon_generation: None,
+            owner_instance_id: None,
+            captured_at_ms: current_epoch_millis(),
+            complete: true,
+            sessions: self.get_all_status()?,
+            claims: std::collections::HashMap::new(),
+            provenance: std::collections::HashMap::new(),
+        })
+    }
+
+    fn session_provenance(
+        &self,
+        _session_id: &str,
+    ) -> AppResult<Option<TerminalSessionProvenance>> {
+        Ok(None)
+    }
 }
 
 #[derive(Clone)]
@@ -62,6 +132,30 @@ pub struct InProcessTerminalBackend {
 
 /// 续租间隔：取 daemon 侧 TTL(30s) 的三分之一，容忍两次连续失败仍不掉租。
 const CLAIM_RENEW_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+/// 续租并发度。逐条同步续租撑不住规模：实测一个 daemon 可带 60+ 会话，
+/// 单请求超时 2s，串行一轮最坏 120s，远超 30s TTL —— 租约会自己掉，
+/// 然后被别的实例接手（docs/61 评审 #3）。
+const CLAIM_RENEW_CONCURRENCY: usize = 16;
+/// 一轮续租的总预算。超出即放弃本轮剩余项，等下一轮，
+/// 避免慢 daemon 让续租线程无限堆积。
+const CLAIM_RENEW_ROUND_BUDGET: std::time::Duration = std::time::Duration::from_secs(18);
+
+/// 丢租通知钩子。续租线程跑在后台，丢租若只写日志，用户会遇到"这个终端突然
+/// 打不了字了"而毫无解释（docs/61 评审 #3/#9）。宿主（Tauri/web）注册回调后
+/// 可以把它转成事件推给前端，让 UI 切成持久只读态。
+pub type ClaimLostHook = Box<dyn Fn(&str) + Send + Sync>;
+static CLAIM_LOST_HOOK: std::sync::OnceLock<ClaimLostHook> = std::sync::OnceLock::new();
+
+/// 注册丢租回调。只允许注册一次（后续调用被忽略），避免多处覆盖导致通知丢失。
+pub fn set_claim_lost_hook(hook: ClaimLostHook) {
+    let _ = CLAIM_LOST_HOOK.set(hook);
+}
+
+fn report_claim_lost(session_id: &str) {
+    if let Some(hook) = CLAIM_LOST_HOOK.get() {
+        hook(session_id);
+    }
+}
 
 #[derive(Clone)]
 pub struct DaemonTerminalBackend {
@@ -71,7 +165,15 @@ pub struct DaemonTerminalBackend {
     ///
     /// 续租线程只持 `Weak`：本类型是 `Clone` 的，用 `Drop` 停线程会让任意一个克隆
     /// 析构就掐掉所有实例的续租。改成最后一个 backend 释放时 upgrade 失败自然退出。
-    owned_sessions: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    owned_sessions:
+        Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<OwnedSessionLease>>>>,
+}
+
+/// Per-session cancellation fence. Release and renewal serialize on this gate, so a renewal that
+/// already took a snapshot cannot re-claim the daemon lease after detach has completed.
+#[derive(Debug, Default)]
+struct OwnedSessionLease {
+    gate: std::sync::Mutex<()>,
 }
 
 impl InProcessTerminalBackend {
@@ -82,50 +184,98 @@ impl InProcessTerminalBackend {
 
 impl DaemonTerminalBackend {
     pub fn new(client: TerminalDaemonClient) -> Self {
-        let owned_sessions: Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
-            Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+        let owned_sessions = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
+            String,
+            Arc<OwnedSessionLease>,
+        >::new()));
         // 续租线程：租约是 TTL 制，不续就会过期，别的实例便可接手。
         // 单独起线程而不是挂在请求路径上——用户长时间不操作的会话同样要保住写权限。
         {
             let client = client.clone();
             let owned = Arc::downgrade(&owned_sessions);
-            std::thread::Builder::new()
+            if let Err(error) = std::thread::Builder::new()
                 .name("cc-panes-claim-renew".to_string())
                 .spawn(move || {
                     loop {
                         std::thread::sleep(CLAIM_RENEW_INTERVAL);
                         // 所有 backend 都已释放 → 退出，不再续租。
                         let Some(owned) = owned.upgrade() else { break };
-                        let sessions: Vec<String> = match owned.lock() {
-                            Ok(guard) => guard.iter().cloned().collect(),
+                        let sessions: Vec<(String, Arc<OwnedSessionLease>)> = match owned.lock() {
+                            Ok(guard) => guard
+                                .iter()
+                                .map(|(session_id, lease)| (session_id.clone(), lease.clone()))
+                                .collect(),
                             Err(_) => continue,
                         };
-                        for session_id in sessions {
-                            match client.claim_session(&session_id, None) {
-                                Ok(true) => {}
-                                Ok(false) => {
-                                    // 被别的实例接手了（通常是本实例曾长时间失联）。
-                                    // 不重试抢占：两个实例交替抢租约会让输入交错。
-                                    tracing::warn!(
-                                        session_id = %session_id,
-                                        "lost session write claim to another instance"
-                                    );
-                                    if let Ok(mut guard) = owned.lock() {
-                                        guard.remove(&session_id);
+                        let round_started = std::time::Instant::now();
+                        // 分批并发续租：批内并行、批间检查预算。
+                        for chunk in sessions.chunks(CLAIM_RENEW_CONCURRENCY) {
+                            if round_started.elapsed() >= CLAIM_RENEW_ROUND_BUDGET {
+                                tracing::warn!(
+                                    remaining = sessions.len(),
+                                    "claim renew round exceeded budget; deferring rest"
+                                );
+                                break;
+                            }
+                            let handles: Vec<_> = chunk
+                                .iter()
+                                .map(|(session_id, lease)| {
+                                    let client = client.clone();
+                                    let session_id = session_id.clone();
+                                    let lease = lease.clone();
+                                    let owned = owned.clone();
+                                    std::thread::spawn(move || {
+                                        let Ok(_gate) = lease.gate.lock() else {
+                                            return (session_id, None);
+                                        };
+                                        let still_owned = owned
+                                            .lock()
+                                            .ok()
+                                            .and_then(|guard| guard.get(&session_id).cloned())
+                                            .is_some_and(|current| Arc::ptr_eq(&current, &lease));
+                                        if !still_owned {
+                                            return (session_id, None);
+                                        }
+                                        let outcome = client.claim_session(&session_id, None);
+                                        (session_id, Some(outcome))
+                                    })
+                                })
+                                .collect();
+
+                            for handle in handles {
+                                let Ok((session_id, Some(outcome))) = handle.join() else {
+                                    continue;
+                                };
+                                match outcome {
+                                    Ok(true) => {}
+                                    Ok(false) => {
+                                        // 被别的实例接手, 或会话已消失。不重试抢占：
+                                        // 两个实例交替抢租约会让输入交错。
+                                        tracing::warn!(
+                                            session_id = %session_id,
+                                            "lost session write claim; dropping to read-only"
+                                        );
+                                        if let Ok(mut guard) = owned.lock() {
+                                            guard.remove(&session_id);
+                                        }
+                                        report_claim_lost(&session_id);
                                     }
-                                }
-                                Err(error) => {
-                                    tracing::debug!(
-                                        session_id = %session_id,
-                                        err = %error,
-                                        "claim renew failed; will retry next tick"
-                                    );
+                                    Err(error) => {
+                                        tracing::debug!(
+                                            session_id = %session_id,
+                                            err = %error,
+                                            "claim renew failed; will retry next tick"
+                                        );
+                                    }
                                 }
                             }
                         }
                     }
                 })
-                .ok();
+            {
+                tracing::error!(err = %error, "failed to start session claim renew thread");
+                report_claim_lost("");
+            }
         }
 
         Self {
@@ -134,32 +284,36 @@ impl DaemonTerminalBackend {
         }
     }
 
-    /// 接管一条已存在的会话：拿到写权限才算接管成功。
-    /// 被别的实例持有时返回 `false`，调用方应保持只读，不要抢。
-    pub fn adopt_session(&self, session_id: &str) -> AppResult<bool> {
-        let granted = self.client.claim_session(session_id, None)?;
-        if granted {
-            if let Ok(mut owned) = self.owned_sessions.lock() {
-                owned.insert(session_id.to_string());
+    fn remember_owned(&self, session_id: &str) {
+        if let Ok(mut owned) = self.owned_sessions.lock() {
+            owned
+                .entry(session_id.to_string())
+                .or_insert_with(|| Arc::new(OwnedSessionLease::default()));
+        }
+    }
+
+    fn release_owned(&self, session_id: &str) -> AppResult<()> {
+        let lease = self
+            .owned_sessions
+            .lock()
+            .ok()
+            .and_then(|owned| owned.get(session_id).cloned());
+        let Some(lease) = lease else {
+            return self.client.release_session_claim(session_id);
+        };
+        let _gate = lease
+            .gate
+            .lock()
+            .map_err(|_| AppError::from("session claim release lock poisoned"))?;
+        if let Ok(mut owned) = self.owned_sessions.lock() {
+            if owned
+                .get(session_id)
+                .is_some_and(|current| Arc::ptr_eq(current, &lease))
+            {
+                owned.remove(session_id);
             }
         }
-        Ok(granted)
-    }
-
-    /// 主动放弃写权限（detach 但不 kill PTY）——评审要求的回退路径。
-    pub fn release_session(&self, session_id: &str) -> AppResult<()> {
-        self.forget_owned(session_id);
         self.client.release_session_claim(session_id)
-    }
-
-    pub fn session_claims(&self) -> AppResult<std::collections::HashMap<String, String>> {
-        self.client.list_session_claims()
-    }
-
-    fn forget_owned(&self, session_id: &str) {
-        if let Ok(mut owned) = self.owned_sessions.lock() {
-            owned.remove(session_id);
-        }
     }
 }
 
@@ -337,9 +491,7 @@ impl TerminalBackend for DaemonTerminalBackend {
         // claim 失败不影响会话可用性（daemon 无租约时放行），所以只告警不回滚。
         match self.client.claim_session(&session_id, None) {
             Ok(true) => {
-                if let Ok(mut owned) = self.owned_sessions.lock() {
-                    owned.insert(session_id.clone());
-                }
+                self.remember_owned(&session_id);
             }
             Ok(false) => tracing::warn!(
                 session_id = %session_id,
@@ -367,12 +519,51 @@ impl TerminalBackend for DaemonTerminalBackend {
     }
 
     fn kill(&self, session_id: &str) -> AppResult<()> {
-        self.forget_owned(session_id);
-        self.client.kill_session(session_id)
+        let result = self.client.kill_session(session_id);
+        if result.is_ok() {
+            if let Ok(mut owned) = self.owned_sessions.lock() {
+                owned.remove(session_id);
+            }
+        }
+        result
+    }
+
+    fn adopt_session(&self, session_id: &str) -> AppResult<bool> {
+        let granted = self.client.claim_session(session_id, None)?;
+        if granted {
+            self.remember_owned(session_id);
+        }
+        Ok(granted)
+    }
+
+    fn release_session(&self, session_id: &str) -> AppResult<()> {
+        self.release_owned(session_id)
+    }
+
+    fn session_claims(&self) -> AppResult<std::collections::HashMap<String, String>> {
+        self.client.list_session_claims()
+    }
+
+    fn claims_supported(&self) -> bool {
+        self.client.claims_supported()
+    }
+
+    fn adoption_snapshot(&self) -> AppResult<TerminalAdoptionSnapshot> {
+        self.client.adoption_snapshot()
+    }
+
+    fn session_provenance(&self, session_id: &str) -> AppResult<Option<TerminalSessionProvenance>> {
+        self.client.get_session_provenance(session_id)
     }
 
     fn kill_with_reason(&self, session_id: &str, reason: KillReason) -> AppResult<()> {
-        self.client.kill_session_with_reason(session_id, reason)
+        let result = self.client.kill_session_with_reason(session_id, reason);
+        if result.is_ok() {
+            if let Ok(mut owned) = self.owned_sessions.lock() {
+                owned.remove(session_id);
+            }
+        }
+        result
     }
 
     fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
@@ -474,6 +665,9 @@ mod tests {
             launch_profile_id: None,
             workspace_path: None,
             workspace_snapshot_id: None,
+            origin_layout_id: None,
+            origin_tab_id: None,
+            origin_terminal_pane_id: None,
             launch_claude: false,
             cli_tool: CliTool::None,
             resume_id: None,

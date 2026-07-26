@@ -5,8 +5,10 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   TERMINAL_LAYOUT_CHANGED_EVENT,
+  usePanesStore,
   useSettingsStore,
   useTerminalStatusStore,
+  useWallpaperStore,
 } from "@/stores";
 import { historyService, sessionRestoreService, terminalService } from "@/services";
 import { createTerminalRendererController } from "./terminalRendererController";
@@ -38,7 +40,10 @@ const MockXterm = vi.hoisted(() => class MockXterm {
   unicode = { activeVersion: "6" };
   parser = {
     registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
-    registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
+    registerOscHandler: vi.fn((
+      _ident: number,
+      _handler: (data: string) => boolean,
+    ) => ({ dispose: vi.fn() })),
   };
   writtenLines: string[] = [];
   writtenData: string[] = [];
@@ -160,6 +165,10 @@ vi.mock("@tauri-apps/plugin-log", () => ({
   info: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/services/terminalRestoreBarrier", () => ({
+  waitForTerminalRestoreBarrier: vi.fn().mockResolvedValue(undefined),
+}));
+
 /* ------------------------------------------------------------------ */
 /* service mocks                                                       */
 /* ------------------------------------------------------------------ */
@@ -177,6 +186,7 @@ vi.mock("@/services/terminalService", () => ({
     resize: vi.fn(),
     write: vi.fn().mockResolvedValue(undefined),
     killSession: vi.fn().mockResolvedValue(undefined),
+    releaseSession: vi.fn().mockResolvedValue(undefined),
     getReplaySnapshot: vi.fn().mockResolvedValue(null),
     getAllStatus: vi.fn().mockResolvedValue([]),
   },
@@ -240,8 +250,10 @@ describe("TerminalView", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     MockXterm.instances = [];
     createSession.mockResolvedValue("new-session-1" as never);
+    usePanesStore.setState({ canCreateTerminalSession: () => true } as never);
     useSettingsStore.setState({ settings: undefined } as never);
     useTerminalStatusStore.setState({ statusMap: new Map() } as never);
+    useWallpaperStore.setState({ resolved: null, assetUrl: null });
   });
 
   afterEach(() => {
@@ -512,6 +524,31 @@ describe("TerminalView", () => {
     expect(term.options.cursorStyle).toBe("bar");
     expect(term.options.cursorBlink).toBe(true);
     expect(term.options.scrollback).toBe(5000);
+  });
+
+  it("swallows Codex background color queries after wallpaper transparency is enabled", async () => {
+    renderTerminalView({ cliTool: "codex" });
+    const term = await lastTerm();
+    await waitFor(() => expect(term.parser.registerOscHandler).toHaveBeenCalledTimes(3));
+    const backgroundHandler = term.parser.registerOscHandler.mock.calls.find(
+      ([ident]) => ident === 11,
+    )?.[1] as ((data: string) => boolean) | undefined;
+    expect(backgroundHandler).toBeDefined();
+
+    act(() => {
+      useWallpaperStore.setState({
+        resolved: { terminalOpacity: 0.5 } as never,
+        assetUrl: "asset://wallpaper",
+      });
+    });
+    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
+      "new-session-1",
+      expect.any(Function),
+    ));
+    writeToSession.mockClear();
+
+    expect(backgroundHandler?.("?")).toBe(true);
+    expect(writeToSession).not.toHaveBeenCalled();
   });
 
   it("terminal context menu drives select-all, clear and copy-buffer", async () => {

@@ -5,11 +5,33 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore"
 
 function ContextMenu({
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
+  const blockerId = React.useId()
+  const openRef = React.useRef(false)
+  const setBlocked = useBrowserWebviewOverlayStore((state) => state.setBlocked)
+
+  const handleOpenChange = React.useCallback((open: boolean) => {
+    openRef.current = open
+    setBlocked(blockerId, open)
+    onOpenChange?.(open)
+  }, [blockerId, onOpenChange, setBlocked])
+
+  React.useEffect(() => () => {
+    if (openRef.current) setBlocked(blockerId, false)
+  }, [blockerId, setBlocked])
+
+  return (
+    <ContextMenuPrimitive.Root
+      data-slot="context-menu"
+      onOpenChange={handleOpenChange}
+      {...props}
+    />
+  )
 }
 
 function ContextMenuTrigger({

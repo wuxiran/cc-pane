@@ -30,8 +30,8 @@ import { useLayoutUiStore } from "@/stores/useLayoutUiStore";
 import {
   filterWorkspaces,
   normalizedWorkspaceGroup,
+  UNGROUPED_WORKSPACE_FILTER,
 } from "@/stores/useWorkspacesStore";
-import { worktreeService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import WorktreeManager from "@/components/WorktreeManager";
 import { useWorkspaceActions } from "./useWorkspaceActions";
@@ -190,6 +190,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
     () => partitionWorkspaces(visibleWorkspaces),
     [visibleWorkspaces],
   );
+  const ungroupedCollapsed = collapsedWorkspaceGroups.includes(UNGROUPED_WORKSPACE_FILTER);
   const filterActive = workspaceFilter.query.trim() !== ""
     || workspaceFilter.colors.length > 0
     || workspaceFilter.group != null;
@@ -284,8 +285,11 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
         projects={ws.projects}
         ws={ws}
         gitBranches={actions.gitBranches}
+        worktreeCache={actions.worktreeCache}
+        projectPathStatus={actions.projectPathStatus}
         onOpenTerminal={onOpenTerminal}
         onRemoveProject={actions.handleRemoveProject}
+        onCleanupMissingProjects={actions.handleCleanupMissingProjects}
         onSetProjectAlias={actions.handleSetAlias}
         onImportProject={actions.handleImportProject}
         onMigrateProject={actions.handleMigrateProject}
@@ -293,6 +297,17 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
         onOpenInFileBrowser={handleOpenInFileBrowser}
       />
     </SortableWorkspaceItem>
+  );
+
+  // 分组成员统一缩进一格 + 左侧竖向引导线，避免与顶层（未分组）工作空间混成一片
+  const renderGroupMembers = (members: Workspace[]) => (
+    <div className="relative flex flex-col gap-1 pl-3">
+      <span
+        aria-hidden="true"
+        className="absolute left-[15px] top-0.5 bottom-0.5 w-px bg-[var(--app-border)]"
+      />
+      {members.map(renderWorkspace)}
+    </div>
   );
 
   return (
@@ -378,11 +393,24 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
                     collapsed={groupCollapsed}
                     onToggle={() => toggleWorkspaceGroup(group)}
                   />
-                  {!groupCollapsed ? members.map(renderWorkspace) : null}
+                  {!groupCollapsed ? renderGroupMembers(members) : null}
                 </Fragment>
               );
             })}
-            {partition.ungrouped.map(renderWorkspace)}
+            {/* 存在分组时，未分组项必须有自己的头——否则视觉上会被吸进上一个分组 */}
+            {partition.groups.length > 0 && partition.ungrouped.length > 0 ? (
+              <>
+                <WorkspaceGroupHeader
+                  group={t("ungrouped")}
+                  count={partition.ungrouped.length}
+                  collapsed={ungroupedCollapsed}
+                  onToggle={() => toggleWorkspaceGroup(UNGROUPED_WORKSPACE_FILTER)}
+                />
+                {!ungroupedCollapsed ? renderGroupMembers(partition.ungrouped) : null}
+              </>
+            ) : (
+              partition.ungrouped.map(renderWorkspace)
+            )}
 
             {workspaces.length === 0 && (
               <EmptyState
@@ -425,11 +453,18 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
         open={worktreeManagerOpen}
         onOpenChange={(open) => {
           setWorktreeManagerOpen(open);
+          // 关闭时让缓存失效，下次展开重新探测——否则侧边栏的 worktree 分组保持陈旧
           if (!open && worktreeManagerProjectPath) {
-            worktreeService.list(worktreeManagerProjectPath).catch(() => {});
+            actions.invalidateWorktrees(worktreeManagerProjectPath);
           }
         }}
         projectPath={worktreeManagerProjectPath}
+        onWorktreeRemoved={actions.handleWorktreeRemoved}
+        onWorktreesChanged={() => {
+          if (worktreeManagerProjectPath) {
+            actions.invalidateWorktrees(worktreeManagerProjectPath);
+          }
+        }}
         onOpenWorktree={(path) => onOpenTerminal({ path, workspaceName: worktreeManagerWs?.name, workspacePath: worktreeManagerWs?.path })}
       />
     </>

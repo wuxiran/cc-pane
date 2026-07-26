@@ -7,7 +7,7 @@ import { useWorkspaceActions } from "./useWorkspaceActions";
 import { useWorkspacesStore, usePanesStore, useDialogStore } from "@/stores";
 import { worktreeService } from "@/services";
 import { invokeOrApi } from "@/services/apiClient";
-import { scanDirectory } from "@/services/workspaceService";
+import { checkWorkspaceProjectPaths, scanDirectory } from "@/services/workspaceService";
 import type { Workspace, WorkspaceProject } from "@/types";
 
 vi.mock("sonner", () => ({
@@ -35,6 +35,7 @@ vi.mock("@/services/worktreeService", async (importOriginal) => ({
 vi.mock("@/services/workspaceService", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   scanDirectory: vi.fn(),
+  checkWorkspaceProjectPaths: vi.fn(),
 }));
 
 function makeProject(overrides: Partial<WorkspaceProject> = {}): WorkspaceProject {
@@ -88,6 +89,7 @@ describe("useWorkspaceActions", () => {
     vi.mocked(worktreeService.isGitRepo).mockReset().mockResolvedValue(false);
     vi.mocked(worktreeService.list).mockReset().mockResolvedValue([]);
     vi.mocked(scanDirectory).mockReset().mockResolvedValue([]);
+    vi.mocked(checkWorkspaceProjectPaths).mockReset().mockResolvedValue([]);
 
     useWorkspacesStore.setState({
       ...storeActions,
@@ -477,6 +479,85 @@ describe("useWorkspaceActions", () => {
       await act(async () => {});
       expect(invokeOrApi).not.toHaveBeenCalled();
       expect(worktreeService.isGitRepo).not.toHaveBeenCalled();
+    });
+
+    it("invalidateWorktrees 清掉缓存后可重新探测", async () => {
+      const ws = makeWorkspace();
+      vi.mocked(worktreeService.isGitRepo).mockResolvedValue(true);
+      useWorkspacesStore.setState({ workspaces: [ws], expandedWorkspaceId: ws.id });
+      const { result } = setup();
+      await waitFor(() => expect(worktreeService.list).toHaveBeenCalledTimes(1));
+
+      act(() => result.current.invalidateWorktrees("D:/repos/alpha"));
+      await waitFor(() => expect(worktreeService.list).toHaveBeenCalledTimes(2));
+    });
+  });
+
+  describe("worktree 删除联动与失效清理", () => {
+    it("handleWorktreeRemoved 跨工作空间按路径身份匹配后移除记录", async () => {
+      // 注册时存的是 WSL UNC 形式，git 返回的是 /mnt/d 形式——必须靠身份归一化匹配上
+      const other = makeWorkspace({
+        id: "ws-2",
+        name: "另一个",
+        projects: [makeProject({
+          id: "proj-wt",
+          path: "\\\\wsl.localhost\\Ubuntu\\mnt\\d\\repos\\alpha-wt",
+        })],
+      });
+      useWorkspacesStore.setState({ workspaces: [makeWorkspace(), other] });
+      const { result } = setup();
+
+      await act(async () => {
+        await result.current.handleWorktreeRemoved("/mnt/d/repos/alpha-wt");
+      });
+
+      expect(storeActions.removeProject).toHaveBeenCalledTimes(1);
+      expect(storeActions.removeProject).toHaveBeenCalledWith("另一个", "proj-wt");
+    });
+
+    it("没有匹配项目时不调用 removeProject", async () => {
+      useWorkspacesStore.setState({ workspaces: [makeWorkspace()] });
+      const { result } = setup();
+
+      await act(async () => {
+        await result.current.handleWorktreeRemoved("D:/repos/unrelated");
+      });
+
+      expect(storeActions.removeProject).not.toHaveBeenCalled();
+    });
+
+    it("清理失效项目逐条移除并刷新状态", async () => {
+      const ws = makeWorkspace();
+      useWorkspacesStore.setState({ workspaces: [ws] });
+      vi.mocked(checkWorkspaceProjectPaths).mockResolvedValue([
+        { projectId: "proj-1", path: "D:/repos/alpha", status: "missing" },
+      ]);
+      const { result } = setup();
+
+      await act(async () => {
+        result.current.handleCleanupMissingProjects(ws);
+      });
+      expect(result.current.dialogs.missingProjects.open).toBe(true);
+      await waitFor(() =>
+        expect(result.current.dialogs.missingProjects.statuses).toHaveLength(1)
+      );
+
+      await act(async () => {
+        await result.current.dialogs.missingProjects.onConfirm(["proj-1"]);
+      });
+      expect(storeActions.removeProject).toHaveBeenCalledWith("主工作区", "proj-1");
+      expect(result.current.projectPathStatus["proj-1"]).toBeUndefined();
+    });
+
+    // 探测失败绝不能把项目标红或隐藏
+    it("路径探测失败时不产生任何状态", async () => {
+      const ws = makeWorkspace();
+      vi.mocked(checkWorkspaceProjectPaths).mockRejectedValue(new Error("ipc down"));
+      useWorkspacesStore.setState({ workspaces: [ws], expandedWorkspaceId: ws.id });
+      const { result } = setup();
+
+      await waitFor(() => expect(checkWorkspaceProjectPaths).toHaveBeenCalled());
+      expect(result.current.projectPathStatus).toEqual({});
     });
   });
 });

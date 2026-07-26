@@ -6,7 +6,9 @@ use axum::{
     Json,
 };
 use cc_panes_core::{
-    models::{SaveLayoutSnapshotRequest, SavedSession, TerminalBufferMode},
+    models::{
+        SaveLayoutSnapshotRequest, SavedSession, TerminalBufferMode, TerminalSessionProvenance,
+    },
     repository::{
         Database, HistoryRepository, ProjectRepository, RunnerRepository, SpecRepository,
         TaskBindingRepository, TodoRepository,
@@ -198,6 +200,8 @@ fn saved_session(root: &std::path::Path) -> SavedSession {
         session_id: "pty-session-a".to_string(),
         tab_id: "tab-a".to_string(),
         pane_id: "pane-a".to_string(),
+        terminal_pane_id: Some("leaf-a".to_string()),
+        layout_id: Some("layout-a".to_string()),
         project_path: root.join("project").to_string_lossy().to_string(),
         workspace_name: Some("workspace-a".to_string()),
         workspace_path: Some(root.to_string_lossy().to_string()),
@@ -208,6 +212,12 @@ fn saved_session(root: &std::path::Path) -> SavedSession {
         runtime_kind: Some("local".to_string()),
         resume_id: Some("resume-a".to_string()),
         ssh_config: None,
+        wsl_config: None,
+        machine_name: None,
+        observer_instance_id: None,
+        daemon_generation: None,
+        birth_nonce: None,
+        origin_instance_id: None,
         custom_title: Some("Session A".to_string()),
         created_at: "2026-06-20T00:00:00Z".to_string(),
         saved_at: "2026-06-20T00:01:00Z".to_string(),
@@ -569,6 +579,78 @@ async fn session_restore_routes_match_core_service_operations() {
         .await
         .expect("load cleared sessions");
     assert!(loaded.is_empty());
+}
+
+#[tokio::test]
+async fn prune_terminal_sessions_uses_generation_snapshot_and_grace_window() {
+    let (state, root) = test_state("session-prune");
+    let mut stale = saved_session(&root);
+    stale.session_id = "stale-session".to_string();
+    stale.tab_id = "stale-tab".to_string();
+    let mut live = saved_session(&root);
+    live.session_id = "live-session".to_string();
+    live.tab_id = "live-tab".to_string();
+    let mut recent = saved_session(&root);
+    recent.session_id = "recent-session".to_string();
+    recent.tab_id = "recent-tab".to_string();
+
+    save_terminal_sessions(
+        State(state.clone()),
+        Json(vec![stale.clone(), live.clone(), recent.clone()]),
+    )
+    .await
+    .expect("save prune fixtures");
+
+    let provenance = |session: &SavedSession, created_at_ms| TerminalSessionProvenance {
+        session_id: session.session_id.clone(),
+        daemon_generation: 42,
+        birth_nonce: format!("birth-{}", session.session_id),
+        origin_instance_id: Some("app-a".to_string()),
+        origin_layout_id: session.layout_id.clone(),
+        origin_tab_id: Some(session.tab_id.clone()),
+        origin_terminal_pane_id: session.terminal_pane_id.clone(),
+        project_path: session.project_path.clone(),
+        runtime_kind: "local".to_string(),
+        cli_tool: session.cli_tool.clone(),
+        resume_id: session.resume_id.clone(),
+        created_at_ms,
+    };
+    state
+        .session_restore_service
+        .save_provenance(&provenance(&stale, 1))
+        .expect("save stale provenance");
+    state
+        .session_restore_service
+        .save_provenance(&provenance(&live, 1))
+        .expect("save live provenance");
+    state
+        .session_restore_service
+        .save_provenance(&provenance(&recent, 500_000))
+        .expect("save recent provenance");
+
+    let Json(deleted) = prune_terminal_sessions(
+        State(state.clone()),
+        Json(PruneTerminalSessionsRequest {
+            daemon_generation: 42,
+            captured_at_ms: 600_000,
+            live_session_ids: vec![live.session_id.clone()],
+        }),
+    )
+    .await
+    .expect("prune sessions");
+    assert_eq!(deleted, 1);
+
+    let Json(remaining) = load_terminal_sessions(State(state))
+        .await
+        .expect("load remaining sessions");
+    let remaining_ids = remaining
+        .into_iter()
+        .map(|session| session.session_id)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        remaining_ids,
+        std::collections::HashSet::from([live.session_id, recent.session_id])
+    );
 }
 
 #[tokio::test]

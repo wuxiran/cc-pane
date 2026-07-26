@@ -74,6 +74,15 @@ export interface TerminalLaunchError {
   params?: Record<string, string>;
 }
 
+export type TerminalRestoreBlockedReason =
+  | "claims-unsupported"
+  | "reconciliation-failed"
+  | "missing-provenance"
+  | "identity-mismatch"
+  | "ambiguous-candidates"
+  | "claim-conflict"
+  | "auto-adopt-disabled";
+
 /** WSL 启动信息 */
 export interface WslLaunchInfo {
   remotePath: string;
@@ -105,6 +114,10 @@ export interface TerminalPaneLeaf {
   disconnected?: boolean;
   restoring?: boolean;
   savedSessionId?: string;
+  /** Startup reconciliation refused to create or attach this leaf until the user intervenes. */
+  restoreBlockedReason?: TerminalRestoreBlockedReason;
+  /** The PTY remains observable, but another app instance owns its daemon write lease. */
+  leaseReadOnly?: boolean;
   launchExtras?: LaunchExtras;
   launchError?: TerminalLaunchError;
   launchAttempt?: number;
@@ -152,6 +165,8 @@ export interface Tab {
   disconnected?: boolean;
   restoring?: boolean;
   savedSessionId?: string;
+  restoreBlockedReason?: TerminalRestoreBlockedReason;
+  leaseReadOnly?: boolean;
   terminalRootPane?: TerminalPaneNode;
   activeTerminalPaneId?: string;
   launchExtras?: LaunchExtras;
@@ -198,6 +213,10 @@ export interface CreateSessionRequest {
   adapterOptions?: LaunchAdapterOptions;
   ssh?: import("./workspace").SshConnectionInfo;
   wsl?: WslLaunchInfo;
+  /** Immutable source anchor recorded by claim-capable daemons. */
+  originLayoutId?: string;
+  originTabId?: string;
+  originTerminalPaneId?: string;
 }
 
 /** 打开终端的选项 */

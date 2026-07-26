@@ -1,18 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  ChevronDown,
-  ChevronRight,
-  RefreshCw,
-  SquareTerminal,
-  Trash2,
-  X,
-} from "lucide-react";
 import { toast } from "sonner";
-import StatusIndicator from "@/components/StatusIndicator";
-import { Button } from "@/components/ui/button";
-import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { sessionRestoreService } from "@/services/sessionRestoreService";
 import { systemStatsService } from "@/services/systemStatsService";
 import { terminalService } from "@/services/terminalService";
@@ -21,36 +10,22 @@ import type {
   CliTool,
   ResourceTree,
   SavedSession,
-  SessionResourceUsage,
   SshConnectionInfo,
   WslLaunchInfo,
   SystemStats,
   Tab,
   TerminalPaneLeaf,
   TerminalPaneNode,
-  TerminalStatusType,
 } from "@/types";
-import { formatSize, handleErrorSilent } from "@/utils";
+import { handleErrorSilent } from "@/utils";
+import {
+  SystemResourcePopover,
+  type SessionView,
+  type WorkspaceGroup,
+} from "./SystemResourcePopover";
 
 const POLL_INTERVAL_MS = 3_000;
 const GIB = 1024 ** 3;
-
-interface SessionView extends SessionResourceUsage {
-  title: string;
-  workspaceName: string;
-  /** 本实例没有 tab 引用：点击时先接管再聚焦 */
-  adoptable: boolean;
-  cliTool: CliTool;
-  status: TerminalStatusType | null;
-  toolName: string | null;
-}
-
-interface WorkspaceGroup {
-  name: string;
-  sessions: SessionView[];
-  cpuPercent: number;
-  memoryBytes: number;
-}
 
 /**
  * 判断一条待接管会话的运行时指纹是否足以在日后重建。
@@ -90,10 +65,6 @@ export function resolveAdoptRuntime(
 function formatGib(bytes: number): string {
   const value = Math.round((bytes / GIB) * 10) / 10;
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
-}
-
-function formatCpu(cpuPercent: number): string {
-  return `${Math.round(cpuPercent * 10) / 10}%`;
 }
 
 function findSessionLeaf(node: TerminalPaneNode | undefined, sessionId: string): TerminalPaneLeaf | null {
@@ -176,6 +147,9 @@ export default function SystemResourceSegment() {
   // 无主会话（本实例没有 tab 引用）的归属元数据，来自跨实例共享的 session_restore 表。
   // 没有它，这些会话只能显示成「终端 <pid>」/「其他工作区」，也无法被接管到正确的项目下。
   const [savedSessions, setSavedSessions] = useState<Map<string, SavedSession>>(new Map());
+  const [sessionClaims, setSessionClaims] = useState<Record<string, string>>({});
+  const [claimOwnerInstanceId, setClaimOwnerInstanceId] = useState<string | undefined>();
+  const [claimsSupported, setClaimsSupported] = useState(false);
   const refreshingRef = useRef(false);
 
   const refreshResourceTree = useCallback(async () => {
@@ -197,13 +171,24 @@ export default function SystemResourceSegment() {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    sessionRestoreService
-      .load()
-      .then((sessions) => {
-        if (cancelled || !Array.isArray(sessions)) return;
-        setSavedSessions(new Map(sessions.map((session) => [session.sessionId, session])));
+    Promise.all([sessionRestoreService.load(), terminalService.getAdoptionSnapshot()])
+      .then(([sessions, snapshot]) => {
+        if (cancelled) return;
+        if (Array.isArray(sessions)) {
+          setSavedSessions(new Map(sessions.map((session) => [session.sessionId, session])));
+        }
+        setSessionClaims(snapshot.claims);
+        setClaimOwnerInstanceId(snapshot.ownerInstanceId);
+        setClaimsSupported(snapshot.claimsSupported && snapshot.complete);
       })
-      .catch((error) => handleErrorSilent(error, "load saved sessions for adoption"));
+      .catch((error) => {
+        if (!cancelled) {
+          setSessionClaims({});
+          setClaimOwnerInstanceId(undefined);
+          setClaimsSupported(false);
+        }
+        handleErrorSilent(error, "load adoption snapshot");
+      });
     return () => {
       cancelled = true;
     };
@@ -250,6 +235,11 @@ export default function SystemResourceSegment() {
       const workspaceName =
         metadata?.workspaceName ?? saved?.workspaceName ?? t("resourceManagerOtherWorkspace");
       const status = statusMap.get(session.sessionId);
+      const claimOwner = sessionClaims[session.sessionId];
+      const claimBlocked = Boolean(
+        !location
+        && (!claimsSupported || (claimOwner && claimOwner !== claimOwnerInstanceId)),
+      );
       const item: SessionView = {
         ...session,
         title:
@@ -257,7 +247,8 @@ export default function SystemResourceSegment() {
           || saved?.customTitle
           || `${t("resourceManagerTerminal")} ${session.rootPid}`,
         workspaceName,
-        adoptable: !location,
+        adoptable: !location && !claimBlocked,
+        claimBlocked,
         cliTool: metadata?.cliTool ?? saved?.cliTool ?? "none",
         status: status?.status ?? null,
         toolName: status?.currentToolName ?? null,
@@ -275,7 +266,7 @@ export default function SystemResourceSegment() {
         memoryBytes: sessions.reduce((sum, session) => sum + session.memoryBytes, 0),
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
-  }, [savedSessions, statusMap, t, tree]);
+  }, [claimOwnerInstanceId, claimsSupported, savedSessions, sessionClaims, statusMap, t, tree]);
 
   const toggleGroup = (name: string) => {
     setCollapsedGroups((current) => {
@@ -286,10 +277,15 @@ export default function SystemResourceSegment() {
     });
   };
 
-  const focusSession = (sessionId: string) => {
+  const focusSession = async (sessionId: string) => {
     const panes = usePanesStore.getState();
     const location = panes.findTabBySessionAcrossLayouts(sessionId);
     if (!location) {
+      const claimOwner = sessionClaims[sessionId];
+      if (!claimsSupported || (claimOwner && claimOwner !== claimOwnerInstanceId)) {
+        toast.error(t("resourceManagerAdoptClaimed"));
+        return;
+      }
       // 无主会话：先接管成当前布局的一个 tab（复用 restore 的 reattach，不新建 PTY），再聚焦。
       const saved = savedSessions.get(sessionId);
       const runtime = resolveAdoptRuntime(saved);
@@ -299,6 +295,17 @@ export default function SystemResourceSegment() {
         toast.error(t("resourceManagerAdoptIncompleteRuntime", { runtime: runtime.kind }));
         return;
       }
+      let granted = false;
+      try {
+        granted = await terminalService.adoptSession(sessionId);
+      } catch (error) {
+        handleErrorSilent(error, "claim session for manual adoption");
+      }
+      if (!granted) {
+        toast.error(t("resourceManagerAdoptClaimed"));
+        return;
+      }
+
       const adoptedTabId = panes.adoptSession(sessionId, {
         projectPath: saved?.projectPath ?? "",
         workspaceName: saved?.workspaceName,
@@ -314,9 +321,13 @@ export default function SystemResourceSegment() {
         wsl: runtime.wsl,
       });
       if (!adoptedTabId) {
+        await terminalService.releaseSession(sessionId).catch((error) => {
+          handleErrorSilent(error, "release failed manual adoption");
+        });
         toast.error(t("resourceManagerAdoptFailed"));
         return;
       }
+      panes.setSessionLeaseReadOnly(sessionId, false);
       // adoptSession 已把新 tab 落在当前布局并设为活动 tab；此时 leaf 上是
       // savedSessionId（等 TerminalView reattach 后才变 sessionId），按 id 反查不到，
       // 直接收起面板即可。
@@ -367,7 +378,6 @@ export default function SystemResourceSegment() {
   const cpuWarning = stats.cpuPercent > 85;
   const memoryWarning = memoryPercent > 90;
   const headerStats = tree?.system ?? stats;
-  const orphanCount = tree?.orphans.length ?? 0;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -389,158 +399,29 @@ export default function SystemResourceSegment() {
         </button>
       </PopoverTrigger>
 
-      <PopoverContent side="top" align="end" sideOffset={6} className="w-[430px] p-0">
-        <div className="flex h-10 items-center gap-3 border-b border-[var(--app-border)] px-3">
-          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--app-text-primary)]">
-            {t("resourceManagerTitle")}
-          </h2>
-          <div className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-[var(--app-text-secondary)]">
-            <span>{t("cpuShort")} {formatCpu(headerStats.cpuPercent)}</span>
-            <span>{t("memoryShort")} {formatGib(headerStats.memUsed)}/{formatGib(headerStats.memTotal)}G</span>
-            <span>{t("resourceManagerAppMemory")} {formatCpu(tree?.appMemoryPercent ?? 0)}</span>
-          </div>
-          <IconTooltipButton
-            label={t("resourceManagerRefresh")}
-            className="h-7 w-7"
-            disabled={refreshing}
-            onClick={() => void refreshResourceTree()}
-          >
-            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          </IconTooltipButton>
-        </div>
-
-        <div className="max-h-[430px] overflow-y-auto p-2">
-          <div className="mb-1 px-1 text-[11px] font-semibold text-[var(--app-text-tertiary)]">
-            {t("resourceManagerManagedSessions")}
-          </div>
-          {groups.length === 0 ? (
-            <div className="px-2 py-5 text-center text-xs text-[var(--app-text-tertiary)]">
-              {t("resourceManagerNoManagedSessions")}
-            </div>
-          ) : (
-            groups.map((group) => {
-              const collapsed = collapsedGroups.has(group.name);
-              return (
-                <div key={group.name} className="mb-1">
-                  <button
-                    type="button"
-                    className="flex h-7 w-full items-center gap-1 rounded px-1 text-left text-xs font-medium text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
-                    onClick={() => toggleGroup(group.name)}
-                  >
-                    {collapsed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
-                    <span className="min-w-0 flex-1 truncate">{group.name}</span>
-                    <span className="shrink-0 tabular-nums text-[11px] text-[var(--app-text-tertiary)]">
-                      {formatCpu(group.cpuPercent)} · {formatSize(group.memoryBytes)}
-                    </span>
-                  </button>
-                  {!collapsed && group.sessions.map((session) => {
-                    const armed = armedSessionId === session.sessionId;
-                    const killing = killingSessionId === session.sessionId;
-                    return (
-                      <div key={session.sessionId} className="group flex h-8 items-center gap-1 pl-5 pr-1">
-                        <button
-                          type="button"
-                          aria-label={`${session.adoptable ? t("resourceManagerAdopt") : t("resourceManagerFocusSession")}: ${session.title}`}
-                          title={session.adoptable ? t("resourceManagerAdopt") : undefined}
-                          className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-1 text-left hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
-                          onClick={() => focusSession(session.sessionId)}
-                        >
-                          <StatusIndicator status={session.status} toolName={session.toolName} size={7} />
-                          <SquareTerminal className="size-3.5 shrink-0 text-[var(--app-text-tertiary)]" />
-                          <span className="shrink-0 text-[10px] uppercase text-[var(--app-text-tertiary)]">
-                            {session.cliTool === "none" ? "CLI" : session.cliTool}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-text-primary)]">
-                            {session.title}
-                          </span>
-                          <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-[var(--app-text-secondary)]">
-                            {formatCpu(session.cpuPercent)}
-                          </span>
-                          <span className="w-[58px] shrink-0 text-right text-[11px] tabular-nums text-[var(--app-text-secondary)]">
-                            {formatSize(session.memoryBytes)}
-                          </span>
-                        </button>
-                        {armed ? (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-6 px-2 text-[11px]"
-                            disabled={killing}
-                            onClick={() => void killSession(session.sessionId)}
-                          >
-                            {t("resourceManagerConfirmEnd")}
-                          </Button>
-                        ) : (
-                          <IconTooltipButton
-                            label={t("resourceManagerEndSessionNamed", { name: session.title })}
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-[var(--app-status-danger-bg)] hover:text-[var(--app-status-danger)]"
-                            onClick={() => setArmedSessionId(session.sessionId)}
-                          >
-                            <X className="size-3.5" />
-                          </IconTooltipButton>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })
-          )}
-
-          <div className="mt-2 border-t border-[var(--app-border)] pt-2">
-            <div className="flex min-h-8 items-center gap-1 px-1">
-              <button
-                type="button"
-                aria-label={t(orphansExpanded ? "resourceManagerCollapseOrphans" : "resourceManagerExpandOrphans")}
-                className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-1 text-left hover:bg-[var(--app-hover)]"
-                onClick={() => setOrphansExpanded((value) => !value)}
-              >
-                {orphansExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-                <span
-                  className="text-xs font-medium"
-                  style={{ color: orphanCount > 0 ? "var(--app-status-warning)" : "var(--app-text-tertiary)" }}
-                >
-                  {t("resourceManagerOrphanCount", { count: orphanCount })}
-                </span>
-              </button>
-              {orphanCount > 0 && (orphanKillArmed ? (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="h-7 px-2 text-[11px]"
-                  disabled={killingOrphans}
-                  onClick={() => void killOrphans()}
-                >
-                  {t("resourceManagerConfirmTerminateOrphans", { count: orphanCount })}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px] text-[var(--app-status-danger)]"
-                  onClick={() => {
-                    setOrphansExpanded(true);
-                    setOrphanKillArmed(true);
-                  }}
-                >
-                  <Trash2 className="size-3" />
-                  {t("resourceManagerTerminateOrphans", { count: orphanCount })}
-                </Button>
-              ))}
-            </div>
-            {orphansExpanded && tree?.orphans.map((orphan) => (
-              <div key={orphan.pid} className="flex min-h-7 items-center gap-2 pl-6 pr-2 text-xs">
-                <span className="min-w-0 flex-1 truncate text-[var(--app-text-secondary)]" title={orphan.command}>
-                  {orphan.name}
-                </span>
-                <span className="shrink-0 tabular-nums text-[11px] text-[var(--app-text-tertiary)]">
-                  PID {orphan.pid} · {formatCpu(orphan.cpuPercent)} · {formatSize(orphan.memoryBytes)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </PopoverContent>
+      <SystemResourcePopover
+        headerStats={headerStats}
+        tree={tree}
+        groups={groups}
+        collapsedGroups={collapsedGroups}
+        refreshing={refreshing}
+        armedSessionId={armedSessionId}
+        killingSessionId={killingSessionId}
+        orphansExpanded={orphansExpanded}
+        orphanKillArmed={orphanKillArmed}
+        killingOrphans={killingOrphans}
+        onRefresh={() => void refreshResourceTree()}
+        onToggleGroup={toggleGroup}
+        onFocusSession={(sessionId) => void focusSession(sessionId)}
+        onArmSession={setArmedSessionId}
+        onKillSession={(sessionId) => void killSession(sessionId)}
+        onToggleOrphans={() => setOrphansExpanded((value) => !value)}
+        onArmOrphanKill={() => {
+          setOrphansExpanded(true);
+          setOrphanKillArmed(true);
+        }}
+        onKillOrphans={() => void killOrphans()}
+      />
     </Popover>
   );
 }

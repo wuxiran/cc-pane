@@ -16,6 +16,7 @@ import { useLaunchWarnings } from "@/hooks/useLaunchWarnings";
 import {
   useSessionLayoutPersistence,
   useSharedLayoutSnapshotSync,
+  useStartupTerminalRestoreBarrier,
 } from "@/hooks/useSessionLayoutPersistence";
 import { useTerminalResumeIdBridge } from "@/hooks/useTerminalSessionRestore";
 import { useAppLifecycleEarly } from "@/hooks/useAppLifecycleEarly";
@@ -56,6 +57,7 @@ export default function App() {
 function MainApp() {
   useSessionLayoutPersistence();
   useSharedLayoutSnapshotSync();
+  const terminalRestoreReady = useStartupTerminalRestoreBarrier();
 
   // 注册全局快捷键
   useKeyboardShortcuts();
@@ -92,6 +94,8 @@ function MainApp() {
   useShortcutRegistrations();
   useQuickCommandsSync();
   const handleOpenTerminal = useOpenTerminal();
+
+  if (!terminalRestoreReady) return null;
 
   return (
     <>

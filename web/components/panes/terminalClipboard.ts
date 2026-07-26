@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { readText as tauriReadText } from "@tauri-apps/plugin-clipboard-manager";
+import {
+  readText as tauriReadText,
+  writeText as tauriWriteText,
+} from "@tauri-apps/plugin-clipboard-manager";
 import { screenshotService } from "@/services";
 import { getErrorMessage } from "@/utils";
 import { isTauriRuntime } from "@/services/runtime";
@@ -19,6 +22,22 @@ export type TerminalPastePayload =
 export interface ClipboardFilePathsResult {
   paths: string[];
   error?: string;
+}
+
+export async function copyTerminalSelection(selection: string): Promise<void> {
+  try {
+    await tauriWriteText(selection);
+    return;
+  } catch {
+    // Fall through to the browser clipboard API below.
+  }
+
+  const clipboard = navigator.clipboard;
+  if (!clipboard?.writeText) {
+    throw new Error("Clipboard API is unavailable");
+  }
+
+  await clipboard.writeText(selection);
 }
 
 export function clipboardHasImage(clipboardData?: DataTransfer | null): boolean {

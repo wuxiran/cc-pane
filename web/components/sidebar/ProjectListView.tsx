@@ -1,40 +1,23 @@
-import { useCallback, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
-import {
-  Folder, Trash2, Plus, Pencil, Clock, Globe,
-  FolderOpen, Terminal, GitBranch, Copy, Files, FileText, MonitorSmartphone,
-} from "lucide-react";
-import {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
-  ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
-} from "@/components/ui/context-menu";
-import { useDialogStore, useSshMachinesStore } from "@/stores";
-import { specService } from "@/services/specService";
-import { providerService } from "@/services/providerService";
-import { isTauriRuntime } from "@/services/runtime";
-import {
-  detectAppPlatform,
-  getWorkspaceLaunchIssueKey,
-  getWorkspaceLaunchIssueValues,
-  getWorkspaceDefaultEnvironment,
-  getProjectName,
-  getWorkspaceProjectKind,
-  resolveWorkspaceProjectLaunchOptions,
-} from "@/utils";
-import type { Workspace, WorkspaceProject, OpenTerminalOptions, SpecEntry, SshConnectionInfo, WorkspaceLaunchEnvironment } from "@/types";
-import {
-  buildSidebarCliLaunchItems,
-  getDefaultSidebarFavoriteLaunchActionIds,
-  groupSidebarCliLaunchItems,
-} from "./launchMenu";
+import { ChevronRight, Plus } from "lucide-react";
+import { useLayoutUiStore } from "@/stores/useLayoutUiStore";
+import type { WorktreeInfo } from "@/services";
+import type {
+  Workspace, WorkspaceProject, OpenTerminalOptions, PathStatusKind,
+} from "@/types";
 import { normalizeWorkspaceProjects } from "./workspaceProjects";
-import { useSettingsStore } from "@/stores/useSettingsStore";
+import { buildProjectTree, type WorktreeGroup } from "./worktreeGrouping";
+import ProjectListItem from "./ProjectListItem";
 
 interface ProjectListViewProps {
   projects: WorkspaceProject[];
   ws: Workspace;
   gitBranches: Record<string, string | null>;
+  /** 按 project.path 索引的 `git worktree list` 结果，用于派生 worktree 归属 */
+  worktreeCache?: Record<string, WorktreeInfo[]>;
+  /** 按 project.id 索引的路径存在性判定 */
+  projectPathStatus?: Record<string, PathStatusKind>;
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
   onRemoveProject: (ws: Workspace, project: WorkspaceProject) => void;
   onSetProjectAlias: (ws: Workspace, project: WorkspaceProject) => void;
@@ -42,135 +25,113 @@ interface ProjectListViewProps {
   onMigrateProject: (ws: Workspace, project: WorkspaceProject) => void;
   onOpenWorktreeManager: (project: WorkspaceProject, ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
+  onCleanupMissingProjects?: (ws: Workspace) => void;
 }
 
-function getSshDisplayName(ssh: SshConnectionInfo): string {
-  const host = ssh.user ? `${ssh.user}@${ssh.host}` : ssh.host;
-  return `${host}:${ssh.remotePath}`;
-}
-
-function getRelativePath(projectPath: string, wsPath?: string | null): string {
-  const normalize = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (wsPath) {
-    const normBase = normalize(wsPath);
-    const normFull = normalize(projectPath);
-    if (normFull.startsWith(normBase + "/")) {
-      return normFull.slice(normBase.length + 1);
-    }
-  }
-  const parts = projectPath.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts.pop() || projectPath;
-}
-
-const PROJECT_BADGE_BASE = "text-[9px] px-1.5 py-0.5 rounded-full font-medium border";
-
-// 身份色徽章（local 中性 / wsl / ssh），亮暗随 token 自动切换
-function projectBadgeClassName(kind: "local" | "wsl" | "ssh"): string {
-  switch (kind) {
-    case "local":
-      return `${PROJECT_BADGE_BASE} bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)] border-[var(--app-border)]`;
-    case "wsl":
-      return `${PROJECT_BADGE_BASE} bg-[color-mix(in_srgb,var(--app-identity-wsl)_14%,transparent)] text-[var(--app-identity-wsl)] border-[color-mix(in_srgb,var(--app-identity-wsl)_30%,transparent)]`;
-    case "ssh":
-      return `${PROJECT_BADGE_BASE} bg-[color-mix(in_srgb,var(--app-identity-ssh)_14%,transparent)] text-[var(--app-identity-ssh)] border-[color-mix(in_srgb,var(--app-identity-ssh)_30%,transparent)]`;
-  }
-}
-
+const EMPTY_WORKTREE_CACHE: Record<string, WorktreeInfo[]> = {};
+const EMPTY_PATH_STATUS: Record<string, PathStatusKind> = {};
 
 export default function ProjectListView({
   projects, ws, gitBranches,
+  worktreeCache = EMPTY_WORKTREE_CACHE,
+  projectPathStatus = EMPTY_PATH_STATUS,
   onOpenTerminal, onRemoveProject, onSetProjectAlias,
   onImportProject, onMigrateProject, onOpenWorktreeManager, onOpenInFileBrowser,
+  onCleanupMissingProjects,
 }: ProjectListViewProps) {
-  const { t } = useTranslation(["sidebar", "common", "spec"]);
-  const sshMachines = useSshMachinesStore((s) => s.machines);
-  const rawFavoriteLaunchIds = useSettingsStore((s) => s.settings?.general.launchFavorites);
-  const onOpenHistory = useDialogStore((s) => s.openLocalHistory);
-  const onOpenTodo = useDialogStore((s) => s.openTodo);
-  const [projectSpecs, setProjectSpecs] = useState<Record<string, SpecEntry[]>>({});
-  const isWindows = detectAppPlatform() === "windows";
+  const { t } = useTranslation(["sidebar", "common"]);
+  const expandedWorktreeGroups = useLayoutUiStore((s) => s.expandedWorktreeGroups);
+  const toggleWorktreeGroup = useLayoutUiStore((s) => s.toggleWorktreeGroup);
+
   const safeProjects = normalizeWorkspaceProjects(projects);
   const invalidProjectCount = Array.isArray(projects)
     ? projects.length - safeProjects.length
     : 0;
   const workspace = safeProjects === projects ? ws : { ...ws, projects: safeProjects };
-  const defaultEnvironment = getWorkspaceDefaultEnvironment(workspace);
 
-  const handleLoadSpecs = useCallback(async (projectPath: string) => {
-    try {
-      const specs = await specService.list(projectPath);
-      setProjectSpecs((prev) => ({ ...prev, [projectPath]: specs }));
-    } catch {
-      setProjectSpecs((prev) => ({ ...prev, [projectPath]: [] }));
-    }
-  }, []);
+  const tree = useMemo(
+    () => buildProjectTree(safeProjects, worktreeCache),
+    [safeProjects, worktreeCache],
+  );
+  const expandedSet = useMemo(
+    () => new Set(expandedWorktreeGroups),
+    [expandedWorktreeGroups],
+  );
+  const missingCount = useMemo(
+    () => safeProjects.filter((p) => projectPathStatus[p.id] === "missing").length,
+    [safeProjects, projectPathStatus],
+  );
 
-  const handleNewSpec = useCallback(async (projectPath: string) => {
-    const title = window.prompt(t("specTitlePlaceholder", { ns: "spec" }));
-    if (!title?.trim()) return;
-    try {
-      await specService.create({ projectPath, title: title.trim() });
-      toast.success(t("specCreated", { ns: "spec" }));
-      // 打开关联的 Todo（在 Todo 面板中显示）
-      onOpenTodo("project", projectPath);
-    } catch (e) {
-      toast.error(String(e));
-    }
-  }, [t, onOpenTodo]);
+  const renderItem = (
+    project: WorkspaceProject,
+    extra?: { worktreeBranch?: string; leading?: React.ReactNode; trailing?: React.ReactNode },
+  ) => (
+    <ProjectListItem
+      key={project.id}
+      project={project}
+      workspace={workspace}
+      gitBranch={gitBranches[project.path]}
+      pathStatus={projectPathStatus[project.id]}
+      worktreeBranch={extra?.worktreeBranch}
+      leading={extra?.leading}
+      trailing={extra?.trailing}
+      onOpenTerminal={onOpenTerminal}
+      onRemoveProject={onRemoveProject}
+      onSetProjectAlias={onSetProjectAlias}
+      onMigrateProject={onMigrateProject}
+      onOpenWorktreeManager={onOpenWorktreeManager}
+      onOpenInFileBrowser={onOpenInFileBrowser}
+    />
+  );
 
-  const handleOpenSpec = useCallback(async (projectPath: string, spec: SpecEntry) => {
-    try {
-      const specPath = `${projectPath}/.ccpanes/specs/${spec.fileName}`;
-      if (!isTauriRuntime()) {
-        await navigator.clipboard.writeText(specPath);
-        toast.info(t("copiedToClipboard"));
-        return;
-      }
-      await providerService.openPathInExplorer(specPath);
-    } catch (e) {
-      toast.error(String(e));
-    }
-  }, [t]);
+  const renderGroup = (group: WorktreeGroup) => {
+    const open = expandedSet.has(group.repoKey);
+    const chevron = (
+      <button
+        type="button"
+        aria-label={t("worktreeGroupToggle")}
+        aria-expanded={open}
+        className="shrink-0 -ml-1 p-0.5 rounded hover:bg-[var(--app-active-bg)]"
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleWorktreeGroup(group.repoKey);
+        }}
+      >
+        <ChevronRight
+          size={13}
+          className={`transition-transform duration-[var(--dur-fast)] ${
+            open ? "rotate-90 text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"
+          }`}
+        />
+      </button>
+    );
+    const count = (
+      <span
+        className="shrink-0 text-[10px] font-medium tabular-nums leading-none px-1.5 py-0.5 rounded text-[var(--app-text-tertiary)]"
+        style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
+        title={t("worktreeGroupCount", { count: group.children.length })}
+      >
+        {group.children.length}
+      </span>
+    );
 
-  const handleRevealFolder = useCallback(async (path: string) => {
-    if (!isTauriRuntime()) {
-      await navigator.clipboard.writeText(path).catch(() => {});
-      toast.info(t("copiedToClipboard"));
-      return;
-    }
-    try {
-      await providerService.openPathInExplorer(path);
-    } catch (e) {
-      toast.error(t("openFolderFailed", { error: e }));
-    }
-  }, [t]);
-
-  const handleCopyPath = useCallback(async (path: string) => {
-    try {
-      await navigator.clipboard.writeText(path);
-      toast.success(t("copiedToClipboard"));
-    } catch (e) {
-      toast.error(t("copyFailed", { error: e }));
-    }
-  }, [t]);
-
-  const formatLaunchIssue = useCallback((
-    issue: NonNullable<ReturnType<typeof resolveWorkspaceProjectLaunchOptions>["issue"]>,
-  ) => {
-    return t(getWorkspaceLaunchIssueKey(issue), {
-      ...getWorkspaceLaunchIssueValues(issue),
-      defaultValue: {
-        local_path_missing: "Local launch requires a workspace path or a local project.",
-        path_platform_mismatch: "The saved path belongs to another operating system: {{path}}",
-        wsl_unsupported: "WSL is only available on Windows.",
-        wsl_path_missing: "WSL launch requires a remote path.",
-        wsl_local_path_missing: "WSL launch requires a local anchor path or a WSL project.",
-        ssh_machine_missing: "SSH launch requires a selected machine.",
-        ssh_machine_not_found: "The saved SSH machine could not be found: {{machineId}}",
-        ssh_path_missing: "SSH launch requires a remote path.",
-      }[issue.code],
-    });
-  }, [t]);
+    return (
+      <div key={group.repoKey}>
+        {renderItem(group.parent, { leading: chevron, trailing: count })}
+        {open ? (
+          <div className="relative flex flex-col gap-1 pl-4">
+            <span
+              aria-hidden="true"
+              className="absolute left-[9px] top-0.5 bottom-0.5 w-px bg-[var(--app-border)]"
+            />
+            {group.children.map((child) =>
+              renderItem(child.project, { worktreeBranch: child.branch })
+            )}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-1 px-3 pb-3 pt-2">
@@ -182,205 +143,24 @@ export default function ProjectListView({
           })}
         </div>
       ) : null}
-      {safeProjects.map((project) => {
-        const isSsh = !!project.ssh;
-        const projectKind = getWorkspaceProjectKind(project);
-        const canLaunchWsl = isWindows
-          && !resolveWorkspaceProjectLaunchOptions({
-            workspace,
-            project,
-            machines: sshMachines,
-            environment: "wsl",
-          }).issue;
-        const canLaunchSsh = !resolveWorkspaceProjectLaunchOptions({
-          workspace,
-          project,
-          machines: sshMachines,
-          environment: "ssh",
-        }).issue;
-        const cliLaunchItems = buildSidebarCliLaunchItems(t, canLaunchWsl, canLaunchSsh);
-        // 常用项平铺，其余折叠进"更多启动方式"（issue #36：避免 20+ 项平铺）
-        const groupedCliLaunchItems = groupSidebarCliLaunchItems(
-          cliLaunchItems,
-          rawFavoriteLaunchIds ?? getDefaultSidebarFavoriteLaunchActionIds(),
-        );
-        const displayName = project.alias || (isSsh ? getSshDisplayName(project.ssh!) : getProjectName(project.path));
-        const launchProject = (
-          cliTool?: OpenTerminalOptions["cliTool"],
-          environment?: WorkspaceLaunchEnvironment,
-        ) => {
-          const { options, issue } = resolveWorkspaceProjectLaunchOptions({
-            workspace,
-            project,
-            cliTool,
-            environment,
-            machines: sshMachines,
-          });
-          if (!options || issue) {
-            toast.error(
-              formatLaunchIssue(issue ?? {
-                environment: environment ?? defaultEnvironment,
-                code: "local_path_missing",
-              }),
-            );
-            return;
-          }
-          onOpenTerminal(options);
-        };
-        return (
-        <div key={project.id}>
-          <ContextMenu>
-            <ContextMenuTrigger asChild>
-              <div
-                className="rounded-xl border border-transparent px-3 py-2 transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-              >
-                <div
-                  className="flex cursor-pointer items-center gap-2"
-                  onDoubleClick={() => isSsh ? launchProject() : onOpenInFileBrowser?.(project.path)}
-                >
-                  {isSsh
-                    ? <Globe size={15} className="shrink-0" style={{ color: "var(--app-accent)" }} />
-                    : <Folder size={15} className="shrink-0" style={{ color: "var(--app-accent)" }} />
-                  }
-                  <span className="flex-1 text-[13px] truncate">{displayName}</span>
-                  {!isSsh && gitBranches[project.path] && (
-                    <span className="text-[11px] px-1 rounded shrink-0" style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}>
-                      {gitBranches[project.path]}
-                    </span>
-                  )}
-                  <span className={projectBadgeClassName(projectKind)}>
-                    {projectKind.toUpperCase()}
-                  </span>
-                </div>
-              </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent className="w-56">
-              <ContextMenuItem onClick={() => launchProject()}>
-                <Terminal /> {t("openTerminal")}
-              </ContextMenuItem>
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <Terminal /> {t("workspaceEnv.launchThisTime", { defaultValue: "本次选择环境" })}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="w-48">
-                  <ContextMenuItem onClick={() => launchProject(undefined, "local")}>
-                    <Terminal /> {t("workspaceEnv.local", { defaultValue: "本机" })}
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => launchProject(undefined, "wsl")}>
-                    <Terminal /> {t("workspaceEnv.wsl", { defaultValue: "WSL" })}
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => launchProject(undefined, "ssh")}>
-                    <Terminal /> {t("workspaceEnv.ssh", { defaultValue: "SSH" })}
-                  </ContextMenuItem>
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-              {groupedCliLaunchItems.primary.map((item) => (
-                <ContextMenuItem
-                  key={item.key}
-                  onClick={() => launchProject(item.cliTool, item.environment)}
-                >
-                  <Terminal /> {item.label}
-                </ContextMenuItem>
-              ))}
-              {groupedCliLaunchItems.more.length > 0 && (
-                <ContextMenuSub>
-                  <ContextMenuSubTrigger>
-                    <Terminal /> {t("moreLaunchActions", { defaultValue: "更多启动方式" })}
-                  </ContextMenuSubTrigger>
-                  <ContextMenuSubContent className="w-56">
-                    {groupedCliLaunchItems.more.map((item) => (
-                      <ContextMenuItem
-                        key={item.key}
-                        onClick={() => launchProject(item.cliTool, item.environment)}
-                      >
-                        <Terminal /> {item.label}
-                      </ContextMenuItem>
-                    ))}
-                  </ContextMenuSubContent>
-                </ContextMenuSub>
-              )}
-              <ContextMenuSeparator />
-              {/* 本地项目专有菜单项 */}
-              {!isSsh && (
-                <>
-                  <ContextMenuItem onClick={() => handleRevealFolder(project.path)}>
-                    <FolderOpen /> {t("openFolder")}
-                  </ContextMenuItem>
-                  {onOpenInFileBrowser && (
-                    <ContextMenuItem onClick={() => onOpenInFileBrowser(project.path)}>
-                      <Files /> {t("openInFileBrowser")}
-                    </ContextMenuItem>
-                  )}
-                  <ContextMenuSub>
-                    <ContextMenuSubTrigger>
-                      <Copy /> {t("copyPath")}
-                    </ContextMenuSubTrigger>
-                    <ContextMenuSubContent>
-                      <ContextMenuItem onClick={() => handleCopyPath(project.path)}>
-                        {t("absolutePath")}
-                      </ContextMenuItem>
-                      <ContextMenuItem onClick={() => handleCopyPath(getRelativePath(project.path, workspace.path))}>
-                        {t("relativePath")}
-                      </ContextMenuItem>
-                    </ContextMenuSubContent>
-                  </ContextMenuSub>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem onClick={() => onOpenHistory(project.path)}>
-                    <Clock /> {t("fileHistory")}
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => onOpenWorktreeManager(project, workspace)}>
-                    <GitBranch /> {t("worktreeManager")}
-                  </ContextMenuItem>
-                  {isWindows && (
-                    <ContextMenuItem onClick={() => onMigrateProject(workspace, project)}>
-                      <MonitorSmartphone /> Migrate To WSL
-                    </ContextMenuItem>
-                  )}
-                  <ContextMenuSeparator />
-                  {/* Spec */}
-                  <ContextMenuItem onClick={() => handleNewSpec(project.path)}>
-                    <FileText /> {t("newSpec")}
-                  </ContextMenuItem>
-                  <ContextMenuSub>
-                    <ContextMenuSubTrigger onPointerEnter={() => handleLoadSpecs(project.path)}>
-                      <FileText /> {t("viewSpecs")}
-                    </ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="w-52">
-                      {(projectSpecs[project.path] || []).length === 0 ? (
-                        <ContextMenuItem disabled>{t("noSpecs")}</ContextMenuItem>
-                      ) : (
-                        (projectSpecs[project.path] || []).map((spec) => (
-                          <ContextMenuItem key={spec.id} onClick={() => handleOpenSpec(project.path, spec)}>
-                            <span className="flex-1 truncate">{spec.title}</span>
-                            <span className={`text-[9px] ml-2 px-1 py-0.5 rounded ${
-                              spec.status === "active"
-                                ? "bg-[var(--app-status-success-bg)] text-[var(--app-status-success)]"
-                                : spec.status === "archived"
-                                ? "bg-[var(--app-hover)] text-[var(--app-text-tertiary)]"
-                                : "bg-[color-mix(in_srgb,var(--app-accent)_12%,transparent)] text-[var(--app-accent)]"
-                            }`}>
-                              {spec.status}
-                            </span>
-                          </ContextMenuItem>
-                        ))
-                      )}
-                    </ContextMenuSubContent>
-                  </ContextMenuSub>
-                  <ContextMenuSeparator />
-                </>
-              )}
-              <ContextMenuItem onClick={() => onSetProjectAlias(workspace, project)}>
-                <Pencil /> {t("setAlias")}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem variant="destructive" onClick={() => onRemoveProject(workspace, project)}>
-                <Trash2 /> {t("removeProject")}
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
+      {missingCount > 0 && onCleanupMissingProjects ? (
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2 text-[11px] text-[var(--app-status-warning)]">
+          <span className="flex-1">
+            {t("missingProjectsBanner", { count: missingCount })}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 rounded px-2 py-0.5 font-medium underline-offset-2 hover:underline"
+            onClick={() => onCleanupMissingProjects(workspace)}
+          >
+            {t("missingProjectsCleanup")}
+          </button>
         </div>
-        );
-      })}
+      ) : null}
+
+      {tree.map((node) =>
+        node.kind === "group" ? renderGroup(node.group) : renderItem(node.project)
+      )}
 
       {/* 导入项目按钮 */}
       <div

@@ -44,6 +44,7 @@ mod uninstall_cleanup_service;
 pub mod usage_stats_service;
 mod user_skill_service;
 mod wallpaper_service;
+mod workspace_health;
 mod workspace_service;
 mod worktree_service;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
@@ -51,7 +52,9 @@ mod worktree_service;
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
 pub mod wsl_discovery_service;
 
-pub use daemon_client::{TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus};
+pub use daemon_client::{
+    app_instance_id, TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus,
+};
 pub use default_skill_service::{BundledSkillInfo, DefaultSkillService};
 pub use external_skill_registry::ExternalSkillRegistry;
 pub use filesystem_service::{ContentSearchLimits, FileSystemService};
@@ -85,7 +88,10 @@ pub use ssh_credential_service::SshCredentialService;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use system_stats_service::SystemStatsService;
 pub use task_binding_service::TaskBindingService;
-pub use terminal_backend::{DaemonTerminalBackend, InProcessTerminalBackend, TerminalBackend};
+pub use terminal_backend::{
+    set_claim_lost_hook, DaemonTerminalBackend, InProcessTerminalBackend, TerminalAdoptionSnapshot,
+    TerminalBackend,
+};
 pub use terminal_service::{
     codex_rollout_exists, KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo,
     TerminalService,
@@ -95,5 +101,6 @@ pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupServ
 pub use usage_stats_service::UsageStatsService;
 pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillService};
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
+pub use workspace_health::{check_project_paths, PathStatusKind, ProjectPathStatus};
 pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};
 pub use worktree_service::{WorktreeInfo, WorktreeService};

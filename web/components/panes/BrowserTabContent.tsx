@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
+import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import { browserService, type BrowserBounds } from "@/services/browserService";
 import { browserSecurityKind, normalizeBrowserUrl } from "@/lib/browserUrl";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
@@ -39,6 +40,11 @@ export default memo(function BrowserTabContent({
   const { t } = useTranslation("panes");
   const viewportRef = useRef<HTMLDivElement>(null);
   const createdRef = useRef(false);
+  const webviewBlocked = useBrowserWebviewOverlayStore((state) => state.blockers.size > 0);
+  const webviewBlockedRef = useRef(webviewBlocked);
+  const previousWebviewBlockedRef = useRef(webviewBlocked);
+  webviewBlockedRef.current = webviewBlocked;
+  const webviewVisible = isVisible && !webviewBlocked;
   const [address, setAddress] = useState(tab.browserUrl ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +69,8 @@ export default memo(function BrowserTabContent({
     const timer = window.setTimeout(() => {
       const bounds = viewportBounds(viewportRef.current);
       if (!bounds || !tab.browserUrl) return;
-      void browserService.create(tab.id, tab.browserUrl, bounds, true)
+      const shouldShow = isVisible && !webviewBlockedRef.current;
+      void browserService.create(tab.id, tab.browserUrl, bounds, shouldShow)
         .then(() => {
           if (cancelled) {
             void browserService.close(tab.id);
@@ -71,7 +78,8 @@ export default memo(function BrowserTabContent({
           }
           createdRef.current = true;
           setError(null);
-          void browserService.setVisible(tab.id, true, isActive).catch(reportError);
+          const visible = isVisible && !webviewBlockedRef.current;
+          void browserService.setVisible(tab.id, visible, visible && isActive).catch(reportError);
         })
         .catch(reportError);
     }, 0);
@@ -91,10 +99,16 @@ export default memo(function BrowserTabContent({
   }, [tab.id]);
 
   useEffect(() => {
+    const restoringFromOverlay = previousWebviewBlockedRef.current && !webviewBlocked;
+    previousWebviewBlockedRef.current = webviewBlocked;
     if (!createdRef.current) return;
-    void browserService.setVisible(tab.id, isVisible, isVisible && isActive).catch(reportError);
-    if (isVisible) syncBounds();
-  }, [isActive, isVisible, reportError, syncBounds, tab.id]);
+    void browserService.setVisible(
+      tab.id,
+      webviewVisible,
+      webviewVisible && isActive && !restoringFromOverlay,
+    ).catch(reportError);
+    if (webviewVisible) syncBounds();
+  }, [isActive, reportError, syncBounds, tab.id, webviewBlocked, webviewVisible]);
 
   useEffect(() => {
     const node = viewportRef.current;

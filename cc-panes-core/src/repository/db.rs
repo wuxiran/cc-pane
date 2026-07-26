@@ -573,6 +573,34 @@ const MIGRATIONS: &[Migration] = &[
                 ON terminal_sessions(layout_id, tab_id, terminal_pane_id);
         ",
     },
+    Migration {
+        version: 27,
+        description: "terminal session immutable provenance and observation ownership",
+        // Additive only. `terminal_sessions` remains the mutable layout observation table;
+        // daemon birth evidence is immutable and kept separately so periodic saves cannot rewrite
+        // the facts used by startup adoption.
+        up_sql: "
+            ALTER TABLE terminal_sessions ADD COLUMN observer_instance_id TEXT;
+
+            CREATE TABLE IF NOT EXISTS terminal_session_provenance (
+                session_id TEXT PRIMARY KEY,
+                daemon_generation INTEGER NOT NULL,
+                birth_nonce TEXT NOT NULL,
+                origin_instance_id TEXT,
+                origin_layout_id TEXT,
+                origin_tab_id TEXT,
+                origin_terminal_pane_id TEXT,
+                project_path TEXT NOT NULL,
+                runtime_kind TEXT NOT NULL,
+                cli_tool TEXT NOT NULL,
+                resume_id TEXT,
+                created_at_ms INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_session_provenance_generation
+                ON terminal_session_provenance(daemon_generation, created_at_ms);
+        ",
+    },
 ];
 
 /// 数据库连接管理

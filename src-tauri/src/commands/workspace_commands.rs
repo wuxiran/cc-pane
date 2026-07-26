@@ -4,7 +4,9 @@ use crate::models::{
     WorkspaceMigrationPlan, WorkspaceMigrationRequest, WorkspaceMigrationResult,
     WorkspaceMigrationRollbackResult, WorkspaceProject,
 };
-use crate::services::{HistoryWatchManager, WorkspaceService};
+use crate::services::{
+    check_project_paths, HistoryWatchManager, ProjectPathStatus, WorkspaceService,
+};
 use crate::utils::{validate_path, validate_ssh_info, AppError, AppResult};
 use cc_panes_core::utils::{normalize_project_path, paths_equivalent};
 use std::collections::HashMap;
@@ -134,6 +136,17 @@ pub fn remove_workspace_project(
         history_watch_manager.force_stop_project(project_path);
     }
     Ok(())
+}
+
+/// 批量判定工作空间内各项目路径是否仍然存在，供 UI 标记失效项目并提供批量清理。
+#[tauri::command]
+pub fn check_workspace_project_paths(
+    workspace_name: String,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<Vec<ProjectPathStatus>> {
+    debug!(workspace_name = %workspace_name, "cmd::check_workspace_project_paths");
+    let workspace = service.get_workspace(&workspace_name)?;
+    Ok(check_project_paths(&workspace.projects))
 }
 
 #[tauri::command]

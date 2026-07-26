@@ -76,3 +76,32 @@ export function buildOscColorReply(
 
   return buildPaletteReply(index, theme[ANSI_COLOR_KEYS[index]]);
 }
+
+export interface OscColorQueryOptions {
+  cliTool: string;
+  wallpaperTransparencyRequired: boolean;
+}
+
+export interface OscColorQueryResult {
+  handled: boolean;
+  response: string | null;
+}
+
+export function resolveOscColorQuery(
+  ident: number,
+  data: string,
+  theme: TerminalThemePalette,
+  options: OscColorQueryOptions,
+): OscColorQueryResult {
+  if (
+    options.cliTool === "codex" &&
+    options.wallpaperTransparencyRequired &&
+    ident === 11 &&
+    data.trim() === "?"
+  ) {
+    return { handled: true, response: null };
+  }
+
+  const response = buildOscColorReply(ident, data, theme);
+  return { handled: response !== null, response };
+}

@@ -23,6 +23,7 @@ export type {
   LaunchAdapterOptions,
   LaunchExtras,
   TerminalLaunchError,
+  TerminalRestoreBlockedReason,
   TerminalPaneNode,
   TerminalPaneLeaf,
   TerminalPaneSplit,
@@ -64,6 +65,8 @@ export type {
   WorkspaceWallpaperOverride,
   WorkspaceWallpaperOverrideMode,
   SshConnectionInfo,
+  PathStatusKind,
+  ProjectPathStatus,
 } from "./workspace";
 export { WORKSPACE_COLORS } from "./workspace";
 export type { Provider, ProviderType } from "./provider";
@@ -205,7 +208,11 @@ export type {
   SharedMcpServerInfo,
   SharedMcpConfig,
 } from "./shared-mcp";
-export type { SavedSession } from "./session-restore";
+export type {
+  SavedSession,
+  TerminalSessionProvenance,
+  TerminalAdoptionSnapshot,
+} from "./session-restore";
 export type {
   SessionIndexCliTool,
   SessionIndexEntry,

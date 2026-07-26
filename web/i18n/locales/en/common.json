@@ -70,6 +70,7 @@
   "resourceManagerTerminal": "Terminal",
   "resourceManagerAdopt": "Click to adopt into the current layout",
   "resourceManagerAdoptFailed": "Failed to adopt session",
+  "resourceManagerAdoptClaimed": "Another CC-Panes instance currently owns this session",
   "resourceManagerAdoptIncompleteRuntime": "Cannot adopt: missing {{runtime}} runtime info; a later rebuild would start in the wrong directory",
   "resourceManagerFocusSession": "Focus session",
   "resourceManagerEndSessionNamed": "End session {{name}}",

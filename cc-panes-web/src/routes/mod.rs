@@ -38,6 +38,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/sessions", post(terminal::create_session))
         .route("/api/sessions", get(terminal::list_sessions))
         .route(
+            "/api/sessions/adoption-snapshot",
+            get(terminal::get_adoption_snapshot),
+        )
+        .route(
             "/api/sessions/{id}/status",
             get(terminal::get_session_status),
         )
@@ -52,6 +56,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/sessions/{id}/write", post(terminal::write_session))
         .route("/api/sessions/{id}/submit", post(terminal::submit_session))
         .route("/api/sessions/{id}/resize", post(terminal::resize_session))
+        .route("/api/sessions/{id}/adopt", post(terminal::adopt_session))
+        .route(
+            "/api/sessions/{id}/release",
+            post(terminal::release_session),
+        )
         .route("/api/sessions/{id}", delete(terminal::kill_session))
         .route("/api/launch-history", get(history::list_launch_history))
         .route("/api/launch-history", post(history::add_launch_history))
@@ -116,6 +125,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/terminal-sessions",
             delete(history::clear_terminal_sessions),
+        )
+        .route(
+            "/api/terminal-sessions/prune",
+            post(history::prune_terminal_sessions),
         )
         .route(
             "/api/terminal-sessions/{session_id}/output",
@@ -490,6 +503,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/workspaces/{name}",
             delete(resources::delete_workspace),
+        )
+        .route(
+            "/api/workspaces/{name}/project-path-status",
+            get(resources::check_workspace_project_paths),
         )
         .route(
             "/api/workspaces/{name}/rename",

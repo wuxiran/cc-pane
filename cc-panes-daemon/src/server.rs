@@ -13,15 +13,15 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use cc_panes_core::models::{
     CliTool, CreateSessionRequest as CoreCreateSessionRequest, LaunchProviderSelection,
-    SshConnectionInfo, TerminalReplaySnapshot, WslLaunchInfo,
+    SshConnectionInfo, TerminalReplaySnapshot, TerminalSessionProvenance, WslLaunchInfo,
 };
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
-use cc_panes_core::services::{SessionStatusInfo, TerminalBackend};
+use cc_panes_core::services::{SessionStatusInfo, TerminalAdoptionSnapshot, TerminalBackend};
 use cc_panes_core::utils::{atomic_file, normalize_session_request_for_current_host};
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLock};
 use tracing::info;
 
 use crate::ws_emitter::WsEmitter;
@@ -82,6 +82,8 @@ impl DaemonConfig {
                 last_activity: parking_lot::RwLock::new(HashMap::new()),
                 desktop_control_clients: AtomicUsize::new(0),
                 session_claims: parking_lot::RwLock::new(HashMap::new()),
+                session_provenance: parking_lot::RwLock::new(HashMap::new()),
+                session_visibility: RwLock::new(()),
             }),
         }
     }
@@ -109,6 +111,7 @@ impl DaemonConfig {
             started_at: self.inner.started_at,
             session_count,
             desktop_client_count: self.desktop_client_count(),
+            claims_supported: true,
         }
     }
 
@@ -189,6 +192,16 @@ impl DaemonConfig {
         self.inner.session_claims.write().remove(session_id);
     }
 
+    /// 清理已过期的租约项。读路径不写锁，所以由 claim/list 这类低频写路径顺带调用，
+    /// 避免租约表随着"曾被 claim 过但早已过期"的会话无界增长（docs/61 评审 #4）。
+    pub(crate) fn prune_expired_claims(&self) {
+        let now = Instant::now();
+        self.inner
+            .session_claims
+            .write()
+            .retain(|_, claim| claim.is_live(now));
+    }
+
     /// 全部仍在有效期内的租约。过期项不返回（也不在这里清理——读路径不写锁）。
     pub(crate) fn live_session_claims(&self) -> HashMap<String, String> {
         let now = Instant::now();
@@ -246,6 +259,7 @@ impl DaemonConfig {
     /// 会话拆除：活跃时间与写权限租约一起丢弃，避免两张 map 随会话数无限增长。
     pub(crate) fn remove_session_activity(&self, session_id: &str) {
         self.forget_session_claim(session_id);
+        self.inner.session_provenance.write().remove(session_id);
         self.inner.last_activity.write().remove(session_id);
         self.inner.ws_emitter.cleanup_session(session_id);
     }
@@ -281,6 +295,13 @@ struct DaemonState {
     /// 语义刻意做成**「有租约才强制」**：没有任何实例 claim 过的会话，写入照旧放行。
     /// 否则运行中的旧版客户端（不会发实例头）会在升级瞬间全部失去输入能力。
     session_claims: parking_lot::RwLock<HashMap<String, SessionClaim>>,
+    /// Immutable daemon-side PTY birth evidence. It is exposed separately from mutable layout
+    /// observations so a later app instance can prove that a saved anchor still refers to the
+    /// exact live PTY it was created for.
+    session_provenance: parking_lot::RwLock<HashMap<String, TerminalSessionProvenance>>,
+    /// Creation visibility fence. Every externally observable session operation takes a read
+    /// guard; create holds the write guard until provenance and the initial claim are registered.
+    session_visibility: RwLock<()>,
 }
 
 /// 一条会话写权限租约。
@@ -329,6 +350,10 @@ pub struct DaemonStatus {
     /// 旧 daemon 响应无此字段时反序列化为 0（serde default）
     #[serde(default)]
     pub desktop_client_count: usize,
+    /// 本 daemon 是否支持会话写权限租约（docs/61 阶段 2）。
+    /// 旧 daemon 没有这个字段，客户端 deserialize 成 None → 视为不支持，
+    /// 据此禁用自动接管（评审 #11：404 只保证"不报错"，不等于有互斥）。
+    pub claims_supported: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -377,6 +402,9 @@ pub struct PartialCreateSessionRequest {
     pub launch_profile_id: Option<String>,
     pub workspace_path: Option<String>,
     pub workspace_snapshot_id: Option<String>,
+    pub origin_layout_id: Option<String>,
+    pub origin_tab_id: Option<String>,
+    pub origin_terminal_pane_id: Option<String>,
     #[serde(default)]
     pub launch_claude: bool,
     #[serde(default)]
@@ -494,7 +522,12 @@ pub fn router(config: DaemonConfig) -> Router {
         .route("/api/sessions/{id}/write", post(write_session))
         .route("/api/sessions/{id}/submit", post(submit_session))
         .route("/api/sessions/{id}/resize", post(resize_session))
+        .route(
+            "/api/sessions/adoption-snapshot",
+            get(get_adoption_snapshot),
+        )
         .route("/api/sessions/claims", get(list_session_claims))
+        .route("/api/sessions/{id}/provenance", get(get_session_provenance))
         .route("/api/sessions/{id}/claim", post(claim_session))
         .route("/api/sessions/{id}/claim", delete(release_session_claim))
         .route("/api/sessions/{id}", delete(kill_session))
@@ -573,6 +606,21 @@ async fn create_session(
         .project_path
         .or(req.cwd)
         .unwrap_or_else(|| config.default_cwd().to_string());
+    let provenance_project_path = project_path.clone();
+    let provenance_runtime_kind = if req.core.ssh.is_some() {
+        "ssh"
+    } else if req.core.wsl.is_some() {
+        "wsl"
+    } else {
+        "local"
+    }
+    .to_string();
+    let provenance_cli_tool = req.core.cli_tool.as_id().to_string();
+    let provenance_resume_id = req.core.resume_id.clone();
+    let provenance_origin_layout_id = req.core.origin_layout_id.clone();
+    let provenance_origin_tab_id = req.core.origin_tab_id.clone();
+    let provenance_origin_terminal_pane_id = req.core.origin_terminal_pane_id.clone();
+    let owner = caller_instance(&headers);
     let core_request = normalize_session_request_for_current_host(CoreCreateSessionRequest {
         launch_id: req.core.launch_id,
         project_path,
@@ -584,6 +632,9 @@ async fn create_session(
         launch_profile_id: req.core.launch_profile_id,
         workspace_path: req.core.workspace_path,
         workspace_snapshot_id: req.core.workspace_snapshot_id,
+        origin_layout_id: req.core.origin_layout_id,
+        origin_tab_id: req.core.origin_tab_id,
+        origin_terminal_pane_id: req.core.origin_terminal_pane_id,
         launch_claude: req.core.launch_claude,
         cli_tool: req.core.cli_tool,
         resume_id: req.core.resume_id,
@@ -596,6 +647,10 @@ async fn create_session(
         ssh: req.core.ssh,
         wsl: req.core.wsl,
     });
+    // All readers wait until PTY creation, immutable provenance, and the initial claim form one
+    // externally visible unit. The backend may emit a session-created event before returning, but
+    // any operation triggered by that event blocks on the matching read guard.
+    let _visibility = config.inner.session_visibility.write().await;
     // create_session 里 WSL 冷启动 + 探活 + spawn_pty 是同步阻塞操作，
     // 挪到 blocking 线程池，避免慢请求占死 tokio worker。
     let backend = config.terminal_backend_arc();
@@ -610,6 +665,39 @@ async fn create_session(
         })?
         .map_err(internal_error)?;
     config.touch_session(&session_id);
+    // create+claim 原子化（docs/61 评审 #2）：会话对外可见前就把写权限归给创建者，
+    // 否则"先创建后 claim"之间存在窗口，另一实例可以抢走刚建好的会话。
+    // 这里在 session_id 返回给调用方之前完成，故不存在可被观察到的未认领态。
+    if let Some(owner) = owner.as_deref() {
+        if let Err(existing) = config.try_claim_session(&session_id, owner, None) {
+            let _ = config
+                .terminal_backend()
+                .kill_with_reason(&session_id, KillReason::Unknown);
+            config.remove_session_activity(&session_id);
+            return Err(json_error(
+                StatusCode::CONFLICT,
+                "SESSION_CLAIMED",
+                format!("fresh session id is already claimed by {existing}"),
+            ));
+        }
+    }
+    config.inner.session_provenance.write().insert(
+        session_id.clone(),
+        TerminalSessionProvenance {
+            session_id: session_id.clone(),
+            daemon_generation: config.inner.started_at,
+            birth_nonce: generate_token(),
+            origin_instance_id: owner,
+            origin_layout_id: provenance_origin_layout_id,
+            origin_tab_id: provenance_origin_tab_id,
+            origin_terminal_pane_id: provenance_origin_terminal_pane_id,
+            project_path: provenance_project_path,
+            runtime_kind: provenance_runtime_kind,
+            cli_tool: provenance_cli_tool,
+            resume_id: provenance_resume_id,
+            created_at_ms: current_epoch_millis(),
+        },
+    );
     Ok((
         StatusCode::CREATED,
         Json(CreateSessionResponse { session_id }),
@@ -621,6 +709,7 @@ async fn list_sessions(
     headers: HeaderMap,
 ) -> Result<Json<Vec<SessionStatusInfo>>, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
     let statuses = config
         .terminal_backend()
         .get_all_status()
@@ -634,6 +723,7 @@ async fn get_session_status(
     Path(id): Path<String>,
 ) -> Result<Json<SessionStatusInfo>, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
     config.touch_session(&id);
     let status = config
         .terminal_backend()
@@ -680,6 +770,7 @@ async fn resize_session(
     Json(req): Json<ResizeRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
     ensure_may_write(&config, &id, &headers)?;
     config.touch_session(&id);
     config
@@ -727,7 +818,64 @@ async fn list_session_claims(
     headers: HeaderMap,
 ) -> Result<Json<HashMap<String, String>>, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
+    config.prune_expired_claims();
     Ok(Json(config.live_session_claims()))
+}
+
+async fn get_adoption_snapshot(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+) -> Result<Json<TerminalAdoptionSnapshot>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
+    let sessions = config
+        .terminal_backend()
+        .get_all_status()
+        .map_err(internal_error)?;
+    let live_ids: std::collections::HashSet<&str> = sessions
+        .iter()
+        .filter(|status| !status.status.is_terminal())
+        .map(|status| status.session_id.as_str())
+        .collect();
+    config.prune_expired_claims();
+    config
+        .inner
+        .session_claims
+        .write()
+        .retain(|session_id, _| live_ids.contains(session_id.as_str()));
+    config
+        .inner
+        .session_provenance
+        .write()
+        .retain(|session_id, _| live_ids.contains(session_id.as_str()));
+    Ok(Json(TerminalAdoptionSnapshot {
+        claims_supported: true,
+        daemon_generation: Some(config.inner.started_at),
+        owner_instance_id: caller_instance(&headers),
+        captured_at_ms: current_epoch_millis(),
+        complete: true,
+        sessions,
+        claims: config.live_session_claims(),
+        provenance: config.inner.session_provenance.read().clone(),
+    }))
+}
+
+async fn get_session_provenance(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<TerminalSessionProvenance>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
+    config
+        .inner
+        .session_provenance
+        .read()
+        .get(&id)
+        .cloned()
+        .map(Json)
+        .ok_or_else(|| not_found("Session provenance not found"))
 }
 
 async fn claim_session(
@@ -737,6 +885,7 @@ async fn claim_session(
     Json(req): Json<ClaimRequest>,
 ) -> Result<Json<ClaimResponse>, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
     let owner = req
         .app_instance_id
         .or_else(|| caller_instance(&headers))
@@ -748,6 +897,21 @@ async fn claim_session(
                 "appInstanceId is required to claim a session",
             )
         })?;
+
+    // 只允许对真实存在的活会话 claim（docs/61 评审 #4）：否则调用方可以往
+    // 任意字符串上占坑，租约表被垃圾项撑大，且掩盖会话已消失的事实。
+    match config.terminal_backend().get_session_status(&id) {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                "SESSION_NOT_FOUND",
+                "cannot claim a session that does not exist",
+            ));
+        }
+        Err(error) => return Err(internal_error(error)),
+    }
+    config.prune_expired_claims();
 
     match config.try_claim_session(&id, &owner, req.ttl_ms) {
         Ok(_) => {
@@ -776,6 +940,7 @@ async fn release_session_claim(
     Json(req): Json<ClaimRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
     let owner = req
         .app_instance_id
         .or_else(|| caller_instance(&headers))
@@ -798,6 +963,7 @@ async fn write_session(
     Json(req): Json<WriteRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
     ensure_may_write(&config, &id, &headers)?;
     tracing::debug!(
         session_id = %id,
@@ -819,6 +985,7 @@ async fn submit_session(
     Json(req): Json<SubmitRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
     ensure_may_write(&config, &id, &headers)?;
     config.touch_session(&id);
     config
@@ -870,6 +1037,10 @@ async fn kill_session(
     Query(query): Query<KillQuery>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
+    // kill 也要过租约闸门（docs/61 评审 #4）：否则任意旧客户端都能杀掉别的实例
+    // 正在使用的会话——比输入交错更严重，且不可逆。
+    ensure_may_write(&config, &id, &headers)?;
     let reason = KillReason::parse(query.reason.as_deref());
     config
         .terminal_backend()
@@ -885,6 +1056,8 @@ async fn ws_session(
     Query(query): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let upgrade_config = config.clone();
+    let _visibility = config.inner.session_visibility.read().await;
     match query.token.as_deref() {
         Some(token) if token == config.token() => {}
         _ => {
@@ -898,7 +1071,7 @@ async fn ws_session(
 
     // WS 订阅永远放行（只读镜像是设计允许的）；写权限在入站 input 处按租约裁决。
     let caller = query.instance_id.clone();
-    Ok(ws.on_upgrade(move |socket| handle_ws(socket, id, config, caller)))
+    Ok(ws.on_upgrade(move |socket| handle_ws(socket, id, upgrade_config, caller)))
 }
 
 /// 客户端存在性控制连接：桌面实例启动后保持一条，daemon 据此统计
@@ -1226,6 +1399,18 @@ mod tests {
         )
     }
 
+    fn mark_session_live(backend: &MockTerminalBackend) {
+        let request = serde_json::from_value(serde_json::json!({
+            "projectPath": "/repo",
+            "cols": 80,
+            "rows": 24
+        }))
+        .expect("core create request");
+        backend
+            .create_session(request)
+            .expect("mock session creation");
+    }
+
     // ===== 会话写权限租约（docs/61 阶段 2）=====
 
     fn write_request(session: &str, instance: Option<&str>) -> Request<Body> {
@@ -1271,12 +1456,13 @@ mod tests {
     #[tokio::test]
     async fn claimed_session_rejects_writes_from_other_instances() {
         let backend = Arc::new(MockTerminalBackend::default());
+        mark_session_live(&backend);
         let config = test_config("secret", "127.0.0.1:18091", backend.clone());
         let app = router(config);
 
         let granted = app
             .clone()
-            .oneshot(claim_request("s1", r#"{"appInstanceId":"inst-a"}"#))
+            .oneshot(claim_request("session-1", r#"{"appInstanceId":"inst-a"}"#))
             .await
             .expect("response");
         assert_eq!(granted.status(), StatusCode::OK);
@@ -1284,7 +1470,7 @@ mod tests {
         // 持有者可以写
         let owner_write = app
             .clone()
-            .oneshot(write_request("s1", Some("inst-a")))
+            .oneshot(write_request("session-1", Some("inst-a")))
             .await
             .expect("response");
         assert_eq!(owner_write.status(), StatusCode::NO_CONTENT);
@@ -1292,14 +1478,14 @@ mod tests {
         // 别的实例被挡
         let other_write = app
             .clone()
-            .oneshot(write_request("s1", Some("inst-b")))
+            .oneshot(write_request("session-1", Some("inst-b")))
             .await
             .expect("response");
         assert_eq!(other_write.status(), StatusCode::CONFLICT);
 
         // 匿名调用方在有租约时同样被挡
         let anonymous_write = app
-            .oneshot(write_request("s1", None))
+            .oneshot(write_request("session-1", None))
             .await
             .expect("response");
         assert_eq!(anonymous_write.status(), StatusCode::CONFLICT);
@@ -1314,28 +1500,45 @@ mod tests {
     #[tokio::test]
     async fn second_instance_cannot_steal_a_live_claim() {
         let backend = Arc::new(MockTerminalBackend::default());
+        mark_session_live(&backend);
         let app = router(test_config("secret", "127.0.0.1:18092", backend));
 
         let first = app
             .clone()
-            .oneshot(claim_request("s1", r#"{"appInstanceId":"inst-a"}"#))
+            .oneshot(claim_request("session-1", r#"{"appInstanceId":"inst-a"}"#))
             .await
             .expect("response");
         assert_eq!(first.status(), StatusCode::OK);
 
         let second = app
             .clone()
-            .oneshot(claim_request("s1", r#"{"appInstanceId":"inst-b"}"#))
+            .oneshot(claim_request("session-1", r#"{"appInstanceId":"inst-b"}"#))
             .await
             .expect("response");
         assert_eq!(second.status(), StatusCode::CONFLICT);
 
         // 同一持有者重复 claim = 续租，幂等
         let renew = app
-            .oneshot(claim_request("s1", r#"{"appInstanceId":"inst-a"}"#))
+            .oneshot(claim_request("session-1", r#"{"appInstanceId":"inst-a"}"#))
             .await
             .expect("response");
         assert_eq!(renew.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn nonexistent_session_cannot_be_claimed() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let app = router(test_config("secret", "127.0.0.1:18093", backend));
+
+        let response = app
+            .oneshot(claim_request(
+                "missing-session",
+                r#"{"appInstanceId":"inst-a"}"#,
+            ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]

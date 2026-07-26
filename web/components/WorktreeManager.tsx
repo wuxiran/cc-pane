@@ -21,9 +21,15 @@ interface WorktreeManagerProps {
   onOpenChange: (open: boolean) => void;
   projectPath: string;
   onOpenWorktree: (path: string) => void;
+  /** worktree 删除成功后回调，用于同步移除工作空间里对应的项目记录 */
+  onWorktreeRemoved?: (worktreePath: string) => void | Promise<void>;
+  /** worktree 列表发生变化（新增/删除）后回调，用于让上层缓存失效 */
+  onWorktreesChanged?: () => void;
 }
 
-export default function WorktreeManager({ open, onOpenChange, projectPath, onOpenWorktree }: WorktreeManagerProps) {
+export default function WorktreeManager({
+  open, onOpenChange, projectPath, onOpenWorktree, onWorktreeRemoved, onWorktreesChanged,
+}: WorktreeManagerProps) {
   const { t } = useTranslation(["dialogs", "common", "sidebar"]);
   const [loading, setLoading] = useState(false);
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
@@ -57,6 +63,7 @@ export default function WorktreeManager({ open, onOpenChange, projectPath, onOpe
     try {
       const branch = newBranch.trim() || undefined;
       await worktreeService.add(projectPath, newName.trim(), branch);
+      onWorktreesChanged?.();
       await loadWorktrees();
       setNewName("");
       setNewBranch("");
@@ -78,6 +85,13 @@ export default function WorktreeManager({ open, onOpenChange, projectPath, onOpe
     setConfirmOpen(false);
     try {
       await worktreeService.remove(projectPath, pendingRemove.path);
+      // 联动失败不能让 worktree 删除动作看起来失败——git 那一步已经成功了
+      try {
+        await onWorktreeRemoved?.(pendingRemove.path);
+      } catch (e) {
+        handleErrorSilent(e, "sync workspace project record");
+      }
+      onWorktreesChanged?.();
       await loadWorktrees();
     } catch (e) {
       handleError(e, "remove worktree");
@@ -85,7 +99,7 @@ export default function WorktreeManager({ open, onOpenChange, projectPath, onOpe
       setPendingRemove(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingRemove, projectPath, t]);
+  }, [pendingRemove, projectPath, t, onWorktreeRemoved, onWorktreesChanged]);
 
   const revealWorktree = useCallback(async (path: string) => {
     if (!isTauriRuntime()) {

@@ -3,8 +3,9 @@ use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::terminal_service;
 use crate::services::terminal_service::{KillReason, SessionOutput};
 use crate::services::{
-    BridgeStats, HistoryWatchManager, LaunchHistoryService, SessionStatusInfo, ShellInfo,
-    TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
+    BridgeStats, HistoryWatchManager, LaunchHistoryService, SessionRestoreService,
+    SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackendKind,
+    TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
 use crate::utils::{validate_launch_cwd, validate_ssh_info, AppResult, LaunchRuntime};
@@ -84,6 +85,7 @@ pub async fn create_terminal_session(
     service: State<'_, Arc<TerminalBackendState>>,
     launch_history_service: State<'_, Arc<LaunchHistoryService>>,
     history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
+    session_restore_service: State<'_, Arc<SessionRestoreService>>,
     request: Option<CreateSessionRequest>,
 ) -> AppResult<String> {
     let request = request
@@ -129,12 +131,50 @@ pub async fn create_terminal_session(
         .clone()
         .map(|launch_id| (launch_id, request.effective_cli_tool().as_id().to_string()));
     let backend = service.backend();
+    let observation_request = request.clone();
     let create_backend = backend.clone();
     let result =
         tauri::async_runtime::spawn_blocking(move || create_backend.create_session(request))
             .await
             .map_err(|e| AppError::from(e.to_string()))?;
     let session_id = result?;
+
+    // A claim-capable daemon must issue immutable birth evidence, and it must reach SQLite before
+    // the session id is returned to the webview. Otherwise a crash in this window recreates the
+    // original ambiguity: a live PTY with no trustworthy cross-instance join key.
+    if backend.claims_supported() {
+        let provenance_backend = backend.clone();
+        let provenance_session_id = session_id.clone();
+        let provenance = tauri::async_runtime::spawn_blocking(move || {
+            provenance_backend.session_provenance(&provenance_session_id)
+        })
+        .await
+        .map_err(|e| AppError::from(e.to_string()))??
+        .ok_or_else(|| AppError::from("claim-capable daemon omitted session provenance"));
+        let persist_result = provenance.and_then(|provenance| {
+            session_restore_service
+                .save_provenance(&provenance)
+                .map_err(AppError::from)?;
+            if let Some(observation) = cc_panes_core::models::SavedSession::from_creation(
+                &observation_request,
+                &provenance,
+            ) {
+                session_restore_service
+                    .save_initial_observation(&observation)
+                    .map_err(AppError::from)?;
+            }
+            Ok(())
+        });
+        if let Err(error) = persist_result {
+            let cleanup_backend = backend.clone();
+            let cleanup_session_id = session_id.clone();
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                cleanup_backend.kill_with_reason(&cleanup_session_id, KillReason::Unknown)
+            })
+            .await;
+            return Err(error);
+        }
+    }
 
     if let Some((launch_id, cli_tool)) = launch_binding {
         let mut bound = false;
@@ -287,6 +327,11 @@ pub struct TerminalBackendClientInfo {
     pub mode: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub desktop_client_count: Option<usize>,
+    pub claims_supported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub daemon_generation: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
 }
 
 #[tauri::command]
@@ -297,6 +342,9 @@ pub async fn get_terminal_daemon_client_info(
         return Ok(TerminalBackendClientInfo {
             mode: "in-process",
             desktop_client_count: None,
+            claims_supported: false,
+            daemon_generation: None,
+            instance_id: None,
         });
     };
     let status = tauri::async_runtime::spawn_blocking(move || client.status())
@@ -305,7 +353,81 @@ pub async fn get_terminal_daemon_client_info(
     Ok(TerminalBackendClientInfo {
         mode: "daemon",
         desktop_client_count: status.desktop_client_count,
+        claims_supported: status.claims_supported.unwrap_or(false),
+        daemon_generation: Some(status.started_at),
+        instance_id: Some(cc_panes_core::services::app_instance_id().to_string()),
     })
+}
+
+#[tauri::command]
+pub async fn get_terminal_adoption_snapshot(
+    service: State<'_, Arc<TerminalBackendState>>,
+) -> AppResult<TerminalAdoptionSnapshot> {
+    let backend = service.backend();
+    tauri::async_runtime::spawn_blocking(move || backend.adoption_snapshot())
+        .await
+        .map_err(|e| AppError::from(e.to_string()))?
+}
+
+async fn release_adoption_claim_best_effort(
+    backend: Arc<dyn crate::services::TerminalBackend>,
+    session_id: String,
+) {
+    let _ =
+        tauri::async_runtime::spawn_blocking(move || backend.release_session(&session_id)).await;
+}
+
+#[tauri::command]
+pub async fn adopt_terminal_session(
+    service: State<'_, Arc<TerminalBackendState>>,
+    session_restore_service: State<'_, Arc<SessionRestoreService>>,
+    session_id: String,
+) -> AppResult<bool> {
+    let backend = service.backend();
+    let adopt_backend = backend.clone();
+    let sid = session_id.clone();
+    let granted = tauri::async_runtime::spawn_blocking(move || adopt_backend.adopt_session(&sid))
+        .await
+        .map_err(|e| AppError::from(e.to_string()))??;
+    if !granted || !backend.claims_supported() {
+        return Ok(granted);
+    }
+
+    let snapshot_backend = backend.clone();
+    let snapshot_result =
+        tauri::async_runtime::spawn_blocking(move || snapshot_backend.adoption_snapshot())
+            .await
+            .map_err(|e| AppError::from(e.to_string()))
+            .and_then(|result| result);
+    let snapshot = match snapshot_result {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            release_adoption_claim_best_effort(backend, session_id).await;
+            return Err(error);
+        }
+    };
+    let Some(owner) = snapshot.owner_instance_id else {
+        release_adoption_claim_best_effort(backend, session_id).await;
+        return Err(AppError::from(
+            "daemon claim snapshot omitted owner instance id",
+        ));
+    };
+    if let Err(error) = session_restore_service.transfer_observation_owner(&session_id, &owner) {
+        release_adoption_claim_best_effort(backend, session_id).await;
+        return Err(AppError::from(error));
+    }
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn release_terminal_session(
+    service: State<'_, Arc<TerminalBackendState>>,
+    session_id: String,
+) -> AppResult<()> {
+    let backend = service.backend();
+    tauri::async_runtime::spawn_blocking(move || backend.release_session(&session_id))
+        .await
+        .map_err(|e| AppError::from(e.to_string()))?
 }
 
 /// 提交文本到会话：先写文本，短暂等待后单独发送 Enter。

@@ -1,4 +1,4 @@
-use crate::models::session_restore::SavedSession;
+use crate::models::session_restore::{SavedSession, TerminalSessionProvenance};
 use crate::repository::Database;
 use std::sync::Arc;
 use tracing::error;
@@ -33,8 +33,8 @@ impl SessionRestoreRepository {
                     workspace_name, workspace_path, provider_id, provider_selection, launch_profile_id, cli_tool,
                     runtime_kind, resume_id, ssh_config, custom_title,
                     created_at, saved_at,
-                    terminal_pane_id, layout_id, wsl_config, machine_name
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+                    terminal_pane_id, layout_id, wsl_config, machine_name, observer_instance_id
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
                 ON CONFLICT(session_id) DO UPDATE SET
                     workspace_session_id = excluded.workspace_session_id,
                     workspace_snapshot_id = excluded.workspace_snapshot_id,
@@ -55,7 +55,10 @@ impl SessionRestoreRepository {
                     terminal_pane_id = excluded.terminal_pane_id,
                     layout_id = excluded.layout_id,
                     wsl_config = excluded.wsl_config,
-                    machine_name = excluded.machine_name",
+                    machine_name = excluded.machine_name,
+                    observer_instance_id = excluded.observer_instance_id
+                WHERE terminal_sessions.observer_instance_id IS NULL
+                   OR terminal_sessions.observer_instance_id = excluded.observer_instance_id",
             )
             .map_err(|e| format!("Failed to prepare insert: {}", e))?;
 
@@ -83,6 +86,7 @@ impl SessionRestoreRepository {
                 s.layout_id,
                 s.wsl_config,
                 s.machine_name,
+                s.observer_instance_id,
             ])
             .map_err(|e| {
                 error!(session_id = %s.session_id, err = %e, "Failed to insert session");
@@ -98,14 +102,20 @@ impl SessionRestoreRepository {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT session_id, tab_id, pane_id, project_path,
-                        COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id,
-                        workspace_name, workspace_path, provider_id, provider_selection, launch_profile_id, cli_tool,
-                        runtime_kind, COALESCE(resume_id, claude_session_id) AS resume_id,
-                        ssh_config, custom_title,
-                        created_at, saved_at,
-                        terminal_pane_id, layout_id, wsl_config, machine_name
-                 FROM terminal_sessions",
+                "SELECT ts.session_id, ts.tab_id, ts.pane_id, ts.project_path,
+                        COALESCE(ts.workspace_snapshot_id, ts.workspace_session_id) AS workspace_snapshot_id,
+                        ts.workspace_name, ts.workspace_path, ts.provider_id, ts.provider_selection, ts.launch_profile_id, ts.cli_tool,
+                        ts.runtime_kind, COALESCE(ts.resume_id, ts.claude_session_id) AS resume_id,
+                        ts.ssh_config, ts.custom_title,
+                        ts.created_at, ts.saved_at,
+                        ts.terminal_pane_id, ts.layout_id, ts.wsl_config, ts.machine_name,
+                        ts.observer_instance_id,
+                        provenance.daemon_generation,
+                        provenance.birth_nonce,
+                        provenance.origin_instance_id
+                 FROM terminal_sessions ts
+                 LEFT JOIN terminal_session_provenance provenance
+                   ON provenance.session_id = ts.session_id",
             )
             .map_err(|e| format!("Failed to prepare load query: {}", e))?;
 
@@ -133,6 +143,10 @@ impl SessionRestoreRepository {
                     layout_id: row.get(18)?,
                     wsl_config: row.get(19)?,
                     machine_name: row.get(20)?,
+                    observer_instance_id: row.get(21)?,
+                    daemon_generation: row.get(22)?,
+                    birth_nonce: row.get(23)?,
+                    origin_instance_id: row.get(24)?,
                     has_output: false, // 由 service 层根据文件是否存在设置
                 })
             })
@@ -146,6 +160,110 @@ impl SessionRestoreRepository {
             }
         }
         Ok(sessions)
+    }
+
+    /// Persist immutable daemon birth evidence. A conflicting second write is ignored: mutable
+    /// layout observation saves must never rewrite the identity of an existing PTY.
+    pub fn save_provenance(&self, provenance: &TerminalSessionProvenance) -> Result<(), String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO terminal_session_provenance (
+                session_id, daemon_generation, birth_nonce, origin_instance_id,
+                origin_layout_id, origin_tab_id, origin_terminal_pane_id, project_path,
+                runtime_kind, cli_tool, resume_id, created_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT(session_id) DO NOTHING",
+            rusqlite::params![
+                provenance.session_id,
+                provenance.daemon_generation,
+                provenance.birth_nonce,
+                provenance.origin_instance_id,
+                provenance.origin_layout_id,
+                provenance.origin_tab_id,
+                provenance.origin_terminal_pane_id,
+                provenance.project_path,
+                provenance.runtime_kind,
+                provenance.cli_tool,
+                provenance.resume_id,
+                provenance.created_at_ms,
+            ],
+        )
+        .map_err(|e| format!("Failed to save terminal session provenance: {e}"))?;
+        Ok(())
+    }
+
+    /// Transfer mutable anchor ownership only after the caller has won the daemon claim.
+    pub fn transfer_observation_owner(
+        &self,
+        session_id: &str,
+        owner_instance_id: &str,
+    ) -> Result<(), String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE terminal_sessions SET observer_instance_id = ?2 WHERE session_id = ?1",
+            rusqlite::params![session_id, owner_instance_id],
+        )
+        .map_err(|e| format!("Failed to transfer terminal observation owner: {e}"))?;
+        Ok(())
+    }
+
+    /// Delete stale observations only from one complete daemon generation snapshot. The grace
+    /// window protects rows that may have been persisted just after the external snapshot.
+    pub fn prune_generation(
+        &self,
+        daemon_generation: u64,
+        captured_at_ms: u64,
+        live_session_ids: &[String],
+    ) -> Result<usize, String> {
+        const PRUNE_GRACE_MS: u64 = 5 * 60 * 1000;
+        let cutoff = captured_at_ms.saturating_sub(PRUNE_GRACE_MS);
+        let mut conn = self.db.connection().map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start terminal prune transaction: {e}"))?;
+        tx.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS live_terminal_session_ids (
+                session_id TEXT PRIMARY KEY
+             );
+             DELETE FROM live_terminal_session_ids;",
+        )
+        .map_err(|e| format!("Failed to prepare terminal prune snapshot: {e}"))?;
+        {
+            let mut insert = tx
+                .prepare("INSERT OR IGNORE INTO live_terminal_session_ids(session_id) VALUES (?1)")
+                .map_err(|e| format!("Failed to prepare live session insert: {e}"))?;
+            for session_id in live_session_ids {
+                insert
+                    .execute([session_id])
+                    .map_err(|e| format!("Failed to stage live session id: {e}"))?;
+            }
+        }
+        let deleted = tx
+            .execute(
+                "DELETE FROM terminal_sessions
+                 WHERE session_id IN (
+                    SELECT provenance.session_id
+                    FROM terminal_session_provenance provenance
+                    LEFT JOIN live_terminal_session_ids live
+                      ON live.session_id = provenance.session_id
+                    WHERE provenance.daemon_generation = ?1
+                      AND provenance.created_at_ms <= ?2
+                      AND live.session_id IS NULL
+                 )",
+                rusqlite::params![daemon_generation, cutoff],
+            )
+            .map_err(|e| format!("Failed to prune stale terminal observations: {e}"))?;
+        tx.execute(
+            "DELETE FROM terminal_session_provenance
+             WHERE daemon_generation = ?1
+               AND created_at_ms <= ?2
+               AND session_id NOT IN (SELECT session_id FROM live_terminal_session_ids)",
+            rusqlite::params![daemon_generation, cutoff],
+        )
+        .map_err(|e| format!("Failed to prune stale terminal provenance: {e}"))?;
+        tx.commit()
+            .map_err(|e| format!("Failed to commit terminal prune transaction: {e}"))?;
+        Ok(deleted)
     }
 
     /// 清空所有已保存的会话
@@ -176,6 +294,10 @@ mod tests {
                 layout_id: None,
                 wsl_config: None,
                 machine_name: None,
+                observer_instance_id: None,
+                daemon_generation: None,
+                birth_nonce: None,
+                origin_instance_id: None,
                 project_path: "/home/user/project".into(),
                 workspace_name: Some("ws1".into()),
                 workspace_path: None,
@@ -200,6 +322,10 @@ mod tests {
                 layout_id: None,
                 wsl_config: None,
                 machine_name: None,
+                observer_instance_id: None,
+                daemon_generation: None,
+                birth_nonce: None,
+                origin_instance_id: None,
                 project_path: "/home/user/project2".into(),
                 workspace_name: None,
                 workspace_path: None,
@@ -241,6 +367,10 @@ mod tests {
             layout_id: None,
             wsl_config: None,
             machine_name: None,
+            observer_instance_id: None,
+            daemon_generation: None,
+            birth_nonce: None,
+            origin_instance_id: None,
             project_path: "/p".into(),
             workspace_name: None,
             workspace_path: None,
@@ -317,6 +447,10 @@ mod tests {
             layout_id: Some("layout-1".into()),
             wsl_config: None,
             machine_name: None,
+            observer_instance_id: None,
+            daemon_generation: None,
+            birth_nonce: None,
+            origin_instance_id: None,
             project_path: "/p".into(),
             workspace_name: None,
             workspace_path: None,
@@ -348,6 +482,10 @@ mod tests {
             layout_id: None,
             wsl_config: None,
             machine_name: None,
+            observer_instance_id: None,
+            daemon_generation: None,
+            birth_nonce: None,
+            origin_instance_id: None,
             project_path: "/p".into(),
             workspace_name: None,
             workspace_path: None,

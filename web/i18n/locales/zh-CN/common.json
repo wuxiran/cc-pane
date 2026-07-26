@@ -70,6 +70,7 @@
   "resourceManagerTerminal": "终端",
   "resourceManagerAdopt": "点击接管到当前布局",
   "resourceManagerAdoptFailed": "接管会话失败",
+  "resourceManagerAdoptClaimed": "该会话正由另一个 CC-Panes 实例持有，暂时只能查看",
   "resourceManagerAdoptIncompleteRuntime": "无法接管：缺少 {{runtime}} 运行时信息，接管后重建会启动到错误目录",
   "resourceManagerFocusSession": "聚焦会话",
   "resourceManagerEndSessionNamed": "结束会话 {{name}}",

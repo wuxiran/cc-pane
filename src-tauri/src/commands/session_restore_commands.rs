@@ -28,6 +28,17 @@ pub async fn clear_terminal_sessions(
     service.clear_sessions()
 }
 
+/// Prune rows only from a complete, generation-consistent daemon snapshot.
+#[tauri::command]
+pub async fn prune_terminal_sessions(
+    daemon_generation: u64,
+    captured_at_ms: u64,
+    live_session_ids: Vec<String>,
+    service: State<'_, Arc<SessionRestoreService>>,
+) -> Result<usize, String> {
+    service.prune_generation(daemon_generation, captured_at_ms, &live_session_ids)
+}
+
 /// 加载指定会话的输出内容
 #[tauri::command]
 pub async fn load_session_output(

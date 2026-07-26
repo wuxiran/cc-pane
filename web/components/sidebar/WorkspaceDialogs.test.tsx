@@ -100,6 +100,13 @@ function makeProps(overrides: DeepPartial<WorkspaceDialogsProps> = {}): {
       workspace: null,
       project: null,
     },
+    missingProjects: {
+      open: false,
+      setOpen: vi.fn(),
+      workspace: null,
+      statuses: [],
+      onConfirm: vi.fn(),
+    },
     confirm: {
       open: false,
       setOpen: spies.confirmSetOpen,

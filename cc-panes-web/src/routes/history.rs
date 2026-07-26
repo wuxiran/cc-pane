@@ -401,6 +401,29 @@ pub async fn clear_terminal_sessions(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PruneTerminalSessionsRequest {
+    pub daemon_generation: u64,
+    pub captured_at_ms: u64,
+    pub live_session_ids: Vec<String>,
+}
+
+pub async fn prune_terminal_sessions(
+    State(state): State<AppState>,
+    Json(request): Json<PruneTerminalSessionsRequest>,
+) -> Result<Json<usize>, (StatusCode, String)> {
+    state
+        .session_restore_service
+        .prune_generation(
+            request.daemon_generation,
+            request.captured_at_ms,
+            &request.live_session_ids,
+        )
+        .map(Json)
+        .map_err(service_error)
+}
+
 pub async fn save_layout_snapshot(
     State(state): State<AppState>,
     Json(snapshot): Json<SaveLayoutSnapshotRequest>,
@@ -598,6 +621,9 @@ fn restore_snapshot_entry(
             launch_profile_id: entry.launch_profile_id.clone(),
             workspace_path: snapshot.workspace_path.clone(),
             workspace_snapshot_id: Some(snapshot.id.clone()),
+            origin_layout_id: None,
+            origin_tab_id: None,
+            origin_terminal_pane_id: None,
             launch_claude: cli_tool != cc_panes_core::models::CliTool::None,
             cli_tool,
             resume_id: entry.agent_resume_id.clone(),

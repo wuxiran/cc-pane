@@ -16,7 +16,7 @@ use cc_panes_core::{
         WorkspaceMigrationPlan, WorkspaceMigrationRequest, WorkspaceMigrationResult,
         WorkspaceMigrationRollbackResult, WorkspaceProject,
     },
-    services::{ContentSearchLimits, WorkspaceService},
+    services::{check_project_paths, ContentSearchLimits, ProjectPathStatus, WorkspaceService},
     utils::{validate_path, validate_ssh_info},
 };
 use serde::Deserialize;
@@ -202,6 +202,17 @@ pub async fn get_workspace(
         .workspace_service
         .get_workspace(&name)
         .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn check_workspace_project_paths(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Vec<ProjectPathStatus>>, (StatusCode, String)> {
+    state
+        .workspace_service
+        .get_workspace(&name)
+        .map(|workspace| Json(check_project_paths(&workspace.projects)))
         .map_err(service_error)
 }
 

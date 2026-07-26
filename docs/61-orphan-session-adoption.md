@@ -1,6 +1,6 @@
-# 61 · 无主会话接管与重复恢复根治
+# 61 · 无主会话接管与重复恢复基础设施（实验）
 
-> 2026-07-26 事故调查 + 实施计划。第一部分（UI 接管）已实现，第二部分（启动认领）待评审。
+> 2026-07-26 事故调查 + 实施记录。UI 接管、daemon lease、启动认领与时序屏障已落地；自动认领仍默认关闭，尚未完成独立 dev daemon 灰度和 Windows 桌面验收，因此不得宣称事故已被“根治”。
 
 ## 事故现象
 
@@ -49,7 +49,7 @@ session_id → tab_id, pane_id, project_path, workspace_name, workspace_path,
 
 写入方 `collectRestorableSessions()`（`useSessionLayoutPersistence.ts:61`）用的正是 `tab.sessionId || tab.savedSessionId || tab.id`，即活 PTY 的 session id。**它跨 app 实例共享（SQLite），不像 webview 的 localStorage。**
 
-因此根治不需要改 daemon 协议，只需把认领的匹配源从 webview 局部状态换成这张表。
+这张表提供了跨实例 join key，但不能裁决 PTY 写权限。完整方案还需要 daemon 原子 lease、不可变出生 provenance、generation 一致快照和前端启动屏障；SQLite 只保存归属观察，不充当并发 owner。
 
 ## 第一部分：UI 接管（已实现）
 
@@ -75,9 +75,9 @@ session_id → tab_id, pane_id, project_path, workspace_name, workspace_path,
 | 无精确锚点的会话 | 不自动建 tab；**保留** UI 手动接管（用户显式点击 ≠ 自动认领，此张力不成立） |
 | 首版默认 | feature flag 默认关闭灰度 |
 
-## 第二部分：启动自动认领（按评审重写，尚未实现）
+## 第二部分：启动自动认领基础设施（按评审实现，默认关闭）
 
-评审把体量从「3 步小改」推到「需要 daemon 侧原子 lease」。按依赖顺序分四阶段，前两阶段是纯逆向修复，不引入认领也应该做。
+评审把体量从「3 步小改」推到「需要 daemon 侧原子 lease」。实现按依赖顺序分四阶段；当前代码与自动化预检已完成，实际启用仍受默认关闭的 feature flag 和后续灰度门禁约束。
 
 ### 阶段 1 · 数据层逆向修复（无认领也该做）
 
@@ -112,9 +112,9 @@ daemon 侧的租约注册表与闸门已落地。**核心语义是「有租约�
 - `adopt_session()` / `release_session()`：接管与「detach 但不 kill PTY」的回退路径。
 - 客户端对老 daemon 的 404/405 一律视作"已授权"——那种 daemon 本来就不做裁决，拒绝写入只会让功能倒退。
 
-未做（留给阶段 3/4）：租约与 `session_restore` 表的 provenance 关联、前端据 `/api/sessions/claims` 隐藏已被持有会话的接管入口。
+阶段 3/4 已补齐：claim 成功后转移 mutable observation owner；前端通过 adoption snapshot 的 `claimsSupported / claims / ownerInstanceId` 能力协商禁用被其他实例持有的接管入口。老 daemon 或不完整快照一律 fail-closed，不进入自动认领。
 
-### 阶段 3 · 启动认领轮
+### 阶段 3 · 启动认领轮（已实现，默认关闭）
 
 在 `restoreLiveDaemonSessionsFromBackend()` 之后、任何 `createSession` 之前插入。认领判据（**全部满足**才认领）：
 
@@ -123,13 +123,30 @@ daemon 侧的租约注册表与闸门已落地。**核心语义是「有租约�
 - runtime 与 CLI 一致；非空 `resume_id` 只作一致性校验，不作匹配依据；
 - 同一 leaf 命中多个活 PTY → 拒绝自动选择，标冲突。
 
-### 阶段 4 · 时序屏障
+实现入口为 `reconcileTerminalSessions({ autoAdopt })`。它只接受完整、同 generation、支持 claims 且带当前 owner 的 adoption snapshot；claim 成功后才调用 `attachSessionToAnchor`，挂载失败立即 release。无 provenance、身份不符、查询失败或多候选都阻断重建并保留人工接管。
 
-`App.tsx:56-102` / `TerminalView.tsx:1569-1686` 的子级 effect 可能**早于**启动认领 effect 就建了 PTY，`setTimeout(3_000)` 封不住这个窗口。改法：挂载 AppShell 前完成一次启动恢复屏障，或让三个创建入口在 `createSession` 前 await 同一个 reconciliation promise 并立即复检。
+创建成功路径会在 session ID 返回前持久化 daemon provenance 和首条 observation；没有完整 UI leaf 锚点的 MCP/runner 会话不自动生成 observation，保持 manual-only。完整 snapshot 对账结束后才执行带 5 分钟宽限期的 generation 剪枝。
+
+### 阶段 4 · 时序屏障（已实现）
+
+`MainApp` 在共享布局快照应用和首轮 reconciliation 完成前不挂载 `AppShell`。所有 `terminalService.createSession()` 还会等待同一个 `terminalRestoreBarrier`；当前、deferred、background、reconnect 创建路径在屏障后重新检查 leaf 是否仍可创建，避免 effect 时序或排队期间重复建 PTY。后台恢复按 leaf 执行，不再把会话固定挂到活动格子。
 
 ### 开关与回滚
 
-新增默认关闭、可热禁用的 `autoAdoptDaemonSessions`；自动接管来源要打标；支持 detach + release claim（解除挂载但不 kill PTY）的回退路径；迁移只增表/列，保证旧版本可忽略新数据。灰度需覆盖：双实例、全灭重启、split leaf、WSL、SSH、worktree、daemon generation 变化。
+`autoAdoptDaemonSessions` 默认关闭并可热禁用。支持 detach + release claim（解除挂载但不 kill PTY）的回退路径；migration 27 只增 provenance 表/列，旧版本可忽略新数据。关闭开关只停止自动认领，不会杀 PTY；缺 provenance 的历史会话仍只允许人工接管。
+
+## 灰度与生产前置清单
+
+以下项目全部完成前，本功能只能称为“实验性基础设施”，不能进入发布说明的“已根治”条目：
+
+- [ ] 使用独立 dev 数据目录、独立 daemon manifest/token/端口启动灰度；不得连接、重启、替换当前生产 daemon。
+- [ ] 在自动认领关闭时验证基线：旧 daemon 能力协商返回 `claimsSupported=false` 时阻断重建，人工接管仍可用。
+- [ ] 仅在独立 dev daemon 打开 `autoAdoptDaemonSessions`，覆盖双实例、全灭重启、split leaf、多候选冲突和 daemon generation 变化。
+- [ ] 覆盖 local / WSL / SSH / worktree 的路径与运行时指纹；确认 worktree 不会折叠到共同仓库根。
+- [ ] 验证 claim 丢失后的键盘、DOM fallback、滚轮、resize、submit 全部进入持久只读，且 detach/release 不 kill PTY。
+- [ ] 在 Windows 主机完成桌面验收：应用启动、WebView2 effect 时序、Windows PTY 输入/resize、多实例切换和资源管理器人工接管。WSL 的 `tsc`、Vitest 和 Cargo 结果不能替代此项。
+- [ ] 生产升级前备份 `data.db`，确认 migration 27 的执行窗口；旧生产 daemon 有活会话时不得原地替换。
+- [ ] 安排明确维护窗口，先协调所有生产桌面实例退出并确认 daemon 无需保护的活会话，再升级/重启 daemon；回滚时保持自动认领关闭，不能用 kill 会话代替 detach/release。
 
 ## 待办
 
@@ -141,12 +158,14 @@ daemon 侧的租约注册表与闸门已落地。**核心语义是「有租约�
 - [x] 阶段 1 · 禁 `tab.id` 冒充 `session_id`
 - [x] 阶段 1 · 补全运行时指纹（`wsl_config` / `machine_name`），接管守卫放开 WSL
 - [x] 阶段 1 · `save_sessions` 去掉 `DELETE FROM` 全表覆盖，改按 `session_id` UPSERT
-- [ ] 阶段 1 · provenance / claim 分表（依赖阶段 2 的实例身份）
-- [ ] 阶段 1 · 出生证据 birth nonce + daemon generation（依赖阶段 2）
-- [ ] 阶段 1 · 死行剪枝（依赖阶段 3 的 daemon generation 一致快照）
+- [x] 阶段 1 · provenance / claim 分表（migration 27，不可变来源与 mutable observation 分离）
+- [x] 阶段 1 · 出生证据 birth nonce + daemon generation（创建返回前持久化）
+- [x] 阶段 1 · generation 一致死行剪枝（完整 snapshot + 5 分钟宽限期）
 - [x] 阶段 2 daemon lease（注册表 + 端点 + 写入闸门 + 回收，7 项测试）
 - [x] 阶段 2 收尾：进程级 app_instance_id + 请求头/WS 注入 + create 时 claim + 10s 心跳续租（5 项测试）
 - [x] 阶段 3 启动认领轮（`attachSessionToAnchor` + `adoptUnownedDaemonSessions`，默认关闭的 `autoAdoptDaemonSessions` 开关，6 项测试）
 - [x] 写入被租约挡下时的用户提示（按会话去重 + 30s 冷却）
-- [ ] 阶段 3 收尾：接管前查 `/api/sessions/claims`，隐藏已被他实例持有的会话
-- [ ] 阶段 4 时序屏障
+- [x] 阶段 3 收尾：adoption snapshot 能力协商，禁用已被其他实例持有的人工接管
+- [x] 阶段 4 时序屏障：AppShell 挂载门禁 + 所有 createSession 路径 await/recheck
+- [x] 自动化预检：WSL/Windows TypeScript、聚焦 Vitest、core/daemon/web Rust 测试、Tauri `--no-run`，以及独立 Windows target 的四包 `cargo.exe check`
+- [ ] 独立 dev daemon 灰度与 Windows 桌面验收（见上方前置清单）

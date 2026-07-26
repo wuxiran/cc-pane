@@ -4,12 +4,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { writeText as tauriWriteText } from "@tauri-apps/plugin-clipboard-manager";
-import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { info as logInfo } from "@tauri-apps/plugin-log";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { terminalService, historyService, sessionRestoreService, filesystemService, providerService } from "@/services";
+import { terminalService, historyService, sessionRestoreService } from "@/services";
 import { ensureListeners, isSessionClaimedError } from "@/services/terminalService";
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage, toTerminalLaunchError } from "@/utils";
@@ -36,14 +34,18 @@ import {
   buildKittyKeyboardProtocolReport,
   buildPrimaryDeviceAttributesReport,
 } from "./terminalCapabilityReports";
-import { buildOscColorReply } from "./terminalOscColor";
+import { resolveOscColorQuery } from "./terminalOscColor";
 import {
   createTerminalDataRenderer,
   detectAlternateBufferTransitions,
   shouldKeepCliOutputInNormalBuffer,
   type TerminalDataRenderer,
 } from "./terminalBufferMode";
-import { formatTerminalFilePaths, resolveTerminalPastePayload } from "./terminalClipboard";
+import {
+  copyTerminalSelection,
+  formatTerminalFilePaths,
+  resolveTerminalPastePayload,
+} from "./terminalClipboard";
 import { isDropInsideTerminalHost } from "./terminalDrop";
 import { attachTerminalInputTrace, summarizeTerminalInputData } from "./terminalInputTrace";
 import { attachTerminalDomInputFallback } from "./terminalDomInputFallback";
@@ -63,9 +65,11 @@ import {
 } from "./terminalRendererController";
 import {
   isRestoreLaunchCancelled,
+  createRestoreLaunchCancelledError,
   terminalRestoreLaunchQueue,
   type RestoreLaunchState,
 } from "./terminalRestoreQueue";
+import { waitForTerminalRestoreBarrier } from "@/services/terminalRestoreBarrier";
 import { resolveTerminalRendererModeForSession } from "./terminalRenderer";
 import {
   getTerminalTheme,
@@ -74,8 +78,8 @@ import {
 } from "./terminalTheme";
 import { normalizeTerminalFontFamily } from "./terminalFont";
 import TerminalContextMenu from "./TerminalContextMenu";
-import { requestTerminalFitAll, TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
-import { buildTerminalExportFileName, serializeTerminalBuffer } from "./terminalBufferSnapshot";
+import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
+import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
 import "@xterm/xterm/css/xterm.css";
 
 /** Cache the Windows build number once per renderer process. */
@@ -312,22 +316,6 @@ function applyTerminalElementTheme(
   term.element.style.color = theme.foreground;
 }
 
-async function copyTerminalSelection(selection: string): Promise<void> {
-  try {
-    await tauriWriteText(selection);
-    return;
-  } catch {
-    // Fall through to the browser clipboard API below.
-  }
-
-  const clipboard = navigator.clipboard;
-  if (!clipboard?.writeText) {
-    throw new Error("Clipboard API is unavailable");
-  }
-
-  await clipboard.writeText(selection);
-}
-
 interface TerminalViewProps {
   sessionId: string | null;
   projectId: string;
@@ -362,6 +350,8 @@ interface TerminalViewProps {
   restoring?: boolean;
   /** Saved session id used to replay persisted terminal output. */
   savedSessionId?: string;
+  /** Persistent daemon lease state. Read-only terminals still receive output. */
+  readOnly?: boolean;
   /** Pane id used to clear restoring state after recovery finishes. */
   paneId?: string;
   /** Tab id used to clear restoring state after recovery finishes. */
@@ -383,6 +373,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   function TerminalView(props, ref) {
     const { t } = useTranslation("panes");
     const drivesBackendPty = props.drivesBackendPty ?? true;
+    const readOnlyRef = useRef(Boolean(props.readOnly));
     const isDark = useThemeStore((s) => s.isDark);
     const terminalThemeMode = useSettingsStore((s): TerminalThemeMode => s.settings?.terminal.themeMode ?? "followApp");
     const terminalFontSize = useSettingsStore((s) => normalizeTerminalFontSize(s.settings?.terminal.fontSize));
@@ -676,6 +667,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       isActiveRef.current = props.isActive;
       isVisibleRef.current = props.isVisible ?? props.isActive;
       layoutActiveRef.current = props.layoutActive ?? true;
+      readOnlyRef.current = Boolean(props.readOnly);
+      if (terminalInstanceRef.current) {
+        terminalInstanceRef.current.options.disableStdin = Boolean(props.readOnly);
+      }
       if (props.layoutActive === false) {
         everHiddenRef.current = true;
       }
@@ -692,6 +687,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     // configure 按 reason 变化自动 disposeWebgl 降 DOM / 恢复）。依赖是布尔翻转，
     // 只在用户改设置/切工作空间时变化——不进入 resize/visibility/focus 等高频路径。
     const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
+    const effectiveCliToolRef = useRef(effectiveCliTool);
+    const wallpaperTransparencyRequiredRef = useRef(wallpaperTransparencyRequired);
+    effectiveCliToolRef.current = effectiveCliTool;
+    wallpaperTransparencyRequiredRef.current = wallpaperTransparencyRequired;
     useEffect(() => {
       rendererControllerRef.current?.configure(terminalRendererModeRef.current);
     }, [wallpaperTransparencyRequired]);
@@ -1070,14 +1069,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           getHost: () => terminalRef.current,
           getSessionId: () => currentSessionIdRef.current,
           isActive: () => isActiveRef.current,
-          canResizeBackend: () => drivesBackendPty,
+          canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
           repaint: repaintTerminal,
           resizeBackend: (cols, rows) => {
             const sessionId = currentSessionIdRef.current;
-            if (!sessionId) return;
+            if (!sessionId || readOnlyRef.current) return;
             // WebGL 诊断台录制：记下几何，回放才能几何对齐（否则 TUI 光标定位错位出假花）。
             noteTerminalGeometry(sessionId, cols, rows);
-            terminalService.resize({ sessionId, cols, rows });
+            void terminalService.resize({ sessionId, cols, rows }).catch((error) => {
+              console.warn("[TerminalView] Failed to resize terminal:", error);
+            });
           },
           logger: debugLog,
         });
@@ -1118,30 +1119,44 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         };
         const handleOscColorQuery = (ident: number) => (data: string) => {
           const sessionId = currentSessionIdRef.current;
-          const response = buildOscColorReply(
+          const result = resolveOscColorQuery(
             ident,
             data,
             getTerminalTheme(
               useThemeStore.getState().isDark,
               useSettingsStore.getState().settings?.terminal.themeMode,
             ),
+            {
+              cliTool: effectiveCliToolRef.current,
+              wallpaperTransparencyRequired: wallpaperTransparencyRequiredRef.current,
+            },
           );
           debugLog("terminal.osc.query", {
             sessionId,
             ident,
             data,
-            handled: Boolean(response),
+            handled: result.handled,
+            suppressed: result.handled && result.response === null,
           });
-          if (!response) return false;
+          if (!result.handled) return false;
+          if (!result.response) {
+            debugLog("terminal.osc.suppressed", {
+              sessionId,
+              ident,
+              data,
+              cliTool: effectiveCliToolRef.current,
+            });
+            return true;
+          }
 
-          writeTerminalReply(sessionId, response, (error) => {
+          writeTerminalReply(sessionId, result.response, (error) => {
             console.warn("[TerminalView] Failed to send OSC color response:", error);
           });
           debugLog("terminal.osc.reply", {
             sessionId,
             ident,
             data,
-            response,
+            response: result.response,
           });
           return true;
         };
@@ -1378,8 +1393,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   hasSession: Boolean(sessionId),
                 });
                 if (isDisconnectedRef.current) return;
-                if (sessionId) {
-                  void terminalService.write(sessionId, data, { traceId });
+                if (sessionId && !readOnlyRef.current) {
+                  void terminalService.write(sessionId, data, { traceId }).catch((error) => {
+                    console.warn("[TerminalView] DOM fallback write failed:", error);
+                  });
                 }
               },
             });
@@ -1505,7 +1522,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             return;
           }
           const sessionId = currentSessionIdRef.current;
-          if (sessionId) {
+          if (sessionId && !readOnlyRef.current) {
             // 写入失败必须让用户看见。会话被另一个实例持有时 daemon 会挡下输入，
             // 以前这里是 fire-and-forget，rejection 无人接管 = 打字石沉大海。
             terminalService.write(sessionId, data, { traceId }).catch((error) => {
@@ -1582,8 +1599,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           e.stopPropagation();
           const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 40));
           const arrow = e.deltaY < 0 ? '\x1b[A' : '\x1b[B';
-          if (currentSessionIdRef.current) {
-            terminalService.write(currentSessionIdRef.current, arrow.repeat(lines), { source: "system" });
+          if (currentSessionIdRef.current && !readOnlyRef.current) {
+            void terminalService
+              .write(currentSessionIdRef.current, arrow.repeat(lines), { source: "system" })
+              .catch((error) => console.warn("[TerminalView] wheel input failed:", error));
           }
         };
         term.element?.addEventListener('wheel', wheelHandler, { passive: false });
@@ -1684,7 +1703,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               debugLog("session.create.begin", {
                 resumeId: effectiveResumeId ?? null,
               });
-              const launchSession = () => terminalService.createSession({
+              const launchSession = async () => {
+                await waitForTerminalRestoreBarrier();
+                if (
+                  props.tabId
+                  && props.paneId
+                  && !usePanesStore.getState().canCreateTerminalSession(props.tabId, props.paneId)
+                ) {
+                  throw createRestoreLaunchCancelledError();
+                }
+                const originLayoutId = props.tabId
+                  ? usePanesStore.getState().findTabAcrossLayouts(props.tabId)?.layoutId
+                  : undefined;
+                return terminalService.createSession({
                 launchId: props.projectId,
                 projectPath: props.projectPath,
                 cols: term.cols,
@@ -1706,7 +1737,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 adapterOptions: props.adapterOptions,
                 ssh: props.ssh,
                 wsl: props.wsl,
+                originLayoutId,
+                originTabId: props.tabId,
+                originTerminalPaneId: props.paneId,
               });
+              };
               sessionId = props.restoring
                 ? await terminalRestoreLaunchQueue.run(launchSession, {
                     isCancelled: () => !isMounted,
@@ -1776,7 +1811,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
             // Keep PTY size aligned when attaching to an existing session.
             if (attachSessionId && drivesBackendPty) {
-              terminalService.resize({ sessionId, cols: term.cols, rows: term.rows });
+              void terminalService.resize({ sessionId, cols: term.cols, rows: term.rows }).catch(
+                (error) => console.warn("[TerminalView] Failed to resize attached terminal:", error),
+              );
             }
           } catch (error) {
             if (!isMounted) return;
@@ -1788,6 +1825,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
             if (props.restoring) {
               props.onRestoreLaunchState?.("failed");
+            }
+            const failedAttachSessionId = props.sessionId ?? (
+              props.restoring ? props.savedSessionId : undefined
+            );
+            if (failedAttachSessionId) {
+              void terminalService.releaseSession(failedAttachSessionId).catch((releaseError) => {
+                console.warn("[TerminalView] Failed to release session after attach error:", releaseError);
+              });
             }
             onLaunchErrorRef.current?.(toTerminalLaunchError(error));
             console.error(
@@ -2045,7 +2090,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               logRestoreEvent("activation.create.begin", { resumeId: effectiveResumeId ?? null });
               console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
               const backfillStartTime = new Date().toISOString();
-              const launchSession = () => terminalService.createSession({
+              const launchSession = async () => {
+                await waitForTerminalRestoreBarrier();
+                if (
+                  props.tabId
+                  && props.paneId
+                  && !usePanesStore.getState().canCreateTerminalSession(props.tabId, props.paneId)
+                ) {
+                  throw createRestoreLaunchCancelledError();
+                }
+                const originLayoutId = props.tabId
+                  ? usePanesStore.getState().findTabAcrossLayouts(props.tabId)?.layoutId
+                  : undefined;
+                return terminalService.createSession({
                 launchId: props.projectId,
                 projectPath: props.projectPath,
                 cols: term.cols,
@@ -2066,7 +2123,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 adapterOptions: props.adapterOptions,
                 ssh: props.ssh,
                 wsl: props.wsl,
+                originLayoutId,
+                originTabId: props.tabId,
+                originTerminalPaneId: props.paneId,
               });
+              };
               const sessionId = await terminalRestoreLaunchQueue.run(launchSession, {
                 isCancelled: () => isUnmountedRef.current || activationCancelled || !layoutActiveRef.current,
                 onState: props.onRestoreLaunchState,
@@ -2145,131 +2206,31 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.isActive, props.isVisible, props.layoutActive]);
 
-    /* ---------------- 终端区右键菜单动作 ---------------- */
-
-    const getTerminalSelection = useCallback(
-      () => terminalInstanceRef.current?.getSelection() ?? "",
-      []
-    );
-
-    const handleMenuCopySelection = useCallback(() => {
-      const term = terminalInstanceRef.current;
-      const selection = term?.getSelection();
-      if (!term || !selection) return;
-      void copyTerminalSelection(selection)
-        .then(() => {
-          term.clearSelection();
-          term.focus();
-        })
-        .catch((error) => {
-          const message = getErrorMessage(error);
-          debugLog("clipboard.copy.failed", { error: message });
-          toast.error(t("terminalCopyFailed", { error: message }));
-        });
-    }, [debugLog, t]);
-
-    const handleMenuSelectAll = useCallback(() => {
-      const term = terminalInstanceRef.current;
-      if (!term) return;
-      term.focus();
-      term.selectAll();
-    }, []);
-
-    const handleMenuPaste = useCallback(() => {
-      pasteRequestRef.current?.();
-    }, []);
-
-    const getMenuSessionId = useCallback(
-      () => currentSessionIdRef.current ?? props.sessionId ?? null,
-      [props.sessionId]
-    );
-
-    const handleMenuRefreshTerminal = useCallback(() => {
-      const term = terminalInstanceRef.current;
-      if (!term) return;
-      // 花屏/字形变形多是 WebGL 图集脏了；未铺满是 fit 没跟上容器。
-      // 清图集 + 强制 refit（scheduler flush 会顺带 repaint）一次到位。
-      rendererControllerRef.current?.clearTextureAtlas("context-menu.refresh");
-      refitAndRepaintTerminal("context-menu.refresh", { focusIfSafe: true });
-      repaintTerminal("context-menu.refresh");
-    }, [refitAndRepaintTerminal, repaintTerminal]);
-
-    const handleMenuFitTerminal = useCallback(() => {
-      refitAndRepaintTerminal("context-menu.fit", {
-        force: true,
-        focusIfSafe: true,
-        allowInactive: true,
-      });
-    }, [refitAndRepaintTerminal]);
-
-    const handleMenuFitAllTerminals = useCallback(() => {
-      requestTerminalFitAll();
-    }, []);
-
-    const handleMenuCopySessionId = useCallback(() => {
-      const sessionId = currentSessionIdRef.current ?? props.sessionId;
-      if (!sessionId) return;
-      void copyTerminalSelection(sessionId)
-        .then(() => toast.success(t("terminalSessionIdCopied", { id: sessionId })))
-        .catch((error) => {
-          toast.error(t("terminalCopyFailed", { error: getErrorMessage(error) }));
-        });
-    }, [props.sessionId, t]);
-
-    const handleMenuClearBuffer = useCallback(() => {
-      const term = terminalInstanceRef.current;
-      if (!term) return;
-      term.clear();
-      term.focus();
-    }, []);
-
-    const handleMenuCopyBuffer = useCallback(() => {
-      const term = terminalInstanceRef.current;
-      if (!term) return;
-      const text = serializeTerminalBuffer(term);
-      if (!text) return;
-      void copyTerminalSelection(text).catch((error) => {
-        const message = getErrorMessage(error);
-        debugLog("clipboard.copy.failed", { error: message });
-        toast.error(t("terminalCopyFailed", { error: message }));
-      });
-    }, [debugLog, t]);
-
-    const handleMenuExportBuffer = useCallback(async () => {
-      const term = terminalInstanceRef.current;
-      if (!term) return;
-      const text = serializeTerminalBuffer(term);
-      const fileName = buildTerminalExportFileName(props.projectPath, new Date());
-      try {
-        if (isTauriRuntime()) {
-          const path = await saveFileDialog({
-            defaultPath: fileName,
-            filters: [{ name: "Text", extensions: ["txt"] }],
-          });
-          if (!path) return;
-          await filesystemService.writeFile(path, text);
-          toast.success(t("terminalExportSuccess", { path }));
-        } else {
-          // 浏览器运行时无 fs 命令，退化为下载。
-          const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-          const url = URL.createObjectURL(blob);
-          const anchor = document.createElement("a");
-          anchor.href = url;
-          anchor.download = fileName;
-          anchor.click();
-          URL.revokeObjectURL(url);
-        }
-      } catch (error) {
-        toast.error(t("terminalExportFailed", { error: getErrorMessage(error) }));
-      }
-    }, [props.projectPath, t]);
-
-    const handleMenuOpenProjectDir = useCallback(() => {
-      if (!props.projectPath) return;
-      void providerService.openPathInExplorer(props.projectPath).catch((error) => {
-        toast.error(t("terminalOpenDirFailed", { error: getErrorMessage(error) }));
-      });
-    }, [props.projectPath, t]);
+    const {
+      getTerminalSelection,
+      getMenuSessionId,
+      handleMenuCopySelection,
+      handleMenuSelectAll,
+      handleMenuPaste,
+      handleMenuFitTerminal,
+      handleMenuFitAllTerminals,
+      handleMenuRefreshTerminal,
+      handleMenuCopySessionId,
+      handleMenuClearBuffer,
+      handleMenuCopyBuffer,
+      handleMenuExportBuffer,
+      handleMenuOpenProjectDir,
+    } = useTerminalContextMenuActions({
+      terminalRef: terminalInstanceRef,
+      rendererControllerRef,
+      pasteRequestRef,
+      currentSessionIdRef,
+      sessionId: props.sessionId,
+      projectPath: props.projectPath,
+      debugLog,
+      refitAndRepaintTerminal,
+      repaintTerminal,
+    });
 
     return (
       <div

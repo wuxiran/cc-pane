@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { systemStatsService } from "@/services/systemStatsService";
 import { terminalService } from "@/services/terminalService";
+import { sessionRestoreService } from "@/services/sessionRestoreService";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import type { ResourceTree } from "@/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -88,6 +89,19 @@ describe("SystemResourceSegment", () => {
       { pid: 42, success: true, error: null },
     ]);
     vi.spyOn(terminalService, "killSession").mockResolvedValue();
+    vi.spyOn(terminalService, "getAdoptionSnapshot").mockResolvedValue({
+      claimsSupported: true,
+      daemonGeneration: 42,
+      ownerInstanceId: "app-current",
+      capturedAtMs: 1,
+      complete: true,
+      sessions: [],
+      claims: {},
+      provenance: {},
+    });
+    vi.spyOn(terminalService, "adoptSession").mockResolvedValue(true);
+    vi.spyOn(terminalService, "releaseSession").mockResolvedValue();
+    vi.spyOn(sessionRestoreService, "load").mockResolvedValue([]);
     useTerminalStatusStore.setState({
       statusMap: new Map([
         [
@@ -184,6 +198,66 @@ describe("SystemResourceSegment", () => {
     expect(panes.switchLayout).toHaveBeenCalledWith("layout-other");
     expect(panes.setActivePane).toHaveBeenCalledWith("pane-1");
     expect(panes.selectTab).toHaveBeenCalledWith("pane-1", "tab-1");
+  });
+
+  it("无主会话先取得 daemon claim，再创建接管 tab", async () => {
+    const panes = usePanesStore.getState();
+    vi.mocked(panes.findTabBySessionAcrossLayouts).mockReturnValue(null);
+    vi.mocked(sessionRestoreService.load).mockResolvedValue([{
+      sessionId: "session-1",
+      tabId: "tab-old",
+      paneId: "pane-old",
+      projectPath: "D:/work/project-1",
+      workspaceName: "Workspace A",
+      cliTool: "codex",
+      runtimeKind: "local",
+      createdAt: "",
+      savedAt: "",
+      hasOutput: false,
+    }]);
+    const adoptTab = vi.spyOn(panes, "adoptSession").mockReturnValue("tab-adopted");
+    const setReadOnly = vi.spyOn(panes, "setSessionLeaseReadOnly").mockImplementation(() => {});
+
+    renderSegment();
+    await flushPromises();
+    await openPopover();
+    await flushPromises();
+    fireEvent.click(screen.getByRole("button", { name: /接管到当前布局:|adopt into current layout:/i }));
+    await flushPromises();
+
+    expect(terminalService.adoptSession).toHaveBeenCalledWith("session-1");
+    expect(adoptTab).toHaveBeenCalledWith("session-1", expect.objectContaining({
+      projectPath: "D:/work/project-1",
+    }));
+    expect(vi.mocked(terminalService.adoptSession).mock.invocationCallOrder[0])
+      .toBeLessThan(adoptTab.mock.invocationCallOrder[0]);
+    expect(setReadOnly).toHaveBeenCalledWith("session-1", false);
+  });
+
+  it("claim 后接管 tab 创建失败时释放租约", async () => {
+    const panes = usePanesStore.getState();
+    vi.mocked(panes.findTabBySessionAcrossLayouts).mockReturnValue(null);
+    vi.mocked(sessionRestoreService.load).mockResolvedValue([{
+      sessionId: "session-1",
+      tabId: "tab-old",
+      paneId: "pane-old",
+      projectPath: "D:/work/project-1",
+      cliTool: "codex",
+      runtimeKind: "local",
+      createdAt: "",
+      savedAt: "",
+      hasOutput: false,
+    }]);
+    vi.spyOn(panes, "adoptSession").mockReturnValue(null);
+
+    renderSegment();
+    await flushPromises();
+    await openPopover();
+    await flushPromises();
+    fireEvent.click(screen.getByRole("button", { name: /接管到当前布局:|adopt into current layout:/i }));
+    await flushPromises();
+
+    expect(terminalService.releaseSession).toHaveBeenCalledWith("session-1");
   });
 
   it("会话结束必须经过行内二次确认并走 killSession", async () => {

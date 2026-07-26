@@ -5,7 +5,6 @@
  * 通过 Map<sessionId, callback> 按 sessionId 分发回调。
  * Map.set 的覆盖语义确保同一 sessionId 永远只有一个回调，杜绝输出翻倍。
  */
-
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type {
@@ -17,94 +16,34 @@ import type {
   ShellInfo,
   TerminalStatusInfo,
   TerminalSessionOutput,
+  TerminalAdoptionSnapshot,
 } from "@/types";
 import { checkEnvironment } from "./environmentService";
 import { usageStatsService } from "./usageStatsService";
-import { devDebugLog } from "@/utils/devLogger";
 import { apiDelete, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
+import { waitForTerminalRestoreBarrier } from "./terminalRestoreBarrier";
+import {
+  addSubscriber,
+  assertCreateSessionRequest,
+  compactCreateSessionRequest,
+  countTerminalInputChars,
+  debugTerminalService,
+  removeSubscriber,
+  summarizeTerminalInput,
+} from "./terminalServiceShared";
+import type {
+  TerminalBackendClientInfo,
+  TerminalReplaySnapshot,
+  TerminalWriteOptions,
+} from "./terminalServiceShared";
+export type {
+  TerminalBackendClientInfo,
+  TerminalReplaySnapshot,
+  TerminalWriteOptions,
+  TerminalWriteSource,
+} from "./terminalServiceShared";
 
-export interface TerminalReplaySnapshot {
-  data: string;
-  bufferMode: "normal" | "alternate";
-}
-
-export type TerminalWriteSource = "user-keyboard" | "mcp" | "system";
-
-/** 终端后端客户端信息（get_terminal_daemon_client_info 返回值） */
-export interface TerminalBackendClientInfo {
-  mode: "in-process" | "daemon";
-  /** daemon 模式下的桌面客户端数；缺失 = 旧 daemon（调用方应 fail-closed） */
-  desktopClientCount?: number;
-}
-
-export interface TerminalWriteOptions {
-  source?: TerminalWriteSource;
-  traceId?: number;
-}
-
-function summarizeTerminalInput(data: string): Record<string, unknown> {
-  const chars = Array.from(data);
-  return {
-    text: chars.length > 24 ? `${chars.slice(0, 24).join("")}...` : data,
-    length: chars.length,
-    utf16Length: data.length,
-    codePoints: chars.slice(0, 24).map((char) => char.codePointAt(0)?.toString(16) ?? ""),
-    truncated: chars.length > 24,
-  };
-}
-
-const TERMINAL_SERVICE_DEBUG = import.meta.env.DEV;
-
-function debugTerminalService(event: string, payload: Record<string, unknown>): void {
-  if (!TERMINAL_SERVICE_DEBUG) return;
-  devDebugLog("terminal-service-debug", event, payload);
-}
-
-function countTerminalInputChars(data: string): number {
-  const withoutAnsi = data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-  let count = 0;
-  for (const char of withoutAnsi) {
-    const code = char.codePointAt(0) ?? 0;
-    if (char === "\t" || (code >= 0x20 && code !== 0x7f)) {
-      count += 1;
-    }
-  }
-  return count;
-}
-
-function assertCreateSessionRequest(
-  request: CreateSessionRequest | null | undefined,
-): asserts request is CreateSessionRequest {
-  if (!request || typeof request !== "object") {
-    throw new Error("create_terminal_session requires a non-null request");
-  }
-}
-
-function compactCreateSessionRequest(request: CreateSessionRequest): CreateSessionRequest {
-  return Object.fromEntries(
-    Object.entries(request).filter(([, value]) => value !== null && value !== undefined),
-  ) as CreateSessionRequest;
-}
-
-// ── 订阅者集合工具 ────────────────────────────────────────
-
-function addSubscriber<T>(map: Map<string, Set<T>>, sessionId: string, callback: T): void {
-  let set = map.get(sessionId);
-  if (!set) {
-    set = new Set();
-    map.set(sessionId, set);
-  }
-  set.add(callback);
-}
-
-function removeSubscriber<T>(map: Map<string, Set<T>>, sessionId: string, callback: T): void {
-  const set = map.get(sessionId);
-  if (!set) return;
-  set.delete(callback);
-  if (set.size === 0) map.delete(sessionId);
-}
-
-/** 把输出分发给该 session 的全部订阅者；无订阅者时返回 false（调用方转入缓冲） */
+/** 把输出分发给该 session 的全部订阅者；无订阅者时返回 false。 */
 function dispatchOutput(sessionId: string, data: string): boolean {
   const set = outputCallbacks.get(sessionId);
   if (!set || set.size === 0) return false;
@@ -143,6 +82,8 @@ let listenersInitialized = false;
 let unlistenOutput: UnlistenFn | null = null;
 let unlistenExit: UnlistenFn | null = null;
 let unlistenKilled: UnlistenFn | null = null;
+let unlistenClaimLost: UnlistenFn | null = null;
+let cachedBackendClientInfo: TerminalBackendClientInfo | null = null;
 
 interface QueuedTerminalInput {
   data: string;
@@ -272,14 +213,28 @@ function clearTerminalInputQueue(sessionId: string): void {
   inputQueues.delete(sessionId);
 }
 
-function writeTerminalInputNow(sessionId: string, data: string): Promise<void> {
+function notifySessionClaimLost(sessionId: string): void {
+  window.dispatchEvent(new CustomEvent("cc-panes:terminal-claim-lost", {
+    detail: { sessionId },
+  }));
+  void import("@/stores/usePanesStore").then(({ usePanesStore }) => {
+    usePanesStore.getState().setSessionLeaseReadOnly(sessionId, true);
+  });
+}
+
+async function writeTerminalInputNow(sessionId: string, data: string): Promise<void> {
   debugTerminalService("input.ipc.write.begin", {
     sessionId,
     data: summarizeTerminalInput(data),
   });
-  return invokeOrApi<void>("write_terminal", { sessionId, data }, () =>
-    apiJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}/write`, "POST", { data }),
-  );
+  try {
+    await invokeOrApi<void>("write_terminal", { sessionId, data }, () =>
+      apiJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}/write`, "POST", { data }),
+    );
+  } catch (error) {
+    if (isSessionClaimedError(error)) notifySessionClaimLost(sessionId);
+    throw error;
+  }
 }
 
 /**
@@ -352,6 +307,11 @@ export async function ensureListeners(): Promise<void> {
       usePanesStore.getState().closeTabBySessionId(sessionId);
     }
   );
+
+  unlistenClaimLost = await webviewWindow.listen<{ sessionId: string }>(
+    "terminal-claim-lost",
+    (event) => notifySessionClaimLost(event.payload.sessionId),
+  );
 }
 
 // ── HMR 清理（开发模式） ──────────────────────────────────
@@ -361,9 +321,11 @@ if (import.meta.hot) {
     unlistenOutput?.();
     unlistenExit?.();
     unlistenKilled?.();
+    unlistenClaimLost?.();
     unlistenOutput = null;
     unlistenExit = null;
     unlistenKilled = null;
+    unlistenClaimLost = null;
     listenersInitialized = false;
     outputCallbacks.clear();
     exitCallbacks.clear();
@@ -387,6 +349,9 @@ export function _resetListenersForTest(): void {
   listenersInitialized = false;
   unlistenOutput = null;
   unlistenExit = null;
+  unlistenKilled = null;
+  unlistenClaimLost = null;
+  cachedBackendClientInfo = null;
   for (const socket of webSockets.values()) socket.close();
   webSockets.clear();
 }
@@ -478,17 +443,51 @@ export const terminalService = {
    * daemon 且 desktopClientCount>1 = 多桌面实例共享 daemon，必须跳过。
    */
   async getDaemonClientInfo(): Promise<TerminalBackendClientInfo> {
-    return invokeOrApi<TerminalBackendClientInfo>(
+    const info = await invokeOrApi<TerminalBackendClientInfo>(
       "get_terminal_daemon_client_info",
       {},
       // web 镜像不跑对账；返回无计数的 daemon 模式让调用方 fail-closed
       async () => ({ mode: "daemon" }),
+    );
+    cachedBackendClientInfo = info;
+    return info;
+  },
+
+  getCachedDaemonClientInfo(): TerminalBackendClientInfo | null {
+    return cachedBackendClientInfo;
+  },
+
+  async getAdoptionSnapshot(): Promise<TerminalAdoptionSnapshot> {
+    const snapshot = await invokeOrApi<TerminalAdoptionSnapshot>(
+      "get_terminal_adoption_snapshot",
+      undefined,
+      () => apiGet<TerminalAdoptionSnapshot>("/api/sessions/adoption-snapshot"),
+    );
+    cachedBackendClientInfo = {
+      mode: "daemon",
+      claimsSupported: snapshot.claimsSupported,
+      daemonGeneration: snapshot.daemonGeneration,
+      instanceId: snapshot.ownerInstanceId,
+    };
+    return snapshot;
+  },
+
+  async adoptSession(sessionId: string): Promise<boolean> {
+    return invokeOrApi<boolean>("adopt_terminal_session", { sessionId }, () =>
+      apiJson<boolean>(`/api/sessions/${encodeURIComponent(sessionId)}/adopt`, "POST", {}),
+    );
+  },
+
+  async releaseSession(sessionId: string): Promise<void> {
+    return invokeOrApi<void>("release_terminal_session", { sessionId }, () =>
+      apiJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}/release`, "POST", {}),
     );
   },
 
   /** 创建终端会话 */
   async createSession(request: CreateSessionRequest | null | undefined): Promise<string> {
     assertCreateSessionRequest(request);
+    await waitForTerminalRestoreBarrier();
     return invokeOrApi<string>(
       "create_terminal_session",
       { request: compactCreateSessionRequest(request) },
@@ -522,12 +521,17 @@ export const terminalService = {
 
   /** 调整终端大小 */
   async resize(request: ResizeRequest): Promise<void> {
-    return invokeOrApi<void>("resize_terminal", { request }, () =>
-      apiJson<void>(`/api/sessions/${encodeURIComponent(request.sessionId)}/resize`, "POST", {
-        cols: request.cols,
-        rows: request.rows,
-      }),
-    );
+    try {
+      await invokeOrApi<void>("resize_terminal", { request }, () =>
+        apiJson<void>(`/api/sessions/${encodeURIComponent(request.sessionId)}/resize`, "POST", {
+          cols: request.cols,
+          rows: request.rows,
+        }),
+      );
+    } catch (error) {
+      if (isSessionClaimedError(error)) notifySessionClaimLost(request.sessionId);
+      throw error;
+    }
   },
 
   /** 关闭终端会话 */
@@ -547,9 +551,14 @@ export const terminalService = {
   /** 向会话提交文本并自动发送 Enter */
   async submitToSession(sessionId: string, text: string): Promise<void> {
     await drainTerminalInputQueue(sessionId);
-    return invokeOrApi<void>("submit_to_session", { sessionId, text }, () =>
-      apiJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}/submit`, "POST", { text }),
-    );
+    try {
+      await invokeOrApi<void>("submit_to_session", { sessionId, text }, () =>
+        apiJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}/submit`, "POST", { text }),
+      );
+    } catch (error) {
+      if (isSessionClaimedError(error)) notifySessionClaimLost(sessionId);
+      throw error;
+    }
   },
 
   /** 读取最近 N 行纯文本输出 */

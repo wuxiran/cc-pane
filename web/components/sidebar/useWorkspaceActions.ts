@@ -8,6 +8,7 @@ import { apiGet, invokeOrApi } from "@/services/apiClient";
 import { scanDirectory, type ScannedRepo } from "@/services/workspaceService";
 import { getProjectName, isTauriRuntime, translateError } from "@/utils";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
+import { useProjectHygiene } from "./useProjectHygiene";
 
 interface UseWorkspaceActionsParams {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -35,6 +36,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
   const [worktreeCache, setWorktreeCache] = useState<Record<string, WorktreeInfo[]>>({});
   const requestedGitBranches = useRef(new Set<string>());
   const requestedWorktrees = useRef(new Set<string>());
+
 
   // Dialog 状态
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -109,6 +111,20 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
       setWorktreeCache((prev) => ({ ...prev, [path]: [] }));
     }
   }, []);
+
+  // worktree 列表缓存失效：ref 去重会让删/加 worktree 后不再重新探测，树会保持陈旧
+  const invalidateWorktrees = useCallback((projectPath: string) => {
+    requestedWorktrees.current.delete(projectPath);
+    setWorktreeCache((prev) => {
+      if (!(projectPath in prev)) return prev;
+      const next = { ...prev };
+      delete next[projectPath];
+      return next;
+    });
+  }, []);
+
+  // 项目记录卫生：路径存在性标记、失效记录清理、worktree 删除联动
+  const hygiene = useProjectHygiene({ expandedWorkspace, removeProject });
 
   useEffect(() => {
     if (!expandedWorkspaceId || !expandedWorkspace) return;
@@ -369,6 +385,9 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     // Data
     gitBranches,
     worktreeCache,
+    projectPathStatus: hygiene.projectPathStatus,
+    invalidateWorktrees,
+    refreshProjectPathStatus: hygiene.refreshProjectPathStatus,
 
     // Workspace actions
     handleCreateWorkspace,
@@ -381,6 +400,8 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     handleImportProject,
     handleMigrateProject,
     handleRemoveProject,
+    handleCleanupMissingProjects: hygiene.handleCleanupMissingProjects,
+    handleWorktreeRemoved: hygiene.handleWorktreeRemoved,
     handleSetAlias,
     handleOpenProject,
     handleOpenWorktree,
@@ -446,6 +467,7 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
         workspace: projectMigrationWorkspace,
         project: projectMigrationProject,
       },
+      missingProjects: hygiene.missingProjectsDialog,
       confirm: {
         open: confirmOpen,
         setOpen: setConfirmOpen,

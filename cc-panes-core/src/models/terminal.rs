@@ -64,6 +64,12 @@ pub struct CreateSessionRequest {
     pub launch_profile_id: Option<String>,
     pub workspace_path: Option<String>,
     pub workspace_snapshot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_layout_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_terminal_pane_id: Option<String>,
     #[serde(default)]
     pub launch_claude: bool,
     #[serde(default)]

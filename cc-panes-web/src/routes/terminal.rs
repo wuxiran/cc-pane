@@ -8,14 +8,26 @@ use axum::{
 use cc_panes_core::{
     models::{
         CliTool, CreateSessionRequest as CoreCreateSessionRequest, LaunchProviderSelection,
-        SshConnectionInfo, TerminalReplaySnapshot,
+        SavedSession, SshConnectionInfo, TerminalReplaySnapshot,
     },
-    services::{terminal_service::SessionOutput, SessionStatusInfo},
+    services::{terminal_service::SessionOutput, SessionStatusInfo, TerminalAdoptionSnapshot},
     utils::normalize_session_request_for_current_host,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
+
+fn terminal_operation_error(error: impl ToString) -> (StatusCode, String) {
+    let message = error.to_string();
+    let status = if message.contains("SESSION_CLAIMED") {
+        StatusCode::CONFLICT
+    } else if message.contains("not found") || message.contains("Not found") {
+        StatusCode::NOT_FOUND
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+    (status, message)
+}
 
 fn summarize_terminal_input(data: &str) -> serde_json::Value {
     let chars: Vec<String> = data
@@ -69,6 +81,9 @@ pub struct PartialCreateSessionRequest {
     pub launch_profile_id: Option<String>,
     pub workspace_path: Option<String>,
     pub workspace_snapshot_id: Option<String>,
+    pub origin_layout_id: Option<String>,
+    pub origin_tab_id: Option<String>,
+    pub origin_terminal_pane_id: Option<String>,
     #[serde(default)]
     pub launch_claude: bool,
     #[serde(default)]
@@ -150,6 +165,9 @@ pub async fn create_session(
         launch_profile_id: req.core.launch_profile_id,
         workspace_path: req.core.workspace_path,
         workspace_snapshot_id: req.core.workspace_snapshot_id,
+        origin_layout_id: req.core.origin_layout_id,
+        origin_tab_id: req.core.origin_tab_id,
+        origin_terminal_pane_id: req.core.origin_terminal_pane_id,
         launch_claude: req.core.launch_claude,
         cli_tool: req.core.cli_tool,
         resume_id: req.core.resume_id,
@@ -163,6 +181,7 @@ pub async fn create_session(
         wsl: req.core.wsl,
     });
 
+    let observation_request = core_request.clone();
     let session_id = state
         .terminal_backend
         .create_session(core_request)
@@ -170,6 +189,32 @@ pub async fn create_session(
             tracing::error!(error = %e, "Failed to create session");
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
         })?;
+
+    if state.terminal_backend.claims_supported() {
+        let provenance = state
+            .terminal_backend
+            .session_provenance(&session_id)
+            .map_err(terminal_operation_error)?
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "claim-capable daemon omitted session provenance".to_string(),
+                )
+            })?;
+        if let Err(error) = state.session_restore_service.save_provenance(&provenance) {
+            let _ = state.terminal_backend.kill(&session_id);
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, error));
+        }
+        if let Some(observation) = SavedSession::from_creation(&observation_request, &provenance) {
+            if let Err(error) = state
+                .session_restore_service
+                .save_initial_observation(&observation)
+            {
+                let _ = state.terminal_backend.kill(&session_id);
+                return Err((StatusCode::INTERNAL_SERVER_ERROR, error));
+            }
+        }
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -190,6 +235,62 @@ pub async fn list_sessions(
     })?;
 
     Ok(Json(statuses))
+}
+
+pub async fn get_adoption_snapshot(
+    State(state): State<AppState>,
+) -> Result<Json<TerminalAdoptionSnapshot>, (StatusCode, String)> {
+    state
+        .terminal_backend
+        .adoption_snapshot()
+        .map(Json)
+        .map_err(terminal_operation_error)
+}
+
+pub async fn adopt_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<bool>, (StatusCode, String)> {
+    let granted = state
+        .terminal_backend
+        .adopt_session(&id)
+        .map_err(terminal_operation_error)?;
+    if !granted || !state.terminal_backend.claims_supported() {
+        return Ok(Json(granted));
+    }
+    let snapshot = match state.terminal_backend.adoption_snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            let _ = state.terminal_backend.release_session(&id);
+            return Err(terminal_operation_error(error));
+        }
+    };
+    let Some(owner) = snapshot.owner_instance_id else {
+        let _ = state.terminal_backend.release_session(&id);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "daemon claim snapshot omitted owner instance id".to_string(),
+        ));
+    };
+    if let Err(error) = state
+        .session_restore_service
+        .transfer_observation_owner(&id, &owner)
+    {
+        let _ = state.terminal_backend.release_session(&id);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, error));
+    }
+    Ok(Json(true))
+}
+
+pub async fn release_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .terminal_backend
+        .release_session(&id)
+        .map_err(terminal_operation_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// GET /api/sessions/:id/status — get a terminal session status
@@ -222,10 +323,7 @@ pub async fn resize_session(
     state
         .terminal_backend
         .resize(&id, req.cols, req.rows)
-        .map_err(|e| {
-            tracing::error!(session_id = id, error = %e, "Failed to resize");
-            (StatusCode::NOT_FOUND, "Session not found".to_string())
-        })?;
+        .map_err(terminal_operation_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -241,10 +339,10 @@ pub async fn write_session(
         input = %summarize_terminal_input(&req.data),
         "terminal-input.trace web.write_session"
     );
-    state.terminal_backend.write(&id, &req.data).map_err(|e| {
-        tracing::error!(session_id = id, error = %e, "Failed to write");
-        (StatusCode::NOT_FOUND, "Session not found".to_string())
-    })?;
+    state
+        .terminal_backend
+        .write(&id, &req.data)
+        .map_err(terminal_operation_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -258,10 +356,7 @@ pub async fn submit_session(
     state
         .terminal_backend
         .submit_text_to_session(&id, &req.text)
-        .map_err(|e| {
-            tracing::error!(session_id = id, error = %e, "Failed to submit");
-            (StatusCode::NOT_FOUND, "Session not found".to_string())
-        })?;
+        .map_err(terminal_operation_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -311,10 +406,10 @@ pub async fn kill_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    state.terminal_backend.kill(&id).map_err(|e| {
-        tracing::error!(session_id = id, error = %e, "Failed to kill session");
-        (StatusCode::NOT_FOUND, "Session not found".to_string())
-    })?;
+    state
+        .terminal_backend
+        .kill(&id)
+        .map_err(terminal_operation_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -350,6 +445,11 @@ mod tests {
         kills: Mutex<Vec<String>>,
         output_requests: Mutex<Vec<(String, usize)>>,
         snapshot_requests: Mutex<Vec<String>>,
+        claims_supported: bool,
+        adoption_snapshot_error: Mutex<Option<AppError>>,
+        adoption_owner: Mutex<Option<String>>,
+        adopted: Mutex<Vec<String>>,
+        releases: Mutex<Vec<String>>,
     }
 
     impl TerminalBackend for MockTerminalBackend {
@@ -435,9 +535,45 @@ mod tests {
                 buffer_mode: TerminalBufferMode::Normal,
             }))
         }
+
+        fn adopt_session(&self, session_id: &str) -> AppResult<bool> {
+            self.adopted.lock().unwrap().push(session_id.to_string());
+            Ok(true)
+        }
+
+        fn release_session(&self, session_id: &str) -> AppResult<()> {
+            self.releases.lock().unwrap().push(session_id.to_string());
+            Ok(())
+        }
+
+        fn claims_supported(&self) -> bool {
+            self.claims_supported
+        }
+
+        fn adoption_snapshot(&self) -> AppResult<TerminalAdoptionSnapshot> {
+            if let Some(error) = self.adoption_snapshot_error.lock().unwrap().clone() {
+                return Err(error);
+            }
+            Ok(TerminalAdoptionSnapshot {
+                claims_supported: self.claims_supported,
+                daemon_generation: Some(100),
+                owner_instance_id: self.adoption_owner.lock().unwrap().clone(),
+                captured_at_ms: 200,
+                complete: true,
+                sessions: self.get_all_status()?,
+                claims: std::collections::HashMap::new(),
+                provenance: std::collections::HashMap::new(),
+            })
+        }
     }
 
     fn test_state(backend: Arc<MockTerminalBackend>) -> AppState {
+        test_state_and_db(backend).0
+    }
+
+    fn test_state_and_db(
+        backend: Arc<MockTerminalBackend>,
+    ) -> (AppState, Arc<cc_panes_core::repository::Database>) {
         fn test_dir(name: &str) -> String {
             let millis = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -492,7 +628,7 @@ mod tests {
             app_paths.data_dir().join("ssh-machines.json"),
             Arc::new(SshCredentialService::new_memory()),
         ));
-        AppState {
+        let state = AppState {
             terminal_backend: backend,
             workspace_service: Arc::new(WorkspaceService::new(app_paths.workspaces_dir())),
             project_service: Arc::new(ProjectService::new(project_repo)),
@@ -511,7 +647,7 @@ mod tests {
             memory_service,
             ssh_machine_service,
             session_restore_service: Arc::new(SessionRestoreService::new(
-                database,
+                database.clone(),
                 app_paths.clone(),
             )),
             history_service: Arc::new(HistoryService::new()),
@@ -548,7 +684,8 @@ mod tests {
             web_auth: Arc::new(crate::web_auth::WebAuthStore::default()),
             default_cwd: "/default/project".to_string(),
             output_mode: crate::state::TerminalOutputMode::Emitter,
-        }
+        };
+        (state, database)
     }
 
     #[tokio::test]
@@ -640,6 +777,55 @@ mod tests {
         assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(error.1.contains("PATH_NOT_FOUND"));
         assert!(error.1.contains("/missing/repo"));
+    }
+
+    #[tokio::test]
+    async fn adopt_session_releases_claim_when_snapshot_fails() {
+        let backend = Arc::new(MockTerminalBackend {
+            claims_supported: true,
+            adoption_snapshot_error: Mutex::new(Some(AppError::from("snapshot failed"))),
+            ..Default::default()
+        });
+        let state = test_state(backend.clone());
+
+        let error = adopt_session(State(state), Path("session-1".to_string()))
+            .await
+            .expect_err("snapshot error must be returned");
+
+        assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(error.1.contains("snapshot failed"));
+        assert_eq!(
+            backend.releases.lock().unwrap().as_slice(),
+            &["session-1".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn adopt_session_releases_claim_when_observation_transfer_fails() {
+        let backend = Arc::new(MockTerminalBackend {
+            claims_supported: true,
+            adoption_owner: Mutex::new(Some("owner-1".to_string())),
+            ..Default::default()
+        });
+        let (state, database) = test_state_and_db(backend.clone());
+        database
+            .connection()
+            .expect("database connection")
+            .execute_batch("DROP TABLE terminal_sessions")
+            .expect("drop terminal sessions table");
+
+        let error = adopt_session(State(state), Path("session-1".to_string()))
+            .await
+            .expect_err("observation transfer error must be returned");
+
+        assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(error
+            .1
+            .contains("Failed to transfer terminal observation owner"));
+        assert_eq!(
+            backend.releases.lock().unwrap().as_slice(),
+            &["session-1".to_string()]
+        );
     }
 
     #[tokio::test]

@@ -14,6 +14,7 @@ interface TerminalStatusState {
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
   removeSession: (sessionId: string) => void;
   markSessionLive: (sessionId: string) => void;
+  replaceLiveStatuses: (statuses: TerminalStatusInfo[]) => void;
   refreshLiveStatuses: () => Promise<void>;
   init: () => Promise<void>;
   cleanup: () => void;
@@ -54,17 +55,21 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
     });
   },
 
+  replaceLiveStatuses: (statuses) => {
+    set({
+      statusMap: new Map(
+        statuses
+          .filter((info) => info.status !== "exited" && !killedSessions.has(info.sessionId))
+          .map((info) => [info.sessionId, info]),
+      ),
+    });
+  },
+
   refreshLiveStatuses: async () => {
     try {
       const statuses = await terminalService.getAllStatus();
       if (!Array.isArray(statuses)) return;
-      set({
-        statusMap: new Map(
-          statuses
-            .filter((info) => !killedSessions.has(info.sessionId))
-            .map((info) => [info.sessionId, info]),
-        ),
-      });
+      get().replaceLiveStatuses(statuses);
     } catch {
       // Best effort only. Live terminal events still update the map.
     }

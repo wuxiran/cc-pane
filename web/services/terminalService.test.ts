@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { _resetListenersForTest, terminalService } from "./terminalService";
-import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
+import {
+  mockTauriInvoke,
+  mockTauriInvokeError,
+  resetTauriInvoke,
+} from "@/test/utils/mockTauriInvoke";
 
 describe("terminalService", () => {
   beforeEach(() => {
@@ -311,6 +315,60 @@ describe("terminalService", () => {
       await write;
       await submit;
       expect(calls).toEqual(["write", "submit"]);
+    });
+
+    it("SESSION_CLAIMED 会广播统一租约丢失事件", async () => {
+      vi.useFakeTimers();
+      mockTauriInvokeError("write_terminal", "SESSION_CLAIMED: held by app-b");
+      const onClaimLost = vi.fn();
+      window.addEventListener("cc-panes:terminal-claim-lost", onClaimLost);
+
+      const write = terminalService.write("session-claimed", "x");
+      const rejectedWrite = expect(write).rejects.toThrow("SESSION_CLAIMED");
+      await vi.advanceTimersByTimeAsync(8);
+      await rejectedWrite;
+
+      expect(onClaimLost).toHaveBeenCalledTimes(1);
+      expect((onClaimLost.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        sessionId: "session-claimed",
+      });
+      window.removeEventListener("cc-panes:terminal-claim-lost", onClaimLost);
+    });
+  });
+
+  describe("adoption lease API", () => {
+    it("读取完整快照并缓存当前 backend instance", async () => {
+      const snapshot = {
+        claimsSupported: true,
+        daemonGeneration: 42,
+        ownerInstanceId: "app-current",
+        capturedAtMs: 1,
+        complete: true,
+        sessions: [],
+        claims: {},
+        provenance: {},
+      };
+      mockTauriInvoke({ get_terminal_adoption_snapshot: snapshot });
+
+      expect(await terminalService.getAdoptionSnapshot()).toEqual(snapshot);
+      expect(terminalService.getCachedDaemonClientInfo()).toMatchObject({
+        claimsSupported: true,
+        daemonGeneration: 42,
+        instanceId: "app-current",
+      });
+    });
+
+    it("claim 和 detach 分别调用 adopt/release IPC", async () => {
+      mockTauriInvoke({
+        adopt_terminal_session: true,
+        release_terminal_session: undefined,
+      });
+
+      await expect(terminalService.adoptSession("session-1")).resolves.toBe(true);
+      await terminalService.releaseSession("session-1");
+
+      expect(invoke).toHaveBeenCalledWith("adopt_terminal_session", { sessionId: "session-1" });
+      expect(invoke).toHaveBeenCalledWith("release_terminal_session", { sessionId: "session-1" });
     });
   });
 

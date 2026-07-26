@@ -5,8 +5,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::CreateSessionRequest;
 use crate::models::TerminalReplaySnapshot;
+use crate::models::{CreateSessionRequest, TerminalSessionProvenance};
+use crate::services::terminal_backend::TerminalAdoptionSnapshot;
 use crate::services::terminal_service::KillReason;
 use crate::services::terminal_service::SessionOutput;
 use crate::services::terminal_service::SessionStatus;
@@ -42,6 +43,11 @@ pub struct TerminalDaemonStatus {
     /// 桌面控制 WS 客户端数。`None` = 旧 daemon 无此字段（消费方应 fail-closed）。
     #[serde(default)]
     pub desktop_client_count: Option<usize>,
+    /// daemon 是否支持写权限租约。`None` = 旧 daemon 无此字段。
+    /// 消费方必须把缺失当作**不支持**并禁用自动接管——评审 #11：claim 路由 404
+    /// 只保证"调用不报错"，完全没有互斥，把它当已授权会让两个实例同时写同一 PTY。
+    #[serde(default)]
+    pub claims_supported: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -237,11 +243,23 @@ impl TerminalDaemonClient {
         Ok(Some(status))
     }
 
+    /// 探测 daemon 是否支持写权限租约（评审 #11 的 capability 协商）。
+    ///
+    /// 失败或字段缺失一律返回 `false`（fail-closed）：调用方据此禁用自动接管。
+    pub fn claims_supported(&self) -> bool {
+        self.status()
+            .ok()
+            .and_then(|status| status.claims_supported)
+            .unwrap_or(false)
+    }
+
     /// 申请或续租会话写权限（docs/61 阶段 2）。
     ///
-    /// 返回 `Ok(true)` = 本实例持有；`Ok(false)` = 被别的实例持有（409），调用方应
-    /// 退化成只读，**不要重试抢占**。老 daemon 没有这个路由（404），一律视作
-    /// `Ok(true)`：那种 daemon 本来就不做裁决，拒绝写入只会让功能倒退。
+    /// 返回 `Ok(true)` = 本实例持有；`Ok(false)` = 被别的实例持有（409）或新 daemon
+    /// 明确返回 `SESSION_NOT_FOUND`，调用方应退化成只读，**不要重试抢占**。
+    ///
+    /// 老 daemon 的未知路由通常返回 404（部分实现返回 405），两者都兼容放行；但
+    /// **不能**据此认为拿到了互斥——是否真有裁决要看 `claims_supported()`（评审 #11）。
     pub fn claim_session(&self, session_id: &str, ttl_ms: Option<u64>) -> AppResult<bool> {
         let body = serde_json::to_string(&ClaimSessionRequest {
             app_instance_id: &self.instance_id,
@@ -256,8 +274,18 @@ impl TerminalDaemonClient {
         )?;
         let (status, body) = split_http_response(&response)?;
         match status {
+            // 409 被他人持有，不该继续写。
             409 => Ok(false),
-            404 | 405 => Ok(true),
+            // Axum 对未知路由也返回 404。只有新 daemon 的结构化错误码能证明会话
+            // 确实不存在；其余 404 按旧 daemon 兼容处理，能力仍由 status 字段裁决。
+            404 => {
+                let code = serde_json::from_str::<serde_json::Value>(body)
+                    .ok()
+                    .and_then(|value| value.get("code")?.as_str().map(str::to_string));
+                Ok(code.as_deref() != Some("SESSION_NOT_FOUND"))
+            }
+            // 405 路由不存在（老 daemon）：放行写入，但没有互斥保证。
+            405 => Ok(true),
             code if (200..300).contains(&code) => Ok(true),
             code => Err(daemon_http_error(code, body)),
         }
@@ -295,6 +323,27 @@ impl TerminalDaemonClient {
             return Err(daemon_http_error(status, body));
         }
         serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))
+    }
+
+    pub fn adoption_snapshot(&self) -> AppResult<TerminalAdoptionSnapshot> {
+        self.get_json("/api/sessions/adoption-snapshot", true)
+    }
+
+    pub fn get_session_provenance(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<TerminalSessionProvenance>> {
+        let response = self.request("GET", &session_path(session_id, "/provenance"), true, None)?;
+        let (status, body) = split_http_response(&response)?;
+        if status == 404 || status == 405 {
+            return Ok(None);
+        }
+        if !(200..300).contains(&status) {
+            return Err(daemon_http_error(status, body));
+        }
+        serde_json::from_str(body)
+            .map(Some)
+            .map_err(|error| AppError::from(error.to_string()))
     }
 
     pub fn write_session(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -647,6 +696,9 @@ mod tests {
             launch_profile_id: None,
             workspace_path: None,
             workspace_snapshot_id: None,
+            origin_layout_id: None,
+            origin_tab_id: None,
+            origin_terminal_pane_id: None,
             launch_claude: false,
             cli_tool: CliTool::None,
             resume_id: None,
@@ -727,6 +779,20 @@ mod tests {
             .with_timeout(Duration::from_secs(1));
 
         assert!(client.claim_session("s1", None).expect("claim result"));
+    }
+
+    #[test]
+    fn claim_returns_false_when_new_daemon_reports_missing_session() {
+        let response = http_json_response(
+            "404 Not Found",
+            r#"{"code":"SESSION_NOT_FOUND","message":"session does not exist"}"#,
+        );
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_instance_id("inst-a")
+            .with_timeout(Duration::from_secs(1));
+
+        assert!(!client.claim_session("s1", None).expect("claim result"));
     }
 
     #[test]

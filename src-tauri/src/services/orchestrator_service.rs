@@ -438,6 +438,12 @@ struct AiPanelRegistry {
     panels: HashMap<String, AiPanelRecord>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiPanelClaimResult {
+    Claimed,
+    AlreadyOwned,
+}
+
 impl AiPanelRegistry {
     fn open(
         &mut self,
@@ -615,7 +621,37 @@ impl AiPanelRegistry {
     ///
     /// 事件环**重新开始**（seq 从 1 计）：老事件属于上一任持有者的对话，
     /// 让新主人从 0 开始轮询，避免它把陈年点击当成刚发生的用户操作。
-    fn adopt(&mut self, owner_session_id: &str, panel: AiPanel) {
+    /// `expected_owner` 是异步存活探测前看到的持有者。写入前必须再次比较，避免两个
+    /// 会话并发认领时都通过旧快照、随后互相覆盖。
+    fn claim_if_owner_unchanged(
+        &mut self,
+        owner_session_id: &str,
+        expected_owner: Option<&str>,
+        panel: AiPanel,
+    ) -> std::result::Result<AiPanelClaimResult, String> {
+        let current_owner = self.owner_of(&panel.panel_id);
+        if current_owner.as_deref() == Some(owner_session_id) {
+            return Ok(AiPanelClaimResult::AlreadyOwned);
+        }
+        if current_owner.as_deref() != expected_owner {
+            return Err(format!(
+                "面板 '{}' 的持有者在认领期间发生变化，请刷新后重试",
+                panel.panel_id
+            ));
+        }
+
+        let owned_count = self
+            .panels
+            .values()
+            .filter(|record| record.owner_session_id == owner_session_id)
+            .count();
+        if owned_count >= AI_PANELS_MAX_PER_SESSION {
+            return Err(format!(
+                "每个会话最多打开 {} 个 AI 面板；请先关闭不再使用的面板",
+                AI_PANELS_MAX_PER_SESSION
+            ));
+        }
+
         self.panels.insert(
             panel.panel_id.clone(),
             AiPanelRecord {
@@ -625,6 +661,11 @@ impl AiPanelRegistry {
                 next_seq: 1,
             },
         );
+        Ok(AiPanelClaimResult::Claimed)
+    }
+
+    fn remove_any(&mut self, panel_id: &str) -> bool {
+        self.panels.remove(panel_id).is_some()
     }
 }
 
@@ -1561,6 +1602,22 @@ impl OrchestratorService {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .record_event(panel_id, action, payload)
+    }
+
+    /// 用户显式删除面板时，历史行和活跃注册表必须在同一把注册表锁内一起移除。
+    /// `persist_ai_panel` 也持有这把锁写库，因此并发 update 不会在删除后把历史行复活。
+    pub fn delete_ai_panel(
+        &self,
+        repo: &cc_panes_core::repository::AiPanelRepository,
+        panel_id: &str,
+    ) -> std::result::Result<bool, String> {
+        let mut registry = self
+            .ai_panels
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let deleted = repo.delete(panel_id)?;
+        let removed_live = registry.remove_any(panel_id);
+        Ok(deleted || removed_live)
     }
 
     /// 启动 HTTP + MCP 服务器（在 tokio runtime 中运行）
@@ -4474,6 +4531,9 @@ impl McpToolHandler {
             launch_profile_id: launch_profile_id.clone(),
             workspace_path: ws_path.clone(),
             workspace_snapshot_id: None,
+            origin_layout_id: None,
+            origin_tab_id: None,
+            origin_terminal_pane_id: None,
             launch_claude: cli_tool != CliTool::None,
             cli_tool,
             resume_id: params.resume_id.clone(),
@@ -7040,8 +7100,8 @@ impl McpToolHandler {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .owner_of(&params.panel_id);
-        if let Some(owner) = live_owner {
-            if owner == caller_session_id {
+        if let Some(owner) = live_owner.as_ref() {
+            if owner == &caller_session_id {
                 return serde_json::json!({
                     "panelId": params.panel_id,
                     "claimed": true,
@@ -7050,17 +7110,24 @@ impl McpToolHandler {
                 .to_string();
             }
             let owner_for_probe = owner.clone();
-            let owner_alive = backend_call(&self.state, move |backend| {
+            let owner_status = backend_call(&self.state, move |backend| {
                 backend.get_session_status(&owner_for_probe)
             })
-            .await
-            .map(|status| status.is_some())
-            .unwrap_or(false);
-            if owner_alive {
-                return format!(
-                    "错误: 面板 '{}' 仍由活跃会话 '{}' 持有；请让它先 close_ai_panel，或等其退出后再认领",
-                    params.panel_id, owner
-                );
+            .await;
+            match owner_status {
+                Ok(Some(status)) if !status.status.is_terminal() => {
+                    return format!(
+                        "错误: 面板 '{}' 仍由活跃会话 '{}' 持有；请让它先 close_ai_panel，或等其退出后再认领",
+                        params.panel_id, owner
+                    );
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    return format!(
+                        "错误: 无法确认面板 '{}' 的持有会话 '{}' 是否仍存活: {}",
+                        params.panel_id, owner, error
+                    );
+                }
             }
         }
 
@@ -7072,11 +7139,24 @@ impl McpToolHandler {
             driver_name: resolve_ai_panel_scope(&self.state, &caller_session_id).driver_name,
             updated_at: chrono::Utc::now().to_rfc3339(),
         };
-        self.state
+        let claim_result = self
+            .state
             .ai_panels
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .adopt(&caller_session_id, panel.clone());
+            .claim_if_owner_unchanged(&caller_session_id, live_owner.as_deref(), panel.clone());
+        match claim_result {
+            Ok(AiPanelClaimResult::AlreadyOwned) => {
+                return serde_json::json!({
+                    "panelId": params.panel_id,
+                    "claimed": true,
+                    "hint": "本会话已经是该面板的持有者，无需认领。",
+                })
+                .to_string();
+            }
+            Ok(AiPanelClaimResult::Claimed) => {}
+            Err(error) => return format!("错误: {}", error),
+        }
         persist_ai_panel(
             &self.state,
             &panel,
@@ -7175,6 +7255,9 @@ impl RunnerTerminal for TerminalBackendState {
                 launch_profile_id: None,
                 workspace_path: None,
                 workspace_snapshot_id: None,
+                origin_layout_id: None,
+                origin_tab_id: None,
+                origin_terminal_pane_id: None,
                 launch_claude: false,
                 cli_tool: CliTool::None,
                 resume_id: None,
@@ -7378,36 +7461,59 @@ async fn collect_plan_live_sessions(
     live_sessions.into_values().collect()
 }
 
-/// 面板的归属信息：展示名 + 工作空间 + 项目路径，全部来自调用会话的 TaskBinding。
+/// 面板的归属信息：展示名 + 工作空间 + 项目路径。
 struct AiPanelScope {
     driver_name: String,
     workspace_name: Option<String>,
     project_path: Option<String>,
 }
 
-/// 解析调用会话的面板归属。没有 TaskBinding 的裸会话拿不到工作空间，
-/// 历史列表里会归入「未归类」——这是可接受的降级，不该让 open 失败。
-fn resolve_ai_panel_scope(state: &AppState, session_id: &str) -> AiPanelScope {
-    match state.task_binding_service.find_by_session_id(session_id) {
+fn unclassified_ai_panel_scope(session_id: &str) -> AiPanelScope {
+    AiPanelScope {
+        driver_name: session_id.to_string(),
+        workspace_name: None,
+        project_path: None,
+    }
+}
+
+/// 解析调用会话的面板归属。协作任务优先采用 TaskBinding；普通 GUI/MCP 启动
+/// 不会自动创建 TaskBinding，因此再按 PTY session id 回退到 launch history。
+fn resolve_ai_panel_scope_from_services(
+    task_binding_service: &crate::services::TaskBindingService,
+    launch_history_service: &LaunchHistoryService,
+    session_id: &str,
+) -> AiPanelScope {
+    match task_binding_service.find_by_session_id(session_id) {
         Ok(Some(binding)) => AiPanelScope {
             driver_name: binding.title,
             workspace_name: binding.workspace_name,
             project_path: Some(binding.project_path),
         },
-        Ok(None) => AiPanelScope {
-            driver_name: session_id.to_string(),
-            workspace_name: None,
-            project_path: None,
+        Ok(None) => match launch_history_service.find_by_pty_session_id(session_id) {
+            Ok(Some(record)) => AiPanelScope {
+                driver_name: session_id.to_string(),
+                workspace_name: record.workspace_name,
+                project_path: Some(record.project_path),
+            },
+            Ok(None) => unclassified_ai_panel_scope(session_id),
+            Err(error) => {
+                warn!(session_id = %session_id, err = %error, "failed to resolve ai panel launch history scope");
+                unclassified_ai_panel_scope(session_id)
+            }
         },
         Err(error) => {
             warn!(session_id = %session_id, err = %error, "failed to resolve ai panel scope");
-            AiPanelScope {
-                driver_name: session_id.to_string(),
-                workspace_name: None,
-                project_path: None,
-            }
+            unclassified_ai_panel_scope(session_id)
         }
     }
+}
+
+fn resolve_ai_panel_scope(state: &AppState, session_id: &str) -> AiPanelScope {
+    resolve_ai_panel_scope_from_services(
+        &state.task_binding_service,
+        &state.launch_history_service,
+        session_id,
+    )
 }
 
 /// 把面板写进历史库。
@@ -7421,6 +7527,18 @@ fn persist_ai_panel(
     workspace_name: Option<String>,
     project_path: Option<String>,
 ) {
+    // 与用户删除共用注册表锁，并在写库前重验持有者。这样一个已经从注册表取到旧
+    // panel 快照的并发 update，不会在 delete/close 之后把历史行重新写回来。
+    let registry = state
+        .ai_panels
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if let Some(owner_session_id) = owner_session_id {
+        if registry.owner_of(&panel.panel_id).as_deref() != Some(owner_session_id) {
+            warn!(panel_id = %panel.panel_id, "skipping stale ai panel persist after ownership change");
+            return;
+        }
+    }
     let stored = cc_panes_core::models::ai_panel::StoredAiPanel {
         panel_id: panel.panel_id.clone(),
         workspace_name,
@@ -8244,6 +8362,9 @@ async fn handle_launch_task(
         launch_profile_id: None,
         workspace_path: workspace_path.clone(),
         workspace_snapshot_id: None,
+        origin_layout_id: None,
+        origin_tab_id: None,
+        origin_terminal_pane_id: None,
         launch_claude: cli_tool != CliTool::None,
         cli_tool,
         resume_id: req.resume_id.clone(),
@@ -11070,6 +11191,9 @@ mod tests {
             launch_profile_id: None,
             workspace_path: None,
             workspace_snapshot_id: None,
+            origin_layout_id: None,
+            origin_tab_id: None,
+            origin_terminal_pane_id: None,
             launch_claude: true,
             cli_tool: CliTool::Claude,
             resume_id: None,
@@ -13449,6 +13573,50 @@ mod tests {
     }
 
     #[test]
+    fn test_ai_panel_scope_falls_back_to_launch_history_for_unbound_session() {
+        let db = Arc::new(
+            cc_panes_core::repository::Database::new_fallback().expect("fallback database"),
+        );
+        let task_binding_service = crate::services::TaskBindingService::new(Arc::new(
+            cc_panes_core::repository::TaskBindingRepository::new(db.clone()),
+        ));
+        let launch_history_service = LaunchHistoryService::new(Arc::new(
+            cc_panes_core::repository::HistoryRepository::new(db),
+        ));
+        launch_history_service
+            .add_with_pty_session(
+                "orch-panel-test",
+                "cc-book",
+                r"D:\04_workspace_rust\cc-book",
+                "pty-panel-test",
+                "codex",
+                "local",
+                None,
+                Some("cc-book"),
+                Some(r"D:\04_workspace_rust\cc-book"),
+                Some(r"D:\04_workspace_rust\cc-book"),
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("insert launch history");
+
+        let scope = resolve_ai_panel_scope_from_services(
+            &task_binding_service,
+            &launch_history_service,
+            "pty-panel-test",
+        );
+
+        assert_eq!(scope.driver_name, "pty-panel-test");
+        assert_eq!(scope.workspace_name.as_deref(), Some("cc-book"));
+        assert_eq!(
+            scope.project_path.as_deref(),
+            Some(r"D:\04_workspace_rust\cc-book")
+        );
+    }
+
+    #[test]
     fn test_ai_panel_display_defaults_to_auto_when_caller_omits_it() {
         #[derive(Deserialize)]
         struct Wrapper {
@@ -13591,6 +13759,81 @@ mod tests {
             .update("session-a", "panel-0", &oversized, None)
             .expect_err("oversized content must fail");
         assert!(content_error.contains("256KB"));
+    }
+
+    #[test]
+    fn test_ai_panel_claim_rechecks_owner_and_enforces_limit() {
+        let mut registry = AiPanelRegistry::default();
+        let historical = AiPanel {
+            panel_id: "history".to_string(),
+            title: "History".to_string(),
+            format: AiPanelFormat::Markdown,
+            content: "content".to_string(),
+            driver_name: "Worker".to_string(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        registry
+            .open(
+                "session-a",
+                "Worker A",
+                "Live",
+                AiPanelFormat::Markdown,
+                "content",
+                Some("history"),
+            )
+            .expect("live owner");
+        let changed = registry
+            .claim_if_owner_unchanged("session-b", None, historical.clone())
+            .expect_err("a concurrently acquired owner must not be overwritten");
+        assert!(changed.contains("发生变化"));
+
+        registry.remove_any("history");
+        let removed = registry
+            .claim_if_owner_unchanged("session-b", Some("session-a"), historical.clone())
+            .expect_err("a concurrently removed panel must not be resurrected");
+        assert!(removed.contains("发生变化"));
+
+        registry
+            .open(
+                "session-a",
+                "Worker A",
+                "Live",
+                AiPanelFormat::Markdown,
+                "content",
+                Some("history"),
+            )
+            .expect("restore live owner for successful claim");
+
+        registry
+            .claim_if_owner_unchanged("session-b", Some("session-a"), historical)
+            .expect("confirmed dead owner can be replaced");
+        assert_eq!(registry.owner_of("history").as_deref(), Some("session-b"));
+
+        for index in 0..(AI_PANELS_MAX_PER_SESSION - 1) {
+            registry
+                .open(
+                    "session-b",
+                    "Worker B",
+                    "Panel",
+                    AiPanelFormat::Markdown,
+                    "content",
+                    Some(&format!("owned-{index}")),
+                )
+                .expect("fill owner limit");
+        }
+        let overflow = AiPanel {
+            panel_id: "overflow".to_string(),
+            title: "Overflow".to_string(),
+            format: AiPanelFormat::Markdown,
+            content: "content".to_string(),
+            driver_name: "Worker B".to_string(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        };
+        assert!(registry
+            .claim_if_owner_unchanged("session-b", None, overflow)
+            .expect_err("claim must share the per-session limit")
+            .contains("最多打开 3 个"));
     }
 
     #[test]

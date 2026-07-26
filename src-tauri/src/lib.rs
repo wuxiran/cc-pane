@@ -31,6 +31,7 @@ use commands::{
     add_todo_subtask,
     add_workspace_project,
     add_worktree,
+    adopt_terminal_session,
     batch_update_todo_status,
     browser_back,
     browser_close,
@@ -45,6 +46,7 @@ use commands::{
     check_environment,
     check_ssh_connectivity,
     check_todo_reminders,
+    check_workspace_project_paths,
     clean_all_broken_sessions,
     clean_session_file,
     cleanup_before_uninstall,
@@ -165,6 +167,7 @@ use commands::{
     get_ssh_machine,
     get_system_stats,
     get_task_binding,
+    get_terminal_adoption_snapshot,
     get_terminal_daemon_client_info,
     get_terminal_output,
     get_terminal_recent_output,
@@ -260,6 +263,7 @@ use commands::{
     preview_launch_profile_resolution,
     preview_project_migration,
     preview_workspace_migration,
+    prune_terminal_sessions,
     // Local History - 标签
     put_label,
     query_task_bindings,
@@ -276,6 +280,7 @@ use commands::{
     register_plan_child,
     register_plan_leader,
     register_plan_worker,
+    release_terminal_session,
     remove_mcp_server,
     remove_project,
     remove_provider,
@@ -1749,6 +1754,13 @@ pub fn run() {
             {
                 use emitter::{TauriEmitter, TauriSessionNotifier};
                 let app_handle = app.handle().clone();
+                let claim_event_handle = app_handle.clone();
+                cc_panes_core::services::set_claim_lost_hook(Box::new(move |session_id| {
+                    let _ = claim_event_handle.emit(
+                        "terminal-claim-lost",
+                        serde_json::json!({ "sessionId": session_id }),
+                    );
+                }));
                 let history_watch_manager = app
                     .state::<Arc<HistoryWatchManager>>()
                     .inner()
@@ -2202,6 +2214,8 @@ pub fn run() {
             update_project_alias,
             // 终端命令
             create_terminal_session,
+            adopt_terminal_session,
+            release_terminal_session,
             write_terminal,
             resize_terminal,
             kill_terminal,
@@ -2214,6 +2228,7 @@ pub fn run() {
             check_environment,
             list_cli_tools,
             get_terminal_daemon_client_info,
+            get_terminal_adoption_snapshot,
             get_terminal_output,
             get_terminal_recent_output,
             get_terminal_replay_snapshot,
@@ -2361,6 +2376,7 @@ pub fn run() {
             add_workspace_project,
             add_ssh_project,
             remove_workspace_project,
+            check_workspace_project_paths,
             update_workspace_alias,
             update_workspace_project_alias,
             update_workspace_provider,
@@ -2566,6 +2582,7 @@ pub fn run() {
             save_terminal_sessions,
             load_terminal_sessions,
             clear_terminal_sessions,
+            prune_terminal_sessions,
             save_layout_snapshot,
             load_layout_snapshot,
             clear_layout_snapshot,

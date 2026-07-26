@@ -1,5 +1,10 @@
+import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyAiPanelChange, decideAiPanelDelivery } from "@/hooks/useAiPanelListener";
+import {
+  applyAiPanelChange,
+  decideAiPanelDelivery,
+  useAiPanelListener,
+} from "@/hooks/useAiPanelListener";
 import { aiPanelService } from "@/services/aiPanelService";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useDialogStore } from "@/stores/useDialogStore";
@@ -177,5 +182,52 @@ describe("decideAiPanelDelivery", () => {
 
   it("treats a missing allowAiDialog as permitted", () => {
     expect(decideAiPanelDelivery("dialog", { enabled: true, position: "rightDock" })).toBe("dialog");
+  });
+});
+
+describe("useAiPanelListener", () => {
+  beforeEach(() => {
+    useAiPanelStore.setState({
+      panels: [],
+      history: [],
+      historyLoading: false,
+      activePanelId: null,
+      unreadPanelIds: [],
+      view: "list",
+    });
+    useDialogStore.setState({ aiPanelOpen: false });
+    useRightDockStore.setState({ visible: false, activeView: "git" });
+    useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
+  });
+
+  it("applies pending and future events when the initial list fails", async () => {
+    let listener: ((change: Parameters<typeof applyAiPanelChange>[0]) => void) | undefined;
+    const unlisten = vi.fn();
+    vi.spyOn(aiPanelService, "listen").mockImplementation(async (callback) => {
+      listener = callback;
+      callback({ operation: "open", panelId: panel.panelId, panel });
+      return unlisten;
+    });
+    vi.spyOn(aiPanelService, "list").mockRejectedValue(new Error("list unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { unmount } = renderHook(() => useAiPanelListener());
+
+    await waitFor(() => {
+      expect(useAiPanelStore.getState().panels).toEqual([panel]);
+    });
+    listener?.({
+      operation: "open",
+      panelId: "panel-2",
+      panel: { ...panel, panelId: "panel-2" },
+    });
+    expect(useAiPanelStore.getState().panels).toHaveLength(2);
+    expect(warn).toHaveBeenCalledWith(
+      "[AiPanel] initial panel list failed:",
+      expect.any(Error),
+    );
+
+    unmount();
+    expect(unlisten).toHaveBeenCalledOnce();
   });
 });

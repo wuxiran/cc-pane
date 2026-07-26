@@ -6,9 +6,18 @@
 import { useEffect } from "react";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import { sessionRestoreService, terminalService } from "@/services";
-import type { SavedSession } from "@/types";
+import type {
+  SavedSession,
+  TerminalAdoptionSnapshot,
+  TerminalPaneLeaf,
+  TerminalRestoreBlockedReason,
+  TerminalSessionProvenance,
+} from "@/types";
 import { terminalRestoreLaunchQueue } from "@/components/panes/terminalRestoreQueue";
 import { listenIfTauri } from "@/services/runtime";
+import { collectTerminalLeaves } from "@/lib/paneSessions";
+import { resolveRuntimeKind } from "@/utils/desktopRuntime";
+import { projectPathsEquivalent } from "@/utils/projectIdentity";
 
 // 后台逐步恢复"非当前布局"里还没有活会话的终端 tab。当前布局由其已挂载的 TerminalView 负责恢复，
 // 这里只补其他布局：经限流队列逐个 createSession，再把新会话写成该 leaf 的可重连 savedSession +
@@ -16,22 +25,35 @@ import { listenIfTauri } from "@/services/runtime";
 export async function runBackgroundLayoutRestore(): Promise<void> {
   const store = usePanesStore.getState();
   const currentLayoutId = store.currentLayoutId;
-  const targets = store.getRestorableTabs().filter(
-    ({ tab, layoutId }) =>
-      layoutId !== currentLayoutId &&
-      tab.contentType === "terminal" &&
-      !!tab.projectPath &&
-      !tab.sessionId,
-  );
+  const targets = store.getRestorableTabs().flatMap(({ tab, layoutId }) => {
+    if (layoutId === currentLayoutId || tab.contentType !== "terminal" || !tab.projectPath) {
+      return [];
+    }
+    return collectTerminalLeaves(tab.terminalRootPane)
+      .filter((leaf) => !leaf.sessionId && !leaf.restoreBlockedReason)
+      .map((leaf) => ({ tab, leaf, layoutId }));
+  });
   if (targets.length === 0) return;
-  console.info(`[BackgroundRestore] scheduling ${targets.length} tab(s) across other layouts`);
-  for (const { tab } of targets) {
+  console.info(`[BackgroundRestore] scheduling ${targets.length} leaf/leaves across other layouts`);
+  for (const { tab, leaf, layoutId } of targets) {
     void terminalRestoreLaunchQueue
       .run(async () => {
         // 出队时重检：已被恢复 / 该布局已变成当前(交给前台) → 跳过，避免重复建会话。
         const live = usePanesStore.getState();
-        const fresh = live.getRestorableTabs().find((entry) => entry.tab.id === tab.id);
-        if (!fresh || fresh.tab.sessionId || fresh.layoutId === live.currentLayoutId) {
+        const fresh = live.getRestorableTabs().find(
+          (entry) => entry.tab.id === tab.id && entry.layoutId === layoutId,
+        );
+        const freshLeaf = fresh
+          ? collectTerminalLeaves(fresh.tab.terminalRootPane).find((item) => item.id === leaf.id)
+          : undefined;
+        if (
+          !fresh
+          || !freshLeaf
+          || freshLeaf.sessionId
+          || freshLeaf.restoreBlockedReason
+          || fresh.layoutId === live.currentLayoutId
+          || !live.canCreateTerminalSession(tab.id, leaf.id)
+        ) {
           return null;
         }
         const sessionId = await terminalService.createSession({
@@ -39,24 +61,32 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
           projectPath: tab.projectPath,
           cols: 80,
           rows: 24,
-          workspaceName: tab.workspaceName,
-          providerId: tab.providerId,
-          providerSelection: tab.providerSelection,
-          launchProfileId: tab.launchProfileId,
-          workspacePath: tab.workspacePath,
-          workspaceSnapshotId: tab.workspaceSnapshotId,
-          launchClaude: tab.launchClaude,
-          cliTool: tab.cliTool,
-          resumeId: tab.resumeId,
-          ssh: tab.ssh,
-          wsl: tab.wsl,
+          workspaceName: freshLeaf.workspaceName ?? tab.workspaceName,
+          providerId: freshLeaf.providerId ?? tab.providerId,
+          providerSelection: freshLeaf.providerSelection ?? tab.providerSelection,
+          launchProfileId: freshLeaf.launchProfileId ?? tab.launchProfileId,
+          workspacePath: freshLeaf.workspacePath ?? tab.workspacePath,
+          workspaceSnapshotId: freshLeaf.workspaceSnapshotId ?? tab.workspaceSnapshotId,
+          launchClaude: freshLeaf.launchClaude ?? tab.launchClaude,
+          cliTool: freshLeaf.cliTool ?? tab.cliTool,
+          resumeId: freshLeaf.resumeId ?? tab.resumeId,
+          ssh: freshLeaf.ssh ?? tab.ssh,
+          wsl: freshLeaf.wsl ?? tab.wsl,
+          originLayoutId: layoutId,
+          originTabId: tab.id,
+          originTerminalPaneId: leaf.id,
         });
+        const afterCreate = usePanesStore.getState();
+        if (!afterCreate.canCreateTerminalSession(tab.id, leaf.id)) {
+          await terminalService.killSession(sessionId).catch(() => {});
+          return null;
+        }
         useTerminalStatusStore.getState().markSessionLive(sessionId);
-        usePanesStore.getState().setBackgroundRestoreSession(tab.id, sessionId);
+        afterCreate.setBackgroundRestoreSession(tab.id, leaf.id, sessionId);
         return sessionId;
       })
       .catch((error) => {
-        console.warn(`[BackgroundRestore] failed for tab ${tab.id}:`, error);
+        console.warn(`[BackgroundRestore] failed for leaf ${tab.id}/${leaf.id}:`, error);
       });
   }
 }
@@ -75,6 +105,111 @@ export interface AdoptionReport {
   attached: number;
   /** 活着但本实例无法安全认领的会话数（无记录 / 锚点不在 / 项目不符 / 运行时不符） */
   skipped: number;
+  blocked: number;
+}
+
+export interface ReconcileTerminalSessionsOptions {
+  autoAdopt: boolean;
+}
+
+interface RestorableLeaf {
+  layoutId: string;
+  tabId: string;
+  projectPath: string;
+  cliTool: string;
+  runtimeKind: string;
+  resumeId?: string;
+  leaf: TerminalPaneLeaf;
+}
+
+function restorableLeaves(): RestorableLeaf[] {
+  return usePanesStore.getState().getRestorableTabs().flatMap(({ tab, layoutId }) =>
+    collectTerminalLeaves(tab.terminalRootPane).map((leaf) => ({
+      layoutId,
+      tabId: tab.id,
+      projectPath: tab.projectPath,
+      cliTool: leaf.cliTool ?? tab.cliTool ?? (leaf.launchClaude || tab.launchClaude ? "claude" : "none"),
+      runtimeKind: resolveRuntimeKind({ ssh: leaf.ssh ?? tab.ssh, wsl: leaf.wsl ?? tab.wsl }),
+      resumeId: leaf.resumeId ?? tab.resumeId,
+      leaf,
+    })),
+  );
+}
+
+function setBlocked(leaf: RestorableLeaf, reason: TerminalRestoreBlockedReason): void {
+  usePanesStore.getState().setTerminalRestoreBlocked(leaf.tabId, leaf.leaf.id, reason);
+}
+
+function blockPendingLeaves(reason: TerminalRestoreBlockedReason): number {
+  let blocked = 0;
+  for (const leaf of restorableLeaves()) {
+    if (leaf.leaf.sessionId || (!leaf.leaf.restoring && !leaf.leaf.savedSessionId)) continue;
+    setBlocked(leaf, reason);
+    blocked += 1;
+  }
+  return blocked;
+}
+
+function anchorMatches(record: SavedSession, leaf: RestorableLeaf): boolean {
+  return Boolean(
+    record.layoutId
+    && record.terminalPaneId
+    && record.layoutId === leaf.layoutId
+    && record.tabId === leaf.tabId
+    && record.terminalPaneId === leaf.leaf.id
+  );
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function identityMatches(
+  record: SavedSession,
+  provenance: TerminalSessionProvenance,
+  leaf: RestorableLeaf,
+  snapshot: TerminalAdoptionSnapshot,
+): boolean {
+  if (
+    snapshot.daemonGeneration === undefined
+    || record.daemonGeneration !== snapshot.daemonGeneration
+    || provenance.daemonGeneration !== snapshot.daemonGeneration
+    || !record.birthNonce
+    || record.birthNonce !== provenance.birthNonce
+    || provenance.sessionId !== record.sessionId
+  ) return false;
+
+  if (
+    !record.layoutId
+    || !record.terminalPaneId
+    || provenance.originLayoutId !== record.layoutId
+    || provenance.originTabId !== record.tabId
+    || provenance.originTerminalPaneId !== record.terminalPaneId
+  ) return false;
+
+  if (
+    !record.projectPath
+    || !provenance.projectPath
+    || !leaf.projectPath
+    || !projectPathsEquivalent(record.projectPath, provenance.projectPath)
+    || !projectPathsEquivalent(record.projectPath, leaf.projectPath)
+  ) return false;
+
+  if (
+    !record.runtimeKind
+    || record.runtimeKind !== provenance.runtimeKind
+    || record.runtimeKind !== leaf.runtimeKind
+    || record.cliTool !== provenance.cliTool
+    || record.cliTool !== leaf.cliTool
+  ) return false;
+
+  const resumeIds = new Set(
+    [record.resumeId, provenance.resumeId, leaf.resumeId]
+      .map(nonEmpty)
+      .filter((value): value is string => Boolean(value)),
+  );
+  return resumeIds.size <= 1;
 }
 
 /**
@@ -91,54 +226,136 @@ export interface AdoptionReport {
  * 必须在 `runBackgroundLayoutRestore()` 之前完成，否则那边看到 `!tab.sessionId`
  * 照样重建。
  */
-export async function adoptUnownedDaemonSessions(): Promise<AdoptionReport> {
-  const report: AdoptionReport = { attached: 0, skipped: 0 };
-
-  await useTerminalStatusStore.getState().refreshLiveStatuses();
-  const live = Array.from(useTerminalStatusStore.getState().statusMap.values()).filter(
-    (status) => status.status !== "exited",
-  );
-  if (live.length === 0) return report;
-
-  const referenced = usePanesStore.getState().collectReferencedSessionIds();
-  const unowned = live.filter((status) => !referenced.has(status.sessionId));
-  if (unowned.length === 0) return report;
-
-  let savedById: Map<string, SavedSession>;
+export async function reconcileTerminalSessions(
+  options: ReconcileTerminalSessionsOptions,
+): Promise<AdoptionReport> {
+  const report: AdoptionReport = { attached: 0, skipped: 0, blocked: 0 };
+  let snapshot: TerminalAdoptionSnapshot;
   try {
-    const saved = await sessionRestoreService.load();
-    if (!Array.isArray(saved)) return report;
-    savedById = new Map(saved.map((item) => [item.sessionId, item]));
+    snapshot = await terminalService.getAdoptionSnapshot();
   } catch (error) {
-    // 拿不到归属记录就整轮跳过（fail-closed）。宁可重建，也不要凭猜测认领。
-    console.warn("[SessionAdopt] ownership lookup failed; skipping this round:", error);
+    console.warn("[SessionAdopt] adoption snapshot failed:", error);
+    report.blocked = blockPendingLeaves("reconciliation-failed");
     return report;
   }
 
-  const store = usePanesStore.getState();
-  for (const status of unowned) {
-    const record = savedById.get(status.sessionId);
-    if (!record) {
-      report.skipped += 1;
+  useTerminalStatusStore.getState().replaceLiveStatuses(snapshot.sessions);
+  if (
+    !snapshot.complete
+    || !snapshot.claimsSupported
+    || snapshot.daemonGeneration === undefined
+    || !snapshot.ownerInstanceId
+  ) {
+    report.blocked = blockPendingLeaves("claims-unsupported");
+    return report;
+  }
+
+  let saved: SavedSession[];
+  try {
+    saved = await sessionRestoreService.load();
+    if (!Array.isArray(saved)) throw new Error("invalid saved session response");
+  } catch (error) {
+    console.warn("[SessionAdopt] ownership lookup failed:", error);
+    report.blocked = blockPendingLeaves("reconciliation-failed");
+    return report;
+  }
+
+  const liveIds = new Set(
+    snapshot.sessions
+      .filter((status) => status.status !== "exited")
+      .map((status) => status.sessionId),
+  );
+
+  for (const leaf of restorableLeaves()) {
+    if (leaf.leaf.sessionId) continue;
+    const candidates = saved.filter(
+      (record) => liveIds.has(record.sessionId) && anchorMatches(record, leaf),
+    );
+
+    if (candidates.length === 0) {
+      if (leaf.leaf.savedSessionId && liveIds.has(leaf.leaf.savedSessionId)) {
+        setBlocked(leaf, "missing-provenance");
+        report.blocked += 1;
+      } else {
+        usePanesStore.getState().setTerminalRestoreBlocked(leaf.tabId, leaf.leaf.id, undefined);
+      }
       continue;
     }
-    const attached = store.attachSessionToAnchor({
-      sessionId: status.sessionId,
+    if (candidates.length > 1) {
+      setBlocked(leaf, "ambiguous-candidates");
+      report.blocked += 1;
+      continue;
+    }
+
+    const record = candidates[0];
+    const provenance = snapshot.provenance[record.sessionId];
+    if (!provenance) {
+      setBlocked(leaf, "missing-provenance");
+      report.blocked += 1;
+      continue;
+    }
+    if (!identityMatches(record, provenance, leaf, snapshot)) {
+      setBlocked(leaf, "identity-mismatch");
+      report.blocked += 1;
+      continue;
+    }
+
+    const owner = snapshot.claims[record.sessionId];
+    if (owner && owner !== snapshot.ownerInstanceId) {
+      setBlocked(leaf, "claim-conflict");
+      report.blocked += 1;
+      continue;
+    }
+    if (!owner && !options.autoAdopt) {
+      setBlocked(leaf, "auto-adopt-disabled");
+      report.blocked += 1;
+      continue;
+    }
+
+    let granted = owner === snapshot.ownerInstanceId;
+    if (!granted) {
+      try {
+        granted = await terminalService.adoptSession(record.sessionId);
+      } catch (error) {
+        console.warn(`[SessionAdopt] claim failed for ${record.sessionId}:`, error);
+      }
+    }
+    if (!granted) {
+      setBlocked(leaf, "claim-conflict");
+      report.blocked += 1;
+      continue;
+    }
+
+    const attached = usePanesStore.getState().attachSessionToAnchor({
+      sessionId: record.sessionId,
       layoutId: record.layoutId,
       tabId: record.tabId,
       terminalPaneId: record.terminalPaneId,
       expectedProjectPath: record.projectPath,
     });
-    if (attached) report.attached += 1;
-    else report.skipped += 1;
+    if (!attached) {
+      await terminalService.releaseSession(record.sessionId).catch((error) => {
+        console.warn(`[SessionAdopt] failed to release unattached ${record.sessionId}:`, error);
+      });
+      setBlocked(leaf, "identity-mismatch");
+      report.blocked += 1;
+      continue;
+    }
+    usePanesStore.getState().setSessionLeaseReadOnly(record.sessionId, false);
+    report.attached += 1;
   }
 
-  if (report.attached > 0 || report.skipped > 0) {
-    console.info(
-      `[SessionAdopt] attached ${report.attached}, left unowned ${report.skipped}`,
-    );
-  }
+  void sessionRestoreService.prune(
+    snapshot.daemonGeneration,
+    snapshot.capturedAtMs,
+    [...liveIds],
+  ).catch((error) => console.warn("[SessionAdopt] stale row prune failed:", error));
+
   return report;
+}
+
+export async function adoptUnownedDaemonSessions(): Promise<AdoptionReport> {
+  return reconcileTerminalSessions({ autoAdopt: true });
 }
 
 // 统一桥接后端发来的 history-updated 事件，保持现有页面订阅方式不变。
