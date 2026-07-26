@@ -2,11 +2,13 @@
 // 两个 hook 共享模块级状态（lastSeenLayoutSnapshotSavedAt / suppressLayoutSnapshotSaveUntil），
 // 必须保持模块级单例，不要把它们改成 hook 内部 state。
 import { useEffect } from "react";
-import { usePanesStore, useWorkspacesStore } from "@/stores";
+import { usePanesStore, useSettingsStore, useWorkspacesStore } from "@/stores";
 import { sessionRestoreService, layoutSnapshotService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime, resolveRuntimeKind } from "@/utils/desktopRuntime";
+import { collectTerminalLeaves } from "@/lib/paneSessions";
 import {
+  adoptUnownedDaemonSessions,
   restoreLiveDaemonSessionsFromBackend,
   runBackgroundLayoutRestore,
 } from "@/hooks/useTerminalSessionRestore";
@@ -58,31 +60,60 @@ async function applySharedLayoutSnapshot(): Promise<boolean> {
   return applied;
 }
 
-function collectRestorableSessions(): SavedSession[] {
+/**
+ * 收集可恢复会话。docs/61 阶段 1 的三项修正都落在这里：
+ *
+ * 1. **逐 leaf 一行**：终端 tab 可含多个分屏 leaf，各自持有独立 PTY。以前每 tab 只存
+ *    一行，恢复时只能挂到活动 leaf，会把会话接到错误的分屏格子。
+ * 2. **禁掉 tab.id 冒充 sessionId**：旧的 `tab.sessionId || tab.savedSessionId || tab.id`
+ *    会把 tab id 写进 session_id 列，污染这张表作为归属权威源的资格。没有真实 PTY id
+ *    的 leaf 直接跳过——它本来就没有会话可恢复。
+ * 3. **完整运行时指纹**：补 wsl（distro/remotePath）与 machineName，否则接管后的重建
+ *    会落到本地错误目录。
+ */
+export function collectRestorableSessions(): SavedSession[] {
   const tabs = usePanesStore.getState().getRestorableTabs();
   const now = new Date().toISOString();
-  return tabs
-    .filter(({ tab }) => tab.contentType === "terminal" && tab.projectPath)
-    .map(({ tab, paneId }) => ({
-      workspaceSnapshotId: tab.workspaceSnapshotId,
-      sessionId: tab.sessionId || tab.savedSessionId || tab.id,
-      tabId: tab.id,
-      paneId,
-      projectPath: tab.projectPath,
-      workspaceName: tab.workspaceName,
-      workspacePath: tab.workspacePath,
-      providerId: tab.providerId,
-      providerSelection: tab.providerSelection,
-      launchProfileId: tab.launchProfileId,
-      cliTool: tab.cliTool || (tab.launchClaude ? "claude" : "none"),
-      runtimeKind: resolveRuntimeKind({ ssh: tab.ssh, wsl: tab.wsl }),
-      resumeId: tab.resumeId,
-      sshConfig: tab.ssh ? JSON.stringify(tab.ssh) : undefined,
-      customTitle: tab.title,
-      createdAt: now,
-      savedAt: now,
-      hasOutput: false,
-    }));
+  const sessions: SavedSession[] = [];
+
+  for (const { tab, paneId, layoutId } of tabs) {
+    if (tab.contentType !== "terminal" || !tab.projectPath) continue;
+
+    for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
+      // 只认真实 PTY session id；rehydrate 后 live id 会被搬进 savedSessionId。
+      const sessionId = leaf.sessionId || leaf.savedSessionId;
+      if (!sessionId) continue;
+
+      const ssh = leaf.ssh ?? tab.ssh;
+      const wsl = leaf.wsl ?? tab.wsl;
+      sessions.push({
+        workspaceSnapshotId: leaf.workspaceSnapshotId ?? tab.workspaceSnapshotId,
+        sessionId,
+        tabId: tab.id,
+        paneId,
+        terminalPaneId: leaf.id,
+        layoutId,
+        projectPath: tab.projectPath,
+        workspaceName: leaf.workspaceName ?? tab.workspaceName,
+        workspacePath: leaf.workspacePath ?? tab.workspacePath,
+        providerId: leaf.providerId ?? tab.providerId,
+        providerSelection: leaf.providerSelection ?? tab.providerSelection,
+        launchProfileId: leaf.launchProfileId ?? tab.launchProfileId,
+        cliTool: leaf.cliTool || tab.cliTool || (tab.launchClaude ? "claude" : "none"),
+        runtimeKind: resolveRuntimeKind({ ssh, wsl }),
+        resumeId: leaf.resumeId ?? tab.resumeId,
+        sshConfig: ssh ? JSON.stringify(ssh) : undefined,
+        wslConfig: wsl ? JSON.stringify(wsl) : undefined,
+        machineName: leaf.machineName ?? tab.machineName,
+        customTitle: tab.title,
+        createdAt: now,
+        savedAt: now,
+        hasOutput: false,
+      });
+    }
+  }
+
+  return sessions;
 }
 
 export function useSessionLayoutPersistence(): void {
@@ -192,7 +223,19 @@ export function useSharedLayoutSnapshotSync(): void {
       // 当前布局恢复发起后，稍等再后台逐步恢复其他布局（活跃布局优先，共享队列自然排在其后）。
       setTimeout(() => {
         if (cancelled) return;
-        void runBackgroundLayoutRestore();
+        // 认领轮必须跑在重建之前：runBackgroundLayoutRestore 只看 `!tab.sessionId`，
+        // 先挂回去，它才不会把仍活着的会话再建一遍（docs/61 阶段 3）。
+        void (async () => {
+          if (useSettingsStore.getState().settings?.terminal.autoAdoptDaemonSessions) {
+            try {
+              await adoptUnownedDaemonSessions();
+            } catch (error) {
+              console.warn("[SessionAdopt] adoption round failed:", error);
+            }
+          }
+          if (cancelled) return;
+          await runBackgroundLayoutRestore();
+        })();
       }, 3_000);
     });
     return () => {

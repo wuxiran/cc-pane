@@ -10,7 +10,7 @@ import { info as logInfo } from "@tauri-apps/plugin-log";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { terminalService, historyService, sessionRestoreService, filesystemService, providerService } from "@/services";
-import { ensureListeners } from "@/services/terminalService";
+import { ensureListeners, isSessionClaimedError } from "@/services/terminalService";
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage, toTerminalLaunchError } from "@/utils";
 import type { TerminalLaunchError } from "@/types";
@@ -283,6 +283,24 @@ function writeTerminalReply(
 ) {
   if (!sessionId) return;
   void terminalService.write(sessionId, response, { source: "system" }).catch(onError);
+}
+
+/**
+ * 会话被另一个 CC-Panes 实例持有写权限时提示用户（docs/61 阶段 2）。
+ *
+ * 按会话去重 + 冷却：否则用户每敲一个字符都会弹一次 toast。
+ * 冷却窗口取 30s，与 daemon 侧租约 TTL 一致——租约过期后本实例可能重新拿到
+ * 写权限，那时再提示才有意义。
+ */
+const sessionClaimedNotifiedAt = new Map<string, number>();
+const SESSION_CLAIMED_NOTICE_COOLDOWN_MS = 30_000;
+
+function notifySessionClaimed(sessionId: string, message: string) {
+  const now = Date.now();
+  const last = sessionClaimedNotifiedAt.get(sessionId) ?? 0;
+  if (now - last < SESSION_CLAIMED_NOTICE_COOLDOWN_MS) return;
+  sessionClaimedNotifiedAt.set(sessionId, now);
+  toast.warning(message);
 }
 
 function applyTerminalElementTheme(
@@ -1488,7 +1506,18 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           }
           const sessionId = currentSessionIdRef.current;
           if (sessionId) {
-            void terminalService.write(sessionId, data, { traceId });
+            // 写入失败必须让用户看见。会话被另一个实例持有时 daemon 会挡下输入，
+            // 以前这里是 fire-and-forget，rejection 无人接管 = 打字石沉大海。
+            terminalService.write(sessionId, data, { traceId }).catch((error) => {
+              if (isSessionClaimedError(error)) {
+                notifySessionClaimed(sessionId, t("sessionClaimedByOtherInstance"));
+                return;
+              }
+              debugLog("input.write.error", {
+                traceId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
           } else {
             debugLog("input.xterm.drop.no-session", {
               traceId,

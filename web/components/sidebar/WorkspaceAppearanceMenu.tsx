@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Eraser, FolderMinus, FolderTree, Palette, Plus } from "lucide-react";
+import { Eraser, FolderMinus, FolderTree, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -94,36 +94,36 @@ export default function WorkspaceAppearanceMenu({
         </ContextMenuSubContent>
       </ContextMenuSub>
 
-      <ContextMenuSub>
-        <ContextMenuSubTrigger>
-          <Palette /> {t("workspaceSetColor")}
-        </ContextMenuSubTrigger>
-        <ContextMenuSubContent className="grid w-36 grid-cols-4 gap-1 p-2">
-          {WORKSPACE_COLORS.map((color) => (
-            <ContextMenuItem
-              key={color}
-              aria-label={t(COLOR_LABEL_KEYS[color])}
-              aria-current={workspace.color === color ? "true" : undefined}
-              onSelect={() =>
-                void saveAppearance({ group: workspace.group, color })
-              }
-              className={`h-7 justify-center p-0 ${workspace.color === color ? "bg-[var(--app-active-bg)] ring-1 ring-[var(--app-accent)]" : ""}`}
-            >
-              <WorkspaceColorDot color={color} size="md" />
-            </ContextMenuItem>
-          ))}
-          <ContextMenuSeparator className="col-span-4" />
+      {/* 颜色直接在菜单里点选（参考 macOS 标记色行），不再走二级菜单 */}
+      <div
+        role="group"
+        aria-label={t("workspaceSetColor")}
+        className="flex items-center justify-between px-2 py-1.5"
+      >
+        {WORKSPACE_COLORS.map((color) => (
           <ContextMenuItem
-            disabled={!workspace.color}
+            key={color}
+            aria-label={t(COLOR_LABEL_KEYS[color])}
+            aria-current={workspace.color === color ? "true" : undefined}
             onSelect={() =>
-              void saveAppearance({ group: workspace.group, color: undefined })
+              void saveAppearance({ group: workspace.group, color })
             }
-            className="col-span-4"
+            className={`size-5 justify-center rounded-full p-0 ${workspace.color === color ? "ring-1 ring-[var(--app-accent)]" : ""}`}
           >
-            <Eraser /> {t("workspaceClearColor")}
+            <WorkspaceColorDot color={color} size="md" />
           </ContextMenuItem>
-        </ContextMenuSubContent>
-      </ContextMenuSub>
+        ))}
+        <ContextMenuItem
+          disabled={!workspace.color}
+          aria-label={t("workspaceClearColor")}
+          onSelect={() =>
+            void saveAppearance({ group: workspace.group, color: undefined })
+          }
+          className="size-5 justify-center rounded-full p-0"
+        >
+          <Eraser className="size-3" />
+        </ContextMenuItem>
+      </div>
     </>
   );
 }

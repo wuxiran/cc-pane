@@ -126,6 +126,8 @@ export interface TerminalSettings {
   daemonOrphanTtlMinutes: number;
   /** 禁用 daemon 孤儿会话回收（true = 永不回收）。取代旧的"TTL=0 表示永不过期"语义 */
   daemonOrphanReaperDisabled: boolean;
+  /** 启动时自动认领 daemon 无主会话（docs/61 阶段 3）。默认关闭，灰度中 */
+  autoAdoptDaemonSessions: boolean;
 }
 
 /** Shell 信息 */

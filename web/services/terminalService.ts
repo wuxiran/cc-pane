@@ -460,6 +460,18 @@ function parseWebSocketOutput(message: unknown): string {
 
 // ── 服务对象 ──────────────────────────────────────────────
 
+/**
+ * 判断一次写入失败是否因为该会话的写权限被**另一个 CC-Panes 实例**持有
+ * （daemon 侧租约裁决，docs/61 阶段 2）。
+ *
+ * `SESSION_CLAIMED` 是我们两端自定义的协议码，不是人类可读文案，
+ * daemon 改文案不会让这个判断失效。
+ */
+export function isSessionClaimedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("SESSION_CLAIMED");
+}
+
 export const terminalService = {
   /**
    * 终端后端客户端信息。孤儿对账据此判断是否可安全 sweep：

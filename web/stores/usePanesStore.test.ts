@@ -237,6 +237,47 @@ describe("usePanesStore", () => {
     });
   });
 
+  describe("adoptSession", () => {
+    it("应把无主会话建成当前布局的活动 tab，并写成待 reattach 的 savedSession", () => {
+      const tabId = usePanesStore.getState().adoptSession("orphan-session-1", {
+        projectPath: "/tmp/proj1",
+        workspaceName: "ws-a",
+        cliTool: "claude",
+      });
+
+      expect(tabId).not.toBeNull();
+      const pane = usePanesStore.getState().rootPane as Panel;
+      const tab = pane.tabs.find((item) => item.id === tabId);
+      expect(pane.activeTabId).toBe(tabId);
+      expect(tab?.workspaceName).toBe("ws-a");
+
+      const leaf = tab?.terminalRootPane;
+      expect(leaf?.type).toBe("leaf");
+      // 关键：写 savedSessionId + restoring 而非 sessionId，交给 TerminalView 重连既有 PTY
+      expect(leaf?.type === "leaf" ? leaf.savedSessionId : null).toBe("orphan-session-1");
+      expect(leaf?.type === "leaf" ? leaf.restoring : null).toBe(true);
+      expect(leaf?.type === "leaf" ? leaf.sessionId : "x").toBeNull();
+    });
+
+    it("会话已被 tab 引用时不重复建 tab，返回既有 tabId", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, {
+        projectId: "proj-1",
+        projectPath: "/tmp/proj1",
+        sessionId: "live-session-1",
+      });
+      const tabsBefore = (usePanesStore.getState().rootPane as Panel).tabs.length;
+
+      const tabId = usePanesStore.getState().adoptSession("live-session-1", {
+        projectPath: "/tmp/proj1",
+      });
+
+      const pane = usePanesStore.getState().rootPane as Panel;
+      expect(pane.tabs.length).toBe(tabsBefore);
+      expect(pane.tabs.some((item) => item.id === tabId)).toBe(true);
+    });
+  });
+
   describe("closeTab", () => {
     it("多 tab 面板应移除 tab 并更新 activeTabId", () => {
       const paneId = usePanesStore.getState().rootPane.id;
@@ -1004,5 +1045,127 @@ describe("usePanesStore", () => {
       const pane3 = usePanesStore.getState().activePaneId;
       expect(parentDirectionOf(usePanesStore.getState().rootPane, pane3)).toBe("horizontal");
     });
+  });
+});
+
+describe("attachSessionToAnchor", () => {
+  // 本 describe 在外层 describe 之外，拿不到那边的 beforeEach，必须自己重置，
+  // 否则会带着前面用例留下的分屏 rootPane 跑。
+  beforeEach(() => {
+    resetTestDataCounter();
+    const initialPanel = createPanel();
+    usePanesStore.setState({
+      rootPane: initialPanel,
+      activePaneId: initialPanel.id,
+      layouts: [{
+        id: "layout-1",
+        name: "布局 1",
+        rootPane: initialPanel,
+        activePaneId: initialPanel.id,
+      }],
+      currentLayoutId: "layout-1",
+      closedTabs: [],
+    });
+  });
+
+  function splitTerminalTab(paneId: string) {
+    usePanesStore.getState().addTab(paneId, {
+      projectId: "proj-1",
+      projectPath: "D:\\work\\proj",
+    });
+    const pane = usePanesStore.getState().rootPane as Panel;
+    return pane.tabs[pane.tabs.length - 1];
+  }
+
+  it("按 terminalPaneId 挂到指定分屏格子，而不是活动格子", () => {
+    const paneId = usePanesStore.getState().rootPane.id;
+    const tab = splitTerminalTab(paneId);
+    const rootPane = tab.terminalRootPane;
+    const rootLeafId = rootPane?.type === "leaf" ? rootPane.id : "";
+
+    const attached = usePanesStore.getState().attachSessionToAnchor({
+      sessionId: "pty-1",
+      tabId: tab.id,
+      terminalPaneId: rootLeafId,
+      expectedProjectPath: "D:\\work\\proj",
+    });
+
+    expect(attached).toBe(true);
+    const pane = usePanesStore.getState().rootPane as Panel;
+    const leaf = pane.tabs.find((item) => item.id === tab.id)!.terminalRootPane!;
+    expect(leaf.type === "leaf" ? leaf.savedSessionId : null).toBe("pty-1");
+    expect(leaf.type === "leaf" ? leaf.restoring : null).toBe(true);
+  });
+
+  it("项目路径不等价时拒绝挂载——认领错会话比不认领严重得多", () => {
+    const paneId = usePanesStore.getState().rootPane.id;
+    const tab = splitTerminalTab(paneId);
+
+    const attached = usePanesStore.getState().attachSessionToAnchor({
+      sessionId: "pty-1",
+      tabId: tab.id,
+      expectedProjectPath: "D:\\work\\OTHER-PROJECT",
+    });
+
+    expect(attached).toBe(false);
+  });
+
+  it("跨 Windows / mnt 形式的同一项目视为等价", () => {
+    const paneId = usePanesStore.getState().rootPane.id;
+    const tab = splitTerminalTab(paneId);
+
+    const attached = usePanesStore.getState().attachSessionToAnchor({
+      sessionId: "pty-1",
+      tabId: tab.id,
+      expectedProjectPath: "/mnt/d/work/proj",
+    });
+
+    expect(attached).toBe(true);
+  });
+
+  it("锚点 leaf 已有活会话时不覆盖", () => {
+    const paneId = usePanesStore.getState().rootPane.id;
+    usePanesStore.getState().addTab(paneId, {
+      projectId: "proj-1",
+      projectPath: "D:\\work\\proj",
+      sessionId: "existing-pty",
+    });
+    const pane = usePanesStore.getState().rootPane as Panel;
+    const tab = pane.tabs[pane.tabs.length - 1];
+
+    const attached = usePanesStore.getState().attachSessionToAnchor({
+      sessionId: "pty-new",
+      tabId: tab.id,
+      expectedProjectPath: "D:\\work\\proj",
+    });
+
+    expect(attached).toBe(false);
+  });
+
+  it("会话已被本实例引用时不重复挂", () => {
+    const paneId = usePanesStore.getState().rootPane.id;
+    usePanesStore.getState().addTab(paneId, {
+      projectId: "proj-1",
+      projectPath: "D:\\work\\proj",
+      sessionId: "pty-dup",
+    });
+    const tab = splitTerminalTab(paneId);
+
+    const attached = usePanesStore.getState().attachSessionToAnchor({
+      sessionId: "pty-dup",
+      tabId: tab.id,
+      expectedProjectPath: "D:\\work\\proj",
+    });
+
+    expect(attached).toBe(false);
+  });
+
+  it("锚点 tab 不存在时返回 false", () => {
+    expect(
+      usePanesStore.getState().attachSessionToAnchor({
+        sessionId: "pty-1",
+        tabId: "tab-does-not-exist",
+      }),
+    ).toBe(false);
   });
 });

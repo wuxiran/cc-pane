@@ -7,6 +7,7 @@ import { useActivityBarStore } from "./useActivityBarStore";
 import { useFullscreenStore } from "./useFullscreenStore";
 import { terminalService, ensureListeners } from "@/services/terminalService";
 import { devDebugLog } from "@/utils/devLogger";
+import { projectPathsEquivalent } from "@/utils/projectIdentity";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 import { createPanel } from "./paneTreeHelpers";
@@ -79,6 +80,41 @@ interface CreateTabOptions {
   targetLayoutId?: string;
   /** 启动器附加参数（skipMcp/appendSystemPrompt/initialPrompt/yolo/adapterOptions）透传 */
   launchExtras?: LaunchExtras;
+}
+
+/**
+ * 接管无主会话时能拿到的元数据：来自 session_restore 表（跨实例共享）。
+ * 查不到记录时只有 projectPath 兜底，仍可接管，只是标题退化。
+ */
+export interface AdoptSessionMeta {
+  projectPath: string;
+  projectId?: string;
+  workspaceName?: string;
+  workspacePath?: string;
+  workspaceSnapshotId?: string;
+  providerId?: string;
+  providerSelection?: Tab["providerSelection"];
+  launchProfileId?: string;
+  cliTool?: CliTool;
+  resumeId?: string;
+  customTitle?: string;
+  /**
+   * 运行时指纹。接管本身只是 reattach 到已存在的 PTY，不受运行时影响；
+   * 但接管后的 tab 一旦被重建（关闭重开 / 下一轮 restore），缺了这些字段就会
+   * 在本地错误目录重新启动。调用方必须在指纹不完整时拒绝接管。
+   */
+  ssh?: SshConnectionInfo;
+  wsl?: WslLaunchInfo;
+}
+
+/** 启动认领的精确挂载锚点（docs/61 阶段 3） */
+export interface SessionAnchor {
+  sessionId: string;
+  layoutId?: string;
+  tabId: string;
+  terminalPaneId?: string;
+  /** session_restore 里记录的项目路径，用于防止挂到别的项目上 */
+  expectedProjectPath?: string;
 }
 
 function createTab(opts: CreateTabOptions): Tab {
@@ -1076,6 +1112,20 @@ interface PanesState extends BrowserTabActions {
   /** Collect terminal tabs that can be restored after restart. */
   getRestorableTabs: () => Array<{ tab: Tab; paneId: string; layoutId: string }>;
   setBackgroundRestoreSession: (tabId: string, savedSessionId: string) => void;
+  /**
+   * 接管一条本实例没有 tab 引用的 daemon 活会话（多实例/重启后残留的"无主会话"）。
+   * 在当前布局的活动 pane 建 tab，并按 restore 的老路子交给 TerminalView reattach，
+   * 不新建 PTY。已被引用时直接返回既有 tabId，保证可重复点击。
+   */
+  adoptSession: (sessionId: string, meta: AdoptSessionMeta) => string | null;
+  /**
+   * 按精确锚点把一条 daemon 活会话挂回它原来的分屏格子（docs/61 阶段 3）。
+   *
+   * 判据全部满足才挂：锚点 leaf 存在、该 leaf 当前没有活会话、tab 的项目路径
+   * 与记录等价（跨 Windows//mnt/UNC 形式）。任一不满足返回 false，会话保持无主，
+   * 留给用户在资源管理器里手动确认——**认领错会话比不认领严重得多**。
+   */
+  attachSessionToAnchor: (anchor: SessionAnchor) => boolean;
   /**
    * 收集所有布局（含星标布局与非当前布局）中被 tab 引用的 sessionId 集合，
    * 供孤儿会话对账使用。同时收 sessionId 与 savedSessionId（rehydrate 后
@@ -3014,6 +3064,99 @@ export const usePanesStore = create<PanesState>()(
         leaf.sessionId = null;
         syncTabTerminalState(tab);
       });
+    },
+
+    attachSessionToAnchor: (anchor) => {
+      // 该会话已被本实例某个 leaf 引用 → 不重复挂
+      if (get().collectReferencedSessionIds().has(anchor.sessionId)) return false;
+
+      let attached = false;
+      set((state) => {
+        const location = findTabAcrossLayouts(state, anchor.tabId);
+        if (!location) return;
+        // 锚点带 layoutId 时必须同布局：tab id 理论上全局唯一，但布局快照互相
+        // 覆盖过的历史数据里出现过跨布局同 id，宁可不认领。
+        if (anchor.layoutId && location.layoutId !== anchor.layoutId) return;
+
+        const tab = location.tab;
+        if (tab.contentType !== "terminal" || !tab.terminalRootPane) return;
+
+        // 项目身份必须等价。直接比字符串会把 /mnt/d/x 与 D:\x 判成不同项目，
+        // 所以走 projectIdentityKey（与 Rust 侧 canonical_project_path 对齐）。
+        if (
+          anchor.expectedProjectPath
+          && tab.projectPath
+          && !projectPathsEquivalent(anchor.expectedProjectPath, tab.projectPath)
+        ) {
+          return;
+        }
+
+        const leaves = collectTerminalLeaves(tab.terminalRootPane);
+        // 有 terminalPaneId 就精确定位；没有（migration 26 之前的老记录）且该 tab
+        // 只有一个 leaf 时才回退——多 leaf 又没锚点，无法判断该挂哪个格子。
+        const leaf = anchor.terminalPaneId
+          ? leaves.find((item) => item.id === anchor.terminalPaneId)
+          : leaves.length === 1
+            ? leaves[0]
+            : undefined;
+        if (!leaf) return;
+        // 该格子已有活会话 → 不覆盖
+        if (leaf.sessionId) return;
+
+        leaf.savedSessionId = anchor.sessionId;
+        leaf.restoring = true;
+        leaf.sessionId = null;
+        syncTabTerminalState(tab);
+        attached = true;
+      });
+
+      return attached;
+    },
+
+    adoptSession: (sessionId, meta) => {
+      // 已被本实例某个 tab 引用 → 不重复建，直接把既有 tab 交回给调用方聚焦。
+      const existing = get().findTabBySessionAcrossLayouts(sessionId);
+      if (existing) return existing.tab.id;
+
+      let adoptedTabId: string | null = null;
+      set((state) => {
+        if (!activateFirstNormalLayout(state)) return;
+        const found = findPane(state.rootPane, state.activePaneId);
+        const pane = found?.type === "panel" ? found : collectPanels(state.rootPane)[0];
+        if (!pane) return;
+
+        const tab = createTab({
+          projectId: meta.projectId ?? sessionId,
+          projectPath: meta.projectPath,
+          workspaceName: meta.workspaceName,
+          workspacePath: meta.workspacePath,
+          workspaceSnapshotId: meta.workspaceSnapshotId,
+          providerId: meta.providerId,
+          providerSelection: meta.providerSelection,
+          launchProfileId: meta.launchProfileId,
+          cliTool: meta.cliTool,
+          resumeId: meta.resumeId,
+          customTitle: meta.customTitle,
+          ssh: meta.ssh,
+          wsl: meta.wsl,
+        });
+        const leaf = tab.terminalRootPane;
+        if (leaf?.type !== "leaf") return;
+        // 与 setBackgroundRestoreSession 同形：写成"可重连的 savedSession"，
+        // 由 TerminalView 的恢复路径 reattach 到这条已存在的 PTY，不新建。
+        leaf.savedSessionId = sessionId;
+        leaf.restoring = true;
+        leaf.sessionId = null;
+        syncTabTerminalState(tab);
+
+        pane.tabs.push(tab);
+        pane.activeTabId = tab.id;
+        state.activePaneId = pane.id;
+        adoptedTabId = tab.id;
+      });
+
+      if (adoptedTabId) get().autoBindLayoutWorkspaceFromTabs();
+      return adoptedTabId;
     },
   })),
   {

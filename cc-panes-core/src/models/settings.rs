@@ -423,6 +423,13 @@ pub struct TerminalSettings {
     /// 禁用 daemon 孤儿会话回收（true = 永不回收）。取代旧的"TTL=0 表示永不过期"语义。
     #[serde(default)]
     pub daemon_orphan_reaper_disabled: bool,
+    /// 启动时自动认领 daemon 中的无主会话（docs/61 阶段 3）。
+    ///
+    /// **默认关闭**：认领错会话意味着 agent 在错误的仓库里继续对话，不可逆，
+    /// 比重建一条新会话严重得多。按评审结论先灰度，覆盖双实例 / 全灭重启 /
+    /// 分屏 leaf / WSL / SSH / worktree 场景后再考虑默认开启。
+    #[serde(default)]
+    pub auto_adopt_daemon_sessions: bool,
 }
 
 /// 孤儿会话 TTL 上限：7 天
@@ -1033,6 +1040,7 @@ impl Default for TerminalSettings {
             daemon_enabled: true,
             daemon_orphan_ttl_minutes: default_daemon_orphan_ttl_minutes(),
             daemon_orphan_reaper_disabled: false,
+            auto_adopt_daemon_sessions: false,
         }
     }
 }

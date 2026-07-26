@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -81,6 +81,7 @@ impl DaemonConfig {
                 default_cwd,
                 last_activity: parking_lot::RwLock::new(HashMap::new()),
                 desktop_control_clients: AtomicUsize::new(0),
+                session_claims: parking_lot::RwLock::new(HashMap::new()),
             }),
         }
     }
@@ -115,6 +116,89 @@ impl DaemonConfig {
     /// >1 说明多个桌面实例共享本 daemon，任何单实例的"引用全集"都是残缺视图。
     pub(crate) fn desktop_client_count(&self) -> usize {
         self.inner.desktop_control_clients.load(Ordering::SeqCst)
+    }
+
+    /// 申请或续租一条会话的写权限。
+    ///
+    /// 同一 owner 重复调用即续租（幂等）；租约过期后任何实例都可以接手。
+    /// 返回 `Err(existing_owner)` 表示会话正被别的实例持有。
+    pub(crate) fn try_claim_session(
+        &self,
+        session_id: &str,
+        owner: &str,
+        ttl_ms: Option<u64>,
+    ) -> Result<SessionClaim, String> {
+        let ttl = ttl_ms
+            .unwrap_or(CLAIM_TTL_DEFAULT_MS)
+            .clamp(CLAIM_TTL_MIN_MS, CLAIM_TTL_MAX_MS);
+        let now = Instant::now();
+        let mut claims = self.inner.session_claims.write();
+
+        if let Some(existing) = claims.get(session_id) {
+            if existing.is_live(now) && existing.owner != owner {
+                return Err(existing.owner.clone());
+            }
+        }
+
+        let claim = SessionClaim {
+            owner: owner.to_string(),
+            expires_at: now + Duration::from_millis(ttl),
+        };
+        claims.insert(session_id.to_string(), claim.clone());
+        Ok(claim)
+    }
+
+    /// 释放租约。只有持有者能释放；过期租约任何人都可以清掉。
+    pub(crate) fn release_session_claim(&self, session_id: &str, owner: &str) -> bool {
+        let now = Instant::now();
+        let mut claims = self.inner.session_claims.write();
+        match claims.get(session_id) {
+            Some(existing) if existing.owner == owner || !existing.is_live(now) => {
+                claims.remove(session_id);
+                true
+            }
+            Some(_) => false,
+            None => true,
+        }
+    }
+
+    /// 当前**仍在有效期内**的持有者。过期租约视为无人持有。
+    pub(crate) fn session_claim_owner(&self, session_id: &str) -> Option<String> {
+        let now = Instant::now();
+        self.inner
+            .session_claims
+            .read()
+            .get(session_id)
+            .filter(|claim| claim.is_live(now))
+            .map(|claim| claim.owner.clone())
+    }
+
+    /// 判断某调用方是否可以写这条会话。
+    ///
+    /// 无有效租约 → 放行（向后兼容，见 `session_claims` 注释）。
+    /// 有租约 → 只有持有者能写；匿名调用方一律拒绝。
+    pub(crate) fn may_write_session(&self, session_id: &str, caller: Option<&str>) -> bool {
+        match self.session_claim_owner(session_id) {
+            None => true,
+            Some(owner) => caller == Some(owner.as_str()),
+        }
+    }
+
+    /// 会话结束时丢弃租约，避免 map 随会话数无限增长。
+    pub(crate) fn forget_session_claim(&self, session_id: &str) {
+        self.inner.session_claims.write().remove(session_id);
+    }
+
+    /// 全部仍在有效期内的租约。过期项不返回（也不在这里清理——读路径不写锁）。
+    pub(crate) fn live_session_claims(&self) -> HashMap<String, String> {
+        let now = Instant::now();
+        self.inner
+            .session_claims
+            .read()
+            .iter()
+            .filter(|(_, claim)| claim.is_live(now))
+            .map(|(session_id, claim)| (session_id.clone(), claim.owner.clone()))
+            .collect()
     }
 
     fn register_desktop_client(&self) -> DesktopClientGuard {
@@ -159,7 +243,9 @@ impl DaemonConfig {
             .insert(session_id.to_string(), Instant::now());
     }
 
+    /// 会话拆除：活跃时间与写权限租约一起丢弃，避免两张 map 随会话数无限增长。
     pub(crate) fn remove_session_activity(&self, session_id: &str) {
+        self.forget_session_claim(session_id);
         self.inner.last_activity.write().remove(session_id);
         self.inner.ws_emitter.cleanup_session(session_id);
     }
@@ -187,7 +273,35 @@ struct DaemonState {
     /// 活跃桌面控制 WS 连接数（`/ws/control?kind=desktop`）。
     /// 连接存活 = 该桌面实例仍可能发起 kill；web 客户端不计入。
     desktop_control_clients: AtomicUsize,
+    /// 会话写权限租约（docs/61 阶段 2）。
+    ///
+    /// daemon 是唯一同时持有 PTY、连接生命周期与全部客户端视图的一方，
+    /// 所以裁决必须发生在这里——放到 SQLite 里做 CAS 消不掉 attach 前的 TOCTOU 窗口。
+    ///
+    /// 语义刻意做成**「有租约才强制」**：没有任何实例 claim 过的会话，写入照旧放行。
+    /// 否则运行中的旧版客户端（不会发实例头）会在升级瞬间全部失去输入能力。
+    session_claims: parking_lot::RwLock<HashMap<String, SessionClaim>>,
 }
+
+/// 一条会话写权限租约。
+#[derive(Debug, Clone)]
+pub(crate) struct SessionClaim {
+    owner: String,
+    expires_at: Instant,
+}
+
+impl SessionClaim {
+    fn is_live(&self, now: Instant) -> bool {
+        self.expires_at > now
+    }
+}
+
+/// 租约 TTL 边界：太短会让一次 GC 停顿就丢掉写权限，太长会让崩溃的实例长期占着会话。
+const CLAIM_TTL_DEFAULT_MS: u64 = 30_000;
+const CLAIM_TTL_MIN_MS: u64 = 5_000;
+const CLAIM_TTL_MAX_MS: u64 = 300_000;
+/// 调用方声明自身实例身份的请求头。缺失 = 匿名客户端（旧版本）。
+const INSTANCE_HEADER: &str = "x-cc-panes-instance";
 
 /// RAII：控制 WS handler 退出（连接断开）即减一，实例崩溃也不会留下 stale 计数。
 struct DesktopClientGuard {
@@ -327,10 +441,31 @@ pub struct FindByLaunchResponse {
     pub session_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimRequest {
+    /// 申请方实例身份。也可以走 `X-CC-Panes-Instance` 头。
+    #[serde(default)]
+    pub app_instance_id: Option<String>,
+    /// 租约时长，缺省 30s，服务端 clamp 到 [5s, 300s]
+    #[serde(default)]
+    pub ttl_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimResponse {
+    pub session_id: String,
+    pub owner: String,
+    pub granted: bool,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WsQuery {
     pub token: Option<String>,
+    /// 订阅方实例身份（可缺失=匿名旧客户端）。决定这条连接能不能写。
+    pub instance_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -359,6 +494,9 @@ pub fn router(config: DaemonConfig) -> Router {
         .route("/api/sessions/{id}/write", post(write_session))
         .route("/api/sessions/{id}/submit", post(submit_session))
         .route("/api/sessions/{id}/resize", post(resize_session))
+        .route("/api/sessions/claims", get(list_session_claims))
+        .route("/api/sessions/{id}/claim", post(claim_session))
+        .route("/api/sessions/{id}/claim", delete(release_session_claim))
         .route("/api/sessions/{id}", delete(kill_session))
         .route("/ws/control", get(ws_control))
         .route("/ws/{id}", get(ws_session))
@@ -542,12 +680,115 @@ async fn resize_session(
     Json(req): Json<ResizeRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    ensure_may_write(&config, &id, &headers)?;
     config.touch_session(&id);
     config
         .terminal_backend()
         .resize(&id, req.cols, req.rows)
         .map_err(not_found_from_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// 读取调用方声明的实例身份。缺失即匿名（旧版客户端）。
+fn caller_instance(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(INSTANCE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// 写入类操作的租约闸门。无租约放行，有租约只放持有者。
+fn ensure_may_write(
+    config: &DaemonConfig,
+    session_id: &str,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let caller = caller_instance(headers);
+    if config.may_write_session(session_id, caller.as_deref()) {
+        return Ok(());
+    }
+    let owner = config.session_claim_owner(session_id).unwrap_or_default();
+    Err((
+        StatusCode::CONFLICT,
+        Json(serde_json::json!({
+            "code": "SESSION_CLAIMED",
+            "message": format!("session is claimed by another instance: {owner}"),
+            "owner": owner,
+        })),
+    ))
+}
+
+/// 当前所有**仍在有效期内**的写权限租约：sessionId → ownerInstanceId。
+/// 前端据此判断某条无主会话是否已被别的实例持有，从而不去提供接管。
+async fn list_session_claims(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+) -> Result<Json<HashMap<String, String>>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    Ok(Json(config.live_session_claims()))
+}
+
+async fn claim_session(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<ClaimRequest>,
+) -> Result<Json<ClaimResponse>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let owner = req
+        .app_instance_id
+        .or_else(|| caller_instance(&headers))
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            json_error(
+                StatusCode::BAD_REQUEST,
+                "MISSING_INSTANCE_ID",
+                "appInstanceId is required to claim a session",
+            )
+        })?;
+
+    match config.try_claim_session(&id, &owner, req.ttl_ms) {
+        Ok(_) => {
+            config.touch_session(&id);
+            Ok(Json(ClaimResponse {
+                session_id: id,
+                owner,
+                granted: true,
+            }))
+        }
+        Err(existing_owner) => Err((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "code": "SESSION_CLAIMED",
+                "message": format!("session is claimed by another instance: {existing_owner}"),
+                "owner": existing_owner,
+            })),
+        )),
+    }
+}
+
+async fn release_session_claim(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<ClaimRequest>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let owner = req
+        .app_instance_id
+        .or_else(|| caller_instance(&headers))
+        .unwrap_or_default();
+    if config.release_session_claim(&id, &owner) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(json_error(
+            StatusCode::CONFLICT,
+            "SESSION_CLAIMED",
+            "session is claimed by another instance",
+        ))
+    }
 }
 
 async fn write_session(
@@ -557,6 +798,7 @@ async fn write_session(
     Json(req): Json<WriteRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    ensure_may_write(&config, &id, &headers)?;
     tracing::debug!(
         session_id = %id,
         input = %summarize_terminal_input(&req.data),
@@ -577,6 +819,7 @@ async fn submit_session(
     Json(req): Json<SubmitRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     authorize(&headers, config.token())?;
+    ensure_may_write(&config, &id, &headers)?;
     config.touch_session(&id);
     config
         .terminal_backend()
@@ -653,7 +896,9 @@ async fn ws_session(
         }
     }
 
-    Ok(ws.on_upgrade(move |socket| handle_ws(socket, id, config)))
+    // WS 订阅永远放行（只读镜像是设计允许的）；写权限在入站 input 处按租约裁决。
+    let caller = query.instance_id.clone();
+    Ok(ws.on_upgrade(move |socket| handle_ws(socket, id, config, caller)))
 }
 
 /// 客户端存在性控制连接：桌面实例启动后保持一条，daemon 据此统计
@@ -721,7 +966,12 @@ async fn handle_control_ws(socket: WebSocket, config: DaemonConfig, is_desktop: 
     }
 }
 
-async fn handle_ws(socket: WebSocket, session_id: String, config: DaemonConfig) {
+async fn handle_ws(
+    socket: WebSocket,
+    session_id: String,
+    config: DaemonConfig,
+    caller: Option<String>,
+) {
     config.touch_session(&session_id);
     let (mut ws_tx, mut ws_rx) = socket.split();
     let mut output_rx = config.ws_emitter().subscribe(&session_id);
@@ -745,13 +995,25 @@ async fn handle_ws(socket: WebSocket, session_id: String, config: DaemonConfig) 
                             .and_then(|value| value.as_str())
                             .unwrap_or("");
                         config.touch_session(&session_id);
-                        let _ = config.terminal_backend().write(&session_id, data);
+                        // 租约闸门：会话被别的实例持有时，这条连接只能看不能写，
+                        // 否则两个实例的输入会交错进同一个 PTY。
+                        if config.may_write_session(&session_id, caller.as_deref()) {
+                            let _ = config.terminal_backend().write(&session_id, data);
+                        } else {
+                            tracing::warn!(
+                                session_id = %session_id,
+                                caller = caller.as_deref().unwrap_or("<anonymous>"),
+                                "rejected ws input: session claimed by another instance"
+                            );
+                        }
                     }
                 }
             }
             Message::Binary(data) => {
                 if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    let _ = config.terminal_backend().write(&session_id, &text);
+                    if config.may_write_session(&session_id, caller.as_deref()) {
+                        let _ = config.terminal_backend().write(&session_id, &text);
+                    }
                 }
             }
             Message::Close(_) => break,
@@ -962,6 +1224,192 @@ mod tests {
             Arc::new(WsEmitter::new()),
             "/default/project".to_string(),
         )
+    }
+
+    // ===== 会话写权限租约（docs/61 阶段 2）=====
+
+    fn write_request(session: &str, instance: Option<&str>) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(format!("/api/sessions/{session}/write"))
+            .header(header::AUTHORIZATION, "Bearer secret")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(instance) = instance {
+            builder = builder.header(INSTANCE_HEADER, instance);
+        }
+        builder
+            .body(Body::from(r#"{"data":"hi"}"#))
+            .expect("request")
+    }
+
+    fn claim_request(session: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/sessions/{session}/claim"))
+            .header(header::AUTHORIZATION, "Bearer secret")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .expect("request")
+    }
+
+    /// 向后兼容的核心不变式：没有任何实例 claim 过的会话，写入照旧放行。
+    /// 否则运行中的旧版客户端会在 daemon 升级瞬间全部失去输入能力。
+    #[tokio::test]
+    async fn unclaimed_session_accepts_anonymous_writes() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let app = router(test_config("secret", "127.0.0.1:18090", backend.clone()));
+
+        let response = app
+            .oneshot(write_request("s1", None))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(backend.writes.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn claimed_session_rejects_writes_from_other_instances() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18091", backend.clone());
+        let app = router(config);
+
+        let granted = app
+            .clone()
+            .oneshot(claim_request("s1", r#"{"appInstanceId":"inst-a"}"#))
+            .await
+            .expect("response");
+        assert_eq!(granted.status(), StatusCode::OK);
+
+        // 持有者可以写
+        let owner_write = app
+            .clone()
+            .oneshot(write_request("s1", Some("inst-a")))
+            .await
+            .expect("response");
+        assert_eq!(owner_write.status(), StatusCode::NO_CONTENT);
+
+        // 别的实例被挡
+        let other_write = app
+            .clone()
+            .oneshot(write_request("s1", Some("inst-b")))
+            .await
+            .expect("response");
+        assert_eq!(other_write.status(), StatusCode::CONFLICT);
+
+        // 匿名调用方在有租约时同样被挡
+        let anonymous_write = app
+            .oneshot(write_request("s1", None))
+            .await
+            .expect("response");
+        assert_eq!(anonymous_write.status(), StatusCode::CONFLICT);
+
+        assert_eq!(
+            backend.writes.lock().unwrap().len(),
+            1,
+            "只应有持有者的那一次写入"
+        );
+    }
+
+    #[tokio::test]
+    async fn second_instance_cannot_steal_a_live_claim() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let app = router(test_config("secret", "127.0.0.1:18092", backend));
+
+        let first = app
+            .clone()
+            .oneshot(claim_request("s1", r#"{"appInstanceId":"inst-a"}"#))
+            .await
+            .expect("response");
+        assert_eq!(first.status(), StatusCode::OK);
+
+        let second = app
+            .clone()
+            .oneshot(claim_request("s1", r#"{"appInstanceId":"inst-b"}"#))
+            .await
+            .expect("response");
+        assert_eq!(second.status(), StatusCode::CONFLICT);
+
+        // 同一持有者重复 claim = 续租，幂等
+        let renew = app
+            .oneshot(claim_request("s1", r#"{"appInstanceId":"inst-a"}"#))
+            .await
+            .expect("response");
+        assert_eq!(renew.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn expired_claim_frees_the_session() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18093", backend);
+
+        // TTL 会被 clamp 到下限 5s，所以直接构造一条已过期的租约验证判定逻辑
+        config
+            .try_claim_session("s1", "inst-a", Some(CLAIM_TTL_MIN_MS))
+            .expect("claim granted");
+        assert_eq!(config.session_claim_owner("s1").as_deref(), Some("inst-a"));
+        assert!(!config.may_write_session("s1", Some("inst-b")));
+
+        config.inner.session_claims.write().insert(
+            "s1".to_string(),
+            SessionClaim {
+                owner: "inst-a".to_string(),
+                expires_at: Instant::now() - Duration::from_secs(1),
+            },
+        );
+
+        assert_eq!(config.session_claim_owner("s1"), None, "过期租约不算持有");
+        assert!(
+            config.may_write_session("s1", Some("inst-b")),
+            "过期后任何实例都能接手"
+        );
+        assert!(config.live_session_claims().is_empty());
+    }
+
+    #[test]
+    fn claim_ttl_is_clamped() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18094", backend);
+
+        let too_short = config
+            .try_claim_session("s1", "inst-a", Some(1))
+            .expect("claim");
+        let too_long = config
+            .try_claim_session("s2", "inst-a", Some(u64::MAX))
+            .expect("claim");
+
+        let now = Instant::now();
+        assert!(too_short.expires_at >= now + Duration::from_millis(CLAIM_TTL_MIN_MS / 2));
+        assert!(too_long.expires_at <= now + Duration::from_millis(CLAIM_TTL_MAX_MS));
+    }
+
+    #[test]
+    fn session_teardown_drops_the_claim() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18095", backend);
+
+        config
+            .try_claim_session("s1", "inst-a", None)
+            .expect("claim");
+        config.remove_session_activity("s1");
+
+        assert_eq!(config.session_claim_owner("s1"), None);
+        assert!(config.live_session_claims().is_empty());
+    }
+
+    #[test]
+    fn only_the_owner_can_release() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18096", backend);
+
+        config
+            .try_claim_session("s1", "inst-a", None)
+            .expect("claim");
+
+        assert!(!config.release_session_claim("s1", "inst-b"));
+        assert_eq!(config.session_claim_owner("s1").as_deref(), Some("inst-a"));
+        assert!(config.release_session_claim("s1", "inst-a"));
+        assert_eq!(config.session_claim_owner("s1"), None);
     }
 
     #[test]

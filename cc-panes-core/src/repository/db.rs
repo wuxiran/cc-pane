@@ -556,6 +556,23 @@ const MIGRATIONS: &[Migration] = &[
                 ON ai_panels(owner_session_id);
         ",
     },
+    Migration {
+        version: 26,
+        description: "terminal_sessions: per-leaf anchor + complete runtime fingerprint",
+        // 只增列，旧版本可忽略新数据（docs/61 阶段 1）。
+        // terminal_pane_id/layout_id：终端 tab 可含多个分屏 leaf，只存 tab_id 会把 PTY
+        // 挂到错误的分屏格子。wsl_config/machine_name：缺 WSL distro/remotePath 时，
+        // 接管后的重建会落到本地错误目录。
+        up_sql: "
+            ALTER TABLE terminal_sessions ADD COLUMN terminal_pane_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN layout_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN wsl_config TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN machine_name TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_anchor
+                ON terminal_sessions(layout_id, tab_id, terminal_pane_id);
+        ",
+    },
 ];
 
 /// 数据库连接管理

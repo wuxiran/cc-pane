@@ -6,7 +6,8 @@ import { terminalService } from "@/services/terminalService";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import type { ResourceTree } from "@/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import SystemResourceSegment from "./SystemResourceSegment";
+import SystemResourceSegment, { resolveAdoptRuntime } from "./SystemResourceSegment";
+import type { SavedSession } from "@/types";
 
 vi.mock("@/services/systemStatsService", () => ({
   systemStatsService: {
@@ -212,5 +213,45 @@ describe("SystemResourceSegment", () => {
     await flushPromises();
 
     expect(systemStatsService.killOrphans).toHaveBeenCalledWith([42]);
+  });
+});
+
+describe("resolveAdoptRuntime", () => {
+  const base = { sessionId: "s", tabId: "t", paneId: "p", projectPath: "/p", cliTool: "claude", createdAt: "", savedAt: "", hasOutput: false } satisfies SavedSession;
+
+  it("本地会话可接管", () => {
+    expect(resolveAdoptRuntime({ ...base, runtimeKind: "local" }).ok).toBe(true);
+    // 缺 runtimeKind 视作 local（历史记录没有这个字段）
+    expect(resolveAdoptRuntime(base).ok).toBe(true);
+  });
+
+  it("WSL 会话仅在 wslConfig 带 remotePath 时接管", () => {
+    const good = resolveAdoptRuntime({
+      ...base,
+      runtimeKind: "wsl",
+      wslConfig: JSON.stringify({ distro: "Ubuntu", remotePath: "/mnt/d/proj" }),
+    });
+    expect(good.ok).toBe(true);
+    expect(good.ok === true ? good.wsl?.remotePath : null).toBe("/mnt/d/proj");
+
+    // 老记录没有 wslConfig：拒绝，不静默降级成本地
+    const legacy = resolveAdoptRuntime({ ...base, runtimeKind: "wsl" });
+    expect(legacy.ok).toBe(false);
+    expect(legacy.ok === false ? legacy.kind : null).toBe("wsl");
+    // remotePath 缺失等于没有指纹
+    expect(resolveAdoptRuntime({ ...base, runtimeKind: "wsl", wslConfig: JSON.stringify({ distro: "Ubuntu" }) }).ok).toBe(false);
+  });
+
+  it("SSH 会话仅在 sshConfig 可解析时接管", () => {
+    const good = resolveAdoptRuntime({
+      ...base,
+      runtimeKind: "ssh",
+      sshConfig: JSON.stringify({ host: "h", user: "u", port: 22 }),
+    });
+    expect(good.ok).toBe(true);
+    expect(good.ok === true ? good.ssh?.host : null).toBe("h");
+
+    expect(resolveAdoptRuntime({ ...base, runtimeKind: "ssh" }).ok).toBe(false);
+    expect(resolveAdoptRuntime({ ...base, runtimeKind: "ssh", sshConfig: "{ 坏 json" }).ok).toBe(false);
   });
 });

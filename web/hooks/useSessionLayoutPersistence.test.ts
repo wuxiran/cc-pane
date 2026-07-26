@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useSessionLayoutPersistence } from "./useSessionLayoutPersistence";
+import { collectRestorableSessions, useSessionLayoutPersistence } from "./useSessionLayoutPersistence";
 import { sessionRestoreService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime } from "@/utils/desktopRuntime";
@@ -23,9 +23,10 @@ vi.mock("@/services/runtime", () => ({
   isTauriRuntime: vi.fn(() => true),
 }));
 
-vi.mock("@/utils/desktopRuntime", () => ({
+vi.mock("@/utils/desktopRuntime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/utils/desktopRuntime")>()),
   waitForDesktopRuntime: vi.fn(),
-  resolveRuntimeKind: vi.fn(() => "local"),
+  // resolveRuntimeKind 走真实实现：运行时指纹的正确性正是本文件要守的东西
 }));
 
 vi.mock("@/hooks/useTerminalSessionRestore", () => ({
@@ -48,8 +49,18 @@ describe("useSessionLayoutPersistence cancelled 防护", () => {
     vi.mocked(usePanesStore.getState).mockReturnValue({
       getRestorableTabs: () => [
         {
-          tab: { id: "t1", contentType: "terminal", projectPath: "/p1" },
+          tab: {
+            id: "t1",
+            contentType: "terminal",
+            projectPath: "/p1",
+            terminalRootPane: {
+              type: "leaf",
+              id: "leaf-1",
+              sessionId: "pty-1",
+            },
+          },
           paneId: "pane-1",
+          layoutId: "layout-1",
         },
       ],
       exportLayoutSnapshotPayload: () => ({}),
@@ -125,5 +136,106 @@ describe("useSessionLayoutPersistence cancelled 防护", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(sessionRestoreService.save).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
+  });
+});
+
+describe("collectRestorableSessions", () => {
+  function mockTabs(tabs: unknown[]) {
+    vi.mocked(usePanesStore.getState).mockReturnValue({
+      getRestorableTabs: () => tabs,
+      exportLayoutSnapshotPayload: () => ({}),
+    } as never);
+  }
+
+  it("分屏 tab 的每个 leaf 各存一行，带精确挂载锚点", () => {
+    mockTabs([
+      {
+        tab: {
+          id: "t1",
+          title: "split tab",
+          contentType: "terminal",
+          projectPath: "/p1",
+          terminalRootPane: {
+            type: "split",
+            id: "split-1",
+            direction: "row",
+            children: [
+              { type: "leaf", id: "leaf-a", sessionId: "pty-a" },
+              { type: "leaf", id: "leaf-b", sessionId: "pty-b" },
+            ],
+          },
+        },
+        paneId: "pane-1",
+        layoutId: "layout-1",
+      },
+    ]);
+
+    const rows = collectRestorableSessions();
+    expect(rows.map((r) => r.sessionId)).toEqual(["pty-a", "pty-b"]);
+    expect(rows.map((r) => r.terminalPaneId)).toEqual(["leaf-a", "leaf-b"]);
+    expect(rows.every((r) => r.tabId === "t1" && r.layoutId === "layout-1")).toBe(true);
+  });
+
+  it("没有真实 PTY id 的 leaf 直接跳过，绝不拿 tab.id 冒充 sessionId", () => {
+    mockTabs([
+      {
+        tab: {
+          id: "t-no-session",
+          contentType: "terminal",
+          projectPath: "/p1",
+          terminalRootPane: { type: "leaf", id: "leaf-x", sessionId: null },
+        },
+        paneId: "pane-1",
+        layoutId: "layout-1",
+      },
+    ]);
+
+    expect(collectRestorableSessions()).toEqual([]);
+  });
+
+  it("rehydrate 后的 savedSessionId 仍算真实会话", () => {
+    mockTabs([
+      {
+        tab: {
+          id: "t2",
+          contentType: "terminal",
+          projectPath: "/p1",
+          terminalRootPane: {
+            type: "leaf",
+            id: "leaf-c",
+            sessionId: null,
+            savedSessionId: "pty-c",
+          },
+        },
+        paneId: "pane-1",
+        layoutId: "layout-1",
+      },
+    ]);
+
+    expect(collectRestorableSessions().map((r) => r.sessionId)).toEqual(["pty-c"]);
+  });
+
+  it("WSL/SSH 会话保留完整运行时指纹", () => {
+    mockTabs([
+      {
+        tab: {
+          id: "t3",
+          contentType: "terminal",
+          projectPath: "/p1",
+          terminalRootPane: {
+            type: "leaf",
+            id: "leaf-d",
+            sessionId: "pty-d",
+            wsl: { distro: "Ubuntu", remotePath: "/mnt/d/proj" },
+          },
+        },
+        paneId: "pane-1",
+        layoutId: "layout-1",
+      },
+    ]);
+
+    const [row] = collectRestorableSessions();
+    expect(row.runtimeKind).toBe("wsl");
+    expect(JSON.parse(row.wslConfig!)).toEqual({ distro: "Ubuntu", remotePath: "/mnt/d/proj" });
   });
 });

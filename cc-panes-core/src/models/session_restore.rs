@@ -13,6 +13,13 @@ pub struct SavedSession {
     pub tab_id: String,
     /// 前端 Pane ID
     pub pane_id: String,
+    /// 终端 tab 内的分屏 leaf ID。终端 tab 可含多个 leaf，各自持有独立 PTY；
+    /// 只按 tab_id 挂载会把会话接到错误的分屏格子（docs/61 阶段 1）。
+    #[serde(default)]
+    pub terminal_pane_id: Option<String>,
+    /// 所属布局 ID，与 tab_id + terminal_pane_id 共同构成精确挂载锚点
+    #[serde(default)]
+    pub layout_id: Option<String>,
     /// 项目路径
     pub project_path: String,
     /// 工作空间名称
@@ -35,6 +42,12 @@ pub struct SavedSession {
     pub resume_id: Option<String>,
     /// SSH 连接配置 JSON
     pub ssh_config: Option<String>,
+    /// WSL 启动配置 JSON（distro + remotePath）。缺失时接管后的重建会落到本地错误目录。
+    #[serde(default)]
+    pub wsl_config: Option<String>,
+    /// SSH 机器名（与 ssh_config 互补，用于展示与配置回查）
+    #[serde(default)]
+    pub machine_name: Option<String>,
     /// 自定义标题
     pub custom_title: Option<String>,
     /// 会话创建时间 (ISO 8601)

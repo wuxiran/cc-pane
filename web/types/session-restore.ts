@@ -8,6 +8,10 @@ export interface SavedSession {
   sessionId: string;
   tabId: string;
   paneId: string;
+  /** 终端 tab 内的分屏 leaf id；与 tabId + layoutId 构成精确挂载锚点 */
+  terminalPaneId?: string;
+  /** 所属布局 id */
+  layoutId?: string;
   projectPath: string;
   workspaceName?: string;
   workspacePath?: string;
@@ -18,6 +22,9 @@ export interface SavedSession {
   runtimeKind?: string;
   resumeId?: string;
   sshConfig?: string;
+  /** WSL 启动配置 JSON（distro + remotePath）；缺失时不允许接管 */
+  wslConfig?: string;
+  machineName?: string;
   customTitle?: string;
   createdAt: string;
   savedAt: string;

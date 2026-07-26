@@ -51,6 +51,24 @@ pub struct TerminalDaemonClient {
     timeout: Duration,
     create_timeout: Duration,
     kill_timeout: Duration,
+    /// 本 app 进程的实例身份（docs/61 阶段 2）。随进程生成，重启即换新；
+    /// 上个进程残留的租约靠 TTL 自然过期，不需要持久化。
+    instance_id: String,
+}
+
+/// 进程级实例身份。同一进程内所有 daemon 客户端共享，重启后必然不同。
+static APP_INSTANCE_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// 本进程的实例 id。用 pid + 启动时刻，重启后不会与上一个进程撞号。
+pub fn app_instance_id() -> &'static str {
+    APP_INSTANCE_ID.get_or_init(|| {
+        let pid = std::process::id();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or(0);
+        format!("app-{pid}-{nanos:x}")
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +102,14 @@ struct HookStatusRequest {
     status: SessionStatus,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaimSessionRequest<'a> {
+    app_instance_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ttl_ms: Option<u64>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FindByLaunchResponse {
@@ -98,7 +124,18 @@ impl TerminalDaemonClient {
             timeout: DEFAULT_TIMEOUT,
             create_timeout: CREATE_SESSION_TIMEOUT,
             kill_timeout: KILL_SESSION_TIMEOUT,
+            instance_id: app_instance_id().to_string(),
         }
+    }
+
+    /// 覆盖实例身份（测试用；生产走进程级 `app_instance_id()`）。
+    pub fn with_instance_id(mut self, instance_id: impl Into<String>) -> Self {
+        self.instance_id = instance_id.into();
+        self
+    }
+
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -137,10 +174,11 @@ impl TerminalDaemonClient {
 
     pub fn websocket_url(&self, session_id: &str) -> String {
         format!(
-            "ws://{}/ws/{}?token={}",
+            "ws://{}/ws/{}?token={}&instanceId={}",
             self.addr,
             urlencoding::encode(session_id),
-            urlencoding::encode(&self.token)
+            urlencoding::encode(&self.token),
+            urlencoding::encode(&self.instance_id)
         )
     }
 
@@ -197,6 +235,66 @@ impl TerminalDaemonClient {
         let status =
             serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))?;
         Ok(Some(status))
+    }
+
+    /// 申请或续租会话写权限（docs/61 阶段 2）。
+    ///
+    /// 返回 `Ok(true)` = 本实例持有；`Ok(false)` = 被别的实例持有（409），调用方应
+    /// 退化成只读，**不要重试抢占**。老 daemon 没有这个路由（404），一律视作
+    /// `Ok(true)`：那种 daemon 本来就不做裁决，拒绝写入只会让功能倒退。
+    pub fn claim_session(&self, session_id: &str, ttl_ms: Option<u64>) -> AppResult<bool> {
+        let body = serde_json::to_string(&ClaimSessionRequest {
+            app_instance_id: &self.instance_id,
+            ttl_ms,
+        })
+        .map_err(|error| AppError::from(error.to_string()))?;
+        let response = self.request(
+            "POST",
+            &session_path(session_id, "/claim"),
+            true,
+            Some(&body),
+        )?;
+        let (status, body) = split_http_response(&response)?;
+        match status {
+            409 => Ok(false),
+            404 | 405 => Ok(true),
+            code if (200..300).contains(&code) => Ok(true),
+            code => Err(daemon_http_error(code, body)),
+        }
+    }
+
+    /// 释放写权限租约。老 daemon 无此路由时静默成功。
+    pub fn release_session_claim(&self, session_id: &str) -> AppResult<()> {
+        let body = serde_json::to_string(&ClaimSessionRequest {
+            app_instance_id: &self.instance_id,
+            ttl_ms: None,
+        })
+        .map_err(|error| AppError::from(error.to_string()))?;
+        let response = self.request(
+            "DELETE",
+            &session_path(session_id, "/claim"),
+            true,
+            Some(&body),
+        )?;
+        let (status, body) = split_http_response(&response)?;
+        match status {
+            404 | 405 | 409 => Ok(()),
+            code if (200..300).contains(&code) => Ok(()),
+            code => Err(daemon_http_error(code, body)),
+        }
+    }
+
+    /// 当前所有有效租约：sessionId → ownerInstanceId。老 daemon 返回空表。
+    pub fn list_session_claims(&self) -> AppResult<std::collections::HashMap<String, String>> {
+        let response = self.request("GET", "/api/sessions/claims", true, None)?;
+        let (status, body) = split_http_response(&response)?;
+        if status == 404 || status == 405 {
+            return Ok(std::collections::HashMap::new());
+        }
+        if !(200..300).contains(&status) {
+            return Err(daemon_http_error(status, body));
+        }
+        serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))
     }
 
     pub fn write_session(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -371,6 +469,9 @@ impl TerminalDaemonClient {
         );
         if authorize {
             request.push_str(&format!("Authorization: Bearer {}\r\n", self.token));
+            // 声明实例身份，供 daemon 的写权限租约裁决（docs/61 阶段 2）。
+            // 老 daemon 忽略这个头；新 daemon 在无租约时也放行，双向兼容。
+            request.push_str(&format!("X-CC-Panes-Instance: {}\r\n", self.instance_id));
         }
         if let Some(body) = body {
             request.push_str("Content-Type: application/json\r\n");
@@ -577,13 +678,80 @@ mod tests {
     }
 
     #[test]
-    fn websocket_url_encodes_session_and_token() {
-        let client = TerminalDaemonClient::new("127.0.0.1:1234", "a b");
+    fn websocket_url_encodes_session_token_and_instance() {
+        let client = TerminalDaemonClient::new("127.0.0.1:1234", "a b").with_instance_id("inst a");
 
         assert_eq!(
             client.websocket_url("session/1"),
-            "ws://127.0.0.1:1234/ws/session%2F1?token=a%20b"
+            "ws://127.0.0.1:1234/ws/session%2F1?token=a%20b&instanceId=inst%20a"
         );
+    }
+
+    // ===== 写权限租约（docs/61 阶段 2）=====
+
+    #[test]
+    fn authorized_requests_declare_instance_identity() {
+        let response = http_json_response("204 No Content", "");
+        let (addr, rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_instance_id("inst-a")
+            .with_timeout(Duration::from_secs(1));
+
+        let _ = client.write_session("s1", "hi");
+
+        let request = rx.recv().expect("captured request");
+        assert!(request.contains("X-CC-Panes-Instance: inst-a"));
+    }
+
+    #[test]
+    fn claim_returns_false_when_held_by_another_instance() {
+        let response = http_json_response(
+            "409 Conflict",
+            r#"{"code":"SESSION_CLAIMED","owner":"inst-b"}"#,
+        );
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_instance_id("inst-a")
+            .with_timeout(Duration::from_secs(1));
+
+        assert!(!client.claim_session("s1", None).expect("claim result"));
+    }
+
+    /// 老 daemon 没有 claim 路由。拒绝写入只会让功能倒退，所以 404 视为"允许"。
+    #[test]
+    fn claim_treats_missing_route_as_granted() {
+        let response = http_json_response("404 Not Found", r#"{"code":"NOT_FOUND"}"#);
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_instance_id("inst-a")
+            .with_timeout(Duration::from_secs(1));
+
+        assert!(client.claim_session("s1", None).expect("claim result"));
+    }
+
+    #[test]
+    fn claim_sends_instance_id_and_ttl() {
+        let response = http_json_response(
+            "200 OK",
+            r#"{"sessionId":"s1","owner":"inst-a","granted":true}"#,
+        );
+        let (addr, rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_instance_id("inst-a")
+            .with_timeout(Duration::from_secs(1));
+
+        assert!(client.claim_session("s1", Some(45_000)).expect("claim"));
+
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/sessions/s1/claim HTTP/1.1"));
+        assert!(request.contains(r#""appInstanceId":"inst-a""#));
+        assert!(request.contains(r#""ttlMs":45000"#));
+    }
+
+    #[test]
+    fn app_instance_id_is_stable_within_process() {
+        assert_eq!(app_instance_id(), app_instance_id());
+        assert!(app_instance_id().starts_with("app-"));
     }
 
     #[test]

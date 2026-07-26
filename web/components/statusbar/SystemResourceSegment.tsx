@@ -13,13 +13,17 @@ import StatusIndicator from "@/components/StatusIndicator";
 import { Button } from "@/components/ui/button";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { sessionRestoreService } from "@/services/sessionRestoreService";
 import { systemStatsService } from "@/services/systemStatsService";
 import { terminalService } from "@/services/terminalService";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import type {
   CliTool,
   ResourceTree,
+  SavedSession,
   SessionResourceUsage,
+  SshConnectionInfo,
+  WslLaunchInfo,
   SystemStats,
   Tab,
   TerminalPaneLeaf,
@@ -34,6 +38,8 @@ const GIB = 1024 ** 3;
 interface SessionView extends SessionResourceUsage {
   title: string;
   workspaceName: string;
+  /** 本实例没有 tab 引用：点击时先接管再聚焦 */
+  adoptable: boolean;
   cliTool: CliTool;
   status: TerminalStatusType | null;
   toolName: string | null;
@@ -44,6 +50,41 @@ interface WorkspaceGroup {
   sessions: SessionView[];
   cpuPercent: number;
   memoryBytes: number;
+}
+
+/**
+ * 判断一条待接管会话的运行时指纹是否足以在日后重建。
+ * 接管本身只是 reattach 到已存在的 PTY，与运行时无关；但接管后的 tab 一旦被重建，
+ * 缺指纹就会在本地错误目录启动。所以指纹不全一律拒绝，不做静默降级。
+ *
+ * 老记录（migration 26 之前保存的）没有 wslConfig，会走到拒绝分支——这是有意的，
+ * 下一次周期保存就会把指纹补上。
+ */
+export function resolveAdoptRuntime(
+  saved: SavedSession | undefined,
+): { ok: true; ssh?: SshConnectionInfo; wsl?: WslLaunchInfo } | { ok: false; kind: string } {
+  const kind = saved?.runtimeKind ?? "local";
+  if (kind === "local") return { ok: true };
+  if (kind === "wsl") {
+    if (!saved?.wslConfig) return { ok: false, kind };
+    try {
+      const wsl = JSON.parse(saved.wslConfig) as WslLaunchInfo;
+      // remotePath 是重建时的 cwd，缺它等于没有指纹
+      return wsl?.remotePath ? { ok: true, wsl } : { ok: false, kind };
+    } catch {
+      return { ok: false, kind };
+    }
+  }
+  if (kind === "ssh") {
+    if (!saved?.sshConfig) return { ok: false, kind };
+    try {
+      const ssh = JSON.parse(saved.sshConfig) as SshConnectionInfo;
+      return ssh?.host ? { ok: true, ssh } : { ok: false, kind };
+    } catch {
+      return { ok: false, kind };
+    }
+  }
+  return { ok: false, kind };
 }
 
 function formatGib(bytes: number): string {
@@ -132,6 +173,9 @@ export default function SystemResourceSegment() {
   const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
   const [orphanKillArmed, setOrphanKillArmed] = useState(false);
   const [killingOrphans, setKillingOrphans] = useState(false);
+  // 无主会话（本实例没有 tab 引用）的归属元数据，来自跨实例共享的 session_restore 表。
+  // 没有它，这些会话只能显示成「终端 <pid>」/「其他工作区」，也无法被接管到正确的项目下。
+  const [savedSessions, setSavedSessions] = useState<Map<string, SavedSession>>(new Map());
   const refreshingRef = useRef(false);
 
   const refreshResourceTree = useCallback(async () => {
@@ -147,6 +191,22 @@ export default function SystemResourceSegment() {
       refreshingRef.current = false;
       setRefreshing(false);
     }
+  }, [open]);
+
+  // 只在面板打开时拉一次：这张表变动很慢（60s 自动保存），没必要跟着 3s 轮询走。
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    sessionRestoreService
+      .load()
+      .then((sessions) => {
+        if (cancelled || !Array.isArray(sessions)) return;
+        setSavedSessions(new Map(sessions.map((session) => [session.sessionId, session])));
+      })
+      .catch((error) => handleErrorSilent(error, "load saved sessions for adoption"));
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -185,13 +245,20 @@ export default function SystemResourceSegment() {
     for (const session of tree.sessions) {
       const location = panes.findTabBySessionAcrossLayouts(session.sessionId);
       const metadata = location ? sessionMetadata(location.tab, session.sessionId) : null;
-      const workspaceName = metadata?.workspaceName ?? t("resourceManagerOtherWorkspace");
+      // 本实例没引用时回退到 session_restore 的归属记录，而不是直接判成「其他工作区」
+      const saved = location ? undefined : savedSessions.get(session.sessionId);
+      const workspaceName =
+        metadata?.workspaceName ?? saved?.workspaceName ?? t("resourceManagerOtherWorkspace");
       const status = statusMap.get(session.sessionId);
       const item: SessionView = {
         ...session,
-        title: location?.tab.title || `${t("resourceManagerTerminal")} ${session.rootPid}`,
+        title:
+          location?.tab.title
+          || saved?.customTitle
+          || `${t("resourceManagerTerminal")} ${session.rootPid}`,
         workspaceName,
-        cliTool: metadata?.cliTool ?? "none",
+        adoptable: !location,
+        cliTool: metadata?.cliTool ?? saved?.cliTool ?? "none",
         status: status?.status ?? null,
         toolName: status?.currentToolName ?? null,
       };
@@ -208,7 +275,7 @@ export default function SystemResourceSegment() {
         memoryBytes: sessions.reduce((sum, session) => sum + session.memoryBytes, 0),
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
-  }, [statusMap, t, tree]);
+  }, [savedSessions, statusMap, t, tree]);
 
   const toggleGroup = (name: string) => {
     setCollapsedGroups((current) => {
@@ -222,7 +289,40 @@ export default function SystemResourceSegment() {
   const focusSession = (sessionId: string) => {
     const panes = usePanesStore.getState();
     const location = panes.findTabBySessionAcrossLayouts(sessionId);
-    if (!location) return;
+    if (!location) {
+      // 无主会话：先接管成当前布局的一个 tab（复用 restore 的 reattach，不新建 PTY），再聚焦。
+      const saved = savedSessions.get(sessionId);
+      const runtime = resolveAdoptRuntime(saved);
+      if (!runtime.ok) {
+        // 指纹不完整就拒绝：接管本身安全（只是 reattach），但这个 tab 之后被重建时
+        // 会在本地错误目录重启。宁可不接管，也不要让 agent 在错误的仓库里干活。
+        toast.error(t("resourceManagerAdoptIncompleteRuntime", { runtime: runtime.kind }));
+        return;
+      }
+      const adoptedTabId = panes.adoptSession(sessionId, {
+        projectPath: saved?.projectPath ?? "",
+        workspaceName: saved?.workspaceName,
+        workspacePath: saved?.workspacePath,
+        workspaceSnapshotId: saved?.workspaceSnapshotId,
+        providerId: saved?.providerId,
+        providerSelection: saved?.providerSelection,
+        launchProfileId: saved?.launchProfileId,
+        cliTool: saved?.cliTool as CliTool | undefined,
+        resumeId: saved?.resumeId,
+        customTitle: saved?.customTitle,
+        ssh: runtime.ssh,
+        wsl: runtime.wsl,
+      });
+      if (!adoptedTabId) {
+        toast.error(t("resourceManagerAdoptFailed"));
+        return;
+      }
+      // adoptSession 已把新 tab 落在当前布局并设为活动 tab；此时 leaf 上是
+      // savedSessionId（等 TerminalView reattach 后才变 sessionId），按 id 反查不到，
+      // 直接收起面板即可。
+      setOpen(false);
+      return;
+    }
     if (location.layoutId !== panes.currentLayoutId) panes.switchLayout(location.layoutId);
     panes.setActivePane(location.panel.id);
     panes.selectTab(location.panel.id, location.tab.id);
@@ -340,7 +440,8 @@ export default function SystemResourceSegment() {
                       <div key={session.sessionId} className="group flex h-8 items-center gap-1 pl-5 pr-1">
                         <button
                           type="button"
-                          aria-label={`${t("resourceManagerFocusSession")}: ${session.title}`}
+                          aria-label={`${session.adoptable ? t("resourceManagerAdopt") : t("resourceManagerFocusSession")}: ${session.title}`}
+                          title={session.adoptable ? t("resourceManagerAdopt") : undefined}
                           className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-1 text-left hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
                           onClick={() => focusSession(session.sessionId)}
                         >

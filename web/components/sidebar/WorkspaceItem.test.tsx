@@ -1,5 +1,5 @@
 import "@/i18n";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -159,7 +159,11 @@ describe("WorkspaceItem", () => {
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
 
     expect(await screen.findByRole("menuitem", { name: /设置分组|Set Group/i })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /设置颜色|Set Color/i })).toBeVisible();
+    // 颜色改为菜单内直接点选：一行色点 + 清除，不再是二级菜单入口
+    const colorGroup = screen.getByRole("group", { name: /设置颜色|Set Color/i });
+    expect(colorGroup).toBeVisible();
+    expect(within(colorGroup).getByRole("menuitem", { name: /蓝色|Blue/i })).toBeVisible();
+    expect(within(colorGroup).getByRole("menuitem", { name: /清除颜色|Clear Color/i })).toBeVisible();
   });
 
   it("默认工作空间不显示分组和颜色设置入口", async () => {
@@ -169,7 +173,7 @@ describe("WorkspaceItem", () => {
 
     expect(await screen.findByRole("menuitem", { name: /编辑运行环境|Edit Environment/i })).toBeVisible();
     expect(screen.queryByRole("menuitem", { name: /设置分组|Set Group/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /设置颜色|Set Color/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /设置颜色|Set Color/i })).not.toBeInTheDocument();
   });
 
   it("兼容旧版常用启动项配置且不触发渲染循环", async () => {

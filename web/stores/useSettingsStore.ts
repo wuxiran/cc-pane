@@ -213,6 +213,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       daemonEnabled: true,
       daemonOrphanTtlMinutes: 1440,
       daemonOrphanReaperDisabled: false,
+    autoAdoptDaemonSessions: false,
     },
     shortcuts: {
       bindings: {

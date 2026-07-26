@@ -60,9 +60,18 @@ pub struct InProcessTerminalBackend {
     service: Arc<TerminalService>,
 }
 
+/// 续租间隔：取 daemon 侧 TTL(30s) 的三分之一，容忍两次连续失败仍不掉租。
+const CLAIM_RENEW_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
 #[derive(Clone)]
 pub struct DaemonTerminalBackend {
     client: TerminalDaemonClient,
+    /// 本实例持有写权限的会话集合（docs/61 阶段 2）。
+    /// 由创建者写入，续租线程按此表定期续约；丢租时移除并告警。
+    ///
+    /// 续租线程只持 `Weak`：本类型是 `Clone` 的，用 `Drop` 停线程会让任意一个克隆
+    /// 析构就掐掉所有实例的续租。改成最后一个 backend 释放时 upgrade 失败自然退出。
+    owned_sessions: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 impl InProcessTerminalBackend {
@@ -73,7 +82,84 @@ impl InProcessTerminalBackend {
 
 impl DaemonTerminalBackend {
     pub fn new(client: TerminalDaemonClient) -> Self {
-        Self { client }
+        let owned_sessions: Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
+            Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+        // 续租线程：租约是 TTL 制，不续就会过期，别的实例便可接手。
+        // 单独起线程而不是挂在请求路径上——用户长时间不操作的会话同样要保住写权限。
+        {
+            let client = client.clone();
+            let owned = Arc::downgrade(&owned_sessions);
+            std::thread::Builder::new()
+                .name("cc-panes-claim-renew".to_string())
+                .spawn(move || {
+                    loop {
+                        std::thread::sleep(CLAIM_RENEW_INTERVAL);
+                        // 所有 backend 都已释放 → 退出，不再续租。
+                        let Some(owned) = owned.upgrade() else { break };
+                        let sessions: Vec<String> = match owned.lock() {
+                            Ok(guard) => guard.iter().cloned().collect(),
+                            Err(_) => continue,
+                        };
+                        for session_id in sessions {
+                            match client.claim_session(&session_id, None) {
+                                Ok(true) => {}
+                                Ok(false) => {
+                                    // 被别的实例接手了（通常是本实例曾长时间失联）。
+                                    // 不重试抢占：两个实例交替抢租约会让输入交错。
+                                    tracing::warn!(
+                                        session_id = %session_id,
+                                        "lost session write claim to another instance"
+                                    );
+                                    if let Ok(mut guard) = owned.lock() {
+                                        guard.remove(&session_id);
+                                    }
+                                }
+                                Err(error) => {
+                                    tracing::debug!(
+                                        session_id = %session_id,
+                                        err = %error,
+                                        "claim renew failed; will retry next tick"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                })
+                .ok();
+        }
+
+        Self {
+            client,
+            owned_sessions,
+        }
+    }
+
+    /// 接管一条已存在的会话：拿到写权限才算接管成功。
+    /// 被别的实例持有时返回 `false`，调用方应保持只读，不要抢。
+    pub fn adopt_session(&self, session_id: &str) -> AppResult<bool> {
+        let granted = self.client.claim_session(session_id, None)?;
+        if granted {
+            if let Ok(mut owned) = self.owned_sessions.lock() {
+                owned.insert(session_id.to_string());
+            }
+        }
+        Ok(granted)
+    }
+
+    /// 主动放弃写权限（detach 但不 kill PTY）——评审要求的回退路径。
+    pub fn release_session(&self, session_id: &str) -> AppResult<()> {
+        self.forget_owned(session_id);
+        self.client.release_session_claim(session_id)
+    }
+
+    pub fn session_claims(&self) -> AppResult<std::collections::HashMap<String, String>> {
+        self.client.list_session_claims()
+    }
+
+    fn forget_owned(&self, session_id: &str) {
+        if let Ok(mut owned) = self.owned_sessions.lock() {
+            owned.remove(session_id);
+        }
     }
 }
 
@@ -246,7 +332,26 @@ impl TerminalBackend for InProcessTerminalBackend {
 
 impl TerminalBackend for DaemonTerminalBackend {
     fn create_session(&self, request: CreateSessionRequest) -> AppResult<String> {
-        self.client.create_session(request)
+        let session_id = self.client.create_session(request)?;
+        // 创建者即所有者：立刻 claim，之后由续租线程保活。
+        // claim 失败不影响会话可用性（daemon 无租约时放行），所以只告警不回滚。
+        match self.client.claim_session(&session_id, None) {
+            Ok(true) => {
+                if let Ok(mut owned) = self.owned_sessions.lock() {
+                    owned.insert(session_id.clone());
+                }
+            }
+            Ok(false) => tracing::warn!(
+                session_id = %session_id,
+                "newly created session is already claimed by another instance"
+            ),
+            Err(error) => tracing::warn!(
+                session_id = %session_id,
+                err = %error,
+                "failed to claim newly created session"
+            ),
+        }
+        Ok(session_id)
     }
 
     fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -262,6 +367,7 @@ impl TerminalBackend for DaemonTerminalBackend {
     }
 
     fn kill(&self, session_id: &str) -> AppResult<()> {
+        self.forget_owned(session_id);
         self.client.kill_session(session_id)
     }
 
