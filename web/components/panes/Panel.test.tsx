@@ -12,6 +12,7 @@ import {
 } from "@/stores";
 import { terminalService } from "@/services";
 import Panel from "./Panel";
+import { CLOSE_ACTIVE_TAB_EVENT } from "./useTabClosing";
 
 interface TabBarProps {
   tabs: Tab[];
@@ -258,6 +259,82 @@ describe("Panel", () => {
     expect(closeOtherTabs).toHaveBeenCalledWith("pane-1", "keep");
     expect(killSession).toHaveBeenCalledWith("sess-d1");
     expect(killSession).toHaveBeenCalledWith("sess-d2");
+  });
+
+  // close-tab 快捷键（Ctrl+W）派发 CLOSE_ACTIVE_TAB_EVENT，必须与鼠标点 × 同路径
+  describe("close-tab 快捷键", () => {
+    function fireCloseShortcut() {
+      fireEvent(window, new Event(CLOSE_ACTIVE_TAB_EVENT));
+    }
+
+    it("kills every session of a split tab, not just tab.sessionId", () => {
+      const closeTab = vi.fn();
+      const pane = makePane([
+        makeTab("t1", {
+          sessionId: "sess-a",
+          terminalRootPane: {
+            type: "split",
+            id: "split-1",
+            direction: "horizontal",
+            sizes: [50, 50],
+            children: [
+              { type: "leaf", id: "leaf-a", sessionId: "sess-a" },
+              { type: "leaf", id: "leaf-b", sessionId: "sess-b" },
+            ],
+          } as Tab["terminalRootPane"],
+        }),
+      ]);
+      setPanesState(pane, { closeTab });
+
+      render(<Panel pane={pane} />);
+      fireCloseShortcut();
+
+      expect(killSession.mock.calls.map((call) => call[0]).sort()).toEqual(["sess-a", "sess-b"]);
+      expect(closeTab).toHaveBeenCalledWith("pane-1", "t1");
+    });
+
+    it("does not close a pinned tab", () => {
+      const closeTab = vi.fn();
+      const pane = makePane([makeTab("t1", { pinned: true })]);
+      setPanesState(pane, { closeTab });
+
+      render(<Panel pane={pane} />);
+      fireCloseShortcut();
+
+      expect(closeTab).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+    });
+
+    it("asks for confirmation on a dirty tab instead of closing it silently", async () => {
+      const user = userEvent.setup();
+      const closeTab = vi.fn();
+      const pane = makePane([makeTab("t1", { dirty: true })]);
+      setPanesState(pane, { closeTab });
+
+      render(<Panel pane={pane} />);
+      fireCloseShortcut();
+
+      expect(await screen.findByText(tPanes("unsavedChanges"))).toBeInTheDocument();
+      expect(closeTab).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: tPanes("discardAndClose") }));
+
+      expect(closeTab).toHaveBeenCalledWith("pane-1", "t1");
+      expect(killSession).toHaveBeenCalledWith("sess-t1");
+    });
+
+    it("is ignored by panels that are not the active pane", () => {
+      const closeTab = vi.fn();
+      const pane = makePane([makeTab("t1")]);
+      setPanesState(pane, { closeTab, activePaneId: "pane-other" });
+
+      render(<Panel pane={pane} />);
+      fireCloseShortcut();
+
+      expect(closeTab).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+    });
   });
 
   it("activates its pane when clicked", () => {

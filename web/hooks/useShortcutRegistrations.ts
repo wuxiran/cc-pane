@@ -11,9 +11,9 @@ import {
   useActivityBarStore,
   useVoiceInputStore,
 } from "@/stores";
-import { terminalService } from "@/services";
 import { LAYOUT_BAR_TOGGLE_EVENT } from "@/components/LayoutBar";
 import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/components/CommandPalette";
+import { CLOSE_ACTIVE_TAB_EVENT } from "@/components/panes/useTabClosing";
 import { findPaneFocusTarget, readPaneFocusRects, type PaneFocusDirection } from "@/utils/paneFocus";
 import i18n from "@/i18n";
 import type { TerminalPaneLeaf, TerminalPaneNode } from "@/types";
@@ -99,18 +99,9 @@ export function useShortcutRegistrations(): void {
     register({
       id: "close-tab",
       label: i18n.t("close-tab", { ns: "shortcuts" }),
-      handler: () => {
-        const s = usePanesStore.getState();
-        if (!s.activePaneId) return;
-        const panel = s.findPaneById(s.activePaneId);
-        if (panel && panel.type === "panel" && panel.activeTabId) {
-          const tab = panel.tabs.find((t) => t.id === panel.activeTabId);
-          if (tab?.sessionId) {
-            terminalService.killSession(tab.sessionId).catch(console.error);
-          }
-          s.closeTab(s.activePaneId, panel.activeTabId);
-        }
-      },
+      // 交给激活面板执行，与鼠标点 × 同一条路径：pinned 保护、dirty 确认、
+      // 分屏标签全量 kill 都在 Panel.handleCloseTab 里，这里不再复制一份。
+      handler: () => window.dispatchEvent(new Event(CLOSE_ACTIVE_TAB_EVENT)),
     });
     register({
       id: "settings",
