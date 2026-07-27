@@ -122,8 +122,17 @@ pub fn run_with_timeout(
 /// locations. macOS GUI apps may start without a login-shell PATH, so relying
 /// on `which` alone misses tools installed by nvm/npm, Homebrew, Cargo, etc.
 pub fn resolve_executable(executable: &str) -> Result<PathBuf> {
+    // `which` 在 Windows 上会把**无扩展名的裸文件**当成命中直接返回。
+    // npm 全局安装会在 `xxx.cmd` 旁放一个同名的 sh 脚本（claude / opencode 都是），
+    // 而 `CreateProcessW` 对 sh 脚本报 `os error 193: 不是有效的 Win32 应用程序`。
+    //
+    // 下面的 `find_executable_in_dirs` 早就按 PATHEXT 处理了这一情形（opencode 那次修的），
+    // 但那段逻辑此前被这里的短路挡住，永远执行不到 —— claude 又踩了同一个坑。
+    // 现在只接受**扩展名可执行**的 which 结果，否则落到扩展名感知的查找。
     if let Ok(path) = which::which(executable) {
-        return Ok(path);
+        if is_directly_executable(&path) {
+            return Ok(path);
+        }
     }
 
     find_executable_in_dirs(
@@ -137,6 +146,34 @@ pub fn resolve_executable(executable: &str) -> Result<PathBuf> {
             executable
         )
     })
+}
+
+/// 该路径能否被 `CreateProcessW` / `exec` 直接执行。
+///
+/// Windows：必须带 PATHEXT 里的扩展名。裸文件多半是 npm 装出来的 sh shim，
+/// 直接 spawn 会得到 `os error 193`，且报错里既不提 shim 也不提扩展名，
+/// 看着完全像是我们把路径拼错了。
+/// 非 Windows：可执行位由调用方/OS 判断，这里恒为真。
+fn is_directly_executable(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let extensions = executable_extensions();
+        if extensions.is_empty() {
+            return true;
+        }
+        match path.extension().and_then(|value| value.to_str()) {
+            Some(ext) => {
+                let dotted = format!(".{}", ext.to_ascii_lowercase());
+                extensions.iter().any(|candidate| *candidate == dotted)
+            }
+            None => false,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        true
+    }
 }
 
 fn candidate_executable_dirs() -> Vec<PathBuf> {
@@ -541,9 +578,32 @@ impl CliAdapterContext {
             .filter(|value| !value.is_empty())
     }
 
+    /// 覆盖值是**裸命令名**（不含路径分隔符）时，仍需按 PATHEXT 解析成真实可执行路径。
+    ///
+    /// `[cliLaunchers.overrides.claude] command = "claude"` 这种写法是合法配置，
+    /// 但直接拿去 spawn 会命中 npm 的无扩展名 sh shim，报
+    /// `os error 193: 不是有效的 Win32 应用程序`（实测 dev 侧就是这样坏的）。
+    /// 覆盖值若已是路径（绝对或含分隔符），说明用户指名道姓，原样透传不改写。
+    pub fn resolved_override_public(&self) -> Option<String> {
+        self.resolved_override()
+    }
+
+    fn resolved_override(&self) -> Option<String> {
+        let raw = self.command_override()?;
+        let looks_like_path = raw.contains('/') || raw.contains('\\') || Path::new(raw).is_absolute();
+        if looks_like_path {
+            return Some(raw.to_string());
+        }
+        match resolve_executable(raw) {
+            Ok(path) => Some(path.to_string_lossy().into_owned()),
+            // 解析不出来就退回原值，让 spawn 去报错——不要在这里吞掉用户配置
+            Err(_) => Some(raw.to_string()),
+        }
+    }
+
     pub fn resolve_command(&self, executable: &str) -> Result<String> {
-        if let Some(command) = self.command_override() {
-            return Ok(command.to_string());
+        if let Some(command) = self.resolved_override() {
+            return Ok(command);
         }
         resolve_executable(executable).map(|path| path.to_string_lossy().into_owned())
     }
@@ -561,8 +621,8 @@ impl CliAdapterContext {
         executable: &str,
         args: Vec<String>,
     ) -> Result<(String, Vec<String>)> {
-        if let Some(command) = self.command_override() {
-            return Ok((command.to_string(), args));
+        if let Some(command) = self.resolved_override() {
+            return Ok((command, args));
         }
         let path = resolve_executable(executable)?;
         Ok(rewrite_windows_npm_shim(
@@ -1226,6 +1286,43 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  \"%dp0%\\n
         let found_unix = find_executable_in_dirs("opencode", std::slice::from_ref(&dir), &[])
             .expect("should find executable");
         assert_eq!(found_unix, dir.join("opencode"));
+    }
+
+    /// `find_executable_in_dirs` 早就会避开裸 sh 脚本，但 `resolve_executable`
+    /// 先调 `which`，命中裸文件就直接返回，那段修复永远执行不到 ——
+    /// 实测导致 claude 被解析成 `...\nodejs\claude`（sh shim），
+    /// spawn 报 `os error 193`。这个守卫就是让 which 的结果必须先过扩展名这关。
+    #[test]
+    fn which_result_without_executable_extension_is_rejected_on_windows() {
+        let dir = fresh_dir("which_guard");
+        let bare = dir.join("claude");
+        let cmd = dir.join("claude.cmd");
+        std::fs::write(&bare, b"#!/bin/sh\n").unwrap();
+        std::fs::write(&cmd, b"@ECHO off\r\n").unwrap();
+
+        #[cfg(windows)]
+        {
+            assert!(
+                !is_directly_executable(&bare),
+                "裸 sh shim 不可直接 spawn，必须被拒"
+            );
+            assert!(is_directly_executable(&cmd), ".cmd 应被接受");
+            assert!(is_directly_executable(&dir.join("claude.exe")));
+            // 被拒之后应落到扩展名感知的查找，选中 .cmd
+            let fallback = find_executable_in_dirs(
+                "claude",
+                std::slice::from_ref(&dir),
+                &[".exe".to_string(), ".cmd".to_string()],
+            )
+            .expect("should fall back to the .cmd shim");
+            assert_eq!(fallback, cmd);
+        }
+
+        #[cfg(not(windows))]
+        {
+            // 非 Windows 上可执行位由 OS 判断，不做扩展名限制
+            assert!(is_directly_executable(&bare));
+        }
     }
 
     #[test]
