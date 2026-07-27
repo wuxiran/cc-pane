@@ -325,8 +325,43 @@ impl TerminalDaemonClient {
         serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))
     }
 
+    /// 认领快照。
+    ///
+    /// daemon 是跨 app 重启存活的锚点：升级 app 后**旧 daemon 仍在跑**，
+    /// 而本端点是后加的，旧 daemon 上必然 404。
+    /// 直接把 404/405 当失败会让前端落到兜底文案「无法确认 daemon 会话归属」——
+    /// 那是一条没有出路的死胡同，且恰好在版本错配（最需要提示）时触发。
+    ///
+    /// 按既有分级原则（同文件 `get_session_provenance` 已如此处理）：
+    /// 端点**缺失** → 降级成「不支持认领」的空快照，让上层走已经设计好的
+    /// `claims-unsupported` 路径（提示可人工接管）；其余错误仍然硬失败。
     pub fn adoption_snapshot(&self) -> AppResult<TerminalAdoptionSnapshot> {
-        self.get_json("/api/sessions/adoption-snapshot", true)
+        let response = self.request("GET", "/api/sessions/adoption-snapshot", true, None)?;
+        let (status, body) = split_http_response(&response)?;
+        if status == 404 || status == 405 {
+            tracing::warn!(
+                status,
+                "daemon has no adoption-snapshot endpoint (older binary); \
+                 degrading to claims-unsupported instead of blocking restore"
+            );
+            return Ok(TerminalAdoptionSnapshot {
+                claims_supported: false,
+                daemon_generation: None,
+                owner_instance_id: None,
+                captured_at_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_millis() as u64)
+                    .unwrap_or(0),
+                complete: false,
+                sessions: self.list_sessions()?,
+                claims: std::collections::HashMap::new(),
+                provenance: std::collections::HashMap::new(),
+            });
+        }
+        if !(200..300).contains(&status) {
+            return Err(daemon_http_error(status, body));
+        }
+        serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))
     }
 
     pub fn get_session_provenance(
