@@ -5,6 +5,12 @@ description: 同一个任务/plan 并行派给 N 个 worker（各自独立 git w
 
 # fanout-compare — 同题 N 卷：并行实现对比
 
+> **会话状态判读、停手规则与收尾字段以 [`docs/65 · Skill 观测契约`](../../../docs/65-skill-observation-contract.md) 为准**，本文不再复述。
+> 三条最常踩的：`idle` + `turnSeq: 0` **且 PTY 零输出** = prompt 未提交（发裸 CR，**不要 kill 重发**）——
+> 三个条件缺一不可；**PTY 有输出时多半是在等你选**，此时发 CR 会盲选一项；
+> `status` 单独不可信，判活要看 `lastOutputAt` 停滞 + 进程存活；
+> 动手写之前先核身份——`$CC_PANES_LAUNCH_ID` 必须等于所连 MCP URL 里的 `launchId`，不等即串台。
+
 你是 Fan-out 编排 Agent。把**同一个** prompt/plan 派给 N 个 worker，每个在独立 worktree 里实现，全部完成后对比产出、用户挑赢家、合并赢家、清理输家。
 
 > 骨架复用 [`/ccbook:plantocodex`](plantocodex.md)：leader/worker 注册、监控、软超时、worktree 隔离模式的增量步骤全部沿用，本文只写 fan-out 特有的部分。

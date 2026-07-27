@@ -31,6 +31,11 @@ CC-Panes 是一个面向 AI Coding 重度用户的多实例分屏工作台，以
 9. ✅ [把经验沉淀下来：Todo / 会话日志 / Memory](09-todo-journal-memory.md)
 10. ✅ [设置详解（通用 / 终端 / 快捷键 / 代理 / Provider / 语音 / 截图…）](10-settings.md)
 
+- ✅ [19. 右侧坞：把 Git、文件、AI 面板、会话历史收在右边](19-right-dock.md)
+- ✅ [20. 应用内浏览器标签：让 AI 自己看网页](20-browser-tab.md)
+
+> 19 / 20 编号续在末尾而非插进 6–10，是为了不打断既有交叉引用；分组以本索引为准。
+
 ## 三、高级玩法（CC-Panes 的核心卖点）
 
 多实例协作、AI 编排，是 CC-Panes 区别于普通终端的地方。**而这一切的底座，是它内置的 MCP——让 AI 能自己操控 CC-Panes。**
@@ -43,6 +48,9 @@ CC-Panes 是一个面向 AI Coding 重度用户的多实例分屏工作台，以
 14. ✅ [Resume：恢复历史会话](14-resume.md)
 15. ✅ [WSL / SSH 远程运行](15-wsl-ssh.md)
 16. ✅ [Web 端与手机端：离开电脑也能看着 AI 干活](16-web-and-mobile.md)
+
+- ✅ [17. AI 面板：让 AI 给你画一块界面](17-ai-panel.md)
+- ✅ [18. Skill 体系：把玩法预置进 AI 的脑子](18-skills.md)
 
 ## 四、参考
 

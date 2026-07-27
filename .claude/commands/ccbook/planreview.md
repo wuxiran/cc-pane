@@ -10,6 +10,12 @@ trigger: |
 
 # planreview — 跨 CLI Plan 同行评审
 
+> **会话状态判读、停手规则与收尾字段以 [`docs/65 · Skill 观测契约`](../../../docs/65-skill-observation-contract.md) 为准**，本文不再复述。
+> 三条最常踩的：`idle` + `turnSeq: 0` **且 PTY 零输出** = prompt 未提交（发裸 CR，**不要 kill 重发**）——
+> 三个条件缺一不可；**PTY 有输出时多半是在等你选**，此时发 CR 会盲选一项；
+> `status` 单独不可信，判活要看 `lastOutputAt` 停滞 + 进程存活；
+> 动手写之前先核身份——`$CC_PANES_LAUNCH_ID` 必须等于所连 MCP URL 里的 `launchId`，不等即串台。
+
 你是 Plan 同行评审编排 Agent。Claude 自己写完 plan 后启动另一个 Codex 实例（本地或 WSL，由用户选）独立审 plan，**通过 cc-panes 的 leader/worker 机制让 worker 自动 PTY 反馈完成事件**，把结构化反馈拿回来，由用户分批拍板后整体重写 plan。
 
 > 单一 Claude 审自己写的 plan 容易有"我审我"盲区。换一个 CLI 实例读同一份 plan + 同一份代码，能挖出操作错误假设、UI 不可达控件、数据耦合、回滚遗漏等盲点。

@@ -313,6 +313,7 @@ flutter pub get && flutter analyze && flutter test
 - **Codex 的 resume id 依赖 OSC 标题捕获,Codex CLI 升版会静默打断**：v0.145 曾令捕获链全灭（launch_history 的 codex `resumeSessionId` 全 null,docs/45）,resume 静默变新会话。捕获链修改需配 rollout 目录扫描兜底,且降级必须对用户可见。
 - **`tauri dev` 不重建 external binaries（daemon/web/cli-hook）**：`build.rs` 只放占位符，`debug\binaries\` 里的 daemon 是手动构建的拷贝。改 `cc-cli-adapters`/`cc-panes-daemon` 后主程序会热重编，但**会话启动走的 daemon 还是旧二进制**——新代码"测试全绿却不生效"（0.11.1 opencode 透明修复曾因此白测三轮：binaries 里躺着 14 天前的 daemon）。修改后必须 `cargo build -p cc-panes-daemon` 并拷贝到 `<target-dir>\debug\binaries\`，再重启 dev。
 - **agent 可能整场都在驱动另一个实例（dev/release 串台），且完全无法自察**：`healthy_orchestrator_info()` 为 `None` 时（本实例 orchestrator 挂了），`CC_PANES_API_PORT/TOKEN/BASE_URL` 一个都不注入（`terminal_service.rs:1606-1620`），也不生成 `mcp-<sessionId>.json`，CLI 于是**静默回退**到 `~/.claude.json` 的 project 级单例——那份可能是另一个实例最后写的。表现：MCP 工具全部正常返回（只是另一个实例的数据）、派出去的 worker 在别的实例里、它的 `report_to_leader` 被丢弃（对侧日志 `leader session not found`）。自查方法：`$CC_PANES_LAUNCH_ID` 必须等于所连 MCP URL 里的 `launchId`，不等即串台。详见工作空间文档 `cc-book-workspace/docs/62-agent-instance-identity.md`（不在本仓库）。
+- **WSL 里启动的 CLI 必须是原生 Linux 版，否则报错会伪装成我们的路径 bug**：PATH interop 会让 `claude` 静默解析到 Windows 那份 `claude.exe`，它收到 `/mnt/c/...` 参数后按 Windows 语义当成**盘符相对路径**，拼成 `D:\mnt\c\Users\...`，最终报 `MCP config file not found: D:\mnt\c\Users\<user>\.cc-panes\wsl-claude-mcp-<sessionId>.json`。**报错里既不提 Windows 也不提 WSL**，看着完全像 CC-Panes 的 WSL 路径转换写错了（0.11.4 期实测据此误判过一次，派出去的 plan 整节都在让 worker 找不存在的转换 bug）。判定：`wsl.exe -d Ubuntu -- bash -lc "type -a claude"` 第一条必须是 ELF，不能是 `/mnt/` 下的 `.exe`。成因常是 npm 全局包半装——postinstall 没跑完，`bin/claude` 只是个几百字节的 "native binary not installed" 提示脚本，软链还停在 `.claude-<随机>` 临时名；`npm i -g @anthropic-ai/claude-code` 重装即可。注意 gemini/opencode 解析到 `/mnt/` 下的 node shim 是**正常**的（它们本就是 JS），只有原生二进制类 CLI 有这个坑。
 - **派出去的 WSL Codex worker 可能"活着但一动不动"，判活不能只看 `status`**：prompt 以位置参数传入后可能停在 TUI 里**从未提交**，此时进程活着、cwd/YOLO 都对，但 PTY 零输出、CPU 零占用、`lastOutputAt` 永远停在派发那一刻——与"刚启动还没输出"**完全同形**，plantocodex 基于 `lastOutputAt` 停滞的软超时兜底会一直判"继续等"，无人值守派工静默永久卡死。判定要用 `wsl.exe -d Ubuntu -- bash -lc "ps aux | grep codex"`（进程活着 + PTY 空 = 命中），解法是 `write_to_session(sessionId, "\r")` 发一个裸 CR，**不要直接 kill 重发**（大概率再次命中）。详见工作空间文档 `cc-book-workspace/docs/61-wsl-codex-prompt-unsubmitted.md`（不在本仓库）。
 - **`cargo clippy ... | tail` 会掩码退出码，让失败看着像通过**：管道的退出码取自最后一个命令（`tail` 永远成功），失败信息又常被 tail 截掉——0.11.2 合并期实测据此误报过一次"clippy 全绿"，实际败在一个历史遗留 lint。判定成败必须 `echo "EXIT=${PIPESTATUS[0]}"` 或干脆不加管道。同理适用于 `cargo test`、`npx tsc`。
 - **运行中的 exe 无法覆盖，但可以改名**：Windows 会锁住正在运行的 `debug\binaries\*.exe`（`os error 32`），`cargo build`（src-tauri 的 build.rs 要碰这些文件）会整个失败。不必杀掉用户正在跑的实例——先把旧 exe **改名**（Windows 允许重命名运行中的文件，进程继续持有旧 inode），再把新文件拷进原位；新拷贝在下次 spawn 时生效。
@@ -347,6 +348,11 @@ flutter pub get && flutter analyze && flutter test
 | `docs/62-worktree-project-hygiene.md` | worktree 项目嵌套显示 + 残留记录回收（写入自动化/删除手动化的单向流根因） |
 | `docs/59-update-notification.md` | 版本更新右下角提示卡片 |
 | `docs/60-notify-ui-handoff.md` | 打扰闸门+更新卡片+功能提示 交接指令 |
-| `docs/64-ai-panel-templates.md` | AI 面板模板化 + fleet 编排拓扑视图（方向文档，0.11.3 之后） |
+| `docs/64-ai-panel-templates.md` | AI 面板模板化 + fleet 编排拓扑视图（方向文档 + 原型，**未排期**） |
+| `docs/65-skill-observation-contract.md` | **Skill 观测契约**：状态判读表 / 同形陷阱 / 停手规则 / 收尾字段——launch 与编排类 skill 回引此文 |
+| `docs/66-0114-session-recovery-promotion.md` | **0.11.4 计划**：会话恢复转正（单主线）——灰度 + Windows 验收 + 开关默认开启 |
+| `docs/67-discoverability-plan.md` | **发现性计划**：主页装修（对标 orca）+ tips 扩容 + 补 4 篇新能力 guide（与 68 交互质量分工） |
+| `docs/67-storyboards.md` | 67 附录 · 素材分镜脚本：主页 GIF 与 in-app tips 的唯一共享物，两边各实现一次 |
+| `docs/68-interaction-quality-plan.md` | **交互质量计划**：关闭标签杀 agent 会话无确认 / 终端聚焦时 7 个快捷键静默失效 / 空态不统一（与 67 发现性分工，未排期） |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
