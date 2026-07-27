@@ -2543,6 +2543,12 @@ struct McpOpenFileParams {
 struct McpOpenBrowserTabParams {
     /// 要在 CC-Panes 浏览器标签中打开的 http/https URL
     url: String,
+    /// 落位到指定窗格(可选,由 list_panes 获取)。不传则落在当前活动窗格。
+    #[serde(rename = "paneId")]
+    pane_id: Option<String>,
+    /// 已存在同 URL 的浏览器标签时是否复用(默认 true)。
+    /// 传 false 才会强制新开——需要同一页面并排比对时才这么做。
+    reuse: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -5602,8 +5608,14 @@ impl McpToolHandler {
         &self,
         Parameters(params): Parameters<McpOpenBrowserTabParams>,
     ) -> String {
-        info!(url = %params.url, "mcp::open_browser_tab");
-        let event = match BrowserOpenTabEvent::try_new(&params.url, None) {
+        let reuse = params.reuse.unwrap_or(true);
+        info!(url = %params.url, pane_id = ?params.pane_id, reuse, "mcp::open_browser_tab");
+        let event = match BrowserOpenTabEvent::try_new_with(
+            &params.url,
+            None,
+            params.pane_id.as_deref(),
+            reuse,
+        ) {
             Ok(event) => event,
             Err(error) => return format!("错误: {error}"),
         };

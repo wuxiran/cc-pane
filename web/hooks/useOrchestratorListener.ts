@@ -275,7 +275,13 @@ export function useOrchestratorListener() {
 
     // 5. open-browser-tab 事件
     getCurrentWebview()
-      .listen<{ tabId: string; url: string; title?: string }>("orchestrator-open-browser-tab", (event) => {
+      .listen<{
+        tabId: string;
+        url: string;
+        title?: string;
+        paneId?: string;
+        reuse?: boolean;
+      }>("orchestrator-open-browser-tab", (event) => {
         const activity = useActivityBarStore.getState();
         if (activity.appViewMode !== "panes") {
           activity.setAppViewMode("panes");
@@ -284,6 +290,8 @@ export function useOrchestratorListener() {
           event.payload.url,
           event.payload.title,
           event.payload.tabId,
+          // 旧后端不带 paneId/reuse：reuse 缺失按 true 处理（复用是更安全的默认）
+          { paneId: event.payload.paneId, reuse: event.payload.reuse !== false },
         );
       })
       .then((fn) => unlisteners.push(fn));
