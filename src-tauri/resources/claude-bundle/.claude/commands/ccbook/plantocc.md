@@ -11,6 +11,12 @@ trigger: |
 
 # plantocc — Plan → Claude Code worker 执行交接
 
+> **会话状态判读、停手规则与收尾字段以 [`docs/65 · Skill 观测契约`](../../../docs/65-skill-observation-contract.md) 为准**，本文不再复述。
+> 三条最常踩的：`idle` + `turnSeq: 0` **且 PTY 零输出** = prompt 未提交（发裸 CR，**不要 kill 重发**）——
+> 三个条件缺一不可；**PTY 有输出时多半是在等你选**，此时发 CR 会盲选一项；
+> `status` 单独不可信，判活要看 `lastOutputAt` 停滞 + 进程存活；
+> 动手写之前先核身份——`$CC_PANES_LAUNCH_ID` 必须等于所连 MCP URL 里的 `launchId`，不等即串台。
+
 把 plan 派给**另一个 Claude Code 实例**执行。编排骨架（Phase 1-7：写 plan → 注册 leader → launch worker → 注册 worker → 监控 → 读输出验证 → 汇报）**完全复用 [`/ccbook:plantocodex`](plantocodex.md)**，只需把 `cliTool` 换成 `"claude"` 并注意下面的 Claude 特有差异。plantocodex 的「可选：worktree 隔离模式」对 Claude worker 同样适用（触发条件与增量步骤原样沿用）。
 
 > **主 Agent（leader）不写代码**——代码由 Claude worker 完成。

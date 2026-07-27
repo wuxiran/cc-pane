@@ -10,6 +10,12 @@ trigger: |
 
 # launch-task — CC-Panes 启动任务（高级流程）
 
+> **会话状态判读、停手规则与收尾字段以 [`docs/65 · Skill 观测契约`](../../../docs/65-skill-observation-contract.md) 为准**，本文不再复述。
+> 三条最常踩的：`idle` + `turnSeq: 0` **且 PTY 零输出** = prompt 未提交（发裸 CR，**不要 kill 重发**）——
+> 三个条件缺一不可；**PTY 有输出时多半是在等你选**，此时发 CR 会盲选一项；
+> `status` 单独不可信，判活要看 `lastOutputAt` 停滞 + 进程存活；
+> 动手写之前先核身份——`$CC_PANES_LAUNCH_ID` 必须等于所连 MCP URL 里的 `launchId`，不等即串台。
+
 cc-panes 通过 MCP 工具与本地/WSL/SSH 上的 Claude/Codex 实例交互。本 skill 是 **cc-book 项目维护者手册**，覆盖：WSL 启动、resume、PTY 交互、leader/worker 编排、REST fallback。
 
 > **基础"启动一个新窗口"用全局 `ccpanes:launch-task` 就够了。** 本项目版专注高级编排和排障。
@@ -29,18 +35,29 @@ cc-panes 通过 MCP 工具与本地/WSL/SSH 上的 Claude/Codex 实例交互。�
 | `mcp__ccpanes__add_project_to_workspace` | `workspaceName`, `projectPath` | 注册新项目 |
 | `mcp__ccpanes__scan_directory` | `path` | 扫目录发现 Git 仓库 |
 
-#### 落位规则（`placement`）—— 必须显式判断，别吃默认值
+#### 落位规则（`placement` / `paneId`）—— 判别维度是「同批平级几个」，不是任务性质
 
-`placement` 只有两个值，**按 worker 是否改代码来选**：
+> **旧规则已作废**：早先写的是「代码型一律 `beside`」，理由是"用户要实时看到它改什么"。
+> 这个理由在 N≥2 时自己塌了——派 3 个就切成 3 块，哪块都看不清，用户还得手工把标签拖回同一个 pane。
+> 实测多个布局被切成 4–5 个 pane，全是这么来的。
 
-| 任务性质 | `placement` | 理由 |
-|---------|-------------|------|
-| **会改代码**：implement / debug / refactor / 迁移 | `"beside"`（分屏） | 用户要能实时看到它在改什么，出问题好立刻打断 |
-| **只读**：research / check / review / 审阅 / 汇总 | `"tab"`（同 pane 加标签） | 只读产出看最终结论就够，不该抢占用户的分屏版面 |
+| 情形 | 怎么落 |
+|---|---|
+| **单独派 1 个** | `placement: "beside"` —— 只有一个，分屏看得清 |
+| **同批 N≥2 个平级 worker** | 第一个 `beside` 开 pane，**其余一律传 `paneId` 落进同一个 pane** |
+| **只读型**（research / review / 汇总） | `placement: "tab"`，进调用者所在 pane |
 
-- 显式传了 `paneId` 时 `placement` 不生效，按 `paneId` 落位。
-- 一次派多个只读 worker 时全用 `"tab"`，否则屏幕会被切成碎片。
-- 拿不准时问自己："这个 worker 会不会写文件？" 会 → `beside`，不会 → `tab`。
+同批 N≥2 的标准写法（`launch_task` **不返回 paneId**，必须反查）：
+
+```
+1. launch_task(..., placement: "beside")          → 得到 sessionId₁
+2. list_panes()                                    → 找到含 sessionId₁ 的那个 paneId
+3. launch_task(..., paneId: <上一步的 paneId>)     → 其余 N-1 个全部落同一 pane
+```
+
+- 显式传 `paneId` 时 `placement` 不生效，按 `paneId` 落位。
+- **平级 = 同一个 leader、同一批派出的**。不同批次、不同 leader 的不算平级，各自成组。
+- 这个两步法是当前 API 的将就办法（缺口记在 docs/68 §4.3）；别因为多一次 `list_panes` 就退回一律 `beside`。
 
 > 不要让工具去嗅探 prompt 文本来猜任务性质 —— 同一段 prompt 里同时出现"审查"和"修复"
 > 是常态，关键词匹配必然抖动（同 CLAUDE.md 里"会话状态只信 OSC/hook 不信文本"的道理）。
@@ -106,6 +123,35 @@ cc-panes 通过 MCP 工具与本地/WSL/SSH 上的 Claude/Codex 实例交互。�
 | 工具 | 用途 |
 |------|------|
 | `list_workspaces` / `get_workspace` / `create_workspace` | workspace CRUD |
+
+### 浏览器标签 —— 先复用，别乱开
+
+| 工具 | 用途 |
+|------|------|
+| `open_browser_tab(url)` | **新开**一个浏览器标签 |
+| `browser_navigate(tabId, url)` | 让**已有**标签跳转 |
+| `browser_click` / `browser_evaluate` / `browser_screenshot` | 操作已有标签 |
+
+`open_browser_tab` 的参数**只有 `url`**——没有 `paneId`、没有 `placement`、没有复用语义。
+两个后果必须知道：
+
+1. **落位不可控**：它只会落在**当前活动窗格**，会和终端会话混在同一个 pane 里。
+   这是 API 缺口（记在 docs/68 §4.3），当前无参数可控。**开之前先确认活动窗格是你想让它落的那个。**
+2. **不会复用**：同一个 URL 调 N 次就开 N 个标签。
+
+**默认流程是「先查后开」，不是直接开**：
+
+```
+1. list_panes()                                  → 找 contentType == "browser" 的标签
+2. 已有可用标签 → browser_navigate(tabId, url)    ← 默认走这条
+3. 确实需要并存多个页面时才 open_browser_tab(url)
+```
+
+注意**没有 `list_browser_tabs` 工具**，只能从 `list_panes` 的 `tabs[].contentType` 里筛。
+
+反模式：
+- 每查一个页面就 `open_browser_tab` 一次——标签会堆到十几个，且散落在不同 pane。
+- 用完不管。长期不用的浏览器标签应当 close 掉，别留给用户手工收拾。
 
 ### Todo（与 launch-task 不直接相关，列出供参考）
 

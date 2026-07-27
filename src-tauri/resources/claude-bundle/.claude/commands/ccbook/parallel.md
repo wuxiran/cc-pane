@@ -11,6 +11,12 @@ trigger: |
 
 # parallel — 多 worker 并行编排（Claude Task + CC-Panes 双层）
 
+> **会话状态判读、停手规则与收尾字段以 [`docs/65 · Skill 观测契约`](../../../docs/65-skill-observation-contract.md) 为准**，本文不再复述。
+> 三条最常踩的：`idle` + `turnSeq: 0` **且 PTY 零输出** = prompt 未提交（发裸 CR，**不要 kill 重发**）——
+> 三个条件缺一不可；**PTY 有输出时多半是在等你选**，此时发 CR 会盲选一项；
+> `status` 单独不可信，判活要看 `lastOutputAt` 停滞 + 进程存活；
+> 动手写之前先核身份——`$CC_PANES_LAUNCH_ID` 必须等于所连 MCP URL 里的 `launchId`，不等即串台。
+
 你是并行编排 Agent。主 Agent 在主仓库，**不直接写代码**，负责：拆分需求、按 worker 类型派活、监控完成、汇总 diff、由用户拍板后提交。
 
 ---
@@ -110,20 +116,31 @@ mcp__ccpanes__launch_task(
   cliTool: "claude" | "codex",
   runtimeKind: "local" | "wsl",
   title: "Worker: <模块名>",
-  placement: "beside",   // 代码型 worker 一律分屏，见下
+  placement: "beside",   // 仅当只派 1 个；同批 N≥2 时首个 beside、其余传 paneId，见下
   prompt: <自包含任务描述 + 文件范围 + 完成定义>
 )
 ```
 
-**`placement` 必须显式传，别吃默认值**：
+**落位按「同批平级几个」判，不按任务类型判**：
 
-| worker 类型 | `placement` | 理由 |
-|---|---|---|
-| 代码型（implement / debug / refactor） | `"beside"` 分屏 | 用户要实时看到它改什么，出问题能立刻打断 |
-| 只读型（research / check / review） | `"tab"` 同 pane 加标签 | 只看最终结论，不该抢分屏版面 |
+> 旧规则「代码型一律 `beside`」已作废。它的理由（实时看到它改什么）在 N≥2 时不成立——
+> 派 3 个就切 3 刀，哪块都看不清，用户还得手工把标签拖回同一个 pane。
 
-一次派多个只读 worker 时全用 `"tab"`——否则屏幕会被切成碎片。
-传了 `paneId` 时 `placement` 不生效。
+| 情形 | 怎么落 |
+|---|---|
+| 单独派 1 个 | `placement: "beside"` |
+| **同批 N≥2 个平级 worker** | 第一个 `beside` 开 pane，**其余一律传 `paneId` 落进同一个 pane** |
+| 只读型（research / check / review） | `placement: "tab"` |
+
+同批 N≥2 的标准写法（`launch_task` **不返回 paneId**，必须反查）：
+
+```
+1. launch_task(..., placement: "beside")        → sessionId₁
+2. list_panes()                                  → 找含 sessionId₁ 的 paneId
+3. launch_task(..., paneId: <该 paneId>)         → 其余 N-1 个全部同 pane
+```
+
+传了 `paneId` 时 `placement` 不生效。**平级 = 同一 leader 同一批派出**，跨批次各自成组。
 
 > 注意：只读型 worker 大多数情况**根本不该走 launch_task**，用 Claude Task 子 agent
 > 更便宜（见上方两层并行模型）。会用 `placement: "tab"` 的场景是：只读任务但需要

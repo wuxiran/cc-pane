@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>编排拓扑 · fleet 模板原型 · docs/64</title>
+<style>
+:root{
+  --app-menubar:#1A1C20; --app-panel-bg:#26282D;
+  --app-accent:#4C8DF5; --app-active-bg:rgba(76,141,245,0.14);
+  --app-text-primary:#E6E8EB; --app-text-secondary:#9BA1A9; --app-text-tertiary:#767C85;
+  --app-border:rgba(255,255,255,0.09); --app-hover:rgba(255,255,255,0.06);
+  --app-status-success:#3FB950; --app-status-warning:#D6A625; --app-status-danger:#F85149;
+  --app-identity-wsl:#FCD34D;
+  --app-glass-bg:rgba(38,40,45,0.62); --app-glass-bg-heavy:rgba(30,32,36,0.78);
+  --app-glass-border:rgba(255,255,255,0.10);
+  --app-glass-highlight:inset 0 1px 0 rgba(255,255,255,0.06);
+  --app-glass-blur:14px;
+  --app-orb-1:rgba(76,141,245,0.10); --app-orb-2:rgba(124,92,255,0.08); --app-orb-3:rgba(63,185,80,0.06);
+  --sh-sm:0 1px 2px rgba(0,0,0,.45);
+  --sh-md:0 4px 14px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.35);
+  --sh-lg:0 16px 40px rgba(0,0,0,.62),0 3px 10px rgba(0,0,0,.42);
+  --sh-lift:0 28px 60px rgba(0,0,0,.7),0 6px 16px rgba(0,0,0,.5);
+  --ease-out:cubic-bezier(0.23,1,0.32,1);
+  --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.25rem;--s6:1.5rem;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:#000;color:var(--app-text-primary);
+  font:100%/1.5 Inter,system-ui,-apple-system,"Segoe UI","PingFang SC",sans-serif;
+  font-optical-sizing:auto;-webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.t-hero{font-size:1.5rem;line-height:1;font-weight:600;letter-spacing:-.022em;font-variant-numeric:tabular-nums}
+.t-name{font-size:.9375rem;line-height:1.25;font-weight:600;letter-spacing:-.011em}
+.t-body{font-size:.8125rem;line-height:1.5}
+.t-caps{font-size:.6875rem;line-height:1;font-weight:600;letter-spacing:.07em;text-transform:uppercase}
+.t-mono{font-family:"Maple Mono NF CN",ui-monospace,"Cascadia Code",Consolas,monospace;
+  font-size:.6875rem;font-variant-numeric:tabular-nums}
+
+header{
+  position:relative;z-index:5;flex:none;display:flex;align-items:baseline;gap:var(--s3);
+  padding:var(--s3) var(--s5);
+  background:var(--app-glass-bg-heavy);
+  backdrop-filter:blur(var(--app-glass-blur)) saturate(180%);
+  -webkit-backdrop-filter:blur(var(--app-glass-blur)) saturate(180%);
+  box-shadow:var(--app-glass-highlight);
+  border-bottom:1px solid var(--app-glass-border);
+}
+header .crumb{font-size:.8125rem;font-weight:600;letter-spacing:-.006em}
+header .crumb b{color:var(--app-text-tertiary);font-weight:400;margin:0 var(--s1)}
+header .grow{flex:1}
+.stat{display:inline-flex;align-items:baseline;gap:var(--s1);color:var(--app-text-tertiary);font-size:.8125rem}
+.stat em{font-style:normal;font-weight:600;color:var(--app-text-secondary);font-variant-numeric:tabular-nums}
+.stat.warn,.stat.warn em{color:var(--app-status-warning)}
+.ghost{
+  height:1.75rem;padding:0 var(--s3);border-radius:.4375rem;cursor:pointer;font-family:inherit;
+  border:1px solid var(--app-glass-border);background:transparent;
+  color:var(--app-text-secondary);font-size:.75rem;
+  transition:background 160ms var(--ease-out),color 160ms var(--ease-out);
+}
+.ghost:hover{background:var(--app-hover);color:var(--app-text-primary)}
+.ghost:focus-visible{outline:2px solid var(--app-accent);outline-offset:2px}
+
+.body{flex:1;display:flex;min-height:0;position:relative}
+
+/* ── 画布：纯黑 + 双层白网格，网格随平移滚动 ─────────────────── */
+.canvas{
+  flex:1;position:relative;overflow:hidden;background:#000;cursor:grab;touch-action:none;
+  background-image:
+    linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px),
+    linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);
+  background-size:120px 120px,120px 120px,24px 24px,24px 24px;
+}
+.canvas[data-panning="true"]{cursor:grabbing}
+.orbs{position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.orbs i{position:absolute;border-radius:50%;filter:blur(120px)}
+.orbs i:nth-child(1){width:46vw;height:46vw;left:-8vw;top:-16vw;background:var(--app-orb-1)}
+.orbs i:nth-child(2){width:38vw;height:38vw;right:2vw;top:24vh;background:var(--app-orb-2)}
+.orbs i:nth-child(3){width:32vw;height:32vw;left:24vw;bottom:-18vw;background:var(--app-orb-3)}
+
+.stage{position:absolute;inset:0;z-index:1;will-change:transform;transform-origin:0 0}
+/* 缩小到一定程度后收起细节，只留「谁需要注意」——留下的是层级，不是缩略图 */
+.stage[data-lod="far"] .n-trace,
+.stage[data-lod="far"] .n-foot,
+.stage[data-lod="far"] .n-stray,
+.stage[data-lod="far"] .n-read .lbl{display:none}
+.stage[data-lod="far"] .node{padding:var(--s4)}
+.stage[data-lod="far"] .n-read{margin-top:var(--s3)}
+svg.wires{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.wire{fill:none;stroke:rgba(255,255,255,.20);stroke-width:1}
+.wire.stray{stroke:var(--app-status-danger);stroke-dasharray:3 5;opacity:.6}
+.wlabel{font-size:.6875rem;font-weight:600;letter-spacing:.04em;fill:var(--app-text-tertiary)}
+
+.node{
+  position:absolute;top:0;left:0;width:16rem;border-radius:.75rem;
+  cursor:grab;touch-action:none;will-change:transform;
+  background:var(--app-glass-bg);
+  backdrop-filter:blur(var(--app-glass-blur));
+  -webkit-backdrop-filter:blur(var(--app-glass-blur));
+  border:1px solid var(--app-glass-border);
+  box-shadow:var(--sh-sm),var(--app-glass-highlight);
+  padding:var(--s4) var(--s4) var(--s3);
+  transition:box-shadow 300ms var(--ease-out),border-color 300ms var(--ease-out),
+             background 300ms var(--ease-out);
+}
+.node:hover{background:var(--app-glass-bg-heavy)}
+.node:focus-visible{outline:2px solid var(--app-accent);outline-offset:3px}
+.node[data-current="true"]{
+  border-color:color-mix(in srgb,var(--app-accent) 58%,transparent);
+  box-shadow:var(--sh-lg),var(--app-glass-highlight);
+}
+.node[data-alarm="true"]{
+  border-color:color-mix(in srgb,var(--app-status-warning) 45%,transparent);
+  box-shadow:var(--sh-md),0 0 0 3px color-mix(in srgb,var(--app-status-warning) 10%,transparent),
+             var(--app-glass-highlight);
+}
+.node[data-stray="true"]{border-style:dashed;
+  border-color:color-mix(in srgb,var(--app-status-danger) 52%,transparent)}
+/* 抓起时更靠近视点：更重的阴影 = 更厚的材质 */
+.node[data-drag="true"]{cursor:grabbing;z-index:20;
+  box-shadow:var(--sh-lift),var(--app-glass-highlight);
+  background:var(--app-glass-bg-heavy);transition:none}
+
+.n-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.n-role{margin-top:var(--s1);color:var(--app-text-tertiary);display:flex;gap:var(--s1);align-items:center}
+.n-role .st{color:var(--stc)}
+.n-role .sep{opacity:.45}
+.n-trace{margin-top:var(--s4)}
+.n-trace svg{display:block;width:100%;height:2.25rem;overflow:visible}
+.tbase{stroke:var(--app-text-tertiary);stroke-width:1;opacity:.3}
+.tbar{fill:var(--app-text-tertiary);opacity:.62}
+.tbar.live{fill:var(--stc);opacity:.92}
+.tdim,.tcap{stroke:var(--app-status-warning);stroke-width:1.5;opacity:.92}
+.n-read{margin-top:var(--s2);display:flex;align-items:baseline;gap:var(--s2)}
+.n-read .num{color:var(--app-text-secondary)}
+.n-read[data-alarm="true"] .num{color:var(--app-status-warning)}
+.n-read .lbl{color:var(--app-text-tertiary)}
+.n-foot{margin-top:var(--s4);padding-top:var(--s3);border-top:1px solid var(--app-glass-border);
+  display:flex;align-items:center;gap:var(--s2);color:var(--app-text-tertiary)}
+.n-foot .wsl{color:var(--app-identity-wsl)}
+.n-foot .path{margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:7rem}
+.n-stray{margin-top:var(--s2);color:var(--app-status-danger)}
+
+aside{
+  width:19.5rem;flex:none;z-index:4;overflow:auto;
+  background:var(--app-glass-bg-heavy);
+  backdrop-filter:blur(var(--app-glass-blur)) saturate(180%);
+  -webkit-backdrop-filter:blur(var(--app-glass-blur)) saturate(180%);
+  border-left:1px solid var(--app-glass-border);
+}
+aside section{padding:var(--s4) var(--s5)}
+aside section + section{border-top:1px solid var(--app-glass-border)}
+aside h2{font-size:1rem;line-height:1.3;font-weight:600;letter-spacing:-.014em}
+aside .eyebrow{margin-bottom:var(--s2);color:var(--app-text-tertiary)}
+.kv{display:flex;justify-content:space-between;gap:var(--s4);padding:var(--s1) 0}
+.kv dt{font-size:.75rem;color:var(--app-text-tertiary)}
+.kv dd{text-align:right;font-size:.8125rem}
+.prose{color:var(--app-text-secondary)}
+.advice{padding:var(--s3) var(--s4);margin:0 var(--s5) var(--s4);border-radius:.5rem;
+  background:color-mix(in srgb,var(--app-status-warning) 11%,transparent);
+  color:var(--app-status-warning);font-size:.8125rem;line-height:1.55}
+.advice[data-kind="stray"]{background:color-mix(in srgb,var(--app-status-danger) 11%,transparent);
+  color:var(--app-status-danger)}
+.advice[data-kind="calm"]{background:var(--app-hover);color:var(--app-text-secondary)}
+.acts{padding:0 var(--s5) var(--s5);display:flex;flex-direction:column;gap:var(--s2)}
+.act{display:flex;align-items:center;gap:var(--s2);width:100%;padding:var(--s2) var(--s3);
+  border-radius:.5rem;cursor:pointer;font-family:inherit;font-size:.8125rem;text-align:left;
+  border:1px solid var(--app-glass-border);background:transparent;color:var(--app-text-primary);
+  transition:background 160ms var(--ease-out)}
+.act:hover{background:var(--app-hover)}
+.act:focus-visible{outline:2px solid var(--app-accent);outline-offset:2px}
+.act .api{margin-left:auto;color:var(--app-text-tertiary)}
+.act[data-primary="true"]{border-color:color-mix(in srgb,var(--app-accent) 58%,transparent);
+  background:var(--app-active-bg)}
+.act[data-danger="true"]{color:var(--app-status-danger)}
+/* 禁用态：颜色 + 光标 + 移除 hover，三重冗余，不靠单一信号 */
+.act[disabled]{opacity:.42;cursor:not-allowed;color:var(--app-text-tertiary)}
+.act[disabled]:hover{background:transparent}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="crumb">cc-book <b>/</b> 编排拓扑</span>
+  <span class="t-mono" style="color:var(--app-text-tertiary)">0.11.3-release-closeout</span>
+  <span class="grow"></span>
+  <span class="stat" id="tally"></span>
+  <span class="stat warn" id="alarm"></span>
+  <span class="stat t-mono" id="zoomval" style="font-size:.75rem"></span>
+  <button class="ghost" id="relayout">重置视图</button>
+</header>
+
+<div class="body">
+  <div class="canvas" id="canvas">
+    <div class="orbs" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="stage" id="stage"><svg class="wires" id="wires"></svg></div>
+  </div>
+  <aside id="aside"></aside>
+</div>
+
+<script>
+/* ═══════════ 数据（形状 = TaskBinding） ═══════════ */
+const WINDOW_SEC=1500, BUCKETS=56, ALARM_SEC=300;
+const nodes=[
+ {id:"L1",parentId:null,role:"leader",identity:"orchestrator",name:"0.11.3 发布收尾",
+  status:"running",cli:"claude",runtime:"local",launchId:"a3f1c8",path:"cc-book",age:1800,silence:6},
+ {id:"L2",parentId:"L1",role:"leader",identity:"sub-leader",name:"worktree 项目卫生",
+  status:"running",cli:"claude",runtime:"local",launchId:"a3f1c8",path:"cc-book",age:1500,silence:31,round:2},
+ {id:"W1",parentId:"L2",role:"worker",identity:"implementer",name:"worktreeGrouping 实现",
+  status:"completed",cli:"codex",runtime:"wsl",launchId:"a3f1c8",path:"cc-book-wt-a",age:1400,silence:820,round:3,
+  summary:"归组算法与 12 项用例通过，已守卫 monorepo 子目录误认。"},
+ {id:"W2",parentId:"L2",role:"worker",identity:"implementer",name:"MissingProjects 清理 UI",
+  status:"running",cli:"claude",runtime:"local",launchId:"a3f1c8",path:"cc-book-wt-c",age:900,silence:3,round:1},
+ {id:"W3",parentId:"L1",role:"worker",identity:"implementer",name:"session adoption 回归修复",
+  status:"running",cli:"codex",runtime:"wsl",launchId:"a3f1c8",path:"cc-book-wt-b",age:1320,silence:734,round:1,stalled:1},
+ {id:"W6",parentId:"L1",role:"worker",identity:"implementer",name:"runtime_kind 字段补齐",
+  status:"running",cli:"codex",runtime:"wsl",launchId:"a3f1c8",path:"cc-book-wt-f",age:26,silence:26,round:1,fresh:1},
+ {id:"W4",parentId:"L1",role:"worker",identity:"implementer",name:"launch profile 静默回落",
+  status:"waiting",cli:"claude",runtime:"local",launchId:"a3f1c8",path:"cc-book-wt-d",age:1100,silence:88,round:2},
+ {id:"W5",parentId:"L1",role:"worker",identity:"reviewer",name:"workspace_health /mnt 用例",
+  status:"failed",cli:"codex",runtime:"wsl",launchId:"a3f1c8",path:"cc-book-wt-e",age:1200,silence:1460,round:1,
+  summary:"cargo test 失败：/mnt/<drive> 分支断言未覆盖。"},
+ {id:"X1",parentId:"L1",role:"worker",identity:"—",name:"（未知任务）",
+  status:"running",cli:"claude",runtime:"local",launchId:"b7e204",path:"?",age:600,silence:300,stray:1},
+];
+const ST={running:{c:"var(--app-accent)",t:"运行中"},waiting:{c:"var(--app-status-warning)",t:"等待输入"},
+          failed:{c:"var(--app-status-danger)",t:"失败"},completed:{c:"var(--app-status-success)",t:"已完成"}};
+const live=n=>n.status==="running"||n.status==="waiting";
+/* fresh 必须由存活时长动态算，不能存粘性布尔——否则节点永远显示「刚派发」、
+   永不产生活动柱、也永不触发静默告警，等于给自己开了个永久免检后门 */
+const FRESH_GRACE=90;
+const fresh=n=>n.age<FRESH_GRACE;
+const alarmed=n=>live(n)&&n.silence>ALARM_SEC&&!fresh(n);
+nodes.forEach(n=>{
+  const seed=[...n.id].reduce((a,c)=>a+c.charCodeAt(0),0);
+  n.hist=Array.from({length:BUCKETS},(_,i)=>{
+    const ago=(BUCKETS-1-i)*(WINDOW_SEC/BUCKETS);
+    if(ago>n.age)return -1; if(ago<n.silence)return 0;
+    return .28+((seed*(i+11))%100)/128;
+  });
+});
+
+/* ═══════════ 手势物理（Apple: 弹簧 / 动量投射 / 橡皮筋） ═══════════
+   damping 1.0 · response 0.4  = 移动归位（临界阻尼，不过冲）
+   damping 0.8 · response 0.4  = 甩出后落位（带一点动量感）
+   project(v) = (v/1000)·d/(1−d)，d = 0.998
+   rubberband(over,dim,c=0.55) = (over·dim·c)/(dim + c·|over|)          */
+/* 用户可能在运行中改系统设置，不能只在加载时读一次 */
+const RM_QUERY = matchMedia("(prefers-reduced-motion:reduce)");
+let REDUCED = RM_QUERY.matches;
+RM_QUERY.addEventListener("change", e => {
+  REDUCED = e.matches;
+  if(REDUCED){ settleNow(); }              // 切进减弱动效时，把在途动画就地收敛
+});
+/* 减弱动效下没有弹簧来收敛越界，必须同步把呈现值夹到边界，否则永久停在界外 */
+function settleNow(){
+  nodes.forEach(n=>{ n.x=n.tx; n.y=n.ty; n.vx=0; n.vy=0; });
+  const b=panBounds();
+  pan.tx=Math.min(Math.max(pan.tx,b.x0),b.x1);
+  pan.ty=Math.min(Math.max(pan.ty,b.y0),b.y1);
+  pan.x=pan.tx; pan.y=pan.ty; pan.vx=0; pan.vy=0;
+}
+const spring = (damping,response)=>({z:damping, w:2*Math.PI/response});
+const SP_MOVE = spring(1.0,0.4), SP_FLICK = spring(0.8,0.4);
+const project = (v,d=0.998)=>(v/1000)*d/(1-d);
+const rubberband=(over,dim,c=0.55)=>(over*dim*c)/(dim+c*Math.abs(over));
+const clampV=v=>Math.max(-4000,Math.min(4000,v));   // 采样噪声可能刺出离谱速度
+
+function step(s,x,v,target,dt){                 // 半隐式欧拉，X/Y 各自独立
+  const a = -s.w*s.w*(x-target) - 2*s.z*s.w*v;
+  v += a*dt; x += v*dt;
+  return [x,v];
+}
+
+/* ═══════════ 布局（派生位置，可被拖拽覆盖，重新布局可回归） ═══════════ */
+const W=256, GX=112, GY=22, H=n=>n.stray?214:196;
+/* 不能假定 nodes[0] 是唯一根：真实 task_bindings 按 created_at DESC 返回时，
+   worker 常排在 leader 前面；再加上孤儿、环、多 plan 根、分页截断。
+   任何没被遍历到的节点坐标会是 undefined，紧接着 toFixed() 直接抛错。
+   所以：先规范化父引用 → 显式收集所有根 → 布局森林 → 兜底保证无 undefined。 */
+function autoLayout(){
+  const by=Object.fromEntries(nodes.map(n=>[n.id,n]));
+
+  // 1) 父引用规范化：缺失父 → 孤儿；自环/环 → 断开。两者都升为根并留下可见标记
+  nodes.forEach(n=>{
+    n.anomaly=null; n.hx=n.hy=undefined;
+    n.pid = n.parentId;
+    if(n.pid && !by[n.pid]){ n.anomaly="orphan"; n.pid=null; }
+  });
+  nodes.forEach(n=>{
+    const seen=new Set([n.id]);
+    let p=n.pid;
+    while(p){
+      if(seen.has(p)){ n.anomaly="cycle"; n.pid=null; break; }
+      seen.add(p); p = by[p] ? by[p].pid : null;
+    }
+  });
+
+  // 2) 深度沿规范化后的父链算
+  nodes.forEach(n=>{ let d=0,p=n.pid; while(p&&by[p]){d++;p=by[p].pid} n.depth=d; });
+
+  // 3) 森林布局
+  const kidsOf=id=>nodes.filter(c=>c.pid===id);
+  let cur=32;
+  const place=n=>{
+    const k=kidsOf(n.id);
+    n.hx=48+n.depth*(W+GX);
+    if(!k.length){ n.hy=cur; cur+=H(n)+GY; return; }
+    k.forEach(place);
+    n.hy=(k[0].hy+k.at(-1).hy+H(k.at(-1))-H(n))/2;
+  };
+  nodes.filter(n=>!n.pid).forEach(r=>{ place(r); cur+=GY; });
+
+  // 4) 兜底：绝不允许留下 undefined 坐标（否则 toFixed 抛错整图挂掉）
+  nodes.forEach(n=>{
+    if(!Number.isFinite(n.hx)||!Number.isFinite(n.hy)){
+      n.hx=48; n.hy=cur; cur+=H(n)+GY; n.anomaly=n.anomaly||"unplaced";
+    }
+  });
+}
+
+const canvas=document.getElementById("canvas"), stage=document.getElementById("stage"),
+      wires=document.getElementById("wires"), refs={};
+let sel="W3";
+const pan={x:0,y:0,vx:0,vy:0,tx:0,ty:0,active:false};
+const view={z:1, min:.25, max:2.5};
+/* 屏幕坐标 → 世界坐标。缩放后所有拖拽必须走这里，否则手感会随缩放比走样 */
+function toWorld(cx,cy){
+  const r=canvas.getBoundingClientRect();
+  return {x:(cx-r.left-pan.x)/view.z, y:(cy-r.top-pan.y)/view.z};
+}
+
+const fmt=s=>s<60?`${s} 秒`:s<3600?`${Math.floor(s/60)} 分 ${String(s%60).padStart(2,"0")}`
+  :`${Math.floor(s/3600)} 时 ${Math.floor(s%3600/60)} 分`;
+
+function trace(n){
+  const w=224,h=24,bw=2,gap=(w-BUCKETS*bw)/(BUCKETS-1);
+  let born=n.hist.findIndex(v=>v>=0); if(born<0)born=BUCKETS;
+  const x0=born*(bw+gap);
+  let s=`<line class="tbase" x1="${x0.toFixed(1)}" y1="${h}" x2="${w}" y2="${h}"/>`;
+  n.hist.forEach((v,i)=>{
+    if(v<=0)return;
+    const bh=Math.max(2,v*h*.9),x=i*(bw+gap),last=i>BUCKETS-4&&live(n)&&!n.stalled&&!n.stray;
+    s+=`<rect class="tbar${last?" live":""}" x="${x.toFixed(1)}" y="${(h-bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" rx=".5"/>`;
+  });
+  if(alarmed(n)){
+    const gx=Math.max(x0,w-Math.min(n.silence,WINDOW_SEC)/WINDOW_SEC*w),y=h+7;
+    s+=`<line class="tdim" x1="${gx.toFixed(1)}" y1="${y}" x2="${w}" y2="${y}"/>`
+      +`<line class="tcap" x1="${gx.toFixed(1)}" y1="${y-3}" x2="${gx.toFixed(1)}" y2="${y+3}"/>`
+      +`<line class="tcap" x1="${w}" y1="${y-3}" x2="${w}" y2="${y+3}"/>`;
+  }
+  return `<svg viewBox="0 -1 ${w} ${h+12}" preserveAspectRatio="none" aria-hidden="true">${s}</svg>`;
+}
+
+/* ═══════════ 构建 ═══════════ */
+function build(){
+  autoLayout();
+  nodes.forEach(n=>{
+    n.x=n.hx; n.y=n.hy; n.tx=n.hx; n.ty=n.hy; n.vx=0; n.vy=0;
+    const el=document.createElement("article");
+    el.className="node"; el.tabIndex=0; el.style.setProperty("--stc",ST[n.status].c);
+    if(n.stray)el.dataset.stray="true";
+    el.innerHTML=`
+      <h3 class="n-name t-name">${n.name}</h3>
+      <p class="n-role t-caps"><span>${n.role}</span><span class="sep">·</span>
+        <span>${n.identity}</span><span class="sep">·</span><span class="st">${ST[n.status].t}</span></p>
+      <div class="n-trace"></div>
+      <p class="n-read"><span class="num t-hero"></span><span class="lbl t-caps"></span></p>
+      <p class="n-foot t-mono"><span>${n.cli}</span>
+        <span class="${n.runtime==="wsl"?"wsl":""}">${n.runtime==="wsl"?"WSL":"local"}</span>
+        <span class="path">${n.path}</span></p>
+      ${n.stray?`<p class="n-stray t-mono">launchId ${n.launchId} ≠ 本实例</p>`:""}`;
+    stage.appendChild(el);
+    refs[n.id]={el,trace:el.querySelector(".n-trace"),read:el.querySelector(".n-read"),
+                num:el.querySelector(".num"),lbl:el.querySelector(".lbl"),
+                wire:null,label:null};
+    attachDrag(n,el);
+    el.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();sel=n.id;paintData()}};
+  });
+  nodes.forEach(n=>{
+    if(!n.pid)return;                       // 用规范化后的父：断开的环/孤儿不画边
+    const p=document.createElementNS("http://www.w3.org/2000/svg","path");
+    p.setAttribute("class","wire"+(n.stray?" stray":""));
+    p.setAttribute("vector-effect","non-scaling-stroke");   // 任何缩放下连线都保持 1px 锐利
+    wires.appendChild(p);
+    refs[n.id].wire=p;
+    if(n.round){
+      const t=document.createElementNS("http://www.w3.org/2000/svg","text");
+      t.setAttribute("class","wlabel"); t.textContent="第 "+n.round+" 轮";
+      wires.appendChild(t); refs[n.id].label=t;
+    }
+  });
+}
+
+/* ═══════════ 拖拽：1:1 跟随 + 抓取偏移 + 速度历史 ═══════════ */
+function history(){
+  const h=[];
+  return {
+    push(x,y,t){h.push({x,y,t}); while(h.length>6)h.shift()},
+    /* nowTs = 松手时刻。两件事必须分开判，否则会把「采样稀疏」误当成「用户已停手」：
+       - 松手前确实静止（最后一个采样已过期）→ 速度归零，不该甩出去
+       - 只是采样间隔大于窗口 → 退回相邻两点，绝不能返回 0（否则快甩随机变粘手） */
+    velocity(nowTs){
+      if(h.length<2)return[0,0];
+      const b=h.at(-1);
+      if(nowTs!=null && nowTs-b.t>150) return[0,0];      // 真的停手了
+      let a=h[h.length-2];                                // 兜底：相邻两点
+      for(const s of h){ if(b.t-s.t<=90){ if(s!==b) a=s; break } }
+      const dt=(b.t-a.t)/1000; if(dt<=0)return[0,0];
+      return [(b.x-a.x)/dt,(b.y-a.y)/dt];
+    },
+    clear(){h.length=0}
+  };
+}
+
+function attachDrag(n,el){
+  const hist=history(); let ox=0,oy=0,moved=0,id=null;
+  el.addEventListener("pointerdown",e=>{
+    if(e.button!==0)return;
+    e.stopPropagation();                     // 不让画布同时平移
+    id=e.pointerId; el.setPointerCapture(id);
+    n.drag=true; el.dataset.drag="true"; moved=0;
+    // 从「当前呈现值」接管：抓取偏移基于 x/y 实时值，而非目标值
+    /* 画布可能还在惯性/边界弹簧里。不冻住它，指针静止时 pan 仍在变，
+       节点会随 stage 一起漂走，下一次 pointermove 又被拽回指针 —— 1:1 就断了。
+       按「从当前呈现值接管」：把 pan 就地钉死在此刻的呈现值上。 */
+    pan.tx=pan.x; pan.ty=pan.y; pan.vx=0; pan.vy=0;
+    const w=toWorld(e.clientX,e.clientY);
+    ox=w.x-n.x; oy=w.y-n.y;
+    n.vx=0; n.vy=0;                          // 抓住即接管，弹簧让位
+    hist.clear(); hist.push(w.x,w.y,e.timeStamp);
+    sel=n.id; paintData();
+  });
+  el.addEventListener("pointermove",e=>{
+    if(!n.drag)return;
+    const w=toWorld(e.clientX,e.clientY);
+    const nx=w.x-ox, ny=w.y-oy;
+    moved=Math.max(moved,Math.hypot(nx-n.tx,ny-n.ty));
+    // 越界渐进阻尼，不硬停
+    const b=bounds();
+    n.x = nx<b.x0 ? b.x0+rubberband(nx-b.x0,innerWidth) :
+          nx>b.x1 ? b.x1+rubberband(nx-b.x1,innerWidth) : nx;
+    n.y = ny<b.y0 ? b.y0+rubberband(ny-b.y0,innerHeight) :
+          ny>b.y1 ? b.y1+rubberband(ny-b.y1,innerHeight) : ny;
+    n.tx=n.x; n.ty=n.y;
+    hist.push(w.x,w.y,e.timeStamp);          // 速度记在世界坐标，弹簧才对得上
+  });
+  const end=e=>{
+    if(!n.drag)return;
+    n.drag=false; el.dataset.drag="false";
+    try{el.releasePointerCapture(id)}catch{}
+    let [vx,vy]=hist.velocity(e&&e.timeStamp);
+    [vx,vy]=[clampV(vx),clampV(vy)];
+    /* 放置类手势不用滚动那套投射（d=0.998 ≈ 0.499v，比弹簧自洽值大 8 倍，必甩飞），
+       但也不能不投射：目标 P 与初速 v 必须满足 P ≥ v/ω，否则冲过目标又被拉回，
+       表现为「滑出去再缩回来」的橡皮筋感。取等号即最小无冗余动作的滑行。
+         x'(t) = e^(-ωt)·[v − ω(v + ωd)t],  d = −P  →  P = v/ω 时该项恒 0，单调收敛 */
+    const b=bounds(), w=SP_MOVE.w;
+    let px=vx/w, py=vy/w;
+    /* 极端快甩的滑行距离要封顶。但只砍投射会让 P < v/ω 而重新引入回弹——
+       必须连速度一起等比例缩，才能保住 P = v/ω 的不变式。 */
+    const g=Math.hypot(px,py), MAX_GLIDE=160;
+    if(g>MAX_GLIDE){const k=MAX_GLIDE/g; px*=k; py*=k; vx*=k; vy*=k;}
+    n.tx=Math.min(Math.max(n.x+px,b.x0),b.x1);
+    n.ty=Math.min(Math.max(n.y+py,b.y0),b.y1);
+    n.vx=vx; n.vy=vy;                        // 交接速度，不硬切（避免「砖墙」感）
+    n.sp=SP_MOVE;                            // 临界阻尼，不过冲
+    // 减弱动效：不投射、不滑行，落点即松手处
+    if(REDUCED){ n.tx=Math.min(Math.max(n.x,b.x0),b.x1); n.ty=Math.min(Math.max(n.y,b.y0),b.y1);
+                 n.x=n.tx; n.y=n.ty; n.vx=n.vy=0; }
+    if(REDUCED){n.x=n.tx;n.y=n.ty;n.vx=n.vy=0}
+  };
+  el.addEventListener("pointerup",end);
+  el.addEventListener("pointercancel",end);
+}
+const bounds=()=>({x0:-2200,y0:-1600,x1:3200,y1:2400});
+
+/* 平移边界：内容 bbox 至少留一角在视口内，甩不飞 */
+function panBounds(){
+  const r=canvas.getBoundingClientRect(), z=view.z, keep=140;
+  let x0=1/0,y0=1/0,x1=-1/0,y1=-1/0;
+  nodes.forEach(n=>{x0=Math.min(x0,n.x);y0=Math.min(y0,n.y);
+                    x1=Math.max(x1,n.x+W);y1=Math.max(y1,n.y+H(n))});
+  /* 下限 = 内容右/下边缘还剩 keep px 在视口内；上限 = 内容左/上边缘尚未推出视口 keep px。
+     内容比视口窄时这两者必须仍满足 下限 < 上限，写反会让该轴直接钉死。 */
+  return {
+    x0:keep-x1*z, x1:r.width-keep-x0*z,
+    y0:keep-y1*z, y1:r.height-keep-y0*z,
+  };
+}
+
+/* 以屏幕点为锚缩放：先记下该点的世界坐标，缩放后把 pan 修正回去 */
+function zoomAt(cx,cy,factor){
+  const z0=view.z, z1=Math.min(view.max,Math.max(view.min,z0*factor));
+  if(z1===z0)return;
+  const r=canvas.getBoundingClientRect(), sx=cx-r.left, sy=cy-r.top;
+  const wx=(sx-pan.x)/z0, wy=(sy-pan.y)/z0;
+  view.z=z1;
+  pan.x=sx-wx*z1; pan.y=sy-wy*z1;                // 锚点严格保持，先不夹
+  const b=panBounds();                            // 目标夹回边界 → 越界后自己荡回来
+  pan.tx=Math.min(Math.max(pan.x,b.x0),b.x1);
+  pan.ty=Math.min(Math.max(pan.y,b.y0),b.y1);
+  pan.vx=pan.vy=0; pan.sp=SP_MOVE;
+  if(REDUCED){ pan.x=pan.tx; pan.y=pan.ty; }   // 无弹簧收敛，必须同步夹回
+  document.getElementById("zoomval").textContent=Math.round(z1*100)+"%";
+}
+
+/* 画布平移：同一套物理 */
+(function panning(){
+  const hist=history(); let sx=0,sy=0,id=null;
+  canvas.addEventListener("pointerdown",e=>{
+    if(e.button!==0)return;
+    id=e.pointerId; canvas.setPointerCapture(id);
+    pan.active=true; canvas.dataset.panning="true";
+    sx=e.clientX-pan.x; sy=e.clientY-pan.y; pan.vx=pan.vy=0;
+    hist.clear(); hist.push(e.clientX,e.clientY,e.timeStamp);
+  });
+  canvas.addEventListener("pointermove",e=>{
+    if(!pan.active)return;
+    const nx=e.clientX-sx, ny=e.clientY-sy, b=panBounds();
+    pan.x = nx<b.x0 ? b.x0+rubberband(nx-b.x0,innerWidth)
+          : nx>b.x1 ? b.x1+rubberband(nx-b.x1,innerWidth) : nx;
+    pan.y = ny<b.y0 ? b.y0+rubberband(ny-b.y0,innerHeight)
+          : ny>b.y1 ? b.y1+rubberband(ny-b.y1,innerHeight) : ny;
+    pan.tx=pan.x; pan.ty=pan.y;
+    hist.push(e.clientX,e.clientY,e.timeStamp);
+  });
+  const end=e=>{
+    if(!pan.active)return;
+    pan.active=false; canvas.dataset.panning="false";
+    try{canvas.releasePointerCapture(id)}catch{}
+    let[vx,vy]=hist.velocity(e&&e.timeStamp); vx=clampV(vx); vy=clampV(vy);
+    /* 平移是滑动类手势，投射站得住脚——但落点必须收进边界，否则甩一下图就没了 */
+    const b=panBounds();
+    const px = REDUCED ? 0 : project(vx), py = REDUCED ? 0 : project(vy);   // 减弱动效不投射
+    pan.tx=Math.min(Math.max(pan.x+px,b.x0),b.x1);
+    pan.ty=Math.min(Math.max(pan.y+py,b.y0),b.y1);
+    pan.vx=vx; pan.vy=vy; pan.sp=SP_FLICK;
+    if(REDUCED){pan.x=pan.tx;pan.y=pan.ty;pan.vx=pan.vy=0}
+  };
+  canvas.addEventListener("pointerup",end);
+  canvas.addEventListener("pointercancel",end);
+  /* 滚轮 = 缩放，锚在指针下。指针下的那个点必须纹丝不动，否则缩放会“漂”。
+     Shift + 滚轮 = 横向平移（保留一条不缩放的移动通道）。 */
+  canvas.addEventListener("wheel",e=>{
+    e.preventDefault();
+    if(e.shiftKey&&!e.ctrlKey){
+      const b=panBounds();
+      pan.x=Math.min(Math.max(pan.x-(e.deltaY||e.deltaX),b.x0),b.x1);
+      pan.tx=pan.x; pan.vx=0; return;
+    }
+    zoomAt(e.clientX,e.clientY,Math.exp(-e.deltaY*(e.ctrlKey?0.010:0.0018)));
+  },{passive:false});
+})();
+
+/* ═══════════ 单一 rAF 循环：积分 → 提交 transform → 重绘连线 ═══════════ */
+let last=performance.now();
+function frame(now){
+  const dt=Math.min((now-last)/1000,1/30); last=now;
+  if(!pan.active&&!REDUCED){
+    [pan.x,pan.vx]=step(pan.sp||SP_MOVE,pan.x,pan.vx,pan.tx,dt);
+    [pan.y,pan.vy]=step(pan.sp||SP_MOVE,pan.y,pan.vy,pan.ty,dt);
+  }
+  const z=view.z;
+  stage.style.transform=`translate3d(${pan.x.toFixed(2)}px,${pan.y.toFixed(2)}px,0) scale(${z.toFixed(4)})`;
+  stage.dataset.lod = z<0.55 ? "far" : "near";
+  const p=`${pan.x.toFixed(1)}px ${pan.y.toFixed(1)}px`;
+  canvas.style.backgroundPosition=`${p},${p},${p},${p}`;
+  canvas.style.backgroundSize=
+    `${120*z}px ${120*z}px,${120*z}px ${120*z}px,${24*z}px ${24*z}px,${24*z}px ${24*z}px`;
+
+  nodes.forEach(n=>{
+    if(!n.drag&&!REDUCED){
+      [n.x,n.vx]=step(n.sp||SP_MOVE,n.x,n.vx,n.tx,dt);
+      [n.y,n.vy]=step(n.sp||SP_MOVE,n.y,n.vy,n.ty,dt);
+    }
+    // 数据是活的：新派发/被删的节点可能还没有（或已没有）DOM，绝不假定 refs 一定在
+    const rf=refs[n.id]; if(!rf)return;
+    rf.el.style.transform=`translate3d(${n.x.toFixed(2)}px,${n.y.toFixed(2)}px,0)`;
+  });
+
+  const by=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  nodes.forEach(n=>{
+    const r=refs[n.id]; if(!r||!r.wire)return;
+    const p=by[n.pid]; if(!p)return;
+    const x1=p.x+W,y1=p.y+H(p)/2,x2=n.x,y2=n.y+H(n)/2;
+    const mx=(x1+x2)/2, s=Math.sign(y2-y1)||1, k=Math.min(12,Math.abs(y2-y1)/2);
+    r.wire.setAttribute("d",
+      `M${x1},${y1} H${mx-k} Q${mx},${y1} ${mx},${y1+s*k} V${y2-s*k} Q${mx},${y2} ${mx+k},${y2} H${x2}`);
+    if(r.label){r.label.setAttribute("x",mx+8);r.label.setAttribute("y",(y1+y2)/2+4)}
+  });
+  requestAnimationFrame(frame);
+}
+
+/* ═══════════ 数据层绘制（与手势层解耦） ═══════════ */
+function paintData(){
+  nodes.forEach(n=>{
+    const r=refs[n.id]; if(!r)return; const al=alarmed(n);
+    r.el.dataset.current=n.id===sel; r.el.dataset.alarm=al;
+    r.trace.innerHTML=trace(n); r.read.dataset.alarm=al;
+    r.num.textContent=live(n)?fmt(n.silence):"—";
+    r.lbl.textContent=fresh(n)?"刚派发":live(n)?"静默":ST[n.status].t;
+  });
+  const c=s=>nodes.filter(n=>n.status===s).length;
+  document.getElementById("tally").innerHTML=
+    `运行 <em>${c("running")}</em> · 等待 <em>${c("waiting")}</em> · 失败 <em>${c("failed")}</em> · 完成 <em>${c("completed")}</em>`;
+  const na=nodes.filter(alarmed).length;
+  document.getElementById("alarm").innerHTML=na?`<em>${na}</em> 个静默超阈`:"";
+  drawAside();
+}
+
+/* 每秒重建整个 aside 会销毁当前按钮：键盘焦点丢失，跨定时器边界的按下/松开还会丢 click。
+   所以结构只在「选中项或动作集真的变了」时重建，逐秒刷新只改两个数值节点。 */
+let asideKey=null, asideRefs=null;
+
+function drawAside(){
+  const n=nodes.find(x=>x.id===sel); if(!n)return;
+  const st=ST[n.status], al=alarmed(n), fr=fresh(n);
+  const key=[n.id,n.status,al,fr,!!n.stray,n.round].join("|");
+
+  if(key===asideKey && asideRefs){          // 结构不变：只补数值，DOM 身份保持
+    asideRefs.silence.textContent = live(n)?fmt(n.silence):"—";
+    asideRefs.age.textContent     = fmt(n.age);
+    if(asideRefs.advice) asideRefs.advice.textContent = adviceText(n,al,fr);
+    return;
+  }
+  asideKey=key;
+
+  const mono=extra=>`class="t-mono" style="font-size:.8125rem${extra||""}"`;
+  /* stray = 会话属于别的实例，写操作在这里一定不生效。
+     既然文案已经这么说了，按钮就不能还长得可点——否则是自相矛盾的控制面。 */
+  const writeDisabled = n.stray ? " disabled" : "";
+  document.getElementById("aside").innerHTML=`
+    <section><p class="eyebrow t-caps">${n.role} · ${n.identity}</p><h2>${n.name}</h2></section>
+    <section><dl>
+      <div class="kv"><dt>状态</dt><dd style="color:${st.c}">${st.t}</dd></div>
+      <div class="kv"><dt>静默</dt><dd data-f="silence" ${mono(al?";color:var(--app-status-warning)":"")}></dd></div>
+      <div class="kv"><dt>存活</dt><dd data-f="age" ${mono()}></dd></div>
+      <div class="kv"><dt>CLI</dt><dd ${mono()}>${n.cli}</dd></div>
+      <div class="kv"><dt>运行时</dt><dd ${mono(n.runtime==="wsl"?";color:var(--app-identity-wsl)":"")}>${n.runtime==="wsl"?"WSL · Ubuntu":"本地"}</dd></div>
+      <div class="kv"><dt>launchId</dt><dd ${mono(n.stray?";color:var(--app-status-danger)":"")}>${n.launchId}</dd></div>
+      <div class="kv"><dt>工作树</dt><dd ${mono()}>${n.path}</dd></div>
+      ${n.round?`<div class="kv"><dt>派工轮次</dt><dd>第 ${n.round} 轮</dd></div>`:""}
+    </dl></section>
+    ${n.summary?`<section><p class="prose t-body">${n.summary}</p></section>`:""}
+    ${adviceText(n,al,fr)?`<p class="advice" data-f="advice" data-kind="${
+        n.stray?"stray":fr?"calm":"warn"}"></p>`:""}
+    <div class="acts">
+      ${al&&!n.stray?`<button class="act" data-primary="true">发送回车唤醒<span class="api t-mono">write_to_session</span></button>`:""}
+      <button class="act">读取最近输出<span class="api t-mono">get_session_output</span></button>
+      <button class="act"${writeDisabled}>跳到该标签页<span class="api t-mono">paneId</span></button>
+      <button class="act"${writeDisabled}>再派一轮<span class="api t-mono">send_to_worker</span></button>
+      <button class="act" data-danger="true"${writeDisabled}>终止会话<span class="api t-mono">kill_session</span></button>
+    </div>`;
+
+  const root=document.getElementById("aside");
+  asideRefs={ silence:root.querySelector('[data-f="silence"]'),
+              age:root.querySelector('[data-f="age"]'),
+              advice:root.querySelector('[data-f="advice"]') };
+  asideRefs.silence.textContent = live(n)?fmt(n.silence):"—";
+  asideRefs.age.textContent     = fmt(n.age);
+  if(asideRefs.advice) asideRefs.advice.textContent = adviceText(n,al,fr);
+}
+
+function adviceText(n,al,fr){
+  if(n.stray) return `该会话属于 launchId ${n.launchId}，不是本实例。写操作已禁用。`;
+  if(al)      return `轨迹显示输出在 ${fmt(n.silence)}前中断，进程仍在。先发一个回车让停在 TUI 里的 prompt 提交，不要直接终止重发。`;
+  if(fr)      return `刚派发 ${fmt(n.age)}，轨迹尚未铺开，暂无输出属正常。`;
+  return "";
+}
+
+function resetView(){
+  autoLayout();
+  // 重置 = 用户对当前动画的中断，必须清零全部速度，否则回弹/甩动中的余速会带着飞过头
+  nodes.forEach(n=>{n.tx=n.hx;n.ty=n.hy;n.vx=0;n.vy=0;n.sp=SP_MOVE;if(REDUCED){n.x=n.hx;n.y=n.hy}});
+  view.z=1; pan.tx=0; pan.ty=0; pan.vx=0; pan.vy=0; pan.sp=SP_MOVE;
+  if(REDUCED){pan.x=0;pan.y=0}
+  document.getElementById("zoomval").textContent="100%";
+}
+document.getElementById("relayout").onclick=resetView;
+
+/* 键盘等价物：Ctrl/⌘ + = / − / 0 —— 锚在画布中心 */
+addEventListener("keydown",e=>{
+  if(!(e.ctrlKey||e.metaKey))return;
+  const r=canvas.getBoundingClientRect(), cx=r.left+r.width/2, cy=r.top+r.height/2;
+  if(e.key==="="||e.key==="+"){e.preventDefault();zoomAt(cx,cy,1.2)}
+  else if(e.key==="-"){e.preventDefault();zoomAt(cx,cy,1/1.2)}
+  else if(e.key==="0"){e.preventDefault();resetView()}
+});
+
+build(); paintData(); requestAnimationFrame(frame);
+document.getElementById("zoomval").textContent="100%";
+setInterval(()=>{
+  nodes.forEach(n=>{
+    if(!live(n))return;
+    n.age++;
+    const busy=!n.stalled&&!n.stray&&!fresh(n);
+    n.silence=busy&&n.silence<40?0:n.silence+1;
+    n.hist.shift(); n.hist.push(busy?.3+Math.random()*.62:0);
+  });
+  paintData();
+},1000);
+</script>
+</body>
+</html>

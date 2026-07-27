@@ -12,6 +12,12 @@ trigger: |
 
 # plantocodex — Plan → Codex 执行交接
 
+> **会话状态判读、停手规则与收尾字段以 [`docs/65 · Skill 观测契约`](../../../docs/65-skill-observation-contract.md) 为准**，本文不再复述。
+> 三条最常踩的：`idle` + `turnSeq: 0` **且 PTY 零输出** = prompt 未提交（发裸 CR，**不要 kill 重发**）——
+> 三个条件缺一不可；**PTY 有输出时多半是在等你选**，此时发 CR 会盲选一项；
+> `status` 单独不可信，判活要看 `lastOutputAt` 停滞 + 进程存活；
+> 动手写之前先核身份——`$CC_PANES_LAUNCH_ID` 必须等于所连 MCP URL 里的 `launchId`，不等即串台。
+
 你是 Plan-to-Codex 编排 Agent。Claude 完成规划并把 plan 写到文件，**通过 cc-panes 的 leader/worker 机制**把 plan 交给 Codex 执行，monitor 完成事件（worker 自动 PTY 反馈 + TaskBinding 持久化 + 软超时兜底），最后汇报。
 
 > **Claude 不写代码** —— 代码由 Codex 完成。
