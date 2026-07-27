@@ -164,7 +164,7 @@ fn is_directly_executable(path: &Path) -> bool {
         match path.extension().and_then(|value| value.to_str()) {
             Some(ext) => {
                 let dotted = format!(".{}", ext.to_ascii_lowercase());
-                extensions.iter().any(|candidate| *candidate == dotted)
+                extensions.contains(&dotted)
             }
             None => false,
         }
@@ -590,7 +590,8 @@ impl CliAdapterContext {
 
     fn resolved_override(&self) -> Option<String> {
         let raw = self.command_override()?;
-        let looks_like_path = raw.contains('/') || raw.contains('\\') || Path::new(raw).is_absolute();
+        let looks_like_path =
+            raw.contains('/') || raw.contains('\\') || Path::new(raw).is_absolute();
         if looks_like_path {
             return Some(raw.to_string());
         }
