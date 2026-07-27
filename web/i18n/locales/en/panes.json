@@ -186,5 +186,6 @@
   "quickCommandNoActiveProject": "No active project is available",
   "quickCommandNoCliTool": "The agent prompt has no CLI tool configured",
   "quickCommandExecuteFailed": "Failed to run quick command: {{error}}",
-  "sessionClaimedByOtherInstance": "This terminal is controlled by another CC-Panes instance; view only"
+  "sessionClaimedByOtherInstance": "This terminal is controlled by another CC-Panes instance; view only",
+  "terminalZoom": "Terminal Zoom"
 }

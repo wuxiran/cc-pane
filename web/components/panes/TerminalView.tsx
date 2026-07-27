@@ -78,6 +78,7 @@ import {
 } from "./terminalTheme";
 import { normalizeTerminalFontFamily } from "./terminalFont";
 import TerminalContextMenu from "./TerminalContextMenu";
+import TerminalZoomHud from "./TerminalZoomHud";
 import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
 import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
 import "@xterm/xterm/css/xterm.css";
@@ -1930,6 +1931,37 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       terminalFontSize,
     ]);
 
+    // Ctrl+滚轮缩放。
+    //
+    // 挂在**外层 host 的捕获阶段**，而不是改 init 闭包里那个 wheel handler
+    // （它把滚轮转成方向键，属于渲染生命周期红线，一概不碰）。
+    // 捕获是外→内，所以这里能先截住带 Ctrl 的滚轮并 stopPropagation，
+    // 内层 handler 收不到，不会误发方向键；不带 Ctrl 的滚轮原样放行。
+    //
+    // 只改 settings.terminal.fontSize，上面那个 effect 会自动完成
+    // 字号应用 + 字形图集失效 + 强制重排，这里不需要碰终端实例。
+    useEffect(() => {
+      const host = terminalRef.current;
+      if (!host) return;
+
+      const onWheel = (event: WheelEvent) => {
+        if (!event.ctrlKey || event.deltaY === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const step = event.deltaY < 0 ? 1 : -1;
+        useSettingsStore
+          .getState()
+          .setTerminalFontSize(
+            normalizeTerminalFontSize(
+              useSettingsStore.getState().settings?.terminal.fontSize,
+            ) + step,
+          );
+      };
+
+      host.addEventListener("wheel", onWheel, { capture: true, passive: false });
+      return () => host.removeEventListener("wheel", onWheel, { capture: true });
+    }, []);
+
     // 启动期字体晚就绪兜底：waitForTerminalFont 有 1.5s 超时，超时后终端会用
     // fallback 字体度量 cell 并 fit；主字体随后加载完成时没有任何触发点，
     // cols/rows 误差会被放大成好几列空白。首次 loadingdone 时清图集并强制重排。
@@ -2259,16 +2291,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onExportBuffer={handleMenuExportBuffer}
           onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
         >
-          <div
-            ref={terminalRef}
-            className="cc-terminal-host flex-1 overflow-hidden [&_.xterm]:h-full"
-            onContextMenu={(event) => {
-              if (!IS_MAC) return;
-              event.preventDefault();
-              event.stopPropagation();
-              terminalInstanceRef.current?.focus();
-            }}
-          />
+          <div className="relative flex-1 overflow-hidden">
+            <div
+              ref={terminalRef}
+              className="cc-terminal-host h-full w-full overflow-hidden [&_.xterm]:h-full"
+              onContextMenu={(event) => {
+                if (!IS_MAC) return;
+                event.preventDefault();
+                event.stopPropagation();
+                terminalInstanceRef.current?.focus();
+              }}
+            />
+            <TerminalZoomHud fontSize={terminalFontSize} />
+          </div>
         </TerminalContextMenu>
       </div>
     );
