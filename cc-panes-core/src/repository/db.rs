@@ -601,6 +601,53 @@ const MIGRATIONS: &[Migration] = &[
                 ON terminal_session_provenance(daemon_generation, created_at_ms);
         ",
     },
+    Migration {
+        version: 28,
+        description: "repair v26/v27 schema drift left by batch-level duplicate-column tolerance",
+        // 修复而非新功能。
+        //
+        // 旧迁移器把整条迁移交给 execute_batch，再对 "duplicate column name" 整体容错。
+        // execute_batch 在首条语句报错就停止，于是「首条 ALTER 撞上已存在的列」会被当成
+        // 「整条迁移已应用」吞掉——后续的建表/加列/建索引一条都没跑，版本号却照记。
+        // 结果是库停在残缺 schema 且迁移永不重跑（实测：terminal_session_provenance
+        // 只有 9 列，缺三个锚点列，用户点「启动终端」时才炸）。
+        //
+        // 本迁移把 v26/v27 的产物全部重新声明一遍。全部语句都是幂等的
+        // （IF NOT EXISTS / ADD COLUMN 撞车由新的按语句容错跳过），
+        // 对 schema 完好的库是无害空转。
+        up_sql: "
+            ALTER TABLE terminal_sessions ADD COLUMN terminal_pane_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN layout_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN wsl_config TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN machine_name TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN observer_instance_id TEXT;
+
+            CREATE TABLE IF NOT EXISTS terminal_session_provenance (
+                session_id TEXT PRIMARY KEY,
+                daemon_generation INTEGER NOT NULL,
+                birth_nonce TEXT NOT NULL,
+                origin_instance_id TEXT,
+                origin_layout_id TEXT,
+                origin_tab_id TEXT,
+                origin_terminal_pane_id TEXT,
+                project_path TEXT NOT NULL,
+                runtime_kind TEXT NOT NULL,
+                cli_tool TEXT NOT NULL,
+                resume_id TEXT,
+                created_at_ms INTEGER NOT NULL
+            );
+
+            ALTER TABLE terminal_session_provenance ADD COLUMN origin_layout_id TEXT;
+            ALTER TABLE terminal_session_provenance ADD COLUMN origin_tab_id TEXT;
+            ALTER TABLE terminal_session_provenance ADD COLUMN origin_terminal_pane_id TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_anchor
+                ON terminal_sessions(layout_id, tab_id, terminal_pane_id);
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_session_provenance_generation
+                ON terminal_session_provenance(daemon_generation, created_at_ms);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -665,7 +712,84 @@ impl Database {
             conn: Mutex::new(conn),
         })
     }
+}
 
+/// 取语句首行做日志标识，避免把整段 DDL 灌进日志。
+fn statement_head(statement: &str) -> String {
+    let head: String = statement
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("")
+        .chars()
+        .take(80)
+        .collect();
+    head
+}
+
+/// 把一批 DDL 按分号切成单条语句。
+///
+/// 只需处理迁移里实际出现的语法：单引号字符串（含 `''` 转义）、`--` 行注释、
+/// `/* */` 块注释。迁移中没有触发器体，因此不需要处理 `BEGIN ... END` 内的分号。
+fn split_sql_statements(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current = String::new();
+    let mut chars = sql.chars().peekable();
+    let mut in_string = false;
+
+    while let Some(ch) = chars.next() {
+        if in_string {
+            current.push(ch);
+            if ch == '\'' {
+                // '' 是字符串内的转义单引号，不结束字符串
+                if chars.peek() == Some(&'\'') {
+                    current.push(chars.next().unwrap_or('\''));
+                } else {
+                    in_string = false;
+                }
+            }
+            continue;
+        }
+        match ch {
+            '\'' => {
+                in_string = true;
+                current.push(ch);
+            }
+            '-' if chars.peek() == Some(&'-') => {
+                // 行注释：丢弃到行尾
+                for next in chars.by_ref() {
+                    if next == '\n' {
+                        current.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut prev = '\0';
+                for next in chars.by_ref() {
+                    if prev == '*' && next == '/' {
+                        break;
+                    }
+                    prev = next;
+                }
+            }
+            ';' => {
+                if !current.trim().is_empty() {
+                    statements.push(current.trim().to_string());
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() {
+        statements.push(current.trim().to_string());
+    }
+    statements
+}
+
+impl Database {
     /// 执行版本化数据库迁移
     fn run_migrations(conn: &Connection) -> Result<(), AppError> {
         // 确保 schema_migrations 表存在
@@ -715,24 +839,34 @@ impl Database {
                     AppError::from(format!("Failed to begin transaction for migration v{}: {}", migration.version, e))
                 })?;
 
-            // execute_batch 不支持事务内参数绑定，但对 DDL 语句足够
-            // 对 ALTER TABLE 的 "duplicate column" 错误做容错处理（兼容旧数据库）
-            match tx.execute_batch(migration.up_sql) {
-                Ok(()) => {}
-                Err(e) => {
+            // 逐条执行，不用 execute_batch。
+            //
+            // 原实现把整条迁移丢给 execute_batch，再对 "duplicate column name" 整体容错。
+            // 但 execute_batch **在第一条语句报错时就停止**，于是「首条 ALTER 撞上已存在的列」
+            // 会被当成「整条迁移早已应用」而吞掉——**后面的建表/建索引一条都没跑**，
+            // 版本号却照记，迁移从此永久跳过，库里静默缺表缺列。
+            // v26（4 条连续 ALTER + 索引）与 v27（ALTER 在最前 + 建表 + 索引）都踩得到，
+            // 实测有 dev 库因此停在 9 列的 terminal_session_provenance（应为 12 列）。
+            //
+            // 改成按语句粒度：某条 ALTER 因列已存在而失败，只跳过**这一条**，后续照常执行。
+            for statement in split_sql_statements(migration.up_sql) {
+                if let Err(e) = tx.execute_batch(&statement) {
                     let err_msg = e.to_string();
                     // SQLite 的 ALTER TABLE ADD COLUMN 对已存在列报 "duplicate column name"
                     if err_msg.contains("duplicate column name") {
                         warn!(
-                            "Migration v{} encountered duplicate column (already applied partially), continuing",
-                            migration.version
+                            version = migration.version,
+                            statement = %statement_head(&statement),
+                            "Column already exists, skipping this statement and continuing with the rest"
                         );
-                    } else {
-                        return Err(AppError::from(format!(
-                            "Migration v{} failed: {}",
-                            migration.version, e
-                        )));
+                        continue;
                     }
+                    return Err(AppError::from(format!(
+                        "Migration v{} failed on statement `{}`: {}",
+                        migration.version,
+                        statement_head(&statement),
+                        e
+                    )));
                 }
             }
 
@@ -802,6 +936,111 @@ mod tests {
         let conn = db.connection().expect("should get connection");
         let version = Database::get_current_version(&conn).expect("should get version");
         assert_eq!(version, MIGRATIONS.last().unwrap().version);
+    }
+
+    fn columns_of(conn: &Connection, table: &str) -> Vec<String> {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .expect("pragma should prepare");
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("pragma should run");
+        rows.map(|r| r.expect("column name")).collect()
+    }
+
+    /// 首条 ALTER 撞上已存在的列时，**后续语句必须照常执行**。
+    /// 旧实现用 execute_batch + 整批容错，会在这里静默丢掉后面所有建表/加列/建索引。
+    #[test]
+    fn duplicate_column_only_skips_that_statement() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, existing TEXT);
+             CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );",
+        )
+        .expect("seed schema");
+
+        // 模拟一条迁移：首条 ALTER 必然撞车，后两条是真正要落地的东西
+        let sql = "
+            ALTER TABLE t ADD COLUMN existing TEXT;
+            ALTER TABLE t ADD COLUMN added_after_duplicate TEXT;
+            CREATE TABLE created_after_duplicate (id INTEGER PRIMARY KEY);
+        ";
+        for statement in split_sql_statements(sql) {
+            if let Err(e) = conn.execute_batch(&statement) {
+                assert!(
+                    e.to_string().contains("duplicate column name"),
+                    "only duplicate-column errors may be skipped, got: {e}"
+                );
+                continue;
+            }
+        }
+
+        assert!(
+            columns_of(&conn, "t").contains(&"added_after_duplicate".to_string()),
+            "撞车语句之后的 ALTER 被吞掉了"
+        );
+        let created: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='created_after_duplicate'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count table");
+        assert_eq!(created, 1, "撞车语句之后的 CREATE TABLE 被吞掉了");
+    }
+
+    /// v28 修复：schema 停在残缺 v27 形态的库，升级后必须补齐锚点列。
+    #[test]
+    fn migration_28_repairs_truncated_provenance_table() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        // 复现事故现场：9 列的 provenance 表 + 版本号已记到 27
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             CREATE TABLE terminal_sessions (session_id TEXT PRIMARY KEY, tab_id TEXT);
+             CREATE TABLE terminal_session_provenance (
+                session_id TEXT PRIMARY KEY,
+                daemon_generation INTEGER NOT NULL,
+                birth_nonce TEXT NOT NULL,
+                origin_instance_id TEXT,
+                project_path TEXT NOT NULL,
+                runtime_kind TEXT NOT NULL,
+                cli_tool TEXT NOT NULL,
+                resume_id TEXT,
+                created_at_ms INTEGER NOT NULL
+             );",
+        )
+        .expect("seed damaged schema");
+        for version in 1..=27 {
+            conn.execute(
+                "INSERT INTO schema_migrations (version, description) VALUES (?1, 'seeded')",
+                rusqlite::params![version],
+            )
+            .expect("seed version");
+        }
+        assert_eq!(columns_of(&conn, "terminal_session_provenance").len(), 9);
+
+        Database::run_migrations(&conn).expect("repair migration should apply");
+
+        let cols = columns_of(&conn, "terminal_session_provenance");
+        for expected in [
+            "origin_layout_id",
+            "origin_tab_id",
+            "origin_terminal_pane_id",
+        ] {
+            assert!(cols.contains(&expected.to_string()), "缺列 {expected}");
+        }
+        assert_eq!(
+            Database::get_current_version(&conn).expect("version"),
+            MIGRATIONS.last().unwrap().version
+        );
     }
 
     #[test]
