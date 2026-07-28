@@ -408,6 +408,32 @@ fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String
     commands
 }
 
+/// 同一份 Claude MCP 配置的**两种形式**，一次算清避免两侧各拼各的：
+/// - `.1` 宿主侧写文件用的 Windows 路径（`C:\Users\...\.cc-panes\wsl-claude-mcp-<id>.json`）
+/// - `.2` 传给 WSL 内 CLI `--mcp-config` 的路径（`/mnt/c/Users/.../wsl-claude-mcp-<id>.json`）
+///
+/// 这两个**不是同一个字符串**：把 Windows 形式交给 WSL 内进程会当成相对路径，
+/// 把 `/mnt/...` 形式交给 Windows 进程会被解析成 `D:\mnt\c\...`（盘符相对）。
+/// `.0` 是文件名，供同目录的残留清扫比对。
+#[cfg(windows)]
+fn wsl_claude_mcp_config_paths(
+    data_dir: &Path,
+    session_id: &str,
+) -> Result<(String, std::path::PathBuf, String)> {
+    let file_name = format!(
+        "wsl-claude-mcp-{}.json",
+        sanitize_wsl_claude_session_id(session_id)
+    );
+    let windows_path = data_dir.join(&file_name);
+    let wsl_path = windows_path_to_wsl(&windows_path).ok_or_else(|| {
+        anyhow!(
+            "Failed to translate Claude MCP config path to WSL path: {}",
+            windows_path.display()
+        )
+    })?;
+    Ok((file_name, windows_path, wsl_path))
+}
+
 fn sanitize_wsl_claude_session_id(session_id: &str) -> String {
     session_id
         .chars()
@@ -530,6 +556,70 @@ fi"#
 
 fn is_wsl_home_path(path: &str) -> bool {
     matches!(path.trim(), "~" | "~/")
+}
+
+/// 在 WSL 侧把 CLI 名解析成一个**原生 Linux** 可执行文件，解析结果写入 `$CCPANES_CLI_BIN`。
+///
+/// 为什么必须做这一步：WSL 默认开启 PATH interop，Windows 的整条 PATH 会追加到
+/// WSL 的 PATH 上。发行版内没装某个 CLI 时，`claude` 会静默解析到 **Windows 那份**
+/// （npm 生成的 shim，内容是 `exec ".../claude.exe" "$@"`）。它以 Windows 进程运行，
+/// 于是把我们按 WSL 语境传进去的 POSIX 绝对路径按「当前盘符相对」解析：
+/// cwd=/mnt/d/... 时 `--mcp-config /mnt/c/Users/x/.cc-panes/a.json` 变成
+/// `D:\mnt\c\Users\x\.cc-panes\a.json` → 启动即 `MCP config file not found`。
+/// 报错里既不提 Windows 也不提 WSL，看着像我们拼错了路径（实际路径两侧都对）。
+///
+/// 判定顺序（**魔数优先于文件名**）：ELF 头直接放行 → PE 头（`MZ`）拒 →
+/// `.exe/.cmd/.bat` 后缀拒 → `/mnt/*` 下「exec 一个 .exe」的 npm shim 拒。
+/// 魔数必须压过后缀：`@anthropic-ai/claude-code` 把**原生 Linux ELF** 就叫
+/// `bin/claude.exe`（package.json 里 `bin` 无条件指向它），只看后缀会把
+/// 唯一能用的那份判成 Windows 程序。反过来 npm 生成的 Windows shim 是
+/// `#!/bin/sh` 文本（无魔数），所以还需要 `/mnt/*` + exec-.exe 这条。
+/// 纯 JS 的 CLI（如 gemini）shim 走 `exec node .../x.js`，在 WSL 里由 Linux node
+/// 执行、路径语义正确，属于**可用**，不能一律按 `/mnt/*` 拒掉。
+///
+/// 一个候选都不剩就带诊断信息 `exit 127`——宁可显式失败，
+/// 也不要静默跑 Windows 版（那是本缺陷的全部成本来源）。
+fn push_wsl_native_cli_resolution_prelude(remote_parts: &mut Vec<String>, command: &str) {
+    remote_parts.push(format!(
+        r#"CCPANES_CLI_NAME={cmd}
+__ccpanes_is_windows_exe() {{
+  case "$(head -c 4 "$1" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')" in
+    7f454c46*) return 1 ;;
+    4d5a*) return 0 ;;
+  esac
+  case "$1" in
+    *.exe|*.EXE|*.cmd|*.CMD|*.bat|*.BAT) return 0 ;;
+  esac
+  case "$1" in
+    /mnt/*)
+      if head -c 4096 "$1" 2>/dev/null | grep -qiE '^[[:space:]]*exec[[:space:]].*\.(exe|cmd|bat)' ; then
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}}
+CCPANES_CLI_BIN=""
+CCPANES_CLI_REJECTED=""
+for __ccpanes_cand in $(type -pa "$CCPANES_CLI_NAME" 2>/dev/null || true); do
+  if __ccpanes_is_windows_exe "$__ccpanes_cand"; then
+    CCPANES_CLI_REJECTED="$CCPANES_CLI_REJECTED $__ccpanes_cand"
+  else
+    CCPANES_CLI_BIN="$__ccpanes_cand"
+    break
+  fi
+done
+if [ -z "$CCPANES_CLI_BIN" ]; then
+  echo "[cc-panes] '$CCPANES_CLI_NAME' 在该 WSL 发行版内没有原生 Linux 版本。" >&2
+  if [ -n "$CCPANES_CLI_REJECTED" ]; then
+    echo "[cc-panes] PATH 上只找到 Windows 可执行文件（WSL PATH interop 从 Windows 继承）：$CCPANES_CLI_REJECTED" >&2
+    echo "[cc-panes] Windows 程序在 WSL 内会把 /mnt/... 参数当成盘符相对路径（如 D:\\mnt\\c\\...），启动必然失败。" >&2
+  fi
+  echo "[cc-panes] 请在该发行版内安装原生 Linux 版 '$CCPANES_CLI_NAME' 后重试。" >&2
+  exit 127
+fi"#,
+        cmd = shell_escape_posix(command)
+    ));
 }
 
 #[cfg(windows)]
@@ -1064,10 +1154,11 @@ impl TerminalService {
             .map(|arg| Self::shell_escape(arg))
             .collect::<Vec<_>>()
             .join(" ");
+        push_wsl_native_cli_resolution_prelude(&mut remote_parts, command);
         remote_parts.push(if escaped_cli_args.is_empty() {
-            format!("exec {}", command)
+            "exec \"$CCPANES_CLI_BIN\"".to_string()
         } else {
-            format!("exec {} {}", command, escaped_cli_args)
+            format!("exec \"$CCPANES_CLI_BIN\" {}", escaped_cli_args)
         });
 
         self.build_wsl_script_command(wsl, session_id, command, launch_cwd, remote_parts)
@@ -1128,11 +1219,8 @@ impl TerminalService {
             None
         };
 
-        let file_name = format!(
-            "wsl-claude-mcp-{}.json",
-            sanitize_wsl_claude_session_id(session_id)
-        );
-        let config_path = self.app_paths.data_dir().join(&file_name);
+        let (file_name, config_path, wsl_config_path) =
+            wsl_claude_mcp_config_paths(self.app_paths.data_dir(), session_id)?;
 
         // 清扫崩溃残留：会话正常结束会删自己的配置（cleanup_session_mcp_configs），
         // 但 daemon 崩溃时会遗留。仅删除同时满足两个条件的文件：
@@ -1166,13 +1254,6 @@ impl TerminalService {
                 }
             }
         }
-        let wsl_config_path = windows_path_to_wsl(&config_path).ok_or_else(|| {
-            anyhow!(
-                "Failed to translate Claude MCP config path to WSL path: {}",
-                config_path.display()
-            )
-        })?;
-
         let ccpanes = if let Some(proxy) = proxy {
             serde_json::json!({
                 "type": "stdio",
@@ -1378,9 +1459,9 @@ impl TerminalService {
             .join(" ");
         // $CCPANES_CODEX_MCP_DISABLE 由 prelude 填充为「-c mcp_servers.X.enabled=false ...」，
         // 需未转义地展开（多个 token），且必须在 resume 子命令之前 → 紧跟 codex 之后。
+        push_wsl_native_cli_resolution_prelude(&mut remote_parts, codex_path);
         remote_parts.push(format!(
-            "exec {} $CCPANES_CODEX_MCP_DISABLE {}",
-            Self::shell_escape(codex_path),
+            "exec \"$CCPANES_CLI_BIN\" $CCPANES_CODEX_MCP_DISABLE {}",
             escaped_codex_args
         ));
 
@@ -1448,8 +1529,11 @@ mod tests {
     use super::WslHostProbeCache;
     use super::{
         append_codex_resume_args, push_codex_developer_instructions_arg, push_codex_yolo_mode_arg,
-        push_wsl_codex_mcp_isolation_prelude, render_wsl_launch_script, wsl_host_probe_script,
+        push_wsl_codex_mcp_isolation_prelude, push_wsl_native_cli_resolution_prelude,
+        render_wsl_launch_script, wsl_host_probe_script,
     };
+    #[cfg(windows)]
+    use super::{wsl_claude_mcp_config_paths, windows_path_to_wsl};
     #[cfg(windows)]
     use super::{
         build_wsl_claude_skill_sync_prelude, build_wsl_codex_skill_sync_prelude,
@@ -1470,6 +1554,92 @@ mod tests {
 
     fn remove_dir(path: &Path) {
         let _ = fs::remove_dir_all(path);
+    }
+
+    /// 回归锁：WSL runtimeKind + Windows 数据目录时，写文件的路径与传给 CLI 的
+    /// `--mcp-config` 参数路径必须**各自**是正确形式（Windows / `/mnt/...`）。
+    /// 曾经的失效形态不是这里算错，而是参数被 Windows 版 CLI 消费（见下一个测试）。
+    #[test]
+    #[cfg(windows)]
+    fn wsl_claude_mcp_config_paths_returns_both_forms() {
+        let session_id = "be317953-fd5f-4fd5-8732-69297a883c46";
+        let data_dir = Path::new(r"C:\Users\tester\.cc-panes");
+
+        let (file_name, windows_path, wsl_path) =
+            wsl_claude_mcp_config_paths(data_dir, session_id).unwrap();
+
+        assert_eq!(
+            file_name,
+            format!("wsl-claude-mcp-{}.json", session_id),
+            "文件名必须带 wsl- 前缀，与本地 mcp-<id>.json 区分"
+        );
+        // 宿主侧：写文件用的必须是 Windows 路径
+        assert_eq!(windows_path, data_dir.join(&file_name));
+        // WSL 侧：传给 CLI 的必须是 /mnt/<drive>/... 且不含反斜杠
+        assert_eq!(
+            wsl_path,
+            format!("/mnt/c/Users/tester/.cc-panes/{}", file_name)
+        );
+        assert!(!wsl_path.contains('\\'));
+        // 两者不是同一个字符串——把任一形式喂给另一侧都会 "config file not found"
+        assert_ne!(wsl_path, windows_path.to_string_lossy());
+    }
+
+    /// 会话 id 里的路径穿越字符必须在文件名层被过滤掉，不能逃出 data_dir。
+    #[test]
+    #[cfg(windows)]
+    fn wsl_claude_mcp_config_paths_sanitizes_session_id() {
+        let data_dir = Path::new(r"C:\Users\tester\.cc-panes");
+        let (file_name, windows_path, _) =
+            wsl_claude_mcp_config_paths(data_dir, r"..\..\evil id").unwrap();
+        assert_eq!(file_name, "wsl-claude-mcp-evilid.json");
+        assert_eq!(windows_path.parent().unwrap(), data_dir);
+    }
+
+    /// UNC / verbatim 前缀也要能翻成 /mnt 形式（data_dir 可能是 `\\?\C:\...`）。
+    #[test]
+    #[cfg(windows)]
+    fn windows_path_to_wsl_handles_verbatim_prefix() {
+        assert_eq!(
+            windows_path_to_wsl(Path::new(r"\\?\D:\04_workspace_rust\cc-book")).unwrap(),
+            "/mnt/d/04_workspace_rust/cc-book"
+        );
+        assert_eq!(windows_path_to_wsl(Path::new(r"C:\")).unwrap(), "/mnt/c");
+        // 非盘符路径（UNC 主机名等）无法翻译 → None，调用方报错而不是拼出垃圾路径
+        assert!(windows_path_to_wsl(Path::new(r"\\wsl.localhost\Ubuntu\home")).is_none());
+    }
+
+    /// WSL 启动必须解析到**原生 Linux** CLI：PATH interop 会把 Windows 的 npm shim
+    /// （`exec .../claude.exe`）带进 WSL，它以 Windows 进程运行会把 `/mnt/c/...`
+    /// 参数解析成 `D:\mnt\c\...`，启动即失败且错误信息不提 WSL。
+    #[test]
+    fn native_cli_resolution_prelude_rejects_windows_executables() {
+        let mut parts = Vec::new();
+        push_wsl_native_cli_resolution_prelude(&mut parts, "claude");
+        let script = parts.join("\n");
+
+        assert!(script.contains("CCPANES_CLI_NAME='claude'"));
+        // 枚举 PATH 上的全部候选，而不是只取第一个
+        assert!(script.contains(r#"type -pa "$CCPANES_CLI_NAME""#));
+        // ELF 魔数放行必须排在后缀判定之前：claude 的原生 Linux 二进制就叫 claude.exe
+        let elf_at = script.find("7f454c46*) return 1").expect("ELF 放行分支缺失");
+        let suffix_at = script
+            .find("*.exe|*.EXE|*.cmd|*.CMD|*.bat|*.BAT")
+            .expect("后缀拒绝分支缺失");
+        assert!(elf_at < suffix_at, "ELF 魔数判定必须压过 .exe 后缀判定");
+        // 其余两条排除信号：PE 头 / /mnt 下 exec 一个 .exe 的 shim
+        assert!(script.contains("4d5a*) return 0"));
+        assert!(script.contains(r"\.(exe|cmd|bat)"));
+        // 一个候选都不剩 → 显式失败，绝不静默回退到 Windows 版
+        assert!(script.contains("exit 127"));
+        assert!(script.contains("CCPANES_CLI_REJECTED"));
+    }
+
+    #[test]
+    fn native_cli_resolution_prelude_escapes_command_name() {
+        let mut parts = Vec::new();
+        push_wsl_native_cli_resolution_prelude(&mut parts, "cursor-agent");
+        assert!(parts[0].starts_with("CCPANES_CLI_NAME='cursor-agent'\n"));
     }
 
     #[test]
