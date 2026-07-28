@@ -8,13 +8,8 @@
 
 [![Latest Release](https://img.shields.io/github/v/release/wuxiran/cc-pane?display_name=tag&sort=semver)](https://github.com/wuxiran/cc-pane/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/wuxiran/cc-pane/total?label=downloads&color=success)](https://github.com/wuxiran/cc-pane/releases)
-[![Stars](https://img.shields.io/github/stars/wuxiran/cc-pane?style=flat&color=yellow)](https://github.com/wuxiran/cc-pane/stargazers)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/wuxiran/cc-pane/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-[![CI](https://github.com/wuxiran/cc-pane/actions/workflows/ci.yml/badge.svg)](https://github.com/wuxiran/cc-pane/actions/workflows/ci.yml)
-[![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri)](https://tauri.app/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
-[![Rust](https://img.shields.io/badge/Rust-1.83+-000000?logo=rust)](https://www.rust-lang.org/)
 
 [English](README.md) · **中文** · [📖 使用手册](docs/guide/README.md)
 
@@ -24,16 +19,13 @@
 
 </div>
 
-CC-Panes 是一个桌面端 AI 编程控制台。它把项目、终端、启动配置、Provider、Todo、文件浏览、Git 状态、本地历史、会话恢复放到同一个工作台里，方便你同时推进多个 AI Coding 任务。它不是单纯的终端壳子，而是给 Claude Code、Codex、Gemini 等 CLI 工作流补上项目组织、并行编排、上下文恢复和桌面工具链。
+跑一个 AI Coding agent 很容易，跑五个就开始失控 —— 哪个终端在干什么、在哪个项目里、用的哪个 Provider、一小时前做了什么，全都记不住。
 
-## ✨ 为什么用 CC-Panes
+CC-Panes 就是为此而生的桌面控制台。它把项目、终端、启动配置、Provider、Todo、文件浏览、Git 状态、本地历史、会话恢复放到同一个工作台里，方便你同时推进多个 AI Coding 任务。它不是单纯的终端壳子，而是给 Claude Code、Codex、Gemini 等 CLI 工作流补上项目组织、并行编排、上下文恢复和桌面工具链 —— 同时适配 Kimi、GLM、OpenCode、Cursor，并支持在启动时选择 Provider 配置档。
 
-- 🖥️ **并行会话** —— 多个 AI Coding 会话在分屏终端里并排运行，不用在一堆窗口里切来切去。
-- 🧠 **内置 MCP 编排** —— 自带 `ccpanes` MCP（`launch_task`、memory、workspace、plan 工具），一个 agent 能拉起并协调其它 agent。
-- 🔗 **多端会话共享** —— 独立 daemon 托管 PTY，桌面、Web、手机镜像附着**同一批活会话**。
-- 📱 **移动端镜像** —— Flutter Android 客户端镜像电脑布局，可在手机上接管会话。
-- 🗂️ **一处管全部** —— 工作区、项目、任务、Todo、启动历史、Provider、Git、本地历史、文件编辑。
-- 🔌 **按启动定制** —— 每次启动可选 Provider、配置档、运行环境（本地 / WSL / SSH）和 Skill 策略。
+<!-- TODO(media): 功能墙 6 组，见 docs/67-storyboards.md §3
+     A 派工编排 / B 分屏并行 / D worktree 隔离 / C 移动端接管 / E AI 面板 / F skill 体系
+     每组用 <picture> + <source srcset type="image/gif"> + JPG fallback，外包 <a> 链到对应 guide 篇 -->
 
 ## 截图
 
@@ -44,42 +36,6 @@ CC-Panes 是一个桌面端 AI 编程控制台。它把项目、终端、启动�
 | Todo 与任务管理 | 浅色工作区 |
 | --- | --- |
 | <img src="docs/assets/images/screenshot-todolist.png" alt="CC-Panes Todo 和任务面板" width="440" /> | <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes 浅色工作区" width="440" /> |
-
-## 核心能力
-
-**多实例终端**
-
-- 基于 xterm.js 和 portable-pty 的真实 PTY 终端。
-- 支持分屏、Tab、多 Pane 布局和终端尺寸同步。
-- 可启动 Claude Code、Codex、Gemini、Kimi、GLM、OpenCode、Cursor。
-- 记录启动历史，支持按项目恢复历史会话。
-
-**工作区和项目**
-
-- 工作区、项目树、置顶、隐藏、排序、扫描、导入、新建项目。
-- 每个项目拥有独立的启动历史、任务、Todo、MCP 配置和元数据。
-- 内置文件浏览器，支持搜索、新建、重命名、删除、复制、移动和打开编辑器。
-- Monaco 编辑器、Markdown 预览、图片预览。
-
-**启动配置和 Provider**
-
-- Launch Profile 管理 CLI、运行环境、Provider、Skill 和环境变量组合。
-- Provider 支持 Anthropic、Bedrock、Vertex、OpenAI 兼容代理、Gemini、Kimi、GLM、OpenCode、Cursor 和本地配置档。
-- 启动时可以选择继承 Provider、显式指定 Provider，或不注入 Provider。
-- 内置 Claude Code commands、agents、hooks 和 CC-Panes skills，适合编排式任务流。
-
-**Git、本地历史和审查**
-
-- Git 分支状态、fetch、pull、push、stash、clone、worktree 辅助能力。
-- 分支感知的本地历史快照、标签和 diff 视图。
-- 可对比并恢复本地文件版本。
-
-**桌面工作流**
-
-- 开发版和发布版的数据目录、应用标识、快捷键和窗口标题相互隔离。
-- 全局截图快捷键、区域截图、多显示器支持。
-- 托盘、通知、语音输入、小窗模式、全屏聚焦、快捷键配置。
-- 已发布 Windows、macOS、Linux 安装包。
 
 ## ⬇ 下载
 
@@ -92,6 +48,29 @@ CC-Panes 是一个桌面端 AI 编程控制台。它把项目、终端、启动�
 | **Linux** | `*_amd64.AppImage` · `*_amd64.deb` |
 
 稳定版支持应用内自动更新；beta 版以预发布形式发布，可手动安装。
+
+## 能力矩阵
+
+工作区、项目、任务、Todo、启动历史、Provider、Git、本地历史、文件编辑 —— 一处管全部：
+
+| 能力 | 具体内容 |
+| --- | --- |
+| **AI 编排** | 内置 `ccpanes` MCP（`launch_task`、memory、workspace、plan 工具），一个 agent 能拉起并协调其它 agent；Leader / Worker 派工与回执；内置 Claude Code commands、agents、hooks 和 CC-Panes skills，适合编排式任务流。 |
+| **多实例终端** | 基于 xterm.js 和 portable-pty 的真实 PTY 终端；支持分屏、Tab、多 Pane 布局和终端尺寸同步；可启动 Claude Code、Codex、Gemini、Kimi、GLM、OpenCode、Cursor；记录启动历史，支持按项目恢复历史会话。 |
+| **多端会话共享** | 独立 daemon 托管 PTY，桌面、Web、手机镜像附着**同一批活会话**；Flutter Android 客户端镜像电脑布局，可在手机上接管会话。 |
+| **工作区和项目** | 工作区、项目树、置顶、隐藏、排序、扫描、导入、新建项目；每个项目拥有独立的启动历史、任务、Todo、MCP 配置和元数据；内置文件浏览器，支持搜索、新建、重命名、删除、复制、移动和打开编辑器；Monaco 编辑器、Markdown 预览、图片预览。 |
+| **启动配置和 Provider** | Launch Profile 管理 CLI、运行环境（本地 / WSL / SSH）、Provider、Skill 和环境变量组合；Provider 支持 Anthropic、Bedrock、Vertex、OpenAI 兼容代理、Gemini、Kimi、GLM、OpenCode、Cursor 和本地配置档；启动时可以选择继承 Provider、显式指定 Provider，或不注入 Provider。 |
+| **Git、本地历史和审查** | Git 分支状态、fetch、pull、push、stash、clone、worktree 辅助能力；分支感知的本地历史快照、标签和 diff 视图；可对比并恢复本地文件版本。 |
+| **桌面工作流** | 开发版和发布版的数据目录、应用标识、快捷键和窗口标题相互隔离；全局截图快捷键、区域截图、多显示器支持；托盘、通知、语音输入、小窗模式、全屏聚焦、快捷键配置；已发布 Windows、macOS、Linux 安装包。 |
+
+## 📖 使用手册
+
+[使用手册](docs/guide/README.md)共 20 篇，分四层：
+
+- [**一 · 入门**](docs/guide/README.md#一入门) —— CC-Panes 是什么、安装与第一次启动、核心概念、上手五步、终端与分屏。
+- [**二 · 日常使用**](docs/guide/README.md#二日常使用) —— 文件浏览与编辑、Git 与 Worktree、Local History、Todo / 会话日志 / Memory、设置详解。
+- [**三 · 高级玩法**](docs/guide/README.md#三高级玩法cc-panes-的核心卖点) —— MCP 编排、多实例并行、Leader / Worker、Plan 交接与同行评审、Resume、WSL / SSH、Web 与手机端、AI 面板、Skill 体系、右侧坞、应用内浏览器。
+- [**四 · 参考**](docs/guide/README.md#四参考) —— 数据存在哪 / 备份与排障、快捷键速查、常见问题。
 
 ## ❤️ 赞助
 
@@ -136,12 +115,6 @@ CC-Panes 独立开发，唯一赞助：
   <img src="docs/assets/images/wechat-bug-feedback.png" alt="CC-Panes Bug 反馈微信" width="200" />
 </p>
 
-## ⭐ Star History
-
-<a href="https://star-history.com/#wuxiran/cc-pane&Date">
-  <img src="https://api.star-history.com/svg?repos=wuxiran/cc-pane&type=Date" alt="Star History Chart" width="600" />
-</a>
-
 ## License
 
 本项目使用 [GPL-3.0](LICENSE) 协议。
@@ -159,120 +132,4 @@ CC-Panes 独立开发，唯一赞助：
 
 ---
 
-<details>
-<summary>🛠️ <b>开发者指南</b> —— 从源码构建、检查、架构、项目结构</summary>
-
-### 从源码运行
-
-**环境要求**
-
-- Node.js 22+
-- Rust 1.83+
-- 平台对应的 [Tauri 2 环境依赖](https://tauri.app/start/prerequisites/)
-- 你希望由 CC-Panes 启动的 Claude Code、Codex、Gemini 或其他 CLI
-
-**安装并启动**
-
-```bash
-git clone https://github.com/wuxiran/cc-pane.git
-cd cc-pane
-npm install
-npm run tauri:dev
-```
-
-开发版使用 `src-tauri/tauri.dev.conf.json`，数据目录为 `~/.cc-panes-dev/`。
-
-### 构建
-
-```bash
-npm run build          # 只构建前端
-npm run tauri build    # 桌面发布包（自动跑前端构建 + 辅助二进制 + 资源复制）
-```
-
-### 检查命令
-
-```bash
-# 前端
-npx tsc --noEmit
-npm run test:run
-
-# Rust
-cargo fmt --all -- --check
-cargo check --workspace
-cargo clippy --workspace -- -D warnings
-cargo test --workspace
-```
-
-### WSL 原生开发
-
-在 WSL 中开发时，可把终端强制到 WSL 原生模式：
-
-```bash
-CCPANES_TERMINAL_BACKEND=wsl npm run tauri:dev
-```
-
-内置终端会直接运行 WSL 默认 shell，适合在 Linux 工具链里开发调试。
-
-### 架构
-
-```text
-React Component
-  -> Zustand Store
-  -> Frontend Service
-  -> Tauri IPC Command
-  -> Rust Service
-  -> Repository
-  -> SQLite / File System / PTY
-```
-
-| 层级 | 技术 | 作用 |
-| --- | --- | --- |
-| 桌面框架 | Tauri 2 | Rust 后端 + 系统 WebView |
-| 前端 | React 19、TypeScript 5.6、Vite 6 | 应用界面 |
-| 状态管理 | Zustand 5、Immer | 可预测的状态更新 |
-| UI | shadcn/ui、Radix UI、Tailwind CSS 4 | 组件和样式 |
-| 终端 | xterm.js、portable-pty | 终端渲染和 PTY 管理 |
-| 存储 | SQLite、rusqlite | 本地持久化 |
-| 测试 | Vitest、jsdom、Rust test | 前后端验证 |
-
-### 项目结构
-
-```text
-cc-pane/
-├── web/                  # React 前端（组件、状态、服务、Hooks、类型、国际化）
-├── src-tauri/            # Tauri 入口、命令、服务、仓储
-├── cc-panes-core/        # 框架无关核心逻辑
-├── cc-panes-api/         # HTTP/WebSocket API 适配
-├── cc-panes-web/         # Web 终端服务
-├── cc-panes-daemon/      # 独立 PTY 宿主（多端会话共享）
-├── cc-cli-adapters/      # Claude/Codex/Gemini 等 CLI 适配层
-├── cc-panes-mobile/      # Flutter Android 镜像客户端
-├── docs/                 # 文档和截图
-└── scripts/              # 构建和工具脚本
-```
-
-前端使用 `@/` 路径别名，对应 `web/` 目录。
-
-### 开发版和发布版隔离
-
-| | 开发版 | 发布版 |
-| --- | --- | --- |
-| 命令 | `npm run tauri:dev` | `npm run tauri build` |
-| 数据目录 | `~/.cc-panes-dev/` | `~/.cc-panes/` |
-| 应用标识 | `com.ccpanes.dev` | `com.ccpanes.app` |
-| 窗口标题 | `CC-Panes [DEV]` | `CC-Panes` |
-| 截图快捷键 | `Ctrl+Alt+Shift+S` | `Ctrl+Shift+S` |
-
-涉及 Windows 桌面行为时，需要在 Windows 主机验证。WSL 或 Linux 环境可以做代码和预检，但不能证明 WebView2、托盘、全局快捷键、截图、更新器、安装器或 Windows PTY 行为。
-
-### 参与贡献
-
-欢迎提交 Issue 和 PR。较大的功能改动建议先开 Issue 对齐范围和设计。提交信息使用 [Conventional Commits](https://www.conventionalcommits.org/)：
-
-```text
-feat: add launch profile import
-fix: repair Windows PTY resize handling
-docs: update README screenshots
-```
-
-</details>
+想从源码构建？见 [CONTRIBUTING.md](CONTRIBUTING.md)。
