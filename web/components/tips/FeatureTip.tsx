@@ -1,9 +1,10 @@
-import { Check, Keyboard, Play } from "lucide-react";
+import { BookOpen, Check, Keyboard, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import GuidedDialog from "@/components/onboarding/GuidedDialog";
 import { Button } from "@/components/ui/button";
 import { formatKeyCombo, isTerminalPassthroughAction, useSettingsStore } from "@/stores";
 import type { FeatureTipDefinition } from "./featureTipRegistry";
+import { openGuideDoc } from "./openGuideDoc";
 
 interface FeatureTipProps {
   definition: FeatureTipDefinition;
@@ -79,6 +80,17 @@ export default function FeatureTip({
           >
             {t("featureTips.terminalPassthroughHint")}
           </p>
+        )}
+        {definition.guidePath && (
+          <button
+            type="button"
+            data-testid="feature-tip-guide-link"
+            className="flex items-center gap-2 text-left text-[12px] text-[var(--app-text-secondary)] hover:text-[var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            onClick={() => void openGuideDoc(definition.guidePath!)}
+          >
+            <BookOpen aria-hidden="true" size={15} />
+            <span className="text-[var(--app-accent)]">{t("featureTips.learnMore")}</span>
+          </button>
         )}
         <button
           type="button"

@@ -1,11 +1,11 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Zap, Sparkles, Server } from "lucide-react";
 import ProvidersPanel from "@/components/providers/ProvidersPanel";
 import SharedMcpSection from "@/components/settings/SharedMcpSection";
+import { useActivityBarStore, type ResourcesTab } from "@/stores/useActivityBarStore";
 import GlobalSkillsPanel from "./GlobalSkillsPanel";
 
-type HubTab = "providers" | "skills" | "mcp";
+type HubTab = ResourcesTab;
 
 /**
  * 资源中心（CC-Panes 全局资源大页面）。
@@ -14,7 +14,9 @@ type HubTab = "providers" | "skills" | "mcp";
  */
 export default function ResourceHub() {
   const { t } = useTranslation(["settings", "common"]);
-  const [tab, setTab] = useState<HubTab>("providers");
+  // tab 提到 store：外部入口（功能提示的「试试看」）需要直达某个 tab
+  const tab = useActivityBarStore((state) => state.resourcesTab);
+  const setTab = useActivityBarStore((state) => state.setResourcesTab);
 
   const tabs: { id: HubTab; label: string; icon: React.ReactNode }[] = [
     { id: "providers", label: t("provider"), icon: <Zap size={16} /> },

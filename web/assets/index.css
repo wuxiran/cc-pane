@@ -58,6 +58,36 @@
   }
 }
 
+/* 功能提示（tips）的演示动画：只做一次性入场，元素的静态样式就是终态。
+   因此 reduced-motion 下 `animation: none` 即直接呈现终态，无需再写一套。
+   时长/缓动一律走 token，不用 Tailwind 的 animate-*（见 docs/46 §6.1）。 */
+@keyframes tip-demo-rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tip-demo-slide-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+.tip-demo-rise,
+.tip-demo-slide-in {
+  animation-duration: var(--dur-demo);
+  animation-timing-function: var(--ease-out);
+  animation-fill-mode: both;
+}
+
+.tip-demo-rise { animation-name: tip-demo-rise; }
+.tip-demo-slide-in { animation-name: tip-demo-slide-in; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tip-demo-rise,
+  .tip-demo-slide-in {
+    animation: none;
+  }
+}
+
 /* 打包 Inter 变量字体(UI 正文)。系统未装 Inter 时靠此 webfont 保证跨平台一致的精致排版。 */
 @font-face {
   font-family: "Inter Variable";

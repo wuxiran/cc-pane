@@ -7,6 +7,9 @@ import { useSettingsStore } from "@/stores";
 import FeatureTip from "./FeatureTip";
 import type { FeatureTipDefinition } from "./featureTipRegistry";
 
+const openUrl = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
+
 const definition: FeatureTipDefinition = {
   id: "command-palette",
   actionId: "command-palette",
@@ -32,6 +35,8 @@ function renderTip(overrides: Partial<ComponentProps<typeof FeatureTip>> = {}) {
 
 describe("FeatureTip", () => {
   beforeEach(() => {
+    openUrl.mockClear();
+    vi.spyOn(window, "open").mockReturnValue(null);
     const settings = useSettingsStore.getState().getDefaults();
     useSettingsStore.setState({
       settings: {
@@ -116,6 +121,27 @@ describe("FeatureTip", () => {
     renderTip();
 
     expect(screen.queryByTestId("feature-tip-passthrough-hint")).not.toBeInTheDocument();
+  });
+
+  it("没有落点教程时不渲染「查看教程」", () => {
+    renderTip();
+
+    expect(screen.queryByTestId("feature-tip-guide-link")).not.toBeInTheDocument();
+  });
+
+  it("有落点教程时渲染链接，点击按既有惯例打开 GitHub 上的 guide", async () => {
+    const user = userEvent.setup();
+    renderTip({
+      definition: { ...definition, guidePath: "docs/guide/12-leader-worker.md" },
+    });
+
+    await user.click(screen.getByTestId("feature-tip-guide-link"));
+
+    // 桌面壳里走 plugin-opener（与 UpdateNotification 同一条既有惯例）
+    expect(openUrl).toHaveBeenCalledWith(
+      "https://github.com/wuxiran/cc-pane/blob/main/docs/guide/12-leader-worker.md",
+    );
+    expect(window.open).not.toHaveBeenCalled();
   });
 
   it("执行试试看、知道了和快捷键设置动作", async () => {

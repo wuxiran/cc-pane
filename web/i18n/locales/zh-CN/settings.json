@@ -243,6 +243,7 @@
     "gotIt": "知道了",
     "disable": "不再显示任何提示",
     "rebind": "随时重新绑定快捷方式",
+    "learnMore": "查看教程",
     "terminalPassthroughHint": "终端聚焦时这个快捷键会交给终端处理，按下不会有反应。先点击终端以外的区域（如标签栏或侧边栏）再按。",
     "shortcutSettings": "设置 → 快捷键",
     "commandPalette": {
@@ -264,6 +265,30 @@
       "title": "从统一启动器新建标签",
       "body": "在一个入口选择项目、CLI、运行环境和启动参数。",
       "bodyUnbound": "去设置绑定新建标签快捷键，从统一启动器选择项目、CLI 和环境。"
+    },
+    "dispatchOrchestration": {
+      "title": "让一个 AI 指挥另一批 AI",
+      "body": "说一句「并行跑」，当前实例就会拆活、开出多个 Claude / Codex 工人各自去干，工人完成后自动回报，你只管发起和收尾。任务编排面板里能看到每个工人的实时状态。"
+    },
+    "worktreeIsolation": {
+      "title": "并行改代码，但别动主工作树",
+      "body": "Worktree 把不同分支同时检出到不同目录：派出去的工人各改各的副本，你的主工作树保持干净。右键项目 →「Worktree 管理」可以新建、删除，或直接在某个 worktree 里开终端。"
+    },
+    "aiPanel": {
+      "title": "让 AI 画一块界面给你看",
+      "body": "终端里的 AI 只能吐字符。经 MCP，它可以直接投递一块 Markdown 或 HTML 面板：对比表、进度看板，甚至几个按钮让你拍板。面板默认落在右侧坞，关掉后正文仍留在历史里。"
+    },
+    "skills": {
+      "title": "常用玩法已经预置进 AI 的脑子",
+      "body": "并行派工、Plan 交接、同行评审、收尾检查——这些流程已写成 skill，随 CC-Panes 装进各 CLI。直接用大白话说就会触发；想看完整清单，在会话里敲 `/`（Codex 用 `ccpanes-` 前缀），或去资源中心 → Skills 翻「内置 CC-Panes Skills」那一段。"
+    },
+    "rightDock": {
+      "title": "右侧坞：一边跑一边盯",
+      "body": "标题栏最右、齿轮左边那个面板按钮打开右侧坞：AI 改了哪些文件、Git 变更、AI 面板、会话历史都收在这儿，和左侧栏可以同时开着。它没有快捷键，每次重启也默认收起。"
+    },
+    "browserTab": {
+      "title": "浏览器是 AI 的手，不是你的手",
+      "body": "分屏里能开一个真正的浏览器，但没有「新建浏览器标签」按钮——它由 AI 经 MCP 打开：让它打开 dev server、截图、点几下、跑一段 JS 验证改动，而不是只回你一句「应该好了」。截图 / 点击 / 执行 JS 目前仅 Windows 可用。"
     }
   },
   "openLogDir": "打开日志目录",

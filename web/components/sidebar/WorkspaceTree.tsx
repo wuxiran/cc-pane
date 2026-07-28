@@ -1,4 +1,4 @@
-import { Fragment, useState, useCallback, useMemo, type ReactNode } from "react";
+import { Fragment, useState, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -210,6 +210,21 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
     setWorktreeManagerWs(ws);
     setWorktreeManagerOpen(true);
   }, []);
+
+  // 树外入口（功能提示 / 命令面板）请求打开 Worktree 管理：按路径回找项目所属工作空间。
+  // 消费后立刻清空，避免下次挂载重复弹出。
+  const worktreeManagerRequestPath = useDialogStore((s) => s.worktreeManagerRequestPath);
+  useEffect(() => {
+    if (!worktreeManagerRequestPath) return;
+    useDialogStore.getState().clearWorktreeManagerRequest();
+    for (const ws of workspaces) {
+      const project = ws.projects.find((p) => p.path === worktreeManagerRequestPath);
+      if (project) {
+        handleOpenWorktreeManager(project, ws);
+        return;
+      }
+    }
+  }, [handleOpenWorktreeManager, workspaces, worktreeManagerRequestPath]);
 
   const handleOpenInFileBrowser = useCallback((path: string) => {
     import("@/stores/useFileBrowserStore").then(({ useFileBrowserStore }) => {
