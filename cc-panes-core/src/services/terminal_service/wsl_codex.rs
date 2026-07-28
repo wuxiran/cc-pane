@@ -1224,6 +1224,7 @@ impl TerminalService {
         session_id: &str,
         env_vars: &HashMap<String, String>,
         provider_env: &HashMap<String, String>,
+        provider: Option<&cc_cli_adapters::CliProvider>,
         resume_id: Option<&str>,
         append_system_prompt: Option<&str>,
         initial_prompt: Option<&str>,
@@ -1236,7 +1237,14 @@ impl TerminalService {
         adapter_options: &HashMap<String, serde_json::Value>,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
-        push_wsl_env_exports(&mut remote_parts, provider_env);
+        let mut provider_env = provider_env.clone();
+        let mut codex_args = Vec::new();
+        cc_cli_adapters::CodexAdapter::push_provider_overrides(
+            &mut codex_args,
+            &mut provider_env,
+            provider,
+        );
+        push_wsl_env_exports(&mut remote_parts, &provider_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
         push_wsl_codex_mcp_isolation_prelude(
             &mut remote_parts,
@@ -1253,8 +1261,6 @@ impl TerminalService {
         }
 
         let codex_path = "codex";
-
-        let mut codex_args = Vec::new();
 
         if !skip_mcp {
             let proxy = super::wsl_mcp_proxy::invocation(
@@ -1426,6 +1432,7 @@ impl TerminalService {
         _session_id: &str,
         _env_vars: &HashMap<String, String>,
         _provider_env: &HashMap<String, String>,
+        _provider: Option<&cc_cli_adapters::CliProvider>,
         _resume_id: Option<&str>,
         _append_system_prompt: Option<&str>,
         _initial_prompt: Option<&str>,
