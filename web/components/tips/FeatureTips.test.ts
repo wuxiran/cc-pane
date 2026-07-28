@@ -65,14 +65,15 @@ describe("feature tip registry", () => {
     useShortcutsStore.setState({ actions: new Map(), terminalFocused: false });
   });
 
-  it("首批只包含已核实的四个 action，不包含不存在的 worktree 跳转", () => {
-    expect(FEATURE_TIPS.map((tip) => tip.actionId)).toEqual([
+  it("只有已核实的四个 action 绑定快捷键，扩容的六条一律不带 actionId", () => {
+    expect(FEATURE_TIPS.filter((tip) => tip.actionId).map((tip) => tip.actionId)).toEqual([
       "command-palette",
       "toggle-layouts",
       "toggle-mini-mode",
       "new-tab",
     ]);
-    expect(FEATURE_TIPS.some((tip) => tip.id.includes("worktree"))).toBe(false);
+    // 右坞的三个视图动作没有默认绑定、设置页也绑不上，绝不能挂 actionId（会画出快捷键 chip）
+    expect(FEATURE_TIPS.find((tip) => tip.id === "right-dock")?.actionId).toBeUndefined();
   });
 
   it("试试看调用现有快捷键 action handler", () => {

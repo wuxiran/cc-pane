@@ -243,6 +243,7 @@
     "gotIt": "Got it",
     "disable": "Stop showing all tips",
     "rebind": "Rebind this shortcut any time",
+    "learnMore": "Read the guide",
     "terminalPassthroughHint": "While the terminal has focus this shortcut is passed to the terminal, so pressing it does nothing here. Click outside the terminal first (the tab bar or sidebar), then press it.",
     "shortcutSettings": "Settings → Shortcuts",
     "commandPalette": {
@@ -264,6 +265,30 @@
       "title": "Create tabs from one launcher",
       "body": "Choose the project, CLI, runtime, and launch options from one place.",
       "bodyUnbound": "Bind New Tab in Settings to open the unified project, CLI, and runtime launcher."
+    },
+    "dispatchOrchestration": {
+      "title": "Let one AI command a fleet of AIs",
+      "body": "Say \"run these in parallel\" and this session splits the work, spawns several Claude / Codex workers, and each one reports back on its own when it finishes. You only start it and wrap it up. The orchestration panel shows every worker's live status."
+    },
+    "worktreeIsolation": {
+      "title": "Work in parallel without touching your main tree",
+      "body": "A worktree checks out another branch into its own directory, so each dispatched worker edits its own copy while your main working tree stays clean. Right-click a project → \"Worktree Manager\" to create, remove, or open a terminal inside one."
+    },
+    "aiPanel": {
+      "title": "Let the AI render a real panel for you",
+      "body": "An AI in a terminal can only emit characters. Over MCP it can post a Markdown or HTML panel instead: comparison tables, progress boards, even buttons for you to decide with. Panels land in the right dock, and closing one keeps its content in history."
+    },
+    "skills": {
+      "title": "Common workflows are already baked into the AI",
+      "body": "Parallel dispatch, plan handoff, peer review, wrap-up checks — these are shipped as skills and installed into each CLI by CC-Panes. Plain language triggers them; for the full list type `/` in a session (Codex uses the `ccpanes-` prefix), or open Resource Hub → Skills and read the \"built-in CC-Panes skills\" section."
+    },
+    "rightDock": {
+      "title": "The right dock: watch while it runs",
+      "body": "The panel button in the title bar, just left of the gear, opens the right dock: which files the AI touched, Git changes, AI panels, and session history all live there, and it can stay open alongside the left sidebar. It has no shortcut, and it starts collapsed on every launch."
+    },
+    "browserTab": {
+      "title": "The browser is the AI's hand, not yours",
+      "body": "A real browser can run in a split pane, but there is no \"new browser tab\" button — the AI opens it over MCP: let it load your dev server, take a screenshot, click around, and run a snippet of JS to verify a change instead of just claiming it works. Screenshots, clicks, and JS evaluation are Windows-only today."
     }
   },
   "openLogDir": "Open Log Directory",

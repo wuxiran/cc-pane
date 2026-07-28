@@ -108,6 +108,12 @@ interface DialogState {
   setPendingLaunch: (launch: PendingLaunch) => void;
   clearPendingLaunch: () => void;
 
+  // Worktree Manager（对话框由侧栏树承载，这里只放"请求打开"的意图，
+  // 供命令面板/功能提示这类树外入口使用；树消费后自行清空）
+  worktreeManagerRequestPath: string | null;
+  requestWorktreeManager: (projectPath: string) => void;
+  clearWorktreeManagerRequest: () => void;
+
   // Launcher（全局启动器弹窗）
   launcherOpen: boolean;
   launcherContext: LauncherContext | null;
@@ -199,6 +205,11 @@ export const useDialogStore = create<DialogState>((set) => ({
   pendingLaunch: null,
   setPendingLaunch: (launch) => set({ pendingLaunch: launch }),
   clearPendingLaunch: () => set({ pendingLaunch: null }),
+
+  // Worktree Manager
+  worktreeManagerRequestPath: null,
+  requestWorktreeManager: (projectPath) => set({ worktreeManagerRequestPath: projectPath }),
+  clearWorktreeManagerRequest: () => set({ worktreeManagerRequestPath: null }),
 
   // Launcher
   launcherOpen: false,

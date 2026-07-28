@@ -1,15 +1,26 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType } from "react";
+import { MODULE_REGISTRY, type ModuleId } from "@/modules/registry";
 import {
-  AppWindow,
-  Command,
-  LayoutGrid,
-  Maximize2,
-  Minimize2,
-  Plus,
-  Search,
-  Terminal,
-} from "lucide-react";
-import { useShortcutsStore } from "@/stores";
+  useActivityBarStore,
+  useDialogStore,
+  useModulePrefsStore,
+  useRightDockStore,
+  useShortcutsStore,
+  useWorkspacesStore,
+} from "@/stores";
+import { detectAppPlatform, isTauriRuntime } from "@/utils";
+import {
+  AiPanelVisual,
+  BrowserTabVisual,
+  CommandPaletteVisual,
+  DispatchOrchestrationVisual,
+  LauncherVisual,
+  LayoutSwitcherVisual,
+  MiniModeVisual,
+  RightDockVisual,
+  SkillsVisual,
+  WorktreeIsolationVisual,
+} from "./featureTipVisuals";
 
 export interface FeatureTipDefinition {
   id: string;
@@ -17,6 +28,11 @@ export interface FeatureTipDefinition {
   titleKey: string;
   bodyKey: string;
   bodyUnboundKey?: string;
+  /**
+   * 落点教程，仓库相对路径（如 `docs/guide/12-leader-worker.md`）。
+   * 渲染成左栏的「查看教程」链接，打开方式见 openGuideDoc.ts。
+   */
+  guidePath?: string;
   visual: ComponentType;
   tryAction?: () => void;
   eligible?: () => boolean;
@@ -31,107 +47,52 @@ function hasShortcutAction(actionId: string): boolean {
   return useShortcutsStore.getState().actions.has(actionId);
 }
 
-function VisualStage({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex h-full min-h-[180px] items-center justify-center p-6 text-[var(--app-text-secondary)]">
-      {children}
-    </div>
-  );
+function isModuleEnabled(id: ModuleId): boolean {
+  return useModulePrefsStore.getState().preferences[id]?.enabled === true;
 }
 
-function CommandPaletteVisual() {
-  return (
-    <VisualStage>
-      <div className="w-full max-w-[300px] overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-content)] shadow-md">
-        <div className="flex h-10 items-center gap-2 border-b border-[var(--app-border)] px-3 text-[var(--app-text-tertiary)]">
-          <Search size={15} />
-          <span className="h-1.5 w-28 rounded-full bg-[var(--app-hover)]" />
-          <Command className="ml-auto text-[var(--app-accent)]" size={15} />
-        </div>
-        <div className="space-y-1.5 p-2">
-          {["w-3/4", "w-2/3", "w-4/5"].map((width, index) => (
-            <div
-              key={width}
-              className={`flex h-9 items-center gap-2 rounded-md px-2 ${index === 0 ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]" : ""}`}
-            >
-              <span className="size-5 rounded border border-[var(--app-border)]" />
-              <span className={`h-1.5 ${width} rounded-full bg-[var(--app-hover)]`} />
-            </div>
-          ))}
-        </div>
-      </div>
-    </VisualStage>
-  );
+/**
+ * tip 的「当前项目」：显式选中的项目 > 展开工作空间的首个项目 > 首个有项目的工作空间。
+ * 与右侧坞的纵深解析同思路，但不依赖终端选区——tip 触发时可能一个终端都没开。
+ */
+export function resolveTipProjectPath(): string | null {
+  const { workspaces, expandedWorkspaceId, expandedProjectId } = useWorkspacesStore.getState();
+  for (const workspace of workspaces) {
+    const selected = workspace.projects.find((project) => project.id === expandedProjectId);
+    if (selected) return selected.path;
+  }
+  const expanded = workspaces.find((workspace) => workspace.id === expandedWorkspaceId);
+  if (expanded?.projects[0]) return expanded.projects[0].path;
+  return workspaces.find((workspace) => workspace.projects.length > 0)?.projects[0]?.path ?? null;
 }
 
-function LayoutSwitcherVisual() {
-  return (
-    <VisualStage>
-      <div className="flex w-full max-w-[320px] flex-col gap-3">
-        <div className="grid h-32 grid-cols-[1fr_1.35fr] gap-1.5 rounded-lg border border-[var(--app-accent)] bg-[var(--app-content)] p-2 shadow-md">
-          <span className="rounded-md bg-[var(--app-active-bg)]" />
-          <span className="grid grid-rows-2 gap-1.5">
-            <span className="rounded-md border border-[var(--app-border)]" />
-            <span className="rounded-md border border-[var(--app-border)]" />
-          </span>
-        </div>
-        <div className="flex justify-center gap-2">
-          {[0, 1, 2].map((index) => (
-            <span
-              key={index}
-              className={`flex size-9 items-center justify-center rounded-md border ${index === 0 ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-accent)]" : "border-[var(--app-border)] bg-[var(--app-content)]"}`}
-            >
-              <LayoutGrid size={15} />
-            </span>
-          ))}
-        </div>
-      </div>
-    </VisualStage>
-  );
+function hasAnyProject(): boolean {
+  return resolveTipProjectPath() !== null;
 }
 
-function MiniModeVisual() {
-  return (
-    <VisualStage>
-      <div className="flex items-center gap-4">
-        <div className="relative h-36 w-48 rounded-lg border border-[var(--app-border)] bg-[var(--app-content)] p-2 shadow-md">
-          <div className="flex h-full gap-2">
-            <span className="w-8 rounded-md bg-[var(--app-active-bg)]" />
-            <span className="flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-terminal-bg)]" />
-          </div>
-          <Minimize2 className="absolute right-3 top-3 text-[var(--app-accent)]" size={16} />
-        </div>
-        <Maximize2 className="text-[var(--app-text-tertiary)] motion-safe:animate-pulse motion-reduce:animate-none" size={18} />
-        <div className="flex h-28 w-20 items-center justify-center rounded-lg border border-[var(--app-accent)] bg-[var(--app-terminal-bg)] shadow-md">
-          <Terminal className="text-[var(--app-accent)]" size={19} />
-        </div>
-      </div>
-    </VisualStage>
-  );
+function openWorktreeManagerForCurrentProject(): void {
+  const projectPath = resolveTipProjectPath();
+  if (!projectPath) return;
+  // 对话框挂在侧栏树里，先把侧栏亮出来再下请求，否则消费方没挂载。
+  useActivityBarStore.setState({
+    appViewMode: "panes",
+    activeView: "explorer",
+    sidebarVisible: true,
+    orchestrationOverlayOpen: false,
+  });
+  useDialogStore.getState().requestWorktreeManager(projectPath);
 }
 
-function LauncherVisual() {
-  return (
-    <VisualStage>
-      <div className="w-full max-w-[310px] rounded-lg border border-[var(--app-border)] bg-[var(--app-content)] p-3 shadow-md">
-        <div className="mb-3 flex items-center gap-2 text-[var(--app-accent)]">
-          <Plus size={16} />
-          <span className="h-1.5 w-24 rounded-full bg-[var(--app-active-bg)]" />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {[Terminal, AppWindow, Command, LayoutGrid].map((Icon, index) => (
-            <div
-              key={index}
-              className={`flex h-16 items-center gap-2 rounded-md border px-3 ${index === 0 ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-accent)]" : "border-[var(--app-border)]"}`}
-            >
-              <Icon size={16} />
-              <span className="h-1.5 flex-1 rounded-full bg-[var(--app-hover)]" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </VisualStage>
-  );
+function openAiPanelModule(): void {
+  const module = MODULE_REGISTRY.find((entry) => entry.id === "aiPanel");
+  // 按用户配置的位置打开：右侧坞 / 弹框，「隐藏」时也走弹框，保证点了必有反馈。
+  module?.open(useModulePrefsStore.getState().preferences.aiPanel.position);
+}
+
+function openSkillsPage(): void {
+  const activity = useActivityBarStore.getState();
+  activity.setResourcesTab("skills");
+  activity.setAppViewMode("resources");
 }
 
 function shortcutTip(
@@ -160,6 +121,7 @@ export const FEATURE_TIPS: readonly FeatureTipDefinition[] = [
     titleKey: "featureTips.layoutSwitcher.title",
     bodyKey: "featureTips.layoutSwitcher.body",
     bodyUnboundKey: "featureTips.layoutSwitcher.bodyUnbound",
+    guidePath: "docs/guide/05-terminal-and-panes.md",
     visual: LayoutSwitcherVisual,
     weight: 2,
   }),
@@ -178,7 +140,73 @@ export const FEATURE_TIPS: readonly FeatureTipDefinition[] = [
     titleKey: "featureTips.launcher.title",
     bodyKey: "featureTips.launcher.body",
     bodyUnboundKey: "featureTips.launcher.bodyUnbound",
+    guidePath: "docs/guide/05-terminal-and-panes.md",
     visual: LauncherVisual,
     weight: 2,
   }),
+  {
+    id: "dispatch-orchestration",
+    titleKey: "featureTips.dispatchOrchestration.title",
+    bodyKey: "featureTips.dispatchOrchestration.body",
+    guidePath: "docs/guide/12-leader-worker.md",
+    visual: DispatchOrchestrationVisual,
+    // 任务编排面板就是盯 worker 的地方；没有项目就没有可派的活。
+    tryAction: () => useActivityBarStore.getState().openOrchestrationOverlay(),
+    eligible: () => isModuleEnabled("orchestration") && hasAnyProject(),
+    weight: 4,
+  },
+  {
+    id: "worktree-isolation",
+    titleKey: "featureTips.worktreeIsolation.title",
+    bodyKey: "featureTips.worktreeIsolation.body",
+    guidePath: "docs/guide/07-git-worktree.md",
+    visual: WorktreeIsolationVisual,
+    tryAction: openWorktreeManagerForCurrentProject,
+    eligible: hasAnyProject,
+    weight: 3,
+  },
+  {
+    id: "ai-panel",
+    titleKey: "featureTips.aiPanel.title",
+    bodyKey: "featureTips.aiPanel.body",
+    guidePath: "docs/guide/17-ai-panel.md",
+    visual: AiPanelVisual,
+    tryAction: openAiPanelModule,
+    eligible: () => isModuleEnabled("aiPanel"),
+    weight: 2,
+  },
+  {
+    id: "skills",
+    titleKey: "featureTips.skills.title",
+    bodyKey: "featureTips.skills.body",
+    guidePath: "docs/guide/18-skills.md",
+    visual: SkillsVisual,
+    // 资源中心 → Skills 的「内置 CC-Panes Skills」是完整清单；
+    // 运行配置里那份勾选清单只有 4 条，不能往那儿指。
+    tryAction: openSkillsPage,
+    eligible: () => isModuleEnabled("resources"),
+    weight: 2,
+  },
+  {
+    id: "right-dock",
+    titleKey: "featureTips.rightDock.title",
+    bodyKey: "featureTips.rightDock.body",
+    guidePath: "docs/guide/19-right-dock.md",
+    visual: RightDockVisual,
+    // 直接改 store：右坞既没有快捷键，命令面板那条路又被 Ctrl+K 放行挡着。
+    tryAction: () => useRightDockStore.getState().setVisible(true),
+    eligible: hasAnyProject,
+    weight: 1,
+  },
+  {
+    id: "browser-tab",
+    titleKey: "featureTips.browserTab.title",
+    bodyKey: "featureTips.browserTab.body",
+    guidePath: "docs/guide/20-browser-tab.md",
+    visual: BrowserTabVisual,
+    // 没有 tryAction：用户没有任何打开浏览器标签的入口（唯一调用点是 MCP 事件监听），
+    // 放一个"替你开一个"的按钮等于教一个用户复现不了的动作。
+    eligible: () => isTauriRuntime() && detectAppPlatform() === "windows",
+    weight: 1,
+  },
 ];
