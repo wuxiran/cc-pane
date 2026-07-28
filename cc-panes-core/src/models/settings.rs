@@ -40,6 +40,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub layout_switcher: LayoutSwitcherSettings,
     #[serde(default)]
+    pub main_window: MainWindowSettings,
+    #[serde(default)]
     pub web_access: WebAccessSettings,
     #[serde(default)]
     pub orchestrator: OrchestratorSettings,
@@ -755,6 +757,29 @@ impl CliLauncherOverride {
         let command = self.command.trim();
         (!command.is_empty()).then_some(command)
     }
+}
+
+/// 主窗口几何状态。
+///
+/// tauri.conf.json 里写死 `maximized: true`，于是每次启动都满屏，
+/// 用户把窗口拖小、下次启动又变回去——没有任何记忆。
+/// 这里按 `LayoutSwitcherSettings` 的既有模式持久化，不引新依赖。
+///
+/// 全部字段可缺失：老配置读进来即「未记录过」，回落 tauri.conf.json 的首启行为。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MainWindowSettings {
+    #[serde(default)]
+    pub width: Option<f64>,
+    #[serde(default)]
+    pub height: Option<f64>,
+    #[serde(default)]
+    pub x: Option<f64>,
+    #[serde(default)]
+    pub y: Option<f64>,
+    /// 上次退出时是否处于最大化。None = 从未记录，按首启默认（最大化）。
+    #[serde(default)]
+    pub maximized: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

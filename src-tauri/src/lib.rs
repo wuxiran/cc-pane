@@ -1177,6 +1177,130 @@ fn handle_import_url(app: &tauri::AppHandle, url: &str, defer: bool) -> bool {
     true
 }
 
+/// 主窗口几何的恢复与持久化。
+///
+/// tauri.conf.json 写死 `maximized: true`，于是每次启动都满屏——用户把窗口
+/// 拖小、下次启动又变回去。这里在 setup 末尾恢复上次几何，并监听窗口事件写回。
+///
+/// 没有记录过（首次启动 / 旧配置）就什么都不做，保持 tauri.conf.json 的默认行为。
+fn restore_main_window_geometry(app: &tauri::AppHandle) {
+    use tauri::{LogicalPosition, LogicalSize, Manager};
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some(settings_service) = app.try_state::<Arc<SettingsService>>() else {
+        return;
+    };
+    let saved = settings_service.get_settings().main_window;
+
+    // maximized 未记录 = 从未保存过，保持首启默认（最大化），不要缩成 1280x800
+    match saved.maximized {
+        None => {}
+        Some(true) => {
+            let _ = window.maximize();
+        }
+        Some(false) => {
+            let _ = window.unmaximize();
+            if let (Some(width), Some(height)) = (saved.width, saved.height) {
+                if width >= 1.0 && height >= 1.0 {
+                    let _ = window.set_size(LogicalSize::new(width, height));
+                }
+            }
+            // 位置单独判断：屏幕数量/分辨率可能变了，越界的坐标不如不设，
+            // 让 tauri 的 center 生效，避免窗口飞到看不见的地方。
+            if let (Some(x), Some(y)) = (saved.x, saved.y) {
+                if position_is_visible(&window, x, y) {
+                    let _ = window.set_position(LogicalPosition::new(x, y));
+                }
+            }
+        }
+    }
+
+    spawn_main_window_geometry_watcher(app.clone(), window);
+}
+
+/// 坐标是否落在某块显示器内。多屏拔掉后旧坐标会把窗口放到不可见区域。
+fn position_is_visible(window: &tauri::WebviewWindow, x: f64, y: f64) -> bool {
+    let Ok(monitors) = window.available_monitors() else {
+        return false;
+    };
+    monitors.iter().any(|monitor| {
+        let scale = monitor.scale_factor();
+        let pos = monitor.position().to_logical::<f64>(scale);
+        let size = monitor.size().to_logical::<f64>(scale);
+        x >= pos.x - 1.0 && y >= pos.y - 1.0 && x < pos.x + size.width && y < pos.y + size.height
+    })
+}
+
+/// 监听窗口移动/缩放并防抖写回。
+///
+/// 拖动一次窗口会连发几十个事件，每个都落盘会把磁盘打满——与终端字号缩放
+/// 同一类问题，同样用「停手后写一次」。
+fn spawn_main_window_geometry_watcher(app: tauri::AppHandle, window: tauri::WebviewWindow) {
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    use tauri::WindowEvent;
+
+    static PENDING: AtomicU64 = AtomicU64::new(0);
+    const DEBOUNCE_MS: u64 = 600;
+
+    let handle = app.clone();
+    window.clone().on_window_event(move |event| {
+        if !matches!(event, WindowEvent::Resized(_) | WindowEvent::Moved(_)) {
+            return;
+        }
+        let generation = PENDING.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+        let handle = handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(DEBOUNCE_MS));
+            // 期间又来了新事件就交给后来者，避免中间态被写进配置
+            if PENDING.load(AtomicOrdering::SeqCst) != generation {
+                return;
+            }
+            persist_main_window_geometry(&handle);
+        });
+    });
+}
+
+fn persist_main_window_geometry(app: &tauri::AppHandle) {
+    use tauri::Manager;
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some(settings_service) = app.try_state::<Arc<SettingsService>>() else {
+        return;
+    };
+    // 最小化时的几何没有意义，写进去下次会还原成一个畸形窗口
+    if window.is_minimized().unwrap_or(false) {
+        return;
+    }
+
+    let maximized = window.is_maximized().unwrap_or(false);
+    let mut settings = settings_service.get_settings();
+    settings.main_window.maximized = Some(maximized);
+
+    // 最大化状态下的 size/position 是屏幕尺寸，不该覆盖用户上次的还原态尺寸
+    if !maximized {
+        if let Ok(scale) = window.scale_factor() {
+            if let Ok(size) = window.inner_size() {
+                let logical = size.to_logical::<f64>(scale);
+                settings.main_window.width = Some(logical.width);
+                settings.main_window.height = Some(logical.height);
+            }
+            if let Ok(position) = window.outer_position() {
+                let logical = position.to_logical::<f64>(scale);
+                settings.main_window.x = Some(logical.x);
+                settings.main_window.y = Some(logical.y);
+            }
+        }
+    }
+
+    if let Err(error) = settings_service.update_settings(settings) {
+        warn!(error = %error, "failed to persist main window geometry");
+    }
+}
+
 // ============ 应用入口 ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2162,6 +2286,8 @@ pub fn run() {
                     info!("[boot] macOS: forced WKWebView as firstResponder");
                 }
             }
+
+            restore_main_window_geometry(app.handle());
 
             info!(
                 "[boot] +{}ms: === setup complete ===",
