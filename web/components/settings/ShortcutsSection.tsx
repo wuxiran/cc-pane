@@ -27,6 +27,9 @@ const actionI18nKeys: Record<string, string> = {
   "focus-pane-down": "focus-pane-down",
   "next-tab": "next-tab",
   "prev-tab": "prev-tab",
+  "terminal-zoom-in": "terminal-zoom-in",
+  "terminal-zoom-out": "terminal-zoom-out",
+  "terminal-zoom-reset": "terminal-zoom-reset",
   "toggle-mini-mode": "toggle-mini-mode",
   "voice-input": "voice-input",
 };

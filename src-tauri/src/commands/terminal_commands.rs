@@ -130,14 +130,17 @@ pub async fn create_terminal_session(
         .launch_id
         .clone()
         .map(|launch_id| (launch_id, request.effective_cli_tool().as_id().to_string()));
-    let backend = service.backend();
     let observation_request = request.clone();
-    let create_backend = backend.clone();
-    let result =
-        tauri::async_runtime::spawn_blocking(move || create_backend.create_session(request))
-            .await
-            .map_err(|e| AppError::from(e.to_string()))?;
-    let session_id = result?;
+    let recovery_handle = app_handle.clone();
+    let recovery_state = (*service).clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        recovery_state.create_session_with_recovery(&recovery_handle, request)
+    })
+    .await
+    .map_err(|e| AppError::from(e.to_string()))?;
+    let created = result?;
+    let session_id = created.session_id;
+    let backend = created.backend;
 
     // A claim-capable daemon must issue immutable birth evidence, and it must reach SQLite before
     // the session id is returned to the webview. Otherwise a crash in this window recreates the

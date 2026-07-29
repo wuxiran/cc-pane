@@ -17,5 +17,8 @@
   "toggle-mini-mode": "Toggle Mini Mode",
   "voice-input": "Voice Input",
   "switch-tab": "Switch to Tab {{index}}",
-  "switch-layout": "Switch to Layout {{index}}"
+  "switch-layout": "Switch to Layout {{index}}",
+  "terminal-zoom-in": "Zoom in terminal",
+  "terminal-zoom-out": "Zoom out terminal",
+  "terminal-zoom-reset": "Reset terminal zoom"
 }

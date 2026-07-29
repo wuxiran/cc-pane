@@ -854,6 +854,72 @@ describe("usePanesStore", () => {
         title: "Example",
       });
     });
+
+    it("reuses an existing tab for the same URL instead of stacking duplicates", () => {
+      const store = usePanesStore.getState();
+      const createdId = store.openBrowser(
+        "http://localhost:5173/app",
+        "Preview",
+        "browser-tab-1",
+      );
+      const reusedId = store.openBrowser(
+        "http://localhost:5173/app",
+        "Preview again",
+        "browser-tab-2",
+      );
+
+      const pane = usePanesStore.getState().activePane()!;
+      const browsers = pane.tabs.filter((tab) => tab.contentType === "browser");
+      expect(browsers).toHaveLength(1);
+      expect(browsers[0].id).toBe("browser-tab-1");
+      expect(pane.activeTabId).toBe("browser-tab-1");
+      expect(createdId).toBe("browser-tab-1");
+      expect(reusedId).toBe("browser-tab-1");
+    });
+
+    it("treats hash and trailing slash as the same page, but query as different", () => {
+      const store = usePanesStore.getState();
+      store.openBrowser("http://localhost:5173/app/", "A", "b1");
+      store.openBrowser("http://localhost:5173/app#section", "B", "b2");
+      store.openBrowser("http://localhost:5173/app?id=2", "C", "b3");
+
+      const browsers = usePanesStore
+        .getState()
+        .activePane()!
+        .tabs.filter((tab) => tab.contentType === "browser");
+      expect(browsers.map((tab) => tab.id)).toEqual(["b1", "b3"]);
+    });
+
+    it("forces a new tab when reuse is disabled", () => {
+      const store = usePanesStore.getState();
+      store.openBrowser("http://localhost:5173/app", "A", "b1");
+      store.openBrowser("http://localhost:5173/app", "B", "b2", { reuse: false });
+
+      const browsers = usePanesStore
+        .getState()
+        .activePane()!
+        .tabs.filter((tab) => tab.contentType === "browser");
+      expect(browsers.map((tab) => tab.id)).toEqual(["b1", "b2"]);
+    });
+
+    it("honors an explicit paneId and falls back to the active pane when it is unknown", () => {
+      const originPaneId = usePanesStore.getState().activePaneId;
+      usePanesStore.getState().splitRight(originPaneId);
+
+      // 分屏后活动窗格换成了新窗格，把标签指名投回原窗格
+      const activeAfterSplit = usePanesStore.getState().activePaneId;
+      expect(activeAfterSplit).not.toBe(originPaneId);
+
+      usePanesStore.getState().openBrowser("http://a.test/", "A", "b1", { paneId: originPaneId });
+      const target = usePanesStore.getState().findPaneById(originPaneId);
+      expect(target?.type === "panel" && target.tabs.some((tab) => tab.id === "b1")).toBe(true);
+
+      // 未知 paneId 不得静默丢弃这次打开，应回落到活动窗格
+      usePanesStore
+        .getState()
+        .openBrowser("http://b.test/", "B", "b2", { paneId: "pane-does-not-exist" });
+      expect(usePanesStore.getState().findTabAcrossLayouts("b2")).toBeTruthy();
+    });
   });
 
   // ========== 标签导航 ==========

@@ -1033,8 +1033,11 @@ impl CliToolAdapter for ClaudeAdapter {
 
         let command;
         #[cfg(windows)]
-        let args = if let Some(override_command) = ctx.command_override() {
-            command = override_command.to_string();
+        // 覆盖值若是裸命令名，仍要按 PATHEXT 解析；否则会命中 npm 的无扩展名
+        // sh shim（`[cliLaunchers.overrides.claude] command = "claude"` 实测如此），
+        // spawn 直接报 os error 193。
+        let args = if let Some(override_command) = ctx.resolved_override_public() {
+            command = override_command;
             args
         } else {
             let path = Self::resolve_claude_path()?;

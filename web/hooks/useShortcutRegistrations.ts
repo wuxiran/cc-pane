@@ -10,6 +10,8 @@ import {
   useDialogStore,
   useActivityBarStore,
   useVoiceInputStore,
+  useSettingsStore,
+  TERMINAL_FONT_SIZE_DEFAULT,
 } from "@/stores";
 import { LAYOUT_BAR_TOGGLE_EVENT } from "@/components/LayoutBar";
 import { COMMAND_PALETTE_TOGGLE_EVENT } from "@/components/CommandPalette";
@@ -169,6 +171,35 @@ export function useShortcutRegistrations(): void {
         const s = usePanesStore.getState();
         if (s.activePaneId) s.prevTab(s.activePaneId);
       },
+    });
+    // 终端缩放：三个键都**不进** TERMINAL_PASSTHROUGH_ACTIONS——
+    // 终端聚焦时恰恰是最需要缩放的时候，放行给终端就等于教了个按不动的键。
+    register({
+      id: "terminal-zoom-in",
+      label: i18n.t("terminal-zoom-in", { ns: "shortcuts" }),
+      context: "terminal",
+      handler: () => {
+        const store = useSettingsStore.getState();
+        const current = store.settings?.terminal.fontSize ?? TERMINAL_FONT_SIZE_DEFAULT;
+        store.setTerminalFontSize(current + 1);
+      },
+    });
+    register({
+      id: "terminal-zoom-out",
+      label: i18n.t("terminal-zoom-out", { ns: "shortcuts" }),
+      context: "terminal",
+      handler: () => {
+        const store = useSettingsStore.getState();
+        const current = store.settings?.terminal.fontSize ?? TERMINAL_FONT_SIZE_DEFAULT;
+        store.setTerminalFontSize(current - 1);
+      },
+    });
+    register({
+      id: "terminal-zoom-reset",
+      label: i18n.t("terminal-zoom-reset", { ns: "shortcuts" }),
+      context: "terminal",
+      handler: () =>
+        useSettingsStore.getState().setTerminalFontSize(TERMINAL_FONT_SIZE_DEFAULT),
     });
     register({
       id: "toggle-mini-mode",

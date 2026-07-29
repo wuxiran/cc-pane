@@ -19,8 +19,22 @@ interface SettingsState {
   loading: boolean;
   loadSettings: () => Promise<void>;
   saveSettings: (newSettings: AppSettings) => Promise<void>;
+  /**
+   * 终端字号的高频入口（Ctrl+滚轮缩放）。
+   * 立刻更新内存态让终端跟手，落盘防抖——滚轮一次能触发几十个事件，
+   * 每个都走 saveSettings 会把 IPC 和磁盘打满。
+   */
+  setTerminalFontSize: (size: number) => void;
   getDefaults: () => AppSettings;
 }
+
+/** 与 TerminalView 的 normalize 保持一致，越界即钳制 */
+export const TERMINAL_FONT_SIZE_MIN = 10;
+export const TERMINAL_FONT_SIZE_MAX = 32;
+export const TERMINAL_FONT_SIZE_DEFAULT = 15;
+
+const FONT_SIZE_PERSIST_DEBOUNCE_MS = 400;
+let fontSizePersistTimer: ReturnType<typeof setTimeout> | null = null;
 
 type AppSettingsWithCCChan = AppSettings & { ccchan: CCChanSettings };
 
@@ -160,7 +174,7 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
   };
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: null,
   loading: false,
 
@@ -185,6 +199,31 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       handleErrorSilent(e, "save settings");
       throw e;
     }
+  },
+
+  setTerminalFontSize: (size) => {
+    const current = get().settings;
+    if (!current) return;
+    const clamped = Math.min(
+      TERMINAL_FONT_SIZE_MAX,
+      Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(size)),
+    );
+    if (current.terminal.fontSize === clamped) return;
+
+    // 先更内存：TerminalView 的字号 effect 订阅的就是这里，改完立刻跟手
+    const next = { ...current, terminal: { ...current.terminal, fontSize: clamped } };
+    set({ settings: next });
+
+    // 再防抖落盘。停手 400ms 才写一次，滚轮过程中零 IPC。
+    if (fontSizePersistTimer) clearTimeout(fontSizePersistTimer);
+    fontSizePersistTimer = setTimeout(() => {
+      fontSizePersistTimer = null;
+      const latest = get().settings;
+      if (!latest) return;
+      void settingsService
+        .updateSettings(withCCChanSettings(latest))
+        .catch((e) => handleErrorSilent(e, "persist terminal font size"));
+    }, FONT_SIZE_PERSIST_DEBOUNCE_MS);
   },
 
   getDefaults: () => withCCChanSettings({
@@ -224,6 +263,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         "close-tab": "Ctrl+W",
         settings: "Ctrl+,",
         "command-palette": "Ctrl+K",
+        "terminal-zoom-in": "Ctrl+=",
+        "terminal-zoom-out": "Ctrl+-",
+        "terminal-zoom-reset": "Ctrl+0",
         "toggle-layouts": "Ctrl+Alt+L",
         "split-right": "Ctrl+\\",
         "split-down": "Ctrl+-",
@@ -300,6 +342,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     },
     cliLaunchers: DEFAULT_CLI_LAUNCHER_SETTINGS,
     layoutSwitcher: DEFAULT_LAYOUT_SWITCHER_SETTINGS,
+    mainWindow: { width: null, height: null, x: null, y: null, maximized: null },
     webAccess: DEFAULT_WEB_ACCESS_SETTINGS,
     orchestrator: DEFAULT_ORCHESTRATOR_SETTINGS,
     wallpaper: DEFAULT_WALLPAPER_SETTINGS,

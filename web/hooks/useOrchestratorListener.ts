@@ -275,16 +275,33 @@ export function useOrchestratorListener() {
 
     // 5. open-browser-tab 事件
     getCurrentWebview()
-      .listen<{ tabId: string; url: string; title?: string }>("orchestrator-open-browser-tab", (event) => {
+      .listen<{
+        requestId?: string;
+        tabId: string;
+        url: string;
+        title?: string;
+        paneId?: string;
+        reuse?: boolean;
+      }>("orchestrator-open-browser-tab", async (event) => {
         const activity = useActivityBarStore.getState();
         if (activity.appViewMode !== "panes") {
           activity.setAppViewMode("panes");
         }
-        usePanesStore.getState().openBrowser(
+        const actualTabId = usePanesStore.getState().openBrowser(
           event.payload.url,
           event.payload.title,
           event.payload.tabId,
+          // 旧后端不带 paneId/reuse：reuse 缺失按 true 处理（复用是更安全的默认）
+          { paneId: event.payload.paneId, reuse: event.payload.reuse !== false },
         );
+        if (event.payload.requestId) {
+          await invoke("respond_orchestrator_query", {
+            requestId: event.payload.requestId,
+            data: JSON.stringify({ tabId: actualTabId }),
+          }).catch((e: unknown) =>
+            console.error("[Orchestrator] respond browser tab failed:", e)
+          );
+        }
       })
       .then((fn) => unlisteners.push(fn));
 

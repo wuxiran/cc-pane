@@ -17,5 +17,8 @@
   "toggle-mini-mode": "切换迷你模式",
   "voice-input": "语音输入",
   "switch-tab": "切换到标签 {{index}}",
-  "switch-layout": "切换到布局 {{index}}"
+  "switch-layout": "切换到布局 {{index}}",
+  "terminal-zoom-in": "终端放大",
+  "terminal-zoom-out": "终端缩小",
+  "terminal-zoom-reset": "终端缩放复位"
 }

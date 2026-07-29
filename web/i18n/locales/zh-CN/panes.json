@@ -186,5 +186,6 @@
   "quickCommandNoActiveProject": "没有可用的活动项目",
   "quickCommandNoCliTool": "Agent Prompt 未配置 CLI 工具",
   "quickCommandExecuteFailed": "运行快捷命令失败: {{error}}",
-  "sessionClaimedByOtherInstance": "这个终端由另一个 CC-Panes 实例控制，当前只能查看"
+  "sessionClaimedByOtherInstance": "这个终端由另一个 CC-Panes 实例控制，当前只能查看",
+  "terminalZoom": "终端缩放"
 }

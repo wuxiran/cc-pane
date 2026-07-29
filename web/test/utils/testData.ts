@@ -176,6 +176,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       windowY: null,
       pinned: false,
     },
+    mainWindow: { width: null, height: null, x: null, y: null, maximized: null },
     webAccess: {
       enabled: true,
       autoOpen: false,

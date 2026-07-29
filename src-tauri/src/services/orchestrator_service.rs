@@ -2543,6 +2543,12 @@ struct McpOpenFileParams {
 struct McpOpenBrowserTabParams {
     /// 要在 CC-Panes 浏览器标签中打开的 http/https URL
     url: String,
+    /// 落位到指定窗格(可选,由 list_panes 获取)。不传则落在当前活动窗格。
+    #[serde(rename = "paneId")]
+    pane_id: Option<String>,
+    /// 已存在同 URL 的浏览器标签时是否复用(默认 true)。
+    /// 传 false 才会强制新开——需要同一页面并排比对时才这么做。
+    reuse: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4548,6 +4554,7 @@ impl McpToolHandler {
         };
         let session_id = match create_launch_session(
             self.state.terminal_backend.clone(),
+            Some(self.state.app_handle.clone()),
             create_request,
             prompt_delivery.deferred_prompt,
             PASTE_READY_WAIT_TIMEOUT,
@@ -5602,21 +5609,67 @@ impl McpToolHandler {
         &self,
         Parameters(params): Parameters<McpOpenBrowserTabParams>,
     ) -> String {
-        info!(url = %params.url, "mcp::open_browser_tab");
-        let event = match BrowserOpenTabEvent::try_new(&params.url, None) {
+        let reuse = params.reuse.unwrap_or(true);
+        info!(url = %params.url, pane_id = ?params.pane_id, reuse, "mcp::open_browser_tab");
+        let mut event = match BrowserOpenTabEvent::try_new_with(
+            &params.url,
+            None,
+            params.pane_id.as_deref(),
+            reuse,
+        ) {
             Ok(event) => event,
             Err(error) => return format!("错误: {error}"),
         };
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+        event.request_id = Some(request_id.clone());
+        {
+            let mut queries = self
+                .state
+                .pending_queries
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            queries.insert(request_id.clone(), tx);
+        }
         if let Err(error) =
             self.state
                 .app_handle
                 .emit_to("main", "orchestrator-open-browser-tab", &event)
         {
+            self.state
+                .pending_queries
+                .lock()
+                .unwrap_or_else(|lock_error| lock_error.into_inner())
+                .remove(&request_id);
             return format!("错误: 无法打开浏览器标签: {error}");
         }
+        let response = match tokio::time::timeout(std::time::Duration::from_secs(2), rx).await {
+            Ok(Ok(data)) => data,
+            Ok(Err(_)) => return "错误: 浏览器标签应答通道已关闭".to_string(),
+            Err(_) => {
+                self.state
+                    .pending_queries
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&request_id);
+                return "错误: 打开浏览器标签超时，前端未确认实际 tabId".to_string();
+            }
+        };
+        let actual_tab_id = serde_json::from_str::<serde_json::Value>(&response)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("tabId")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .filter(|value| !value.trim().is_empty());
+        let Some(actual_tab_id) = actual_tab_id else {
+            return "错误: 前端未返回有效的浏览器 tabId".to_string();
+        };
         serde_json::json!({
             "success": true,
-            "tabId": event.tab_id,
+            "tabId": actual_tab_id,
             "url": event.url,
             "title": event.title,
         })
@@ -7237,39 +7290,48 @@ trait RunnerTerminal {
     fn kill_session(&self, session_id: &str) -> std::result::Result<(), String>;
 }
 
-impl RunnerTerminal for TerminalBackendState {
+struct AppRunnerTerminal {
+    backend: Arc<TerminalBackendState>,
+    app_handle: tauri::AppHandle,
+}
+
+impl RunnerTerminal for AppRunnerTerminal {
     fn create_shell_session(
         &self,
         profile: &RunnerProfile,
         runtime: &ResolvedLaunchRuntime,
     ) -> std::result::Result<String, String> {
-        self.backend()
-            .create_session(CoreCreateSessionRequest {
-                launch_id: None,
-                project_path: profile.cwd.clone(),
-                cols: 120,
-                rows: 30,
-                workspace_name: profile.workspace_name.clone(),
-                provider_id: None,
-                provider_selection: LaunchProviderSelection::None,
-                launch_profile_id: None,
-                workspace_path: None,
-                workspace_snapshot_id: None,
-                origin_layout_id: None,
-                origin_tab_id: None,
-                origin_terminal_pane_id: None,
-                launch_claude: false,
-                cli_tool: CliTool::None,
-                resume_id: None,
-                skip_mcp: true,
-                append_system_prompt: None,
-                initial_prompt: None,
-                yolo_mode: None,
-                adapter_options: None,
-                extra_env: Some(profile.env.clone()),
-                ssh: runtime.ssh.clone(),
-                wsl: runtime.wsl.clone(),
-            })
+        self.backend
+            .create_session_with_recovery(
+                &self.app_handle,
+                CoreCreateSessionRequest {
+                    launch_id: None,
+                    project_path: profile.cwd.clone(),
+                    cols: 120,
+                    rows: 30,
+                    workspace_name: profile.workspace_name.clone(),
+                    provider_id: None,
+                    provider_selection: LaunchProviderSelection::None,
+                    launch_profile_id: None,
+                    workspace_path: None,
+                    workspace_snapshot_id: None,
+                    origin_layout_id: None,
+                    origin_tab_id: None,
+                    origin_terminal_pane_id: None,
+                    launch_claude: false,
+                    cli_tool: CliTool::None,
+                    resume_id: None,
+                    skip_mcp: true,
+                    append_system_prompt: None,
+                    initial_prompt: None,
+                    yolo_mode: None,
+                    adapter_options: None,
+                    extra_env: Some(profile.env.clone()),
+                    ssh: runtime.ssh.clone(),
+                    wsl: runtime.wsl.clone(),
+                },
+            )
+            .map(|created| created.session_id)
             .map_err(|e| e.to_string())
     }
 
@@ -7279,18 +7341,22 @@ impl RunnerTerminal for TerminalBackendState {
         text: &'a str,
     ) -> Pin<Box<dyn Future<Output = std::result::Result<(), String>> + Send + 'a>> {
         Box::pin(async move {
-            submit_text_to_session(self.backend(), session_id, text)
+            submit_text_to_session(self.backend.backend(), session_id, text)
                 .await
                 .map_err(|e| e.to_string())
         })
     }
 
     fn get_all_status(&self) -> std::result::Result<Vec<SessionStatusInfo>, String> {
-        self.backend().get_all_status().map_err(|e| e.to_string())
+        self.backend
+            .backend()
+            .get_all_status()
+            .map_err(|e| e.to_string())
     }
 
     fn kill_session(&self, session_id: &str) -> std::result::Result<(), String> {
-        self.backend()
+        self.backend
+            .backend()
             .kill_with_reason(session_id, KillReason::Mcp)
             .map_err(|e| e.to_string())
     }
@@ -7314,10 +7380,14 @@ async fn start_runner_coordinator(
         app_state,
     )?;
 
+    let terminal = AppRunnerTerminal {
+        backend: app_state.terminal_backend.clone(),
+        app_handle: app_state.app_handle.clone(),
+    };
     start_runner_coordinator_with_terminal(
         profile,
         app_state.runner_service.as_ref(),
-        app_state.terminal_backend.as_ref(),
+        &terminal,
         &runtime,
         start_locks,
     )
@@ -8379,6 +8449,7 @@ async fn handle_launch_task(
     };
     let session_id = match create_launch_session(
         state.terminal_backend.clone(),
+        Some(state.app_handle.clone()),
         create_request,
         prompt_delivery.deferred_prompt,
         PASTE_READY_WAIT_TIMEOUT,
@@ -9815,15 +9886,23 @@ async fn wait_for_paste_ready(
 
 async fn create_launch_session(
     terminal_backend: Arc<TerminalBackendState>,
+    app_handle: Option<tauri::AppHandle>,
     mut request: CoreCreateSessionRequest,
     deferred_prompt: Option<String>,
     ready_timeout: std::time::Duration,
 ) -> std::result::Result<String, String> {
     let first_request = request.clone();
-    let session_id = backend_call_for_state(terminal_backend.clone(), move |backend| {
-        backend.create_session(first_request)
+    let recover_state = terminal_backend.clone();
+    let recover_handle = app_handle.clone();
+    let session_id = tokio::task::spawn_blocking(move || match recover_handle {
+        Some(handle) => recover_state
+            .create_session_with_recovery(&handle, first_request)
+            .map(|created| created.session_id),
+        None => recover_state.backend().create_session(first_request),
     })
-    .await?;
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())?;
 
     let Some(prompt) = deferred_prompt else {
         return Ok(session_id);
@@ -9848,10 +9927,17 @@ async fn create_launch_session(
     .await?;
 
     request.initial_prompt = Some(prompt);
-    backend_call_for_state(terminal_backend, move |backend| {
-        backend.create_session(request)
+    let retry_state = terminal_backend;
+    let retry_handle = app_handle;
+    tokio::task::spawn_blocking(move || match retry_handle {
+        Some(handle) => retry_state
+            .create_session_with_recovery(&handle, request)
+            .map(|created| created.session_id),
+        None => retry_state.backend().create_session(request),
     })
     .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
 }
 
 /// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交
@@ -11271,6 +11357,7 @@ mod tests {
 
         let session_id = create_launch_session(
             state,
+            None,
             launch_prompt_test_request(),
             Some("first\nsecond".to_string()),
             std::time::Duration::ZERO,
@@ -11302,6 +11389,7 @@ mod tests {
 
         let session_id = create_launch_session(
             state,
+            None,
             launch_prompt_test_request(),
             Some("first\nsecond".to_string()),
             std::time::Duration::ZERO,

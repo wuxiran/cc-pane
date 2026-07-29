@@ -13,6 +13,7 @@ export interface AppSettings {
   voice: VoiceSettings;
   cliLaunchers: CliLauncherSettings;
   layoutSwitcher: LayoutSwitcherSettings;
+  mainWindow: MainWindowSettings;
   webAccess: WebAccessSettings;
   orchestrator: OrchestratorSettings;
   wallpaper: WallpaperSettings;
@@ -237,6 +238,15 @@ export interface CliLauncherSettings {
 
 export interface CliLauncherOverride {
   command: string;
+}
+
+/** 主窗口几何状态。字段全部可空 = 从未记录过，按首启默认（最大化）。 */
+export interface MainWindowSettings {
+  width: number | null;
+  height: number | null;
+  x: number | null;
+  y: number | null;
+  maximized: boolean | null;
 }
 
 /** 布局浮窗设置 */

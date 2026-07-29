@@ -11,6 +11,12 @@ use crate::utils::AppError;
 const MANIFEST_FILE: &str = "daemon-manifest.json";
 const DAEMON_BIN_ENV: &str = "CCPANES_TERMINAL_DAEMON_BIN";
 
+/// 两次重连尝试之间的最小间隔。
+///
+/// daemon 起不来时（二进制缺失、端口被占）失败会连续到来，没有节流就会
+/// 每次操作都 spawn 一个进程。宁可让用户多等一下，也不要刷出一堆僵尸。
+const RECONNECT_THROTTLE: Duration = Duration::from_secs(5);
+
 pub struct TerminalDaemonLifecycle;
 
 impl TerminalDaemonLifecycle {
@@ -33,6 +39,45 @@ impl TerminalDaemonLifecycle {
         let daemon_binary = resolve_daemon_binary(resource_dir)?;
         start_daemon_process(&daemon_binary, app_paths, config_path)?;
         wait_for_manifest(&manifest_path, Duration::from_secs(5))
+    }
+
+    /// daemon 掉线后的重连。
+    ///
+    /// `connect_or_start` 此前只在 `[boot]` 期调用一次：daemon 中途死掉后，
+    /// app 手里的 client 一直指着死地址，之后每次开终端都 `connection timed out`，
+    /// **不重启整个应用就永远好不了**。daemon 被定位成「跨 app 重启存活的锚点」，
+    /// 却没有反向的韧性——这是基础设施只建了一半。
+    ///
+    /// 与 `connect_or_start` 的差别只有节流：失败路径会被高频触发。
+    pub fn reconnect_throttled(
+        app_paths: &AppPaths,
+        resource_dir: Option<&Path>,
+        config_path: &Path,
+    ) -> AppResult<TerminalDaemonClient> {
+        static LAST_ATTEMPT: std::sync::OnceLock<std::sync::Mutex<Option<Instant>>> =
+            std::sync::OnceLock::new();
+        let cell = LAST_ATTEMPT.get_or_init(|| std::sync::Mutex::new(None));
+        {
+            let mut guard = cell.lock().unwrap_or_else(|error| error.into_inner());
+            let now = Instant::now();
+            if !should_attempt_reconnect(*guard, now) {
+                return Err(AppError::from(
+                    "terminal daemon reconnect throttled; retry shortly",
+                ));
+            }
+            *guard = Some(now);
+        }
+        warn!("terminal daemon appears down; attempting reconnect");
+        Self::connect_or_start(app_paths, resource_dir, config_path)
+    }
+}
+
+/// 距上次尝试是否已超过节流窗口。抽成纯函数便于直接断言边界，
+/// 不必为了测节流去构造 AppPaths / 真实 daemon。
+fn should_attempt_reconnect(last_attempt: Option<Instant>, now: Instant) -> bool {
+    match last_attempt {
+        None => true,
+        Some(previous) => now.duration_since(previous) >= RECONNECT_THROTTLE,
     }
 }
 
@@ -200,6 +245,33 @@ fn daemon_binary_name() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// daemon 起不来时失败会连续到来。没有节流就会每次操作都 spawn 一个进程，
+    /// 把「连不上」变成「刷出一堆僵尸」。
+    #[test]
+    fn reconnect_throttle_window_boundaries() {
+        let now = Instant::now();
+
+        assert!(
+            should_attempt_reconnect(None, now),
+            "首次没有上次记录，必须允许尝试"
+        );
+        assert!(
+            !should_attempt_reconnect(Some(now), now),
+            "同一时刻的连续失败必须被拒"
+        );
+        assert!(
+            !should_attempt_reconnect(
+                Some(now - (RECONNECT_THROTTLE - Duration::from_millis(1))),
+                now
+            ),
+            "窗口内差 1ms 也应被拒"
+        );
+        assert!(
+            should_attempt_reconnect(Some(now - RECONNECT_THROTTLE), now),
+            "刚好到窗口边界应放行"
+        );
+    }
 
     #[test]
     fn workspace_candidates_include_debug_and_release_paths() {

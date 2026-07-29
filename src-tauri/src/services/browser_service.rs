@@ -35,16 +35,34 @@ pub struct BrowserSpikeReport {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserOpenTabEvent {
+    /// MCP 请求等待前端确认实际 tabId；其他内部调用不需要应答。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
     pub tab_id: String,
     pub url: String,
     pub title: String,
+    /// 落位窗格；None 表示交给前端用当前活动窗格。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    /// 已有同 URL 标签时是否复用（默认 true）。前端消费；旧前端忽略该字段仍按新开处理。
+    pub reuse: bool,
 }
 
 impl BrowserOpenTabEvent {
     pub fn try_new(url: &str, title: Option<&str>) -> AppResult<Self> {
+        Self::try_new_with(url, title, None, true)
+    }
+
+    pub fn try_new_with(
+        url: &str,
+        title: Option<&str>,
+        pane_id: Option<&str>,
+        reuse: bool,
+    ) -> AppResult<Self> {
         let parsed = validate_browser_url(url)?;
         let default_title = parsed.host_str().unwrap_or("Browser");
         Ok(Self {
+            request_id: None,
             tab_id: format!("tab-{}", uuid::Uuid::new_v4()),
             url: parsed.to_string(),
             title: title
@@ -52,6 +70,11 @@ impl BrowserOpenTabEvent {
                 .filter(|value| !value.is_empty())
                 .unwrap_or(default_title)
                 .to_string(),
+            pane_id: pane_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            reuse,
         })
     }
 }
@@ -669,6 +692,7 @@ mod tests {
         assert_eq!(event.url, "http://localhost:5173/");
         assert_eq!(event.title, "localhost");
         assert!(event.tab_id.starts_with("tab-"));
+        assert_eq!(event.request_id, None);
         assert_eq!(
             BrowserOpenTabEvent::try_new("https://example.com", Some(" Preview "))
                 .unwrap()

@@ -2,7 +2,12 @@ export { useThemeStore } from "./useThemeStore";
 export { useFullscreenStore } from "./useFullscreenStore";
 export { useBorderlessStore } from "./useBorderlessStore";
 export { useMiniModeStore } from "./useMiniModeStore";
-export { useSettingsStore } from "./useSettingsStore";
+export {
+  useSettingsStore,
+  TERMINAL_FONT_SIZE_MIN,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_DEFAULT,
+} from "./useSettingsStore";
 export { useProjectsStore } from "./useProjectsStore";
 export { useWorkspacesStore } from "./useWorkspacesStore";
 export { useProvidersStore } from "./useProvidersStore";

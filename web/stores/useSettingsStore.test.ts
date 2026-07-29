@@ -127,10 +127,15 @@ describe("useSettingsStore", () => {
       expect(defaults.cliLaunchers).toEqual({ overrides: {} });
     });
 
-    it("快捷键绑定应有 35 个", () => {
+    // 不写死数量：每加一个快捷键就要来改一次断言，而它并不能说明任何东西。
+    // 真正要守的是「每个绑定都有非空键位」，这条加多少键都成立。
+    it("每个默认快捷键都应有非空键位", () => {
       const defaults = useSettingsStore.getState().getDefaults();
-      const bindingCount = Object.keys(defaults.shortcuts.bindings).length;
-      expect(bindingCount).toBe(35);
+      const bindings = defaults.shortcuts.bindings;
+      const entries = Object.entries(bindings);
+      expect(entries.length).toBeGreaterThan(0);
+      const blank = entries.filter(([, combo]) => !combo || !combo.trim());
+      expect(blank).toEqual([]);
     });
 
     it("应包含关键快捷键定义", () => {

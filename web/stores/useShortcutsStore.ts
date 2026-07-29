@@ -23,6 +23,12 @@ const TERMINAL_PASSTHROUGH_ACTIONS = new Set([
   "command-palette",
 ]);
 
+const TERMINAL_ONLY_ACTIONS = new Set([
+  "terminal-zoom-in",
+  "terminal-zoom-out",
+  "terminal-zoom-reset",
+]);
+
 /**
  * 该 action 的快捷键在终端聚焦时是否会被放行给终端。
  *
@@ -36,6 +42,7 @@ export interface ShortcutAction {
   id: string;
   label: string;
   handler: () => void;
+  context?: "global" | "terminal";
 }
 
 interface ShortcutsState {
@@ -131,11 +138,38 @@ export function findConflict(
   newCombo: string
 ): string | null {
   for (const [id, combo] of Object.entries(bindings)) {
-    if (id !== actionId && combo === newCombo) {
+    if (id !== actionId && combo === newCombo && actionContextsOverlap(id, actionId)) {
       return id;
     }
   }
   return null;
+}
+
+function getActionContext(actionId: string): "global" | "terminal" {
+  return (
+    useShortcutsStore.getState().actions.get(actionId)?.context ??
+    (TERMINAL_ONLY_ACTIONS.has(actionId) ? "terminal" : "global")
+  );
+}
+
+function isActionActive(actionId: string, terminalFocused: boolean): boolean {
+  if (getActionContext(actionId) === "terminal") {
+    return terminalFocused;
+  }
+  return !(terminalFocused && TERMINAL_PASSTHROUGH_ACTIONS.has(actionId));
+}
+
+function actionContextsOverlap(firstActionId: string, secondActionId: string): boolean {
+  const firstTerminalOnly = getActionContext(firstActionId) === "terminal";
+  const secondTerminalOnly = getActionContext(secondActionId) === "terminal";
+
+  if (firstTerminalOnly && TERMINAL_PASSTHROUGH_ACTIONS.has(secondActionId)) {
+    return false;
+  }
+  if (secondTerminalOnly && TERMINAL_PASSTHROUGH_ACTIONS.has(firstActionId)) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -152,19 +186,14 @@ export function handleKeydown(e: KeyboardEvent) {
   const { actions, terminalFocused } = useShortcutsStore.getState();
 
   for (const [actionId, keyCombo] of Object.entries(bindings)) {
-    if (keyCombo === combo) {
-      const action = actions.get(actionId);
-      if (action) {
-        // 终端聚焦时，冲突快捷键放行给终端
-        if (terminalFocused && TERMINAL_PASSTHROUGH_ACTIONS.has(actionId)) {
-          return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        action.handler();
-        return;
-      }
+    const action = actions.get(actionId);
+    if (keyCombo !== combo || !action || !isActionActive(actionId, terminalFocused)) {
+      continue;
     }
+    e.preventDefault();
+    e.stopPropagation();
+    action.handler();
+    return;
   }
 }
 
@@ -182,11 +211,12 @@ export function shouldTerminalHandleKey(e: KeyboardEvent): boolean {
   const { actions, terminalFocused } = useShortcutsStore.getState();
 
   for (const [actionId, keyCombo] of Object.entries(bindings)) {
-    if (keyCombo === combo && actions.has(actionId) && hasModifier(combo)) {
-      // 终端聚焦时，冲突快捷键放行给终端处理
-      if (terminalFocused && TERMINAL_PASSTHROUGH_ACTIONS.has(actionId)) {
-        return true;
-      }
+    if (
+      keyCombo === combo &&
+      actions.has(actionId) &&
+      hasModifier(combo) &&
+      isActionActive(actionId, terminalFocused)
+    ) {
       return false;
     }
   }

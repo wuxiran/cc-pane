@@ -40,6 +40,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub layout_switcher: LayoutSwitcherSettings,
     #[serde(default)]
+    pub main_window: MainWindowSettings,
+    #[serde(default)]
     pub web_access: WebAccessSettings,
     #[serde(default)]
     pub orchestrator: OrchestratorSettings,
@@ -498,12 +500,22 @@ impl ShortcutSettings {
             if self.bindings.contains_key(&action_id) {
                 continue;
             }
-            if self.bindings.values().any(|value| value == &key_combo) {
+            if self.bindings.iter().any(|(existing_action_id, value)| {
+                value == &key_combo
+                    && !shortcut_contexts_are_disjoint(existing_action_id, &action_id)
+            }) {
                 continue;
             }
             self.bindings.insert(action_id, key_combo);
         }
     }
+}
+
+fn shortcut_contexts_are_disjoint(first: &str, second: &str) -> bool {
+    matches!(
+        (first, second),
+        ("split-down", "terminal-zoom-out") | ("terminal-zoom-out", "split-down")
+    )
 }
 
 /// 通知设置
@@ -755,6 +767,29 @@ impl CliLauncherOverride {
         let command = self.command.trim();
         (!command.is_empty()).then_some(command)
     }
+}
+
+/// 主窗口几何状态。
+///
+/// tauri.conf.json 里写死 `maximized: true`，于是每次启动都满屏，
+/// 用户把窗口拖小、下次启动又变回去——没有任何记忆。
+/// 这里按 `LayoutSwitcherSettings` 的既有模式持久化，不引新依赖。
+///
+/// 全部字段可缺失：老配置读进来即「未记录过」，回落 tauri.conf.json 的首启行为。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MainWindowSettings {
+    #[serde(default)]
+    pub width: Option<f64>,
+    #[serde(default)]
+    pub height: Option<f64>,
+    #[serde(default)]
+    pub x: Option<f64>,
+    #[serde(default)]
+    pub y: Option<f64>,
+    /// 上次退出时是否处于最大化。None = 从未记录，按首启默认（最大化）。
+    #[serde(default)]
+    pub maximized: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1068,6 +1103,9 @@ impl Default for ShortcutSettings {
         bindings.insert("focus-pane-down".to_string(), "Alt+Down".to_string());
         bindings.insert("next-tab".to_string(), "Ctrl+Tab".to_string());
         bindings.insert("prev-tab".to_string(), "Ctrl+Shift+Tab".to_string());
+        bindings.insert("terminal-zoom-in".to_string(), "Ctrl+=".to_string());
+        bindings.insert("terminal-zoom-out".to_string(), "Ctrl+-".to_string());
+        bindings.insert("terminal-zoom-reset".to_string(), "Ctrl+0".to_string());
         bindings.insert("toggle-mini-mode".to_string(), "Ctrl+M".to_string());
         bindings.insert("voice-input".to_string(), "Ctrl+Alt+M".to_string());
         for i in 1..=9 {
@@ -1339,6 +1377,18 @@ mod tests {
         );
         assert_eq!(bindings.get("switch-layout-1"), Some(&"Alt+1".to_string()));
         assert_eq!(bindings.get("switch-layout-9"), Some(&"Alt+9".to_string()));
+        assert_eq!(
+            bindings.get("terminal-zoom-in"),
+            Some(&"Ctrl+=".to_string())
+        );
+        assert_eq!(
+            bindings.get("terminal-zoom-out"),
+            Some(&"Ctrl+-".to_string())
+        );
+        assert_eq!(
+            bindings.get("terminal-zoom-reset"),
+            Some(&"Ctrl+0".to_string())
+        );
     }
 
     #[test]
@@ -1389,6 +1439,24 @@ mod tests {
         assert_eq!(
             settings.bindings.get("focus-pane-right"),
             Some(&"Alt+Right".to_string())
+        );
+    }
+
+    #[test]
+    fn merge_missing_defaults_allows_context_disjoint_ctrl_minus_bindings() {
+        let mut settings = ShortcutSettings {
+            bindings: HashMap::from([("split-down".to_string(), "Ctrl+-".to_string())]),
+        };
+
+        settings.merge_missing_defaults();
+
+        assert_eq!(
+            settings.bindings.get("split-down"),
+            Some(&"Ctrl+-".to_string())
+        );
+        assert_eq!(
+            settings.bindings.get("terminal-zoom-out"),
+            Some(&"Ctrl+-".to_string())
         );
     }
 

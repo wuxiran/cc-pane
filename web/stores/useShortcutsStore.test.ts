@@ -235,6 +235,27 @@ describe("useShortcutsStore", () => {
       const result = findConflict(bindings, "toggle-sidebar", "Ctrl+B");
       expect(result).toBeNull();
     });
+
+    it("允许终端内缩放与终端外分屏共享 Ctrl+-", () => {
+      const sharedBindings = {
+        "split-down": "Ctrl+-",
+        "terminal-zoom-out": "Ctrl+-",
+      };
+
+      expect(findConflict(sharedBindings, "terminal-zoom-out", "Ctrl+-")).toBeNull();
+      expect(findConflict(sharedBindings, "split-down", "Ctrl+-")).toBeNull();
+    });
+
+    it("终端缩放仍与普通全局动作冲突", () => {
+      const sharedBindings = {
+        settings: "Ctrl+-",
+        "terminal-zoom-out": "Ctrl+-",
+      };
+
+      expect(findConflict(sharedBindings, "terminal-zoom-out", "Ctrl+-")).toBe(
+        "settings"
+      );
+    });
   });
 
   // ===========================================================================
@@ -368,6 +389,42 @@ describe("useShortcutsStore", () => {
 
       expect(preventSpy).not.toHaveBeenCalled();
     });
+
+    it("Ctrl+- 根据终端焦点只触发一个上下文动作", () => {
+      const splitHandler = vi.fn();
+      const zoomHandler = vi.fn();
+      useShortcutsStore.getState().registerAction({
+        id: "split-down",
+        label: "Split Down",
+        handler: splitHandler,
+      });
+      useShortcutsStore.getState().registerAction({
+        id: "terminal-zoom-out",
+        label: "Zoom Out",
+        context: "terminal",
+        handler: zoomHandler,
+      });
+      useSettingsStore.setState({
+        settings: {
+          shortcuts: {
+            bindings: {
+              "split-down": "Ctrl+-",
+              "terminal-zoom-out": "Ctrl+-",
+            },
+          },
+        } as never,
+      });
+
+      useShortcutsStore.getState().setTerminalFocused(true);
+      handleKeydown(createKeyEvent("-", { ctrlKey: true }));
+      expect(zoomHandler).toHaveBeenCalledTimes(1);
+      expect(splitHandler).not.toHaveBeenCalled();
+
+      useShortcutsStore.getState().setTerminalFocused(false);
+      handleKeydown(createKeyEvent("-", { ctrlKey: true }));
+      expect(splitHandler).toHaveBeenCalledTimes(1);
+      expect(zoomHandler).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ===========================================================================
@@ -495,6 +552,33 @@ describe("useShortcutsStore", () => {
 
       const e = createKeyEvent("ArrowLeft", { altKey: true });
       expect(shouldTerminalHandleKey(e)).toBe(false);
+    });
+
+    it("终端聚焦时 Ctrl+- 由终端缩放接管，而非透传给 xterm", () => {
+      useShortcutsStore.getState().setTerminalFocused(true);
+      useShortcutsStore.getState().registerAction({
+        id: "split-down",
+        label: "Split Down",
+        handler: vi.fn(),
+      });
+      useShortcutsStore.getState().registerAction({
+        id: "terminal-zoom-out",
+        label: "Zoom Out",
+        context: "terminal",
+        handler: vi.fn(),
+      });
+      useSettingsStore.setState({
+        settings: {
+          shortcuts: {
+            bindings: {
+              "split-down": "Ctrl+-",
+              "terminal-zoom-out": "Ctrl+-",
+            },
+          },
+        } as never,
+      });
+
+      expect(shouldTerminalHandleKey(createKeyEvent("-", { ctrlKey: true }))).toBe(false);
     });
   });
 });
