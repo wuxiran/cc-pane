@@ -33,7 +33,7 @@
 
 对 Claude 说一句就行：
 
-> 帮我在 CC-Panes 里打开 http://localhost:5173
+> 帮我在 CC-Panes 里打开 `http://localhost:5173`
 
 它会调用 `open_browser_tab`，**在你当前活跃的窗格里**新开一个标签，图标是个地球，标题默认取网站域名。标签开在主窗口的当前布局里；如果当前不在分屏视图，会自动切回去。
 
