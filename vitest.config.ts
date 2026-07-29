@@ -12,6 +12,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    // The full Windows coverage job can briefly starve async UI tests while
+    // hundreds of files share the runner. Keep a bounded but realistic limit.
+    testTimeout: 10_000,
     setupFiles: ["./web/test/setup.ts"],
     include: ["web/**/*.test.{ts,tsx}"],
     coverage: {
@@ -29,10 +32,10 @@ export default defineConfig({
       // 从而只防退化、随补测逐步收紧，直到重新逼近 80%。基线由 `npm run test:coverage` 实测得出。
       thresholds: {
         autoUpdate: true,
-        statements: 71.29,
-        branches: 64.36,
-        functions: 70.94,
-        lines: 74.17,
+        statements: 74.66,
+        branches: 67.71,
+        functions: 73.88,
+        lines: 77.5,
       },
     },
   },
