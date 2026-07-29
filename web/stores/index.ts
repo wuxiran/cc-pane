@@ -7,6 +7,7 @@ export {
   TERMINAL_FONT_SIZE_MIN,
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_DEFAULT,
+  normalizeTerminalFontSize,
 } from "./useSettingsStore";
 export { useProjectsStore } from "./useProjectsStore";
 export { useWorkspacesStore } from "./useWorkspacesStore";

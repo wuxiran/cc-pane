@@ -18,6 +18,7 @@ import { captureTerminalWrite, noteTerminalGeometry } from "@/utils/terminalCast
 import { TERMINAL_APP_MENU_PASTE_EVENT } from "@/utils/appMenuPaste";
 import {
   TERMINAL_LAYOUT_CHANGED_EVENT,
+  normalizeTerminalFontSize,
   shouldTerminalHandleKey,
   useShortcutsStore,
   useSettingsStore,
@@ -81,6 +82,7 @@ import TerminalContextMenu from "./TerminalContextMenu";
 import TerminalZoomHud from "./TerminalZoomHud";
 import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
 import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
+import { useTerminalWheelZoom } from "./useTerminalWheelZoom";
 import "@xterm/xterm/css/xterm.css";
 
 /** Cache the Windows build number once per renderer process. */
@@ -102,9 +104,6 @@ import type { CliTool, CreateSessionRequest, SshConnectionInfo, TerminalRenderer
 const TERMINAL_DEBUG = import.meta.env.DEV;
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-const DEFAULT_TERMINAL_FONT_SIZE = 15;
-const MIN_TERMINAL_FONT_SIZE = 10;
-const MAX_TERMINAL_FONT_SIZE = 32;
 const DEFAULT_TERMINAL_SCROLLBACK = 20_000;
 const WEBGL_HEARTBEAT_INTERVAL_MS = 30_000;
 const WEBGL_SLEEP_GAP_MS = 75_000;
@@ -245,12 +244,6 @@ function attachTerminalInputDebugLog(
 function setMacosTerminalNativeFocus(focused: boolean): void {
   if (!IS_MAC || !isTauriRuntime()) return;
   void invoke("set_macos_terminal_focused", { focused }).catch(() => {});
-}
-
-function normalizeTerminalFontSize(value?: number | null): number {
-  if (!Number.isFinite(value)) return DEFAULT_TERMINAL_FONT_SIZE;
-  const rounded = Math.round(value as number);
-  return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, rounded));
 }
 
 function normalizeTerminalCursorStyle(value?: string | null): TerminalCursorStyle {
@@ -1931,36 +1924,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       terminalFontSize,
     ]);
 
-    // Ctrl+滚轮缩放。
-    //
-    // 挂在**外层 host 的捕获阶段**，而不是改 init 闭包里那个 wheel handler
-    // （它把滚轮转成方向键，属于渲染生命周期红线，一概不碰）。
-    // 捕获是外→内，所以这里能先截住带 Ctrl 的滚轮并 stopPropagation，
-    // 内层 handler 收不到，不会误发方向键；不带 Ctrl 的滚轮原样放行。
-    //
-    // 只改 settings.terminal.fontSize，上面那个 effect 会自动完成
-    // 字号应用 + 字形图集失效 + 强制重排，这里不需要碰终端实例。
-    useEffect(() => {
-      const host = terminalRef.current;
-      if (!host) return;
-
-      const onWheel = (event: WheelEvent) => {
-        if (!event.ctrlKey || event.deltaY === 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const step = event.deltaY < 0 ? 1 : -1;
-        useSettingsStore
-          .getState()
-          .setTerminalFontSize(
-            normalizeTerminalFontSize(
-              useSettingsStore.getState().settings?.terminal.fontSize,
-            ) + step,
-          );
-      };
-
-      host.addEventListener("wheel", onWheel, { capture: true, passive: false });
-      return () => host.removeEventListener("wheel", onWheel, { capture: true });
-    }, []);
+    useTerminalWheelZoom(terminalRef);
 
     // 启动期字体晚就绪兜底：waitForTerminalFont 有 1.5s 超时，超时后终端会用
     // fallback 字体度量 cell 并 fit；主字体随后加载完成时没有任何触发点，

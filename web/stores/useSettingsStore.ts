@@ -28,10 +28,17 @@ interface SettingsState {
   getDefaults: () => AppSettings;
 }
 
-/** 与 TerminalView 的 normalize 保持一致，越界即钳制 */
 export const TERMINAL_FONT_SIZE_MIN = 10;
 export const TERMINAL_FONT_SIZE_MAX = 32;
 export const TERMINAL_FONT_SIZE_DEFAULT = 15;
+
+export function normalizeTerminalFontSize(size?: number | null): number {
+  if (!Number.isFinite(size)) return TERMINAL_FONT_SIZE_DEFAULT;
+  return Math.min(
+    TERMINAL_FONT_SIZE_MAX,
+    Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(size as number)),
+  );
+}
 
 const FONT_SIZE_PERSIST_DEBOUNCE_MS = 400;
 let fontSizePersistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -204,10 +211,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setTerminalFontSize: (size) => {
     const current = get().settings;
     if (!current) return;
-    const clamped = Math.min(
-      TERMINAL_FONT_SIZE_MAX,
-      Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(size)),
-    );
+    const clamped = normalizeTerminalFontSize(size);
     if (current.terminal.fontSize === clamped) return;
 
     // 先更内存：TerminalView 的字号 effect 订阅的就是这里，改完立刻跟手
