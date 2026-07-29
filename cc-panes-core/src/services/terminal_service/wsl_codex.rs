@@ -1533,12 +1533,12 @@ mod tests {
         render_wsl_launch_script, wsl_host_probe_script,
     };
     #[cfg(windows)]
-    use super::{wsl_claude_mcp_config_paths, windows_path_to_wsl};
-    #[cfg(windows)]
     use super::{
         build_wsl_claude_skill_sync_prelude, build_wsl_codex_skill_sync_prelude,
         collect_wsl_claude_source_files, collect_wsl_codex_source_dirs, VERSION_FILE_NAME,
     };
+    #[cfg(windows)]
+    use super::{windows_path_to_wsl, wsl_claude_mcp_config_paths};
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -1622,7 +1622,9 @@ mod tests {
         // 枚举 PATH 上的全部候选，而不是只取第一个
         assert!(script.contains(r#"type -pa "$CCPANES_CLI_NAME""#));
         // ELF 魔数放行必须排在后缀判定之前：claude 的原生 Linux 二进制就叫 claude.exe
-        let elf_at = script.find("7f454c46*) return 1").expect("ELF 放行分支缺失");
+        let elf_at = script
+            .find("7f454c46*) return 1")
+            .expect("ELF 放行分支缺失");
         let suffix_at = script
             .find("*.exe|*.EXE|*.cmd|*.CMD|*.bat|*.BAT")
             .expect("后缀拒绝分支缺失");
