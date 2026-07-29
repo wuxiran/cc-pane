@@ -124,13 +124,11 @@ impl TerminalBackendState {
     ) -> AppResult<CreatedTerminalSession> {
         let initial_backend = self.backend();
         match initial_backend.create_session(request.clone()) {
-            Ok(session_id) => {
-                return Ok(CreatedTerminalSession {
-                    session_id,
-                    backend: initial_backend,
-                });
-            }
-            Err(error) if self.kind() != TerminalBackendKind::Daemon => return Err(error),
+            Ok(session_id) => Ok(CreatedTerminalSession {
+                session_id,
+                backend: initial_backend,
+            }),
+            Err(error) if self.kind() != TerminalBackendKind::Daemon => Err(error),
             Err(error) => {
                 let current_client = self.daemon_client();
                 let Some(recovered) = recover_if_down(current_client.as_ref()) else {
@@ -140,10 +138,10 @@ impl TerminalBackendState {
                 self.install_daemon_backend(recovered.client.clone(), recovered.backend.clone());
                 on_recovered(&recovered.client);
                 let session_id = recovered.backend.create_session(request)?;
-                return Ok(CreatedTerminalSession {
+                Ok(CreatedTerminalSession {
                     session_id,
                     backend: recovered.backend,
-                });
+                })
             }
         }
     }
