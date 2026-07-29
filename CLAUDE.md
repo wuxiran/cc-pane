@@ -350,7 +350,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/60-notify-ui-handoff.md` | 打扰闸门+更新卡片+功能提示 交接指令 |
 | `docs/64-ai-panel-templates.md` | AI 面板模板化 + fleet 编排拓扑视图（方向文档 + 原型，**未排期**） |
 | `docs/65-skill-observation-contract.md` | **Skill 观测契约**：状态判读表 / 同形陷阱 / 停手规则 / 收尾字段——launch 与编排类 skill 回引此文 |
-| `docs/66-0114-session-recovery-promotion.md` | **0.11.4 计划**：会话恢复转正（单主线）——灰度 + Windows 验收 + 开关默认开启 |
+| `docs/66-0115-session-recovery-promotion.md` | **0.11.5 计划**：会话恢复转正（单主线）——灰度 + Windows 验收 + 开关默认开启 |
 | `docs/67-discoverability-plan.md` | **发现性计划**：主页装修（对标 orca）+ tips 扩容 + 补 4 篇新能力 guide（与 68 交互质量分工） |
 | `docs/67-storyboards.md` | 67 附录 · 素材分镜脚本：主页 GIF 与 in-app tips 的唯一共享物，两边各实现一次 |
 | `docs/68-interaction-quality-plan.md` | **交互质量计划**：关闭标签杀 agent 会话无确认 / 终端聚焦时 7 个快捷键静默失效 / 空态不统一（与 67 发现性分工，未排期） |

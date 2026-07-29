@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.4 - 2026-07-29
+
+### Added
+
+- **Terminal zoom controls.** `Ctrl` + mouse wheel and the configurable `Ctrl+=` / `Ctrl+-` / `Ctrl+0` shortcuts now adjust terminal font size with a bounded on-screen readout. The `Ctrl+-` binding is context-aware: it zooms while a terminal is focused and keeps split-down available elsewhere.
+- **Browser-tab placement and reuse.** Agent browser tools can target a pane and reuse an existing normalized URL. MCP now waits for the frontend's actual tab id, so follow-up navigate, evaluate, click, and screenshot calls address the tab that was really focused or created.
+- **Discoverability refresh.** The README and contribution guide were restructured, feature tips now cover orchestration workflows and link to the expanded AI panel, skills, right-dock, and browser-tab guides.
+
+### Fixed
+
+- **CLI resolution across Windows and WSL.** Windows executable lookup no longer depends on the parent process's `PATHEXT`, shell shims are resolved deliberately, and WSL rejects Windows-native Claude/Codex binaries while allowing valid script-based shims. Paths containing spaces remain argument-safe.
+- **Schema-drift recovery.** Database migrations run one transaction per version, and migration v28 repairs installations whose recorded schema version advanced while columns or indexes were missing.
+- **Daemon compatibility and outage recovery.** Adoption-snapshot 404s from older daemons degrade cleanly, session creation reconnects once after a real daemon outage across UI, MCP/REST, and Runner paths, and the single desktop control link switches immediately to the new daemon URL and token.
+- **Window geometry persistence.** The main window restores its last normal size, position, and maximized state. Geometry writes are serialized with settings persistence so stale frontend snapshots cannot overwrite newer window state, or vice versa.
+- **Shortcut and close-path accuracy.** Feature tips reflect terminal pass-through behavior, `Ctrl+W` follows the guarded tab-close path, and keyboard shortcut defaults now match the bindings registered by the frontend.
+
+### Changed
+
+- Automatic daemon-session adoption remains conservative in this release: `autoAdoptDaemonSessions` still defaults to `false`. Its Windows gray rollout and default-on promotion are tracked for 0.11.5 in `docs/66-0115-session-recovery-promotion.md`.
+
 ## 0.11.3 - 2026-07-26
 
 ### Added

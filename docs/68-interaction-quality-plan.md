@@ -162,7 +162,7 @@ L0 顺带把 kill 失败从 `handleErrorSilent` 升为 `handleError`（toast + �
 > PTY 会话真身活在 daemon 里（`runtime/daemon-manifest.json` 给出 addr+token），
 > orchestrator 随 app 生死。
 
-而 [docs/66](./66-0114-session-recovery-promotion.md) 正在把「会话恢复」转正。
+而 [docs/66](./66-0115-session-recovery-promotion.md) 计划在 0.11.5 把「会话恢复」转正。
 也就是说：**relaunch 之后会话很可能还在**，我们只是没验证、没说、还反过来警告用户。
 
 **三个必须先答的未知**（顺序不能反）：
