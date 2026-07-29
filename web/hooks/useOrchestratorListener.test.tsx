@@ -266,6 +266,7 @@ describe("useOrchestratorListener layout placement", () => {
     await act(async () => {
       await listeners.get("orchestrator-open-browser-tab")?.({
         payload: {
+          requestId: "browser-request-1",
           tabId: "browser-tab-1",
           url: "http://localhost:5173/",
           title: "Local preview",
@@ -282,5 +283,32 @@ describe("useOrchestratorListener layout placement", () => {
       title: "Local preview",
     });
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    expect(invoke).toHaveBeenCalledWith("respond_orchestrator_query", {
+      requestId: "browser-request-1",
+      data: JSON.stringify({ tabId: "browser-tab-1" }),
+    });
+  });
+
+  it("open-browser-tab 复用时应答已有 tabId", async () => {
+    const listeners = mockWebviewListeners();
+    usePanesStore.getState().openBrowser("http://localhost:5173/", "Existing", "existing-tab");
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-open-browser-tab")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-open-browser-tab")?.({
+        payload: {
+          requestId: "browser-request-2",
+          tabId: "unused-new-id",
+          url: "http://localhost:5173/",
+          reuse: true,
+        },
+      });
+    });
+
+    expect(invoke).toHaveBeenCalledWith("respond_orchestrator_query", {
+      requestId: "browser-request-2",
+      data: JSON.stringify({ tabId: "existing-tab" }),
+    });
   });
 });

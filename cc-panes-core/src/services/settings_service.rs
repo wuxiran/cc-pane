@@ -1,4 +1,4 @@
-use crate::models::settings::AppSettings;
+use crate::models::settings::{AppSettings, MainWindowSettings};
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -87,11 +87,22 @@ impl SettingsService {
 
     /// 更新设置
     pub fn update_settings(&self, mut new_settings: AppSettings) -> Result<()> {
+        let mut current = self.settings.lock().unwrap_or_else(|e| e.into_inner());
+        new_settings.main_window = current.main_window.clone();
         new_settings.merge_missing_defaults();
         self.save_to_file(&new_settings)?;
         info!("Settings updated and saved");
-        let mut current = self.settings.lock().unwrap_or_else(|e| e.into_inner());
         *current = new_settings;
+        Ok(())
+    }
+
+    /// 原子更新主窗口几何，避免与前端整份设置保存互相覆盖。
+    pub fn update_main_window(&self, update: impl FnOnce(&mut MainWindowSettings)) -> Result<()> {
+        let mut current = self.settings.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next = current.clone();
+        update(&mut next.main_window);
+        self.save_to_file(&next)?;
+        *current = next;
         Ok(())
     }
 
@@ -355,6 +366,59 @@ language = "en-US"
         assert_eq!(settings.general.language, "en-US");
         assert_eq!(settings.proxy.host, "127.0.0.1");
         assert_eq!(settings.proxy.port, 7890);
+    }
+
+    #[test]
+    fn stale_full_settings_update_cannot_overwrite_new_window_geometry() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new_with_config_path(temp_config_path(&dir));
+        let mut stale_frontend_settings = service.get_settings();
+
+        service
+            .update_main_window(|window| {
+                window.width = Some(1280.0);
+                window.maximized = Some(false);
+            })
+            .unwrap();
+        stale_frontend_settings.general.language = "en-US".to_string();
+        service.update_settings(stale_frontend_settings).unwrap();
+
+        let saved = service.get_settings();
+        assert_eq!(saved.general.language, "en-US");
+        assert_eq!(saved.main_window.width, Some(1280.0));
+        assert_eq!(saved.main_window.maximized, Some(false));
+    }
+
+    #[test]
+    fn window_geometry_update_preserves_current_business_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = SettingsService::new_with_config_path(temp_config_path(&dir));
+        let mut settings = service.get_settings();
+        settings.general.language = "en-US".to_string();
+        settings.proxy.enabled = true;
+        service.update_settings(settings).unwrap();
+
+        service
+            .update_main_window(|window| window.height = Some(720.0))
+            .unwrap();
+
+        let saved = service.get_settings();
+        assert_eq!(saved.general.language, "en-US");
+        assert!(saved.proxy.enabled);
+        assert_eq!(saved.main_window.height, Some(720.0));
+    }
+
+    #[test]
+    fn failed_window_geometry_save_does_not_change_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent_file = dir.path().join("not-a-directory");
+        std::fs::write(&parent_file, "occupied").unwrap();
+        let service = SettingsService::new_with_config_path(parent_file.join("config.toml"));
+
+        let result = service.update_main_window(|window| window.width = Some(999.0));
+
+        assert!(result.is_err());
+        assert_eq!(service.get_settings().main_window.width, None);
     }
 
     #[test]

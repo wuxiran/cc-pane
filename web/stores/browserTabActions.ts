@@ -16,7 +16,7 @@ export interface BrowserTabActions {
     title?: string,
     tabId?: string,
     options?: OpenBrowserOptions,
-  ) => void;
+  ) => string | null;
   updateBrowserTab: (tabId: string, patch: { browserUrl?: string; title?: string }) => void;
 }
 
@@ -80,6 +80,7 @@ export function createBrowserTabActions<T extends BrowserTabState>(
   return {
     openBrowser: (url, title, tabId, options) => {
       const reuse = options?.reuse !== false;
+      let actualTabId: string | null = null;
       set((state) => {
         // 1) 复用：同一个页面已经开着就聚焦它，不再堆一个新标签。
         //    这是默认路径——调用方每查一个页面就开一个标签会把版面堆满。
@@ -90,6 +91,7 @@ export function createBrowserTabActions<T extends BrowserTabState>(
             if (pane?.type === "panel") {
               pane.activeTabId = existing.tab.id;
               state.activePaneId = pane.id;
+              actualTabId = existing.tab.id;
             }
             return;
           }
@@ -113,7 +115,9 @@ export function createBrowserTabActions<T extends BrowserTabState>(
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
         state.activePaneId = pane.id;
+        actualTabId = newTab.id;
       });
+      return actualTabId;
     },
     updateBrowserTab: (tabId, patch) => {
       set((state) => {

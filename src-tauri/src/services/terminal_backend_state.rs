@@ -1,10 +1,12 @@
 use std::sync::{Arc, RwLock};
 
+use crate::models::CreateSessionRequest;
 use crate::services::{
     DaemonTerminalBackend, InProcessTerminalBackend, TerminalBackend, TerminalDaemonClient,
-    TerminalService,
+    TerminalDaemonControlLink, TerminalDaemonLifecycle, TerminalService,
 };
-use crate::utils::AppPaths;
+use crate::utils::{AppPaths, AppResult};
+use tauri::Manager;
 use tracing::{info, warn};
 
 #[derive(Clone)]
@@ -23,6 +25,23 @@ struct TerminalBackendStateInner {
 pub enum TerminalBackendKind {
     InProcess,
     Daemon,
+}
+
+pub struct CreatedTerminalSession {
+    pub session_id: String,
+    pub backend: Arc<dyn TerminalBackend>,
+}
+
+struct RecoveredTerminalDaemon {
+    client: TerminalDaemonClient,
+    backend: Arc<dyn TerminalBackend>,
+}
+
+impl RecoveredTerminalDaemon {
+    fn from_client(client: TerminalDaemonClient) -> Self {
+        let backend = Arc::new(DaemonTerminalBackend::new(client.clone()));
+        Self { client, backend }
+    }
 }
 
 impl TerminalBackendState {
@@ -69,13 +88,104 @@ impl TerminalBackendState {
     }
 
     pub fn try_enable_daemon(&self, client: TerminalDaemonClient) {
+        let backend = Arc::new(DaemonTerminalBackend::new(client.clone()));
+        self.install_daemon_backend(client, backend);
+    }
+
+    fn install_daemon_backend(
+        &self,
+        client: TerminalDaemonClient,
+        backend: Arc<dyn TerminalBackend>,
+    ) {
         let mut inner = self
             .inner
             .write()
             .unwrap_or_else(|error| error.into_inner());
-        inner.backend = Arc::new(DaemonTerminalBackend::new(client.clone()));
+        inner.backend = backend;
         inner.kind = TerminalBackendKind::Daemon;
         inner.daemon_client = Some(client);
+    }
+
+    /// 创建会话，daemon 掉线时自动重连并重试一次。
+    ///
+    /// **所有创建入口都该走这里**，而不是各自 `backend().create_session()`。
+    /// 实测教训：自愈最初只补在 Tauri 命令 `create_terminal_session` 上，
+    /// 而 orchestrator（REST/MCP launch_task）与 Runner 各有自己的调用点，
+    /// 于是 `ctl launch` 在 daemon 已死时依然 `connection timed out` ——
+    /// 补在调用点就必然漏，必须落在共同层。
+    ///
+    /// 判据不是错误文本（脆且随平台/语言变），而是失败后探一次健康：
+    /// 健康 = 业务错误原样抛出；不健康 = 真掉线，重连后用新 backend 重试。
+    fn create_session_recovering(
+        &self,
+        request: CreateSessionRequest,
+        recover_if_down: impl FnOnce(Option<&TerminalDaemonClient>) -> Option<RecoveredTerminalDaemon>,
+        on_recovered: impl FnOnce(&TerminalDaemonClient),
+    ) -> AppResult<CreatedTerminalSession> {
+        let initial_backend = self.backend();
+        match initial_backend.create_session(request.clone()) {
+            Ok(session_id) => {
+                return Ok(CreatedTerminalSession {
+                    session_id,
+                    backend: initial_backend,
+                });
+            }
+            Err(error) if self.kind() != TerminalBackendKind::Daemon => return Err(error),
+            Err(error) => {
+                let current_client = self.daemon_client();
+                let Some(recovered) = recover_if_down(current_client.as_ref()) else {
+                    return Err(error);
+                };
+                warn!(error = %error, "terminal daemon reconnected; retrying session creation once");
+                self.install_daemon_backend(recovered.client.clone(), recovered.backend.clone());
+                on_recovered(&recovered.client);
+                let session_id = recovered.backend.create_session(request)?;
+                return Ok(CreatedTerminalSession {
+                    session_id,
+                    backend: recovered.backend,
+                });
+            }
+        }
+    }
+
+    /// 统一的生产创建入口。daemon 健康时业务错误原样返回；掉线时只重连并重试一次。
+    pub fn create_session_with_recovery(
+        &self,
+        app_handle: &tauri::AppHandle,
+        request: CreateSessionRequest,
+    ) -> AppResult<CreatedTerminalSession> {
+        self.create_session_recovering(
+            request,
+            |current_client| {
+                if current_client.is_some_and(|client| client.health().is_ok()) {
+                    return None;
+                }
+
+                let app_paths = app_handle.try_state::<Arc<crate::utils::AppPaths>>()?;
+                let settings = app_handle.try_state::<Arc<crate::services::SettingsService>>()?;
+                let resource_dir = app_handle.path().resource_dir().ok();
+                let config_path = settings.config_path().to_path_buf();
+                match TerminalDaemonLifecycle::reconnect_throttled(
+                    app_paths.inner().as_ref(),
+                    resource_dir.as_deref(),
+                    &config_path,
+                ) {
+                    Ok(client) => Some(RecoveredTerminalDaemon::from_client(client)),
+                    Err(error) => {
+                        warn!(error = %error, "terminal daemon reconnect failed");
+                        None
+                    }
+                }
+            },
+            |client| {
+                if let Some(control_link) = app_handle.try_state::<Arc<TerminalDaemonControlLink>>()
+                {
+                    control_link.replace_client(client.clone());
+                } else {
+                    warn!("terminal daemon recovered before control link manager was available");
+                }
+            },
+        )
     }
 
     /// daemon 模式下的 client（in-process 时为 None）
@@ -145,14 +255,22 @@ fn is_truthy_daemon_flag(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::{CreateSessionRequest, TerminalReplaySnapshot};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::models::{CliTool, CreateSessionRequest, TerminalReplaySnapshot};
     use crate::services::terminal_service::SessionOutput;
     use crate::services::{SessionStatusInfo, TerminalBackend};
-    use crate::utils::AppResult;
+    use crate::utils::{AppError, AppResult};
+    use cc_panes_core::models::LaunchProviderSelection;
 
     use super::*;
 
     struct MockBackend;
+
+    struct FailingBackend {
+        calls: Arc<AtomicUsize>,
+        message: &'static str,
+    }
 
     impl TerminalBackend for MockBackend {
         fn create_session(&self, _request: CreateSessionRequest) -> AppResult<String> {
@@ -198,6 +316,90 @@ mod tests {
         }
     }
 
+    impl TerminalBackend for FailingBackend {
+        fn create_session(&self, _request: CreateSessionRequest) -> AppResult<String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(AppError::from(self.message))
+        }
+
+        fn write(&self, _session_id: &str, _data: &str) -> AppResult<()> {
+            Ok(())
+        }
+
+        fn submit_text_to_session(&self, _session_id: &str, _text: &str) -> AppResult<()> {
+            Ok(())
+        }
+
+        fn resize(&self, _session_id: &str, _cols: u16, _rows: u16) -> AppResult<()> {
+            Ok(())
+        }
+
+        fn kill(&self, _session_id: &str) -> AppResult<()> {
+            Ok(())
+        }
+
+        fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
+            Ok(Vec::new())
+        }
+
+        fn get_session_status(&self, _session_id: &str) -> AppResult<Option<SessionStatusInfo>> {
+            Ok(None)
+        }
+
+        fn get_session_output(&self, session_id: &str, _lines: usize) -> AppResult<SessionOutput> {
+            Ok(SessionOutput {
+                session_id: session_id.to_string(),
+                lines: Vec::new(),
+            })
+        }
+
+        fn get_session_replay_snapshot(
+            &self,
+            _session_id: &str,
+        ) -> AppResult<Option<TerminalReplaySnapshot>> {
+            Ok(None)
+        }
+    }
+
+    fn test_request() -> CreateSessionRequest {
+        CreateSessionRequest {
+            launch_id: None,
+            project_path: "/tmp/project".to_string(),
+            cols: 80,
+            rows: 24,
+            workspace_name: None,
+            provider_id: None,
+            provider_selection: LaunchProviderSelection::None,
+            launch_profile_id: None,
+            workspace_path: None,
+            workspace_snapshot_id: None,
+            origin_layout_id: None,
+            origin_tab_id: None,
+            origin_terminal_pane_id: None,
+            launch_claude: false,
+            cli_tool: CliTool::None,
+            resume_id: None,
+            skip_mcp: true,
+            append_system_prompt: None,
+            initial_prompt: None,
+            yolo_mode: None,
+            adapter_options: None,
+            extra_env: None,
+            ssh: None,
+            wsl: None,
+        }
+    }
+
+    fn daemon_state(backend: Arc<dyn TerminalBackend>) -> TerminalBackendState {
+        TerminalBackendState {
+            inner: Arc::new(RwLock::new(TerminalBackendStateInner {
+                backend,
+                kind: TerminalBackendKind::Daemon,
+                daemon_client: Some(TerminalDaemonClient::new("127.0.0.1:1", "old-token")),
+            })),
+        }
+    }
+
     #[test]
     fn terminal_backend_state_preserves_backend_trait_object() {
         let state = TerminalBackendState::new(Arc::new(MockBackend));
@@ -231,5 +433,103 @@ mod tests {
         state.try_enable_daemon(TerminalDaemonClient::new("127.0.0.1:1", "token"));
 
         assert_eq!(state.kind(), TerminalBackendKind::Daemon);
+    }
+
+    #[test]
+    fn recovery_declined_returns_original_business_error() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let state = daemon_state(Arc::new(FailingBackend {
+            calls: calls.clone(),
+            message: "business error",
+        }));
+        let recovery_checks = AtomicUsize::new(0);
+
+        let error = state
+            .create_session_recovering(
+                test_request(),
+                |_| {
+                    recovery_checks.fetch_add(1, Ordering::SeqCst);
+                    None
+                },
+                |_| {},
+            )
+            .err()
+            .expect("business error must be preserved");
+
+        assert!(error.to_string().contains("business error"));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(recovery_checks.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn outage_retries_once_and_returns_the_recovered_backend() {
+        let first_calls = Arc::new(AtomicUsize::new(0));
+        let state = daemon_state(Arc::new(FailingBackend {
+            calls: first_calls.clone(),
+            message: "daemon down",
+        }));
+        let recovered_backend: Arc<dyn TerminalBackend> = Arc::new(MockBackend);
+        let expected_backend = recovered_backend.clone();
+        let recovery_calls = AtomicUsize::new(0);
+
+        let created = state
+            .create_session_recovering(
+                test_request(),
+                |_| {
+                    recovery_calls.fetch_add(1, Ordering::SeqCst);
+                    Some(RecoveredTerminalDaemon {
+                        client: TerminalDaemonClient::new("127.0.0.1:2", "new-token"),
+                        backend: recovered_backend,
+                    })
+                },
+                |_| {},
+            )
+            .expect("recovered session");
+
+        assert_eq!(created.session_id, "mock-session");
+        assert!(Arc::ptr_eq(&created.backend, &expected_backend));
+        assert!(Arc::ptr_eq(&state.backend(), &expected_backend));
+        assert_eq!(state.daemon_client().unwrap().addr(), "127.0.0.1:2");
+        assert_eq!(first_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(recovery_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn recovered_backend_failure_is_not_retried_again() {
+        let first_calls = Arc::new(AtomicUsize::new(0));
+        let recovered_calls = Arc::new(AtomicUsize::new(0));
+        let state = daemon_state(Arc::new(FailingBackend {
+            calls: first_calls.clone(),
+            message: "daemon down",
+        }));
+        let recovered_backend: Arc<dyn TerminalBackend> = Arc::new(FailingBackend {
+            calls: recovered_calls.clone(),
+            message: "retry failed",
+        });
+        let recovery_calls = AtomicUsize::new(0);
+        let control_link_updates = AtomicUsize::new(0);
+
+        let error = state
+            .create_session_recovering(
+                test_request(),
+                |_| {
+                    recovery_calls.fetch_add(1, Ordering::SeqCst);
+                    Some(RecoveredTerminalDaemon {
+                        client: TerminalDaemonClient::new("127.0.0.1:2", "new-token"),
+                        backend: recovered_backend,
+                    })
+                },
+                |_| {
+                    control_link_updates.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .err()
+            .expect("second failure must be returned");
+
+        assert!(error.to_string().contains("retry failed"));
+        assert_eq!(first_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(recovered_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(recovery_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(control_link_updates.load(Ordering::SeqCst), 1);
     }
 }

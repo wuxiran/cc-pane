@@ -3,6 +3,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tauri::Emitter;
+use tokio::sync::watch;
 use tokio_tungstenite::connect_async;
 use tracing::{debug, warn};
 
@@ -22,23 +23,66 @@ const RECONNECT_MAX: Duration = Duration::from_secs(60);
 /// 同一连接也接收 daemon 的低频控制事件：当某会话没有独立 WS bridge 时，
 /// daemon 会从这里兜底下发 sessionKilled，桌面再转成同名 Tauri app 事件。
 ///
-/// 断开后指数退避重连，任务与 app 同生命周期。
-pub fn spawn_terminal_daemon_control_link(
-    client: TerminalDaemonClient,
+/// 断开后指数退避重连；daemon client 被替换时立即放弃旧 URL/token。
+/// manager 只启动一个常驻任务，避免每次自愈都叠加一个 desktop 控制连接。
+pub struct TerminalDaemonControlLink {
+    client_tx: watch::Sender<Option<TerminalDaemonClient>>,
+}
+
+impl TerminalDaemonControlLink {
+    pub fn new(app_handle: tauri::AppHandle) -> Self {
+        let (client_tx, client_rx) = watch::channel(None);
+        tauri::async_runtime::spawn(run_control_link(client_rx, app_handle));
+        Self { client_tx }
+    }
+
+    pub fn replace_client(&self, client: TerminalDaemonClient) {
+        self.client_tx.send_replace(Some(client));
+    }
+}
+
+async fn run_control_link(
+    mut client_rx: watch::Receiver<Option<TerminalDaemonClient>>,
     app_handle: tauri::AppHandle,
 ) {
-    tauri::async_runtime::spawn(async move {
+    'client: loop {
+        let Some(client) = client_rx.borrow().clone() else {
+            if client_rx.changed().await.is_err() {
+                return;
+            }
+            continue;
+        };
         let url = client.websocket_control_url("desktop");
         let mut backoff = RECONNECT_MIN;
+
         loop {
-            match connect_async(&url).await {
+            let connection = tokio::select! {
+                changed = client_rx.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    continue 'client;
+                }
+                connection = connect_async(&url) => connection,
+            };
+
+            match connection {
                 Ok((mut ws, _)) => {
-                    debug!("terminal daemon control link connected");
+                    debug!(daemon_addr = %client.addr(), "terminal daemon control link connected");
                     backoff = RECONNECT_MIN;
-                    while let Some(message) = ws.next().await {
+                    loop {
+                        let message = tokio::select! {
+                            changed = client_rx.changed() => {
+                                if changed.is_err() {
+                                    return;
+                                }
+                                continue 'client;
+                            }
+                            message = ws.next() => message,
+                        };
                         let message = match message {
-                            Ok(message) => message,
-                            Err(_) => break,
+                            Some(Ok(message)) => message,
+                            Some(Err(_)) | None => break,
                         };
                         if !message.is_text() {
                             continue;
@@ -57,16 +101,25 @@ pub fn spawn_terminal_daemon_control_link(
                             }
                         }
                     }
-                    warn!("terminal daemon control link disconnected; reconnecting");
+                    warn!(daemon_addr = %client.addr(), "terminal daemon control link disconnected; reconnecting");
                 }
                 Err(error) => {
-                    debug!(error = %error, "terminal daemon control link connect failed");
+                    debug!(daemon_addr = %client.addr(), error = %error, "terminal daemon control link connect failed");
                 }
             }
-            tokio::time::sleep(backoff).await;
+
+            tokio::select! {
+                changed = client_rx.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    continue 'client;
+                }
+                _ = tokio::time::sleep(backoff) => {}
+            }
             backoff = (backoff * 2).min(RECONNECT_MAX);
         }
-    });
+    }
 }
 
 #[derive(Debug, Deserialize)]

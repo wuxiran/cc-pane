@@ -857,14 +857,24 @@ describe("usePanesStore", () => {
 
     it("reuses an existing tab for the same URL instead of stacking duplicates", () => {
       const store = usePanesStore.getState();
-      store.openBrowser("http://localhost:5173/app", "Preview", "browser-tab-1");
-      store.openBrowser("http://localhost:5173/app", "Preview again", "browser-tab-2");
+      const createdId = store.openBrowser(
+        "http://localhost:5173/app",
+        "Preview",
+        "browser-tab-1",
+      );
+      const reusedId = store.openBrowser(
+        "http://localhost:5173/app",
+        "Preview again",
+        "browser-tab-2",
+      );
 
       const pane = usePanesStore.getState().activePane()!;
       const browsers = pane.tabs.filter((tab) => tab.contentType === "browser");
       expect(browsers).toHaveLength(1);
       expect(browsers[0].id).toBe("browser-tab-1");
       expect(pane.activeTabId).toBe("browser-tab-1");
+      expect(createdId).toBe("browser-tab-1");
+      expect(reusedId).toBe("browser-tab-1");
     });
 
     it("treats hash and trailing slash as the same page, but query as different", () => {

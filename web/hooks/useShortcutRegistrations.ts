@@ -177,6 +177,7 @@ export function useShortcutRegistrations(): void {
     register({
       id: "terminal-zoom-in",
       label: i18n.t("terminal-zoom-in", { ns: "shortcuts" }),
+      context: "terminal",
       handler: () => {
         const store = useSettingsStore.getState();
         const current = store.settings?.terminal.fontSize ?? TERMINAL_FONT_SIZE_DEFAULT;
@@ -186,6 +187,7 @@ export function useShortcutRegistrations(): void {
     register({
       id: "terminal-zoom-out",
       label: i18n.t("terminal-zoom-out", { ns: "shortcuts" }),
+      context: "terminal",
       handler: () => {
         const store = useSettingsStore.getState();
         const current = store.settings?.terminal.fontSize ?? TERMINAL_FONT_SIZE_DEFAULT;
@@ -195,6 +197,7 @@ export function useShortcutRegistrations(): void {
     register({
       id: "terminal-zoom-reset",
       label: i18n.t("terminal-zoom-reset", { ns: "shortcuts" }),
+      context: "terminal",
       handler: () =>
         useSettingsStore.getState().setTerminalFontSize(TERMINAL_FONT_SIZE_DEFAULT),
     });

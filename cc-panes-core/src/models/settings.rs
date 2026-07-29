@@ -500,12 +500,22 @@ impl ShortcutSettings {
             if self.bindings.contains_key(&action_id) {
                 continue;
             }
-            if self.bindings.values().any(|value| value == &key_combo) {
+            if self.bindings.iter().any(|(existing_action_id, value)| {
+                value == &key_combo
+                    && !shortcut_contexts_are_disjoint(existing_action_id, &action_id)
+            }) {
                 continue;
             }
             self.bindings.insert(action_id, key_combo);
         }
     }
+}
+
+fn shortcut_contexts_are_disjoint(first: &str, second: &str) -> bool {
+    matches!(
+        (first, second),
+        ("split-down", "terminal-zoom-out") | ("terminal-zoom-out", "split-down")
+    )
 }
 
 /// 通知设置
@@ -1093,6 +1103,9 @@ impl Default for ShortcutSettings {
         bindings.insert("focus-pane-down".to_string(), "Alt+Down".to_string());
         bindings.insert("next-tab".to_string(), "Ctrl+Tab".to_string());
         bindings.insert("prev-tab".to_string(), "Ctrl+Shift+Tab".to_string());
+        bindings.insert("terminal-zoom-in".to_string(), "Ctrl+=".to_string());
+        bindings.insert("terminal-zoom-out".to_string(), "Ctrl+-".to_string());
+        bindings.insert("terminal-zoom-reset".to_string(), "Ctrl+0".to_string());
         bindings.insert("toggle-mini-mode".to_string(), "Ctrl+M".to_string());
         bindings.insert("voice-input".to_string(), "Ctrl+Alt+M".to_string());
         for i in 1..=9 {
@@ -1364,6 +1377,18 @@ mod tests {
         );
         assert_eq!(bindings.get("switch-layout-1"), Some(&"Alt+1".to_string()));
         assert_eq!(bindings.get("switch-layout-9"), Some(&"Alt+9".to_string()));
+        assert_eq!(
+            bindings.get("terminal-zoom-in"),
+            Some(&"Ctrl+=".to_string())
+        );
+        assert_eq!(
+            bindings.get("terminal-zoom-out"),
+            Some(&"Ctrl+-".to_string())
+        );
+        assert_eq!(
+            bindings.get("terminal-zoom-reset"),
+            Some(&"Ctrl+0".to_string())
+        );
     }
 
     #[test]
@@ -1414,6 +1439,24 @@ mod tests {
         assert_eq!(
             settings.bindings.get("focus-pane-right"),
             Some(&"Alt+Right".to_string())
+        );
+    }
+
+    #[test]
+    fn merge_missing_defaults_allows_context_disjoint_ctrl_minus_bindings() {
+        let mut settings = ShortcutSettings {
+            bindings: HashMap::from([("split-down".to_string(), "Ctrl+-".to_string())]),
+        };
+
+        settings.merge_missing_defaults();
+
+        assert_eq!(
+            settings.bindings.get("split-down"),
+            Some(&"Ctrl+-".to_string())
+        );
+        assert_eq!(
+            settings.bindings.get("terminal-zoom-out"),
+            Some(&"Ctrl+-".to_string())
         );
     }
 

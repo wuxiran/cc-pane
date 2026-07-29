@@ -401,9 +401,10 @@ use services::{
     ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
     SessionRestoreService, SettingsService, SharedMcpService, SkillMarketService, SkillService,
     SpecService, SshCredentialService, SshMachineService, StartLocks, SystemStatsService,
-    TaskBindingService, TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge,
-    TerminalDaemonLifecycle, TerminalService, TodoService, UninstallCleanupService,
-    UsageStatsService, WebAccessLifecycle, WorkspaceService, WorktreeService,
+    TaskBindingService, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
+    TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
+    UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
+    WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1277,26 +1278,32 @@ fn persist_main_window_geometry(app: &tauri::AppHandle) {
     }
 
     let maximized = window.is_maximized().unwrap_or(false);
-    let mut settings = settings_service.get_settings();
-    settings.main_window.maximized = Some(maximized);
+    let mut size = None;
+    let mut position = None;
 
     // 最大化状态下的 size/position 是屏幕尺寸，不该覆盖用户上次的还原态尺寸
     if !maximized {
         if let Ok(scale) = window.scale_factor() {
-            if let Ok(size) = window.inner_size() {
-                let logical = size.to_logical::<f64>(scale);
-                settings.main_window.width = Some(logical.width);
-                settings.main_window.height = Some(logical.height);
+            if let Ok(inner_size) = window.inner_size() {
+                size = Some(inner_size.to_logical::<f64>(scale));
             }
-            if let Ok(position) = window.outer_position() {
-                let logical = position.to_logical::<f64>(scale);
-                settings.main_window.x = Some(logical.x);
-                settings.main_window.y = Some(logical.y);
+            if let Ok(outer_position) = window.outer_position() {
+                position = Some(outer_position.to_logical::<f64>(scale));
             }
         }
     }
 
-    if let Err(error) = settings_service.update_settings(settings) {
+    if let Err(error) = settings_service.update_main_window(|main_window| {
+        main_window.maximized = Some(maximized);
+        if let Some(size) = size {
+            main_window.width = Some(size.width);
+            main_window.height = Some(size.height);
+        }
+        if let Some(position) = position {
+            main_window.x = Some(position.x);
+            main_window.y = Some(position.y);
+        }
+    }) {
         warn!(error = %error, "failed to persist main window geometry");
     }
 }
@@ -1784,6 +1791,9 @@ pub fn run() {
                 boot_t0.elapsed().as_millis()
             );
 
+            let daemon_control_link = Arc::new(TerminalDaemonControlLink::new(app.handle().clone()));
+            app.manage(daemon_control_link.clone());
+
             // ---- terminal daemon lifecycle（设置开关或 env 覆盖）----
             let daemon_enabled_by_settings = app
                 .state::<Arc<SettingsService>>()
@@ -1823,7 +1833,7 @@ pub fn run() {
                 .state::<Arc<TerminalBackendState>>()
                 .daemon_client()
             {
-                crate::services::spawn_terminal_daemon_control_link(client, app.handle().clone());
+                daemon_control_link.replace_client(client);
             }
 
             // ---- Web 端访问服务 lifecycle ----

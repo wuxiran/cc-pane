@@ -35,6 +35,9 @@ pub struct BrowserSpikeReport {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserOpenTabEvent {
+    /// MCP 请求等待前端确认实际 tabId；其他内部调用不需要应答。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
     pub tab_id: String,
     pub url: String,
     pub title: String,
@@ -59,6 +62,7 @@ impl BrowserOpenTabEvent {
         let parsed = validate_browser_url(url)?;
         let default_title = parsed.host_str().unwrap_or("Browser");
         Ok(Self {
+            request_id: None,
             tab_id: format!("tab-{}", uuid::Uuid::new_v4()),
             url: parsed.to_string(),
             title: title
@@ -688,6 +692,7 @@ mod tests {
         assert_eq!(event.url, "http://localhost:5173/");
         assert_eq!(event.title, "localhost");
         assert!(event.tab_id.starts_with("tab-"));
+        assert_eq!(event.request_id, None);
         assert_eq!(
             BrowserOpenTabEvent::try_new("https://example.com", Some(" Preview "))
                 .unwrap()

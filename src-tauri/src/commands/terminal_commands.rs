@@ -5,7 +5,7 @@ use crate::services::terminal_service::{KillReason, SessionOutput};
 use crate::services::{
     BridgeStats, HistoryWatchManager, LaunchHistoryService, SessionRestoreService,
     SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackendKind,
-    TerminalBackendState, TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService,
+    TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
 use crate::utils::{validate_launch_cwd, validate_ssh_info, AppResult, LaunchRuntime};
@@ -78,51 +78,6 @@ fn summarize_terminal_input(data: &str) -> serde_json::Value {
     })
 }
 
-/// daemon 掉线检测与重连，返回是否**确实完成了一次重连**（值得重试）。
-///
-/// 只在失败路径调用。判据不是错误文本（脆且随平台/语言变），而是一次健康探测：
-///   健康 -> 刚才那次失败是业务错误，返回 false，原样把错误抛给调用方
-///   不健康 -> 真掉线，重连并换掉 backend，返回 true
-///
-/// 重连本身带节流（见 `TerminalDaemonLifecycle::reconnect_throttled`），
-/// daemon 起不来时不会每次操作都 spawn 一个进程。
-fn recover_daemon_if_down(app_handle: &AppHandle, service: &TerminalBackendState) -> bool {
-    if service.kind() != TerminalBackendKind::Daemon {
-        return false;
-    }
-    // 还活着说明不是掉线，别动它
-    if let Some(client) = service.daemon_client() {
-        if client.health().is_ok() {
-            return false;
-        }
-    }
-
-    let Some(app_paths) = app_handle.try_state::<Arc<crate::utils::AppPaths>>() else {
-        return false;
-    };
-    let Some(settings) = app_handle.try_state::<Arc<crate::services::SettingsService>>() else {
-        return false;
-    };
-    let resource_dir = app_handle.path().resource_dir().ok();
-    let config_path = settings.config_path().to_path_buf();
-
-    match TerminalDaemonLifecycle::reconnect_throttled(
-        app_paths.inner().as_ref(),
-        resource_dir.as_deref(),
-        &config_path,
-    ) {
-        Ok(client) => {
-            service.try_enable_daemon(client);
-            warn!("terminal daemon reconnected after outage");
-            true
-        }
-        Err(error) => {
-            warn!(error = %error, "terminal daemon reconnect failed");
-            false
-        }
-    }
-}
-
 /// 创建终端会话
 #[tauri::command]
 pub async fn create_terminal_session(
@@ -175,34 +130,17 @@ pub async fn create_terminal_session(
         .launch_id
         .clone()
         .map(|launch_id| (launch_id, request.effective_cli_tool().as_id().to_string()));
-    let backend = service.backend();
     let observation_request = request.clone();
-    let create_backend = backend.clone();
-    let retry_request = request.clone();
-    let result =
-        tauri::async_runtime::spawn_blocking(move || create_backend.create_session(request))
-            .await
-            .map_err(|e| AppError::from(e.to_string()))?;
-
-    // daemon 掉线自愈：`connect_or_start` 只在 [boot] 期跑一次，daemon 中途死掉后
-    // app 手里的 client 一直指着死地址，之后每次开终端都 `connection timed out`，
-    // 不重启整个应用永远好不了。这里在失败路径上补一次重连 + 重试。
-    //
-    // 不靠错误文本判断掉线（脆）：失败后**探一次健康**——健康说明是业务错误，
-    // 原样抛出；不健康才是真掉线，重连后重试一次。
-    let result = match result {
-        Err(error) if recover_daemon_if_down(&app_handle, &service) => {
-            warn!(error = %error, "terminal daemon recovered; retrying session creation once");
-            let retry_backend = service.backend();
-            tauri::async_runtime::spawn_blocking(move || {
-                retry_backend.create_session(retry_request)
-            })
-            .await
-            .map_err(|e| AppError::from(e.to_string()))?
-        }
-        other => other,
-    };
-    let session_id = result?;
+    let recovery_handle = app_handle.clone();
+    let recovery_state = (*service).clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        recovery_state.create_session_with_recovery(&recovery_handle, request)
+    })
+    .await
+    .map_err(|e| AppError::from(e.to_string()))?;
+    let created = result?;
+    let session_id = created.session_id;
+    let backend = created.backend;
 
     // A claim-capable daemon must issue immutable birth evidence, and it must reach SQLite before
     // the session id is returned to the webview. Otherwise a crash in this window recreates the
