@@ -76,6 +76,7 @@
   "reclaimTab": "回收",
   "newLayout": "新建布局",
   "layouts": "布局",
+  "tabMovedToLayout": "已移动到「{{name}}」",
   "layoutSwitcher": "布局",
   "layoutSwitcherTitle": "布局切换",
   "layoutModeTopbar": "切到顶部布局条",

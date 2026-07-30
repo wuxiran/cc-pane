@@ -141,15 +141,19 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           }}
         >
           <MainWallpaperLayer />
-          {/* 布局条模式：标签上方多一层布局层（corner 模式下仍走左下角 LayoutBar）。
-              抬到 z-[1]：壁纸层是 positioned z-0，静态流内容会被它盖住 */}
-          {layoutSwitcherMode === "topbar" && (
-            <div className="relative z-[1] shrink-0">
-              <LayoutTopBar />
-            </div>
-          )}
-          <div className="relative z-[1] min-h-0 flex-1 overflow-hidden">
-            <DndPaneProvider>
+          {/* DndPaneProvider 必须同时包住布局条与面板区：dnd-kit 的碰撞检测只在
+              同一个 DndContext 的 droppable registry 内做，布局条若在 context 外
+              就永远接不到从面板区拖来的 tab。DndContext 不渲染 DOM 节点，flex
+              布局不受影响。 */}
+          <DndPaneProvider>
+            {/* 布局条模式：标签上方多一层布局层（corner 模式下仍走左下角 LayoutBar）。
+                抬到 z-[1]：壁纸层是 positioned z-0，静态流内容会被它盖住 */}
+            {layoutSwitcherMode === "topbar" && (
+              <div className="relative z-[1] shrink-0">
+                <LayoutTopBar />
+              </div>
+            )}
+            <div className="relative z-[1] min-h-0 flex-1 overflow-hidden">
               {layouts.map((layout) => {
                 const isCurrent = layout.id === currentLayoutId;
                 return (
@@ -167,8 +171,8 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
                   </LayoutVisibilityContext.Provider>
                 );
               })}
-            </DndPaneProvider>
-          </div>
+            </div>
+          </DndPaneProvider>
         </div>
       )}
       {showOrchestrationOverlay && (

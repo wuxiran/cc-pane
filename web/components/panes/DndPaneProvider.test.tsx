@@ -18,6 +18,15 @@ vi.mock("@/utils/devLogger", () => ({
   devDebugLog: vi.fn(),
 }));
 
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+  initReactI18next: { type: "3rdParty", init: vi.fn() },
+}));
+
 vi.mock("@dnd-kit/core", () => ({
   DndContext: (props: CapturedDndProps & { children: React.ReactNode }) => {
     dndProps = props;
@@ -29,6 +38,9 @@ vi.mock("@dnd-kit/core", () => ({
   PointerSensor: class {},
   useSensor: vi.fn((sensor: unknown, options: unknown) => ({ sensor, options })),
   useSensors: vi.fn((...sensors: unknown[]) => sensors),
+  closestCenter: vi.fn(() => []),
+  rectIntersection: vi.fn(() => []),
+  useDndContext: vi.fn(() => ({ active: null })),
 }));
 
 function makeTab(id: string, title = id): Tab {
@@ -101,6 +113,61 @@ describe("DndPaneProvider", () => {
 
     expect(reorderTabs).toHaveBeenCalledWith("pane-1", 0, 1);
     expect(moveTab).not.toHaveBeenCalled();
+  });
+
+  it("moves the tab into the target layout when dropping onto a layout tab", () => {
+    const tabA = makeTab("tab-a");
+    const panel = makePanel("pane-1", [tabA]);
+    const moveTabToLayoutPane = vi.fn();
+    const moveTab = vi.fn();
+    usePanesStore.setState({
+      allPanels: () => [panel],
+      moveTab,
+      moveTabToLayoutPane,
+      currentLayoutId: "layout-1",
+      layouts: [
+        { id: "layout-1", name: "L1" },
+        { id: "layout-2", name: "L2" },
+      ],
+    } as never);
+
+    render(<DndPaneProvider>{null}</DndPaneProvider>);
+    act(() => {
+      dndProps!.onDragEnd({
+        active: { id: "tab-a", data: { current: { type: "tab", tab: tabA, paneId: "pane-1" } } },
+        over: {
+          id: "layout-2",
+          data: { current: { type: "layout", layoutId: "layout-2" } },
+        },
+      });
+    });
+
+    // 第 4 参留空 → store 取目标布局首个 panel（传 activePaneId 可能命中 split 节点）
+    expect(moveTabToLayoutPane).toHaveBeenCalledWith("pane-1", "layout-2", "tab-a");
+    expect(moveTab).not.toHaveBeenCalled();
+  });
+
+  it("reorders layouts when a layout tab is dragged (shared context, not swallowed)", () => {
+    const reorderLayouts = vi.fn();
+    usePanesStore.setState({
+      allPanels: () => [],
+      reorderLayouts,
+      currentLayoutId: "layout-1",
+      layouts: [
+        { id: "layout-1", name: "L1" },
+        { id: "layout-2", name: "L2" },
+      ],
+    } as never);
+
+    render(<DndPaneProvider>{null}</DndPaneProvider>);
+    act(() => {
+      dndProps!.onDragEnd({
+        active: { id: "layout-1", data: { current: { type: "layout", layoutId: "layout-1" } } },
+        over: { id: "layout-2", data: { current: { type: "layout", layoutId: "layout-2" } } },
+      });
+    });
+
+    expect(reorderLayouts).toHaveBeenCalledWith(0, 1);
   });
 
   it("does not reorder when dropping a tab onto itself", () => {

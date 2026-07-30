@@ -4,6 +4,7 @@ import { act, fireEvent, render as rtlRender, screen, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { DndContext } from "@dnd-kit/core";
 import LayoutTopBar from "./LayoutTopBar";
 import {
   useActivityBarStore,
@@ -120,12 +121,12 @@ describe("LayoutTopBar 布局预设按钮", () => {
   });
 
   it("渲染 6 个预设按钮", () => {
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
     expect(presetButtons()).toHaveLength(6);
   });
 
   it("点击预设按钮重排当前布局并高亮命中预设", () => {
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
     const buttons = presetButtons();
 
     // 初始：单 panel 根 → 命中 single（第 1 个按钮）
@@ -149,7 +150,7 @@ describe("LayoutTopBar 布局预设按钮", () => {
   it("重排保留现有 Panel id", () => {
     const pane = createPanel();
     resetStores(pane);
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
 
     fireEvent.click(presetButtons()[3]); // two-row
 
@@ -159,7 +160,7 @@ describe("LayoutTopBar 布局预设按钮", () => {
 
   it("当前是星标布局时不渲染预设组", () => {
     usePanesStore.setState({ currentLayoutId: "layout-starred" });
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
     expect(screen.queryByRole("group")).toBeNull();
   });
 });
@@ -171,7 +172,7 @@ describe("LayoutTopBar 布局条密度", () => {
 
   it("默认渲染舒适档，切换后渲染紧凑档且星标布局保持可用", async () => {
     const user = userEvent.setup();
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
 
     expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "comfortable");
     expect(screen.getAllByText(/无会话|No sessions/i).length).toBeGreaterThan(0);
@@ -202,7 +203,7 @@ describe("LayoutTopBar 布局条密度", () => {
       ]),
     });
 
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
 
     // 运行中 2、等待授权 1；无 error 会话 → 阻塞桶隐藏。
     // 等待授权 title 与名称行状态点共用文案，按"含计数"过滤出摘要桶。
@@ -215,7 +216,7 @@ describe("LayoutTopBar 布局条密度", () => {
   });
 
   it("状态摘要随 panes/status store 更新即时重新派生", () => {
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
     expect(screen.getAllByText(/无会话|No sessions/i).length).toBeGreaterThan(0);
 
     const rootPane = createPanel(terminalTab("tab-a", "project-a", "/work/cc-book", "s-run"));
@@ -248,7 +249,7 @@ describe("LayoutTopBar 布局条密度", () => {
       ]),
     });
 
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
 
     // 舒适档：名称行不再放状态点，状态只出现在摘要行状态桶(运行中/错误)
     expect(screen.queryAllByTitle(/工具运行|Running tool/i)).toHaveLength(0);
@@ -265,7 +266,7 @@ describe("LayoutTopBar 布局条密度", () => {
 
   it("右键菜单提供同一密度切换动作", async () => {
     const user = userEvent.setup();
-    render(<LayoutTopBar />);
+    render(<DndContext><LayoutTopBar /></DndContext>);
 
     fireEvent.contextMenu(screen.getByRole("tab", { name: /布局 1/ }));
     await user.click(await screen.findByRole("menuitem", { name: /切换到紧凑档|Switch to compact/i }));

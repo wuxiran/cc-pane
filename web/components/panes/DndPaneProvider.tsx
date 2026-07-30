@@ -3,6 +3,8 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  closestCenter,
+  rectIntersection,
   useSensor,
   useSensors,
   type DragStartEvent,
@@ -10,9 +12,12 @@ import {
   type DragOverEvent,
 } from "@dnd-kit/core";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { usePanesStore } from "@/stores";
 import type { Tab } from "@/types";
 import { devDebugLog } from "@/utils/devLogger";
+import { resolveDndDrop } from "./paneDndRouting";
 
 interface DndPaneProviderProps {
   children: React.ReactNode;
@@ -30,9 +35,12 @@ function debugDnd(event: string, payload: Record<string, unknown>): void {
  * 包裹在面板树外层，使标签可以跨面板拖拽
  */
 export default function DndPaneProvider({ children }: DndPaneProviderProps) {
+  const { t } = useTranslation("panes");
   const moveTab = usePanesStore((s) => s.moveTab);
   const reorderTabs = usePanesStore((s) => s.reorderTabs);
   const allPanels = usePanesStore((s) => s.allPanels);
+  const moveTabToLayoutPane = usePanesStore((s) => s.moveTabToLayoutPane);
+  const reorderLayouts = usePanesStore((s) => s.reorderLayouts);
 
   const [activeTab, setActiveTab] = useState<Tab | null>(null);
 
@@ -67,62 +75,67 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
     const { active, over } = event;
     setActiveTab(null);
 
-    if (!over) return;
+    const store = usePanesStore.getState();
+    const action = resolveDndDrop(
+      { id: String(active.id), data: active.data.current },
+      over ? { id: String(over.id), data: over.data.current } : null,
+      {
+        panels: allPanels(),
+        layouts: store.layouts,
+        currentLayoutId: store.currentLayoutId,
+      },
+    );
+    if (!action) return;
 
-    const activeData = active.data.current;
-    const overData = over.data.current;
-
-    if (!activeData || activeData.type !== "tab") return;
-
-    const fromPaneId = activeData.paneId as string;
-    const tabId = active.id as string;
-
-    if (overData?.type === "tab") {
-      const toPaneId = overData.paneId as string;
-
-      if (fromPaneId === toPaneId) {
-        // 同面板内排序
-        const panels = allPanels();
-        const panel = panels.find((p) => p.id === fromPaneId);
-        if (!panel) return;
-
-        const fromIndex = panel.tabs.findIndex((t) => t.id === tabId);
-        const toIndex = panel.tabs.findIndex((t) => t.id === over.id);
-        if (fromIndex !== -1 && toIndex !== -1 && fromIndex !== toIndex) {
-          debugDnd("drag.end.reorder", {
-            tabId,
-            paneId: fromPaneId,
-            fromIndex,
-            toIndex,
-          });
-          reorderTabs(fromPaneId, fromIndex, toIndex);
-        }
-      } else {
-        // 跨面板移动
-        const toPanel = allPanels().find((p) => p.id === toPaneId);
-        if (!toPanel) return;
-        const toIndex = toPanel.tabs.findIndex((t) => t.id === over.id);
-        const movedTab = activeData.tab as Tab | undefined;
+    switch (action.kind) {
+      case "reorder-tabs":
+        debugDnd("drag.end.reorder", action);
+        reorderTabs(action.paneId, action.fromIndex, action.toIndex);
+        break;
+      case "move-tab": {
+        const movedTab = active.data.current?.tab as Tab | undefined;
         debugDnd("drag.end.cross-pane", {
-          tabId,
-          fromPaneId,
-          toPaneId,
+          ...action,
           sessionId: movedTab?.sessionId ?? null,
           cliTool: movedTab?.cliTool ?? (movedTab?.launchClaude ? "claude" : "none"),
-          toIndex: toIndex >= 0 ? toIndex : null,
         });
-        moveTab(fromPaneId, toPaneId, tabId, toIndex >= 0 ? toIndex : undefined);
+        moveTab(action.fromPaneId, action.toPaneId, action.tabId, action.toIndex);
+        break;
       }
+      case "move-tab-to-layout": {
+        // 第 4 参（toPaneId）留空 → store 取目标布局第一个 panel。
+        // 不要传 layout.activePaneId：它可能指向 split 节点，store 会静默 return，
+        // 表现成"拖了没反应"。
+        debugDnd("drag.end.to-layout", action);
+        moveTabToLayoutPane(action.fromPaneId, action.toLayoutId, action.tabId);
+        const target = store.layouts.find((layout) => layout.id === action.toLayoutId);
+        // tab 从视野里消失且不切布局，必须给瞬态确认
+        toast.success(t("tabMovedToLayout", { name: target?.name ?? "" }));
+        break;
+      }
+      case "reorder-layouts":
+        debugDnd("drag.end.reorder-layouts", action);
+        reorderLayouts(action.fromIndex, action.toIndex);
+        break;
     }
-  }, [allPanels, moveTab, reorderTabs]);
+  }, [allPanels, moveTab, moveTabToLayoutPane, reorderLayouts, reorderTabs, t]);
 
   const handleDragCancel = useCallback(() => {
     setActiveTab(null);
   }, []);
 
+  // 碰撞算法按被拖对象分流：布局条合并进来之前用的是 closestCenter，
+  // tab 区用默认的 rectIntersection。统一成任一个都会改掉另一边的手感。
+  const collisionDetection = useCallback(
+    (args: Parameters<typeof rectIntersection>[0]) =>
+      args.active.data.current?.type === "layout" ? closestCenter(args) : rectIntersection(args),
+    [],
+  );
+
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}

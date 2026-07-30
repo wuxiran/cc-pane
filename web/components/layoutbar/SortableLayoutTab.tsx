@@ -3,6 +3,7 @@
 // 绑定视觉语言：链条图标 + secondary 亮 = 右键显式绑定；无链 + tertiary 暗 + ? = 自动派生。
 import { Link2, Rows2, Rows3, Star, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useDndContext } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -81,9 +82,18 @@ export default function SortableLayoutTab({
   onRequestDelete: () => void;
   onToggleDensity: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: layout.id,
-  });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } =
+    useSortable({
+      id: layout.id,
+      data: { type: "layout", layoutId: layout.id, kind: layout.kind },
+    });
+
+  // 面板区的 tab 与布局条共用同一个 DndContext，所以这里能看到「正在拖 tab」。
+  // 星标布局装不了终端 tab，当前布局落回自己是空操作——两者都不给反馈。
+  const { active } = useDndContext();
+  const draggingTab = active?.data.current?.type === "tab";
+  const canAcceptTab = draggingTab && layout.kind !== "starred" && !selected;
+  const dropState = canAcceptTab ? (isOver ? "active" : "candidate") : undefined;
 
   const DensityIcon = density === "comfortable" ? Rows2 : Rows3;
   const statusDots = layout.kind === "starred"
@@ -114,6 +124,7 @@ export default function SortableLayoutTab({
       aria-selected={selected}
       title={layout.name}
       data-density={density}
+      data-drop-target={dropState}
       className={`group flex flex-shrink-0 cursor-pointer select-none whitespace-nowrap rounded-md border px-3 text-[13px] transition-colors duration-[var(--dur-fast)] ${
         density === "comfortable"
           ? "h-[50px] min-w-[176px] max-w-[240px] flex-col justify-center gap-0.5 py-1.5 text-left"
@@ -137,6 +148,22 @@ export default function SortableLayoutTab({
               borderColor: "transparent",
               color: "var(--app-text-secondary)",
             }),
+        // 落点态叠在选中态之后。悬停时用 accent 实线 + outline，让「可放置」与
+        // 「已选中」除颜色外还有形状差异；候选态只给虚线弱提示。
+        ...(dropState === "active"
+          ? {
+              background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
+              borderColor: "var(--app-accent)",
+              borderStyle: "solid",
+              outline: "1px solid var(--app-accent)",
+              outlineOffset: "1px",
+            }
+          : dropState === "candidate"
+            ? {
+                borderColor: "color-mix(in srgb, var(--app-accent) 40%, transparent)",
+                borderStyle: "dashed",
+              }
+            : null),
       }}
       onClick={onSelect}
       onDoubleClick={onStartRename}

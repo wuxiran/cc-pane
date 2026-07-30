@@ -76,6 +76,7 @@
   "reclaimTab": "Reclaim",
   "newLayout": "New Layout",
   "layouts": "Layouts",
+  "tabMovedToLayout": "Moved to \"{{name}}\"",
   "layoutSwitcher": "Layouts",
   "layoutSwitcherTitle": "Layout Switcher",
   "layoutModeTopbar": "Switch to top layout bar",

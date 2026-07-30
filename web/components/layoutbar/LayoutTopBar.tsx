@@ -3,14 +3,6 @@
 // layouts 状态（usePanesStore），只是展示位置不同。右端按钮可切回 corner 模式。
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownLeft, Command, Plus, Rows2, Rows3 } from "lucide-react";
-import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -85,7 +77,6 @@ export default function LayoutTopBar() {
   const switchLayout = usePanesStore((s) => s.switchLayout);
   const createLayout = usePanesStore((s) => s.createLayout);
   const renameLayout = usePanesStore((s) => s.renameLayout);
-  const reorderLayouts = usePanesStore((s) => s.reorderLayouts);
   const applyLayoutPreset = usePanesStore((s) => s.applyLayoutPreset);
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
@@ -141,20 +132,9 @@ export default function LayoutTopBar() {
     setDeleteSummary(summarizeLayoutDelete(layout));
   }
 
-  // 拖拽排序：8px 阈值区分点击与拖动，复用左下角面板同一套 reorderLayouts
-  const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-  );
-
-  function handleLayoutDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const fromIndex = layouts.findIndex((layout) => layout.id === active.id);
-    const toIndex = layouts.findIndex((layout) => layout.id === over.id);
-    if (fromIndex !== -1 && toIndex !== -1) {
-      reorderLayouts(fromIndex, toIndex);
-    }
-  }
+  // 拖拽排序与"把 tab 拖到布局上"共用 DndPaneProvider 的 context（见
+  // MainViewSwitcher）。本组件不再自建 DndContext——嵌套 context 会让布局条
+  // 的 droppable 对面板区的 tab 不可见。SortableContext 只需祖先有 DndContext。
 
   return (
     <div
@@ -175,8 +155,7 @@ export default function LayoutTopBar() {
         style={{ color: "var(--app-text-tertiary)" }}
       />
 
-      <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleLayoutDragEnd}>
-        <SortableContext items={layouts.map((layout) => layout.id)} strategy={horizontalListSortingStrategy}>
+      <SortableContext items={layouts.map((layout) => layout.id)} strategy={horizontalListSortingStrategy}>
           {layouts.map((layout) => {
             const selected = layout.id === currentLayoutId;
             const tree = selected ? liveRootPane : layout.rootPane;
@@ -227,8 +206,7 @@ export default function LayoutTopBar() {
               />
             );
           })}
-        </SortableContext>
-      </DndContext>
+      </SortableContext>
 
       <Tooltip>
         <TooltipTrigger asChild>
