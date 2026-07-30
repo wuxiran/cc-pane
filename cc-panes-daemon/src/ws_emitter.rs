@@ -1,21 +1,31 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use cc_panes_core::constants::events as EV;
 use cc_panes_core::events::EventEmitter;
 use parking_lot::RwLock;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::debug;
 
+use crate::session_output_store::SessionOutputStore;
+
 #[derive(Clone, Default)]
 pub struct WsEmitter {
     subscribers: Arc<RwLock<HashMap<String, Vec<mpsc::UnboundedSender<String>>>>>,
     control_subscribers: Arc<RwLock<Vec<mpsc::UnboundedSender<String>>>>,
+    output_store: Arc<RwLock<Option<Arc<SessionOutputStore>>>>,
 }
 
 impl WsEmitter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 会话退出时把回滚缓冲落盘的去处。构造顺序决定它只能后置注入：
+    /// store 需要 `TerminalService`，而 `TerminalService` 需要本 emitter。
+    pub fn set_output_store(&self, store: Arc<SessionOutputStore>) {
+        *self.output_store.write() = Some(store);
     }
 
     pub fn subscribe(&self, session_id: &str) -> mpsc::UnboundedReceiver<String> {
@@ -66,6 +76,13 @@ impl WsEmitter {
         delivered
     }
 
+    fn persist_session_output(&self, session_id: &str) {
+        let store = self.output_store.read().clone();
+        if let Some(store) = store {
+            store.schedule_session_persist(session_id);
+        }
+    }
+
     fn publish_control(&self, msg: String) {
         self.control_subscribers
             .write()
@@ -75,6 +92,20 @@ impl WsEmitter {
 
 impl EventEmitter for WsEmitter {
     fn emit(&self, event: &str, payload: Value) -> anyhow::Result<()> {
+        // 启动告警必须在 sessionId 守卫之前处理：profileMismatch 是"会话还没建成
+        // 就已回落"的诊断，载荷里没有 sessionId，走守卫会被整条吞掉——用户选的
+        // launch profile（含 YOLO）静默不生效，且没有任何提示。
+        if event == EV::TERMINAL_LAUNCH_WARNING {
+            self.publish_control(
+                serde_json::json!({
+                    "type": "launchWarning",
+                    "payload": &payload,
+                })
+                .to_string(),
+            );
+            return Ok(());
+        }
+
         let Some(session_id) = payload.get("sessionId").and_then(|value| value.as_str()) else {
             return Ok(());
         };
@@ -107,6 +138,9 @@ impl EventEmitter for WsEmitter {
                     })
                     .to_string(),
                 );
+                // 会话不会再产出新内容：宽限一小段等 reader 排空后落盘，
+                // 之后重启才有历史可重放。
+                self.persist_session_output(session_id);
             }
             "session-killed" => {
                 // kill 事件必须到达前端：user/mcp 关标签，orphan-reclaim/daemon-reaper
@@ -134,6 +168,19 @@ impl EventEmitter for WsEmitter {
                     );
                 }
             }
+            EV::TERMINAL_RESUME_ID_DETECTED => {
+                // daemon 模式下 PTY 活在本进程，claude 发号与 codex OSC 捕获都在这里
+                // emit。桌面侧的 bind_resume_id 监听的是同名 Tauri 事件，收不到就
+                // 意味着 launch_history.resume_session_id 永远为 null、恢复时无从
+                // resume。会话订阅通道只服务单会话镜像，这类低频身份事件走 control。
+                self.publish_control(
+                    serde_json::json!({
+                        "type": "resumeIdDetected",
+                        "payload": &payload,
+                    })
+                    .to_string(),
+                );
+            }
             _ => {}
         }
 
@@ -143,8 +190,6 @@ impl EventEmitter for WsEmitter {
 
 #[cfg(test)]
 mod tests {
-    use cc_panes_core::constants::events as EV;
-
     use super::*;
 
     #[test]
@@ -181,6 +226,58 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&exit).expect("exit json"),
             serde_json::json!({"type":"exit","exitCode":7})
+        );
+    }
+
+    /// resume id 必须走 control：它不属于任何一条会话镜像流，且要在会话还没有
+    /// 任何 WS 订阅者时（刚 create 完、前端尚未 attach）就能送达桌面。
+    #[test]
+    fn publishes_resume_id_detected_to_control_channel() {
+        let emitter = WsEmitter::new();
+        let mut control = emitter.subscribe_control();
+        let mut session = emitter.subscribe("session-1");
+
+        let payload = serde_json::json!({
+            "sessionId": "session-1",
+            "resumeSessionId": "resume-1",
+            "source": "issued",
+            "cliTool": "claude",
+        });
+        emitter
+            .emit(EV::TERMINAL_RESUME_ID_DETECTED, payload.clone())
+            .expect("resume emit");
+
+        let message = control.try_recv().expect("control message");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&message).expect("control json"),
+            serde_json::json!({ "type": "resumeIdDetected", "payload": payload })
+        );
+        assert!(
+            session.try_recv().is_err(),
+            "resume id must not be pushed into the per-session mirror stream"
+        );
+    }
+
+    /// profileMismatch 载荷里没有 sessionId——守卫放在告警处理之前就会整条吞掉。
+    #[test]
+    fn publishes_launch_warning_without_session_id_to_control_channel() {
+        let emitter = WsEmitter::new();
+        let mut control = emitter.subscribe_control();
+
+        let payload = serde_json::json!({
+            "kind": "profileMismatch",
+            "launchId": "proj-1",
+            "cliTool": "codex",
+            "cliMismatch": true,
+        });
+        emitter
+            .emit(EV::TERMINAL_LAUNCH_WARNING, payload.clone())
+            .expect("warning emit");
+
+        let message = control.try_recv().expect("control message");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&message).expect("control json"),
+            serde_json::json!({ "type": "launchWarning", "payload": payload })
         );
     }
 

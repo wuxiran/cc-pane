@@ -78,7 +78,7 @@ pub use provider_service::ProviderService;
 pub use quick_command_service::QuickCommandService;
 pub use runner_service::RunnerService;
 pub use session_index_service::SessionIndexService;
-pub use session_restore_service::SessionRestoreService;
+pub use session_restore_service::{write_session_output, SessionRestoreService};
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;
 pub use shared_mcp_service::SharedMcpService;

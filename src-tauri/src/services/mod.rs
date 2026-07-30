@@ -6,6 +6,7 @@ mod browser_service;
 mod launch_backfill_service;
 mod notification_service;
 pub mod orchestrator_service;
+pub mod rest_launch_history;
 mod resume_binding_service;
 pub mod screenshot_overlay;
 mod screenshot_service;

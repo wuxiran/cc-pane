@@ -8424,7 +8424,11 @@ async fn handle_launch_task(
     };
 
     let create_request = CoreCreateSessionRequest {
-        launch_id: None,
+        // 必须带 launch_id：TerminalService 用它写 `CC_PANES_LAUNCH_ID` 并附在
+        // resume 事件的 launchId 上。留 None 会让 bind_resume_id 拿到 launch_id=None、
+        // 找不到 launch_history 行，这条会话此后永远无法 resume（ctl / 外部客户端
+        // 走的正是本路径）。
+        launch_id: Some(project_id.clone()),
         project_path: req.project_path.clone(),
         cols: 120,
         rows: 30,
@@ -8486,6 +8490,24 @@ async fn handle_launch_task(
         warn!(session_id = %session_id, err = %error, "REST::launch_task failed to start local history watcher");
     }
 
+    // launch_history 回写（含已知 resume id 直落 + 失败降级说明），见 rest_launch_history。
+    let degraded_notice = crate::services::rest_launch_history::record_rest_launch(
+        &state.launch_history_service,
+        crate::services::rest_launch_history::RestLaunchRecord {
+            project_id: &project_id,
+            project_path: &req.project_path,
+            session_id: &session_id,
+            cli_tool: cli_tool.as_id(),
+            runtime_kind: runtime.kind.as_str(),
+            wsl_distro: runtime.wsl.as_ref().and_then(|wsl| wsl.distro.as_deref()),
+            workspace_name: workspace_name.as_deref(),
+            workspace_path: workspace_path.as_deref(),
+            provider_id: req.provider_id.as_deref(),
+            provider_selection: req.provider_selection.as_deref(),
+            resume_id: req.resume_id.as_deref(),
+        },
+    );
+
     {
         let mut tasks = state.tasks.lock().unwrap_or_else(|e| e.into_inner());
         cleanup_stale_tasks(&mut tasks);
@@ -8529,13 +8551,15 @@ async fn handle_launch_task(
     };
     let _ = state.app_handle.emit("orchestrator-launch-task", &event);
 
+    let notice =
+        crate::services::rest_launch_history::merge_notice(runtime.notice, degraded_notice);
     let response = LaunchTaskResponse {
         task_id,
         session_id,
         status: "launching".to_string(),
         runtime_kind: runtime.kind.as_str().to_string(),
         runtime_source: runtime.source.to_string(),
-        notice: runtime.notice,
+        notice,
     };
 
     (StatusCode::OK, Json(serde_json::json!(response)))

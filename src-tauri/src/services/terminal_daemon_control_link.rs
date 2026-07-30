@@ -130,6 +130,12 @@ enum DaemonControlMessage {
         session_id: String,
         reason: Option<String>,
     },
+    /// daemon 侧捕获到的 resume id（claude 发号 / codex OSC 标题）。
+    /// 载荷原样透传，字段名必须与 `ResumeIdDetectedPayload` 保持一致。
+    ResumeIdDetected { payload: serde_json::Value },
+    /// 启动降级告警（launch profile 回落 / codex resume 目标缺失）。
+    /// 降级必须对用户可见，丢掉就等于"设置静默不生效"。
+    LaunchWarning { payload: serde_json::Value },
     #[serde(other)]
     Unknown,
 }
@@ -149,6 +155,14 @@ fn parse_control_event(text: &str) -> serde_json::Result<Option<ControlEvent>> {
                 "sessionId": session_id,
                 "reason": reason.as_deref().unwrap_or("unknown"),
             }),
+        }),
+        DaemonControlMessage::ResumeIdDetected { payload } => Some(ControlEvent {
+            name: EV::TERMINAL_RESUME_ID_DETECTED,
+            payload,
+        }),
+        DaemonControlMessage::LaunchWarning { payload } => Some(ControlEvent {
+            name: EV::TERMINAL_LAUNCH_WARNING,
+            payload,
         }),
         DaemonControlMessage::Unknown => None,
     })
@@ -175,6 +189,44 @@ mod tests {
                 "sessionId": "session-1",
                 "reason": "mcp",
             })
+        );
+    }
+
+    /// daemon 模式下 PTY 在 daemon 进程里，resume id 只能经控制通道回到桌面。
+    /// 载荷必须原样透传：字段名对不上 `ResumeIdDetectedPayload` 就会反序列化失败，
+    /// launch_history 永远拿不到 resume id（表现为恢复出来的会话没有历史对话）。
+    #[test]
+    fn resume_id_detected_control_message_passes_payload_through() {
+        let event = parse_control_event(
+            r#"{"type":"resumeIdDetected","payload":{"sessionId":"pty-1","resumeSessionId":"resume-1","source":"issued","cliTool":"claude"}}"#,
+        )
+        .expect("valid control message")
+        .expect("known control message");
+
+        assert_eq!(event.name, EV::TERMINAL_RESUME_ID_DETECTED);
+        assert_eq!(
+            event.payload,
+            serde_json::json!({
+                "sessionId": "pty-1",
+                "resumeSessionId": "resume-1",
+                "source": "issued",
+                "cliTool": "claude",
+            })
+        );
+    }
+
+    #[test]
+    fn launch_warning_control_message_passes_payload_through() {
+        let event = parse_control_event(
+            r#"{"type":"launchWarning","payload":{"kind":"profileMismatch","launchId":"proj-1"}}"#,
+        )
+        .expect("valid control message")
+        .expect("known control message");
+
+        assert_eq!(event.name, EV::TERMINAL_LAUNCH_WARNING);
+        assert_eq!(
+            event.payload,
+            serde_json::json!({ "kind": "profileMismatch", "launchId": "proj-1" })
         );
     }
 

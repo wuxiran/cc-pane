@@ -1,5 +1,6 @@
 mod self_check;
 mod server;
+mod session_output_store;
 mod session_reaper;
 mod ws_emitter;
 
@@ -21,6 +22,7 @@ use clap::Parser;
 use tracing::info;
 
 use crate::server::{generate_token, write_manifest, DaemonConfig};
+use crate::session_output_store::SessionOutputStore;
 use crate::ws_emitter::WsEmitter;
 
 #[derive(Parser, Debug)]
@@ -234,12 +236,17 @@ async fn main() -> anyhow::Result<()> {
         },
     );
     let ws_emitter = Arc::new(WsEmitter::new());
-    let terminal_backend = create_terminal_backend(
+    let (terminal_backend, output_store, terminal_service) = create_terminal_backend(
         args.data_dir.as_deref(),
         daemon_paths,
         ws_emitter.clone(),
         settings_service.clone(),
     );
+    ws_emitter.set_output_store(output_store.clone());
+    // 显式持到最终 flush：store 内部是 Weak（强引用会与 emitter 成环）。它现在
+    // 之所以还能 upgrade，只是因为 session_reaper 线程恰好握着强引用——把最终
+    // 落盘的正确性挂在旁路线程的存活上太脆。
+    let _terminal_service_guard = terminal_service;
     let config = DaemonConfig::new(
         token,
         local_addr,
@@ -259,9 +266,14 @@ async fn main() -> anyhow::Result<()> {
     session_reaper::spawn_session_reaper(config.clone(), settings_service);
 
     info!(addr = %local_addr, cwd = cwd_str, "CC-Panes daemon listening");
-    axum::serve(listener, server::router(config))
+    let serve_result = axum::serve(listener, server::router(config))
         .with_graceful_shutdown(server::wait_for_shutdown(shutdown_rx))
-        .await?;
+        .await;
+    // 关停时会话仍活着（PTY 交给 Job/内核清理），缓冲只在本进程内存里——
+    // 不在这里落盘，下次启动就没有任何可重放的历史。
+    // 必须先于 `?` 传播 serve 错误：serve 异常退出恰恰是最需要保住历史的场景。
+    output_store.persist_all();
+    serve_result?;
     Ok(())
 }
 
@@ -270,7 +282,11 @@ fn create_terminal_backend(
     daemon_paths: DaemonPathResolution,
     ws_emitter: Arc<WsEmitter>,
     settings_service: Arc<SettingsService>,
-) -> Arc<dyn TerminalBackend> {
+) -> (
+    Arc<dyn TerminalBackend>,
+    Arc<SessionOutputStore>,
+    Arc<TerminalService>,
+) {
     let settings_data_dir = settings_service.get_settings().general.data_dir;
     let data_dir = resolve_data_dir(explicit_data_dir, settings_data_dir, &daemon_paths);
     let app_paths = Arc::new(AppPaths::new(data_dir));
@@ -294,7 +310,7 @@ fn create_terminal_backend(
     let terminal_service = Arc::new(TerminalService::new(
         settings_service,
         provider_service,
-        app_paths,
+        app_paths.clone(),
         cli_registry,
         project_cli_hooks_service,
         ssh_credential_service,
@@ -305,7 +321,12 @@ fn create_terminal_backend(
     terminal_service.set_emitter(ws_emitter);
     terminal_service.set_notifier(Arc::new(NoopNotifier));
 
-    Arc::new(InProcessTerminalBackend::new(terminal_service))
+    let output_store = Arc::new(SessionOutputStore::new(&terminal_service, app_paths));
+    (
+        Arc::new(InProcessTerminalBackend::new(terminal_service.clone())),
+        output_store,
+        terminal_service,
+    )
 }
 
 impl Default for Args {

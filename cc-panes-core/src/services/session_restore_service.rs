@@ -5,9 +5,44 @@ use crate::models::{
 use crate::repository::{Database, SessionRestoreRepository};
 use crate::utils::AppPaths;
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::sync::Arc;
 use tracing::{error, info, warn};
+
+/// 把终端回滚缓冲写入 `<data_dir>/sessions/<session_id>.output`。
+///
+/// 独立于 `SessionRestoreService`（那个要 `Database`）：PTY 托管到 daemon 之后，
+/// 缓冲的唯一持有者是 daemon 进程，而 daemon 没有也不该有 DB 句柄。落盘只需要
+/// `AppPaths`，因此拆成自由函数供两侧复用——桌面侧退出时读的是自己进程内的
+/// `TerminalService`，daemon 模式下那里是空的，会话真死掉后就没有任何可重放的
+/// 历史（表现为恢复出来的终端全空白）。
+pub fn write_session_output(
+    app_paths: &AppPaths,
+    session_id: &str,
+    lines: &[String],
+) -> Result<(), String> {
+    let dir = app_paths.sessions_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        error!(path = %dir.display(), err = %e, "Failed to create sessions dir");
+        format!("Failed to create sessions dir: {}", e)
+    })?;
+
+    // 必须原子写：`File::create` 会先把目标截断，写到一半崩溃 / 两次 persist 并发，
+    // 都会把上一份完好的快照毁成半截——而这份快照正是"会话已死时唯一能重放的历史"。
+    let mut buffer = Vec::new();
+    for line in lines {
+        writeln!(buffer, "{}", line).map_err(|e| format!("Failed to write output line: {}", e))?;
+    }
+
+    let path = app_paths.session_output_path(session_id);
+    crate::utils::atomic_file::write_atomic(&path, &buffer).map_err(|e| {
+        error!(path = %path.display(), err = %e, "Failed to write output file");
+        format!("Failed to write output file: {}", e)
+    })?;
+
+    info!(session_id, lines = lines.len(), "Saved session output");
+    Ok(())
+}
 
 /// 终端会话恢复服务
 ///
@@ -245,29 +280,7 @@ impl SessionRestoreService {
 
     /// 保存终端输出到文件
     pub fn save_session_output(&self, session_id: &str, lines: &[String]) -> Result<(), String> {
-        let dir = self.app_paths.sessions_dir();
-        std::fs::create_dir_all(&dir).map_err(|e| {
-            error!(path = %dir.display(), err = %e, "Failed to create sessions dir");
-            format!("Failed to create sessions dir: {}", e)
-        })?;
-
-        let path = self.app_paths.session_output_path(session_id);
-        let file = std::fs::File::create(&path).map_err(|e| {
-            error!(path = %path.display(), err = %e, "Failed to create output file");
-            format!("Failed to create output file: {}", e)
-        })?;
-
-        let mut writer = BufWriter::new(file);
-        for line in lines {
-            writeln!(writer, "{}", line)
-                .map_err(|e| format!("Failed to write output line: {}", e))?;
-        }
-        writer
-            .flush()
-            .map_err(|e| format!("Failed to flush output: {}", e))?;
-
-        info!(session_id, lines = lines.len(), "Saved session output");
-        Ok(())
+        write_session_output(&self.app_paths, session_id, lines)
     }
 
     /// 加载终端输出文件
@@ -453,6 +466,36 @@ mod tests {
     }
 
     // ===== 输出文件 =====
+
+    #[test]
+    /// 落盘必须原子：写坏一次就等于把"会话已死时唯一能重放的历史"毁掉。
+    /// 这里验证覆写失败/并发不会留下截断文件——写入过程不触碰目标路径本身。
+    #[test]
+    fn session_output_write_replaces_atomically() {
+        let (service, _dir) = make_service();
+        service
+            .save_session_output("atomic", &["first".to_string(), "second".to_string()])
+            .unwrap();
+        let path = service.app_paths.session_output_path("atomic");
+        let before = std::fs::metadata(&path).unwrap().len();
+        assert!(before > 0);
+
+        service
+            .save_session_output("atomic", &["replaced".to_string()])
+            .unwrap();
+        assert_eq!(
+            service.load_session_output("atomic").unwrap(),
+            Some(vec!["replaced".to_string()])
+        );
+        // 临时文件不得残留在 sessions 目录里被 load/has_output 误认。
+        let leftovers: Vec<_> = std::fs::read_dir(service.app_paths.sessions_dir())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| !name.ends_with(".output"))
+            .collect();
+        assert!(leftovers.is_empty(), "unexpected leftovers: {leftovers:?}");
+    }
 
     #[test]
     fn session_output_roundtrip() {
