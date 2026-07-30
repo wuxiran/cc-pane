@@ -1,5 +1,19 @@
 import type { PaneNode, Tab, TerminalPaneLeaf, TerminalPaneNode } from "@/types";
 
+export function findTerminalPane(
+  node: TerminalPaneNode,
+  paneId: string,
+): TerminalPaneNode | null {
+  if (node.id === paneId) return node;
+  if (node.type === "split") {
+    for (const child of node.children) {
+      const found = findTerminalPane(child, paneId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 export function collectTerminalLeaves(node?: TerminalPaneNode): TerminalPaneLeaf[] {
   if (!node) return [];
   if (node.type === "leaf") return [node];

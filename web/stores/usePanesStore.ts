@@ -4,10 +4,12 @@ import { immer } from "zustand/middleware/immer";
 import { useEditorTabsStore } from "./useEditorTabsStore";
 import { useActivityBarStore } from "./useActivityBarStore";
 import { useFullscreenStore } from "./useFullscreenStore";
+import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { terminalService, ensureListeners } from "@/services/terminalService";
 import { waitForTerminalRestoreBarrier } from "@/services/terminalRestoreBarrier";
 import { devDebugLog } from "@/utils/devLogger";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
+import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 import { createPanel } from "./paneTreeHelpers";
@@ -167,17 +169,6 @@ function stripInitialPrompt(extras: LaunchExtras | undefined): LaunchExtras | un
   return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
-function findTerminalPane(node: TerminalPaneNode, paneId: string): TerminalPaneNode | null {
-  if (node.id === paneId) return node;
-  if (node.type === "split") {
-    for (const child of node.children) {
-      const found = findTerminalPane(child, paneId);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
 function findTerminalPaneParent(
   node: TerminalPaneNode,
   paneId: string,
@@ -193,12 +184,6 @@ function findTerminalPaneParent(
     }
   }
   return null;
-}
-
-function collectTerminalLeaves(node?: TerminalPaneNode): TerminalPaneLeaf[] {
-  if (!node) return [];
-  if (node.type === "leaf") return [node];
-  return node.children.flatMap(collectTerminalLeaves);
 }
 
 function syncTabTerminalState(tab: Tab): void {
@@ -2850,14 +2835,28 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    canCreateTerminalSession: (tabId, terminalPaneId) => {
+    canCreateTerminalSession: (
+      tabId,
+      terminalPaneId,
+      expectedSavedSessionId,
+      allowLiveExpectedSession = false,
+    ) => {
       const location = findTabAcrossLayouts(get(), tabId);
       const tab = location?.tab;
       if (!tab || tab.contentType !== "terminal" || !tab.terminalRootPane) return false;
       const leaf = findTerminalPane(tab.terminalRootPane, terminalPaneId);
+      const savedSessionStatus = expectedSavedSessionId
+        ? useTerminalStatusStore.getState().statusMap.get(expectedSavedSessionId)
+        : undefined;
       return leaf?.type === "leaf"
         && !leaf.sessionId
-        && !leaf.restoreBlockedReason;
+        && !leaf.restoreBlockedReason
+        && leaf.savedSessionId === expectedSavedSessionId
+        && (
+          allowLiveExpectedSession
+          || !savedSessionStatus
+          || savedSessionStatus.status === "exited"
+        );
     },
 
     attachSessionToAnchor: (anchor) => {

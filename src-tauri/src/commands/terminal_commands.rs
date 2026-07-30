@@ -4,7 +4,7 @@ use crate::services::terminal_service;
 use crate::services::terminal_service::{KillReason, SessionOutput};
 use crate::services::{
     BridgeStats, HistoryWatchManager, LaunchHistoryService, SessionRestoreService,
-    SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackendKind,
+    SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackend, TerminalBackendKind,
     TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
@@ -78,6 +78,43 @@ fn summarize_terminal_input(data: &str) -> serde_json::Value {
     })
 }
 
+fn persist_created_session_observation(
+    backend: &dyn TerminalBackend,
+    session_restore_service: &SessionRestoreService,
+    request: &CreateSessionRequest,
+    session_id: &str,
+    reused_existing: bool,
+) -> AppResult<()> {
+    let provenance = backend
+        .session_provenance(session_id)?
+        .ok_or_else(|| AppError::from("claim-capable daemon omitted session provenance"))?;
+    session_restore_service
+        .save_provenance(&provenance)
+        .map_err(AppError::from)?;
+    if !reused_existing {
+        if let Some(observation) =
+            cc_panes_core::models::SavedSession::from_creation(request, &provenance)
+        {
+            session_restore_service
+                .save_initial_observation(&observation)
+                .map_err(AppError::from)?;
+        }
+    }
+    Ok(())
+}
+
+fn cleanup_failed_session_persistence(
+    backend: &dyn TerminalBackend,
+    session_id: &str,
+    reused_expected_session: bool,
+) -> AppResult<()> {
+    if reused_expected_session {
+        backend.release_session(session_id)
+    } else {
+        backend.kill_with_reason(session_id, KillReason::Unknown)
+    }
+}
+
 /// 创建终端会话
 #[tauri::command]
 pub async fn create_terminal_session(
@@ -141,38 +178,36 @@ pub async fn create_terminal_session(
     let created = result?;
     let session_id = created.session_id;
     let backend = created.backend;
+    let reused_existing = created.reused_existing;
 
     // A claim-capable daemon must issue immutable birth evidence, and it must reach SQLite before
     // the session id is returned to the webview. Otherwise a crash in this window recreates the
     // original ambiguity: a live PTY with no trustworthy cross-instance join key.
     if backend.claims_supported() {
-        let provenance_backend = backend.clone();
-        let provenance_session_id = session_id.clone();
-        let provenance = tauri::async_runtime::spawn_blocking(move || {
-            provenance_backend.session_provenance(&provenance_session_id)
+        let persist_backend = backend.clone();
+        let persist_service = (*session_restore_service).clone();
+        let persist_session_id = session_id.clone();
+        let persist_result = tauri::async_runtime::spawn_blocking(move || {
+            persist_created_session_observation(
+                persist_backend.as_ref(),
+                persist_service.as_ref(),
+                &observation_request,
+                &persist_session_id,
+                reused_existing,
+            )
         })
         .await
-        .map_err(|e| AppError::from(e.to_string()))??
-        .ok_or_else(|| AppError::from("claim-capable daemon omitted session provenance"));
-        let persist_result = provenance.and_then(|provenance| {
-            session_restore_service
-                .save_provenance(&provenance)
-                .map_err(AppError::from)?;
-            if let Some(observation) = cc_panes_core::models::SavedSession::from_creation(
-                &observation_request,
-                &provenance,
-            ) {
-                session_restore_service
-                    .save_initial_observation(&observation)
-                    .map_err(AppError::from)?;
-            }
-            Ok(())
-        });
+        .map_err(|error| AppError::from(error.to_string()))
+        .and_then(|result| result);
         if let Err(error) = persist_result {
             let cleanup_backend = backend.clone();
             let cleanup_session_id = session_id.clone();
             let _ = tauri::async_runtime::spawn_blocking(move || {
-                cleanup_backend.kill_with_reason(&cleanup_session_id, KillReason::Unknown)
+                cleanup_failed_session_persistence(
+                    cleanup_backend.as_ref(),
+                    &cleanup_session_id,
+                    reused_existing,
+                )
             })
             .await;
             return Err(error);
@@ -593,7 +628,180 @@ pub fn get_terminal_replay_snapshot(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
+    use cc_panes_core::models::{SavedSession, TerminalBufferMode, TerminalSessionProvenance};
+    use cc_panes_core::repository::Database;
+    use cc_panes_core::utils::AppPaths;
+
     use super::*;
+
+    struct PersistenceTestBackend {
+        provenance: TerminalSessionProvenance,
+        kills: Mutex<Vec<String>>,
+        releases: Mutex<Vec<String>>,
+    }
+
+    impl TerminalBackend for PersistenceTestBackend {
+        fn create_session(&self, _request: CreateSessionRequest) -> AppResult<String> {
+            unreachable!("persistence tests do not create PTYs")
+        }
+
+        fn write(&self, _session_id: &str, _data: &str) -> AppResult<()> {
+            Ok(())
+        }
+
+        fn submit_text_to_session(&self, _session_id: &str, _text: &str) -> AppResult<()> {
+            Ok(())
+        }
+
+        fn resize(&self, _session_id: &str, _cols: u16, _rows: u16) -> AppResult<()> {
+            Ok(())
+        }
+
+        fn kill(&self, session_id: &str) -> AppResult<()> {
+            self.kills.lock().unwrap().push(session_id.to_string());
+            Ok(())
+        }
+
+        fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
+            Ok(Vec::new())
+        }
+
+        fn get_session_status(&self, _session_id: &str) -> AppResult<Option<SessionStatusInfo>> {
+            Ok(None)
+        }
+
+        fn get_session_output(&self, session_id: &str, _lines: usize) -> AppResult<SessionOutput> {
+            Ok(SessionOutput {
+                session_id: session_id.to_string(),
+                lines: Vec::new(),
+            })
+        }
+
+        fn get_session_replay_snapshot(
+            &self,
+            _session_id: &str,
+        ) -> AppResult<Option<TerminalReplaySnapshot>> {
+            Ok(Some(TerminalReplaySnapshot {
+                data: String::new(),
+                buffer_mode: TerminalBufferMode::Normal,
+            }))
+        }
+
+        fn release_session(&self, session_id: &str) -> AppResult<()> {
+            self.releases.lock().unwrap().push(session_id.to_string());
+            Ok(())
+        }
+
+        fn claims_supported(&self) -> bool {
+            true
+        }
+
+        fn session_provenance(
+            &self,
+            _session_id: &str,
+        ) -> AppResult<Option<TerminalSessionProvenance>> {
+            Ok(Some(self.provenance.clone()))
+        }
+    }
+
+    fn persistence_test_backend() -> PersistenceTestBackend {
+        PersistenceTestBackend {
+            provenance: TerminalSessionProvenance {
+                session_id: "session-1".to_string(),
+                daemon_generation: 42,
+                birth_nonce: "birth-1".to_string(),
+                origin_instance_id: Some("instance-old".to_string()),
+                origin_layout_id: Some("layout-origin".to_string()),
+                origin_tab_id: Some("tab-origin".to_string()),
+                origin_terminal_pane_id: Some("leaf-origin".to_string()),
+                project_path: "/repo".to_string(),
+                runtime_kind: "local".to_string(),
+                cli_tool: "codex".to_string(),
+                resume_id: Some("resume-1".to_string()),
+                created_at_ms: 1,
+            },
+            kills: Mutex::new(Vec::new()),
+            releases: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn persistence_test_request(expected_saved_session_id: Option<&str>) -> CreateSessionRequest {
+        serde_json::from_value(serde_json::json!({
+            "projectPath": "/repo",
+            "cols": 80,
+            "rows": 24,
+            "cliTool": "codex",
+            "resumeId": "resume-1",
+            "originLayoutId": "layout-current",
+            "originTabId": "tab-current",
+            "originTerminalPaneId": "leaf-current",
+            "expectedSavedSessionId": expected_saved_session_id,
+        }))
+        .expect("create request")
+    }
+
+    fn persistence_test_service() -> SessionRestoreService {
+        let database = Arc::new(Database::new_fallback().expect("database"));
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let app_paths = Arc::new(AppPaths::new(Some(
+            std::env::temp_dir()
+                .join(format!("cc-panes-terminal-command-{suffix}"))
+                .to_string_lossy()
+                .to_string(),
+        )));
+        SessionRestoreService::new(database, app_paths)
+    }
+
+    #[test]
+    fn reused_session_keeps_its_existing_mutable_layout_observation() {
+        let backend = persistence_test_backend();
+        let service = persistence_test_service();
+        let original_request = persistence_test_request(None);
+        let original = SavedSession::from_creation(&original_request, &backend.provenance)
+            .expect("original observation");
+        service
+            .save_initial_observation(&original)
+            .expect("save original observation");
+
+        let restore_request = persistence_test_request(Some("session-1"));
+        persist_created_session_observation(
+            &backend,
+            &service,
+            &restore_request,
+            "session-1",
+            true,
+        )
+        .expect("persist reused session");
+
+        let saved = service
+            .load_sessions()
+            .expect("load sessions")
+            .into_iter()
+            .find(|session| session.session_id == "session-1")
+            .expect("saved session");
+        assert_eq!(saved.layout_id.as_deref(), Some("layout-origin"));
+        assert_eq!(saved.tab_id, "tab-origin");
+        assert_eq!(saved.terminal_pane_id.as_deref(), Some("leaf-origin"));
+    }
+
+    #[test]
+    fn reused_session_persistence_cleanup_releases_without_killing_pty() {
+        let backend = persistence_test_backend();
+
+        cleanup_failed_session_persistence(&backend, "session-1", true)
+            .expect("release reused session");
+
+        assert_eq!(
+            backend.releases.lock().unwrap().as_slice(),
+            &["session-1".to_string()]
+        );
+        assert!(backend.kills.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn kill_terminal_idempotent_treats_missing_session_as_success() {

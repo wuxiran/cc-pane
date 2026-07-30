@@ -89,8 +89,8 @@ pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use system_stats_service::SystemStatsService;
 pub use task_binding_service::TaskBindingService;
 pub use terminal_backend::{
-    set_claim_lost_hook, DaemonTerminalBackend, InProcessTerminalBackend, TerminalAdoptionSnapshot,
-    TerminalBackend,
+    set_claim_lost_hook, CreateSessionOutcome, DaemonTerminalBackend, InProcessTerminalBackend,
+    TerminalAdoptionSnapshot, TerminalBackend,
 };
 pub use terminal_service::{
     codex_rollout_exists, KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo,

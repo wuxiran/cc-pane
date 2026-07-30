@@ -144,6 +144,10 @@ export function useStartupTerminalRestoreBarrier(): boolean {
       try {
         const runtimeReady = await waitForDesktopRuntime();
         if (isTauriRuntime() && !runtimeReady) return;
+        if (!useSettingsStore.getState().settings) {
+          await useSettingsStore.getState().loadSettings();
+        }
+        if (cancelled) return;
         await applySharedLayoutSnapshot().catch((error) => {
           console.warn("[LayoutSnapshot] Failed to apply before terminal reconciliation:", error);
           return false;

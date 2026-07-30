@@ -25,6 +25,7 @@ import {
   usePanesStore,
   useThemeStore,
   useTerminalStatusStore,
+  useTerminalRestoreLogStore,
   useWallpaperStore,
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
@@ -49,6 +50,7 @@ import {
 } from "./terminalClipboard";
 import { isDropInsideTerminalHost } from "./terminalDrop";
 import { attachTerminalInputTrace, summarizeTerminalInputData } from "./terminalInputTrace";
+import { attachTerminalInputDebugLog } from "./terminalInputDebug";
 import { attachTerminalDomInputFallback } from "./terminalDomInputFallback";
 import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
 import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
@@ -83,21 +85,8 @@ import TerminalZoomHud from "./TerminalZoomHud";
 import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
 import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
 import { useTerminalWheelZoom } from "./useTerminalWheelZoom";
+import { getCachedWindowsBuildNumber } from "./terminalWindows";
 import "@xterm/xterm/css/xterm.css";
-
-/** Cache the Windows build number once per renderer process. */
-let cachedBuildNumber: number | null = null;
-let buildNumberPromise: Promise<number> | null = null;
-
-async function getCachedBuildNumber(): Promise<number> {
-  if (cachedBuildNumber !== null) return cachedBuildNumber;
-  if (!buildNumberPromise) {
-    buildNumberPromise = terminalService.getWindowsBuildNumber()
-      .then((num) => { cachedBuildNumber = num; return num; })
-      .catch(() => { cachedBuildNumber = 0; return 0; });
-  }
-  return buildNumberPromise;
-}
 
 import type { CliTool, CreateSessionRequest, SshConnectionInfo, TerminalRendererMode, TerminalThemeMode, WslLaunchInfo } from "@/types";
 
@@ -139,107 +128,6 @@ async function waitForTerminalFont(fontSize: number, fontFamily: string): Promis
 }
 
 type TerminalCursorStyle = "block" | "underline" | "bar";
-
-function keyboardDebugPayload(event: KeyboardEvent, textarea: HTMLTextAreaElement): Record<string, unknown> {
-  return {
-    type: event.type,
-    key: event.key,
-    code: event.code,
-    keyCode: event.keyCode,
-    repeat: event.repeat,
-    isComposing: event.isComposing,
-    ctrlKey: event.ctrlKey,
-    shiftKey: event.shiftKey,
-    altKey: event.altKey,
-    metaKey: event.metaKey,
-    defaultPrevented: event.defaultPrevented,
-    textareaValue: summarizeTerminalInputData(textarea.value),
-    selectionStart: textarea.selectionStart,
-    selectionEnd: textarea.selectionEnd,
-  };
-}
-
-function inputDebugPayload(event: InputEvent, textarea: HTMLTextAreaElement): Record<string, unknown> {
-  return {
-    type: event.type,
-    inputType: event.inputType,
-    data: summarizeTerminalInputData(event.data),
-    isComposing: event.isComposing,
-    defaultPrevented: event.defaultPrevented,
-    textareaValue: summarizeTerminalInputData(textarea.value),
-    selectionStart: textarea.selectionStart,
-    selectionEnd: textarea.selectionEnd,
-  };
-}
-
-function compositionDebugPayload(event: CompositionEvent, textarea: HTMLTextAreaElement): Record<string, unknown> {
-  return {
-    type: event.type,
-    data: summarizeTerminalInputData(event.data),
-    defaultPrevented: event.defaultPrevented,
-    textareaValue: summarizeTerminalInputData(textarea.value),
-    selectionStart: textarea.selectionStart,
-    selectionEnd: textarea.selectionEnd,
-  };
-}
-
-function attachTerminalInputDebugLog(
-  textarea: HTMLTextAreaElement,
-  logger: (event: string, payload?: Record<string, unknown>) => void,
-  nextSeq: () => number,
-): () => void {
-  const cleanups: Array<() => void> = [];
-  const add = <K extends keyof HTMLElementEventMap>(
-    type: K,
-    handler: (event: HTMLElementEventMap[K]) => void,
-  ) => {
-    textarea.addEventListener(type, handler as EventListener, true);
-    cleanups.push(() => textarea.removeEventListener(type, handler as EventListener, true));
-  };
-
-  add("keydown", (event) => {
-    logger("input.dom.keydown", {
-      traceSeq: nextSeq(),
-      ...keyboardDebugPayload(event as KeyboardEvent, textarea),
-    });
-  });
-  add("beforeinput", (event) => {
-    logger("input.dom.beforeinput", {
-      traceSeq: nextSeq(),
-      ...inputDebugPayload(event as InputEvent, textarea),
-    });
-  });
-  add("input", (event) => {
-    logger("input.dom.input", {
-      traceSeq: nextSeq(),
-      ...inputDebugPayload(event as InputEvent, textarea),
-    });
-  });
-  add("compositionstart", (event) => {
-    logger("input.dom.compositionstart", {
-      traceSeq: nextSeq(),
-      ...compositionDebugPayload(event as CompositionEvent, textarea),
-    });
-  });
-  add("compositionupdate", (event) => {
-    logger("input.dom.compositionupdate", {
-      traceSeq: nextSeq(),
-      ...compositionDebugPayload(event as CompositionEvent, textarea),
-    });
-  });
-  add("compositionend", (event) => {
-    logger("input.dom.compositionend", {
-      traceSeq: nextSeq(),
-      ...compositionDebugPayload(event as CompositionEvent, textarea),
-    });
-  });
-
-  return () => {
-    while (cleanups.length > 0) {
-      cleanups.pop()?.();
-    }
-  };
-}
 
 function setMacosTerminalNativeFocus(focused: boolean): void {
   if (!IS_MAC || !isTauriRuntime()) return;
@@ -441,22 +329,35 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const restoreLaunchStartedRef = useRef(false);
     // Release-visible restore trace (lands in cc-panes.log, unlike dev-only debugLog).
     const logRestoreEvent = useCallback((event: string, extra: Record<string, unknown> = {}) => {
+      const details = {
+        project: props.projectPath ?? null,
+        layoutActive: props.layoutActive ?? true,
+        restoring: props.restoring ?? false,
+        everHidden: everHiddenRef.current,
+        deferred: deferredRestoreRef.current,
+        hasSession: Boolean(currentSessionIdRef.current),
+        launchStarted: restoreLaunchStartedRef.current,
+        ...extra,
+      };
+      if (props.tabId && props.paneId) {
+        useTerminalRestoreLogStore.getState().append(props.tabId, props.paneId, event, details);
+      }
       void logInfo(
         `[layout-restore] ${event} ${JSON.stringify({
+          timestamp: new Date().toISOString(),
           tabId: props.tabId ?? null,
           paneId: props.paneId ?? null,
-          project: props.projectPath ?? null,
-          layoutActive: props.layoutActive ?? true,
-          restoring: props.restoring ?? false,
-          everHidden: everHiddenRef.current,
-          deferred: deferredRestoreRef.current,
-          hasSession: Boolean(currentSessionIdRef.current),
-          launchStarted: restoreLaunchStartedRef.current,
-          ...extra,
+          ...details,
         })}`,
       ).catch(() => {});
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.tabId, props.paneId, props.projectPath, props.layoutActive, props.restoring]);
+    const reportRestoreLaunchState = useCallback((state: RestoreLaunchState) => {
+      props.onRestoreLaunchState?.(state);
+      if (props.restoring) {
+        logRestoreEvent(`queue.${state}`, terminalRestoreLaunchQueue.getSnapshot());
+      }
+    }, [logRestoreEvent, props.onRestoreLaunchState, props.restoring]);
 
     const onSessionCreatedRef = useRef(props.onSessionCreated);
     const onSessionExitedRef = useRef(props.onSessionExited);
@@ -998,7 +899,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // Read the Windows build number once so xterm can enable ConPTY tuning.
         let buildNumber = 0;
         if (navigator.platform.startsWith('Win')) {
-          buildNumber = await getCachedBuildNumber();
+          buildNumber = await getCachedWindowsBuildNumber();
         }
 
         if (!isMounted || !terminalRef.current) return;
@@ -1611,16 +1512,32 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // Create a new backend session or attach to an existing one.
         if (props.projectPath) {
           try {
+            if (props.restoring) logRestoreEvent("init.listeners.begin");
             await ensureListeners();
+            if (props.restoring) logRestoreEvent("init.listeners.end");
 
+            if (props.restoring) {
+              logRestoreEvent("init.saved-session-lookup.begin", {
+                savedSessionId: props.savedSessionId ?? null,
+              });
+            }
             const liveSavedSessionId = props.sessionId
               ? null
               : await findLiveSavedSessionId(props.restoring ? props.savedSessionId : undefined);
+            if (props.restoring) {
+              logRestoreEvent("init.saved-session-lookup.end", {
+                liveSavedSessionId: liveSavedSessionId ?? null,
+              });
+            }
 
             // Replay persisted output before deciding whether to create a live PTY.
             if (props.restoring && props.savedSessionId && !liveSavedSessionId) {
               try {
+                logRestoreEvent("init.output-replay.begin", {
+                  savedSessionId: props.savedSessionId,
+                });
                 const lines = await sessionRestoreService.loadOutput(props.savedSessionId);
+                logRestoreEvent("init.output-replay.end", { lineCount: lines?.length ?? 0 });
                 if (lines && lines.length > 0) {
                   debugLog("session.restore.replay", {
                     savedSessionId: props.savedSessionId,
@@ -1633,6 +1550,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   term.writeln("");
                 }
               } catch (err) {
+                logRestoreEvent("init.output-replay.failed", { error: getErrorMessage(err) });
                 console.warn("[TerminalView] Failed to load restored output:", err);
               }
 
@@ -1645,6 +1563,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             const attachSessionId = props.sessionId ?? liveSavedSessionId;
 
             if (attachSessionId) {
+              if (props.restoring) {
+                logRestoreEvent("init.attach.begin", { sessionId: attachSessionId });
+              }
               debugLog("session.attach-existing", {
                 attachSessionId,
                 source: props.sessionId ? "prop-session-id" : "live-saved-session",
@@ -1665,15 +1586,24 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   debugLog,
                 });
               } catch (error) {
+                if (props.restoring) {
+                  logRestoreEvent("init.attach-replay.failed", {
+                    sessionId: attachSessionId,
+                    error: getErrorMessage(error),
+                  });
+                }
                 debugLog("session.attach-existing.replay.fail", {
                   attachSessionId,
                   error: getErrorMessage(error),
                 });
               }
+              if (props.restoring) {
+                logRestoreEvent("init.attach.end", { sessionId: attachSessionId });
+              }
             } else {
               if (props.layoutActive === false) {
                 deferredRestoreRef.current = true;
-                props.onRestoreLaunchState?.(props.restoring ? "queued" : "idle");
+                reportRestoreLaunchState(props.restoring ? "queued" : "idle");
                 debugLog("session.create.deferred-layout-hidden", {
                   restoring: props.restoring ?? false,
                 });
@@ -1698,11 +1628,17 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 resumeId: effectiveResumeId ?? null,
               });
               const launchSession = async () => {
+                if (props.restoring) logRestoreEvent("init.restore-barrier.begin");
                 await waitForTerminalRestoreBarrier();
+                if (props.restoring) logRestoreEvent("init.restore-barrier.end");
                 if (
                   props.tabId
                   && props.paneId
-                  && !usePanesStore.getState().canCreateTerminalSession(props.tabId, props.paneId)
+                  && !usePanesStore.getState().canCreateTerminalSession(
+                    props.tabId,
+                    props.paneId,
+                    props.restoring ? props.savedSessionId : undefined,
+                  )
                 ) {
                   throw createRestoreLaunchCancelledError();
                 }
@@ -1734,15 +1670,43 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 originLayoutId,
                 originTabId: props.tabId,
                 originTerminalPaneId: props.paneId,
+                expectedSavedSessionId: props.restoring ? props.savedSessionId : undefined,
               });
               };
               sessionId = props.restoring
                 ? await terminalRestoreLaunchQueue.run(launchSession, {
                     isCancelled: () => !isMounted,
-                    onState: props.onRestoreLaunchState,
+                    onState: reportRestoreLaunchState,
                   })
                 : await launchSession();
-              props.onRestoreLaunchState?.("idle");
+              if (
+                props.tabId
+                && props.paneId
+                && !usePanesStore.getState().canCreateTerminalSession(
+                  props.tabId,
+                  props.paneId,
+                  props.restoring ? props.savedSessionId : undefined,
+                  Boolean(props.restoring && sessionId === props.savedSessionId),
+                )
+              ) {
+                if (sessionId !== props.savedSessionId) {
+                  await terminalService.killSession(sessionId).catch(console.error);
+                }
+                if (props.restoring) {
+                  logRestoreEvent("init.create.cancelled-after-create", {
+                    sessionId,
+                    killedDuplicate: sessionId !== props.savedSessionId,
+                  });
+                }
+                throw createRestoreLaunchCancelledError();
+              }
+              reportRestoreLaunchState("idle");
+              if (props.restoring) {
+                logRestoreEvent("init.create.end", {
+                  sessionId,
+                  reusedExpected: sessionId === props.savedSessionId,
+                });
+              }
               debugLog("session.create.end", {
                 createdSessionId: sessionId,
               });
@@ -1764,7 +1728,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
 
             if (!isMounted) {
-              if (!attachSessionId) {
+              if (!attachSessionId && sessionId !== props.savedSessionId) {
                 console.warn(`[TerminalView] Component unmounted during init, killing session: ${sessionId}`);
                 terminalService.killSession(sessionId).catch(console.error);
               }
@@ -1814,11 +1778,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             if (isRestoreLaunchCancelled(error)) {
               deferredRestoreRef.current = true;
               restoreLaunchStartedRef.current = false;
-              props.onRestoreLaunchState?.("idle");
+              reportRestoreLaunchState("idle");
+              logRestoreEvent("init.create.cancelled");
               return;
             }
             if (props.restoring) {
-              props.onRestoreLaunchState?.("failed");
+              reportRestoreLaunchState("failed");
+              logRestoreEvent("init.failed", { error: getErrorMessage(error) });
             }
             const failedAttachSessionId = props.sessionId ?? (
               props.restoring ? props.savedSessionId : undefined
@@ -2056,7 +2022,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 debugLog("session.deferred-restore.attach-existing", {
                   attachSessionId: liveSavedSessionId,
                 });
-                props.onRestoreLaunchState?.("idle");
+                reportRestoreLaunchState("idle");
                 onSessionCreatedRef.current(liveSavedSessionId);
                 await replayAttachedSession({
                   term,
@@ -2087,11 +2053,17 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
               const backfillStartTime = new Date().toISOString();
               const launchSession = async () => {
+                logRestoreEvent("activation.restore-barrier.begin");
                 await waitForTerminalRestoreBarrier();
+                logRestoreEvent("activation.restore-barrier.end");
                 if (
                   props.tabId
                   && props.paneId
-                  && !usePanesStore.getState().canCreateTerminalSession(props.tabId, props.paneId)
+                  && !usePanesStore.getState().canCreateTerminalSession(
+                    props.tabId,
+                    props.paneId,
+                    props.savedSessionId,
+                  )
                 ) {
                   throw createRestoreLaunchCancelledError();
                 }
@@ -2122,16 +2094,34 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 originLayoutId,
                 originTabId: props.tabId,
                 originTerminalPaneId: props.paneId,
+                expectedSavedSessionId: props.savedSessionId,
               });
               };
               const sessionId = await terminalRestoreLaunchQueue.run(launchSession, {
                 isCancelled: () => isUnmountedRef.current || activationCancelled || !layoutActiveRef.current,
-                onState: props.onRestoreLaunchState,
+                onState: reportRestoreLaunchState,
               });
-              props.onRestoreLaunchState?.("idle");
+              if (
+                props.tabId
+                && props.paneId
+                && !usePanesStore.getState().canCreateTerminalSession(
+                  props.tabId,
+                  props.paneId,
+                  props.savedSessionId,
+                  sessionId === props.savedSessionId,
+                )
+              ) {
+                if (sessionId !== props.savedSessionId) {
+                  await terminalService.killSession(sessionId).catch(console.error);
+                }
+                throw createRestoreLaunchCancelledError();
+              }
+              reportRestoreLaunchState("idle");
 
               if (isUnmountedRef.current) {
-                terminalService.killSession(sessionId).catch(console.error);
+                if (sessionId !== props.savedSessionId) {
+                  terminalService.killSession(sessionId).catch(console.error);
+                }
                 return;
               }
 
@@ -2173,11 +2163,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 deferredRestoreRef.current = true;
                 restoreLaunchStartedRef.current = false;
                 logRestoreEvent("activation.create.cancelled");
-                props.onRestoreLaunchState?.("idle");
+                reportRestoreLaunchState("idle");
                 return;
               }
               restoreLaunchStartedRef.current = false;
-              props.onRestoreLaunchState?.("failed");
+              reportRestoreLaunchState("failed");
               onLaunchErrorRef.current?.(toTerminalLaunchError(err));
               logRestoreEvent("activation.create.failed", { error: getErrorMessage(err) });
               console.error("[TerminalView] Deferred restore failed:", err);

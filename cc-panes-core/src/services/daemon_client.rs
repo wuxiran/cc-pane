@@ -81,6 +81,8 @@ pub fn app_instance_id() -> &'static str {
 #[serde(rename_all = "camelCase")]
 struct CreateSessionResponse {
     session_id: String,
+    #[serde(default)]
+    reused_existing: bool,
 }
 
 #[derive(Serialize)]
@@ -212,6 +214,15 @@ impl TerminalDaemonClient {
     }
 
     pub fn create_session(&self, request: CreateSessionRequest) -> AppResult<String> {
+        self.create_session_with_outcome(request)
+            .map(|outcome| outcome.session_id)
+    }
+
+    pub fn create_session_with_outcome(
+        &self,
+        request: CreateSessionRequest,
+    ) -> AppResult<crate::services::CreateSessionOutcome> {
+        let expected_session_id = request.expected_saved_session_id.clone();
         let body =
             serde_json::to_string(&request).map_err(|error| AppError::from(error.to_string()))?;
         let response = self.request_with_timeout(
@@ -222,7 +233,11 @@ impl TerminalDaemonClient {
             self.create_timeout,
         )?;
         let parsed: CreateSessionResponse = parse_json_response(&response)?;
-        Ok(parsed.session_id)
+        Ok(crate::services::CreateSessionOutcome {
+            reused_existing: parsed.reused_existing
+                || expected_session_id.as_deref() == Some(parsed.session_id.as_str()),
+            session_id: parsed.session_id,
+        })
     }
 
     pub fn list_sessions(&self) -> AppResult<Vec<SessionStatusInfo>> {
@@ -734,6 +749,7 @@ mod tests {
             origin_layout_id: None,
             origin_tab_id: None,
             origin_terminal_pane_id: None,
+            expected_saved_session_id: None,
             launch_claude: false,
             cli_tool: CliTool::None,
             resume_id: None,
@@ -914,6 +930,26 @@ mod tests {
         assert!(request.contains("Content-Type: application/json"));
         assert!(request.contains(r#""projectPath":"/repo""#));
         assert!(request.contains(r#""initialPrompt":"inspect""#));
+    }
+
+    #[test]
+    fn create_session_reports_daemon_reuse_of_a_replacement_session() {
+        let response = http_json_response(
+            "201 Created",
+            r#"{"sessionId":"replacement-1","reusedExisting":true}"#,
+        );
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+        let mut request = test_create_request();
+        request.expected_saved_session_id = Some("missing-session".to_string());
+
+        let outcome = client
+            .create_session_with_outcome(request)
+            .expect("create session outcome");
+
+        assert_eq!(outcome.session_id, "replacement-1");
+        assert!(outcome.reused_existing);
     }
 
     #[test]

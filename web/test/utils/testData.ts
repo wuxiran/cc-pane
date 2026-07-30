@@ -88,6 +88,7 @@ export function createTestWorkspaceProject(overrides?: Partial<WorkspaceProject>
  */
 export function createTestSettings(overrides?: Partial<AppSettings>): AppSettings {
   return {
+    settingsVersion: 1,
     proxy: {
       enabled: false,
       proxyType: "http",
@@ -112,7 +113,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       daemonEnabled: false,
       daemonOrphanTtlMinutes: 1440,
       daemonOrphanReaperDisabled: false,
-    autoAdoptDaemonSessions: false,
+      autoAdoptDaemonSessions: true,
     },
     shortcuts: { bindings: {} },
     general: {

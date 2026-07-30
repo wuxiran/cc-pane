@@ -58,10 +58,7 @@ impl ScreenshotService {
 
     /// 截图保存目录：~/.cc-panes/screenshots/
     pub fn screenshots_dir() -> PathBuf {
-        let dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(crate::utils::APP_DIR_NAME)
-            .join("screenshots");
+        let dir = crate::utils::app_config_dir().join("screenshots");
         if let Err(e) = std::fs::create_dir_all(&dir) {
             warn!("Failed to create screenshots dir: {}", e);
         }

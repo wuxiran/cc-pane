@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
+import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { createPanel } from "./paneTreeHelpers";
 import {
   resetTestDataCounter,
@@ -22,6 +23,7 @@ describe("usePanesStore", () => {
       currentLayoutId: "layout-1",
       closedTabs: [],
     });
+    useTerminalStatusStore.setState({ statusMap: new Map() });
   });
 
   // ========== 派生方法 ==========
@@ -275,6 +277,40 @@ describe("usePanesStore", () => {
       const pane = usePanesStore.getState().rootPane as Panel;
       expect(pane.tabs.length).toBe(tabsBefore);
       expect(pane.tabs.some((item) => item.id === tabId)).toBe(true);
+    });
+  });
+
+  describe("canCreateTerminalSession", () => {
+    it("仅允许后端复用 expected session 时忽略提前到达的 live 状态", () => {
+      const tabId = usePanesStore.getState().adoptSession("expected-session", {
+        projectPath: "/tmp/proj1",
+      });
+      expect(tabId).not.toBeNull();
+
+      const pane = usePanesStore.getState().rootPane as Panel;
+      const tab = pane.tabs.find((item) => item.id === tabId)!;
+      const leaf = tab.terminalRootPane!;
+      expect(leaf.type).toBe("leaf");
+
+      useTerminalStatusStore.getState().markSessionLive("expected-session");
+
+      expect(usePanesStore.getState().canCreateTerminalSession(
+        tab.id,
+        leaf.id,
+        "expected-session",
+      )).toBe(false);
+      expect(usePanesStore.getState().canCreateTerminalSession(
+        tab.id,
+        leaf.id,
+        "expected-session",
+        true,
+      )).toBe(true);
+      expect(usePanesStore.getState().canCreateTerminalSession(
+        tab.id,
+        leaf.id,
+        "different-session",
+        true,
+      )).toBe(false);
     });
   });
 

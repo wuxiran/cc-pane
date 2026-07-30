@@ -193,6 +193,7 @@ describe("terminalService", () => {
         cols: 80,
         rows: 24,
         cliTool: "claude",
+        expectedSavedSessionId: "saved-session-1",
       });
 
       expect(invoke).toHaveBeenCalledWith("create_terminal_session", {
@@ -201,6 +202,7 @@ describe("terminalService", () => {
           cols: 80,
           rows: 24,
           cliTool: "claude",
+          expectedSavedSessionId: "saved-session-1",
         },
       });
       expect(result).toBe("session-1");

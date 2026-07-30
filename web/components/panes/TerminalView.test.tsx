@@ -221,6 +221,15 @@ const writeToSession = vi.mocked(terminalService.write);
 const getReplaySnapshot = vi.mocked(terminalService.getReplaySnapshot);
 const startLaunchHistoryBackfill = vi.mocked(historyService.startLaunchHistoryBackfill);
 const loadOutput = vi.mocked(sessionRestoreService.loadOutput);
+const killSession = vi.mocked(terminalService.killSession);
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 function renderTerminalView(props?: Partial<React.ComponentProps<typeof TerminalView>>) {
   return render(
@@ -399,6 +408,78 @@ describe("TerminalView", () => {
     expect(loadOutput).toHaveBeenCalledWith("saved-1");
     expect(term.writtenLines).toContain("old line 1");
     expect(term.writtenLines).toContain("old line 2");
+  });
+
+  it("kills an in-flight duplicate restore PTY when the leaf is adopted before create returns", async () => {
+    const created = deferred<string>();
+    const onSessionCreated = vi.fn();
+    const canCreateTerminalSession = vi.fn()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
+    usePanesStore.setState({ canCreateTerminalSession } as never);
+    createSession.mockReturnValue(created.promise as never);
+
+    renderTerminalView({
+      restoring: true,
+      savedSessionId: "saved-1",
+      onSessionCreated,
+    });
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+
+    created.resolve("duplicate-session");
+
+    await waitFor(() => expect(killSession).toHaveBeenCalledWith("duplicate-session"));
+    expect(onSessionCreated).not.toHaveBeenCalled();
+    expect(canCreateTerminalSession).toHaveBeenCalledWith("tab-1", "pane-1", "saved-1");
+  });
+
+  it("kills an in-flight duplicate PTY from hidden-layout activation after another restore wins", async () => {
+    const created = deferred<string>();
+    const onSessionCreated = vi.fn();
+    const canCreateTerminalSession = vi.fn()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
+    usePanesStore.setState({ canCreateTerminalSession } as never);
+    createSession.mockReturnValue(created.promise as never);
+
+    const view = renderTerminalView({
+      layoutActive: false,
+      restoring: true,
+      savedSessionId: "saved-1",
+      onSessionCreated,
+    });
+    await waitFor(() => expect(createSession).not.toHaveBeenCalled());
+
+    view.rerender(
+      <TerminalView
+        sessionId={null}
+        projectId="proj-1"
+        projectPath="/tmp/proj"
+        isActive
+        layoutActive
+        paneId="pane-1"
+        tabId="tab-1"
+        restoring
+        savedSessionId="saved-1"
+        onSessionCreated={onSessionCreated}
+      />,
+    );
+    const term = await lastTerm();
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      schedule: ReturnType<typeof vi.fn>;
+    };
+    const activeRefit = scheduler.schedule.mock.calls.find(
+      ([reason]) => reason === "active.refit",
+    )?.[1] as { onAfterLayout?: (terminal: MockXterm) => void } | undefined;
+    act(() => activeRefit?.onAfterLayout?.(term));
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+
+    created.resolve("duplicate-activation-session");
+
+    await waitFor(() => expect(killSession).toHaveBeenCalledWith("duplicate-activation-session"));
+    expect(onSessionCreated).not.toHaveBeenCalled();
+    expect(canCreateTerminalSession).toHaveBeenCalledWith("tab-1", "pane-1", "saved-1");
   });
 
   it("reattaches to a still-live saved session instead of relaunching", async () => {

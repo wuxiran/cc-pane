@@ -13,7 +13,7 @@ pub mod path_validator;
 pub mod project_identity;
 pub mod text_encoding;
 
-pub use app_paths::{AppPaths, APP_DIR_NAME};
+pub use app_paths::{app_config_dir, AppPaths, APP_CONFIG_DIR_ENV, APP_DIR_NAME};
 pub use claude_path::{encode_claude_project_path, is_claude_project_match};
 pub use command::{no_window_command, no_window_tokio_command};
 pub use error::AppResult;

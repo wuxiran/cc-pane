@@ -14,15 +14,20 @@ import {
   runBackgroundLayoutRestore,
 } from "@/hooks/useTerminalSessionRestore";
 
+const settingsStoreMock = vi.hoisted(() => ({
+  settings: { terminal: { autoAdoptDaemonSessions: true } } as {
+    terminal: { autoAdoptDaemonSessions: boolean };
+  } | null,
+  loadSettings: vi.fn(async () => {}),
+}));
+
 vi.mock("@/stores", () => ({
   usePanesStore: { getState: vi.fn() },
   useWorkspacesStore: {
     getState: vi.fn(() => ({ selectedWorkspace: () => null })),
   },
   useSettingsStore: {
-    getState: vi.fn(() => ({
-      settings: { terminal: { autoAdoptDaemonSessions: true } },
-    })),
+    getState: vi.fn(() => settingsStoreMock),
   },
 }));
 
@@ -55,6 +60,29 @@ describe("useStartupTerminalRestoreBarrier", () => {
     vi.useFakeTimers();
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     vi.mocked(waitForDesktopRuntime).mockResolvedValue(true);
+    settingsStoreMock.settings = { terminal: { autoAdoptDaemonSessions: true } };
+    settingsStoreMock.loadSettings.mockResolvedValue();
+  });
+
+  it("loads settings before deciding whether startup adoption is enabled", async () => {
+    settingsStoreMock.settings = null;
+    settingsStoreMock.loadSettings.mockImplementationOnce(async () => {
+      settingsStoreMock.settings = { terminal: { autoAdoptDaemonSessions: true } };
+    });
+
+    const { result, unmount } = renderHook(() => useStartupTerminalRestoreBarrier());
+
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current).toBe(true);
+    expect(settingsStoreMock.loadSettings).toHaveBeenCalledTimes(1);
+    expect(reconcileTerminalSessions).toHaveBeenCalledWith({ autoAdopt: true });
+
+    unmount();
+    vi.useRealTimers();
   });
 
   it("retries blocked adoption once after the default daemon lease expires", async () => {

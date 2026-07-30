@@ -624,6 +624,7 @@ fn restore_snapshot_entry(
             origin_layout_id: None,
             origin_tab_id: None,
             origin_terminal_pane_id: None,
+            expected_saved_session_id: None,
             launch_claude: cli_tool != cc_panes_core::models::CliTool::None,
             cli_tool,
             resume_id: entry.agent_resume_id.clone(),

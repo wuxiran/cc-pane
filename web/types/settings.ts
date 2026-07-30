@@ -1,5 +1,7 @@
 /** 应用设置 */
 export interface AppSettings {
+  /** 配置语义版本；由后端用于一次性默认值迁移。 */
+  settingsVersion: number;
   proxy: ProxySettings;
   theme: ThemeSettings;
   terminal: TerminalSettings;
@@ -127,7 +129,7 @@ export interface TerminalSettings {
   daemonOrphanTtlMinutes: number;
   /** 禁用 daemon 孤儿会话回收（true = 永不回收）。取代旧的"TTL=0 表示永不过期"语义 */
   daemonOrphanReaperDisabled: boolean;
-  /** 启动时自动认领 daemon 无主会话（docs/61 阶段 3）。默认关闭，灰度中 */
+  /** 启动时自动认领 daemon 无主会话（严格身份匹配失败时仍会阻断） */
   autoAdoptDaemonSessions: boolean;
 }
 

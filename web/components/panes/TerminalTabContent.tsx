@@ -1,13 +1,17 @@
-import { memo, useCallback, useState, type ReactNode } from "react";
+import { memo, useCallback, type ReactNode } from "react";
 import { CircleAlert, LockKeyhole, RotateCcw, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab, TerminalLaunchError, TerminalPaneNode } from "@/types";
-import { usePanesStore } from "@/stores";
+import {
+  terminalRestoreLogKey,
+  usePanesStore,
+  useTerminalRestoreLogStore,
+} from "@/stores";
+import type { TerminalRestoreLogEntry } from "@/stores/useTerminalRestoreLogStore";
 import { Button } from "@/components/ui/button";
 import { classifyTerminalLaunchPath, translateError } from "@/utils";
 import SplitView from "./SplitView";
 import TerminalView from "./TerminalView";
-import type { RestoreLaunchState } from "./terminalRestoreQueue";
 import type { TerminalViewHandle } from "./TerminalView";
 import VoiceInputButton from "./VoiceInputButton";
 
@@ -29,6 +33,31 @@ function normalizeSizes(sizes: number[]): number[] {
   const sum = rounded.slice(0, -1).reduce((acc, size) => acc + size, 0);
   rounded[rounded.length - 1] = Math.round((100 - sum) * 10) / 10;
   return rounded;
+}
+
+function RestoreLogSurface({ entries }: { entries: TerminalRestoreLogEntry[] }) {
+  const { t } = useTranslation("panes");
+  return (
+    <div className="flex min-h-0 w-full flex-col overflow-hidden border-t border-[var(--app-border)]">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Terminal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="text-xs font-medium text-foreground">{t("restoreLogTitle")}</span>
+      </div>
+      <div
+        role="log"
+        aria-live="polite"
+        className="max-h-52 overflow-y-auto border-t border-[var(--app-border)] px-3 py-2 font-mono text-[11px] leading-4 text-muted-foreground"
+      >
+        {entries.length > 0
+          ? entries.map((entry) => (
+              <div key={entry.id} className="break-all whitespace-pre-wrap">
+                {entry.message}
+              </div>
+            ))
+          : t("restoreLogPending")}
+      </div>
+    </div>
+  );
 }
 
 function LaunchErrorPanel({
@@ -86,21 +115,8 @@ export default memo(function TerminalTabContent({
   const setTerminalLaunchError = usePanesStore((s) => s.setTerminalLaunchError);
   const retryTerminalLaunch = usePanesStore((s) => s.retryTerminalLaunch);
   const removeTerminalLaunch = usePanesStore((s) => s.removeTerminalLaunch);
+  const restoreLogs = useTerminalRestoreLogStore((s) => s.logs);
   const hasProjectPath = Boolean(tab.projectPath);
-  const [restoreLaunchStates, setRestoreLaunchStates] = useState<Record<string, RestoreLaunchState>>({});
-
-  const updateRestoreLaunchState = useCallback((leafId: string, state: RestoreLaunchState) => {
-    setRestoreLaunchStates((current) => {
-      if (state === "idle") {
-        if (!current[leafId]) return current;
-        const next = { ...current };
-        delete next[leafId];
-        return next;
-      }
-      if (current[leafId] === state) return current;
-      return { ...current, [leafId]: state };
-    });
-  }, []);
 
   const renderNode = useCallback((node: TerminalPaneNode): ReactNode => {
     if (node.type === "leaf") {
@@ -117,18 +133,8 @@ export default memo(function TerminalTabContent({
       const restoreBlocked = !leaf.sessionId && leaf.restoreBlockedReason;
       const showPlaceholder = !leaf.sessionId && !leaf.restoring;
       const showRestorePlaceholder = !leaf.sessionId && !!leaf.restoring;
-      const restoreLaunchState = restoreLaunchStates[leaf.id];
+      const leafRestoreLogs = restoreLogs[terminalRestoreLogKey(tab.id, leaf.id)] ?? [];
       const isLaunching = showPlaceholder && hasProjectPath;
-      const restoreTitle = restoreLaunchState === "queued"
-        ? t("restoreQueued")
-        : restoreLaunchState === "failed"
-          ? t("restoreFailed")
-          : t("restoringTerminal");
-      const restoreHint = restoreLaunchState === "queued"
-        ? t("restoreQueuedHint")
-        : restoreLaunchState === "failed"
-          ? t("restoreFailedHint")
-          : t("restoringTerminalHint");
       return (
         <div
           key={leaf.id}
@@ -137,7 +143,7 @@ export default memo(function TerminalTabContent({
         >
           {restoreBlocked ? (
             <div className="flex h-full w-full items-center justify-center bg-background/95 px-6 py-8">
-              <div className="flex w-full max-w-xl flex-col items-center text-center">
+              <div className="flex w-full max-w-3xl flex-col items-center text-center">
                 <CircleAlert className="mb-4 h-9 w-9 text-[var(--app-status-warning)]" aria-hidden="true" />
                 <h3 className="text-base font-semibold text-foreground">
                   {t("restoreBlockedTitle")}
@@ -145,6 +151,9 @@ export default memo(function TerminalTabContent({
                 <p className="mt-2 max-w-full break-words text-sm leading-6 text-muted-foreground">
                   {t(`restoreBlocked.${restoreBlocked}`)}
                 </p>
+                <div className="mt-5 w-full text-left">
+                  <RestoreLogSurface entries={leafRestoreLogs} />
+                </div>
               </div>
             </div>
           ) : launchError ? (
@@ -184,7 +193,6 @@ export default memo(function TerminalTabContent({
               readOnly={leaf.leaseReadOnly}
               paneId={leaf.id}
               tabId={tab.id}
-              onRestoreLaunchState={(state) => updateRestoreLaunchState(leaf.id, state)}
               onLaunchError={(error) => setTerminalLaunchError(tab.id, leaf.id, error)}
               onSessionCreated={(sessionId) => onSessionCreated(sessionId, leaf.id)}
               onSessionExited={onSessionExited ? (code) => onSessionExited(code, leaf.id) : undefined}
@@ -234,35 +242,18 @@ export default memo(function TerminalTabContent({
           ) : null}
           {!restoreBlocked && !launchError && showRestorePlaceholder ? (
             <div
-              className="pointer-events-none absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"
+              className="absolute left-3 top-3 z-[1] flex w-[calc(100%-1.5rem)] max-w-3xl items-start"
               style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}
             >
               <div
-                className="flex items-center gap-2 rounded-lg px-3 py-2"
+                className="flex w-full min-w-0 flex-col overflow-hidden rounded-lg"
                 style={{
                   background: "var(--app-hover)",
                   border: "1px solid var(--app-border)",
                   boxShadow: "var(--sh-md)",
                 }}
               >
-                <Terminal
-                  className="h-4 w-4 shrink-0"
-                  style={{ color: "var(--app-text-tertiary)" }}
-                />
-                <div className="flex min-w-0 flex-col">
-                  <span
-                    className="text-xs font-medium tracking-wide"
-                    style={{ color: "var(--app-text-primary)" }}
-                  >
-                    {restoreTitle}
-                  </span>
-                  <span
-                    className="text-[11px] leading-4"
-                    style={{ color: "var(--app-text-secondary)" }}
-                  >
-                    {restoreHint}
-                  </span>
-                </div>
+                <RestoreLogSurface entries={leafRestoreLogs} />
               </div>
             </div>
           ) : null}
@@ -312,12 +303,11 @@ export default memo(function TerminalTabContent({
     retryTerminalLaunch,
     setTerminalLaunchError,
     setActiveTerminalPane,
-    restoreLaunchStates,
+    restoreLogs,
     tab.activeTerminalPaneId,
     tab.id,
     tab.projectPath,
     t,
-    updateRestoreLaunchState,
   ]);
 
   if (!tab.terminalRootPane) return null;

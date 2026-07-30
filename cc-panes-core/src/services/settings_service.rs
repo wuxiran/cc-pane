@@ -12,10 +12,7 @@ pub struct SettingsService {
 
 impl SettingsService {
     pub fn new() -> Self {
-        let config_path = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(crate::utils::APP_DIR_NAME)
-            .join("config.toml");
+        let config_path = crate::utils::app_config_dir().join("config.toml");
 
         Self::new_with_config_path(config_path)
     }
@@ -146,6 +143,34 @@ mod tests {
         assert!(!settings.general.onboarding_completed);
         // 不应因读取失败而创建文件
         assert!(!temp_config_path(&dir).exists());
+    }
+
+    #[test]
+    fn legacy_config_promotes_auto_adopt_daemon_sessions_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = temp_config_path(&dir);
+        let mut legacy = AppSettings::default();
+        legacy.terminal.auto_adopt_daemon_sessions = false;
+        legacy.general.language = "en-US".to_string();
+        let content = toml::to_string_pretty(&legacy)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with("settingsVersion = "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, content).unwrap();
+
+        let service = SettingsService::new_with_config_path(path.clone());
+        let migrated = service.get_settings();
+        assert_eq!(migrated.general.language, "en-US");
+        assert!(migrated.terminal.auto_adopt_daemon_sessions);
+
+        let mut explicitly_disabled = migrated;
+        explicitly_disabled.terminal.auto_adopt_daemon_sessions = false;
+        service.update_settings(explicitly_disabled).unwrap();
+
+        let reloaded = SettingsService::new_with_config_path(path).get_settings();
+        assert!(!reloaded.terminal.auto_adopt_daemon_sessions);
     }
 
     #[test]

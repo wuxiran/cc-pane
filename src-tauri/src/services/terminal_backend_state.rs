@@ -30,6 +30,7 @@ pub enum TerminalBackendKind {
 pub struct CreatedTerminalSession {
     pub session_id: String,
     pub backend: Arc<dyn TerminalBackend>,
+    pub reused_existing: bool,
 }
 
 struct RecoveredTerminalDaemon {
@@ -123,10 +124,11 @@ impl TerminalBackendState {
         on_recovered: impl FnOnce(&TerminalDaemonClient),
     ) -> AppResult<CreatedTerminalSession> {
         let initial_backend = self.backend();
-        match initial_backend.create_session(request.clone()) {
-            Ok(session_id) => Ok(CreatedTerminalSession {
-                session_id,
+        match initial_backend.create_session_with_outcome(request.clone()) {
+            Ok(outcome) => Ok(CreatedTerminalSession {
+                session_id: outcome.session_id,
                 backend: initial_backend,
+                reused_existing: outcome.reused_existing,
             }),
             Err(error) if self.kind() != TerminalBackendKind::Daemon => Err(error),
             Err(error) => {
@@ -137,10 +139,11 @@ impl TerminalBackendState {
                 warn!(error = %error, "terminal daemon reconnected; retrying session creation once");
                 self.install_daemon_backend(recovered.client.clone(), recovered.backend.clone());
                 on_recovered(&recovered.client);
-                let session_id = recovered.backend.create_session(request)?;
+                let outcome = recovered.backend.create_session_with_outcome(request)?;
                 Ok(CreatedTerminalSession {
-                    session_id,
+                    session_id: outcome.session_id,
                     backend: recovered.backend,
+                    reused_existing: outcome.reused_existing,
                 })
             }
         }
@@ -374,6 +377,7 @@ mod tests {
             origin_layout_id: None,
             origin_tab_id: None,
             origin_terminal_pane_id: None,
+            expected_saved_session_id: None,
             launch_claude: false,
             cli_tool: CliTool::None,
             resume_id: None,

@@ -167,6 +167,7 @@ mod tests {
             origin_layout_id: None,
             origin_tab_id: None,
             origin_terminal_pane_id: None,
+            expected_saved_session_id: None,
             launch_claude: false,
             cli_tool: CliTool::Claude,
             resume_id: None,

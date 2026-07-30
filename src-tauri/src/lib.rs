@@ -1335,9 +1335,7 @@ pub fn run() {
         let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             // 写入 crash.log
-            let crash_dir = dirs::home_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join(crate::utils::APP_DIR_NAME);
+            let crash_dir = crate::utils::app_config_dir();
             let _ = std::fs::create_dir_all(&crash_dir);
             let crash_log = crash_dir.join("crash.log");
             if let Ok(mut f) = std::fs::OpenOptions::new()

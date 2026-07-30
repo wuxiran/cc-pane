@@ -231,6 +231,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   getDefaults: () => withCCChanSettings({
+    settingsVersion: 1,
     proxy: {
       enabled: false,
       proxyType: "http",
@@ -257,7 +258,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       daemonEnabled: true,
       daemonOrphanTtlMinutes: 1440,
       daemonOrphanReaperDisabled: false,
-    autoAdoptDaemonSessions: false,
+      autoAdoptDaemonSessions: true,
     },
     shortcuts: {
       bindings: {

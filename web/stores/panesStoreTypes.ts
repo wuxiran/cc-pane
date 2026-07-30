@@ -257,7 +257,12 @@ export interface PanesState extends BrowserTabActions {
     reason: TerminalRestoreBlockedReason | undefined,
   ) => void;
   setSessionLeaseReadOnly: (sessionId: string, readOnly: boolean) => void;
-  canCreateTerminalSession: (tabId: string, terminalPaneId: string) => boolean;
+  canCreateTerminalSession: (
+    tabId: string,
+    terminalPaneId: string,
+    expectedSavedSessionId?: string,
+    allowLiveExpectedSession?: boolean,
+  ) => boolean;
   adoptSession: (sessionId: string, meta: AdoptSessionMeta) => string | null;
   attachSessionToAnchor: (anchor: SessionAnchor) => boolean;
   collectReferencedSessionIds: () => Set<string>;

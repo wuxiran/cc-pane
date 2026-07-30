@@ -7,6 +7,23 @@ pub const APP_DIR_NAME: &str = if cfg!(debug_assertions) {
 } else {
     ".cc-panes"
 };
+pub const APP_CONFIG_DIR_ENV: &str = "CCPANES_CONFIG_DIR";
+
+pub fn app_config_dir() -> PathBuf {
+    resolve_app_config_dir(
+        std::env::var_os(APP_CONFIG_DIR_ENV).map(PathBuf::from),
+        dirs::home_dir(),
+    )
+}
+
+fn resolve_app_config_dir(explicit: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
+    explicit
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| {
+            home.unwrap_or_else(|| PathBuf::from("."))
+                .join(APP_DIR_NAME)
+        })
+}
 
 /// 统一路径管理
 ///
@@ -19,9 +36,7 @@ pub struct AppPaths {
 
 impl AppPaths {
     pub fn new(data_dir: Option<String>) -> Self {
-        let config_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(APP_DIR_NAME);
+        let config_dir = app_config_dir();
 
         let data_dir = match data_dir {
             Some(ref dir) if !dir.is_empty() => PathBuf::from(dir),
@@ -304,6 +319,28 @@ fn dir_size(path: &std::path::Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_config_dir_is_used_only_when_absolute() {
+        let home = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\tester")
+        } else {
+            PathBuf::from("/home/tester")
+        };
+        let isolated = if cfg!(windows) {
+            PathBuf::from(r"D:\acceptance\cc-panes")
+        } else {
+            PathBuf::from("/isolated/cc-panes")
+        };
+        assert_eq!(
+            resolve_app_config_dir(Some(isolated.clone()), Some(home.clone())),
+            isolated
+        );
+        assert_eq!(
+            resolve_app_config_dir(Some(PathBuf::from("relative")), Some(home.clone())),
+            home.join(APP_DIR_NAME)
+        );
+    }
     use tempfile::TempDir;
 
     fn make_paths(tmp: &TempDir) -> AppPaths {

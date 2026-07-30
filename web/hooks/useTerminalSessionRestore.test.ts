@@ -267,12 +267,56 @@ describe("reconcileTerminalSessions", () => {
     expect(terminalService.releaseSession).toHaveBeenCalledWith("session-1");
   });
 
-  it("同一完整锚点存在多个活候选时阻断 leaf，不自动选择", async () => {
+  it("同一锚点存在多个活候选时优先选择 savedSessionId 唯一指向的候选", async () => {
     const secondProvenance = {
       ...provenance,
       sessionId: "session-2",
       birthNonce: "birth-2",
     };
+    vi.mocked(terminalService.getAdoptionSnapshot).mockResolvedValue(snapshot({
+      sessions: [
+        { sessionId: "session-1", status: "idle", lastOutputAt: 1, updatedAt: 1 },
+        { sessionId: "session-2", status: "idle", lastOutputAt: 1, updatedAt: 1 },
+      ],
+      provenance: { "session-1": provenance, "session-2": secondProvenance },
+    }) as never);
+    vi.mocked(sessionRestoreService.load).mockResolvedValue([
+      saved,
+      { ...saved, sessionId: "session-2", birthNonce: "birth-2" },
+    ] as never);
+
+    await reconcileTerminalSessions({ autoAdopt: true });
+
+    expect(terminalService.adoptSession).toHaveBeenCalledWith("session-1");
+    expect(attachSessionToAnchor).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "session-1",
+    }));
+    expect(setTerminalRestoreBlocked).not.toHaveBeenCalledWith(
+      "tab-1",
+      "leaf-1",
+      "ambiguous-candidates",
+    );
+  });
+
+  it("同一锚点存在多个活候选且没有唯一 savedSessionId 时仍阻断", async () => {
+    const secondProvenance = {
+      ...provenance,
+      sessionId: "session-2",
+      birthNonce: "birth-2",
+    };
+    const ambiguousEntries = [{
+      ...entries[0],
+      tab: {
+        ...entries[0].tab,
+        terminalRootPane: { ...leaf, savedSessionId: "unrelated-session" },
+      },
+    }];
+    mockPanesState({
+      getRestorableTabs: () => ambiguousEntries,
+      setTerminalRestoreBlocked,
+      setSessionLeaseReadOnly,
+      attachSessionToAnchor,
+    });
     vi.mocked(terminalService.getAdoptionSnapshot).mockResolvedValue(snapshot({
       sessions: [
         { sessionId: "session-1", status: "idle", lastOutputAt: 1, updatedAt: 1 },
@@ -293,6 +337,41 @@ describe("reconcileTerminalSessions", () => {
       "ambiguous-candidates",
     );
     expect(terminalService.adoptSession).not.toHaveBeenCalled();
+  });
+
+  it("跨布局移动后当前锚点与 daemon 出生锚点不同仍可安全挂载", async () => {
+    const movedSaved = {
+      ...saved,
+      layoutId: "layout-current",
+      tabId: "tab-current",
+      terminalPaneId: "leaf-current",
+      paneId: "pane-current",
+    };
+    const movedEntries = [{
+      layoutId: "layout-current",
+      paneId: "pane-current",
+      tab: {
+        ...entries[0].tab,
+        id: "tab-current",
+        terminalRootPane: { ...leaf, id: "leaf-current" },
+      },
+    }];
+    mockPanesState({
+      getRestorableTabs: () => movedEntries,
+      setTerminalRestoreBlocked,
+      setSessionLeaseReadOnly,
+      attachSessionToAnchor,
+    });
+    vi.mocked(sessionRestoreService.load).mockResolvedValue([movedSaved] as never);
+
+    const report = await reconcileTerminalSessions({ autoAdopt: true });
+
+    expect(report.attached).toBe(1);
+    expect(attachSessionToAnchor).toHaveBeenCalledWith(expect.objectContaining({
+      layoutId: "layout-current",
+      tabId: "tab-current",
+      terminalPaneId: "leaf-current",
+    }));
   });
 
   it("daemon 不支持 claim 时 fail-closed 阻断待恢复 leaf", async () => {

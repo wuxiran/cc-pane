@@ -70,6 +70,11 @@ pub struct CreateSessionRequest {
     pub origin_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin_terminal_pane_id: Option<String>,
+    /// Restore-only compare-and-create token. A claim-capable daemon atomically reuses this
+    /// session when it is still live and identity-compatible, otherwise it creates only after
+    /// proving the expected session is gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_saved_session_id: Option<String>,
     #[serde(default)]
     pub launch_claude: bool,
     #[serde(default)]

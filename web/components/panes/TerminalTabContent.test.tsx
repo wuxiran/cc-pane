@@ -1,9 +1,9 @@
 import "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Tab } from "@/types";
-import { usePanesStore } from "@/stores";
+import { usePanesStore, useTerminalRestoreLogStore } from "@/stores";
 import TerminalTabContent from "./TerminalTabContent";
 
 vi.mock("./TerminalView", () => ({
@@ -55,6 +55,8 @@ function renderTerminalTabContent(tab: Tab, options?: { isVisible?: boolean; isA
 }
 
 describe("TerminalTabContent", () => {
+  beforeEach(() => useTerminalRestoreLogStore.getState().reset());
+
   it("shows a persistent launch error with retry and remove actions", () => {
     const retryTerminalLaunch = vi.fn();
     const removeTerminalLaunch = vi.fn();
@@ -114,7 +116,7 @@ describe("TerminalTabContent", () => {
     expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
   });
 
-  it("shows restoring overlay while a visible leaf is restoring", () => {
+  it("shows the restore log while a visible leaf is restoring", () => {
     renderTerminalTabContent(
       createTerminalTab({
         terminalRootPane: {
@@ -126,8 +128,8 @@ describe("TerminalTabContent", () => {
       }),
     );
 
-    expect(screen.getByText("正在恢复会话")).toBeVisible();
-    expect(screen.getByText("正在启动保存的终端会话...")).toBeVisible();
+    expect(screen.getByText("恢复日志")).toBeVisible();
+    expect(screen.getByText("恢复链路初始化中...")).toBeVisible();
     expect(screen.queryByText("准备就绪")).not.toBeInTheDocument();
   });
 
@@ -144,11 +146,15 @@ describe("TerminalTabContent", () => {
       { isVisible: false, isActive: false },
     );
 
-    expect(screen.getByText("正在恢复会话")).toBeVisible();
-    expect(screen.getByText("正在启动保存的终端会话...")).toBeVisible();
+    expect(screen.getByText("恢复日志")).toBeVisible();
+    expect(screen.getByText("恢复链路初始化中...")).toBeVisible();
   });
 
-  it("shows queued restore state reported by the terminal view", () => {
+  it("prints real restore events without the queued restore placeholder", () => {
+    useTerminalRestoreLogStore.getState().append("tab-1", "leaf-1", "queue.queued", {
+      active: 3,
+      pending: 1,
+    });
     renderTerminalTabContent(
       createTerminalTab({
         terminalRootPane: {
@@ -160,10 +166,31 @@ describe("TerminalTabContent", () => {
       }),
     );
 
-    fireEvent.click(screen.getByTestId("terminal-view"));
+    expect(screen.getByRole("log")).toHaveTextContent("[layout-restore] queue.queued");
+    expect(screen.getByRole("log")).toHaveTextContent('"active":3,"pending":1');
+    expect(screen.queryByText("排队恢复中")).not.toBeInTheDocument();
+    expect(screen.queryByText("等待其他终端完成启动...")).not.toBeInTheDocument();
+  });
 
-    expect(screen.getByText("排队恢复中")).toBeVisible();
-    expect(screen.getByText("等待其他终端完成启动...")).toBeVisible();
+  it("shows reconcile logs on a blocked restore surface", () => {
+    useTerminalRestoreLogStore.getState().append("tab-1", "leaf-1", "identity.blocked", {
+      reason: "identity-mismatch",
+    });
+    renderTerminalTabContent(
+      createTerminalTab({
+        terminalRootPane: {
+          type: "leaf",
+          id: "leaf-1",
+          sessionId: null,
+          restoring: true,
+          restoreBlockedReason: "identity-mismatch",
+        },
+      }),
+    );
+
+    expect(screen.getByText("会话恢复已阻断")).toBeVisible();
+    expect(screen.getByRole("log")).toHaveTextContent("identity.blocked");
+    expect(screen.getByRole("log")).toHaveTextContent("identity-mismatch");
   });
 
   it("shows the select-project hint only for an empty terminal tab", () => {

@@ -6,11 +6,15 @@ const MIN_TERMINAL_FONT_SIZE: u16 = 10;
 const MAX_TERMINAL_FONT_SIZE: u16 = 32;
 const DEFAULT_WEB_ACCESS_PORT: u16 = 18080;
 const WEB_PASSWORD_HASH_ITERATIONS: usize = 120_000;
+const SETTINGS_VERSION_AUTO_ADOPT_DEFAULT_ON: u32 = 1;
 
 /// 应用设置
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    /// 配置语义版本。v1 将 daemon 会话自动认领从实验性默认关闭提升为默认开启。
+    #[serde(default)]
+    pub settings_version: u32,
     #[serde(default)]
     pub proxy: ProxySettings,
     #[serde(default)]
@@ -65,6 +69,13 @@ impl Default for LocalHistorySettings {
 
 impl AppSettings {
     pub fn merge_missing_defaults(&mut self) {
+        if self.settings_version < SETTINGS_VERSION_AUTO_ADOPT_DEFAULT_ON {
+            // 旧版本会把实验期开关的 false 写进完整 config.toml。只改字段默认值无法
+            // 覆盖这些已落盘配置，因此在语义版本升级时统一开启一次。升级后用户再
+            // 显式关闭会连同 settingsVersion=1 保存，后续加载不再被迁移覆盖。
+            self.terminal.auto_adopt_daemon_sessions = true;
+            self.settings_version = SETTINGS_VERSION_AUTO_ADOPT_DEFAULT_ON;
+        }
         self.terminal.merge_missing_defaults();
         self.shortcuts.merge_missing_defaults();
         self.voice.merge_missing_defaults();
@@ -432,10 +443,9 @@ pub struct TerminalSettings {
     pub daemon_orphan_reaper_disabled: bool,
     /// 启动时自动认领 daemon 中的无主会话（docs/61 阶段 3）。
     ///
-    /// **默认关闭**：认领错会话意味着 agent 在错误的仓库里继续对话，不可逆，
-    /// 比重建一条新会话严重得多。按评审结论先灰度，覆盖双实例 / 全灭重启 /
-    /// 分屏 leaf / WSL / SSH / worktree 场景后再考虑默认开启。
-    #[serde(default)]
+    /// 默认开启；严格 provenance、daemon generation、birth nonce 与原 leaf 锚点匹配
+    /// 仍保持 fail-closed。设置页保留显式关闭入口。
+    #[serde(default = "default_true")]
     pub auto_adopt_daemon_sessions: bool,
 }
 
@@ -1080,7 +1090,7 @@ impl Default for TerminalSettings {
             daemon_enabled: true,
             daemon_orphan_ttl_minutes: default_daemon_orphan_ttl_minutes(),
             daemon_orphan_reaper_disabled: false,
-            auto_adopt_daemon_sessions: false,
+            auto_adopt_daemon_sessions: true,
         }
     }
 }
@@ -1298,6 +1308,11 @@ mod tests {
             DEFAULT_DAEMON_ORPHAN_TTL_MINUTES
         );
         assert!(!settings.daemon_orphan_reaper_disabled);
+    }
+
+    #[test]
+    fn terminal_settings_enable_auto_adoption_by_default() {
+        assert!(TerminalSettings::default().auto_adopt_daemon_sessions);
     }
 
     #[test]

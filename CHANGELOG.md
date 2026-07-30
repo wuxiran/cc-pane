@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.5 - 2026-07-30
+
+### Fixed
+
+- **Atomic terminal resume handoff.** Restore-time session creation now asks the daemon to atomically adopt the exact saved PTY or create a replacement only after proving the old process is gone. Claim conflicts, missing provenance, and project/runtime/CLI/resume mismatches fail closed; foreground, deferred-layout, and background restore paths also recheck their leaf after creation and remove any duplicate PTY that loses the race.
+- **Moved-terminal recovery.** Immutable daemon birth anchors are no longer confused with the terminal's mutable current layout anchor, so tabs moved across panes or layouts can reattach safely. When a current anchor has multiple live historical candidates, a unique saved session id may select its exact candidate; unresolved ambiguity remains blocked.
+- **Reused-session persistence safety.** Tauri and Web preserve the existing SQLite layout observation when the daemon returns the saved session id. If birth-evidence persistence fails, they release the claim instead of killing the already-running PTY.
+- **Restart recovery enabled after upgrade.** Existing configs receive a one-time settings migration that enables safe daemon-session adoption, while a later explicit opt-out remains respected. Startup now loads persisted settings before deciding whether to reconcile live sessions.
+
+### Changed
+
+- **Restore diagnostics in place.** The opaque queued-restore placeholder has been replaced with the latest 20 per-terminal restore events, including daemon snapshot lookup, identity selection, claim/attach, barrier and queue state, PTY create/cancel, output replay, and failure details.
+
 ## 0.11.4 - 2026-07-29
 
 ### Added

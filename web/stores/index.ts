@@ -18,6 +18,10 @@ export {
   useQuickCommandsStore,
 } from "./useQuickCommandsStore";
 export { useTerminalStatusStore } from "./useTerminalStatusStore";
+export {
+  terminalRestoreLogKey,
+  useTerminalRestoreLogStore,
+} from "./useTerminalRestoreLogStore";
 export { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
 export {
   useLayoutUiStore,

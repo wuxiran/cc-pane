@@ -13,83 +13,12 @@ import type {
   TerminalRestoreBlockedReason,
   TerminalSessionProvenance,
 } from "@/types";
-import { terminalRestoreLaunchQueue } from "@/components/panes/terminalRestoreQueue";
 import { listenIfTauri } from "@/services/runtime";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
-
-// 后台逐步恢复"非当前布局"里还没有活会话的终端 tab。当前布局由其已挂载的 TerminalView 负责恢复，
-// 这里只补其他布局：经限流队列逐个 createSession，再把新会话写成该 leaf 的可重连 savedSession +
-// 标记 live，用户切到该布局时 TerminalView 的 deferred 重恢复会命中并 reattach（不重建、不双开）。
-export async function runBackgroundLayoutRestore(): Promise<void> {
-  const store = usePanesStore.getState();
-  const currentLayoutId = store.currentLayoutId;
-  const targets = store.getRestorableTabs().flatMap(({ tab, layoutId }) => {
-    if (layoutId === currentLayoutId || tab.contentType !== "terminal" || !tab.projectPath) {
-      return [];
-    }
-    return collectTerminalLeaves(tab.terminalRootPane)
-      .filter((leaf) => !leaf.sessionId && !leaf.restoreBlockedReason)
-      .map((leaf) => ({ tab, leaf, layoutId }));
-  });
-  if (targets.length === 0) return;
-  console.info(`[BackgroundRestore] scheduling ${targets.length} leaf/leaves across other layouts`);
-  for (const { tab, leaf, layoutId } of targets) {
-    void terminalRestoreLaunchQueue
-      .run(async () => {
-        // 出队时重检：已被恢复 / 该布局已变成当前(交给前台) → 跳过，避免重复建会话。
-        const live = usePanesStore.getState();
-        const fresh = live.getRestorableTabs().find(
-          (entry) => entry.tab.id === tab.id && entry.layoutId === layoutId,
-        );
-        const freshLeaf = fresh
-          ? collectTerminalLeaves(fresh.tab.terminalRootPane).find((item) => item.id === leaf.id)
-          : undefined;
-        if (
-          !fresh
-          || !freshLeaf
-          || freshLeaf.sessionId
-          || freshLeaf.restoreBlockedReason
-          || fresh.layoutId === live.currentLayoutId
-          || !live.canCreateTerminalSession(tab.id, leaf.id)
-        ) {
-          return null;
-        }
-        const sessionId = await terminalService.createSession({
-          launchId: tab.projectId,
-          projectPath: tab.projectPath,
-          cols: 80,
-          rows: 24,
-          workspaceName: freshLeaf.workspaceName ?? tab.workspaceName,
-          providerId: freshLeaf.providerId ?? tab.providerId,
-          providerSelection: freshLeaf.providerSelection ?? tab.providerSelection,
-          launchProfileId: freshLeaf.launchProfileId ?? tab.launchProfileId,
-          workspacePath: freshLeaf.workspacePath ?? tab.workspacePath,
-          workspaceSnapshotId: freshLeaf.workspaceSnapshotId ?? tab.workspaceSnapshotId,
-          launchClaude: freshLeaf.launchClaude ?? tab.launchClaude,
-          cliTool: freshLeaf.cliTool ?? tab.cliTool,
-          resumeId: freshLeaf.resumeId ?? tab.resumeId,
-          ssh: freshLeaf.ssh ?? tab.ssh,
-          wsl: freshLeaf.wsl ?? tab.wsl,
-          originLayoutId: layoutId,
-          originTabId: tab.id,
-          originTerminalPaneId: leaf.id,
-        });
-        const afterCreate = usePanesStore.getState();
-        if (!afterCreate.canCreateTerminalSession(tab.id, leaf.id)) {
-          await terminalService.killSession(sessionId).catch(() => {});
-          return null;
-        }
-        useTerminalStatusStore.getState().markSessionLive(sessionId);
-        afterCreate.setBackgroundRestoreSession(tab.id, leaf.id, sessionId);
-        return sessionId;
-      })
-      .catch((error) => {
-        console.warn(`[BackgroundRestore] failed for leaf ${tab.id}/${leaf.id}:`, error);
-      });
-  }
-}
+import { writeTerminalRestoreLog as writeRestoreLog } from "@/stores/useTerminalRestoreLogStore";
+export { runBackgroundLayoutRestore } from "./backgroundLayoutRestore";
 
 export async function restoreLiveDaemonSessionsFromBackend(): Promise<number> {
   // 用一次共享刷新预热 useTerminalStatusStore.statusMap：各 TerminalView 的
@@ -180,12 +109,15 @@ function identityMatches(
     || provenance.sessionId !== record.sessionId
   ) return false;
 
+  // The saved anchor is mutable when a tab moves; daemon provenance is immutable birth data.
+  // Both must be complete, but requiring equality would reject legitimate cross-layout moves.
   if (
     !record.layoutId
+    || !record.tabId
     || !record.terminalPaneId
-    || provenance.originLayoutId !== record.layoutId
-    || provenance.originTabId !== record.tabId
-    || provenance.originTerminalPaneId !== record.terminalPaneId
+    || !nonEmpty(provenance.originLayoutId)
+    || !nonEmpty(provenance.originTabId)
+    || !nonEmpty(provenance.originTerminalPaneId)
   ) return false;
 
   if (
@@ -230,13 +162,33 @@ export async function reconcileTerminalSessions(
   options: ReconcileTerminalSessionsOptions,
 ): Promise<AdoptionReport> {
   const report: AdoptionReport = { attached: 0, skipped: 0, blocked: 0 };
+  const leaves = restorableLeaves();
+  for (const leaf of leaves) {
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.begin", {
+      savedSessionId: leaf.leaf.savedSessionId ?? null,
+    });
+  }
   let snapshot: TerminalAdoptionSnapshot;
   try {
     snapshot = await terminalService.getAdoptionSnapshot();
   } catch (error) {
+    for (const leaf of leaves) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     console.warn("[SessionAdopt] adoption snapshot failed:", error);
     report.blocked = blockPendingLeaves("reconciliation-failed");
     return report;
+  }
+
+  for (const leaf of leaves) {
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.end", {
+      sessionCount: snapshot.sessions.length,
+      claimsSupported: snapshot.claimsSupported,
+      complete: snapshot.complete,
+      daemonGeneration: snapshot.daemonGeneration ?? null,
+    });
   }
 
   useTerminalStatusStore.getState().replaceLiveStatuses(snapshot.sessions);
@@ -246,18 +198,36 @@ export async function reconcileTerminalSessions(
     || snapshot.daemonGeneration === undefined
     || !snapshot.ownerInstanceId
   ) {
+    for (const leaf of leaves) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.blocked", {
+        reason: "claims-unsupported",
+      });
+    }
     report.blocked = blockPendingLeaves("claims-unsupported");
     return report;
   }
 
   let saved: SavedSession[];
   try {
+    for (const leaf of leaves) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "saved-observations.begin");
+    }
     saved = await sessionRestoreService.load();
     if (!Array.isArray(saved)) throw new Error("invalid saved session response");
   } catch (error) {
+    for (const leaf of leaves) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "saved-observations.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     console.warn("[SessionAdopt] ownership lookup failed:", error);
     report.blocked = blockPendingLeaves("reconciliation-failed");
     return report;
+  }
+  for (const leaf of leaves) {
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "saved-observations.end", {
+      count: saved.length,
+    });
   }
 
   const liveIds = new Set(
@@ -266,14 +236,21 @@ export async function reconcileTerminalSessions(
       .map((status) => status.sessionId),
   );
 
-  for (const leaf of restorableLeaves()) {
+  for (const leaf of leaves) {
     if (leaf.leaf.sessionId) continue;
     const candidates = saved.filter(
       (record) => liveIds.has(record.sessionId) && anchorMatches(record, leaf),
     );
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "candidate.scan", {
+      count: candidates.length,
+      candidateSessionIds: candidates.map((candidate) => candidate.sessionId),
+    });
 
     if (candidates.length === 0) {
       if (leaf.leaf.savedSessionId && liveIds.has(leaf.leaf.savedSessionId)) {
+        writeRestoreLog(leaf.tabId, leaf.leaf.id, "candidate.blocked", {
+          reason: "missing-provenance",
+        });
         setBlocked(leaf, "missing-provenance");
         report.blocked += 1;
       } else {
@@ -281,32 +258,68 @@ export async function reconcileTerminalSessions(
       }
       continue;
     }
+    let record: SavedSession;
     if (candidates.length > 1) {
-      setBlocked(leaf, "ambiguous-candidates");
-      report.blocked += 1;
-      continue;
+      const savedSessionMatches = candidates.filter(
+        (candidate) => candidate.sessionId === leaf.leaf.savedSessionId,
+      );
+      if (savedSessionMatches.length !== 1) {
+        writeRestoreLog(leaf.tabId, leaf.leaf.id, "candidate.blocked", {
+          reason: "ambiguous-candidates",
+        });
+        setBlocked(leaf, "ambiguous-candidates");
+        report.blocked += 1;
+        continue;
+      }
+      [record] = savedSessionMatches;
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "candidate.selected", {
+        sessionId: record.sessionId,
+        source: "savedSessionId",
+      });
+    } else {
+      [record] = candidates;
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "candidate.selected", {
+        sessionId: record.sessionId,
+        source: "unique-anchor",
+      });
     }
-
-    const record = candidates[0];
     const provenance = snapshot.provenance[record.sessionId];
     if (!provenance) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "identity.blocked", {
+        reason: "missing-provenance",
+        sessionId: record.sessionId,
+      });
       setBlocked(leaf, "missing-provenance");
       report.blocked += 1;
       continue;
     }
     if (!identityMatches(record, provenance, leaf, snapshot)) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "identity.blocked", {
+        reason: "identity-mismatch",
+        sessionId: record.sessionId,
+      });
       setBlocked(leaf, "identity-mismatch");
       report.blocked += 1;
       continue;
     }
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "identity.accepted", {
+      sessionId: record.sessionId,
+    });
 
     const owner = snapshot.claims[record.sessionId];
     if (owner && owner !== snapshot.ownerInstanceId) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "claim.blocked", {
+        reason: "claim-conflict",
+        owner,
+      });
       setBlocked(leaf, "claim-conflict");
       report.blocked += 1;
       continue;
     }
     if (!owner && !options.autoAdopt) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "claim.blocked", {
+        reason: "auto-adopt-disabled",
+      });
       setBlocked(leaf, "auto-adopt-disabled");
       report.blocked += 1;
       continue;
@@ -315,17 +328,35 @@ export async function reconcileTerminalSessions(
     let granted = owner === snapshot.ownerInstanceId;
     if (!granted) {
       try {
+        writeRestoreLog(leaf.tabId, leaf.leaf.id, "claim.begin", {
+          sessionId: record.sessionId,
+        });
         granted = await terminalService.adoptSession(record.sessionId);
       } catch (error) {
+        writeRestoreLog(leaf.tabId, leaf.leaf.id, "claim.failed", {
+          sessionId: record.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         console.warn(`[SessionAdopt] claim failed for ${record.sessionId}:`, error);
       }
     }
     if (!granted) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "claim.blocked", {
+        reason: "claim-conflict",
+        sessionId: record.sessionId,
+      });
       setBlocked(leaf, "claim-conflict");
       report.blocked += 1;
       continue;
     }
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "claim.end", {
+      sessionId: record.sessionId,
+      granted: true,
+    });
 
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "attach.begin", {
+      sessionId: record.sessionId,
+    });
     const attached = usePanesStore.getState().attachSessionToAnchor({
       sessionId: record.sessionId,
       layoutId: record.layoutId,
@@ -334,6 +365,9 @@ export async function reconcileTerminalSessions(
       expectedProjectPath: record.projectPath,
     });
     if (!attached) {
+      writeRestoreLog(leaf.tabId, leaf.leaf.id, "attach.failed", {
+        sessionId: record.sessionId,
+      });
       await terminalService.releaseSession(record.sessionId).catch((error) => {
         console.warn(`[SessionAdopt] failed to release unattached ${record.sessionId}:`, error);
       });
@@ -341,8 +375,15 @@ export async function reconcileTerminalSessions(
       report.blocked += 1;
       continue;
     }
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "attach.end", {
+      sessionId: record.sessionId,
+    });
     usePanesStore.getState().setSessionLeaseReadOnly(record.sessionId, false);
     report.attached += 1;
+  }
+
+  for (const leaf of leaves) {
+    writeRestoreLog(leaf.tabId, leaf.leaf.id, "reconcile.end", { ...report });
   }
 
   void sessionRestoreService.prune(

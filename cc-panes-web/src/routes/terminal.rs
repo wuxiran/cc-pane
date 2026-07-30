@@ -84,6 +84,7 @@ pub struct PartialCreateSessionRequest {
     pub origin_layout_id: Option<String>,
     pub origin_tab_id: Option<String>,
     pub origin_terminal_pane_id: Option<String>,
+    pub expected_saved_session_id: Option<String>,
     #[serde(default)]
     pub launch_claude: bool,
     #[serde(default)]
@@ -168,6 +169,7 @@ pub async fn create_session(
         origin_layout_id: req.core.origin_layout_id,
         origin_tab_id: req.core.origin_tab_id,
         origin_terminal_pane_id: req.core.origin_terminal_pane_id,
+        expected_saved_session_id: req.core.expected_saved_session_id,
         launch_claude: req.core.launch_claude,
         cli_tool: req.core.cli_tool,
         resume_id: req.core.resume_id,
@@ -182,13 +184,15 @@ pub async fn create_session(
     });
 
     let observation_request = core_request.clone();
-    let session_id = state
+    let outcome = state
         .terminal_backend
-        .create_session(core_request)
+        .create_session_with_outcome(core_request)
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to create session");
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
         })?;
+    let session_id = outcome.session_id;
+    let reused_existing = outcome.reused_existing;
 
     if state.terminal_backend.claims_supported() {
         let provenance = state
@@ -202,16 +206,24 @@ pub async fn create_session(
                 )
             })?;
         if let Err(error) = state.session_restore_service.save_provenance(&provenance) {
-            let _ = state.terminal_backend.kill(&session_id);
+            if reused_existing {
+                let _ = state.terminal_backend.release_session(&session_id);
+            } else {
+                let _ = state.terminal_backend.kill(&session_id);
+            }
             return Err((StatusCode::INTERNAL_SERVER_ERROR, error));
         }
-        if let Some(observation) = SavedSession::from_creation(&observation_request, &provenance) {
-            if let Err(error) = state
-                .session_restore_service
-                .save_initial_observation(&observation)
+        if !reused_existing {
+            if let Some(observation) =
+                SavedSession::from_creation(&observation_request, &provenance)
             {
-                let _ = state.terminal_backend.kill(&session_id);
-                return Err((StatusCode::INTERNAL_SERVER_ERROR, error));
+                if let Err(error) = state
+                    .session_restore_service
+                    .save_initial_observation(&observation)
+                {
+                    let _ = state.terminal_backend.kill(&session_id);
+                    return Err((StatusCode::INTERNAL_SERVER_ERROR, error));
+                }
             }
         }
     }
@@ -438,6 +450,7 @@ mod tests {
     #[derive(Default)]
     struct MockTerminalBackend {
         created: Mutex<Vec<CoreCreateSessionRequest>>,
+        created_session_id: Mutex<Option<String>>,
         create_error: Mutex<Option<AppError>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
@@ -450,6 +463,7 @@ mod tests {
         adoption_owner: Mutex<Option<String>>,
         adopted: Mutex<Vec<String>>,
         releases: Mutex<Vec<String>>,
+        provenance: Mutex<Option<cc_panes_core::models::TerminalSessionProvenance>>,
     }
 
     impl TerminalBackend for MockTerminalBackend {
@@ -458,7 +472,12 @@ mod tests {
             if let Some(error) = self.create_error.lock().unwrap().clone() {
                 return Err(error);
             }
-            Ok("created-session".to_string())
+            Ok(self
+                .created_session_id
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| "created-session".to_string()))
         }
 
         fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -548,6 +567,13 @@ mod tests {
 
         fn claims_supported(&self) -> bool {
             self.claims_supported
+        }
+
+        fn session_provenance(
+            &self,
+            _session_id: &str,
+        ) -> AppResult<Option<cc_panes_core::models::TerminalSessionProvenance>> {
+            Ok(self.provenance.lock().unwrap().clone())
         }
 
         fn adoption_snapshot(&self) -> AppResult<TerminalAdoptionSnapshot> {
@@ -727,6 +753,114 @@ mod tests {
         );
         assert!(created[0].skip_mcp);
         assert_eq!(created[0].initial_prompt.as_deref(), Some("inspect"));
+    }
+
+    fn restore_test_provenance() -> cc_panes_core::models::TerminalSessionProvenance {
+        cc_panes_core::models::TerminalSessionProvenance {
+            session_id: "session-1".to_string(),
+            daemon_generation: 42,
+            birth_nonce: "birth-1".to_string(),
+            origin_instance_id: Some("instance-old".to_string()),
+            origin_layout_id: Some("layout-origin".to_string()),
+            origin_tab_id: Some("tab-origin".to_string()),
+            origin_terminal_pane_id: Some("leaf-origin".to_string()),
+            project_path: "/repo".to_string(),
+            runtime_kind: "local".to_string(),
+            cli_tool: "codex".to_string(),
+            resume_id: Some("resume-1".to_string()),
+            created_at_ms: 1,
+        }
+    }
+
+    fn reused_session_request() -> CreateSessionRequest {
+        CreateSessionRequest {
+            core: PartialCreateSessionRequest {
+                project_path: Some("/repo".to_string()),
+                cols: Some(80),
+                rows: Some(24),
+                cli_tool: CliTool::Codex,
+                resume_id: Some("resume-1".to_string()),
+                origin_layout_id: Some("layout-current".to_string()),
+                origin_tab_id: Some("tab-current".to_string()),
+                origin_terminal_pane_id: Some("leaf-current".to_string()),
+                expected_saved_session_id: Some("session-1".to_string()),
+                ..Default::default()
+            },
+            cwd: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn reused_session_keeps_existing_layout_observation() {
+        let provenance = restore_test_provenance();
+        let backend = Arc::new(MockTerminalBackend {
+            created_session_id: Mutex::new(Some("session-1".to_string())),
+            claims_supported: true,
+            provenance: Mutex::new(Some(provenance.clone())),
+            ..Default::default()
+        });
+        let state = test_state(backend.clone());
+        let original_request: CoreCreateSessionRequest = serde_json::from_value(json!({
+            "projectPath": "/repo",
+            "cols": 80,
+            "rows": 24,
+            "cliTool": "codex",
+            "resumeId": "resume-1"
+        }))
+        .expect("original request");
+        let original = SavedSession::from_creation(&original_request, &provenance)
+            .expect("original observation");
+        state
+            .session_restore_service
+            .save_initial_observation(&original)
+            .expect("save original observation");
+
+        let (_, Json(response)) =
+            create_session(State(state.clone()), Json(reused_session_request()))
+                .await
+                .expect("reuse session");
+
+        assert_eq!(response.session_id, "session-1");
+        let saved = state
+            .session_restore_service
+            .load_sessions()
+            .expect("load sessions")
+            .into_iter()
+            .find(|session| session.session_id == "session-1")
+            .expect("saved session");
+        assert_eq!(saved.layout_id.as_deref(), Some("layout-origin"));
+        assert_eq!(saved.tab_id, "tab-origin");
+        assert_eq!(saved.terminal_pane_id.as_deref(), Some("leaf-origin"));
+        assert!(backend.kills.lock().unwrap().is_empty());
+        assert!(backend.releases.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn reused_session_persistence_failure_releases_without_killing_pty() {
+        let backend = Arc::new(MockTerminalBackend {
+            created_session_id: Mutex::new(Some("session-1".to_string())),
+            claims_supported: true,
+            provenance: Mutex::new(Some(restore_test_provenance())),
+            ..Default::default()
+        });
+        let (state, database) = test_state_and_db(backend.clone());
+        database
+            .connection()
+            .expect("database connection")
+            .execute_batch("DROP TABLE terminal_session_provenance")
+            .expect("drop provenance table");
+
+        let error = match create_session(State(state), Json(reused_session_request())).await {
+            Ok(_) => panic!("persistence failure must be returned"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            backend.releases.lock().unwrap().as_slice(),
+            &["session-1".to_string()]
+        );
+        assert!(backend.kills.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -217,6 +217,8 @@ export interface CreateSessionRequest {
   originLayoutId?: string;
   originTabId?: string;
   originTerminalPaneId?: string;
+  /** Restore-only daemon compare-and-create token. */
+  expectedSavedSessionId?: string;
 }
 
 /** 打开终端的选项 */

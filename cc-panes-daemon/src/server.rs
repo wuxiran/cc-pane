@@ -17,6 +17,7 @@ use cc_panes_core::models::{
 };
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
 use cc_panes_core::services::{SessionStatusInfo, TerminalAdoptionSnapshot, TerminalBackend};
+use cc_panes_core::utils::project_paths_equivalent;
 use cc_panes_core::utils::{atomic_file, normalize_session_request_for_current_host};
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
@@ -83,6 +84,7 @@ impl DaemonConfig {
                 desktop_control_clients: AtomicUsize::new(0),
                 session_claims: parking_lot::RwLock::new(HashMap::new()),
                 session_provenance: parking_lot::RwLock::new(HashMap::new()),
+                restore_replacements: parking_lot::RwLock::new(HashMap::new()),
                 session_visibility: RwLock::new(()),
             }),
         }
@@ -260,6 +262,10 @@ impl DaemonConfig {
     pub(crate) fn remove_session_activity(&self, session_id: &str) {
         self.forget_session_claim(session_id);
         self.inner.session_provenance.write().remove(session_id);
+        self.inner
+            .restore_replacements
+            .write()
+            .retain(|expected, replacement| expected != session_id && replacement != session_id);
         self.inner.last_activity.write().remove(session_id);
         self.inner.ws_emitter.cleanup_session(session_id);
     }
@@ -299,6 +305,10 @@ struct DaemonState {
     /// observations so a later app instance can prove that a saved anchor still refers to the
     /// exact live PTY it was created for.
     session_provenance: parking_lot::RwLock<HashMap<String, TerminalSessionProvenance>>,
+    /// Idempotency aliases for restore requests whose original PTY was already gone. The alias
+    /// stays daemon-local and prevents a second app instance from spawning another replacement
+    /// for the same saved session while the first replacement is still live.
+    restore_replacements: parking_lot::RwLock<HashMap<String, String>>,
     /// Creation visibility fence. Every externally observable session operation takes a read
     /// guard; create holds the write guard until provenance and the initial claim are registered.
     session_visibility: RwLock<()>,
@@ -405,6 +415,7 @@ pub struct PartialCreateSessionRequest {
     pub origin_layout_id: Option<String>,
     pub origin_tab_id: Option<String>,
     pub origin_terminal_pane_id: Option<String>,
+    pub expected_saved_session_id: Option<String>,
     #[serde(default)]
     pub launch_claude: bool,
     #[serde(default)]
@@ -431,6 +442,8 @@ pub struct PartialCreateSessionRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CreateSessionResponse {
     pub session_id: String,
+    #[serde(default)]
+    pub reused_existing: bool,
 }
 
 #[derive(Deserialize)]
@@ -587,6 +600,112 @@ async fn shutdown(
     Ok(Json(ShutdownResponse { accepted: true }))
 }
 
+fn normalized_resume_id(value: Option<&str>) -> Option<&str> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "new")
+}
+
+fn request_runtime_kind(request: &CoreCreateSessionRequest) -> &'static str {
+    if request.ssh.is_some() {
+        "ssh"
+    } else if request.wsl.is_some() {
+        "wsl"
+    } else {
+        "local"
+    }
+}
+
+fn restore_identity_matches(
+    request: &CoreCreateSessionRequest,
+    provenance: &TerminalSessionProvenance,
+) -> bool {
+    project_paths_equivalent(&request.project_path, &provenance.project_path)
+        && request_runtime_kind(request) == provenance.runtime_kind
+        && request.effective_cli_tool().as_id() == provenance.cli_tool
+        && normalized_resume_id(request.resume_id.as_deref())
+            == normalized_resume_id(provenance.resume_id.as_deref())
+}
+
+fn reuse_expected_session(
+    config: &DaemonConfig,
+    request: &CoreCreateSessionRequest,
+    owner: Option<&str>,
+) -> Result<Option<String>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(expected_session_id) = request.expected_saved_session_id.as_deref() else {
+        return Ok(None);
+    };
+    let direct_status = config
+        .terminal_backend()
+        .get_session_status(expected_session_id)
+        .map_err(internal_error)?;
+    let session_id = if direct_status.is_some_and(|status| status.status != SessionStatus::Exited) {
+        expected_session_id.to_string()
+    } else {
+        let replacement = config
+            .inner
+            .restore_replacements
+            .read()
+            .get(expected_session_id)
+            .cloned();
+        let Some(replacement) = replacement else {
+            return Ok(None);
+        };
+        let replacement_status = config
+            .terminal_backend()
+            .get_session_status(&replacement)
+            .map_err(internal_error)?;
+        if !replacement_status.is_some_and(|status| status.status != SessionStatus::Exited) {
+            config
+                .inner
+                .restore_replacements
+                .write()
+                .remove(expected_session_id);
+            return Ok(None);
+        }
+        replacement
+    };
+
+    let owner = owner.ok_or_else(|| {
+        json_error(
+            StatusCode::CONFLICT,
+            "RESTORE_OWNER_MISSING",
+            "live expected session requires an instance identity",
+        )
+    })?;
+    let provenance = config
+        .inner
+        .session_provenance
+        .read()
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| {
+            json_error(
+                StatusCode::CONFLICT,
+                "RESTORE_PROVENANCE_MISSING",
+                "live expected session has no immutable provenance",
+            )
+        })?;
+    if !restore_identity_matches(request, &provenance) {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "RESTORE_IDENTITY_MISMATCH",
+            "live expected session does not match the restore request",
+        ));
+    }
+    config
+        .try_claim_session(&session_id, owner, None)
+        .map_err(|existing| {
+            json_error(
+                StatusCode::CONFLICT,
+                "SESSION_CLAIMED",
+                format!("expected session is already claimed by {existing}"),
+            )
+        })?;
+    config.touch_session(&session_id);
+    Ok(Some(session_id))
+}
+
 async fn create_session(
     State(config): State<DaemonConfig>,
     headers: HeaderMap,
@@ -635,6 +754,7 @@ async fn create_session(
         origin_layout_id: req.core.origin_layout_id,
         origin_tab_id: req.core.origin_tab_id,
         origin_terminal_pane_id: req.core.origin_terminal_pane_id,
+        expected_saved_session_id: req.core.expected_saved_session_id,
         launch_claude: req.core.launch_claude,
         cli_tool: req.core.cli_tool,
         resume_id: req.core.resume_id,
@@ -651,6 +771,16 @@ async fn create_session(
     // externally visible unit. The backend may emit a session-created event before returning, but
     // any operation triggered by that event blocks on the matching read guard.
     let _visibility = config.inner.session_visibility.write().await;
+    if let Some(session_id) = reuse_expected_session(&config, &core_request, owner.as_deref())? {
+        return Ok((
+            StatusCode::CREATED,
+            Json(CreateSessionResponse {
+                session_id,
+                reused_existing: true,
+            }),
+        ));
+    }
+    let expected_saved_session_id = core_request.expected_saved_session_id.clone();
     // create_session 里 WSL 冷启动 + 探活 + spawn_pty 是同步阻塞操作，
     // 挪到 blocking 线程池，避免慢请求占死 tokio worker。
     let backend = config.terminal_backend_arc();
@@ -698,9 +828,19 @@ async fn create_session(
             created_at_ms: current_epoch_millis(),
         },
     );
+    if let Some(expected_session_id) = expected_saved_session_id {
+        config
+            .inner
+            .restore_replacements
+            .write()
+            .insert(expected_session_id, session_id.clone());
+    }
     Ok((
         StatusCode::CREATED,
-        Json(CreateSessionResponse { session_id }),
+        Json(CreateSessionResponse {
+            session_id,
+            reused_existing: false,
+        }),
     ))
 }
 
@@ -1409,6 +1549,216 @@ mod tests {
         backend
             .create_session(request)
             .expect("mock session creation");
+    }
+
+    fn expected_session_create_request(
+        expected_session_id: &str,
+        instance_id: &str,
+        project_path: &str,
+    ) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/api/sessions")
+            .header(header::AUTHORIZATION, "Bearer secret")
+            .header(INSTANCE_HEADER, instance_id)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "projectPath": project_path,
+                    "cols": 80,
+                    "rows": 24,
+                    "cliTool": "codex",
+                    "resumeId": "resume-1",
+                    "expectedSavedSessionId": expected_session_id,
+                    "originLayoutId": "layout-current",
+                    "originTabId": "tab-current",
+                    "originTerminalPaneId": "leaf-current"
+                })
+                .to_string(),
+            ))
+            .expect("request")
+    }
+
+    fn install_test_provenance(config: &DaemonConfig, project_path: &str) {
+        config.inner.session_provenance.write().insert(
+            "session-1".to_string(),
+            TerminalSessionProvenance {
+                session_id: "session-1".to_string(),
+                daemon_generation: config.inner.started_at,
+                birth_nonce: "birth-1".to_string(),
+                origin_instance_id: Some("inst-old".to_string()),
+                origin_layout_id: Some("layout-origin".to_string()),
+                origin_tab_id: Some("tab-origin".to_string()),
+                origin_terminal_pane_id: Some("leaf-origin".to_string()),
+                project_path: project_path.to_string(),
+                runtime_kind: "local".to_string(),
+                cli_tool: "codex".to_string(),
+                resume_id: Some("resume-1".to_string()),
+                created_at_ms: 1,
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn create_with_live_expected_session_claims_and_reuses_it_atomically() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        mark_session_live(&backend);
+        let config = test_config("secret", "127.0.0.1:18085", backend.clone());
+        install_test_provenance(&config, "/repo");
+
+        let response = router(config.clone())
+            .oneshot(expected_session_create_request(
+                "session-1",
+                "inst-new",
+                "/repo",
+            ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let response: CreateSessionResponse =
+            serde_json::from_slice(&bytes).expect("create response");
+        assert_eq!(response.session_id, "session-1");
+        assert_eq!(
+            backend.created.lock().unwrap().len(),
+            1,
+            "must not spawn a resume PTY"
+        );
+        assert_eq!(
+            config.session_claim_owner("session-1").as_deref(),
+            Some("inst-new")
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_expected_session_creates_only_one_replacement_across_requests() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18089", backend.clone());
+
+        let first = router(config.clone())
+            .oneshot(expected_session_create_request(
+                "missing-session",
+                "inst-new",
+                "/repo",
+            ))
+            .await
+            .expect("first response");
+        assert_eq!(first.status(), StatusCode::CREATED);
+        let first: CreateSessionResponse = serde_json::from_slice(
+            &to_bytes(first.into_body(), usize::MAX)
+                .await
+                .expect("first body"),
+        )
+        .expect("first create response");
+        assert_eq!(first.session_id, "session-1");
+        assert!(!first.reused_existing);
+
+        let second = router(config.clone())
+            .oneshot(expected_session_create_request(
+                "missing-session",
+                "inst-new",
+                "/repo",
+            ))
+            .await
+            .expect("second response");
+        assert_eq!(second.status(), StatusCode::CREATED);
+        let second: CreateSessionResponse = serde_json::from_slice(
+            &to_bytes(second.into_body(), usize::MAX)
+                .await
+                .expect("second body"),
+        )
+        .expect("second create response");
+        assert_eq!(second.session_id, "session-1");
+        assert!(second.reused_existing);
+        assert_eq!(backend.created.lock().unwrap().len(), 1);
+
+        let conflict = router(config)
+            .oneshot(expected_session_create_request(
+                "missing-session",
+                "inst-other",
+                "/repo",
+            ))
+            .await
+            .expect("conflict response");
+        assert_eq!(conflict.status(), StatusCode::CONFLICT);
+        assert_eq!(backend.created.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn create_with_live_expected_session_fails_closed_on_claim_conflict() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        mark_session_live(&backend);
+        let config = test_config("secret", "127.0.0.1:18086", backend.clone());
+        install_test_provenance(&config, "/repo");
+        config
+            .try_claim_session("session-1", "inst-other", None)
+            .expect("initial claim");
+
+        let response = router(config)
+            .oneshot(expected_session_create_request(
+                "session-1",
+                "inst-new",
+                "/repo",
+            ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            backend.created.lock().unwrap().len(),
+            1,
+            "must not spawn after conflict"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_with_live_expected_session_fails_closed_without_provenance() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        mark_session_live(&backend);
+        let config = test_config("secret", "127.0.0.1:18087", backend.clone());
+
+        let response = router(config)
+            .oneshot(expected_session_create_request(
+                "session-1",
+                "inst-new",
+                "/repo",
+            ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            backend.created.lock().unwrap().len(),
+            1,
+            "must not spawn without evidence"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_with_live_expected_session_fails_closed_on_identity_mismatch() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        mark_session_live(&backend);
+        let config = test_config("secret", "127.0.0.1:18088", backend.clone());
+        install_test_provenance(&config, "/different-repo");
+
+        let response = router(config)
+            .oneshot(expected_session_create_request(
+                "session-1",
+                "inst-new",
+                "/repo",
+            ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            backend.created.lock().unwrap().len(),
+            1,
+            "must not spawn on mismatch"
+        );
     }
 
     // ===== 会话写权限租约（docs/61 阶段 2）=====

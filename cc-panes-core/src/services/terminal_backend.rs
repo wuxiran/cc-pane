@@ -28,6 +28,12 @@ pub struct TerminalAdoptionSnapshot {
     pub provenance: std::collections::HashMap<String, TerminalSessionProvenance>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateSessionOutcome {
+    pub session_id: String,
+    pub reused_existing: bool,
+}
+
 fn current_epoch_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -42,6 +48,17 @@ fn current_epoch_millis() -> u64 {
 /// Tauri IPC command contract.
 pub trait TerminalBackend: Send + Sync {
     fn create_session(&self, request: CreateSessionRequest) -> AppResult<String>;
+    fn create_session_with_outcome(
+        &self,
+        request: CreateSessionRequest,
+    ) -> AppResult<CreateSessionOutcome> {
+        let expected_session_id = request.expected_saved_session_id.clone();
+        let session_id = self.create_session(request)?;
+        Ok(CreateSessionOutcome {
+            reused_existing: expected_session_id.as_deref() == Some(session_id.as_str()),
+            session_id,
+        })
+    }
     fn write(&self, session_id: &str, data: &str) -> AppResult<()>;
     fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()>;
     /// Returns whether the terminal has enabled DEC private mode 2004.
@@ -486,12 +503,21 @@ impl TerminalBackend for InProcessTerminalBackend {
 
 impl TerminalBackend for DaemonTerminalBackend {
     fn create_session(&self, request: CreateSessionRequest) -> AppResult<String> {
-        let session_id = self.client.create_session(request)?;
+        self.create_session_with_outcome(request)
+            .map(|outcome| outcome.session_id)
+    }
+
+    fn create_session_with_outcome(
+        &self,
+        request: CreateSessionRequest,
+    ) -> AppResult<CreateSessionOutcome> {
+        let outcome = self.client.create_session_with_outcome(request)?;
+        let session_id = &outcome.session_id;
         // 创建者即所有者：立刻 claim，之后由续租线程保活。
         // claim 失败不影响会话可用性（daemon 无租约时放行），所以只告警不回滚。
-        match self.client.claim_session(&session_id, None) {
+        match self.client.claim_session(session_id, None) {
             Ok(true) => {
-                self.remember_owned(&session_id);
+                self.remember_owned(session_id);
             }
             Ok(false) => tracing::warn!(
                 session_id = %session_id,
@@ -503,7 +529,7 @@ impl TerminalBackend for DaemonTerminalBackend {
                 "failed to claim newly created session"
             ),
         }
-        Ok(session_id)
+        Ok(outcome)
     }
 
     fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -668,6 +694,7 @@ mod tests {
             origin_layout_id: None,
             origin_tab_id: None,
             origin_terminal_pane_id: None,
+            expected_saved_session_id: None,
             launch_claude: false,
             cli_tool: CliTool::None,
             resume_id: None,
