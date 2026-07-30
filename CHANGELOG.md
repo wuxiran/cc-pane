@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.7 - 2026-07-31
+
+### Fixed
+
+- **Restored sessions come back without their conversation.** Moving the PTY into the terminal daemon silently cut two links that still read from the app's own in-process state, which is always empty in daemon mode. Deterministic resume ids — Claude's issued session id and Codex's OSC title — were emitted inside the daemon and discarded by its event bridge, so no launch recorded a resume id and a restored session had nothing to resume from. Terminal scrollback stopped being written for the same reason, so a session that outlived its daemon restored as a blank pane. Both now cross the daemon boundary, and the daemon persists its own scrollback on session exit and on graceful shutdown using atomic writes, so a crash or a concurrent flush cannot truncate the last good snapshot.
+- **Identity events survive startup and WebView recovery.** The daemon control channel is a broadcast with no replay, so a resume id emitted before the desktop finished connecting was lost permanently — and startup is exactly when session recovery creates sessions in bulk. The daemon now retains the highest-confidence identity event per session and the desktop replays only what it has not already applied. Resume ids are persisted directly rather than travelling as an interface event, so they no longer disappear while the WebView is recovering.
+- **Session side effects reach the desktop again.** The daemon ran without a session notifier, so waiting-for-input inferred from the terminal, exit notifications, last-prompt backfill, and assistant reminders silently stopped for every CLI without a hook. These now cross the daemon boundary and are handled by the same desktop implementation used for local sessions, with duplicate suppression so a hook and the terminal cannot both raise the same notification.
+- **Launch warnings were invisible under the daemon.** Profile fallback and missing Codex resume targets are reported again; the profile-mismatch warning carries no session id and was being discarded before reaching its handler, so an explicitly chosen launch profile could be dropped with no indication at all.
+- **Sessions started through the REST launch endpoint were never recorded.** External clients and the control CLI created sessions with no launch history row, so no resume id could bind to them and they could not be recovered after a restart. The row is now written synchronously, a resume id supplied at launch binds immediately, and a failed write is reported in the response instead of returning success for an unrecoverable session.
+- **New sessions no longer pull you away from the layout you are using.** A launch lands in its bound layout without switching your view; the layout only changes when the caller names one explicitly or you enable following agent launches, and never for silent launches. Workers dispatched by a leader still land beside the leader so hierarchical tab numbering holds.
+- **Empty panes are readable over wallpaper** and degrade gracefully in narrow panes.
+
+### Added
+
+- **Drag and drop across the sidebar and layout bar.** Workspaces can be dragged into groups, and a terminal tab can be dragged straight onto a layout tab to move it there.
+
 ## 0.11.6 - 2026-07-30
 
 ### Fixed
