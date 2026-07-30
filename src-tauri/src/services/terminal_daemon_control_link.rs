@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::Deserialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::watch;
 use tokio_tungstenite::connect_async;
 use tracing::{debug, warn};
@@ -70,6 +70,7 @@ async fn run_control_link(
                 Ok((mut ws, _)) => {
                     debug!(daemon_addr = %client.addr(), "terminal daemon control link connected");
                     backoff = RECONNECT_MIN;
+                    replay_identity_events(&app_handle, &client);
                     loop {
                         let message = tokio::select! {
                             changed = client_rx.changed() => {
@@ -88,12 +89,22 @@ async fn run_control_link(
                             continue;
                         }
                         match parse_control_event(message.to_text().unwrap_or_default()) {
-                            Ok(Some(event)) => {
+                            Ok(Some(ControlAction::Emit(event))) => {
                                 if crate::webview_reliability::webview_emits_allowed() {
                                     if let Err(error) = app_handle.emit(event.name, event.payload) {
                                         warn!(error = %error, "terminal daemon control event emit failed");
                                     }
                                 }
+                            }
+                            Ok(Some(ControlAction::BindResume(payload))) => {
+                                apply_resume_binding(&app_handle, payload);
+                            }
+                            Ok(Some(ControlAction::Notify {
+                                event,
+                                session_id,
+                                exit_code,
+                            })) => {
+                                apply_notifier_event(&app_handle, &event, &session_id, exit_code);
                             }
                             Ok(None) => {}
                             Err(error) => {
@@ -136,6 +147,14 @@ enum DaemonControlMessage {
     /// 启动降级告警（launch profile 回落 / codex resume 目标缺失）。
     /// 降级必须对用户可见，丢掉就等于"设置静默不生效"。
     LaunchWarning { payload: serde_json::Value },
+    /// daemon 侧 PTY 推断出的会话副作用，交给桌面已有的 notifier 执行。
+    Notifier {
+        event: String,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(default, rename = "exitCode")]
+        exit_code: Option<i32>,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -146,26 +165,114 @@ struct ControlEvent {
     payload: serde_json::Value,
 }
 
-fn parse_control_event(text: &str) -> serde_json::Result<Option<ControlEvent>> {
+/// 控制消息的处置方式。
+///
+/// 关键区分：`Emit` 是**给 WebView 看的**，受 `webview_emits_allowed()` 门禁约束
+/// （那道门禁防的是失效 WebView 上的 emit 洪水，不能绕）；而 resume id 是**要落库
+/// 的身份数据**，被门禁吞掉意味着 DB 永久不绑定、该会话此后不可恢复——所以它走
+/// `BindResume`，直接进后端持久化，完全不经过 WebView。
+#[derive(Debug, PartialEq)]
+enum ControlAction {
+    Emit(ControlEvent),
+    BindResume(serde_json::Value),
+    Notify {
+        event: String,
+        session_id: String,
+        exit_code: Option<i32>,
+    },
+}
+
+fn parse_control_event(text: &str) -> serde_json::Result<Option<ControlAction>> {
     let message = serde_json::from_str::<DaemonControlMessage>(text)?;
     Ok(match message {
-        DaemonControlMessage::SessionKilled { session_id, reason } => Some(ControlEvent {
-            name: EV::SESSION_KILLED,
-            payload: serde_json::json!({
-                "sessionId": session_id,
-                "reason": reason.as_deref().unwrap_or("unknown"),
-            }),
-        }),
-        DaemonControlMessage::ResumeIdDetected { payload } => Some(ControlEvent {
-            name: EV::TERMINAL_RESUME_ID_DETECTED,
-            payload,
-        }),
-        DaemonControlMessage::LaunchWarning { payload } => Some(ControlEvent {
-            name: EV::TERMINAL_LAUNCH_WARNING,
-            payload,
+        DaemonControlMessage::SessionKilled { session_id, reason } => {
+            Some(ControlAction::Emit(ControlEvent {
+                name: EV::SESSION_KILLED,
+                payload: serde_json::json!({
+                    "sessionId": session_id,
+                    "reason": reason.as_deref().unwrap_or("unknown"),
+                }),
+            }))
+        }
+        DaemonControlMessage::ResumeIdDetected { payload } => {
+            Some(ControlAction::BindResume(payload))
+        }
+        DaemonControlMessage::LaunchWarning { payload } => {
+            Some(ControlAction::Emit(ControlEvent {
+                name: EV::TERMINAL_LAUNCH_WARNING,
+                payload,
+            }))
+        }
+        DaemonControlMessage::Notifier {
+            event,
+            session_id,
+            exit_code,
+        } => Some(ControlAction::Notify {
+            event,
+            session_id,
+            exit_code,
         }),
         DaemonControlMessage::Unknown => None,
     })
+}
+
+/// 把 resume id 直接落库，不经 WebView 门禁。
+fn apply_resume_binding(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
+    match serde_json::from_value::<crate::services::ResumeIdDetectedPayload>(payload) {
+        Ok(payload) => {
+            let service = app_handle
+                .state::<std::sync::Arc<cc_panes_core::services::LaunchHistoryService>>()
+                .inner()
+                .clone();
+            let handle = app_handle.clone();
+            tauri::async_runtime::spawn(crate::services::bind_resume_id(handle, service, payload));
+        }
+        Err(error) => {
+            warn!(error = %error, "daemon resume id payload did not match expected shape");
+        }
+    }
+}
+
+/// 会话副作用交给桌面自己的 notifier（与本地 PTY 模式同一实现）。
+fn apply_notifier_event(
+    app_handle: &tauri::AppHandle,
+    event: &str,
+    session_id: &str,
+    exit_code: Option<i32>,
+) {
+    let notifier = app_handle
+        .try_state::<std::sync::Arc<dyn cc_panes_core::events::SessionNotifier>>()
+        .map(|state| state.inner().clone());
+    let Some(notifier) = notifier else {
+        debug!("session notifier not registered; skipping daemon notifier event");
+        return;
+    };
+    match event {
+        "waitingInput" => notifier.notify_waiting_input(session_id),
+        "sessionExited" => notifier.notify_session_exited(session_id, exit_code.unwrap_or(-1)),
+        "cleanup" => notifier.cleanup_session(session_id),
+        other => debug!(event = other, "unknown daemon notifier event ignored"),
+    }
+}
+
+/// 连上（含每次重连）后补拉一次 daemon 留存的身份事件。
+///
+/// control 是无重放的广播：本 link 建连之前 daemon emit 的 resume id 已经丢了，
+/// 而 claude 发号紧跟 PTY spawn——app 启动那一两秒正是恢复流程批量建会话的时刻。
+/// 补拉把这个窗口堵死；`bind_resume_id` 本身按来源优先级幂等，重复应用无副作用。
+fn replay_identity_events(app_handle: &tauri::AppHandle, client: &TerminalDaemonClient) {
+    match client.list_identity_events() {
+        Ok(events) if !events.is_empty() => {
+            debug!(count = events.len(), "replaying daemon identity events");
+            for payload in events {
+                apply_resume_binding(app_handle, payload);
+            }
+        }
+        Ok(_) => {}
+        Err(error) => {
+            warn!(error = %error, "failed to replay daemon identity events");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -182,6 +289,9 @@ mod tests {
         .expect("valid control message")
         .expect("known control message");
 
+        let ControlAction::Emit(event) = event else {
+            panic!("sessionKilled must stay a UI emit");
+        };
         assert_eq!(event.name, EV::SESSION_KILLED);
         assert_eq!(
             event.payload,
@@ -203,15 +313,62 @@ mod tests {
         .expect("valid control message")
         .expect("known control message");
 
-        assert_eq!(event.name, EV::TERMINAL_RESUME_ID_DETECTED);
+        // resume id 必须走后端持久绑定，**不能**是受 WebView 门禁约束的 UI emit：
+        // WebView 自愈期门禁为 false，走 emit 就会被吞掉、DB 永久不绑定。
+        let ControlAction::BindResume(payload) = event else {
+            panic!("resume id must bypass the WebView gate via BindResume");
+        };
         assert_eq!(
-            event.payload,
+            payload,
             serde_json::json!({
                 "sessionId": "pty-1",
                 "resumeSessionId": "resume-1",
                 "source": "issued",
                 "cliTool": "claude",
             })
+        );
+        // 载荷必须能反序列化成绑定层的类型——字段名对不上就会整条静默失败。
+        let typed: crate::services::ResumeIdDetectedPayload =
+            serde_json::from_value(payload).expect("payload must match ResumeIdDetectedPayload");
+        assert_eq!(typed.session_id, "pty-1");
+        assert_eq!(typed.resume_session_id, "resume-1");
+        assert_eq!(typed.source, "issued");
+    }
+
+    #[test]
+    fn notifier_control_message_carries_session_and_exit_code() {
+        let action = parse_control_event(
+            r#"{"type":"notifier","event":"sessionExited","sessionId":"pty-9","exitCode":3}"#,
+        )
+        .expect("valid control message")
+        .expect("known control message");
+
+        assert_eq!(
+            action,
+            ControlAction::Notify {
+                event: "sessionExited".to_string(),
+                session_id: "pty-9".to_string(),
+                exit_code: Some(3),
+            }
+        );
+    }
+
+    /// waitingInput / cleanup 不带 exitCode，缺字段必须解析成 None 而不是失败。
+    #[test]
+    fn notifier_control_message_without_exit_code_parses() {
+        let action = parse_control_event(
+            r#"{"type":"notifier","event":"waitingInput","sessionId":"pty-9"}"#,
+        )
+        .expect("valid control message")
+        .expect("known control message");
+
+        assert_eq!(
+            action,
+            ControlAction::Notify {
+                event: "waitingInput".to_string(),
+                session_id: "pty-9".to_string(),
+                exit_code: None,
+            }
         );
     }
 
@@ -223,6 +380,9 @@ mod tests {
         .expect("valid control message")
         .expect("known control message");
 
+        let ControlAction::Emit(event) = event else {
+            panic!("launch warning stays a UI emit");
+        };
         assert_eq!(event.name, EV::TERMINAL_LAUNCH_WARNING);
         assert_eq!(
             event.payload,

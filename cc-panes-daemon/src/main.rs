@@ -1,3 +1,5 @@
+mod control_notifier;
+mod identity_routes;
 mod self_check;
 mod server;
 mod session_output_store;
@@ -10,7 +12,6 @@ use std::sync::Arc;
 
 use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::{
-    events::NoopNotifier,
     services::{
         ExternalSkillRegistry, InProcessTerminalBackend, LaunchProfileService,
         ProjectCliHooksService, ProviderService, SettingsService, SharedMcpService,
@@ -21,6 +22,7 @@ use cc_panes_core::{
 use clap::Parser;
 use tracing::info;
 
+use crate::control_notifier::ControlSessionNotifier;
 use crate::server::{generate_token, write_manifest, DaemonConfig};
 use crate::session_output_store::SessionOutputStore;
 use crate::ws_emitter::WsEmitter;
@@ -318,8 +320,9 @@ fn create_terminal_backend(
     terminal_service.set_workspace_service(workspace_service);
     terminal_service.set_shared_mcp_service(shared_mcp_service);
     terminal_service.set_launch_profile_service(launch_profile_service);
-    terminal_service.set_emitter(ws_emitter);
-    terminal_service.set_notifier(Arc::new(NoopNotifier));
+    terminal_service.set_emitter(ws_emitter.clone());
+    // 不再是 NoopNotifier：会话副作用经 control 通道回到桌面，见 control_notifier。
+    terminal_service.set_notifier(Arc::new(ControlSessionNotifier::new(ws_emitter)));
 
     let output_store = Arc::new(SessionOutputStore::new(&terminal_service, app_paths));
     (

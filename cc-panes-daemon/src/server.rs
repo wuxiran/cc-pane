@@ -241,7 +241,7 @@ impl DaemonConfig {
         self.inner.terminal_backend.clone()
     }
 
-    fn ws_emitter(&self) -> Arc<WsEmitter> {
+    pub(crate) fn ws_emitter(&self) -> Arc<WsEmitter> {
         self.inner.ws_emitter.clone()
     }
 
@@ -540,6 +540,10 @@ pub fn router(config: DaemonConfig) -> Router {
             get(get_adoption_snapshot),
         )
         .route("/api/sessions/claims", get(list_session_claims))
+        .route(
+            "/api/sessions/identity",
+            get(crate::identity_routes::list_identity_events),
+        )
         .route("/api/sessions/{id}/provenance", get(get_session_provenance))
         .route("/api/sessions/{id}/claim", post(claim_session))
         .route("/api/sessions/{id}/claim", delete(release_session_claim))
@@ -1338,7 +1342,7 @@ async fn handle_ws(
     config.ws_emitter().cleanup_session(&send_session_id);
 }
 
-fn authorize(
+pub(crate) fn authorize(
     headers: &HeaderMap,
     token: &str,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {

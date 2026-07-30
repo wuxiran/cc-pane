@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use cc_panes_core::constants::events as EV;
@@ -10,11 +10,28 @@ use tracing::debug;
 
 use crate::session_output_store::SessionOutputStore;
 
+/// 身份事件留存上限。一条会话最多一条，超出按插入顺序淘汰最旧的。
+const MAX_RETAINED_IDENTITY_EVENTS: usize = 1024;
+
+/// 按 session 去重 + 保序的身份事件留存。
+#[derive(Default)]
+struct IdentityEventStore {
+    by_session: HashMap<String, Value>,
+    order: VecDeque<String>,
+}
+
 #[derive(Clone, Default)]
 pub struct WsEmitter {
     subscribers: Arc<RwLock<HashMap<String, Vec<mpsc::UnboundedSender<String>>>>>,
     control_subscribers: Arc<RwLock<Vec<mpsc::UnboundedSender<String>>>>,
     output_store: Arc<RwLock<Option<Arc<SessionOutputStore>>>>,
+    /// 已捕获的 resume id 身份事件，按 session 保留供桌面侧补拉。
+    ///
+    /// control 是**无重放的广播**：没有订阅者时消息直接丢。而 claude 发号紧跟
+    /// PTY spawn，桌面侧 control link 却是异步建连、后端监听器更晚注册——app
+    /// 刚启动那一两秒内建的会话（恢复流程恰好在这时批量建会话）身份事件必丢，
+    /// 且丢了没有第二次机会。留存 + 桌面侧连上后补拉一次，把这个窗口堵死。
+    identity_events: Arc<RwLock<IdentityEventStore>>,
 }
 
 impl WsEmitter {
@@ -37,6 +54,32 @@ impl WsEmitter {
             .push(tx);
         debug!(session_id, "daemon ws subscriber registered");
         rx
+    }
+
+    /// 已留存的身份事件全集，供 `GET /api/sessions/identity` 返回。
+    pub fn identity_snapshot(&self) -> Vec<Value> {
+        let store = self.identity_events.read();
+        store
+            .order
+            .iter()
+            .filter_map(|session_id| store.by_session.get(session_id).cloned())
+            .collect()
+    }
+
+    fn retain_identity_event(&self, session_id: &str, payload: &Value) {
+        let mut store = self.identity_events.write();
+        if store
+            .by_session
+            .insert(session_id.to_string(), payload.clone())
+            .is_none()
+        {
+            store.order.push_back(session_id.to_string());
+        }
+        while store.order.len() > MAX_RETAINED_IDENTITY_EVENTS {
+            if let Some(evicted) = store.order.pop_front() {
+                store.by_session.remove(&evicted);
+            }
+        }
     }
 
     pub fn subscribe_control(&self) -> mpsc::UnboundedReceiver<String> {
@@ -74,6 +117,28 @@ impl WsEmitter {
             subscribers.remove(session_id);
         }
         delivered
+    }
+
+    /// 会话副作用通知（waiting-input 推断 / 自然退出 / 清理）转发到桌面。
+    ///
+    /// daemon 原先挂 `NoopNotifier`，于是 PTY 推断的 waiting-input、退出系统通知、
+    /// last_prompt 回填与 CCChan 提醒在 daemon 模式下**全部不执行**——hook 能覆盖
+    /// 一部分 CLI，无 hook 的纯 PTY 推断路径则完全没有。这类事件低频，走 control。
+    pub(crate) fn publish_notifier_event(
+        &self,
+        event: &str,
+        session_id: &str,
+        exit_code: Option<i32>,
+    ) {
+        self.publish_control(
+            serde_json::json!({
+                "type": "notifier",
+                "event": event,
+                "sessionId": session_id,
+                "exitCode": exit_code,
+            })
+            .to_string(),
+        );
     }
 
     fn persist_session_output(&self, session_id: &str) {
@@ -169,6 +234,7 @@ impl EventEmitter for WsEmitter {
                 }
             }
             EV::TERMINAL_RESUME_ID_DETECTED => {
+                self.retain_identity_event(session_id, &payload);
                 // daemon 模式下 PTY 活在本进程，claude 发号与 codex OSC 捕获都在这里
                 // emit。桌面侧的 bind_resume_id 监听的是同名 Tauri 事件，收不到就
                 // 意味着 launch_history.resume_session_id 永远为 null、恢复时无从
@@ -278,6 +344,85 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&message).expect("control json"),
             serde_json::json!({ "type": "launchWarning", "payload": payload })
+        );
+    }
+
+    /// control 无订阅者时消息直接丢——身份事件必须另有留存，否则 app 启动窗口期
+    /// 建的会话（恢复流程恰在此时批量建会话）永远拿不到 resume id。
+    #[test]
+    fn identity_events_are_retained_even_without_subscribers() {
+        let emitter = WsEmitter::new();
+        let payload = serde_json::json!({
+            "sessionId": "session-1",
+            "resumeSessionId": "resume-1",
+            "source": "issued",
+        });
+        emitter
+            .emit(EV::TERMINAL_RESUME_ID_DETECTED, payload.clone())
+            .expect("resume emit");
+
+        assert_eq!(emitter.identity_snapshot(), vec![payload]);
+    }
+
+    #[test]
+    fn identity_events_keep_one_entry_per_session() {
+        let emitter = WsEmitter::new();
+        for resume in ["resume-1", "resume-2"] {
+            emitter
+                .emit(
+                    EV::TERMINAL_RESUME_ID_DETECTED,
+                    serde_json::json!({
+                        "sessionId": "session-1",
+                        "resumeSessionId": resume,
+                        "source": "issued",
+                    }),
+                )
+                .expect("resume emit");
+        }
+
+        let snapshot = emitter.identity_snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0]["resumeSessionId"], "resume-2");
+    }
+
+    #[test]
+    fn identity_events_are_bounded() {
+        let emitter = WsEmitter::new();
+        for index in 0..(MAX_RETAINED_IDENTITY_EVENTS + 10) {
+            emitter
+                .emit(
+                    EV::TERMINAL_RESUME_ID_DETECTED,
+                    serde_json::json!({
+                        "sessionId": format!("session-{index}"),
+                        "resumeSessionId": "resume",
+                        "source": "issued",
+                    }),
+                )
+                .expect("resume emit");
+        }
+
+        let snapshot = emitter.identity_snapshot();
+        assert_eq!(snapshot.len(), MAX_RETAINED_IDENTITY_EVENTS);
+        // 淘汰最旧的：最早那批不该还在。
+        assert_eq!(snapshot[0]["sessionId"], "session-10");
+    }
+
+    #[test]
+    fn notifier_events_go_to_control_channel() {
+        let emitter = WsEmitter::new();
+        let mut control = emitter.subscribe_control();
+
+        emitter.publish_notifier_event("sessionExited", "session-1", Some(2));
+
+        let message = control.try_recv().expect("control message");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&message).expect("control json"),
+            serde_json::json!({
+                "type": "notifier",
+                "event": "sessionExited",
+                "sessionId": "session-1",
+                "exitCode": 2,
+            })
         );
     }
 

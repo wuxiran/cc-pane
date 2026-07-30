@@ -1922,10 +1922,14 @@ pub fn run() {
                         launch_history_svc.inner().clone(),
                         history_watch_manager,
                     ));
-                term_svc.set_notifier(Arc::new(CcChanSessionNotifier::new(
-                    base_notifier,
-                    ccchan_svc.inner().clone(),
-                )));
+                let session_notifier: Arc<dyn cc_panes_core::events::SessionNotifier> = Arc::new(
+                    CcChanSessionNotifier::new(base_notifier, ccchan_svc.inner().clone()),
+                );
+                term_svc.set_notifier(session_notifier.clone());
+                // daemon 模式下 PTY 在 daemon 进程，上面这个 notifier 永远不会被本地
+                // TerminalService 调到。托管进 state，让 control link 收到 daemon 转发的
+                // 副作用事件时复用同一实现（行为与本地 PTY 模式一致）。
+                app.manage(session_notifier);
 
                 if ccchan_svc.settings().window_visible {
                     if let Err(error) = ccchan_svc.show_window(&app_handle) {

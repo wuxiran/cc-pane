@@ -340,6 +340,28 @@ impl TerminalDaemonClient {
         serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))
     }
 
+    /// 已捕获的 resume id 身份事件全集，用于补拉 control 通道漏投的部分。
+    ///
+    /// 端点是后加的：旧 daemon 上必然 404/405，按既有分级原则降级成空列表
+    /// （补拉本就是尽力而为的兜底，缺了只是回到没有兜底的状态）。
+    pub fn list_identity_events(&self) -> AppResult<Vec<serde_json::Value>> {
+        let response = self.request("GET", "/api/sessions/identity", true, None)?;
+        let (status, body) = split_http_response(&response)?;
+        if status == 404 || status == 405 {
+            return Ok(Vec::new());
+        }
+        if !(200..300).contains(&status) {
+            return Err(daemon_http_error(status, body));
+        }
+        let parsed: serde_json::Value =
+            serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))?;
+        Ok(parsed
+            .get("events")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default())
+    }
+
     /// 认领快照。
     ///
     /// daemon 是跨 app 重启存活的锚点：升级 app 后**旧 daemon 仍在跑**，
