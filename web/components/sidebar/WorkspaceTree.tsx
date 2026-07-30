@@ -27,14 +27,15 @@ import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores/useDialogStore";
 import { useLayoutUiStore } from "@/stores/useLayoutUiStore";
 import { filterWorkspaces, UNGROUPED_WORKSPACE_FILTER } from "@/stores/useWorkspacesStore";
-import { getReorderedWorkspaceNames, partitionWorkspaces } from "./workspaceDnd";
+import { partitionWorkspaces } from "./workspaceDnd";
+import { useWorkspaceDragDrop } from "./useWorkspaceDragDrop";
 import { isTauriRuntime } from "@/services/runtime";
 import WorktreeManager from "@/components/WorktreeManager";
 import { useWorkspaceActions } from "./useWorkspaceActions";
 import WorkspaceDialogs from "./WorkspaceDialogs";
 import WorkspaceItem from "./WorkspaceItem";
 import WorkspaceFilterBar from "./WorkspaceFilterBar";
-import WorkspaceGroupHeader from "./WorkspaceGroupHeader";
+import WorkspaceGroupDropZone from "./WorkspaceGroupDropZone";
 import ProjectListView from "./ProjectListView";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
 
@@ -110,7 +111,6 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
   const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
   const updateWorkspacePath = useWorkspacesStore((s) => s.updateWorkspacePath);
-  const reorderWorkspaces = useWorkspacesStore((s) => s.reorder);
   const collapsedWorkspaceGroups = useLayoutUiStore((s) => s.collapsedWorkspaceGroups);
   const toggleWorkspaceGroup = useLayoutUiStore((s) => s.toggleWorkspaceGroup);
   const openWorkspaceEnvironment = useDialogStore((s) => s.openWorkspaceEnvironment);
@@ -172,6 +172,9 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
     useSensor(KeyboardSensor),
   );
 
+  const { draggingId, handleDragStart, handleDragEnd, handleDragCancel } = useWorkspaceDragDrop();
+  const dragging = draggingId !== null;
+
   // 工作空间路径管理
   const handleSetWorkspacePath = useCallback(async (ws: Workspace) => {
     try {
@@ -195,22 +198,6 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
       toast.error(t("clearPathFailed", { error: e }));
     }
   }, [t, updateWorkspacePath]);
-
-  const handleDragEnd = useCallback(async ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) return;
-    const orderedNames = getReorderedWorkspaceNames(
-      useWorkspacesStore.getState().workspaces,
-      String(active.id),
-      String(over.id),
-    );
-    if (!orderedNames) return;
-
-    try {
-      await reorderWorkspaces(orderedNames);
-    } catch (e) {
-      toast.error(t("reorderFailed", { error: e }));
-    }
-  }, [reorderWorkspaces, t]);
 
   const renderWorkspace = (ws: Workspace) => (
     <SortableWorkspaceItem
@@ -314,7 +301,9 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
       {filterOpen ? <WorkspaceFilterBar /> : null}
       <DndContext
         collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
         onDragEnd={(event: DragEndEvent) => void handleDragEnd(event)}
+        onDragCancel={handleDragCancel}
         sensors={sensors}
       >
         <SortableContext
@@ -336,24 +325,30 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
               const groupCollapsed = collapsedWorkspaceGroups.includes(group);
               return (
                 <Fragment key={group}>
-                  <WorkspaceGroupHeader
+                  <WorkspaceGroupDropZone
                     group={group}
+                    groupKey={group}
                     count={members.length}
                     collapsed={groupCollapsed}
                     onToggle={() => toggleWorkspaceGroup(group)}
+                    dragging={dragging}
                   />
                   {!groupCollapsed ? renderGroupMembers(members) : null}
                 </Fragment>
               );
             })}
-            {/* 存在分组时，未分组项必须有自己的头——否则视觉上会被吸进上一个分组 */}
-            {partition.groups.length > 0 && partition.ungrouped.length > 0 ? (
+            {/* 存在分组时，未分组项必须有自己的头——否则视觉上会被吸进上一个分组。
+                拖拽中即使未分组段为空也要渲染头，否则「把某组最后一个成员拖回
+                未分组」没有落点。 */}
+            {partition.groups.length > 0 && (partition.ungrouped.length > 0 || dragging) ? (
               <>
-                <WorkspaceGroupHeader
+                <WorkspaceGroupDropZone
                   group={t("ungrouped")}
+                  groupKey={UNGROUPED_WORKSPACE_FILTER}
                   count={partition.ungrouped.length}
                   collapsed={ungroupedCollapsed}
                   onToggle={() => toggleWorkspaceGroup(UNGROUPED_WORKSPACE_FILTER)}
+                  dragging={dragging}
                 />
                 {!ungroupedCollapsed ? renderGroupMembers(partition.ungrouped) : null}
               </>
