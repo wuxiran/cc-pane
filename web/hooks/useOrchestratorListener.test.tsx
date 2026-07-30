@@ -231,6 +231,69 @@ describe("useOrchestratorListener layout placement", () => {
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-bound");
   });
 
+  // 回归：自动路由是「当前布局绑着别的工作空间」这一狭窄前提下的落点推导，
+  // 它不能凌驾于 silent 之上——silent 的契约是完全不打扰，连这种路由也不许切画面。
+  it("launch-task placement=silent 时即使当前布局绑了其他工作空间也只落位不切布局", async () => {
+    seedBoundLayout("ws-a");
+    usePanesStore.setState((state) => ({
+      layouts: state.layouts.map((layout) =>
+        layout.id === "layout-1" ? { ...layout, workspaceName: "ws-other" } : layout,
+      ),
+    }));
+
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-route-silent",
+          sessionId: "session-route-silent",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          workspaceName: "ws-a",
+          cliTool: "codex",
+          placement: "silent",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    // 画面留在原处
+    expect(state.currentLayoutId).toBe("layout-1");
+    // 但会话仍然落进绑定布局，而不是塞到用户眼前这个别的工作空间的布局里
+    expect(state.findTabBySessionAcrossLayouts("session-route-silent")?.layoutId).toBe(
+      "layout-bound",
+    );
+  });
+
+  // 回归：当前布局未绑定时 resolver 返回当前布局，不得置位自动路由意图，
+  // 否则会退回「每次启动都跳布局」的老毛病。
+  it("launch-task 当前布局未绑定时既不切布局也落在当前布局", async () => {
+    seedBoundLayout("ws-a");
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-stay-2",
+          sessionId: "session-stay-2",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          workspaceName: "ws-a",
+          cliTool: "codex",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    expect(state.currentLayoutId).toBe("layout-1");
+    expect(state.findTabBySessionAcrossLayouts("session-stay-2")?.layoutId).toBe("layout-1");
+  });
+
   it("launch-task 有父会话时不受 workspace 路由影响(leader/worker 同布局)", async () => {
     seedBoundLayout("ws-a");
     const panes = usePanesStore.getState();
