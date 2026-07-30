@@ -69,3 +69,26 @@ export function findLayoutForWorkspace(
   }
   return best?.layout ?? null;
 }
+
+/**
+ * 解析普通用户启动动作的目标布局。当前普通布局未绑定或已匹配目标工作空间时，
+ * 当前选择优先；只有绑定冲突或当前是星标布局时才自动查找其他匹配布局。
+ */
+export function resolveWorkspaceLaunchLayout(
+  layouts: LayoutEntry[],
+  currentLayoutId: string,
+  workspaceName: string,
+): LayoutEntry | null {
+  const target = workspaceName.trim();
+  if (!target) return null;
+
+  const current = layouts.find(
+    (layout) => layout.id === currentLayoutId && layout.kind !== "starred",
+  );
+  if (!current) return findLayoutForWorkspace(layouts, target);
+
+  const currentBinding = getLayoutWorkspaceBinding(current);
+  if (!currentBinding || currentBinding.workspaceName === target) return current;
+
+  return findLayoutForWorkspace(layouts, target) ?? current;
+}

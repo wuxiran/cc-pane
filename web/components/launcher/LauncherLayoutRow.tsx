@@ -1,8 +1,8 @@
-// 目标布局：默认「自动」= findLayoutForWorkspace 按工作空间绑定推导；可显式指定布局。
+// 目标布局：默认「自动」遵循当前布局优先规则；也可显式指定布局。
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { usePanesStore } from "@/stores";
-import { findLayoutForWorkspace } from "@/utils/layoutWorkspace";
+import { resolveWorkspaceLaunchLayout } from "@/utils/layoutWorkspace";
 
 interface LauncherLayoutRowProps {
   value?: string;
@@ -31,7 +31,9 @@ export default function LauncherLayoutRow({ value, onChange, workspaceName }: La
       )),
     [layoutEntries, currentLayoutId, rootPane, activePaneId],
   );
-  const autoHit = workspaceName ? findLayoutForWorkspace(layouts, workspaceName) : null;
+  const autoHit = workspaceName
+    ? resolveWorkspaceLaunchLayout(layouts, currentLayoutId, workspaceName)
+    : null;
 
   return (
     <div className="flex items-center gap-2">

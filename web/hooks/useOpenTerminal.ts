@@ -1,10 +1,10 @@
-// 打开终端 + pendingLaunch 消费（从 App.tsx 原样搬出，勿在此做行为改动）。
+// 打开终端 + pendingLaunch 消费，统一处理布局落位、启动历史与 Local History 快照。
 // 含启动历史记录（resume 时 touch 已有记录、否则新建）与 Local History 自动快照。
 import { useCallback, useEffect } from "react";
 import { usePanesStore, useDialogStore, useSettingsStore } from "@/stores";
 import { historyService, localHistoryService } from "@/services";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
-import { findLayoutForWorkspace } from "@/utils/layoutWorkspace";
+import { resolveWorkspaceLaunchLayout } from "@/utils/layoutWorkspace";
 import { classifyTerminalLaunchPath, translateError } from "@/utils";
 import { toast } from "sonner";
 import type { LaunchExtras, OpenTerminalOptions } from "@/types";
@@ -45,11 +45,15 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
       const workspaceSnapshotId = opts.workspaceSnapshotId ?? `ws-snapshot-${crypto.randomUUID()}`;
-      // 落位布局：显式 targetLayoutId 优先；否则按 workspaceName 找绑定布局（manual > derived）
+      // 显式目标优先。当前普通布局未绑定时，用户刚新建/选中它就是更强的落位意图；
+      // 已绑定到其他工作空间（或当前为星标）时，才按 workspaceName 自动路由。
       let targetLayoutId = opts.targetLayoutId;
       if (!targetLayoutId && workspaceName) {
-        targetLayoutId = findLayoutForWorkspace(
-          usePanesStore.getState().listLayouts(),
+        const panes = usePanesStore.getState();
+        const layouts = panes.listLayouts();
+        targetLayoutId = resolveWorkspaceLaunchLayout(
+          layouts,
+          panes.currentLayoutId,
           workspaceName,
         )?.id;
       }

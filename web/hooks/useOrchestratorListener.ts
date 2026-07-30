@@ -24,7 +24,7 @@ import {
 import { isTauriRuntime } from "@/services/runtime";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 import { collectPanels } from "@/stores/paneTreeHelpers";
-import { findLayoutForWorkspace } from "@/utils/layoutWorkspace";
+import { resolveWorkspaceLaunchLayout } from "@/utils/layoutWorkspace";
 
 import type { CliTool, LaunchProviderSelection, SshConnectionInfo, WslLaunchInfo } from "@/types";
 
@@ -158,14 +158,26 @@ export function useOrchestratorListener() {
             }
           }
 
-          // 无显式布局且无调用者 pane 命中时，按 workspaceName 找绑定布局落位
+          // 无显式布局且无调用者 pane 命中时，按 workspaceName 落位。
+          //
+          // 优先级链是「显式 layoutId/layoutName > 父会话所在 pane > 本分支」，
+          // 顺序不能动：leader 派 worker 时 parentSessionId 由 orchestrator 从
+          // caller_launch_id 反查得出、几乎必然命中，worker 必须落在 leader 所在
+          // 布局——这是 computeTabNumbers 层级编号 #N.M 的前提（见上方注释）。
+          // 把「当前布局」提到父会话之前会直接打断编号与 leader/worker 并排可见。
+          //
+          // 因此本分支实际只对「无父会话的外部/headless 调用」生效。这种场景下
+          // 「当前布局」就是用户此刻正看着的画面，故用 resolveWorkspaceLaunchLayout：
+          // 当前布局未绑定就不抢跳（比无条件跳到 lastActiveAt 最近的绑定布局更不
+          // 侵入），仅在当前布局绑了别的工作空间/是星标时才自动路由。
           if (!hasExplicitLayout && !parentPaneId && workspaceName?.trim()) {
-            const boundLayout = findLayoutForWorkspace(
+            const targetLayout = resolveWorkspaceLaunchLayout(
               latestPanesStore.listLayouts(),
+              latestPanesStore.currentLayoutId,
               workspaceName,
             );
-            if (boundLayout && boundLayout.id !== latestPanesStore.currentLayoutId) {
-              latestPanesStore.switchLayout(boundLayout.id);
+            if (targetLayout && targetLayout.id !== latestPanesStore.currentLayoutId) {
+              latestPanesStore.switchLayout(targetLayout.id);
               latestPanesStore = usePanesStore.getState();
               activePane = latestPanesStore.activePane();
             }

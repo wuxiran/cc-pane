@@ -158,6 +158,114 @@ describe("useOrchestratorListener layout placement", () => {
     expect(state.activePaneId).toBe(childPanel!.id);
   });
 
+  // 落位规则（resolveWorkspaceLaunchLayout）：无父会话的外部/headless 调用才走
+  // workspaceName 路由；当前布局未绑定时留在原地，绑了别的工作空间才自动跳。
+  function seedBoundLayout(workspaceName: string) {
+    const state = usePanesStore.getState();
+    const otherPane = createPanel();
+    usePanesStore.setState({
+      layouts: [
+        ...state.layouts,
+        {
+          id: "layout-bound",
+          name: "已绑定布局",
+          rootPane: otherPane,
+          activePaneId: otherPane.id,
+          workspaceName,
+          lastActiveAt: Date.now(),
+        },
+      ],
+    });
+  }
+
+  it("launch-task 无父会话且当前布局未绑定时留在当前布局(不跳回上次布局)", async () => {
+    seedBoundLayout("ws-a");
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-stay",
+          sessionId: "session-stay",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          workspaceName: "ws-a",
+          cliTool: "codex",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    expect(state.currentLayoutId).toBe("layout-1");
+    const panels = collectPanels(state.rootPane);
+    expect(panels.some((p) => p.tabs.some((t) => t.sessionId === "session-stay"))).toBe(true);
+  });
+
+  it("launch-task 无父会话且当前布局绑了其他工作空间时仍自动路由", async () => {
+    seedBoundLayout("ws-a");
+    usePanesStore.setState((state) => ({
+      layouts: state.layouts.map((layout) =>
+        layout.id === "layout-1" ? { ...layout, workspaceName: "ws-other" } : layout,
+      ),
+    }));
+
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-route",
+          sessionId: "session-route",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          workspaceName: "ws-a",
+          cliTool: "codex",
+        },
+      });
+    });
+
+    expect(usePanesStore.getState().currentLayoutId).toBe("layout-bound");
+  });
+
+  it("launch-task 有父会话时不受 workspace 路由影响(leader/worker 同布局)", async () => {
+    seedBoundLayout("ws-a");
+    const panes = usePanesStore.getState();
+    panes.addTab(panes.rootPane.id, {
+      projectId: "project-a",
+      projectPath: "/tmp/project-a",
+      sessionId: "leader-1",
+      cliTool: "claude",
+    });
+
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-worker",
+          sessionId: "worker-1",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          workspaceName: "ws-a",
+          cliTool: "codex",
+          parentSessionId: "leader-1",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    // 父会话在 layout-1，即使 ws-a 绑定到 layout-bound 也不能跳走，否则 #N.M 编号失效。
+    expect(state.currentLayoutId).toBe("layout-1");
+    const panels = collectPanels(state.rootPane);
+    expect(panels.some((p) => p.tabs.some((t) => t.sessionId === "worker-1"))).toBe(true);
+  });
+
   it("launch-task placement=tab 时塞进调用者 pane 的标签页(不分屏)", async () => {
     const panes = usePanesStore.getState();
     panes.addTab(panes.rootPane.id, {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { findLayoutForWorkspace, getLayoutWorkspaceBinding } from "./layoutWorkspace";
+import {
+  findLayoutForWorkspace,
+  getLayoutWorkspaceBinding,
+  resolveWorkspaceLaunchLayout,
+} from "./layoutWorkspace";
 import type { LayoutEntry, Panel, PaneNode, Tab } from "@/types";
 
 let seq = 0;
@@ -116,5 +120,54 @@ describe("findLayoutForWorkspace", () => {
 
     expect(findLayoutForWorkspace([starred, other], "ws-a")).toBeNull();
     expect(findLayoutForWorkspace([other], "  ")).toBeNull();
+  });
+});
+
+describe("resolveWorkspaceLaunchLayout", () => {
+  it("当前普通布局未绑定时优先留在当前布局", () => {
+    const previous = layout(panel([tab()]), { workspaceName: "ws-a" });
+    const current = layout(panel([tab()]), { id: "layout-current" });
+
+    expect(resolveWorkspaceLaunchLayout([previous, current], current.id, "ws-a")).toBe(current);
+  });
+
+  it("当前布局已匹配目标工作空间时保持当前布局", () => {
+    const previous = layout(panel([tab()]), { workspaceName: "ws-a", lastActiveAt: 300 });
+    const current = layout(panel([tab()]), {
+      id: "layout-current",
+      workspaceName: "ws-a",
+      lastActiveAt: 100,
+    });
+
+    expect(resolveWorkspaceLaunchLayout([previous, current], current.id, "ws-a")).toBe(current);
+  });
+
+  it("当前布局绑定到其他工作空间时路由到匹配布局", () => {
+    const target = layout(panel([tab()]), { workspaceName: "ws-a" });
+    const current = layout(panel([tab()]), {
+      id: "layout-current",
+      workspaceName: "ws-b",
+    });
+
+    expect(resolveWorkspaceLaunchLayout([target, current], current.id, "ws-a")).toBe(target);
+  });
+
+  it("当前为星标布局时仍自动路由到匹配的普通布局", () => {
+    const target = layout(panel([tab()]), { workspaceName: "ws-a" });
+    const starred = layout(panel([tab()]), {
+      id: "layout-starred",
+      kind: "starred",
+    });
+
+    expect(resolveWorkspaceLaunchLayout([target, starred], starred.id, "ws-a")).toBe(target);
+  });
+
+  it("当前布局绑定冲突且没有匹配布局时留在当前布局", () => {
+    const current = layout(panel([tab()]), {
+      id: "layout-current",
+      workspaceName: "ws-b",
+    });
+
+    expect(resolveWorkspaceLaunchLayout([current], current.id, "ws-a")).toBe(current);
   });
 });
