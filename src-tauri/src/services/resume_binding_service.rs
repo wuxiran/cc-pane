@@ -53,21 +53,9 @@ fn expected_cli_for_uuid(resume_session_id: &str) -> Option<&'static str> {
     }
 }
 
-fn source_priority(source: &str) -> u8 {
-    match source {
-        "manual" => 40,
-        "issued" | "osc-title" => 30,
-        "rollout-scan" | "backfill" => 10,
-        "rescue" => 5,
-        _ => 0,
-    }
-}
-
-fn should_replace_source(existing: Option<&str>, incoming: &str) -> bool {
-    existing
-        .map(|source| source_priority(incoming) >= source_priority(source))
-        .unwrap_or(true)
-}
+// 来源优先级判据下沉到 cc-panes-core，与 daemon 侧的留存共用同一套规则——
+// 两边各写一份必然漂移（daemon 若按"最后写入"留存就会降级 osc-title）。
+use cc_panes_core::services::{should_replace_source, should_retain_incoming};
 
 /// 将确定性获得的 resume id 绑定到 launch_history，并转发 history-updated。
 pub async fn bind_resume_id(
@@ -143,6 +131,26 @@ pub async fn bind_resume_id(
                     .resume_source
                     .unwrap_or_else(|| payload.source.clone());
             }
+            record_id = Some(record.id);
+            break;
+        }
+
+        // 值与来源都没变就不写：补拉是幂等语义（live 一次 + 每次重连一次），
+        // 无条件 UPDATE 会让每次重连都重写 DB、刷一遍 history-updated、打一遍日志。
+        if !should_retain_incoming(
+            record.resume_source.as_deref(),
+            record.resume_session_id.as_deref(),
+            &payload.source,
+            &payload.resume_session_id,
+        ) {
+            debug!(
+                record_id = record.id,
+                pty_session_id = %payload.session_id,
+                resume_session_id = %payload.resume_session_id,
+                "bind_resume_id: already bound to the same value; skipping write"
+            );
+            selected_resume_id = payload.resume_session_id.clone();
+            selected_source = payload.source.clone();
             record_id = Some(record.id);
             break;
         }

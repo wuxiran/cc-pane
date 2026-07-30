@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use cc_panes_core::constants::events as EV;
 use cc_panes_core::events::EventEmitter;
+use cc_panes_core::services::should_retain_incoming;
 use parking_lot::RwLock;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -66,8 +67,33 @@ impl WsEmitter {
             .collect()
     }
 
+    /// 留存一条身份事件。
+    ///
+    /// **不能无条件 last-write**：绑定层按来源优先级取舍
+    /// （manual 高于 issued/osc-title，后者又高于 rollout-scan/backfill），
+    /// 而 codex 的 rollout 兜底扫描与 OSC 标题捕获本就会竞态。若 fallback 最后
+    /// 写入留存，断连重连的桌面重放到的就是那个被降级的值。
     fn retain_identity_event(&self, session_id: &str, payload: &Value) {
+        let incoming_source = payload.get("source").and_then(Value::as_str).unwrap_or("");
+        let incoming_resume_id = payload
+            .get("resumeSessionId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+
         let mut store = self.identity_events.write();
+        if let Some(existing) = store.by_session.get(session_id) {
+            let existing_source = existing.get("source").and_then(Value::as_str);
+            let existing_resume_id = existing.get("resumeSessionId").and_then(Value::as_str);
+            if !should_retain_incoming(
+                existing_source,
+                existing_resume_id,
+                incoming_source,
+                incoming_resume_id,
+            ) {
+                return;
+            }
+        }
+
         if store
             .by_session
             .insert(session_id.to_string(), payload.clone())

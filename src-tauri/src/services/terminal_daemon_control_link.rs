@@ -1,4 +1,5 @@
-use std::time::Duration;
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -45,6 +46,10 @@ async fn run_control_link(
     mut client_rx: watch::Receiver<Option<TerminalDaemonClient>>,
     app_handle: tauri::AppHandle,
 ) {
+    // 跨重连保留：已补拉过的身份事件不再重复应用，notifier 的去重与待投队列
+    // 也不能随断线清零。
+    let mut applied_identity: HashSet<(String, String)> = HashSet::new();
+    let mut notifier_state = NotifierState::default();
     'client: loop {
         let Some(client) = client_rx.borrow().clone() else {
             if client_rx.changed().await.is_err() {
@@ -70,7 +75,7 @@ async fn run_control_link(
                 Ok((mut ws, _)) => {
                     debug!(daemon_addr = %client.addr(), "terminal daemon control link connected");
                     backoff = RECONNECT_MIN;
-                    replay_identity_events(&app_handle, &client);
+                    replay_identity_events(&app_handle, &client, &mut applied_identity);
                     loop {
                         let message = tokio::select! {
                             changed = client_rx.changed() => {
@@ -104,7 +109,13 @@ async fn run_control_link(
                                 session_id,
                                 exit_code,
                             })) => {
-                                apply_notifier_event(&app_handle, &event, &session_id, exit_code);
+                                apply_notifier_event(
+                                    &app_handle,
+                                    &mut notifier_state,
+                                    &event,
+                                    &session_id,
+                                    exit_code,
+                                );
                             }
                             Ok(None) => {}
                             Err(error) => {
@@ -218,35 +229,98 @@ fn parse_control_event(text: &str) -> serde_json::Result<Option<ControlAction>> 
 
 /// 把 resume id 直接落库，不经 WebView 门禁。
 fn apply_resume_binding(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
-    match serde_json::from_value::<crate::services::ResumeIdDetectedPayload>(payload) {
-        Ok(payload) => {
-            let service = app_handle
-                .state::<std::sync::Arc<cc_panes_core::services::LaunchHistoryService>>()
-                .inner()
-                .clone();
-            let handle = app_handle.clone();
-            tauri::async_runtime::spawn(crate::services::bind_resume_id(handle, service, payload));
-        }
-        Err(error) => {
-            warn!(error = %error, "daemon resume id payload did not match expected shape");
+    let Some(payload) = parse_resume_payload(payload) else {
+        return;
+    };
+    let service = app_handle
+        .state::<std::sync::Arc<cc_panes_core::services::LaunchHistoryService>>()
+        .inner()
+        .clone();
+    let handle = app_handle.clone();
+    tauri::async_runtime::spawn(crate::services::bind_resume_id(handle, service, payload));
+}
+
+/// 会话副作用交给桌面自己的 notifier（与本地 PTY 模式同一实现）。
+/// 同一会话的 waiting-input 去重窗口。hook 通道与 PTY 推断都会驱动同一个
+/// notifier，短时间内的重复只该提醒一次。
+const WAITING_INPUT_DEDUPE: Duration = Duration::from_secs(20);
+
+#[derive(Default)]
+struct NotifierState {
+    /// 已投递过 sessionExited 的会话——自然退出只该通知一次。
+    exited: HashSet<String>,
+    last_waiting: HashMap<String, Instant>,
+    /// notifier 尚未注册时收到的事件。**不能直接丢**：自然退出不可重来，
+    /// 丢了就永远没有退出通知、last_prompt 回填与 CCChan 提醒。
+    pending: Vec<(String, String, Option<i32>)>,
+}
+
+impl NotifierState {
+    /// 是否应当投递该事件（去重判定）。
+    fn should_deliver(&mut self, event: &str, session_id: &str) -> bool {
+        match event {
+            "sessionExited" => self.exited.insert(session_id.to_string()),
+            "waitingInput" => {
+                let now = Instant::now();
+                match self.last_waiting.get(session_id) {
+                    Some(last) if now.duration_since(*last) < WAITING_INPUT_DEDUPE => false,
+                    _ => {
+                        self.last_waiting.insert(session_id.to_string(), now);
+                        true
+                    }
+                }
+            }
+            "cleanup" => {
+                self.exited.remove(session_id);
+                self.last_waiting.remove(session_id);
+                true
+            }
+            _ => true,
         }
     }
 }
 
-/// 会话副作用交给桌面自己的 notifier（与本地 PTY 模式同一实现）。
 fn apply_notifier_event(
     app_handle: &tauri::AppHandle,
+    state: &mut NotifierState,
     event: &str,
     session_id: &str,
     exit_code: Option<i32>,
 ) {
     let notifier = app_handle
         .try_state::<std::sync::Arc<dyn cc_panes_core::events::SessionNotifier>>()
-        .map(|state| state.inner().clone());
+        .map(|handle| handle.inner().clone());
     let Some(notifier) = notifier else {
-        debug!("session notifier not registered; skipping daemon notifier event");
+        // control link 比 notifier 的 app.manage() 先启动，这个窗口内到达的事件
+        // 先排队，等注册后补投——身份事件有补拉兜底，notifier 没有。
+        debug!(
+            event,
+            session_id, "session notifier not registered yet; queueing"
+        );
+        state
+            .pending
+            .push((event.to_string(), session_id.to_string(), exit_code));
         return;
     };
+
+    let queued = std::mem::take(&mut state.pending);
+    for (event, session_id, exit_code) in queued {
+        dispatch_notifier(&notifier, state, &event, &session_id, exit_code);
+    }
+    dispatch_notifier(&notifier, state, event, session_id, exit_code);
+}
+
+fn dispatch_notifier(
+    notifier: &std::sync::Arc<dyn cc_panes_core::events::SessionNotifier>,
+    state: &mut NotifierState,
+    event: &str,
+    session_id: &str,
+    exit_code: Option<i32>,
+) {
+    if !state.should_deliver(event, session_id) {
+        debug!(event, session_id, "duplicate notifier event suppressed");
+        return;
+    }
     match event {
         "waitingInput" => notifier.notify_waiting_input(session_id),
         "sessionExited" => notifier.notify_session_exited(session_id, exit_code.unwrap_or(-1)),
@@ -260,17 +334,63 @@ fn apply_notifier_event(
 /// control 是无重放的广播：本 link 建连之前 daemon emit 的 resume id 已经丢了，
 /// 而 claude 发号紧跟 PTY spawn——app 启动那一两秒正是恢复流程批量建会话的时刻。
 /// 补拉把这个窗口堵死；`bind_resume_id` 本身按来源优先级幂等，重复应用无副作用。
-fn replay_identity_events(app_handle: &tauri::AppHandle, client: &TerminalDaemonClient) {
-    match client.list_identity_events() {
-        Ok(events) if !events.is_empty() => {
-            debug!(count = events.len(), "replaying daemon identity events");
-            for payload in events {
-                apply_resume_binding(app_handle, payload);
-            }
-        }
-        Ok(_) => {}
+fn replay_identity_events(
+    app_handle: &tauri::AppHandle,
+    client: &TerminalDaemonClient,
+    applied: &mut HashSet<(String, String)>,
+) {
+    let events = match client.list_identity_events() {
+        Ok(events) => events,
         Err(error) => {
             warn!(error = %error, "failed to replay daemon identity events");
+            return;
+        }
+    };
+
+    // 只重放本进程还没应用过的：daemon 的留存是累积的（会话退出后条目仍在），
+    // 每次重连全量重放会变成一轮 DB 写 + 事件风暴。
+    let fresh: Vec<serde_json::Value> = events
+        .into_iter()
+        .filter(|payload| {
+            let key = identity_key(payload);
+            key.is_none_or(|key| applied.insert(key))
+        })
+        .collect();
+    if fresh.is_empty() {
+        return;
+    }
+
+    debug!(count = fresh.len(), "replaying daemon identity events");
+    // 顺序处理而非逐条 spawn：补拉是补漏，不该和正常启动抢 DB。
+    let handle = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        for payload in fresh {
+            let Some(typed) = parse_resume_payload(payload) else {
+                continue;
+            };
+            let service = handle
+                .state::<std::sync::Arc<cc_panes_core::services::LaunchHistoryService>>()
+                .inner()
+                .clone();
+            crate::services::bind_resume_id(handle.clone(), service, typed).await;
+        }
+    });
+}
+
+fn identity_key(payload: &serde_json::Value) -> Option<(String, String)> {
+    let session_id = payload.get("sessionId")?.as_str()?.to_string();
+    let resume_id = payload.get("resumeSessionId")?.as_str()?.to_string();
+    Some((session_id, resume_id))
+}
+
+fn parse_resume_payload(
+    payload: serde_json::Value,
+) -> Option<crate::services::ResumeIdDetectedPayload> {
+    match serde_json::from_value(payload) {
+        Ok(parsed) => Some(parsed),
+        Err(error) => {
+            warn!(error = %error, "daemon resume id payload did not match expected shape");
+            None
         }
     }
 }
@@ -388,6 +508,52 @@ mod tests {
             event.payload,
             serde_json::json!({ "kind": "profileMismatch", "launchId": "proj-1" })
         );
+    }
+
+    /// 自然退出只能通知一次：hook 通道与 PTY 推断都会驱动同一个 notifier。
+    #[test]
+    fn session_exited_is_delivered_once_per_session() {
+        let mut state = NotifierState::default();
+        assert!(state.should_deliver("sessionExited", "s-1"));
+        assert!(!state.should_deliver("sessionExited", "s-1"));
+        // 另一条会话不受影响
+        assert!(state.should_deliver("sessionExited", "s-2"));
+    }
+
+    #[test]
+    fn waiting_input_is_deduped_within_window() {
+        let mut state = NotifierState::default();
+        assert!(state.should_deliver("waitingInput", "s-1"));
+        assert!(!state.should_deliver("waitingInput", "s-1"));
+    }
+
+    /// cleanup 清账：会话 id 复用（或重连后重建）时不能被旧记录永久压住。
+    #[test]
+    fn cleanup_resets_dedupe_state() {
+        let mut state = NotifierState::default();
+        assert!(state.should_deliver("sessionExited", "s-1"));
+        assert!(state.should_deliver("cleanup", "s-1"));
+        assert!(state.should_deliver("sessionExited", "s-1"));
+    }
+
+    /// 身份事件按 (session, resumeId) 去重：daemon 的留存是累积的，
+    /// 每次重连全量重放会变成一轮 DB 写风暴。
+    #[test]
+    fn identity_key_dedupes_repeated_replays() {
+        let payload = serde_json::json!({
+            "sessionId": "pty-1",
+            "resumeSessionId": "resume-1",
+            "source": "issued",
+        });
+        let mut applied = HashSet::new();
+        let key = identity_key(&payload).expect("key");
+        assert!(applied.insert(key.clone()));
+        assert!(!applied.insert(key));
+    }
+
+    #[test]
+    fn identity_key_missing_fields_returns_none() {
+        assert!(identity_key(&serde_json::json!({ "sessionId": "pty-1" })).is_none());
     }
 
     #[test]
