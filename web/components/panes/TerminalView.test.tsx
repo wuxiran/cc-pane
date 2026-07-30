@@ -14,6 +14,7 @@ import { historyService, sessionRestoreService, terminalService } from "@/servic
 import { createTerminalRendererController } from "./terminalRendererController";
 import { createTerminalLayoutScheduler } from "./terminalLayoutScheduler";
 import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
+import { terminalRestoreLaunchQueue } from "./terminalRestoreQueue";
 import TerminalView from "./TerminalView";
 
 /* ------------------------------------------------------------------ */
@@ -399,6 +400,110 @@ describe("TerminalView", () => {
     expect(createSession).not.toHaveBeenCalled();
   });
 
+  it("reattaches a background-restored session without waiting for a renderable tab", async () => {
+    const onSessionCreated = vi.fn();
+    const initialProps = {
+      sessionId: null,
+      projectId: "proj-1",
+      projectPath: "/tmp/proj",
+      isActive: false,
+      isVisible: false,
+      layoutActive: false,
+      restoring: true,
+      savedSessionId: "expired-session",
+      paneId: "pane-1",
+      tabId: "tab-1",
+      onSessionCreated,
+    } satisfies React.ComponentProps<typeof TerminalView>;
+    const view = render(<TerminalView {...initialProps} />);
+
+    await waitFor(() => expect(createSession).not.toHaveBeenCalled());
+    act(() => {
+      useTerminalStatusStore.setState({
+        statusMap: new Map([["background-session", { status: "running" }]]),
+      } as never);
+    });
+
+    view.rerender(
+      <TerminalView
+        {...initialProps}
+        layoutActive
+        savedSessionId="background-session"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(registerOutput).toHaveBeenCalledWith("background-session", expect.any(Function)),
+    );
+    expect(onSessionCreated).toHaveBeenCalledWith("background-session");
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it("creates a skipped background restore without waiting for a renderable tab", async () => {
+    const onSessionCreated = vi.fn();
+    const initialProps = {
+      sessionId: null,
+      projectId: "proj-1",
+      projectPath: "/tmp/proj",
+      isActive: false,
+      isVisible: false,
+      layoutActive: false,
+      restoring: true,
+      savedSessionId: "expired-session",
+      paneId: "pane-1",
+      tabId: "tab-1",
+      onSessionCreated,
+    } satisfies React.ComponentProps<typeof TerminalView>;
+    const view = render(<TerminalView {...initialProps} />);
+
+    await waitFor(() => expect(createSession).not.toHaveBeenCalled());
+    view.rerender(<TerminalView {...initialProps} layoutActive />);
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    expect(onSessionCreated).toHaveBeenCalledWith("new-session-1");
+  });
+
+  it("finishes a queued restore after its layout becomes hidden again", async () => {
+    const releaseBlockers: Array<() => void> = [];
+    const blockers = Array.from({ length: 3 }, () =>
+      terminalRestoreLaunchQueue.run(() => new Promise<void>((resolve) => {
+        releaseBlockers.push(resolve);
+      })),
+    );
+    await waitFor(() => expect(terminalRestoreLaunchQueue.getSnapshot().active).toBe(3));
+
+    try {
+      const onSessionCreated = vi.fn();
+      const initialProps = {
+        sessionId: null,
+        projectId: "proj-1",
+        projectPath: "/tmp/proj",
+        isActive: false,
+        isVisible: false,
+        layoutActive: false,
+        restoring: true,
+        savedSessionId: "expired-session",
+        paneId: "pane-1",
+        tabId: "tab-1",
+        onSessionCreated,
+      } satisfies React.ComponentProps<typeof TerminalView>;
+      const view = render(<TerminalView {...initialProps} />);
+
+      view.rerender(<TerminalView {...initialProps} layoutActive />);
+      await waitFor(() => expect(terminalRestoreLaunchQueue.getSnapshot().pending).toBe(1));
+      view.rerender(<TerminalView {...initialProps} />);
+
+      act(() => releaseBlockers.forEach((release) => release()));
+      await Promise.all(blockers);
+
+      await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+      expect(onSessionCreated).toHaveBeenCalledWith("new-session-1");
+    } finally {
+      act(() => releaseBlockers.forEach((release) => release()));
+      await Promise.all(blockers);
+    }
+  });
+
   it("replays persisted output for a restored session before launching", async () => {
     loadOutput.mockResolvedValue(["old line 1", "old line 2"] as never);
     renderTerminalView({ restoring: true, savedSessionId: "saved-1" });
@@ -464,15 +569,6 @@ describe("TerminalView", () => {
         onSessionCreated={onSessionCreated}
       />,
     );
-    const term = await lastTerm();
-    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
-    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
-      schedule: ReturnType<typeof vi.fn>;
-    };
-    const activeRefit = scheduler.schedule.mock.calls.find(
-      ([reason]) => reason === "active.refit",
-    )?.[1] as { onAfterLayout?: (terminal: MockXterm) => void } | undefined;
-    act(() => activeRefit?.onAfterLayout?.(term));
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
 
     created.resolve("duplicate-activation-session");

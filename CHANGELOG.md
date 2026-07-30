@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.6 - 2026-07-30
+
+### Fixed
+
+- **Hidden-layout terminal recovery.** Restored panes now attach or create their PTY as soon as xterm is initialized instead of waiting for a successful fit on a visible tab. A restore already queued continues when the user switches layouts, preventing panes from remaining stuck with no session after restart.
+
 ## 0.11.5 - 2026-07-30
 
 ### Fixed

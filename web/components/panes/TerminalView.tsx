@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle, type CSSProperties } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle, type CSSProperties } from "react";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -280,6 +280,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const terminalRef = useRef<HTMLDivElement>(null);
     const terminalInstanceRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
+    const [terminalReady, setTerminalReady] = useState(false);
     const rendererControllerRef = useRef<TerminalRendererController | null>(null);
     const lastAppearanceFontRef = useRef<string | null>(null);
     const layoutSchedulerRef = useRef<TerminalLayoutScheduler | null>(null);
@@ -1508,6 +1509,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         // Remember whether this terminal is backed by SSH for exit handling.
         isSshRef.current = !!props.ssh;
+        setTerminalReady(true);
 
         // Create a new backend session or attach to an existing one.
         if (props.projectPath) {
@@ -1970,16 +1972,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         trackedBuffer: trackedBufferTypeRef.current,
       });
 
-      let activationCancelled = false;
-
-      const scheduleRefit = (onReady?: (term: Terminal) => void) => {
+      const scheduleRefit = () => {
         layoutSchedulerRef.current?.schedule("active.refit", {
           focusIfSafe: props.isActive,
-          allowInactive: Boolean(onReady) || Boolean(props.isVisible && (props.layoutActive ?? true)),
-          onAfterLayout: (term) => {
-            if (activationCancelled) return;
-            onReady?.(term);
-          },
+          allowInactive: Boolean(props.isVisible && (props.layoutActive ?? true)),
         });
       };
 
@@ -1998,15 +1994,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         logRestoreEvent("activation.effect", { needsDeferredRestore });
       }
       if (needsDeferredRestore) {
-        if (!props.projectPath) return;
+        if (!props.projectPath || !terminalReady) return;
+        const term = terminalInstanceRef.current;
+        if (!term) return;
 
         restoreLaunchStartedRef.current = true;
-        scheduleRefit((term) => {
-          if (isUnmountedRef.current) return;
+        deferredRestoreRef.current = false;
 
-          deferredRestoreRef.current = false;
-
-          void (async () => {
+        // Session recovery cannot depend on fit succeeding. Hidden tabs use
+        // display:none, so layout scheduling may legitimately skip them.
+        void (async () => {
             try {
               await ensureListeners();
 
@@ -2098,7 +2095,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               });
               };
               const sessionId = await terminalRestoreLaunchQueue.run(launchSession, {
-                isCancelled: () => isUnmountedRef.current || activationCancelled || !layoutActiveRef.current,
+                // Once queued, switching layouts must not strand this pane again.
+                isCancelled: () => isUnmountedRef.current,
                 onState: reportRestoreLaunchState,
               });
               if (
@@ -2173,24 +2171,17 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               console.error("[TerminalView] Deferred restore failed:", err);
               term.writeln(`\x1b[31m--- Failed to restore session: ${getErrorMessage(err)} ---\x1b[0m`);
             }
-          })();
-        });
+        })();
 
-        return () => {
-          activationCancelled = true;
-          layoutSchedulerRef.current?.cancel();
-        };
+        return () => layoutSchedulerRef.current?.cancel();
       }
 
       if (props.isVisible && (props.layoutActive ?? true) && fitAddonRef.current) {
         scheduleRefit();
-        return () => {
-          activationCancelled = true;
-          layoutSchedulerRef.current?.cancel();
-        };
+        return () => layoutSchedulerRef.current?.cancel();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.isActive, props.isVisible, props.layoutActive]);
+    }, [props.isActive, props.isVisible, props.layoutActive, terminalReady]);
 
     const {
       getTerminalSelection,
