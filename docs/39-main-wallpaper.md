@@ -81,6 +81,26 @@
 好处：`designTokens.test.ts` 只扫 Tailwind 类名正则，CSS 变量不受影响；
 亮色/未启用时变量恒等，零行为变化，无需条件渲染。
 
+### 谁负责壁纸下的文字对比度（0.11.4 补）
+
+上面的 effective token 只解决「让壁纸透出来」，**没有**规定透出来之后文字还读不读得清。
+实测踩过一次：分屏出来的空窗格欢迎屏（`Panel.tsx` 空态 + `WorkspaceEmptyActions`）
+底色读 `--app-panel-bg-effective` → 壁纸下恒为 `transparent`，而同处 `--app-glass-blur`
+又被壁纸设置接管（默认 0），于是整块内容**没有任何 scrim**，只剩壁纸自己的全局
+`dim`——而 `dim` 可以是 0。用户看到的就是一屏糊在照片上读不出的字。
+
+规则：**大面积留白类表面（空态、占位、引导）在壁纸激活时必须给内容块自带底**，
+不能指望全局 `dim`。做法照抄 `Panel.tsx` 全屏退出 chip：
+`background: var(--app-overlay)` + `1px solid var(--app-border)` + `backdrop-filter: blur(20px)`，
+封装在 `web/components/panes/emptyStateShared.tsx` 的 `useEmptyStateSurfaceStyle()`。
+
+两条边界：
+
+- **只包内容块，不铺满窗格**。铺满等于把壁纸挡掉，那正是它该透出来的地方。
+- **加底，不是调亮文字**。`docs/46-frontend-styleguide.md:115` 禁止自调透明度造低对比灰字。
+
+终端、TabBar 这类本身有内容或有自己 alpha token 的表面不适用本条，保持透明。
+
 ### 状态：新建 `web/stores/useWallpaperStore.ts`，持有**已解析**结果
 
 **不要**写 `useSettingsStore(s => resolveWallpaper(s.settings, ws))`——每次返回新对象，

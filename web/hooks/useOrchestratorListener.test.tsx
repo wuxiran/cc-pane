@@ -331,6 +331,115 @@ describe("useOrchestratorListener layout placement", () => {
     expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("项目路径"));
   });
 
+  it("leader 在别的布局时不抢当前布局，worker 仍建在 leader 那边并弹可跳转提示", async () => {
+    // 布局 1 里放 leader，然后用户切到布局 2 干活
+    const panes = usePanesStore.getState();
+    panes.addTab(panes.rootPane.id, {
+      projectId: "project-a",
+      projectPath: "/tmp/project-a",
+      sessionId: "leader-1",
+      cliTool: "claude",
+    });
+    const secondLayoutId = usePanesStore.getState().createLayout("布局 2");
+    usePanesStore.getState().switchLayout(secondLayoutId);
+    useActivityBarStore.setState({ appViewMode: "files" });
+
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-follow",
+          sessionId: "worker-1",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          cliTool: "codex",
+          parentSessionId: "leader-1",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    // 用户没被弹回布局 1，也没被从 files 视图拽出来
+    expect(state.currentLayoutId).toBe(secondLayoutId);
+    expect(useActivityBarStore.getState().appViewMode).toBe("files");
+    // worker 确实建在 leader 所在的布局 1，而不是插进用户正在看的布局 2
+    const worker = state.findTabBySessionAcrossLayouts("worker-1");
+    expect(worker?.layoutId).toBe("layout-1");
+    expect(collectPanels(state.rootPane).flatMap((p) => p.tabs)).toHaveLength(1);
+    // 给了一条可点击跳转的提示
+    expect(toast.info).toHaveBeenCalledWith(
+      expect.stringContaining("布局 1"),
+      expect.objectContaining({ action: expect.objectContaining({ onClick: expect.any(Function) }) }),
+    );
+  });
+
+  it("显式传 layoutName 仍然切过去（显式意图保留）", async () => {
+    useActivityBarStore.setState({ appViewMode: "files" });
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-explicit",
+          sessionId: "session-explicit",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          layoutName: "点名的布局",
+          cliTool: "codex",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    const layout = state.layouts.find((item) => item.name === "点名的布局");
+    expect(state.currentLayoutId).toBe(layout?.id);
+    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    // 已经切过去了，就不该再弹「已在某布局启动」的提示
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
+  it("placement=silent 既不切布局也不切视图、不弹提示", async () => {
+    const panes = usePanesStore.getState();
+    panes.addTab(panes.rootPane.id, {
+      projectId: "project-a",
+      projectPath: "/tmp/project-a",
+      sessionId: "leader-2",
+      cliTool: "claude",
+    });
+    const secondLayoutId = usePanesStore.getState().createLayout("布局 2");
+    usePanesStore.getState().switchLayout(secondLayoutId);
+    useActivityBarStore.setState({ appViewMode: "files" });
+
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-silent",
+          sessionId: "worker-silent",
+          projectPath: "/tmp/project-a",
+          projectId: "project-a",
+          cliTool: "codex",
+          parentSessionId: "leader-2",
+          placement: "silent",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    expect(state.currentLayoutId).toBe(secondLayoutId);
+    expect(useActivityBarStore.getState().appViewMode).toBe("files");
+    expect(state.findTabBySessionAcrossLayouts("worker-silent")?.layoutId).toBe("layout-1");
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
   it("query-panes 返回当前 panes 兼容字段和 layouts 详情", async () => {
     const listeners = mockWebviewListeners();
     const secondLayoutId = usePanesStore.getState().createLayout("第二布局");

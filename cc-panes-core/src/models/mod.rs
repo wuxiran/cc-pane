@@ -5,6 +5,7 @@ pub mod git;
 mod history;
 pub mod launch_profile;
 pub mod layout_snapshot;
+pub mod orchestrator_settings;
 pub mod plan;
 pub mod process_info;
 mod project;

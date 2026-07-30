@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import McpYoloProfilesToggle from "./McpYoloProfilesToggle";
+import FollowAgentLaunchToggle from "./FollowAgentLaunchToggle";
 import { toast } from "sonner";
 import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -344,6 +345,7 @@ export default function WebAccessSection({
             {ORCHESTRATOR_BIND_MODES.find((item) => item.mode === orchestrator.bindMode)?.hint}
           </p>
           <McpYoloProfilesToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
+          <FollowAgentLaunchToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
           {orchestratorStatus?.bind && (
             <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
               当前实际监听 {orchestratorStatus.bind.host}

@@ -18,7 +18,8 @@ import { historyService, type LaunchRecord } from "@/services";
 import { buildLaunchRecordTerminalOptions, formatRelativeTime } from "@/utils";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 import WorkspaceEmptyActions from "./WorkspaceEmptyActions";
-import type { CliTool } from "@/types";
+import { CliIcon, iconTileStyle, type EmptyStateDensity } from "./emptyStateShared";
+import type { CliTool, Panel as PanelType } from "@/types";
 
 const MAX_RECENT = 5;
 const MAX_METHODS = 4;
@@ -60,29 +61,13 @@ export function pickProjectMethods(
   return result;
 }
 
-function CliIcon({ cliTool, className }: { cliTool?: string; className?: string }) {
-  if (cliTool === "codex") return <Bot className={className} />;
-  if (cliTool === "none" || !cliTool) return <Terminal className={className} />;
-  return <Sparkles className={className} />;
-}
-
-function iconTileStyle(cliTool?: string): React.CSSProperties {
-  if (cliTool === "codex") {
-    return {
-      background: "color-mix(in srgb, var(--app-status-success) 13%, transparent)",
-      color: "var(--app-status-success)",
-    };
-  }
-  if (cliTool === "none" || !cliTool) {
-    return { background: "var(--app-hover)", color: "var(--app-text-tertiary)" };
-  }
-  return {
-    background: "color-mix(in srgb, var(--app-accent) 13%, transparent)",
-    color: "var(--app-accent)",
-  };
-}
-
-export default function PanelEmptyActions() {
+export default function PanelEmptyActions({
+  pane,
+  density = "full",
+}: {
+  pane?: PanelType;
+  density?: EmptyStateDensity;
+} = {}) {
   const { t } = useTranslation("panes");
   const [allRecords, setAllRecords] = useState<LaunchRecord[]>([]);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
@@ -123,10 +108,18 @@ export default function PanelEmptyActions() {
     : undefined;
 
   if (boundWorkspace) {
-    return <WorkspaceEmptyActions workspace={boundWorkspace} records={allRecords} />;
+    return (
+      <WorkspaceEmptyActions
+        workspace={boundWorkspace}
+        records={allRecords}
+        pane={pane}
+        density={density}
+      />
+    );
   }
 
-  const records = pickRecentLaunches(allRecords);
+  // 窄窗格里列太多条会顶出容器，跟着密度收
+  const records = pickRecentLaunches(allRecords, density === "full" ? MAX_RECENT : 3);
 
   function launch(record: LaunchRecord, cliToolOverride?: CliTool) {
     // 复用启动历史的还原逻辑（含 WSL distro / SSH 机器解析）；
@@ -161,11 +154,20 @@ export default function PanelEmptyActions() {
     return runtime === "local" ? base : `${base} · ${runtime.toUpperCase()}`;
   }
 
+  const compact = density !== "full";
+  const mini = density === "mini";
+  const containerClass = mini
+    ? "relative mt-3 flex w-full flex-col gap-1 px-2"
+    : compact
+      ? "relative mt-4 flex w-full flex-col gap-1.5 px-3"
+      : "relative mt-8 flex w-full max-w-xl flex-col gap-2 px-6";
+
   const customLaunchButton = (
     <button
       type="button"
       className="mt-1 flex items-center gap-1.5 self-start text-[11.5px] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-accent)]"
       style={{ color: "var(--app-text-tertiary)" }}
+      title={mini ? t("customLaunch", { ns: "launcher" }) : undefined}
       onClick={() =>
         useDialogStore.getState().openLauncher({
           workspaceName: binding?.workspaceName,
@@ -174,80 +176,90 @@ export default function PanelEmptyActions() {
       }
     >
       <Rocket className="h-3.5 w-3.5" />
-      {t("customLaunch", { ns: "launcher" })}
+      {!mini && t("customLaunch", { ns: "launcher" })}
     </button>
   );
 
   if (records.length === 0) {
-    return (
-      <div className="relative mt-8 flex w-full max-w-xl flex-col gap-2 px-6">
-        {customLaunchButton}
-      </div>
-    );
+    return <div className={containerClass}>{customLaunchButton}</div>;
   }
 
   return (
-    <div className="relative mt-8 flex w-full max-w-xl flex-col gap-2 px-6">
-      <div
-        className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.09em]"
-        style={{ color: "var(--app-text-tertiary)" }}
-      >
-        <Clock className="h-3.5 w-3.5" />
-        {t("recentLaunches")}
-      </div>
+    <div className={containerClass}>
+      {!mini && (
+        <div
+          className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.09em]"
+          style={{ color: "var(--app-text-tertiary)" }}
+        >
+          <Clock className="h-3.5 w-3.5" />
+          {t("recentLaunches")}
+        </div>
+      )}
       {records.map((record) => {
         const methods = pickProjectMethods(allRecords, record.projectPath);
         const historyClis = new Set(methods.map((m) => m.cliTool));
         return (
           <div
             key={record.id}
-            className="group flex cursor-pointer items-center gap-3.5 rounded-xl border px-4 py-3 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)]"
+            className={`group flex cursor-pointer items-center rounded-xl border transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)] ${
+              compact ? "gap-2 px-2 py-1.5" : "gap-3.5 px-4 py-3"
+            }`}
             style={{ borderColor: "var(--app-border)", background: "var(--app-hover)" }}
             onClick={() => launch(record)}
             role="button"
+            title={mini ? record.projectName : undefined}
             aria-label={t("recentLaunchAria", { name: record.projectName })}
           >
             <span
-              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl"
+              className={`flex flex-shrink-0 items-center justify-center rounded-xl ${
+                compact ? "h-6 w-6" : "h-10 w-10"
+              }`}
               style={iconTileStyle(record.cliTool)}
             >
-              <CliIcon cliTool={record.cliTool} className="h-[18px] w-[18px]" />
+              <CliIcon cliTool={record.cliTool} className={compact ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"} />
             </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span
-                  className="truncate text-[14px] font-semibold"
-                  style={{ color: "var(--app-text-primary)" }}
-                >
-                  {record.projectName}
-                </span>
-                {record.runtimeKind === "wsl" && (
+            {!mini && (
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
                   <span
-                    className="flex-shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold"
-                    style={{ background: "color-mix(in srgb, var(--app-identity-wsl) 16%, transparent)", color: "var(--app-identity-wsl)" }}
+                    className={`truncate font-semibold ${compact ? "text-[12px]" : "text-[14px]"}`}
+                    style={{ color: "var(--app-text-primary)" }}
                   >
-                    WSL
+                    {record.projectName}
                   </span>
-                )}
-                {record.runtimeKind === "ssh" && (
-                  <span
-                    className="flex-shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold"
-                    style={{ background: "color-mix(in srgb, var(--app-identity-ssh) 16%, transparent)", color: "var(--app-identity-ssh)" }}
+                  {record.runtimeKind === "wsl" && (
+                    <span
+                      className="flex-shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold"
+                      style={{ background: "color-mix(in srgb, var(--app-identity-wsl) 16%, transparent)", color: "var(--app-identity-wsl)" }}
+                    >
+                      WSL
+                    </span>
+                  )}
+                  {record.runtimeKind === "ssh" && (
+                    <span
+                      className="flex-shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold"
+                      style={{ background: "color-mix(in srgb, var(--app-identity-ssh) 16%, transparent)", color: "var(--app-identity-ssh)" }}
+                    >
+                      SSH
+                    </span>
+                  )}
+                </div>
+                {/* 路径是最先被挤爆的一行，窄窗格里直接砍掉 */}
+                {!compact && (
+                  <div
+                    className="mt-0.5 truncate text-[11.5px]"
+                    style={{ color: "var(--app-text-tertiary)", fontFamily: "var(--font-mono, monospace)" }}
                   >
-                    SSH
-                  </span>
+                    {record.projectPath}
+                  </div>
                 )}
               </div>
-              <div
-                className="mt-0.5 truncate text-[11.5px]"
-                style={{ color: "var(--app-text-tertiary)", fontFamily: "var(--font-mono, monospace)" }}
-              >
-                {record.projectPath}
-              </div>
-            </div>
-            <span className="flex-shrink-0 text-[11.5px] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
-              {formatRelativeTime(record.launchedAt)}
-            </span>
+            )}
+            {!compact && (
+              <span className="flex-shrink-0 text-[11.5px] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
+                {formatRelativeTime(record.launchedAt)}
+              </span>
+            )}
             {/* 显式 split button：主按钮「▷ 启动」（=整行点击语义）+ 紧贴「⌄」打开方式菜单 */}
             <div
               className="flex flex-shrink-0 items-stretch"
@@ -255,12 +267,15 @@ export default function PanelEmptyActions() {
             >
               <button
                 type="button"
-                className="flex items-center gap-1.5 rounded-l-md px-2.5 py-1.5 text-[11.5px] font-semibold transition-opacity duration-[var(--dur-fast)] hover:opacity-90"
+                className={`flex items-center gap-1.5 rounded-l-md py-1.5 text-[11.5px] font-semibold transition-opacity duration-[var(--dur-fast)] hover:opacity-90 ${
+                  compact ? "px-1.5" : "px-2.5"
+                }`}
                 style={{ background: "var(--app-accent)", color: "var(--primary-foreground)" }}
+                title={compact ? t("launchNow") : undefined}
                 onClick={() => launch(record)}
               >
                 <Play className="h-3 w-3" fill="currentColor" />
-                {t("launchNow")}
+                {!compact && t("launchNow")}
               </button>
               <div
                 aria-hidden

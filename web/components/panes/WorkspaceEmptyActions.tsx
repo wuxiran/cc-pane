@@ -4,14 +4,16 @@
 // 全局通道（App 级 useOpenTerminal 消费）——禁止在 Panel 内挂 useOpenTerminal，
 // 会导致 pendingLaunch 双消费。
 import { useMemo } from "react";
-import { Bot, History, Rocket, Sparkles, Terminal } from "lucide-react";
+import { History, Rocket } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useDialogStore, usePanesStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import type { LaunchRecord } from "@/services";
 import { buildLaunchRecordTerminalOptions, formatRelativeTime } from "@/utils";
+import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { resolveWorkspaceProjectLaunchOptions } from "@/utils/workspaceLaunch";
-import type { CliTool, OpenTerminalOptions, Workspace } from "@/types";
+import { CliIcon, iconTileStyle, type EmptyStateDensity } from "./emptyStateShared";
+import type { CliTool, OpenTerminalOptions, Panel as PanelType, Workspace } from "@/types";
 
 const MAX_METHODS = 4;
 
@@ -36,43 +38,47 @@ export function pickWorkspaceMethods(
   return result;
 }
 
-function CliIcon({ cliTool, className }: { cliTool?: string; className?: string }) {
-  if (cliTool === "codex") return <Bot className={className} />;
-  if (cliTool === "none" || !cliTool) return <Terminal className={className} />;
-  return <Sparkles className={className} />;
-}
-
-function iconTileStyle(cliTool?: string): React.CSSProperties {
-  if (cliTool === "codex") {
-    return {
-      background: "color-mix(in srgb, var(--app-status-success) 13%, transparent)",
-      color: "var(--app-status-success)",
-    };
+/**
+ * 本窗格里其它标签指向的项目——分屏出来的空窗格通常紧挨着一个正在干活的标签，
+ * 那个标签的项目远比侧边栏的全局选中项贴近用户意图。
+ * 路径比较必须过 projectPathsEquivalent：注册路径可能存成 `/mnt/d/x` 或
+ * `\\wsl.localhost\...`，字符串直接比会把同一个项目判成两个。
+ */
+export function pickPaneContextProject(
+  workspace: Workspace,
+  pane?: PanelType,
+): Workspace["projects"][number] | undefined {
+  if (!pane) return undefined;
+  for (const tab of pane.tabs) {
+    if (tab.contentType !== "terminal" || !tab.projectPath) continue;
+    const hit = workspace.projects.find((project) =>
+      projectPathsEquivalent(project.path, tab.projectPath),
+    );
+    if (hit) return hit;
   }
-  if (cliTool === "none" || !cliTool) {
-    return { background: "var(--app-hover)", color: "var(--app-text-tertiary)" };
-  }
-  return {
-    background: "color-mix(in srgb, var(--app-accent) 13%, transparent)",
-    color: "var(--app-accent)",
-  };
+  return undefined;
 }
 
 export default function WorkspaceEmptyActions({
   workspace,
   records,
+  pane,
+  density = "full",
 }: {
   workspace: Workspace;
   records: LaunchRecord[];
+  pane?: PanelType;
+  density?: EmptyStateDensity;
 }) {
   const { t } = useTranslation("panes");
   const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
   const machines = useSshMachinesStore((s) => s.machines);
   const setPendingLaunch = useDialogStore((s) => s.setPendingLaunch);
 
-  // 目标项目：该工作空间当前选中项，否则第一个项目
+  // 目标项目：本窗格上下文 > 该工作空间当前选中项 > 第一个项目
   const targetProject =
-    workspace.projects.find((project) => project.id === expandedProjectId)
+    pickPaneContextProject(workspace, pane)
+    ?? workspace.projects.find((project) => project.id === expandedProjectId)
     ?? workspace.projects[0];
 
   const methods = useMemo(
@@ -141,83 +147,134 @@ export default function WorkspaceEmptyActions({
     { cliTool: "codex", label: "Codex" },
   ];
 
-  return (
-    <div className="relative mt-8 flex w-full max-w-xl flex-col gap-3 px-6">
-      <div className="flex flex-col gap-0.5">
-        <div
-          className="text-[11px] font-semibold uppercase tracking-[0.09em]"
-          style={{ color: "var(--app-text-tertiary)" }}
-        >
-          {t("workspaceEmptyTitle", { name: workspace.alias || workspace.name })}
-        </div>
-        <div className="text-[11.5px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("workspaceEmptyProjectHint", { name: projectLabel })}
-        </div>
-      </div>
+  const compact = density !== "full";
+  const mini = density === "mini";
+  // 窄窗格里 4 条常用方式两列排会挤爆，收成 2 条单列
+  const shownMethods = compact ? methods.slice(0, 2) : methods;
 
-      <div className="grid grid-cols-3 gap-2">
+  return (
+    <div
+      data-testid="workspace-empty-actions"
+      data-density={density}
+      className={
+        mini
+          ? "relative mt-3 flex w-full flex-col gap-1.5 px-2"
+          : compact
+            ? "relative mt-4 flex w-full flex-col gap-2 px-3"
+            : "relative mt-8 flex w-full max-w-xl flex-col gap-3 px-6"
+      }
+    >
+      {!mini && (
+        <div className="flex flex-col gap-0.5">
+          {!compact && (
+            <div
+              className="text-[11px] font-semibold uppercase tracking-[0.09em]"
+              style={{ color: "var(--app-text-tertiary)" }}
+            >
+              {t("workspaceEmptyTitle", { name: workspace.alias || workspace.name })}
+            </div>
+          )}
+          <div className="truncate text-[11.5px]" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("workspaceEmptyProjectHint", { name: projectLabel })}
+          </div>
+        </div>
+      )}
+
+      {/* full：三卡格子；窄档塌成命令行式单列（图标 / 标签），格子在窄容器里必挤爆 */}
+      <div className={compact ? "flex flex-col gap-1" : "grid grid-cols-3 gap-2"}>
         {fixedActions.map((action) => (
           <button
             key={action.cliTool}
             type="button"
-            className="flex flex-col items-center gap-2 rounded-xl border px-3 py-4 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)]"
-            style={{ borderColor: "var(--app-border)", background: "var(--app-hover)" }}
+            title={mini ? action.label : undefined}
+            className={
+              compact
+                ? "flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+                : "flex flex-col items-center gap-2 rounded-xl border px-3 py-4 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)]"
+            }
+            style={
+              compact
+                ? undefined
+                : { borderColor: "var(--app-border)", background: "var(--app-hover)" }
+            }
             onClick={() => launchFixed(action.cliTool)}
           >
             <span
-              className="flex h-10 w-10 items-center justify-center rounded-xl"
+              className={`flex flex-shrink-0 items-center justify-center rounded-lg ${
+                compact ? "h-6 w-6" : "h-10 w-10 rounded-xl"
+              }`}
               style={iconTileStyle(action.cliTool)}
             >
-              <CliIcon cliTool={action.cliTool} className="h-[18px] w-[18px]" />
+              <CliIcon cliTool={action.cliTool} className={compact ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"} />
             </span>
-            <span
-              className="text-[12.5px] font-semibold"
-              style={{ color: "var(--app-text-primary)" }}
-            >
-              {action.label}
-            </span>
+            {!mini && (
+              <span
+                className={`truncate font-semibold ${compact ? "flex-1 text-left text-[12px]" : "text-[12.5px]"}`}
+                style={{ color: "var(--app-text-primary)" }}
+              >
+                {action.label}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {methods.length > 0 && (
+      {shownMethods.length > 0 && (
         <>
-          <div
-            className="mt-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.09em]"
-            style={{ color: "var(--app-text-tertiary)" }}
-          >
-            <History className="h-3.5 w-3.5" />
-            {t("workspaceEmptyFrequent")}
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {methods.map((method) => (
+          {!mini && (
+            <div
+              className="mt-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.09em]"
+              style={{ color: "var(--app-text-tertiary)" }}
+            >
+              <History className="h-3.5 w-3.5" />
+              {t("workspaceEmptyFrequent")}
+            </div>
+          )}
+          <div className={compact ? "flex flex-col gap-1" : "grid grid-cols-2 gap-2"}>
+            {shownMethods.map((method) => (
               <button
                 key={`${method.cliTool}|${method.runtimeKind ?? "local"}`}
                 type="button"
-                className="flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)]"
-                style={{ borderColor: "var(--app-border)", background: "var(--app-hover)" }}
+                title={mini ? methodLabel(method) : undefined}
+                className={
+                  compact
+                    ? "flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+                    : "flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)]"
+                }
+                style={
+                  compact
+                    ? undefined
+                    : { borderColor: "var(--app-border)", background: "var(--app-hover)" }
+                }
                 onClick={() => launchMethod(method)}
               >
                 <span
-                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg"
+                  className={`flex flex-shrink-0 items-center justify-center rounded-lg ${
+                    compact ? "h-6 w-6" : "h-8 w-8"
+                  }`}
                   style={iconTileStyle(method.cliTool)}
                 >
-                  <CliIcon cliTool={method.cliTool} className="h-4 w-4" />
+                  <CliIcon cliTool={method.cliTool} className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
                 </span>
-                <span className="min-w-0 flex-1 text-left">
-                  <span
-                    className="block truncate text-[12px] font-semibold"
-                    style={{ color: "var(--app-text-primary)" }}
-                  >
-                    {methodLabel(method)}
+                {!mini && (
+                  <span className="min-w-0 flex-1 text-left">
+                    <span
+                      className="block truncate text-[12px] font-semibold"
+                      style={{ color: "var(--app-text-primary)" }}
+                    >
+                      {methodLabel(method)}
+                    </span>
+                    {/* 时间戳是次要信息，窄档先砍 */}
+                    {!compact && (
+                      <span
+                        className="block truncate text-[10.5px] tabular-nums"
+                        style={{ color: "var(--app-text-tertiary)" }}
+                      >
+                        {formatRelativeTime(method.launchedAt)}
+                      </span>
+                    )}
                   </span>
-                  <span
-                    className="block truncate text-[10.5px] tabular-nums"
-                    style={{ color: "var(--app-text-tertiary)" }}
-                  >
-                    {formatRelativeTime(method.launchedAt)}
-                  </span>
-                </span>
+                )}
               </button>
             ))}
           </div>
@@ -228,6 +285,7 @@ export default function WorkspaceEmptyActions({
         type="button"
         className="mt-1 flex items-center gap-1.5 self-start text-[11.5px] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-accent)]"
         style={{ color: "var(--app-text-tertiary)" }}
+        title={mini ? t("customLaunch", { ns: "launcher" }) : undefined}
         onClick={() =>
           useDialogStore.getState().openLauncher({
             workspaceName: workspace.name,
@@ -236,7 +294,7 @@ export default function WorkspaceEmptyActions({
         }
       >
         <Rocket className="h-3.5 w-3.5" />
-        {t("customLaunch", { ns: "launcher" })}
+        {!mini && t("customLaunch", { ns: "launcher" })}
       </button>
     </div>
   );

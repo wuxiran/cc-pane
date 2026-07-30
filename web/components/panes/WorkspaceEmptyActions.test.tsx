@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { pickWorkspaceMethods } from "./WorkspaceEmptyActions";
+import { pickPaneContextProject, pickWorkspaceMethods } from "./WorkspaceEmptyActions";
 import type { LaunchRecord } from "@/services";
+import type { Panel, Tab, Workspace } from "@/types";
 
 let seq = 0;
 
@@ -47,5 +48,65 @@ describe("pickWorkspaceMethods", () => {
     expect(pickWorkspaceMethods(records, "ws-a")).toHaveLength(3);
     expect(pickWorkspaceMethods(records, "ws-a", 2)).toHaveLength(2);
     expect(pickWorkspaceMethods(records, "ws-missing")).toHaveLength(0);
+  });
+});
+
+function workspace(paths: string[]): Workspace {
+  return {
+    id: "ws",
+    name: "ws",
+    createdAt: "2026-01-01T00:00:00Z",
+    projects: paths.map((path, index) => ({ id: `p-${index}`, path })),
+  };
+}
+
+function tab(overrides: Partial<Tab> = {}): Tab {
+  return {
+    id: `tab-${(seq += 1)}`,
+    title: "Terminal",
+    contentType: "terminal",
+    projectId: "",
+    projectPath: "",
+    sessionId: null,
+    ...overrides,
+  };
+}
+
+function panel(tabs: Tab[]): Panel {
+  return { type: "panel", id: "pane-1", tabs, activeTabId: tabs[0]?.id ?? "" };
+}
+
+describe("pickPaneContextProject", () => {
+  it("命中本窗格内其它终端标签指向的项目", () => {
+    const ws = workspace(["D:\\repos\\alpha", "D:\\repos\\beta"]);
+    const pane = panel([
+      tab({ projectPath: "" }),
+      tab({ projectPath: "D:\\repos\\beta", projectId: "p-1" }),
+    ]);
+
+    expect(pickPaneContextProject(ws, pane)?.id).toBe("p-1");
+  });
+
+  it("跨路径形式等价（WSL /mnt 形式与 Windows 盘符视为同一项目）", () => {
+    const ws = workspace(["D:\\repos\\alpha"]);
+    const pane = panel([tab({ projectPath: "/mnt/d/repos/alpha" })]);
+
+    expect(pickPaneContextProject(ws, pane)?.id).toBe("p-0");
+  });
+
+  it("没有窗格、没有终端标签、或项目不在该工作空间时返回 undefined", () => {
+    const ws = workspace(["D:\\repos\\alpha"]);
+
+    expect(pickPaneContextProject(ws, undefined)).toBeUndefined();
+    expect(pickPaneContextProject(ws, panel([tab()]))).toBeUndefined();
+    expect(
+      pickPaneContextProject(ws, panel([tab({ projectPath: "D:\\repos\\other" })])),
+    ).toBeUndefined();
+    expect(
+      pickPaneContextProject(
+        ws,
+        panel([tab({ contentType: "browser", projectPath: "D:\\repos\\alpha" })]),
+      ),
+    ).toBeUndefined();
   });
 });

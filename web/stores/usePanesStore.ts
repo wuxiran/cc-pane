@@ -13,6 +13,17 @@ import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 import { createPanel } from "./paneTreeHelpers";
+import {
+  activateFirstNormalLayout,
+  activeLayout,
+  firstNormalLayout,
+  isNormalLayout,
+  isStarredLayout,
+  layoutTree,
+  nextLayoutName,
+  resolveLayoutWriteTarget,
+  syncWorkingCopyToCurrentLayout,
+} from "./paneLayoutHelpers";
 import { createBrowserTabActions } from "./browserTabActions";
 import type {
   ClosedTabSnapshot,
@@ -283,14 +294,6 @@ function createStarredLayout(): LayoutEntry {
   };
 }
 
-function isStarredLayout(layout: Pick<LayoutEntry, "kind">): boolean {
-  return layout.kind === "starred";
-}
-
-function isNormalLayout(layout: Pick<LayoutEntry, "kind">): boolean {
-  return !isStarredLayout(layout);
-}
-
 function ensureStarredLayout(layouts: LayoutEntry[]): LayoutEntry[] {
   const normalLayouts = layouts.filter(isNormalLayout);
   const nextLayouts = normalLayouts.length > 0 ? layouts : [createDefaultLayout(), ...layouts];
@@ -319,44 +322,6 @@ function ensureStarredLayoutInDraft(state: PanesDraft): string {
   const layout = createStarredLayout();
   state.layouts.push(layout);
   return layout.id;
-}
-
-function firstNormalLayout(layouts: LayoutEntry[]): LayoutEntry | undefined {
-  return layouts.find(isNormalLayout);
-}
-
-function activeLayout(state: PanesState | PanesDraft): LayoutEntry | LayoutDraft | undefined {
-  return state.layouts.find((layout) => layout.id === state.currentLayoutId);
-}
-
-function activateFirstNormalLayout(state: PanesDraft): boolean {
-  const current = activeLayout(state);
-  if (current && isNormalLayout(current)) return true;
-  const normal = firstNormalLayout(state.layouts);
-  if (!normal) return false;
-  state.currentLayoutId = normal.id;
-  state.rootPane = normal.rootPane;
-  state.activePaneId = normal.activePaneId;
-  return true;
-}
-
-function nextLayoutName(layouts: Array<Pick<LayoutEntry, "name">>): string {
-  const used = new Set(layouts.map((layout) => layout.name.trim()));
-  let index = layouts.length + 1;
-  while (used.has(`布局 ${index}`)) {
-    index += 1;
-  }
-  return `布局 ${index}`;
-}
-
-function layoutTree(
-  state: PanesState | PanesDraft,
-  layoutId: string
-): PaneNode | PaneNodeDraft | null {
-  const layout = state.layouts.find((item) => item.id === layoutId);
-  if (!layout || isStarredLayout(layout)) return null;
-  if (layoutId === state.currentLayoutId) return state.rootPane;
-  return layout.rootPane;
 }
 
 function eachLayoutTree(state: PanesState, fn: (layout: LayoutEntry, tree: PaneNode) => void): void;
@@ -456,13 +421,6 @@ function findPaneAcrossLayouts(state: PanesState, paneId: string): PaneAcrossLay
     }
   });
   return found;
-}
-
-function syncWorkingCopyToCurrentLayout(state: PanesDraft): void {
-  const current = activeLayout(state);
-  if (!current || isStarredLayout(current)) return;
-  current.rootPane = state.rootPane;
-  current.activePaneId = state.activePaneId;
 }
 
 function projectedLayouts(
@@ -1139,33 +1097,35 @@ export const usePanesStore = create<PanesState>()(
     splitRight: (paneId) => get().split(paneId, "right"),
     splitDown: (paneId) => get().split(paneId, "down"),
 
-    openSessionBesidePane: (paneId, direction, opts) => {
+    openSessionBesidePane: (paneId, direction, opts, layoutId) => {
       const directionMap: Record<SplitDirection, "horizontal" | "vertical"> = {
         right: "horizontal",
         down: "vertical",
       };
 
       set((state) => {
-        if (!activateFirstNormalLayout(state)) return;
+        const target = resolveLayoutWriteTarget(state, layoutId);
+        if (!target) return;
+        const tree = target.tree;
 
-        // auto 的解析必须在切换布局之后——rootPane 此时才是最终要分屏的那棵树。
+        // auto 的解析必须针对**目标布局**那棵树（以前是靠先切布局保证的）。
         const resolvedDirection =
-          direction === "auto" ? resolveAutoDirection(state.rootPane, paneId) : direction;
+          direction === "auto" ? resolveAutoDirection(tree, paneId) : direction;
         const splitDirection = directionMap[resolvedDirection];
 
-        const targetPane = findPane(state.rootPane, paneId);
-        const parentResult = findParent(state.rootPane, paneId);
+        const targetPane = findPane(tree, paneId);
+        const parentResult = findParent(tree, paneId);
 
         // 无法在该 pane 旁分屏（未找到 / 不是 panel / 找不到父）→ 退化为在该 pane
         // （或首个 panel）加标签，保证会话总能落地。
         if (!targetPane || targetPane.type !== "panel" || !parentResult) {
           const fallback =
-            targetPane?.type === "panel" ? targetPane : collectPanels(state.rootPane)[0];
+            targetPane?.type === "panel" ? targetPane : collectPanels(tree)[0];
           if (!fallback) return;
           const tab = createTab(opts);
           fallback.tabs.push(tab);
           fallback.activeTabId = tab.id;
-          state.activePaneId = fallback.id;
+          target.setActivePaneId(fallback.id);
           return;
         }
 
@@ -1175,7 +1135,7 @@ export const usePanesStore = create<PanesState>()(
           const tab = createTab(opts);
           targetPane.tabs.push(tab);
           targetPane.activeTabId = tab.id;
-          state.activePaneId = targetPane.id;
+          target.setActivePaneId(targetPane.id);
           return;
         }
 
@@ -1185,13 +1145,13 @@ export const usePanesStore = create<PanesState>()(
 
         // 插入 newPane 到 targetPane 旁边（复刻 split 的插入逻辑）。
         if (parentResult.parent === null) {
-          state.rootPane = {
+          target.setRoot({
             type: "split",
             id: generateId("split"),
             direction: splitDirection,
             children: [targetPane, newPane],
             sizes: [50, 50],
-          };
+          });
         } else {
           const parent = parentResult.parent;
           const index = parentResult.index;
@@ -1215,10 +1175,13 @@ export const usePanesStore = create<PanesState>()(
           }
         }
 
-        state.activePaneId = newPane.id;
+        target.setActivePaneId(newPane.id);
       });
       get().autoBindLayoutWorkspaceFromTabs();
-      notifyTerminalLayoutChanged("pane.split");
+      // 只有动了当前布局才需要让在屏终端 refit；改别的布局的树不影响当前渲染
+      if (!layoutId || layoutId === get().currentLayoutId) {
+        notifyTerminalLayoutChanged("pane.split");
+      }
     },
 
     closePane: (paneId) => {
@@ -1356,12 +1319,15 @@ export const usePanesStore = create<PanesState>()(
       notifyTerminalLayoutChanged("pane.resize");
     },
 
-    addTab: (paneId, opts) => {
+    addTab: (paneId, opts, layoutId) => {
       set((state) => {
-        if (!activateFirstNormalLayout(state)) return;
-        const found = findPane(state.rootPane, paneId) ?? findPane(state.rootPane, state.activePaneId);
+        const target = resolveLayoutWriteTarget(state, layoutId);
+        if (!target) return;
+        const tree = target.tree;
+        const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
+        const found = findPane(tree, paneId) ?? findPane(tree, fallbackPaneId);
         // 传入 split id（如壳状态下的 rootPane.id）时兜底到第一个 panel。
-        const pane = found?.type === "panel" ? found : collectPanels(state.rootPane)[0];
+        const pane = found?.type === "panel" ? found : collectPanels(tree)[0];
         if (!pane) return;
 
         const newTab = createTab(opts);

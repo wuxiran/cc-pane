@@ -111,6 +111,8 @@
   "starredPanelEmpty": "No starred tabs",
   "starredPanelOpen": "Open",
   "orchestratorLaunchProjectPathMissing": "Ignored MCP launch event because project path is missing",
+  "orchestratorLaunchedInLayout": "Launched in \"{{layout}}\"",
+  "orchestratorLaunchedInLayoutGoto": "Go there",
   "voiceStartRecording": "Voice input",
   "voiceStopRecording": "Stop recording",
   "voiceTranscribing": "Transcribing",

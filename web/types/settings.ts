@@ -282,6 +282,11 @@ export interface OrchestratorSettings {
   bindMode: OrchestratorBindMode;
   /** 允许 agent 创建、绑定或显式启动带危险权限参数的 YOLO profile */
   allowMcpYoloProfiles: boolean;
+  /**
+   * agent 启动任务时界面是否跟随跳到目标布局。默认 false——
+   * 关闭时 worker 仍建在目标布局，只是不抢当前视图，改发一条可跳转的提示。
+   */
+  followAgentLaunch: boolean;
 }
 
 /** Orchestrator 运行状态（get_orchestrator_status） */

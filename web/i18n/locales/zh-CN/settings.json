@@ -534,6 +534,8 @@
   "showSystemResources": "状态栏显示系统资源",
   "allowMcpYoloProfiles": "允许 agent 管理 YOLO 启动配置",
   "allowMcpYoloProfilesHint": "允许编排 agent 创建、绑定或显式启动带 --dangerously-skip-permissions 的启动配置。开启后 agent 可绕过权限确认，仅在你接受该风险时启用。",
+  "followAgentLaunch": "跟随 agent 启动跳转布局",
+  "followAgentLaunchHint": "关闭时（默认）：leader 派出的 worker 仍会建在目标布局，但界面不跳过去，只弹一条可点击跳转的提示。开启后恢复自动跳转。",
   "orchestratorStatus": {
     "binding": "正在绑定",
     "ready": "已就绪",

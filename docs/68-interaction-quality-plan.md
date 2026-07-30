@@ -409,6 +409,14 @@ T3-c 是 docs/58 说的「真正的价值来源」，但也最重。若只能做
 **验收**：审计产物是一张表（文件:行 → 分类 → 处置）；改造阶段每个面板的空态
 都有图标 + 一句说明 + （如果存在有意义的下一步）一个 CTA。
 
+**不在本条范围内**：**窗格欢迎屏**（`Panel.tsx` 空态 → `PanelEmptyActions` →
+`WorkspaceEmptyActions`）已于 0.11.4 单独处理，别在审计里重复排它。上面的清单只枚举了
+`ui/EmptyState` 的消费方，窗格欢迎屏是手搓的、从未进过这份清单。它解决的也不是
+「缺 CTA」（它 CTA 最多），而是另外三件：壁纸下没有 scrim 导致文字读不出
+（见 `docs/39-main-wallpaper.md`「谁负责壁纸下的文字对比度」）、
+没有任何尺寸自适应导致窄窗格挤爆（新增 `emptyStateShared.tsx` 的
+`full/compact/mini` 三档）、「目标项目」取自侧边栏全局选中项而非本窗格上下文。
+
 ### 5.2 tip 演示动画没走 duration token
 
 `web/components/tips/featureTipRegistry.tsx:104` 用 Tailwind 的

@@ -151,7 +151,8 @@ export interface PanesState extends BrowserTabActions {
   closePane: (paneId: string) => void;
   resizePanes: (paneId: string, sizes: number[]) => void;
   applyLayoutPreset: (preset: LayoutPresetId) => void;
-  addTab: (paneId: string, opts: CreateTabOptions) => void;
+  /** layoutId 省略 = 当前布局。传入时往该布局的树里写，不切换当前布局。 */
+  addTab: (paneId: string, opts: CreateTabOptions, layoutId?: string) => void;
   closeTab: (paneId: string, tabId: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;
   toggleStarTab: (tabId: string) => void;
@@ -168,10 +169,12 @@ export interface PanesState extends BrowserTabActions {
     toIndex?: number,
   ) => void;
   splitAndMoveTab: (paneId: string, tabId: string, direction: SplitDirection) => void;
+  /** layoutId 省略 = 当前布局。传入时在该布局里分屏，不切换当前布局。 */
   openSessionBesidePane: (
     paneId: string,
     direction: AutoSplitDirection,
     opts: CreateTabOptions,
+    layoutId?: string,
   ) => void;
   closeTabsToLeft: (paneId: string, tabId: string) => void;
   closeTabsToRight: (paneId: string, tabId: string) => void;

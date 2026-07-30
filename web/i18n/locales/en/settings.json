@@ -534,6 +534,8 @@
   "showSystemResources": "Show system resources in the status bar",
   "allowMcpYoloProfiles": "Allow agents to manage YOLO launch profiles",
   "allowMcpYoloProfilesHint": "Allow orchestration agents to create, bind, or explicitly launch profiles with --dangerously-skip-permissions. Agents can bypass permission prompts when enabled; turn this on only if you accept that risk.",
+  "followAgentLaunch": "Follow agent launches to their layout",
+  "followAgentLaunchHint": "When off (default), workers a leader launches are still created in the target layout, but the view stays where you are — a toast with a jump link is shown instead. Turn on to restore automatic switching.",
   "orchestratorStatus": {
     "binding": "Binding",
     "ready": "Ready",

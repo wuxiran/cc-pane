@@ -247,7 +247,7 @@ describe("WebAccessSection", () => {
       <WebAccessSection
         value={createValue()}
         onChange={vi.fn()}
-        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false }}
+        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false, followAgentLaunch: false }}
         onOrchestratorChange={vi.fn()}
       />,
     );
@@ -265,7 +265,7 @@ describe("WebAccessSection", () => {
       <WebAccessSection
         value={createValue()}
         onChange={vi.fn()}
-        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false }}
+        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false, followAgentLaunch: false }}
         onOrchestratorChange={onOrchestratorChange}
       />,
     );
@@ -277,6 +277,7 @@ describe("WebAccessSection", () => {
     expect(onOrchestratorChange).toHaveBeenCalledWith({
       bindMode: "auto",
       allowMcpYoloProfiles: true,
+      followAgentLaunch: false,
     });
 
     await act(async () => {
@@ -286,7 +287,7 @@ describe("WebAccessSection", () => {
       <WebAccessSection
         value={createValue()}
         onChange={vi.fn()}
-        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false }}
+        orchestrator={{ bindMode: "auto", allowMcpYoloProfiles: false, followAgentLaunch: false }}
         onOrchestratorChange={onOrchestratorChange}
       />,
     );

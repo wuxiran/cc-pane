@@ -20,6 +20,7 @@ import {
   useActivityBarStore,
   useFileBrowserStore,
   useEditorTabsStore,
+  useSettingsStore,
 } from "@/stores";
 import { isTauriRuntime } from "@/services/runtime";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
@@ -102,21 +103,24 @@ export function useOrchestratorListener() {
             return;
           }
 
-          const activityBar = useActivityBarStore.getState();
-          if (activityBar.appViewMode !== "panes") {
-            activityBar.setAppViewMode("panes");
-          }
+          const placement = event.payload.placement;
+          // silent：调用方明确要求完全不打扰（不切布局、不切视图、不弹提示）
+          const silent = placement === "silent";
+          // 默认不跟随 agent 启动跳布局——leader 每派一个 worker 就把用户弹回
+          // leader 所在布局，是最招人烦的行为。想要旧行为的人打开这个开关。
+          const followAgentLaunch =
+            useSettingsStore.getState().settings?.orchestrator?.followAgentLaunch === true;
 
           const requestedLayoutName = targetLayoutName?.trim();
           const requestedLayoutId = targetLayoutId?.trim();
           let latestPanesStore = usePanesStore.getState();
           let hasExplicitLayout = false;
+          // 目标布局：先只**解析**，不切换。窗格要建在这里，但当前视图不一定要跟过去。
+          let targetLayout: string | undefined;
 
           if (requestedLayoutId && latestPanesStore.listLayouts().some((layout) => layout.id === requestedLayoutId)) {
             hasExplicitLayout = true;
-            if (latestPanesStore.currentLayoutId !== requestedLayoutId) {
-              latestPanesStore.switchLayout(requestedLayoutId);
-            }
+            targetLayout = requestedLayoutId;
           } else if (requestedLayoutName) {
             const existingLayout = latestPanesStore
               .listLayouts()
@@ -128,13 +132,10 @@ export function useOrchestratorListener() {
             if (!existingLayout && workspaceName?.trim()) {
               latestPanesStore.bindLayoutWorkspace(layoutId, workspaceName);
             }
-            if (latestPanesStore.currentLayoutId !== layoutId) {
-              latestPanesStore.switchLayout(layoutId);
-            }
+            targetLayout = layoutId;
           }
 
           latestPanesStore = usePanesStore.getState();
-          let activePane = latestPanesStore.activePane();
 
           // 解析父 tab（按 sessionId 在所有面板里搜）。一旦找到，记下它所在的
           // panel.id —— 这是决定子 tab 落到哪个 panel 的关键，不能等到目标
@@ -146,12 +147,11 @@ export function useOrchestratorListener() {
           if (parentSessionId) {
             const parentLocation = latestPanesStore.findTabBySessionAcrossLayouts(parentSessionId);
             if (parentLocation) {
-              if (!hasExplicitLayout && parentLocation.layoutId !== latestPanesStore.currentLayoutId) {
-                latestPanesStore.switchLayout(parentLocation.layoutId);
-                latestPanesStore = usePanesStore.getState();
-                activePane = latestPanesStore.activePane();
+              if (!hasExplicitLayout) {
+                targetLayout = parentLocation.layoutId;
               }
-              if (parentLocation.layoutId === latestPanesStore.currentLayoutId) {
+              // 父在别的布局而调用方又点名了布局时，不能拿父 pane 当落点
+              if (parentLocation.layoutId === (targetLayout ?? latestPanesStore.currentLayoutId)) {
                 parentTabId = parentLocation.tab.id;
                 parentPaneId = parentLocation.panel.id;
               }
@@ -171,15 +171,16 @@ export function useOrchestratorListener() {
           // 当前布局未绑定就不抢跳（比无条件跳到 lastActiveAt 最近的绑定布局更不
           // 侵入），仅在当前布局绑了别的工作空间/是星标时才自动路由。
           if (!hasExplicitLayout && !parentPaneId && workspaceName?.trim()) {
-            const targetLayout = resolveWorkspaceLaunchLayout(
+            // resolver 保留（比 findLayoutForWorkspace 精细：当前布局未绑定就不路由），
+            // 但**只记落点、不切布局**——切与不切统一交给下方那处判定（显式布局 /
+            // 跟随开关 / silent），避免在这里抢走用户正看着的画面。
+            const boundLayout = resolveWorkspaceLaunchLayout(
               latestPanesStore.listLayouts(),
               latestPanesStore.currentLayoutId,
               workspaceName,
             );
-            if (targetLayout && targetLayout.id !== latestPanesStore.currentLayoutId) {
-              latestPanesStore.switchLayout(targetLayout.id);
-              latestPanesStore = usePanesStore.getState();
-              activePane = latestPanesStore.activePane();
+            if (boundLayout) {
+              targetLayout = boundLayout.id;
             }
           }
 
@@ -207,25 +208,79 @@ export function useOrchestratorListener() {
           //      让 launch 起的新会话拿到自己的窗格、跟调用者并排可见（默认，修「后台标签」问题）。
           //   3. placement === "tab"/"background"，或无调用者（外部/layoutName 启动）→ 落到
           //      基准 pane 的标签页（旧行为）。基准 pane：父 panel 优先于 active，保证层级编号 #N.M。
-          const placement = event.payload.placement;
           const wantsTab = placement === "tab" || placement === "background";
+
+          let explicitPaneId: string | undefined;
           if (targetPaneId) {
             const targetPaneLocation = latestPanesStore.findPaneAcrossLayouts(targetPaneId);
-            if (targetPaneLocation && targetPaneLocation.layoutId !== latestPanesStore.currentLayoutId) {
-              latestPanesStore.switchLayout(targetPaneLocation.layoutId);
-              latestPanesStore = usePanesStore.getState();
-              activePane = latestPanesStore.activePane();
+            if (targetPaneLocation) {
+              targetLayout = targetPaneLocation.layoutId;
+              if (targetPaneLocation.pane.type === "panel") {
+                explicitPaneId = targetPaneLocation.pane.id;
+              }
             }
-            const paneId = targetPaneLocation?.pane.type === "panel"
-              ? targetPaneLocation.pane.id
-              : (parentPaneId ?? activePane?.id ?? latestPanesStore.rootPane.id);
-            latestPanesStore.addTab(paneId, tabOpts);
-          } else if (parentPaneId && !wantsTab) {
-            latestPanesStore.openSessionBesidePane(parentPaneId, "auto", tabOpts);
-          } else {
-            const basePaneId = parentPaneId ?? activePane?.id ?? latestPanesStore.rootPane.id;
-            latestPanesStore.addTab(basePaneId, tabOpts);
           }
+
+          // 只有「调用方点名了布局」（显式意图）或用户开了跟随开关才切过去；silent 一律不切。
+          const resolvedLayoutId = targetLayout ?? latestPanesStore.currentLayoutId;
+          if (
+            !silent
+            && resolvedLayoutId !== latestPanesStore.currentLayoutId
+            && (followAgentLaunch || hasExplicitLayout)
+          ) {
+            latestPanesStore.switchLayout(resolvedLayoutId);
+            latestPanesStore = usePanesStore.getState();
+          }
+
+          // 落位用的布局：与当前布局不同时必须显式传给 store，否则会插进「用户正在看的」布局。
+          // 切换过之后这里自然为 undefined。
+          const writeLayoutId =
+            resolvedLayoutId === latestPanesStore.currentLayoutId ? undefined : resolvedLayoutId;
+
+          // 会话就落在眼前这个布局时才保证 panes 视图可见；落到别处就别把用户
+          // 从文件/设置视图里拽出来。
+          if (!writeLayoutId && !silent) {
+            const activityBar = useActivityBarStore.getState();
+            if (activityBar.appViewMode !== "panes") {
+              activityBar.setAppViewMode("panes");
+            }
+          }
+
+          const targetLayoutEntry = latestPanesStore
+            .listLayouts()
+            .find((layout) => layout.id === resolvedLayoutId);
+          // 目标布局的基准 pane（非当前布局时 activePane() 指的是别人家的树）
+          const fallbackPaneId = targetLayoutEntry?.activePaneId ?? targetLayoutEntry?.rootPane.id;
+
+          if (explicitPaneId || targetPaneId) {
+            const paneId = explicitPaneId ?? parentPaneId ?? fallbackPaneId;
+            if (paneId) latestPanesStore.addTab(paneId, tabOpts, writeLayoutId);
+          } else if (parentPaneId && !wantsTab) {
+            latestPanesStore.openSessionBesidePane(parentPaneId, "auto", tabOpts, writeLayoutId);
+          } else {
+            const basePaneId = parentPaneId ?? fallbackPaneId;
+            if (basePaneId) latestPanesStore.addTab(basePaneId, tabOpts, writeLayoutId);
+          }
+
+          // 落到别的布局时给一条可点击跳转的提示——不跳但也别让人找不到
+          if (writeLayoutId && !silent && targetLayoutEntry) {
+            toast.info(
+              i18n.t("orchestratorLaunchedInLayout", {
+                ns: "panes",
+                layout: targetLayoutEntry.name,
+              }),
+              {
+                action: {
+                  label: i18n.t("orchestratorLaunchedInLayoutGoto", { ns: "panes" }),
+                  onClick: () => {
+                    usePanesStore.getState().switchLayout(writeLayoutId);
+                    useActivityBarStore.getState().setAppViewMode("panes");
+                  },
+                },
+              },
+            );
+          }
+
           const notice = event.payload.notice?.trim();
           if (notice) {
             toast.info(notice);

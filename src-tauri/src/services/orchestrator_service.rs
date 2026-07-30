@@ -2265,11 +2265,10 @@ struct McpLaunchTaskParams {
     /// 其余已注册工具（gemini/kimi/glm/cursor）请通过直接终端启动。
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
-    /// 新会话落位方式（可选，默认 `"beside"`）：
+    /// 新会话落位方式（可选，默认 `"beside"`）。仅在未显式指定 `paneId` 时生效，指定了 `paneId` 则按 `paneId` 落位。注意：默认前端**不会**为 agent 启动跳转布局（worker 照样建在目标布局，只弹一条可跳转提示）；仅当显式传了 `layoutId`/`layoutName`、或用户开了设置里的「跟随 agent 启动跳转布局」才切换，`"silent"` 连这两种也不切。
     /// - `"beside"`：在**调用者**（发起本次 launch_task 的会话）所在 pane **旁边分屏**打开并聚焦（默认，推荐——用户能立刻看到新会话）。
-    /// - `"tab"`：作为**标签页**加入调用者所在 pane，不额外分屏。仅当用户**明确要求**“在后台/同一窗格里以标签打开”时才用。
-    ///
-    /// 仅在未显式指定 `paneId` 时生效；指定了 `paneId` 则按 `paneId` 落位。
+    /// - `"tab"`：作为**标签页**加入调用者所在 pane，不额外分屏。仅当用户**明确要求**“在后台/同一窗格里以标签打开”时才用。`"background"` 是它的历史别名。
+    /// - `"silent"`：完全不打扰——不切布局、不切主视图、不弹提示；窗格仍正常建在目标布局。
     #[serde(rename = "placement")]
     placement: Option<String>,
 }

@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// OrchestratorSettings 已拆到独立模块（settings.rs 触到行数棘轮上限），
+// 在此重导出以保持既有 import 路径不变。
+pub use super::orchestrator_settings::OrchestratorSettings;
+
 const DEFAULT_TERMINAL_FONT_SIZE: u16 = 15;
 const MIN_TERMINAL_FONT_SIZE: u16 = 10;
 const MAX_TERMINAL_FONT_SIZE: u16 = 32;
@@ -345,41 +349,6 @@ fn default_wallpaper_power_saver() -> String {
 
 fn default_wallpaper_music_volume() -> f64 {
     0.5
-}
-
-/// Orchestrator（HTTP+MCP server）网络绑定设置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OrchestratorSettings {
-    /// "auto"：默认只绑回环，检测到 WSL 使用信号时绑全网卡（WSL 内 CLI 需回连宿主）
-    /// "loopback"：始终 127.0.0.1；"all"：始终 0.0.0.0
-    #[serde(default = "default_orchestrator_bind_mode")]
-    pub bind_mode: String,
-    /// 允许 MCP agent 创建、绑定或显式启动带危险权限参数的 YOLO profile。
-    /// 默认关闭，避免老配置升级后扩大 agent 权限面。
-    #[serde(default)]
-    pub allow_mcp_yolo_profiles: bool,
-}
-
-impl Default for OrchestratorSettings {
-    fn default() -> Self {
-        Self {
-            bind_mode: default_orchestrator_bind_mode(),
-            allow_mcp_yolo_profiles: false,
-        }
-    }
-}
-
-impl OrchestratorSettings {
-    pub fn merge_missing_defaults(&mut self) {
-        if !matches!(self.bind_mode.as_str(), "auto" | "loopback" | "all") {
-            self.bind_mode = default_orchestrator_bind_mode();
-        }
-    }
-}
-
-fn default_orchestrator_bind_mode() -> String {
-    "auto".to_string()
 }
 
 /// 代理设置

@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useCallback, useRef, memo, useContext } from "react";
-import { X, Terminal } from "lucide-react";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { handleErrorSilent } from "@/utils";
@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { collectPanels } from "@/stores/paneTreeHelpers";
 import TabBar from "./TabBar";
-import PanelEmptyActions from "./PanelEmptyActions";
+import PanelEmptyState from "./PanelEmptyState";
 import TabContentRenderer from "./TabContentRenderer";
 import { useTabClosing } from "./useTabClosing";
 import type { TerminalViewHandle } from "./TerminalView";
@@ -462,42 +462,9 @@ export default memo(function Panel({ pane }: PanelProps) {
           </div>
         ))}
 
-        {/* 空状态 — 深色背景与终端一致，确保毛玻璃标签可见 */}
+        {/* 空状态 — 内容与密度分档见 PanelEmptyState.tsx */}
         {(!activeTab || (activeTab.contentType === "terminal" && !activeTab.projectPath)) && (
-          <div
-            className="absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden"
-            style={{ background: "var(--app-panel-bg-effective)", paddingTop: tabBarHeight }}
-          >
-            {/* 点阵背景（opacity 走壁纸 token，壁纸激活时可整体压 0） */}
-            <div
-              className="absolute inset-0"
-              style={{
-                opacity: 'var(--app-panel-dots-opacity)',
-                backgroundImage: 'radial-gradient(var(--app-text-primary) 1px, transparent 1px)',
-                backgroundSize: '24px 24px',
-              }}
-            />
-
-            {/* 图标容器 */}
-            <div
-              className="relative w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-transform duration-700"
-              style={{
-                background: "color-mix(in srgb, var(--app-accent) 8%, var(--app-hover))",
-                border: "1px solid var(--app-border)",
-                boxShadow: "var(--sh-md), var(--hi)",
-              }}
-            >
-              <Terminal className="w-9 h-9" style={{ color: "var(--app-accent)", opacity: 0.85 }} />
-            </div>
-
-            <h3 className="text-lg font-semibold mb-2 tracking-tight" style={{ color: "var(--app-text-primary)" }}>
-              {t("ready")}
-            </h3>
-            <p className="text-center max-w-sm leading-relaxed text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("selectProject")}
-            </p>
-            <PanelEmptyActions />
-          </div>
+          <PanelEmptyState pane={pane} tabBarHeight={tabBarHeight} />
         )}
       </div>
 
