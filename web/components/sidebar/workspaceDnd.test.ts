@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTestWorkspace, resetTestDataCounter } from "@/test/utils/testData";
-import { getReorderedWorkspaceNames } from "./WorkspaceTree";
+import { getReorderedWorkspaceNames } from "./workspaceDnd";
 
 describe("getReorderedWorkspaceNames", () => {
   it("returns reordered workspace names within the same pinned group", () => {

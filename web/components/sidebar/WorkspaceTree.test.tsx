@@ -1,7 +1,8 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "@/types";
-import WorkspaceTree, { getReorderedWorkspaceNames } from "./WorkspaceTree";
+import WorkspaceTree from "./WorkspaceTree";
+import { getReorderedWorkspaceNames } from "./workspaceDnd";
 
 // --- i18n: t 直接回 key，便于断言 ---
 vi.mock("react-i18next", () => ({
