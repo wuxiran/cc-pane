@@ -32,11 +32,30 @@ impl TerminalDaemonLifecycle {
         config_path: &Path,
     ) -> AppResult<TerminalDaemonClient> {
         let manifest_path = app_paths.runtime_dir().join(MANIFEST_FILE);
+        let daemon_binary = resolve_daemon_binary(resource_dir);
+
         if let Some(client) = try_connect_manifest(&manifest_path) {
-            return Ok(client);
+            match daemon_binary.as_ref() {
+                Ok(binary) => match upgrade_if_idle_and_unshared(
+                    binary,
+                    app_paths,
+                    config_path,
+                    &manifest_path,
+                    &client,
+                    false,
+                ) {
+                    Ok(Some(replacement)) => return Ok(replacement),
+                    Ok(None) => return Ok(client),
+                    Err(error) => {
+                        warn!(error = %error, "terminal daemon upgrade attempt failed; keeping current client");
+                        return Ok(client);
+                    }
+                },
+                Err(_) => return Ok(client),
+            }
         }
 
-        let daemon_binary = resolve_daemon_binary(resource_dir)?;
+        let daemon_binary = daemon_binary?;
         start_daemon_process(&daemon_binary, app_paths, config_path)?;
         wait_for_manifest(&manifest_path, Duration::from_secs(5))
     }
@@ -70,6 +89,28 @@ impl TerminalDaemonLifecycle {
         warn!("terminal daemon appears down; attempting reconnect");
         Self::connect_or_start(app_paths, resource_dir, config_path)
     }
+
+    /// Re-evaluate a pending daemon upgrade immediately before a later PTY creation.
+    /// This closes the gap where boot deferred for live sessions and no reconnect ever occurred
+    /// after the final session exited.
+    pub fn recheck_upgrade_before_create(
+        app_paths: &AppPaths,
+        resource_dir: Option<&Path>,
+        config_path: &Path,
+        client: &TerminalDaemonClient,
+        current_desktop_connected: bool,
+    ) -> AppResult<Option<TerminalDaemonClient>> {
+        let daemon_binary = resolve_daemon_binary(resource_dir)?;
+        let manifest_path = app_paths.runtime_dir().join(MANIFEST_FILE);
+        upgrade_if_idle_and_unshared(
+            &daemon_binary,
+            app_paths,
+            config_path,
+            &manifest_path,
+            client,
+            current_desktop_connected,
+        )
+    }
 }
 
 /// 距上次尝试是否已超过节流窗口。抽成纯函数便于直接断言边界，
@@ -79,6 +120,123 @@ fn should_attempt_reconnect(last_attempt: Option<Instant>, now: Instant) -> bool
         None => true,
         Some(previous) => now.duration_since(previous) >= RECONNECT_THROTTLE,
     }
+}
+
+/// 磁盘上的 daemon 是否比正在跑的那个新，且现在换代是安全的。
+///
+/// 判据用**文件 mtime vs 进程 started_at**，不用版本号：`TerminalDaemonStatus.version`
+/// 是 cc-panes-daemon crate 自己的版本（长期停在 0.1.0），跟 app 版本不联动，
+/// 更新前后读出来一模一样，判不出新旧。
+///
+/// 待 Windows 实测（评审 #7）：分别覆盖安装器保留/刷新 mtime、系统时钟回拨和同版本
+/// 重装；记录新 exe LastWriteTime、daemon startedAt 与实际换代结果。本轮不猜测修改判据。
+///
+/// 返回 `None` = 不换（已是最新 / 有活跃会话或其他桌面实例 / 读不到时间戳）。
+fn pending_daemon_upgrade(
+    daemon_binary: &Path,
+    client: &TerminalDaemonClient,
+    current_desktop_connected: bool,
+) -> Option<String> {
+    let status = client.status().ok()?;
+    let binary_mtime_ms = daemon_binary
+        .metadata()
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis() as u64;
+
+    decide_daemon_upgrade(
+        binary_mtime_ms,
+        status.started_at,
+        status.session_count,
+        status.desktop_client_count,
+        current_desktop_connected,
+    )
+}
+
+/// 换代判定的纯函数部分，抽出来便于直接断言边界（构造真 daemon 太贵）。
+fn decide_daemon_upgrade(
+    binary_mtime_ms: u64,
+    daemon_started_at_ms: u64,
+    session_count: usize,
+    desktop_client_count: Option<usize>,
+    current_desktop_connected: bool,
+) -> Option<String> {
+    if binary_mtime_ms <= daemon_started_at_ms {
+        return None;
+    }
+    if session_count > 0 {
+        // 不是错误：这是我们**选择**保住会话。等用户把会话关完，下次启动自然换代。
+        info!(
+            session_count,
+            "newer terminal daemon binary is installed, but sessions are live; deferring upgrade"
+        );
+        return None;
+    }
+    if let Some(desktop_client_count) = desktop_client_count {
+        let current_client_count = if current_desktop_connected { 1 } else { 0 };
+        if desktop_client_count > current_client_count {
+            info!(
+                desktop_client_count,
+                current_desktop_connected,
+                "newer terminal daemon binary is installed, but another desktop instance is connected; deferring upgrade"
+            );
+            return None;
+        }
+    } else {
+        // 旧 daemon 没有该字段：兼容降级到 v0.11.7 的 session-only 判据。
+        // 新 daemon 还会根据本实例控制 WS 是否已连上，排除当前实例后要求没有其他客户端。
+        warn!("terminal daemon status has no desktopClientCount; using legacy session-only upgrade guard");
+    }
+    Some(format!(
+        "binary mtime {binary_mtime_ms} is newer than running daemon started_at {daemon_started_at_ms}, no sessions are live, and no other desktop client is connected"
+    ))
+}
+
+fn upgrade_if_idle_and_unshared(
+    daemon_binary: &Path,
+    app_paths: &AppPaths,
+    config_path: &Path,
+    manifest_path: &Path,
+    client: &TerminalDaemonClient,
+    current_desktop_connected: bool,
+) -> AppResult<Option<TerminalDaemonClient>> {
+    let Some(reason) = pending_daemon_upgrade(
+        daemon_binary,
+        client,
+        current_desktop_connected,
+    ) else {
+        return Ok(None);
+    };
+    info!(reason = %reason, "terminal daemon upgrade pending; retiring idle daemon");
+    client.shutdown().map_err(|error| {
+        AppError::from(format!(
+            "graceful shutdown of old daemon failed; keeping it: {error}"
+        ))
+    })?;
+    if !wait_for_daemon_exit(client, Duration::from_secs(5)) {
+        return Err(AppError::from(
+            "old terminal daemon did not exit within timeout; replacement was not started",
+        ));
+    }
+    start_daemon_process(daemon_binary, app_paths, config_path)?;
+    wait_for_manifest(manifest_path, Duration::from_secs(5)).map(Some)
+}
+
+/// 等旧 daemon 真的退出（health 探不通即为退出）。daemon 使用随机端口，端口冲突
+/// 不会替我们阻止双实例；超时必须明确拒绝启动 replacement，避免两个 daemon 争写 manifest。
+fn wait_for_daemon_exit(client: &TerminalDaemonClient, timeout: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if client.health().is_err() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    warn!("old terminal daemon did not exit within timeout");
+    false
 }
 
 fn try_connect_manifest(manifest_path: &Path) -> Option<TerminalDaemonClient> {
@@ -245,6 +403,42 @@ fn daemon_binary_name() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 安装器故意不杀 daemon（保住 PTY 会话），换代因此改由 app 择机执行。
+    /// 这组断言锁住「什么时候可以换」的边界。
+    #[test]
+    fn daemon_upgrade_only_when_binary_is_newer_and_no_sessions_live() {
+        // 启动期本实例的控制 WS 尚未连接：计数为 0 才能安全换代。
+        assert!(decide_daemon_upgrade(2_000, 1_000, 0, Some(0), false).is_some());
+
+        // 启动期计数为 1 代表另一个桌面实例，不能把它使用的 daemon 退掉。
+        assert!(decide_daemon_upgrade(2_000, 1_000, 0, Some(1), false).is_none());
+
+        // 稍后重检时本实例控制 WS 已连接：计数为 1 只包含自己，可以换代。
+        assert!(decide_daemon_upgrade(2_000, 1_000, 0, Some(1), true).is_some());
+
+        // 有会话就不换：换代要连根杀掉用户在跑的 agent，正是我们刚修掉的事故。
+        assert!(
+            decide_daemon_upgrade(2_000, 1_000, 1, Some(1), true).is_none(),
+            "哪怕只有一条会话也必须让路——宁可多跑一版旧 daemon"
+        );
+
+        // 已是最新（或安装器根本没换过二进制）：不折腾
+        assert!(decide_daemon_upgrade(1_000, 2_000, 0, Some(1), true).is_none());
+
+        // 时间戳相等 = 同一个二进制，边界取「不换」，避免每次启动都重启 daemon
+        assert!(decide_daemon_upgrade(1_000, 1_000, 0, Some(1), true).is_none());
+
+        // 另一个桌面实例仍连接着同一 daemon，即使当前没有 PTY 也不能替它换代。
+        assert!(decide_daemon_upgrade(2_000, 1_000, 0, Some(2), true).is_none());
+
+        // 旧 daemon 没有 desktopClientCount 字段，兼容降级到原有 session-only 判据。
+        assert!(decide_daemon_upgrade(2_000, 1_000, 0, None, false).is_some());
+
+        // 同一新二进制在会话结束后再次评估，必须从 defer 变为可换代。
+        assert!(decide_daemon_upgrade(2_000, 1_000, 3, Some(1), true).is_none());
+        assert!(decide_daemon_upgrade(2_000, 1_000, 0, Some(1), true).is_some());
+    }
 
     /// daemon 起不来时失败会连续到来。没有节流就会每次操作都 spawn 一个进程，
     /// 把「连不上」变成「刷出一堆僵尸」。
