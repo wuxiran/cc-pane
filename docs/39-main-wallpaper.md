@@ -90,9 +90,12 @@
 `dim`——而 `dim` 可以是 0。用户看到的就是一屏糊在照片上读不出的字。
 
 规则：**大面积留白类表面（空态、占位、引导）在壁纸激活时必须给内容块自带底**，
-不能指望全局 `dim`。做法照抄 `Panel.tsx` 全屏退出 chip：
-`background: var(--app-overlay)` + `1px solid var(--app-border)` + `backdrop-filter: blur(20px)`，
+不能指望全局 `dim`。做法是**磨砂玻璃**（不是不透明卡片）：
+`background: color-mix(in srgb, var(--app-overlay) 58%, transparent)` +
+`backdrop-filter: blur(28px) saturate(140%)` + 1px 玻璃边 + `var(--sh-lg), var(--hi)`，
 封装在 `web/components/panes/emptyStateShared.tsx` 的 `useEmptyStateSurfaceStyle()`。
+底必须**半透明**——写成不透明的 `var(--app-overlay)` 时 `backdrop-filter` 等于白做，
+壁纸被整块挡死，看着就是贴了一张纯色卡片。
 
 两条边界：
 
