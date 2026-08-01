@@ -1,15 +1,21 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use cc_panes_core::models::settings::WebAccessSettings;
 use cc_panes_core::utils::{no_window_command, AppPaths, AppResult};
 use serde::Serialize;
 use tracing::{info, warn};
 
+use super::process_guard::{configure_command, ProcessGuard};
 use crate::utils::AppError;
 
 const WEB_BIN_ENV: &str = "CCPANES_WEB_BIN";
+
+/// `stop()` 等待 web 进程优雅退出的上限，超时即强杀。
+/// 有界是硬要求：`stop()` 会在 UI 线程和退出路径上跑，不能无限阻塞。
+const STOP_GRACE: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +34,16 @@ pub struct WebAccessStatus {
 
 struct WebAccessProcess {
     child: Child,
+    /// OS 级兜底：宿主以任何方式消失（正常退出/panic/崩溃/taskkill /F）时，
+    /// 内核负责收掉这个子进程**及其整棵后代树**。
+    ///
+    /// 下面 `stop()` 的协作式关闭只覆盖正常退出路径；异常路径靠这个 guard。
+    ///
+    /// 不要依赖字段声明顺序做时序保证：`Child` 的自动 drop **既不 kill 也不 wait**
+    /// （只关句柄），所以 `child` 与 `guard` 谁先 drop 都不改变"是否等到子进程退出"。
+    /// 真正的回收时序全在 `stop()` 里显式完成；这里的顺序无语义
+    /// （评审指出过一版注释在这点上写错了）。
+    guard: ProcessGuard,
     port: u16,
     bind_host: String,
 }
@@ -124,13 +140,31 @@ impl WebAccessLifecycle {
             );
         }
 
-        let child = command.spawn().map_err(|error| {
+        // Unix：把子进程放进自己的进程组，之后可整组收；Windows：spawn 后再挂 Job。
+        configure_command(&mut command);
+
+        let mut child = command.spawn().map_err(|error| {
             AppError::from(format!(
                 "failed to start Web access server {}: {}",
                 binary.display(),
                 error
             ))
         })?;
+
+        // 必须在把它登记为 running **之前**挂上 guard。挂不上就说明这个子进程不受
+        // 保护、可能活得比宿主久，那宁可杀掉它并让本次启动失败——留一个收不掉的
+        // 孤儿进程占着端口，比启动失败难排查得多。
+        let guard = match ProcessGuard::attach(&child) {
+            Ok(guard) => guard,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(AppError::from(format!(
+                    "failed to guard Web access server process: {error}"
+                )));
+            }
+        };
+
         info!(
             binary = %binary.display(),
             port = settings.port,
@@ -140,6 +174,7 @@ impl WebAccessLifecycle {
 
         *self.process.lock().unwrap_or_else(|err| err.into_inner()) = Some(WebAccessProcess {
             child,
+            guard,
             port: settings.port,
             bind_host,
         });
@@ -157,14 +192,54 @@ impl WebAccessLifecycle {
         self.start(app_paths, resource_dir, settings, daemon_expected)
     }
 
+    /// 协作式关闭：先请求整棵进程树退出，给一小段宽限期，超时再强杀。
+    ///
+    /// 原来只有 `child.kill()`——CLAUDE.md 记着「`kill()` 只杀直接子进程」，
+    /// web 进程再派生的孙子进程会留下来占着端口。现在收的是整棵树。
+    ///
+    /// 宽限期必须有界（`STOP_GRACE`）：`stop()` 会在 UI 线程与应用退出路径上被调用，
+    /// 无限等待会让关窗卡死。
     pub fn stop(&self) {
-        let mut guard = self.process.lock().unwrap_or_else(|err| err.into_inner());
-        if let Some(mut process) = guard.take() {
-            if let Err(error) = process.child.kill() {
-                warn!(error = %error, "failed to stop Web access server");
+        // 锁只用来把进程记录取出来，**等待必须在锁外**：宽限期最长 3s，
+        // 攥着锁等会让并发的 status()/start()/restart() 全部堵在同一把锁上，
+        // 应用退出路径也跟着同步延迟。（这是原分支就有的设计，抽取时一度丢失。）
+        let process = {
+            let mut guard = self.process.lock().unwrap_or_else(|err| err.into_inner());
+            guard.take()
+        };
+        let Some(mut process) = process else {
+            return;
+        };
+
+        process.guard.request_terminate(&mut process.child);
+
+        let deadline = Instant::now() + STOP_GRACE;
+        loop {
+            match process.child.try_wait() {
+                // 已退出：Child 已被回收，不能再 wait，直接返回。
+                Ok(Some(_)) => return,
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(error = %error, "failed to poll Web access server exit");
+                    break;
+                }
             }
-            let _ = process.child.wait();
+            if Instant::now() >= deadline {
+                warn!(
+                    grace_ms = STOP_GRACE.as_millis(),
+                    "Web access server did not exit gracefully; force killing"
+                );
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
         }
+
+        process.guard.force_kill(&mut process.child);
+        // force_kill 已对直接子进程发过 kill，这里的 wait 只是回收僵尸，
+        // 正常情况下立即返回。若内核层面连 kill 都失败（权限异常等），
+        // 宁可在这里阻塞也不要留一个 unreaped 子进程——但这属于不可恢复态，
+        // 已在上面打了 warn 供排查。
+        let _ = process.child.wait();
     }
 
     fn reuse_running(

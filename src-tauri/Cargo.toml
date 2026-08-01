@@ -92,6 +92,9 @@ windows = { version = "0.62", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
+    # process_guard 的 Job Object 兜底（web-access 子进程随宿主一同回收）
+    "Win32_System_JobObjects",
+    "Win32_Security",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
