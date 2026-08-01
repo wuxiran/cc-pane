@@ -324,6 +324,9 @@ flutter pub get && flutter analyze && flutter test
 - **worktree 的项目记录是「写入自动化、删除手动化」的单向流**：skill 流程与扫描导入会自动 `add_project_to_workspace`，而 `remove_worktree` 只跑 git、`remove_project` 只删记录，两侧不联动——实测一个工作空间 21 条项目里 14 条指向已删目录。已补上三态存在性判定 + 手动批量清理 + 删除联动（docs/62）。新增「自动注册项目」的入口必须同时想清楚谁负责回收。
 - **判断项目路径是否存在，必须先过 `canonical_project_path` / `projectIdentityKey`**：注册路径可能以 `/mnt/d/x` 或 `\\wsl.localhost\Ubuntu\mnt\d\x` 形式存着，直接 `Path::exists()` 会把合法的 Windows 路径判成 missing。且判定要三态——WSL 发行版未运行时无法区分「真没了」与「暂时看不到」，判成 missing 会诱导用户误删有效注册。
 - **`git worktree list` 从任何一个 worktree 跑都返回同一份全量列表**：拿它做父子关系会互认成环。正确用法是当**分组键**（取 `isMain` 那条的身份 key），父节点定义为「自身身份 == repoKey」的那个。另需守卫「自身必须是列表里一条非 main 的 worktree 根」，否则 monorepo 子目录项目会被误认成假 worktree。
+- **`launch_history.project_id` 是「每次启动唯一的 launch id」，不是项目 id**（`proj-` 前端生成 / `orch-` orchestrator 生成；实测 cc-book 有 307 行、307 个不同值）。列名极具误导性：按「项目 id」去理解，会以为 `WHERE project_id = ?` 的 UPDATE 要误伤整个项目的历史，实际只命中 1 行。而 tab 手里的 `props.projectId` 是它**上一次** launch 的 launch_id——**恢复路径复用它去 `bind_pty_session` 必然落空**（那行的 `pty_session_id` 已被上次的 PTY 占用，不满足 `IS NULL OR = 本次`）。0.11.7 期实测：18/18 个 tab 恢复后全无 resumeId，6 条已送达的 resume id 事件全被丢弃，且**不可自愈**（恢复出的会话不写行 → 下次重启又没 resumeId → 永久退化）。新增「跨重启复用 launch id」的链路前先问：这个 id 是每次启动新生成的，还是稳定的？详见 docs/69。
+- **stdio MCP 服务器不能给 `Stdio::null()` 的 stdin，它靠 stdin 活着**：`shared_mcp_service.rs::spawn_server_process` 对所有 bridgeMode 一律 null 掉三个流，stdio 类服务器于是启动后 1ms 就 `Shutting down (stdin end)`，三次重启耗尽后彻底停摆。**用户侧的表现完全不像"MCP 挂了"**——AI 拿不到那套工具就静默退到别的工具，实测「让 AI 打开 chromedev」变成打开 CC-Panes 自己的浏览器窗格，看着像 AI 乱点。判定：看该 MCP 自己的 `--logFile`，`connected` 紧跟 `Shutting down (stdin end)` 即命中。注意 Windows 上内层 `cmd /c` **不能去掉**（`npx` 是 .cmd 脚本，直接 spawn 起不来），修复只能落在 stdin 传递上。详见 docs/70。
+- **resume id 出问题先分清是「捕获链」还是「落库链」，两者会互相伪装**：日志里**没有** `bind_resume_id` 行 = 事件根本没到 app（捕获/跨 daemon 传输断，docs/45、CLAUDE.md 的 daemon 边界那条）；**有**但报 `no launch_history row matched` = 拿到了 id 但没地方存（落库断，docs/69）。两种都表现为 `resume_session_id` 全 null、恢复出空会话，症状完全同形，但修的是完全不同的两段。
 - **Zustand selector 里不要调用返回新集合的 store 方法**：`usePanesStore((s) => s.listLayouts())` 这类写法，因 `listLayouts` 内部是 `filter().map()` 每次返回新数组，`useSyncExternalStore` 的快照永不相等 → `Maximum update depth exceeded` 崩页。正确做法是选稳定引用（如 `s.layouts`）后用 `useMemo` 本地派生；`.getState().listLayouts()` 在渲染外调用则不受影响。
 
 ## 文档引用
@@ -356,5 +359,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/67-discoverability-plan.md` | **发现性计划**：主页装修（对标 orca）+ tips 扩容 + 补 4 篇新能力 guide（与 68 交互质量分工） |
 | `docs/67-storyboards.md` | 67 附录 · 素材分镜脚本：主页 GIF 与 in-app tips 的唯一共享物，两边各实现一次 |
 | `docs/68-interaction-quality-plan.md` | **交互质量计划**：关闭标签杀 agent 会话无确认 / 终端聚焦时 7 个快捷键静默失效 / 空态不统一（与 67 发现性分工，未排期） |
+| `docs/69-resume-id-binding-gap.md` | **resume id 落库缺口**：恢复出来的会话只能恢复一次（捕获链 vs 落库链的区分判据） |
+| `docs/70-shared-mcp-stdio-death.md` | **shared MCP 启动即自杀**：stdio 服务器被 `Stdio::null()` 掐死（**待修**，含 Chrome 9222 责任归属决策） |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
