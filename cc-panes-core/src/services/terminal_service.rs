@@ -28,6 +28,8 @@ mod csi_mode_detect;
 mod osc_resume_capture;
 mod osc_state_detect;
 mod shell_integration;
+#[cfg(windows)]
+mod windows_codex;
 mod wsl_codex;
 mod wsl_mcp_proxy;
 
@@ -1665,8 +1667,13 @@ impl TerminalService {
             // SSH 模式：cwd 用本机 home dir，命令通过 ssh 连接远程
             // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            let (cmd, cmd_args) =
-                self.build_ssh_command(ssh_info, cli_tool, &provider_vars, effective_yolo_mode)?;
+            let (cmd, cmd_args) = self.build_ssh_command(
+                ssh_info,
+                cli_tool,
+                &provider_vars,
+                provider.as_ref(),
+                effective_yolo_mode,
+            )?;
             info!(
                 session_id = %session_id,
                 host = %ssh_info.host,
@@ -1837,6 +1844,7 @@ impl TerminalService {
                         &session_id,
                         &env_vars,
                         &provider_vars,
+                        provider.as_ref(),
                         resume_id,
                         launch_append_system_prompt.as_deref(),
                         initial_prompt,
@@ -2032,12 +2040,29 @@ impl TerminalService {
             (rid.to_string(), cli_tool.as_id().to_string(), command_line)
         });
 
+        #[cfg(windows)]
+        let (pty_command, pty_args) = if cli_tool == CliTool::Codex
+            && windows_codex::requires_powershell_bootstrap(&cwd)
+        {
+            info!(
+                session_id = %session_id,
+                cwd = %cwd.display(),
+                "create_session: using Windows PowerShell bootstrap for Codex in a non-ASCII cwd"
+            );
+            windows_codex::wrap_with_powershell(command, args, &mut env_vars)?
+        } else {
+            (command, args)
+        };
+
+        #[cfg(not(windows))]
+        let (pty_command, pty_args) = (command, args);
+
         let config = PtyConfig {
             cols,
             rows,
             cwd,
-            command,
-            args,
+            command: pty_command,
+            args: pty_args,
             env: env_vars,
             env_remove,
         };
@@ -3195,6 +3220,7 @@ impl TerminalService {
         ssh: &SshConnectionInfo,
         cli_tool: CliTool,
         provider_env: &HashMap<String, String>,
+        provider: Option<&CliProvider>,
         yolo_mode: bool,
     ) -> Result<(String, Vec<String>)> {
         let ssh_path = cached_which("ssh").map_err(|_| anyhow!("ssh not found in PATH"))?;
@@ -3217,10 +3243,19 @@ impl TerminalService {
 
         // 构建远程命令
         let mut remote_parts: Vec<String> = Vec::new();
+        let mut provider_env = provider_env.clone();
+        let mut codex_provider_args = Vec::new();
+        if cli_tool == CliTool::Codex {
+            cc_cli_adapters::CodexAdapter::push_provider_overrides(
+                &mut codex_provider_args,
+                &mut provider_env,
+                provider,
+            );
+        }
 
         // Provider 环境变量注入（白名单 key 格式 + value 转义）
         if cli_tool != CliTool::None {
-            for (k, v) in provider_env {
+            for (k, v) in &provider_env {
                 if Self::is_valid_env_key(k) {
                     remote_parts.push(format!("export {}={}", k, Self::shell_escape(v)));
                 } else {
@@ -3234,7 +3269,12 @@ impl TerminalService {
             let escaped_path = Self::shell_escape(&ssh.remote_path);
             remote_parts.push(format!("cd {}", escaped_path));
         }
-        remote_parts.push(Self::ssh_remote_cli_command(cli_tool, yolo_mode).to_string());
+        let mut remote_cli = Self::ssh_remote_cli_command(cli_tool, yolo_mode).to_string();
+        for arg in codex_provider_args {
+            remote_cli.push(' ');
+            remote_cli.push_str(&Self::shell_escape(&arg));
+        }
+        remote_parts.push(remote_cli);
         args.push(remote_parts.join(" && "));
 
         Ok((ssh_path.to_string_lossy().into_owned(), args))

@@ -23,6 +23,7 @@ const PLAN_ARCHIVE_UNSUPPORTED: &str =
     "Codex does not support CC-Panes plan archive yet; only session-start is available.";
 const CC_PANE_EVENT_UNSUPPORTED: &str =
     "Codex CLI does not expose this hook event yet. Only SessionStart and PostToolUse are usable.";
+const CCPANES_CODEX_API_KEY_ENV: &str = "CCPANES_CODEX_API_KEY";
 
 struct HookDef {
     name: &'static str,
@@ -108,6 +109,84 @@ impl CodexAdapter {
 
     fn format_toml_string_for_cli(value: &str) -> String {
         serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+    }
+
+    fn codex_provider_id(provider_id: &str) -> String {
+        let suffix = provider_id
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        let suffix = suffix.trim_matches('_');
+        if suffix.is_empty() {
+            "ccpanes_selected".to_string()
+        } else {
+            format!("ccpanes_{suffix}")
+        }
+    }
+
+    /// Apply the selected CC-Panes OpenAI provider as Codex per-launch config.
+    ///
+    /// `CODEX_API_KEY` and `OPENAI_BASE_URL` alone do not select a custom Codex
+    /// model provider when `config.toml` already declares `model_provider`.
+    /// These overrides make the launch deterministic while keeping the API key
+    /// in the process environment rather than in command-line arguments.
+    pub fn push_provider_overrides(
+        args: &mut Vec<String>,
+        env_inject: &mut HashMap<String, String>,
+        provider: Option<&crate::CliProvider>,
+    ) {
+        let Some(provider) = provider.filter(|provider| provider.provider_type == "open_ai") else {
+            return;
+        };
+
+        let provider_id = Self::codex_provider_id(&provider.id);
+        let provider_key = Self::format_toml_key_segment_for_cli(&provider_id);
+        let mut push = |value: String| {
+            args.push("-c".to_string());
+            args.push(value);
+        };
+
+        push(format!(
+            "model_provider={}",
+            Self::format_toml_string_for_cli(&provider_id)
+        ));
+        push(format!(
+            "model_providers.{provider_key}.name={}",
+            Self::format_toml_string_for_cli(&provider.name)
+        ));
+        if let Some(base_url) = provider
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            push(format!(
+                "model_providers.{provider_key}.base_url={}",
+                Self::format_toml_string_for_cli(base_url)
+            ));
+        }
+        if let Some(api_key) = provider
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            env_inject.insert(CCPANES_CODEX_API_KEY_ENV.to_string(), api_key.to_string());
+            push(format!(
+                "model_providers.{provider_key}.env_key={}",
+                Self::format_toml_string_for_cli(CCPANES_CODEX_API_KEY_ENV)
+            ));
+        }
+        push(format!(
+            "model_providers.{provider_key}.wire_api={}",
+            Self::format_toml_string_for_cli("responses")
+        ));
     }
 
     fn push_mcp_url_override(args: &mut Vec<String>, name: &str, url: &str) {
@@ -1275,7 +1354,7 @@ impl CliToolAdapter for CodexAdapter {
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let mut args = Vec::new();
-        let env_inject = HashMap::new();
+        let mut env_inject = HashMap::new();
 
         // 不隔离 CODEX_HOME：Codex 直接使用真实 ~/.codex（与 Claude 一致），
         // 这样 `codex resume <id>` 能命中真实 sessions、ccswitch 换 provider 后历史不丢。
@@ -1284,6 +1363,8 @@ impl CliToolAdapter for CodexAdapter {
         Self::migrate_legacy_isolated_sessions();
         Self::migrate_stale_global_ccpanes_mcp_config();
         Self::ensure_yolo_local_project_trust(ctx);
+
+        Self::push_provider_overrides(&mut args, &mut env_inject, ctx.provider.as_ref());
 
         // MCP 注入使用 Codex 的 per-launch -c override，避免写入用户全局 config.toml。
         if ctx.skip_mcp {
@@ -1492,6 +1573,62 @@ mod tests {
             .windows(2)
             .any(|pair| pair[0] == "resume" && pair[1] == "thread-123"));
         assert_eq!(result.args.last().map(String::as_str), Some("hello"));
+    }
+
+    #[test]
+    fn build_command_selects_explicit_open_ai_provider() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("codex-test"));
+        ctx.provider = Some(crate::CliProvider {
+            id: "provider/ai".to_string(),
+            name: "ai".to_string(),
+            provider_type: "open_ai".to_string(),
+            api_key: Some("secret-provider-key".to_string()),
+            base_url: Some("https://provider.example/v1".to_string()),
+            ..Default::default()
+        });
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(result
+            .args
+            .iter()
+            .any(|arg| { arg == "model_provider=\"ccpanes_provider_ai\"" }));
+        assert!(result.args.iter().any(|arg| {
+            arg == "model_providers.ccpanes_provider_ai.base_url=\"https://provider.example/v1\""
+        }));
+        assert!(result.args.iter().any(|arg| {
+            arg == "model_providers.ccpanes_provider_ai.env_key=\"CCPANES_CODEX_API_KEY\""
+        }));
+        assert!(result
+            .args
+            .iter()
+            .any(|arg| { arg == "model_providers.ccpanes_provider_ai.wire_api=\"responses\"" }));
+        assert_eq!(
+            result
+                .env_inject
+                .get("CCPANES_CODEX_API_KEY")
+                .map(String::as_str),
+            Some("secret-provider-key")
+        );
+        assert!(!result
+            .args
+            .iter()
+            .any(|arg| arg.contains("secret-provider-key")));
+    }
+
+    #[test]
+    fn build_command_leaves_local_codex_provider_untouched_without_selection() {
+        let adapter = CodexAdapter::new();
+        let ctx = test_context(Some("codex-test"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(!result
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("model_provider=")));
+        assert!(!result.env_inject.contains_key("CCPANES_CODEX_API_KEY"));
     }
 
     #[test]

@@ -49,8 +49,35 @@ impl ProviderService {
         Ok(())
     }
 
+    /// Refresh the in-memory snapshot before reads.
+    ///
+    /// The desktop process and the long-lived daemon each own a separate
+    /// `ProviderService`. Provider edits are written atomically by the desktop
+    /// process, so re-reading here makes the next daemon launch observe them
+    /// without requiring an application or daemon restart.
+    fn refresh_from_file(&self) {
+        let mut cached = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.config_path.is_file() {
+            return;
+        }
+
+        match Self::load_from_file(&self.config_path) {
+            Ok(config) => {
+                *cached = config;
+            }
+            Err(error) => {
+                warn!(
+                    path = %self.config_path.display(),
+                    error = %error,
+                    "[ProviderService] Failed to refresh providers config; keeping cached snapshot"
+                );
+            }
+        }
+    }
+
     /// 列出所有 Provider
     pub fn list_providers(&self) -> Vec<Provider> {
+        self.refresh_from_file();
         self.config
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -60,6 +87,7 @@ impl ProviderService {
 
     /// 获取指定 Provider
     pub fn get_provider(&self, id: &str) -> Option<Provider> {
+        self.refresh_from_file();
         self.config
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -71,6 +99,7 @@ impl ProviderService {
 
     /// 获取默认 Provider
     pub fn get_default_provider(&self) -> Option<Provider> {
+        self.refresh_from_file();
         let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
         config
             .providers
@@ -114,6 +143,7 @@ impl ProviderService {
     /// 只回传命中的**变量名**，绝不回传值——凭证不出后端。
     pub fn system_provider_info(&self) -> SystemProviderInfo {
         let (cc_switch, env_keys) = Self::probe_system_provider();
+        self.refresh_from_file();
         let default_is_system = self
             .config
             .lock()
@@ -265,6 +295,8 @@ impl ProviderService {
             return HashMap::new();
         }
 
+        self.refresh_from_file();
+
         let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
         let provider = if let Some(id) = provider_id {
@@ -387,6 +419,28 @@ mod tests {
             config_dir,
             is_default: false,
         }
+    }
+
+    #[test]
+    fn separate_service_instances_observe_provider_file_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        let daemon_service = ProviderService::new(path.clone());
+        let desktop_service = ProviderService::new(path);
+
+        desktop_service
+            .add_provider(make_provider("fresh-provider", true))
+            .unwrap();
+
+        let observed = daemon_service.get_provider("fresh-provider").unwrap();
+        assert_eq!(observed.name, "Provider fresh-provider");
+        assert_eq!(
+            daemon_service
+                .get_env_vars(Some("fresh-provider"))
+                .get("ANTHROPIC_API_KEY")
+                .map(String::as_str),
+            Some("sk-fresh-provider")
+        );
     }
 
     fn new_service(dir: &tempfile::TempDir) -> ProviderService {
