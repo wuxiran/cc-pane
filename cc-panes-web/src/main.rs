@@ -339,6 +339,12 @@ async fn main() -> anyhow::Result<()> {
     };
     let backend_state = create_terminal_backend(backend_config, ws_emitter.clone())?;
 
+    // 留一份 backend 句柄给优雅关闭路径：收到 Ctrl-C / SIGTERM 时先把本进程持有的
+    // PTY 子进程收干净，再退出。这是**协作式快路径**；父进程（CC-Panes）另有
+    // OS 级 job/进程组兜底（src-tauri/src/services/process_guard.rs），
+    // 覆盖本进程来不及响应信号的异常路径。两者是互补而非重复。
+    let shutdown_backend = backend_state.backend.clone();
+
     let state = AppState {
         terminal_backend: backend_state.backend,
         workspace_service,
@@ -390,8 +396,72 @@ async fn main() -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown_signal())
     .await?;
+
+    // 协作式清理：把本进程派生的 PTY 全部收掉，否则它们会比 server 活得久
+    // ——远程终端里的 CLI 会变成孤儿，端口与工作目录都不释放。
+    //
+    // 走 trait 的 get_all_status + kill 而不是具体类型的 cleanup_all()：
+    // `AppState.terminal_backend` 是 `Arc<dyn TerminalBackend>`，而 `cleanup_all`
+    // 只存在于 TerminalService 上。**daemon 模式下这一点尤其重要**——那时后端是
+    // 远端 daemon 的代理，本进程地址空间里根本没有 TerminalService
+    // （CLAUDE.md 记着这条：daemon 模式下 app 侧 sessions 恒为空）。
+    // 按 trait 逐个 kill 才能在两种后端下都成立。
+    info!("CC-Panes Web shutting down; cleaning up terminal sessions");
+    match shutdown_backend.get_all_status() {
+        Ok(sessions) => {
+            for session in sessions {
+                if let Err(error) = shutdown_backend.kill(&session.session_id) {
+                    tracing::warn!(
+                        session_id = %session.session_id,
+                        %error,
+                        "failed to clean up terminal session on shutdown"
+                    );
+                }
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%error, "failed to enumerate sessions for shutdown cleanup");
+        }
+    }
     Ok(())
+}
+
+/// 收到 Ctrl-C（全平台）或 SIGTERM（Unix）时 resolve。
+///
+/// Windows 上父进程走的是 `TerminateJobObject`（Win32 没有跨进程的优雅退出原语），
+/// 本函数那条路径不会被触发——那里靠父进程的 Job 兜底。这里主要覆盖 Unix
+/// 以及用户手动 Ctrl-C 的场景。
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            tracing::error!(%error, "failed to install Ctrl-C handler");
+            // 装不上处理器时不能立即返回：那等于"启动即关闭"。
+            std::future::pending::<()>().await;
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(error) => {
+                tracing::error!(%error, "failed to install SIGTERM handler");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
 }
 
 /// 决定监听地址。安全约束：非回环绑定必须已启用认证并配置密码——

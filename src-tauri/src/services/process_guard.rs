@@ -93,11 +93,23 @@ impl ProcessGuard {
         Ok(Self {})
     }
 
-    /// First, gentle termination request for the child and its descendants.
+    /// 请求子进程及其后代退出。**两个平台的"温和"程度并不相同**：
+    ///
+    /// - **Unix**：发 `SIGTERM`，进程有机会自己清理，是真正的优雅退出请求。
+    /// - **Windows**：`TerminateJobObject` **立即强杀整棵树**，没有优雅可言。
+    ///   Win32 没有跨进程的"请你退出"原语（`WM_CLOSE` 只对有窗口的进程有效，
+    ///   而 web server 是无窗口子进程）。
+    ///
+    /// 因此 Windows 上调用方那段 3 秒宽限期实际是"等强杀完成"，不是"等它自己收尾"。
+    /// 后果：远程终端里正在写文件/装包的命令会被直接打断，没有清理机会。
+    ///
+    /// 要在 Windows 上做到真优雅，得让 web server 自己暴露 shutdown 端点或控制管道，
+    /// 由调用方先通知、超时后再落到这里。那是 cc-panes-web 侧的改动，不在本次范围
+    /// （评审 #3，已登记）。
     pub fn request_terminate(&self, child: &mut Child) {
         #[cfg(windows)]
         {
-            // Terminating the job kills the child and every grandchild at once.
+            // 注意：这不是"请求"，是立即终止整个 Job。见上面的文档说明。
             self.job.terminate();
             let _ = child;
         }
