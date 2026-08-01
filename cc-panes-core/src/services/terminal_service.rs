@@ -28,6 +28,8 @@ mod csi_mode_detect;
 mod osc_resume_capture;
 mod osc_state_detect;
 mod shell_integration;
+#[cfg(windows)]
+mod windows_codex;
 mod wsl_codex;
 mod wsl_mcp_proxy;
 
@@ -2038,12 +2040,29 @@ impl TerminalService {
             (rid.to_string(), cli_tool.as_id().to_string(), command_line)
         });
 
+        #[cfg(windows)]
+        let (pty_command, pty_args) = if cli_tool == CliTool::Codex
+            && windows_codex::requires_powershell_bootstrap(&cwd)
+        {
+            info!(
+                session_id = %session_id,
+                cwd = %cwd.display(),
+                "create_session: using Windows PowerShell bootstrap for Codex in a non-ASCII cwd"
+            );
+            windows_codex::wrap_with_powershell(command, args, &mut env_vars)?
+        } else {
+            (command, args)
+        };
+
+        #[cfg(not(windows))]
+        let (pty_command, pty_args) = (command, args);
+
         let config = PtyConfig {
             cols,
             rows,
             cwd,
-            command,
-            args,
+            command: pty_command,
+            args: pty_args,
             env: env_vars,
             env_remove,
         };
