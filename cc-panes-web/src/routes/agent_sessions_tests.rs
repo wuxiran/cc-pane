@@ -74,6 +74,13 @@ fn project_sessions_query_uses_camel_case_field_names() {
     assert_eq!(query.limit, Some(3));
 }
 
+#[test]
+fn session_limits_preserve_zero_and_cap_oversized_values() {
+    assert_eq!(bounded_session_limit(Some(0), 10), 0);
+    assert_eq!(bounded_session_limit(Some(usize::MAX), 10), 100);
+    assert_eq!(bounded_session_limit(None, 10), 10);
+}
+
 fn index_entry(id: &str, cli_tool: &str, workspace: &str, mtime_ms: i64) -> SessionIndexEntry {
     SessionIndexEntry {
         session_id: id.to_string(),

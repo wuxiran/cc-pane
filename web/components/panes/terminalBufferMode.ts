@@ -135,7 +135,8 @@ export function createTerminalDataRenderer(): TerminalDataRenderer {
   };
 }
 
-const NORMAL_BUFFER_CLI_TOOLS = new Set(["claude", "codex"]);
+// OpenCode 也是全屏 TUI；保留主缓冲输出才能让退出/恢复后的历史继续可见。
+const NORMAL_BUFFER_CLI_TOOLS = new Set(["claude", "codex", "opencode"]);
 
 export function shouldKeepCliOutputInNormalBuffer(cliToolId: string): boolean {
   return NORMAL_BUFFER_CLI_TOOLS.has(cliToolId);

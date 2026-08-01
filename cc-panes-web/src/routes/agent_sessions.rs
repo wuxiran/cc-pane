@@ -12,6 +12,13 @@ use serde::Deserialize;
 
 use crate::state::AppState;
 
+const MAX_AGENT_SESSION_LIMIT: usize = 100;
+
+fn bounded_session_limit(limit: Option<usize>, default: usize) -> usize {
+    // HTTP 查询值先封顶，避免把 usize::MAX 一路传到 SQLite 并转换成负 LIMIT。
+    limit.unwrap_or(default).min(MAX_AGENT_SESSION_LIMIT)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSessionsQuery {
@@ -41,15 +48,18 @@ fn service_error(error: impl ToString) -> (StatusCode, String) {
 pub async fn list_claude_sessions(
     Query(query): Query<ProjectSessionsQuery>,
 ) -> Result<Json<Vec<claude_session_service::ClaudeSession>>, (StatusCode, String)> {
-    claude_session_service::list_sessions(&query.project_path, query.limit.unwrap_or(10))
-        .map(Json)
-        .map_err(service_error)
+    claude_session_service::list_sessions(
+        &query.project_path,
+        bounded_session_limit(query.limit, 10),
+    )
+    .map(Json)
+    .map_err(service_error)
 }
 
 pub async fn list_all_claude_sessions(
     Query(query): Query<SessionLimitQuery>,
 ) -> Result<Json<Vec<claude_session_service::ClaudeSession>>, (StatusCode, String)> {
-    claude_session_service::list_all_sessions(query.limit.unwrap_or(20))
+    claude_session_service::list_all_sessions(bounded_session_limit(query.limit, 20))
         .map(Json)
         .map_err(service_error)
 }
@@ -57,7 +67,7 @@ pub async fn list_all_claude_sessions(
 pub async fn list_codex_sessions(
     Query(query): Query<ProjectSessionsQuery>,
 ) -> Result<Json<Vec<codex_session_service::CodexSession>>, (StatusCode, String)> {
-    let limit = query.limit.unwrap_or(10);
+    let limit = bounded_session_limit(query.limit, 10);
     let result = if query.runtime_kind.as_deref() == Some("wsl") {
         codex_session_service::list_wsl_sessions(
             &query.project_path,
@@ -75,7 +85,7 @@ pub async fn list_codex_sessions(
 pub async fn list_opencode_sessions(
     Query(query): Query<ProjectSessionsQuery>,
 ) -> Result<Json<Vec<opencode_session_service::OpenCodeSession>>, (StatusCode, String)> {
-    let limit = query.limit.unwrap_or(10);
+    let limit = bounded_session_limit(query.limit, 10);
     let result = if query.runtime_kind.as_deref() == Some("wsl") {
         opencode_session_service::list_wsl_sessions(
             &query.project_path,

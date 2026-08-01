@@ -11,11 +11,13 @@
 //! 该分支 27 个文件里 main 已有 24 个更新版本，只有本文件与前端的
 //! `opencodeService.ts` 是 main 真正缺失的能力。
 
-use chrono::Utc;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+
+use super::codex_session_service::normalize_cross_platform_compare_path;
+use crate::utils::{canonical_project_path, project_identity_key};
 
 #[cfg(windows)]
 use crate::utils::no_window_command;
@@ -29,61 +31,44 @@ pub struct OpenCodeSession {
     pub description: String,
 }
 
-/// 归一化项目路径用于会话匹配。OpenCode TUI 启动后靠项目路径反查会话，注册路径可能是
-/// Windows 盘符（`D:\x`）、WSL UNC（`\\wsl.localhost\Ubuntu\mnt\d\x`）或 WSL 内 POSIX
-/// （`/mnt/d/x`、`/home/...`），而 opencode.db 里的目录是 POSIX 形态。这里把各形态统一到
-/// WSL 视角的 POSIX 路径再 lowercase，否则 WSL-UNC 注册的项目会匹配不上 `/mnt/...` 会话目录。
-fn normalize_compare_path(path: &str) -> String {
-    let stripped = strip_extended_length_prefix(path);
-    let slashed = stripped.replace('\\', "/");
-
-    // WSL UNC（//wsl.localhost/<distro>/… | //wsl$/<distro>/… | //wsl/<distro>/…）
-    // → 取 distro 内的 POSIX 绝对路径。
-    if let Some(rest) = strip_wsl_unc_prefix(&slashed) {
-        return rest.trim_end_matches('/').to_lowercase();
-    }
-    if let Some(mnt) = drive_to_mnt_path(&slashed) {
-        return mnt.trim_end_matches('/').to_lowercase();
-    }
-    slashed.trim_end_matches('/').to_lowercase()
+#[derive(Debug, Serialize)]
+struct ProjectPathFilter {
+    candidates: Vec<String>,
+    case_insensitive: bool,
 }
 
-/// 剥离 Windows 扩展长度前缀：`\\?\UNC\server\share` → `\\server\share`；`\\?\D:\x` → `D:\x`。
-fn strip_extended_length_prefix(path: &str) -> String {
-    let lower = path.to_ascii_lowercase();
-    if lower.starts_with(r"\\?\unc\") {
-        return format!(r"\\{}", &path[r"\\?\UNC\".len()..]);
+/// OpenCode 的数据库可能记录 Windows 盘符或 WSL 内的 `/mnt/<drive>`。比较键直接复用
+/// Codex 反查语义，避免两套会话服务对 POSIX 大小写得出不同结论。
+fn project_path_filter(path: &str) -> ProjectPathFilter {
+    let normalized = normalize_cross_platform_compare_path(path);
+    let canonical = canonical_project_path(path);
+    let case_insensitive = canonical != project_identity_key(path);
+    let canonical_candidate = canonical
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
+    let mut candidates = vec![canonical_candidate];
+    // Codex 的 POSIX 键只用于盘符/WSL 到数据库目录的跨形态映射；其 UNC/相对路径兜底会
+    // lowercase，不能反过来放松 canonical_project_path 的大小写语义。
+    if normalized.starts_with('/') && !normalized.starts_with("//") {
+        candidates.push(normalized);
     }
-    if let Some(rest) = path.strip_prefix(r"\\?\") {
-        return rest.to_string();
+    if case_insensitive {
+        candidates
+            .iter_mut()
+            .for_each(|path| path.make_ascii_lowercase());
     }
-    path.to_string()
+    candidates.sort();
+    candidates.dedup();
+    ProjectPathFilter {
+        candidates,
+        case_insensitive,
+    }
 }
 
-/// 识别 WSL UNC 主机（wsl.localhost / wsl$ / wsl）并返回 distro 内的 POSIX 路径（含前导 `/`）。
-/// 入参须已把 `\` 转 `/`。非 WSL 主机返回 None。
-fn strip_wsl_unc_prefix(slashed: &str) -> Option<&str> {
-    let rest = slashed.strip_prefix("//")?;
-    let lower = rest.to_ascii_lowercase();
-    let is_wsl_host = lower.starts_with("wsl.localhost/")
-        || lower.starts_with("wsl$/")
-        || lower.starts_with("wsl/");
-    if !is_wsl_host {
-        return None;
-    }
-    let host_slash = rest.find('/')?;
-    let after_host = &rest[host_slash + 1..];
-    let distro_slash = after_host.find('/')?;
-    Some(&after_host[distro_slash..])
-}
-
-fn drive_to_mnt_path(slashed: &str) -> Option<String> {
-    let bytes = slashed.as_bytes();
-    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/' {
-        let drive = bytes[0].to_ascii_lowercase() as char;
-        return Some(format!("/mnt/{}{}", drive, &slashed[2..]));
-    }
-    None
+fn sqlite_limit(limit: usize) -> i64 {
+    // `usize as i64` can wrap to a negative SQLite LIMIT (negative means unlimited).
+    i64::try_from(limit).unwrap_or(i64::MAX)
 }
 
 fn default_data_dir() -> Result<PathBuf, String> {
@@ -207,10 +192,29 @@ fn resolve_wsl_distro(distro: Option<&str>) -> Result<String, String> {
 }
 
 pub fn list_all_sessions(limit: usize) -> Result<Vec<OpenCodeSession>, String> {
-    list_all_sessions_from_db(&default_db_path()?, limit)
+    query_sessions_from_db(&default_db_path()?, None, None, limit)
 }
 
+#[cfg(test)]
 fn list_all_sessions_from_db(path: &Path, limit: usize) -> Result<Vec<OpenCodeSession>, String> {
+    query_sessions_from_db(path, None, None, limit)
+}
+
+fn list_sessions_from_db(
+    path: &Path,
+    project_path: &str,
+    limit: usize,
+) -> Result<Vec<OpenCodeSession>, String> {
+    let filter = project_path_filter(project_path);
+    query_sessions_from_db(path, Some(&filter), None, limit)
+}
+
+fn query_sessions_from_db(
+    path: &Path,
+    project_filter: Option<&ProjectPathFilter>,
+    after_seconds: Option<i64>,
+    limit: usize,
+) -> Result<Vec<OpenCodeSession>, String> {
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -227,20 +231,72 @@ fn list_all_sessions_from_db(path: &Path, limit: usize) -> Result<Vec<OpenCodeSe
             FROM session
             LEFT JOIN project ON project.id = session.project_id
             WHERE session.time_archived IS NULL
+              AND (
+                    ?1 = 0
+                    OR (
+                        ?2 = 1
+                        AND lower(rtrim(replace(
+                            COALESCE(NULLIF(project.worktree, ''), NULLIF(session.directory, ''), '/'),
+                            char(92), '/'
+                        ), '/')) IN (?3, ?4)
+                    )
+                    OR (
+                        ?2 = 0
+                        AND rtrim(replace(
+                            COALESCE(NULLIF(project.worktree, ''), NULLIF(session.directory, ''), '/'),
+                            char(92), '/'
+                        ), '/') IN (?3, ?4)
+                    )
+              )
+              AND (
+                    ?5 IS NULL
+                    OR CASE
+                        WHEN session.time_updated > 10000000000
+                            THEN session.time_updated / 1000
+                        ELSE session.time_updated
+                    END >= ?5
+              )
             ORDER BY session.time_updated DESC
-            LIMIT ?1
+            LIMIT ?6
             "#,
         )
         .map_err(|error| format!("Failed to prepare OpenCode session query: {}", error))?;
 
+    let (filter_enabled, case_insensitive, candidate_one, candidate_two) = match project_filter {
+        Some(filter) => {
+            let first = filter.candidates.first().cloned().unwrap_or_default();
+            let second = filter
+                .candidates
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| first.clone());
+            let case_insensitive = if filter.case_insensitive {
+                1_i64
+            } else {
+                0_i64
+            };
+            (1_i64, case_insensitive, first, second)
+        }
+        None => (0_i64, 0_i64, String::new(), String::new()),
+    };
     let rows = stmt
-        .query_map([limit as i64], |row| {
-            let id: String = row.get(0)?;
-            let project_path: String = row.get(1)?;
-            let title: String = row.get(2)?;
-            let time_updated: i64 = row.get(3)?;
-            Ok((id, project_path, title, time_updated))
-        })
+        .query_map(
+            params![
+                filter_enabled,
+                case_insensitive,
+                candidate_one,
+                candidate_two,
+                after_seconds,
+                sqlite_limit(limit),
+            ],
+            |row| {
+                let id: String = row.get(0)?;
+                let project_path: String = row.get(1)?;
+                let title: String = row.get(2)?;
+                let time_updated: i64 = row.get(3)?;
+                Ok((id, project_path, title, time_updated))
+            },
+        )
         .map_err(|error| format!("Failed to query OpenCode sessions: {}", error))?;
 
     let mut sessions = Vec::new();
@@ -260,70 +316,65 @@ fn list_all_sessions_from_db(path: &Path, limit: usize) -> Result<Vec<OpenCodeSe
     Ok(sessions)
 }
 
-fn filter_sessions(
-    sessions: Vec<OpenCodeSession>,
-    project_path: &str,
-    limit: usize,
-) -> Vec<OpenCodeSession> {
-    let target = normalize_compare_path(project_path);
-    let mut filtered = sessions
-        .into_iter()
-        .filter(|session| normalize_compare_path(&session.project_path) == target)
-        .collect::<Vec<_>>();
-    filtered.truncate(limit);
-    filtered
-}
-
 pub fn list_sessions(project_path: &str, limit: usize) -> Result<Vec<OpenCodeSession>, String> {
-    Ok(filter_sessions(
-        list_all_sessions(limit.saturating_mul(4).max(limit))?,
-        project_path,
-        limit,
-    ))
+    // 项目条件必须先进入 SQL；全局 LIMIT 后再过滤会让活跃项目挤掉目标项目的历史。
+    list_sessions_from_db(&default_db_path()?, project_path, limit)
 }
 
 pub fn detect_session(
     cli_project_paths: &[&str],
     after: chrono::DateTime<chrono::Utc>,
 ) -> Result<Option<String>, String> {
-    detect_in_sessions(list_all_sessions(500)?, cli_project_paths, after)
+    detect_session_from_db(&default_db_path()?, cli_project_paths, after)
 }
 
-fn detect_in_sessions(
-    mut sessions: Vec<OpenCodeSession>,
+fn detect_session_from_db(
+    path: &Path,
     cli_project_paths: &[&str],
     after: chrono::DateTime<chrono::Utc>,
 ) -> Result<Option<String>, String> {
-    let targets = cli_project_paths
-        .iter()
-        .map(|path| normalize_compare_path(path))
-        .collect::<Vec<_>>();
-    let after_relaxed = after - chrono::Duration::seconds(1);
-
-    sessions.sort_by_key(|session| std::cmp::Reverse(session.modified_at));
-    for session in sessions {
-        let modified_at = chrono::DateTime::<Utc>::from_timestamp(session.modified_at as i64, 0)
-            .ok_or_else(|| "Invalid OpenCode session timestamp".to_string())?;
-        if modified_at < after_relaxed {
-            continue;
-        }
-        if targets.contains(&normalize_compare_path(&session.project_path)) {
-            return Ok(Some(session.id));
+    let after_seconds = (after - chrono::Duration::seconds(1)).timestamp();
+    let mut newest: Option<OpenCodeSession> = None;
+    for project_path in cli_project_paths {
+        let filter = project_path_filter(project_path);
+        if let Some(session) = query_sessions_from_db(path, Some(&filter), Some(after_seconds), 1)?
+            .into_iter()
+            .next()
+        {
+            if newest
+                .as_ref()
+                .is_none_or(|current| session.modified_at > current.modified_at)
+            {
+                newest = Some(session);
+            }
         }
     }
-
-    Ok(None)
+    Ok(newest.map(|session| session.id))
 }
 
 #[cfg(windows)]
 fn collect_wsl_sessions(
     limit: usize,
     distro: Option<&str>,
+    project_paths: &[&str],
+    after_seconds: Option<i64>,
 ) -> Result<Vec<OpenCodeSession>, String> {
     let distro = resolve_wsl_distro(distro)?;
     let wsl_path = which::which("wsl.exe")
         .or_else(|_| which::which("wsl"))
         .map_err(|_| "wsl.exe not found in PATH".to_string())?;
+    let filters = project_paths
+        .iter()
+        .map(|path| project_path_filter(path))
+        .collect::<Vec<_>>();
+    let query_json = serde_json::to_string(&serde_json::json!({
+        "filters": filters,
+        "after_seconds": after_seconds,
+        "limit": sqlite_limit(limit),
+    }))
+    .map_err(|error| format!("Failed to serialize WSL OpenCode query: {}", error))?;
+    let query_literal = serde_json::to_string(&query_json)
+        .map_err(|error| format!("Failed to quote WSL OpenCode query: {}", error))?;
 
     let script = format!(
         r###"PY_BIN=""
@@ -340,7 +391,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-LIMIT = {limit}
+QUERY = json.loads({query_literal})
 DATA_DIR = Path(os.environ.get("OPENCODE_DATA_DIR") or (Path.home() / ".local" / "share" / "opencode"))
 DB_PATH = DATA_DIR / "opencode.db"
 
@@ -380,10 +431,22 @@ def description(conn, session_id, fallback):
             return truncate(text)
     return fallback or ""
 
+def path_matches(value):
+    normalized = (value or "/").replace(chr(92), "/").rstrip("/")
+    filters = QUERY["filters"]
+    if not filters:
+        return 1
+    for item in filters:
+        candidate = normalized.lower() if item["case_insensitive"] else normalized
+        if candidate in item["candidates"]:
+            return 1
+    return 0
+
 if not DB_PATH.exists():
     raise SystemExit(0)
 
 conn = sqlite3.connect(f"file:{{DB_PATH}}?mode=ro", uri=True)
+conn.create_function("cc_path_matches", 1, path_matches)
 rows = conn.execute(
     """
     SELECT
@@ -394,10 +457,20 @@ rows = conn.execute(
     FROM session
     LEFT JOIN project ON project.id = session.project_id
     WHERE session.time_archived IS NULL
+      AND cc_path_matches(
+            COALESCE(NULLIF(project.worktree, ''), NULLIF(session.directory, ''), '/')
+      ) = 1
+      AND (
+            ? IS NULL
+            OR CASE
+                WHEN session.time_updated > 10000000000 THEN session.time_updated / 1000
+                ELSE session.time_updated
+            END >= ?
+      )
     ORDER BY session.time_updated DESC
     LIMIT ?
     """,
-    (LIMIT,),
+    (QUERY["after_seconds"], QUERY["after_seconds"], QUERY["limit"]),
 ).fetchall()
 
 for session_id, project_path, title, time_updated in rows:
@@ -409,7 +482,7 @@ for session_id, project_path, title, time_updated in rows:
         "description": description(conn, session_id, title),
     }}, ensure_ascii=False))
 PY"###,
-        limit = limit,
+        query_literal = query_literal,
     );
 
     let output = no_window_command(&wsl_path)
@@ -432,6 +505,8 @@ PY"###,
 fn collect_wsl_sessions(
     _limit: usize,
     _distro: Option<&str>,
+    _project_paths: &[&str],
+    _after_seconds: Option<i64>,
 ) -> Result<Vec<OpenCodeSession>, String> {
     Err("WSL OpenCode session extraction is only supported on Windows hosts".to_string())
 }
@@ -441,18 +516,15 @@ pub fn list_wsl_sessions(
     limit: usize,
     distro: Option<&str>,
 ) -> Result<Vec<OpenCodeSession>, String> {
-    Ok(filter_sessions(
-        collect_wsl_sessions(limit.saturating_mul(4).max(limit), distro)?,
-        project_path,
-        limit,
-    ))
+    // WSL 内也必须在 SQLite 查询阶段筛项目，不能先做全局 LIMIT。
+    collect_wsl_sessions(limit, distro, &[project_path], None)
 }
 
 pub fn list_all_wsl_sessions(
     limit: usize,
     distro: Option<&str>,
 ) -> Result<Vec<OpenCodeSession>, String> {
-    collect_wsl_sessions(limit, distro)
+    collect_wsl_sessions(limit, distro, &[], None)
 }
 
 pub fn detect_wsl_session(
@@ -460,16 +532,19 @@ pub fn detect_wsl_session(
     after: chrono::DateTime<chrono::Utc>,
     distro: Option<&str>,
 ) -> Result<Option<String>, String> {
-    detect_in_sessions(
-        list_all_wsl_sessions(500, distro)?,
-        cli_project_paths,
-        after,
+    let after_seconds = (after - chrono::Duration::seconds(1)).timestamp();
+    Ok(
+        collect_wsl_sessions(1, distro, cli_project_paths, Some(after_seconds))?
+            .into_iter()
+            .next()
+            .map(|session| session.id),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use rusqlite::Connection;
     use tempfile::NamedTempFile;
 
@@ -530,6 +605,43 @@ mod tests {
         file
     }
 
+    fn set_project_path(db: &NamedTempFile, path: &str) {
+        let conn = Connection::open(db.path()).unwrap();
+        conn.execute(
+            "UPDATE project SET worktree = ?1 WHERE id = 'proj-1'",
+            [path],
+        )
+        .unwrap();
+    }
+
+    fn insert_distractor_sessions(db: &NamedTempFile, count: usize) {
+        let mut conn = Connection::open(db.path()).unwrap();
+        let transaction = conn.transaction().unwrap();
+        transaction
+            .execute(
+                "INSERT INTO project (id, worktree) VALUES (?1, ?2)",
+                ("proj-other", "/repo/other"),
+            )
+            .unwrap();
+        for index in 0..count {
+            transaction
+                .execute(
+                    "INSERT INTO session (
+                        id, project_id, title, directory, time_updated, time_archived
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+                    params![
+                        format!("other-{index}"),
+                        "proj-other",
+                        "Other project",
+                        "/repo/other",
+                        1_785_000_000_001_i64 + index as i64,
+                    ],
+                )
+                .unwrap();
+        }
+        transaction.commit().unwrap();
+    }
+
     #[test]
     fn list_all_sessions_reads_opencode_sqlite() {
         let db = create_db();
@@ -544,63 +656,72 @@ mod tests {
     }
 
     #[test]
-    fn filter_sessions_matches_normalized_paths() {
-        let sessions = vec![OpenCodeSession {
-            id: "ses_win".to_string(),
-            project_path: "/mnt/d/repo/project".to_string(),
-            modified_at: 1000,
-            file_path: "db#session:ses_win".to_string(),
-            description: String::new(),
-        }];
+    fn list_sessions_filters_before_applying_limit() {
+        let db = create_db();
+        insert_distractor_sessions(&db, 5);
 
-        let filtered = filter_sessions(sessions, "D:\\repo\\project", 10);
+        let sessions = list_sessions_from_db(db.path(), "/repo/project", 1).unwrap();
 
-        assert_eq!(filtered[0].id, "ses_win");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "ses_1");
     }
 
     #[test]
-    fn filter_sessions_matches_wsl_unc_registered_path() {
-        // 会话目录是 WSL 内 POSIX，注册路径是 WSL UNC —— 二者必须归一到同一形态才匹配。
-        let sessions = vec![OpenCodeSession {
-            id: "ses_unc".to_string(),
-            project_path: "/mnt/d/04_workspace_rust/cc-book".to_string(),
-            modified_at: 1000,
-            file_path: "db#session:ses_unc".to_string(),
-            description: String::new(),
-        }];
+    fn list_sessions_matches_windows_drive_case_insensitively() {
+        let db = create_db();
+        set_project_path(&db, "/mnt/d/Repo/Project");
 
-        let filtered = filter_sessions(
-            sessions,
+        let sessions = list_sessions_from_db(db.path(), "D:\\repo\\project", 10).unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "ses_1");
+    }
+
+    #[test]
+    fn list_sessions_matches_wsl_unc_registered_path() {
+        let db = create_db();
+        set_project_path(&db, "/mnt/d/04_workspace_rust/cc-book");
+
+        let sessions = list_sessions_from_db(
+            db.path(),
             "\\\\wsl.localhost\\Ubuntu\\mnt\\d\\04_workspace_rust\\cc-book",
             10,
-        );
+        )
+        .unwrap();
 
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].id, "ses_unc");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "ses_1");
     }
 
     #[test]
-    fn detect_session_picks_recent_matching_project() {
-        let sessions = vec![
-            OpenCodeSession {
-                id: "old".to_string(),
-                project_path: "/repo/project".to_string(),
-                modified_at: 900,
-                file_path: String::new(),
-                description: String::new(),
-            },
-            OpenCodeSession {
-                id: "new".to_string(),
-                project_path: "/repo/project".to_string(),
-                modified_at: 1000,
-                file_path: String::new(),
-                description: String::new(),
-            },
-        ];
+    fn list_sessions_keeps_posix_paths_case_sensitive() {
+        let db = create_db();
+        set_project_path(&db, "/home/dev/Repo");
 
-        let after = chrono::DateTime::<Utc>::from_timestamp(999, 0).unwrap();
-        let got = detect_in_sessions(sessions, &["/repo/project"], after).unwrap();
+        let exact = list_sessions_from_db(db.path(), "/home/dev/Repo", 10).unwrap();
+        let different_case = list_sessions_from_db(db.path(), "/home/dev/repo", 10).unwrap();
 
-        assert_eq!(got, Some("new".to_string()));
+        assert_eq!(exact.len(), 1);
+        assert!(different_case.is_empty());
+    }
+
+    #[test]
+    fn detect_session_filters_project_before_limit() {
+        let db = create_db();
+        insert_distractor_sessions(&db, 501);
+
+        let after = chrono::DateTime::<Utc>::from_timestamp(1_784_999_999, 0).unwrap();
+        let got = detect_session_from_db(db.path(), &["/repo/project"], after).unwrap();
+
+        assert_eq!(got, Some("ses_1".to_string()));
+    }
+
+    #[test]
+    fn sqlite_limit_never_wraps_negative() {
+        assert_eq!(
+            sqlite_limit(usize::MAX),
+            i64::try_from(usize::MAX).unwrap_or(i64::MAX)
+        );
+        assert!(sqlite_limit(usize::MAX) >= 0);
     }
 }

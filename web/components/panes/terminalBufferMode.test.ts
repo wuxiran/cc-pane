@@ -22,6 +22,7 @@ describe("terminalBufferMode", () => {
   it("keeps agent CLI output in the normal buffer", () => {
     expect(shouldKeepCliOutputInNormalBuffer("codex")).toBe(true);
     expect(shouldKeepCliOutputInNormalBuffer("claude")).toBe(true);
+    expect(shouldKeepCliOutputInNormalBuffer("opencode")).toBe(true);
     expect(shouldKeepCliOutputInNormalBuffer("gemini")).toBe(false);
     expect(shouldKeepCliOutputInNormalBuffer("none")).toBe(false);
   });

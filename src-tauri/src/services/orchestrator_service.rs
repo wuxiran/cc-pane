@@ -2926,7 +2926,7 @@ struct McpListClaudeSessionsParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpListResumeSessionsParams {
-    /// CLI 工具类型：`"claude"` | `"codex"`，默认 `"claude"`
+    /// CLI 工具类型：`"claude"` | `"codex"` | `"opencode"`，默认 `"claude"`
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
     /// 运行环境：`"local"` | `"wsl"`，默认 `"local"`
@@ -2964,7 +2964,7 @@ struct McpCreateTaskBindingParams {
     /// 关联终端会话 ID
     #[serde(rename = "sessionId")]
     session_id: Option<String>,
-    /// Claude/Codex 可恢复会话 ID
+    /// Claude/Codex/OpenCode 可恢复会话 ID
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
     /// UI pane ID（仅作快速定位缓存）
@@ -3014,7 +3014,7 @@ struct McpUpdateTaskBindingParams {
     /// 关联终端会话 ID
     #[serde(rename = "sessionId")]
     session_id: Option<String>,
-    /// Claude/Codex 可恢复会话 ID
+    /// Claude/Codex/OpenCode 可恢复会话 ID
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
     /// UI pane ID
@@ -3117,7 +3117,7 @@ struct McpRegisterPlanLeaderParams {
     /// leader 的 PTY session ID
     #[serde(rename = "sessionId")]
     session_id: String,
-    /// leader 的 Claude/Codex resume ID
+    /// leader 的 Claude/Codex/OpenCode resume ID
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
     /// UI pane ID
@@ -3155,7 +3155,7 @@ struct McpRegisterPlanWorkerParams {
     title: Option<String>,
     /// 完整 prompt（可选，用于审计/重派）
     prompt: Option<String>,
-    /// worker 的 Claude/Codex resume ID
+    /// worker 的 Claude/Codex/OpenCode resume ID
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
     /// UI pane ID
@@ -6188,7 +6188,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 查询指定 CLI 的历史会话列表（Claude/Codex）。
+    /// 查询指定 CLI 的历史会话列表（Claude/Codex/OpenCode）。
     /// 返回 sessionId（可用作 launch_task 的 resumeId）、description、modifiedAt、projectPath、cliTool。
     #[tool]
     async fn list_resume_sessions(
@@ -6251,6 +6251,42 @@ impl McpToolHandler {
                                 "modifiedAt": session.modified_at,
                                 "description": session.description,
                                 "cliTool": "codex",
+                                "runtimeKind": runtime_kind,
+                                "wslDistro": params.wsl_distro,
+                            })
+                        })
+                        .collect()
+                })
+            }
+            "opencode" => {
+                let sessions = if runtime_kind == "wsl" {
+                    if let Some(ref project_path) = params.project_path {
+                        crate::services::opencode_session_service::list_wsl_sessions(
+                            project_path,
+                            limit,
+                            params.wsl_distro.as_deref(),
+                        )
+                    } else {
+                        crate::services::opencode_session_service::list_all_wsl_sessions(
+                            limit,
+                            params.wsl_distro.as_deref(),
+                        )
+                    }
+                } else if let Some(ref project_path) = params.project_path {
+                    crate::services::opencode_session_service::list_sessions(project_path, limit)
+                } else {
+                    crate::services::opencode_session_service::list_all_sessions(limit)
+                };
+                sessions.map(|items| {
+                    items
+                        .into_iter()
+                        .map(|session| {
+                            serde_json::json!({
+                                "sessionId": session.id,
+                                "projectPath": session.project_path,
+                                "modifiedAt": session.modified_at,
+                                "description": session.description,
+                                "cliTool": "opencode",
                                 "runtimeKind": runtime_kind,
                                 "wslDistro": params.wsl_distro,
                             })
@@ -7814,7 +7850,7 @@ impl ServerHandler for McpToolHandler {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(concat!(
-                "CC-Panes Orchestrator: 多 CLI（Claude/Codex）多实例编排与工作空间管理。\n",
+                "CC-Panes Orchestrator: 多 CLI（Claude/Codex/OpenCode）多实例编排与工作空间管理。\n",
                 "工具按需调用，完整列表见 tools/list。\n",
                 "典型流程: launch_task → wait_for_session → get_session_output。\n",
                 "Leader 下行: register_plan_leader/register_plan_worker → send_to_worker；目标 busy 时自动排队并在空闲边沿补投。\n",
