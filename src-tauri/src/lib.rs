@@ -215,6 +215,7 @@ use commands::{
     list_claude_sessions,
     list_cli_tools,
     list_codex_sessions,
+    list_opencode_sessions,
     // Local History - 删除文件 + 压缩
     list_deleted_files,
     // Local History - 目录级历史 + 最近更改
@@ -2441,6 +2442,7 @@ pub fn run() {
             list_claude_sessions,
             list_all_claude_sessions,
             list_codex_sessions,
+            list_opencode_sessions,
             scan_broken_sessions,
             clean_session_file,
             clean_all_broken_sessions,
