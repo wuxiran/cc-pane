@@ -57,6 +57,8 @@ import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeybo
 import { detectFocusReportMode, isXtermFocusReportInput } from "./terminalFocusReport";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import { getCliInstallHint } from "./terminalCliInstallHint";
+import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "./terminalLaunchIdentity";
+import { notifySessionClaimed } from "./terminalSessionNotices";
 import {
   createTerminalLayoutScheduler,
   type TerminalLayoutRequestOptions,
@@ -138,19 +140,6 @@ function normalizeTerminalCursorStyle(value?: string | null): TerminalCursorStyl
   return value === "underline" || value === "bar" ? value : "block";
 }
 
-function resolveCliTool(cliTool?: CliTool, launchClaude?: boolean): string {
-  return cliTool ?? (launchClaude ? "claude" : "none");
-}
-
-function resolveRuntimeKind(
-  ssh?: SshConnectionInfo,
-  wsl?: WslLaunchInfo,
-): "local" | "wsl" | "ssh" {
-  if (ssh) return "ssh";
-  if (wsl) return "wsl";
-  return "local";
-}
-
 function findLiveSavedSessionId(savedSessionId?: string): string | null {
   if (!savedSessionId) return null;
   // 读共享状态缓存（useTerminalStatusStore，由 terminal-status 事件 + 定时刷新维护），
@@ -169,24 +158,6 @@ function writeTerminalReply(
 ) {
   if (!sessionId) return;
   void terminalService.write(sessionId, response, { source: "system" }).catch(onError);
-}
-
-/**
- * 会话被另一个 CC-Panes 实例持有写权限时提示用户（docs/61 阶段 2）。
- *
- * 按会话去重 + 冷却：否则用户每敲一个字符都会弹一次 toast。
- * 冷却窗口取 30s，与 daemon 侧租约 TTL 一致——租约过期后本实例可能重新拿到
- * 写权限，那时再提示才有意义。
- */
-const sessionClaimedNotifiedAt = new Map<string, number>();
-const SESSION_CLAIMED_NOTICE_COOLDOWN_MS = 30_000;
-
-function notifySessionClaimed(sessionId: string, message: string) {
-  const now = Date.now();
-  const last = sessionClaimedNotifiedAt.get(sessionId) ?? 0;
-  if (now - last < SESSION_CLAIMED_NOTICE_COOLDOWN_MS) return;
-  sessionClaimedNotifiedAt.set(sessionId, now);
-  toast.warning(message);
 }
 
 function applyTerminalElementTheme(
@@ -247,14 +218,6 @@ interface TerminalViewProps {
   onSessionExited?: (exitCode: number) => void;
   /** Optional SSH reconnect callback for disconnected sessions. */
   onReconnect?: () => Promise<string | null>;
-}
-
-function nextLaunchId(previous?: string): string {
-  let launchId: string;
-  do {
-    launchId = `launch-${crypto.randomUUID()}`;
-  } while (launchId === previous);
-  return launchId;
 }
 
 export interface TerminalViewHandle {
@@ -1659,9 +1622,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 const originLayoutId = props.tabId
                   ? usePanesStore.getState().findTabAcrossLayouts(props.tabId)?.layoutId
                   : undefined;
-                createdLaunchId = props.restoring || (props.launchAttempt ?? 0) > 0
-                  ? nextLaunchId(props.launchId)
-                  : props.launchId ?? nextLaunchId();
+                createdLaunchId = resolveLaunchId({
+                  launchId: props.launchId,
+                  restoring: props.restoring,
+                  launchAttempt: props.launchAttempt,
+                });
                 if (props.tabId && props.paneId) {
                   usePanesStore.getState().updateTerminalLaunchId(
                     props.tabId,
@@ -2092,7 +2057,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 const originLayoutId = props.tabId
                   ? usePanesStore.getState().findTabAcrossLayouts(props.tabId)?.layoutId
                   : undefined;
-                createdLaunchId = nextLaunchId(props.launchId);
+                createdLaunchId = resolveLaunchId({
+                  launchId: props.launchId,
+                  forceNew: true,
+                });
                 if (props.tabId && props.paneId) {
                   usePanesStore.getState().updateTerminalLaunchId(
                     props.tabId,

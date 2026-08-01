@@ -25,6 +25,8 @@ import {
   syncWorkingCopyToCurrentLayout,
 } from "./paneLayoutHelpers";
 import { createBrowserTabActions } from "./browserTabActions";
+import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
+import { migratePersistedPanes } from "./panesPersistMigrations";
 import type {
   ClosedTabSnapshot,
   CreateTabOptions,
@@ -111,11 +113,10 @@ function createTab(opts: CreateTabOptions): Tab {
     type: "leaf",
     id: generateId("terminal-pane"),
     launchId: launchId ?? generateId("launch"),
-    restoreMode: (cliTool ?? (resumeId ? "claude" : "none")) === "none"
-      ? "shell"
-      : resumeId && resumeId !== "new"
-        ? "resumed"
-        : "fresh",
+    restoreMode: resolveRestoreMode({
+      cliTool: inferCliTool(cliTool, resumeId),
+      resumeId,
+    }),
     sessionId: sessionId ?? null,
     resumeId,
     workspaceName,
@@ -166,11 +167,10 @@ function cloneTerminalLeaf(source: TerminalPaneLeaf): TerminalPaneLeaf {
     ...source,
     id: generateId("terminal-pane"),
     launchId: generateId("launch"),
-    restoreMode: (source.cliTool ?? (source.launchClaude || source.resumeId ? "claude" : "none")) === "none"
-      ? "shell"
-      : source.resumeId && source.resumeId !== "new"
-        ? "resumed"
-        : "fresh",
+    restoreMode: resolveRestoreMode({
+      cliTool: inferCliTool(source.cliTool, source.launchClaude, source.resumeId),
+      resumeId: source.resumeId,
+    }),
     sessionId: null,
     disconnected: false,
     restoring: false,
@@ -217,11 +217,10 @@ function syncTabTerminalState(tab: Tab): void {
       type: "leaf",
       id: generateId("terminal-pane"),
       launchId: generateId("launch"),
-      restoreMode: (tab.cliTool ?? (tab.launchClaude || tab.resumeId ? "claude" : "none")) === "none"
-        ? "shell"
-        : tab.resumeId && tab.resumeId !== "new"
-          ? "resumed"
-          : "fresh",
+      restoreMode: resolveRestoreMode({
+        cliTool: inferCliTool(tab.cliTool, tab.launchClaude, tab.resumeId),
+        resumeId: tab.resumeId,
+      }),
       sessionId: tab.sessionId ?? null,
       resumeId: tab.resumeId,
       resumeIdSource: tab.resumeIdSource,
@@ -858,17 +857,19 @@ function cleanRehydratedPanes(node: PaneNode) {
           // 老快照没有 leaf.launchId：迁移时补一个稳定值，首次真正创建 PTY
           // 时 TerminalView 仍会换成新的 one-shot launch id。
           leaf.launchId ??= generateId("launch");
-          const hasRestorableSession = Boolean(leaf.sessionId || leaf.savedSessionId || leaf.restoring);
-          const cliTool = leaf.cliTool
-            ?? tab.cliTool
-            ?? (leaf.launchClaude || tab.launchClaude || leaf.resumeId || tab.resumeId
-              ? "claude"
-              : "none");
-          leaf.restoreMode = cliTool === "none"
-            ? "shell"
-            : hasRestorableSession || (leaf.resumeId && leaf.resumeId !== "new")
-              ? "resumed"
-              : "fresh";
+          leaf.restoreMode = resolveRestoreMode({
+            cliTool: inferCliTool(
+              leaf.cliTool ?? tab.cliTool,
+              leaf.launchClaude,
+              tab.launchClaude,
+              leaf.resumeId,
+              tab.resumeId,
+            ),
+            resumeId: leaf.resumeId,
+            hasRestorableSession: Boolean(
+              leaf.sessionId || leaf.savedSessionId || leaf.restoring,
+            ),
+          });
           if (leaf.sessionId) {
             leaf.savedSessionId = leaf.sessionId;
             leaf.restoring = true;
@@ -2993,79 +2994,8 @@ export const usePanesStore = create<PanesState>()(
   {
     name: "cc-panes-layout",
     version: 5,
-    migrate: (persistedState, version) => {
-      const state = persistedState as Record<string, unknown>;
-      if (version < 2) {
-        // v1 -> v2: migrate launchClaude=true tabs to cliTool="claude"
-        function migrateNode(node: PaneNode) {
-          if (node.type === "panel") {
-            for (const tab of node.tabs) {
-              if (!tab.cliTool && tab.launchClaude) {
-                tab.cliTool = "claude";
-              }
-            }
-          } else {
-            node.children.forEach(migrateNode);
-          }
-        }
-        if (state.rootPane) {
-          migrateNode(state.rootPane as PaneNode);
-        }
-      }
-      if (version < 3 && state.rootPane) {
-        const migrateTerminalTabs = (node: PaneNode) => {
-          if (node.type === "panel") {
-            for (const tab of node.tabs) {
-              if (tab.contentType === "terminal") {
-                syncTabTerminalState(tab);
-              }
-            }
-          } else {
-            node.children.forEach(migrateTerminalTabs);
-          }
-        };
-        migrateTerminalTabs(state.rootPane as PaneNode);
-      }
-      if (version < 4 && state.rootPane) {
-        const rootPane = state.rootPane as PaneNode;
-        const activePaneId = typeof state.activePaneId === "string"
-          ? state.activePaneId
-          : collectPanels(rootPane)[0]?.id ?? rootPane.id;
-        state.layouts = [{
-          id: generateId("layout"),
-          name: "布局 1",
-          kind: "normal",
-          rootPane,
-          activePaneId,
-        }];
-        state.currentLayoutId = (state.layouts as LayoutEntry[])[0].id;
-        delete state.rootPane;
-        delete state.activePaneId;
-      }
-      // v5: every terminal leaf owns a launch identity. Keep this migration
-      // tolerant of snapshots that were written before terminal subpanes existed.
-      const migrateLaunchIds = (node: PaneNode) => {
-        if (node.type === "panel") {
-          for (const tab of node.tabs) {
-            if (tab.contentType === "terminal") {
-              syncTabTerminalState(tab);
-              for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
-                leaf.launchId ??= generateId("launch");
-              }
-            }
-          }
-          return;
-        }
-        node.children.forEach(migrateLaunchIds);
-      };
-      if (state.rootPane) migrateLaunchIds(state.rootPane as PaneNode);
-      if (Array.isArray(state.layouts)) {
-        for (const layout of state.layouts as LayoutEntry[]) {
-          if (layout?.rootPane) migrateLaunchIds(layout.rootPane);
-        }
-      }
-      return state;
-    },
+    migrate: (persistedState, version) =>
+      migratePersistedPanes(persistedState, version, { syncTabTerminalState }),
     partialize: (state) => ({
       ...state.exportLayoutSnapshotPayload(),
       // poppedOutTabs is runtime-only; popped windows do not survive restart.
