@@ -1,3 +1,4 @@
+use crate::models::CliTool;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
@@ -30,8 +31,20 @@ struct LaunchPayload {
     args: Vec<String>,
 }
 
-pub(super) fn requires_powershell_bootstrap(cwd: &Path) -> bool {
+fn requires_powershell_bootstrap(cwd: &Path) -> bool {
     !cwd.as_os_str().to_string_lossy().is_ascii()
+}
+
+/// 是否需要用 PowerShell 作 ConPTY 根进程再拉起 Codex。
+///
+/// 三个条件缺一不可：**本地**启动、CLI 是 Codex、cwd 含非 ASCII 字符。
+///
+/// `is_local_launch` 这道门必须有：WSL/SSH 模式的 cwd 同样取项目的 Windows 路径
+/// （`terminal_service.rs` 的三分支同构），少了它，中文路径下的 WSL 项目会把
+/// `wsl.exe` 连同整串 argv 一起塞进 JSON payload 再过一遍 PowerShell 5.1 的引号
+/// 转义——而这条链要修的本来只是「codex.exe 直接作 ConPTY 根进程时零输出」。
+pub(super) fn should_bootstrap(is_local_launch: bool, cli_tool: CliTool, cwd: &Path) -> bool {
+    is_local_launch && cli_tool == CliTool::Codex && requires_powershell_bootstrap(cwd)
 }
 
 pub(super) fn wrap_with_powershell(
@@ -74,6 +87,22 @@ mod tests {
             r"E:\workspace\geedo"
         )));
         assert!(requires_powershell_bootstrap(Path::new(r"E:\geedo联调")));
+    }
+
+    #[test]
+    fn bootstrap_is_gated_to_local_codex_launches() {
+        let non_ascii = Path::new(r"E:\geedo联调");
+        let ascii = Path::new(r"E:\workspace\geedo");
+
+        // 本地 + Codex + 非 ASCII cwd：唯一命中的组合
+        assert!(should_bootstrap(true, CliTool::Codex, non_ascii));
+
+        // WSL/SSH 的 cwd 同样是项目的 Windows 路径，不能把 wsl.exe/ssh 包进 PowerShell
+        assert!(!should_bootstrap(false, CliTool::Codex, non_ascii));
+
+        // 其它 CLI 与 ASCII 路径都走原样直启
+        assert!(!should_bootstrap(true, CliTool::Claude, non_ascii));
+        assert!(!should_bootstrap(true, CliTool::Codex, ascii));
     }
 
     #[test]

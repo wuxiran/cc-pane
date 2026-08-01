@@ -1662,6 +1662,11 @@ impl TerminalService {
             env_vars.insert("WSLENV".to_string(), merged);
         }
 
+        // 三分支汇合后 cwd 一律是「项目/工作空间的 Windows 路径」，光看 cwd 分不出启动形态，
+        // 后面 Windows Codex 的 PowerShell bootstrap 要靠这个标志把 WSL/SSH 排除掉。
+        #[cfg(windows)]
+        let is_local_launch = ssh.is_none() && wsl.is_none();
+
         // SSH 模式 vs 本地模式分支
         let (cwd, command, args, env_remove) = if let Some(ssh_info) = ssh {
             // SSH 模式：cwd 用本机 home dir，命令通过 ssh 连接远程
@@ -2041,9 +2046,11 @@ impl TerminalService {
         });
 
         #[cfg(windows)]
-        let (pty_command, pty_args) = if cli_tool == CliTool::Codex
-            && windows_codex::requires_powershell_bootstrap(&cwd)
-        {
+        let (pty_command, pty_args) = if windows_codex::should_bootstrap(
+            is_local_launch,
+            cli_tool,
+            &cwd,
+        ) {
             info!(
                 session_id = %session_id,
                 cwd = %cwd.display(),
