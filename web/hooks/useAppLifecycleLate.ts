@@ -22,6 +22,8 @@ import {
 import { isTauriRuntime, listenIfTauri } from "@/services/runtime";
 import { waitForDesktopRuntime } from "@/utils/desktopRuntime";
 import { logRestoreReport } from "@/utils/restoreReport";
+import { useRestoreReportStore } from "@/stores/useRestoreReportStore";
+import { waitForTerminalRestoreBarrier } from "@/services/terminalRestoreBarrier";
 import { shouldOpenOnboarding } from "@/utils/onboardingStartup";
 import i18n from "@/i18n";
 
@@ -54,8 +56,14 @@ export function useAppLifecycleLate(): {
       }
       useEnvironmentStore.getState().init();
       useLaunchProfilesStore.getState().load().catch(console.error);
-      // 重启恢复报告：把各 tab 的 resumeId 绑定状态写入应用日志（[restore-report]）
-      logRestoreReport().catch(console.error);
+      // 等启动认领/重建屏障完成后再报告，避免把稍后会热接管的 leaf 误报为 resumed。
+      // 按 leaf 把恢复模式和 resumeId 绑定状态写入应用日志（[restore-report]），
+      // 并把汇总交给 store —— 该恢复却缺 id 的 leaf 会触发 RestoreRegressionBanner。
+      // 只写日志没人看得到：那次三天 100% 未绑定就是这么漏过去的（docs/69）。
+      await waitForTerminalRestoreBarrier();
+      if (cancelled) return;
+      const summary = await logRestoreReport();
+      if (!cancelled) useRestoreReportStore.getState().setSummary(summary);
       // 应用启动后静默检查更新（仅写入 store，不弹窗）
       if (isTauriRuntime()) {
         checkUpdateSilent().catch(console.error);

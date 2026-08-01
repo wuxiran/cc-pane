@@ -190,5 +190,10 @@
   "quickCommandNoCliTool": "The agent prompt has no CLI tool configured",
   "quickCommandExecuteFailed": "Failed to run quick command: {{error}}",
   "sessionClaimedByOtherInstance": "This terminal is controlled by another CC-Panes instance; view only",
-  "terminalZoom": "Terminal Zoom"
+  "terminalZoom": "Terminal Zoom",
+  "restoreRegression": {
+    "title": "{{count}} restored terminal sessions lost their conversation history",
+    "impact": "Those sessions started fresh instead of resuming. The resume id may not have reached the database; check [restore-report] and bind_resume_id in the app log.",
+    "dismiss": "Dismiss"
+  }
 }
