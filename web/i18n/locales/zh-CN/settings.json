@@ -304,6 +304,7 @@
   "cleanupCancel": "取消",
   "updateAvailable": "发现新版本 v{{version}}，点击更新",
   "newVersionAvailable": "新版本 v{{version}} 已可用",
+  "updateCheckFailed": "上次检查更新失败（{{time}}）：{{reason}}",
   "mcpTitle": "MCP Server 配置",
   "mcpAdd": "添加",
   "mcpNoServers": "暂无 MCP Server 配置",

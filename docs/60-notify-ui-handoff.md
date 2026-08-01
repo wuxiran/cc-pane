@@ -46,12 +46,24 @@ docs/46-frontend-styleguide.md    ← 前端风格宪法，UI 改动提交前必
 
 新建 `web/lib/interruptGate.ts`（或同类位置），导出判定函数，供更新卡片与功能提示**共用**：
 
-- [ ] **任一会话处于忙碌态则禁止打扰**——用 `isBusyStatus()` 遍历 `useTerminalStatusStore`；`waitingInput` 同样视为不可打扰（用户正被 agent 等着）；
+- [ ] **任一会话处于忙碌态则禁止打扰**——用 `isBusyStatus()` 遍历 `useTerminalStatusStore`；`waitingInput` 同样视为不可打扰（用户正被 agent 等着）。**例外：`update` 不受这一条约束**，见下方「agentBusy 的例外」；
 - [ ] 应用启动后 < 30s 不打扰；
 - [ ] 已有 modal/dialog 打开时不打扰（查 `useDialogStore`）；
 - [ ] 全屏 / 迷你模式不打扰；
 - [ ] **同一时刻只允许一个打扰**；优先级：更新提示 > 功能提示；
 - [ ] 单元测试覆盖每一条闸门（这是最容易回归的部分）。
+
+#### agentBusy 的例外（0.11.8 修订，实现见 `interruptGate.ts` 的 `AGENT_BUSY_BLOCKS`）
+
+`update` **不被** `agentBusy` 挡住，`tip` 仍然被挡。三点理由：
+
+1. CC-Panes 的典型用法就是长时间挂着 agent 干活，几乎总有 busy 会话。一并挡住的后果不是「延后显示」而是**永远在等**——上线后无人见过这张卡片。
+2. 放行的只是**显示卡片**。它在右下角不打断任何操作，也不动任何会话。真正会杀掉在跑的活的是**安装**，那条路径另有 `hasBusySessions()` 的确认警告（`UpdateNotification` 的 `busyAtConfirmation`），不受本例外影响——**改闸门时务必确认这道警告还在**。
+3. `tip` 不能比照放行：docs/58 说「tip 系统失败只有一种方式：**烦人**」，agent 忙时弹功能提示正是那种烦人。更新提示不同，它是用户主动想要的信息。
+
+其余四条（启动 30s / 对话框 / 迷你 / 全屏 / 单槽互斥）对 `update` **全部保留**。规则按 kind 写在 `interruptGate.ts` 内，不做成调用方传的布尔——否则规则散到调用方，下一个人不读闸门源码就不知道有这回事。
+
+> 与 `docs/59` §3 首条「有 agent 运行时绝不打断」的关系：那句写于立项时，指的是**安装会重启应用**这个风险，落到实现上应约束的是安装而非显示。docs/59 §3 已同步修订。
 
 ### Phase 2：版本更新卡片（docs/59，主线）
 

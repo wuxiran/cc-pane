@@ -28,6 +28,8 @@ export default function AboutSection() {
   const [cleanupReport, setCleanupReport] = useState<UninstallCleanupReport | null>(null);
   const updateAvailable = useUpdateStore((s) => s.available);
   const updateVersion = useUpdateStore((s) => s.version);
+  const lastCheckError = useUpdateStore((s) => s.lastCheckError);
+  const lastCheckFailedAt = useUpdateStore((s) => s.lastCheckFailedAt);
   const cleanupReportLabels = {
     cleaned: t("cleanupReportCleaned"),
     skipped: t("cleanupReportSkipped"),
@@ -105,6 +107,24 @@ export default function AboutSection() {
           }}
         >
           <span>{t("newVersionAvailable", { version: updateVersion })}</span>
+        </div>
+      )}
+
+      {/* 静默检查失败：不弹任何东西，只在这里留一条可查的痕迹（docs/59 / L7 任务 2）。
+          「需注意但可等」→ 用 warning 而非 danger（docs/46 §状态色映射）。 */}
+      {lastCheckError && (
+        <div
+          className="px-3 py-2 rounded-md text-[12px] break-all"
+          style={{
+            background: "var(--app-status-warning-bg)",
+            color: "var(--app-status-warning)",
+            border: "1px solid var(--app-status-warning-border)",
+          }}
+        >
+          {t("updateCheckFailed", {
+            time: lastCheckFailedAt ? new Date(lastCheckFailedAt).toLocaleString() : "",
+            reason: lastCheckError,
+          })}
         </div>
       )}
 

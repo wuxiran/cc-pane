@@ -50,7 +50,13 @@ describe("updaterService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.__TAURI_INTERNALS__ = originalTauriInternals ?? {};
-    useUpdateStore.setState({ available: false, version: null, body: null });
+    useUpdateStore.setState({
+      available: false,
+      version: null,
+      body: null,
+      lastCheckError: null,
+      lastCheckFailedAt: null,
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "debug").mockImplementation(() => {});
@@ -87,6 +93,46 @@ describe("updaterService", () => {
 
       await expect(checkUpdateSilent()).resolves.toBeUndefined();
       expect(useUpdateStore.getState().available).toBe(false);
+    });
+
+    // 失败不能只进 console：本项目 GitHub 直连已知不稳，完全吞掉的话
+    // 用户得到的信号是「这软件从来不更新」。
+    it("检查失败时记录原因与时间，且不弹任何东西", async () => {
+      checkMock.mockRejectedValue(new Error("network error"));
+
+      await checkUpdateSilent();
+
+      const state = useUpdateStore.getState();
+      expect(state.lastCheckError).toContain("network error");
+      expect(state.lastCheckFailedAt).not.toBeNull();
+      expect(askMock).not.toHaveBeenCalled();
+      expect(messageMock).not.toHaveBeenCalled();
+    });
+
+    // 断网不代表上次查到的更新没了；清掉会让「本来提示有更新、断一次网就消失」。
+    it("检查失败时保留上一次查到的可用更新", async () => {
+      useUpdateStore.getState().setUpdate("1.2.3", "release notes");
+      checkMock.mockRejectedValue(new Error("network error"));
+
+      await checkUpdateSilent();
+
+      const state = useUpdateStore.getState();
+      expect(state.available).toBe(true);
+      expect(state.version).toBe("1.2.3");
+      expect(state.lastCheckError).toContain("network error");
+    });
+
+    it("再次检查成功后清掉失败痕迹", async () => {
+      checkMock.mockRejectedValue(new Error("network error"));
+      await checkUpdateSilent();
+      expect(useUpdateStore.getState().lastCheckError).not.toBeNull();
+
+      checkMock.mockResolvedValue(createUpdate());
+      await checkUpdateSilent();
+
+      const state = useUpdateStore.getState();
+      expect(state.lastCheckError).toBeNull();
+      expect(state.lastCheckFailedAt).toBeNull();
     });
 
     it("应该在 Web 运行时直接返回", async () => {

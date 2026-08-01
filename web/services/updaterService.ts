@@ -1,7 +1,7 @@
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { getErrorMessage } from "@/utils";
+import { getErrorMessage, handleErrorSilent } from "@/utils";
 import { useUpdateStore } from "@/stores";
 import { isTauriRuntime } from "./runtime";
 // 直接从模块导入（不走 @/services 桶文件）避免服务间循环依赖
@@ -32,7 +32,11 @@ export async function checkUpdateSilent(): Promise<void> {
       useUpdateStore.getState().clearUpdate();
     }
   } catch (error) {
-    console.error("[updater] 静默检查更新失败:", error);
+    // 静默检查失败不弹任何东西（弹了就不叫静默），但必须可发现：
+    // 进应用日志 + 记进 store 供 设置→关于 显示。本项目 GitHub 直连已知不稳，
+    // 完全吞掉的话用户得到的信号是「这软件从来不更新」。
+    handleErrorSilent(error, "updater silent check");
+    useUpdateStore.getState().setCheckFailure(getErrorMessage(error), new Date().toISOString());
   }
 }
 

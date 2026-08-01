@@ -304,6 +304,7 @@
   "cleanupCancel": "Cancel",
   "updateAvailable": "New version v{{version}} available, click to update",
   "newVersionAvailable": "New version v{{version}} available",
+  "updateCheckFailed": "Last update check failed ({{time}}): {{reason}}",
   "mcpTitle": "MCP Server Config",
   "mcpAdd": "Add",
   "mcpNoServers": "No MCP Server configured",

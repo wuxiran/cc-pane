@@ -12,6 +12,8 @@ const gateMocks = vi.hoisted(() => ({
   occupy: vi.fn(),
   release: vi.fn(),
 }));
+// 安装前的忙碌确认不再走闸门（闸门对 update 已放行 agentBusy），改读这个。
+const busyMocks = vi.hoisted(() => ({ hasBusySessions: vi.fn(() => false) }));
 const updaterMocks = vi.hoisted(() => ({
   checkForAvailableUpdate: vi.fn(),
   downloadAndInstallUpdate: vi.fn(async (
@@ -23,6 +25,7 @@ const updaterMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/interruptGate", () => ({
   useInterruptGate: () => ({ activeInterrupt: null, ...gateMocks }),
+  hasBusySessions: busyMocks.hasBusySessions,
 }));
 
 vi.mock("@/services/updaterService", () => updaterMocks);
@@ -70,6 +73,7 @@ describe("UpdateNotification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     gateMocks.check.mockReturnValue(null);
+    busyMocks.hasBusySessions.mockReturnValue(false);
     updaterMocks.downloadAndInstallUpdate.mockResolvedValue(undefined);
     updaterMocks.getUpdateErrorHint.mockReturnValue("");
     const settings = useSettingsStore.getState().getDefaults();
@@ -116,17 +120,33 @@ describe("UpdateNotification", () => {
     });
     renderNotification();
     await screen.findByText(/发现新版本 v0.12.0|New version v0.12.0 available/i);
-    gateMocks.check.mockReturnValue("agentBusy");
+    busyMocks.hasBusySessions.mockReturnValue(true);
 
     await user.click(screen.getByRole("button", { name: /立即更新|Update now/i }));
 
     expect(screen.getByText(/仍有 agent 正在运行|agent is still running/i)).toBeInTheDocument();
-    gateMocks.check.mockReturnValue(null);
+    busyMocks.hasBusySessions.mockReturnValue(false);
     await user.click(screen.getByRole("button", { name: /继续更新|Continue update/i }));
 
     await waitFor(() => expect(updaterMocks.downloadAndInstallUpdate).toHaveBeenCalledOnce());
-    expect(gateMocks.check).toHaveBeenCalledWith({ ignoreOwnInterrupt: true });
+    expect(busyMocks.hasBusySessions).toHaveBeenCalled();
     expect(screen.getByText("40%")).toBeInTheDocument();
+  });
+
+  // 闸门对 update 放行 agentBusy 后，最容易误伤的就是这道警告：卡片能显示了，
+  // 但安装会重启应用杀掉在跑的活，警告必须还在。
+  it("闸门放行 agentBusy 后，安装前仍然警告有 agent 在跑", async () => {
+    const user = userEvent.setup();
+    gateMocks.check.mockReturnValue(null);
+    busyMocks.hasBusySessions.mockReturnValue(true);
+    updaterMocks.checkForAvailableUpdate.mockResolvedValue({ version: "0.12.0" });
+    renderNotification();
+
+    await screen.findByText(/发现新版本 v0.12.0|New version v0.12.0 available/i);
+    await user.click(screen.getByRole("button", { name: /立即更新|Update now/i }));
+
+    expect(screen.getByText(/仍有 agent 正在运行|agent is still running/i)).toBeInTheDocument();
+    expect(updaterMocks.downloadAndInstallUpdate).not.toHaveBeenCalled();
   });
 
   it("安装失败时在原卡片显示可读错误、重试和下载页", async () => {

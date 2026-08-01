@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import packageJson from "../../../package.json";
 import { Button } from "@/components/ui/button";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
-import { useInterruptGate } from "@/lib/interruptGate";
+import { hasBusySessions, useInterruptGate } from "@/lib/interruptGate";
 import {
   useDialogStore,
   useFullscreenStore,
@@ -191,14 +191,15 @@ export default function UpdateNotification() {
     releaseCard();
   }, [persistUpdateSettings, releaseCard, version]);
 
+  // 安装前的忙碌确认走 hasBusySessions() 而不是闸门：闸门对 update 已放行 agentBusy
+  // （那是「显示卡片」的规则），但安装会重启应用、杀掉在跑的活，这道警告必须还在。
   const requestInstall = useCallback(() => {
-    setBusyAtConfirmation(check({ ignoreOwnInterrupt: true }) === "agentBusy");
+    setBusyAtConfirmation(hasBusySessions());
     setView("confirm");
-  }, [check]);
+  }, []);
 
   const install = useCallback(async () => {
-    const latestGateReason = check({ ignoreOwnInterrupt: true });
-    if (latestGateReason === "agentBusy" && !busyAtConfirmation) {
+    if (hasBusySessions() && !busyAtConfirmation) {
       setBusyAtConfirmation(true);
       return;
     }
@@ -220,7 +221,7 @@ export default function UpdateNotification() {
       setError(hint ? `${message}\n\n${hint}` : message);
       setView("error");
     }
-  }, [busyAtConfirmation, check, i18n.language, releaseCard]);
+  }, [busyAtConfirmation, i18n.language, releaseCard]);
 
   const openDownloadPage = useCallback(async () => {
     try {

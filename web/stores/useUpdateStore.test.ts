@@ -7,6 +7,8 @@ describe("useUpdateStore", () => {
       available: false,
       version: null,
       body: null,
+      lastCheckError: null,
+      lastCheckFailedAt: null,
     });
   });
 
@@ -53,6 +55,31 @@ describe("useUpdateStore", () => {
       expect(state.available).toBe(false);
       expect(state.version).toBeNull();
       expect(state.body).toBeNull();
+    });
+  });
+
+  describe("setCheckFailure", () => {
+    it("记录原因与时间，但不动已知的可用更新", () => {
+      useUpdateStore.getState().setUpdate("1.2.3", "更新说明");
+
+      useUpdateStore.getState().setCheckFailure("network error", "2026-08-01T00:00:00Z");
+
+      const state = useUpdateStore.getState();
+      expect(state.lastCheckError).toBe("network error");
+      expect(state.lastCheckFailedAt).toBe("2026-08-01T00:00:00Z");
+      expect(state.available).toBe(true);
+      expect(state.version).toBe("1.2.3");
+    });
+
+    it("setUpdate 与 clearUpdate 都会清掉失败痕迹", () => {
+      useUpdateStore.getState().setCheckFailure("network error", "2026-08-01T00:00:00Z");
+      useUpdateStore.getState().setUpdate("2.0.0", null);
+      expect(useUpdateStore.getState().lastCheckError).toBeNull();
+
+      useUpdateStore.getState().setCheckFailure("network error", "2026-08-01T00:00:00Z");
+      useUpdateStore.getState().clearUpdate();
+      expect(useUpdateStore.getState().lastCheckError).toBeNull();
+      expect(useUpdateStore.getState().lastCheckFailedAt).toBeNull();
     });
   });
 });

@@ -28,12 +28,58 @@ describe("checkInterruptGate", () => {
   it.each(["active", "thinking", "toolRunning", "compacting"] as const)(
     "用既有忙碌判定拦截 %s",
     (status) => {
-      expect(check("update", { sessionStatuses: ["idle", status] })).toBe("agentBusy");
+      expect(check("tip", { sessionStatuses: ["idle", status] })).toBe("agentBusy");
     },
   );
 
   it("额外把 waitingInput 视为不可打扰", () => {
     expect(check("tip", { sessionStatuses: ["waitingInput"] })).toBe("agentBusy");
+  });
+
+  // CC-Panes 几乎总有 busy 会话；update 若一并被挡，卡片不是延后而是永远不出现。
+  // 放行的只是「显示」，安装前的忙碌警告走 hasBusySessions()，不受影响。
+  describe("agentBusy 对 update 的例外", () => {
+    it.each(["active", "thinking", "toolRunning", "compacting", "waitingInput"] as const)(
+      "会话 %s 时 update 放行",
+      (status) => {
+        expect(check("update", { sessionStatuses: ["idle", status] })).toBeNull();
+      },
+    );
+
+    it("同样条件下 tip 仍被挡", () => {
+      expect(check("tip", { sessionStatuses: ["thinking"] })).toBe("agentBusy");
+    });
+
+    // 防止「放行过头」：另外四道闸门对 update 一条都不能少。
+    it("update 放行 agentBusy 后，启动宽限期仍挡得住", () => {
+      expect(
+        check("update", { sessionStatuses: ["thinking"], now: () => APP_STARTED_AT }),
+      ).toBe("startupGrace");
+    });
+
+    it("update 放行 agentBusy 后，对话框仍挡得住", () => {
+      expect(check("update", { sessionStatuses: ["thinking"], hasOpenDialog: true })).toBe(
+        "dialogOpen",
+      );
+    });
+
+    it("update 放行 agentBusy 后，迷你模式仍挡得住", () => {
+      expect(check("update", { sessionStatuses: ["thinking"], isMiniMode: true })).toBe(
+        "miniMode",
+      );
+    });
+
+    it("update 放行 agentBusy 后，全屏仍挡得住", () => {
+      expect(check("update", { sessionStatuses: ["thinking"], isFullscreen: true })).toBe(
+        "fullscreen",
+      );
+    });
+
+    it("update 放行 agentBusy 后，单槽互斥仍生效", () => {
+      expect(
+        check("update", { sessionStatuses: ["thinking"], activeInterrupt: "update" }),
+      ).toBe("occupied");
+    });
   });
 
   it("启动未满 30 秒时拦截", () => {
