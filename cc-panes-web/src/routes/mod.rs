@@ -217,6 +217,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/codex/sessions",
             get(agent_sessions::list_codex_sessions),
         )
+        .route(
+            "/api/opencode/sessions",
+            get(agent_sessions::list_opencode_sessions),
+        )
         .route("/api/runner/profiles", get(runner::list_profiles))
         .route("/api/runner/profiles", put(runner::upsert_profile))
         .route("/api/runner/profiles/{id}", get(runner::get_profile))

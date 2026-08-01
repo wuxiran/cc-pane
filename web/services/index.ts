@@ -4,6 +4,7 @@ export { usageStatsService } from "./usageStatsService";
 export { historyService } from "./historyService";
 export { claudeService } from "./claudeService";
 export { codexService } from "./codexService";
+export { opencodeService } from "./opencodeService";
 export { localHistoryService } from "./localHistoryService";
 export { projectCliHooksService } from "./projectCliHooksService";
 export { journalService } from "./journalService";
@@ -26,6 +27,7 @@ export { planService } from "./planService";
 export type { LaunchRecord, SessionState } from "./historyService";
 export type { ClaudeSession } from "./claudeService";
 export type { CodexSession } from "./codexService";
+export type { OpenCodeSession } from "./opencodeService";
 export type {
   FileVersion,
   HistoryConfig,

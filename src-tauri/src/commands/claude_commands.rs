@@ -43,6 +43,28 @@ pub fn list_codex_sessions(
     result.map_err(|e| e.into())
 }
 
+/// 列出项目的 OpenCode 会话历史（手动绑定面板用）。
+///
+/// 与上面 Codex 那条同形，但反查来源不同：OpenCode TUI 不输出 OSC thread id，
+/// 会话记录在它自己的 SQLite 库里，只能按项目路径 + 时间反查。
+#[tauri::command]
+pub fn list_opencode_sessions(
+    project_path: String,
+    runtime_kind: Option<String>,
+    wsl_distro: Option<String>,
+) -> AppResult<Vec<crate::services::opencode_session_service::OpenCodeSession>> {
+    let result = if runtime_kind.as_deref() == Some("wsl") {
+        crate::services::opencode_session_service::list_wsl_sessions(
+            &project_path,
+            10,
+            wsl_distro.as_deref(),
+        )
+    } else {
+        crate::services::opencode_session_service::list_sessions(&project_path, 10)
+    };
+    result.map_err(|e| e.into())
+}
+
 // ============ 会话清理功能 ============
 
 #[derive(Debug, Serialize, Clone)]

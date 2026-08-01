@@ -5,7 +5,9 @@ use axum::{
 };
 use cc_panes_core::models::{SessionIndexEntry, SessionIndexListParams, SessionIndexScanReport};
 use cc_panes_core::services::SessionIndexService;
-use cc_panes_core::services::{claude_session_service, codex_session_service};
+use cc_panes_core::services::{
+    claude_session_service, codex_session_service, opencode_session_service,
+};
 use serde::Deserialize;
 
 use crate::state::AppState;
@@ -64,6 +66,24 @@ pub async fn list_codex_sessions(
         )
     } else {
         codex_session_service::list_sessions(&query.project_path, limit)
+    };
+    result.map(Json).map_err(service_error)
+}
+
+/// OpenCode 历史会话。与上面 codex 那条同形——OpenCode 的 resume 也需要先拿到
+/// 会话 id，而它不像 Codex 会用 OSC 自报，只能按项目路径反查它的 SQLite 库。
+pub async fn list_opencode_sessions(
+    Query(query): Query<ProjectSessionsQuery>,
+) -> Result<Json<Vec<opencode_session_service::OpenCodeSession>>, (StatusCode, String)> {
+    let limit = query.limit.unwrap_or(10);
+    let result = if query.runtime_kind.as_deref() == Some("wsl") {
+        opencode_session_service::list_wsl_sessions(
+            &query.project_path,
+            limit,
+            query.wsl_distro.as_deref(),
+        )
+    } else {
+        opencode_session_service::list_sessions(&query.project_path, limit)
     };
     result.map(Json).map_err(service_error)
 }

@@ -14,6 +14,7 @@ mod launch_profile_service;
 mod layout_snapshot_service;
 pub mod mcp_config_service;
 mod memory_service;
+pub mod opencode_session_service;
 pub mod plan_archive_service;
 pub mod plan_service;
 mod port_scanner;
