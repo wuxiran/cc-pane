@@ -215,7 +215,6 @@ use commands::{
     list_claude_sessions,
     list_cli_tools,
     list_codex_sessions,
-    list_opencode_sessions,
     // Local History - 删除文件 + 压缩
     list_deleted_files,
     // Local History - 目录级历史 + 最近更改
@@ -230,6 +229,7 @@ use commands::{
     // MCP 配置命令
     list_mcp_servers,
     list_memories,
+    list_opencode_sessions,
     // Plan 命令
     list_plans,
     list_project_quick_commands,
