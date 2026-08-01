@@ -203,11 +203,8 @@ fn upgrade_if_idle_and_unshared(
     client: &TerminalDaemonClient,
     current_desktop_connected: bool,
 ) -> AppResult<Option<TerminalDaemonClient>> {
-    let Some(reason) = pending_daemon_upgrade(
-        daemon_binary,
-        client,
-        current_desktop_connected,
-    ) else {
+    let Some(reason) = pending_daemon_upgrade(daemon_binary, client, current_desktop_connected)
+    else {
         return Ok(None);
     };
     info!(reason = %reason, "terminal daemon upgrade pending; retiring idle daemon");

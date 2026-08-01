@@ -116,12 +116,9 @@ impl LaunchHistoryService {
         resume_session_id: &str,
         source: &str,
     ) -> Result<Option<i64>, String> {
-        self.repo.update_resume_session_with_source_by_pty(
-            pty_session_id,
-            resume_session_id,
-            source,
-        )
-        .map(|result| result.map(|selected| selected.record_id))
+        self.repo
+            .update_resume_session_with_source_by_pty(pty_session_id, resume_session_id, source)
+            .map(|result| result.map(|selected| selected.record_id))
     }
 
     /// Source-aware PTY binding that also returns the value retained by transaction arbitration.

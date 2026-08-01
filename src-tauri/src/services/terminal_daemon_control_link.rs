@@ -37,11 +37,7 @@ impl TerminalDaemonControlLink {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
         let (client_tx, client_rx) = watch::channel(None);
         let connected = Arc::new(AtomicBool::new(false));
-        tauri::async_runtime::spawn(run_control_link(
-            client_rx,
-            app_handle,
-            connected.clone(),
-        ));
+        tauri::async_runtime::spawn(run_control_link(client_rx, app_handle, connected.clone()));
         Self {
             client_tx,
             connected,

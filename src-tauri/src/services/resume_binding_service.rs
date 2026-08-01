@@ -219,9 +219,10 @@ fn upsert_missing_row(
     service: &Arc<LaunchHistoryService>,
     payload: &ResumeIdDetectedPayload,
 ) -> Option<cc_panes_core::repository::SessionStartedUpsertResult> {
-    let (Some(launch_id), Some(project_path)) =
-        (payload.launch_id.as_deref(), payload.project_path.as_deref())
-    else {
+    let (Some(launch_id), Some(project_path)) = (
+        payload.launch_id.as_deref(),
+        payload.project_path.as_deref(),
+    ) else {
         debug!(
             pty_session_id = %payload.session_id,
             has_launch_id = payload.launch_id.is_some(),
@@ -278,9 +279,7 @@ fn upsert_missing_row(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        expected_cli_for_uuid, upsert_missing_row, ResumeIdDetectedPayload,
-    };
+    use super::{expected_cli_for_uuid, upsert_missing_row, ResumeIdDetectedPayload};
     use cc_panes_core::repository::{Database, HistoryRepository};
     use cc_panes_core::services::{should_replace_source, LaunchHistoryService};
     use std::sync::Arc;
@@ -323,8 +322,9 @@ mod tests {
             "前置：库里本来没有这条 PTY 的行"
         );
 
-        let upserted = upsert_missing_row(&svc, &payload(Some("proj-restore"), Some("D:/repo/app")))
-            .expect("应建出行");
+        let upserted =
+            upsert_missing_row(&svc, &payload(Some("proj-restore"), Some("D:/repo/app")))
+                .expect("应建出行");
 
         let record = svc
             .find_by_pty_session_id("pty-restore")
@@ -450,8 +450,7 @@ mod tests {
         let mut rollout = issued.clone();
         rollout.source = "rollout-scan".into();
         rollout.resume_session_id = "other-resume-id".into();
-        let retained =
-            upsert_missing_row(&svc, &rollout).expect("same row remains selected");
+        let retained = upsert_missing_row(&svc, &rollout).expect("same row remains selected");
         assert_eq!(retained.resume_session_id, issued.resume_session_id);
         assert_eq!(retained.resume_source.as_deref(), Some("issued"));
 
@@ -459,7 +458,10 @@ mod tests {
             .find_by_launch_id("launch-priority")
             .expect("find")
             .expect("row");
-        assert_eq!(record.resume_session_id.as_deref(), Some(issued.resume_session_id.as_str()));
+        assert_eq!(
+            record.resume_session_id.as_deref(),
+            Some(issued.resume_session_id.as_str())
+        );
         assert_eq!(record.resume_source.as_deref(), Some("issued"));
     }
 
@@ -482,6 +484,9 @@ mod tests {
             .expect("find")
             .expect("row");
         assert_eq!(record.cli_tool, "claude");
-        assert_eq!(record.resume_session_id.as_deref(), Some(claude.resume_session_id.as_str()));
+        assert_eq!(
+            record.resume_session_id.as_deref(),
+            Some(claude.resume_session_id.as_str())
+        );
     }
 }
