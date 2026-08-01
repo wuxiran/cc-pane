@@ -200,7 +200,10 @@ function applyTerminalElementTheme(
 
 interface TerminalViewProps {
   sessionId: string | null;
-  projectId: string;
+  /** One-shot launch identity reserved for, or used by, this terminal leaf. */
+  launchId?: string;
+  /** A remount after a failed launch must not reuse the failed attempt's identity. */
+  launchAttempt?: number;
   projectPath: string;
   /** Whether this tab is the selected tab in its panel and is visible on screen. */
   isVisible?: boolean;
@@ -244,6 +247,14 @@ interface TerminalViewProps {
   onSessionExited?: (exitCode: number) => void;
   /** Optional SSH reconnect callback for disconnected sessions. */
   onReconnect?: () => Promise<string | null>;
+}
+
+function nextLaunchId(previous?: string): string {
+  let launchId: string;
+  do {
+    launchId = `launch-${crypto.randomUUID()}`;
+  } while (launchId === previous);
+  return launchId;
 }
 
 export interface TerminalViewHandle {
@@ -1626,6 +1637,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 `[TerminalView] Creating new session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, resumeId=${effectiveResumeId ?? "none"}`
               );
               const backfillStartTime = new Date().toISOString();
+              let createdLaunchId: string | undefined;
               debugLog("session.create.begin", {
                 resumeId: effectiveResumeId ?? null,
               });
@@ -1647,33 +1659,43 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 const originLayoutId = props.tabId
                   ? usePanesStore.getState().findTabAcrossLayouts(props.tabId)?.layoutId
                   : undefined;
+                createdLaunchId = props.restoring || (props.launchAttempt ?? 0) > 0
+                  ? nextLaunchId(props.launchId)
+                  : props.launchId ?? nextLaunchId();
+                if (props.tabId && props.paneId) {
+                  usePanesStore.getState().updateTerminalLaunchId(
+                    props.tabId,
+                    props.paneId,
+                    createdLaunchId,
+                  );
+                }
                 return terminalService.createSession({
-                launchId: props.projectId,
-                projectPath: props.projectPath,
-                cols: term.cols,
-                rows: term.rows,
-                workspaceName: props.workspaceName,
-                providerId: props.providerId,
-                providerSelection: props.providerSelection,
-                launchProfileId: props.launchProfileId,
-                workspacePath: props.workspacePath,
-                workspaceSnapshotId: props.workspaceSnapshotId,
-                launchClaude: props.launchClaude,
-                cliTool: props.cliTool,
-                resumeId: effectiveResumeId,
-                skipMcp: props.skipMcp,
-                appendSystemPrompt: props.appendSystemPrompt,
-                // restore 路径不重放 initialPrompt（原会话已消费过）
-                initialPrompt: props.restoring ? undefined : props.initialPrompt,
-                yoloMode: props.yoloMode,
-                adapterOptions: props.adapterOptions,
-                ssh: props.ssh,
-                wsl: props.wsl,
-                originLayoutId,
-                originTabId: props.tabId,
-                originTerminalPaneId: props.paneId,
-                expectedSavedSessionId: props.restoring ? props.savedSessionId : undefined,
-              });
+                  launchId: createdLaunchId,
+                  projectPath: props.projectPath,
+                  cols: term.cols,
+                  rows: term.rows,
+                  workspaceName: props.workspaceName,
+                  providerId: props.providerId,
+                  providerSelection: props.providerSelection,
+                  launchProfileId: props.launchProfileId,
+                  workspacePath: props.workspacePath,
+                  workspaceSnapshotId: props.workspaceSnapshotId,
+                  launchClaude: props.launchClaude,
+                  cliTool: props.cliTool,
+                  resumeId: effectiveResumeId,
+                  skipMcp: props.skipMcp,
+                  appendSystemPrompt: props.appendSystemPrompt,
+                  // restore 路径不重放 initialPrompt（原会话已消费过）
+                  initialPrompt: props.restoring ? undefined : props.initialPrompt,
+                  yoloMode: props.yoloMode,
+                  adapterOptions: props.adapterOptions,
+                  ssh: props.ssh,
+                  wsl: props.wsl,
+                  originLayoutId,
+                  originTabId: props.tabId,
+                  originTerminalPaneId: props.paneId,
+                  expectedSavedSessionId: props.restoring ? props.savedSessionId : undefined,
+                });
               };
               sessionId = props.restoring
                 ? await terminalRestoreLaunchQueue.run(launchSession, {
@@ -1713,19 +1735,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 createdSessionId: sessionId,
               });
               console.info(`[TerminalView] Session created: ${sessionId}`);
-              if (!effectiveResumeId) {
-                if (cliTool !== "none") {
-                  historyService.startLaunchHistoryBackfill(
-                    props.projectId,
-                    sessionId,
-                    cliTool,
-                    runtimeKind,
-                    props.wsl?.distro,
-                    props.wsl?.remotePath ?? props.projectPath,
-                    runtimeKind === "wsl" ? undefined : props.workspacePath,
-                    backfillStartTime,
-                  ).catch(console.error);
-                }
+              // 带 resumeId 恢复的会话同样要跑 backfill。这里使用本次创建 PTY 前刚落到
+              // leaf 的 one-shot launch id，绝不能退回 tab 级稳定字段或上一次 launch id。
+              // backfill 内部对「行已有 resume_session_id」会提前退出，不覆盖已绑定的值。
+              // cliTool === "none" 仍跳过：纯 shell 没有 resume 语义。
+              if (cliTool !== "none" && createdLaunchId) {
+                historyService.startLaunchHistoryBackfill(
+                  createdLaunchId,
+                  sessionId,
+                  cliTool,
+                  runtimeKind,
+                  props.wsl?.distro,
+                  props.wsl?.remotePath ?? props.projectPath,
+                  runtimeKind === "wsl" ? undefined : props.workspacePath,
+                  backfillStartTime,
+                ).catch(console.error);
               }
             }
 
@@ -2049,6 +2073,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               logRestoreEvent("activation.create.begin", { resumeId: effectiveResumeId ?? null });
               console.info(`[TerminalView] Deferred restore: creating PTY for ${props.projectPath}`);
               const backfillStartTime = new Date().toISOString();
+              let createdLaunchId: string | undefined;
               const launchSession = async () => {
                 logRestoreEvent("activation.restore-barrier.begin");
                 await waitForTerminalRestoreBarrier();
@@ -2067,32 +2092,40 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 const originLayoutId = props.tabId
                   ? usePanesStore.getState().findTabAcrossLayouts(props.tabId)?.layoutId
                   : undefined;
+                createdLaunchId = nextLaunchId(props.launchId);
+                if (props.tabId && props.paneId) {
+                  usePanesStore.getState().updateTerminalLaunchId(
+                    props.tabId,
+                    props.paneId,
+                    createdLaunchId,
+                  );
+                }
                 return terminalService.createSession({
-                launchId: props.projectId,
-                projectPath: props.projectPath,
-                cols: term.cols,
-                rows: term.rows,
-                workspaceName: props.workspaceName,
-                providerId: props.providerId,
-                providerSelection: props.providerSelection,
-                launchProfileId: props.launchProfileId,
-                workspacePath: props.workspacePath,
-                workspaceSnapshotId: props.workspaceSnapshotId,
-                launchClaude: props.launchClaude,
-                cliTool: props.cliTool,
-                resumeId: effectiveResumeId,
-                skipMcp: props.skipMcp,
-                appendSystemPrompt: props.appendSystemPrompt,
-                // deferred restore 是恢复路径：不携带 initialPrompt（防重放）
-                yoloMode: props.yoloMode,
-                adapterOptions: props.adapterOptions,
-                ssh: props.ssh,
-                wsl: props.wsl,
-                originLayoutId,
-                originTabId: props.tabId,
-                originTerminalPaneId: props.paneId,
-                expectedSavedSessionId: props.savedSessionId,
-              });
+                  launchId: createdLaunchId,
+                  projectPath: props.projectPath,
+                  cols: term.cols,
+                  rows: term.rows,
+                  workspaceName: props.workspaceName,
+                  providerId: props.providerId,
+                  providerSelection: props.providerSelection,
+                  launchProfileId: props.launchProfileId,
+                  workspacePath: props.workspacePath,
+                  workspaceSnapshotId: props.workspaceSnapshotId,
+                  launchClaude: props.launchClaude,
+                  cliTool: props.cliTool,
+                  resumeId: effectiveResumeId,
+                  skipMcp: props.skipMcp,
+                  appendSystemPrompt: props.appendSystemPrompt,
+                  // deferred restore 是恢复路径：不携带 initialPrompt（防重放）
+                  yoloMode: props.yoloMode,
+                  adapterOptions: props.adapterOptions,
+                  ssh: props.ssh,
+                  wsl: props.wsl,
+                  originLayoutId,
+                  originTabId: props.tabId,
+                  originTerminalPaneId: props.paneId,
+                  expectedSavedSessionId: props.savedSessionId,
+                });
               };
               const sessionId = await terminalRestoreLaunchQueue.run(launchSession, {
                 // Once queued, switching layouts must not strand this pane again.
@@ -2129,19 +2162,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               });
               logRestoreEvent("activation.create.end", { createdSessionId: sessionId });
               onSessionCreatedRef.current(sessionId);
-              if (!effectiveResumeId) {
-                if (cliTool !== "none") {
-                  historyService.startLaunchHistoryBackfill(
-                    props.projectId,
-                    sessionId,
-                    cliTool,
-                    runtimeKind,
-                    props.wsl?.distro,
-                    props.wsl?.remotePath ?? props.projectPath,
-                    runtimeKind === "wsl" ? undefined : props.workspacePath,
-                    backfillStartTime,
-                  ).catch(console.error);
-                }
+              // 带 resumeId 恢复的会话同样要跑 backfill；必须绑定到这次新建 PTY 的
+              // one-shot launch id，不能复用恢复快照里的旧值。
+              // backfill 内部对「行已有 resume_session_id」会提前退出，不覆盖已绑定的值。
+              // cliTool === "none" 仍跳过：纯 shell 没有 resume 语义。
+              if (cliTool !== "none" && createdLaunchId) {
+                historyService.startLaunchHistoryBackfill(
+                  createdLaunchId,
+                  sessionId,
+                  cliTool,
+                  runtimeKind,
+                  props.wsl?.distro,
+                  props.wsl?.remotePath ?? props.projectPath,
+                  runtimeKind === "wsl" ? undefined : props.workspacePath,
+                  backfillStartTime,
+                ).catch(console.error);
               }
 
               // Clear restoring state once the deferred session is live.

@@ -11,11 +11,10 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 vi.mock("@/components/panes/TerminalView", () => ({
-  default: (props: { sessionId: string; projectId: string; projectPath: string }) => (
+  default: (props: { sessionId: string; projectPath: string }) => (
     <div
       data-testid="terminal-view"
       data-session-id={props.sessionId}
-      data-tab-id={props.projectId}
       data-project-path={props.projectPath}
     >
       terminal
@@ -52,7 +51,6 @@ describe("PopupTerminalWindow", () => {
 
     const view = await screen.findByTestId("terminal-view");
     expect(view).toHaveAttribute("data-session-id", "sess-1");
-    expect(view).toHaveAttribute("data-tab-id", "tab-1");
     expect(view).toHaveAttribute("data-project-path", "/tmp/proj");
     await waitFor(() => expect(setTitleMock).toHaveBeenCalledWith("My Terminal"));
   });

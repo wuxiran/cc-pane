@@ -56,7 +56,6 @@ export default function StarredMirrorTile({ tile, onJump }: StarredMirrorTilePro
         {tile.sessionId ? (
           <TerminalView
             sessionId={tile.sessionId}
-            projectId={tile.projectId}
             projectPath={tile.projectPath}
             isActive={layoutVisible}
             isVisible={layoutVisible}

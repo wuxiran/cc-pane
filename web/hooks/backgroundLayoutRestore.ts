@@ -69,8 +69,10 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
         writeTerminalRestoreLog(tab.id, leaf.id, "background.backend-create.begin", {
           expectedSavedSessionId: expectedSavedSessionId ?? null,
         });
+        const launchId = `launch-${crypto.randomUUID()}`;
+        live.updateTerminalLaunchId(tab.id, leaf.id, launchId);
         const sessionId = await terminalService.createSession({
-          launchId: tab.projectId,
+          launchId,
           projectPath: tab.projectPath,
           cols: 80,
           rows: 24,

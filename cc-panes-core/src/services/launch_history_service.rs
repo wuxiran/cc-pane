@@ -1,4 +1,4 @@
-use crate::repository::{HistoryRepository, LaunchRecord};
+use crate::repository::{HistoryRepository, LaunchRecord, SessionStartedUpsertResult};
 use std::sync::Arc;
 
 /// 启动历史 Service - 封装对 HistoryRepository 的操作
@@ -121,6 +121,21 @@ impl LaunchHistoryService {
             resume_session_id,
             source,
         )
+        .map(|result| result.map(|selected| selected.record_id))
+    }
+
+    /// Source-aware PTY binding that also returns the value retained by transaction arbitration.
+    pub fn update_resume_session_with_source_by_pty_with_result(
+        &self,
+        pty_session_id: &str,
+        resume_session_id: &str,
+        source: &str,
+    ) -> Result<Option<SessionStartedUpsertResult>, String> {
+        self.repo.update_resume_session_with_source_by_pty(
+            pty_session_id,
+            resume_session_id,
+            source,
+        )
     }
 
     pub fn bind_pty_session(
@@ -182,6 +197,38 @@ impl LaunchHistoryService {
             project_path,
             project_name,
             workspace_path,
+        )
+    }
+
+    /// Source-aware upsert. The repository arbitrates source priority and CLI ownership
+    /// in the same transaction that binds the PTY and writes the resume id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_session_started_with_source(
+        &self,
+        launch_id: &str,
+        pty_session_id: &str,
+        resume_session_id: &str,
+        cli_tool: &str,
+        runtime_kind: &str,
+        wsl_distro: Option<&str>,
+        launch_cwd: Option<&str>,
+        project_path: &str,
+        project_name: &str,
+        workspace_path: Option<&str>,
+        resume_source: &str,
+    ) -> Result<SessionStartedUpsertResult, String> {
+        self.repo.upsert_session_started_with_source(
+            launch_id,
+            pty_session_id,
+            resume_session_id,
+            cli_tool,
+            runtime_kind,
+            wsl_distro,
+            launch_cwd,
+            project_path,
+            project_name,
+            workspace_path,
+            resume_source,
         )
     }
 

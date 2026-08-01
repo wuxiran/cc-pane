@@ -193,6 +193,7 @@ export function useOrchestratorListener() {
           const resolvedCliTool = (rawCliTool || "claude") as CliTool;
           const tabOpts = {
             projectId,
+            launchId: projectId,
             projectPath,
             sessionId,           // 后端已创建的 PTY session，避免前端重复创建
             resumeId: event.payload.resumeId,

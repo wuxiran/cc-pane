@@ -167,7 +167,8 @@ export default memo(function TerminalTabContent({
               key={`${leaf.id}:${leaf.launchAttempt ?? 0}`}
               ref={(ref) => onTerminalRef(leaf.id, ref)}
               sessionId={leaf.sessionId}
-              projectId={tab.projectId}
+              launchId={leaf.launchId}
+              launchAttempt={leaf.launchAttempt}
               projectPath={tab.projectPath}
               isVisible={isVisible}
               isActive={isActive && tab.activeTerminalPaneId === leaf.id}

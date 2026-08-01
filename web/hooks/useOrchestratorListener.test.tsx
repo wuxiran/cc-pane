@@ -90,6 +90,14 @@ describe("useOrchestratorListener layout placement", () => {
     }
     const projectedLayout = state.listLayouts().find((item) => item.id === layout?.id);
     expect(projectedLayout?.rootPane).toBe(state.rootPane);
+    const launchedTab = state
+      .allPanelsAcrossLayouts()
+      .flatMap((panel) => panel.tabs)
+      .find((tab) => tab.sessionId === "session-1");
+    expect(launchedTab?.terminalRootPane).toMatchObject({
+      type: "leaf",
+      launchId: "project-a",
+    });
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 

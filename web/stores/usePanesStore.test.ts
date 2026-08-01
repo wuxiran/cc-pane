@@ -403,6 +403,23 @@ describe("usePanesStore", () => {
   });
 
   describe("terminal subpanes", () => {
+    it("为调用方预先创建的 PTY 保留同一个 launchId", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, {
+        projectId: "stable-project-id",
+        projectPath: "/tmp/proj1",
+        launchId: "launch-precreated",
+        sessionId: "pty-precreated",
+      });
+
+      const pane = usePanesStore.getState().rootPane as Panel;
+      const tab = pane.tabs[1];
+      const leaf = tab.terminalRootPane;
+      expect(leaf?.type).toBe("leaf");
+      if (leaf?.type !== "leaf") throw new Error("expected terminal leaf");
+      expect(leaf.launchId).toBe("launch-precreated");
+    });
+
     it("应拆分终端标签并创建新的活动子窗格", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
@@ -417,6 +434,10 @@ describe("usePanesStore", () => {
       expect(updatedTab.terminalRootPane?.type).toBe("split");
       expect(updatedTab.activeTerminalPaneId).not.toBe(originalTerminalPaneId);
       expect(updatedTab.sessionId).toBeNull();
+      const leaves = (updatedTab.terminalRootPane as { children: Array<{ launchId?: string }> }).children;
+      expect(leaves[0].launchId).toBeTruthy();
+      expect(leaves[1].launchId).toBeTruthy();
+      expect(leaves[1].launchId).not.toBe(leaves[0].launchId);
     });
 
     it("关闭活动子窗格后应保留另一个子窗格（split 壳不上提）", () => {

@@ -21,6 +21,8 @@ import type { BrowserTabActions } from "./browserTabActions";
 export interface CreateTabOptions {
   projectId: string;
   projectPath: string;
+  /** One-shot identity already used when the caller created the PTY before opening the tab. */
+  launchId?: string;
   sessionId?: string;
   resumeId?: string;
   workspaceName?: string;
@@ -187,6 +189,8 @@ export interface PanesState extends BrowserTabActions {
     sessionId: string,
     terminalPaneId?: string,
   ) => void;
+  /** Persist the launch identity that will be used for the next PTY creation. */
+  updateTerminalLaunchId: (tabId: string, terminalPaneId: string, launchId: string) => void;
   setTerminalLaunchError: (
     tabId: string,
     terminalPaneId: string,
