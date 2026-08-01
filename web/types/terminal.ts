@@ -94,6 +94,10 @@ export type TerminalPaneNode = TerminalPaneLeaf | TerminalPaneSplit;
 export interface TerminalPaneLeaf {
   type: "leaf";
   id: string;
+  /** One-shot launch identity for the PTY currently created by this leaf. */
+  launchId?: string;
+  /** Startup restore classification used by the one-shot regression report. */
+  restoreMode?: "adopted" | "resumed" | "fresh" | "shell";
   /** Live PTY session id owned by CC-Panes. */
   sessionId: string | null;
   /** Agent conversation resume id, e.g. Claude/Codex resume UUID. */

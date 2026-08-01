@@ -33,6 +33,7 @@ struct Migration {
 /// V22 = layout_snapshots shared desktop/Web pane layout state
 /// V23 = 洗掉 launch_history 里被 CLI hook 回填污染的 `\\?\` 路径（数据迁移，非 schema）
 /// V24 = Claude/Codex 本地会话索引与增量扫描状态
+/// V29 = launch_history 清理重复 launch id 并增加 project_id 唯一索引
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -648,6 +649,60 @@ const MIGRATIONS: &[Migration] = &[
                 ON terminal_session_provenance(daemon_generation, created_at_ms);
         ",
     },
+    Migration {
+        version: 29,
+        description: "launch_history: enforce one row per launch identity",
+        // 历史库可能已经存在重复 project_id。确定性保留 launched_at 最新的一行，
+        // 时间戳相同时保留 id 最大的一行；清理后再建立唯一索引。
+        //
+        // 极端残缺库可能已经把 schema_migrations 记到 v27，却没有 launch_history
+        // （v28 的 provenance 修复测试复现了这种截断形态）。v29 不能因 DELETE
+        // 引用缺表而阻断整个应用启动；这里补齐当前 launch_history schema，后续
+        // 去重/索引语句仍保持可重入。
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS launch_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                project_name TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                launched_at TEXT NOT NULL,
+                claude_session_id TEXT,
+                last_prompt TEXT,
+                workspace_name TEXT,
+                workspace_path TEXT,
+                launch_cwd TEXT,
+                provider_id TEXT,
+                resume_session_id TEXT,
+                cli_tool TEXT NOT NULL DEFAULT 'none',
+                runtime_kind TEXT NOT NULL DEFAULT 'local',
+                pty_session_id TEXT,
+                wsl_distro TEXT,
+                workspace_session_id TEXT,
+                workspace_snapshot_id TEXT,
+                launch_profile_id TEXT,
+                provider_selection TEXT,
+                resume_source TEXT
+            );
+
+            DELETE FROM launch_history
+             WHERE id NOT IN (
+                 SELECT candidate.id
+                   FROM launch_history AS candidate
+                  WHERE NOT EXISTS (
+                      SELECT 1
+                        FROM launch_history AS newer
+                       WHERE newer.project_id = candidate.project_id
+                         AND (
+                             newer.launched_at > candidate.launched_at
+                             OR (newer.launched_at = candidate.launched_at AND newer.id > candidate.id)
+                         )
+                  )
+             );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_launch_history_project_id_unique
+                ON launch_history(project_id);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1049,6 +1104,57 @@ mod tests {
         // 再次运行迁移应该不报错
         let conn = db.connection().expect("connection");
         Database::run_migrations(&conn).expect("second migration run should succeed");
+    }
+
+    #[test]
+    fn migration_29_deduplicates_launch_ids_before_enforcing_uniqueness() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             CREATE TABLE launch_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                launched_at TEXT NOT NULL
+             );
+             INSERT INTO launch_history (project_id, launched_at) VALUES
+                ('duplicate', '2026-01-01T00:00:00Z'),
+                ('duplicate', '2026-01-02T00:00:00Z'),
+                ('same-time', '2026-01-03T00:00:00Z'),
+                ('same-time', '2026-01-03T00:00:00Z');",
+        )
+        .expect("seed duplicate launch ids");
+        for version in 1..=28 {
+            conn.execute(
+                "INSERT INTO schema_migrations (version, description) VALUES (?1, 'seeded')",
+                rusqlite::params![version],
+            )
+            .expect("seed version");
+        }
+
+        Database::run_migrations(&conn).expect("v29 migration");
+
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM launch_history", [], |row| row.get(0))
+            .expect("count rows");
+        assert_eq!(rows, 2);
+        let kept_same_time_id: i64 = conn
+            .query_row(
+                "SELECT id FROM launch_history WHERE project_id = 'same-time'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("kept same-time row");
+        assert_eq!(kept_same_time_id, 4, "timestamp ties keep the largest id");
+        assert!(conn
+            .execute(
+                "INSERT INTO launch_history (project_id, launched_at) VALUES ('duplicate', '2026-01-04')",
+                [],
+            )
+            .is_err());
     }
 
     #[test]

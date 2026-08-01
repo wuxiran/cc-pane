@@ -62,6 +62,7 @@ export default function MobilePrototypeRoute() {
     (workspace: Workspace, project: Workspace["projects"][number]) => {
       const projectName = project.alias || project.path.split(/[/\\]/).pop() || project.path;
       const projectId = `proj-${crypto.randomUUID()}`;
+      const launchId = `launch-${crypto.randomUUID()}`;
       const workspaceSnapshotId = `ws-snapshot-${crypto.randomUUID()}`;
       const launchProfileId = project.launchProfileId ?? workspace.launchProfileId;
       const wsl = project.wslRemotePath ? { remotePath: project.wslRemotePath } : undefined;
@@ -70,6 +71,7 @@ export default function MobilePrototypeRoute() {
       openProject({
         projectId,
         projectPath: project.path,
+        launchId,
         customTitle: projectName,
         workspaceName: workspace.name,
         workspacePath,
@@ -79,7 +81,7 @@ export default function MobilePrototypeRoute() {
         workspaceSnapshotId,
       });
       historyService.add(
-        projectId,
+        launchId,
         projectName,
         project.path,
         "none",

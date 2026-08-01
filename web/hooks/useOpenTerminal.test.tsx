@@ -74,7 +74,10 @@ describe("useOpenTerminal host path guard", () => {
     expect(openProject).toHaveBeenCalledWith(expect.objectContaining({
       projectPath: "/tmp/trust",
       targetLayoutId: "layout-new",
+      launchId: expect.stringMatching(/^launch-/),
     }));
+    const openedLaunchId = openProject.mock.calls[0]?.[0]?.launchId;
+    expect(vi.mocked(historyService.add).mock.calls[0]?.[0]).toBe(openedLaunchId);
   });
 
   it("当前布局已绑定其他工作空间时仍路由到匹配布局", () => {

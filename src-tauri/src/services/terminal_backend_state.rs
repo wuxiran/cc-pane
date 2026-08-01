@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::models::CreateSessionRequest;
 use crate::services::{
@@ -12,6 +12,8 @@ use tracing::{info, warn};
 #[derive(Clone)]
 pub struct TerminalBackendState {
     inner: Arc<RwLock<TerminalBackendStateInner>>,
+    /// Serializes the slow retire/start sequence without holding `inner` across I/O.
+    daemon_upgrade_lock: Arc<Mutex<()>>,
 }
 
 struct TerminalBackendStateInner {
@@ -53,6 +55,7 @@ impl TerminalBackendState {
                 kind: TerminalBackendKind::InProcess,
                 daemon_client: None,
             })),
+            daemon_upgrade_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -67,6 +70,7 @@ impl TerminalBackendState {
                     kind: TerminalBackendKind::Daemon,
                     daemon_client: Some(client),
                 })),
+                daemon_upgrade_lock: Arc::new(Mutex::new(())),
             };
         }
 
@@ -155,6 +159,7 @@ impl TerminalBackendState {
         app_handle: &tauri::AppHandle,
         request: CreateSessionRequest,
     ) -> AppResult<CreatedTerminalSession> {
+        self.recheck_daemon_upgrade_before_create(app_handle);
         self.create_session_recovering(
             request,
             |current_client| {
@@ -187,6 +192,55 @@ impl TerminalBackendState {
                 }
             },
         )
+    }
+
+    fn recheck_daemon_upgrade_before_create(&self, app_handle: &tauri::AppHandle) {
+        if self.kind() != TerminalBackendKind::Daemon {
+            return;
+        }
+        // Tauri commands and orchestrator launches may create PTYs concurrently. Only one caller
+        // may retire/start the shared daemon; after waiting, re-read the client so a follower checks
+        // the replacement instead of shutting down the old daemon a second time.
+        let _upgrade_guard = self
+            .daemon_upgrade_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if self.kind() != TerminalBackendKind::Daemon {
+            return;
+        }
+        let Some(current_client) = self.daemon_client() else {
+            return;
+        };
+        let Some(app_paths) = app_handle.try_state::<Arc<crate::utils::AppPaths>>() else {
+            return;
+        };
+        let Some(settings) = app_handle.try_state::<Arc<crate::services::SettingsService>>() else {
+            return;
+        };
+        let control_link = app_handle.try_state::<Arc<TerminalDaemonControlLink>>();
+        let current_desktop_connected = control_link
+            .as_ref()
+            .is_some_and(|link| link.is_connected());
+        let resource_dir = app_handle.path().resource_dir().ok();
+        match TerminalDaemonLifecycle::recheck_upgrade_before_create(
+            app_paths.inner().as_ref(),
+            resource_dir.as_deref(),
+            settings.config_path(),
+            &current_client,
+            current_desktop_connected,
+        ) {
+            Ok(Some(replacement)) => {
+                self.try_enable_daemon(replacement.clone());
+                if let Some(control_link) = control_link {
+                    control_link.replace_client(replacement);
+                }
+                info!("terminal daemon upgraded after sessions reached zero");
+            }
+            Ok(None) => {}
+            Err(error) => {
+                warn!(error = %error, "terminal daemon upgrade recheck failed; using current daemon");
+            }
+        }
     }
 
     /// daemon 模式下的 client（in-process 时为 None）
@@ -399,6 +453,7 @@ mod tests {
                 kind: TerminalBackendKind::Daemon,
                 daemon_client: Some(TerminalDaemonClient::new("127.0.0.1:1", "old-token")),
             })),
+            daemon_upgrade_lock: Arc::new(Mutex::new(())),
         }
     }
 

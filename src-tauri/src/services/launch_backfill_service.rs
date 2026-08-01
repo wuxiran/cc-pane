@@ -136,7 +136,8 @@ fn detect_claude_session(
 }
 
 /// 从项目路径取末段作 project_name（跨 POSIX/Windows 分隔符），供 upsert 无记录时 INSERT。
-fn derive_project_name(project_path: &str) -> String {
+/// `resume_binding_service` 的建行兜底共用此函数——两处各写一份必然漂移。
+pub(crate) fn derive_project_name(project_path: &str) -> String {
     let trimmed = project_path.trim_end_matches(['/', '\\']);
     trimmed
         .rsplit(['/', '\\'])
@@ -226,7 +227,7 @@ pub async fn run_launch_history_backfill(
         // upsert：有记录则更新；无记录（GUI 经 TabBar 新建等路径从未写 launch_history）
         // 则创建一条带 pty+resume 的记录，使这类会话也能 reload 恢复。
         let project_name = derive_project_name(&project_path);
-        let record_id = match service.upsert_session_started(
+        let upserted = match service.upsert_session_started_with_source(
             &launch_id,
             &pty_session_id,
             &resume_session_id,
@@ -237,8 +238,9 @@ pub async fn run_launch_history_backfill(
             &project_path,
             &project_name,
             workspace_path.as_deref(),
+            "backfill",
         ) {
-            Ok(record_id) => record_id,
+            Ok(result) => result,
             Err(error) => {
                 warn!(
                     launch_id = %launch_id,
@@ -252,13 +254,12 @@ pub async fn run_launch_history_backfill(
                 return;
             }
         };
-        let _ = service.update_resume_source(record_id, "backfill");
         if let Ok(Some(last_prompt)) = extract_last_prompt(
             &cli_tool,
             Some(&runtime_kind),
             wsl_distro.as_deref(),
             &project_path,
-            &resume_session_id,
+            &upserted.resume_session_id,
         ) {
             let _ = service.update_last_prompt_by_pty_session_id(&pty_session_id, &last_prompt);
         }
@@ -266,17 +267,18 @@ pub async fn run_launch_history_backfill(
             "history-updated",
             serde_json::json!({
                 "source": "launch-backfill",
-                "recordId": record_id,
+                "recordId": upserted.record_id,
                 "launchId": launch_id,
                 "ptySessionId": pty_session_id,
-                "resumeSessionId": resume_session_id,
-                "resumeSource": "backfill",
+                "resumeSessionId": &upserted.resume_session_id,
+                "resumeSource": upserted.resume_source.as_deref(),
             }),
         );
         info!(
             launch_id = %launch_id,
             pty_session_id = %pty_session_id,
-            resume_session_id = %resume_session_id,
+            resume_session_id = %upserted.resume_session_id,
+            resume_source = ?upserted.resume_source,
             attempt,
             "launch-backfill: filled resume_session_id"
         );

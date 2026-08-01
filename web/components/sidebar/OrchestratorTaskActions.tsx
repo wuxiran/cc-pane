@@ -176,7 +176,9 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
           },
         },
       });
+      const launchId = `launch-${crypto.randomUUID()}`;
       const sessionId = await terminalService.createSession({
+        launchId,
         projectPath: binding.projectPath,
         workspaceName: binding.workspaceName,
         cols: 120,
@@ -190,6 +192,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
         panes.addTab(pane.id, {
           projectId: `retry-${next.id}`,
           projectPath: binding.projectPath,
+          launchId,
           sessionId,
           workspaceName: binding.workspaceName,
           cliTool: binding.cliTool,

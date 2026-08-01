@@ -44,6 +44,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const runtimeKind = resolveRuntimeKind({ ssh, wsl });
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
+      const launchId = `launch-${crypto.randomUUID()}`;
       const workspaceSnapshotId = opts.workspaceSnapshotId ?? `ws-snapshot-${crypto.randomUUID()}`;
       // 显式目标优先。当前普通布局未绑定时，用户刚新建/选中它就是更强的落位意图；
       // 已绑定到其他工作空间（或当前为星标）时，才按 workspaceName 自动路由。
@@ -57,7 +58,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
           workspaceName,
         )?.id;
       }
-      openProject({ projectId, projectPath: path, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName, workspaceSnapshotId, targetLayoutId, launchExtras: buildLaunchExtras(opts) });
+      openProject({ projectId, launchId, projectPath: path, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName, workspaceSnapshotId, targetLayoutId, launchExtras: buildLaunchExtras(opts) });
       const name = path.split(/[/\\]/).pop() || path;
 
       // SSH 项目：launchCwd 用 display path
@@ -65,54 +66,31 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
         ? path  // SSH 项目的 path 已是 ssh:// display path
         : (workspacePath ?? path);
 
-      const recordPromise = resumeId
-        ? historyService.touchBySessionId(resumeId).then((existingId) => {
-            if (existingId !== null) {
-              window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
-              return existingId;
-            }
-            // 回退：无已有记录时创建新记录
-            return historyService.add(
-              projectId,
-              name,
-              path,
-              effectiveCliTool ?? "none",
-              runtimeKind,
-              wsl?.distro,
-              workspaceName,
-              workspacePath,
-              launchCwd,
-              providerId,
-              providerSelection,
-              workspaceSnapshotId,
-              launchProfileId,
-            ).then((newId) => {
-              historyService.updateSessionId(newId, resumeId).then(() => {
-                window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
-              }).catch(console.error);
-              return newId;
-            });
-          })
-        : historyService.add(
-            projectId,
-            name,
-            path,
-            effectiveCliTool ?? "none",
-            runtimeKind,
-            wsl?.distro,
-            workspaceName,
-            workspacePath,
-            launchCwd,
-            providerId,
-            providerSelection,
-            workspaceSnapshotId,
-            launchProfileId,
-          );
+      // launch_history 记录的是一次 PTY 启动，不是 conversation。即使 resume 已有
+      // 历史行，本次启动也必须用新的 leaf launch id 建新行，不能 touch 并复用旧行。
+      const recordPromise = historyService.add(
+        launchId,
+        name,
+        path,
+        effectiveCliTool ?? "none",
+        runtimeKind,
+        wsl?.distro,
+        workspaceName,
+        workspacePath,
+        launchCwd,
+        providerId,
+        providerSelection,
+        workspaceSnapshotId,
+        launchProfileId,
+      ).then(async (recordId) => {
+        if (resumeId) {
+          await historyService.updateSessionId(recordId, resumeId);
+        }
+        return recordId;
+      });
 
       recordPromise.then((recordId) => {
-        if (!resumeId) {
-          window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
-        }
+        window.dispatchEvent(new CustomEvent('cc-panes:history-updated'));
         void recordId;
       }).catch(console.error);
 

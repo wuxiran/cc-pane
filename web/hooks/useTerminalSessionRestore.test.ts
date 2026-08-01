@@ -105,10 +105,12 @@ describe("runBackgroundLayoutRestore", () => {
       { tab: { id: "t3", contentType: "terminal", projectPath: "/p3", sessionId: "live" }, layoutId: "other" },
     ];
     const setBackgroundRestoreSession = vi.fn();
+    const updateTerminalLaunchId = vi.fn();
     mockPanesState({
       currentLayoutId: "current",
       getRestorableTabs: () => entries,
       setBackgroundRestoreSession,
+      updateTerminalLaunchId,
       canCreateTerminalSession: () => true,
     });
     vi.mocked(terminalService.createSession)
@@ -122,6 +124,11 @@ describe("runBackgroundLayoutRestore", () => {
     });
 
     expect(terminalService.createSession).toHaveBeenCalledTimes(2);
+    expect(updateTerminalLaunchId).toHaveBeenCalledTimes(2);
+    expect(terminalService.createSession).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ launchId: expect.stringMatching(/^launch-/) }),
+    );
     expect(markSessionLive).toHaveBeenCalledWith("new-session-a");
     expect(markSessionLive).toHaveBeenCalledWith("new-session-b");
   });

@@ -236,7 +236,7 @@ function renderTerminalView(props?: Partial<React.ComponentProps<typeof Terminal
   return render(
     <TerminalView
       sessionId={null}
-      projectId="proj-1"
+      launchId="reserved-launch"
       projectPath="/tmp/proj"
       isActive
       paneId="pane-1"
@@ -260,7 +260,10 @@ describe("TerminalView", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     MockXterm.instances = [];
     createSession.mockResolvedValue("new-session-1" as never);
-    usePanesStore.setState({ canCreateTerminalSession: () => true } as never);
+    usePanesStore.setState({
+      canCreateTerminalSession: () => true,
+      updateTerminalLaunchId: vi.fn(),
+    } as never);
     useSettingsStore.setState({ settings: undefined } as never);
     useTerminalStatusStore.setState({ statusMap: new Map() } as never);
     useWallpaperStore.setState({ resolved: null, assetUrl: null });
@@ -273,17 +276,24 @@ describe("TerminalView", () => {
 
   it("creates a backend session sized to the terminal and reports it", async () => {
     const onSessionCreated = vi.fn();
-    renderTerminalView({ onSessionCreated, cliTool: "none" });
+    renderTerminalView({ onSessionCreated, cliTool: "none", launchId: "reserved-launch" });
 
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        launchId: "proj-1",
+        launchId: "reserved-launch",
         projectPath: "/tmp/proj",
         cols: 80,
         rows: 24,
         cliTool: "none",
       })
+    );
+    const createdLaunchId = createSession.mock.calls[0][0]?.launchId;
+    expect(createdLaunchId).toBe("reserved-launch");
+    expect(usePanesStore.getState().updateTerminalLaunchId).toHaveBeenCalledWith(
+      "tab-1",
+      "pane-1",
+      createdLaunchId,
     );
 
     await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith("new-session-1"));
@@ -298,10 +308,42 @@ describe("TerminalView", () => {
 
     await waitFor(() => expect(startLaunchHistoryBackfill).toHaveBeenCalled());
     const call = startLaunchHistoryBackfill.mock.calls[0];
-    expect(call[0]).toBe("proj-1");
+    expect(call[0]).toBe(createSession.mock.calls[0][0]?.launchId);
     expect(call[1]).toBe("new-session-1");
     expect(call[2]).toBe("claude");
     expect(call[3]).toBe("local");
+  });
+
+  // 回归防线：曾经这里有个 `if (!effectiveResumeId)` 把带 resumeId 的会话挡在 backfill 外。
+  // 恢复路径也必须为本次 PTY 的 one-shot launch id 补齐 history 行；挡掉之后
+  // 恢复出来的会话下次重启仍会丢 resumeId。不要把这个条件加回来。
+  it("backfills launch history for resumed sessions too", async () => {
+    renderTerminalView({ cliTool: "claude", resumeId: "resume-abc" });
+
+    await waitFor(() => expect(startLaunchHistoryBackfill).toHaveBeenCalled());
+    const call = startLaunchHistoryBackfill.mock.calls[0];
+    expect(call[0]).toBe(createSession.mock.calls[0][0]?.launchId);
+    expect(call[2]).toBe("claude");
+  });
+
+  it("rotates the persisted launchId before a restored PTY is created", async () => {
+    renderTerminalView({
+      cliTool: "claude",
+      restoring: true,
+      savedSessionId: "expired-session",
+      resumeId: "resume-abc",
+      launchId: "previous-launch",
+    });
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    const createdLaunchId = createSession.mock.calls[0][0]?.launchId;
+    expect(createdLaunchId).toMatch(/^launch-/);
+    expect(createdLaunchId).not.toBe("previous-launch");
+    expect(usePanesStore.getState().updateTerminalLaunchId).toHaveBeenCalledWith(
+      "tab-1",
+      "pane-1",
+      createdLaunchId,
+    );
   });
 
   it("skips history backfill for plain shells", async () => {
@@ -404,7 +446,7 @@ describe("TerminalView", () => {
     const onSessionCreated = vi.fn();
     const initialProps = {
       sessionId: null,
-      projectId: "proj-1",
+      launchId: "previous-launch",
       projectPath: "/tmp/proj",
       isActive: false,
       isVisible: false,
@@ -443,7 +485,7 @@ describe("TerminalView", () => {
     const onSessionCreated = vi.fn();
     const initialProps = {
       sessionId: null,
-      projectId: "proj-1",
+      launchId: "previous-launch",
       projectPath: "/tmp/proj",
       isActive: false,
       isVisible: false,
@@ -476,7 +518,7 @@ describe("TerminalView", () => {
       const onSessionCreated = vi.fn();
       const initialProps = {
         sessionId: null,
-        projectId: "proj-1",
+        launchId: "previous-launch",
         projectPath: "/tmp/proj",
         isActive: false,
         isVisible: false,
@@ -558,7 +600,7 @@ describe("TerminalView", () => {
     view.rerender(
       <TerminalView
         sessionId={null}
-        projectId="proj-1"
+        launchId="previous-launch"
         projectPath="/tmp/proj"
         isActive
         layoutActive

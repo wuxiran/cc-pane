@@ -15,6 +15,8 @@ export function createPanel(tab?: Tab): Panel {
   const defaultLeaf: TerminalPaneLeaf = {
     type: "leaf",
     id: generateId("terminal-pane"),
+    launchId: generateId("launch"),
+    restoreMode: "shell",
     sessionId: null,
   };
   const defaultTab: Tab = tab || {
@@ -53,6 +55,12 @@ export function createTab(
   const terminalLeaf: TerminalPaneLeaf = {
     type: "leaf",
     id: generateId("terminal-pane"),
+    launchId: generateId("launch"),
+    restoreMode: resumeId === undefined
+      ? "shell"
+      : resumeId !== "new"
+        ? "resumed"
+        : "fresh",
     sessionId: null,
     resumeId,
     workspaceName,

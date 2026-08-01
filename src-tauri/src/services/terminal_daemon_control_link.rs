@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
@@ -28,23 +30,54 @@ const RECONNECT_MAX: Duration = Duration::from_secs(60);
 /// manager 只启动一个常驻任务，避免每次自愈都叠加一个 desktop 控制连接。
 pub struct TerminalDaemonControlLink {
     client_tx: watch::Sender<Option<TerminalDaemonClient>>,
+    connected: Arc<AtomicBool>,
 }
 
 impl TerminalDaemonControlLink {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
         let (client_tx, client_rx) = watch::channel(None);
-        tauri::async_runtime::spawn(run_control_link(client_rx, app_handle));
-        Self { client_tx }
+        let connected = Arc::new(AtomicBool::new(false));
+        tauri::async_runtime::spawn(run_control_link(
+            client_rx,
+            app_handle,
+            connected.clone(),
+        ));
+        Self {
+            client_tx,
+            connected,
+        }
     }
 
     pub fn replace_client(&self, client: TerminalDaemonClient) {
         self.client_tx.send_replace(Some(client));
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::SeqCst)
+    }
+}
+
+struct ControlConnectionGuard {
+    connected: Arc<AtomicBool>,
+}
+
+impl ControlConnectionGuard {
+    fn new(connected: Arc<AtomicBool>) -> Self {
+        connected.store(true, Ordering::SeqCst);
+        Self { connected }
+    }
+}
+
+impl Drop for ControlConnectionGuard {
+    fn drop(&mut self) {
+        self.connected.store(false, Ordering::SeqCst);
     }
 }
 
 async fn run_control_link(
     mut client_rx: watch::Receiver<Option<TerminalDaemonClient>>,
     app_handle: tauri::AppHandle,
+    connected: Arc<AtomicBool>,
 ) {
     // 跨重连保留：已补拉过的身份事件不再重复应用，notifier 的去重与待投队列
     // 也不能随断线清零。
@@ -73,6 +106,7 @@ async fn run_control_link(
 
             match connection {
                 Ok((mut ws, _)) => {
+                    let _connection_guard = ControlConnectionGuard::new(connected.clone());
                     debug!(daemon_addr = %client.addr(), "terminal daemon control link connected");
                     backoff = RECONNECT_MIN;
                     replay_identity_events(&app_handle, &client, &mut applied_identity);

@@ -38,7 +38,7 @@ export default function PanelEmptyState({
         }}
       />
 
-      {/* 内容块 — 壁纸激活时自带不透明底，否则文字直接糊在壁纸上读不出。
+      {/* 内容块 — 壁纸激活时自带磨砂玻璃底，否则文字直接糊在壁纸上读不出。
           只包内容不铺满窗格：铺满会盖掉壁纸，那正是壁纸要透出来的地方。 */}
       <div
         data-testid="panel-empty-content"

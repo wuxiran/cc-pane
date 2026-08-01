@@ -1,6 +1,8 @@
 use crate::repository::Database;
+use crate::services::should_retain_incoming;
 use crate::utils::simplify_opt_path_str;
 use chrono::Utc;
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::error;
@@ -27,6 +29,13 @@ pub struct LaunchRecord {
     pub launch_profile_id: Option<String>,
     pub workspace_snapshot_id: Option<String>,
     /// resume id 的来源：issued / osc-title / backfill / rescue / manual（NULL = 旧数据）
+    pub resume_source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionStartedUpsertResult {
+    pub record_id: i64,
+    pub resume_session_id: String,
     pub resume_source: Option<String>,
 }
 
@@ -297,37 +306,68 @@ impl HistoryRepository {
         pty_session_id: &str,
         resume_session_id: &str,
         source: &str,
-    ) -> Result<Option<i64>, String> {
+    ) -> Result<Option<SessionStartedUpsertResult>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
-        let affected = conn
-            .execute(
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let existing = tx
+            .query_row(
+                "SELECT id, resume_session_id, resume_source
+                   FROM launch_history
+                  WHERE pty_session_id = ?1
+                  ORDER BY launched_at DESC, id DESC
+                  LIMIT 1",
+                rusqlite::params![pty_session_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|e| {
+                error!(table = "launch_history", pty_session_id = %pty_session_id, err = %e, "SQL query resume binding failed");
+                e.to_string()
+            })?;
+        let Some((id, existing_resume_id, existing_source)) = existing else {
+            return Ok(None);
+        };
+
+        let retain_incoming = should_retain_incoming(
+            existing_source.as_deref(),
+            existing_resume_id.as_deref(),
+            source,
+            resume_session_id,
+        );
+        let selected_resume_id = if retain_incoming {
+            resume_session_id.to_string()
+        } else {
+            existing_resume_id.unwrap_or_else(|| resume_session_id.to_string())
+        };
+        let selected_resume_source = if retain_incoming {
+            Some(source.to_string())
+        } else {
+            existing_source
+        };
+        if retain_incoming {
+            tx.execute(
                 "UPDATE launch_history
-                 SET resume_session_id = ?1, resume_source = ?2
-                 WHERE id = (
-                     SELECT id FROM launch_history
-                     WHERE pty_session_id = ?3
-                     ORDER BY launched_at DESC LIMIT 1
-                 )",
-                rusqlite::params![resume_session_id, source, pty_session_id],
+                    SET resume_session_id = ?1, resume_source = ?2
+                  WHERE id = ?3",
+                rusqlite::params![resume_session_id, source, id],
             )
             .map_err(|e| {
                 error!(table = "launch_history", pty_session_id = %pty_session_id, err = %e, "SQL update_resume_session_with_source_by_pty failed");
                 e.to_string()
             })?;
-        if affected == 0 {
-            return Ok(None);
         }
-        let id = conn
-            .query_row(
-                "SELECT id FROM launch_history WHERE pty_session_id = ?1 ORDER BY launched_at DESC LIMIT 1",
-                rusqlite::params![pty_session_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| {
-                error!(table = "launch_history", pty_session_id = %pty_session_id, err = %e, "SQL query updated resume record failed");
-                e.to_string()
-            })?;
-        Ok(Some(id))
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(Some(SessionStartedUpsertResult {
+            record_id: id,
+            resume_session_id: selected_resume_id,
+            resume_source: selected_resume_source,
+        }))
     }
 
     /// 将创建完成的 PTY 精确归属到对应 launch 记录。CLI 必须匹配，避免并发启动或
@@ -448,57 +488,203 @@ impl HistoryRepository {
         project_name: &str,
         workspace_path: Option<&str>,
     ) -> Result<i64, String> {
+        self.upsert_session_started_inner(
+            launch_id,
+            pty_session_id,
+            resume_session_id,
+            cli_tool,
+            runtime_kind,
+            wsl_distro,
+            launch_cwd,
+            project_path,
+            project_name,
+            workspace_path,
+            None,
+        )
+        .map(|result| result.record_id)
+    }
+
+    /// Source-aware variant used by deterministic identity and backfill writers.
+    /// PTY ownership, CLI compatibility and source arbitration are committed together.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_session_started_with_source(
+        &self,
+        launch_id: &str,
+        pty_session_id: &str,
+        resume_session_id: &str,
+        cli_tool: &str,
+        runtime_kind: &str,
+        wsl_distro: Option<&str>,
+        launch_cwd: Option<&str>,
+        project_path: &str,
+        project_name: &str,
+        workspace_path: Option<&str>,
+        resume_source: &str,
+    ) -> Result<SessionStartedUpsertResult, String> {
+        self.upsert_session_started_inner(
+            launch_id,
+            pty_session_id,
+            resume_session_id,
+            cli_tool,
+            runtime_kind,
+            wsl_distro,
+            launch_cwd,
+            project_path,
+            project_name,
+            workspace_path,
+            Some(resume_source),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn upsert_session_started_inner(
+        &self,
+        launch_id: &str,
+        pty_session_id: &str,
+        resume_session_id: &str,
+        cli_tool: &str,
+        runtime_kind: &str,
+        wsl_distro: Option<&str>,
+        launch_cwd: Option<&str>,
+        project_path: &str,
+        project_name: &str,
+        workspace_path: Option<&str>,
+        resume_source: Option<&str>,
+    ) -> Result<SessionStartedUpsertResult, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
-        // 入库防线：UPDATE 与下方 INSERT 分支共用规范化后的值
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        // 入库防线：UPDATE 与下方 INSERT 分支共用规范化后的值。
         let launch_cwd = simplify_opt_path_str(launch_cwd);
         let workspace_path = simplify_opt_path_str(workspace_path);
-        let affected = conn
-            .execute(
-                "UPDATE launch_history
-                 SET pty_session_id = ?1,
-                     resume_session_id = ?2,
-                     cli_tool = ?3,
-                     runtime_kind = ?4,
-                     wsl_distro = COALESCE(?5, wsl_distro),
-                     launch_cwd = COALESCE(?6, launch_cwd)
-                 WHERE project_id = ?7",
-                rusqlite::params![
-                    pty_session_id,
-                    resume_session_id,
-                    cli_tool,
-                    runtime_kind,
-                    wsl_distro,
-                    launch_cwd,
-                    launch_id
-                ],
+        let existing = tx
+            .query_row(
+                "SELECT id, pty_session_id, cli_tool, resume_session_id, resume_source
+                   FROM launch_history
+                  WHERE project_id = ?1
+                  ORDER BY launched_at DESC, id DESC
+                  LIMIT 1",
+                rusqlite::params![launch_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                },
             )
+            .optional()
             .map_err(|e| {
-                error!(table = "launch_history", launch_id = %launch_id, err = %e, "SQL upsert_session_started UPDATE failed");
+                error!(table = "launch_history", launch_id = %launch_id, err = %e, "SQL upsert_session_started lookup failed");
                 e.to_string()
             })?;
 
-        if affected > 0 {
-            let id = conn
-                .query_row(
-                    "SELECT id FROM launch_history WHERE project_id = ?1 ORDER BY launched_at DESC LIMIT 1",
-                    rusqlite::params![launch_id],
-                    |row| row.get(0),
+        if let Some((id, existing_pty, existing_cli, existing_resume, existing_source)) = existing {
+            if existing_pty
+                .as_deref()
+                .is_some_and(|existing| existing != pty_session_id)
+            {
+                return Err(format!(
+                    "launch id {launch_id} is already bound to another PTY"
+                ));
+            }
+            if existing_cli != "none" && cli_tool != "none" && existing_cli != cli_tool {
+                return Err(format!(
+                    "launch id {launch_id} belongs to CLI {existing_cli}, not {cli_tool}"
+                ));
+            }
+
+            let stored_cli = if existing_cli == "none" && cli_tool != "none" {
+                cli_tool
+            } else {
+                existing_cli.as_str()
+            };
+            let replace_resume = resume_source
+                .map(|incoming| {
+                    should_retain_incoming(
+                        existing_source.as_deref(),
+                        existing_resume.as_deref(),
+                        incoming,
+                        resume_session_id,
+                    )
+                })
+                .unwrap_or(true);
+            let selected_resume_id = if replace_resume {
+                resume_session_id.to_string()
+            } else {
+                existing_resume.unwrap_or_else(|| resume_session_id.to_string())
+            };
+            let selected_resume_source = if replace_resume {
+                resume_source.map(str::to_string).or(existing_source)
+            } else {
+                existing_source
+            };
+            if replace_resume {
+                tx.execute(
+                    "UPDATE launch_history
+                        SET pty_session_id = ?1,
+                            resume_session_id = ?2,
+                            resume_source = COALESCE(?3, resume_source),
+                            cli_tool = ?4,
+                            runtime_kind = ?5,
+                            wsl_distro = COALESCE(?6, wsl_distro),
+                            launch_cwd = COALESCE(?7, launch_cwd)
+                      WHERE id = ?8",
+                    rusqlite::params![
+                        pty_session_id,
+                        resume_session_id,
+                        resume_source,
+                        stored_cli,
+                        runtime_kind,
+                        wsl_distro,
+                        launch_cwd,
+                        id,
+                    ],
                 )
                 .map_err(|e| {
-                    error!(table = "launch_history", launch_id = %launch_id, err = %e, "SQL upsert_session_started query id failed");
+                    error!(table = "launch_history", launch_id = %launch_id, err = %e, "SQL upsert_session_started UPDATE failed");
                     e.to_string()
                 })?;
-            return Ok(id);
+            } else {
+                tx.execute(
+                    "UPDATE launch_history
+                        SET pty_session_id = ?1,
+                            cli_tool = ?2,
+                            runtime_kind = ?3,
+                            wsl_distro = COALESCE(?4, wsl_distro),
+                            launch_cwd = COALESCE(?5, launch_cwd)
+                      WHERE id = ?6",
+                    rusqlite::params![
+                        pty_session_id,
+                        stored_cli,
+                        runtime_kind,
+                        wsl_distro,
+                        launch_cwd,
+                        id,
+                    ],
+                )
+                .map_err(|e| {
+                    error!(table = "launch_history", launch_id = %launch_id, err = %e, "SQL upsert_session_started metadata UPDATE failed");
+                    e.to_string()
+                })?;
+            }
+            tx.commit().map_err(|e| e.to_string())?;
+            return Ok(SessionStartedUpsertResult {
+                record_id: id,
+                resume_session_id: selected_resume_id,
+                resume_source: selected_resume_source,
+            });
         }
 
         // 无匹配记录：该会话从未写过 launch_history（GUI TabBar 新建等路径）。
         // INSERT 一条带 pty + resume 的记录，让 reload 能恢复。
         let now = Utc::now().to_rfc3339();
-        conn.execute(
+        tx.execute(
             "INSERT INTO launch_history (
                 project_id, project_name, project_path, launched_at,
-                pty_session_id, resume_session_id, cli_tool, runtime_kind, wsl_distro, workspace_path, launch_cwd
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                pty_session_id, resume_session_id, resume_source, cli_tool, runtime_kind, wsl_distro, workspace_path, launch_cwd
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             rusqlite::params![
                 launch_id,
                 project_name,
@@ -506,6 +692,7 @@ impl HistoryRepository {
                 &now,
                 pty_session_id,
                 resume_session_id,
+                resume_source,
                 cli_tool,
                 runtime_kind,
                 wsl_distro,
@@ -517,8 +704,13 @@ impl HistoryRepository {
             error!(table = "launch_history", launch_id = %launch_id, err = %e, "SQL upsert_session_started INSERT failed");
             e.to_string()
         })?;
-
-        Ok(conn.last_insert_rowid())
+        let id = tx.last_insert_rowid();
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(SessionStartedUpsertResult {
+            record_id: id,
+            resume_session_id: resume_session_id.to_string(),
+            resume_source: resume_source.map(str::to_string),
+        })
     }
 
     /// 更新启动记录的最后 Prompt
@@ -853,7 +1045,7 @@ mod tests {
             launch_id,
             "proj",
             "/tmp/proj",
-            "old-pty",
+            "new-pty",
             "codex",
             "wsl",
             None,
@@ -931,7 +1123,7 @@ mod tests {
             None
         );
 
-        let id = r
+        let selected = r
             .update_resume_session_with_source_by_pty(
                 pty_session,
                 "019eb252-b6bf-79f2-abfb-ff801aaaaaaa",
@@ -939,7 +1131,12 @@ mod tests {
             )
             .expect("update ok")
             .expect("row matched");
-        assert!(id > 0);
+        assert!(selected.record_id > 0);
+        assert_eq!(
+            selected.resume_session_id,
+            "019eb252-b6bf-79f2-abfb-ff801aaaaaaa"
+        );
+        assert_eq!(selected.resume_source.as_deref(), Some("osc-title"));
 
         let found = r
             .find_by_pty_session_id(pty_session)

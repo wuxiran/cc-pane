@@ -6,14 +6,19 @@ import type { Tab } from "@/types";
 import { usePanesStore, useTerminalRestoreLogStore } from "@/stores";
 import TerminalTabContent from "./TerminalTabContent";
 
+const terminalViewMock = vi.hoisted(() => vi.fn());
+
 vi.mock("./TerminalView", () => ({
-  default: vi.fn((props: { onRestoreLaunchState?: (state: string) => void }) => (
+  default: vi.fn((props: { onRestoreLaunchState?: (state: string) => void }) => {
+    terminalViewMock(props);
+    return (
     <button
       data-testid="terminal-view"
       onClick={() => props.onRestoreLaunchState?.("queued")}
       onDoubleClick={() => props.onRestoreLaunchState?.("failed")}
     />
-  )),
+    );
+  }),
 }));
 
 vi.mock("./SplitView", () => ({
@@ -55,7 +60,29 @@ function renderTerminalTabContent(tab: Tab, options?: { isVisible?: boolean; isA
 }
 
 describe("TerminalTabContent", () => {
-  beforeEach(() => useTerminalRestoreLogStore.getState().reset());
+  beforeEach(() => {
+    useTerminalRestoreLogStore.getState().reset();
+    terminalViewMock.mockClear();
+  });
+
+  it("把 leaf 的 launchId 传给 TerminalView，而不是复用 tab projectId", () => {
+    renderTerminalTabContent(
+      createTerminalTab({
+        projectId: "stable-tab-project-id",
+        terminalRootPane: {
+          type: "leaf",
+          id: "leaf-1",
+          sessionId: null,
+          launchId: "leaf-launch-id",
+        },
+      }),
+    );
+
+    expect(terminalViewMock).toHaveBeenCalledWith(
+      expect.objectContaining({ launchId: "leaf-launch-id" }),
+    );
+    expect(terminalViewMock.mock.calls[0][0]).not.toHaveProperty("projectId");
+  });
 
   it("shows a persistent launch error with retry and remove actions", () => {
     const retryTerminalLaunch = vi.fn();

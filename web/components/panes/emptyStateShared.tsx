@@ -8,7 +8,7 @@
 // 而 `MainViewSwitcher.tsx` 在壁纸激活时把该 token 强制成 transparent
 // （同时把 --app-glass-blur 交给壁纸设置接管，默认 0）。于是空态在壁纸下
 // 完全没有 scrim，只剩壁纸自己的全局 dim（可以为 0）→ 文字糊成一片。
-// 解法是给内容块自己加一层底，**不是**调亮文字色
+// 解法是给内容块自己加一层磨砂玻璃底（半透明 + backdrop-blur），**不是**调亮文字色
 // （docs/46-frontend-styleguide.md:115 禁止自调透明度造低对比灰字）。
 import { useCallback, useRef, useState } from "react";
 import { Bot, Sparkles, Terminal } from "lucide-react";
@@ -76,11 +76,15 @@ export function useEmptyStateSurfaceStyle(): React.CSSProperties | undefined {
   );
   if (!wallpaperActive) return undefined;
   return {
-    background: "var(--app-overlay)",
-    border: "1px solid var(--app-border)",
+    // 半透明底 + 高斯模糊 = 磨砂玻璃：壁纸的色调/构图还能透出来，
+    // 但高频细节被模糊掉，文字仍有足够 scrim。
+    // 不要写成不透明的 `var(--app-overlay)`——那样 backdrop-filter 等于白做。
+    background: "color-mix(in srgb, var(--app-overlay) 58%, transparent)",
+    border: "1px solid color-mix(in srgb, var(--app-text-primary) 12%, transparent)",
     borderRadius: "var(--radius-lg, 12px)",
-    backdropFilter: "blur(20px)",
-    WebkitBackdropFilter: "blur(20px)",
+    boxShadow: "var(--sh-lg), var(--hi)",
+    backdropFilter: "blur(28px) saturate(140%)",
+    WebkitBackdropFilter: "blur(28px) saturate(140%)",
   };
 }
 

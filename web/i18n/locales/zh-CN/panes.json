@@ -190,5 +190,10 @@
   "quickCommandNoCliTool": "Agent Prompt 未配置 CLI 工具",
   "quickCommandExecuteFailed": "运行快捷命令失败: {{error}}",
   "sessionClaimedByOtherInstance": "这个终端由另一个 CC-Panes 实例控制，当前只能查看",
-  "terminalZoom": "终端缩放"
+  "terminalZoom": "终端缩放",
+  "restoreRegression": {
+    "title": "{{count}} 个终端会话未能恢复历史对话",
+    "impact": "这些会话恢复成了全新会话，resume id 可能未写入数据库；请查看应用日志里的 [restore-report] 与 bind_resume_id。",
+    "dismiss": "关闭提示"
+  }
 }
