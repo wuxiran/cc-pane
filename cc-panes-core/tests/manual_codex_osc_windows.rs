@@ -21,7 +21,7 @@ fn extract_osc_titles(data: &str) -> Vec<String> {
         let Some(body) = rest.strip_prefix("0;").or_else(|| rest.strip_prefix("2;")) else {
             continue;
         };
-        if let Some(end) = body.find(|c| c == '\u{7}' || c == '\u{1b}') {
+        if let Some(end) = body.find(['\u{7}', '\u{1b}']) {
             titles.push(body[..end].to_string());
             rest = &body[end..];
         }
