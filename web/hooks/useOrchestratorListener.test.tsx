@@ -599,4 +599,92 @@ describe("useOrchestratorListener layout placement", () => {
       data: JSON.stringify({ tabId: "existing-tab" }),
     });
   });
+
+  // 「谁指挥的就开到谁那儿」：调用方在别的布局时，标签必须落在它那边，
+  // 不能飞到用户此刻正看着的布局，也不能把用户拽走。
+  it("open-browser-tab 落到调用方所在布局，不切走当前布局", async () => {
+    const listeners = mockWebviewListeners();
+    const secondPane = createPanel();
+    usePanesStore.setState((state) => ({
+      layouts: [
+        ...state.layouts,
+        { id: "layout-2", name: "第二布局", rootPane: secondPane, activePaneId: secondPane.id },
+      ],
+    }));
+    // 调用方会话住在 layout-2
+    usePanesStore.getState().addTab(
+      secondPane.id,
+      { projectId: "p", projectPath: "/tmp/project-b", sessionId: "caller-session" },
+      "layout-2",
+    );
+
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-open-browser-tab")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-open-browser-tab")?.({
+        payload: {
+          requestId: "browser-request-3",
+          tabId: "browser-tab-3",
+          url: "http://localhost:5173/from-caller",
+          callerSessionId: "caller-session",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    expect(state.currentLayoutId).toBe("layout-1");
+    const layout2 = state.layouts.find((item) => item.id === "layout-2")!;
+    expect(
+      collectPanels(layout2.rootPane)
+        .flatMap((pane) => pane.tabs)
+        .map((tab) => tab.id),
+    ).toContain("browser-tab-3");
+    expect(
+      collectPanels(state.rootPane)
+        .flatMap((pane) => pane.tabs)
+        .map((tab) => tab.id),
+    ).not.toContain("browser-tab-3");
+    // 落点不在眼前：给一条可点提示，而不是自动切过去
+    expect(toast.info).toHaveBeenCalled();
+  });
+
+  it("open-file 落到调用方所在布局", async () => {
+    const listeners = mockWebviewListeners();
+    const secondPane = createPanel();
+    usePanesStore.setState((state) => ({
+      layouts: [
+        ...state.layouts,
+        { id: "layout-2", name: "第二布局", rootPane: secondPane, activePaneId: secondPane.id },
+      ],
+    }));
+    usePanesStore.getState().addTab(
+      secondPane.id,
+      { projectId: "p", projectPath: "/tmp/project-b", sessionId: "caller-session" },
+      "layout-2",
+    );
+
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-open-file")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-open-file")?.({
+        payload: {
+          filePath: "/tmp/project-b/main.rs",
+          projectPath: "/tmp/project-b",
+          title: "main.rs",
+          callerSessionId: "caller-session",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    expect(state.currentLayoutId).toBe("layout-1");
+    const layout2 = state.layouts.find((item) => item.id === "layout-2")!;
+    expect(
+      collectPanels(layout2.rootPane)
+        .flatMap((pane) => pane.tabs)
+        .map((tab) => tab.filePath),
+    ).toContain("/tmp/project-b/main.rs");
+  });
 });

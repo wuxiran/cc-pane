@@ -140,6 +140,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       { id: "font", titleKey: "fontSize", descriptionKey: "fontFamilyCjkHint", keywordsKey: "searchKeywords.font", targetSectionId: "terminal-font" },
       { id: "theme", titleKey: "terminalTheme", targetSectionId: "terminal-root" },
       { id: "renderer", titleKey: "rendererMode", descriptionKey: "rendererHint", targetSectionId: "terminal-root" },
+      { id: "session-priority", titleKey: "lowerSessionPriority", descriptionKey: "lowerSessionPriorityHint", targetSectionId: "terminal-root" },
       { id: "daemon", titleKey: "terminalDaemon", descriptionKey: "terminalDaemonHint", targetSectionId: "terminal-root" },
     ],
   },

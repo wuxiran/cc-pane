@@ -4,9 +4,10 @@ import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { filesystemService, providerService } from "@/services";
+import { filesystemService, providerService, terminalService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage } from "@/utils";
+import { noteTerminalGeometry } from "@/utils/terminalCast";
 import { buildTerminalExportFileName, serializeTerminalBuffer } from "./terminalBufferSnapshot";
 import { copyTerminalSelection } from "./terminalClipboard";
 import { requestTerminalFitAll } from "./terminalFitEvents";
@@ -29,7 +30,19 @@ interface UseTerminalContextMenuActionsOptions {
     options?: { force?: boolean; focusIfSafe?: boolean; allowInactive?: boolean },
   ) => void;
   repaintTerminal: (reason: string) => void;
+  /**
+   * 本视图是否有权改后端 PTY 尺寸。共享 PTY 的镜像面板与只读面板必须为 false，
+   * 否则镜像里点一次刷新会改掉主视图的 PTY 尺寸。缺省保守取 false。
+   */
+  canResizeBackend?: () => boolean;
 }
+
+/**
+ * SIGWINCH 抖动的两次 resize 间隔。要大于一帧、又不至于让用户看见明显闪动。
+ * 直接调 terminalService.resize（不走 layoutScheduler），否则会被它的 250ms
+ * 去抖合并成一次，抖动失效。
+ */
+const REDRAW_NUDGE_INTERVAL_MS = 80;
 
 export function useTerminalContextMenuActions({
   terminalRef,
@@ -41,6 +54,7 @@ export function useTerminalContextMenuActions({
   debugLog,
   refitAndRepaintTerminal,
   repaintTerminal,
+  canResizeBackend = () => false,
 }: UseTerminalContextMenuActionsOptions) {
   const { t } = useTranslation("panes");
 
@@ -81,13 +95,59 @@ export function useTerminalContextMenuActions({
     [currentSessionIdRef, sessionId],
   );
 
+  /**
+   * 向 CLI 请求一次全量重绘：把 PTY 宽度抖一格再抖回来，触发 SIGWINCH。
+   *
+   * 为什么需要它——渲染层的 clearTextureAtlas/refresh 只能重画 xterm buffer 里已有的内容，
+   * 而实际错乱多半发生在 buffer 里（我们对 claude/codex 剥掉了 alt-screen，TUI 的相对定位
+   * 锚点会在主缓冲区滚动时丢失，之后每帧都画错行；详见 docs/73）。只有让 CLI 自己重画才修得掉。
+   * 不用 Ctrl+L：那会清屏，是破坏性操作，不该藏在"刷新显示"后面。
+   */
+  const requestCliRedraw = useCallback(() => {
+    if (!canResizeBackend()) return;
+    const term = terminalRef.current;
+    const activeSessionId = currentSessionIdRef.current ?? sessionId;
+    if (!term || !activeSessionId) return;
+
+    const { cols, rows } = term;
+    if (cols <= 1 || rows <= 0) return;
+
+    const send = (nextCols: number) => {
+      noteTerminalGeometry(activeSessionId, nextCols, rows);
+      void terminalService
+        .resize({ sessionId: activeSessionId, cols: nextCols, rows })
+        .catch((error) => {
+          debugLog("context-menu.refresh.resize.failed", {
+            cols: nextCols,
+            rows,
+            error: getErrorMessage(error),
+          });
+        });
+    };
+
+    debugLog("context-menu.refresh.sigwinch", { cols, rows });
+    send(cols - 1);
+    window.setTimeout(() => {
+      // 抖回来时重新取当前尺寸：这 80ms 内可能发生了真实的布局变化。
+      const current = terminalRef.current;
+      send(current?.cols === cols - 1 ? cols : (current?.cols ?? cols));
+    }, REDRAW_NUDGE_INTERVAL_MS);
+  }, [canResizeBackend, currentSessionIdRef, debugLog, sessionId, terminalRef]);
+
   const handleMenuRefreshTerminal = useCallback(() => {
     const term = terminalRef.current;
     if (!term) return;
     rendererControllerRef.current?.clearTextureAtlas("context-menu.refresh");
     refitAndRepaintTerminal("context-menu.refresh", { focusIfSafe: true });
     repaintTerminal("context-menu.refresh");
-  }, [refitAndRepaintTerminal, repaintTerminal, rendererControllerRef, terminalRef]);
+    requestCliRedraw();
+  }, [
+    refitAndRepaintTerminal,
+    repaintTerminal,
+    rendererControllerRef,
+    requestCliRedraw,
+    terminalRef,
+  ]);
 
   const handleMenuFitTerminal = useCallback(() => {
     refitAndRepaintTerminal("context-menu.fit", {

@@ -46,6 +46,10 @@ pub struct BrowserOpenTabEvent {
     pub pane_id: Option<String>,
     /// 已有同 URL 标签时是否复用（默认 true）。前端消费；旧前端忽略该字段仍按新开处理。
     pub reuse: bool,
+    /// 发起本次打开的 PTY 会话 id（MCP 调用方）。前端据此把标签落到**指挥者所在布局**，
+    /// 而不是用户此刻正看着的那个布局。None = 无调用方身份（UI/命令入口），落当前布局。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller_session_id: Option<String>,
 }
 
 impl BrowserOpenTabEvent {
@@ -75,6 +79,7 @@ impl BrowserOpenTabEvent {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
             reuse,
+            caller_session_id: None,
         })
     }
 }

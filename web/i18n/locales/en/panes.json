@@ -113,6 +113,7 @@
   "orchestratorLaunchProjectPathMissing": "Ignored MCP launch event because project path is missing",
   "orchestratorLaunchedInLayout": "Launched in \"{{layout}}\"",
   "orchestratorLaunchedInLayoutGoto": "Go there",
+  "orchestratorOpenedInLayout": "Opened {{title}} in \"{{layout}}\"",
   "voiceStartRecording": "Voice input",
   "voiceStopRecording": "Stop recording",
   "voiceTranscribing": "Transcribing",

@@ -194,6 +194,94 @@ fn resource_tree_aggregates_managed_session_descendants_once() {
     assert_eq!(tree.app_memory_bytes, 100);
     assert_eq!(tree.app_memory_percent, 1.0);
     assert_eq!(tree.elapsed_micros, 250);
+
+    // 明细按内存降序，且加总必须等于会话聚合值——否则展开后数字对不上，
+    // 用户没法判断到底该信哪个。
+    let detail = &tree.sessions[0].processes;
+    assert_eq!(detail.len(), 2);
+    assert_eq!(detail[0].pid, 21);
+    assert_eq!(detail[0].name, "codex.exe");
+    assert_eq!(detail[1].pid, 20);
+    assert_eq!(
+        detail
+            .iter()
+            .map(|process| process.memory_bytes)
+            .sum::<u64>(),
+        tree.sessions[0].memory_bytes,
+    );
+    assert!(tree.sessions[0].truncated.is_none());
+}
+
+#[test]
+fn session_process_detail_caps_the_list_and_reports_what_it_folded() {
+    let mut processes = vec![
+        process(1, None, "explorer.exe", "explorer.exe", 0.0, 1_000),
+        process(10, Some(1), "cc-panes.exe", "cc-panes.exe", 1.0, 100),
+        process(20, Some(10), "pwsh.exe", "pwsh.exe", 0.0, 10_000),
+    ];
+    // 30 个 rustc 挂在会话根下，超过 SESSION_PROCESS_DETAIL_LIMIT (24)。
+    let rustc_count = 30u32;
+    for offset in 0..rustc_count {
+        processes.push(process(
+            100 + offset,
+            Some(20),
+            "rustc.exe",
+            "rustc --crate-name x",
+            1.0,
+            u64::from(offset) + 1,
+        ));
+    }
+
+    let tree = build_resource_tree_from_snapshot(
+        SystemStats {
+            cpu_percent: 0.0,
+            mem_used: 0,
+            mem_total: 1_000,
+        },
+        &processes,
+        &[ManagedSessionRoot {
+            session_id: "session-1".to_string(),
+            root_pid: 20,
+        }],
+        10,
+        &identities(&[(10, 100)]),
+        0,
+    );
+
+    let session = &tree.sessions[0];
+    assert_eq!(session.process_count, rustc_count + 1);
+    assert_eq!(session.processes.len(), SESSION_PROCESS_DETAIL_LIMIT);
+
+    // 截断绝不能静默：折叠掉的条数与用量必须回传，否则 UI 上"前 24 条"和"一共 24 条"同形。
+    let truncated = session
+        .truncated
+        .as_ref()
+        .expect("folded remainder reported");
+    assert_eq!(
+        session.processes.len() as u32 + truncated.process_count,
+        session.process_count,
+    );
+    let detail_memory = session
+        .processes
+        .iter()
+        .map(|process| process.memory_bytes)
+        .sum::<u64>();
+    assert_eq!(detail_memory + truncated.memory_bytes, session.memory_bytes);
+}
+
+#[test]
+fn session_process_detail_truncates_command_on_char_boundaries() {
+    // 路径含中文时按字节截断会 panic；这里用中文命令行确认走的是字符边界。
+    let long_command = "启动".repeat(SESSION_PROCESS_COMMAND_LIMIT);
+    let truncated = truncate_command(&long_command);
+
+    assert_eq!(
+        truncated.chars().count(),
+        SESSION_PROCESS_COMMAND_LIMIT + 1,
+        "截断后应为上限长度加一个省略号",
+    );
+    assert!(truncated.ends_with('…'));
+    assert_eq!(truncate_command("short"), "short");
 }
 
 #[test]

@@ -1,13 +1,21 @@
 import type { Draft } from "immer";
 
-import type { LayoutEntry, PaneNode, Tab } from "@/types";
-import { findPane, generateId } from "./paneTreeHelpers";
+import type { PaneNode, Tab } from "@/types";
+import type { PanesDraft } from "./panesStoreTypes";
+import { resolveLayoutWriteTarget } from "./paneLayoutHelpers";
+import { collectPanels, findPane, generateId } from "./paneTreeHelpers";
 
 export interface OpenBrowserOptions {
   /** 落位到指定窗格；缺省或找不到时回落当前活动窗格 */
   paneId?: string;
   /** 已有同 URL 标签时复用并聚焦（默认 true） */
   reuse?: boolean;
+  /**
+   * 落位到指定布局；缺省 = 当前布局。
+   * MCP 调用方（agent）所在布局由此传入——不传就会落进用户此刻正看着的布局，
+   * 表现为「标签飞到别的布局去了」。
+   */
+  layoutId?: string;
 }
 
 export interface BrowserTabActions {
@@ -20,11 +28,6 @@ export interface BrowserTabActions {
   updateBrowserTab: (tabId: string, patch: { browserUrl?: string; title?: string }) => void;
 }
 
-interface BrowserTabState extends BrowserTabActions {
-  rootPane: PaneNode;
-  activePaneId: string;
-  layouts: LayoutEntry[];
-}
 
 function findBrowserTab(node: Draft<PaneNode>, tabId: string): Draft<Tab> | null {
   if (node.type === "panel") {
@@ -74,23 +77,29 @@ function findTabByUrl(
   return null;
 }
 
-export function createBrowserTabActions<T extends BrowserTabState>(
-  set: (recipe: (state: Draft<T>) => void) => void,
+export function createBrowserTabActions(
+  set: (recipe: (state: PanesDraft) => void) => void,
 ): BrowserTabActions {
   return {
     openBrowser: (url, title, tabId, options) => {
       const reuse = options?.reuse !== false;
       let actualTabId: string | null = null;
       set((state) => {
+        // 0) 先定「写到哪个布局」：目标布局不存在时 resolveLayoutWriteTarget 会退回当前布局。
+        const target = resolveLayoutWriteTarget(state, options?.layoutId);
+        if (!target) return;
+        const tree = target.tree;
+
         // 1) 复用：同一个页面已经开着就聚焦它，不再堆一个新标签。
         //    这是默认路径——调用方每查一个页面就开一个标签会把版面堆满。
+        //    只在目标布局内查重：跨布局复用等于把用户拽走，正是要治的「到处飞」。
         if (reuse) {
-          const existing = findTabByUrl(state.rootPane, url);
+          const existing = findTabByUrl(tree, url);
           if (existing) {
-            const pane = findPane(state.rootPane, existing.paneId);
+            const pane = findPane(tree, existing.paneId);
             if (pane?.type === "panel") {
               pane.activeTabId = existing.tab.id;
-              state.activePaneId = pane.id;
+              target.setActivePaneId(pane.id);
               actualTabId = existing.tab.id;
             }
             return;
@@ -98,9 +107,11 @@ export function createBrowserTabActions<T extends BrowserTabState>(
         }
 
         // 2) 落位：显式 paneId 优先；无效则回落活动窗格，绝不静默丢弃这次打开。
-        const requested = options?.paneId ? findPane(state.rootPane, options.paneId) : null;
-        const pane =
-          requested?.type === "panel" ? requested : findPane(state.rootPane, state.activePaneId);
+        const requested = options?.paneId ? findPane(tree, options.paneId) : null;
+        const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
+        const found =
+          requested?.type === "panel" ? requested : findPane(tree, fallbackPaneId);
+        const pane = found?.type === "panel" ? found : collectPanels(tree)[0];
         if (pane?.type !== "panel") return;
 
         const newTab: Tab = {
@@ -114,7 +125,7 @@ export function createBrowserTabActions<T extends BrowserTabState>(
         };
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
-        state.activePaneId = pane.id;
+        target.setActivePaneId(pane.id);
         actualTabId = newTab.id;
       });
       return actualTabId;

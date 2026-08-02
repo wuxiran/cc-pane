@@ -140,6 +140,7 @@ export default function SystemResourceSegment() {
   const [refreshing, setRefreshing] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [orphansExpanded, setOrphansExpanded] = useState(false);
+  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set());
   const [armedSessionId, setArmedSessionId] = useState<string | null>(null);
   const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
   const [orphanKillArmed, setOrphanKillArmed] = useState(false);
@@ -277,6 +278,15 @@ export default function SystemResourceSegment() {
     });
   };
 
+  const toggleSessionProcesses = (sessionId: string) => {
+    setExpandedSessionIds((current) => {
+      const next = new Set(current);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  };
+
   const focusSession = async (sessionId: string) => {
     const panes = usePanesStore.getState();
     const location = panes.findTabBySessionAcrossLayouts(sessionId);
@@ -410,8 +420,10 @@ export default function SystemResourceSegment() {
         orphansExpanded={orphansExpanded}
         orphanKillArmed={orphanKillArmed}
         killingOrphans={killingOrphans}
+        expandedSessionIds={expandedSessionIds}
         onRefresh={() => void refreshResourceTree()}
         onToggleGroup={toggleGroup}
+        onToggleSessionProcesses={toggleSessionProcesses}
         onFocusSession={(sessionId) => void focusSession(sessionId)}
         onArmSession={setArmedSessionId}
         onKillSession={(sessionId) => void killSession(sessionId)}

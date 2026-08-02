@@ -11,6 +11,7 @@ pub mod process_info;
 mod project;
 pub mod provider;
 pub mod quick_command;
+pub mod resource_policy;
 pub mod runner;
 pub mod screenshot;
 pub mod session_index;
@@ -65,6 +66,7 @@ pub use project::Project;
 pub use quick_command::{
     QuickCommand, QuickCommandConfig, QuickCommandDraft, QuickCommandKind, QuickCommandTarget,
 };
+pub use resource_policy::{PolicyOutcome, SessionResourcePolicy};
 pub use runner::{
     PortClaim, PortConflict, PortReservation, RunnerInstance, RunnerInstanceStatus,
     RunnerLaunchPlan, RunnerLaunchSuggestedAction, RunnerProfile, RunnerProfileDraft,
@@ -78,8 +80,8 @@ pub use session_index::{
 pub use session_restore::{SavedSession, TerminalSessionProvenance};
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};
 pub use system_stats::{
-    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionResourceUsage,
-    SystemStats,
+    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
+    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
 };
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,

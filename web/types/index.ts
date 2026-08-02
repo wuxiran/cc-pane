@@ -198,8 +198,10 @@ export type {
   KillProcessResult,
   OrphanProcessInfo,
   ResourceTree,
+  SessionProcessInfo,
   SessionResourceUsage,
   SystemStats,
+  TruncatedProcessSummary,
 } from "./systemStats";
 export type {
   BridgeMode,

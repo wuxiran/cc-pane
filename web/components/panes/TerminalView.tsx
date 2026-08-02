@@ -2,7 +2,6 @@ import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImper
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { info as logInfo } from "@tauri-apps/plugin-log";
 import { useTranslation } from "react-i18next";
@@ -13,6 +12,8 @@ import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage, toTerminalLaunchError } from "@/utils";
 import type { TerminalLaunchError } from "@/types";
 import { pickCreateSessionResumeId } from "./terminalResume";
+import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
+import { createTerminalOutputHandler } from "./terminalOutputHandler";
 import { devDebugLog } from "@/utils/devLogger";
 import { captureTerminalWrite, noteTerminalGeometry } from "@/utils/terminalCast";
 import { TERMINAL_APP_MENU_PASTE_EVENT } from "@/utils/appMenuPaste";
@@ -24,7 +25,6 @@ import {
   useSettingsStore,
   usePanesStore,
   useThemeStore,
-  useTerminalStatusStore,
   useTerminalRestoreLogStore,
   useWallpaperStore,
 } from "@/stores";
@@ -39,7 +39,6 @@ import {
 import { resolveOscColorQuery } from "./terminalOscColor";
 import {
   createTerminalDataRenderer,
-  detectAlternateBufferTransitions,
   shouldKeepCliOutputInNormalBuffer,
   type TerminalDataRenderer,
 } from "./terminalBufferMode";
@@ -54,7 +53,7 @@ import { attachTerminalInputDebugLog } from "./terminalInputDebug";
 import { attachTerminalDomInputFallback } from "./terminalDomInputFallback";
 import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
 import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
-import { detectFocusReportMode, isXtermFocusReportInput } from "./terminalFocusReport";
+import { isXtermFocusReportInput } from "./terminalFocusReport";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import { getCliInstallHint } from "./terminalCliInstallHint";
 import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "./terminalLaunchIdentity";
@@ -79,7 +78,6 @@ import { resolveTerminalRendererModeForSession } from "./terminalRenderer";
 import {
   getTerminalTheme,
   withTransparentTerminalBackground,
-  type TerminalThemePalette,
 } from "./terminalTheme";
 import { normalizeTerminalFontFamily } from "./terminalFont";
 import TerminalContextMenu from "./TerminalContextMenu";
@@ -88,87 +86,29 @@ import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
 import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
 import { useTerminalWheelZoom } from "./useTerminalWheelZoom";
 import { getCachedWindowsBuildNumber } from "./terminalWindows";
+// 注意：resolveCliTool / resolveRuntimeKind / notifySessionClaimed 不从这里导入——
+// 它们在 0.11.8 阶段 A 已被拆到 terminalLaunchIdentity / terminalSessionNotices
+// （见上方 import）。本批抽 helpers 时一并搬过一份，合入时保留 main 的模块划分，
+// 避免同一函数两处定义。
+import {
+  applyTerminalElementTheme,
+  findLiveSavedSessionId,
+  IS_MAC,
+  normalizeTerminalCursorStyle,
+  setMacosTerminalNativeFocus,
+  waitForTerminalFont,
+  writeTerminalReply,
+} from "./terminalViewHelpers";
 import "@xterm/xterm/css/xterm.css";
 
 import type { CliTool, CreateSessionRequest, SshConnectionInfo, TerminalRendererMode, TerminalThemeMode, WslLaunchInfo } from "@/types";
 
 const TERMINAL_DEBUG = import.meta.env.DEV;
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
-const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 const DEFAULT_TERMINAL_SCROLLBACK = 20_000;
 const WEBGL_HEARTBEAT_INTERVAL_MS = 30_000;
 const WEBGL_SLEEP_GAP_MS = 75_000;
 const WEBGL_RECOVERY_PROMOTION_WINDOW_MS = 12_000;
-const TERMINAL_FONT_WAIT_TIMEOUT_MS = 1_500;
-
-// Best-effort wait for the configured terminal font to be ready before the
-// WebGL renderer rasterizes its first glyph atlas (otherwise the first paint
-// uses a blurry fallback). `document.fonts.ready` alone only settles fonts the
-// page already requested, so we also explicitly request the configured family.
-// A timeout guarantees a never-resolving font load can't block the terminal.
-async function waitForTerminalFont(fontSize: number, fontFamily: string): Promise<void> {
-  if (typeof document === "undefined" || !document.fonts) return;
-
-  const loadFont = (async () => {
-    try {
-      await document.fonts.load(`${fontSize}px ${fontFamily}`);
-    } catch {
-      // Ignore parse/load failures; fall through to the readiness signal.
-    }
-    try {
-      await document.fonts.ready;
-    } catch {
-      // Best-effort only.
-    }
-  })();
-
-  const timeout = new Promise<void>((resolve) => {
-    setTimeout(resolve, TERMINAL_FONT_WAIT_TIMEOUT_MS);
-  });
-
-  await Promise.race([loadFont, timeout]);
-}
-
-type TerminalCursorStyle = "block" | "underline" | "bar";
-
-function setMacosTerminalNativeFocus(focused: boolean): void {
-  if (!IS_MAC || !isTauriRuntime()) return;
-  void invoke("set_macos_terminal_focused", { focused }).catch(() => {});
-}
-
-function normalizeTerminalCursorStyle(value?: string | null): TerminalCursorStyle {
-  return value === "underline" || value === "bar" ? value : "block";
-}
-
-function findLiveSavedSessionId(savedSessionId?: string): string | null {
-  if (!savedSessionId) return null;
-  // 读共享状态缓存（useTerminalStatusStore，由 terminal-status 事件 + 定时刷新维护），
-  // 不再每个 tab 各发一次 getAllStatus IPC。重启时几十个 tab 同时挂载会并发打几十次
-  // get_all_terminal_status，把后端拖住，让后续 tab 卡在进启动队列前的这个 await，
-  // 导致"放约 10 个就停"的恢复 stall。同步读内存 map 不会 hang，也消除了 IPC 扇出。
-  // 缓存里没有（冷启动未命中）→ 视为非 live → 走 relaunch（队列），功能不丢。
-  const info = useTerminalStatusStore.getState().statusMap.get(savedSessionId);
-  return info && info.status !== "exited" ? savedSessionId : null;
-}
-
-function writeTerminalReply(
-  sessionId: string | null,
-  response: string,
-  onError: (error: unknown) => void,
-) {
-  if (!sessionId) return;
-  void terminalService.write(sessionId, response, { source: "system" }).catch(onError);
-}
-
-function applyTerminalElementTheme(
-  term: Terminal | null,
-  theme: TerminalThemePalette,
-) {
-  if (!term?.element) return;
-  term.element.style.backgroundColor = theme.background;
-  term.element.style.color = theme.foreground;
-}
-
 interface TerminalViewProps {
   sessionId: string | null;
   /** One-shot launch identity reserved for, or used by, this terminal leaf. */
@@ -346,6 +286,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const isActiveRef = useRef(props.isActive);
     const isVisibleRef = useRef(props.isVisible ?? props.isActive);
     const layoutActiveRef = useRef(props.layoutActive ?? true);
+    const hiddenWriteBufferRef = useRef<TerminalHiddenWriteBuffer | null>(null);
     const terminalRendererMode = useSettingsStore((s) => s.settings?.terminal.rendererMode ?? "auto");
     const effectiveCliTool = resolveCliTool(props.cliTool, props.launchClaude);
     const resolveRendererMode = useCallback((mode: TerminalRendererMode) => {
@@ -464,6 +405,30 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       await flowControl.write(data, onWritten);
     }, [props.sessionId]);
 
+    /**
+     * 本终端当前是否值得渲染。后台标签页只是 `display: none` 仍保持挂载，
+     * 照单全收会让 N 个后台会话各压一份 parser + renderer 上主线程（docs/71 §3）。
+     */
+    const isRenderVisible = useCallback(
+      () => isVisibleRef.current && layoutActiveRef.current,
+      [],
+    );
+
+    /** 把不可见期间攒下的输出一次性写进 xterm。 */
+    const flushHiddenWrites = useCallback((reason: string) => {
+      const pending = hiddenWriteBufferRef.current?.drain();
+      if (!pending) return;
+      debugLog("output.hidden.flush", { reason, length: pending.length });
+      void writeTerminalData(pending, () => {
+        syncTrackedBufferType("output.hidden.flush");
+      }).catch((error) => {
+        debugLog("output.hidden.flush.failed", {
+          reason,
+          error: getErrorMessage(error),
+        });
+      });
+    }, [debugLog, syncTrackedBufferType, writeTerminalData]);
+
     const shouldRunWebglRecovery = useCallback(() => {
       const renderer = rendererControllerRef.current;
       return Boolean(
@@ -535,8 +500,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       onLaunchErrorRef.current = props.onLaunchError;
       onReconnectRef.current = props.onReconnect;
       isActiveRef.current = props.isActive;
+      const wasRenderVisible = isRenderVisible();
       isVisibleRef.current = props.isVisible ?? props.isActive;
       layoutActiveRef.current = props.layoutActive ?? true;
+      // 由隐藏转可见：把积压一次性补上。必须在两个 ref 都更新之后判定，
+      // 否则 flush 会走进"仍不可见"的分支被再次积压。
+      if (!wasRenderVisible && isRenderVisible()) {
+        flushHiddenWrites("visibility.gained");
+      }
       readOnlyRef.current = Boolean(props.readOnly);
       if (terminalInstanceRef.current) {
         terminalInstanceRef.current.options.disableStdin = Boolean(props.readOnly);
@@ -605,6 +576,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       outputUnsubRef.current = null;
       exitUnsubRef.current?.();
       exitUnsubRef.current = null;
+      // 换绑/重连时丢弃积压：上一会话的输出串进新会话会直接写坏画面。
+      hiddenWriteBufferRef.current?.reset();
     }, []);
 
     // Dispose listeners, timers, observers, addons, and the terminal instance.
@@ -734,64 +707,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       });
       // 换绑前先注销旧订阅（重连等场景），避免旧回调残留
       unbindSessionCallbacks();
-      outputUnsubRef.current = await terminalService.registerOutput(sessionId, (data) => {
-        const term = terminalInstanceRef.current;
-        const focusReportMode = detectFocusReportMode(data, focusReportModeRef.current);
-        if (focusReportMode !== focusReportModeRef.current) {
-          debugLog("output.focus-report-mode.changed", {
-            bindSessionId: sessionId,
-            enabled: focusReportMode,
-          });
-          focusReportModeRef.current = focusReportMode;
-        }
-        const transitions = detectAlternateBufferTransitions(data);
-        const renderedData = renderTerminalData(data);
-        if (transitions.length > 0) {
-          debugLog("output.alternate-sequence.received", {
-            bindSessionId: sessionId,
-            transitions,
-            dataLength: data.length,
-            renderedDataLength: renderedData.length,
-            stripped: keepCliOutputInNormalBuffer,
-          });
-        }
-
-        if (!term) {
-          debugLog("output.write.skipped", {
-            bindSessionId: sessionId,
-            dataLength: data.length,
-            transitions,
-          });
-          return;
-        }
-
-        if (!renderedData) {
-          syncTrackedBufferType(
-            transitions.length > 0 ? "output.alternate-sequence.stripped" : "output.empty"
-          );
-          return;
-        }
-
-        void writeTerminalData(renderedData, () => {
-          if (transitions.length > 0) {
-            debugLog("output.alternate-sequence.applied", {
-              bindSessionId: sessionId,
-              transitions,
-              bufferAfter: term.buffer.active.type,
-              stripped: keepCliOutputInNormalBuffer,
-            });
-          }
-          syncTrackedBufferType(
-            transitions.length > 0 ? "output.alternate-sequence" : "output.write"
-          );
-        }).catch((error) => {
-          debugLog("output.write.failed", {
-            bindSessionId: sessionId,
-            dataLength: data.length,
-            error: getErrorMessage(error),
-          });
-        });
-      });
+      outputUnsubRef.current = await terminalService.registerOutput(
+        sessionId,
+        createTerminalOutputHandler({
+          sessionId,
+          terminalRef: terminalInstanceRef,
+          focusReportModeRef,
+          hiddenWriteBufferRef,
+          isRenderVisible,
+          keepCliOutputInNormalBuffer,
+          renderTerminalData,
+          writeTerminalData,
+          syncTrackedBufferType,
+          debugLog,
+        }),
+      );
       exitUnsubRef.current = await terminalService.registerExit(sessionId, (exitCode) => {
         handleSessionExit(sessionId, exitCode);
       });
@@ -801,6 +731,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     }, [
       debugLog,
       handleSessionExit,
+      isRenderVisible,
       keepCliOutputInNormalBuffer,
       renderTerminalData,
       syncTrackedBufferType,
@@ -2210,6 +2141,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       debugLog,
       refitAndRepaintTerminal,
       repaintTerminal,
+      canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
     });
 
     return (

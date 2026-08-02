@@ -11,6 +11,28 @@ import type {
 } from "./panesStoreTypes";
 import type { LayoutEntry, PaneNode } from "@/types";
 
+/** 遍历全部**普通**布局的树（跳过星标布局——它只是镜像，不是真实布局） */
+export function eachLayoutTree(
+  state: PanesState,
+  fn: (layout: LayoutEntry, tree: PaneNode) => void,
+): void;
+export function eachLayoutTree(
+  state: PanesDraft,
+  fn: (layout: LayoutDraft, tree: PaneNodeDraft) => void,
+): void;
+export function eachLayoutTree(
+  state: PanesState | PanesDraft,
+  fn: (layout: LayoutEntry | LayoutDraft, tree: PaneNode | PaneNodeDraft) => void,
+): void {
+  for (const layout of state.layouts) {
+    if (isStarredLayout(layout)) continue;
+    const tree = layoutTree(state, layout.id);
+    if (tree) {
+      fn(layout, tree);
+    }
+  }
+}
+
 export function isStarredLayout(layout: Pick<LayoutEntry, "kind">): boolean {
   return layout.kind === "starred";
 }

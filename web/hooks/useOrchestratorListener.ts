@@ -26,6 +26,11 @@ import { isTauriRuntime } from "@/services/runtime";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 import { collectPanels } from "@/stores/paneTreeHelpers";
 import { resolveWorkspaceLaunchLayout } from "@/utils/layoutWorkspace";
+import {
+  notifyOpenedInOtherLayout,
+  resolveBrowserPlacement,
+  resolveCallerPlacement,
+} from "./orchestratorOpenRouting";
 
 import type { CliTool, LaunchProviderSelection, SshConnectionInfo, WslLaunchInfo } from "@/types";
 
@@ -313,7 +318,12 @@ export function useOrchestratorListener() {
 
     // 3. open-file 事件
     getCurrentWebview()
-      .listen<{ filePath: string; projectPath: string; title: string }>(
+      .listen<{
+        filePath: string;
+        projectPath: string;
+        title: string;
+        callerSessionId?: string;
+      }>(
         "orchestrator-open-file",
         (event) => {
           const { filePath, projectPath, title } = event.payload;
@@ -321,8 +331,13 @@ export function useOrchestratorListener() {
             "[Orchestrator] Received open-file event:",
             event.payload
           );
-          // 在分屏区作为 editor tab 打开（与终端并列），去重聚焦由 openEditor 负责
-          usePanesStore.getState().openEditor(projectPath, filePath, title);
+          // 在分屏区作为 editor tab 打开（与终端并列），去重聚焦由 openEditor 负责；
+          // 布局落点跟随调用方所在布局，解析不出才回落当前布局。
+          const caller = resolveCallerPlacement(event.payload.callerSessionId);
+          const landedLayoutId = usePanesStore
+            .getState()
+            .openEditor(projectPath, filePath, title, caller?.layoutId);
+          notifyOpenedInOtherLayout(landedLayoutId, title);
         }
       )
       .then((fn) => unlisteners.push(fn));
@@ -356,9 +371,13 @@ export function useOrchestratorListener() {
         title?: string;
         paneId?: string;
         reuse?: boolean;
+        callerSessionId?: string;
       }>("orchestrator-open-browser-tab", async (event) => {
+        const panes = usePanesStore.getState();
+        const { layoutId, paneId, landedLayoutId } = resolveBrowserPlacement(event.payload);
         const activity = useActivityBarStore.getState();
-        if (activity.appViewMode !== "panes") {
+        // 只有落在用户眼前的布局才切回分屏视图；否则切过去也看不到这次打开
+        if (landedLayoutId === panes.currentLayoutId && activity.appViewMode !== "panes") {
           activity.setAppViewMode("panes");
         }
         const actualTabId = usePanesStore.getState().openBrowser(
@@ -366,8 +385,9 @@ export function useOrchestratorListener() {
           event.payload.title,
           event.payload.tabId,
           // 旧后端不带 paneId/reuse：reuse 缺失按 true 处理（复用是更安全的默认）
-          { paneId: event.payload.paneId, reuse: event.payload.reuse !== false },
+          { paneId, reuse: event.payload.reuse !== false, layoutId },
         );
+        notifyOpenedInOtherLayout(landedLayoutId, event.payload.title || event.payload.url);
         if (event.payload.requestId) {
           await invoke("respond_orchestrator_query", {
             requestId: event.payload.requestId,

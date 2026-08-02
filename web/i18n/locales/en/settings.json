@@ -522,6 +522,8 @@
   "editGlobalConfig": "Edit Global Config",
   "resumeIdBackfill": "Enable legacy resume id backfill (troubleshooting)",
   "resumeIdBackfillHint": "Legacy mechanism that guesses resume ids by scanning session directories. Superseded by deterministic binding (Claude issued id / Codex title capture). Keep off unless troubleshooting.",
+  "lowerSessionPriority": "Lower session process priority",
+  "lowerSessionPriorityHint": "Runs each session's process tree (the CLI and everything it spawns — cargo, rg, npm) at below-normal priority so a busy pane can't starve the UI. Idle cores are still used fully, so build throughput is unaffected. Applies to newly started sessions.",
   "terminalDaemon": "Terminal session sharing (daemon)",
   "terminalDaemonHint": "Host PTYs in a standalone daemon so desktop, Web and mobile attach to the same live sessions. Takes effect after app restart.",
   "daemonOrphanTtl": "Unwatched session expiry (minutes)",

@@ -131,6 +131,10 @@ export interface TerminalSettings {
   daemonOrphanReaperDisabled: boolean;
   /** 启动时自动认领 daemon 无主会话（严格身份匹配失败时仍会阻断） */
   autoAdoptDaemonSessions: boolean;
+  /** 降低会话子进程调度优先级，让 UI 抢得过窗格里的编译任务。默认开启，新会话生效 */
+  lowerSessionPriority: boolean;
+  /** 会话 CPU 相对权重（1..=9，中性 5）。null 表示不设 */
+  sessionCpuWeight: number | null;
 }
 
 /** Shell 信息 */

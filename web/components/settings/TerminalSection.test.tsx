@@ -34,6 +34,8 @@ function createValue(overrides: Partial<TerminalSettings> = {}): TerminalSetting
     daemonOrphanTtlMinutes: 1440,
     daemonOrphanReaperDisabled: false,
     autoAdoptDaemonSessions: false,
+    lowerSessionPriority: true,
+    sessionCpuWeight: null,
     ...overrides,
   };
 }

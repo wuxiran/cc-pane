@@ -174,6 +174,9 @@ mod tests {
             args,
             env,
             env_remove: Vec::new(),
+            // 本测试只验 PowerShell bootstrap 的命令行拼装，不测资源策略；
+            // 用默认值即可（默认不施加任何限制，行为与加此字段之前一致）。
+            resource_policy: Default::default(),
         })
         .unwrap();
 

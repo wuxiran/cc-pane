@@ -184,7 +184,7 @@ vi.mock("@/services/terminalService", () => ({
     registerExit: vi.fn().mockResolvedValue(undefined),
     detachOutput: vi.fn(),
     detachExit: vi.fn(),
-    resize: vi.fn(),
+    resize: vi.fn().mockResolvedValue(undefined),
     write: vi.fn().mockResolvedValue(undefined),
     killSession: vi.fn().mockResolvedValue(undefined),
     releaseSession: vi.fn().mockResolvedValue(undefined),
@@ -669,6 +669,37 @@ describe("TerminalView", () => {
     await waitFor(() => expect(term.writtenData).toContain("hello from pty"));
   });
 
+  it("后台标签页的输出先积压，切回可见时一次性补齐且保序", async () => {
+    const element = (visible: boolean) => (
+      <TerminalView
+        sessionId={null}
+        launchId="reserved-launch"
+        projectPath="/tmp/proj"
+        isActive={visible}
+        isVisible={visible}
+        paneId="pane-1"
+        tabId="tab-1"
+        onSessionCreated={vi.fn()}
+      />
+    );
+    const view = render(element(false));
+    await waitFor(() => expect(registerOutput).toHaveBeenCalled());
+    const term = await lastTerm();
+    const outputHandler = registerOutput.mock.calls[0][1] as (data: string) => void;
+
+    act(() => outputHandler("part-1 "));
+    act(() => outputHandler("part-2"));
+
+    // 不可见期间一个字都不该进 xterm——这正是 N 个后台会话压主线程的成本来源。
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(term.writtenData).not.toContain("part-1");
+
+    view.rerender(element(true));
+
+    // 切回后补齐，且顺序不变、零丢失。
+    await waitFor(() => expect(term.writtenData).toContain("part-1 part-2"));
+  });
+
   it("announces process exit in the terminal and to the parent", async () => {
     const onSessionExited = vi.fn();
     renderTerminalView({ onSessionExited });
@@ -805,13 +836,44 @@ describe("TerminalView", () => {
     const controller = controllerResults[controllerResults.length - 1]
       .value as { clearTextureAtlas: ReturnType<typeof vi.fn> };
 
+    resize.mockClear();
     fireEvent.contextMenu(host!);
     await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
     expect(controller.clearTextureAtlas).toHaveBeenCalledWith("context-menu.refresh");
 
+    // 渲染层重画救不了 buffer 级错乱（docs/73），必须同时向 CLI 抖一次 SIGWINCH：
+    // 先缩一列，再抖回原宽度。
+    await waitFor(() =>
+      expect(resize).toHaveBeenCalledWith({ sessionId: "new-session-1", cols: 79, rows: 24 }),
+    );
+    await waitFor(() =>
+      expect(resize).toHaveBeenCalledWith({ sessionId: "new-session-1", cols: 80, rows: 24 }),
+    );
+
     fireEvent.contextMenu(host!);
     await user.click(await screen.findByRole("menuitem", { name: /复制会话 ID|Copy Session ID/i }));
     await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("new-session-1"));
+  });
+
+  it("mirror panes never send the refresh SIGWINCH to the shared PTY", async () => {
+    const user = userEvent.setup();
+    const view = renderTerminalView({
+      sessionId: "shared-session",
+      paneId: undefined,
+      tabId: undefined,
+      drivesBackendPty: false,
+    });
+    await waitFor(() => expect(registerOutput).toHaveBeenCalled());
+    const host = view.container.querySelector(".cc-terminal-host");
+    expect(host).not.toBeNull();
+
+    resize.mockClear();
+    fireEvent.contextMenu(host!);
+    await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
+
+    // 镜像面板改后端尺寸会连带改掉主视图的 PTY，必须完全不发。
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(resize).not.toHaveBeenCalled();
   });
 
   it("terminal context menu fits the current terminal and requests all terminals to fit", async () => {
