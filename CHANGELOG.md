@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.11.7 - 2026-07-31
+## 0.11.8 - 2026-08-02
+
+### Fixed
+
+- **A restored session could only be restored once.** `launch_history.project_id` is a one-shot launch id, not a project id, but a tab reused it across restarts — and that row's PTY slot was already taken by the previous run, so the incoming resume id had nowhere to land and was dropped. The session came back with no conversation, and because the empty session was itself a product of the restore path, the next restart lost it again. Measured before the fix: 18 of 18 tabs came back empty and every one of six delivered resume ids was discarded. Each terminal leaf now carries its own launch id, generated fresh whenever a PTY is actually created, so a split pane no longer has two PTYs fighting over one history row.
+- **Updating killed every running session.** The installer terminated the terminal daemon with a whole-process-tree kill, and every PTY lives underneath it — so installing an update took down all of your running agents. The updater now leaves the daemon alone and renames the old binary so the new one can still be written; the app retires the old daemon only when no sessions are live and no other desktop instance is sharing it.
+- **One busy pane could bring the whole machine to a crawl.** PTY children competed with the app's own UI on equal footing, so a `cargo build` or a large `rg` in any pane could saturate the machine, with no intervention short of killing the process. Sessions now start at a lowered scheduling priority. Note the process-reclaim guarantee and the resource policy are applied as two separate steps, so a rejected priority change can never cost you the crash-cleanup safety net.
+- **Terminal output could come back garbled, and "Refresh terminal display" didn't help.** The corruption happens at the buffer level, so a repaint cannot undo it; the refresh action now also resizes the terminal to force the CLI to redraw. This mitigates the symptom rather than removing the cause — the underlying alt-screen stripping is unchanged and still being worked on.
+- **Background tabs kept parsing and rendering at full speed.** A hidden tab stayed mounted and processed every byte, so N noisy background sessions meant N parsers competing for the main thread. Output is now buffered while a tab is hidden and replayed when you return, with a bound on how much is held. A session that exits in the background flushes its remaining output before the exit notice, so the last thing it printed is no longer reordered or lost.
+- **MCP-opened browser tabs and files landed in the wrong layout.** Opening something from an agent put it in whatever layout you happened to be viewing rather than the agent's own, so a background agent could yank a tab into your workspace. They now open where the caller is.
+- **The web access server left orphans behind when the app died.** Its child process was terminated with a call that only reaches the direct child, so a crash or force-kill stranded the server and its descendants holding the port. It is now bound to an OS-level guard that reclaims the whole tree however the app exits, and shuts down cooperatively when asked.
+
+### Added
+
+- **Per-session process detail in the resource popover.** Session-level totals told you a session was busy but not which process was responsible; the list now expands, with a summary line when there are too many to show.
+- **OpenCode session history.** Launching and resuming OpenCode already worked, but there was no way to obtain a session id — OpenCode neither issues one nor reports it over OSC, so its own database has to be consulted. Past sessions are now listed for binding and resume.
 
 ### Fixed
 
