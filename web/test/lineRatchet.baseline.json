@@ -7,7 +7,7 @@
   "components/orchestration/OrchestrationFullView.tsx": 511,
   "components/panes/Panel.tsx": 561,
   "components/panes/TabBar.tsx": 807,
-  "components/panes/TerminalView.tsx": 2278,
+  "components/panes/TerminalView.tsx": 2193,
   "components/providers/LaunchProfilesPanel.tsx": 2094,
   "components/providers/ProviderFormPanel.tsx": 640,
   "components/settings/SharedMcpSection.tsx": 608,
