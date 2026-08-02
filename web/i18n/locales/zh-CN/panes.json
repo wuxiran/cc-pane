@@ -113,6 +113,7 @@
   "orchestratorLaunchProjectPathMissing": "MCP 启动事件缺少项目路径，已忽略",
   "orchestratorLaunchedInLayout": "已在「{{layout}}」启动",
   "orchestratorLaunchedInLayoutGoto": "切过去",
+  "orchestratorOpenedInLayout": "已在「{{layout}}」打开 {{title}}",
   "voiceStartRecording": "语音输入",
   "voiceStopRecording": "停止录音",
   "voiceTranscribing": "正在识别",

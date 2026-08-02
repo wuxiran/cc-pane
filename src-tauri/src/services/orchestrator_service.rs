@@ -200,6 +200,10 @@ pub struct OrchestratorOpenFileEvent {
     pub file_path: String,
     pub project_path: String,
     pub title: String,
+    /// 发起本次打开的 PTY 会话 id（MCP 调用方）。前端据此把编辑器标签落到
+    /// **指挥者所在布局**；None = 无调用方身份，落当前布局。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller_session_id: Option<String>,
 }
 
 fn parse_launch_cli_tool(cli_tool: Option<&str>) -> std::result::Result<CliTool, String> {
@@ -5537,10 +5541,18 @@ impl McpToolHandler {
         serde_json::json!({ "success": true, "path": canonical }).to_string()
     }
 
-    /// 在 CC-Panes 编辑器中打开文件标签页，自动切换到 Files 视图模式。projectPath 可选，不传则自动推断
+    /// 在 CC-Panes 编辑器中打开文件标签页。projectPath 可选，不传则自动推断。
+    /// 默认落在**调用方自己所在的布局**；文件已在别的布局打开时聚焦原处，不切走用户视图。
     #[tool]
-    async fn open_file(&self, Parameters(params): Parameters<McpOpenFileParams>) -> String {
-        info!(file = %params.file_path, "mcp::open_file");
+    async fn open_file(
+        &self,
+        Parameters(params): Parameters<McpOpenFileParams>,
+        extensions: Extensions,
+    ) -> String {
+        // 与 open_browser_tab 同：调用方身份是软依赖，解析不出就退回当前布局。
+        let caller_session_id =
+            resolve_caller_session_id_for(&self.state, &extensions, "open_file").ok();
+        info!(file = %params.file_path, caller = ?caller_session_id, "mcp::open_file");
         let file_path = std::path::Path::new(&params.file_path);
         if !file_path.exists() {
             return format!("错误: 文件 '{}' 不存在", params.file_path);
@@ -5593,6 +5605,7 @@ impl McpToolHandler {
             file_path: canonical_file.clone(),
             project_path: project_path.clone(),
             title,
+            caller_session_id,
         };
         let _ = self.state.app_handle.emit("orchestrator-open-file", &event);
         serde_json::json!({
@@ -5603,14 +5616,26 @@ impl McpToolHandler {
         .to_string()
     }
 
-    /// 在 CC-Panes 当前窗格中打开浏览器标签。优先用于 localhost 或内网开发预览；仅支持 http/https URL。
+    /// 在 CC-Panes 中打开浏览器标签。优先用于 localhost 或内网开发预览；仅支持 http/https URL。
+    /// 默认落在**调用方自己所在的布局/窗格**（不会飞到用户当前正看着的布局）；
+    /// 传 paneId 可指定落位，跨布局的 paneId 也认。
     #[tool]
     async fn open_browser_tab(
         &self,
         Parameters(params): Parameters<McpOpenBrowserTabParams>,
+        extensions: Extensions,
     ) -> String {
         let reuse = params.reuse.unwrap_or(true);
-        info!(url = %params.url, pane_id = ?params.pane_id, reuse, "mcp::open_browser_tab");
+        // 调用方身份是**软**依赖：解析不出（UI/外部调用）就退回当前布局，不拒绝这次打开。
+        let caller_session_id =
+            resolve_caller_session_id_for(&self.state, &extensions, "open_browser_tab").ok();
+        info!(
+            url = %params.url,
+            pane_id = ?params.pane_id,
+            reuse,
+            caller = ?caller_session_id,
+            "mcp::open_browser_tab"
+        );
         let mut event = match BrowserOpenTabEvent::try_new_with(
             &params.url,
             None,
@@ -5623,6 +5648,7 @@ impl McpToolHandler {
         let request_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::oneshot::channel::<String>();
         event.request_id = Some(request_id.clone());
+        event.caller_session_id = caller_session_id;
         {
             let mut queries = self
                 .state

@@ -214,7 +214,16 @@ export interface PanesState extends BrowserTabActions {
   openSkillManager: (projectPath: string, title: string) => void;
   openMemoryManager: (projectPath: string, title: string) => void;
   openFileExplorer: (projectPath: string, title: string) => void;
-  openEditor: (projectPath: string, filePath: string, title: string) => void;
+  /**
+   * 打开编辑器标签。`layoutId` 缺省 = 当前布局；MCP 调用方所在布局由调用者传入，
+   * 避免标签落进用户此刻正看着的布局。返回标签最终所在布局 id（Files 视图分支返回 null）。
+   */
+  openEditor: (
+    projectPath: string,
+    filePath: string,
+    title: string,
+    layoutId?: string,
+  ) => string | null;
   closeEditorTabsByPath: (filePath: string) => void;
   listEditorTabsAcrossLayouts: () => Array<{
     filePath: string;

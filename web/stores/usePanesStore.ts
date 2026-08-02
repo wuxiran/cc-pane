@@ -1,8 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import { useEditorTabsStore } from "./useEditorTabsStore";
-import { useActivityBarStore } from "./useActivityBarStore";
 import { useFullscreenStore } from "./useFullscreenStore";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { terminalService, ensureListeners } from "@/services/terminalService";
@@ -16,6 +14,7 @@ import { createPanel } from "./paneTreeHelpers";
 import {
   activateFirstNormalLayout,
   activeLayout,
+  eachLayoutTree,
   firstNormalLayout,
   isNormalLayout,
   isStarredLayout,
@@ -27,13 +26,12 @@ import {
 import { createBrowserTabActions } from "./browserTabActions";
 import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
+import { createEditorTabActions } from "./editorTabActions";
 import type {
   ClosedTabSnapshot,
   CreateTabOptions,
   DraftTabAcrossLayoutsLocation,
-  LayoutDraft,
   PaneAcrossLayoutsLocation,
-  PaneNodeDraft,
   PanesDraft,
   PanesState,
   StarredTabShortcut,
@@ -341,24 +339,6 @@ function ensureStarredLayoutInDraft(state: PanesDraft): string {
   return layout.id;
 }
 
-function eachLayoutTree(state: PanesState, fn: (layout: LayoutEntry, tree: PaneNode) => void): void;
-function eachLayoutTree(
-  state: PanesDraft,
-  fn: (layout: LayoutDraft, tree: PaneNodeDraft) => void
-): void;
-function eachLayoutTree(
-  state: PanesState | PanesDraft,
-  fn: (layout: LayoutEntry | LayoutDraft, tree: PaneNode | PaneNodeDraft) => void
-): void {
-  for (const layout of state.layouts) {
-    if (isStarredLayout(layout)) continue;
-    const tree = layoutTree(state, layout.id);
-    if (tree) {
-      fn(layout, tree);
-    }
-  }
-}
-
 function findTabAcrossLayouts(state: PanesState, tabId: string): TabAcrossLayoutsLocation | null;
 function findTabAcrossLayouts(state: PanesDraft, tabId: string): DraftTabAcrossLayoutsLocation | null;
 function findTabAcrossLayouts(
@@ -396,27 +376,6 @@ function findTabBySessionAcrossLayouts(state: PanesState, sessionId: string): Ta
           panel,
           tab,
         };
-        return;
-      }
-    }
-  });
-  return found;
-}
-
-/// 跨全部布局按 filePath 找 editor tab（分屏区文件去重/关闭/查询共用）
-function findEditorTabByPathAcrossLayouts(
-  state: PanesState,
-  filePath: string
-): TabAcrossLayoutsLocation | null {
-  let found: TabAcrossLayoutsLocation | null = null;
-  eachLayoutTree(state, (layout, tree) => {
-    if (found) return;
-    for (const panel of collectPanels(tree)) {
-      const tab = panel.tabs.find(
-        (item) => item.contentType === "editor" && item.filePath === filePath
-      );
-      if (tab) {
-        found = { layoutId: layout.id, layoutName: layout.name, tree, panel, tab };
         return;
       }
     }
@@ -2364,108 +2323,7 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    openEditor: (projectPath, filePath, title) => {
-      // Files 视图不渲染分屏区：留在该视图的编辑面板内打开
-      // （useEditorTabsStore.openFile 自带去重与 recentFiles 登记）。
-      const activity = useActivityBarStore.getState();
-      if (activity.appViewMode === "files") {
-        useEditorTabsStore.getState().openFile(projectPath, filePath, title);
-        return;
-      }
-
-      // 分屏区路径也要登记最近文件（RecentFilesPicker 数据源在 useEditorTabsStore）
-      useEditorTabsStore
-        .getState()
-        .addRecent({ filePath, projectPath, title, openedAt: Date.now() });
-
-      // home/todo/providers 等视图看不到分屏区：切回 panes 保证"打开必可见"
-      if (activity.appViewMode !== "panes") {
-        activity.setAppViewMode("panes");
-      }
-
-      // 跨全部布局按 filePath 去重：同一文件双缓冲编辑会互相覆盖，聚焦已有 tab
-      const found = findEditorTabByPathAcrossLayouts(get(), filePath);
-      if (found) {
-        if (found.layoutId !== get().currentLayoutId) {
-          get().switchLayout(found.layoutId);
-        }
-        get().selectTab(found.panel.id, found.tab.id);
-        return;
-      }
-
-      set((state) => {
-        const pane = findPane(state.rootPane, state.activePaneId);
-        if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
-          title,
-          contentType: "editor",
-          projectId: "",
-          projectPath,
-          sessionId: null,
-          filePath,
-        };
-        pane.tabs.push(newTab);
-        pane.activeTabId = newTab.id;
-      });
-    },
-
-    closeEditorTabsByPath: (filePath) => {
-      // 当前布局：走 closeTab（保持 activeTab 收敛等既有语义）
-      for (const panel of collectPanels(get().rootPane)) {
-        const tab = panel.tabs.find(
-          (t) => t.contentType === "editor" && t.filePath === filePath
-        );
-        if (tab) get().closeTab(panel.id, tab.id);
-      }
-      // 其他布局：直接从各自布局树移除
-      set((state) => {
-        for (const layout of state.layouts) {
-          if (layout.id === state.currentLayoutId || isStarredLayout(layout)) continue;
-          for (const panel of collectPanels(layout.rootPane)) {
-            const idx = panel.tabs.findIndex(
-              (t) => t.contentType === "editor" && t.filePath === filePath
-            );
-            if (idx === -1) continue;
-            panel.tabs.splice(idx, 1);
-            if (panel.activeTabId && !panel.tabs.some((t) => t.id === panel.activeTabId)) {
-              panel.activeTabId = panel.tabs[panel.tabs.length - 1]?.id ?? null;
-            }
-          }
-        }
-      });
-    },
-
-    listEditorTabsAcrossLayouts: () => {
-      const state = get();
-      const result: Array<{
-        filePath: string;
-        projectPath: string;
-        title: string;
-        dirty: boolean;
-        pinned: boolean;
-        active: boolean;
-      }> = [];
-      eachLayoutTree(state, (layout, tree) => {
-        for (const panel of collectPanels(tree)) {
-          for (const t of panel.tabs) {
-            if (t.contentType !== "editor" || !t.filePath) continue;
-            result.push({
-              filePath: t.filePath,
-              projectPath: t.projectPath,
-              title: t.title,
-              dirty: t.dirty ?? false,
-              pinned: t.pinned ?? false,
-              active:
-                layout.id === state.currentLayoutId &&
-                panel.activeTabId === t.id &&
-                state.activePaneId === panel.id,
-            });
-          }
-        }
-      });
-      return result;
-    },
+    ...createEditorTabActions(set, get),
 
     setTabDirty: (_paneId, tabId, dirty) => {
       set((state) => {
