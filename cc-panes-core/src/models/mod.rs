@@ -78,8 +78,8 @@ pub use session_index::{
 pub use session_restore::{SavedSession, TerminalSessionProvenance};
 pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};
 pub use system_stats::{
-    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionResourceUsage,
-    SystemStats,
+    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
+    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
 };
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,

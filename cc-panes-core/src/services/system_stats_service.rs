@@ -1,6 +1,6 @@
 use crate::models::{
-    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionResourceUsage,
-    SystemStats,
+    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
+    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
 };
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
@@ -388,6 +388,72 @@ fn capture_process_topology(system: &mut System) -> Vec<ProcessSnapshot> {
     capture_processes(system)
 }
 
+/// 单会话明细条数上限。`cargo build` 能挂出上百个 rustc，全量回传会把每 3 秒一次的
+/// 弹层轮询 payload 撑爆；超出部分聚合进 `truncated` 回传，不静默丢弃。
+const SESSION_PROCESS_DETAIL_LIMIT: usize = 24;
+/// 命令行截断长度。明细里的 command 只用于识别进程（tooltip），
+/// 没必要每 3 秒把完整 rustc 命令行（常有数百字符）回传一遍。
+const SESSION_PROCESS_COMMAND_LIMIT: usize = 200;
+
+/// 按字符边界截断，避免在多字节字符中间切断（路径里有中文时会 panic）。
+fn truncate_command(command: &str) -> String {
+    if command.chars().count() <= SESSION_PROCESS_COMMAND_LIMIT {
+        return command.to_string();
+    }
+    let mut truncated: String = command
+        .chars()
+        .take(SESSION_PROCESS_COMMAND_LIMIT)
+        .collect();
+    truncated.push('…');
+    truncated
+}
+
+/// 把会话进程树摊成"谁在吃资源"的明细列表。
+///
+/// 按内存降序而不是按树形结构：用户展开明细是为了找元凶，不是为了看进程树形状。
+fn session_process_detail(
+    index: &ProcessIndex<'_>,
+    pids: &HashSet<u32>,
+) -> (Vec<SessionProcessInfo>, Option<TruncatedProcessSummary>) {
+    let mut snapshots = pids
+        .iter()
+        .filter_map(|pid| index.by_pid.get(pid).copied())
+        .collect::<Vec<_>>();
+    // pid 作为次序键：HashSet 的迭代顺序不稳定，同内存的进程不加次序键会每次刷新都跳位。
+    snapshots.sort_by(|left, right| {
+        right
+            .memory_bytes
+            .cmp(&left.memory_bytes)
+            .then_with(|| left.pid.cmp(&right.pid))
+    });
+
+    let truncated = if snapshots.len() > SESSION_PROCESS_DETAIL_LIMIT {
+        let rest = &snapshots[SESSION_PROCESS_DETAIL_LIMIT..];
+        Some(TruncatedProcessSummary {
+            process_count: rest.len() as u32,
+            cpu_percent: rest.iter().map(|process| process.cpu_percent).sum(),
+            memory_bytes: rest.iter().map(|process| process.memory_bytes).sum(),
+        })
+    } else {
+        None
+    };
+
+    snapshots.truncate(SESSION_PROCESS_DETAIL_LIMIT);
+    let processes = snapshots
+        .into_iter()
+        .map(|process| SessionProcessInfo {
+            pid: process.pid,
+            parent_pid: process.parent_pid,
+            name: process.name.clone(),
+            command: truncate_command(&process.command),
+            cpu_percent: process.cpu_percent,
+            memory_bytes: process.memory_bytes,
+        })
+        .collect();
+
+    (processes, truncated)
+}
+
 fn build_resource_tree_from_snapshot(
     system: SystemStats,
     processes: &[ProcessSnapshot],
@@ -409,6 +475,7 @@ fn build_resource_tree_from_snapshot(
                 .filter(|pid| assigned.insert(*pid))
                 .collect::<HashSet<_>>();
             let (cpu_percent, memory_bytes) = aggregate(&index, &process_ids);
+            let (processes, truncated) = session_process_detail(&index, &process_ids);
             SessionResourceUsage {
                 session_id: session.session_id.clone(),
                 root_pid: session.root_pid,
@@ -418,6 +485,8 @@ fn build_resource_tree_from_snapshot(
                     .iter()
                     .filter(|pid| index.by_pid.contains_key(pid))
                     .count() as u32,
+                processes,
+                truncated,
             }
         })
         .collect::<Vec<_>>();

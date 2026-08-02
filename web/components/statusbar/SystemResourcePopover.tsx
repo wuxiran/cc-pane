@@ -42,8 +42,11 @@ interface SystemResourcePopoverProps {
   orphansExpanded: boolean;
   orphanKillArmed: boolean;
   killingOrphans: boolean;
+  /** 已展开进程构成的会话。 */
+  expandedSessionIds: Set<string>;
   onRefresh: () => void;
   onToggleGroup: (name: string) => void;
+  onToggleSessionProcesses: (sessionId: string) => void;
   onFocusSession: (sessionId: string) => void;
   onArmSession: (sessionId: string) => void;
   onKillSession: (sessionId: string) => void;
@@ -72,8 +75,10 @@ export function SystemResourcePopover({
   orphansExpanded,
   orphanKillArmed,
   killingOrphans,
+  expandedSessionIds,
   onRefresh,
   onToggleGroup,
+  onToggleSessionProcesses,
   onFocusSession,
   onArmSession,
   onKillSession,
@@ -132,8 +137,31 @@ export function SystemResourcePopover({
                 {!collapsed && group.sessions.map((session) => {
                   const armed = armedSessionId === session.sessionId;
                   const killing = killingSessionId === session.sessionId;
+                  const processes = session.processes ?? [];
+                  // 旧后端不返回明细字段；此时退回成"没有可展开的东西"，不显示假的展开箭头。
+                  const expandable = processes.length > 0;
+                  const expanded = expandable && expandedSessionIds.has(session.sessionId);
                   return (
-                    <div key={session.sessionId} className="group flex h-8 items-center gap-1 pl-5 pr-1">
+                    <div key={session.sessionId}>
+                    <div className="group flex h-8 items-center gap-1 pl-2 pr-1">
+                      {expandable ? (
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          aria-label={t(
+                            expanded
+                              ? "resourceManagerCollapseProcesses"
+                              : "resourceManagerExpandProcesses",
+                            { name: session.title },
+                          )}
+                          className="flex size-4 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
+                          onClick={() => onToggleSessionProcesses(session.sessionId)}
+                        >
+                          {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                        </button>
+                      ) : (
+                        <span className="size-4 shrink-0" aria-hidden />
+                      )}
                       <button
                         type="button"
                         aria-label={`${session.adoptable ? t("resourceManagerAdopt") : t("resourceManagerFocusSession")}: ${session.title}`}
@@ -156,6 +184,12 @@ export function SystemResourcePopover({
                         <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-text-primary)]">
                           {session.title}
                         </span>
+                        {/* 数字本来就是整棵进程树的聚合，但只显示 CPU/内存时"含不含子进程"完全看不出来。 */}
+                        {session.processCount > 1 && (
+                          <span className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[10px] tabular-nums text-[var(--app-text-tertiary)]">
+                            {t("resourceManagerProcessCount", { count: session.processCount })}
+                          </span>
+                        )}
                         <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-[var(--app-text-secondary)]">
                           {formatCpu(session.cpuPercent)}
                         </span>
@@ -182,6 +216,40 @@ export function SystemResourcePopover({
                           <X className="size-3.5" />
                         </IconTooltipButton>
                       )}
+                    </div>
+                    {expanded && (
+                      <div className="mb-1">
+                        {processes.map((process) => (
+                          <div
+                            key={process.pid}
+                            className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[11px]"
+                          >
+                            <span
+                              className="min-w-0 flex-1 truncate text-[var(--app-text-secondary)]"
+                              title={process.command}
+                            >
+                              {process.name}
+                            </span>
+                            <span className="shrink-0 tabular-nums text-[var(--app-text-tertiary)]">
+                              PID {process.pid} · {formatCpu(process.cpuPercent)} · {formatSize(process.memoryBytes)}
+                            </span>
+                          </div>
+                        ))}
+                        {/* 截断必须可见：不说"另有 N 个"，用户会以为上面就是全部。 */}
+                        {session.truncated && (
+                          <div className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[11px] text-[var(--app-text-tertiary)]">
+                            <span className="min-w-0 flex-1 truncate italic">
+                              {t("resourceManagerMoreProcesses", {
+                                count: session.truncated.processCount,
+                              })}
+                            </span>
+                            <span className="shrink-0 tabular-nums">
+                              {formatCpu(session.truncated.cpuPercent)} · {formatSize(session.truncated.memoryBytes)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     </div>
                   );
                 })}

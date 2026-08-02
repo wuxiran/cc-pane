@@ -260,6 +260,69 @@ describe("SystemResourceSegment", () => {
     expect(terminalService.releaseSession).toHaveBeenCalledWith("session-1");
   });
 
+  it("展开会话可看到底下挂了什么，且截断部分必须显式告知", async () => {
+    vi.mocked(systemStatsService.getResourceTree).mockResolvedValue({
+      ...tree,
+      sessions: [
+        {
+          ...tree.sessions[0],
+          processCount: 27,
+          processes: [
+            {
+              pid: 20,
+              parentPid: 19,
+              name: "pwsh.exe",
+              command: "pwsh.exe -NoLogo",
+              cpuPercent: 0.5,
+              memoryBytes: 50 * 1024 ** 2,
+            },
+            {
+              pid: 21,
+              parentPid: 20,
+              name: "cargo.exe",
+              command: "cargo build --workspace",
+              cpuPercent: 60,
+              memoryBytes: 180 * 1024 ** 2,
+            },
+          ],
+          truncated: {
+            processCount: 25,
+            cpuPercent: 120,
+            memoryBytes: 2 * 1024 ** 3,
+          },
+        },
+      ],
+    });
+
+    renderSegment();
+    await flushPromises();
+    await openPopover();
+
+    // 折叠态就要能看出这个数字含子进程，否则"含不含"完全同形。
+    expect(screen.getByText(/27 进程|27 procs/i)).toBeVisible();
+    expect(screen.queryByText("cargo.exe")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /展开.*进程构成|show what .* is running/i }),
+    );
+
+    expect(screen.getByText("cargo.exe")).toBeVisible();
+    expect(screen.getByText("pwsh.exe")).toBeVisible();
+    // 只回传了 2 条明细但一共 27 个进程：不说"另有 25 个"，用户会以为上面就是全部。
+    expect(screen.getByText(/另有 25 个进程|25 more processes/i)).toBeVisible();
+  });
+
+  it("旧后端不返回明细时不显示假的展开箭头", async () => {
+    // tree 基线里的会话没有 processes 字段，正是旧后端的形态。
+    renderSegment();
+    await flushPromises();
+    await openPopover();
+
+    expect(
+      screen.queryByRole("button", { name: /展开.*进程构成|show what .* is running/i }),
+    ).toBeNull();
+  });
+
   it("会话结束必须经过行内二次确认并走 killSession", async () => {
     renderSegment();
     await flushPromises();
