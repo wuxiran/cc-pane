@@ -114,6 +114,8 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       daemonOrphanTtlMinutes: 1440,
       daemonOrphanReaperDisabled: false,
       autoAdoptDaemonSessions: true,
+      lowerSessionPriority: true,
+      sessionCpuWeight: null,
     },
     shortcuts: { bindings: {} },
     general: {

@@ -11,6 +11,7 @@ pub mod process_info;
 mod project;
 pub mod provider;
 pub mod quick_command;
+pub mod resource_policy;
 pub mod runner;
 pub mod screenshot;
 pub mod session_index;
@@ -65,6 +66,7 @@ pub use project::Project;
 pub use quick_command::{
     QuickCommand, QuickCommandConfig, QuickCommandDraft, QuickCommandKind, QuickCommandTarget,
 };
+pub use resource_policy::{PolicyOutcome, SessionResourcePolicy};
 pub use runner::{
     PortClaim, PortConflict, PortReservation, RunnerInstance, RunnerInstanceStatus,
     RunnerLaunchPlan, RunnerLaunchSuggestedAction, RunnerProfile, RunnerProfileDraft,

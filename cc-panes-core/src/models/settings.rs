@@ -416,6 +416,17 @@ pub struct TerminalSettings {
     /// 仍保持 fail-closed。设置页保留显式关闭入口。
     #[serde(default = "default_true")]
     pub auto_adopt_daemon_sessions: bool,
+    /// 降低会话子进程的调度优先级，让 UI 永远抢得过窗格里的编译任务。
+    ///
+    /// 默认开启：空闲核照样跑满，不影响编译吞吐，只在争抢时让路（docs/71）。
+    /// 关掉后所有会话与 CC-Panes 自身平级竞争，一个 `cargo build` 足以拖卡整机。
+    #[serde(default = "default_true")]
+    pub lower_session_priority: bool,
+    /// 会话 CPU 相对权重（1..=9，中性 5）。None / 5 表示不设。
+    ///
+    /// 刻意默认不设：目标是防失控，不是给正常工作设天花板。
+    #[serde(default)]
+    pub session_cpu_weight: Option<u8>,
 }
 
 /// 孤儿会话 TTL 上限：7 天
@@ -445,6 +456,22 @@ impl TerminalSettings {
         }
         if self.daemon_orphan_ttl_minutes > MAX_DAEMON_ORPHAN_TTL_MINUTES {
             self.daemon_orphan_ttl_minutes = MAX_DAEMON_ORPHAN_TTL_MINUTES;
+        }
+        // 越界的 CPU 权重 clamp 回合法区间而不是丢弃：手改过 config.toml 的用户
+        // 不该因为写了个 0 就悄悄失去整项设置。
+        if let Some(weight) = self.session_cpu_weight {
+            self.session_cpu_weight = Some(weight.clamp(
+                crate::models::resource_policy::CPU_WEIGHT_MIN,
+                crate::models::resource_policy::CPU_WEIGHT_MAX,
+            ));
+        }
+    }
+
+    /// 汇成 PTY 层消费的资源策略。
+    pub fn resource_policy(&self) -> crate::models::SessionResourcePolicy {
+        crate::models::SessionResourcePolicy {
+            lower_priority: self.lower_session_priority,
+            cpu_weight: self.session_cpu_weight,
         }
     }
 }
@@ -1060,6 +1087,8 @@ impl Default for TerminalSettings {
             daemon_orphan_ttl_minutes: default_daemon_orphan_ttl_minutes(),
             daemon_orphan_reaper_disabled: false,
             auto_adopt_daemon_sessions: true,
+            lower_session_priority: true,
+            session_cpu_weight: None,
         }
     }
 }
@@ -1465,6 +1494,42 @@ mod tests {
         settings.merge_missing_defaults();
 
         assert_eq!(settings.scrollback, 5_000);
+    }
+
+    /// 旧 config.toml 里没有这两个键，反序列化必须补默认而不是整段失败。
+    #[test]
+    fn terminal_settings_deserialize_without_resource_keys() {
+        let settings: TerminalSettings =
+            toml::from_str("fontSize = 14\nfontFamily = \"Consolas\"\ncursorStyle = \"block\"\ncursorBlink = false\nscrollback = 20000\n")
+                .expect("legacy config without resource policy keys must still parse");
+
+        assert!(settings.lower_session_priority, "默认应降优先级");
+        assert_eq!(settings.session_cpu_weight, None);
+    }
+
+    #[test]
+    fn terminal_settings_clamp_out_of_range_cpu_weight() {
+        // 手改过 config.toml 的用户写了越界值，不该因此丢掉整项设置。
+        let mut settings = TerminalSettings {
+            session_cpu_weight: Some(200),
+            ..TerminalSettings::default()
+        };
+        settings.merge_missing_defaults();
+        assert_eq!(
+            settings.session_cpu_weight,
+            Some(crate::models::resource_policy::CPU_WEIGHT_MAX)
+        );
+    }
+
+    #[test]
+    fn terminal_settings_resource_policy_reflects_toggle() {
+        let mut settings = TerminalSettings::default();
+        assert!(settings.resource_policy().lower_priority);
+
+        settings.lower_session_priority = false;
+        let policy = settings.resource_policy();
+        assert!(!policy.lower_priority);
+        assert!(policy.is_noop(), "关掉开关后应完全不干预");
     }
 
     #[test]

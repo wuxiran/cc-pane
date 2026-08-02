@@ -3,6 +3,7 @@
 //! 提供统一的 `spawn_pty()` 入口，Windows/macOS/Linux 均使用 portable-pty。
 //! portable-pty 在 Windows 上内部使用 ConPTY，无需自研绑定。
 
+use crate::models::{PolicyOutcome, SessionResourcePolicy};
 use crate::utils::{simplify_path, validate_spawn_cwd};
 use anyhow::{anyhow, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -26,6 +27,11 @@ pub struct PtyConfig {
     pub env: HashMap<String, String>,
     /// 需要从继承环境中移除的变量名列表
     pub env_remove: Vec<String>,
+    /// 会话级资源策略（降优先级 / CPU 权重）。
+    ///
+    /// 刻意不给 `PtyConfig` 加 `Default`：`cols`/`rows` 默认 0 会 spawn 出 0×0
+    /// 终端，是个安静的陷阱。字面量构造点只有 3 处，显式写出来更安全。
+    pub resource_policy: SessionResourcePolicy,
 }
 
 /// PTY 创建后返回的三件套（所有权一次性转移）
@@ -45,6 +51,13 @@ pub trait PtyProcess: Send + Sync {
     fn pid(&self) -> u32;
     fn wait(&self) -> Result<ExitStatus>;
     fn kill(&self) -> Result<()>;
+
+    /// 对运行中的会话重新下发资源策略（"降优先级"这一档干预，低于杀进程）。
+    ///
+    /// 默认返回 `Unsupported`，实现者按需覆盖——这样新增实现不会被迫关心资源策略。
+    fn set_resource_policy(&self, _policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
+        Ok(PolicyOutcome::Unsupported)
+    }
 }
 
 /// portable-pty 包装的 PTY 进程（全平台通用）
@@ -57,8 +70,9 @@ struct PortablePtyProcess {
     pid: u32,
     /// Windows：KILL_ON_JOB_CLOSE Job Object。宿主进程异常终止时由 OS 回收
     /// 句柄并击杀整棵子进程树（taskkill 只覆盖显式 kill 路径）。
+    /// 同时承载会话级资源策略（优先级 / CPU 权重），见 `set_resource_policy`。
     #[cfg(windows)]
-    _job: Option<job::ProcessJob>,
+    job: Option<job::ProcessJob>,
 }
 
 impl PtyProcess for PortablePtyProcess {
@@ -78,6 +92,35 @@ impl PtyProcess for PortablePtyProcess {
 
     fn pid(&self) -> u32 {
         self.pid
+    }
+
+    fn set_resource_policy(&self, policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
+        #[cfg(windows)]
+        {
+            match self.job.as_ref() {
+                Some(job) => job.reapply_policy(policy),
+                // Job 创建当初就失败了（权限受限），没有可调的载体。
+                None => Ok(PolicyOutcome::Unsupported),
+            }
+        }
+        #[cfg(unix)]
+        {
+            match policy.nice_increment() {
+                Some(increment) => {
+                    apply_unix_nice(self.pid, increment);
+                    Ok(PolicyOutcome::Applied)
+                }
+                // 提高优先级需要 CAP_SYS_NICE，普通用户降了就回不去。
+                None => Ok(PolicyOutcome::degraded(
+                    "raising priority back requires CAP_SYS_NICE",
+                )),
+            }
+        }
+        #[cfg(not(any(windows, unix)))]
+        {
+            let _ = policy;
+            Ok(PolicyOutcome::Unsupported)
+        }
     }
 
     fn wait(&self) -> Result<ExitStatus> {
@@ -132,6 +175,8 @@ impl PtyProcess for PortablePtyProcess {
 /// 创建 PTY 进程（全平台统一入口）
 pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     validate_spawn_cwd(&config.cwd).map_err(anyhow::Error::new)?;
+    #[cfg_attr(not(any(windows, unix)), allow(unused_variables))]
+    let policy = config.resource_policy;
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: config.rows,
@@ -167,10 +212,21 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
 
     // Windows：把子进程挂进 KILL_ON_JOB_CLOSE Job，宿主暴毙时由内核清树。
     // 创建失败（权限受限等）不阻断 spawn——显式 kill 路径仍有 taskkill /T 兜底。
+    // 资源策略在同一处下发，但失败只降级、不影响孤儿防护（见 job::create_for_with_policy）。
     #[cfg(windows)]
     let job = if pid != 0 {
-        match job::ProcessJob::create_for(pid) {
-            Ok(j) => Some(j),
+        match job::ProcessJob::create_for_with_policy(pid, &policy) {
+            Ok((j, outcome)) => {
+                // 降级必须可见：静默失败 = 用户以为限制生效、实际裸奔（docs/45 教训）。
+                if let PolicyOutcome::Degraded { reason } = &outcome {
+                    tracing::warn!(
+                        pid,
+                        reason = %reason,
+                        "resource policy degraded (session still started)"
+                    );
+                }
+                Some(j)
+            }
             Err(e) => {
                 tracing::warn!("ProcessJob create failed for pid {pid} (non-fatal): {e}");
                 None
@@ -180,6 +236,14 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
         None
     };
 
+    // Unix：优先级用 nice 表达（Windows 侧走 Job 的 PRIORITY_CLASS）。
+    #[cfg(unix)]
+    if pid != 0 {
+        if let Some(increment) = policy.nice_increment() {
+            apply_unix_nice(pid, increment);
+        }
+    }
+
     Ok(PtySpawnResult {
         process: Arc::new(PortablePtyProcess {
             child: Mutex::new(child),
@@ -187,11 +251,28 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
             exited: AtomicBool::new(false),
             pid,
             #[cfg(windows)]
-            _job: job,
+            job,
         }),
         reader,
         writer,
     })
+}
+
+/// Unix：对已 spawn 的进程调低调度优先级。
+///
+/// 失败只 warn——`setpriority` 在容器/受限环境下可能被拒，但那不该阻断会话。
+#[cfg(unix)]
+fn apply_unix_nice(pid: u32, increment: i8) {
+    // SAFETY: setpriority 对不存在的 pid 只返回 -1，不会有内存安全问题。
+    let rc = unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, i32::from(increment)) };
+    if rc != 0 {
+        tracing::warn!(
+            pid,
+            increment,
+            error = %std::io::Error::last_os_error(),
+            "setpriority failed (non-fatal, session still started)"
+        );
+    }
 }
 
 fn env_remove_keys(mut env_remove: Vec<String>) -> Vec<String> {
@@ -216,6 +297,7 @@ mod tests {
             args: Vec::new(),
             env: HashMap::new(),
             env_remove: Vec::new(),
+            resource_policy: crate::models::SessionResourcePolicy::default(),
         }
     }
 
@@ -228,6 +310,50 @@ mod tests {
                 .expect("system clock")
                 .as_nanos()
         ))
+    }
+
+    /// 端到端护栏：策略从 `PtyConfig` 一路走到**真实进程的优先级**。
+    ///
+    /// 单测 job.rs 只证明 Job 的 LimitFlags 被设上了；这里验证经由 spawn_pty
+    /// 起的真进程确实跑在 BELOW_NORMAL——中间任何一段接线断掉都会被这条测出来。
+    #[cfg(windows)]
+    #[test]
+    fn spawn_pty_applies_below_normal_priority_to_child() {
+        use windows::Win32::System::Threading::{
+            GetPriorityClass, OpenProcess, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS,
+            PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+
+        let cwd = std::env::temp_dir();
+        let spawn = spawn_pty(PtyConfig {
+            cols: 80,
+            rows: 24,
+            cwd,
+            command: "cmd.exe".to_string(),
+            args: vec!["/C".to_string(), "ping -n 20 127.0.0.1 > nul".to_string()],
+            env: HashMap::new(),
+            env_remove: Vec::new(),
+            resource_policy: crate::models::SessionResourcePolicy::default(),
+        })
+        .expect("spawn pty");
+
+        let pid = spawn.process.pid();
+        assert_ne!(pid, 0, "need a real pid to query priority");
+
+        let priority = unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+                .expect("OpenProcess for priority query");
+            let class = GetPriorityClass(handle);
+            let _ = windows::Win32::Foundation::CloseHandle(handle);
+            class
+        };
+
+        let _ = spawn.process.kill();
+        assert_eq!(
+            priority, BELOW_NORMAL_PRIORITY_CLASS.0,
+            "expected BELOW_NORMAL ({}), got {priority} (NORMAL is {})",
+            BELOW_NORMAL_PRIORITY_CLASS.0, NORMAL_PRIORITY_CLASS.0
+        );
     }
 
     #[test]

@@ -260,6 +260,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       daemonOrphanTtlMinutes: 1440,
       daemonOrphanReaperDisabled: false,
       autoAdoptDaemonSessions: true,
+      lowerSessionPriority: true,
+      sessionCpuWeight: null,
     },
     shortcuts: {
       bindings: {

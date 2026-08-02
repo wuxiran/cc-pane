@@ -2064,6 +2064,13 @@ impl TerminalService {
         #[cfg(not(windows))]
         let (pty_command, pty_args) = (command, args);
 
+        // 资源策略随会话启动一次性下发（docs/71）：让窗格里的 cargo/rg 抢不过 UI。
+        let resource_policy = self
+            .settings_service
+            .get_settings()
+            .terminal
+            .resource_policy();
+
         let config = PtyConfig {
             cols,
             rows,
@@ -2072,6 +2079,7 @@ impl TerminalService {
             args: pty_args,
             env: env_vars,
             env_remove,
+            resource_policy,
         };
 
         let spawn_result = match spawn_pty(config) {

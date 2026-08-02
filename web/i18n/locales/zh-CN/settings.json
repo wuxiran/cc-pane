@@ -522,6 +522,8 @@
   "editGlobalConfig": "编辑通用配置",
   "resumeIdBackfill": "启用旧版 Resume ID 回填（排障用）",
   "resumeIdBackfillHint": "旧机制：扫会话目录按时间猜测 resume id，已被确定性绑定（Claude 发号 / Codex 标题捕获）取代。默认关闭，仅排障时打开。",
+  "lowerSessionPriority": "降低会话进程优先级",
+  "lowerSessionPriorityHint": "让每个会话的整棵进程树（CLI 及它起的 cargo / rg / npm）以低于普通的优先级运行，忙碌的窗格就抢不过界面。空闲核心照样跑满，编译吞吐不受影响。对新启动的会话生效。",
   "terminalDaemon": "终端会话共享（daemon）",
   "terminalDaemonHint": "PTY 托管到独立守护进程：桌面与 Web/手机端看到并操作同一批会话（无缝接力）。重启应用生效。",
   "daemonOrphanTtl": "无人查看会话过期（分钟）",
