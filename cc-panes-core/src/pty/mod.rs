@@ -107,7 +107,7 @@ impl PtyProcess for PortablePtyProcess {
         {
             match policy.nice_increment() {
                 Some(increment) => {
-                    apply_unix_nice(self.pid, increment);
+                    apply_unix_nice_increment(self.pid, increment);
                     Ok(PolicyOutcome::Applied)
                 }
                 // 提高优先级需要 CAP_SYS_NICE，普通用户降了就回不去。
@@ -240,7 +240,7 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     #[cfg(unix)]
     if pid != 0 {
         if let Some(increment) = policy.nice_increment() {
-            apply_unix_nice(pid, increment);
+            apply_unix_nice_increment(pid, increment);
         }
     }
 
@@ -258,21 +258,46 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     })
 }
 
-/// Unix：对已 spawn 的进程调低调度优先级。
+/// Unix：基于进程继承到的当前 nice 值，按增量调低调度优先级。
 ///
-/// 失败只 warn——`setpriority` 在容器/受限环境下可能被拒，但那不该阻断会话。
+/// 失败只 warn——查询或设置在容器/受限环境下可能被拒，但那不该阻断会话。
 #[cfg(unix)]
-fn apply_unix_nice(pid: u32, increment: i8) {
+fn apply_unix_nice_increment(pid: u32, increment: i8) {
+    errno::set_errno(errno::Errno(0));
+    // SAFETY: getpriority 只读取指定 PID 的调度属性，不解引用用户态指针。
+    let current = unsafe { libc::getpriority(libc::PRIO_PROCESS, pid) };
+    let get_error = errno::errno();
+    if current == -1 && get_error.0 != 0 {
+        tracing::warn!(
+            pid,
+            increment,
+            error = %std::io::Error::from_raw_os_error(get_error.0),
+            "getpriority failed (non-fatal, session still started)"
+        );
+        return;
+    }
+
+    let target = unix_nice_target(current, increment);
+    if target == current {
+        return;
+    }
     // SAFETY: setpriority 对不存在的 pid 只返回 -1，不会有内存安全问题。
-    let rc = unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, i32::from(increment)) };
+    let rc = unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, target) };
     if rc != 0 {
         tracing::warn!(
             pid,
             increment,
+            current,
+            target,
             error = %std::io::Error::last_os_error(),
             "setpriority failed (non-fatal, session still started)"
         );
     }
+}
+
+#[cfg(unix)]
+fn unix_nice_target(current: i32, increment: i8) -> i32 {
+    current.saturating_add(i32::from(increment)).min(19)
 }
 
 fn env_remove_keys(mut env_remove: Vec<String>) -> Vec<String> {
@@ -398,6 +423,15 @@ mod tests {
             keys.iter().filter(|key| key.as_str() == "NO_COLOR").count(),
             1
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_nice_target_adds_the_increment_to_the_inherited_value() {
+        assert_eq!(super::unix_nice_target(0, 5), 5);
+        assert_eq!(super::unix_nice_target(10, 5), 15);
+        assert_eq!(super::unix_nice_target(18, 5), 19);
+        assert_eq!(super::unix_nice_target(-5, 5), 0);
     }
 }
 

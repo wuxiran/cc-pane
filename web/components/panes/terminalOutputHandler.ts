@@ -29,6 +29,49 @@ export interface CreateTerminalOutputHandlerOptions {
   debugLog: (event: string, payload?: Record<string, unknown>) => void;
 }
 
+interface FlushHiddenOutputBeforeExitOptions {
+  term: Pick<Terminal, "writeln">;
+  exitCode: number;
+  hiddenWriteBuffer: TerminalHiddenWriteBuffer | null;
+  writeTerminalData: (data: string, onWritten?: () => void) => Promise<void>;
+  syncTrackedBufferType: (reason: string) => void;
+  showReconnectHint: boolean;
+  onSessionExited: () => void;
+  onError: (error: unknown) => void;
+}
+
+/** Preserve PTY byte order even when the exit event arrives while the view is hidden. */
+export function flushHiddenOutputBeforeExit({
+  term,
+  exitCode,
+  hiddenWriteBuffer,
+  writeTerminalData,
+  syncTrackedBufferType,
+  showReconnectHint,
+  onSessionExited,
+  onError,
+}: FlushHiddenOutputBeforeExitOptions): void {
+  const announceExit = () => {
+    term.writeln(`\r\n\x1b[33mProcess exited with code ${exitCode}\x1b[0m`);
+    if (showReconnectHint) {
+      term.writeln("\x1b[36m[Disconnected] Press Enter to reconnect, or Ctrl+C to close.\x1b[0m");
+    }
+    onSessionExited();
+  };
+  const pending = hiddenWriteBuffer?.drain();
+  if (!pending) {
+    announceExit();
+    return;
+  }
+  void writeTerminalData(pending, () => syncTrackedBufferType("output.hidden.exit-flush")).then(
+    announceExit,
+    (error) => {
+      onError(error);
+      announceExit();
+    },
+  );
+}
+
 /**
  * PTY 输出 → xterm 的写入管线。
  *
@@ -37,7 +80,8 @@ export interface CreateTerminalOutputHandlerOptions {
  *
  * 这里唯一的非平凡行为是**后台标签页积压**：非活动 tab 只是 `display: none` 仍保持挂载，
  * 照单全收会让 N 个后台会话各压一份 parser + renderer 上主线程（docs/71 §3、docs/73 §4）。
- * 策略是合并而非丢弃——不可见期间攒着，切回可见时一次性写入，零丢失、保序。
+ * 缓冲有硬上限；超过后停止接收隐藏输出并在恢复时提示截断，避免把积压转移到
+ * Promise/xterm 内部队列后继续无界增长。
  */
 export function createTerminalOutputHandler({
   sessionId,
@@ -92,8 +136,8 @@ export function createTerminalOutputHandler({
 
     hiddenWriteBufferRef.current ??= createTerminalHiddenWriteBuffer({
       isVisible: isRenderVisible,
-      onOverflowFlush: (length) => {
-        debugLog("output.hidden.overflow-flush", { bindSessionId: sessionId, length });
+      onOverflowDrop: (length) => {
+        debugLog("output.hidden.truncated", { bindSessionId: sessionId, length });
       },
     });
     const writableData = hiddenWriteBufferRef.current.push(renderedData);

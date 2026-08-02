@@ -5,9 +5,9 @@
  * 把数据喂给 xterm。N 个后台会话同时刷屏 = N 份 parser + DOM renderer 抢主线程
  * （实测本机同时挂 18 个会话，见 docs/71 §3、docs/73 §4）。
  *
- * 策略是**合并而不是丢弃**：不可见期间把数据攒起来，可见时一次性写入。数据零丢失、
- * 顺序不变，省掉的是 N 次 parse + N 次渲染帧。积压超过上限时立刻整块 flush 一次，
- * 让内存有界——flush 仍是完整前缀，不破坏转义序列。
+ * 不可见期间最多保留固定长度的完整 chunk 前缀；首次越界后冻结缓冲并丢弃后续隐藏
+ * 输出，恢复时显示截断提示。不能在这里把溢出块 fire-and-forget 给 xterm：那只会把
+ * 无界积压转移到 Promise/xterm 写队列，既不限制总内存，也会重新触发后台解析。
  */
 
 export interface TerminalHiddenWriteBuffer {
@@ -23,30 +23,34 @@ export interface TerminalHiddenWriteBuffer {
   pendingLength(): number;
 }
 
-/** 积压上限（字符数）。超过即整块 flush，保证内存有界。 */
+/** 隐藏输出保留上限（字符数）。 */
 const DEFAULT_MAX_PENDING_CHARS = 512 * 1024;
+const HIDDEN_OUTPUT_TRUNCATED_NOTICE =
+  "\x18\r\n\x1b[33m[CC-Panes] Hidden terminal output was truncated to protect memory.\x1b[0m\r\n";
 
 interface CreateTerminalHiddenWriteBufferOptions {
   /** 当前终端是否可见。可见时数据直通，不进积压。 */
   isVisible: () => boolean;
   maxPendingChars?: number;
-  /** 触发上限 flush 时的观测钩子。 */
-  onOverflowFlush?: (pendingLength: number) => void;
+  /** 首次超过上限时调用；参数是触发截断的 chunk 长度。 */
+  onOverflowDrop?: (droppedChunkLength: number) => void;
 }
 
 export function createTerminalHiddenWriteBuffer({
   isVisible,
   maxPendingChars = DEFAULT_MAX_PENDING_CHARS,
-  onOverflowFlush,
+  onOverflowDrop,
 }: CreateTerminalHiddenWriteBufferOptions): TerminalHiddenWriteBuffer {
   let pending: string[] = [];
   let pendingLength = 0;
+  let overflowed = false;
 
   const takeAll = (): string | null => {
-    if (pendingLength === 0) return null;
-    const merged = pending.join("");
+    if (pendingLength === 0 && !overflowed) return null;
+    const merged = pending.join("") + (overflowed ? HIDDEN_OUTPUT_TRUNCATED_NOTICE : "");
     pending = [];
     pendingLength = 0;
+    overflowed = false;
     return merged;
   };
 
@@ -61,12 +65,16 @@ export function createTerminalHiddenWriteBuffer({
         return drained === null ? data : drained + data;
       }
 
+      if (overflowed) return null;
+      if (pendingLength + data.length > maxPendingChars) {
+        overflowed = true;
+        onOverflowDrop?.(data.length);
+        return null;
+      }
+
       pending.push(data);
       pendingLength += data.length;
-      if (pendingLength < maxPendingChars) return null;
-
-      onOverflowFlush?.(pendingLength);
-      return takeAll();
+      return null;
     },
 
     drain: takeAll,
@@ -74,6 +82,7 @@ export function createTerminalHiddenWriteBuffer({
     reset(): void {
       pending = [];
       pendingLength = 0;
+      overflowed = false;
     },
 
     pendingLength: () => pendingLength,

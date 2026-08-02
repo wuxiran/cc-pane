@@ -5,12 +5,10 @@
 // 判据：只依赖入参与全局单例、不碰组件内 ref/state 的才放这里。
 import { invoke } from "@tauri-apps/api/core";
 import type { Terminal } from "@xterm/xterm";
-import { toast } from "sonner";
 
 import { terminalService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useTerminalStatusStore } from "@/stores";
-import type { CliTool, SshConnectionInfo, WslLaunchInfo } from "@/types";
 import type { TerminalThemePalette } from "./terminalTheme";
 
 export const IS_MAC =
@@ -60,19 +58,6 @@ export function normalizeTerminalCursorStyle(value?: string | null): TerminalCur
   return value === "underline" || value === "bar" ? value : "block";
 }
 
-export function resolveCliTool(cliTool?: CliTool, launchClaude?: boolean): string {
-  return cliTool ?? (launchClaude ? "claude" : "none");
-}
-
-export function resolveRuntimeKind(
-  ssh?: SshConnectionInfo,
-  wsl?: WslLaunchInfo,
-): "local" | "wsl" | "ssh" {
-  if (ssh) return "ssh";
-  if (wsl) return "wsl";
-  return "local";
-}
-
 export function findLiveSavedSessionId(savedSessionId?: string): string | null {
   if (!savedSessionId) return null;
   // 读共享状态缓存（useTerminalStatusStore，由 terminal-status 事件 + 定时刷新维护），
@@ -91,24 +76,6 @@ export function writeTerminalReply(
 ) {
   if (!sessionId) return;
   void terminalService.write(sessionId, response, { source: "system" }).catch(onError);
-}
-
-/**
- * 会话被另一个 CC-Panes 实例持有写权限时提示用户（docs/61 阶段 2）。
- *
- * 按会话去重 + 冷却：否则用户每敲一个字符都会弹一次 toast。
- * 冷却窗口取 30s，与 daemon 侧租约 TTL 一致——租约过期后本实例可能重新拿到
- * 写权限，那时再提示才有意义。
- */
-const sessionClaimedNotifiedAt = new Map<string, number>();
-const SESSION_CLAIMED_NOTICE_COOLDOWN_MS = 30_000;
-
-export function notifySessionClaimed(sessionId: string, message: string) {
-  const now = Date.now();
-  const last = sessionClaimedNotifiedAt.get(sessionId) ?? 0;
-  if (now - last < SESSION_CLAIMED_NOTICE_COOLDOWN_MS) return;
-  sessionClaimedNotifiedAt.set(sessionId, now);
-  toast.warning(message);
 }
 
 export function applyTerminalElementTheme(

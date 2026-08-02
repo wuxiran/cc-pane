@@ -466,9 +466,20 @@ fn build_resource_tree_from_snapshot(
     let family = family_pids(processes, self_pid);
     let analysis = analyze_process_ownership(&index, processes, sessions, &family, known_family);
     let mut assigned = HashSet::new();
-    let mut session_usage = sessions
+    // 嵌套 session 根会让进程树重叠；先让更深（更具体）的根认领，避免结果依赖
+    // TerminalService 的 HashMap 迭代顺序。相同深度再按 session_id 固定顺序。
+    let mut ordered_sessions = sessions
         .iter()
-        .map(|session| {
+        .map(|session| (index.ancestors_including(session.root_pid).len(), session))
+        .collect::<Vec<_>>();
+    ordered_sessions.sort_by(|(left_depth, left), (right_depth, right)| {
+        right_depth
+            .cmp(left_depth)
+            .then_with(|| left.session_id.cmp(&right.session_id))
+    });
+    let mut session_usage = ordered_sessions
+        .into_iter()
+        .map(|(_, session)| {
             let owned = index.descendants_including(session.root_pid);
             let process_ids = owned
                 .into_iter()

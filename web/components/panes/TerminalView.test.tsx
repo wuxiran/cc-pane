@@ -48,6 +48,7 @@ const MockXterm = vi.hoisted(() => class MockXterm {
   };
   writtenLines: string[] = [];
   writtenData: string[] = [];
+  writeEvents: string[] = [];
   dataHandler: ((data: string) => void) | null = null;
   keyEventHandler: ((event: KeyboardEvent) => boolean) | null = null;
   disposed = false;
@@ -68,11 +69,13 @@ const MockXterm = vi.hoisted(() => class MockXterm {
 
   write(data: string, callback?: () => void) {
     this.writtenData.push(data);
+    this.writeEvents.push(data);
     callback?.();
   }
 
   writeln(line: string) {
     this.writtenLines.push(line);
+    this.writeEvents.push(line);
   }
 
   onData(handler: (data: string) => void) {
@@ -711,6 +714,33 @@ describe("TerminalView", () => {
 
     expect(onSessionExited).toHaveBeenCalledWith(3);
     expect(term.writtenLines.some((line) => line.includes("exited with code 3"))).toBe(true);
+  });
+
+  it("后台会话退出时先补齐尾部输出，再显示退出提示", async () => {
+    const onSessionExited = vi.fn();
+    renderTerminalView({
+      isActive: false,
+      isVisible: false,
+      onSessionExited,
+    });
+    await waitFor(() => {
+      expect(registerOutput).toHaveBeenCalled();
+      expect(registerExit).toHaveBeenCalled();
+    });
+    const term = await lastTerm();
+    const outputHandler = registerOutput.mock.calls[0][1] as (data: string) => void;
+    const exitHandler = registerExit.mock.calls[0][1] as (exitCode: number) => void;
+
+    act(() => outputHandler("last hidden output"));
+    expect(term.writeEvents).not.toContain("last hidden output");
+
+    act(() => exitHandler(7));
+
+    await waitFor(() => expect(onSessionExited).toHaveBeenCalledWith(7));
+    const tailIndex = term.writeEvents.findIndex((event) => event.includes("last hidden output"));
+    const exitIndex = term.writeEvents.findIndex((event) => event.includes("exited with code 7"));
+    expect(tailIndex).toBeGreaterThanOrEqual(0);
+    expect(exitIndex).toBeGreaterThan(tailIndex);
   });
 
   it("shows an install hint when the CLI binary is missing", async () => {

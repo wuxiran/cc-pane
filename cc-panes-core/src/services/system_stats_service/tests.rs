@@ -213,6 +213,69 @@ fn resource_tree_aggregates_managed_session_descendants_once() {
 }
 
 #[test]
+fn nested_session_roots_use_nearest_owner_independent_of_input_order() {
+    let processes = vec![
+        process(100, None, "parent-shell", "parent-shell", 1.0, 10),
+        process(110, Some(100), "nested-shell", "nested-shell", 2.0, 20),
+        process(111, Some(110), "nested-agent", "nested-agent", 3.0, 30),
+    ];
+    let parent = ManagedSessionRoot {
+        session_id: "parent".to_string(),
+        root_pid: 100,
+    };
+    let nested = ManagedSessionRoot {
+        session_id: "nested".to_string(),
+        root_pid: 110,
+    };
+
+    let build = |sessions: &[ManagedSessionRoot]| {
+        build_resource_tree_from_snapshot(
+            SystemStats {
+                cpu_percent: 0.0,
+                mem_used: 0,
+                mem_total: 1_000,
+            },
+            &processes,
+            sessions,
+            999,
+            &HashSet::new(),
+            0,
+        )
+    };
+    let parent_first = build(&[parent.clone(), nested.clone()]);
+    let nested_first = build(&[nested, parent]);
+
+    for tree in [&parent_first, &nested_first] {
+        let parent_usage = tree
+            .sessions
+            .iter()
+            .find(|session| session.session_id == "parent")
+            .expect("parent session usage");
+        let nested_usage = tree
+            .sessions
+            .iter()
+            .find(|session| session.session_id == "nested")
+            .expect("nested session usage");
+        assert_eq!(
+            parent_usage
+                .processes
+                .iter()
+                .map(|process| process.pid)
+                .collect::<Vec<_>>(),
+            vec![100],
+        );
+        assert_eq!(
+            nested_usage
+                .processes
+                .iter()
+                .map(|process| process.pid)
+                .collect::<HashSet<_>>(),
+            HashSet::from([110, 111]),
+        );
+    }
+}
+
+#[test]
 fn session_process_detail_caps_the_list_and_reports_what_it_folded() {
     let mut processes = vec![
         process(1, None, "explorer.exe", "explorer.exe", 0.0, 1_000),

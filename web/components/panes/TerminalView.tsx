@@ -13,7 +13,7 @@ import { getErrorMessage, toTerminalLaunchError } from "@/utils";
 import type { TerminalLaunchError } from "@/types";
 import { pickCreateSessionResumeId } from "./terminalResume";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
-import { createTerminalOutputHandler } from "./terminalOutputHandler";
+import { createTerminalOutputHandler, flushHiddenOutputBeforeExit } from "./terminalOutputHandler";
 import { devDebugLog } from "@/utils/devLogger";
 import { captureTerminalWrite, noteTerminalGeometry } from "@/utils/terminalCast";
 import { TERMINAL_APP_MENU_PASTE_EVENT } from "@/utils/appMenuPaste";
@@ -681,24 +681,24 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       }
       debugLog("cleanup.end", {});
     }, [debugLog, unbindSessionCallbacks]);
-
-    /** Shared exit handling for initial attach and reconnect flows. */
     const handleSessionExit = useCallback((sessionId: string, exitCode: number) => {
       console.warn(`[TerminalView] Session exited: ${sessionId}, exitCode=${exitCode}`);
       const term = terminalInstanceRef.current;
       if (!term) return;
-      term.writeln(`\r\n\x1b[33mProcess exited with code ${exitCode}\x1b[0m`);
-
-      // Show reconnect hints after an SSH disconnect.
-      if (isSshRef.current && onReconnectRef.current) {
-        term.writeln(
-          "\x1b[36m[Disconnected] Press Enter to reconnect, or Ctrl+C to close.\x1b[0m"
-        );
-        isDisconnectedRef.current = true;
-      }
-
-      onSessionExitedRef.current?.(exitCode);
-    }, []);
+      flushHiddenOutputBeforeExit({ term, exitCode,
+        hiddenWriteBuffer: hiddenWriteBufferRef.current,
+        writeTerminalData,
+        syncTrackedBufferType,
+        showReconnectHint: Boolean(isSshRef.current && onReconnectRef.current),
+        onSessionExited: () => {
+          if (isSshRef.current && onReconnectRef.current) isDisconnectedRef.current = true;
+          onSessionExitedRef.current?.(exitCode);
+        },
+        onError: (error) => debugLog("output.hidden.exit-flush.failed", {
+          error: getErrorMessage(error),
+        }),
+      });
+    }, [debugLog, syncTrackedBufferType, writeTerminalData]);
 
     /** Attach output and exit listeners for a session. */
     const bindSessionCallbacks = useCallback(async (sessionId: string) => {

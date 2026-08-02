@@ -30,28 +30,38 @@ describe("terminalHiddenWriteBuffer", () => {
     expect(buffer.pendingLength()).toBe(0);
   });
 
-  it("积压超上限时整块 flush，且内存归零", () => {
-    const onOverflowFlush = vi.fn();
+  it("隐藏输出超上限后停止接收，且不把积压转移到 xterm 写队列", () => {
+    const onOverflowDrop = vi.fn();
     const buffer = createTerminalHiddenWriteBuffer({
       isVisible: () => false,
       maxPendingChars: 8,
-      onOverflowFlush,
+      onOverflowDrop,
     });
 
     expect(buffer.push("1234")).toBeNull();
-    expect(buffer.push("5678")).toBe("12345678");
-    expect(onOverflowFlush).toHaveBeenCalledWith(8);
+    expect(buffer.push("5678")).toBeNull();
+    expect(buffer.push("9")).toBeNull();
+    expect(buffer.push("more output")).toBeNull();
+
+    expect(buffer.pendingLength()).toBe(8);
+    expect(onOverflowDrop).toHaveBeenCalledTimes(1);
+    expect(onOverflowDrop).toHaveBeenCalledWith(1);
+
+    const drained = buffer.drain();
+    expect(drained).toContain("12345678");
+    expect(drained).toContain("Hidden terminal output was truncated");
     expect(buffer.pendingLength()).toBe(0);
   });
 
-  it("flush 出来的始终是完整前缀，不切断转义序列", () => {
+  it("单个超大 chunk 不会被保留或切开", () => {
     const buffer = createTerminalHiddenWriteBuffer({
       isVisible: () => false,
       maxPendingChars: 4,
     });
 
-    // 单个 chunk 就超限时也整块吐出，不做任何切割。
-    expect(buffer.push("\x1b[?1049h_long_chunk")).toBe("\x1b[?1049h_long_chunk");
+    expect(buffer.push("\x1b[?1049h_long_chunk")).toBeNull();
+    expect(buffer.pendingLength()).toBe(0);
+    expect(buffer.drain()).toContain("Hidden terminal output was truncated");
   });
 
   it("reset 丢弃积压（换绑会话时防串台）", () => {

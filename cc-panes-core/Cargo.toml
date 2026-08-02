@@ -54,4 +54,5 @@ windows = { version = "0.62", features = [
 ] }
 
 [target.'cfg(unix)'.dependencies]
+errno = "0.3"
 libc = "0.2"
