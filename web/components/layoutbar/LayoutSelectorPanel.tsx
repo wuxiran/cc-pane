@@ -4,7 +4,7 @@ import { PanelTop, Pin, PinOff, Plus } from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent, type SensorDescriptor, type SensorOptions } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useLayoutUiStore } from "@/stores";
+import { useLayoutUiStore, usePanesStore } from "@/stores";
 import type { TFunction } from "i18next";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import { SortableLayoutRow } from "./SortableLayoutRow";
@@ -68,12 +68,23 @@ export function LayoutSelectorPanel({
   t: TFunction<"panes">;
 }) {
   const setSwitcherMode = useLayoutUiStore((s) => s.setSwitcherMode);
+  const selectTab = usePanesStore((s) => s.selectTab);
+  const setActivePane = usePanesStore((s) => s.setActivePane);
+
+  // 类型计数桁的跳转：先切到目标布局（selectLayout 已含切视图），再挪 active 指针。
+  // 只改指针不动挂载——keep-alive 靠 display:none，卸载会重建终端。
+  function jumpToTab(layoutId: string, paneId: string, tabId: string) {
+    if (layoutId !== currentLayoutId) selectLayout(layoutId);
+    setActivePane(paneId);
+    selectTab(paneId, tabId);
+  }
+
   return createPortal(
     <div
       ref={floatingRef}
       role="dialog"
       aria-label={t("layouts")}
-      className={`fixed w-64 rounded-md border p-2 shadow-md outline-none ${panelPinned ? "z-[140]" : "z-[100]"}`}
+      className={`fixed w-72 rounded-md border p-2 shadow-md outline-none ${panelPinned ? "z-[140]" : "z-[100]"}`}
       onMouseEnter={openSelector}
       onMouseLeave={scheduleClose}
       style={{
@@ -172,6 +183,7 @@ export function LayoutSelectorPanel({
                   handleContextMenuOpenChange={handleContextMenuOpenChange}
                   statusMap={statusMap}
                   onMouseEnter={openSelector}
+                  onJumpToTab={jumpToTab}
                   t={t}
                 />
               );

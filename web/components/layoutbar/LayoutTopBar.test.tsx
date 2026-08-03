@@ -230,7 +230,10 @@ describe("LayoutTopBar 布局条密度", () => {
     expect(screen.getByTitle(/^(运行中|Running)$/).textContent).toBe("1");
   });
 
-  it("旧 pane 状态点在两档中保持相同语义", async () => {
+  // 此前紧凑档走 LayoutStatusDots（按 **pane** 聚合，显 StatusIndicator 的细分
+  // 状态如"工具运行"），舒适档走按 **session** 计数的状态桶——同一张卡换个密度
+  // 语义就变。现已统一到 session 口径，两档读数必须一致。
+  it("两档状态读数口径一致（同为按会话计数的状态桶）", async () => {
     const user = userEvent.setup();
     const busyPanel = createPanel(terminalTab("tab-busy", "project-a", "/work/cc-book", "busy"));
     const errorPanel = createPanel(terminalTab("tab-error", "project-b", "/work/vms", "error"));
@@ -251,17 +254,17 @@ describe("LayoutTopBar 布局条密度", () => {
 
     render(<DndContext><LayoutTopBar /></DndContext>);
 
-    // 舒适档：名称行不再放状态点，状态只出现在摘要行状态桶(运行中/错误)
+    // 舒适档：运行中 1、错误 1，各自带计数；不出现 pane 级的细分状态文案
     expect(screen.queryAllByTitle(/工具运行|Running tool/i)).toHaveLength(0);
-    expect(screen.getAllByTitle(/^(运行中|Running)$/)).toHaveLength(1);
-    expect(screen.getAllByTitle(/^(错误|Error)$/)).toHaveLength(1);
+    expect(screen.getByTitle(/^(运行中|Running)$/).textContent).toBe("1");
+    expect(screen.getByTitle(/^(错误|Error)$/).textContent).toBe("1");
 
     await user.click(screen.getByRole("button", { name: /切换到紧凑档|Switch to compact/i }));
 
-    // 紧凑档无摘要行：名称行状态点是唯一状态信号
-    expect(screen.getAllByTitle(/工具运行|Running tool/i)).toHaveLength(1);
-    expect(screen.queryAllByTitle(/^(运行中|Running)$/)).toHaveLength(0);
-    expect(screen.getAllByTitle(/^(错误|Error)$/)).toHaveLength(1);
+    // 紧凑档：同样的桶、同样的读数——不再退回 pane 级聚合
+    expect(screen.queryAllByTitle(/工具运行|Running tool/i)).toHaveLength(0);
+    expect(screen.getByTitle(/^(运行中|Running)$/).textContent).toBe("1");
+    expect(screen.getByTitle(/^(错误|Error)$/).textContent).toBe("1");
   });
 
   it("右键菜单提供同一密度切换动作", async () => {
