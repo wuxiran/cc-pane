@@ -40,6 +40,14 @@ export function normalizeTerminalFontSize(size?: number | null): number {
   );
 }
 
+export {
+  TERMINAL_SCROLLBACK_MIN,
+  TERMINAL_SCROLLBACK_MAX,
+  TERMINAL_SCROLLBACK_DEFAULT,
+  normalizeTerminalScrollback,
+} from "@/lib/terminalScrollback";
+import { TERMINAL_SCROLLBACK_DEFAULT } from "@/lib/terminalScrollback";
+
 const FONT_SIZE_PERSIST_DEBOUNCE_MS = 400;
 let fontSizePersistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -250,7 +258,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       fontFamily: '"Maple Mono NF CN", "Maple Mono", "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, "Sarasa Mono SC", "Microsoft YaHei UI", "PingFang SC", monospace',
       cursorStyle: "block",
       cursorBlink: false,
-      scrollback: 20000,
+      scrollback: TERMINAL_SCROLLBACK_DEFAULT,
       themeMode: "followApp",
       rendererMode: "auto",
       shell: null,

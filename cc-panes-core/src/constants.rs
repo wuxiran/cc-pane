@@ -68,6 +68,9 @@ pub mod events {
     /// 启动时的非致命警告（前端 toast 提示）。当前用于：显式选中的启动配置因
     /// CLI/运行环境不匹配被丢弃、已回落到默认配置（YOLO 等 profile 级设置可能未生效）。
     pub const TERMINAL_LAUNCH_WARNING: &str = "terminal-launch-warning";
+    /// daemon 输出镜像流曾溢出跳段（desync 契约）：前端必须丢弃现有终端画面、
+    /// 用 replay snapshot 重放，否则 VT 流缺口必然花屏。
+    pub const TERMINAL_DESYNC: &str = "terminal-desync";
 }
 
 /// 终端默认值

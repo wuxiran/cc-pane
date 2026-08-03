@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useSettingsStore } from "./useSettingsStore";
+import {
+  TERMINAL_SCROLLBACK_DEFAULT,
+  TERMINAL_SCROLLBACK_MAX,
+  TERMINAL_SCROLLBACK_MIN,
+  normalizeTerminalScrollback,
+  useSettingsStore,
+} from "./useSettingsStore";
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
 import { settingsService } from "@/services";
 import { createTestSettings, resetTestDataCounter } from "@/test/utils/testData";
@@ -18,6 +24,24 @@ describe("useSettingsStore", () => {
     useSettingsStore.setState({
       settings: null,
       loading: false,
+    });
+  });
+
+  describe("normalizeTerminalScrollback", () => {
+    it("非法值回落默认", () => {
+      expect(normalizeTerminalScrollback(undefined)).toBe(TERMINAL_SCROLLBACK_DEFAULT);
+      expect(normalizeTerminalScrollback(null)).toBe(TERMINAL_SCROLLBACK_DEFAULT);
+      expect(normalizeTerminalScrollback(Number.NaN)).toBe(TERMINAL_SCROLLBACK_DEFAULT);
+    });
+
+    it("越界值钳到上下限", () => {
+      expect(normalizeTerminalScrollback(1)).toBe(TERMINAL_SCROLLBACK_MIN);
+      expect(normalizeTerminalScrollback(9_999_999)).toBe(TERMINAL_SCROLLBACK_MAX);
+    });
+
+    it("合法值取整保留", () => {
+      expect(normalizeTerminalScrollback(5000.6)).toBe(5001);
+      expect(normalizeTerminalScrollback(20000)).toBe(20000);
     });
   });
 

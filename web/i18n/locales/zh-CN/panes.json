@@ -85,6 +85,10 @@
   "layoutDensityComfortable": "切换到舒适档",
   "layoutIdle": "空闲",
   "layoutNoSessions": "无会话",
+  "tabGroupTerminal": "终端",
+  "tabGroupBrowser": "浏览器",
+  "tabGroupFiles": "文件",
+  "tabGroupTools": "工具面板",
   "layoutPresets": "布局预设",
   "layoutPresetSingle": "单格",
   "layoutPresetTwoCol": "左右分栏",
@@ -196,5 +200,12 @@
     "title": "{{count}} 个终端会话未能恢复历史对话",
     "impact": "这些会话恢复成了全新会话，resume id 可能未写入数据库；请查看应用日志里的 [restore-report] 与 bind_resume_id。",
     "dismiss": "关闭提示"
-  }
+  },
+  "newTabMenu": "新建…",
+  "newTerminalTab": "新建终端",
+  "newBrowserTab": "新建浏览器",
+  "openFileTab": "打开文件…",
+  "newFileExplorerTab": "打开目录树",
+  "copyBrowserUrl": "复制链接",
+  "copyFilePath": "复制文件路径"
 }

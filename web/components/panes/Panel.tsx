@@ -21,6 +21,7 @@ import TabBar from "./TabBar";
 import PanelEmptyState from "./PanelEmptyState";
 import TabContentRenderer from "./TabContentRenderer";
 import { useTabClosing } from "./useTabClosing";
+import { useNewTabActions } from "./useNewTabActions";
 import type { TerminalViewHandle } from "./TerminalView";
 
 interface PanelProps {
@@ -173,6 +174,9 @@ export default memo(function Panel({ pane }: PanelProps) {
     }),
     [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.providerSelection, activeTab?.launchProfileId, activeTab?.workspacePath]
   );
+
+  const { handleAddBrowser, handleAddFile, handleAddFileExplorer } =
+    useNewTabActions(pane.id, activeTab);
 
   const handleSplitRight = useCallback(
     () => splitRight(pane.id),
@@ -412,6 +416,9 @@ export default memo(function Panel({ pane }: PanelProps) {
             onToggleStar={handleToggleStar}
             onRename={handleRename}
             onAdd={handleAddTab}
+            onAddBrowser={handleAddBrowser}
+            onAddFile={handleAddFile}
+            onAddFileExplorer={handleAddFileExplorer}
             onSplitRight={handleSplitRight}
             onSplitDown={handleSplitDown}
             onFullscreen={handleFullscreen}

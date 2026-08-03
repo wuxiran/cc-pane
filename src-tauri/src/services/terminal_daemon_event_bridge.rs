@@ -66,6 +66,9 @@ enum DaemonStreamMessage {
     Killed {
         reason: Option<String>,
     },
+    /// daemon 侧输出队列曾溢出（慢客户端），中段输出已被整段跳过：
+    /// 前端必须丢弃现有画面、用 replay snapshot 重放，否则 VT 流缺口必然花屏。
+    Desync,
     /// 未知消息类型兜底：新 daemon 增加消息类型时旧 app 不能因 serde 失败
     /// 整条流退化为轮询。
     #[serde(other)]
@@ -322,6 +325,13 @@ impl TerminalDaemonEventBridge {
                 self.emit_terminal_status_once(synthesized_exited_status(session_id))?;
                 self.emit_terminal_exit_once(session_id, -1)?;
                 Ok(true)
+            }
+            DaemonStreamMessage::Desync => {
+                self.emit_to_webview(
+                    EV::TERMINAL_DESYNC,
+                    serde_json::json!({ "sessionId": session_id }),
+                )?;
+                Ok(false)
             }
             DaemonStreamMessage::Unknown => Ok(false),
         }
@@ -669,6 +679,18 @@ mod tests {
             .expect("exit message")
         {
             DaemonStreamMessage::Exit { exit_code } => assert_eq!(exit_code, 7),
+            other => panic!("unexpected message: {other:?}"),
+        }
+    }
+
+    /// desync 契约（daemon 输出队列溢出跳段）必须被识别为专用变体，
+    /// 不能落进 Unknown 静默忽略——那会让缺口后的增量输出直接花屏。
+    #[test]
+    fn daemon_stream_message_parses_desync_marker() {
+        match serde_json::from_str::<DaemonStreamMessage>(r#"{"type":"desync"}"#)
+            .expect("desync message")
+        {
+            DaemonStreamMessage::Desync => {}
             other => panic!("unexpected message: {other:?}"),
         }
     }

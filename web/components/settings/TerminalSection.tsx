@@ -3,6 +3,11 @@ import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { terminalService } from "@/services/terminalService";
+import {
+  TERMINAL_SCROLLBACK_MAX,
+  TERMINAL_SCROLLBACK_MIN,
+  normalizeTerminalScrollback,
+} from "@/lib/terminalScrollback";
 import type { ShellInfo, TerminalSettings } from "@/types";
 import { SearchableSetting } from "./SettingsSearchContext";
 
@@ -127,8 +132,13 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
           <Label>{t("scrollback")}</Label>
           <Input
             type="number"
+            min={TERMINAL_SCROLLBACK_MIN}
+            max={TERMINAL_SCROLLBACK_MAX}
             value={value.scrollback}
             onChange={(e) => update("scrollback", Number(e.target.value))}
+            onBlur={(e) =>
+              update("scrollback", normalizeTerminalScrollback(Number(e.target.value)))
+            }
           />
         </div>
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.9 - 2026-08-03
+
+### Fixed
+
+- **Many open tabs slowly dragged the UI down over hours.** Every mounted tab kept its full terminal buffer live in memory — measured at 3.8 GB and a persistently busy renderer after three days with 14 tabs — because 20,000 lines of scrollback per tab never went away. Tabs left in the background now step down in two stages: after five minutes the GPU renderer is suspended (freeing its share of the ~16 WebGL context budget), and after thirty minutes the whole terminal is hibernated — its entire buffer, colors and scrollback included, is serialized into a compact string and the live instance is destroyed. Switching back rebuilds and replays it in place: nothing you could scroll to before is lost, and output produced while hibernated is appended in order. Only a session that printed more than 4 MB while hibernated falls back to the daemon's replay snapshot.
+- **A slow client could grow the daemon's memory without bound.** Terminal output fanned out to WebSocket subscribers through unbounded queues, so one stalled connection accumulated everything a busy session printed. Session mirrors are now bounded, and overflow follows a strict contract: output is skipped in whole chunks — never mid-escape-sequence, which would corrupt the screen — and once the client catches up it receives a desync marker and repaints cleanly from the replay snapshot. Exit and kill notifications are never dropped; when the mirror is full they arrive through the control channel instead. Older clients ignore the marker and behave no worse than before.
+- **Terminal write flow control only protected Windows.** The backpressure that keeps a flooding session from overwhelming the renderer was enabled per-platform; it now applies everywhere.
+- **Scrollback settings apply immediately and can no longer be set to absurd values.** Changing the scrollback limit used to affect only terminals created afterwards; it now applies to every open terminal at once, and the input is clamped to a sane range. The default is unchanged.
+
+### Changed
+
+- **Layout cards were redesigned for readability** (docs/75). Session states are triple-encoded — shape, color, and count — instead of color-only dots, so danger/waiting/running/idle are distinguishable without hover and without full color vision. The comfortable and compact densities now count the same things; cards count all tab kinds rather than terminals only; rename and delete are available from every card's context menu; and browser tabs and the file explorer gained desktop creation entries.
+
 ## 0.11.8 - 2026-08-02
 
 ### Fixed
