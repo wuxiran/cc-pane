@@ -1,135 +1,232 @@
-<div align="center">
+<h1 align="center">
+  <a href="https://github.com/wuxiran/cc-pane"><img src="src-tauri/icons/icon.png" alt="CC-Panes" width="64" valign="middle" /></a> CC-Panes
+</h1>
 
-<img src="src-tauri/icons/icon.png" width="120" alt="CC-Panes logo" />
-
-# CC-Panes
-
-**A Claude Code–first, multi-agent workspace — run parallel coding sessions side by side.**
-
-[![Latest Release](https://img.shields.io/github/v/release/wuxiran/cc-pane?display_name=tag&sort=semver)](https://github.com/wuxiran/cc-pane/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/wuxiran/cc-pane/total?label=downloads&color=success)](https://github.com/wuxiran/cc-pane/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/wuxiran/cc-pane/releases/latest)
-[![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-
-**English** · [中文](README.zh-CN.md) · [📖 User Guide](docs/guide/README.md)
-
-[**⬇ Download**](https://github.com/wuxiran/cc-pane/releases/latest) · [Report an Issue](https://github.com/wuxiran/cc-pane/issues) · [Discussions](https://github.com/wuxiran/cc-pane/discussions)
-
-<img src="docs/assets/images/current-ui.png" width="920" alt="CC-Panes dark workspace with project sidebar and terminal panes" />
-
-</div>
-
-Running one AI coding agent is easy. Running five is where it falls apart — you lose track of which terminal is working on what, which project it sits in, which provider it is on, and what it did an hour ago.
-
-CC-Panes is a desktop control center for that. It keeps projects, terminals, launch profiles, providers, todos, file browsing, Git status, local history, and session resume in one place so you can drive several coding agents without losing the thread. It is not just a terminal shell: it adds project organization, parallel orchestration, context recovery, and a desktop toolchain on top of Claude Code, Codex, Gemini and other CLI workflows — with adapters for Kimi, GLM, OpenCode, and Cursor, and provider profiles you can pick at launch time.
-
-<!-- TODO(media): 功能墙 6 组，见 docs/67-storyboards.md §3
-     A 派工编排 / B 分屏并行 / D worktree 隔离 / C 移动端接管 / E AI 面板 / F skill 体系
-     每组用 <picture> + <source srcset type="image/gif"> + JPG fallback，外包 <a> 链到对应 guide 篇 -->
-
-## Screenshots
-
-| Multi-pane workspace | Focused terminal workspace |
-| --- | --- |
-| <img src="docs/assets/images/screenshot-new-ui.png" alt="CC-Panes multi-pane terminal layout" width="440" /> | <img src="docs/assets/images/screenshot-panel.png" alt="CC-Panes terminal panel view" width="440" /> |
-
-| Todo and task planning | Light workspace view |
-| --- | --- |
-| <img src="docs/assets/images/screenshot-todolist.png" alt="CC-Panes todo and task panel" width="440" /> | <img src="docs/assets/images/screenshot-main.png" alt="CC-Panes light workspace" width="440" /> |
-
-## ⬇ Download
-
-Prebuilt installers are on the [latest release page](https://github.com/wuxiran/cc-pane/releases/latest).
-
-| Platform | Files |
-| --- | --- |
-| **Windows** | `*_x64-setup.exe` · `*_arm64-setup.exe` |
-| **macOS** | `*_aarch64.dmg` · `*_x64.dmg` |
-| **Linux** | `*_amd64.AppImage` · `*_amd64.deb` |
-
-Stable releases auto-update in-app; beta builds are published as pre-releases and can be installed manually.
-
-## Capabilities
-
-Workspaces, projects, tasks, todos, launch history, provider profiles, Git, local history, and file editing — all in one place:
-
-| Area | What you get |
-| --- | --- |
-| **Agent orchestration** | A built-in `ccpanes` MCP server (`launch_task`, memory, workspace, and plan tools) lets one agent spawn and coordinate others; leader / worker handoff with reporting back; bundled Claude Code commands, agents, hooks, and CC-Panes skills for orchestrated workflows. |
-| **Parallel terminals** | Flexible split panes and tabbed terminals backed by xterm.js and portable-pty; launch Claude Code, Codex, Gemini, Kimi, GLM, OpenCode, and Cursor sessions; resume historical sessions with launch history attached to each project; built-in terminal input tools, paste handling, clipboard support, and terminal diagnostics. |
-| **Multi-device sessions** | A standalone daemon hosts your PTYs, so desktop, web, and the mobile mirror attach to the same live sessions; a Flutter Android client mirrors your desktop layout and lets you take over a session from the phone. |
-| **Workspaces and projects** | Workspace and project sidebar with pin, hide, reorder, scan, import, and create flows; per-project metadata, launch history, tasks, todos, and MCP configuration; project file browser with create, rename, delete, copy, move, search, and editor open; Monaco editor with Markdown preview and image preview. |
-| **Launch profiles and providers** | Launch profiles for repeatable CLI, runtime (local / WSL / SSH), provider, skill, and environment choices; provider support for Anthropic, Bedrock, Vertex, OpenAI-compatible proxies, Gemini, Kimi, GLM, OpenCode, Cursor, and local config profiles; launch-time provider modes for inheriting, selecting explicitly, or running without provider injection. |
-| **Git, history, and review** | Git branch status, fetch, pull, push, stash, clone, and worktree helpers; branch-aware local history snapshots with labels and diff view; file version recovery tools for comparing and restoring local edits. |
-| **Desktop workflow** | Dev and release build isolation for data directories, identifiers, shortcuts, and window titles; global screenshot shortcut with region capture and multi-monitor support; tray behavior, notifications, voice input, mini view, fullscreen focus, and configurable shortcuts; cross-platform packages for Windows, macOS, and Linux. |
-
-## 📖 Tutorials
-
-The [user guide](docs/guide/README.md) covers 20 chapters in four layers:
-
-- [**1 · Getting started**](docs/guide/README.md#一入门) — what CC-Panes is, install and first launch, core concepts, your first Claude session, terminals and panes.
-- [**2 · Daily use**](docs/guide/README.md#二日常使用) — files and editor, Git and worktrees, local history, todos / journal / memory, settings.
-- [**3 · Advanced**](docs/guide/README.md#三高级玩法cc-panes-的核心卖点) — MCP orchestration, parallel runs, leader / worker, plan handoff and peer review, resume, WSL / SSH, web and mobile, AI panel, skills, right dock, in-app browser.
-- [**4 · Reference**](docs/guide/README.md#四参考) — where data lives and how to troubleshoot, shortcut sheet, FAQ.
-
-## ❤️ Sponsors
-
-CC-Panes is built independently. Its sole sponsor:
-
-<div align="center">
-
-### <a href="https://hub.nocannobb.com">nocannobb</a>
-
-**Sponsor relay hub** — a Claude Code / Codex API relay station.
-
-<sub><a href="https://hub.nocannobb.com">hub.nocannobb.com</a></sub>
-
-</div>
-
-Want to support CC-Panes? Open an issue or reach out via [WeChat](#-community).
-
-## Co-creators
-
-Thanks to the people building CC-Panes together:
-
-<table>
-  <tr>
-    <td align="center">
-      <a href="https://github.com/zhengjunkj">
-        <img src="https://github.com/zhengjunkj.png" width="80" alt="zhengjunkj" /><br />
-        <sub><b>zhengjunkj</b></sub>
-      </a>
-    </td>
-  </tr>
-</table>
-
-## 💬 Community
-
-- **GitHub Issues** — <https://github.com/wuxiran/cc-pane/issues>
-- **GitHub Discussions** — <https://github.com/wuxiran/cc-pane/discussions>
-- **WeChat chat group** — add `yemaofeng66`, mention `CC-Panes chat`.
-
-**Bug feedback group** — add `yemaofeng66`, mention `CC-Panes bug feedback`:
-
-<p>
-  <img src="docs/assets/images/wechat-bug-feedback.png" alt="CC-Panes Bug Feedback WeChat" width="200" />
+<p align="center">
+  <a href="https://github.com/wuxiran/cc-pane/releases/latest"><img src="https://img.shields.io/github/v/release/wuxiran/cc-pane?display_name=tag&amp;sort=semver" alt="Latest release" /></a>
+  <a href="https://github.com/wuxiran/cc-pane/releases"><img src="https://img.shields.io/github/downloads/wuxiran/cc-pane/total?label=downloads&amp;color=success" alt="Downloads" /></a>
+  <img src="https://img.shields.io/badge/license-GPL--3.0-08C?style=flat" alt="License: GPL-3.0" />
+  <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-4493F8?style=flat-square" alt="Windows, macOS, and Linux" />
 </p>
 
-## License
+<p align="center">
+  <sub><a href="docs/readme/README.zh-CN.md">Chinese</a> | <a href="docs/readme/README.ja.md">Japanese</a> | <a href="docs/readme/README.ko.md">Korean</a> | <a href="docs/readme/README.es.md">Spanish</a> | <a href="docs/readme/README.fr.md">French</a> | <a href="docs/readme/README.pt.md">Portuguese</a></sub>
+</p>
 
-CC-Panes is licensed under [GPL-3.0](LICENSE).
+<p align="center">
+  <strong>The desktop command center for parallel AI coding.</strong><br />
+  Run CLI agents side by side, organize their workspaces and sessions, then coordinate the work through MCP, plans, skills, Git, and local history.
+</p>
 
-## Acknowledgments
+<h3 align="center"><a href="https://github.com/wuxiran/cc-pane/releases/latest"><ins>Download CC-Panes</ins></a></h3>
 
-- [Sponsor relay hub](https://hub.nocannobb.com)
-- [Linux.do](https://linux.do)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-- [Tauri](https://tauri.app/)
-- [xterm.js](https://xtermjs.org/)
-- [portable-pty](https://github.com/wez/wezterm/tree/main/pty)
-- [Allotment](https://github.com/johnwalley/allotment)
-- [shadcn/ui](https://ui.shadcn.com/)
+<p align="center">
+  <picture>
+    <source srcset="docs/assets/readme-recordings/readme-hero.gif" type="image/gif" />
+    <img src="docs/assets/readme-recordings/readme-hero.jpg" alt="CC-Panes command center showing AI coding usage, projects, and sessions" width="960" />
+  </picture>
+</p>
+
+<p align="center"><sub>Product captures below are recorded from real CC-Panes desktop interactions.</sub></p>
+
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="middle">
+
+### Workspace Command Center
+
+See active sessions, recent projects, available CLIs, usage trends, and workspace context in one local desktop view. Move between a workspace, project, task, and terminal without losing the thread of the work.
+
+[Guide -&gt;](docs/guide/03-core-concepts.md)
+
+</td>
+<td width="50%">
+  <a href="docs/guide/03-core-concepts.md"><picture><source srcset="docs/assets/readme-recordings/readme-hero.gif" type="image/gif" /><img src="docs/assets/readme-recordings/readme-hero.jpg" alt="CC-Panes workspace dashboard with projects and active sessions" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Provider and Launch Profiles
+
+Choose a CLI, provider, MCP set, skills, runtime, and permission policy as one reusable launch profile. Keep local, WSL, and SSH workflows under the same workspace model.
+
+[Settings guide -&gt;](docs/guide/10-settings.md)
+
+</td>
+<td width="50%">
+  <a href="docs/guide/10-settings.md"><picture><source srcset="docs/assets/readme-recordings/provider-profiles.gif" type="image/gif" /><img src="docs/assets/readme-recordings/provider-profiles.jpg" alt="Provider profiles and Codex launch configuration in CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Agent Orchestration
+
+Turn a bounded task into a coordinated run. The built-in `ccpanes` MCP lets a leader dispatch workers, observe their progress, collect results, and keep plans and Todos close to the sessions that perform the work.
+
+[MCP orchestration guide -&gt;](docs/guide/mcp-orchestration.md)
+
+</td>
+<td width="50%">
+  <a href="docs/guide/mcp-orchestration.md"><picture><source srcset="docs/assets/readme-recordings/agent-orchestration.gif" type="image/gif" /><img src="docs/assets/readme-recordings/agent-orchestration.jpg" alt="TodoList and agent orchestration panel in CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Skills and Shared Tooling
+
+Browse reusable workflows, manage global skills, and attach shared MCP services to the profiles that need them. CC-Panes also surfaces installed CLI skills without forcing them into every session.
+
+[Skills guide -&gt;](docs/guide/18-skills.md)
+
+</td>
+<td width="50%">
+  <a href="docs/guide/18-skills.md"><picture><source srcset="docs/assets/readme-recordings/skills-and-mcp.gif" type="image/gif" /><img src="docs/assets/readme-recordings/skills-and-mcp.jpg" alt="CC-Panes resource center listing reusable skills" width="100%" /></picture></a>
+</td>
+</tr>
+
+<tr>
+<td width="50%" valign="middle">
+<h3>Terminal Splits and Tabs</h3>
+<p>Real PTY sessions with flexible horizontal and vertical layouts, scrollback, and saved pane layouts in one window.</p>
+<p><a href="docs/guide/05-terminal-and-panes.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="docs/guide/05-terminal-and-panes.md"><picture><source srcset="docs/assets/readme-recordings/terminal-splits.gif" type="image/gif" /><img src="docs/assets/readme-recordings/terminal-splits.jpg" alt="Terminal launcher and multi-tab sessions in CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Resume and Remote Access</h3>
+<p>Reopen previous work and attach from desktop, web, or Android. Keep the same workspace model across clients.</p>
+<p><a href="docs/guide/14-resume.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="docs/guide/14-resume.md"><picture><source srcset="docs/assets/readme-recordings/resume-remote.gif" type="image/gif" /><img src="docs/assets/readme-recordings/resume-remote.jpg" alt="Home dashboard and remote web access settings in CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Git and Local History</h3>
+<p>Inspect branches and worktrees, then use labeled snapshots, diffs, and restore points without leaving the workspace.</p>
+<p><a href="docs/guide/07-git-worktree.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="docs/guide/07-git-worktree.md"><picture><source srcset="docs/assets/readme-recordings/git-history.gif" type="image/gif" /><img src="docs/assets/readme-recordings/git-history.jpg" alt="Workspace tooling and project history surfaces in CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Planning Surfaces</h3>
+<p>Todos, journals, plans, specs, session summaries, and persistent memory stay next to the agents doing the work.</p>
+<p><a href="docs/guide/09-todo-journal-memory.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="docs/guide/09-todo-journal-memory.md"><picture><source srcset="docs/assets/readme-recordings/planning-surfaces.gif" type="image/gif" /><img src="docs/assets/readme-recordings/planning-surfaces.jpg" alt="TodoList planning surface in CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Workspace-aware Development</h3>
+<p>File browser, Monaco editor, Markdown and image previews, project hooks, and CLI adapters in the same shell.</p>
+<p><a href="docs/guide/06-files-and-editor.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="docs/guide/06-files-and-editor.md"><picture><source srcset="docs/assets/readme-recordings/files-editor.gif" type="image/gif" /><img src="docs/assets/readme-recordings/files-editor.jpg" alt="Explorer and editor workflow in CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
+
+</table>
+
+**Also included:**
+
+- Project hooks and CLI adapters for provider injection, MCP setup, resume, and lifecycle events.
+- Desktop workflow extras: screenshots, tray, mini mode, command palette, themes, and resource monitoring.
+
 
 ---
 
-Building from source? See [CONTRIBUTING.md](CONTRIBUTING.md).
+## Supported CLI Agents
+
+CC-Panes works with any CLI agent that runs in a terminal. First-class adapters add provider injection, MCP setup, resume, workspace flags, system prompts, and project hooks where each CLI supports them.
+
+<p>
+  <kbd>Claude Code</kbd> &nbsp;
+  <kbd>Codex</kbd> &nbsp;
+  <kbd>Gemini CLI</kbd> &nbsp;
+  <kbd>Kimi</kbd> &nbsp;
+  <kbd>GLM</kbd> &nbsp;
+  <kbd>Grok</kbd> &nbsp;
+  <kbd>OpenCode</kbd> &nbsp;
+  <kbd>Cursor</kbd> &nbsp;
+  <kbd>+ any terminal CLI</kbd>
+</p>
+
+---
+
+## Install
+
+### Desktop - Windows, macOS, Linux
+
+- **[Download the latest release](https://github.com/wuxiran/cc-pane/releases/latest)**
+- See the [release page](https://github.com/wuxiran/cc-pane/releases) for current installers and package formats.
+
+Stable releases include the in-app updater. Pre-releases are available for manual installation from the release page.
+
+### First launch
+
+1. Install at least one supported CLI and make sure it is available on your `PATH`.
+2. Open CC-Panes, create or import a workspace, add a project, and launch a session.
+3. Split the terminal when the task benefits from parallel work, or use the orchestration view to dispatch bounded subtasks.
+
+For the full walkthrough, see the [user guide](docs/guide/README.md). For web and Android setup, see the [web and mobile guide](docs/guide/16-web-and-mobile.md).
+
+---
+
+## Community and Support
+
+- **Issues:** [github.com/wuxiran/cc-pane/issues](https://github.com/wuxiran/cc-pane/issues)
+- **Discussions:** [github.com/wuxiran/cc-pane/discussions](https://github.com/wuxiran/cc-pane/discussions)
+- **WeChat:** add `yemaofeng66` and mention `CC-Panes chat` or `CC-Panes bug feedback`.
+
+<p>
+  <img src="docs/assets/images/wechat-bug-feedback.png" alt="CC-Panes bug feedback WeChat group" width="160" />
+</p>
+
+---
+
+## Developing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance.
+
+```bash
+git clone https://github.com/wuxiran/cc-pane.git
+cd cc-pane
+npm install
+npm run tauri:dev
+```
+
+Useful checks:
+
+```bash
+npx tsc --noEmit
+npm run build
+npm run test:run
+cargo fmt --all -- --check
+cargo check --workspace
+cargo test --workspace
+```
+
+`npm run tauri:dev` uses `com.ccpanes.dev` and `~/.cc-panes-dev/`. Release builds use `com.ccpanes.app` and `~/.cc-panes/`.
+
+## License
+
+CC-Panes is free and open source under the [GPL-3.0 license](LICENSE).
+
+## Acknowledgements
+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)

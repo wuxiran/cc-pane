@@ -129,7 +129,7 @@ badge 从 10 个砍到 4 个（version / downloads / platform / license），其
 `Repository Layout` / `Development Notes` 全部移入 `CONTRIBUTING.md`。
 主页保留一行：`Building from source? See CONTRIBUTING.md`。
 
-中文版 `README.zh-CN.md` 同步改，**双语必须一起改**（风格宪法 §7 硬约束）。
+中文版 `docs/readme/README.zh-CN.md` 同步改，**双语必须一起改**（风格宪法 §7 硬约束）。
 
 ## 3. dev 素材管线
 
