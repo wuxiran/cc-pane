@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>开发台账 · 编排面板两模式原型 · docs/74</title>
+<style>
+:root{
+  --app-menubar:#1A1C20; --app-panel-bg:#26282D;
+  --app-accent:#4C8DF5; --app-active-bg:rgba(76,141,245,0.14);
+  --app-text-primary:#E6E8EB; --app-text-secondary:#9BA1A9; --app-text-tertiary:#767C85;
+  --app-border:rgba(255,255,255,0.09); --app-hover:rgba(255,255,255,0.06);
+  --app-status-success:#3FB950; --app-status-warning:#D6A625; --app-status-danger:#F85149;
+  --app-identity-wsl:#FCD34D;
+  --app-glass-bg:rgba(38,40,45,0.62); --app-glass-bg-heavy:rgba(30,32,36,0.78);
+  --app-glass-border:rgba(255,255,255,0.10);
+  --app-glass-highlight:inset 0 1px 0 rgba(255,255,255,0.06);
+  --sh-md:0 4px 14px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.35);
+  --ease-out:cubic-bezier(0.23,1,0.32,1);
+  --s1:.25rem;--s2:.5rem;--s3:.75rem;--s4:1rem;--s5:1.25rem;--s6:1.5rem;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:#131417;color:var(--app-text-primary);
+  font:100%/1.5 Inter,system-ui,-apple-system,"Segoe UI","PingFang SC",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.t-caps{font-size:.6875rem;line-height:1;font-weight:600;letter-spacing:.07em;text-transform:uppercase}
+.t-mono{font-family:"Maple Mono NF CN",ui-monospace,"Cascadia Code",Consolas,monospace;
+  font-size:.6875rem;font-variant-numeric:tabular-nums}
+
+/* ── 顶栏：面包屑 + 模式切换 ─────────────────────────── */
+header{
+  flex:none;display:flex;align-items:center;gap:var(--s4);
+  padding:var(--s3) var(--s5);
+  background:var(--app-glass-bg-heavy);
+  border-bottom:1px solid var(--app-glass-border);
+  box-shadow:var(--app-glass-highlight);
+}
+header .crumb{font-size:.8125rem;font-weight:600}
+header .crumb b{color:var(--app-text-tertiary);font-weight:400;margin:0 var(--s1)}
+.modeswitch{display:inline-flex;background:rgba(0,0,0,.35);border:1px solid var(--app-border);border-radius:.5rem;padding:2px;gap:2px}
+.modeswitch button{
+  font:inherit;font-size:.75rem;font-weight:600;color:var(--app-text-secondary);
+  background:transparent;border:0;border-radius:.375rem;padding:.3rem .9rem;cursor:pointer;
+  transition:all 160ms var(--ease-out);
+}
+.modeswitch button[data-on]{background:var(--app-active-bg);color:var(--app-accent)}
+header .grow{flex:1}
+.stat{display:inline-flex;align-items:baseline;gap:var(--s1);color:var(--app-text-tertiary);font-size:.8125rem}
+.stat em{font-style:normal;font-weight:600;color:var(--app-text-secondary)}
+.stat.warn,.stat.warn em{color:var(--app-status-warning)}
+
+.body{flex:1;display:flex;min-height:0}
+
+/* ── 左列表 ──────────────────────────────────────────── */
+aside{
+  flex:none;width:30rem;display:flex;flex-direction:column;min-height:0;
+  border-right:1px solid var(--app-border);background:rgba(0,0,0,.14);
+}
+.toolbar{flex:none;display:flex;align-items:center;gap:var(--s2);padding:var(--s3);border-bottom:1px solid var(--app-border);flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--app-border);border-radius:.4375rem;overflow:hidden}
+.seg button{font:inherit;font-size:.6875rem;font-weight:600;padding:.28rem .6rem;background:transparent;border:0;color:var(--app-text-tertiary);cursor:pointer}
+.seg button[data-on]{background:var(--app-hover);color:var(--app-text-primary)}
+.chipbtn{
+  font:inherit;font-size:.6875rem;font-weight:600;cursor:pointer;
+  border:1px solid var(--app-border);background:transparent;color:var(--app-text-secondary);
+  border-radius:999px;padding:.28rem .7rem;display:inline-flex;align-items:center;gap:.3rem;
+}
+.chipbtn[data-on]{border-color:rgba(214,166,37,.55);color:var(--app-status-warning);background:rgba(214,166,37,.10)}
+.chipbtn.arch[data-on]{border-color:var(--app-border);color:var(--app-text-primary);background:var(--app-hover)}
+.toolbar .sp{flex:1}
+.iconbtn{font:inherit;font-size:.6875rem;border:1px solid var(--app-border);background:transparent;color:var(--app-text-secondary);border-radius:.375rem;padding:.28rem .55rem;cursor:pointer}
+.iconbtn:hover{background:var(--app-hover);color:var(--app-text-primary)}
+
+.list{flex:1;overflow-y:auto;padding:var(--s2)}
+.list::-webkit-scrollbar{width:8px}
+.list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px}
+
+/* 工作项行 */
+.row{
+  border:1px solid transparent;border-radius:.625rem;padding:var(--s3);cursor:pointer;
+  transition:background 140ms var(--ease-out);position:relative;
+}
+.row:hover{background:var(--app-hover)}
+.row[data-sel]{background:var(--app-active-bg);border-color:rgba(76,141,245,.35)}
+.row .r1{display:flex;align-items:center;gap:var(--s2)}
+.row .title{font-size:.8125rem;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row[data-archived] .title{color:var(--app-text-tertiary);font-weight:500}
+.row .r2{display:flex;align-items:center;gap:var(--s2);margin-top:.35rem;flex-wrap:wrap}
+.row .meta{font-size:.6875rem;color:var(--app-text-tertiary);display:inline-flex;align-items:center;gap:.25rem}
+.row .meta b{color:var(--app-text-secondary);font-weight:500}
+
+/* 徽章：状态色四分类（docs/46）。琥珀 = 需要人，必须带形状/文字冗余 */
+.badge{
+  display:inline-flex;align-items:center;gap:.28rem;border-radius:999px;
+  font-size:.625rem;font-weight:700;letter-spacing:.04em;padding:.14rem .5rem;white-space:nowrap;
+}
+.badge::before{content:"";width:.375rem;height:.375rem;border-radius:50%;background:currentColor}
+.b-running{color:var(--app-accent);background:rgba(76,141,245,.13)}
+.b-done{color:var(--app-status-success);background:rgba(63,185,80,.12)}
+.b-failed{color:var(--app-status-danger);background:rgba(248,81,73,.12)}
+.b-cleanup{color:var(--app-status-warning);background:rgba(214,166,37,.13)}
+.b-cleanup::before{content:"⚑";width:auto;height:auto;background:none;font-size:.625rem}
+.b-archived{color:var(--app-text-tertiary);background:rgba(255,255,255,.06)}
+.b-archived::before{display:none}
+
+/* worktree / 路径三态小签 */
+.wt{display:inline-flex;align-items:center;gap:.3rem;font-size:.6875rem;
+  font-family:ui-monospace,Consolas,monospace;color:var(--app-text-secondary);
+  border:1px solid var(--app-border);border-radius:.3125rem;padding:.1rem .45rem}
+.wt::before{content:"⎇";color:var(--app-text-tertiary)}
+.wt[data-ps="missing"]{color:var(--app-status-danger);border-color:rgba(248,81,73,.4);text-decoration:line-through}
+.wt[data-ps="unverifiable"]{color:var(--app-identity-wsl);border-color:rgba(252,211,77,.35)}
+.wt[data-ps="missing"]::after{content:"路径不存在";font-family:inherit;text-decoration:none;font-size:.625rem;margin-left:.15rem}
+.wt[data-ps="unverifiable"]::after{content:"WSL 未运行";font-size:.625rem;margin-left:.15rem}
+
+.cli{font-size:.625rem;font-weight:700;letter-spacing:.05em;color:var(--app-text-tertiary);
+  border:1px solid var(--app-border);border-radius:.25rem;padding:.08rem .35rem;text-transform:uppercase}
+
+.grouphead{padding:var(--s3) var(--s3) var(--s1);color:var(--app-text-tertiary)}
+.empty{padding:var(--s6);text-align:center;color:var(--app-text-tertiary);font-size:.8125rem}
+
+/* ── 右详情 ──────────────────────────────────────────── */
+main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto;background:transparent}
+.detail{max-width:46rem;width:100%;margin:0 auto;padding:var(--s6) var(--s6) var(--s6)}
+.detail .dt{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap}
+.detail h1{font-size:1.125rem;font-weight:600;letter-spacing:-.015em}
+.detail .prompt{
+  margin-top:var(--s3);font-size:.8125rem;color:var(--app-text-secondary);line-height:1.6;
+  border-left:2px solid var(--app-border);padding-left:var(--s3);
+}
+.facets{margin-top:var(--s5);display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.facet{
+  border:1px solid var(--app-glass-border);border-radius:.75rem;padding:var(--s4);
+  background:var(--app-glass-bg);box-shadow:var(--app-glass-highlight);
+}
+.facet.warn{border-color:rgba(214,166,37,.45)}
+.facet .fh{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s2)}
+.facet .fh .t-caps{color:var(--app-text-tertiary)}
+.facet .fv{font-size:.8125rem;color:var(--app-text-primary);word-break:break-all}
+.facet .fs{font-size:.6875rem;color:var(--app-text-tertiary);margin-top:.3rem}
+.facet a{color:var(--app-accent);text-decoration:none;font-size:.75rem}
+.facet a:hover{text-decoration:underline}
+
+.workers{margin-top:var(--s5)}
+.workers h2{font-size:.75rem;font-weight:600;color:var(--app-text-tertiary);letter-spacing:.06em;text-transform:uppercase;margin-bottom:var(--s2)}
+.wrow{display:flex;align-items:center;gap:var(--s3);padding:var(--s2) var(--s3);border:1px solid var(--app-border);border-radius:.5rem;margin-bottom:var(--s2);font-size:.8125rem}
+.wrow .arrow{color:var(--app-text-tertiary)}
+.wrow .wn{flex:1}
+.wrow .sum{color:var(--app-text-tertiary);font-size:.6875rem;max-width:18rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.actions{margin-top:var(--s6);display:flex;gap:var(--s2);flex-wrap:wrap}
+.btn{
+  font:inherit;font-size:.8125rem;font-weight:600;cursor:pointer;border-radius:.5rem;
+  padding:.45rem 1rem;border:1px solid var(--app-border);background:transparent;color:var(--app-text-secondary);
+  transition:all 150ms var(--ease-out);
+}
+.btn:hover{background:var(--app-hover);color:var(--app-text-primary)}
+.btn.primary{background:var(--app-accent);border-color:transparent;color:#fff}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.amber{border-color:rgba(214,166,37,.55);color:var(--app-status-warning)}
+.btn.amber:hover{background:rgba(214,166,37,.12)}
+.btn:disabled{opacity:.4;cursor:default}
+
+/* 收尾流程卡（模拟三步链） */
+.cleanupflow{
+  margin-top:var(--s4);border:1px solid rgba(214,166,37,.4);border-radius:.75rem;
+  background:rgba(214,166,37,.06);padding:var(--s4);display:none;
+}
+.cleanupflow[data-open]{display:block}
+.cleanupflow .step{display:flex;align-items:center;gap:var(--s2);font-size:.8125rem;padding:.3rem 0;color:var(--app-text-secondary)}
+.cleanupflow .step .ic{width:1.1rem;text-align:center;color:var(--app-text-tertiary)}
+.cleanupflow .step[data-st="done"] .ic{color:var(--app-status-success)}
+.cleanupflow .step[data-st="run"] .ic{color:var(--app-accent)}
+.cleanupflow .step[data-st="done"]{color:var(--app-text-primary)}
+.cleanupflow .note{font-size:.6875rem;color:var(--app-text-tertiary);margin-top:var(--s2)}
+.cleanupflow .cta{margin-top:var(--s3);display:flex;gap:var(--s2)}
+
+/* 进行中模式（简化的现有运行时视图） */
+.runview{max-width:46rem;width:100%;margin:0 auto;padding:var(--s6)}
+.runview .hint{
+  border:1px dashed var(--app-border);border-radius:.75rem;padding:var(--s4);
+  color:var(--app-text-tertiary);font-size:.8125rem;line-height:1.7;
+}
+.runcard{
+  border:1px solid var(--app-glass-border);border-radius:.75rem;padding:var(--s4);
+  background:var(--app-glass-bg);margin-top:var(--s3);display:flex;align-items:center;gap:var(--s3);
+}
+.runcard .pulse{width:.5rem;height:.5rem;border-radius:50%;background:var(--app-accent);flex:none;
+  animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.runcard .rn{flex:1;font-size:.8125rem;font-weight:600}
+.runcard .rout{font-family:ui-monospace,Consolas,monospace;font-size:.6875rem;color:var(--app-text-tertiary);
+  max-width:20rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+footer{
+  flex:none;padding:var(--s2) var(--s5);border-top:1px solid var(--app-border);
+  font-size:.6875rem;color:var(--app-text-tertiary);display:flex;gap:var(--s4);
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="crumb">编排<b>/</b><span id="crumbMode">台账</span></div>
+  <div class="modeswitch" role="tablist">
+    <button id="mRun" role="tab">进行中</button>
+    <button id="mLedger" role="tab" data-on>台账</button>
+  </div>
+  <div class="grow"></div>
+  <span class="stat"><em id="cAll">0</em> 工作项</span>
+  <span class="stat warn"><em id="cCleanup">0</em> 待收尾</span>
+  <span class="stat"><em id="cWt">0</em> worktree 在盘</span>
+</header>
+
+<div class="body">
+  <aside>
+    <div class="toolbar" id="ledgerToolbar">
+      <div class="seg" id="viewSeg">
+        <button data-view="item" data-on>工作项</button>
+        <button data-view="worktree">Worktree</button>
+      </div>
+      <button class="chipbtn" id="fCleanup">⚑ 仅看待收尾</button>
+      <button class="chipbtn arch" id="fArchived">含已归档</button>
+      <div class="sp"></div>
+      <button class="iconbtn" title="按需拉取，无轮询" id="btnRefresh">↻ 刷新</button>
+    </div>
+    <div class="list" id="list"></div>
+  </aside>
+
+  <main id="main"></main>
+</div>
+
+<footer>
+  <span>docs/74 原型 · 数据为静态假数据</span>
+  <span>台账按需拉取（无轮询/监听）</span>
+  <span>琥珀 = 需要你处理；红 = 路径已不存在</span>
+</footer>
+
+<script>
+/* ── 假数据：工作项 = leader binding + workers；切面 = plan/worktree/todo ── */
+const DATA = [
+  {
+    id:"tb-01", title:"resume id 落库缺口修复（docs/69）", cli:"claude", status:"completed",
+    prompt:"恢复出来的会话只能恢复一次：tab 手里的 projectId 是上一次 launch 的 launch_id，bind_pty_session 必然落空。按 docs/69 规格修复落库链。",
+    plan:"plan-L7-resume-binding.md", planIntent:"修复",
+    worktree:{ path:"D:\\04_workspace_rust\\cc-book-wt-resume", branch:"fix/resume-binding", main:"cc-book", ps:"present" },
+    todo:{ id:"td-11", title:"收尾 worktree cc-book-wt-resume：合并或丢弃", status:"todo" },
+    workers:[
+      { name:"Worker: codex", cli:"codex", status:"completed", summary:"18/18 tab 恢复后 resumeId 全部命中，回归通过" },
+    ],
+    linkKind:"strong", updated:"2 天前", archived:false,
+  },
+  {
+    id:"tb-02", title:"多窗格资源争抢 · 批次2（输出洪水）", cli:"claude", status:"running",
+    prompt:"后台标签页完全不暂停输出（TerminalView.tsx:774-838 不看 isVisibleRef）。按 docs/71 第 3 节做后台节流。",
+    plan:"plan-71-batch2-output-flood.md", planIntent:"性能",
+    worktree:{ path:"D:\\04_workspace_rust\\cc-book-wt-flood", branch:"perf/output-flood", main:"cc-book", ps:"present" },
+    todo:null,
+    workers:[
+      { name:"Worker: claude", cli:"claude", status:"running", summary:"正在改 terminalWriteFlowControl 跨平台启用…" },
+      { name:"Worker: codex（评审）", cli:"codex", status:"waiting", summary:"等待实现完成后做只读评审" },
+    ],
+    linkKind:"strong", updated:"12 分钟前", archived:false,
+  },
+  {
+    id:"tb-03", title:"fanout 对比：主页装修文案 3 方案", cli:"codex", status:"completed",
+    prompt:"docs/67 主页装修，三个 worker 各出一版文案+分镜，对比挑赢家。",
+    plan:"plan-67-homepage.md", planIntent:"发现性",
+    worktree:{ path:"\\\\wsl.localhost\\Ubuntu\\mnt\\d\\04_workspace_rust\\cc-book@try-2", branch:"try-2/homepage", main:"cc-book", ps:"unverifiable" },
+    todo:{ id:"td-08", title:"收尾 worktree cc-book@try-2：合并或丢弃", status:"todo" },
+    workers:[
+      { name:"Worker try-1", cli:"codex", status:"completed", summary:"输家，已清理" },
+      { name:"Worker try-2", cli:"codex", status:"completed", summary:"赢家方案，分镜已合入 docs/67-storyboards" },
+      { name:"Worker try-3", cli:"claude", status:"failed", summary:"TUI 卡住未提交，软超时判死" },
+    ],
+    linkKind:"strong", updated:"5 天前", archived:false,
+  },
+  {
+    id:"tb-04", title:"shared MCP stdio 自杀修复（docs/70）", cli:"claude", status:"failed",
+    prompt:"spawn_server_process 对 stdio bridgeMode 不能 null 掉 stdin。修复 stdin 传递，保留 Windows 内层 cmd /c。",
+    plan:"plan-70-stdio-stdin.md", planIntent:"修复",
+    worktree:{ path:"D:\\04_workspace_rust\\cc-book-wt-mcpfix", branch:"fix/mcp-stdin", main:"cc-book", ps:"missing" },
+    todo:{ id:"td-09", title:"收尾 worktree cc-book-wt-mcpfix：合并或丢弃", status:"todo" },
+    workers:[
+      { name:"Worker: codex", cli:"codex", status:"failed", summary:"exit -1（合成码）：/clear 误判待复查" },
+    ],
+    linkKind:"weak", updated:"8 天前", archived:false,
+  },
+  {
+    id:"tb-05", title:"0.11.8 发版审核修复四批合并", cli:"claude", status:"completed",
+    prompt:"nice 语义 / 退出丢输出 / 拆分残留 / 缓冲上界 / 归属确定性，四批收口。",
+    plan:"plan-0118-release.md", planIntent:"发版",
+    worktree:null, todo:null,
+    workers:[
+      { name:"Worker 批1-4", cli:"codex", status:"completed", summary:"已随 v0.11.8 发布" },
+    ],
+    linkKind:"none", updated:"14 天前", archived:true,
+  },
+  {
+    id:"tb-06", title:"（孤儿 worktree · 无关联任务）", cli:null, status:"orphan",
+    prompt:null, plan:null,
+    worktree:{ path:"D:\\04_workspace_rust\\cc-book-wt-b", branch:"cc/250712-0230", main:"cc-book", ps:"missing" },
+    todo:null, workers:[], linkKind:"none", updated:"22 天前", archived:false,
+  },
+];
+
+const needsCleanup = it =>
+  !it.archived &&
+  (it.status==="completed"||it.status==="failed") &&
+  it.worktree && it.worktree.ps!=="missing" || (it.todo && it.todo.status!=="done" && !it.archived);
+
+const state = { mode:"ledger", view:"item", onlyCleanup:false, showArchived:false, sel:"tb-02" };
+
+const STATUS_BADGE = {
+  running:  ['b-running','运行中'],
+  waiting:  ['b-cleanup','等待输入'],
+  completed:['b-done','已完成'],
+  failed:   ['b-failed','失败'],
+  orphan:   ['b-failed','无关联'],
+};
+const badge = (cls,txt)=>`<span class="badge ${cls}">${txt}</span>`;
+const stBadge = s => badge(...STATUS_BADGE[s] ?? ['b-archived',s]);
+
+function visibleItems(){
+  return DATA.filter(it=>{
+    if(it.archived && !state.showArchived) return false;
+    if(state.onlyCleanup && !needsCleanup(it)) return false;
+    return true;
+  });
+}
+
+function renderCounters(){
+  document.getElementById("cAll").textContent = DATA.filter(i=>!i.archived).length;
+  document.getElementById("cCleanup").textContent = DATA.filter(needsCleanup).length;
+  document.getElementById("cWt").textContent = DATA.filter(i=>i.worktree&&i.worktree.ps==="present").length;
+}
+
+function rowHtml(it){
+  const wt = it.worktree
+    ? `<span class="wt" data-ps="${it.worktree.ps}">${it.worktree.branch}</span>` : "";
+  const cleanup = needsCleanup(it) ? badge('b-cleanup','待收尾') : "";
+  const arch = it.archived ? badge('b-archived','已归档') : "";
+  const cli = it.cli ? `<span class="cli">${it.cli}</span>` : "";
+  const link = it.linkKind==="weak" ? `<span class="meta" title="metadata 无 worktreePath，靠路径匹配推断">弱关联</span>` : "";
+  return `<div class="row" data-id="${it.id}" ${state.sel===it.id?"data-sel":""} ${it.archived?"data-archived":""}>
+    <div class="r1">${stBadge(it.status)}<span class="title">${it.title}</span>${cli}</div>
+    <div class="r2">${cleanup}${arch}${wt}${link}
+      <span class="meta">${it.workers.length?`<b>${it.workers.length}</b> worker`:""}</span>
+      <span class="meta">${it.updated}</span>
+    </div>
+  </div>`;
+}
+
+function renderListItemView(el){
+  const items = visibleItems();
+  el.innerHTML = items.length ? items.map(rowHtml).join("") :
+    `<div class="empty">没有匹配的工作项<br><span style="font-size:.6875rem">调整过滤或点右上角刷新</span></div>`;
+}
+
+function renderListWorktreeView(el){
+  const groups = {};
+  visibleItems().filter(i=>i.worktree).forEach(i=>{
+    (groups[i.worktree.main] ??= []).push(i);
+  });
+  el.innerHTML = Object.entries(groups).map(([repo,items])=>
+    `<div class="grouphead t-caps">${repo} · ${items.length} worktree</div>` +
+    items.map(rowHtml).join("")
+  ).join("") || `<div class="empty">当前过滤下没有 worktree</div>`;
+}
+
+function facet(label, value, sub, extra="", warn=false){
+  return `<div class="facet${warn?" warn":""}">
+    <div class="fh"><span class="t-caps">${label}</span>${extra}</div>
+    <div class="fv">${value}</div>${sub?`<div class="fs">${sub}</div>`:""}
+  </div>`;
+}
+
+function renderDetail(){
+  const main = document.getElementById("main");
+  const it = DATA.find(i=>i.id===state.sel);
+  if(!it){ main.innerHTML = `<div class="detail"><div class="empty">从左侧选择一个工作项</div></div>`; return; }
+
+  const wt = it.worktree;
+  const psText = {present:"路径存在", missing:"路径不存在", unverifiable:"WSL 发行版未运行，暂不可验证"}[wt?.ps] ?? "";
+  const wtFacet = wt
+    ? facet("Worktree", `<span class="wt" data-ps="${wt.ps}">${wt.branch}</span>`,
+        `${wt.path}<br>${psText} · 主仓库 ${wt.main}` + (it.linkKind==="weak"?" · <em>弱关联（路径匹配推断）</em>":""),
+        "", wt.ps!=="missing" && (it.status==="completed"||it.status==="failed"))
+    : facet("Worktree","—","本任务直接在主仓库执行");
+  const todoFacet = it.todo
+    ? facet("回收待办", it.todo.title, it.todo.status==="done"?"已完成":"未完成 · todoType=worktree", "", it.todo.status!=="done")
+    : facet("回收待办","—", wt?"（批次 1 落地后自动生成）":"无 worktree，无需回收");
+  const planFacet = it.plan
+    ? facet("Plan", `<a href="javascript:void 0">${it.plan}</a>`, `intent: ${it.planIntent}`)
+    : facet("Plan","—","未走 plan 流程");
+  const statusFacet = facet("结论", it.workers.find(w=>w.summary)?.summary ?? "—",
+    `completion_summary · 更新于 ${it.updated}`);
+
+  const workers = it.workers.length ? `<div class="workers"><h2>Workers</h2>` +
+    it.workers.map(w=>`<div class="wrow"><span class="arrow">↪</span>${stBadge(w.status)}
+      <span class="wn">${w.name}</span><span class="cli">${w.cli}</span>
+      <span class="sum">${w.summary}</span></div>`).join("") + `</div>` : "";
+
+  const canCleanup = needsCleanup(it);
+  main.innerHTML = `<div class="detail">
+    <div class="dt">${stBadge(it.status)}<h1>${it.title}</h1>
+      ${canCleanup?badge('b-cleanup','待收尾'):""}${it.archived?badge('b-archived','已归档'):""}</div>
+    ${it.prompt?`<div class="prompt">${it.prompt}</div>`:""}
+    <div class="facets">${wtFacet}${todoFacet}${planFacet}${statusFacet}</div>
+    ${workers}
+    <div class="actions">
+      <button class="btn" ${wt&&wt.ps==="present"?"":"disabled"}>打开终端</button>
+      <button class="btn" ${it.plan?"":"disabled"}>查看 plan</button>
+      <button class="btn amber" id="btnCleanup" ${canCleanup?"":"disabled"}>⚑ 一键收尾</button>
+      <button class="btn" id="btnArchive" ${it.archived?"disabled":""}>归档</button>
+    </div>
+    <div class="cleanupflow" id="flow">
+      <div class="step" data-st="idle" id="st1"><span class="ic">①</span>git worktree remove <span class="t-mono">${wt?wt.path:""}</span>${wt&&wt.ps==="missing"?"（目录已不存在 → 降级为 --force 清注册）":""}</div>
+      <div class="step" data-st="idle" id="st2"><span class="ic">②</span>从工作空间移除项目记录（联动全部工作空间按身份键匹配）</div>
+      <div class="step" data-st="idle" id="st3"><span class="ic">③</span>回收待办标记完成 + 工作项归档</div>
+      <div class="note">仅移除记录与 git 注册，不删除未提交的改动——脏树会先阻断并提示。</div>
+      <div class="cta">
+        <button class="btn primary" id="flowGo">确认收尾</button>
+        <button class="btn" id="flowCancel">取消</button>
+      </div>
+    </div>
+  </div>`;
+
+  main.querySelector("#btnCleanup")?.addEventListener("click",()=>{
+    main.querySelector("#flow").toggleAttribute("data-open");
+  });
+  main.querySelector("#flowCancel")?.addEventListener("click",()=>{
+    main.querySelector("#flow").removeAttribute("data-open");
+  });
+  main.querySelector("#flowGo")?.addEventListener("click",()=>{
+    const steps=["st1","st2","st3"];
+    let i=0;
+    const tick=()=>{
+      if(i>0) main.querySelector("#"+steps[i-1]).dataset.st="done";
+      if(i<steps.length){ main.querySelector("#"+steps[i]).dataset.st="run"; i++; setTimeout(tick,550); }
+      else{
+        it.archived=true;
+        if(it.todo) it.todo.status="done";
+        if(it.worktree) it.worktree.ps="missing";
+        render();
+      }
+    };
+    tick();
+  });
+  main.querySelector("#btnArchive")?.addEventListener("click",()=>{ it.archived=true; render(); });
+}
+
+function renderRunMode(){
+  document.getElementById("list").innerHTML =
+    `<div class="grouphead t-caps">运行中会话</div>` +
+    DATA.filter(i=>!i.archived && i.workers.some(w=>w.status==="running"||w.status==="waiting"))
+      .map(rowHtml).join("");
+  const main=document.getElementById("main");
+  main.innerHTML=`<div class="runview">
+    <div class="hint">「进行中」模式 = 现有编排面板的运行时视图（任务树 / 通知 / 会话输出预览），本原型不重绘，仅示意左侧只剩活动任务。<br>
+    真正的改动都在「台账」模式——点上方切换查看。</div>
+    <div class="runcard"><span class="pulse"></span><span class="rn">Worker: claude · perf/output-flood</span>
+      <span class="rout">compiling cc-panes-core v0.11.8 ... terminalWriteFlowControl.ts</span></div>
+    <div class="runcard"><span class="pulse" style="background:var(--app-status-warning)"></span>
+      <span class="rn">Worker: codex（评审） · 等待输入</span><span class="rout">waiting for implementation handoff…</span></div>
+  </div>`;
+}
+
+function render(){
+  renderCounters();
+  document.getElementById("crumbMode").textContent = state.mode==="ledger"?"台账":"进行中";
+  document.getElementById("mRun").toggleAttribute("data-on", state.mode==="run");
+  document.getElementById("mLedger").toggleAttribute("data-on", state.mode==="ledger");
+  document.getElementById("ledgerToolbar").style.display = state.mode==="ledger"?"":"none";
+  if(state.mode==="run"){ renderRunMode(); return; }
+  const list=document.getElementById("list");
+  state.view==="item" ? renderListItemView(list) : renderListWorktreeView(list);
+  renderDetail();
+}
+
+document.getElementById("mRun").addEventListener("click",()=>{state.mode="run";render()});
+document.getElementById("mLedger").addEventListener("click",()=>{state.mode="ledger";render()});
+document.getElementById("viewSeg").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  state.view=b.dataset.view;
+  document.querySelectorAll("#viewSeg button").forEach(x=>x.toggleAttribute("data-on",x===b));
+  render();
+});
+document.getElementById("fCleanup").addEventListener("click",e=>{
+  state.onlyCleanup=!state.onlyCleanup;
+  e.currentTarget.toggleAttribute("data-on",state.onlyCleanup); render();
+});
+document.getElementById("fArchived").addEventListener("click",e=>{
+  state.showArchived=!state.showArchived;
+  e.currentTarget.toggleAttribute("data-on",state.showArchived); render();
+});
+document.getElementById("btnRefresh").addEventListener("click",render);
+document.getElementById("list").addEventListener("click",e=>{
+  const r=e.target.closest(".row"); if(!r) return;
+  state.sel=r.dataset.id;
+  if(state.mode==="run"){ state.mode="ledger"; }
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
