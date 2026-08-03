@@ -14,6 +14,26 @@ use crate::session_output_store::SessionOutputStore;
 /// 身份事件留存上限。一条会话最多一条，超出按插入顺序淘汰最旧的。
 const MAX_RETAINED_IDENTITY_EVENTS: usize = 1024;
 
+/// 会话镜像通道容量：256 条 × ≤16KB 合批 ≈ 单个慢客户端最多积压 ~4MB。
+/// 此前是无界通道——WS 发送端卡住时 daemon 内存无界增长（docs/71 §3 风险点 2）。
+const SESSION_CHANNEL_CAPACITY: usize = 256;
+/// control 通道容量。身份事件另有 `identity_events` 留存 + 桌面补拉兜底，
+/// 溢出丢弃只损失一次实时性，不损失数据。
+const CONTROL_CHANNEL_CAPACITY: usize = 1024;
+
+/// desync 契约：输出队列溢出后**绝不掐 VT 流中段**（前端会花屏），而是整段跳过
+/// 并在队列排空后插入本标记；客户端收到后应丢弃现有画面、用
+/// `GET /api/sessions/{id}/snapshot` 重放。旧客户端不认识该类型会静默忽略，
+/// 行为退化为溢出前的现状（可能花屏），但 daemon 侧内存已有界。
+const DESYNC_MESSAGE: &str = r#"{"type":"desync"}"#;
+
+/// 单个会话镜像订阅者：有界发送端 + desync 状态。
+/// `desynced` 只在持有 subscribers 写锁时读写，无需原子类型。
+struct SessionSubscriber {
+    tx: mpsc::Sender<String>,
+    desynced: bool,
+}
+
 /// 按 session 去重 + 保序的身份事件留存。
 #[derive(Default)]
 struct IdentityEventStore {
@@ -23,8 +43,8 @@ struct IdentityEventStore {
 
 #[derive(Clone, Default)]
 pub struct WsEmitter {
-    subscribers: Arc<RwLock<HashMap<String, Vec<mpsc::UnboundedSender<String>>>>>,
-    control_subscribers: Arc<RwLock<Vec<mpsc::UnboundedSender<String>>>>,
+    subscribers: Arc<RwLock<HashMap<String, Vec<SessionSubscriber>>>>,
+    control_subscribers: Arc<RwLock<Vec<mpsc::Sender<String>>>>,
     output_store: Arc<RwLock<Option<Arc<SessionOutputStore>>>>,
     /// 已捕获的 resume id 身份事件，按 session 保留供桌面侧补拉。
     ///
@@ -46,13 +66,16 @@ impl WsEmitter {
         *self.output_store.write() = Some(store);
     }
 
-    pub fn subscribe(&self, session_id: &str) -> mpsc::UnboundedReceiver<String> {
-        let (tx, rx) = mpsc::unbounded_channel();
+    pub fn subscribe(&self, session_id: &str) -> mpsc::Receiver<String> {
+        let (tx, rx) = mpsc::channel(SESSION_CHANNEL_CAPACITY);
         self.subscribers
             .write()
             .entry(session_id.to_string())
             .or_default()
-            .push(tx);
+            .push(SessionSubscriber {
+                tx,
+                desynced: false,
+            });
         debug!(session_id, "daemon ws subscriber registered");
         rx
     }
@@ -108,8 +131,8 @@ impl WsEmitter {
         }
     }
 
-    pub fn subscribe_control(&self) -> mpsc::UnboundedReceiver<String> {
-        let (tx, rx) = mpsc::unbounded_channel();
+    pub fn subscribe_control(&self) -> mpsc::Receiver<String> {
+        let (tx, rx) = mpsc::channel(CONTROL_CHANNEL_CAPACITY);
         self.control_subscribers.write().push(tx);
         debug!("daemon control subscriber registered");
         rx
@@ -120,29 +143,77 @@ impl WsEmitter {
         let subscribers = self.subscribers.read();
         subscribers
             .get(session_id)
-            .is_some_and(|senders| senders.iter().any(|sender| !sender.is_closed()))
+            .is_some_and(|senders| senders.iter().any(|sub| !sub.tx.is_closed()))
     }
 
     pub fn cleanup_session(&self, session_id: &str) {
         let mut subscribers = self.subscribers.write();
         if let Some(senders) = subscribers.get_mut(session_id) {
-            senders.retain(|sender| !sender.is_closed());
+            senders.retain(|sub| !sub.tx.is_closed());
             if senders.is_empty() {
                 subscribers.remove(session_id);
             }
         }
     }
 
-    fn publish(&self, session_id: &str, msg: String) -> bool {
+    /// 向单个订阅者投递一条会话消息，执行 desync 契约。
+    ///
+    /// 返回是否成功入队。`drop_on_full` 为真（普通输出）时队列满 → 丢弃本条并
+    /// 置 desynced；为假（exit/killed 这类终止性消息）时队列满不置 desynced，
+    /// 由调用方走 control 兜底。
+    fn deliver(sub: &mut SessionSubscriber, msg: &str, drop_on_full: bool) -> bool {
+        if sub.desynced {
+            // 排空到有空位时先插入 desync 标记，客户端据此走 snapshot 重放；
+            // 标记进不去说明队列还满着，继续整段跳过。
+            match sub.tx.try_send(DESYNC_MESSAGE.to_string()) {
+                Ok(()) => sub.desynced = false,
+                Err(_) => return false,
+            }
+        }
+        match sub.tx.try_send(msg.to_string()) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                if drop_on_full {
+                    sub.desynced = true;
+                }
+                false
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => false,
+        }
+    }
+
+    /// 返回是否至少成功投递给一个订阅者。
+    /// `drop_on_full`：普通输出为真（满 → 丢本条 + 置 desynced）；
+    /// exit/killed 为假（满不置 desynced，调用方走 control 兜底保可见）。
+    fn publish_with(&self, session_id: &str, msg: String, drop_on_full: bool) -> bool {
         let mut subscribers = self.subscribers.write();
-        let delivered = subscribers.get_mut(session_id).is_some_and(|senders| {
-            senders.retain(|sender| sender.send(msg.clone()).is_ok());
-            !senders.is_empty()
-        });
-        if !delivered {
+        let Some(senders) = subscribers.get_mut(session_id) else {
+            return false;
+        };
+        senders.retain(|sub| !sub.tx.is_closed());
+        let mut any = false;
+        for sub in senders.iter_mut() {
+            if Self::deliver(sub, &msg, drop_on_full) {
+                any = true;
+            }
+        }
+        if senders.is_empty() {
             subscribers.remove(session_id);
         }
-        delivered
+        any
+    }
+
+    fn publish(&self, session_id: &str, msg: String) -> bool {
+        self.publish_with(session_id, msg, true)
+    }
+
+    /// 终止性事件（exit/killed）后摘除该会话的全部订阅发送端。
+    ///
+    /// tokio mpsc 的接收端会先排空已入队的积压再得到通道关闭 → 转发循环退出 →
+    /// WS 关闭 → 桥的 close 兜底合成退出。这保证**即使终止消息因队列满被丢**，
+    /// 客户端也必然感知会话终止（真实退出码另经 control 送达）。
+    fn drop_session_subscribers(&self, session_id: &str) {
+        self.subscribers.write().remove(session_id);
     }
 
     /// 会话副作用通知（waiting-input 推断 / 自然退出 / 清理）转发到桌面。
@@ -175,9 +246,17 @@ impl WsEmitter {
     }
 
     fn publish_control(&self, msg: String) {
-        self.control_subscribers
-            .write()
-            .retain(|sender| sender.send(msg.clone()).is_ok());
+        self.control_subscribers.write().retain(|sender| {
+            match sender.try_send(msg.clone()) {
+                Ok(()) => true,
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    // control 事件各有留存/补拉/去重兜底，溢出丢弃只损失实时性。
+                    debug!("daemon control channel full, dropping message");
+                    true
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => false,
+            }
+        });
     }
 }
 
@@ -221,17 +300,29 @@ impl EventEmitter for WsEmitter {
                     .get("exitCode")
                     .and_then(|value| value.as_i64())
                     .unwrap_or(-1);
-                self.publish(
+                let delivered = self.publish_with(
                     session_id,
                     serde_json::json!({
                         "type": "exit",
                         "exitCode": exit_code,
                     })
                     .to_string(),
+                    // 终止性消息：队列满也不置 desynced，走 control 兜底。
+                    false,
                 );
+                if !delivered {
+                    // 镜像流投不进（慢客户端满载/无订阅者）时经 control 的 notifier
+                    // 通道送达真实退出码；镜像 WS 关闭本身还会触发桥的合成退出兜底。
+                    self.publish_notifier_event(
+                        "sessionExited",
+                        session_id,
+                        Some(exit_code as i32),
+                    );
+                }
                 // 会话不会再产出新内容：宽限一小段等 reader 排空后落盘，
                 // 之后重启才有历史可重放。
                 self.persist_session_output(session_id);
+                self.drop_session_subscribers(session_id);
             }
             "session-killed" => {
                 // kill 事件必须到达前端：user/mcp 关标签，orphan-reclaim/daemon-reaper
@@ -240,13 +331,15 @@ impl EventEmitter for WsEmitter {
                     .get("reason")
                     .and_then(|value| value.as_str())
                     .unwrap_or("unknown");
-                let delivered = self.publish(
+                let delivered = self.publish_with(
                     session_id,
                     serde_json::json!({
                         "type": "killed",
                         "reason": reason,
                     })
                     .to_string(),
+                    // 终止性消息：队列满也不置 desynced，走下方 control 兜底。
+                    false,
                 );
                 if !delivered {
                     self.publish_control(
@@ -258,6 +351,7 @@ impl EventEmitter for WsEmitter {
                         .to_string(),
                     );
                 }
+                self.drop_session_subscribers(session_id);
             }
             EV::TERMINAL_RESUME_ID_DETECTED => {
                 self.retain_identity_event(session_id, &payload);
@@ -517,6 +611,136 @@ mod tests {
                 "reason": "mcp",
             })
         );
+    }
+
+    fn emit_output(emitter: &WsEmitter, session_id: &str, data: &str) {
+        emitter
+            .emit(
+                EV::TERMINAL_OUTPUT,
+                serde_json::json!({ "sessionId": session_id, "data": data }),
+            )
+            .expect("output emit");
+    }
+
+    /// 队列溢出必须不阻塞、不无界堆积；排空后第一条新消息前插入 desync 标记，
+    /// 客户端据此走 snapshot 重放——绝不掐 VT 流中段。
+    #[test]
+    fn output_overflow_drops_then_resyncs_with_marker_after_drain() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe("session-1");
+
+        for index in 0..(SESSION_CHANNEL_CAPACITY + 20) {
+            emit_output(&emitter, "session-1", &format!("chunk-{index}"));
+        }
+
+        let mut received = 0;
+        while rx.try_recv().is_ok() {
+            received += 1;
+        }
+        assert_eq!(
+            received, SESSION_CHANNEL_CAPACITY,
+            "溢出部分必须被丢弃而非积压"
+        );
+
+        emit_output(&emitter, "session-1", "after-drain");
+        let first = rx.try_recv().expect("desync marker");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&first).expect("marker json"),
+            serde_json::json!({"type":"desync"})
+        );
+        let second = rx.try_recv().expect("resumed output");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&second).expect("output json"),
+            serde_json::json!({"type":"output","data":"after-drain"})
+        );
+    }
+
+    /// desynced 期间的普通输出整段跳过（不产生部分 VT 流）。
+    #[test]
+    fn outputs_are_skipped_entirely_while_desynced() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe("session-1");
+
+        for index in 0..(SESSION_CHANNEL_CAPACITY + 5) {
+            emit_output(&emitter, "session-1", &format!("chunk-{index}"));
+        }
+        // 只腾出一格：desync 标记占掉它，随后的输出仍进不去、继续跳过。
+        rx.try_recv().expect("drain one");
+        emit_output(&emitter, "session-1", "still-full");
+
+        let mut messages = Vec::new();
+        while let Ok(message) = rx.try_recv() {
+            messages.push(message);
+        }
+        let desync_count = messages
+            .iter()
+            .filter(|message| message.contains("\"desync\""))
+            .count();
+        assert_eq!(desync_count, 1);
+        assert!(
+            !messages
+                .iter()
+                .any(|message| message.contains("still-full")),
+            "desync 标记之后没有排空前，输出必须整段跳过"
+        );
+    }
+
+    /// exit 是终止性消息：镜像队列满时必须经 control 的 notifier 通道送达真实退出码。
+    #[test]
+    fn exit_falls_back_to_control_when_session_queue_is_full() {
+        let emitter = WsEmitter::new();
+        let mut control = emitter.subscribe_control();
+        let _rx = emitter.subscribe("session-1");
+
+        for index in 0..SESSION_CHANNEL_CAPACITY {
+            emit_output(&emitter, "session-1", &format!("chunk-{index}"));
+        }
+        emitter
+            .emit(
+                EV::TERMINAL_EXIT,
+                serde_json::json!({ "sessionId": "session-1", "exitCode": 5 }),
+            )
+            .expect("exit emit");
+
+        let message = control.try_recv().expect("control fallback message");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&message).expect("control json"),
+            serde_json::json!({
+                "type": "notifier",
+                "event": "sessionExited",
+                "sessionId": "session-1",
+                "exitCode": 5,
+            })
+        );
+    }
+
+    /// 终止后订阅发送端必须被摘除：接收端排空积压后要看到通道关闭（而非永远悬挂），
+    /// WS 转发循环据此退出、桥的 close 兜底合成退出——exit 即使被满队列丢掉也不失联。
+    #[test]
+    fn exit_drops_session_subscribers_so_channel_closes_after_drain() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe("session-1");
+
+        for index in 0..SESSION_CHANNEL_CAPACITY {
+            emit_output(&emitter, "session-1", &format!("chunk-{index}"));
+        }
+        emitter
+            .emit(
+                EV::TERMINAL_EXIT,
+                serde_json::json!({ "sessionId": "session-1", "exitCode": 5 }),
+            )
+            .expect("exit emit");
+
+        let mut drained = 0;
+        while rx.try_recv().is_ok() {
+            drained += 1;
+        }
+        assert_eq!(drained, SESSION_CHANNEL_CAPACITY, "积压必须先排空再关闭");
+        assert!(
+            matches!(rx.try_recv(), Err(mpsc::error::TryRecvError::Disconnected)),
+            "排空后必须是 Disconnected 而非 Empty"
+        );
+        assert!(!emitter.has_active_subscriber("session-1"));
     }
 
     #[test]

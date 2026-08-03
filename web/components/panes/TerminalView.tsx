@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle, type CSSProperties } from "react";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { info as logInfo } from "@tauri-apps/plugin-log";
@@ -13,13 +14,18 @@ import { getErrorMessage, toTerminalLaunchError } from "@/utils";
 import type { TerminalLaunchError } from "@/types";
 import { pickCreateSessionResumeId } from "./terminalResume";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
-import { createTerminalOutputHandler, flushHiddenOutputBeforeExit } from "./terminalOutputHandler";
+import {
+  bindTerminalSessionCallbacks,
+  createTerminalExitHandler,
+  type PendingSessionExit,
+} from "./terminalSessionBinding";
 import { devDebugLog } from "@/utils/devLogger";
 import { captureTerminalWrite, noteTerminalGeometry } from "@/utils/terminalCast";
 import { TERMINAL_APP_MENU_PASTE_EVENT } from "@/utils/appMenuPaste";
 import {
   TERMINAL_LAYOUT_CHANGED_EVENT,
   normalizeTerminalFontSize,
+  normalizeTerminalScrollback,
   shouldTerminalHandleKey,
   useShortcutsStore,
   useSettingsStore,
@@ -30,6 +36,13 @@ import {
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
 import { replayAttachedSession } from "./terminalReplay";
+import { reconnectTerminalSession } from "./terminalReconnect";
+import { useTerminalAppearanceSync } from "./useTerminalAppearanceSync";
+import {
+  collectHibernatedOutput,
+  replayAttachOrWake,
+  useTerminalHibernation,
+} from "./useTerminalHibernation";
 import { formatTerminalInitError } from "./terminalInitError";
 import { buildCursorPositionReport } from "./terminalCpr";
 import {
@@ -105,7 +118,6 @@ import type { CliTool, CreateSessionRequest, SshConnectionInfo, TerminalRenderer
 
 const TERMINAL_DEBUG = import.meta.env.DEV;
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
-const DEFAULT_TERMINAL_SCROLLBACK = 20_000;
 const WEBGL_HEARTBEAT_INTERVAL_MS = 30_000;
 const WEBGL_SLEEP_GAP_MS = 75_000;
 const WEBGL_RECOVERY_PROMOTION_WINDOW_MS = 12_000;
@@ -176,6 +188,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const terminalFontFamily = useSettingsStore((s) => normalizeTerminalFontFamily(s.settings?.terminal.fontFamily));
     const terminalCursorStyle = useSettingsStore((s) => normalizeTerminalCursorStyle(s.settings?.terminal.cursorStyle));
     const terminalCursorBlink = useSettingsStore((s) => s.settings?.terminal.cursorBlink ?? false);
+    const terminalScrollback = useSettingsStore((s) => normalizeTerminalScrollback(s.settings?.terminal.scrollback));
     // 壁纸终端透明度：原子数值 selector（壁纸未激活恒为 1，getTerminalTheme 返回原引用）。
     // 开关壁纸只走下方主题热更新路径，绝不重建终端。
     const wallpaperTerminalAlpha = useWallpaperStore((s) =>
@@ -195,6 +208,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const terminalInstanceRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const [terminalReady, setTerminalReady] = useState(false);
+    // 后台休眠（docs/71 §3.1）：epoch 自增触发 init effect 重跑——休眠态跳过构造、
+    // 唤醒态全量重建。休眠/唤醒状态机在 useTerminalHibernation。
+    const [instanceEpoch, setInstanceEpoch] = useState(0);
+    const serializeAddonRef = useRef<SerializeAddon | null>(null);
     const rendererControllerRef = useRef<TerminalRendererController | null>(null);
     const lastAppearanceFontRef = useRef<string | null>(null);
     const layoutSchedulerRef = useRef<TerminalLayoutScheduler | null>(null);
@@ -205,6 +222,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     // 卸载时只能注销自己这份，绝不能按 sessionId 全量 detach（会灭掉其他视图）。
     const outputUnsubRef = useRef<(() => void) | null>(null);
     const exitUnsubRef = useRef<(() => void) | null>(null);
+    const desyncUnsubRef = useRef<(() => void) | null>(null);
     const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
     const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null);
     // 右键菜单"粘贴"入口：init 闭包里把 pasteTerminalPayload 暴露到这里。
@@ -414,8 +432,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       [],
     );
 
+    /** desync 重同步闸门：置真期间实时输出改走积压，防 reset 抹掉快照外的新输出。 */
+    const resyncInProgressRef = useRef(false);
+
     /** 把不可见期间攒下的输出一次性写进 xterm。 */
     const flushHiddenWrites = useCallback((reason: string) => {
+      // 重同步在途时推迟，收尾（onResyncSettled）统一放行。
+      if (resyncInProgressRef.current) return;
       const pending = hiddenWriteBufferRef.current?.drain();
       if (!pending) return;
       debugLog("output.hidden.flush", { reason, length: pending.length });
@@ -493,6 +516,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       },
     }), [refitAndRepaintTerminal]);
 
+    const bumpInstanceEpoch = useCallback(() => {
+      setInstanceEpoch((epoch) => epoch + 1);
+    }, []);
+    const { hibernatedStateRef, wakeStateRef, notifyVisibility } = useTerminalHibernation({
+      terminalInstanceRef,
+      currentSessionIdRef,
+      serializeAddonRef,
+      hiddenWriteBufferRef,
+      rendererControllerRef,
+      isReconnectingRef,
+      isDisconnectedRef,
+      debugLog,
+      bumpInstanceEpoch,
+    });
+
     // Keep callback refs in sync with the latest props.
     useEffect(() => {
       onSessionCreatedRef.current = props.onSessionCreated;
@@ -508,6 +546,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (!wasRenderVisible && isRenderVisible()) {
         flushHiddenWrites("visibility.gained");
       }
+      // 后台分层降档（docs/71 §3.1）：5min 挂 WebGL，30min 休眠。幂等，可每次 render 调。
+      notifyVisibility(isRenderVisible());
       readOnlyRef.current = Boolean(props.readOnly);
       if (terminalInstanceRef.current) {
         terminalInstanceRef.current.options.disableStdin = Boolean(props.readOnly);
@@ -576,8 +616,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       outputUnsubRef.current = null;
       exitUnsubRef.current?.();
       exitUnsubRef.current = null;
+      desyncUnsubRef.current?.();
+      desyncUnsubRef.current = null;
       // 换绑/重连时丢弃积压：上一会话的输出串进新会话会直接写坏画面。
       hiddenWriteBufferRef.current?.reset();
+      // 同理丢弃上一会话挂起的 exit 与重同步闸门，防串到新会话。
+      pendingExitDuringResyncRef.current = null;
+      resyncInProgressRef.current = false;
     }, []);
 
     // Dispose listeners, timers, observers, addons, and the terminal instance.
@@ -658,6 +703,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       terminalInstanceRef.current = null;
       rendererControllerRef.current = null;
       fitAddonRef.current = null;
+      serializeAddonRef.current = null;
       writeFlowControlRef.current?.reset();
       writeFlowControlRef.current = null;
       trackedBufferTypeRef.current = "unknown";
@@ -681,55 +727,50 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       }
       debugLog("cleanup.end", {});
     }, [debugLog, unbindSessionCallbacks]);
-    const handleSessionExit = useCallback((sessionId: string, exitCode: number) => {
-      console.warn(`[TerminalView] Session exited: ${sessionId}, exitCode=${exitCode}`);
-      const term = terminalInstanceRef.current;
-      if (!term) return;
-      flushHiddenOutputBeforeExit({ term, exitCode,
-        hiddenWriteBuffer: hiddenWriteBufferRef.current,
-        writeTerminalData,
-        syncTrackedBufferType,
-        showReconnectHint: Boolean(isSshRef.current && onReconnectRef.current),
-        onSessionExited: () => {
-          if (isSshRef.current && onReconnectRef.current) isDisconnectedRef.current = true;
-          onSessionExitedRef.current?.(exitCode);
-        },
-        onError: (error) => debugLog("output.hidden.exit-flush.failed", {
-          error: getErrorMessage(error),
-        }),
-      });
-    }, [debugLog, syncTrackedBufferType, writeTerminalData]);
-
-    /** Attach output and exit listeners for a session. */
-    const bindSessionCallbacks = useCallback(async (sessionId: string) => {
-      debugLog("session.bind-callbacks.begin", {
-        bindSessionId: sessionId,
-      });
-      // 换绑前先注销旧订阅（重连等场景），避免旧回调残留
-      unbindSessionCallbacks();
-      outputUnsubRef.current = await terminalService.registerOutput(
-        sessionId,
-        createTerminalOutputHandler({
-          sessionId,
-          terminalRef: terminalInstanceRef,
-          focusReportModeRef,
+    const pendingExitDuringResyncRef = useRef<PendingSessionExit | null>(null);
+    const handleSessionExit = useMemo(
+      () =>
+        createTerminalExitHandler({
+          terminalInstanceRef,
           hiddenWriteBufferRef,
-          isRenderVisible,
-          keepCliOutputInNormalBuffer,
-          renderTerminalData,
           writeTerminalData,
           syncTrackedBufferType,
+          isSshRef,
+          onReconnectRef,
+          isDisconnectedRef,
+          onSessionExited: (exitCode) => onSessionExitedRef.current?.(exitCode),
+          resyncActiveRef: resyncInProgressRef,
+          pendingExitRef: pendingExitDuringResyncRef,
           debugLog,
         }),
-      );
-      exitUnsubRef.current = await terminalService.registerExit(sessionId, (exitCode) => {
-        handleSessionExit(sessionId, exitCode);
-      });
-      debugLog("session.bind-callbacks.end", {
-        bindSessionId: sessionId,
+      [debugLog, syncTrackedBufferType, writeTerminalData],
+    );
+
+    /** Attach output, exit, and desync listeners for a session. */
+    const bindSessionCallbacks = useCallback(async (sessionId: string) => {
+      await bindTerminalSessionCallbacks(sessionId, {
+        terminalInstanceRef,
+        focusReportModeRef,
+        hiddenWriteBufferRef,
+        layoutSchedulerRef,
+        outputUnsubRef,
+        exitUnsubRef,
+        desyncUnsubRef,
+        isRenderVisible,
+        keepCliOutputInNormalBuffer,
+        renderTerminalData,
+        writeTerminalData,
+        syncTrackedBufferType,
+        unbindSessionCallbacks,
+        onSessionExit: handleSessionExit,
+        resyncActiveRef: resyncInProgressRef,
+        flushHiddenWrites,
+        pendingExitRef: pendingExitDuringResyncRef,
+        debugLog,
       });
     }, [
       debugLog,
+      flushHiddenWrites,
       handleSessionExit,
       isRenderVisible,
       keepCliOutputInNormalBuffer,
@@ -740,65 +781,45 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     ]);
 
     /** Attempt to reconnect an SSH-backed session. */
-    const doReconnect = useCallback(async () => {
-      const term = terminalInstanceRef.current;
-      if (!term || isReconnectingRef.current) return;
-      const onReconnect = onReconnectRef.current;
-      if (!onReconnect) return;
-
-      isReconnectingRef.current = true;
-      term.writeln("\r\n\x1b[33mReconnecting...\x1b[0m");
-
-      try {
-        // Detach callbacks from the previous session before reconnecting.
-        unbindSessionCallbacks();
-
-        const newSessionId = await onReconnect();
-        if (!newSessionId) {
-          term.writeln("\x1b[31mReconnection failed.\x1b[0m");
-          term.writeln(
-            "\x1b[36mPress Enter to retry.\x1b[0m"
-          );
-          isReconnectingRef.current = false;
-          return;
-        }
-
-        currentSessionIdRef.current = newSessionId;
-        term.writeln("\r\n\x1b[32m--- Reconnected ---\x1b[0m\r\n");
-
-        // Attach callbacks to the new session.
-        await bindSessionCallbacks(newSessionId);
-
-        // Keep the backend PTY size aligned with the current terminal size.
-        terminalService.resize({
-          sessionId: newSessionId,
-          cols: term.cols,
-          rows: term.rows,
-        });
-
-        isDisconnectedRef.current = false;
-        isReconnectingRef.current = false;
-      } catch (error) {
-        console.error("[TerminalView] Reconnection failed:", error);
-        term.writeln(
-          `\r\n\x1b[31mReconnection failed: ${getErrorMessage(error)}\x1b[0m`
-        );
-        term.writeln(
-          "\x1b[36mPress Enter to retry.\x1b[0m"
-        );
-        isReconnectingRef.current = false;
-      }
-    }, [bindSessionCallbacks, unbindSessionCallbacks]);
+    const doReconnect = useCallback(
+      () =>
+        reconnectTerminalSession({
+          terminalInstanceRef,
+          isReconnectingRef,
+          isDisconnectedRef,
+          currentSessionIdRef,
+          onReconnectRef,
+          unbindSessionCallbacks,
+          bindSessionCallbacks,
+        }),
+      [bindSessionCallbacks, unbindSessionCallbacks],
+    );
 
     // Initialize xterm and create or attach the backend session.
+    // 依赖 instanceEpoch：休眠/唤醒通过 epoch 自增触发整轮 teardown + 重建。
     useEffect(() => {
       if (!terminalRef.current) return;
+
+      // 休眠态：不构造 xterm，仅挂轻量订阅把输出收进休眠容器（保序、有上限）。
+      const hibernated = hibernatedStateRef.current;
+      if (hibernated) {
+        return collectHibernatedOutput({
+          hibernated,
+          renderTerminalData,
+          currentSessionIdRef,
+          isSshRef,
+          onReconnectRef,
+          isDisconnectedRef,
+          onSessionExited: (exitCode) => onSessionExitedRef.current?.(exitCode),
+        });
+      }
 
       let isMounted = true;
       isUnmountedRef.current = false;
       debugLog("mount", {
         restoring: props.restoring ?? false,
         savedSessionId: props.savedSessionId ?? null,
+        instanceEpoch,
       });
 
       const init = async () => {
@@ -823,7 +844,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         }
 
         const termSettings = useSettingsStore.getState().settings?.terminal;
-        const scrollback = termSettings?.scrollback ?? DEFAULT_TERMINAL_SCROLLBACK;
+        const scrollback = normalizeTerminalScrollback(termSettings?.scrollback);
         const fontSize = normalizeTerminalFontSize(termSettings?.fontSize);
         const fontFamily = normalizeTerminalFontFamily(termSettings?.fontFamily);
         const cursorStyle = normalizeTerminalCursorStyle(termSettings?.cursorStyle);
@@ -855,13 +876,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         const fit = new FitAddon();
         term.loadAddon(fit);
+        // 休眠（Tier2）时把整个缓冲序列化成 VT 字符串（含全部 scrollback 与颜色）。
+        const serialize = new SerializeAddon();
+        term.loadAddon(serialize);
+        serializeAddonRef.current = serialize;
 
         term.open(terminalRef.current);
         applyTerminalElementTheme(term, xtermTheme);
         focusReportModeRef.current = false;
-        writeFlowControlRef.current = createTerminalWriteFlowControl(term, {
-          enabled: IS_WINDOWS,
-        });
+        writeFlowControlRef.current = createTerminalWriteFlowControl(term);
         terminalInstanceRef.current = term;
         fitAddonRef.current = fit;
         layoutSchedulerRef.current = createTerminalLayoutScheduler({
@@ -893,7 +916,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           isDark,
           initialBuffer: term.buffer.active.type,
           rendererMode: terminalRendererModeRef.current,
-          writeFlowControl: IS_WINDOWS ? "enabled" : "disabled",
+          writeFlowControl: "enabled",
         });
 
         const handleCursorPositionReport = (prefix?: string) => (params: (number | number[])[]) => {
@@ -1467,7 +1490,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
             let sessionId: string;
             let effectiveResumeId = pickCreateSessionResumeId(props);
-            const attachSessionId = props.sessionId ?? liveSavedSessionId;
+            // 休眠唤醒：优先回放休眠容器（全量历史，超出后端 8MB 窗口也不丢）。
+            const wake = wakeStateRef.current;
+            wakeStateRef.current = null;
+            const attachSessionId = wake?.sessionId ?? props.sessionId ?? liveSavedSessionId;
 
             if (attachSessionId) {
               if (props.restoring) {
@@ -1481,15 +1507,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               console.info(`[TerminalView] Reconnecting to existing session: ${attachSessionId}`);
               sessionId = attachSessionId;
               try {
-                await replayAttachedSession({
+                await replayAttachOrWake({
                   term,
                   sessionId,
-                  getReplaySnapshot: (attachSessionId) => terminalService.getReplaySnapshot(attachSessionId),
-                  writeData: (data) => {
-                    const renderedData = renderTerminalData(data);
-                    return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
-                  },
+                  wake,
+                  getReplaySnapshot: (id) => terminalService.getReplaySnapshot(id),
+                  renderTerminalData,
+                  writeTerminalData,
                   syncTrackedBufferType,
+                  showReconnectHint: Boolean(isSshRef.current && onReconnectRef.current),
                   debugLog,
                 });
               } catch (error) {
@@ -1760,57 +1786,20 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         cleanup();
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [instanceEpoch]);
 
-    useEffect(() => {
-      const term = terminalInstanceRef.current;
-      if (!term) return;
-
-      term.options.theme = xtermTheme;
-      applyTerminalElementTheme(term, xtermTheme);
-      layoutSchedulerRef.current?.schedule("theme.change");
-    }, [xtermTheme]);
-
-    useEffect(() => {
-      const term = terminalInstanceRef.current;
-      if (!term) return;
-
-      const fontSignature = `${terminalFontSize}|${terminalFontFamily}`;
-      const fontChanged =
-        lastAppearanceFontRef.current !== null &&
-        lastAppearanceFontRef.current !== fontSignature;
-      lastAppearanceFontRef.current = fontSignature;
-
-      term.options.fontSize = terminalFontSize;
-      term.options.fontFamily = terminalFontFamily;
-      term.options.cursorStyle = terminalCursorStyle;
-      term.options.cursorBlink = terminalCursorBlink;
-
-      if (fontChanged) {
-        // WebGL caches glyphs in a texture atlas keyed by the previous font; if
-        // it is not cleared the new font renders from stale (blurry/garbled)
-        // glyphs. `document.fonts.ready` alone is not enough here: canvas
-        // measurement does not trigger @font-face lazy-loading, so a
-        // not-yet-requested family leaves `ready` already resolved and the
-        // atlas rebuilds from the fallback font. Explicitly request the
-        // family first (same path as terminal creation).
-        void waitForTerminalFont(terminalFontSize, terminalFontFamily)
-          .then(() => {
-            if (terminalInstanceRef.current !== term) return;
-            rendererControllerRef.current?.clearTextureAtlas("settings.font-change");
-            layoutSchedulerRef.current?.schedule("settings.font-change", { force: true });
-          })
-          .catch(() => {
-            // Font readiness is best-effort; the immediate refit below still runs.
-          });
-      }
-      layoutSchedulerRef.current?.schedule("settings.terminal-appearance", { force: true });
-    }, [
-      terminalCursorBlink,
-      terminalCursorStyle,
-      terminalFontFamily,
-      terminalFontSize,
-    ]);
+    useTerminalAppearanceSync({
+      terminalInstanceRef,
+      layoutSchedulerRef,
+      rendererControllerRef,
+      lastAppearanceFontRef,
+      xtermTheme,
+      fontSize: terminalFontSize,
+      fontFamily: terminalFontFamily,
+      cursorStyle: terminalCursorStyle,
+      cursorBlink: terminalCursorBlink,
+      scrollback: terminalScrollback,
+    });
 
     useTerminalWheelZoom(terminalRef);
 

@@ -28,11 +28,15 @@ import {
   compactCreateSessionRequest,
   countTerminalInputChars,
   debugTerminalService,
+  isSessionClaimedError,
+  isWebSocketDesyncMessage,
+  parseWebSocketOutput,
   removeSubscriber,
   summarizeTerminalInput,
 } from "./terminalServiceShared";
-import type {
+export { isSessionClaimedError };import type {
   TerminalBackendClientInfo,
+  TerminalInputQueue,
   TerminalReplaySnapshot,
   TerminalWriteOptions,
 } from "./terminalServiceShared";
@@ -57,6 +61,13 @@ function dispatchExit(sessionId: string, exitCode: number): void {
   for (const callback of set) callback(exitCode);
 }
 
+/** desync 契约：中段输出永久缺失，订阅方必须丢弃画面走 snapshot 重放（否则花屏）。 */
+function dispatchDesync(sessionId: string): void {
+  const set = desyncCallbacks.get(sessionId);
+  if (!set) return;
+  for (const callback of set) callback();
+}
+
 /** 输出与退出订阅者都清空后才关 WS（最后一个视图离开才断连） */
 function maybeCloseWebSocket(sessionId: string): void {
   const hasSubscribers =
@@ -71,6 +82,7 @@ function maybeCloseWebSocket(sessionId: string): void {
 
 const outputCallbacks = new Map<string, Set<(data: string) => void>>();
 const exitCallbacks = new Map<string, Set<(exitCode: number) => void>>();
+const desyncCallbacks = new Map<string, Set<() => void>>();
 const pendingBuffers = new Map<string, string[]>();
 const webSockets = new Map<string, WebSocket>();
 const inputQueues = new Map<string, TerminalInputQueue>();
@@ -83,21 +95,8 @@ let unlistenOutput: UnlistenFn | null = null;
 let unlistenExit: UnlistenFn | null = null;
 let unlistenKilled: UnlistenFn | null = null;
 let unlistenClaimLost: UnlistenFn | null = null;
+let unlistenDesync: UnlistenFn | null = null;
 let cachedBackendClientInfo: TerminalBackendClientInfo | null = null;
-
-interface QueuedTerminalInput {
-  data: string;
-  traceId?: number;
-  resolve: () => void;
-  reject: (error: unknown) => void;
-}
-
-interface TerminalInputQueue {
-  pending: QueuedTerminalInput[];
-  timer: ReturnType<typeof setTimeout> | null;
-  flushing: boolean;
-  idleResolvers: Array<() => void>;
-}
 
 function enqueueTerminalInput(sessionId: string, data: string, traceId?: number): Promise<void> {
   if (data.length === 0) return Promise.resolve();
@@ -312,6 +311,14 @@ export async function ensureListeners(): Promise<void> {
     "terminal-claim-lost",
     (event) => notifySessionClaimLost(event.payload.sessionId),
   );
+
+  unlistenDesync = await webviewWindow.listen<{ sessionId: string }>(
+    "terminal-desync",
+    (event) => {
+      if (killedSessions.has(event.payload.sessionId)) return;
+      dispatchDesync(event.payload.sessionId);
+    },
+  );
 }
 
 // ── HMR 清理（开发模式） ──────────────────────────────────
@@ -322,13 +329,16 @@ if (import.meta.hot) {
     unlistenExit?.();
     unlistenKilled?.();
     unlistenClaimLost?.();
+    unlistenDesync?.();
     unlistenOutput = null;
     unlistenExit = null;
     unlistenKilled = null;
     unlistenClaimLost = null;
+    unlistenDesync = null;
     listenersInitialized = false;
     outputCallbacks.clear();
     exitCallbacks.clear();
+    desyncCallbacks.clear();
     pendingBuffers.clear();
     for (const sessionId of Array.from(inputQueues.keys())) clearTerminalInputQueue(sessionId);
     killedSessions.clear();
@@ -343,6 +353,7 @@ if (import.meta.hot) {
 export function _resetListenersForTest(): void {
   outputCallbacks.clear();
   exitCallbacks.clear();
+  desyncCallbacks.clear();
   pendingBuffers.clear();
   for (const sessionId of Array.from(inputQueues.keys())) clearTerminalInputQueue(sessionId);
   killedSessions.clear();
@@ -351,6 +362,7 @@ export function _resetListenersForTest(): void {
   unlistenExit = null;
   unlistenKilled = null;
   unlistenClaimLost = null;
+  unlistenDesync = null;
   cachedBackendClientInfo = null;
   for (const socket of webSockets.values()) socket.close();
   webSockets.clear();
@@ -373,6 +385,10 @@ function ensureWebSocket(sessionId: string): void {
 
   socket.onmessage = (event) => {
     if (killedSessions.has(sessionId)) return;
+    if (isWebSocketDesyncMessage(event.data)) {
+      dispatchDesync(sessionId);
+      return;
+    }
     const data = parseWebSocketOutput(event.data);
     if (!data) return;
     if (dispatchOutput(sessionId, data)) return;
@@ -406,36 +422,7 @@ function closeWebSocket(sessionId: string): void {
   webSockets.delete(sessionId);
 }
 
-function parseWebSocketOutput(message: unknown): string {
-  if (typeof message !== "string") return "";
-  try {
-    const parsed = JSON.parse(message) as { type?: string; data?: unknown };
-    if (parsed.type === "output" && typeof parsed.data === "string") {
-      return parsed.data;
-    }
-    // 其他结构化消息（exit/killed/未来类型）不是终端输出，不能注入 xterm
-    if (typeof parsed.type === "string") {
-      return "";
-    }
-  } catch {
-    return message;
-  }
-  return message;
-}
-
 // ── 服务对象 ──────────────────────────────────────────────
-
-/**
- * 判断一次写入失败是否因为该会话的写权限被**另一个 CC-Panes 实例**持有
- * （daemon 侧租约裁决，docs/61 阶段 2）。
- *
- * `SESSION_CLAIMED` 是我们两端自定义的协议码，不是人类可读文案，
- * daemon 改文案不会让这个判断失效。
- */
-export function isSessionClaimedError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return message.includes("SESSION_CLAIMED");
-}
 
 export const terminalService = {
   /**
@@ -705,6 +692,19 @@ export const terminalService = {
     return () => {
       removeSubscriber(exitCallbacks, sessionId, callback);
       maybeCloseWebSocket(sessionId);
+    };
+  },
+
+  /**
+   * 注册 desync 回调（daemon 输出镜像流溢出跳段，中段输出永久缺失）。
+   * 订阅方收到后必须丢弃现有画面、用 replay snapshot 重放。
+   * 返回 unsubscribe，语义同 registerOutput（但不参与 WS 生命周期判定）。
+   */
+  async registerDesync(sessionId: string, callback: () => void): Promise<() => void> {
+    await ensureListeners();
+    addSubscriber(desyncCallbacks, sessionId, callback);
+    return () => {
+      removeSubscriber(desyncCallbacks, sessionId, callback);
     };
   },
 

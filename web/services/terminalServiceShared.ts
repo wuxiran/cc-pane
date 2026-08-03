@@ -22,6 +22,20 @@ export interface TerminalWriteOptions {
   traceId?: number;
 }
 
+export interface QueuedTerminalInput {
+  data: string;
+  traceId?: number;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+}
+
+export interface TerminalInputQueue {
+  pending: QueuedTerminalInput[];
+  timer: ReturnType<typeof setTimeout> | null;
+  flushing: boolean;
+  idleResolvers: Array<() => void>;
+}
+
 export function summarizeTerminalInput(data: string): Record<string, unknown> {
   const chars = Array.from(data);
   return {
@@ -69,6 +83,45 @@ export function compactCreateSessionRequest(
   return Object.fromEntries(
     Object.entries(request).filter(([, value]) => value !== null && value !== undefined),
   ) as CreateSessionRequest;
+}
+
+/** WS 消息是否是 desync 标记（daemon 输出镜像流溢出跳段，见 desync 契约）。 */
+export function isWebSocketDesyncMessage(message: unknown): boolean {
+  if (typeof message !== "string" || !message.includes("desync")) return false;
+  try {
+    return (JSON.parse(message) as { type?: string }).type === "desync";
+  } catch {
+    return false;
+  }
+}
+
+export function parseWebSocketOutput(message: unknown): string {
+  if (typeof message !== "string") return "";
+  try {
+    const parsed = JSON.parse(message) as { type?: string; data?: unknown };
+    if (parsed.type === "output" && typeof parsed.data === "string") {
+      return parsed.data;
+    }
+    // 其他结构化消息（exit/killed/未来类型）不是终端输出，不能注入 xterm
+    if (typeof parsed.type === "string") {
+      return "";
+    }
+  } catch {
+    return message;
+  }
+  return message;
+}
+
+/**
+ * 判断一次写入失败是否因为该会话的写权限被**另一个 CC-Panes 实例**持有
+ * （daemon 侧租约裁决，docs/61 阶段 2）。
+ *
+ * `SESSION_CLAIMED` 是我们两端自定义的协议码，不是人类可读文案，
+ * daemon 改文案不会让这个判断失效。
+ */
+export function isSessionClaimedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("SESSION_CLAIMED");
 }
 
 export function addSubscriber<T>(

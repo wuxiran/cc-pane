@@ -211,19 +211,39 @@ PTY reader (4KB read)
 |---|---|---|
 | chunk 大小限制 | ✅ 4KB read / 16KB batch（`terminal_service.rs:2145`） | ❌ |
 | 时间窗合批 | ✅ 16ms（`terminal_service.rs:2146`，注释写明防 WKWebView 主线程死锁） | ❌ 无 rAF 合批 |
-| 背压（反压上游） | ❌ **两级通道均无界**（`terminal_service.rs:2141` std mpsc；`ws_emitter.rs:136-146` `UnboundedSender`） | ⚠️ 有 `terminalWriteFlowControl.ts`（128KB/水位 10↔5），但 `TerminalView.tsx:967-969` 传 `enabled: IS_WINDOWS`，**非 Windows 平台关闭** |
-| 丢弃策略 | ✅ ring buffer FIFO + spinner 行过滤 + 连续空行压缩（`terminal_service.rs:592-617`） | ⚠️ 仅无订阅者时丢最旧一半（`terminalService.ts:79`） |
-| ring buffer 上限 | ✅ 20k行/20MB/8MB replay（`terminal_service.rs:849-854`） | ✅ scrollback 20k（`TerminalView.tsx:96`） |
-| **后台 tab 暂停** | — | ❌ **完全没有** |
+| 背压（反压上游） | ✅ WS 广播改有界 256 + desync 契约（见 §3.1）；`terminal_service.rs:2141` 的 std mpsc 仍无界（Tauri 直连路径，待观察） | ✅ `terminalWriteFlowControl.ts`（128KB/水位 10↔5）**全平台启用** |
+| 丢弃策略 | ✅ ring buffer FIFO + spinner 行过滤 + 连续空行压缩（`terminal_service.rs:592-617`）；WS 溢出整段跳过 + desync 重放 | ⚠️ 仅无订阅者时丢最旧一半（`terminalService.ts:79`） |
+| ring buffer 上限 | ✅ 20k行/20MB/8MB replay（`terminal_service.rs:849-854`） | ✅ scrollback 默认 20k，钳 200–100000，运行时热更 |
+| **后台 tab 暂停** | — | ✅ 512KB 隐藏积压 + 边沿 flush（0.11.8，`terminalHiddenWriteBuffer.ts`） |
+| **后台降档/休眠** | — | ✅ 5min 挂 WebGL / 30min 休眠（§3.1） |
 | renderer | — | webgl/dom；**Windows 默认 dom**（`terminalRenderer.ts:171` `windows-cjk-guard`） |
 
-**三个最大风险点**：
+**原"三个最大风险点"均已修复**：
 
-1. **后台标签页不暂停** — `TerminalView.tsx:774-838` 的 output 回调完全不检查 `isVisibleRef/isActiveRef`；非活动 tab 只是 `display: none`（`Panel.tsx:443-455`）仍保持挂载。N 个后台会话同时刷屏 = N 份 xterm parser + DOM renderer 同时压主线程。
-2. **daemon 侧无界广播** — `ws_emitter.rs:136-146` 的 `publish()` 无水位、无丢弃，慢客户端会让 daemon 内存无界增长。
-3. **flow control 只在 Windows 开** — 而 Windows 又恰好默认跑最慢的 DOM renderer，两个条件耦合在一起，其他平台等于裸奔。
+1. **后台标签页不暂停** — 0.11.8 修复（commit 20d0603 + 16377e6）：`terminalHiddenWriteBuffer.ts` 512KB 积压、hidden→visible 边沿 flush、溢出截断提示。
+2. **daemon 侧无界广播** — 已改有界 256 + desync 契约（`cc-panes-daemon/src/ws_emitter.rs`、`cc-panes-web/src/ws_emitter.rs` 同形）。
+3. **flow control 只在 Windows 开** — 已全平台启用（`TerminalView.tsx` 调用点删掉 `enabled: IS_WINDOWS`）。
 
-> 仓库里其实**已有**"有界通道 + shed"的成熟范式（文件监听：有界 30k channel + 128 路径 debounce cap + shed，见 `CHANGELOG.md:147`），只是**从没应用到 PTY 输出链路**。
+### 3.1 后台休眠与 desync 契约（低配机防护收尾批次）
+
+实测背景：v0.11.7 下 14 个挂载标签 + 3 天运行，renderer 3.8GB / 0.7 核、CC-Panes 独家掉帧（整机 CPU 27%、dwm 0%、GPU 正常——B 类判据实锤案例）。主因是**每个挂载标签的 xterm circular buffer 常驻**（scrollback 20000 行 × cols × cell 对象 ≈ 50MB+/实例）。
+
+用户约束：scrollback 默认 20000 不动、不许裁历史。参照 VS Code（SerializeAddon 序列化持久化）与 orca（agent hibernation），落地**后台分层降档**：
+
+```
+隐藏 T+5min  ：挂起 WebGL（terminalRendererController.suspendWebgl，Windows 恒 DOM 为 no-op，
+               但释放 ~16 上限的 WebGL context 槽位）
+隐藏 T+30min ：休眠——SerializeAddon 全量序列化（含全部 scrollback 与颜色，~1-4MB 字符串）
+               → dispose xterm 实例 → 轻量订阅继续收集输出（上限 4MB，溢出作废）
+切回可见     ：epoch 自增重跑 init effect 全量重建 → 回放休眠字符串（历史零丢失）；
+               溢出时改走后端 8MB replay snapshot
+```
+
+关键文件：`terminalBackgroundLifecycle.ts`（定时器状态机）、`terminalHibernation.ts`（休眠容器）、`terminalResync.ts`（snapshot 重同步，与 desync 共享）、`TerminalView.tsx` 的 `instanceEpoch`。
+
+**desync 契约**（daemon/web WS 广播）：会话镜像通道 `mpsc::channel(256)`（≈4MB/慢客户端上限）；溢出后**绝不掐 VT 流中段**——整段跳过 + 置 desynced，排空后插入 `{"type":"desync"}`；客户端（桥 `DaemonStreamMessage::Desync` → `terminal-desync` 事件 → `terminalResync.ts`）reset + snapshot 重放。exit/killed 是终止性消息，队列满时走 control 兜底（notifier/sessionExited）不丢。旧客户端不认识 desync 会静默忽略（`Unknown` 兜底），行为不劣于改造前。
+
+> 仓库里"有界通道 + shed"的既有范式（文件监听：有界 30k channel + shed，`CHANGELOG.md:147`）至此也覆盖了 PTY 输出的 WS 段。仍未覆盖：`terminal_service.rs:2141` 的进程内 std mpsc（Tauri 直连模式，合批线程消费快，暂无实测积压证据）。
 
 ---
 
