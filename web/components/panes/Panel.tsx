@@ -168,11 +168,12 @@ export default memo(function Panel({ pane }: PanelProps) {
       projectPath: "",
       workspaceName: activeTab?.workspaceName,
       providerId: activeTab?.providerId,
+      modelId: activeTab?.modelId,
       providerSelection: activeTab?.providerSelection,
       launchProfileId: activeTab?.launchProfileId,
       workspacePath: activeTab?.workspacePath,
     }),
-    [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.providerSelection, activeTab?.launchProfileId, activeTab?.workspacePath]
+    [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.modelId, activeTab?.providerSelection, activeTab?.launchProfileId, activeTab?.workspacePath]
   );
 
   const { handleAddBrowser, handleAddFile, handleAddFileExplorer } =
@@ -258,6 +259,7 @@ export default memo(function Panel({ pane }: PanelProps) {
         projectPath: tab.projectPath,
         workspaceName: tab.workspaceName,
         providerId: tab.providerId,
+        modelId: tab.modelId,
         providerSelection: tab.providerSelection,
         launchProfileId: tab.launchProfileId,
         workspacePath: tab.workspacePath,
@@ -349,6 +351,7 @@ export default memo(function Panel({ pane }: PanelProps) {
         title: tab.title,
         workspaceName: tab.workspaceName,
         providerId: tab.providerId,
+        modelId: tab.modelId,
         providerSelection: tab.providerSelection,
         launchProfileId: tab.launchProfileId,
         workspacePath: tab.workspacePath,

@@ -80,6 +80,12 @@ export function createDefaultDraft(partial?: Partial<LauncherDraft>): LauncherDr
   };
 }
 
+export function cliToolDraftPatch(cliTool: CliTool): Partial<LauncherDraft> {
+  return cliTool === "none"
+    ? { cliTool, providerSelection: "none", providerId: undefined }
+    : { cliTool };
+}
+
 /** effort/verbose/maxTurns 收拢为 adapterOptions；全部缺省时返回 undefined */
 export function buildAdapterOptions(draft: LauncherDraft): LaunchAdapterOptions | undefined {
   const options: LaunchAdapterOptions = {};
@@ -91,7 +97,10 @@ export function buildAdapterOptions(draft: LauncherDraft): LaunchAdapterOptions 
 
 export type BuildPendingLaunchResult =
   | { launch: PendingLaunch; issue: null }
-  | { launch: null; issue: WorkspaceLaunchIssue | { code: "no_project" } };
+  | {
+      launch: null;
+      issue: WorkspaceLaunchIssue | { code: "no_project" | "provider_required" };
+    };
 
 interface BuildDeps {
   workspaces: Workspace[];
@@ -103,31 +112,37 @@ export function buildPendingLaunch(
   draft: LauncherDraft,
   deps: BuildDeps,
 ): BuildPendingLaunchResult {
-  const base = resolveBaseOptions(draft, deps);
+  const effectiveDraft = draft.cliTool === "none"
+    ? { ...draft, providerSelection: "none" as const, providerId: undefined }
+    : draft;
+  const base = resolveBaseOptions(effectiveDraft, deps);
   if ("issue" in base) return { launch: null, issue: base.issue };
+  if (effectiveDraft.providerSelection === "explicit" && !effectiveDraft.providerId?.trim()) {
+    return { launch: null, issue: { code: "provider_required" } };
+  }
 
   const options = base.options;
-  const appendSystemPrompt = draft.appendSystemPrompt.trim() || undefined;
-  const initialPrompt = draft.initialPrompt.trim() || undefined;
+  const appendSystemPrompt = effectiveDraft.appendSystemPrompt.trim() || undefined;
+  const initialPrompt = effectiveDraft.initialPrompt.trim() || undefined;
   return {
     launch: {
       path: options.path,
       workspaceName: options.workspaceName,
       workspacePath: options.workspacePath,
       providerId:
-        (draft.providerSelection === "explicit" ? draft.providerId : options.providerId) ?? "",
-      providerSelection: draft.providerSelection,
-      launchProfileId: draft.launchProfileId ?? options.launchProfileId,
-      cliTool: draft.cliTool,
+        (effectiveDraft.providerSelection === "explicit" ? effectiveDraft.providerId : options.providerId) ?? "",
+      providerSelection: effectiveDraft.providerSelection,
+      launchProfileId: effectiveDraft.launchProfileId ?? options.launchProfileId,
+      cliTool: effectiveDraft.cliTool,
       ssh: options.ssh,
       wsl: options.wsl,
       machineName: options.machineName,
-      targetLayoutId: draft.targetLayoutId,
-      skipMcp: draft.skipMcp || undefined,
+      targetLayoutId: effectiveDraft.targetLayoutId,
+      skipMcp: effectiveDraft.skipMcp || undefined,
       appendSystemPrompt,
       initialPrompt,
-      yolo: draft.yolo,
-      adapterOptions: buildAdapterOptions(draft),
+      yolo: effectiveDraft.yolo,
+      adapterOptions: buildAdapterOptions(effectiveDraft),
     },
     issue: null,
   };

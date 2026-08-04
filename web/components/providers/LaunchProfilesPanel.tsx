@@ -6,14 +6,18 @@ import { Cable, KeyRound, Layers3, Link2, Pencil, Plus, Save, Settings2, Sparkle
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLaunchProfilesStore, usePanesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
-import type { DiscoveredExternalSkill, InstalledUserSkill, KimiConfigMode, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
+import type { DiscoveredExternalSkill, InstalledUserSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
 import { cn } from "@/lib/utils";
 import ProviderToolTabs from "./ProviderToolTabs";
 import SharedMcpSection from "@/components/settings/SharedMcpSection";
-import { CLI_TOOL_TABS, getCompatibleCliTools } from "@/types/provider";
+import { CLI_TOOL_TABS } from "@/types/provider";
+import { useCliTools } from "@/hooks/useCliTools";
+import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
 import type { KnownCliTool } from "@/types/terminal";
 import type { Workspace } from "@/types/workspace";
 import { skillService } from "@/services/skillService";
+import { EFFORT_LEVELS } from "@/constants/effortMapping";
+import type { LaunchEffort } from "@/types/terminal";
 
 const SYSTEM_DEFAULT_PROFILE_ID = "__system_default__";
 const WORKSPACE_FILTER_ALL = "__all_workspaces__";
@@ -68,10 +72,6 @@ function launchEnvironmentLabel(targetTools: string[], fallbackTool: KnownCliToo
 
 function runtimeLabel(runtime: LaunchProfileRuntime, t: TFunction<["providers", "common"]>): string {
   return runtime ? t(`runtime.${runtime}`) : t("runtimeAll");
-}
-
-function kimiConfigMode(options?: LaunchProfileDraft["adapterOptions"]): KimiConfigMode {
-  return options?.kimiConfigMode === "native" ? "native" : "managed";
 }
 
 function isSharedMcpServerSelected(policy: LaunchProfileDraft["mcpPolicy"], name: string): boolean {
@@ -177,6 +177,7 @@ function systemDefaultLaunchProfileDraft(tool: KnownCliTool, runtime: LaunchProf
     alias: t("systemDefaultName", { tool: toolLabel(tool, t) }),
     description: t("systemDefaultDescription"),
     providerId: null,
+    modelId: null,
     adapterOptions: {},
     targetTools: [tool],
     targetRuntime: runtime,
@@ -209,6 +210,7 @@ function toDraft(profile: LaunchProfile): LaunchProfileDraft {
     alias: profile.alias ?? profile.name,
     description: profile.description ?? "",
     providerId: profile.providerId ?? null,
+    modelId: profile.modelId ?? null,
     adapterOptions: { ...(profile.adapterOptions ?? {}) },
     targetTools: profile.targetTools,
     targetRuntime: profile.targetRuntime ?? null,
@@ -280,6 +282,7 @@ export default function LaunchProfilesPanel({
   initialRuntime = null,
   onActiveToolChange,
 }: LaunchProfilesPanelProps) {
+  const { tools: cliTools } = useCliTools();
   const { t } = useTranslation(["providers", "common"]);
   const profiles = useLaunchProfilesStore((s) => s.profiles);
   const loadProfiles = useLaunchProfilesStore((s) => s.load);
@@ -430,8 +433,7 @@ export default function LaunchProfilesPanel({
   );
   const isSystemDefaultSelected = selectedId === SYSTEM_DEFAULT_PROFILE_ID;
   const isNewProfile = selectedId === null;
-  const currentKimiConfigMode = kimiConfigMode(draft.adapterOptions);
-  const providerDisabled = isSystemDefaultSelected || activeTool === "kimi";
+  const providerDisabled = isSystemDefaultSelected;
   const filteredProfiles = useMemo(() => {
     const compatible = profiles.filter((profile) => profileMatchesTool(profile, activeTool));
     if (!workspaceContext) return compatible;
@@ -446,11 +448,16 @@ export default function LaunchProfilesPanel({
     }
     return counts;
   }, [profiles]);
-  const compatibleProviders = useMemo(
-    () => providers.filter((provider) => getCompatibleCliTools(provider.providerType).includes(activeTool)),
-    [activeTool, providers],
-  );
+  const compatibleProviders = useMemo(() => providers.filter((provider) => isProviderTypeCompatibleWithCli(provider.providerType, activeTool, cliTools)), [activeTool, cliTools, providers]);
   const selectedDraftProvider = providers.find((provider) => provider.id === draft.providerId);
+  const selectedProviderModels = selectedDraftProvider?.models ?? [];
+  const selectedProviderDefaultModel = selectedProviderModels.find(
+    (model) => model.id === selectedDraftProvider?.defaultModelId,
+  ) ?? selectedProviderModels[0];
+  const selectedEffectiveModel = draft.modelId
+    ? selectedProviderModels.find((model) => model.id === draft.modelId)
+    : selectedProviderDefaultModel;
+  const selectedProfileEffort = draft.adapterOptions?.effort;
   const providerOptions = selectedDraftProvider && !compatibleProviders.some((provider) => provider.id === selectedDraftProvider.id)
     ? [selectedDraftProvider, ...compatibleProviders]
     : compatibleProviders;
@@ -541,10 +548,9 @@ export default function LaunchProfilesPanel({
         ...draft,
         name: draft.name?.trim() || alias,
         alias,
-        providerId: isSystemDefaultSelected || activeTool === "kimi" ? null : draft.providerId,
-        adapterOptions: activeTool === "kimi"
-          ? { ...(draft.adapterOptions ?? {}), kimiConfigMode: currentKimiConfigMode }
-          : draft.adapterOptions ?? {},
+        providerId: isSystemDefaultSelected ? null : draft.providerId,
+        modelId: isSystemDefaultSelected || !draft.providerId ? null : draft.modelId,
+        adapterOptions: draft.adapterOptions ?? {},
         isDefault: isSystemDefaultSelected ? true : draft.isDefault,
         targetTools: [activeTool],
         targetRuntime: draft.targetRuntime ?? null,
@@ -571,7 +577,7 @@ export default function LaunchProfilesPanel({
     } catch (error) {
       toast.error(t("common:saveFailed", { error: String(error) }));
     }
-  }, [activeTool, createProfile, currentKimiConfigMode, draft, isSystemDefaultSelected, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
+  }, [activeTool, createProfile, draft, isSystemDefaultSelected, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedProfile || isSystemDefaultSelected) return;
@@ -666,16 +672,6 @@ export default function LaunchProfilesPanel({
         },
       };
     });
-  };
-  const setKimiConfigMode = (mode: KimiConfigMode) => {
-    setDraft((current) => ({
-      ...current,
-      providerId: null,
-      adapterOptions: {
-        ...(current.adapterOptions ?? {}),
-        kimiConfigMode: mode,
-      },
-    }));
   };
   const toggleServer = (name: string) => {
     setDraft((current) => {
@@ -987,6 +983,10 @@ export default function LaunchProfilesPanel({
   const previewProviderLabel = isSystemDefaultSelected
     ? t("previewSystemProvider")
     : preview?.providerName ?? t("noProviderSpecified");
+  const previewModelLabel = isSystemDefaultSelected
+    ? t("nativeCliDefaultModel")
+    : preview?.modelLabel ?? preview?.modelId ?? selectedProviderDefaultModel?.label
+      ?? selectedProviderDefaultModel?.id ?? t("nativeCliDefaultModel");
   const previewMcpCount = preview?.mcpServers.filter((server) => server.enabled).length ?? 0;
   const previewSkillCount = preview?.skills.filter((skill) => skill.enabled).length ?? 0;
   const mcpDisabled = draft.mcpPolicy.mode === "disabled";
@@ -1209,7 +1209,7 @@ export default function LaunchProfilesPanel({
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-4">
-              <PreviewItem label="Provider" value={previewProviderLabel} />
+              <PreviewItem label="Provider / Model" value={`${previewProviderLabel} / ${previewModelLabel}`} />
               <PreviewItem label="MCP" value={t("enabledCount", { count: previewMcpCount })} />
               <PreviewItem label="Skill" value={t("enabledCount", { count: previewSkillCount })} />
               <PreviewItem
@@ -1315,32 +1315,77 @@ export default function LaunchProfilesPanel({
                     className={inputClass}
                     disabled={providerDisabled}
                     value={draft.providerId ?? ""}
-                    onChange={(event) => setDraft({ ...draft, providerId: event.target.value || null })}
+                    onChange={(event) => setDraft((current) => {
+                      const adapterOptions = { ...(current.adapterOptions ?? {}) };
+                      if (activeTool === "kimi") delete adapterOptions.kimiConfigMode;
+                      return {
+                        ...current,
+                        providerId: event.target.value || null,
+                        modelId: null,
+                        adapterOptions,
+                      };
+                    })}
                   >
                     <option value="">{t("noProviderSpecified")}</option>
                     {providerOptions.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
                   </select>
                 </Field>
               </div>
-              {activeTool === "kimi" && (
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <Field label={t("fieldKimiConfigSource")}>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <Field label={t("fieldModel")}>
+                  <select
+                    className={inputClass}
+                    disabled={providerDisabled || !draft.providerId || selectedProviderModels.length === 0}
+                    value={draft.modelId ?? ""}
+                    onChange={(event) => setDraft({ ...draft, modelId: event.target.value || null })}
+                  >
+                    <option value="">
+                      {selectedProviderDefaultModel
+                        ? t("useProviderDefaultModel", {
+                            model: selectedProviderDefaultModel.label || selectedProviderDefaultModel.id,
+                          })
+                        : t("nativeCliDefaultModel")}
+                    </option>
+                    {draft.modelId && !selectedProviderModels.some((model) => model.id === draft.modelId) && (
+                      <option value={draft.modelId}>{t("missingProviderModel", { model: draft.modelId })}</option>
+                    )}
+                    {selectedProviderModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label ? `${model.label} (${model.id})` : model.id}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {(activeTool === "claude" || activeTool === "codex") && (
+                  <Field label={t("fieldReasoningEffort")}>
                     <select
                       className={inputClass}
-                      value={currentKimiConfigMode}
-                      onChange={(event) => setKimiConfigMode(event.target.value as KimiConfigMode)}
+                      disabled={providerDisabled}
+                      value={selectedProfileEffort ?? ""}
+                      onChange={(event) => setDraft((current) => {
+                        const adapterOptions = { ...(current.adapterOptions ?? {}) };
+                        if (event.target.value) {
+                          adapterOptions.effort = event.target.value as LaunchEffort;
+                        } else {
+                          delete adapterOptions.effort;
+                        }
+                        return { ...current, adapterOptions };
+                      })}
                     >
-                      <option value="managed">{t("kimiConfig.managed")}</option>
-                      <option value="native">{t("kimiConfig.native")}</option>
+                      <option value="">
+                        {selectedEffectiveModel?.defaultEffort
+                          ? t("useModelDefaultEffort", {
+                              effort: t(`reasoningEffortLevel.${selectedEffectiveModel.defaultEffort}`),
+                            })
+                          : t("useCliDefaultEffort")}
+                      </option>
+                      {EFFORT_LEVELS.map((level) => (
+                        <option key={level} value={level}>{t(`reasoningEffortLevel.${level}`)}</option>
+                      ))}
                     </select>
                   </Field>
-                  <div className="rounded-md border border-[var(--app-status-warning-border)] px-3 py-2 text-xs leading-5 text-[var(--app-status-warning)]">
-                    {currentKimiConfigMode === "native"
-                      ? t("kimiNativeHint")
-                      : t("kimiManagedHint")}
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
               <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <Field label={t("fieldApplicableCli")}>
                   <div className={cn(inputClass, "flex items-center")}>

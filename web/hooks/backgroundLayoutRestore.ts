@@ -78,6 +78,7 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
           rows: 24,
           workspaceName: freshLeaf.workspaceName ?? tab.workspaceName,
           providerId: freshLeaf.providerId ?? tab.providerId,
+          modelId: freshLeaf.modelId ?? tab.modelId,
           providerSelection: freshLeaf.providerSelection ?? tab.providerSelection,
           launchProfileId: freshLeaf.launchProfileId ?? tab.launchProfileId,
           workspacePath: freshLeaf.workspacePath ?? tab.workspacePath,

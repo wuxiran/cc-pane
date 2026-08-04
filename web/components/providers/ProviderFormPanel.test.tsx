@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -29,6 +29,10 @@ vi.mock("@/services/filesystemService", () => ({
     readFile: vi.fn(),
     writeFile: vi.fn(),
   },
+}));
+
+vi.mock("@/hooks/useCliTools", () => ({
+  useCliTools: () => ({ tools: [] }),
 }));
 
 vi.mock("sonner", () => ({
@@ -63,6 +67,10 @@ function makeProvider(overrides: Partial<Provider> = {}): Provider {
 }
 
 const jsonEditor = () => screen.getByTestId("json-editor") as HTMLTextAreaElement;
+const revealJson = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getByRole("button", { name: i18n.t("settings:showSensitiveJson") }));
+  return screen.findByTestId("json-editor");
+};
 
 describe("ProviderFormPanel", () => {
   beforeEach(() => {
@@ -83,6 +91,7 @@ describe("ProviderFormPanel", () => {
 
     await user.type(screen.getByPlaceholderText("sk-ant-..."), "sk-key");
     await user.type(screen.getByPlaceholderText("https://api.anthropic.com"), "https://x.dev");
+    await revealJson(user);
 
     await waitFor(() => {
       const parsed = JSON.parse(jsonEditor().value);
@@ -94,6 +103,7 @@ describe("ProviderFormPanel", () => {
   it("parses config JSON edits back into the form fields", async () => {
     setupStore();
     render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+    await revealJson(userEvent.setup());
 
     const { fireEvent } = await import("@testing-library/react");
     fireEvent.change(jsonEditor(), {
@@ -120,11 +130,23 @@ describe("ProviderFormPanel", () => {
     await user.type(screen.getByPlaceholderText("https://api.anthropic.com"), "https://x.dev");
     // anthropic → bedrock：baseUrl/apiKey 不再适用
     await user.selectOptions(screen.getByRole("combobox"), "bedrock");
+    await revealJson(user);
 
     expect(screen.queryByPlaceholderText("https://api.anthropic.com")).not.toBeInTheDocument();
     const parsed = JSON.parse(jsonEditor().value);
     expect(parsed.env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(parsed.env.CLAUDE_CODE_USE_BEDROCK).toBe("1");
+  });
+
+  it("does not render API keys in the JSON editor until explicitly revealed", async () => {
+    const user = userEvent.setup();
+    const existing = makeProvider({ apiKey: "visible-only-after-confirmation" });
+    setupStore([existing]);
+    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+
+    expect(screen.queryByTestId("json-editor")).not.toBeInTheDocument();
+    await revealJson(user);
+    expect(jsonEditor().value).toContain("visible-only-after-confirmation");
   });
 
   it("requires a name before saving", async () => {
@@ -181,6 +203,118 @@ describe("ProviderFormPanel", () => {
       );
     });
     expect(actions.addProvider).not.toHaveBeenCalled();
+  });
+
+  it("hydrates a legacy provider with an empty model catalog", async () => {
+    const user = userEvent.setup();
+    const existing = makeProvider();
+    const actions = setupStore([existing]);
+    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+
+    expect(screen.getByText(i18n.t("settings:noProviderModels"))).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+
+    await waitFor(() => {
+      expect(actions.updateProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ models: [], defaultModelId: null })
+      );
+    });
+  });
+
+  it("adds the first model as the default and saves the catalog", async () => {
+    const user = userEvent.setup();
+    const actions = setupStore();
+    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+
+    await user.type(
+      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
+      "Model Provider"
+    );
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("settings:addProviderModel") })
+    );
+    const row = screen.getByTestId("provider-model-row-0");
+    await user.type(
+      within(row).getByLabelText(i18n.t("settings:providerModelId")),
+      "claude-sonnet-4-5"
+    );
+    await user.type(
+      within(row).getByLabelText(i18n.t("settings:providerModelLabel")),
+      "Sonnet 4.5"
+    );
+    await user.selectOptions(
+      within(row).getByLabelText(i18n.t("settings:providerModelDefaultEffort")),
+      "high"
+    );
+
+    expect(
+      within(row).getByRole("button", {
+        name: i18n.t("settings:defaultProviderModel"),
+      })
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await waitFor(() => {
+      expect(actions.addProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: [{
+            id: "claude-sonnet-4-5",
+            label: "Sonnet 4.5",
+            defaultEffort: "high",
+          }],
+          defaultModelId: "claude-sonnet-4-5",
+        })
+      );
+    });
+  });
+
+  it("hydrates model rows and supports changing and removing the default", async () => {
+    const user = userEvent.setup();
+    const existing = {
+      ...makeProvider(),
+      models: [
+        { id: "claude-sonnet-4-5", label: "Sonnet 4.5" },
+        { id: "claude-opus-4-1", label: "Opus 4.1" },
+      ],
+      defaultModelId: "claude-opus-4-1",
+    } as Provider;
+    const actions = setupStore([existing]);
+    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+
+    const rows = screen.getAllByTestId(/^provider-model-row-/);
+    expect(
+      within(rows[0]).getByLabelText(i18n.t("settings:providerModelId"))
+    ).toHaveValue("claude-sonnet-4-5");
+    expect(
+      within(rows[1]).getByRole("button", {
+        name: i18n.t("settings:defaultProviderModel"),
+      })
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(
+      within(rows[0]).getByRole("button", {
+        name: i18n.t("settings:setDefaultProviderModel"),
+      })
+    );
+    await user.click(
+      within(rows[1]).getByRole("button", {
+        name: i18n.t("settings:removeProviderModel"),
+      })
+    );
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+
+    await waitFor(() => {
+      expect(actions.updateProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: [{
+            id: "claude-sonnet-4-5",
+            label: "Sonnet 4.5",
+            defaultEffort: null,
+          }],
+          defaultModelId: "claude-sonnet-4-5",
+        })
+      );
+    });
   });
 
   it("shows save failures as an error toast and stays on the form", async () => {

@@ -3,6 +3,7 @@ use crate::models::launch_profile::{
 };
 use crate::services::{LaunchProfileService, ProviderService, SharedMcpService, WorkspaceService};
 use crate::utils::AppResult;
+use cc_cli_adapters::CliToolRegistry;
 use std::sync::Arc;
 use tauri::State;
 
@@ -61,16 +62,21 @@ pub fn preview_launch_profile_resolution(
     workspaces: State<'_, Arc<WorkspaceService>>,
     providers: State<'_, Arc<ProviderService>>,
     shared_mcp: State<'_, Arc<SharedMcpService>>,
+    cli_registry: State<'_, Arc<CliToolRegistry>>,
 ) -> AppResult<LaunchProfileResolution> {
     let workspace_list = workspaces.list_workspaces()?;
     let provider_list = providers.list_providers();
+    let default_provider_id =
+        providers.get_default_provider_id(request.cli_tool.as_deref().unwrap_or("claude"));
     let shared_config = shared_mcp.get_config();
     let running_urls = shared_mcp.get_running_servers_urls();
-    Ok(launch_profiles.resolve_profile(
+    launch_profiles.resolve_profile_with_provider(
         &request,
         &workspace_list,
         &provider_list,
+        default_provider_id.as_deref(),
         &shared_config,
         &running_urls,
-    ))
+        cli_registry.inner(),
+    )
 }

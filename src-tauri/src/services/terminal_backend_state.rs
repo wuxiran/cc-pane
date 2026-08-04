@@ -424,6 +424,7 @@ mod tests {
             rows: 24,
             workspace_name: None,
             provider_id: None,
+            model_id: None,
             provider_selection: LaunchProviderSelection::None,
             launch_profile_id: None,
             workspace_path: None,

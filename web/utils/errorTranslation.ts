@@ -136,6 +136,15 @@ export function toTerminalLaunchError(error: unknown): TerminalLaunchError {
     }
   }
 
+  if (error instanceof Error) {
+    try {
+      const parsed = JSON.parse(error.message) as BackendError;
+      if (isBackendError(parsed)) return toTerminalLaunchError(parsed);
+    } catch {
+      // Tauri errors may be plain display text rather than JSON.
+    }
+  }
+
   const message = typeof error === "object" && error !== null && "message" in error
     ? String((error as { message: unknown }).message)
     : String(error);

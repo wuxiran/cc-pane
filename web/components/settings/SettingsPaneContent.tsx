@@ -98,11 +98,13 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
   const hasOwnCardLayout = ["setup-guide", "provider", "cli-launchers", "shared-mcp", "quick-commands", "experimental"].includes(props.paneId);
+  const fillsAvailableHeight = props.paneId === "provider" || props.paneId === "quick-commands";
   return (
     <div
       data-settings-section={`${props.paneId}-root`}
       className={cn(
         "scroll-m-8 [&>div>h3:first-child]:hidden [&>div>p:first-of-type]:hidden",
+        fillsAvailableHeight && "h-full min-h-0",
         !hasOwnCardLayout && [
           "[&>div]:gap-4",
           "[&>div>div]:rounded-lg [&>div>div]:border [&>div>div]:border-[var(--app-border)] [&>div>div]:bg-[var(--app-panel-bg)] [&>div>div]:px-5 [&>div>div]:py-4 [&>div>div]:shadow-sm",

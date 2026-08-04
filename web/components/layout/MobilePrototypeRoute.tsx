@@ -75,6 +75,8 @@ export default function MobilePrototypeRoute() {
         customTitle: projectName,
         workspaceName: workspace.name,
         workspacePath,
+        providerId: workspace.providerId,
+        providerSelection: "inherit",
         launchProfileId,
         ssh: project.ssh,
         wsl,
@@ -91,7 +93,7 @@ export default function MobilePrototypeRoute() {
         workspacePath,
         project.ssh ? project.path : (workspacePath ?? project.path),
         workspace.providerId,
-        undefined,
+        "inherit",
         workspaceSnapshotId,
         launchProfileId,
       ).then(() => {

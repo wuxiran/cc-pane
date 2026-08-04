@@ -80,15 +80,24 @@ pub async fn preview_launch_profile_resolution(
         .list_workspaces()
         .map_err(service_error)?;
     let providers = state.provider_service.list_providers();
+    let default_provider_id = state
+        .provider_service
+        .get_default_provider_id(request.cli_tool.as_deref().unwrap_or("claude"));
     let shared_config = state.shared_mcp_service.get_config();
     let running_urls = state.shared_mcp_service.get_running_servers_urls();
-    Ok(Json(state.launch_profile_service.resolve_profile(
-        &request,
-        &workspaces,
-        &providers,
-        &shared_config,
-        &running_urls,
-    )))
+    state
+        .launch_profile_service
+        .resolve_profile_with_provider(
+            &request,
+            &workspaces,
+            &providers,
+            default_provider_id.as_deref(),
+            &shared_config,
+            &running_urls,
+            &state.cli_registry,
+        )
+        .map(Json)
+        .map_err(service_error)
 }
 
 #[cfg(test)]

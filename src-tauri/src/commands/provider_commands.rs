@@ -49,9 +49,16 @@ pub fn remove_provider(id: String, service: State<'_, Arc<ProviderService>>) -> 
 }
 
 #[tauri::command]
-pub fn set_default_provider(id: String, service: State<'_, Arc<ProviderService>>) -> AppResult<()> {
-    debug!(id = %id, "cmd::set_default_provider");
-    Ok(service.set_default(&id)?)
+pub fn set_default_provider(
+    id: String,
+    cli_tool: Option<String>,
+    service: State<'_, Arc<ProviderService>>,
+) -> AppResult<()> {
+    debug!(id = %id, cli_tool = ?cli_tool, "cmd::set_default_provider");
+    match cli_tool {
+        Some(cli_tool) => Ok(service.set_default_for_cli(&cli_tool, &id)?),
+        None => Ok(service.set_default(&id)?),
+    }
 }
 
 /// 探测「系统环境变量」条目：是否可用（cc-switch 已安装或宿主已设 Anthropic 凭证）、

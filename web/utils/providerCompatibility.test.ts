@@ -1,0 +1,113 @@
+import { describe, expect, it } from "vitest";
+import type { CliToolInfo } from "@/types";
+import {
+  compatibleCliToolsForProviderType,
+  compatibleProviderTypesForCli,
+  isProviderTypeCompatibleWithCli,
+} from "./providerCompatibility";
+
+const tools: CliToolInfo[] = [
+  {
+    id: "claude",
+    displayName: "Claude Code",
+    executable: "claude",
+    versionArgs: [],
+    installed: true,
+    version: null,
+    path: null,
+    capabilities: {
+      supportsProvider: true,
+      supportsResume: true,
+      supportsMcp: true,
+      supportsSystemPrompt: true,
+      supportsWorkspace: true,
+      supportsProjectHooks: true,
+      compatibleProviderTypes: ["anthropic", "proxy", "config_profile"],
+    },
+  },
+  {
+    id: "codex",
+    displayName: "Codex",
+    executable: "codex",
+    versionArgs: [],
+    installed: true,
+    version: null,
+    path: null,
+    capabilities: {
+      supportsProvider: true,
+      supportsResume: true,
+      supportsMcp: true,
+      supportsSystemPrompt: true,
+      supportsWorkspace: true,
+      supportsProjectHooks: true,
+      compatibleProviderTypes: ["open_ai"],
+    },
+  },
+];
+
+describe("provider compatibility from adapter capabilities", () => {
+  it("uses the Rust capability list for filtering", () => {
+    expect(compatibleProviderTypesForCli("codex", tools)).toEqual(["open_ai"]);
+    expect(isProviderTypeCompatibleWithCli("open_ai", "codex", tools)).toBe(true);
+    expect(isProviderTypeCompatibleWithCli("anthropic", "codex", tools)).toBe(false);
+  });
+
+  it("plain shell never accepts a provider", () => {
+    expect(compatibleProviderTypesForCli("none", tools)).toEqual([]);
+    expect(isProviderTypeCompatibleWithCli("anthropic", "none", tools)).toBe(false);
+  });
+
+  it("derives provider tabs from the same capability data", () => {
+    expect(
+      compatibleCliToolsForProviderType("open_ai", tools, ["claude", "codex"]),
+    ).toEqual(["codex"]);
+  });
+
+  it("keeps UI usable while capabilities are unavailable", () => {
+    expect(isProviderTypeCompatibleWithCli("grok", "grok", [])).toBe(true);
+  });
+
+  it("uses the stable provider mapping while capabilities are loading", () => {
+    expect(isProviderTypeCompatibleWithCli("open_ai", "codex", [])).toBe(true);
+    expect(isProviderTypeCompatibleWithCli("anthropic", "codex", [])).toBe(false);
+    expect(
+      compatibleCliToolsForProviderType("anthropic", [], ["claude", "codex"]),
+    ).toEqual(["claude"]);
+  });
+
+  it("keeps the loading fallback aligned with every CLI adapter", () => {
+    const candidates = [
+      "claude",
+      "codex",
+      "gemini",
+      "kimi",
+      "glm",
+      "opencode",
+      "cursor",
+      "grok",
+    ] as const;
+
+    expect(compatibleCliToolsForProviderType("anthropic", [], candidates)).toEqual([
+      "claude",
+      "opencode",
+    ]);
+    expect(compatibleCliToolsForProviderType("open_ai", [], candidates)).toEqual([
+      "codex",
+      "opencode",
+    ]);
+    expect(compatibleCliToolsForProviderType("opencode", [], candidates)).toEqual([
+      "opencode",
+    ]);
+    expect(compatibleCliToolsForProviderType("bedrock", [], candidates)).toEqual(["claude"]);
+    expect(compatibleCliToolsForProviderType("vertex", [], candidates)).toEqual(["claude"]);
+    expect(compatibleCliToolsForProviderType("proxy", [], candidates)).toEqual(["claude"]);
+    expect(compatibleCliToolsForProviderType("config_profile", [], candidates)).toEqual([
+      "claude",
+    ]);
+    expect(compatibleCliToolsForProviderType("gemini", [], candidates)).toEqual(["gemini"]);
+    expect(compatibleCliToolsForProviderType("kimi", [], candidates)).toEqual(["kimi"]);
+    expect(compatibleCliToolsForProviderType("glm", [], candidates)).toEqual(["glm"]);
+    expect(compatibleCliToolsForProviderType("cursor", [], candidates)).toEqual(["cursor"]);
+    expect(compatibleCliToolsForProviderType("grok", [], candidates)).toEqual(["grok"]);
+  });
+});

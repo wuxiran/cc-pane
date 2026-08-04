@@ -6,6 +6,7 @@
 //! 新增一个 CLI 工具 = 新建一个文件实现 trait + 注册一行代码
 //! ```
 
+mod atomic_file;
 mod claude;
 mod codex;
 mod cursor;
@@ -527,6 +528,7 @@ pub struct ProjectHookStatus {
 }
 
 /// 构建命令的上下文（扁平字段，避免依赖主 crate 类型）
+#[derive(Clone)]
 pub struct CliAdapterContext {
     pub session_id: String,
     pub project_path: String,
@@ -571,6 +573,14 @@ pub struct CliAdapterContext {
 }
 
 impl CliAdapterContext {
+    pub fn model_id(&self) -> Option<&str> {
+        self.adapter_options
+            .get("__ccpanesModelId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
     pub fn command_override(&self) -> Option<&str> {
         self.executable_override
             .as_deref()
@@ -616,20 +626,28 @@ impl CliAdapterContext {
     /// 批处理文件——而 npm 全局安装的 CLI（opencode/gemini/kimi/crush/cursor 等）
     /// 解析出来的正是 `.cmd` shim。此方法负责把 `.cmd` 改写为 `node <entry>` 形式。
     ///
-    /// 用户显式 override 的命令不做改写，原样透传。
+    /// 用户显式 override 也必须经过 Windows npm shim 改写；绝对路径和裸命令都可能指向
+    /// `.cmd`/`.bat`，而 ConPTY 的 CreateProcess 不能直接启动批处理文件。
     pub fn resolve_launch(
         &self,
         executable: &str,
         args: Vec<String>,
     ) -> Result<(String, Vec<String>)> {
-        if let Some(command) = self.resolved_override() {
-            return Ok((command, args));
-        }
-        let path = resolve_executable(executable)?;
-        Ok(rewrite_windows_npm_shim(
-            path.to_string_lossy().into_owned(),
-            args,
-        ))
+        let command = if let Some(command) = self.resolved_override() {
+            command
+        } else {
+            resolve_executable(executable)?
+                .to_string_lossy()
+                .into_owned()
+        };
+        Ok(rewrite_windows_npm_shim(command, args))
+    }
+}
+
+pub(crate) fn push_model_arg(args: &mut Vec<String>, ctx: &CliAdapterContext) {
+    if let Some(model_id) = ctx.model_id() {
+        args.push("--model".to_string());
+        args.push(model_id.to_string());
     }
 }
 
@@ -966,14 +984,45 @@ pub fn redact_cli_text_for_log(text: &str) -> String {
 /// 掩码文本中所有 `token=<value>`（大小写不敏感）。
 /// 裸值掩码到 `&`/引号/空白 为止；引号值（`token='x'` / `token="x"`）掩码引号内内容。
 pub fn mask_token_values(text: &str) -> String {
-    const NEEDLE: &str = "token=";
-    let lower = text.to_lowercase();
+    let mut masked = text.to_string();
+    for needle in [
+        "token=",
+        "api_key=",
+        "apikey=",
+        "authorization=",
+        "auth=",
+        "header=",
+    ] {
+        masked = mask_assignment_values(&masked, needle);
+    }
+    mask_bearer_values(&masked)
+}
+
+fn mask_assignment_values(text: &str, needle: &str) -> String {
+    let lower = text.to_ascii_lowercase();
     let mut out = String::with_capacity(text.len());
     let mut cursor = 0;
-    while let Some(rel) = lower[cursor..].find(NEEDLE) {
-        let value_start = cursor + rel + NEEDLE.len();
+    while let Some(rel) = lower[cursor..].find(needle) {
+        let value_start = cursor + rel + needle.len();
         out.push_str(&text[cursor..value_start]);
         let tail = &text[value_start..];
+        if matches!(needle, "authorization=" | "auth=")
+            && tail.to_ascii_lowercase().starts_with("bearer ")
+        {
+            let value_len = tail
+                .find(|character: char| {
+                    character == '&'
+                        || character == ','
+                        || character == '"'
+                        || character == '\''
+                        || character == '\r'
+                        || character == '\n'
+                })
+                .unwrap_or(tail.len());
+            out.push_str("***");
+            cursor = value_start + value_len;
+            continue;
+        }
         cursor = match tail.chars().next() {
             Some(quote @ ('\'' | '"')) => {
                 let inner = &tail[1..];
@@ -1000,6 +1049,32 @@ pub fn mask_token_values(text: &str) -> String {
     out
 }
 
+fn mask_bearer_values(text: &str) -> String {
+    const NEEDLE: &str = "bearer ";
+    let lower = text.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0;
+    while let Some(relative) = lower[cursor..].find(NEEDLE) {
+        let value_start = cursor + relative + NEEDLE.len();
+        out.push_str(&text[cursor..value_start]);
+        let value_len = text[value_start..]
+            .find(|character: char| {
+                character == '&'
+                    || character == ','
+                    || character == '"'
+                    || character == '\''
+                    || character.is_whitespace()
+            })
+            .unwrap_or(text.len() - value_start);
+        if value_len > 0 {
+            out.push_str("***");
+        }
+        cursor = value_start + value_len;
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
 #[cfg(test)]
 mod redact_tests {
     use super::*;
@@ -1013,6 +1088,14 @@ mod redact_tests {
         assert_eq!(
             mask_token_values("export CC_PANES_API_TOKEN='secret'"),
             "export CC_PANES_API_TOKEN='***'"
+        );
+        assert_eq!(
+            mask_token_values("api_key=secret Authorization=Bearer another-secret"),
+            "api_key=*** Authorization=***"
+        );
+        assert_eq!(
+            mask_token_values("HEADER='X-Api-Key: secret'&auth=credential"),
+            "HEADER='***'&auth=***"
         );
     }
 
@@ -1393,6 +1476,36 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  \"%dp0%\\n
             vec![
                 entry.to_string_lossy().into_owned(),
                 "hello prompt".to_string()
+            ]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_launch_rewrites_explicit_batch_override() {
+        let dir = fresh_dir("override_rewrite");
+        let shim = dir.join("opencode.cmd");
+        std::fs::write(&shim, NPM_SHIM_CMD).unwrap();
+        let node = dir.join("node.exe");
+        std::fs::write(&node, b"").unwrap();
+        let entry = dir
+            .join("node_modules")
+            .join("opencode-ai")
+            .join("bin")
+            .join("opencode");
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(&entry, b"").unwrap();
+
+        let ctx = test_context(Some(&shim.to_string_lossy()));
+        let (command, args) = ctx
+            .resolve_launch("unused", vec!["--version".to_string()])
+            .unwrap();
+        assert_eq!(command, node.to_string_lossy());
+        assert_eq!(
+            args,
+            vec![
+                entry.to_string_lossy().into_owned(),
+                "--version".to_string()
             ]
         );
     }

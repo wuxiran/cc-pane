@@ -65,6 +65,8 @@ fn import_provider(service: &ProviderService, p: ProviderImport) -> AppResult<St
         project_id: None,
         aws_profile: None,
         config_dir: None,
+        models: Vec::new(),
+        default_model_id: None,
         is_default: false,
     };
     // 原子去重 + 插入（同一把锁），避免并发导入堆重复项。

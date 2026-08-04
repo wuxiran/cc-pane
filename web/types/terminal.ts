@@ -106,6 +106,7 @@ export interface TerminalPaneLeaf {
   resumeIdSource?: string;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
   workspacePath?: string;
@@ -153,6 +154,7 @@ export interface Tab {
   resumeIdSource?: string;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
   workspacePath?: string;
@@ -201,6 +203,7 @@ export interface CreateSessionRequest {
   rows: number;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
   workspacePath?: string;
@@ -230,6 +233,7 @@ export interface OpenTerminalOptions {
   path: string;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
   workspacePath?: string;

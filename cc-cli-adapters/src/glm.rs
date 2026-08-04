@@ -1,7 +1,8 @@
 //! GLM CLI 适配器（底层执行 crush）
 
 use crate::{
-    CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
+    atomic_file::write_atomic_if_absent, CliAdapterContext, CliCommandResult, CliToolAdapter,
+    CliToolCapabilities, CliToolInfo,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -33,7 +34,7 @@ impl GlmAdapter {
                 supports_workspace: true,
                 supports_project_hooks: false,
                 supports_issued_session_id: false,
-                compatible_provider_types: vec!["glm".into(), "config_profile".into()],
+                compatible_provider_types: vec!["glm".into()],
             },
         }
     }
@@ -55,31 +56,27 @@ impl CliToolAdapter for GlmAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let adapter_root = ctx.data_dir.join("cli-adapters").join("glm");
-        let config_path = adapter_root.join("crush.json");
-        let data_path = adapter_root.join("data");
         let launch_cwd = ctx
             .workspace_path
             .clone()
             .unwrap_or_else(|| ctx.project_path.clone());
-
-        std::fs::create_dir_all(&data_path)?;
-        if !config_path.exists() {
-            std::fs::write(&config_path, b"{}\n")?;
-        }
-
-        let mut env_inject = HashMap::from([
-            (
+        let mut env_inject = HashMap::new();
+        let mut managed_data_path = None;
+        if let Some(provider) = ctx.provider.as_ref() {
+            let adapter_root = ctx.data_dir.join("cli-adapters").join("glm");
+            let config_path = adapter_root.join("crush.json");
+            let data_path = adapter_root.join("data");
+            std::fs::create_dir_all(&data_path)?;
+            write_atomic_if_absent(&config_path, b"{}\n")?;
+            env_inject.insert(
                 "CRUSH_GLOBAL_CONFIG".to_string(),
                 config_path.to_string_lossy().into_owned(),
-            ),
-            (
+            );
+            env_inject.insert(
                 "CRUSH_GLOBAL_DATA".to_string(),
                 data_path.to_string_lossy().into_owned(),
-            ),
-        ]);
-
-        if let Some(provider) = ctx.provider.as_ref() {
+            );
+            managed_data_path = Some(data_path);
             if provider.provider_type == "glm" {
                 if let Some(api_key) = provider.api_key.as_ref() {
                     env_inject.insert("ZAI_API_KEY".to_string(), api_key.clone());
@@ -90,12 +87,13 @@ impl CliToolAdapter for GlmAdapter {
             }
         }
 
-        let mut args = vec![
-            "--cwd".to_string(),
-            launch_cwd,
-            "--data-dir".to_string(),
-            data_path.to_string_lossy().into_owned(),
-        ];
+        let mut args = vec!["--cwd".to_string(), launch_cwd];
+        if let Some(data_path) = managed_data_path {
+            args.push("--data-dir".to_string());
+            args.push(data_path.to_string_lossy().into_owned());
+        }
+
+        crate::push_model_arg(&mut args, ctx);
 
         if let Some(resume_id) = ctx.resume_id.as_ref() {
             args.push("--session".to_string());
@@ -122,5 +120,75 @@ impl CliToolAdapter for GlmAdapter {
             env_remove: vec![],
             env_inject,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn context(data_dir: std::path::PathBuf, managed: bool) -> CliAdapterContext {
+        CliAdapterContext {
+            session_id: "session-1".into(),
+            project_path: "C:\\project".into(),
+            workspace_path: None,
+            provider: managed.then(|| crate::CliProvider {
+                id: "glm-provider".into(),
+                name: "GLM".into(),
+                provider_type: "glm".into(),
+                api_key: Some("test-secret".into()),
+                base_url: Some("https://example.test".into()),
+                region: None,
+                project_id: None,
+                aws_profile: None,
+                config_dir: None,
+                is_default: false,
+            }),
+            executable_override: Some("crush-test".into()),
+            adapter_options: HashMap::new(),
+            resume_id: None,
+            issued_session_id: None,
+            skip_mcp: true,
+            yolo_mode: false,
+            append_system_prompt: None,
+            initial_prompt: None,
+            orchestrator_port: None,
+            orchestrator_token: None,
+            launch_id: None,
+            data_dir,
+            shared_mcp_urls: HashMap::new(),
+            allowed_mcp_server_ids: Vec::new(),
+            disable_unlisted_mcp_servers: false,
+        }
+    }
+
+    #[test]
+    fn native_mode_does_not_redirect_crush_provider_config_or_data() {
+        let dir = tempdir().unwrap();
+        let result = GlmAdapter::new()
+            .build_command(&context(dir.path().to_path_buf(), false))
+            .unwrap();
+
+        assert!(!result.args.iter().any(|arg| arg == "--data-dir"));
+        assert!(!result.env_inject.contains_key("CRUSH_GLOBAL_CONFIG"));
+        assert!(!result.env_inject.contains_key("CRUSH_GLOBAL_DATA"));
+        assert!(!result.env_inject.contains_key("ZAI_API_KEY"));
+    }
+
+    #[test]
+    fn managed_mode_uses_session_owned_crush_config_without_secret_args() {
+        let dir = tempdir().unwrap();
+        let result = GlmAdapter::new()
+            .build_command(&context(dir.path().to_path_buf(), true))
+            .unwrap();
+
+        assert!(result.args.iter().any(|arg| arg == "--data-dir"));
+        assert!(result.env_inject.contains_key("CRUSH_GLOBAL_CONFIG"));
+        assert_eq!(
+            result.env_inject.get("ZAI_API_KEY").map(String::as_str),
+            Some("test-secret")
+        );
+        assert!(!result.args.iter().any(|arg| arg.contains("test-secret")));
     }
 }
