@@ -9,7 +9,7 @@ import {
   getUpdateErrorHint,
   triggerUpdate,
 } from "./updaterService";
-import { useUpdateStore } from "@/stores";
+import { useTerminalStatusStore, useUpdateStore } from "@/stores";
 
 vi.mock("@tauri-apps/plugin-updater", () => ({
   check: vi.fn(),
@@ -57,6 +57,7 @@ describe("updaterService", () => {
       lastCheckError: null,
       lastCheckFailedAt: null,
     });
+    useTerminalStatusStore.setState({ statusMap: new Map() } as never);
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "debug").mockImplementation(() => {});
@@ -239,6 +240,36 @@ describe("updaterService", () => {
       await triggerUpdate();
 
       expect(checkMock).not.toHaveBeenCalled();
+    });
+
+    // 状态栏/首页/关于页三个入口都走这条原生确认路径；更新卡片路径另有自己的
+    // busyAtConfirmation 警告。少了这条，从那三处点更新就是无声中断在跑的会话。
+    it("有会话在忙时确认框必须带中断警告", async () => {
+      useTerminalStatusStore.setState({
+        statusMap: new Map([["s1", { sessionId: "s1", status: "thinking" }]]),
+      } as never);
+      checkMock.mockResolvedValue(createUpdate());
+      askMock.mockResolvedValue(false);
+
+      await triggerUpdate();
+
+      expect(askMock).toHaveBeenCalledWith(
+        expect.stringContaining("当前有会话正在运行"),
+        expect.anything(),
+      );
+    });
+
+    it("无会话在忙时确认框不带中断警告", async () => {
+      useTerminalStatusStore.setState({ statusMap: new Map() } as never);
+      checkMock.mockResolvedValue(createUpdate());
+      askMock.mockResolvedValue(false);
+
+      await triggerUpdate();
+
+      expect(askMock).toHaveBeenCalledWith(
+        expect.not.stringContaining("当前有会话正在运行"),
+        expect.anything(),
+      );
     });
   });
 

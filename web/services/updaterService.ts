@@ -2,6 +2,7 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getErrorMessage, handleErrorSilent } from "@/utils";
+import { hasBusySessions } from "@/lib/interruptGate";
 import { useUpdateStore } from "@/stores";
 import { isTauriRuntime } from "./runtime";
 // 直接从模块导入（不走 @/services 桶文件）避免服务间循环依赖
@@ -129,8 +130,14 @@ export function getUpdateErrorHint(message: string, language = "zh-CN"): string 
 async function promptAndInstallUpdate(update: Awaited<ReturnType<typeof check>>): Promise<void> {
   if (!update) return;
 
+  // 安装会停掉 daemon 并重启应用，在跑的 agent 会话会被中断。更新卡片路径有自己的
+  // busyAtConfirmation 警告；状态栏 / 首页 / 关于页三个入口都汇流到这里，警告必须在
+  // 这条共享路径上，否则从那三处点更新就是无声杀会话。
+  const busyWarning = hasBusySessions()
+    ? "\n\n⚠ 当前有会话正在运行，安装会中断它们。"
+    : "";
   const confirmed = await ask(
-    `发现新版本 ${update.version}，是否立即下载并安装？\n\n${update.body ?? ""}`,
+    `发现新版本 ${update.version}，是否立即下载并安装？${busyWarning}\n\n${update.body ?? ""}`,
     { title: "发现新版本", kind: "info", okLabel: "立即更新", cancelLabel: "稍后" },
   );
 
