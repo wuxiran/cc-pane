@@ -183,6 +183,7 @@ vi.mock("@tauri-apps/plugin-log", () => ({
 
 vi.mock("@/services/terminalRestoreBarrier", () => ({
   waitForTerminalRestoreBarrier: vi.fn().mockResolvedValue(undefined),
+  waitForTerminalRestoreBarrierWithDeadline: vi.fn().mockResolvedValue(undefined),
 }));
 
 /* ------------------------------------------------------------------ */

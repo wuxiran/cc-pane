@@ -27,13 +27,8 @@ interface WebAccessSectionProps {
 }
 
 const ORCHESTRATOR_BIND_MODES: OrchestratorBindMode[] = ["auto", "loopback", "all"];
-
-// 旧配置里可能残留已下线的 bindMode 值；直接拿它拼 i18n key 会把 key 原样渲染给用户。
-function normalizeBindMode(mode: string | undefined): OrchestratorBindMode {
-  return ORCHESTRATOR_BIND_MODES.includes(mode as OrchestratorBindMode)
-    ? (mode as OrchestratorBindMode)
-    : "auto";
-}
+// 旧配置可能残留已下线的 bindMode；直接拿它拼 i18n key 会把 key 原样渲染给用户。
+const normalizeBindMode = (mode?: string) => ORCHESTRATOR_BIND_MODES.find((m) => m === mode) ?? "auto";
 
 function normalizeWhitelistText(value: string): string[] {
   return value
@@ -339,9 +334,7 @@ export default function WebAccessSection({
             ))}
           </select>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t(
-              `webAccessSection.orchestrator.bindModes.${normalizeBindMode(orchestrator.bindMode)}.hint`,
-            )}
+            {t(`webAccessSection.orchestrator.bindModes.${normalizeBindMode(orchestrator.bindMode)}.hint`)}
           </p>
           <McpYoloProfilesToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
           <FollowAgentLaunchToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
