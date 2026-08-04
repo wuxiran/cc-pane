@@ -42,6 +42,7 @@ use commands::{
     browser_reload,
     browser_set_bounds,
     browser_set_visible,
+    cancel_terminal_launch,
     check_codex_rollout_exists,
     check_environment,
     check_ssh_connectivity,
@@ -267,6 +268,7 @@ use commands::{
     prune_terminal_sessions,
     // Local History - 标签
     put_label,
+    query_context_usage,
     query_task_bindings,
     query_todos,
     query_usage_stats,
@@ -1498,7 +1500,6 @@ pub fn run() {
     let notification_service = Arc::new(NotificationService::new());
     let ccchan_service = Arc::new(CCChanService::new(
         settings_service.clone(),
-        provider_service.clone(),
         app_paths.clone(),
     ));
     let mcp_config_service = Arc::new(McpConfigService::new());
@@ -2352,6 +2353,7 @@ pub fn run() {
             update_project_name,
             update_project_alias,
             // 终端命令
+            cancel_terminal_launch,
             create_terminal_session,
             adopt_terminal_session,
             release_terminal_session,
@@ -2372,6 +2374,7 @@ pub fn run() {
             get_terminal_recent_output,
             get_terminal_replay_snapshot,
             record_terminal_input,
+            query_context_usage,
             query_usage_stats,
             refresh_usage_stats,
             list_session_index,

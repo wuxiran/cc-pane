@@ -17,6 +17,7 @@ use cc_panes_core::models::{
 };
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
 use cc_panes_core::services::{SessionStatusInfo, TerminalAdoptionSnapshot, TerminalBackend};
+use cc_panes_core::utils::error::AppError;
 use cc_panes_core::utils::project_paths_equivalent;
 use cc_panes_core::utils::{atomic_file, normalize_session_request_for_current_host};
 use futures_util::{SinkExt, StreamExt};
@@ -28,6 +29,9 @@ use tracing::info;
 use crate::ws_emitter::WsEmitter;
 
 const MANIFEST_FILE: &str = "daemon-manifest.json";
+/// Server-side launch deadline. The handler returns promptly while the blocking worker is
+/// cancelled/cleaned asynchronously, so a slow WSL or hook step cannot leave the client waiting.
+const DAEMON_CREATE_DEADLINE: Duration = Duration::from_secs(45);
 
 fn summarize_terminal_input(data: &str) -> serde_json::Value {
     let chars: Vec<String> = data
@@ -407,6 +411,7 @@ pub struct PartialCreateSessionRequest {
     pub rows: Option<u16>,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    pub model_id: Option<String>,
     #[serde(default)]
     pub provider_selection: LaunchProviderSelection,
     pub launch_profile_id: Option<String>,
@@ -523,6 +528,7 @@ pub fn router(config: DaemonConfig) -> Router {
         .route("/api/daemon/status", get(status))
         .route("/api/daemon/shutdown", post(shutdown))
         .route("/api/sessions", post(create_session))
+        .route("/api/launches/{launch_id}", delete(cancel_launch))
         .route("/api/sessions", get(list_sessions))
         .route("/api/sessions/{id}/status", get(get_session_status))
         .route(
@@ -751,6 +757,7 @@ async fn create_session(
         rows: req.core.rows.unwrap_or(30),
         workspace_name: req.core.workspace_name,
         provider_id: req.core.provider_id,
+        model_id: req.core.model_id,
         provider_selection: req.core.provider_selection,
         launch_profile_id: req.core.launch_profile_id,
         workspace_path: req.core.workspace_path,
@@ -787,17 +794,55 @@ async fn create_session(
     let expected_saved_session_id = core_request.expected_saved_session_id.clone();
     // create_session 里 WSL 冷启动 + 探活 + spawn_pty 是同步阻塞操作，
     // 挪到 blocking 线程池，避免慢请求占死 tokio worker。
+    let launch_id = core_request.launch_id.clone();
+    let runtime_kind = provenance_runtime_kind.clone();
     let backend = config.terminal_backend_arc();
-    let session_id = tokio::task::spawn_blocking(move || backend.create_session(core_request))
-        .await
-        .map_err(|error| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "JOIN_ERROR",
-                error.to_string(),
-            )
-        })?
-        .map_err(internal_error)?;
+    let mut create_task = tokio::task::spawn_blocking(move || backend.create_session(core_request));
+    let session_id = match tokio::time::timeout(DAEMON_CREATE_DEADLINE, &mut create_task).await {
+        Ok(result) => result
+            .map_err(|error| {
+                json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "JOIN_ERROR",
+                    error.to_string(),
+                )
+            })?
+            .map_err(app_error)?,
+        Err(_) => {
+            let late_backend = config.terminal_backend_arc();
+            tokio::spawn(async move {
+                if let Ok(Ok(session_id)) = create_task.await {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        late_backend.kill_with_reason(&session_id, KillReason::LaunchTimeout)
+                    })
+                    .await;
+                }
+            });
+            if let Some(launch_id) = launch_id.clone() {
+                let cancel_backend = config.terminal_backend_arc();
+                tokio::spawn(async move {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        cancel_backend.cancel_launch(&launch_id)
+                    })
+                    .await;
+                });
+            }
+            return Err(json_error_with_params(
+                StatusCode::GATEWAY_TIMEOUT,
+                "LAUNCH_TIMEOUT",
+                format!(
+                    "Terminal launch exceeded {}ms",
+                    DAEMON_CREATE_DEADLINE.as_millis()
+                ),
+                serde_json::json!({
+                    "launchId": launch_id,
+                    "runtime": runtime_kind,
+                    "stage": "backend.create_session",
+                    "timeoutMs": DAEMON_CREATE_DEADLINE.as_millis().to_string(),
+                }),
+            ));
+        }
+    };
     config.touch_session(&session_id);
     // create+claim 原子化（docs/61 评审 #2）：会话对外可见前就把写权限归给创建者，
     // 否则"先创建后 claim"之间存在窗口，另一实例可以抢走刚建好的会话。
@@ -846,6 +891,26 @@ async fn create_session(
             reused_existing: false,
         }),
     ))
+}
+
+async fn cancel_launch(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(launch_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let backend = config.terminal_backend_arc();
+    tokio::task::spawn_blocking(move || backend.cancel_launch(&launch_id))
+        .await
+        .map_err(|error| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "JOIN_ERROR",
+                error.to_string(),
+            )
+        })?
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_sessions(
@@ -1379,12 +1444,43 @@ fn json_error(
     )
 }
 
+fn json_error_with_params(
+    status: StatusCode,
+    code: &str,
+    message: impl Into<String>,
+    params: serde_json::Value,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        status,
+        Json(serde_json::json!({
+            "code": code,
+            "message": message.into(),
+            "params": params,
+        })),
+    )
+}
+
 fn internal_error(error: impl std::fmt::Display) -> (StatusCode, Json<serde_json::Value>) {
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
         "INTERNAL_ERROR",
         error.to_string(),
     )
+}
+
+fn app_error(error: AppError) -> (StatusCode, Json<serde_json::Value>) {
+    let status = match &error {
+        AppError::NotFound(_) => StatusCode::NOT_FOUND,
+        AppError::Message { .. } if error.code().is_some() => StatusCode::BAD_REQUEST,
+        AppError::Message { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    let body = serde_json::to_value(&error).unwrap_or_else(|_| {
+        serde_json::json!({
+            "code": "INTERNAL_ERROR",
+            "message": "Failed to serialize daemon error"
+        })
+    });
+    (status, Json(body))
 }
 
 fn not_found(message: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
@@ -1422,6 +1518,25 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+
+    #[test]
+    fn app_error_preserves_provider_code_and_safe_params() {
+        let error = AppError::coded_with_params(
+            "PROVIDER_NOT_FOUND",
+            "Provider was not found",
+            HashMap::from([
+                ("cliTool".to_string(), "claude".to_string()),
+                ("providerId".to_string(), "deleted-provider".to_string()),
+            ]),
+        );
+
+        let (status, Json(body)) = app_error(error);
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "PROVIDER_NOT_FOUND");
+        assert_eq!(body["params"]["providerId"], "deleted-provider");
+        assert!(!body.to_string().contains("apiKey"));
+    }
 
     #[derive(Default)]
     struct MockTerminalBackend {

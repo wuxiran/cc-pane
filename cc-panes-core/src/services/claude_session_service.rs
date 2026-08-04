@@ -23,6 +23,16 @@ pub struct ClaudeSession {
     pub description: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct LatestContextUsage {
+    pub usage: UsageEntry,
+    pub model: Option<String>,
+}
+
+const MAX_CONTEXT_USAGE_FILE_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_CONTEXT_USAGE_LINE_BYTES: usize = 1024 * 1024;
+const MAX_CONTEXT_USAGE_LINES: usize = 100_000;
+
 /// 从会话文件中提取描述（优先从用户消息的 content 字符串）
 fn extract_session_description(file_path: &PathBuf) -> String {
     let file = match File::open(file_path) {
@@ -273,6 +283,64 @@ pub fn read_session_usage(
     Ok((entries, offset))
 }
 
+/// Read the latest assistant usage observation without turning it into a historical sum.
+pub fn read_latest_context_usage(
+    jsonl_path: &Path,
+    from_byte_offset: u64,
+) -> Result<(Option<LatestContextUsage>, u64), String> {
+    let file = File::open(jsonl_path).map_err(|error| error.to_string())?;
+    let len = file.metadata().map_err(|error| error.to_string())?.len();
+    if len > MAX_CONTEXT_USAGE_FILE_BYTES {
+        return Err("context usage file exceeds read limit".to_string());
+    }
+    let start = from_byte_offset.min(len);
+    let mut file = file;
+    file.seek(SeekFrom::Start(start))
+        .map_err(|error| error.to_string())?;
+    let mut reader = BufReader::new(file);
+    let mut offset = start;
+    let mut latest: Option<LatestContextUsage> = None;
+    let mut lines_read = 0usize;
+
+    loop {
+        if lines_read >= MAX_CONTEXT_USAGE_LINES {
+            break;
+        }
+        let mut buffer = Vec::new();
+        let read = reader
+            .read_until(b'\n', &mut buffer)
+            .map_err(|error| error.to_string())?;
+        if read == 0 || !buffer.ends_with(b"\n") {
+            break;
+        }
+        lines_read += 1;
+        if buffer.len() > MAX_CONTEXT_USAGE_LINE_BYTES {
+            offset = offset.saturating_add(read as u64);
+            continue;
+        }
+        offset = offset.saturating_add(read as u64);
+        let line = String::from_utf8_lossy(&buffer);
+        if line.trim().is_empty() {
+            continue;
+        }
+        let json: Value = match serde_json::from_str(&line) {
+            Ok(json) => json,
+            Err(_) => continue,
+        };
+        let Some(usage) = extract_claude_context_usage(&json) else {
+            continue;
+        };
+        let model = json
+            .get("message")
+            .and_then(|message| message.get("model"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        latest = Some(LatestContextUsage { usage, model });
+    }
+
+    Ok((latest, offset))
+}
+
 fn claude_usage_dedup_key(json: &Value) -> Option<(String, Option<String>)> {
     let message_id = json.get("message")?.get("id")?.as_str()?.to_string();
     let request_id = json
@@ -290,6 +358,23 @@ fn extract_claude_usage(json: &Value) -> Option<UsageEntry> {
         token_output: number_field(usage, &["output_tokens"]),
         token_cache_read: number_field(usage, &["cache_read_input_tokens"]),
         token_cache_creation: number_field(usage, &["cache_creation_input_tokens"]),
+    })
+}
+
+// Context usage is user-facing state, so malformed numeric fields must not be
+// silently converted to a real zero observation.
+fn extract_claude_context_usage(json: &Value) -> Option<UsageEntry> {
+    let usage = json.get("message")?.get("usage")?;
+    let input = strict_number_field(usage, "input_tokens")?;
+    let output = strict_optional_number_field(usage, "output_tokens")?;
+    let cache_read = strict_optional_number_field(usage, "cache_read_input_tokens")?;
+    let cache_creation = strict_optional_number_field(usage, "cache_creation_input_tokens")?;
+    Some(UsageEntry {
+        date: usage_date(json),
+        token_input: input,
+        token_output: output,
+        token_cache_read: cache_read,
+        token_cache_creation: cache_creation,
     })
 }
 
@@ -316,11 +401,19 @@ fn number_field(value: &Value, names: &[&str]) -> u64 {
         .unwrap_or(0)
 }
 
+fn strict_number_field(value: &Value, name: &str) -> Option<u64> {
+    value.get(name)?.as_u64()
+}
+
+fn strict_optional_number_field(value: &Value, name: &str) -> Option<u64> {
+    value.get(name).map_or(Some(0), |field| field.as_u64())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         extract_session_description, number_field, parse_local_date, parse_session_file,
-        read_session_usage,
+        read_latest_context_usage, read_session_usage,
     };
     use std::fs;
     use std::io::Write;
@@ -459,6 +552,33 @@ mod tests {
         let expected_date = parse_local_date("2026-01-15T12:00:00Z").expect("date");
         assert_eq!(entry.date, expected_date);
         assert_eq!(offset, (line.len() + 1) as u64);
+    }
+
+    #[test]
+    fn latest_context_usage_keeps_only_the_last_assistant_observation() {
+        let path = write_raw_file(concat!(
+            r#"{"type":"assistant","message":{"model":"claude-haiku","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":2,"cache_creation_input_tokens":3}}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"model":"claude-sonnet","usage":{"input_tokens":20,"output_tokens":50,"cache_read_input_tokens":4,"cache_creation_input_tokens":6}}}"#,
+            "\n",
+        ));
+
+        let (observation, _offset) = read_latest_context_usage(&path, 0).expect("context usage");
+        let observation = observation.expect("latest observation");
+        assert_eq!(observation.usage.token_input, 20);
+        assert_eq!(observation.usage.token_cache_read, 4);
+        assert_eq!(observation.model.as_deref(), Some("claude-sonnet"));
+    }
+
+    #[test]
+    fn latest_context_usage_preserves_a_real_zero_observation() {
+        let path = write_raw_file(
+            r#"{"type":"assistant","message":{"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+"#,
+        );
+        let (observation, _offset) = read_latest_context_usage(&path, 0).expect("context usage");
+        assert!(observation.is_some());
+        assert_eq!(observation.expect("observation").usage.token_input, 0);
     }
 
     #[test]

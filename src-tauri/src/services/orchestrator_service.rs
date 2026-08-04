@@ -85,6 +85,7 @@ pub struct LaunchTaskRequest {
     /// 要注入的 prompt（任务描述）。resume 时可不传。
     pub prompt: Option<String>,
     pub provider_id: Option<String>,
+    pub model_id: Option<String>,
     pub provider_selection: Option<String>,
     pub workspace_name: Option<String>,
     pub workspace_path: Option<String>,
@@ -116,6 +117,8 @@ pub struct LaunchTaskResponse {
     pub status: String,
     pub runtime_kind: String,
     pub runtime_source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_profile_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
 }
@@ -160,6 +163,8 @@ pub struct OrchestratorLaunchEvent {
     pub project_id: String,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
     pub provider_selection: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub launch_profile_id: Option<String>,
@@ -2238,6 +2243,9 @@ struct McpLaunchTaskParams {
     /// 可选的 Provider ID
     #[serde(rename = "providerId")]
     provider_id: Option<String>,
+    /// 可选的 Provider 模型 ID
+    #[serde(rename = "modelId")]
+    model_id: Option<String>,
     /// Provider 选择模式：inherit / explicit / none
     #[serde(rename = "providerSelection")]
     provider_selection: Option<String>,
@@ -3380,6 +3388,8 @@ struct McpCreateRuntimeConfigParams {
     description: Option<String>,
     /// 绑定 Provider ID
     provider_id: Option<String>,
+    /// 从该 Provider 选择的模型 ID；不传时使用 Provider 默认模型
+    model_id: Option<String>,
     /// 适用 CLI 工具，如 ["claude"] 或 ["codex"]；不传表示全部
     target_tools: Option<Vec<String>>,
     /// 适用运行时：local / wsl / ssh；不传表示全部
@@ -3899,6 +3909,20 @@ fn ensure_mcp_yolo_profile_allowed(
     )
 }
 
+fn validate_orchestrator_launch_profile(
+    launch_profile_service: &LaunchProfileService,
+    launch_profile_id: Option<&str>,
+    allow_mcp_yolo_profiles: bool,
+) -> std::result::Result<(), String> {
+    let Some(profile_id) = launch_profile_id else {
+        return Ok(());
+    };
+    let profile = launch_profile_service
+        .get_profile(profile_id)
+        .ok_or_else(|| format!("Launch profile '{}' was not found", profile_id))?;
+    ensure_mcp_yolo_profile_allowed(profile.yolo_mode, allow_mcp_yolo_profiles)
+}
+
 fn list_launch_profiles_impl(
     launch_profile_service: &LaunchProfileService,
 ) -> Vec<McpLaunchProfileSummary> {
@@ -4101,6 +4125,7 @@ impl McpToolHandler {
             alias: alias.clone(),
             description: trim_optional_string(params.description.clone()),
             provider_id: provider_id.clone(),
+            model_id: trim_optional_string(params.model_id.clone()),
             adapter_options: HashMap::new(),
             target_tools: clean_target_tools(params.target_tools.as_deref()),
             target_runtime: normalize_target_runtime(params.target_runtime.clone())?,
@@ -4276,7 +4301,7 @@ impl McpToolHandler {
             params.workspace_name.as_deref(),
             bound_project.as_deref().or(params.project_id.as_deref()),
             provider_id.as_deref(),
-        );
+        )?;
 
         Ok(McpRuntimeConfigResult {
             profile: Some(profile),
@@ -4300,29 +4325,39 @@ impl McpToolHandler {
         workspace_name: Option<&str>,
         project_id: Option<&str>,
         provider_id: Option<&str>,
-    ) -> LaunchProfileResolution {
+    ) -> Result<LaunchProfileResolution, String> {
         let request = LaunchProfilePreviewRequest {
             profile_id: Some(profile.id.clone()),
             use_system_default: false,
             workspace_name: workspace_name.map(str::to_string),
             project_id: project_id.map(str::to_string),
             provider_id: provider_id.map(str::to_string),
+            model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: profile.target_tools.first().cloned(),
             runtime_kind: profile.target_runtime.clone(),
         };
+        let default_provider_id = self
+            .state
+            .provider_service
+            .get_default_provider_id(request.cli_tool.as_deref().unwrap_or("claude"));
 
-        self.state.launch_profile_service.resolve_profile(
-            &request,
-            &self
-                .state
-                .workspace_service
-                .list_workspaces()
-                .unwrap_or_default(),
-            &self.state.provider_service.list_providers(),
-            &self.state.shared_mcp_service.get_config(),
-            &self.state.shared_mcp_service.get_running_servers_urls(),
-        )
+        self.state
+            .launch_profile_service
+            .resolve_profile_with_provider(
+                &request,
+                &self
+                    .state
+                    .workspace_service
+                    .list_workspaces()
+                    .map_err(|error| error.to_string())?,
+                &self.state.provider_service.list_providers(),
+                default_provider_id.as_deref(),
+                &self.state.shared_mcp_service.get_config(),
+                &self.state.shared_mcp_service.get_running_servers_urls(),
+                self.state.local_terminal_service.cli_registry(),
+            )
+            .map_err(|error| error.to_string())
     }
 
     fn supported_cli_launcher_ids(&self) -> Vec<String> {
@@ -4444,21 +4479,23 @@ impl McpToolHandler {
             return format!("错误: 项目路径 '{}' 未注册", params.project_path);
         }
 
-        let launch_profile_id = trim_optional_string(params.profile_id.clone());
-        if let Some(profile_id) = launch_profile_id.as_deref() {
-            let Some(profile) = self.state.launch_profile_service.get_profile(profile_id) else {
-                return format!("错误: Launch profile '{}' was not found", profile_id);
-            };
-            if let Err(error) = ensure_mcp_yolo_profile_allowed(
-                profile.yolo_mode,
-                self.state
-                    .settings_service
-                    .get_settings()
-                    .orchestrator
-                    .allow_mcp_yolo_profiles,
-            ) {
-                return format!("错误: {}", error);
-            }
+        let project_context = resolve_project_launch_context(
+            &params.project_path,
+            params.workspace_name.as_deref(),
+            params.profile_id.as_deref(),
+            &self.state.workspace_service,
+        );
+        let launch_profile_id = project_context.launch_profile_id.clone();
+        if let Err(error) = validate_orchestrator_launch_profile(
+            &self.state.launch_profile_service,
+            launch_profile_id.as_deref(),
+            self.state
+                .settings_service
+                .get_settings()
+                .orchestrator
+                .allow_mcp_yolo_profiles,
+        ) {
+            return format!("错误: {}", error);
         }
 
         let provider_selection =
@@ -4467,22 +4504,10 @@ impl McpToolHandler {
                 Err(error) => return format!("错误: {}", error),
             };
 
-        // 工作空间解析：workspace_name → workspace_path；Provider 继承由 TerminalService 统一解析
-        let mut ws_name: Option<String> = params.workspace_name.clone();
-        let mut ws_path: Option<String> = None;
-
-        if let Some(ref name) = ws_name {
-            match self.state.workspace_service.get_workspace(name) {
-                Ok(ws) => {
-                    ws_path = ws.path.clone();
-                    debug!(workspace = %name, path = ?ws_path, "mcp::launch_task resolved workspace");
-                }
-                Err(e) => {
-                    warn!(workspace = %name, err = %e, "mcp::launch_task workspace not found, ignoring");
-                    ws_name = None;
-                }
-            }
-        }
+        // 工作空间和项目绑定由共享解析器决定；Provider、模型和推理强度仍由 TerminalService 解析。
+        let ws_name = project_context.workspace_name.clone();
+        let ws_path = project_context.workspace_path.clone();
+        debug!(workspace = ?ws_name, path = ?ws_path, profile = ?launch_profile_id, "mcp::launch_task resolved launch context");
 
         let task_id = uuid::Uuid::new_v4().to_string();
         // launch_id 同时用作 history.project_id（`find_by_launch_id` 的查询键）。
@@ -4529,16 +4554,17 @@ impl McpToolHandler {
         // 把 child_launch_id 传进去，TerminalService 会写入 CC_PANES_LAUNCH_ID
         // 环境变量并把它附在 ccpanes MCP URL 的 `?launchId=` 上，让子 Claude
         // 之后再调 launch_task 时能被识别为本会话的 caller。
-        let create_request = CoreCreateSessionRequest {
+        let mut create_request = CoreCreateSessionRequest {
             launch_id: Some(child_launch_id.clone()),
             project_path: params.project_path.clone(),
             cols: 120,
             rows: 30,
-            workspace_name: ws_name.clone(),
+            workspace_name: None,
             provider_id: params.provider_id.clone(),
+            model_id: params.model_id.clone(),
             provider_selection,
-            launch_profile_id: launch_profile_id.clone(),
-            workspace_path: ws_path.clone(),
+            launch_profile_id: None,
+            workspace_path: None,
             workspace_snapshot_id: None,
             origin_layout_id: None,
             origin_tab_id: None,
@@ -4556,6 +4582,7 @@ impl McpToolHandler {
             ssh: runtime.ssh.clone(),
             wsl: runtime.wsl.clone(),
         };
+        apply_project_launch_context_to_request(&mut create_request, &project_context);
         let session_id = match create_launch_session(
             self.state.terminal_backend.clone(),
             Some(self.state.app_handle.clone()),
@@ -4717,6 +4744,7 @@ impl McpToolHandler {
             project_id,
             workspace_name: ws_name,
             provider_id: params.provider_id.clone(),
+            model_id: params.model_id.clone(),
             provider_selection: params.provider_selection.clone(),
             launch_profile_id: launch_profile_id.clone(),
             workspace_path: ws_path,
@@ -7373,6 +7401,7 @@ impl RunnerTerminal for AppRunnerTerminal {
                     rows: 30,
                     workspace_name: profile.workspace_name.clone(),
                     provider_id: None,
+                    model_id: None,
                     provider_selection: LaunchProviderSelection::None,
                     launch_profile_id: None,
                     workspace_path: None,
@@ -7957,6 +7986,49 @@ fn find_workspace_for_launch(
         })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProjectLaunchContext {
+    workspace_name: Option<String>,
+    workspace_path: Option<String>,
+    launch_profile_id: Option<String>,
+}
+
+fn resolve_project_launch_context(
+    project_path: &str,
+    workspace_name: Option<&str>,
+    explicit_profile_id: Option<&str>,
+    workspace_service: &WorkspaceService,
+) -> ProjectLaunchContext {
+    let workspace = find_workspace_for_launch(project_path, workspace_name, workspace_service);
+    let normalized_project_path = normalize_path(project_path);
+    let project_profile_id = workspace.as_ref().and_then(|workspace| {
+        workspace
+            .projects
+            .iter()
+            .find(|project| normalize_path(&project.path) == normalized_project_path)
+            .and_then(|project| trim_optional_string(project.launch_profile_id.clone()))
+    });
+
+    ProjectLaunchContext {
+        workspace_name: workspace.as_ref().map(|workspace| workspace.name.clone()),
+        workspace_path: workspace.and_then(|workspace| workspace.path),
+        launch_profile_id: trim_optional_string(explicit_profile_id.map(str::to_string))
+            .or(project_profile_id),
+    }
+}
+
+fn apply_project_launch_context_to_request(
+    request: &mut CoreCreateSessionRequest,
+    context: &ProjectLaunchContext,
+) {
+    request.workspace_name = context.workspace_name.clone();
+    request.workspace_path = request
+        .workspace_path
+        .clone()
+        .or_else(|| context.workspace_path.clone());
+    request.launch_profile_id = context.launch_profile_id.clone();
+}
+
 #[cfg(target_os = "windows")]
 fn join_remote_path(root: &str, relative: &str) -> String {
     let root = root.trim_end_matches('/');
@@ -8444,21 +8516,32 @@ async fn handle_launch_task(
         }
     };
 
-    let mut workspace_name = req.workspace_name.clone();
-    let mut workspace_path = req.workspace_path.clone();
-    if let Some(ref name) = workspace_name {
-        match state.workspace_service.get_workspace(name) {
-            Ok(ws) => {
-                if workspace_path.is_none() {
-                    workspace_path = ws.path.clone();
-                }
-                debug!(workspace = %name, path = ?workspace_path, "REST::launch_task resolved workspace");
-            }
-            Err(error) => {
-                warn!(workspace = %name, err = %error, "REST::launch_task workspace not found, ignoring");
-                workspace_name = None;
-            }
-        }
+    let project_context = resolve_project_launch_context(
+        &req.project_path,
+        req.workspace_name.as_deref(),
+        None,
+        &state.workspace_service,
+    );
+    let workspace_name = project_context.workspace_name.clone();
+    let workspace_path = req
+        .workspace_path
+        .clone()
+        .or_else(|| project_context.workspace_path.clone());
+    let launch_profile_id = project_context.launch_profile_id.clone();
+    debug!(workspace = ?workspace_name, path = ?workspace_path, profile = ?launch_profile_id, "REST::launch_task resolved launch context");
+    if let Err(error) = validate_orchestrator_launch_profile(
+        &state.launch_profile_service,
+        launch_profile_id.as_deref(),
+        state
+            .settings_service
+            .get_settings()
+            .orchestrator
+            .allow_mcp_yolo_profiles,
+    ) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!(ApiError { error })),
+        );
     }
 
     let prompt_delivery = prepare_launch_prompt(
@@ -8484,7 +8567,7 @@ async fn handle_launch_task(
         }
     };
 
-    let create_request = CoreCreateSessionRequest {
+    let mut create_request = CoreCreateSessionRequest {
         // 必须带 launch_id：TerminalService 用它写 `CC_PANES_LAUNCH_ID` 并附在
         // resume 事件的 launchId 上。留 None 会让 bind_resume_id 拿到 launch_id=None、
         // 找不到 launch_history 行，这条会话此后永远无法 resume（ctl / 外部客户端
@@ -8493,11 +8576,12 @@ async fn handle_launch_task(
         project_path: req.project_path.clone(),
         cols: 120,
         rows: 30,
-        workspace_name: workspace_name.clone(),
+        workspace_name: None,
         provider_id: req.provider_id.clone(),
+        model_id: req.model_id.clone(),
         provider_selection,
         launch_profile_id: None,
-        workspace_path: workspace_path.clone(),
+        workspace_path: req.workspace_path.clone(),
         workspace_snapshot_id: None,
         origin_layout_id: None,
         origin_tab_id: None,
@@ -8515,6 +8599,7 @@ async fn handle_launch_task(
         ssh: runtime.ssh.clone(),
         wsl: runtime.wsl.clone(),
     };
+    apply_project_launch_context_to_request(&mut create_request, &project_context);
     let session_id = match create_launch_session(
         state.terminal_backend.clone(),
         Some(state.app_handle.clone()),
@@ -8565,6 +8650,7 @@ async fn handle_launch_task(
             workspace_path: workspace_path.as_deref(),
             provider_id: req.provider_id.as_deref(),
             provider_selection: req.provider_selection.as_deref(),
+            launch_profile_id: launch_profile_id.as_deref(),
             resume_id: req.resume_id.as_deref(),
         },
     );
@@ -8591,8 +8677,9 @@ async fn handle_launch_task(
         project_id,
         workspace_name,
         provider_id: req.provider_id.clone(),
+        model_id: req.model_id.clone(),
         provider_selection: req.provider_selection.clone(),
-        launch_profile_id: None,
+        launch_profile_id: launch_profile_id.clone(),
         workspace_path,
         title: req.title.clone(),
         resume_id: req.resume_id.clone(),
@@ -8620,6 +8707,7 @@ async fn handle_launch_task(
         status: "launching".to_string(),
         runtime_kind: runtime.kind.as_str().to_string(),
         runtime_source: runtime.source.to_string(),
+        launch_profile_id,
         notice,
     };
 
@@ -9871,6 +9959,7 @@ fn refresh_task_status(task: &mut TaskStatus, statuses: &[SessionStatusInfo]) {
 const PROMPT_FILE_THRESHOLD: usize = 8192;
 const PASTE_READY_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const PASTE_READY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+const CREATE_LAUNCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(50);
 
 struct LaunchPromptDelivery {
     initial_prompt: Option<String>,
@@ -9979,18 +10068,12 @@ async fn create_launch_session(
     deferred_prompt: Option<String>,
     ready_timeout: std::time::Duration,
 ) -> std::result::Result<String, String> {
-    let first_request = request.clone();
-    let recover_state = terminal_backend.clone();
-    let recover_handle = app_handle.clone();
-    let session_id = tokio::task::spawn_blocking(move || match recover_handle {
-        Some(handle) => recover_state
-            .create_session_with_recovery(&handle, first_request)
-            .map(|created| created.session_id),
-        None => recover_state.backend().create_session(first_request),
-    })
-    .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| error.to_string())?;
+    let (session_id, _, _) = create_backend_session_with_deadline(
+        terminal_backend.clone(),
+        app_handle.clone(),
+        request.clone(),
+    )
+    .await?;
 
     let Some(prompt) = deferred_prompt else {
         return Ok(session_id);
@@ -10015,17 +10098,63 @@ async fn create_launch_session(
     .await?;
 
     request.initial_prompt = Some(prompt);
-    let retry_state = terminal_backend;
-    let retry_handle = app_handle;
-    tokio::task::spawn_blocking(move || match retry_handle {
-        Some(handle) => retry_state
+    let (session_id, _, _) =
+        create_backend_session_with_deadline(terminal_backend, app_handle, request).await?;
+    Ok(session_id)
+}
+
+async fn create_backend_session_with_deadline(
+    terminal_backend: Arc<TerminalBackendState>,
+    app_handle: Option<tauri::AppHandle>,
+    request: CoreCreateSessionRequest,
+) -> std::result::Result<(String, Arc<dyn TerminalBackend>, bool), String> {
+    let launch_id = request.launch_id.clone();
+    let recover_state = terminal_backend.clone();
+    let recover_handle = app_handle.clone();
+    let mut create_task = tokio::task::spawn_blocking(move || match recover_handle {
+        Some(handle) => recover_state
             .create_session_with_recovery(&handle, request)
-            .map(|created| created.session_id),
-        None => retry_state.backend().create_session(request),
-    })
-    .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| error.to_string())
+            .map(|created| (created.session_id, created.backend, created.reused_existing))
+            .map_err(|error| error.to_string()),
+        None => {
+            let backend = recover_state.backend();
+            backend
+                .create_session(request)
+                .map(|session_id| (session_id, backend, false))
+                .map_err(|error| error.to_string())
+        }
+    });
+
+    match tokio::time::timeout(CREATE_LAUNCH_DEADLINE, &mut create_task).await {
+        Ok(result) => result.map_err(|error| error.to_string())?,
+        Err(_) => {
+            if let Some(launch_id) = launch_id {
+                let cancel_backend = terminal_backend.backend();
+                tokio::spawn(async move {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        cancel_backend.cancel_launch(&launch_id)
+                    })
+                    .await;
+                });
+            }
+            tokio::spawn(async move {
+                if let Ok(Ok((session_id, backend, reused_existing))) = create_task.await {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if reused_existing {
+                            backend.release_session(&session_id)
+                        } else {
+                            backend.kill_with_reason(&session_id, KillReason::LaunchTimeout)
+                        }
+                    })
+                    .await;
+                }
+            });
+            Err(format!(
+                "[LAUNCH_TIMEOUT] Terminal launch exceeded {}ms",
+                CREATE_LAUNCH_DEADLINE.as_millis()
+            ))
+        }
+    }
 }
 
 /// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交
@@ -11361,6 +11490,7 @@ mod tests {
             rows: 30,
             workspace_name: None,
             provider_id: None,
+            model_id: None,
             provider_selection: LaunchProviderSelection::default(),
             launch_profile_id: None,
             workspace_path: None,
@@ -11742,6 +11872,220 @@ mod tests {
             &mut seen,
             r"\\wsl.localhost\Ubuntu\home\user\App"
         ));
+    }
+
+    fn orchestrator_project_profile_workspace_service() -> (tempfile::TempDir, WorkspaceService) {
+        let dir = tempfile::tempdir().expect("create workspace test directory");
+        let service = WorkspaceService::new(dir.path().join("workspaces"));
+        service
+            .create_workspace("alpha", None)
+            .expect("create alpha workspace");
+        service
+            .add_project("alpha", r"D:\Repos\App")
+            .expect("register project");
+        (dir, service)
+    }
+
+    #[test]
+    fn orchestrator_project_profile_omitted_workspace_matches_project_identity() {
+        let (_dir, service) = orchestrator_project_profile_workspace_service();
+        let mut workspace = service
+            .get_workspace("alpha")
+            .expect("load alpha workspace");
+        workspace.projects[0].launch_profile_id = Some("profile-project".to_string());
+        service
+            .write_workspace_json("alpha", &workspace)
+            .expect("persist project profile");
+
+        let context = resolve_project_launch_context("/mnt/d/repos/app/", None, None, &service);
+
+        assert_eq!(context.workspace_name.as_deref(), Some("alpha"));
+        assert_eq!(
+            context.launch_profile_id.as_deref(),
+            Some("profile-project")
+        );
+    }
+
+    #[test]
+    fn orchestrator_project_profile_explicit_profile_overrides_project_binding() {
+        let (_dir, service) = orchestrator_project_profile_workspace_service();
+        let mut workspace = service
+            .get_workspace("alpha")
+            .expect("load alpha workspace");
+        workspace.projects[0].launch_profile_id = Some("profile-project".to_string());
+        service
+            .write_workspace_json("alpha", &workspace)
+            .expect("persist project profile");
+
+        let context = resolve_project_launch_context(
+            r"D:\Repos\App\",
+            Some("alpha"),
+            Some("profile-explicit"),
+            &service,
+        );
+
+        assert_eq!(
+            context.launch_profile_id.as_deref(),
+            Some("profile-explicit")
+        );
+    }
+
+    #[test]
+    fn orchestrator_project_profile_unbound_project_preserves_fallback() {
+        let (_dir, service) = orchestrator_project_profile_workspace_service();
+
+        let context =
+            resolve_project_launch_context(r"D:\Repos\App", Some("alpha"), None, &service);
+
+        assert_eq!(context.workspace_name.as_deref(), Some("alpha"));
+        assert_eq!(context.launch_profile_id, None);
+    }
+
+    #[test]
+    fn orchestrator_project_profile_named_workspace_does_not_use_other_project_binding() {
+        let (_dir, service) = orchestrator_project_profile_workspace_service();
+        service
+            .create_workspace("other", None)
+            .expect("create other workspace");
+        service
+            .add_project("other", r"D:\Repos\Other")
+            .expect("register other project");
+        let mut other = service
+            .get_workspace("other")
+            .expect("load other workspace");
+        other.projects[0].launch_profile_id = Some("profile-other".to_string());
+        service
+            .write_workspace_json("other", &other)
+            .expect("persist other project profile");
+
+        let context =
+            resolve_project_launch_context(r"D:\Repos\App", Some("other"), None, &service);
+
+        assert_eq!(context.workspace_name.as_deref(), Some("other"));
+        assert_eq!(context.launch_profile_id, None);
+    }
+
+    #[test]
+    fn orchestrator_project_profile_mcp_and_rest_contexts_have_same_effective_profile() {
+        let (_dir, service) = orchestrator_project_profile_workspace_service();
+        let mut workspace = service
+            .get_workspace("alpha")
+            .expect("load alpha workspace");
+        workspace.projects[0].launch_profile_id = Some("profile-project".to_string());
+        service
+            .write_workspace_json("alpha", &workspace)
+            .expect("persist project profile");
+
+        let mcp_context = resolve_project_launch_context(r"D:\Repos\App", None, None, &service);
+        let rest_context = resolve_project_launch_context(r"D:\Repos\App", None, None, &service);
+
+        assert_eq!(mcp_context.workspace_name, rest_context.workspace_name);
+        assert_eq!(mcp_context.workspace_path, rest_context.workspace_path);
+        assert_eq!(
+            mcp_context.launch_profile_id,
+            rest_context.launch_profile_id
+        );
+        assert_eq!(
+            mcp_context.launch_profile_id.as_deref(),
+            Some("profile-project")
+        );
+    }
+
+    #[test]
+    fn orchestrator_project_profile_yolo_gate_rejects_derived_profile() {
+        let dir = tempfile::tempdir().expect("create launch profile test directory");
+        let service = LaunchProfileService::new(dir.path().join("launch-profiles.json"));
+        let profile = service
+            .create_profile(LaunchProfileDraft {
+                name: Some("Derived YOLO".to_string()),
+                alias: None,
+                description: None,
+                provider_id: None,
+                model_id: None,
+                adapter_options: HashMap::new(),
+                target_tools: vec!["claude".to_string()],
+                target_runtime: Some("local".to_string()),
+                yolo_mode: true,
+                mcp_policy: Default::default(),
+                skill_policy: Default::default(),
+                is_default: false,
+            })
+            .expect("create derived YOLO profile");
+
+        let error =
+            validate_orchestrator_launch_profile(&service, Some(profile.id.as_str()), false)
+                .expect_err("derived YOLO profile must honor the orchestrator permission gate");
+
+        assert!(error.contains("allowMcpYoloProfiles"));
+    }
+
+    #[test]
+    fn orchestrator_project_profile_rest_response_serializes_effective_profile() {
+        let response = LaunchTaskResponse {
+            task_id: "task-1".to_string(),
+            session_id: "session-1".to_string(),
+            status: "launching".to_string(),
+            runtime_kind: "local".to_string(),
+            runtime_source: "default".to_string(),
+            launch_profile_id: Some("profile-project".to_string()),
+            notice: None,
+        };
+
+        let json = serde_json::to_value(response).expect("serialize launch response");
+        assert_eq!(json["launchProfileId"], "profile-project");
+    }
+
+    #[test]
+    fn orchestrator_project_profile_shared_request_projection_covers_mcp_and_rest() {
+        let context = ProjectLaunchContext {
+            workspace_name: Some("alpha".to_string()),
+            workspace_path: Some(r"D:\Repos".to_string()),
+            launch_profile_id: Some("profile-project".to_string()),
+        };
+
+        let mut mcp_request = launch_prompt_test_request();
+        apply_project_launch_context_to_request(&mut mcp_request, &context);
+        assert_eq!(mcp_request.workspace_name.as_deref(), Some("alpha"));
+        assert_eq!(mcp_request.workspace_path.as_deref(), Some(r"D:\Repos"));
+        assert_eq!(
+            mcp_request.launch_profile_id.as_deref(),
+            Some("profile-project")
+        );
+
+        let mut rest_request = launch_prompt_test_request();
+        rest_request.workspace_path = Some(r"D:\Explicit".to_string());
+        apply_project_launch_context_to_request(&mut rest_request, &context);
+        assert_eq!(rest_request.workspace_name.as_deref(), Some("alpha"));
+        assert_eq!(rest_request.workspace_path.as_deref(), Some(r"D:\Explicit"));
+        assert_eq!(
+            rest_request.launch_profile_id.as_deref(),
+            Some("profile-project")
+        );
+    }
+
+    #[test]
+    fn orchestrator_project_profile_wsl_unc_matches_windows_project_identity() {
+        let (_dir, service) = orchestrator_project_profile_workspace_service();
+        let mut workspace = service
+            .get_workspace("alpha")
+            .expect("load alpha workspace");
+        workspace.projects[0].launch_profile_id = Some("profile-project".to_string());
+        service
+            .write_workspace_json("alpha", &workspace)
+            .expect("persist project profile");
+
+        let context = resolve_project_launch_context(
+            r"\\wsl.localhost\Ubuntu\mnt\d\repos\app",
+            None,
+            None,
+            &service,
+        );
+
+        assert_eq!(context.workspace_name.as_deref(), Some("alpha"));
+        assert_eq!(
+            context.launch_profile_id.as_deref(),
+            Some("profile-project")
+        );
     }
 
     #[test]
@@ -13313,6 +13657,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: HashMap::new(),
                 target_tools: vec!["claude".into()],
                 target_runtime: Some("local".into()),

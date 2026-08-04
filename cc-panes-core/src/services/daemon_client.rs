@@ -461,6 +461,27 @@ impl TerminalDaemonClient {
         Ok(())
     }
 
+    /// Cancel a launch that may still be inside daemon-side synchronous creation. Older daemons
+    /// do not expose the launch endpoint, so fall back to launch-id lookup plus idempotent kill.
+    pub fn cancel_launch(&self, launch_id: &str) -> AppResult<()> {
+        if launch_id.trim().is_empty() {
+            return Ok(());
+        }
+        let path = format!("/api/launches/{}", urlencoding::encode(launch_id));
+        let response = self.request_with_timeout("DELETE", &path, true, None, self.kill_timeout)?;
+        let (status, body) = split_http_response(&response)?;
+        if (200..300).contains(&status) {
+            return Ok(());
+        }
+        if status == 404 || status == 405 {
+            if let Some(session_id) = self.find_session_id_by_launch_id(launch_id)? {
+                return self.kill_session_with_reason(&session_id, KillReason::LaunchTimeout);
+            }
+            return Ok(());
+        }
+        Err(daemon_http_error(status, body))
+    }
+
     pub fn find_session_id_by_launch_id(&self, launch_id: &str) -> AppResult<Option<String>> {
         if launch_id.trim().is_empty() {
             return Ok(None);
@@ -650,6 +671,27 @@ where
 }
 
 fn daemon_http_error(status: u16, body: &str) -> AppError {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
+        let code = value.get("code").and_then(serde_json::Value::as_str);
+        let message = value.get("message").and_then(serde_json::Value::as_str);
+        if let (Some(code), Some(message)) = (code, message) {
+            let params = value
+                .get("params")
+                .and_then(serde_json::Value::as_object)
+                .map(|params| {
+                    params
+                        .iter()
+                        .filter_map(|(key, value)| {
+                            value.as_str().map(|value| (key.clone(), value.to_string()))
+                        })
+                        .collect::<std::collections::HashMap<_, _>>()
+                });
+            return match params {
+                Some(params) => AppError::coded_with_params(code, message, params),
+                None => AppError::coded(code, message),
+            };
+        }
+    }
     AppError::from(format!("daemon request failed with HTTP {status}: {body}"))
 }
 
@@ -764,6 +806,7 @@ mod tests {
             rows: 40,
             workspace_name: None,
             provider_id: None,
+            model_id: None,
             provider_selection: Default::default(),
             launch_profile_id: None,
             workspace_path: None,

@@ -56,6 +56,11 @@ export default defineConfig(async () => ({
       ignored: [
         "**/src-tauri/**",
         "**/target/**",
+        // Rust target-dir 在 .cargo/config.toml 里被指到仓库根并带 -target 后缀
+        // (cc-book-target / cc-context-target / ...), chokidar 默认会监听它们,
+        // cargo 持续写入 build/*.exe 期间会撞 Windows 文件锁触发 EBUSY 让 Vite 退出。
+        // 加 *-target 通配兜底,新增 target 目录不再需要改这里。
+        "**/*-target/**",
         "**/target-package*/**",
         "**/cc-panes-mobile/**",
         "**/_archived_v1/**",

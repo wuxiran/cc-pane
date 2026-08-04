@@ -175,6 +175,7 @@ export default memo(function TerminalTabContent({
               layoutActive={layoutActive}
               workspaceName={leaf.workspaceName}
               providerId={leaf.providerId}
+              modelId={leaf.modelId}
               providerSelection={leaf.providerSelection}
               launchProfileId={leaf.launchProfileId}
               workspacePath={leaf.workspacePath}

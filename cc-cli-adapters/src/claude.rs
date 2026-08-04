@@ -958,6 +958,8 @@ impl CliToolAdapter for ClaudeAdapter {
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let mut args = Vec::new();
 
+        crate::push_model_arg(&mut args, ctx);
+
         // Resume（claude --resume 复用原会话 id，无需重新发号/捕获）
         if let Some(ref rid) = ctx.resume_id {
             args.push("--resume".to_string());
@@ -1318,6 +1320,47 @@ mod tests {
             &result.args[result.args.len() - 2..],
             ["--".to_string(), "hello".to_string()]
         );
+    }
+
+    #[test]
+    fn build_command_injects_model_before_session_and_prompt() {
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some(r"C:\Tools\claude.exe"));
+        ctx.resume_id = Some("session-123".to_string());
+        ctx.adapter_options.insert(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("claude-sonnet-4-6"),
+        );
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        let model_pos = result
+            .args
+            .windows(2)
+            .position(|pair| pair[0] == "--model" && pair[1] == "claude-sonnet-4-6")
+            .expect("model argument present");
+        let resume_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "--resume")
+            .expect("resume argument present");
+        let prompt_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "--")
+            .expect("prompt separator present");
+        assert!(model_pos < resume_pos);
+        assert!(resume_pos < prompt_pos);
+    }
+
+    #[test]
+    fn build_command_omits_model_when_no_model_was_resolved() {
+        let adapter = ClaudeAdapter::new();
+        let ctx = test_context(Some(r"C:\Tools\claude.exe"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(!result.args.iter().any(|arg| arg == "--model"));
     }
 
     #[test]

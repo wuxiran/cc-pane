@@ -46,12 +46,13 @@
   "initialPromptPlaceholder": "First prompt sent automatically after launch (first start only)…",
   "providerMode": "Provider mode",
   "providerSelection": {
-    "inherit": "Inherit binding",
-    "explicit": "Explicit provider",
-    "none": "No provider"
+    "inherit": "Follow launch configuration / default Provider",
+    "explicit": "Use CC-Panes Provider",
+    "none": "Use CLI configuration"
   },
   "provider": "Provider",
   "providerPlaceholder": "Select provider…",
+  "providerNoneCompatible": "Add a compatible Provider in Provider management first",
   "launchProfile": "Launch profile",
   "launchProfileInherit": "Inherit / default",
   "targetLayout": "Target layout",
@@ -61,6 +62,7 @@
   "openLauncher": "Open launcher",
   "customLaunch": "Custom launch…",
   "errorNoProject": "Select a project or directory first",
+  "errorProviderRequired": "Select a CC-Panes Provider before launching",
   "errorResolveFailed": "Failed to resolve launch options ({{code}}); check workspace environment settings",
   "scenario": {
     "default": "Default",

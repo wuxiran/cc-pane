@@ -1,3 +1,5 @@
+import { TERMINAL_RESTORE_QUEUE_TIMEOUT_MS } from "@/services/terminalLaunchDeadline";
+
 export type RestoreLaunchState = "idle" | "queued" | "launching" | "failed";
 
 const DEFAULT_MAX_RESTORE_LAUNCHES = 3;
@@ -5,7 +7,6 @@ const RESTORE_LAUNCH_CANCELLED = "cc-panes.restore-launch-cancelled";
 // A single restore launch that never settles (hung WSL cold start, unresponsive
 // daemon, blocking hook sync) must not hold a concurrency slot forever, or every
 // queued tab behind it would stay stuck and "only half" the sessions restore.
-const RESTORE_LAUNCH_TIMEOUT_MS = 45_000;
 
 interface RestoreLaunchQueueOptions {
   isCancelled?: () => boolean;
@@ -77,7 +78,7 @@ export function createRestoreLaunchQueue(
       active += 1;
       item.onState?.("launching");
 
-      withTimeout(item.run(), RESTORE_LAUNCH_TIMEOUT_MS)
+      withTimeout(item.run(), TERMINAL_RESTORE_QUEUE_TIMEOUT_MS)
         .then(item.resolve, (error) => {
           item.onState?.("failed");
           item.reject(error);

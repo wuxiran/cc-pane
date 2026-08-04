@@ -1,13 +1,13 @@
 use crate::models::{
-    UsageDayPoint, UsageEntry, UsageQueryResult, UsageStatsDelta, UsageTotals, WslDistro,
-    WslDistroState,
+    ContextUsageSnapshot, ContextUsageStatus, UsageDayPoint, UsageEntry, UsageQueryResult,
+    UsageStatsDelta, UsageTotals, WslDistro, WslDistroState,
 };
 use crate::repository::UsageStatsRepository;
 use crate::services::{claude_session_service, codex_session_service, LaunchHistoryService};
 use crate::utils::{error::AppError, AppResult};
 use anyhow::{anyhow, Context, Result};
 use chrono::{Duration as ChronoDuration, Local};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,6 +24,9 @@ const WSL_DISCOVERY_REFRESH_TICKS: u32 = 10;
 const USAGE_SCAN_ALGO_VERSION: u64 = 2;
 /// 版本号伪装成一条 scan_state 记录存储（jsonl_path 用 sentinel，不会与真实路径冲突）
 const USAGE_SCAN_ALGO_VERSION_KEY: &str = "_algo_version";
+const CONTEXT_USAGE_PARSER_VERSION: &str = "context-v1";
+const CODEX_CONTEXT_BASELINE: u64 = 12_000;
+const MAX_CONTEXT_SCAN_FILES: usize = 20_000;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct UsageKey {
@@ -39,6 +42,31 @@ struct ScanRoot {
     origin: ScanOrigin,
 }
 
+struct ContextRequest {
+    record: crate::repository::LaunchRecord,
+    pty_session_id: String,
+    cli: String,
+    resume_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct ContextObservation {
+    used_tokens: u64,
+    window_tokens: Option<u64>,
+    model: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ContextFileCache {
+    path: PathBuf,
+    resume_id: String,
+    file_identity: (u64, u64),
+    file_len: u64,
+    modified_at_ms: i64,
+    byte_offset: u64,
+    observation: Option<ContextObservation>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ScanOrigin {
     Native,
@@ -52,6 +80,8 @@ pub struct UsageStatsService {
     wsl_distros: Mutex<Vec<WslDistro>>,
     background_started: AtomicBool,
     scan_running: AtomicBool,
+    context_file_cache: Mutex<HashMap<String, ContextFileCache>>,
+    context_reads: Mutex<HashSet<String>>,
     /// 供 WSL 扫描开关读取；None（测试等场景）视为未禁用
     settings: Option<Arc<crate::services::SettingsService>>,
 }
@@ -65,6 +95,8 @@ impl UsageStatsService {
             wsl_distros: Mutex::new(Vec::new()),
             background_started: AtomicBool::new(false),
             scan_running: AtomicBool::new(false),
+            context_file_cache: Mutex::new(HashMap::new()),
+            context_reads: Mutex::new(HashSet::new()),
             settings: None,
         }
     }
@@ -288,6 +320,217 @@ impl UsageStatsService {
         })
     }
 
+    /// Resolve and parse the latest context observation for one managed PTY session.
+    /// This intentionally does not use the historical usage aggregate.
+    pub fn context_usage_for_pty(&self, pty_session_id: &str) -> ContextUsageSnapshot {
+        let acquired = self
+            .context_reads
+            .lock()
+            .map(|mut reads| reads.insert(pty_session_id.to_string()))
+            .unwrap_or(false);
+        if !acquired {
+            return ContextUsageSnapshot::error("SOURCE_UNAVAILABLE", now_millis());
+        }
+        let result = self.context_usage_for_pty_uncached(pty_session_id);
+        if let Ok(mut reads) = self.context_reads.lock() {
+            reads.remove(pty_session_id);
+        }
+        result
+    }
+
+    fn context_usage_for_pty_uncached(&self, pty_session_id: &str) -> ContextUsageSnapshot {
+        let observed_at = now_millis();
+        let request = match self.context_request(pty_session_id, observed_at) {
+            Ok(request) => request,
+            Err(snapshot) => return *snapshot,
+        };
+        let path = self
+            .cached_context_path(&request.pty_session_id, &request.resume_id)
+            .filter(|path| path.is_file())
+            .or_else(|| {
+                find_context_session_file(self, &request.cli, &request.record, &request.resume_id)
+            });
+        let Some(path) = path else {
+            return ContextUsageSnapshot::error("SESSION_NOT_FOUND", observed_at);
+        };
+        self.read_context_snapshot(&request, &path, observed_at)
+    }
+
+    fn context_request(
+        &self,
+        pty_session_id: &str,
+        observed_at: i64,
+    ) -> Result<ContextRequest, Box<ContextUsageSnapshot>> {
+        if !valid_context_session_id(pty_session_id) {
+            return Err(Box::new(ContextUsageSnapshot::error(
+                "SESSION_NOT_FOUND",
+                observed_at,
+            )));
+        }
+        let record = match self.launch_history.find_by_pty_session_id(pty_session_id) {
+            Ok(Some(record)) => record,
+            Ok(None) => {
+                return Err(Box::new(ContextUsageSnapshot::error(
+                    "SESSION_NOT_FOUND",
+                    observed_at,
+                )))
+            }
+            Err(error) => {
+                warn!(pty_session_id = %pty_session_id, err = %error, "Failed to resolve context launch history");
+                return Err(Box::new(ContextUsageSnapshot::error(
+                    "SOURCE_UNAVAILABLE",
+                    observed_at,
+                )));
+            }
+        };
+        let cli = record.cli_tool.trim().to_ascii_lowercase();
+        if !matches!(cli.as_str(), "claude" | "codex")
+            || record.runtime_kind.eq_ignore_ascii_case("ssh")
+        {
+            return Err(Box::new(ContextUsageSnapshot::error(
+                "RUNTIME_UNSUPPORTED",
+                observed_at,
+            )));
+        }
+        let Some(resume_id) = record
+            .resume_session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "new")
+            .map(str::to_owned)
+        else {
+            return Err(Box::new(ContextUsageSnapshot::waiting(
+                "WAITING_FIRST_RESPONSE",
+                observed_at,
+            )));
+        };
+        if !valid_context_session_id(&resume_id) {
+            return Err(Box::new(ContextUsageSnapshot::error(
+                "SESSION_NOT_FOUND",
+                observed_at,
+            )));
+        }
+        if record.runtime_kind.eq_ignore_ascii_case("wsl") && !self.wsl_scan_allowed() {
+            return Err(Box::new(ContextUsageSnapshot::error(
+                "SOURCE_UNAVAILABLE",
+                observed_at,
+            )));
+        }
+        Ok(ContextRequest {
+            record,
+            pty_session_id: pty_session_id.to_string(),
+            cli,
+            resume_id,
+        })
+    }
+
+    fn cached_context_path(&self, pty_session_id: &str, resume_id: &str) -> Option<PathBuf> {
+        self.context_file_cache.lock().ok().and_then(|cache| {
+            cache
+                .get(pty_session_id)
+                .and_then(|entry| (entry.resume_id == resume_id).then(|| entry.path.clone()))
+        })
+    }
+
+    fn read_context_snapshot(
+        &self,
+        request: &ContextRequest,
+        path: &Path,
+        observed_at: i64,
+    ) -> ContextUsageSnapshot {
+        let metadata = match fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                warn!(path = %path.display(), err = %error, "Failed to read context usage metadata");
+                return ContextUsageSnapshot::error("SOURCE_UNAVAILABLE", observed_at);
+            }
+        };
+        let file_len = metadata.len();
+        let modified_at_ms = modified_mtime_ms(&metadata);
+        let file_identity = file_identity(&metadata);
+        let cached = self
+            .context_file_cache
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&request.pty_session_id).cloned());
+        if let Some(entry) = cached.as_ref().filter(|entry| {
+            entry.path == path
+                && entry.resume_id == request.resume_id
+                && entry.file_identity == file_identity
+                && entry.file_len == file_len
+                && entry.modified_at_ms == modified_at_ms
+        }) {
+            return context_observation_snapshot(request, entry.observation.as_ref(), observed_at);
+        }
+        let from_offset = cached
+            .as_ref()
+            .filter(|entry| {
+                entry.path == path
+                    && entry.resume_id == request.resume_id
+                    && entry.file_identity == file_identity
+                    && entry.file_len <= file_len
+                    && modified_at_ms >= entry.modified_at_ms
+            })
+            .map(|entry| entry.byte_offset)
+            .unwrap_or(0);
+        let parsed = match request.cli.as_str() {
+            "claude" => claude_session_service::read_latest_context_usage(path, from_offset).map(
+                |(latest, offset)| {
+                    (
+                        latest.map(|value| ContextObservation {
+                            used_tokens: value
+                                .usage
+                                .token_input
+                                .saturating_add(value.usage.token_cache_read)
+                                .saturating_add(value.usage.token_cache_creation),
+                            window_tokens: Some(200_000),
+                            model: value.model,
+                        }),
+                        offset,
+                    )
+                },
+            ),
+            "codex" => codex_session_service::read_latest_context_usage(path, from_offset).map(
+                |(latest, offset)| {
+                    (
+                        latest.and_then(|value| {
+                            value.total_tokens.map(|used_tokens| ContextObservation {
+                                used_tokens,
+                                window_tokens: value.window_tokens,
+                                model: value.model,
+                            })
+                        }),
+                        offset,
+                    )
+                },
+            ),
+            _ => Err("unsupported CLI".to_string()),
+        };
+        let (new_observation, byte_offset) = match parsed {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(path = %path.display(), err = %error, "Failed to read context usage");
+                return ContextUsageSnapshot::error("SOURCE_UNAVAILABLE", observed_at);
+            }
+        };
+        let observation = new_observation.or_else(|| cached.and_then(|entry| entry.observation));
+        if let Ok(mut cache) = self.context_file_cache.lock() {
+            cache.insert(
+                request.pty_session_id.clone(),
+                ContextFileCache {
+                    path: path.to_path_buf(),
+                    resume_id: request.resume_id.clone(),
+                    file_identity,
+                    file_len,
+                    modified_at_ms,
+                    byte_offset,
+                    observation: observation.clone(),
+                },
+            );
+        }
+        context_observation_snapshot(request, observation.as_ref(), observed_at)
+    }
+
     fn refresh_usage_stats_from_cache_logged(&self) {
         if let Err(error) = self.refresh_usage_stats_from_cache() {
             warn!(err = %error, "Usage stats refresh failed");
@@ -464,6 +707,319 @@ impl UsageStatsService {
                 warn!(session_id = %session_id, err = %error, "Failed to resolve usage session workspace");
                 GLOBAL_WORKSPACE.to_string()
             }
+        }
+    }
+}
+
+fn now_millis() -> i64 {
+    chrono::Utc::now().timestamp_millis().max(0)
+}
+
+fn valid_context_session_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 256
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+}
+
+#[cfg(test)]
+fn ready_claude_snapshot(
+    resume_id: &str,
+    usage: UsageEntry,
+    model: Option<String>,
+    observed_at: i64,
+) -> ContextUsageSnapshot {
+    let used = usage
+        .token_input
+        .saturating_add(usage.token_cache_read)
+        .saturating_add(usage.token_cache_creation);
+    ready_snapshot(
+        resume_id,
+        used,
+        used,
+        200_000,
+        200_000,
+        model,
+        "claude-jsonl",
+        "claude-default:200k",
+        observed_at,
+    )
+}
+
+#[cfg(test)]
+fn ready_codex_snapshot(
+    resume_id: &str,
+    _usage: UsageEntry,
+    total_tokens: Option<u64>,
+    window_tokens: Option<u64>,
+    model: Option<String>,
+    observed_at: i64,
+) -> ContextUsageSnapshot {
+    let Some(window) = window_tokens else {
+        return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+    };
+    let Some(raw_used) = total_tokens else {
+        return ContextUsageSnapshot::error("USAGE_INVALID", observed_at);
+    };
+    let Some(effective_window) = window.checked_sub(CODEX_CONTEXT_BASELINE) else {
+        return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+    };
+    if effective_window == 0 {
+        return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+    }
+    let effective_used = raw_used.saturating_sub(CODEX_CONTEXT_BASELINE);
+    ready_snapshot(
+        resume_id,
+        raw_used,
+        effective_used,
+        window,
+        effective_window,
+        model,
+        "codex-jsonl",
+        "codex-model-context-window",
+        observed_at,
+    )
+}
+
+fn context_observation_snapshot(
+    request: &ContextRequest,
+    observation: Option<&ContextObservation>,
+    observed_at: i64,
+) -> ContextUsageSnapshot {
+    let Some(observation) = observation else {
+        return ContextUsageSnapshot::waiting("WAITING_FIRST_RESPONSE", observed_at);
+    };
+    match request.cli.as_str() {
+        "claude" => ready_snapshot(
+            &request.resume_id,
+            observation.used_tokens,
+            observation.used_tokens,
+            200_000,
+            200_000,
+            observation.model.clone(),
+            "claude-jsonl",
+            "claude-default:200k",
+            observed_at,
+        ),
+        "codex" => {
+            let Some(window) = observation.window_tokens else {
+                return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+            };
+            let Some(effective_window) = window.checked_sub(CODEX_CONTEXT_BASELINE) else {
+                return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+            };
+            if effective_window == 0 {
+                return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+            }
+            ready_snapshot(
+                &request.resume_id,
+                observation.used_tokens,
+                observation
+                    .used_tokens
+                    .saturating_sub(CODEX_CONTEXT_BASELINE),
+                window,
+                effective_window,
+                observation.model.clone(),
+                "codex-jsonl",
+                "codex-model-context-window",
+                observed_at,
+            )
+        }
+        _ => ContextUsageSnapshot::error("RUNTIME_UNSUPPORTED", observed_at),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ready_snapshot(
+    resume_id: &str,
+    used: u64,
+    effective_used: u64,
+    window: u64,
+    effective_window: u64,
+    model: Option<String>,
+    usage_source: &str,
+    window_source: &str,
+    observed_at: i64,
+) -> ContextUsageSnapshot {
+    let percent = ((effective_used
+        .saturating_mul(100)
+        .saturating_add(effective_window / 2))
+        / effective_window)
+        .min(100) as u8;
+    ContextUsageSnapshot {
+        status: ContextUsageStatus::Ready,
+        used_tokens: Some(used),
+        effective_used_tokens: Some(effective_used),
+        window_tokens: Some(window),
+        effective_window_tokens: Some(effective_window),
+        used_percentage: Some(percent),
+        remaining_percentage: Some(100u8.saturating_sub(percent)),
+        model,
+        usage_source: Some(usage_source.to_string()),
+        window_source: Some(window_source.to_string()),
+        agent_session_id: Some(resume_id.to_string()),
+        parser_version: Some(CONTEXT_USAGE_PARSER_VERSION.to_string()),
+        observed_at,
+        diagnostic_code: None,
+    }
+}
+
+fn find_context_session_file(
+    service: &UsageStatsService,
+    cli: &str,
+    record: &crate::repository::LaunchRecord,
+    resume_id: &str,
+) -> Option<PathBuf> {
+    let roots = context_session_roots(service, cli, record);
+    for root in roots {
+        let mut files = Vec::new();
+        collect_jsonl_files_limited(&root, &mut files, MAX_CONTEXT_SCAN_FILES);
+        for path in files {
+            if cli == "claude"
+                && path.file_stem().and_then(|value| value.to_str()) == Some(resume_id)
+            {
+                return Some(path);
+            }
+            if cli == "codex" {
+                if path.file_stem().and_then(|value| value.to_str()) == Some(resume_id) {
+                    return Some(path);
+                }
+                if codex_session_service::read_session_meta(&path)
+                    .is_some_and(|(session_id, _)| session_id == resume_id)
+                {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn context_session_roots(
+    service: &UsageStatsService,
+    cli: &str,
+    record: &crate::repository::LaunchRecord,
+) -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    if record.runtime_kind.eq_ignore_ascii_case("wsl") {
+        let distro = record
+            .wsl_distro
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default();
+        let cwd = record.launch_cwd.as_deref().unwrap_or(&record.project_path);
+        let cached_default_user = service.wsl_distros.lock().ok().and_then(|distros| {
+            distros
+                .iter()
+                .find(|entry| entry.name.eq_ignore_ascii_case(distro))
+                .and_then(|entry| entry.default_user.clone())
+        });
+        if let Some(wsl_home) = wsl_home_from_cwd(distro, cwd)
+            .or_else(|| wsl_home_from_user(distro, cached_default_user.as_deref()))
+        {
+            return vec![match cli {
+                "claude" => wsl_home.join(".claude").join("projects"),
+                "codex" => wsl_home.join(".codex").join("sessions"),
+                _ => return Vec::new(),
+            }];
+        }
+        return Vec::new();
+    }
+    vec![match cli {
+        "claude" => home.join(".claude").join("projects"),
+        "codex" => std::env::var_os("CODEX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".codex"))
+            .join("sessions"),
+        _ => return Vec::new(),
+    }]
+}
+
+fn wsl_home_from_cwd(distro: &str, cwd: &str) -> Option<PathBuf> {
+    if !valid_wsl_distro(distro) {
+        return None;
+    }
+    let normalized = cwd.replace('\\', "/");
+    let home_user = normalized
+        .strip_prefix("/home/")
+        .and_then(|value| value.split('/').next())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            let lower = normalized.to_ascii_lowercase();
+            let marker = format!("//wsl.localhost/{}/home/", distro.to_ascii_lowercase());
+            let start = lower.strip_prefix(&marker)?;
+            let offset = normalized.len() - start.len();
+            normalized[offset..]
+                .split('/')
+                .next()
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })?;
+    if !valid_context_session_id(&home_user) {
+        return None;
+    }
+    Some(PathBuf::from(format!(
+        r"\\wsl$\{}\home\{}",
+        distro, home_user
+    )))
+}
+
+fn wsl_home_from_user(distro: &str, user: Option<&str>) -> Option<PathBuf> {
+    let user = user?.trim();
+    if !valid_wsl_distro(distro) || !valid_context_session_id(user) {
+        return None;
+    }
+    let home = if user.eq_ignore_ascii_case("root") {
+        format!(r"\\wsl$\{}\root", distro)
+    } else {
+        format!(r"\\wsl$\{}\home\{}", distro, user)
+    };
+    Some(PathBuf::from(home))
+}
+
+fn valid_wsl_distro(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn collect_jsonl_files_limited(root: &Path, files: &mut Vec<PathBuf>, limit: usize) {
+    let Ok(root) = fs::canonicalize(root) else {
+        return;
+    };
+    collect_jsonl_files_limited_inner(&root, &root, files, limit);
+}
+
+fn collect_jsonl_files_limited_inner(
+    root: &Path,
+    allowed_root: &Path,
+    files: &mut Vec<PathBuf>,
+    limit: usize,
+) {
+    if files.len() >= limit {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if files.len() >= limit {
+            break;
+        }
+        let path = match fs::canonicalize(entry.path()) {
+            Ok(path) if path.starts_with(allowed_root) => path,
+            _ => continue,
+        };
+        if path.is_dir() {
+            collect_jsonl_files_limited_inner(&path, allowed_root, files, limit);
+        } else if path.extension().and_then(|value| value.to_str()) == Some("jsonl") {
+            files.push(path);
         }
     }
 }
@@ -656,6 +1212,12 @@ fn modified_mtime_ms(metadata: &fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
+fn file_identity(metadata: &fs::Metadata) -> (u64, u64) {
+    // The resume id is the primary identity. These stable metadata fields detect
+    // the common append/truncate/replace cases without platform-specific APIs.
+    (metadata.len(), modified_mtime_ms(metadata).max(0) as u64)
+}
+
 fn today_string() -> String {
     Local::now().date_naive().format("%Y-%m-%d").to_string()
 }
@@ -689,8 +1251,12 @@ fn should_count_input_char(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_codex_home_scan_roots, collect_scan_roots, count_input_chars, ScanOrigin};
-    use crate::models::{WslDistro, WslDistroState};
+    use super::{
+        collect_codex_home_scan_roots, collect_scan_roots, count_input_chars,
+        ready_claude_snapshot, ready_codex_snapshot, valid_context_session_id, wsl_home_from_cwd,
+        ScanOrigin,
+    };
+    use crate::models::{ContextUsageStatus, UsageEntry, WslDistro, WslDistroState};
     use std::fs;
 
     fn wsl_distro(name: &str, state: WslDistroState, default_user: Option<&str>) -> WslDistro {
@@ -723,6 +1289,70 @@ mod tests {
     fn strip_control_chars_except_tab() {
         assert_eq!(count_input_chars("a\x03b"), 2);
         assert_eq!(count_input_chars("a\tb"), 3);
+    }
+
+    #[test]
+    fn context_session_id_validation_rejects_path_input() {
+        assert!(valid_context_session_id("session-123"));
+        assert!(!valid_context_session_id("../session-123"));
+        assert!(!valid_context_session_id(""));
+    }
+
+    #[test]
+    fn claude_context_uses_input_and_cache_tokens_without_output() {
+        let snapshot = ready_claude_snapshot(
+            "claude-session",
+            UsageEntry {
+                date: "2026-01-01".to_string(),
+                token_input: 10,
+                token_output: 900,
+                token_cache_read: 30,
+                token_cache_creation: 40,
+            },
+            Some("claude-sonnet".to_string()),
+            1,
+        );
+
+        assert_eq!(snapshot.status, ContextUsageStatus::Ready);
+        assert_eq!(snapshot.used_tokens, Some(80));
+        assert_eq!(snapshot.used_percentage, Some(0));
+        assert_eq!(
+            snapshot.window_source.as_deref(),
+            Some("claude-default:200k")
+        );
+    }
+
+    #[test]
+    fn codex_context_applies_the_12k_effective_baseline() {
+        let snapshot = ready_codex_snapshot(
+            "codex-session",
+            UsageEntry {
+                date: "2026-01-01".to_string(),
+                token_input: 100_000,
+                token_output: 39_000,
+                token_cache_read: 0,
+                token_cache_creation: 0,
+            },
+            Some(139_000),
+            Some(353_000),
+            Some("gpt-5.6-sol".to_string()),
+            1,
+        );
+
+        assert_eq!(snapshot.used_tokens, Some(139_000));
+        assert_eq!(snapshot.effective_used_tokens, Some(127_000));
+        assert_eq!(snapshot.effective_window_tokens, Some(341_000));
+        assert_eq!(snapshot.used_percentage, Some(37));
+    }
+
+    #[test]
+    fn wsl_home_resolution_preserves_the_user_segment() {
+        let path = wsl_home_from_cwd(
+            "Ubuntu-24.04",
+            "//wsl.localhost/Ubuntu-24.04/home/Alice/project",
+        )
+        .expect("wsl home");
+        assert!(path.to_string_lossy().contains("home\\Alice"));
     }
 
     #[test]

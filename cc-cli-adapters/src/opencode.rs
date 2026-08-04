@@ -1,15 +1,17 @@
 //! OpenCode CLI 适配器
 
+use crate::atomic_file::{write_atomic, write_atomic_if_absent};
 use crate::{
     CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
     ProjectHookDefinition, ProjectHookStatus,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::time::Duration;
 use tracing::{info, warn};
 
 /// CC-Panes opencode 插件源码（随 crate 编译进二进制），由 `sync_project_hooks`
@@ -23,6 +25,7 @@ const CCPANES_THEME_NAME: &str = "ccpanes";
 
 /// 唯一的项目级 hook 名（opencode 用单个插件覆盖全部生命周期事件）。
 const OPENCODE_PLUGIN_HOOK: &str = "ccpanes-plugin";
+const CONFIG_WRITE_DEADLINE: Duration = Duration::from_secs(5);
 
 pub struct OpenCodeAdapter {
     info: CliToolInfo,
@@ -54,10 +57,24 @@ impl OpenCodeAdapter {
                     "open_ai".into(),
                     "opencode".into(),
                     "anthropic".into(),
-                    "config_profile".into(),
                 ],
             },
         }
+    }
+
+    fn qualified_model_id(ctx: &CliAdapterContext) -> Option<String> {
+        let model_id = ctx.model_id()?;
+        if model_id.contains('/') {
+            return Some(model_id.to_string());
+        }
+
+        let provider_key = match ctx.provider.as_ref()?.provider_type.as_str() {
+            "open_ai" => "openai",
+            "anthropic" => "anthropic",
+            "opencode" => "opencode",
+            _ => return Some(model_id.to_string()),
+        };
+        Some(format!("{provider_key}/{model_id}"))
     }
 
     fn adapter_root(ctx: &CliAdapterContext) -> PathBuf {
@@ -149,7 +166,7 @@ impl OpenCodeAdapter {
         {
             std::fs::create_dir_all(&adapter_root)?;
             let instructions_path = adapter_root.join("instructions.md");
-            std::fs::write(&instructions_path, prompt)?;
+            write_atomic(&instructions_path, prompt.as_bytes())?;
             config.insert(
                 "instructions".to_string(),
                 serde_json::json!([instructions_path.to_string_lossy()]),
@@ -196,11 +213,24 @@ impl OpenCodeAdapter {
 
         std::fs::create_dir_all(&adapter_root)?;
         let config_path = adapter_root.join("opencode.json");
-        std::fs::write(
+        write_atomic(
             &config_path,
             serde_json::to_vec_pretty(&serde_json::Value::Object(config))?,
         )?;
         Ok(Some(config_path.to_string_lossy().into_owned()))
+    }
+
+    /// Write the per-session Provider override used by WSL launches. The caller
+    /// supplies a Provider-only context so Windows user config is never merged
+    /// into the Linux CLI's configuration.
+    pub fn write_managed_provider_config(&self, ctx: &CliAdapterContext) -> Result<String> {
+        if ctx.provider.is_none() {
+            return Err(anyhow!(
+                "Managed OpenCode configuration requires a selected Provider"
+            ));
+        }
+        self.write_session_config(ctx, None)?
+            .ok_or_else(|| anyhow!("Selected OpenCode Provider produced no session configuration"))
     }
 
     fn default_user_config_path(file_name: &str) -> Option<PathBuf> {
@@ -327,23 +357,9 @@ impl OpenCodeAdapter {
             return false;
         }
 
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(mut file) => {
-                if let Err(error) = file.write_all(CCPANES_THEME_JSON.as_bytes()) {
-                    drop(file);
-                    let _ = std::fs::remove_file(&path);
-                    warn!(
-                        path = %path.display(),
-                        %error,
-                        "opencode: unable to write project theme; skipping session theme"
-                    );
-                    return false;
-                }
-                true
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                Self::project_theme_matches(&path)
-            }
+        match write_atomic_if_absent(&path, CCPANES_THEME_JSON.as_bytes()) {
+            Ok(true) => true,
+            Ok(false) => Self::project_theme_matches(&path),
             Err(error) => {
                 warn!(
                     path = %path.display(),
@@ -416,7 +432,7 @@ impl OpenCodeAdapter {
         // OpenCode 1.4 migrates legacy theme next to opencode.json as tui.json.
         // Keep the explicit TUI config on a distinct path so both channels work.
         let config_path = adapter_root.join("ccpanes-tui.json");
-        std::fs::write(
+        write_atomic(
             &config_path,
             serde_json::to_vec_pretty(&serde_json::Value::Object(config))?,
         )?;
@@ -453,6 +469,84 @@ impl OpenCodeAdapter {
         Ok(env_inject)
     }
 
+    fn write_session_configs_bounded(
+        &self,
+        ctx: &CliAdapterContext,
+        custom_tui_config: Option<&OsStr>,
+        user_tui_config: Option<&Path>,
+        user_main_config: Option<&Path>,
+        user_theme_path: Option<&Path>,
+    ) -> Result<HashMap<String, String>> {
+        let context = ctx.clone();
+        let custom_tui_config = custom_tui_config.map(std::ffi::OsStr::to_os_string);
+        let user_tui_config = user_tui_config.map(Path::to_path_buf);
+        let user_main_config = user_main_config.map(Path::to_path_buf);
+        let user_theme_path = user_theme_path.map(Path::to_path_buf);
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let adapter_root = Self::adapter_root(ctx);
+        std::thread::spawn(move || {
+            let adapter = OpenCodeAdapter::new();
+            let result = adapter.write_session_configs(
+                &context,
+                custom_tui_config.as_deref(),
+                user_tui_config.as_deref(),
+                user_main_config.as_deref(),
+                user_theme_path.as_deref(),
+            );
+            if worker_cancelled.load(Ordering::Acquire) {
+                let _ = std::fs::remove_dir_all(adapter_root);
+                return;
+            }
+            let _ = result_tx.send(result);
+        });
+
+        match result_rx.recv_timeout(CONFIG_WRITE_DEADLINE) {
+            Ok(Ok(env)) => Ok(env),
+            Ok(Err(error)) => {
+                if ctx.provider.is_some() {
+                    return Err(anyhow!(
+                        "Managed OpenCode session configuration could not be written: {error}"
+                    ));
+                }
+                warn!(
+                    session_id = %ctx.session_id,
+                    %error,
+                    "opencode: session config write failed; launching with native config"
+                );
+                Ok(HashMap::new())
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                cancelled.store(true, Ordering::Release);
+                if ctx.provider.is_some() {
+                    return Err(anyhow!(
+                        "Managed OpenCode session configuration timed out after {}ms",
+                        CONFIG_WRITE_DEADLINE.as_millis()
+                    ));
+                }
+                warn!(
+                    session_id = %ctx.session_id,
+                    timeout_ms = CONFIG_WRITE_DEADLINE.as_millis() as u64,
+                    "opencode: session config write timed out; launching with native config"
+                );
+                Ok(HashMap::new())
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                if ctx.provider.is_some() {
+                    return Err(anyhow!(
+                        "Managed OpenCode session configuration worker stopped"
+                    ));
+                }
+                warn!(
+                    session_id = %ctx.session_id,
+                    "opencode: session config worker stopped; launching with native config"
+                );
+                Ok(HashMap::new())
+            }
+        }
+    }
+
     fn build_command_with_config_sources(
         &self,
         ctx: &CliAdapterContext,
@@ -461,7 +555,7 @@ impl OpenCodeAdapter {
         user_main_config: Option<&Path>,
         user_theme_path: Option<&Path>,
     ) -> Result<CliCommandResult> {
-        let env_inject = self.write_session_configs(
+        let env_inject = self.write_session_configs_bounded(
             ctx,
             custom_tui_config,
             user_tui_config,
@@ -469,6 +563,11 @@ impl OpenCodeAdapter {
             user_theme_path,
         )?;
         let mut args = Vec::new();
+
+        if let Some(model_id) = Self::qualified_model_id(ctx) {
+            args.push("--model".to_string());
+            args.push(model_id);
+        }
 
         if let Some(resume_id) = ctx.resume_id.as_ref() {
             args.push("--session".to_string());
@@ -524,13 +623,21 @@ impl CliToolAdapter for OpenCodeAdapter {
     }
 
     fn get_project_hook_statuses(&self, project_path: &Path) -> Result<Vec<ProjectHookStatus>> {
-        let installed = Self::plugin_path(project_path).is_file();
+        let plugin_path = Self::plugin_path(project_path);
+        let installed = std::fs::read_to_string(&plugin_path)
+            .map(|content| content == CCPANES_PLUGIN_JS)
+            .unwrap_or(false);
+        let reason = plugin_path
+            .is_file()
+            .then_some(installed)
+            .filter(|installed| !installed)
+            .map(|_| "plugin path is user-owned; CC-Panes will not overwrite it".to_string());
         Ok(vec![ProjectHookStatus {
             name: OPENCODE_PLUGIN_HOOK.to_string(),
             label: "编排自动回报（CC-Panes 插件）".to_string(),
             enabled: installed,
             supported: true,
-            reason: None,
+            reason,
         }])
     }
 
@@ -544,12 +651,27 @@ impl CliToolAdapter for OpenCodeAdapter {
         let plugin_path = Self::plugin_path(project_path);
         let enabled = desired.get(OPENCODE_PLUGIN_HOOK).copied().unwrap_or(true);
         if enabled {
-            if let Some(parent) = plugin_path.parent() {
-                std::fs::create_dir_all(parent)?;
+            match write_atomic_if_absent(&plugin_path, CCPANES_PLUGIN_JS.as_bytes())? {
+                true => {}
+                false => {
+                    let content = std::fs::read_to_string(&plugin_path)?;
+                    if content != CCPANES_PLUGIN_JS {
+                        warn!(
+                            path = %plugin_path.display(),
+                            "opencode: refusing to overwrite user-owned plugin"
+                        );
+                    }
+                }
             }
-            std::fs::write(&plugin_path, CCPANES_PLUGIN_JS)?;
         } else if plugin_path.is_file() {
-            std::fs::remove_file(&plugin_path)?;
+            if std::fs::read_to_string(&plugin_path)? == CCPANES_PLUGIN_JS {
+                std::fs::remove_file(&plugin_path)?;
+            } else {
+                warn!(
+                    path = %plugin_path.display(),
+                    "opencode: refusing to remove user-owned plugin"
+                );
+            }
         }
         Ok(())
     }
@@ -631,6 +753,44 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(path, serde_json::to_vec(&config).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn managed_config_write_failure_aborts_launch_instead_of_using_native_config() {
+        let dir = fresh_data_dir("managed_write_failure");
+        let mut context = ctx(dir.clone());
+        let blocked_data_dir = dir.join("not-a-directory");
+        std::fs::write(&blocked_data_dir, "blocked").unwrap();
+        context.data_dir = blocked_data_dir;
+        context.provider = Some(CliProvider {
+            id: "managed".to_string(),
+            name: "Managed".to_string(),
+            provider_type: "opencode".to_string(),
+            api_key: Some("test-secret".to_string()),
+            base_url: Some("https://example.test/v1".to_string()),
+            region: None,
+            project_id: None,
+            aws_profile: None,
+            config_dir: None,
+            is_default: false,
+        });
+
+        let result = OpenCodeAdapter::new().build_command_with_config_sources(
+            &context,
+            Some(OsStr::new("existing-tui-config")),
+            None,
+            None,
+            None,
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("managed config failure must abort the launch"),
+        };
+
+        assert!(error
+            .to_string()
+            .contains("Managed OpenCode session configuration could not be written"));
+        assert!(!error.to_string().contains("test-secret"));
     }
 
     fn project_theme_path(ctx: &CliAdapterContext) -> PathBuf {
@@ -1090,6 +1250,53 @@ mod tests {
     }
 
     #[test]
+    fn sync_project_hooks_does_not_overwrite_or_remove_user_plugin() {
+        let dir = fresh_data_dir("user-owned-hook");
+        let adapter = OpenCodeAdapter::new();
+        let plugin = OpenCodeAdapter::plugin_path(&dir);
+        std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+        std::fs::write(&plugin, "export default { user: true };\n").unwrap();
+
+        adapter
+            .sync_project_hooks(&dir, None, &HashMap::new())
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&plugin).unwrap(),
+            "export default { user: true };\n"
+        );
+        assert!(!adapter.get_project_hook_statuses(&dir).unwrap()[0].enabled);
+
+        adapter
+            .sync_project_hooks(
+                &dir,
+                None,
+                &HashMap::from([("ccpanes-plugin".to_string(), false)]),
+            )
+            .unwrap();
+        assert!(plugin.is_file());
+    }
+
+    #[test]
+    fn session_config_writes_are_isolated_and_replaced_atomically() {
+        let dir = fresh_data_dir("atomic-config");
+        let adapter = OpenCodeAdapter::new();
+        let first = ctx(dir.clone());
+        let mut second = ctx(dir);
+        second.session_id = "sess-2".to_string();
+        let first_path = adapter
+            .write_session_config(&first, Some(&serde_json::json!("ccpanes")))
+            .unwrap()
+            .unwrap();
+        let second_path = adapter
+            .write_session_config(&second, Some(&serde_json::json!("ccpanes")))
+            .unwrap()
+            .unwrap();
+        assert_ne!(first_path, second_path);
+        assert!(Path::new(&first_path).is_file());
+        assert!(Path::new(&second_path).is_file());
+    }
+
+    #[test]
     fn build_command_passes_initial_prompt_via_prompt_flag() {
         let mut c = ctx(fresh_data_dir("prompt"));
         // override 跳过可执行解析，测试不依赖本机安装 opencode
@@ -1103,6 +1310,60 @@ mod tests {
             cmd.args,
             vec!["--prompt".to_string(), "fix the login bug".to_string()]
         );
+    }
+
+    #[test]
+    fn build_command_qualifies_selected_model_and_places_it_before_resume() {
+        let mut c = ctx(fresh_data_dir("model"));
+        c.executable_override = Some("/usr/bin/opencode".to_string());
+        c.provider = Some(CliProvider {
+            id: "openai-provider".to_string(),
+            name: "OpenAI Provider".to_string(),
+            provider_type: "open_ai".to_string(),
+            ..Default::default()
+        });
+        c.adapter_options
+            .insert("__ccpanesModelId".to_string(), serde_json::json!("gpt-5.4"));
+        c.resume_id = Some("oc-session-42".to_string());
+        c.initial_prompt = Some("continue".to_string());
+
+        let result = OpenCodeAdapter::new()
+            .build_command_with_config_sources(&c, None, None, None, None)
+            .unwrap();
+
+        assert_eq!(
+            result.args,
+            vec![
+                "--model",
+                "openai/gpt-5.4",
+                "--session",
+                "oc-session-42",
+                "--prompt",
+                "continue",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_command_does_not_double_prefix_qualified_model() {
+        let mut c = ctx(fresh_data_dir("qualified_model"));
+        c.executable_override = Some("/usr/bin/opencode".to_string());
+        c.provider = Some(CliProvider {
+            id: "anthropic-provider".to_string(),
+            name: "Anthropic Provider".to_string(),
+            provider_type: "anthropic".to_string(),
+            ..Default::default()
+        });
+        c.adapter_options.insert(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("custom/claude-sonnet-4-6"),
+        );
+
+        let result = OpenCodeAdapter::new()
+            .build_command_with_config_sources(&c, None, None, None, None)
+            .unwrap();
+
+        assert_eq!(result.args, vec!["--model", "custom/claude-sonnet-4-6"]);
     }
 
     #[test]

@@ -4,7 +4,7 @@ import { immer } from "zustand/middleware/immer";
 import { useFullscreenStore } from "./useFullscreenStore";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { terminalService, ensureListeners } from "@/services/terminalService";
-import { waitForTerminalRestoreBarrier } from "@/services/terminalRestoreBarrier";
+import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRestoreBarrier";
 import { devDebugLog } from "@/utils/devLogger";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
@@ -84,7 +84,7 @@ function notifyTerminalLayoutChanged(reason: string): void {
 }
 
 function createTab(opts: CreateTabOptions): Tab {
-  const { projectId, projectPath, launchId, sessionId, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId, launchExtras } = opts;
+  const { projectId, projectPath, launchId, sessionId, resumeId, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId, launchExtras } = opts;
   let title: string;
   if (customTitle) {
     title = customTitle;
@@ -119,6 +119,7 @@ function createTab(opts: CreateTabOptions): Tab {
     resumeId,
     workspaceName,
     providerId,
+    modelId,
     providerSelection,
     launchProfileId,
     workspacePath,
@@ -142,6 +143,7 @@ function createTab(opts: CreateTabOptions): Tab {
     resumeIdSource: terminalLeaf.resumeIdSource,
     workspaceName: terminalLeaf.workspaceName,
     providerId: terminalLeaf.providerId,
+    modelId: terminalLeaf.modelId,
     providerSelection: terminalLeaf.providerSelection,
     launchProfileId: terminalLeaf.launchProfileId,
     workspacePath: terminalLeaf.workspacePath,
@@ -224,6 +226,7 @@ function syncTabTerminalState(tab: Tab): void {
       resumeIdSource: tab.resumeIdSource,
       workspaceName: tab.workspaceName,
       providerId: tab.providerId,
+      modelId: tab.modelId,
       providerSelection: tab.providerSelection,
       launchProfileId: tab.launchProfileId,
       workspacePath: tab.workspacePath,
@@ -259,6 +262,7 @@ function syncTabTerminalState(tab: Tab): void {
   tab.resumeIdSource = activeLeaf.resumeIdSource;
   tab.workspaceName = activeLeaf.workspaceName;
   tab.providerId = activeLeaf.providerId;
+  tab.modelId = activeLeaf.modelId;
   tab.providerSelection = activeLeaf.providerSelection;
   tab.launchProfileId = activeLeaf.launchProfileId;
   tab.workspacePath = activeLeaf.workspacePath;
@@ -1189,6 +1193,7 @@ export const usePanesStore = create<PanesState>()(
             resumeId: t.resumeId,
             workspaceName: t.workspaceName,
             providerId: t.providerId,
+            modelId: t.modelId,
             providerSelection: t.providerSelection,
             launchProfileId: t.launchProfileId,
             workspacePath: t.workspacePath,
@@ -1646,6 +1651,7 @@ export const usePanesStore = create<PanesState>()(
             resumeId: snapTab.resumeId,
             workspaceName: snapTab.workspaceName,
             providerId: snapTab.providerId,
+            modelId: snapTab.modelId,
             providerSelection: snapTab.providerSelection,
             launchProfileId: snapTab.launchProfileId,
             workspacePath: snapTab.workspacePath,
@@ -2199,6 +2205,7 @@ export const usePanesStore = create<PanesState>()(
         resumeId: lastClosed.resumeId,
         workspaceName: lastClosed.workspaceName,
         providerId: lastClosed.providerId,
+        modelId: lastClosed.modelId,
         providerSelection: lastClosed.providerSelection,
         launchProfileId: lastClosed.launchProfileId,
         workspacePath: lastClosed.workspacePath,
@@ -2382,7 +2389,7 @@ export const usePanesStore = create<PanesState>()(
     reconnectTab: async (_paneId, tabId, terminalPaneId) => {
       try {
         await ensureListeners();
-        await waitForTerminalRestoreBarrier();
+        await waitForTerminalRestoreBarrierWithDeadline();
         // 屏障完成后立即重读，避免 reconciliation 已认领/阻断该 leaf 后仍按旧快照重建。
         const location = findTabAcrossLayouts(get(), tabId);
         const tab = location?.tab;
@@ -2403,6 +2410,7 @@ export const usePanesStore = create<PanesState>()(
           rows: 24,
           workspaceName: leaf?.workspaceName ?? tab.workspaceName,
           providerId: leaf?.providerId ?? tab.providerId,
+          modelId: leaf?.modelId ?? tab.modelId,
           providerSelection: leaf?.providerSelection ?? tab.providerSelection,
           launchProfileId: leaf?.launchProfileId ?? tab.launchProfileId,
           workspacePath: leaf?.workspacePath ?? tab.workspacePath,
@@ -2821,6 +2829,7 @@ export const usePanesStore = create<PanesState>()(
           workspacePath: meta.workspacePath,
           workspaceSnapshotId: meta.workspaceSnapshotId,
           providerId: meta.providerId,
+          modelId: meta.modelId,
           providerSelection: meta.providerSelection,
           launchProfileId: meta.launchProfileId,
           cliTool: meta.cliTool,

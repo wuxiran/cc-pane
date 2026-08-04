@@ -22,6 +22,7 @@ import { checkEnvironment } from "./environmentService";
 import { usageStatsService } from "./usageStatsService";
 import { apiDelete, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
 import { waitForTerminalRestoreBarrier } from "./terminalRestoreBarrier";
+import { cancelTerminalLaunch, isTerminalReclaimKillReason, withTerminalLaunchDeadline } from "./terminalLaunchDeadline";
 import {
   addSubscriber,
   assertCreateSessionRequest,
@@ -284,7 +285,7 @@ export async function ensureListeners(): Promise<void> {
 
   // 后端主动 kill 的通知。按 reason 分流：
   // user-close/mcp/缺失（旧后端）→ 关标签；
-  // orphan-reclaim/daemon-reaper → 保留标签显示进程退出——回收类 kill 可能
+  // orphan-reclaim/daemon-reaper/launch-timeout → 保留标签显示进程退出——回收类 kill 可能
   // 来自其他实例/daemon 对账，静默关标签会表现为"面板凭空消失"。
   unlistenKilled = await webviewWindow.listen<SessionKilledPayload>(
     "session-killed",
@@ -292,7 +293,7 @@ export async function ensureListeners(): Promise<void> {
       const { sessionId, reason } = event.payload;
       // 前端主动 kill 的已经自己关了标签，跳过
       if (killedSessions.has(sessionId)) return;
-      if (reason === "orphan-reclaim" || reason === "daemon-reaper") {
+      if (isTerminalReclaimKillReason(reason)) {
         console.warn("[terminal] session-killed by reclaim; keeping tab", { sessionId, reason });
         dispatchExit(sessionId, -1);
         return;
@@ -471,23 +472,29 @@ export const terminalService = {
     );
   },
 
+  cancelLaunch: cancelTerminalLaunch,
+
   /** 创建终端会话 */
   async createSession(request: CreateSessionRequest | null | undefined): Promise<string> {
     assertCreateSessionRequest(request);
-    await waitForTerminalRestoreBarrier();
-    return invokeOrApi<string>(
-      "create_terminal_session",
-      { request: compactCreateSessionRequest(request) },
-      async () => {
-        const response = await apiJson<{ sessionId: string }>(
-          "/api/sessions",
-          "POST",
-          compactCreateSessionRequest(request),
-        );
-        ensureWebSocket(response.sessionId);
-        return response.sessionId;
-      },
-    );
+    const compactRequest = compactCreateSessionRequest(request);
+    const task = (async () => {
+      await waitForTerminalRestoreBarrier();
+      return invokeOrApi<string>(
+        "create_terminal_session",
+        { request: compactRequest },
+        async () => {
+          const response = await apiJson<{ sessionId: string }>(
+            "/api/sessions",
+            "POST",
+            compactRequest,
+          );
+          ensureWebSocket(response.sessionId);
+          return response.sessionId;
+        },
+      );
+    })();
+    return withTerminalLaunchDeadline(task, request.launchId);
   },
 
   /** 向终端写入数据 */

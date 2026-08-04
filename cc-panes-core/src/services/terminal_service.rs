@@ -7,8 +7,9 @@ use crate::models::{
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{
-    LaunchProfileService, ProjectCliHooksService, ProviderService, SettingsService, SpecService,
-    SshCredentialService, WorkspaceService,
+    managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
+    LaunchProfileService, ProjectCliHooksService, ProviderMode, ProviderResolutionInput,
+    ProviderService, SettingsService, SpecService, SshCredentialService, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
@@ -87,6 +88,39 @@ fn merge_session_prompts(parts: impl IntoIterator<Item = Option<String>>) -> Opt
     } else {
         Some(merged)
     }
+}
+
+fn launch_cancelled_error(launch_id: Option<&str>, stage: &str) -> AppError {
+    let mut params = HashMap::from([("stage".to_string(), stage.to_string())]);
+    if let Some(launch_id) = launch_id {
+        params.insert("launchId".to_string(), launch_id.to_string());
+    }
+    AppError::coded_with_params(
+        "LAUNCH_CANCELLED",
+        format!("Terminal launch was cancelled during {stage}"),
+        params,
+    )
+}
+
+fn log_launch_stage(
+    launch_id: Option<&str>,
+    session_id: Option<&str>,
+    cli_tool: CliTool,
+    runtime_kind: &str,
+    started_at: Instant,
+    stage: &str,
+    outcome: &str,
+) {
+    info!(
+        launch_id = launch_id.unwrap_or("<none>"),
+        session_id = session_id.unwrap_or("<pending>"),
+        cli_tool = cli_tool.as_id(),
+        runtime_kind,
+        stage,
+        elapsed_ms = started_at.elapsed().as_millis() as u64,
+        outcome,
+        "terminal launch stage"
+    );
 }
 
 fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
@@ -378,6 +412,7 @@ pub enum KillReason {
     Mcp,
     OrphanReclaim,
     DaemonReaper,
+    LaunchTimeout,
     #[serde(other)]
     Unknown,
 }
@@ -389,6 +424,7 @@ impl KillReason {
             Some("mcp") => KillReason::Mcp,
             Some("orphan-reclaim") => KillReason::OrphanReclaim,
             Some("daemon-reaper") => KillReason::DaemonReaper,
+            Some("launch-timeout") => KillReason::LaunchTimeout,
             _ => KillReason::Unknown,
         }
     }
@@ -399,6 +435,7 @@ impl KillReason {
             KillReason::Mcp => "mcp",
             KillReason::OrphanReclaim => "orphan-reclaim",
             KillReason::DaemonReaper => "daemon-reaper",
+            KillReason::LaunchTimeout => "launch-timeout",
             KillReason::Unknown => "unknown",
         }
     }
@@ -737,6 +774,19 @@ struct TerminalSession {
     paste_ready: Arc<AtomicBool>,
 }
 
+struct LaunchReservation<'a> {
+    active_launches: &'a Mutex<HashSet<String>>,
+    launch_id: String,
+}
+
+impl Drop for LaunchReservation<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active_launches) = self.active_launches.lock() {
+            active_launches.remove(&self.launch_id);
+        }
+    }
+}
+
 /// Orchestrator 连接信息（port + token），启动后注入
 #[derive(Debug, Clone)]
 pub struct OrchestratorInfo {
@@ -803,6 +853,11 @@ struct DeadBufferEntry {
 /// 终端服务 - 管理多个 PTY 会话
 pub struct TerminalService {
     sessions: Arc<Mutex<HashMap<String, TerminalSession>>>,
+    /// Launch ids currently being created. This closes duplicate/retry races before a session id
+    /// exists, while the session map remains the source of truth after registration.
+    active_launches: Mutex<HashSet<String>>,
+    /// One-shot launch ids cancelled by an outer deadline before a session id was available.
+    cancelled_launches: Mutex<HashMap<String, Instant>>,
     /// 已退出会话的缓冲区，保留 5 分钟供事后读取
     dead_buffers: Arc<Mutex<HashMap<String, DeadBufferEntry>>>,
     settings_service: Arc<SettingsService>,
@@ -1232,6 +1287,8 @@ impl TerminalService {
     ) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            active_launches: Mutex::new(HashSet::new()),
+            cancelled_launches: Mutex::new(HashMap::new()),
             dead_buffers: Arc::new(Mutex::new(HashMap::new())),
             settings_service,
             provider_service,
@@ -1333,6 +1390,7 @@ impl TerminalService {
         rows: u16,
         workspace_name: Option<&str>,
         provider_id: Option<&str>,
+        model_id: Option<&str>,
         provider_selection: LaunchProviderSelection,
         launch_profile_id: Option<&str>,
         workspace_path: Option<&str>,
@@ -1361,6 +1419,8 @@ impl TerminalService {
         } else {
             LaunchRuntime::Local
         };
+        let _launch_reservation = self.reserve_launch(launch_id)?;
+        self.ensure_launch_active(launch_id, "launch.begin")?;
         validate_launch_cwd(project_path, workspace_path, runtime).map_err(anyhow::Error::new)?;
         let is_ssh = ssh.is_some();
         let resolved_workspace = workspace_name.and_then(|name| {
@@ -1376,6 +1436,16 @@ impl TerminalService {
         } else {
             "local"
         };
+        let launch_trace_started_at = Instant::now();
+        log_launch_stage(
+            launch_id,
+            None,
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.begin",
+            "started",
+        );
         let (resolved_profile, profile_diagnostic) = self
             .launch_profile_service
             .read()
@@ -1390,9 +1460,21 @@ impl TerminalService {
                 )
             })
             .unwrap_or((None, None));
+        log_launch_stage(
+            launch_id,
+            None,
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.profile.resolved",
+            "ok",
+        );
         let profile_provider_id = resolved_profile
             .as_ref()
             .and_then(|profile| profile.provider_id.as_deref());
+        let profile_model_id = resolved_profile
+            .as_ref()
+            .and_then(|profile| profile.model_id.as_deref());
         // adapter_options 合并：profile 打底，request 覆盖同名键（per-launch 覆盖）
         let mut adapter_options = resolved_profile
             .as_ref()
@@ -1403,26 +1485,75 @@ impl TerminalService {
                 adapter_options.insert(key.clone(), value.clone());
             }
         }
-        let use_native_kimi_config = cli_tool == CliTool::Kimi
-            && adapter_options
-                .get("kimiConfigMode")
-                .and_then(serde_json::Value::as_str)
-                == Some("native");
-        let requested_provider_id = provider_id.filter(|id| !id.trim().is_empty());
-        let effective_provider_id = if use_native_kimi_config {
-            None
+        let workspace_provider_id = resolved_workspace
+            .as_ref()
+            .and_then(|workspace| workspace.provider_id.as_deref());
+        let default_provider_id = self
+            .provider_service
+            .get_default_provider_id(cli_tool.as_id());
+        let providers = self.provider_service.list_providers();
+        let provider_plan = resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool,
+                selection: provider_selection,
+                requested_provider_id: provider_id,
+                requested_model_id: model_id,
+                profile_provider_id,
+                profile_model_id,
+                workspace_provider_id,
+                default_provider_id: default_provider_id.as_deref(),
+                adapter_options: Some(&adapter_options),
+            },
+            &providers,
+            &self.cli_registry,
+        )
+        .map_err(anyhow::Error::new)?;
+        provider_plan.apply_model_adapter_defaults(&mut adapter_options);
+        if let Some(model_id) = provider_plan.model_id.as_ref() {
+            adapter_options.insert(
+                "__ccpanesModelId".to_string(),
+                serde_json::Value::String(model_id.clone()),
+            );
         } else {
-            match provider_selection {
-                LaunchProviderSelection::None => None,
-                LaunchProviderSelection::Explicit => requested_provider_id,
-                LaunchProviderSelection::Inherit => requested_provider_id.or(profile_provider_id),
-            }
-        };
+            adapter_options.remove("__ccpanesModelId");
+        }
+        validate_provider_runtime(&provider_plan, runtime, cli_tool).map_err(anyhow::Error::new)?;
+        info!(
+            cli_tool = cli_tool.as_id(),
+            runtime = runtime_kind,
+            mode = ?provider_plan.mode,
+            source = ?provider_plan.source,
+            provider_id = provider_plan
+                .provider
+                .as_ref()
+                .map(|provider| provider.id.as_str())
+                .unwrap_or("<native>"),
+            "resolved launch provider"
+        );
         let mut env_vars = self.settings_service.get_proxy_env_vars();
-        let provider_vars = self.provider_service.get_env_vars(effective_provider_id);
-        let provider = effective_provider_id
-            .and_then(|id| self.provider_service.get_provider(id))
-            .map(to_cli_provider);
+        let provider_vars = provider_plan
+            .provider
+            .as_ref()
+            .map(|provider| self.provider_service.get_env_vars_for_provider(provider))
+            .unwrap_or_default();
+        let provider = provider_plan.provider.clone().map(to_cli_provider);
+        let provider_conflict_env_remove = if provider_plan.mode == ProviderMode::Managed {
+            managed_provider_conflict_env_keys(cli_tool)
+                .iter()
+                .map(|key| (*key).to_string())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        log_launch_stage(
+            launch_id,
+            None,
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.provider.resolved",
+            "ok",
+        );
         let effective_skip_mcp =
             LaunchProfileService::should_skip_mcp_for_profile(resolved_profile.as_ref(), skip_mcp);
         if !is_ssh && !effective_skip_mcp && matches!(cli_tool, CliTool::Claude | CliTool::Codex) {
@@ -1464,6 +1595,15 @@ impl TerminalService {
                 })
                 .unwrap_or(shared_mcp_urls)
         };
+        log_launch_stage(
+            launch_id,
+            None,
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.mcp.resolved",
+            "ok",
+        );
         let allowed_mcp_server_ids =
             allowed_mcp_server_ids_for_profile(resolved_profile.as_ref(), &shared_mcp_config);
         let disable_unlisted_mcp_servers = launch_profile_isolates_mcp(resolved_profile.as_ref());
@@ -1519,10 +1659,6 @@ impl TerminalService {
             append_system_prompt.map(str::to_string),
             profile_skill_prompt.clone(),
         ]);
-        let pure_wsl_codex_launch = wsl.is_some() && cli_tool == CliTool::Codex;
-        if !pure_wsl_codex_launch {
-            env_vars.extend(provider_vars.clone());
-        }
         if let Some(extra_env) = extra_env {
             for (key, value) in extra_env {
                 if Self::is_valid_env_key(key) {
@@ -1532,6 +1668,9 @@ impl TerminalService {
                 }
             }
         }
+        // Managed Provider is authoritative for this launch. Native has an empty map,
+        // so inherited shell/CLI configuration remains untouched.
+        env_vars.extend(provider_vars.clone());
         let emitter = self.emitter.read().clone().ok_or_else(|| {
             anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)")
         })?;
@@ -1872,6 +2011,7 @@ impl TerminalService {
                     &session_id,
                     &env_vars,
                     &provider_vars,
+                    provider.as_ref(),
                     resume_id,
                     issued_session_id.as_deref(),
                     launch_append_system_prompt.as_deref(),
@@ -1886,6 +2026,7 @@ impl TerminalService {
                     &session_id,
                     &env_vars,
                     &provider_vars,
+                    provider.as_ref(),
                     resume_id,
                     issued_session_id.as_deref(),
                     launch_append_system_prompt.as_deref(),
@@ -1932,6 +2073,15 @@ impl TerminalService {
                     .ok_or_else(|| anyhow!("Unknown CLI tool: {}", cli_tool_id))?;
 
                 let hooks_project_path = workspace_path.unwrap_or(project_path);
+                log_launch_stage(
+                    launch_id,
+                    Some(&session_id),
+                    cli_tool,
+                    runtime_kind,
+                    launch_trace_started_at,
+                    "launch.project_hooks.begin",
+                    "started",
+                );
                 if sync_project_hooks {
                     if let Err(error) = self
                         .project_cli_hooks_service
@@ -1953,6 +2103,15 @@ impl TerminalService {
                         "create_session: launch profile disabled project skill hook sync"
                     );
                 }
+                log_launch_stage(
+                    launch_id,
+                    Some(&session_id),
+                    cli_tool,
+                    runtime_kind,
+                    launch_trace_started_at,
+                    "launch.project_hooks.end",
+                    "ok",
+                );
 
                 // 自动注入 Spec prompt（仅 CLI 工具模式，且无显式 prompt/运行配置 Skill 时）
                 let spec_prompt = if launch_append_system_prompt.is_none() {
@@ -1992,7 +2151,41 @@ impl TerminalService {
                     disable_unlisted_mcp_servers,
                 };
 
-                let result = adapter.build_command(&ctx)?;
+                log_launch_stage(
+                    launch_id,
+                    Some(&session_id),
+                    cli_tool,
+                    runtime_kind,
+                    launch_trace_started_at,
+                    "launch.config.begin",
+                    "started",
+                );
+                let mut result = adapter.build_command(&ctx)?;
+                log_launch_stage(
+                    launch_id,
+                    Some(&session_id),
+                    cli_tool,
+                    runtime_kind,
+                    launch_trace_started_at,
+                    "launch.config.end",
+                    "ok",
+                );
+                log_launch_stage(
+                    launch_id,
+                    Some(&session_id),
+                    cli_tool,
+                    runtime_kind,
+                    launch_trace_started_at,
+                    "launch.executable.resolved",
+                    "ok",
+                );
+                if provider_plan.mode == ProviderMode::Managed {
+                    result
+                        .env_remove
+                        .extend(provider_conflict_env_remove.iter().cloned());
+                    result.env_remove.sort();
+                    result.env_remove.dedup();
+                }
                 env_vars.extend(result.env_inject);
                 (result.command, result.args, result.env_remove)
             };
@@ -2082,6 +2275,25 @@ impl TerminalService {
             resource_policy,
         };
 
+        log_launch_stage(
+            launch_id,
+            Some(&session_id),
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.command.final",
+            "ok",
+        );
+        self.ensure_launch_active(launch_id, "launch.pty.begin")?;
+        log_launch_stage(
+            launch_id,
+            Some(&session_id),
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.pty.begin",
+            "started",
+        );
         let spawn_result = match spawn_pty(config) {
             Ok(result) => {
                 info!(
@@ -2090,9 +2302,27 @@ impl TerminalService {
                     launch_claude,
                     "create_session: PTY spawned successfully"
                 );
+                log_launch_stage(
+                    launch_id,
+                    Some(&session_id),
+                    cli_tool,
+                    runtime_kind,
+                    launch_trace_started_at,
+                    "launch.pty.spawned",
+                    "ok",
+                );
                 result
             }
             Err(e) => {
+                log_launch_stage(
+                    launch_id,
+                    Some(&session_id),
+                    cli_tool,
+                    runtime_kind,
+                    launch_trace_started_at,
+                    "launch.failed",
+                    "pty.spawn",
+                );
                 error!(
                     session_id = %session_id,
                     command = %command_for_log,
@@ -2100,9 +2330,15 @@ impl TerminalService {
                     err = %e,
                     "create_session: PTY spawn FAILED"
                 );
+                wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), &session_id);
                 return Err(e);
             }
         };
+        if let Err(error) = self.ensure_launch_active(launch_id, "launch.pty.spawned") {
+            let _ = spawn_result.process.kill();
+            wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), &session_id);
+            return Err(error);
+        }
         // Claude 发号成功：广播确定性 resume id（后端监听写 launch_history 并转发前端）
         if let Some(ref issued) = issued_session_id {
             let _ = emitter.emit(
@@ -2155,6 +2391,20 @@ impl TerminalService {
 
         // 保存会话
         {
+            // Cancellation and registration use one lock order so a timeout racing this block
+            // either consumes the marker here or observes and kills the inserted session.
+            let mut cancelled_launches = self
+                .cancelled_launches
+                .lock()
+                .map_err(|_| anyhow!("cancelled launches lock poisoned"))?;
+            if launch_id.is_some_and(|id| cancelled_launches.remove(id).is_some()) {
+                drop(cancelled_launches);
+                let _ = process.kill();
+                return Err(anyhow::Error::new(launch_cancelled_error(
+                    launch_id,
+                    "launch.session.register",
+                )));
+            }
             let mut sessions = self
                 .sessions
                 .lock()
@@ -2175,6 +2425,15 @@ impl TerminalService {
                 },
             );
         }
+        log_launch_stage(
+            launch_id,
+            Some(&session_id),
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.session.registered",
+            "ok",
+        );
 
         // 启动输出批量合并线程（减少 IPC 事件频率，防止 WKWebView 主线程死锁）
         // 策略：累积数据，满足任一条件时刷出：≥16KB 或 ≥16ms 超时
@@ -2691,8 +2950,119 @@ impl TerminalService {
             wsl_codex::cleanup_session_mcp_configs(&wait_data_dir, &sid);
         });
 
+        log_launch_stage(
+            launch_id,
+            Some(&session_id),
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.ready",
+            "ok",
+        );
         info!(session_id = %session_id, project = %project_path, launch_claude, "Terminal session created");
         Ok(session_id)
+    }
+
+    fn ensure_launch_active(&self, launch_id: Option<&str>, stage: &str) -> Result<()> {
+        let Some(launch_id) = launch_id.filter(|value| !value.trim().is_empty()) else {
+            return Ok(());
+        };
+        let cancelled = self
+            .cancelled_launches
+            .lock()
+            .map_err(|_| anyhow!("cancelled launches lock poisoned"))?
+            .remove(launch_id)
+            .is_some();
+        if !cancelled {
+            return Ok(());
+        }
+        warn!(
+            launch_id,
+            stage, "terminal launch cancelled before session became ready"
+        );
+        Err(anyhow::Error::new(launch_cancelled_error(
+            Some(launch_id),
+            stage,
+        )))
+    }
+
+    fn reserve_launch(&self, launch_id: Option<&str>) -> Result<Option<LaunchReservation<'_>>> {
+        let Some(launch_id) = launch_id.filter(|value| !value.trim().is_empty()) else {
+            return Ok(None);
+        };
+        let launch_id = launch_id.trim();
+        let mut active_launches = self
+            .active_launches
+            .lock()
+            .map_err(|_| anyhow!("active launches lock poisoned"))?;
+        if active_launches.contains(launch_id) {
+            return Err(anyhow::Error::new(AppError::coded_with_params(
+                "LAUNCH_DUPLICATE",
+                format!("A terminal launch with id '{launch_id}' is already active"),
+                HashMap::from([(String::from("launchId"), launch_id.to_string())]),
+            )));
+        }
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| anyhow!("sessions lock poisoned"))?;
+        if sessions
+            .values()
+            .any(|session| session.launch_id.as_deref() == Some(launch_id))
+        {
+            return Err(anyhow::Error::new(AppError::coded_with_params(
+                "LAUNCH_DUPLICATE",
+                format!("A terminal session for launch id '{launch_id}' already exists"),
+                HashMap::from([(String::from("launchId"), launch_id.to_string())]),
+            )));
+        }
+        active_launches.insert(launch_id.to_string());
+        Ok(Some(LaunchReservation {
+            active_launches: &self.active_launches,
+            launch_id: launch_id.to_string(),
+        }))
+    }
+
+    /// Cancel a launch before or after it has registered its session. The cancellation marker and
+    /// session lookup use the same lock order as registration, closing the late-response race.
+    pub fn cancel_launch(&self, launch_id: &str) -> AppResult<()> {
+        let launch_id = launch_id.trim();
+        if launch_id.is_empty() {
+            return Ok(());
+        }
+
+        let session_ids = {
+            let mut cancelled_launches = self
+                .cancelled_launches
+                .lock()
+                .map_err(|_| AppError::from("cancelled launches lock poisoned"))?;
+            let cutoff = Instant::now() - Duration::from_secs(300);
+            cancelled_launches.retain(|_, created_at| *created_at >= cutoff);
+            cancelled_launches.insert(launch_id.to_string(), Instant::now());
+
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| AppError::from("sessions lock poisoned"))?;
+            let session_ids = sessions
+                .iter()
+                .filter_map(|(session_id, session)| {
+                    (session.launch_id.as_deref() == Some(launch_id)).then(|| session_id.clone())
+                })
+                .collect::<Vec<_>>();
+            if !session_ids.is_empty() {
+                cancelled_launches.remove(launch_id);
+            }
+            session_ids
+        };
+
+        for session_id in session_ids {
+            match self.kill_with_reason(&session_id, KillReason::LaunchTimeout) {
+                Ok(()) | Err(AppError::NotFound(_)) => Ok(()),
+                Err(error) => Err(error),
+            }?;
+        }
+        Ok(())
     }
 
     pub fn find_session_id_by_launch_id(&self, launch_id: &str) -> Option<String> {
@@ -3069,7 +3439,7 @@ impl TerminalService {
     pub fn cleanup_all(&self) {
         if let Ok(mut sessions) = self.sessions.lock() {
             let count = sessions.len();
-            for (_, session) in sessions.drain() {
+            for (session_id, session) in sessions.drain() {
                 // 先设置取消标志，通知 reader 线程停止（与 kill() 保持一致）
                 session.cancelled.store(true, Ordering::Relaxed);
                 {
@@ -3077,6 +3447,7 @@ impl TerminalService {
                     *s = SessionStatus::Exited;
                 }
                 let _ = session.process.kill();
+                wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), &session_id);
             }
             if count > 0 {
                 info!("[cleanup] cleaned up {} terminal sessions", count);
@@ -3938,6 +4309,15 @@ mod tests {
         session_id: &str,
         writes: Arc<Mutex<Vec<String>>>,
     ) {
+        install_recording_session_with_launch_id(service, session_id, writes, None);
+    }
+
+    fn install_recording_session_with_launch_id(
+        service: &TerminalService,
+        session_id: &str,
+        writes: Arc<Mutex<Vec<String>>>,
+        launch_id: Option<&str>,
+    ) {
         let writer_tx =
             spawn_terminal_writer(session_id.to_string(), Box::new(RecordingWriter { writes }));
         service
@@ -3947,7 +4327,7 @@ mod tests {
             .insert(
                 session_id.to_string(),
                 TerminalSession {
-                    launch_id: None,
+                    launch_id: launch_id.map(str::to_string),
                     process: Arc::new(FakePtyProcess),
                     writer_tx,
                     status: Arc::new(Mutex::new(SessionStatus::Idle)),
@@ -3959,6 +4339,63 @@ mod tests {
                     paste_ready: Arc::new(AtomicBool::new(false)),
                 },
             );
+    }
+
+    #[test]
+    fn cancel_launch_before_session_registration_is_consumed_at_next_phase() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        service
+            .cancel_launch("launch-before-session")
+            .expect("cancel launch");
+
+        let error = service
+            .ensure_launch_active(Some("launch-before-session"), "launch.pty.begin")
+            .expect_err("cancel marker must stop the launch");
+        let app_error = error
+            .downcast_ref::<AppError>()
+            .expect("structured launch cancellation");
+        assert_eq!(app_error.code(), Some("LAUNCH_CANCELLED"));
+        assert!(service
+            .ensure_launch_active(Some("launch-before-session"), "launch.pty.begin")
+            .is_ok());
+    }
+
+    #[test]
+    fn cancel_launch_kills_registered_session_once() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        install_recording_session_with_launch_id(
+            &service,
+            "session-cancel",
+            Arc::new(Mutex::new(Vec::new())),
+            Some("launch-cancel"),
+        );
+
+        service
+            .cancel_launch("launch-cancel")
+            .expect("cancel launch");
+        assert!(service
+            .find_session_id_by_launch_id("launch-cancel")
+            .is_none());
+        assert!(service.cancel_launch("launch-cancel").is_ok());
+    }
+
+    #[test]
+    fn duplicate_launch_id_is_rejected_before_second_pty() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let first = service
+            .reserve_launch(Some("launch-duplicate"))
+            .expect("reserve first launch")
+            .expect("reservation");
+        let error = match service.reserve_launch(Some("launch-duplicate")) {
+            Ok(_) => panic!("duplicate launch must be rejected"),
+            Err(error) => error,
+        };
+        let app_error = error
+            .downcast_ref::<AppError>()
+            .expect("structured duplicate error");
+        assert_eq!(app_error.code(), Some("LAUNCH_DUPLICATE"));
+        drop(first);
+        assert!(service.reserve_launch(Some("launch-duplicate")).is_ok());
     }
 
     #[test]

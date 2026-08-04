@@ -1,7 +1,16 @@
 import type { UsageQueryResult } from "@/types/usageStats";
+import type { ContextUsageSnapshot } from "@/types/contextUsage";
 import { apiGet, apiJson, invokeOrApi } from "./apiClient";
 
 export const usageStatsService = {
+  async queryContextUsage(ptySessionId: string): Promise<ContextUsageSnapshot> {
+    return invokeOrApi<ContextUsageSnapshot>(
+      "query_context_usage",
+      { ptySessionId },
+      () => apiGet<ContextUsageSnapshot>(`/api/context-usage/${encodeURIComponent(ptySessionId)}`),
+    );
+  },
+
   async queryUsage(
     rangeDays: number,
     workspaceFilter?: string | null,

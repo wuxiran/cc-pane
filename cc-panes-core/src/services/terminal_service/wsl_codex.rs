@@ -170,7 +170,7 @@ fn sanitize_wsl_script_component(value: &str) -> String {
 
 fn render_wsl_launch_script(commands: &[String]) -> String {
     let mut script = String::from(
-        "#!/usr/bin/env bash\nset -e\ncase \"${LC_ALL:-${LANG:-}}\" in *[Uu][Tt][Ff]-8|*[Uu][Tt][Ff]8) ;; *) export LC_ALL=C.UTF-8 LANG=C.UTF-8 ;; esac\n",
+        "#!/usr/bin/env bash\nset -e\numask 077\nchmod 600 \"$0\" 2>/dev/null || true\ncase \"${LC_ALL:-${LANG:-}}\" in *[Uu][Tt][Ff]-8|*[Uu][Tt][Ff]8) ;; *) export LC_ALL=C.UTF-8 LANG=C.UTF-8 ;; esac\n",
     );
     for command in commands {
         script.push_str(command);
@@ -219,6 +219,16 @@ fn push_wsl_env_exports(remote_parts: &mut Vec<String>, env_vars: &HashMap<Strin
         } else {
             warn!("Skipping WSL env var with invalid key: {}", key);
         }
+    }
+}
+
+#[cfg(windows)]
+fn push_wsl_provider_env_unsets(remote_parts: &mut Vec<String>, cli_tool: CliTool, managed: bool) {
+    if !managed {
+        return;
+    }
+    for key in crate::services::managed_provider_conflict_env_keys(cli_tool) {
+        remote_parts.push(format!("unset {key}"));
     }
 }
 
@@ -466,6 +476,28 @@ pub(super) fn cleanup_session_mcp_configs(data_dir: &std::path::Path, session_id
             }
         }
     }
+
+    let launch_dir = data_dir.join("wsl-launch");
+    if let Ok(entries) = std::fs::read_dir(&launch_dir) {
+        let suffix = format!("-{sanitized}.sh");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_name().to_string_lossy().ends_with(&suffix) && path.is_file() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    let kimi_config = data_dir
+        .join("cli-adapters")
+        .join("kimi")
+        .join("configs")
+        .join(format!("{sanitized}.json"));
+    let _ = std::fs::remove_file(kimi_config);
+    let opencode_session = data_dir
+        .join("cli-adapters")
+        .join("opencode")
+        .join(&sanitized);
+    let _ = std::fs::remove_dir_all(opencode_session);
 }
 
 pub(super) fn append_codex_resume_args(
@@ -649,6 +681,112 @@ pub(super) fn windows_path_to_wsl(_path: &std::path::Path) -> Option<String> {
     None
 }
 
+#[cfg(windows)]
+fn translate_wsl_managed_path(path: &str) -> Result<String> {
+    windows_path_to_wsl(std::path::Path::new(path)).ok_or_else(|| {
+        anyhow!(
+            "Failed to translate managed Provider path to WSL path: {}",
+            path
+        )
+    })
+}
+
+#[cfg(windows)]
+fn translate_wsl_managed_env_value(key: &str, value: &str) -> Result<String> {
+    if matches!(
+        key,
+        "CLAUDE_CONFIG_DIR"
+            | "KIMI_SHARE_DIR"
+            | "CRUSH_GLOBAL_CONFIG"
+            | "CRUSH_GLOBAL_DATA"
+            | "OPENCODE_CONFIG"
+            | "OPENCODE_TUI_CONFIG"
+    ) {
+        translate_wsl_managed_path(value)
+    } else {
+        Ok(value.to_string())
+    }
+}
+
+#[cfg(windows)]
+fn translate_wsl_adapter_arg(arg: &str, data_dir: &std::path::Path) -> Result<String> {
+    let path = std::path::Path::new(arg);
+    if path.starts_with(data_dir) {
+        translate_wsl_managed_path(arg)
+    } else {
+        Ok(arg.to_string())
+    }
+}
+
+#[cfg(windows)]
+fn build_wsl_managed_adapter_plan(
+    cli_tool: CliTool,
+    context: &cc_cli_adapters::CliAdapterContext,
+) -> Result<(Option<Vec<String>>, HashMap<String, String>)> {
+    let result = match cli_tool {
+        CliTool::Kimi => Some(cc_cli_adapters::CliToolAdapter::build_command(
+            &cc_cli_adapters::KimiAdapter::new(),
+            context,
+        )?),
+        CliTool::Glm => Some(cc_cli_adapters::CliToolAdapter::build_command(
+            &cc_cli_adapters::GlmAdapter::new(),
+            context,
+        )?),
+        CliTool::Opencode => {
+            let config_path =
+                cc_cli_adapters::OpenCodeAdapter::new().write_managed_provider_config(context)?;
+            return Ok((
+                None,
+                HashMap::from([(
+                    "OPENCODE_CONFIG".to_string(),
+                    translate_wsl_managed_path(&config_path)?,
+                )]),
+            ));
+        }
+        _ => return Ok((None, HashMap::new())),
+    };
+
+    let Some(result) = result else {
+        return Ok((None, HashMap::new()));
+    };
+    let env = result
+        .env_inject
+        .into_iter()
+        .map(|(key, value)| {
+            translate_wsl_managed_env_value(&key, &value).map(|translated| (key, translated))
+        })
+        .collect::<Result<HashMap<_, _>>>()?;
+    let args = result
+        .args
+        .into_iter()
+        .map(|arg| translate_wsl_adapter_arg(&arg, &context.data_dir))
+        .collect::<Result<Vec<_>>>()?;
+    Ok((Some(args), env))
+}
+
+fn wsl_model_id(
+    cli_tool: CliTool,
+    provider: Option<&cc_cli_adapters::CliProvider>,
+    adapter_options: &HashMap<String, serde_json::Value>,
+) -> Option<String> {
+    let model_id = adapter_options
+        .get("__ccpanesModelId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if cli_tool != CliTool::Opencode || model_id.contains('/') {
+        return Some(model_id.to_string());
+    }
+
+    let provider_key = match provider?.provider_type.as_str() {
+        "open_ai" => "openai",
+        "anthropic" => "anthropic",
+        "opencode" => "opencode",
+        _ => return Some(model_id.to_string()),
+    };
+    Some(format!("{provider_key}/{model_id}"))
+}
+
 fn is_simple_toml_key_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment
@@ -715,7 +853,7 @@ impl TerminalService {
             sanitize_wsl_script_component(session_id)
         );
         let script_path = script_dir.join(file_name);
-        std::fs::write(&script_path, render_wsl_launch_script(commands))?;
+        crate::utils::atomic_file::write_atomic(&script_path, render_wsl_launch_script(commands))?;
 
         windows_path_to_wsl(&script_path).ok_or_else(|| {
             anyhow!(
@@ -983,6 +1121,7 @@ impl TerminalService {
         session_id: &str,
         env_vars: &HashMap<String, String>,
         provider_env: &HashMap<String, String>,
+        provider: Option<&cc_cli_adapters::CliProvider>,
         resume_id: Option<&str>,
         issued_session_id: Option<&str>,
         append_system_prompt: Option<&str>,
@@ -1007,8 +1146,54 @@ impl TerminalService {
             }
         };
 
+        let workspace_remote_path = wsl
+            .workspace_remote_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let launch_cwd = workspace_remote_path.unwrap_or(wsl.remote_path.as_str());
+        let mut adapter_args = None;
+        let mut managed_env = provider_env
+            .iter()
+            .map(|(key, value)| {
+                translate_wsl_managed_env_value(key, value)
+                    .map(|translated| (key.clone(), translated))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+
+        if let Some(provider) = provider {
+            let provider_context = cc_cli_adapters::CliAdapterContext {
+                session_id: session_id.to_string(),
+                project_path: wsl.remote_path.clone(),
+                workspace_path: workspace_remote_path.map(str::to_string),
+                provider: Some(provider.clone()),
+                executable_override: None,
+                adapter_options: adapter_options.clone(),
+                resume_id: resume_id.map(str::to_string),
+                issued_session_id: issued_session_id.map(str::to_string),
+                skip_mcp: true,
+                yolo_mode,
+                append_system_prompt: None,
+                initial_prompt: initial_prompt.map(str::to_string),
+                orchestrator_port: None,
+                orchestrator_token: None,
+                launch_id: None,
+                data_dir: self.app_paths.data_dir().to_path_buf(),
+                shared_mcp_urls: HashMap::new(),
+                allowed_mcp_server_ids: Vec::new(),
+                disable_unlisted_mcp_servers: false,
+            };
+
+            let (args, env) = build_wsl_managed_adapter_plan(cli_tool, &provider_context)?;
+            adapter_args = args;
+            for (key, value) in env {
+                managed_env.insert(key, value);
+            }
+        }
+
         let mut remote_parts = Vec::new();
-        push_wsl_env_exports(&mut remote_parts, provider_env);
+        push_wsl_provider_env_unsets(&mut remote_parts, cli_tool, provider.is_some());
+        push_wsl_env_exports(&mut remote_parts, &managed_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
         if cli_tool == CliTool::Claude {
             // effort → 思考预算（与本地 claude.rs 的 env_inject 通道对齐；WSL 分支
@@ -1027,17 +1212,17 @@ impl TerminalService {
                 ),
             }
         }
-        let workspace_remote_path = wsl
-            .workspace_remote_path
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let launch_cwd = workspace_remote_path.unwrap_or(wsl.remote_path.as_str());
         if !is_wsl_home_path(launch_cwd) {
             remote_parts.push(format!("cd {}", Self::shell_escape(launch_cwd)));
         }
 
-        let mut cli_args = Vec::new();
+        let mut cli_args = adapter_args.unwrap_or_default();
+        if !cli_args.iter().any(|arg| arg == "--model") {
+            if let Some(model_id) = wsl_model_id(cli_tool, provider, adapter_options) {
+                cli_args.push("--model".to_string());
+                cli_args.push(model_id);
+            }
+        }
         if cli_tool == CliTool::Claude {
             if let Some(resume_id) = resume_id {
                 cli_args.push("--resume".to_string());
@@ -1082,7 +1267,7 @@ impl TerminalService {
                 cli_args.push("--".to_string());
                 cli_args.push(prompt.to_string());
             }
-        } else if cli_tool == CliTool::Kimi {
+        } else if cli_tool == CliTool::Kimi && provider.is_none() {
             if workspace_remote_path.is_some()
                 && workspace_remote_path != Some(wsl.remote_path.as_str())
             {
@@ -1092,7 +1277,7 @@ impl TerminalService {
             if let Some(prompt) = initial_prompt {
                 cli_args.push(prompt.to_string());
             }
-        } else if cli_tool == CliTool::Glm {
+        } else if cli_tool == CliTool::Glm && provider.is_none() {
             cli_args.push("--cwd".to_string());
             cli_args.push(launch_cwd.to_string());
             if let Some(resume_id) = resume_id {
@@ -1173,6 +1358,7 @@ impl TerminalService {
         _session_id: &str,
         _env_vars: &HashMap<String, String>,
         _provider_env: &HashMap<String, String>,
+        _provider: Option<&cc_cli_adapters::CliProvider>,
         _resume_id: Option<&str>,
         _issued_session_id: Option<&str>,
         _append_system_prompt: Option<&str>,
@@ -1325,6 +1511,7 @@ impl TerminalService {
             &mut provider_env,
             provider,
         );
+        push_wsl_provider_env_unsets(&mut remote_parts, CliTool::Codex, provider.is_some());
         push_wsl_env_exports(&mut remote_parts, &provider_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
         push_wsl_codex_mcp_isolation_prelude(
@@ -1430,6 +1617,10 @@ impl TerminalService {
         if yolo_mode {
             push_codex_yolo_mode_arg(&mut codex_args);
         }
+        if let Some(model_id) = wsl_model_id(CliTool::Codex, provider, adapter_options) {
+            codex_args.push("--model".to_string());
+            codex_args.push(model_id);
+        }
         // extraArgs 追加在 resume 子命令 / positional prompt 之前
         codex_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
         // resume 前预检：codex 会话库里若已无该 id 的 rollout 文件（被存错/从未落盘/v4 抓错），
@@ -1532,20 +1723,26 @@ impl TerminalService {
 #[cfg(test)]
 mod tests {
     #[cfg(windows)]
+    use super::build_wsl_managed_adapter_plan;
+    #[cfg(windows)]
     use super::wsl_host_probe_bash_arg;
     use super::WslHostProbeCache;
     use super::{
         append_codex_resume_args, push_codex_developer_instructions_arg, push_codex_yolo_mode_arg,
         push_wsl_codex_mcp_isolation_prelude, push_wsl_native_cli_resolution_prelude,
-        render_wsl_launch_script, wsl_host_probe_script,
+        render_wsl_launch_script, wsl_host_probe_script, wsl_model_id,
     };
     #[cfg(windows)]
     use super::{
         build_wsl_claude_skill_sync_prelude, build_wsl_codex_skill_sync_prelude,
-        collect_wsl_claude_source_files, collect_wsl_codex_source_dirs, VERSION_FILE_NAME,
+        collect_wsl_claude_source_files, collect_wsl_codex_source_dirs,
+        push_wsl_provider_env_unsets, VERSION_FILE_NAME,
     };
     #[cfg(windows)]
     use super::{windows_path_to_wsl, wsl_claude_mcp_config_paths};
+    use crate::models::CliTool;
+    use cc_cli_adapters::CliProvider;
+    use std::collections::HashMap;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -1561,6 +1758,43 @@ mod tests {
 
     fn remove_dir(path: &Path) {
         let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn wsl_model_id_uses_raw_id_for_standard_clis() {
+        let options = HashMap::from([(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("claude-sonnet-4-6"),
+        )]);
+
+        assert_eq!(
+            wsl_model_id(CliTool::Claude, None, &options).as_deref(),
+            Some("claude-sonnet-4-6")
+        );
+    }
+
+    #[test]
+    fn wsl_model_id_qualifies_opencode_once() {
+        let provider = CliProvider {
+            provider_type: "open_ai".to_string(),
+            ..Default::default()
+        };
+        let mut options =
+            HashMap::from([("__ccpanesModelId".to_string(), serde_json::json!("gpt-5.4"))]);
+
+        assert_eq!(
+            wsl_model_id(CliTool::Opencode, Some(&provider), &options).as_deref(),
+            Some("openai/gpt-5.4")
+        );
+
+        options.insert(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("custom/gpt-5.4"),
+        );
+        assert_eq!(
+            wsl_model_id(CliTool::Opencode, Some(&provider), &options).as_deref(),
+            Some("custom/gpt-5.4")
+        );
     }
 
     /// 回归锁：WSL runtimeKind + Windows 数据目录时，写文件的路径与传给 CLI 的
@@ -1616,6 +1850,111 @@ mod tests {
         assert!(windows_path_to_wsl(Path::new(r"\\wsl.localhost\Ubuntu\home")).is_none());
     }
 
+    #[cfg(windows)]
+    fn managed_adapter_context(
+        data_dir: PathBuf,
+        provider_type: &str,
+    ) -> cc_cli_adapters::CliAdapterContext {
+        cc_cli_adapters::CliAdapterContext {
+            session_id: format!("wsl-{provider_type}"),
+            project_path: "/home/test/project".to_string(),
+            workspace_path: None,
+            provider: Some(cc_cli_adapters::CliProvider {
+                id: format!("{provider_type}-provider"),
+                name: format!("{provider_type} Provider"),
+                provider_type: provider_type.to_string(),
+                api_key: Some("wsl-test-secret".to_string()),
+                base_url: Some("https://provider.example.test/v1".to_string()),
+                region: None,
+                project_id: None,
+                aws_profile: None,
+                config_dir: None,
+                is_default: false,
+            }),
+            executable_override: Some(format!("{provider_type}-test")),
+            adapter_options: HashMap::new(),
+            resume_id: None,
+            issued_session_id: None,
+            skip_mcp: true,
+            yolo_mode: false,
+            append_system_prompt: None,
+            initial_prompt: None,
+            orchestrator_port: None,
+            orchestrator_token: None,
+            launch_id: None,
+            data_dir,
+            shared_mcp_urls: HashMap::new(),
+            allowed_mcp_server_ids: Vec::new(),
+            disable_unlisted_mcp_servers: false,
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn wsl_kimi_managed_plan_uses_linux_session_config_and_share_paths() {
+        let dir = unique_temp_dir("kimi-managed-plan");
+        let context = managed_adapter_context(dir.clone(), "kimi");
+
+        let (args, env) = build_wsl_managed_adapter_plan(CliTool::Kimi, &context).unwrap();
+        let args = args.unwrap();
+
+        assert!(args.iter().any(|arg| arg == "--config-file"));
+        assert!(args.iter().any(|arg| arg.starts_with("/mnt/")));
+        assert!(env
+            .get("KIMI_SHARE_DIR")
+            .is_some_and(|path| path.starts_with("/mnt/")));
+        assert!(!args.iter().any(|arg| arg.contains("wsl-test-secret")));
+        remove_dir(&dir);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn wsl_glm_managed_plan_redirects_config_and_data_to_linux_paths() {
+        let dir = unique_temp_dir("glm-managed-plan");
+        let context = managed_adapter_context(dir.clone(), "glm");
+
+        let (args, env) = build_wsl_managed_adapter_plan(CliTool::Glm, &context).unwrap();
+        let args = args.unwrap();
+
+        assert!(args.iter().any(|arg| arg == "--data-dir"));
+        assert!(args.iter().any(|arg| arg.starts_with("/mnt/")));
+        for key in ["CRUSH_GLOBAL_CONFIG", "CRUSH_GLOBAL_DATA"] {
+            assert!(env.get(key).is_some_and(|path| path.starts_with("/mnt/")));
+        }
+        assert_eq!(
+            env.get("ZAI_API_KEY").map(String::as_str),
+            Some("wsl-test-secret")
+        );
+        assert!(!args.iter().any(|arg| arg.contains("wsl-test-secret")));
+        remove_dir(&dir);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn wsl_opencode_managed_plan_writes_selected_provider_config() {
+        let dir = unique_temp_dir("opencode-managed-plan");
+        let context = managed_adapter_context(dir.clone(), "opencode");
+
+        let (args, env) = build_wsl_managed_adapter_plan(CliTool::Opencode, &context).unwrap();
+
+        assert!(args.is_none());
+        assert!(env
+            .get("OPENCODE_CONFIG")
+            .is_some_and(|path| path.starts_with("/mnt/")));
+        let content = fs::read_to_string(
+            dir.join("cli-adapters/opencode")
+                .join(&context.session_id)
+                .join("opencode.json"),
+        )
+        .unwrap();
+        let config: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(
+            config["provider"]["opencode"]["options"]["baseURL"],
+            "https://provider.example.test/v1"
+        );
+        remove_dir(&dir);
+    }
+
     /// WSL 启动必须解析到**原生 Linux** CLI：PATH interop 会把 Windows 的 npm shim
     /// （`exec .../claude.exe`）带进 WSL，它以 Windows 进程运行会把 `/mnt/c/...`
     /// 参数解析成 `D:\mnt\c\...`，启动即失败且错误信息不提 WSL。
@@ -1665,6 +2004,23 @@ mod tests {
         ] {
             fs::write(dir.join(name), "{}").unwrap();
         }
+        fs::create_dir_all(dir.join("wsl-launch")).unwrap();
+        fs::write(
+            dir.join("wsl-launch").join(format!("claude-{sid}.sh")),
+            "secret",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("wsl-launch").join(format!("codex-{other}.sh")),
+            "other",
+        )
+        .unwrap();
+        let kimi_configs = dir.join("cli-adapters").join("kimi").join("configs");
+        fs::create_dir_all(&kimi_configs).unwrap();
+        fs::write(kimi_configs.join(format!("{sid}.json")), "secret").unwrap();
+        let opencode_session = dir.join("cli-adapters").join("opencode").join(sid);
+        fs::create_dir_all(&opencode_session).unwrap();
+        fs::write(opencode_session.join("opencode.json"), "secret").unwrap();
 
         super::cleanup_session_mcp_configs(&dir, sid);
 
@@ -1673,7 +2029,32 @@ mod tests {
         assert!(dir.join(format!("mcp-{}.json", other)).exists());
         assert!(dir.join(format!("wsl-claude-mcp-{}.json", other)).exists());
         assert!(dir.join("mcp-orchestrator.json").exists());
+        assert!(!dir
+            .join("wsl-launch")
+            .join(format!("claude-{sid}.sh"))
+            .exists());
+        assert!(dir
+            .join("wsl-launch")
+            .join(format!("codex-{other}.sh"))
+            .exists());
+        assert!(!kimi_configs.join(format!("{sid}.json")).exists());
+        assert!(!opencode_session.exists());
         remove_dir(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn wsl_provider_conflicts_are_unset_only_for_managed_mode() {
+        let mut native = Vec::new();
+        push_wsl_provider_env_unsets(&mut native, crate::models::CliTool::Claude, false);
+        assert!(native.is_empty());
+
+        let mut managed = Vec::new();
+        push_wsl_provider_env_unsets(&mut managed, crate::models::CliTool::Claude, true);
+        assert!(managed
+            .iter()
+            .any(|line| line == "unset CLAUDE_CODE_USE_BEDROCK"));
+        assert!(!managed.iter().any(|line| line.contains("test-secret")));
     }
 
     #[test]
@@ -1898,9 +2279,12 @@ mod tests {
             "exec codex '-C' '/mnt/d/repo'".to_string(),
         ]);
 
+        assert!(script.contains("umask 077"));
+        assert!(script.contains("chmod 600 \"$0\""));
+
         assert_eq!(
             script,
-            "#!/usr/bin/env bash\nset -e\ncase \"${LC_ALL:-${LANG:-}}\" in *[Uu][Tt][Ff]-8|*[Uu][Tt][Ff]8) ;; *) export LC_ALL=C.UTF-8 LANG=C.UTF-8 ;; esac\nexport TOKEN='secret'\nexec codex '-C' '/mnt/d/repo'\n"
+            "#!/usr/bin/env bash\nset -e\numask 077\nchmod 600 \"$0\" 2>/dev/null || true\ncase \"${LC_ALL:-${LANG:-}}\" in *[Uu][Tt][Ff]-8|*[Uu][Tt][Ff]8) ;; *) export LC_ALL=C.UTF-8 LANG=C.UTF-8 ;; esac\nexport TOKEN='secret'\nexec codex '-C' '/mnt/d/repo'\n"
         );
     }
 

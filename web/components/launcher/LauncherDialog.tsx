@@ -36,6 +36,7 @@ import LauncherArgsPreview from "./LauncherArgsPreviewView";
 import {
   buildAdapterOptions,
   buildPendingLaunch,
+  cliToolDraftPatch,
   coerceDefaultCliTool,
   createDefaultDraft,
   defaultWorktreeBranch,
@@ -144,7 +145,11 @@ export default function LauncherDialog() {
     });
     if (!launch) {
       setError(
-        issue?.code === "no_project" ? t("errorNoProject") : t("errorResolveFailed", { code: issue?.code }),
+        issue?.code === "no_project"
+          ? t("errorNoProject")
+          : issue?.code === "provider_required"
+            ? t("errorProviderRequired")
+            : t("errorResolveFailed", { code: issue?.code }),
       );
       return;
     }
@@ -203,7 +208,7 @@ export default function LauncherDialog() {
           </Section>
 
           <Section label={t("sectionCli")}>
-            <LauncherCliRow value={draft.cliTool} onChange={(cliTool) => patch({ cliTool })} />
+            <LauncherCliRow value={draft.cliTool} onChange={(cliTool) => patch(cliToolDraftPatch(cliTool))} />
           </Section>
 
           <Section label={t("sectionEnvironment")}>

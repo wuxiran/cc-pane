@@ -27,6 +27,7 @@ export interface CreateTabOptions {
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: Tab["providerSelection"];
   launchProfileId?: string;
   workspacePath?: string;
@@ -48,6 +49,7 @@ export interface AdoptSessionMeta {
   workspacePath?: string;
   workspaceSnapshotId?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: Tab["providerSelection"];
   launchProfileId?: string;
   cliTool?: CliTool;
@@ -111,6 +113,7 @@ export interface ClosedTabSnapshot {
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: Tab["providerSelection"];
   launchProfileId?: string;
   workspacePath?: string;

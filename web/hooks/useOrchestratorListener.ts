@@ -41,6 +41,7 @@ interface OrchestratorLaunchPayload {
   projectId: string;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
   workspacePath?: string;
@@ -85,6 +86,7 @@ export function useOrchestratorListener() {
             projectId,
             workspaceName,
             providerId,
+            modelId,
             providerSelection,
             launchProfileId,
             workspacePath,
@@ -204,6 +206,7 @@ export function useOrchestratorListener() {
             resumeId: event.payload.resumeId,
             workspaceName,
             providerId,
+            modelId,
             providerSelection,
             launchProfileId,
             workspacePath,

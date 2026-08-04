@@ -10,12 +10,32 @@ use cc_panes_core::{
         CliTool, CreateSessionRequest as CoreCreateSessionRequest, LaunchProviderSelection,
         SavedSession, SshConnectionInfo, TerminalReplaySnapshot,
     },
-    services::{terminal_service::SessionOutput, SessionStatusInfo, TerminalAdoptionSnapshot},
-    utils::normalize_session_request_for_current_host,
+    services::{
+        terminal_service::SessionOutput, CreateSessionOutcome, SessionStatusInfo,
+        TerminalAdoptionSnapshot, TerminalBackend,
+    },
+    utils::{normalize_session_request_for_current_host, AppResult},
 };
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use crate::state::AppState;
+
+const WEB_CREATE_DEADLINE: Duration = Duration::from_secs(45);
+
+fn cleanup_late_session(
+    backend: &dyn TerminalBackend,
+    outcome: CreateSessionOutcome,
+) -> AppResult<()> {
+    if outcome.reused_existing {
+        backend.release_session(&outcome.session_id)
+    } else {
+        backend.kill_with_reason(
+            &outcome.session_id,
+            cc_panes_core::services::terminal_service::KillReason::LaunchTimeout,
+        )
+    }
+}
 
 fn terminal_operation_error(error: impl ToString) -> (StatusCode, String) {
     let message = error.to_string();
@@ -76,6 +96,7 @@ pub struct PartialCreateSessionRequest {
     pub rows: Option<u16>,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    pub model_id: Option<String>,
     #[serde(default)]
     pub provider_selection: LaunchProviderSelection,
     pub launch_profile_id: Option<String>,
@@ -162,6 +183,7 @@ pub async fn create_session(
         rows: req.core.rows.unwrap_or(30),
         workspace_name: req.core.workspace_name,
         provider_id: req.core.provider_id,
+        model_id: req.core.model_id,
         provider_selection: req.core.provider_selection,
         launch_profile_id: req.core.launch_profile_id,
         workspace_path: req.core.workspace_path,
@@ -184,13 +206,42 @@ pub async fn create_session(
     });
 
     let observation_request = core_request.clone();
-    let outcome = state
-        .terminal_backend
-        .create_session_with_outcome(core_request)
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to create session");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-        })?;
+    let launch_id = core_request.launch_id.clone();
+    let backend = state.terminal_backend.clone();
+    let late_backend = backend.clone();
+    let mut create_task =
+        tokio::task::spawn_blocking(move || backend.create_session_with_outcome(core_request));
+    let outcome = match tokio::time::timeout(WEB_CREATE_DEADLINE, &mut create_task).await {
+        Ok(result) => result
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(terminal_operation_error)?,
+        Err(_) => {
+            if let Some(launch_id) = launch_id.clone() {
+                let cancel_backend = state.terminal_backend.clone();
+                tokio::spawn(async move {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        cancel_backend.cancel_launch(&launch_id)
+                    })
+                    .await;
+                });
+            }
+            tokio::spawn(async move {
+                if let Ok(Ok(outcome)) = create_task.await {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        let _ = cleanup_late_session(late_backend.as_ref(), outcome);
+                    })
+                    .await;
+                }
+            });
+            return Err((
+                StatusCode::GATEWAY_TIMEOUT,
+                format!(
+                    "[LAUNCH_TIMEOUT] Terminal launch exceeded {}ms",
+                    WEB_CREATE_DEADLINE.as_millis()
+                ),
+            ));
+        }
+    };
     let session_id = outcome.session_id;
     let reused_existing = outcome.reused_existing;
 
@@ -232,6 +283,19 @@ pub async fn create_session(
         StatusCode::CREATED,
         Json(CreateSessionResponse { session_id }),
     ))
+}
+
+/// DELETE /api/launches/:launch_id — cancel an in-flight launch.
+pub async fn cancel_launch(
+    State(state): State<AppState>,
+    Path(launch_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let backend = state.terminal_backend.clone();
+    tokio::task::spawn_blocking(move || backend.cancel_launch(&launch_id))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(terminal_operation_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// GET /api/sessions — list all active sessions
@@ -1085,5 +1149,35 @@ mod tests {
         };
 
         assert_eq!(error.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn late_cleanup_releases_reused_session_and_kills_fresh_session() {
+        let reused_backend = MockTerminalBackend::default();
+        cleanup_late_session(
+            &reused_backend,
+            CreateSessionOutcome {
+                session_id: "reused".to_string(),
+                reused_existing: true,
+            },
+        )
+        .expect("release reused session");
+        assert_eq!(
+            reused_backend.releases.lock().unwrap().as_slice(),
+            &["reused"]
+        );
+        assert!(reused_backend.kills.lock().unwrap().is_empty());
+
+        let fresh_backend = MockTerminalBackend::default();
+        cleanup_late_session(
+            &fresh_backend,
+            CreateSessionOutcome {
+                session_id: "fresh".to_string(),
+                reused_existing: false,
+            },
+        )
+        .expect("kill fresh session");
+        assert_eq!(fresh_backend.kills.lock().unwrap().as_slice(), &["fresh"]);
+        assert!(fresh_backend.releases.lock().unwrap().is_empty());
     }
 }

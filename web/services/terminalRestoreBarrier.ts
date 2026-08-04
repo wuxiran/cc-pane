@@ -1,3 +1,5 @@
+import { withTerminalLaunchDeadline } from "./terminalLaunchDeadline";
+
 let startupBarrier: Promise<void> | null = null;
 let completeStartupBarrier: (() => void) | null = null;
 
@@ -21,6 +23,10 @@ export function finishTerminalRestoreBarrier(): void {
 
 export function waitForTerminalRestoreBarrier(): Promise<void> {
   return startupBarrier ?? Promise.resolve();
+}
+
+export function waitForTerminalRestoreBarrierWithDeadline(): Promise<void> {
+  return withTerminalLaunchDeadline(waitForTerminalRestoreBarrier(), undefined);
 }
 
 export function _resetTerminalRestoreBarrierForTest(): void {

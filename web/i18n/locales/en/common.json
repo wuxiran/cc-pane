@@ -101,5 +101,10 @@
   "resourceManagerKillOrphansSuccess": "Terminated {{count}} orphaned processes",
   "resourceManagerKillOrphansSuccess_one": "Terminated {{count}} orphaned process",
   "resourceManagerKillOrphansSuccess_other": "Terminated {{count}} orphaned processes",
-  "resourceManagerKillOrphansFailed": "Failed to terminate orphaned processes"
+  "resourceManagerKillOrphansFailed": "Failed to terminate orphaned processes",
+  "contextUsage.title": "Context usage",
+  "contextUsage.effective": "Effective",
+  "contextUsage.waiting": "Waiting for usage data",
+  "contextUsage.stale": "Data is {{seconds}}s old",
+  "contextUsage.error": "Context usage is unavailable"
 }

@@ -1,4 +1,5 @@
 import type { Provider, ConfigDirInfo, SystemProviderInfo } from "@/types/provider";
+import type { KnownCliTool } from "@/types/terminal";
 import { apiDelete, apiGet, apiJson, apiNoContent, invokeOrApi } from "./apiClient";
 
 export const providerService = {
@@ -38,12 +39,12 @@ export const providerService = {
     );
   },
 
-  async setDefaultProvider(id: string): Promise<void> {
-    return invokeOrApi<void>("set_default_provider", { id }, () =>
+  async setDefaultProvider(id: string, cliTool: KnownCliTool): Promise<void> {
+    return invokeOrApi<void>("set_default_provider", { id, cliTool }, () =>
       apiNoContent("/api/providers/default", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, cliTool }),
       }),
     );
   },
@@ -59,6 +60,7 @@ export const providerService = {
       ccSwitch: false,
       envKeys: [],
       defaultIsSystem: false,
+      defaultProviderIds: {},
     }));
   },
 

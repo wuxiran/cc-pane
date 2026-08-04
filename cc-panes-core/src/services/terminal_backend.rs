@@ -73,6 +73,18 @@ pub trait TerminalBackend: Send + Sync {
     fn kill_with_reason(&self, session_id: &str, _reason: KillReason) -> AppResult<()> {
         self.kill(session_id)
     }
+    /// Cancel an in-flight launch. Backends that cannot cancel before a session id exists may
+    /// still kill a session already indexed by launch id; the default is best-effort.
+    fn cancel_launch(&self, launch_id: &str) -> AppResult<()> {
+        if let Some(session_id) = self.find_session_id_by_launch_id(launch_id)? {
+            match self.kill_with_reason(&session_id, KillReason::LaunchTimeout) {
+                Ok(()) | Err(AppError::NotFound(_)) => Ok(()),
+                Err(error) => Err(error),
+            }
+        } else {
+            Ok(())
+        }
+    }
     fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>>;
     fn get_session_status(&self, session_id: &str) -> AppResult<Option<SessionStatusInfo>>;
     fn get_session_output(&self, session_id: &str, lines: usize) -> AppResult<SessionOutput>;
@@ -344,6 +356,7 @@ impl TerminalBackend for TerminalService {
             request.rows,
             request.workspace_name.as_deref(),
             request.provider_id.as_deref(),
+            request.model_id.as_deref(),
             request.provider_selection,
             request.launch_profile_id.as_deref(),
             request.workspace_path.as_deref(),
@@ -389,6 +402,10 @@ impl TerminalBackend for TerminalService {
 
     fn kill_with_reason(&self, session_id: &str, reason: KillReason) -> AppResult<()> {
         TerminalService::kill_with_reason(self, session_id, reason)
+    }
+
+    fn cancel_launch(&self, launch_id: &str) -> AppResult<()> {
+        TerminalService::cancel_launch(self, launch_id)
     }
 
     fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
@@ -457,6 +474,10 @@ impl TerminalBackend for InProcessTerminalBackend {
             session_id,
             reason,
         )
+    }
+
+    fn cancel_launch(&self, launch_id: &str) -> AppResult<()> {
+        <TerminalService as TerminalBackend>::cancel_launch(self.service.as_ref(), launch_id)
     }
 
     fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
@@ -592,6 +613,10 @@ impl TerminalBackend for DaemonTerminalBackend {
         result
     }
 
+    fn cancel_launch(&self, launch_id: &str) -> AppResult<()> {
+        self.client.cancel_launch(launch_id)
+    }
+
     fn get_all_status(&self) -> AppResult<Vec<SessionStatusInfo>> {
         self.client.list_sessions()
     }
@@ -687,6 +712,7 @@ mod tests {
             rows: 30,
             workspace_name: None,
             provider_id: None,
+            model_id: None,
             provider_selection: Default::default(),
             launch_profile_id: None,
             workspace_path: None,

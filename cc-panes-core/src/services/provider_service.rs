@@ -1,8 +1,9 @@
 use crate::models::provider::{
-    Provider, ProviderConfig, ProviderType, SystemProviderInfo, SYSTEM_PROVIDER_ID,
+    Provider, ProviderConfig, ProviderModel, ProviderType, SystemProviderInfo, SYSTEM_PROVIDER_ID,
 };
+use crate::utils::{error::AppError, error_codes as EC};
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -14,6 +15,22 @@ const SYSTEM_PROBE_ENV_KEYS: [&str; 3] = [
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
 ];
+const MAX_PROVIDER_CONFIG_BYTES: u64 = 1024 * 1024;
+const MAX_PROVIDER_ID_CHARS: usize = 128;
+const MAX_PROVIDER_NAME_CHARS: usize = 200;
+const MAX_PROVIDER_URL_CHARS: usize = 4096;
+const MAX_PROVIDER_SECRET_CHARS: usize = 65_536;
+const MAX_PROVIDER_FIELD_CHARS: usize = 4096;
+const MAX_CONFIG_ENV_ITEMS: usize = 64;
+const MAX_PROVIDER_COUNT: usize = 256;
+const MAX_PROVIDER_MODELS: usize = 100;
+const MAX_PROVIDER_MODEL_ID_CHARS: usize = 256;
+const MAX_PROVIDER_MODEL_LABEL_CHARS: usize = 128;
+const PROVIDER_MODEL_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+const PROVIDER_CLI_TOOLS: [&str; 8] = [
+    "claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok",
+];
+const DEFAULT_PROVIDER_IDS_VERSION: u8 = 2;
 
 /// Provider 服务 - 管理 AI Provider 配置
 pub struct ProviderService {
@@ -32,21 +49,133 @@ impl ProviderService {
     }
 
     fn load_from_file(path: &Path) -> Result<ProviderConfig> {
+        if path.metadata().map(|metadata| metadata.len()).unwrap_or(0) > MAX_PROVIDER_CONFIG_BYTES {
+            anyhow::bail!(
+                "providers config exceeds {} bytes",
+                MAX_PROVIDER_CONFIG_BYTES
+            );
+        }
         let content =
             std::fs::read_to_string(path).with_context(|| "Failed to read providers config")?;
-        let config: ProviderConfig =
+        let mut config: ProviderConfig =
             serde_json::from_str(&content).with_context(|| "Failed to parse providers.json")?;
+        if config.providers.len() > MAX_PROVIDER_COUNT {
+            anyhow::bail!("providers config exceeds {} entries", MAX_PROVIDER_COUNT);
+        }
+        let mut ids = HashSet::with_capacity(config.providers.len());
+        for provider in &mut config.providers {
+            Self::normalize_provider_models(provider)?;
+            Self::validate_provider(provider)?;
+            if !ids.insert(provider.id.clone()) {
+                anyhow::bail!("Duplicate Provider id '{}'", provider.id);
+            }
+        }
+        config.default_provider_ids.retain(|cli_tool, provider_id| {
+            PROVIDER_CLI_TOOLS.contains(&cli_tool.as_str())
+                && (provider_id == SYSTEM_PROVIDER_ID || ids.contains(provider_id))
+        });
+        Self::migrate_legacy_defaults(&mut config);
         Ok(config)
     }
 
     fn save_to_file(&self, config: &ProviderConfig) -> Result<()> {
         let content = serde_json::to_string_pretty(config)
             .with_context(|| "Failed to serialize providers config")?;
+        if content.len() as u64 > MAX_PROVIDER_CONFIG_BYTES {
+            anyhow::bail!(
+                "providers config exceeds {} bytes",
+                MAX_PROVIDER_CONFIG_BYTES
+            );
+        }
         // providers.json 存有全部供应商配置（含明文 API key）。原子写（temp+fsync+rename，
         // 内部会建父目录）杜绝崩溃/断电写到一半导致截断丢失。
         crate::utils::atomic_file::write_atomic(&self.config_path, content)
             .with_context(|| "Failed to write providers config")?;
         Ok(())
+    }
+
+    fn commit_config(&self, current: &mut ProviderConfig, next: ProviderConfig) -> Result<()> {
+        let mut next = next;
+        next.default_provider_ids_version = DEFAULT_PROVIDER_IDS_VERSION;
+        Self::sync_legacy_default_flags(&mut next);
+        self.save_to_file(&next)?;
+        *current = next;
+        Ok(())
+    }
+
+    fn migrate_legacy_defaults(config: &mut ProviderConfig) {
+        if config.default_provider_ids_version < DEFAULT_PROVIDER_IDS_VERSION {
+            if config.default_provider_ids.is_empty() {
+                if config.default_is_system {
+                    config
+                        .default_provider_ids
+                        .insert("claude".to_string(), SYSTEM_PROVIDER_ID.to_string());
+                } else if let Some(provider) = config
+                    .providers
+                    .iter()
+                    .find(|provider| provider.is_default)
+                {
+                    config.default_provider_ids.insert(
+                        Self::native_cli_for_provider_type(provider.provider_type).to_string(),
+                        provider.id.clone(),
+                    );
+                }
+            } else {
+                let provider_types: HashMap<_, _> = config
+                    .providers
+                    .iter()
+                    .map(|provider| (provider.id.clone(), provider.provider_type))
+                    .collect();
+                config.default_provider_ids.retain(|cli_tool, provider_id| {
+                    if provider_id == SYSTEM_PROVIDER_ID {
+                        return cli_tool == "claude";
+                    }
+                    provider_types.get(provider_id).is_some_and(|provider_type| {
+                        Self::native_cli_for_provider_type(*provider_type) == cli_tool
+                    })
+                });
+            }
+            config.default_provider_ids_version = DEFAULT_PROVIDER_IDS_VERSION;
+        }
+        Self::sync_legacy_default_flags(config);
+    }
+
+    fn native_cli_for_provider_type(provider_type: ProviderType) -> &'static str {
+        match provider_type {
+            ProviderType::Anthropic
+            | ProviderType::Bedrock
+            | ProviderType::Vertex
+            | ProviderType::Proxy
+            | ProviderType::ConfigProfile => "claude",
+            ProviderType::OpenAI => "codex",
+            ProviderType::Gemini => "gemini",
+            ProviderType::Kimi => "kimi",
+            ProviderType::Glm => "glm",
+            ProviderType::OpenCode => "opencode",
+            ProviderType::Cursor => "cursor",
+            ProviderType::Grok => "grok",
+        }
+    }
+
+    fn sync_legacy_default_flags(config: &mut ProviderConfig) {
+        config.default_is_system = config
+            .default_provider_ids
+            .values()
+            .any(|id| id == SYSTEM_PROVIDER_ID);
+        for provider in &mut config.providers {
+            provider.is_default = config
+                .default_provider_ids
+                .values()
+                .any(|id| id == &provider.id);
+        }
+    }
+
+    fn validate_cli_tool(cli_tool: &str) -> Result<()> {
+        if PROVIDER_CLI_TOOLS.contains(&cli_tool) {
+            Ok(())
+        } else {
+            anyhow::bail!("Unsupported CLI tool '{}'", cli_tool)
+        }
     }
 
     /// Refresh the in-memory snapshot before reads.
@@ -109,6 +238,26 @@ impl ProviderService {
             .cloned()
     }
 
+    /// 获取指定 CLI 工具的持久化默认 id。`__system__` 也会原样返回。
+    pub fn get_default_provider_id(&self, cli_tool: &str) -> Option<String> {
+        self.refresh_from_file();
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .default_provider_ids
+            .get(cli_tool)
+            .cloned()
+    }
+
+    /// 获取指定 CLI 工具的默认托管 Provider；系统默认返回 `None`。
+    pub fn get_default_provider_for_cli(&self, cli_tool: &str) -> Option<Provider> {
+        let id = self.get_default_provider_id(cli_tool)?;
+        if id == SYSTEM_PROVIDER_ID {
+            return None;
+        }
+        self.get_provider(&id)
+    }
+
     /// 检测「系统环境变量」provider 是否应可用/默认。
     ///
     /// 判据（满足其一即为真）：
@@ -144,17 +293,16 @@ impl ProviderService {
     pub fn system_provider_info(&self) -> SystemProviderInfo {
         let (cc_switch, env_keys) = Self::probe_system_provider();
         self.refresh_from_file();
-        let default_is_system = self
-            .config
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .default_is_system;
+        let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let default_is_system = config.default_is_system;
+        let default_provider_ids = config.default_provider_ids.clone();
 
         SystemProviderInfo {
             active: cc_switch || !env_keys.is_empty(),
             cc_switch,
             env_keys,
             default_is_system,
+            default_provider_ids,
         }
     }
 
@@ -162,37 +310,37 @@ impl ProviderService {
     pub fn add_provider(&self, mut provider: Provider) -> Result<()> {
         // `__system__` 是合成「系统环境变量」条目的保留 id，禁止落盘，
         // 否则会与列表顶部的虚拟条目撞 id、且凭证永远被 get_env_vars 短路忽略。
-        if provider.id == SYSTEM_PROVIDER_ID {
-            anyhow::bail!("Provider id '{}' is reserved", SYSTEM_PROVIDER_ID);
-        }
+        Self::normalize_provider_models(&mut provider)?;
+        Self::validate_provider(&provider)?;
 
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
-
-        // 如果是默认 Provider，取消其他的默认状态（含「系统条目为默认」标记）
-        if provider.is_default {
-            config.default_is_system = false;
-            for p in &mut config.providers {
-                p.is_default = false;
-            }
+        if config.providers.iter().any(|item| item.id == provider.id) {
+            anyhow::bail!("Provider id '{}' already exists", provider.id);
         }
+        let mut next = config.clone();
 
-        // 如果是第一个 Provider，自动设为默认——但用户已显式选定「系统环境变量」时不抢默认
-        if config.providers.is_empty() && !config.default_is_system {
-            provider.is_default = true;
+        let requested_as_default = provider.is_default;
+        provider.is_default = false;
+
+        let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
+        let provider_id = provider.id.clone();
+        next.providers.push(provider);
+        if requested_as_default || !next.default_provider_ids.contains_key(default_cli) {
+            next.default_provider_ids
+                .insert(default_cli.to_string(), provider_id);
         }
-
-        config.providers.push(provider);
-        self.save_to_file(&config)?;
-        Ok(())
+        self.commit_config(&mut config, next)
     }
 
     /// 原子去重添加（供一键导入）：在**同一把锁**内检查 name+type+base_url 是否已存在，
     /// 存在则报错、否则插入。避免并发导入「各自 list→都通过→都 insert」堆重复。
     pub fn add_provider_unique(&self, mut provider: Provider) -> Result<()> {
-        if provider.id == SYSTEM_PROVIDER_ID {
-            anyhow::bail!("Provider id '{}' is reserved", SYSTEM_PROVIDER_ID);
-        }
+        Self::normalize_provider_models(&mut provider)?;
+        Self::validate_provider(&provider)?;
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        if config.providers.iter().any(|item| item.id == provider.id) {
+            anyhow::bail!("Provider id '{}' already exists", provider.id);
+        }
         let dup = config.providers.iter().any(|e| {
             e.name == provider.name
                 && e.provider_type == provider.provider_type
@@ -201,26 +349,24 @@ impl ProviderService {
         if dup {
             anyhow::bail!("已存在同名同端点的 provider：{}", provider.name);
         }
-        if provider.is_default {
-            config.default_is_system = false;
-            for p in &mut config.providers {
-                p.is_default = false;
-            }
+        let mut next = config.clone();
+        let requested_as_default = provider.is_default;
+        provider.is_default = false;
+        let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
+        let provider_id = provider.id.clone();
+        next.providers.push(provider);
+        if requested_as_default || !next.default_provider_ids.contains_key(default_cli) {
+            next.default_provider_ids
+                .insert(default_cli.to_string(), provider_id);
         }
-        if config.providers.is_empty() && !config.default_is_system {
-            provider.is_default = true;
-        }
-        config.providers.push(provider);
-        self.save_to_file(&config)?;
-        Ok(())
+        self.commit_config(&mut config, next)
     }
 
     /// 更新 Provider
-    pub fn update_provider(&self, provider: Provider) -> Result<()> {
+    pub fn update_provider(&self, mut provider: Provider) -> Result<()> {
         // 同 add_provider：保留 id 不可写入 providers.json。
-        if provider.id == SYSTEM_PROVIDER_ID {
-            anyhow::bail!("Provider id '{}' is reserved", SYSTEM_PROVIDER_ID);
-        }
+        Self::normalize_provider_models(&mut provider)?;
+        Self::validate_provider(&provider)?;
 
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -229,59 +375,66 @@ impl ProviderService {
             .iter()
             .position(|p| p.id == provider.id)
             .with_context(|| format!("Provider '{}' not found", provider.id))?;
+        let mut next = config.clone();
 
-        // 如果设为默认，取消其他的默认状态（含「系统条目为默认」标记）
-        if provider.is_default {
-            config.default_is_system = false;
-            for p in &mut config.providers {
-                p.is_default = false;
-            }
+        if provider.is_default && !next.providers[pos].is_default {
+            let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
+            next.default_provider_ids
+                .insert(default_cli.to_string(), provider.id.clone());
         }
-
-        config.providers[pos] = provider;
-        self.save_to_file(&config)?;
-        Ok(())
+        provider.is_default = next
+            .default_provider_ids
+            .values()
+            .any(|id| id == &provider.id);
+        next.providers[pos] = provider;
+        self.commit_config(&mut config, next)
     }
 
-    /// 删除 Provider
-    /// 如果删除的是默认 Provider，自动将第一个剩余 Provider 设为默认
+    /// 删除 Provider；对应 CLI 回到原生配置，避免静默切换到另一个凭证。
     pub fn remove_provider(&self, id: &str) -> Result<()> {
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
 
-        let was_default = config
-            .providers
-            .iter()
-            .find(|p| p.id == id)
-            .map(|p| p.is_default)
-            .unwrap_or(false);
-
-        config.providers.retain(|p| p.id != id);
-
-        // 如果删除了默认 Provider，自动将第一个设为默认
-        if was_default {
-            if let Some(first) = config.providers.first_mut() {
-                first.is_default = true;
-            }
-        }
-
-        self.save_to_file(&config)?;
-        Ok(())
+        let mut next = config.clone();
+        next.providers.retain(|p| p.id != id);
+        next.default_provider_ids
+            .retain(|_, default_id| default_id != id);
+        self.commit_config(&mut config, next)
     }
 
-    /// 设置默认 Provider。
-    ///
-    /// 接受保留 id `__system__`：此时不写入 `providers`（该伪条目永不落盘），
-    /// 而是置 `default_is_system = true` 并清空所有 provider 的 `is_default`。
-    /// 反之，选中任一真实 provider 会把 `default_is_system` 复位为 false。
+    /// 兼容旧调用：只设置 Provider 的原生 CLI，避免隐式影响其它 CLI。
     pub fn set_default(&self, id: &str) -> Result<()> {
         let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
         let is_system = id == SYSTEM_PROVIDER_ID;
-        config.default_is_system = is_system;
-        for p in &mut config.providers {
-            p.is_default = !is_system && p.id == id;
+        if !is_system && !config.providers.iter().any(|provider| provider.id == id) {
+            anyhow::bail!("Provider '{}' not found", id);
         }
-        self.save_to_file(&config)?;
-        Ok(())
+        let mut next = config.clone();
+        let cli_tool = if is_system {
+            "claude"
+        } else {
+            let provider = config
+                .providers
+                .iter()
+                .find(|provider| provider.id == id)
+                .expect("provider existence checked above");
+            Self::native_cli_for_provider_type(provider.provider_type)
+        };
+        next.default_provider_ids
+            .insert(cli_tool.to_string(), id.to_string());
+        self.commit_config(&mut config, next)
+    }
+
+    /// 只设置一个 CLI 工具的默认 Provider，不影响其他 CLI。
+    pub fn set_default_for_cli(&self, cli_tool: &str, id: &str) -> Result<()> {
+        Self::validate_cli_tool(cli_tool)?;
+        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        if id != SYSTEM_PROVIDER_ID && !config.providers.iter().any(|provider| provider.id == id) {
+            anyhow::bail!("Provider '{}' not found", id);
+        }
+        let mut next = config.clone();
+        next.default_provider_ids
+            .insert(cli_tool.to_string(), id.to_string());
+        self.commit_config(&mut config, next)
     }
 
     /// 获取指定 Provider 的环境变量（核心方法）
@@ -316,6 +469,43 @@ impl ProviderService {
                 );
                 HashMap::new()
             }
+        }
+    }
+
+    /// Resolve environment variables from the exact Provider snapshot selected by the resolver.
+    /// This avoids refreshing providers.json a second time between selection and injection.
+    pub fn get_env_vars_for_provider(&self, provider: &Provider) -> HashMap<String, String> {
+        self.resolve_env_vars(provider)
+    }
+
+    pub(crate) fn managed_configuration_is_usable(provider: &Provider) -> bool {
+        let has_key = provider
+            .api_key
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+        let has_url = provider
+            .base_url
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+
+        match provider.provider_type {
+            ProviderType::Bedrock | ProviderType::Vertex => true,
+            ProviderType::ConfigProfile => {
+                let Some(config_path) = provider
+                    .config_dir
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    return false;
+                };
+                let path = Path::new(config_path);
+                path.is_dir()
+                    || (path.is_file()
+                        && Self::parse_env_config_file(path).is_ok_and(|vars| !vars.is_empty()))
+            }
+            ProviderType::Cursor | ProviderType::Kimi => has_key,
+            _ => has_key || has_url,
         }
     }
 
@@ -359,6 +549,10 @@ impl ProviderService {
     /// 解析 ccswitch 格式的 JSON 配置文件
     /// 格式: { "env": { "KEY": "VALUE", ... } }
     fn parse_env_config_file(path: &Path) -> Result<HashMap<String, String>> {
+        let size = path.metadata()?.len();
+        if size > MAX_PROVIDER_CONFIG_BYTES {
+            anyhow::bail!("配置文件超过 {} bytes", MAX_PROVIDER_CONFIG_BYTES);
+        }
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("无法读取配置文件: {}", path.display()))?;
 
@@ -375,21 +569,201 @@ impl ProviderService {
                 return Ok(HashMap::new());
             }
         };
+        if env_obj.len() > MAX_CONFIG_ENV_ITEMS {
+            anyhow::bail!("配置文件 env 项超过 {}", MAX_CONFIG_ENV_ITEMS);
+        }
 
         let mut vars = HashMap::new();
         for (key, value) in env_obj {
             if let Some(val_str) = value.as_str() {
+                if !Self::valid_env_key(key) || val_str.chars().count() > MAX_PROVIDER_SECRET_CHARS
+                {
+                    continue;
+                }
                 vars.insert(key.clone(), val_str.to_string());
             }
         }
 
         Ok(vars)
     }
+
+    fn normalize_provider_models(provider: &mut Provider) -> Result<()> {
+        if provider.models.len() > MAX_PROVIDER_MODELS {
+            return Err(Self::provider_model_error(
+                EC::PROVIDER_MODEL_INVALID,
+                format!(
+                    "Provider model catalog exceeds {} entries",
+                    MAX_PROVIDER_MODELS
+                ),
+            ));
+        }
+
+        let mut model_ids = HashSet::with_capacity(provider.models.len());
+        for model in &mut provider.models {
+            Self::normalize_provider_model(model)?;
+            if !model_ids.insert(model.id.clone()) {
+                return Err(Self::provider_model_error(
+                    EC::PROVIDER_MODEL_DUPLICATE,
+                    format!("Duplicate Provider model id '{}'", model.id),
+                ));
+            }
+        }
+
+        let explicit_default = provider
+            .default_model_id
+            .take()
+            .map(|model_id| model_id.trim().to_string())
+            .filter(|model_id| !model_id.is_empty());
+        if let Some(default_model_id) = explicit_default.as_ref() {
+            if !Self::valid_provider_model_id(default_model_id) {
+                return Err(Self::provider_model_error(
+                    EC::PROVIDER_MODEL_INVALID,
+                    "Provider defaultModelId is invalid",
+                ));
+            }
+            if !model_ids.contains(default_model_id) {
+                return Err(Self::provider_model_error(
+                    EC::PROVIDER_MODEL_INVALID,
+                    "Provider defaultModelId is not present in models",
+                ));
+            }
+        }
+        provider.default_model_id =
+            explicit_default.or_else(|| provider.models.first().map(|model| model.id.clone()));
+        Ok(())
+    }
+
+    fn normalize_provider_model(model: &mut ProviderModel) -> Result<()> {
+        model.id = model.id.trim().to_string();
+        if !Self::valid_provider_model_id(&model.id) {
+            return Err(Self::provider_model_error(
+                EC::PROVIDER_MODEL_INVALID,
+                "Provider model id is invalid",
+            ));
+        }
+
+        model.label = model.label.take().and_then(|label| {
+            let label = label.trim().to_string();
+            (!label.is_empty()).then_some(label)
+        });
+        if model.label.as_ref().is_some_and(|label| {
+            label.chars().count() > MAX_PROVIDER_MODEL_LABEL_CHARS
+                || label.chars().any(|character| character.is_ascii_control())
+        }) {
+            return Err(Self::provider_model_error(
+                EC::PROVIDER_MODEL_INVALID,
+                "Provider model label is invalid",
+            ));
+        }
+        model.default_effort = model.default_effort.take().and_then(|effort| {
+            let effort = effort.trim().to_ascii_lowercase();
+            (!effort.is_empty()).then_some(effort)
+        });
+        if model
+            .default_effort
+            .as_deref()
+            .is_some_and(|effort| !PROVIDER_MODEL_EFFORTS.contains(&effort))
+        {
+            return Err(Self::provider_model_error(
+                EC::PROVIDER_MODEL_INVALID,
+                "Provider model defaultEffort is invalid",
+            ));
+        }
+        Ok(())
+    }
+
+    fn valid_provider_model_id(model_id: &str) -> bool {
+        !model_id.is_empty()
+            && model_id.chars().count() <= MAX_PROVIDER_MODEL_ID_CHARS
+            && !model_id
+                .chars()
+                .any(|character| character.is_ascii_control())
+    }
+
+    fn provider_model_error(code: &str, message: impl Into<String>) -> anyhow::Error {
+        anyhow::Error::new(AppError::coded(code, message))
+    }
+
+    fn validate_provider(provider: &Provider) -> Result<()> {
+        let id = provider.id.trim();
+        if id == SYSTEM_PROVIDER_ID {
+            anyhow::bail!("Provider id '{}' is reserved", SYSTEM_PROVIDER_ID);
+        }
+        if id.is_empty()
+            || id.chars().count() > MAX_PROVIDER_ID_CHARS
+            || !id.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
+            })
+        {
+            anyhow::bail!("Provider id is invalid");
+        }
+        let name = provider.name.trim();
+        if name.is_empty() || name.chars().count() > MAX_PROVIDER_NAME_CHARS {
+            anyhow::bail!("Provider name is invalid");
+        }
+        Self::validate_optional_length(
+            provider.api_key.as_deref(),
+            MAX_PROVIDER_SECRET_CHARS,
+            "apiKey",
+        )?;
+        Self::validate_optional_length(
+            provider.config_dir.as_deref(),
+            MAX_PROVIDER_FIELD_CHARS,
+            "configDir",
+        )?;
+        Self::validate_optional_length(provider.region.as_deref(), 512, "region")?;
+        Self::validate_optional_length(provider.project_id.as_deref(), 512, "projectId")?;
+        Self::validate_optional_length(provider.aws_profile.as_deref(), 512, "awsProfile")?;
+        if let Some(url) = provider
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+        {
+            if url.chars().count() > MAX_PROVIDER_URL_CHARS {
+                anyhow::bail!("Provider baseUrl is too long");
+            }
+            let parsed = url::Url::parse(url).context("Provider baseUrl is invalid")?;
+            if !matches!(parsed.scheme(), "http" | "https") {
+                anyhow::bail!("Provider baseUrl must use http or https");
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_optional_length(value: Option<&str>, max: usize, field: &str) -> Result<()> {
+        if value.is_some_and(|value| value.chars().count() > max) {
+            anyhow::bail!("Provider {field} is too long");
+        }
+        Ok(())
+    }
+
+    fn valid_env_key(key: &str) -> bool {
+        let mut chars = key.chars();
+        matches!(chars.next(), Some(character) if character.is_ascii_uppercase() || character == '_')
+            && chars.all(|character| {
+                character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+            })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn provider_model(id: &str) -> ProviderModel {
+        ProviderModel {
+            id: id.to_string(),
+            label: Some(format!("Label {id}")),
+            default_effort: None,
+        }
+    }
+
+    fn provider_model_error_code(error: &anyhow::Error) -> Option<&str> {
+        error
+            .downcast_ref::<crate::utils::error::AppError>()
+            .and_then(crate::utils::error::AppError::code)
+    }
 
     fn make_provider(id: &str, is_default: bool) -> Provider {
         Provider {
@@ -402,6 +776,8 @@ mod tests {
             project_id: None,
             aws_profile: None,
             config_dir: None,
+            models: Vec::new(),
+            default_model_id: None,
             is_default,
         }
     }
@@ -417,8 +793,299 @@ mod tests {
             project_id: None,
             aws_profile: None,
             config_dir,
+            models: Vec::new(),
+            default_model_id: None,
             is_default: false,
         }
+    }
+
+    #[test]
+    fn normalizes_provider_models_and_promotes_the_first_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-normalized", false);
+        provider.models = vec![
+            ProviderModel {
+                id: "  model-a  ".to_string(),
+                label: Some("  Model A  ".to_string()),
+                default_effort: Some(" HIGH ".to_string()),
+            },
+            provider_model("model-b"),
+            ProviderModel {
+                id: "model-c".to_string(),
+                label: Some("   ".to_string()),
+                default_effort: None,
+            },
+        ];
+
+        service.add_provider(provider).unwrap();
+        let stored = service.get_provider("models-normalized").unwrap();
+
+        assert_eq!(stored.models[0].id, "model-a");
+        assert_eq!(stored.models[0].label.as_deref(), Some("Model A"));
+        assert_eq!(stored.models[0].default_effort.as_deref(), Some("high"));
+        assert_eq!(stored.models[2].label, None);
+        assert_eq!(stored.default_model_id.as_deref(), Some("model-a"));
+    }
+
+    #[test]
+    fn accepts_provider_model_id_and_label_at_exact_limits() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-at-limits", false);
+        provider.models = vec![ProviderModel {
+            id: "i".repeat(MAX_PROVIDER_MODEL_ID_CHARS),
+            label: Some("l".repeat(MAX_PROVIDER_MODEL_LABEL_CHARS)),
+            default_effort: None,
+        }];
+
+        service.add_provider(provider).unwrap();
+        let stored = service.get_provider("models-at-limits").unwrap();
+
+        assert_eq!(
+            stored.models[0].id.chars().count(),
+            MAX_PROVIDER_MODEL_ID_CHARS
+        );
+        assert_eq!(
+            stored.models[0].label.as_deref().unwrap().chars().count(),
+            MAX_PROVIDER_MODEL_LABEL_CHARS
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_provider_model_ids_after_trimming() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-duplicate", false);
+        provider.models = vec![provider_model("same-model"), provider_model(" same-model ")];
+
+        let error = service.add_provider(provider).unwrap_err().to_string();
+
+        assert!(error.contains("Duplicate Provider model id"));
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn duplicate_provider_model_ids_return_a_coded_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-duplicate-code", false);
+        provider.models = vec![provider_model("same-model"), provider_model(" same-model ")];
+
+        let error = service.add_provider(provider).unwrap_err();
+
+        assert_eq!(
+            provider_model_error_code(&error),
+            Some("PROVIDER_MODEL_DUPLICATE")
+        );
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn rejects_provider_default_model_missing_from_catalog() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-default-missing", false);
+        provider.models = vec![provider_model("model-a")];
+        provider.default_model_id = Some("model-missing".to_string());
+
+        let error = service.add_provider(provider).unwrap_err().to_string();
+
+        assert!(error.contains("defaultModelId"));
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn rejects_provider_model_catalog_over_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-over-limit", false);
+        provider.models = (0..=100)
+            .map(|index| provider_model(&format!("model-{index}")))
+            .collect();
+
+        let error = service.add_provider(provider).unwrap_err().to_string();
+
+        assert!(error.contains("100"));
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn accepts_provider_model_catalog_at_exact_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-at-count-limit", false);
+        provider.models = (0..MAX_PROVIDER_MODELS)
+            .map(|index| provider_model(&format!("model-{index}")))
+            .collect();
+
+        service.add_provider(provider).unwrap();
+
+        assert_eq!(
+            service
+                .get_provider("models-at-count-limit")
+                .unwrap()
+                .models
+                .len(),
+            MAX_PROVIDER_MODELS
+        );
+    }
+
+    #[test]
+    fn rejects_provider_model_ids_with_control_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-control-character", false);
+        provider.models = vec![provider_model("model-a\n--dangerous")];
+
+        let error = service.add_provider(provider).unwrap_err();
+
+        assert_eq!(
+            provider_model_error_code(&error),
+            Some("PROVIDER_MODEL_INVALID")
+        );
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn rejects_blank_or_oversized_provider_model_fields_with_coded_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+
+        let invalid_models = [
+            ProviderModel {
+                id: "   ".to_string(),
+                label: None,
+                default_effort: None,
+            },
+            ProviderModel {
+                id: "i".repeat(MAX_PROVIDER_MODEL_ID_CHARS + 1),
+                label: None,
+                default_effort: None,
+            },
+            ProviderModel {
+                id: "valid-id".to_string(),
+                label: Some("l".repeat(MAX_PROVIDER_MODEL_LABEL_CHARS + 1)),
+                default_effort: None,
+            },
+        ];
+
+        for (index, model) in invalid_models.into_iter().enumerate() {
+            let mut provider = make_provider(&format!("models-invalid-{index}"), false);
+            provider.models = vec![model];
+            let error = service.add_provider(provider).unwrap_err();
+
+            assert_eq!(
+                provider_model_error_code(&error),
+                Some("PROVIDER_MODEL_INVALID")
+            );
+        }
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn rejects_unknown_provider_model_default_effort() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-invalid-effort", false);
+        let mut model = provider_model("model-a");
+        model.default_effort = Some("turbo".to_string());
+        provider.models = vec![model];
+
+        let error = service.add_provider(provider).unwrap_err();
+
+        assert_eq!(
+            provider_model_error_code(&error),
+            Some("PROVIDER_MODEL_INVALID")
+        );
+        assert!(error.to_string().contains("defaultEffort"));
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn rejects_invalid_default_model_ids_with_a_coded_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let invalid_defaults = [
+            "model-a\n--dangerous".to_string(),
+            "i".repeat(MAX_PROVIDER_MODEL_ID_CHARS + 1),
+        ];
+
+        for (index, default_model_id) in invalid_defaults.into_iter().enumerate() {
+            let mut provider = make_provider(&format!("models-default-invalid-{index}"), false);
+            provider.models = vec![provider_model("model-a")];
+            provider.default_model_id = Some(default_model_id);
+            let error = service.add_provider(provider).unwrap_err();
+
+            assert_eq!(
+                provider_model_error_code(&error),
+                Some("PROVIDER_MODEL_INVALID")
+            );
+            assert!(!error.to_string().contains("--dangerous"));
+        }
+        assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn empty_provider_model_catalog_clears_a_blank_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-empty", false);
+        provider.default_model_id = Some("   ".to_string());
+
+        service.add_provider(provider).unwrap();
+
+        assert_eq!(
+            service
+                .get_provider("models-empty")
+                .unwrap()
+                .default_model_id,
+            None
+        );
+    }
+
+    #[test]
+    fn updating_after_removing_the_default_model_promotes_the_first_remaining_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("models-remove-default", false);
+        provider.models = vec![provider_model("model-a"), provider_model("model-b")];
+        provider.default_model_id = Some("model-b".to_string());
+        service.add_provider(provider).unwrap();
+
+        let mut updated = service.get_provider("models-remove-default").unwrap();
+        updated.models.retain(|model| model.id != "model-b");
+        updated.default_model_id = None;
+        service.update_provider(updated).unwrap();
+
+        let stored = service.get_provider("models-remove-default").unwrap();
+        assert_eq!(stored.default_model_id.as_deref(), Some("model-a"));
+    }
+
+    #[test]
+    fn oversized_provider_config_save_does_not_change_memory_or_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        let service = ProviderService::new(path.clone());
+        for index in 0..15 {
+            let mut provider = make_provider(&format!("large-{index}"), false);
+            provider.api_key = Some("x".repeat(MAX_PROVIDER_SECRET_CHARS));
+            service.add_provider(provider).unwrap();
+        }
+        let count_before = service.list_providers().len();
+        let disk_before = std::fs::read(&path).unwrap();
+        let mut provider = make_provider("large-over-limit", false);
+        provider.api_key = Some("x".repeat(MAX_PROVIDER_SECRET_CHARS));
+
+        let error = service.add_provider(provider).unwrap_err();
+
+        assert!(error.to_string().contains("exceeds"));
+        assert_eq!(service.list_providers().len(), count_before);
+        assert_eq!(std::fs::read(&path).unwrap(), disk_before);
+        assert_eq!(
+            ProviderService::new(path).list_providers().len(),
+            count_before
+        );
     }
 
     #[test]
@@ -466,7 +1133,7 @@ mod tests {
     }
 
     #[test]
-    fn first_added_provider_becomes_default() {
+    fn first_added_provider_becomes_default_only_for_its_native_cli() {
         let dir = tempfile::tempdir().unwrap();
         let service = new_service(&dir);
 
@@ -476,6 +1143,44 @@ mod tests {
         assert_eq!(providers.len(), 1);
         assert!(providers[0].is_default);
         assert_eq!(service.get_default_provider().unwrap().id, "a");
+        assert_eq!(service.get_default_provider_id("claude").as_deref(), Some("a"));
+        assert_eq!(service.get_default_provider_id("opencode"), None);
+        assert_eq!(service.get_default_provider_id("codex"), None);
+    }
+
+    #[test]
+    fn legacy_fanned_out_defaults_are_reduced_to_native_cli_mappings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        let mut anthropic = make_provider("anthropic-provider", true);
+        anthropic.provider_type = ProviderType::Anthropic;
+        let mut open_ai = make_provider("openai-provider", true);
+        open_ai.provider_type = ProviderType::OpenAI;
+        let mut default_provider_ids = PROVIDER_CLI_TOOLS
+            .into_iter()
+            .map(|cli_tool| (cli_tool.to_string(), anthropic.id.clone()))
+            .collect::<HashMap<_, _>>();
+        default_provider_ids.insert("codex".to_string(), open_ai.id.clone());
+        let config = ProviderConfig {
+            providers: vec![anthropic, open_ai],
+            default_provider_ids,
+            default_provider_ids_version: 0,
+            default_is_system: false,
+        };
+        std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
+
+        let service = ProviderService::new(path);
+
+        assert_eq!(
+            service.get_default_provider_id("claude").as_deref(),
+            Some("anthropic-provider")
+        );
+        assert_eq!(
+            service.get_default_provider_id("codex").as_deref(),
+            Some("openai-provider")
+        );
+        assert_eq!(service.get_default_provider_id("opencode"), None);
+        assert_eq!(service.system_provider_info().default_provider_ids.len(), 2);
     }
 
     #[test]
@@ -534,7 +1239,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_default_provider_promotes_first_remaining() {
+    fn remove_default_provider_returns_cli_to_native_configuration() {
         let dir = tempfile::tempdir().unwrap();
         let service = new_service(&dir);
         service.add_provider(make_provider("a", false)).unwrap();
@@ -545,7 +1250,8 @@ mod tests {
         let providers = service.list_providers();
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].id, "b");
-        assert!(providers[0].is_default);
+        assert!(!providers[0].is_default);
+        assert_eq!(service.get_default_provider_id("claude"), None);
     }
 
     #[test]
@@ -580,6 +1286,86 @@ mod tests {
 
         assert!(!service.get_provider("a").unwrap().is_default);
         assert!(service.get_provider("b").unwrap().is_default);
+    }
+
+    #[test]
+    fn real_provider_default_persists_across_service_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        {
+            let service = ProviderService::new(path.clone());
+            service.add_provider(make_provider("a", false)).unwrap();
+            service.add_provider(make_provider("b", false)).unwrap();
+            service.set_default("b").unwrap();
+        }
+
+        let reloaded = ProviderService::new(path);
+
+        assert_eq!(reloaded.get_default_provider().unwrap().id, "b");
+        assert!(reloaded.get_provider("b").unwrap().is_default);
+        assert!(!reloaded.system_provider_info().default_is_system);
+    }
+
+    #[test]
+    fn cli_defaults_are_independent_and_persist_across_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        {
+            let service = ProviderService::new(path.clone());
+            service
+                .add_provider(make_provider("claude-provider", false))
+                .unwrap();
+            service
+                .add_provider(make_provider("codex-provider", false))
+                .unwrap();
+            service
+                .set_default_for_cli("claude", "claude-provider")
+                .unwrap();
+            service
+                .set_default_for_cli("codex", "codex-provider")
+                .unwrap();
+        }
+
+        let reloaded = ProviderService::new(path);
+        assert_eq!(
+            reloaded.get_default_provider_id("claude").as_deref(),
+            Some("claude-provider")
+        );
+        assert_eq!(
+            reloaded.get_default_provider_id("codex").as_deref(),
+            Some("codex-provider")
+        );
+        assert_eq!(
+            reloaded.get_default_provider_for_cli("claude").unwrap().id,
+            "claude-provider"
+        );
+        assert_eq!(
+            reloaded.get_default_provider_for_cli("codex").unwrap().id,
+            "codex-provider"
+        );
+    }
+
+    #[test]
+    fn system_default_is_scoped_to_one_cli() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service
+            .add_provider(make_provider("managed", false))
+            .unwrap();
+        service
+            .set_default_for_cli("claude", SYSTEM_PROVIDER_ID)
+            .unwrap();
+        service.set_default_for_cli("codex", "managed").unwrap();
+
+        let info = service.system_provider_info();
+        assert_eq!(
+            info.default_provider_ids.get("claude").map(String::as_str),
+            Some(SYSTEM_PROVIDER_ID)
+        );
+        assert_eq!(
+            info.default_provider_ids.get("codex").map(String::as_str),
+            Some("managed")
+        );
     }
 
     #[test]
@@ -860,5 +1646,55 @@ mod tests {
             .add_provider(make_config_profile_provider("q", None))
             .unwrap();
         assert!(service2.get_env_vars(Some("q")).is_empty());
+    }
+
+    #[test]
+    fn rejects_duplicate_or_invalid_provider_ids_without_overwriting_existing_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        service
+            .add_provider(make_provider("stable-id", false))
+            .unwrap();
+
+        assert!(service
+            .add_provider(make_provider("stable-id", false))
+            .is_err());
+        assert!(service
+            .add_provider(make_provider("../escape", false))
+            .is_err());
+        assert_eq!(service.list_providers().len(), 1);
+    }
+
+    #[test]
+    fn rejects_oversized_provider_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+        let mut provider = make_provider("large-secret", false);
+        provider.api_key = Some("x".repeat(MAX_PROVIDER_SECRET_CHARS + 1));
+
+        let error = service.add_provider(provider).unwrap_err().to_string();
+        assert!(error.contains("apiKey"));
+        assert!(!error.contains(&"x".repeat(100)));
+    }
+
+    #[test]
+    fn config_profile_filters_invalid_env_keys_and_rejects_too_many_items() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_file = dir.path().join("profile.json");
+        std::fs::write(
+            &config_file,
+            r#"{"env":{"GOOD_KEY":"value","bad-key":"secret","2BAD":"secret"}}"#,
+        )
+        .unwrap();
+        let vars = ProviderService::parse_env_config_file(&config_file).unwrap();
+        assert_eq!(vars.get("GOOD_KEY").map(String::as_str), Some("value"));
+        assert!(!vars.contains_key("bad-key"));
+        assert!(!vars.contains_key("2BAD"));
+
+        let env = (0..=MAX_CONFIG_ENV_ITEMS)
+            .map(|index| (format!("KEY_{index}"), serde_json::json!("value")))
+            .collect::<serde_json::Map<_, _>>();
+        std::fs::write(&config_file, serde_json::json!({ "env": env }).to_string()).unwrap();
+        assert!(ProviderService::parse_env_config_file(&config_file).is_err());
     }
 }

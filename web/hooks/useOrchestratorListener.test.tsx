@@ -101,7 +101,7 @@ describe("useOrchestratorListener layout placement", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
-  it("launch-task 把显式 launchProfileId 保存在前端 tab 元数据", async () => {
+  it("launch-task 把显式 launchProfileId 和 modelId 保存在前端 tab 元数据", async () => {
     const listeners = mockWebviewListeners();
     renderHook(() => useOrchestratorListener());
     await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
@@ -114,6 +114,7 @@ describe("useOrchestratorListener layout placement", () => {
           projectPath: "/tmp/project-a",
           projectId: "project-a",
           launchProfileId: "profile-yolo",
+          modelId: "claude-sonnet-4-6",
           cliTool: "claude",
         },
       });
@@ -125,6 +126,7 @@ describe("useOrchestratorListener layout placement", () => {
       .flatMap((panel) => panel.tabs)
       .find((item) => item.sessionId === "session-profile");
     expect(tab?.launchProfileId).toBe("profile-yolo");
+    expect(tab?.modelId).toBe("claude-sonnet-4-6");
   });
 
   it("launch-task 有调用者会话时默认在其 pane 旁边分屏打开(并排,不是后台标签)", async () => {

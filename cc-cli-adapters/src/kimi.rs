@@ -1,15 +1,14 @@
 //! Kimi CLI 适配器
 
 use crate::{
-    CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
+    atomic_file::write_atomic, CliAdapterContext, CliCommandResult, CliToolAdapter,
+    CliToolCapabilities, CliToolInfo,
 };
 use anyhow::Result;
 use std::collections::HashMap;
 use tracing::info;
 
 const DEFAULT_KIMI_BASE_URL: &str = "https://api.moonshot.cn/v1";
-const KIMI_CONFIG_MODE_KEY: &str = "kimiConfigMode";
-const KIMI_CONFIG_MODE_NATIVE: &str = "native";
 
 pub struct KimiAdapter {
     info: CliToolInfo,
@@ -37,23 +36,12 @@ impl KimiAdapter {
                 supports_workspace: true,
                 supports_project_hooks: false,
                 supports_issued_session_id: false,
-                compatible_provider_types: vec!["kimi".into(), "config_profile".into()],
+                compatible_provider_types: vec!["kimi".into()],
             },
         }
     }
 
-    fn use_native_config(ctx: &CliAdapterContext) -> bool {
-        ctx.adapter_options
-            .get(KIMI_CONFIG_MODE_KEY)
-            .and_then(serde_json::Value::as_str)
-            == Some(KIMI_CONFIG_MODE_NATIVE)
-    }
-
     fn write_session_config(&self, ctx: &CliAdapterContext) -> Result<Option<String>> {
-        if Self::use_native_config(ctx) {
-            return Ok(None);
-        }
-
         let Some(provider) = ctx.provider.as_ref() else {
             return Ok(None);
         };
@@ -79,12 +67,12 @@ impl KimiAdapter {
             }
         });
 
-        std::fs::write(&config_path, serde_json::to_vec_pretty(&config)?)?;
+        write_atomic(&config_path, serde_json::to_vec_pretty(&config)?)?;
         Ok(Some(config_path.to_string_lossy().into_owned()))
     }
 
     fn build_env_inject(&self, ctx: &CliAdapterContext) -> Result<HashMap<String, String>> {
-        if Self::use_native_config(ctx) {
+        if ctx.provider.is_none() {
             return Ok(HashMap::new());
         }
 
@@ -127,6 +115,8 @@ impl CliToolAdapter for KimiAdapter {
                 args.push(ctx.project_path.clone());
             }
         }
+
+        crate::push_model_arg(&mut args, ctx);
 
         if let Some(prompt) = ctx.initial_prompt.as_ref() {
             args.push(prompt.clone());
@@ -197,12 +187,10 @@ mod tests {
     }
 
     #[test]
-    fn native_config_mode_does_not_write_generated_provider_config() {
+    fn native_provider_mode_does_not_write_generated_provider_config() {
         let dir = tempdir().unwrap();
-        let ctx = context_with_options(
-            dir.path().to_path_buf(),
-            HashMap::from([("kimiConfigMode".to_string(), json!("native"))]),
-        );
+        let mut ctx = context_with_options(dir.path().to_path_buf(), HashMap::new());
+        ctx.provider = None;
         let adapter = KimiAdapter::new();
 
         let config_path = adapter.write_session_config(&ctx).unwrap();
@@ -217,12 +205,10 @@ mod tests {
     }
 
     #[test]
-    fn native_config_mode_does_not_inject_isolated_share_dir() {
+    fn native_provider_mode_does_not_inject_isolated_share_dir() {
         let dir = tempdir().unwrap();
-        let ctx = context_with_options(
-            dir.path().to_path_buf(),
-            HashMap::from([("kimiConfigMode".to_string(), json!("native"))]),
-        );
+        let mut ctx = context_with_options(dir.path().to_path_buf(), HashMap::new());
+        ctx.provider = None;
         let adapter = KimiAdapter::new();
 
         let env_inject = adapter.build_env_inject(&ctx).unwrap();
@@ -253,5 +239,21 @@ mod tests {
             .join("kimi")
             .join("share")
             .exists());
+    }
+
+    #[test]
+    fn explicit_managed_provider_wins_over_legacy_native_option() {
+        let dir = tempdir().unwrap();
+        let ctx = context_with_options(
+            dir.path().to_path_buf(),
+            HashMap::from([("kimiConfigMode".to_string(), json!("native"))]),
+        );
+        let adapter = KimiAdapter::new();
+
+        assert!(adapter.write_session_config(&ctx).unwrap().is_some());
+        assert!(adapter
+            .build_env_inject(&ctx)
+            .unwrap()
+            .contains_key("KIMI_SHARE_DIR"));
     }
 }

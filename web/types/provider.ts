@@ -1,4 +1,4 @@
-import type { KnownCliTool } from "./terminal";
+import type { KnownCliTool, LaunchEffort } from "./terminal";
 
 export type ProviderType =
   | "anthropic"
@@ -14,6 +14,12 @@ export type ProviderType =
   | "cursor"
   | "grok";
 
+export interface ProviderModel {
+  id: string;
+  label?: string | null;
+  defaultEffort?: LaunchEffort | null;
+}
+
 export interface Provider {
   id: string;
   name: string;
@@ -24,6 +30,8 @@ export interface Provider {
   projectId?: string | null;
   awsProfile?: string | null;
   configDir?: string | null;
+  models?: ProviderModel[];
+  defaultModelId?: string | null;
   isDefault: boolean;
 }
 
@@ -63,6 +71,8 @@ export interface SystemProviderInfo {
   envKeys: string[];
   /** 用户已把「系统环境变量」设为默认凭证（持久化状态） */
   defaultIsSystem: boolean;
+  /** 每个 CLI 工具对应的持久化默认 Provider id */
+  defaultProviderIds: Partial<Record<KnownCliTool, string>>;
 }
 
 export type ProviderTypeLabelKey =
@@ -158,66 +168,6 @@ export const PROVIDER_TYPE_META: Record<
     fields: ["apiKey", "baseUrl"],
   },
 };
-
-/** Provider 类型与 CLI 工具的兼容映射（单值版本，兼容旧调用） */
-export function getCompatibleCliTool(providerType: ProviderType): KnownCliTool {
-  switch (providerType) {
-    case "open_ai": return "codex";
-    case "gemini": return "gemini";
-    case "kimi": return "kimi";
-    case "glm": return "glm";
-    case "opencode": return "opencode";
-    case "cursor": return "cursor";
-    case "grok": return "grok";
-    default: return "claude";
-  }
-}
-
-/** Provider 类型与 CLI 工具的兼容映射（多值版本） */
-export function getCompatibleCliTools(providerType: ProviderType): KnownCliTool[] {
-  switch (providerType) {
-    case "anthropic":
-    case "bedrock":
-    case "vertex":
-    case "config_profile":
-      return ["claude"];
-    case "proxy":
-      return ["claude"]; // proxy defaults to claude tab
-    case "open_ai":
-      return ["codex"];
-    case "gemini":
-      return ["gemini"];
-    case "kimi":
-      return ["kimi"];
-    case "glm":
-      return ["glm"];
-    case "opencode":
-      return ["opencode"];
-    case "cursor":
-      return ["cursor"];
-    case "grok":
-      return ["grok"];
-  }
-}
-
-/** 返回某个 CLI Tool Tab 兼容的 ProviderType 列表 */
-export function getProviderTypesForTab(tab: KnownCliTool): ProviderType[] {
-  const ALL: ProviderType[] = [
-    "anthropic",
-    "bedrock",
-    "vertex",
-    "proxy",
-    "config_profile",
-    "open_ai",
-    "gemini",
-    "kimi",
-    "glm",
-    "opencode",
-    "cursor",
-    "grok",
-  ];
-  return ALL.filter((pt) => getCompatibleCliTools(pt).includes(tab));
-}
 
 /** CLI Tool Tab 定义 */
 export const CLI_TOOL_TABS = [

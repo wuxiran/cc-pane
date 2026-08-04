@@ -339,6 +339,8 @@ impl CliToolAdapter for GrokAdapter {
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let mut args = Vec::new();
 
+        crate::push_model_arg(&mut args, ctx);
+
         // MCP：写用户级 config.toml（无 per-launch override 通道，见模块头注释）
         if ctx.skip_mcp {
             Self::remove_ccpanes_entry_best_effort(&ctx.session_id);

@@ -101,6 +101,8 @@ pub struct ProjectNameRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderIdRequest {
     pub id: String,
+    #[serde(default)]
+    pub cli_tool: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -556,10 +558,16 @@ pub async fn set_default_provider(
     State(state): State<AppState>,
     Json(req): Json<ProviderIdRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    state
-        .provider_service
-        .set_default(&req.id)
-        .map_err(service_error)?;
+    match req.cli_tool {
+        Some(cli_tool) => state
+            .provider_service
+            .set_default_for_cli(&cli_tool, &req.id)
+            .map_err(service_error)?,
+        None => state
+            .provider_service
+            .set_default(&req.id)
+            .map_err(service_error)?,
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

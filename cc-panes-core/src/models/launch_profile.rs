@@ -12,6 +12,8 @@ pub struct LaunchProfile {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub adapter_options: HashMap<String, serde_json::Value>,
     #[serde(default)]
@@ -41,6 +43,8 @@ pub struct LaunchProfileDraft {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub adapter_options: HashMap<String, serde_json::Value>,
     #[serde(default)]
@@ -191,6 +195,8 @@ pub struct LaunchProfilePreviewRequest {
     pub project_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
     #[serde(default)]
     pub provider_selection: LaunchProviderSelection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -212,6 +218,12 @@ pub struct LaunchProfileResolution {
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_source: Option<String>,
     #[serde(default)]
     pub mcp_servers: Vec<ResolvedMcpServer>,
     #[serde(default)]

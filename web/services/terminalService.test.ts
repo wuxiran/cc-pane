@@ -6,17 +6,24 @@ import {
   mockTauriInvokeError,
   resetTauriInvoke,
 } from "@/test/utils/mockTauriInvoke";
+import {
+  _resetTerminalRestoreBarrierForTest,
+  beginTerminalRestoreBarrier,
+  finishTerminalRestoreBarrier,
+} from "./terminalRestoreBarrier";
 
 describe("terminalService", () => {
   beforeEach(() => {
     resetTauriInvoke();
     _resetListenersForTest();
+    _resetTerminalRestoreBarrierForTest();
     vi.useRealTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
     _resetListenersForTest();
+    _resetTerminalRestoreBarrierForTest();
   });
 
   describe("多订阅分发（星标镜像：同一会话多视图）", () => {
@@ -234,6 +241,50 @@ describe("terminalService", () => {
       ).rejects.toThrow("create_terminal_session requires a non-null request");
 
       expect(invoke).not.toHaveBeenCalled();
+    });
+
+    it("times out a normal launch and requests backend cancellation", async () => {
+      vi.useFakeTimers();
+      mockTauriInvoke({
+        create_terminal_session: () => new Promise(() => {}),
+        cancel_terminal_launch: undefined,
+      });
+
+      const result = terminalService.createSession({
+        launchId: "launch-timeout",
+        projectPath: "/tmp/project",
+        cols: 80,
+        rows: 24,
+      });
+      const assertion = expect(result).rejects.toMatchObject({ code: "LAUNCH_TIMEOUT" });
+      await vi.advanceTimersByTimeAsync(55_000);
+      await assertion;
+      expect(invoke).toHaveBeenCalledWith("cancel_terminal_launch", {
+        launchId: "launch-timeout",
+      });
+    });
+
+    it("bounds the startup restore barrier before backend invocation", async () => {
+      vi.useFakeTimers();
+      beginTerminalRestoreBarrier();
+      mockTauriInvoke({
+        create_terminal_session: "session-late",
+        cancel_terminal_launch: undefined,
+      });
+
+      const result = terminalService.createSession({
+        launchId: "launch-barrier-timeout",
+        projectPath: "/tmp/project",
+        cols: 80,
+        rows: 24,
+      });
+      const assertion = expect(result).rejects.toMatchObject({ code: "LAUNCH_TIMEOUT" });
+      await vi.advanceTimersByTimeAsync(55_000);
+      await assertion;
+      expect(invoke).not.toHaveBeenCalledWith("create_terminal_session", expect.anything());
+
+      finishTerminalRestoreBarrier();
+      await Promise.resolve();
     });
   });
 
