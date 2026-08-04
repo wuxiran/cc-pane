@@ -4,7 +4,7 @@ import { immer } from "zustand/middleware/immer";
 import { useFullscreenStore } from "./useFullscreenStore";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { terminalService, ensureListeners } from "@/services/terminalService";
-import { waitForTerminalRestoreBarrier } from "@/services/terminalRestoreBarrier";
+import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRestoreBarrier";
 import { devDebugLog } from "@/utils/devLogger";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";

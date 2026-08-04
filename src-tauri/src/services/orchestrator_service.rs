@@ -9959,6 +9959,7 @@ fn refresh_task_status(task: &mut TaskStatus, statuses: &[SessionStatusInfo]) {
 const PROMPT_FILE_THRESHOLD: usize = 8192;
 const PASTE_READY_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const PASTE_READY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+const CREATE_LAUNCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(50);
 
 struct LaunchPromptDelivery {
     initial_prompt: Option<String>,
@@ -10067,18 +10068,12 @@ async fn create_launch_session(
     deferred_prompt: Option<String>,
     ready_timeout: std::time::Duration,
 ) -> std::result::Result<String, String> {
-    let first_request = request.clone();
-    let recover_state = terminal_backend.clone();
-    let recover_handle = app_handle.clone();
-    let session_id = tokio::task::spawn_blocking(move || match recover_handle {
-        Some(handle) => recover_state
-            .create_session_with_recovery(&handle, first_request)
-            .map(|created| created.session_id),
-        None => recover_state.backend().create_session(first_request),
-    })
-    .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| error.to_string())?;
+    let (session_id, _, _) = create_backend_session_with_deadline(
+        terminal_backend.clone(),
+        app_handle.clone(),
+        request.clone(),
+    )
+    .await?;
 
     let Some(prompt) = deferred_prompt else {
         return Ok(session_id);
@@ -10103,17 +10098,63 @@ async fn create_launch_session(
     .await?;
 
     request.initial_prompt = Some(prompt);
-    let retry_state = terminal_backend;
-    let retry_handle = app_handle;
-    tokio::task::spawn_blocking(move || match retry_handle {
-        Some(handle) => retry_state
+    let (session_id, _, _) =
+        create_backend_session_with_deadline(terminal_backend, app_handle, request).await?;
+    Ok(session_id)
+}
+
+async fn create_backend_session_with_deadline(
+    terminal_backend: Arc<TerminalBackendState>,
+    app_handle: Option<tauri::AppHandle>,
+    request: CoreCreateSessionRequest,
+) -> std::result::Result<(String, Arc<dyn TerminalBackend>, bool), String> {
+    let launch_id = request.launch_id.clone();
+    let recover_state = terminal_backend.clone();
+    let recover_handle = app_handle.clone();
+    let mut create_task = tokio::task::spawn_blocking(move || match recover_handle {
+        Some(handle) => recover_state
             .create_session_with_recovery(&handle, request)
-            .map(|created| created.session_id),
-        None => retry_state.backend().create_session(request),
-    })
-    .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| error.to_string())
+            .map(|created| (created.session_id, created.backend, created.reused_existing))
+            .map_err(|error| error.to_string()),
+        None => {
+            let backend = recover_state.backend();
+            backend
+                .create_session(request)
+                .map(|session_id| (session_id, backend, false))
+                .map_err(|error| error.to_string())
+        }
+    });
+
+    match tokio::time::timeout(CREATE_LAUNCH_DEADLINE, &mut create_task).await {
+        Ok(result) => result.map_err(|error| error.to_string())?,
+        Err(_) => {
+            if let Some(launch_id) = launch_id {
+                let cancel_backend = terminal_backend.backend();
+                tokio::spawn(async move {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        cancel_backend.cancel_launch(&launch_id)
+                    })
+                    .await;
+                });
+            }
+            tokio::spawn(async move {
+                if let Ok(Ok((session_id, backend, reused_existing))) = create_task.await {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if reused_existing {
+                            backend.release_session(&session_id)
+                        } else {
+                            backend.kill_with_reason(&session_id, KillReason::LaunchTimeout)
+                        }
+                    })
+                    .await;
+                }
+            });
+            Err(format!(
+                "[LAUNCH_TIMEOUT] Terminal launch exceeded {}ms",
+                CREATE_LAUNCH_DEADLINE.as_millis()
+            ))
+        }
+    }
 }
 
 /// 智能提交：写入文本 → 延迟 → 发 Enter，确保 ink-text-input 正确识别提交

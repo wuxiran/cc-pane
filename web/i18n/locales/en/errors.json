@@ -98,6 +98,8 @@
   "SETTINGS_LOAD_FAILED": "Failed to load settings",
   "SETTINGS_SAVE_FAILED": "Failed to save settings",
   "TERMINAL_NOT_FOUND": "Terminal session not found",
+  "LAUNCH_TIMEOUT": "Terminal launch timed out. The pending process was cancelled; retry when ready.",
+  "LAUNCH_CANCELLED": "Terminal launch was cancelled before it became ready.",
 
   "FILE_TRAVERSAL": "File path contains illegal '..' component: {{path}}",
   "DIR_ALREADY_EXISTS": "Target directory already exists",

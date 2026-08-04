@@ -42,6 +42,7 @@ use commands::{
     browser_reload,
     browser_set_bounds,
     browser_set_visible,
+    cancel_terminal_launch,
     check_codex_rollout_exists,
     check_environment,
     check_ssh_connectivity,
@@ -2352,6 +2353,7 @@ pub fn run() {
             update_project_name,
             update_project_alias,
             // 终端命令
+            cancel_terminal_launch,
             create_terminal_session,
             adopt_terminal_session,
             release_terminal_session,

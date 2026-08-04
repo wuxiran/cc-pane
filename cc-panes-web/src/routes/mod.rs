@@ -36,6 +36,7 @@ use crate::ws_handler::ws_upgrade;
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
         .route("/api/sessions", post(terminal::create_session))
+        .route("/api/launches/{launch_id}", delete(terminal::cancel_launch))
         .route("/api/sessions", get(terminal::list_sessions))
         .route(
             "/api/sessions/adoption-snapshot",

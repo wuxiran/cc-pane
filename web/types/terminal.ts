@@ -267,13 +267,14 @@ export interface TerminalSessionOutput {
 
 /**
  * kill 来源（与 Rust `KillReason` 的 kebab-case 序列化对齐）。
- * user-close/mcp → 前端关标签；orphan-reclaim/daemon-reaper → 保留标签显示退出。
+ * user-close/mcp → 前端关标签；回收/超时清理 → 保留标签显示退出。
  */
 export type KillReason =
   | "user-close"
   | "mcp"
   | "orphan-reclaim"
   | "daemon-reaper"
+  | "launch-timeout"
   | "unknown";
 
 /** session-killed 事件载荷；reason 缺失表示旧后端（按关标签处理） */

@@ -86,7 +86,7 @@ import {
   terminalRestoreLaunchQueue,
   type RestoreLaunchState,
 } from "./terminalRestoreQueue";
-import { waitForTerminalRestoreBarrier } from "@/services/terminalRestoreBarrier";
+import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRestoreBarrier";
 import { resolveTerminalRendererModeForSession } from "./terminalRenderer";
 import {
   getTerminalTheme,
@@ -1564,7 +1564,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               });
               const launchSession = async () => {
                 if (props.restoring) logRestoreEvent("init.restore-barrier.begin");
-                await waitForTerminalRestoreBarrier();
+                await waitForTerminalRestoreBarrierWithDeadline();
                 if (props.restoring) logRestoreEvent("init.restore-barrier.end");
                 if (
                   props.tabId
@@ -1963,7 +1963,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               let createdLaunchId: string | undefined;
               const launchSession = async () => {
                 logRestoreEvent("activation.restore-barrier.begin");
-                await waitForTerminalRestoreBarrier();
+                await waitForTerminalRestoreBarrierWithDeadline();
                 logRestoreEvent("activation.restore-barrier.end");
                 if (
                   props.tabId

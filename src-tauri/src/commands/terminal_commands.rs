@@ -10,9 +10,42 @@ use crate::services::{
 use crate::utils::error::AppError;
 use crate::utils::{validate_launch_cwd, validate_ssh_info, AppResult, LaunchRuntime};
 use cc_cli_adapters::{CliToolInfo, CliToolRegistry};
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tracing::{debug, warn};
+
+const TAURI_CREATE_DEADLINE: Duration = Duration::from_secs(50);
+
+fn launch_timeout_error(launch_id: Option<&str>, request: &CreateSessionRequest) -> AppError {
+    let runtime = if request.ssh.is_some() {
+        "ssh"
+    } else if request.wsl.is_some() {
+        "wsl"
+    } else {
+        "local"
+    };
+    let mut params = HashMap::from([
+        ("runtime".to_string(), runtime.to_string()),
+        ("stage".to_string(), "backend.create_session".to_string()),
+        (
+            "timeoutMs".to_string(),
+            TAURI_CREATE_DEADLINE.as_millis().to_string(),
+        ),
+    ]);
+    if let Some(launch_id) = launch_id {
+        params.insert("launchId".to_string(), launch_id.to_string());
+    }
+    AppError::coded_with_params(
+        "LAUNCH_TIMEOUT",
+        format!(
+            "Terminal launch exceeded {}ms",
+            TAURI_CREATE_DEADLINE.as_millis()
+        ),
+        params,
+    )
+}
 
 /// WSL 启动安全网：orchestrator 绑定回环且 WSL 非 mirrored 网络时，
 /// WSL 内 CLI 可能无法回连 MCP —— warn + 广播 terminal-launch-warning 供前端 toast 提示。
@@ -168,13 +201,43 @@ pub async fn create_terminal_session(
         .clone()
         .map(|launch_id| (launch_id, request.effective_cli_tool().as_id().to_string()));
     let observation_request = request.clone();
+    let launch_id_for_timeout = request.launch_id.clone();
+    let observation_request_for_timeout = request.clone();
     let recovery_handle = app_handle.clone();
     let recovery_state = (*service).clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
+    let mut create_task = tauri::async_runtime::spawn_blocking(move || {
         recovery_state.create_session_with_recovery(&recovery_handle, request)
-    })
-    .await
-    .map_err(|e| AppError::from(e.to_string()))?;
+    });
+    let result = match tokio::time::timeout(TAURI_CREATE_DEADLINE, &mut create_task).await {
+        Ok(result) => result.map_err(|e| AppError::from(e.to_string()))?,
+        Err(_) => {
+            let cancel_backend = service.backend();
+            if let Some(launch_id) = launch_id_for_timeout.clone() {
+                tauri::async_runtime::spawn_blocking(move || {
+                    let _ = cancel_backend.cancel_launch(&launch_id);
+                });
+            }
+            tauri::async_runtime::spawn(async move {
+                if let Ok(Ok(created)) = create_task.await {
+                    let reused_existing = created.reused_existing;
+                    let backend = created.backend;
+                    let session_id = created.session_id;
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        cleanup_failed_session_persistence(
+                            backend.as_ref(),
+                            &session_id,
+                            reused_existing,
+                        )
+                    })
+                    .await;
+                }
+            });
+            return Err(launch_timeout_error(
+                launch_id_for_timeout.as_deref(),
+                &observation_request_for_timeout,
+            ));
+        }
+    };
     let created = result?;
     let session_id = created.session_id;
     let backend = created.backend;
@@ -466,6 +529,18 @@ pub async fn release_terminal_session(
     tauri::async_runtime::spawn_blocking(move || backend.release_session(&session_id))
         .await
         .map_err(|e| AppError::from(e.to_string()))?
+}
+
+/// Cancel a launch that may still be inside blocking profile/config/WSL setup.
+#[tauri::command]
+pub async fn cancel_terminal_launch(
+    service: State<'_, Arc<TerminalBackendState>>,
+    launch_id: String,
+) -> AppResult<()> {
+    let backend = service.backend();
+    tauri::async_runtime::spawn_blocking(move || backend.cancel_launch(&launch_id))
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?
 }
 
 /// 提交文本到会话：先写文本，短暂等待后单独发送 Enter。

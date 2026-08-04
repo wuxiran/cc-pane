@@ -98,6 +98,8 @@
   "SETTINGS_LOAD_FAILED": "加载设置失败",
   "SETTINGS_SAVE_FAILED": "保存设置失败",
   "TERMINAL_NOT_FOUND": "终端会话不存在",
+  "LAUNCH_TIMEOUT": "终端启动超时，后台启动已取消；请稍后重试。",
+  "LAUNCH_CANCELLED": "终端在启动完成前已被取消。",
 
   "FILE_TRAVERSAL": "文件路径包含非法的 '..' 分量: {{path}}",
   "DIR_ALREADY_EXISTS": "目标目录已存在",
