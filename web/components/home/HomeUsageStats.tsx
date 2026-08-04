@@ -135,7 +135,7 @@ export default function HomeUsageStats() {
   const workspaceOptions = useMemo(() => {
     const names = new Set<string>();
     for (const workspace of workspaces) names.add(workspace.name);
-    for (const workspace of data?.workspaces ?? []) names.add(workspace);
+    if (data?.workspaces?.includes(GLOBAL_WORKSPACE)) names.add(GLOBAL_WORKSPACE);
     return [...names].sort((a, b) => {
       if (a === GLOBAL_WORKSPACE) return -1;
       if (b === GLOBAL_WORKSPACE) return 1;
@@ -180,7 +180,7 @@ export default function HomeUsageStats() {
     workspaceFilter === null
       ? t("usage.allWorkspaces")
       : workspaceFilter === GLOBAL_WORKSPACE
-        ? t("usage.unmatchedSessions")
+        ? t("usage.deletedWorkspaces")
         : workspaceFilter;
 
   return (
@@ -219,7 +219,7 @@ export default function HomeUsageStats() {
                   key={name}
                   onSelect={() => void setWorkspaceFilter(name)}
                 >
-                  {name === GLOBAL_WORKSPACE ? t("usage.unmatchedSessions") : name}
+                  {name === GLOBAL_WORKSPACE ? t("usage.deletedWorkspaces") : name}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
