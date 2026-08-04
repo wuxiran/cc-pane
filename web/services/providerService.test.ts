@@ -112,10 +112,11 @@ describe("providerService", () => {
     it("应该调用 set_default_provider 命令", async () => {
       mockTauriInvoke({ set_default_provider: undefined });
 
-      await providerService.setDefaultProvider("prov-1");
+      await providerService.setDefaultProvider("prov-1", "codex");
 
       expect(invoke).toHaveBeenCalledWith("set_default_provider", {
         id: "prov-1",
+        cliTool: "codex",
       });
     });
   });

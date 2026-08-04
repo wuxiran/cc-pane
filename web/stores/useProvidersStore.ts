@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { providerService } from "@/services/providerService";
 import * as workspaceService from "@/services/workspaceService";
-import { createSystemProvider, type Provider } from "@/types/provider";
+import { createSystemProvider, SYSTEM_PROVIDER_ID, type Provider } from "@/types/provider";
+import type { KnownCliTool } from "@/types/terminal";
 import { handleErrorSilent } from "@/utils";
 
 interface ProvidersState {
@@ -14,12 +15,14 @@ interface ProvidersState {
   systemCcSwitch: boolean;
   /** 用户已显式把「系统环境变量」设为默认凭证（后端持久化状态，非派生）。 */
   defaultIsSystem: boolean;
-  defaultProvider: () => Provider | null;
+  /** 每个 CLI 工具各自的持久化默认 Provider id。 */
+  defaultProviderIds: Partial<Record<KnownCliTool, string>>;
+  defaultProvider: (cliTool?: KnownCliTool) => Provider | null;
   loadProviders: () => Promise<void>;
   addProvider: (provider: Provider) => Promise<void>;
   updateProvider: (provider: Provider) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
-  setDefault: (id: string) => Promise<void>;
+  setDefault: (id: string, cliTool: KnownCliTool) => Promise<void>;
 }
 
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
@@ -28,12 +31,13 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
   systemEnvKeys: [],
   systemCcSwitch: false,
   defaultIsSystem: false,
+  defaultProviderIds: {},
 
-  defaultProvider: () => {
-    const { providers, systemActive, defaultIsSystem } = get();
-    // 用户显式选定「系统环境变量」优先于任何 provider 的 isDefault。
-    if (defaultIsSystem) return createSystemProvider("System", true);
-    const explicit = providers.find((p) => p.isDefault);
+  defaultProvider: (cliTool = "claude") => {
+    const { providers, systemActive, defaultProviderIds } = get();
+    const defaultId = defaultProviderIds[cliTool];
+    if (defaultId === SYSTEM_PROVIDER_ID) return createSystemProvider("System", true);
+    const explicit = providers.find((provider) => provider.id === defaultId);
     if (explicit) return explicit;
     // 用户未显式设默认时，检测到 cc-switch 则默认「系统环境变量」（不注入、跟随系统）。
     if (systemActive) return createSystemProvider("System", true);
@@ -47,6 +51,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
       let systemEnvKeys: string[] = [];
       let systemCcSwitch = false;
       let defaultIsSystem = false;
+      let defaultProviderIds: Partial<Record<KnownCliTool, string>> = {};
       try {
         const info = await providerService.detectSystemProvider?.();
         if (info) {
@@ -54,12 +59,20 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
           systemEnvKeys = info.envKeys ?? [];
           systemCcSwitch = info.ccSwitch;
           defaultIsSystem = info.defaultIsSystem;
+          defaultProviderIds = info.defaultProviderIds ?? {};
         }
       } catch (e) {
         // 探测失败按未启用处理，但不静默吞掉——否则「系统条目为何不显示」无从排查。
         handleErrorSilent(e, "detect system provider");
       }
-      set({ providers, systemActive, systemEnvKeys, systemCcSwitch, defaultIsSystem });
+      set({
+        providers,
+        systemActive,
+        systemEnvKeys,
+        systemCcSwitch,
+        defaultIsSystem,
+        defaultProviderIds,
+      });
     } catch (e) {
       handleErrorSilent(e, "load providers");
     }
@@ -92,8 +105,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     }
   },
 
-  setDefault: async (id) => {
-    await providerService.setDefaultProvider(id);
+  setDefault: async (id, cliTool) => {
+    await providerService.setDefaultProvider(id, cliTool);
     await get().loadProviders();
   },
 }));

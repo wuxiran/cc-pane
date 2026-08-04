@@ -138,6 +138,7 @@ interface TerminalViewProps {
   drivesBackendPty?: boolean;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: CreateSessionRequest["providerSelection"];
   launchProfileId?: string;
   workspacePath?: string;
@@ -1598,6 +1599,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   rows: term.rows,
                   workspaceName: props.workspaceName,
                   providerId: props.providerId,
+                  modelId: props.modelId,
                   providerSelection: props.providerSelection,
                   launchProfileId: props.launchProfileId,
                   workspacePath: props.workspacePath,
@@ -1995,6 +1997,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   rows: term.rows,
                   workspaceName: props.workspaceName,
                   providerId: props.providerId,
+                  modelId: props.modelId,
                   providerSelection: props.providerSelection,
                   launchProfileId: props.launchProfileId,
                   workspacePath: props.workspacePath,

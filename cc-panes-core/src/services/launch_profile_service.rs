@@ -1,14 +1,18 @@
 use crate::models::launch_profile::{
     LaunchProfile, LaunchProfileConfig, LaunchProfileDraft, LaunchProfileMcpMode,
     LaunchProfilePreviewRequest, LaunchProfileResolution, LaunchProfileSkillMode,
-    LaunchProviderSelection, ResolvedMcpServer, ResolvedSkill, SharedMcpUrls,
+    ResolvedMcpServer, ResolvedSkill, SharedMcpUrls,
 };
 use crate::models::provider::Provider;
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::ExternalSkillSource;
 use crate::models::Workspace;
+use crate::services::{resolve_provider_plan, validate_provider_runtime, ProviderResolutionInput};
 use crate::services::{ExternalSkillRegistry, UserSkillContent, UserSkillService};
+use crate::utils::error::AppError;
+use crate::utils::{AppResult, LaunchRuntime};
 use anyhow::{anyhow, Context, Result};
+use cc_cli_adapters::CliToolRegistry;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -169,6 +173,13 @@ impl LaunchProfileService {
             .or_else(|| Some(fallback_name.to_string()))
     }
 
+    fn normalize_model_id(provider_id: Option<&str>, model_id: Option<String>) -> Option<String> {
+        provider_id?;
+        model_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
     fn clear_overlapping_defaults(
         config: &mut LaunchProfileConfig,
         keep_id: &str,
@@ -217,6 +228,7 @@ impl LaunchProfileService {
             alias: Self::normalize_alias(draft.alias, &name),
             name,
             description: draft.description,
+            model_id: Self::normalize_model_id(draft.provider_id.as_deref(), draft.model_id),
             provider_id: draft.provider_id,
             adapter_options: draft.adapter_options,
             target_tools: Self::normalize_target_tools(draft.target_tools),
@@ -282,6 +294,7 @@ impl LaunchProfileService {
         next.alias = Self::normalize_alias(draft.alias, &name);
         next.name = name;
         next.description = draft.description;
+        next.model_id = Self::normalize_model_id(draft.provider_id.as_deref(), draft.model_id);
         next.provider_id = draft.provider_id;
         next.adapter_options = draft.adapter_options;
         next.target_tools = target_tools;
@@ -574,7 +587,7 @@ impl LaunchProfileService {
         &self,
         request: &LaunchProfilePreviewRequest,
         workspaces: &[Workspace],
-        providers: &[Provider],
+        _providers: &[Provider],
         shared_mcp: &SharedMcpConfig,
         running_mcp_urls: &SharedMcpUrls,
     ) -> LaunchProfileResolution {
@@ -631,36 +644,6 @@ impl LaunchProfileService {
             }
         }
 
-        let requested_provider_id = request
-            .provider_id
-            .as_deref()
-            .filter(|id| !id.trim().is_empty());
-        let provider_id = match request.provider_selection {
-            LaunchProviderSelection::None => None,
-            LaunchProviderSelection::Explicit => requested_provider_id,
-            LaunchProviderSelection::Inherit => {
-                if request.use_system_default {
-                    requested_provider_id
-                } else {
-                    requested_provider_id.or_else(|| {
-                        profile
-                            .as_ref()
-                            .and_then(|profile| profile.provider_id.as_deref())
-                    })
-                }
-            }
-        }
-        .map(str::to_string);
-        let provider = provider_id
-            .as_deref()
-            .and_then(|id| providers.iter().find(|provider| provider.id == id));
-        if provider_id.is_some() && provider.is_none() {
-            warnings.push(format!(
-                "Provider '{}' was not found",
-                provider_id.as_deref().unwrap_or_default()
-            ));
-        }
-
         let mcp_servers = match profile.as_ref() {
             Some(profile) => Self::resolve_mcp(profile, shared_mcp, running_mcp_urls),
             None => Self::default_mcp(shared_mcp, running_mcp_urls),
@@ -691,13 +674,76 @@ impl LaunchProfileService {
                         .unwrap_or_else(|| profile.name.clone())
                 })
             },
-            provider_id: provider.map(|provider| provider.id.clone()).or(provider_id),
-            provider_name: provider.map(|provider| provider.name.clone()),
+            // Provider precedence and validation are projected by the command through the
+            // shared provider resolver used by create_session.
+            provider_id: None,
+            provider_name: None,
+            model_id: None,
+            model_label: None,
+            model_source: None,
             mcp_servers,
             skills,
             degraded: !warnings.is_empty(),
             warnings,
         }
+    }
+
+    pub fn resolve_profile_with_provider(
+        &self,
+        request: &LaunchProfilePreviewRequest,
+        workspaces: &[Workspace],
+        providers: &[Provider],
+        default_provider_id: Option<&str>,
+        shared_mcp: &SharedMcpConfig,
+        running_mcp_urls: &SharedMcpUrls,
+        registry: &CliToolRegistry,
+    ) -> AppResult<LaunchProfileResolution> {
+        let mut resolution =
+            self.resolve_profile(request, workspaces, providers, shared_mcp, running_mcp_urls);
+        let workspace = request
+            .workspace_name
+            .as_deref()
+            .and_then(|name| workspaces.iter().find(|workspace| workspace.name == name));
+        let profile = resolution
+            .profile_id
+            .as_deref()
+            .and_then(|id| self.get_profile(id));
+        let cli_tool = preview_cli_tool(request.cli_tool.as_deref())?;
+        let provider_plan = resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool,
+                selection: request.provider_selection,
+                requested_provider_id: request.provider_id.as_deref(),
+                requested_model_id: request.model_id.as_deref(),
+                profile_provider_id: profile
+                    .as_ref()
+                    .and_then(|profile| profile.provider_id.as_deref()),
+                profile_model_id: profile
+                    .as_ref()
+                    .and_then(|profile| profile.model_id.as_deref()),
+                workspace_provider_id: workspace
+                    .and_then(|workspace| workspace.provider_id.as_deref()),
+                default_provider_id,
+                adapter_options: profile.as_ref().map(|profile| &profile.adapter_options),
+            },
+            providers,
+            registry,
+        )?;
+        if let Some(runtime) = preview_runtime(request.runtime_kind.as_deref())? {
+            validate_provider_runtime(&provider_plan, runtime, cli_tool)?;
+        }
+        resolution.provider_id = provider_plan
+            .provider
+            .as_ref()
+            .map(|provider| provider.id.clone());
+        resolution.provider_name = provider_plan
+            .provider
+            .as_ref()
+            .map(|provider| provider.name.clone());
+        resolution.model_id = provider_plan.model_id.clone();
+        resolution.model_label = provider_plan.model_label.clone();
+        resolution.model_source = Some(provider_plan.model_source.as_str().to_string());
+        Ok(resolution)
     }
 
     pub fn resolve_shared_mcp_urls_for_profile(
@@ -1196,6 +1242,47 @@ impl LaunchProfileService {
     }
 }
 
+fn preview_cli_tool(value: Option<&str>) -> AppResult<crate::models::CliTool> {
+    use crate::models::CliTool;
+
+    let cli_tool = match value.unwrap_or("none") {
+        "none" => CliTool::None,
+        "claude" => CliTool::Claude,
+        "codex" => CliTool::Codex,
+        "gemini" => CliTool::Gemini,
+        "kimi" => CliTool::Kimi,
+        "glm" => CliTool::Glm,
+        "opencode" => CliTool::Opencode,
+        "cursor" => CliTool::Cursor,
+        "grok" => CliTool::Grok,
+        other => {
+            return Err(AppError::coded_with_params(
+                "PROVIDER_UNSUPPORTED",
+                format!("Unknown CLI tool '{other}'"),
+                HashMap::from([("cliTool".to_string(), other.to_string())]),
+            ));
+        }
+    };
+    Ok(cli_tool)
+}
+
+fn preview_runtime(value: Option<&str>) -> AppResult<Option<LaunchRuntime>> {
+    let runtime = match value {
+        None => None,
+        Some("local") => Some(LaunchRuntime::Local),
+        Some("wsl") => Some(LaunchRuntime::Wsl),
+        Some("ssh") => Some(LaunchRuntime::Ssh),
+        Some(other) => {
+            return Err(AppError::coded_with_params(
+                "PROVIDER_UNSUPPORTED",
+                format!("Unknown launch runtime '{other}'"),
+                HashMap::from([("runtimeKind".to_string(), other.to_string())]),
+            ));
+        }
+    };
+    Ok(runtime)
+}
+
 struct AllowedSkillEntry {
     name: String,
     description: Option<String>,
@@ -1255,12 +1342,14 @@ mod tests {
             id: id.to_string(),
             name: id.to_string(),
             provider_type: ProviderType::Anthropic,
-            api_key: None,
+            api_key: Some("test-secret".to_string()),
             base_url: None,
             region: None,
             project_id: None,
             aws_profile: None,
             config_dir: None,
+            models: Vec::new(),
+            default_model_id: None,
             is_default: false,
         }
     }
@@ -1317,7 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_profile_prefers_explicit_provider_over_profile_provider() {
+    fn resolve_profile_defers_provider_projection_to_shared_resolver() {
         let service = test_service();
         let profile = service
             .create_profile(LaunchProfileDraft {
@@ -1325,6 +1414,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("profile-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: Vec::new(),
                 target_runtime: None,
@@ -1346,21 +1436,41 @@ mod tests {
             workspace_name: Some(workspace.name.clone()),
             project_id: None,
             provider_id: Some("explicit-provider".into()),
+            model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
-            cli_tool: None,
+            cli_tool: Some("claude".to_string()),
             runtime_kind: None,
         };
 
+        let workspaces = [workspace];
         let resolution = service.resolve_profile(
             &request,
-            &[workspace],
+            &workspaces,
             &providers,
             &SharedMcpConfig::default(),
             &HashMap::new(),
         );
 
-        assert_eq!(resolution.provider_id.as_deref(), Some("explicit-provider"));
+        assert_eq!(resolution.provider_id, None);
+        assert_eq!(resolution.provider_name, None);
         assert!(!resolution.degraded);
+
+        let projected = service
+            .resolve_profile_with_provider(
+                &request,
+                &workspaces,
+                &providers,
+                None,
+                &SharedMcpConfig::default(),
+                &HashMap::new(),
+                &CliToolRegistry::with_builtin_adapters(),
+            )
+            .unwrap();
+        assert_eq!(projected.provider_id.as_deref(), Some("explicit-provider"));
+        assert_eq!(
+            projected.provider_name.as_deref(),
+            Some("explicit-provider")
+        );
     }
 
     fn mk_profile(
@@ -1377,6 +1487,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: tools.iter().map(|tool| tool.to_string()).collect(),
                 target_runtime: runtime.map(str::to_string),
@@ -1505,6 +1616,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("profile-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: Vec::new(),
                 target_runtime: None,
@@ -1521,6 +1633,7 @@ mod tests {
             workspace_name: Some(workspace.name.clone()),
             project_id: None,
             provider_id: Some("explicit-provider".into()),
+            model_id: None,
             provider_selection: LaunchProviderSelection::None,
             cli_tool: None,
             runtime_kind: None,
@@ -1548,6 +1661,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("profile-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: Vec::new(),
                 target_runtime: None,
@@ -1565,6 +1679,7 @@ mod tests {
             workspace_name: Some(workspace.name.clone()),
             project_id: None,
             provider_id: None,
+            model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: None,
             runtime_kind: None,
@@ -1585,7 +1700,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_profile_without_matching_profile_does_not_inherit_workspace_provider() {
+    fn full_preview_inherits_workspace_provider_without_a_matching_profile() {
         let service = test_service();
         let mut workspace = Workspace::new("workspace".to_string(), Some("/tmp/workspace".into()));
         workspace.provider_id = Some("workspace-provider".into());
@@ -1595,15 +1710,18 @@ mod tests {
             workspace_name: Some(workspace.name.clone()),
             project_id: None,
             provider_id: None,
+            model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
-            cli_tool: Some("codex".into()),
+            cli_tool: Some("claude".into()),
             runtime_kind: Some("local".into()),
         };
 
+        let workspaces = [workspace];
+        let providers = [provider("workspace-provider")];
         let resolution = service.resolve_profile(
             &request,
-            &[workspace],
-            &[provider("workspace-provider")],
+            &workspaces,
+            &providers,
             &SharedMcpConfig::default(),
             &HashMap::new(),
         );
@@ -1612,6 +1730,23 @@ mod tests {
         assert_eq!(resolution.provider_id, None);
         assert_eq!(resolution.provider_name, None);
         assert!(!resolution.degraded);
+
+        let projected = service
+            .resolve_profile_with_provider(
+                &request,
+                &workspaces,
+                &providers,
+                None,
+                &SharedMcpConfig::default(),
+                &HashMap::new(),
+                &CliToolRegistry::with_builtin_adapters(),
+            )
+            .unwrap();
+        assert_eq!(projected.provider_id.as_deref(), Some("workspace-provider"));
+        assert_eq!(
+            projected.provider_name.as_deref(),
+            Some("workspace-provider")
+        );
     }
 
     #[test]
@@ -1623,6 +1758,7 @@ mod tests {
             workspace_name: None,
             project_id: None,
             provider_id: None,
+            model_id: None,
             provider_selection: LaunchProviderSelection::Inherit,
             cli_tool: Some("codex".into()),
             runtime_kind: None,
@@ -1661,6 +1797,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("claude-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
@@ -1676,6 +1813,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("codex-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
@@ -1694,6 +1832,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
                 runtime_kind: None,
@@ -1710,6 +1849,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("claude".into()),
                 runtime_kind: None,
@@ -1721,12 +1861,12 @@ mod tests {
         );
 
         assert_eq!(
-            codex_resolution.provider_id.as_deref(),
-            Some("codex-provider")
+            codex_resolution.profile_name.as_deref(),
+            Some("Codex Default")
         );
         assert_eq!(
-            claude_resolution.provider_id.as_deref(),
-            Some("claude-provider")
+            claude_resolution.profile_name.as_deref(),
+            Some("Claude Default")
         );
         assert_eq!(
             service
@@ -1747,6 +1887,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("codex-local-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
                 target_runtime: Some("local".into()),
@@ -1762,6 +1903,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("codex-wsl-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
                 target_runtime: Some("wsl".into()),
@@ -1783,6 +1925,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
                 runtime_kind: Some("local".into()),
@@ -1799,6 +1942,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
                 runtime_kind: Some("wsl".into()),
@@ -1810,16 +1954,16 @@ mod tests {
         );
 
         assert_eq!(
-            local_resolution.provider_id.as_deref(),
-            Some("codex-local-provider")
+            local_resolution.profile_name.as_deref(),
+            Some("Codex Local Default")
         );
         assert!(service
             .list_profiles()
             .iter()
             .any(|profile| profile.name == "Codex Local Default" && profile.yolo_mode));
         assert_eq!(
-            wsl_resolution.provider_id.as_deref(),
-            Some("codex-wsl-provider")
+            wsl_resolution.profile_name.as_deref(),
+            Some("Codex WSL Default")
         );
         assert_eq!(
             service
@@ -1840,6 +1984,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("claude-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
@@ -1855,6 +2000,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: Some("codex-provider".into()),
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
@@ -1873,6 +2019,7 @@ mod tests {
                 workspace_name: Some(workspace.name.clone()),
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
                 runtime_kind: None,
@@ -1883,7 +2030,7 @@ mod tests {
             &HashMap::new(),
         );
 
-        assert_eq!(resolution.provider_id.as_deref(), Some("codex-provider"));
+        assert_eq!(resolution.provider_id, None);
         assert!(resolution.degraded);
         assert!(resolution
             .warnings
@@ -1900,6 +2047,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
@@ -1925,6 +2073,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
                 runtime_kind: None,
@@ -1955,6 +2104,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
@@ -1976,6 +2126,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
                 runtime_kind: None,
@@ -2011,6 +2162,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
@@ -2038,6 +2190,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
                 runtime_kind: None,
@@ -2089,6 +2242,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["codex".into()],
                 target_runtime: None,
@@ -2110,6 +2264,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("codex".into()),
                 runtime_kind: None,
@@ -2149,6 +2304,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
@@ -2169,6 +2325,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("claude".into()),
                 runtime_kind: None,
@@ -2201,6 +2358,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
@@ -2222,6 +2380,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("claude".into()),
                 runtime_kind: None,
@@ -2258,6 +2417,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
                 target_runtime: None,
@@ -2278,6 +2438,7 @@ mod tests {
                 workspace_name: None,
                 project_id: None,
                 provider_id: None,
+                model_id: None,
                 provider_selection: LaunchProviderSelection::Inherit,
                 cli_tool: Some("claude".into()),
                 runtime_kind: None,
@@ -2317,6 +2478,7 @@ mod tests {
                 alias: None,
                 description: None,
                 provider_id: None,
+                model_id: None,
                 adapter_options: Default::default(),
                 target_tools: vec!["claude".into()],
                 target_runtime: None,

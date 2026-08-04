@@ -496,6 +496,8 @@ async fn provider_routes_match_core_service_operations() {
         project_id: None,
         aws_profile: None,
         config_dir: None,
+        models: Vec::new(),
+        default_model_id: None,
         is_default: true,
     };
 

@@ -33,7 +33,7 @@ impl GeminiAdapter {
                 supports_workspace: false,
                 supports_project_hooks: false,
                 supports_issued_session_id: false,
-                compatible_provider_types: vec!["gemini".into(), "config_profile".into()],
+                compatible_provider_types: vec!["gemini".into()],
             },
         }
     }
@@ -61,6 +61,8 @@ impl CliToolAdapter for GeminiAdapter {
         );
 
         let mut args = Vec::new();
+
+        crate::push_model_arg(&mut args, ctx);
 
         // [PROMPT] positional argument
         if let Some(ref prompt) = ctx.initial_prompt {

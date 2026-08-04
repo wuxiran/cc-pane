@@ -15,15 +15,16 @@ import ProviderFormPanel from "./ProviderFormPanel";
 import ProviderToolTabs from "./ProviderToolTabs";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 import type { Provider, ProviderPreset } from "@/types/provider";
-import {
-  getCompatibleCliTools,
-  CLI_TOOL_TABS,
-  createSystemProvider,
-} from "@/types/provider";
+import { CLI_TOOL_TABS, createSystemProvider, SYSTEM_PROVIDER_ID } from "@/types/provider";
+import { useCliTools } from "@/hooks/useCliTools";
 import type { KnownCliTool, Tab } from "@/types/terminal";
 import type { LaunchProfileRuntime, Workspace } from "@/types";
 import { PROVIDER_PRESETS, PRESET_CATEGORIES } from "@/constants/providerPresets";
 import { coerceCliTool, getWorkspaceDefaultEnvironment } from "@/utils";
+import {
+  compatibleCliToolsForProviderType,
+  isProviderTypeCompatibleWithCli,
+} from "@/utils/providerCompatibility";
 
 type PanelView = "list" | "preset_pick" | "form";
 type TopView = "providers" | "profiles";
@@ -44,9 +45,10 @@ function inferLaunchRuntime(tab: Tab | null, workspace?: Workspace | null): Laun
 export default function ProvidersPanel({ compact }: Props = {}) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
+  const { tools: cliTools } = useCliTools();
   const systemEnvKeys = useProvidersStore((s) => s.systemEnvKeys);
   const systemCcSwitch = useProvidersStore((s) => s.systemCcSwitch);
-  const defaultIsSystem = useProvidersStore((s) => s.defaultIsSystem);
+  const defaultProviderIds = useProvidersStore((s) => s.defaultProviderIds);
   const activePane = usePanesStore((s) => s.activePane());
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace());
   const defaultCliTool = useSettingsStore((s) => s.settings?.general.defaultCliTool);
@@ -80,7 +82,11 @@ export default function ProvidersPanel({ compact }: Props = {}) {
       counts[tab.id] = 0;
     }
     for (const p of providers) {
-      const tools = getCompatibleCliTools(p.providerType);
+      const tools = compatibleCliToolsForProviderType(
+        p.providerType,
+        cliTools,
+        CLI_TOOL_TABS.map((tab) => tab.id),
+      );
       for (const tool of tools) {
         if (counts[tool] !== undefined) {
           counts[tool]++;
@@ -88,20 +94,23 @@ export default function ProvidersPanel({ compact }: Props = {}) {
       }
     }
     return counts;
-  }, [providers]);
+  }, [cliTools, providers]);
 
   // Filter providers for current tab
   const filteredProviders = useMemo(() =>
-    providers.filter((p) => getCompatibleCliTools(p.providerType).includes(activeTab)),
-    [providers, activeTab],
+    providers.filter((p) => isProviderTypeCompatibleWithCli(p.providerType, activeTab, cliTools)),
+    [providers, activeTab, cliTools],
   );
 
   // 合成「系统环境变量」条目：置顶、跨所有 CLI Tab 可用（选它 = 不注入、跟随系统/cc-switch）。
   // 「是否默认」不再 render 现算，直接读后端持久化的 defaultIsSystem——旧派生式判定
   // 只要存在任一默认 provider 就被打掉，但系统卡仍置顶，造成「它是默认」的误读。
   const systemProvider = useMemo(
-    () => createSystemProvider(t("systemProviderName"), defaultIsSystem),
-    [t, defaultIsSystem],
+    () => createSystemProvider(
+      t("systemProviderName"),
+      defaultProviderIds[activeTab] === SYSTEM_PROVIDER_ID,
+    ),
+    [activeTab, defaultProviderIds, t],
   );
   // 宿主进程级探测（cc-switch / 宿主 ANTHROPIC_*）只代表本机，WSL/SSH 下不适用。
   const systemProbe = useMemo<SystemProbeInfo>(() => {
@@ -114,8 +123,14 @@ export default function ProvidersPanel({ compact }: Props = {}) {
     };
   }, [systemEnvKeys, systemCcSwitch, launchDefaults.runtime]);
   const displayProviders = useMemo(
-    () => [systemProvider, ...filteredProviders],
-    [systemProvider, filteredProviders],
+    () => [
+      systemProvider,
+      ...filteredProviders.map((provider) => ({
+        ...provider,
+        isDefault: defaultProviderIds[activeTab] === provider.id,
+      })),
+    ],
+    [activeTab, defaultProviderIds, systemProvider, filteredProviders],
   );
 
   // Filter presets for current tab
@@ -126,9 +141,9 @@ export default function ProvidersPanel({ compact }: Props = {}) {
         return preset.compatibleCliTools.includes(activeTab);
       }
       // Otherwise derive from providerType
-      return getCompatibleCliTools(preset.providerType).includes(activeTab);
+      return isProviderTypeCompatibleWithCli(preset.providerType, activeTab, cliTools);
     }),
-    [activeTab],
+    [activeTab, cliTools],
   );
 
   const handleEdit = useCallback((p: Provider) => {
@@ -148,12 +163,12 @@ export default function ProvidersPanel({ compact }: Props = {}) {
 
   const handleSetDefault = useCallback(async (id: string) => {
     try {
-      await setDefault(id);
+      await setDefault(id, activeTab);
       toast.success(t("setAsDefault"));
     } catch (e) {
       toast.error(t("setDefaultFailed", { error: String(e) }));
     }
-  }, [setDefault, t]);
+  }, [activeTab, setDefault, t]);
 
   const handleDuplicate = useCallback((p: Provider) => {
     const duplicated: Provider = {

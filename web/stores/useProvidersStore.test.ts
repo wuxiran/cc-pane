@@ -29,6 +29,9 @@ describe("useProvidersStore", () => {
     resetTestDataCounter();
     useProvidersStore.setState({
       providers: [],
+      systemActive: false,
+      defaultIsSystem: false,
+      defaultProviderIds: {},
     });
   });
 
@@ -40,10 +43,13 @@ describe("useProvidersStore", () => {
   });
 
   describe("defaultProvider", () => {
-    it("有 isDefault 的 provider 应返回它", () => {
+    it("应返回当前 CLI 对应的默认 provider", () => {
       const p1 = createTestProvider({ isDefault: false });
       const p2 = createTestProvider({ isDefault: true });
-      useProvidersStore.setState({ providers: [p1, p2] });
+      useProvidersStore.setState({
+        providers: [p1, p2],
+        defaultProviderIds: { claude: p2.id },
+      });
 
       const defaultP = useProvidersStore.getState().defaultProvider();
       expect(defaultP).not.toBeNull();
@@ -160,9 +166,9 @@ describe("useProvidersStore", () => {
       vi.mocked(providerService.setDefaultProvider).mockResolvedValue();
       vi.mocked(providerService.listProviders).mockResolvedValue([provider]);
 
-      await useProvidersStore.getState().setDefault(provider.id);
+      await useProvidersStore.getState().setDefault(provider.id, "codex");
 
-      expect(providerService.setDefaultProvider).toHaveBeenCalledWith(provider.id);
+      expect(providerService.setDefaultProvider).toHaveBeenCalledWith(provider.id, "codex");
       expect(providerService.listProviders).toHaveBeenCalled();
       expect(useProvidersStore.getState().providers).toEqual([provider]);
     });

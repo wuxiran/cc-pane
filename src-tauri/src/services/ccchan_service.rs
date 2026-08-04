@@ -4,10 +4,10 @@
 
 use crate::models::settings::CCChanSettings;
 use crate::models::{CliTool, LaunchProviderSelection};
-use crate::services::{ProviderService, SettingsService, TerminalService};
+use crate::services::{SettingsService, TerminalService};
 use crate::utils::{AppError, AppPaths, AppResult};
 use cc_cli_adapters::{
-    no_window_command, ClaudeAdapter, CliAdapterContext, CliProvider, CliToolAdapter, CodexAdapter,
+    no_window_command, ClaudeAdapter, CliAdapterContext, CliToolAdapter, CodexAdapter,
 };
 use cc_panes_core::events::SessionNotifier;
 use cc_panes_core::services::terminal_service::KillReason;
@@ -41,13 +41,11 @@ enum ChatSessionState {
         session_id: String,
         chat_dir: PathBuf,
         claude_session_id: Option<String>,
-        provider_id: Option<String>,
     },
     CodexStructured {
         session_id: String,
         chat_dir: PathBuf,
         codex_thread_id: Option<String>,
-        provider_id: Option<String>,
     },
 }
 
@@ -166,21 +164,15 @@ pub enum CCChanWindowMode {
 
 pub struct CCChanService {
     settings_service: Arc<SettingsService>,
-    provider_service: Arc<ProviderService>,
     app_paths: Arc<AppPaths>,
     app_handle: Mutex<Option<AppHandle>>,
     chat_session: Mutex<Option<ChatSessionState>>,
 }
 
 impl CCChanService {
-    pub fn new(
-        settings_service: Arc<SettingsService>,
-        provider_service: Arc<ProviderService>,
-        app_paths: Arc<AppPaths>,
-    ) -> Self {
+    pub fn new(settings_service: Arc<SettingsService>, app_paths: Arc<AppPaths>) -> Self {
         Self {
             settings_service,
-            provider_service,
             app_paths,
             app_handle: Mutex::new(None),
             chat_session: Mutex::new(None),
@@ -359,23 +351,15 @@ impl CCChanService {
         }
 
         let chat_dir_str = chat_dir.to_string_lossy().to_string();
-        let default_provider_id = self
-            .provider_service
-            .get_default_provider()
-            .map(|provider| provider.id);
-        let provider_selection = if default_provider_id.is_some() {
-            LaunchProviderSelection::Explicit
-        } else {
-            LaunchProviderSelection::None
-        };
         let session_id = terminal_service.create_session(
             None,
             &chat_dir_str,
             120,
             32,
             None,
-            default_provider_id.as_deref(),
-            provider_selection,
+            None,
+            None,
+            LaunchProviderSelection::None,
             None,
             None,
             None,
@@ -394,7 +378,7 @@ impl CCChanService {
             session_id = %session_id,
             ai_engine = %ai_engine,
             cli_tool = ?cli_tool,
-            provider_id = default_provider_id.as_deref().unwrap_or("none"),
+            provider_id = "none",
             "ccchan chat session created"
         );
 
@@ -432,13 +416,11 @@ impl CCChanService {
                 session_id: stored_id,
                 chat_dir,
                 claude_session_id,
-                provider_id,
             }) if stored_id == session_id => {
                 let next_claude_session_id = self.run_structured_claude_turn(
                     session_id,
                     &chat_dir,
                     claude_session_id.as_deref(),
-                    provider_id.as_deref(),
                     text,
                 )?;
                 if let Some(next_id) = next_claude_session_id {
@@ -450,13 +432,11 @@ impl CCChanService {
                 session_id: stored_id,
                 chat_dir,
                 codex_thread_id,
-                provider_id,
             }) if stored_id == session_id => {
                 let next_codex_thread_id = self.run_structured_codex_turn(
                     session_id,
                     &chat_dir,
                     codex_thread_id.as_deref(),
-                    provider_id.as_deref(),
                     text,
                 )?;
                 if let Some(next_id) = next_codex_thread_id {
@@ -546,18 +526,8 @@ impl CCChanService {
 
     fn start_structured_claude_chat(&self, chat_dir: PathBuf) -> AppResult<String> {
         let session_id = format!("ccchan-claude-{}", Uuid::new_v4());
-        let provider_id = self
-            .provider_service
-            .get_default_provider()
-            .map(|provider| provider.id);
 
-        self.build_structured_claude_command(
-            &session_id,
-            &chat_dir,
-            None,
-            provider_id.as_deref(),
-            None,
-        )?;
+        self.build_structured_claude_command(&session_id, &chat_dir, None, None)?;
 
         let mut stored = self
             .chat_session
@@ -567,11 +537,10 @@ impl CCChanService {
             session_id: session_id.clone(),
             chat_dir,
             claude_session_id: None,
-            provider_id: provider_id.clone(),
         });
         info!(
             session_id = %session_id,
-            provider_id = provider_id.as_deref().unwrap_or("none"),
+            provider_id = "none",
             "ccchan structured Claude chat session created"
         );
         self.emit_chat_status(&session_id, "ready", None);
@@ -580,18 +549,8 @@ impl CCChanService {
 
     fn start_structured_codex_chat(&self, chat_dir: PathBuf) -> AppResult<String> {
         let session_id = format!("ccchan-codex-{}", Uuid::new_v4());
-        let provider_id = self
-            .provider_service
-            .get_default_provider()
-            .map(|provider| provider.id);
 
-        self.build_structured_codex_command(
-            &session_id,
-            &chat_dir,
-            None,
-            provider_id.as_deref(),
-            None,
-        )?;
+        self.build_structured_codex_command(&session_id, &chat_dir, None, None)?;
 
         let mut stored = self
             .chat_session
@@ -601,11 +560,10 @@ impl CCChanService {
             session_id: session_id.clone(),
             chat_dir,
             codex_thread_id: None,
-            provider_id: provider_id.clone(),
         });
         info!(
             session_id = %session_id,
-            provider_id = provider_id.as_deref().unwrap_or("none"),
+            provider_id = "none",
             "ccchan structured Codex chat session created"
         );
         self.emit_chat_status(&session_id, "ready", None);
@@ -617,17 +575,11 @@ impl CCChanService {
         session_id: &str,
         chat_dir: &Path,
         resume_id: Option<&str>,
-        provider_id: Option<&str>,
         text: &str,
     ) -> AppResult<Option<String>> {
         self.emit_chat_status(session_id, "starting", None);
-        let spec = self.build_structured_claude_command(
-            session_id,
-            chat_dir,
-            resume_id,
-            provider_id,
-            Some(text),
-        )?;
+        let spec =
+            self.build_structured_claude_command(session_id, chat_dir, resume_id, Some(text))?;
         let mut command = no_window_command(&spec.command);
         command
             .args(&spec.args)
@@ -639,7 +591,7 @@ impl CCChanService {
         for key in &spec.env_remove {
             command.env_remove(key);
         }
-        for (key, value) in self.structured_claude_env_vars(session_id, provider_id) {
+        for (key, value) in self.structured_claude_env_vars(session_id) {
             command.env(key, value);
         }
 
@@ -720,17 +672,11 @@ impl CCChanService {
         session_id: &str,
         chat_dir: &Path,
         resume_id: Option<&str>,
-        provider_id: Option<&str>,
         text: &str,
     ) -> AppResult<Option<String>> {
         self.emit_chat_status(session_id, "starting", None);
-        let spec = self.build_structured_codex_command(
-            session_id,
-            chat_dir,
-            resume_id,
-            provider_id,
-            Some(text),
-        )?;
+        let spec =
+            self.build_structured_codex_command(session_id, chat_dir, resume_id, Some(text))?;
         let mut command = no_window_command(&spec.command);
         command
             .args(&spec.args)
@@ -742,7 +688,7 @@ impl CCChanService {
         for key in &spec.env_remove {
             command.env_remove(key);
         }
-        for (key, value) in self.structured_codex_env_vars(session_id, provider_id) {
+        for (key, value) in self.structured_codex_env_vars(session_id) {
             command.env(key, value);
         }
         for (key, value) in spec.env_inject {
@@ -824,18 +770,14 @@ impl CCChanService {
         session_id: &str,
         chat_dir: &Path,
         resume_id: Option<&str>,
-        provider_id: Option<&str>,
         prompt: Option<&str>,
     ) -> AppResult<ClaudeCommandSpec> {
-        let provider = provider_id
-            .and_then(|id| self.provider_service.get_provider(id))
-            .map(to_cli_provider);
         let adapter = ClaudeAdapter::new();
         let ctx = CliAdapterContext {
             session_id: session_id.to_string(),
             project_path: chat_dir.to_string_lossy().to_string(),
             workspace_path: None,
-            provider,
+            provider: None,
             // 结构化模式不走 CLI 启动器覆盖：包装器（如 reclaude）转发含换行的
             // argv 时会吞掉后续参数——ccchan 每轮必带多行 --append-system-prompt，
             // 位置 prompt 被吞后 claude -p 直接报 "Input must be provided..."。
@@ -878,18 +820,14 @@ impl CCChanService {
         session_id: &str,
         chat_dir: &Path,
         resume_id: Option<&str>,
-        provider_id: Option<&str>,
         prompt: Option<&str>,
     ) -> AppResult<CodexCommandSpec> {
-        let provider = provider_id
-            .and_then(|id| self.provider_service.get_provider(id))
-            .map(to_cli_provider);
         let adapter = CodexAdapter::new();
         let ctx = CliAdapterContext {
             session_id: session_id.to_string(),
             project_path: chat_dir.to_string_lossy().to_string(),
             workspace_path: None,
-            provider,
+            provider: None,
             // 同 Claude 侧：结构化 exec 调用不走启动器覆盖（包装器换行 argv 吞参问题）
             executable_override: None,
             adapter_options: Default::default(),
@@ -926,15 +864,8 @@ impl CCChanService {
         })
     }
 
-    fn structured_claude_env_vars(
-        &self,
-        session_id: &str,
-        provider_id: Option<&str>,
-    ) -> HashMap<String, String> {
+    fn structured_claude_env_vars(&self, session_id: &str) -> HashMap<String, String> {
         let mut env_vars = self.settings_service.get_proxy_env_vars();
-        if let Some(provider_id) = provider_id {
-            env_vars.extend(self.provider_service.get_env_vars(Some(provider_id)));
-        }
         env_vars
             .entry("TERM".to_string())
             .or_insert_with(|| "xterm-256color".to_string());
@@ -950,15 +881,8 @@ impl CCChanService {
         env_vars
     }
 
-    fn structured_codex_env_vars(
-        &self,
-        session_id: &str,
-        provider_id: Option<&str>,
-    ) -> HashMap<String, String> {
+    fn structured_codex_env_vars(&self, session_id: &str) -> HashMap<String, String> {
         let mut env_vars = self.settings_service.get_proxy_env_vars();
-        if let Some(provider_id) = provider_id {
-            env_vars.extend(self.provider_service.get_env_vars(Some(provider_id)));
-        }
         env_vars
             .entry("TERM".to_string())
             .or_insert_with(|| "xterm-256color".to_string());
@@ -1854,24 +1778,6 @@ fn first_non_empty<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Opt
         .map(str::trim)
         .find(|value| !value.is_empty())
         .map(str::to_string)
-}
-
-fn to_cli_provider(provider: crate::models::provider::Provider) -> CliProvider {
-    CliProvider {
-        id: provider.id,
-        name: provider.name,
-        provider_type: serde_json::to_value(provider.provider_type)
-            .ok()
-            .and_then(|value| value.as_str().map(str::to_string))
-            .unwrap_or_else(|| "unknown".to_string()),
-        api_key: provider.api_key,
-        base_url: provider.base_url,
-        region: provider.region,
-        project_id: provider.project_id,
-        aws_profile: provider.aws_profile,
-        config_dir: provider.config_dir,
-        is_default: provider.is_default,
-    }
 }
 
 #[cfg(test)]

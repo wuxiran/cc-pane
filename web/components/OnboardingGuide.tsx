@@ -382,6 +382,7 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
       project: target.project,
       cliTool: cliPair[0],
       providerId: target.workspace.providerId,
+      providerSelection: "inherit",
       machines,
     });
     const second = resolveWorkspaceProjectLaunchOptions({
@@ -389,6 +390,7 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
       project: target.project,
       cliTool: cliPair[1],
       providerId: target.workspace.providerId,
+      providerSelection: "inherit",
       machines,
     });
     if (!first.options || !second.options) {

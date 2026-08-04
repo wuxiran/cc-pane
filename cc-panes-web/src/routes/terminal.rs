@@ -76,6 +76,7 @@ pub struct PartialCreateSessionRequest {
     pub rows: Option<u16>,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    pub model_id: Option<String>,
     #[serde(default)]
     pub provider_selection: LaunchProviderSelection,
     pub launch_profile_id: Option<String>,
@@ -162,6 +163,7 @@ pub async fn create_session(
         rows: req.core.rows.unwrap_or(30),
         workspace_name: req.core.workspace_name,
         provider_id: req.core.provider_id,
+        model_id: req.core.model_id,
         provider_selection: req.core.provider_selection,
         launch_profile_id: req.core.launch_profile_id,
         workspace_path: req.core.workspace_path,

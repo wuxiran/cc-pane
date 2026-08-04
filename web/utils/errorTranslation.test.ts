@@ -7,7 +7,7 @@ vi.mock("@/i18n", () => ({
   },
 }));
 
-import { getErrorCode } from "./errorTranslation";
+import { getErrorCode, toTerminalLaunchError } from "./errorTranslation";
 
 describe("getErrorCode", () => {
   it("从 BackendError 对象提取 code（Tauri 通道）", () => {
@@ -36,5 +36,15 @@ describe("getErrorCode", () => {
     expect(getErrorCode("Cannot delete read-only path")).toBe(null);
     expect(getErrorCode({ message: "plain failure" })).toBe(null);
     expect(getErrorCode(undefined)).toBe(null);
+  });
+
+  it("从 REST Error message 中保留结构化 launch timeout", () => {
+    expect(toTerminalLaunchError(new Error(
+      '{"code":"LAUNCH_TIMEOUT","message":"timed out","params":{"stage":"pty"}}',
+    ))).toEqual({
+      code: "LAUNCH_TIMEOUT",
+      message: "timed out",
+      params: { stage: "pty" },
+    });
   });
 });

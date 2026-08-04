@@ -85,7 +85,7 @@ impl CodexAdapter {
                 supports_workspace: true,
                 supports_project_hooks: true,
                 supports_issued_session_id: false,
-                compatible_provider_types: vec!["open_ai".into(), "config_profile".into()],
+                compatible_provider_types: vec!["open_ai".into()],
             },
         }
     }
@@ -1356,6 +1356,8 @@ impl CliToolAdapter for CodexAdapter {
         let mut args = Vec::new();
         let mut env_inject = HashMap::new();
 
+        crate::push_model_arg(&mut args, ctx);
+
         // 不隔离 CODEX_HOME：Codex 直接使用真实 ~/.codex（与 Claude 一致），
         // 这样 `codex resume <id>` 能命中真实 sessions、ccswitch 换 provider 后历史不丢。
         // MCP 隔离改由 per-launch `-c` override 完成（见下），无需复制/sanitize home。
@@ -1573,6 +1575,28 @@ mod tests {
             .windows(2)
             .any(|pair| pair[0] == "resume" && pair[1] == "thread-123"));
         assert_eq!(result.args.last().map(String::as_str), Some("hello"));
+    }
+
+    #[test]
+    fn build_command_injects_model_before_resume_subcommand() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex-next/bin/codex"));
+        ctx.adapter_options
+            .insert("__ccpanesModelId".to_string(), serde_json::json!("gpt-5.4"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        let model_pos = result
+            .args
+            .windows(2)
+            .position(|pair| pair[0] == "--model" && pair[1] == "gpt-5.4")
+            .expect("model argument present");
+        let resume_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "resume")
+            .expect("resume subcommand present");
+        assert!(model_pos < resume_pos);
     }
 
     #[test]

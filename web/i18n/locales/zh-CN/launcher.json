@@ -46,12 +46,13 @@
   "initialPromptPlaceholder": "启动后自动发送的首条 Prompt（仅首启生效）…",
   "providerMode": "Provider 模式",
   "providerSelection": {
-    "inherit": "跟随绑定",
-    "explicit": "指定 Provider",
-    "none": "不使用 Provider"
+    "inherit": "跟随运行配置 / 默认 Provider",
+    "explicit": "使用 CC-Panes Provider",
+    "none": "使用 CLI 自带配置"
   },
   "provider": "Provider",
   "providerPlaceholder": "选择 Provider…",
+  "providerNoneCompatible": "请先去 Provider 管理添加兼容项",
   "launchProfile": "启动配置",
   "launchProfileInherit": "跟随绑定 / 默认",
   "targetLayout": "目标布局",
@@ -61,6 +62,7 @@
   "openLauncher": "打开启动器",
   "customLaunch": "自定义启动…",
   "errorNoProject": "请先选择项目或目录",
+  "errorProviderRequired": "使用 CC-Panes Provider 时必须先选择 Provider",
   "errorResolveFailed": "启动配置解析失败（{{code}}），请检查工作空间环境设置",
   "scenario": {
     "default": "默认",

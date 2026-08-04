@@ -22,6 +22,7 @@ mod process_monitor_service;
 mod project_cli_hooks_service;
 mod project_context_service;
 mod project_service;
+mod provider_resolver;
 mod provider_service;
 mod quick_command_service;
 pub mod resume_identity;
@@ -76,6 +77,10 @@ pub use process_monitor_service::ProcessMonitorService;
 pub use project_cli_hooks_service::{ProjectCliHookGroupStatus, ProjectCliHooksService};
 pub use project_context_service::ProjectContextService;
 pub use project_service::ProjectService;
+pub use provider_resolver::{
+    managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
+    ProviderMode, ProviderResolutionInput, ProviderSource, ResolvedProviderPlan,
+};
 pub use provider_service::ProviderService;
 pub use quick_command_service::QuickCommandService;
 pub use resume_identity::{should_replace_source, should_retain_incoming, source_priority};

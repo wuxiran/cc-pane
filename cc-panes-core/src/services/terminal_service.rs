@@ -7,8 +7,9 @@ use crate::models::{
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{
-    LaunchProfileService, ProjectCliHooksService, ProviderService, SettingsService, SpecService,
-    SshCredentialService, WorkspaceService,
+    managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
+    LaunchProfileService, ProjectCliHooksService, ProviderMode, ProviderResolutionInput,
+    ProviderService, SettingsService, SpecService, SshCredentialService, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
@@ -1333,6 +1334,7 @@ impl TerminalService {
         rows: u16,
         workspace_name: Option<&str>,
         provider_id: Option<&str>,
+        model_id: Option<&str>,
         provider_selection: LaunchProviderSelection,
         launch_profile_id: Option<&str>,
         workspace_path: Option<&str>,
@@ -1390,9 +1392,21 @@ impl TerminalService {
                 )
             })
             .unwrap_or((None, None));
+        log_launch_stage(
+            launch_id,
+            None,
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.profile.resolved",
+            "ok",
+        );
         let profile_provider_id = resolved_profile
             .as_ref()
             .and_then(|profile| profile.provider_id.as_deref());
+        let profile_model_id = resolved_profile
+            .as_ref()
+            .and_then(|profile| profile.model_id.as_deref());
         // adapter_options 合并：profile 打底，request 覆盖同名键（per-launch 覆盖）
         let mut adapter_options = resolved_profile
             .as_ref()
@@ -1403,26 +1417,75 @@ impl TerminalService {
                 adapter_options.insert(key.clone(), value.clone());
             }
         }
-        let use_native_kimi_config = cli_tool == CliTool::Kimi
-            && adapter_options
-                .get("kimiConfigMode")
-                .and_then(serde_json::Value::as_str)
-                == Some("native");
-        let requested_provider_id = provider_id.filter(|id| !id.trim().is_empty());
-        let effective_provider_id = if use_native_kimi_config {
-            None
+        let workspace_provider_id = resolved_workspace
+            .as_ref()
+            .and_then(|workspace| workspace.provider_id.as_deref());
+        let default_provider_id = self
+            .provider_service
+            .get_default_provider_id(cli_tool.as_id());
+        let providers = self.provider_service.list_providers();
+        let provider_plan = resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool,
+                selection: provider_selection,
+                requested_provider_id: provider_id,
+                requested_model_id: model_id,
+                profile_provider_id,
+                profile_model_id,
+                workspace_provider_id,
+                default_provider_id: default_provider_id.as_deref(),
+                adapter_options: Some(&adapter_options),
+            },
+            &providers,
+            &self.cli_registry,
+        )
+        .map_err(anyhow::Error::new)?;
+        provider_plan.apply_model_adapter_defaults(&mut adapter_options);
+        if let Some(model_id) = provider_plan.model_id.as_ref() {
+            adapter_options.insert(
+                "__ccpanesModelId".to_string(),
+                serde_json::Value::String(model_id.clone()),
+            );
         } else {
-            match provider_selection {
-                LaunchProviderSelection::None => None,
-                LaunchProviderSelection::Explicit => requested_provider_id,
-                LaunchProviderSelection::Inherit => requested_provider_id.or(profile_provider_id),
-            }
-        };
+            adapter_options.remove("__ccpanesModelId");
+        }
+        validate_provider_runtime(&provider_plan, runtime, cli_tool).map_err(anyhow::Error::new)?;
+        info!(
+            cli_tool = cli_tool.as_id(),
+            runtime = runtime_kind,
+            mode = ?provider_plan.mode,
+            source = ?provider_plan.source,
+            provider_id = provider_plan
+                .provider
+                .as_ref()
+                .map(|provider| provider.id.as_str())
+                .unwrap_or("<native>"),
+            "resolved launch provider"
+        );
         let mut env_vars = self.settings_service.get_proxy_env_vars();
-        let provider_vars = self.provider_service.get_env_vars(effective_provider_id);
-        let provider = effective_provider_id
-            .and_then(|id| self.provider_service.get_provider(id))
-            .map(to_cli_provider);
+        let provider_vars = provider_plan
+            .provider
+            .as_ref()
+            .map(|provider| self.provider_service.get_env_vars_for_provider(provider))
+            .unwrap_or_default();
+        let provider = provider_plan.provider.clone().map(to_cli_provider);
+        let provider_conflict_env_remove = if provider_plan.mode == ProviderMode::Managed {
+            managed_provider_conflict_env_keys(cli_tool)
+                .iter()
+                .map(|key| (*key).to_string())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        log_launch_stage(
+            launch_id,
+            None,
+            cli_tool,
+            runtime_kind,
+            launch_trace_started_at,
+            "launch.provider.resolved",
+            "ok",
+        );
         let effective_skip_mcp =
             LaunchProfileService::should_skip_mcp_for_profile(resolved_profile.as_ref(), skip_mcp);
         if !is_ssh && !effective_skip_mcp && matches!(cli_tool, CliTool::Claude | CliTool::Codex) {
@@ -1519,10 +1582,6 @@ impl TerminalService {
             append_system_prompt.map(str::to_string),
             profile_skill_prompt.clone(),
         ]);
-        let pure_wsl_codex_launch = wsl.is_some() && cli_tool == CliTool::Codex;
-        if !pure_wsl_codex_launch {
-            env_vars.extend(provider_vars.clone());
-        }
         if let Some(extra_env) = extra_env {
             for (key, value) in extra_env {
                 if Self::is_valid_env_key(key) {
@@ -1532,6 +1591,9 @@ impl TerminalService {
                 }
             }
         }
+        // Managed Provider is authoritative for this launch. Native has an empty map,
+        // so inherited shell/CLI configuration remains untouched.
+        env_vars.extend(provider_vars.clone());
         let emitter = self.emitter.read().clone().ok_or_else(|| {
             anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)")
         })?;
@@ -1872,6 +1934,7 @@ impl TerminalService {
                     &session_id,
                     &env_vars,
                     &provider_vars,
+                    provider.as_ref(),
                     resume_id,
                     issued_session_id.as_deref(),
                     launch_append_system_prompt.as_deref(),
@@ -1886,6 +1949,7 @@ impl TerminalService {
                     &session_id,
                     &env_vars,
                     &provider_vars,
+                    provider.as_ref(),
                     resume_id,
                     issued_session_id.as_deref(),
                     launch_append_system_prompt.as_deref(),

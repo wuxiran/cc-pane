@@ -650,6 +650,27 @@ where
 }
 
 fn daemon_http_error(status: u16, body: &str) -> AppError {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
+        let code = value.get("code").and_then(serde_json::Value::as_str);
+        let message = value.get("message").and_then(serde_json::Value::as_str);
+        if let (Some(code), Some(message)) = (code, message) {
+            let params = value
+                .get("params")
+                .and_then(serde_json::Value::as_object)
+                .map(|params| {
+                    params
+                        .iter()
+                        .filter_map(|(key, value)| {
+                            value.as_str().map(|value| (key.clone(), value.to_string()))
+                        })
+                        .collect::<std::collections::HashMap<_, _>>()
+                });
+            return match params {
+                Some(params) => AppError::coded_with_params(code, message, params),
+                None => AppError::coded(code, message),
+            };
+        }
+    }
     AppError::from(format!("daemon request failed with HTTP {status}: {body}"))
 }
 
@@ -764,6 +785,7 @@ mod tests {
             rows: 40,
             workspace_name: None,
             provider_id: None,
+            model_id: None,
             provider_selection: Default::default(),
             launch_profile_id: None,
             workspace_path: None,

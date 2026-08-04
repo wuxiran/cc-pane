@@ -145,6 +145,17 @@ describe("SettingsPanel", () => {
     expect(await screen.findByTestId("shared-mcp-section")).toBeInTheDocument();
   });
 
+  it("lets full-height settings panes constrain their internal scroll areas", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("provider") }));
+
+    const providerSection = await screen.findByTestId("provider-section");
+    const paneRoot = providerSection.closest('[data-settings-section="provider-root"]');
+    expect(paneRoot).toHaveClass("h-full", "min-h-0");
+  });
+
   it("opens the registry-backed module settings pane", async () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);

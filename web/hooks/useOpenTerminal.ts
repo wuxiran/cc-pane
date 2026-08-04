@@ -32,7 +32,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
   // 打开终端
   const handleOpenTerminal = useCallback(
     (opts: OpenTerminalOptions) => {
-      const { path, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, resumeId, ssh, wsl, machineName } = opts;
+      const { path, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, resumeId, ssh, wsl, machineName } = opts;
       const pathError = classifyTerminalLaunchPath(opts);
       if (pathError) {
         toast.error(translateError(pathError));
@@ -58,7 +58,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
           workspaceName,
         )?.id;
       }
-      openProject({ projectId, launchId, projectPath: path, resumeId, workspaceName, providerId, providerSelection, launchProfileId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName, workspaceSnapshotId, targetLayoutId, launchExtras: buildLaunchExtras(opts) });
+      openProject({ projectId, launchId, projectPath: path, resumeId, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, cliTool: effectiveCliTool, ssh, wsl, machineName, workspaceSnapshotId, targetLayoutId, launchExtras: buildLaunchExtras(opts) });
       const name = path.split(/[/\\]/).pop() || path;
 
       // SSH 项目：launchCwd 用 display path
@@ -115,6 +115,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
         path: pendingLaunch.path,
         workspaceName: pendingLaunch.workspaceName,
         providerId: pendingLaunch.providerId,
+        modelId: pendingLaunch.modelId,
         providerSelection: pendingLaunch.providerSelection,
         launchProfileId: pendingLaunch.launchProfileId,
         workspacePath: pendingLaunch.workspacePath,

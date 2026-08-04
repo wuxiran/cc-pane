@@ -69,6 +69,7 @@ function buildLaunch(target: ConciergeTarget, cliTool: CliTool): OpenTerminalOpt
     workspace: target.workspace,
     cliTool,
     providerId: target.workspace.providerId,
+    providerSelection: "inherit" as const,
     machines,
   };
   const result = target.project

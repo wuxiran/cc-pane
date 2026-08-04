@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { QuickCommand, Tab } from "@/types";
 import {
+  buildQuickCommandTerminalTab,
   executeQuickCommand,
   getQuickCommandSessionId,
   type QuickCommandExecutionAdapter,
@@ -114,6 +115,20 @@ describe("quickCommandExecution", () => {
       "cargo test",
       { source: "system" },
     );
+  });
+
+  it("terminal 新 tab 强制 Native，不复制来源 tab 的显式 Provider", () => {
+    const tab = {
+      ...splitTab(),
+      providerId: "provider-1",
+      providerSelection: "explicit" as const,
+    };
+
+    expect(buildQuickCommandTerminalTab(command(), tab)).toMatchObject({
+      cliTool: "none",
+      providerId: undefined,
+      providerSelection: "none",
+    });
   });
 
   it("同 session 连投严格串行", async () => {

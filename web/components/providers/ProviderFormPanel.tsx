@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { ArrowLeft, ExternalLink, FolderOpen, FileText, Settings } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, ExternalLink, FolderOpen, FileText, Settings } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,13 +15,15 @@ import { isJsonFile } from "@/utils/json";
 import ProviderAvatar from "./ProviderAvatar";
 import {
   PROVIDER_TYPE_META,
-  getProviderTypesForTab,
   type Provider,
+  type ProviderModel,
   type ProviderType,
   type ProviderPreset,
   type ConfigDirInfo,
 } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
+import ProviderTypeOptions from "./ProviderTypeOptions";
+import ProviderModelsEditor from "./ProviderModelsEditor";
 
 const JsonEditor = lazy(() => import("@/components/editor/JsonEditor"));
 
@@ -34,6 +36,8 @@ interface FormState {
   projectId: string;
   awsProfile: string;
   configDir: string;
+  models: ProviderModel[];
+  defaultModelIndex: number | null;
 }
 
 const emptyForm: FormState = {
@@ -45,6 +49,8 @@ const emptyForm: FormState = {
   projectId: "",
   awsProfile: "",
   configDir: "",
+  models: [],
+  defaultModelIndex: null,
 };
 
 /** 根据 Provider 类型，从表单字段构建 {"env": {...}} JSON 字符串 */
@@ -94,7 +100,10 @@ function buildConfigJson(form: FormState): string {
       break;
     case "grok":
       if (form.apiKey) env["XAI_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["XAI_BASE_URL"] = form.baseUrl;
+      if (form.baseUrl) {
+        env["GROK_MODELS_BASE_URL"] = form.baseUrl;
+        env["GROK_CLI_CHAT_PROXY_BASE_URL"] = form.baseUrl;
+      }
       break;
     default:
       break;
@@ -129,7 +138,10 @@ function parseConfigJson(jsonStr: string, providerType: ProviderType): Partial<F
       case "cursor":
         return { apiKey: env["CURSOR_API_KEY"] || "" };
       case "grok":
-        return { apiKey: env["XAI_API_KEY"] || "", baseUrl: env["XAI_BASE_URL"] || "" };
+        return {
+          apiKey: env["XAI_API_KEY"] || "",
+          baseUrl: env["GROK_MODELS_BASE_URL"] || env["GROK_CLI_CHAT_PROXY_BASE_URL"] || "",
+        };
       default:
         return null;
     }
@@ -179,6 +191,12 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
         projectId: editProvider.projectId || "",
         awsProfile: editProvider.awsProfile || "",
         configDir: editProvider.configDir || "",
+        models: (editProvider.models ?? []).map((model) => ({ ...model })),
+        defaultModelIndex: (editProvider.models ?? []).findIndex(
+          (model) => model.id === editProvider.defaultModelId,
+        ) >= 0
+          ? (editProvider.models ?? []).findIndex((model) => model.id === editProvider.defaultModelId)
+          : (editProvider.models?.length ? 0 : null),
       };
     }
     if (preset) {
@@ -208,6 +226,7 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
   const [configJson, setConfigJson] = useState(() =>
     form.providerType !== "config_profile" ? buildConfigJson(form) : "",
   );
+  const [showSensitiveJson, setShowSensitiveJson] = useState(false);
   const isUpdatingRef = useRef(false);
 
   // 表单字段 → JSON 同步
@@ -282,6 +301,16 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
 
   async function handleSave() {
     if (!form.name.trim()) { toast.error(t("nameRequired")); return; }
+    const models = form.models.map((model) => ({
+      id: model.id.trim(),
+      label: model.label?.trim() || null,
+      defaultEffort: model.defaultEffort ?? null,
+    }));
+    if (models.some((model) => !model.id)) { toast.error(t("providerModelIdRequired")); return; }
+    if (new Set(models.map((model) => model.id)).size !== models.length) {
+      toast.error(t("providerModelIdsUnique"));
+      return;
+    }
     try {
       // 如果 config_profile 且 JSON 文件有修改，先写回文件
       if (isConfigJsonFile && configFileIsDirty) {
@@ -300,6 +329,10 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
         projectId: form.projectId || null,
         awsProfile: form.awsProfile || null,
         configDir: form.configDir || null,
+        models,
+        defaultModelId: form.defaultModelIndex === null
+          ? null
+          : models[form.defaultModelIndex]?.id ?? models[0]?.id ?? null,
         isDefault: false,
       };
       if (editProvider) {
@@ -436,9 +469,7 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
                   className="h-10 px-3 rounded-md text-sm outline-none"
                   style={{ border: "1px solid var(--app-border)", background: "var(--app-content)", color: "var(--app-text-primary)" }}
                 >
-                  {(activeTab ? getProviderTypesForTab(activeTab) : (Object.keys(PROVIDER_TYPE_META) as ProviderType[])).map((key) => (
-                    <option key={key} value={key}>{t(PROVIDER_TYPE_META[key].labelKey)}</option>
-                  ))}
+                  <ProviderTypeOptions activeTab={activeTab} />
                 </select>
               </div>
             )}
@@ -572,54 +603,83 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
                 {/* config_profile JSON 编辑器 */}
                 {isConfigJsonFile && configFileContent !== "" && (
                   <div className="flex flex-col gap-1.5 mt-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
                       <Label className="text-xs font-medium">{t("jsonConfigFileContent")}</Label>
-                      {configFileIsDirty && (
-                        <Badge variant="outline" className="text-[9px] px-1.5 py-0">
-                          {t("unsavedJsonChanges")}
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {configFileIsDirty && (
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+                            {t("unsavedJsonChanges")}
+                          </Badge>
+                        )}
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-[11px] hover:underline"
+                          style={{ color: "var(--app-text-link, var(--app-accent))" }}
+                          onClick={() => setShowSensitiveJson((current) => !current)}
+                        >
+                          {showSensitiveJson ? <EyeOff size={11} /> : <Eye size={11} />}
+                          {showSensitiveJson ? t("hideSensitiveJson") : t("showSensitiveJson")}
+                        </button>
+                      </div>
                     </div>
-                    <Suspense fallback={<div className="h-48 rounded-md border animate-pulse" style={{ background: "var(--app-content)" }} />}>
-                      <JsonEditor
-                        value={configFileContent}
-                        onChange={setConfigFileContent}
-                        rows={16}
-                      />
-                    </Suspense>
+                    {showSensitiveJson && (
+                      <Suspense fallback={<div className="h-48 rounded-md border animate-pulse" style={{ background: "var(--app-content)" }} />}>
+                        <JsonEditor
+                          value={configFileContent}
+                          onChange={setConfigFileContent}
+                          rows={16}
+                        />
+                      </Suspense>
+                    )}
                   </div>
                 )}
               </div>
             )}
+
+            <ProviderModelsEditor
+              models={form.models}
+              defaultIndex={form.defaultModelIndex}
+              onChange={(models, defaultModelIndex) => updateForm({ models, defaultModelIndex })}
+            />
 
             {/* 非 config_profile 类型的配置 JSON 编辑器 */}
             {form.providerType !== "config_profile" && (
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-medium">{t("jsonConfig")}</Label>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-[11px] hover:underline"
-                    style={{ color: "var(--app-text-link, var(--app-accent))" }}
-                    onClick={() => {
-                      providerService.openPathInExplorer(
-                        // 打开全局 settings.json（~/.claude/settings.json）
-                        ""
-                      ).catch(() => {});
-                    }}
-                    title={t("editGlobalConfig")}
-                  >
-                    <Settings size={11} />
-                    {t("editGlobalConfig")}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-[11px] hover:underline"
+                      style={{ color: "var(--app-text-link, var(--app-accent))" }}
+                      onClick={() => setShowSensitiveJson((current) => !current)}
+                    >
+                      {showSensitiveJson ? <EyeOff size={11} /> : <Eye size={11} />}
+                      {showSensitiveJson ? t("hideSensitiveJson") : t("showSensitiveJson")}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-[11px] hover:underline"
+                      style={{ color: "var(--app-text-link, var(--app-accent))" }}
+                      onClick={() => {
+                        providerService.openPathInExplorer("").catch(() => {});
+                      }}
+                      title={t("editGlobalConfig")}
+                    >
+                      <Settings size={11} />
+                      {t("editGlobalConfig")}
+                    </button>
+                  </div>
                 </div>
-                <Suspense fallback={<div className="h-36 rounded-md border animate-pulse" style={{ background: "var(--app-content)" }} />}>
-                  <JsonEditor
-                    value={configJson}
-                    onChange={handleConfigJsonChange}
-                    rows={8}
-                  />
-                </Suspense>
+                {showSensitiveJson && (
+                  <Suspense fallback={<div className="h-36 rounded-md border animate-pulse" style={{ background: "var(--app-content)" }} />}>
+                    <JsonEditor
+                      value={configJson}
+                      onChange={handleConfigJsonChange}
+                      rows={8}
+                    />
+                  </Suspense>
+                )}
               </div>
             )}
           </div>

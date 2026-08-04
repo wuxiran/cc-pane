@@ -122,6 +122,35 @@ describe("buildPendingLaunch", () => {
     expect(result.launch?.providerSelection).toBe("explicit");
     expect(result.launch?.providerId).toBe("prov-7");
   });
+
+  it("explicit 未选择 provider 时拒绝构建启动请求", () => {
+    const draft = createDefaultDraft({
+      source: { kind: "workspace", workspaceId: "ws-1", projectId: "proj-1" },
+      providerSelection: "explicit",
+      providerId: undefined,
+    });
+    const result = buildPendingLaunch(draft, { workspaces: [workspace], machines: [] });
+    expect(result.launch).toBeNull();
+    expect(result.issue).toEqual({ code: "provider_required" });
+  });
+
+  it("plain shell 会丢弃隐藏的 explicit Provider 状态", () => {
+    const draft = createDefaultDraft({
+      source: { kind: "manual", path: "D:/scratch" },
+      cliTool: "none",
+      providerSelection: "explicit",
+      providerId: "provider-1",
+    });
+
+    const result = buildPendingLaunch(draft, { workspaces: [], machines: [] });
+
+    expect(result.issue).toBeNull();
+    expect(result.launch).toMatchObject({
+      cliTool: "none",
+      providerId: "",
+      providerSelection: "none",
+    });
+  });
 });
 
 describe("applyScenario", () => {
