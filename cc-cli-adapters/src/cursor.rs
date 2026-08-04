@@ -56,6 +56,7 @@ impl CliToolAdapter for CursorAdapter {
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
         let mut args = Vec::new();
+        crate::push_model_arg(&mut args, ctx);
         if let Some(resume_id) = ctx.resume_id.as_ref() {
             args.push("--resume".to_string());
             args.push(resume_id.clone());

@@ -38,7 +38,21 @@ vi.mock("./ProviderFormPanel", () => ({
 // 底层 invoke 未按命令 mock 时 listCliTools 会 resolve undefined，桩掉 hook
 vi.mock("@/hooks/useCliTools", () => ({
   useCliTools: () => ({
-    tools: [],
+    tools: [
+      {
+        id: "claude",
+        installed: true,
+        capabilities: {
+          supportsProvider: true,
+          compatibleProviderTypes: ["anthropic", "bedrock", "vertex", "proxy", "config_profile"],
+        },
+      },
+      {
+        id: "codex",
+        installed: true,
+        capabilities: { supportsProvider: true, compatibleProviderTypes: ["open_ai"] },
+      },
+    ],
     loading: false,
     refresh: vi.fn(),
     getToolById: () => ({ installed: true }),
@@ -72,6 +86,7 @@ function makeProvider(overrides: Partial<Provider> = {}): Provider {
 }
 
 function setupStores(providers: Provider[] = []) {
+  const claudeDefault = providers.find((provider) => provider.isDefault)?.id;
   const actions = {
     loadProviders: vi.fn().mockResolvedValue(undefined),
     removeProvider: vi.fn().mockResolvedValue(undefined),
@@ -83,6 +98,7 @@ function setupStores(providers: Provider[] = []) {
     systemEnvKeys: [],
     systemCcSwitch: false,
     defaultIsSystem: false,
+    defaultProviderIds: claudeDefault ? { claude: claudeDefault } : {},
     ...actions,
   });
   usePanesStore.setState({ activePane: () => null } as never);
@@ -145,6 +161,37 @@ describe("ProvidersPanel", () => {
     expect(screen.queryByText("Claude API")).not.toBeInTheDocument();
   });
 
+  it("shows an independent persisted default for each CLI tab", async () => {
+    const user = userEvent.setup();
+    setupStores([
+      makeProvider({ id: "claude-default", name: "Claude Default" }),
+      makeProvider({
+        id: "codex-default",
+        name: "Codex Default",
+        providerType: "open_ai",
+      }),
+    ]);
+    useProvidersStore.setState({
+      defaultProviderIds: {
+        claude: "claude-default",
+        codex: "codex-default",
+      },
+    });
+    render(<ProvidersPanel />);
+    await switchToProvidersList(user);
+
+    expect(screen.getByText("Claude Default").closest(".group")).toHaveTextContent(
+      i18n.t("settings:defaultBadge"),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: new RegExp(i18n.t("settings:tabCodex")) }),
+    );
+    expect(screen.getByText("Codex Default").closest(".group")).toHaveTextContent(
+      i18n.t("settings:defaultBadge"),
+    );
+  });
+
   it("deletes a provider from its card", async () => {
     const user = userEvent.setup();
     const actions = setupStores([makeProvider()]);
@@ -170,7 +217,7 @@ describe("ProvidersPanel", () => {
     });
     await user.click(setDefaultButtons[1]);
     await waitFor(() => {
-      expect(actions.setDefault).toHaveBeenCalledWith("p-1");
+      expect(actions.setDefault).toHaveBeenCalledWith("p-1", "claude");
     });
   });
 
@@ -184,7 +231,7 @@ describe("ProvidersPanel", () => {
       screen.getAllByRole("button", { name: i18n.t("settings:setAsDefaultBtn") })[0]
     );
     await waitFor(() => {
-      expect(actions.setDefault).toHaveBeenCalledWith("__system__");
+      expect(actions.setDefault).toHaveBeenCalledWith("__system__", "claude");
     });
   });
 
@@ -192,12 +239,12 @@ describe("ProvidersPanel", () => {
     const user = userEvent.setup();
     setupStores([makeProvider({ isDefault: true })]);
     // 后端持久化标记为准：即便存在一个 isDefault 的 provider 也不影响该标记的读取
-    useProvidersStore.setState({ defaultIsSystem: true });
+    useProvidersStore.setState({ defaultProviderIds: { claude: "__system__" } });
     render(<ProvidersPanel />);
     await switchToProvidersList(user);
 
-    // 系统卡与该 provider 卡都呈现「默认」状态标识（互斥性由后端保证，前端只如实渲染）
-    expect(screen.getAllByText(i18n.t("settings:defaultBadge"))).toHaveLength(2);
+    // 当前标签只认 scoped 映射，旧的 provider.isDefault 不得制造第二个默认标识。
+    expect(screen.getAllByText(i18n.t("settings:defaultBadge"))).toHaveLength(1);
   });
 
   it("opens the form pre-filled with a copy when duplicating", async () => {

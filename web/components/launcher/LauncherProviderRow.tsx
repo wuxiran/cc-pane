@@ -3,7 +3,9 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useLaunchProfilesStore, useProvidersStore } from "@/stores";
+import { useCliTools } from "@/hooks/useCliTools";
 import type { LaunchProviderSelection } from "@/types";
+import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
 import type { LauncherDraft } from "./launcherModel";
 
 const SELECTIONS: LaunchProviderSelection[] = ["inherit", "explicit", "none"];
@@ -19,6 +21,7 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
   const loadProviders = useProvidersStore((s) => s.loadProviders);
   const profiles = useLaunchProfilesStore((s) => s.profiles);
   const loadProfiles = useLaunchProfilesStore((s) => s.load);
+  const { tools } = useCliTools();
 
   useEffect(() => {
     if (providers.length === 0) loadProviders().catch(() => undefined);
@@ -34,10 +37,23 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
       || draft.cliTool === "none"
       || profile.targetTools.includes(draft.cliTool),
   );
+  const compatibleProviders = providers.filter((provider) =>
+    isProviderTypeCompatibleWithCli(provider.providerType, draft.cliTool, tools));
+
+  useEffect(() => {
+    if (
+      draft.providerSelection === "explicit"
+      && draft.providerId
+      && tools.length > 0
+      && !compatibleProviders.some((provider) => provider.id === draft.providerId)
+    ) {
+      onChange({ providerId: undefined });
+    }
+  }, [compatibleProviders, draft.providerId, draft.providerSelection, onChange, tools.length]);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <select
+      {draft.cliTool !== "none" && <select
         className="h-8 rounded-md border bg-background px-2 text-xs"
         value={draft.providerSelection}
         onChange={(event) => {
@@ -54,9 +70,9 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
             {t(`providerSelection.${selection}`)}
           </option>
         ))}
-      </select>
+      </select>}
 
-      {draft.providerSelection === "explicit" && (
+      {draft.cliTool !== "none" && draft.providerSelection === "explicit" && (
         <select
           className="h-8 min-w-[140px] rounded-md border bg-background px-2 text-xs"
           value={draft.providerId ?? ""}
@@ -64,13 +80,21 @@ export default function LauncherProviderRow({ draft, onChange }: LauncherProvide
           aria-label={t("provider")}
         >
           <option value="">{t("providerPlaceholder")}</option>
-          {providers.map((provider) => (
+          {compatibleProviders.map((provider) => (
             <option key={provider.id} value={provider.id}>
-              {provider.name}
+              {provider.name} ({provider.providerType})
             </option>
           ))}
         </select>
       )}
+
+      {draft.cliTool !== "none"
+        && draft.providerSelection === "explicit"
+        && compatibleProviders.length === 0 && (
+          <span className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("providerNoneCompatible")}
+          </span>
+        )}
 
       <select
         className="h-8 min-w-[140px] rounded-md border bg-background px-2 text-xs"

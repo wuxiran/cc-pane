@@ -29,6 +29,16 @@ pub enum ProviderType {
     Grok,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModel {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<String>,
+}
+
 /// Provider 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +58,10 @@ pub struct Provider {
     pub aws_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_dir: Option<String>,
+    #[serde(default)]
+    pub models: Vec<ProviderModel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model_id: Option<String>,
     #[serde(default)]
     pub is_default: bool,
 }
@@ -147,11 +161,9 @@ impl Provider {
                 if let Some(ref key) = self.api_key {
                     vars.insert("XAI_API_KEY".to_string(), key.clone());
                 }
-                // XAI_BASE_URL 为前瞻性注入：Grok CLI 官方确认的 base_url 生效路径是
-                // ~/.grok/config.toml 的 per-model 配置，CC-Panes 不代写（写错会破坏
-                // 用户模型配置）；若 CLI 未来识别该环境变量则自动生效。
                 if let Some(ref url) = self.base_url {
-                    vars.insert("XAI_BASE_URL".to_string(), url.clone());
+                    vars.insert("GROK_MODELS_BASE_URL".to_string(), url.clone());
+                    vars.insert("GROK_CLI_CHAT_PROXY_BASE_URL".to_string(), url.clone());
                 }
             }
         }
@@ -165,6 +177,17 @@ impl Provider {
 pub struct ProviderConfig {
     #[serde(default)]
     pub providers: Vec<Provider>,
+    /// 每个 CLI 工具各自的默认 Provider id。
+    ///
+    /// 值也可以是 `SYSTEM_PROVIDER_ID`，表示该 CLI 跟随自身/系统配置，不注入托管凭证。
+    #[serde(default)]
+    pub default_provider_ids: HashMap<String, String>,
+    /// 默认 Provider 映射的数据语义版本。
+    ///
+    /// v1 及更早版本会把一个 Provider 扇出为所有 CLI 的默认值；v2 起只为
+    /// Provider 的原生 CLI 自动建立默认值，跨 CLI 默认必须由用户显式选择。
+    #[serde(default)]
+    pub default_provider_ids_version: u8,
     /// 「系统环境变量」（`SYSTEM_PROVIDER_ID`）被显式设为默认。
     ///
     /// 该伪条目不落入 `providers`，故无法用 `is_default` 表达；用这个独立标记持久化。
@@ -188,11 +211,50 @@ pub struct SystemProviderInfo {
     pub env_keys: Vec<String>,
     /// 用户已把「系统环境变量」设为默认凭证（持久化状态）。
     pub default_is_system: bool,
+    /// 每个 CLI 工具对应的持久化默认 Provider id。
+    #[serde(default)]
+    pub default_provider_ids: HashMap<String, String>,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ProviderType;
+    use super::{Provider, ProviderType};
+    use serde_json::json;
+
+    #[test]
+    fn provider_models_round_trip_and_preserve_default() {
+        let input = json!({
+            "id": "provider-1",
+            "name": "Provider 1",
+            "providerType": "open_ai",
+            "models": [
+                { "id": "gpt-5.4", "label": "GPT 5.4", "defaultEffort": "high" },
+                { "id": "gpt-5.4-mini", "label": "GPT 5.4 Mini" }
+            ],
+            "defaultModelId": "gpt-5.4-mini",
+            "isDefault": false
+        });
+        let provider: Provider = serde_json::from_value(input.clone())
+            .expect("provider model catalog should deserialize");
+
+        let value = serde_json::to_value(provider).expect("provider should serialize");
+
+        assert_eq!(value, input);
+    }
+
+    #[test]
+    fn legacy_provider_without_model_fields_uses_empty_catalog() {
+        let provider: Provider = serde_json::from_value(json!({
+            "id": "legacy-provider",
+            "name": "Legacy Provider",
+            "providerType": "anthropic",
+            "isDefault": false
+        }))
+        .expect("legacy provider should deserialize");
+
+        assert!(provider.models.is_empty());
+        assert!(provider.default_model_id.is_none());
+    }
 
     #[test]
     fn open_ai_uses_canonical_name_and_accepts_legacy_name() {

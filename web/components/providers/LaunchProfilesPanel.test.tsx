@@ -79,6 +79,11 @@ function renderKimiPanel(onSave: (draft: LaunchProfileDraft) => void) {
     providerType: "kimi",
     apiKey: "test-key",
     baseUrl: "https://api.moonshot.cn/v1",
+    models: [
+      { id: "kimi-k2.5", label: "Kimi K2.5" },
+      { id: "kimi-k2-thinking", label: "Kimi K2 Thinking" },
+    ],
+    defaultModelId: "kimi-k2.5",
     isDefault: false,
   };
 
@@ -100,6 +105,40 @@ function renderKimiPanel(onSave: (draft: LaunchProfileDraft) => void) {
   });
 
   render(<LaunchProfilesPanel initialTool="kimi" />);
+}
+
+function renderCodexPanel(onSave: (draft: LaunchProfileDraft) => void) {
+  const codexProvider: Provider = {
+    id: "codex-provider",
+    name: "Codex API",
+    providerType: "open_ai",
+    apiKey: "test-key",
+    baseUrl: "https://api.openai.com/v1",
+    models: [
+      { id: "gpt-5.4", label: "GPT 5.4", defaultEffort: "high" },
+    ],
+    defaultModelId: "gpt-5.4",
+    isDefault: false,
+  };
+
+  mockTauriInvoke({
+    list_launch_profiles: [],
+    list_providers: [codexProvider],
+    list_workspaces: [],
+    get_shared_mcp_status: [],
+    list_skill_market_entries: [],
+    list_user_skills: [],
+    list_external_skills: [],
+    list_cli_tools: [],
+    preview_launch_profile_resolution: emptyResolution,
+    create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
+      const draft = args?.draft as LaunchProfileDraft;
+      onSave(draft);
+      return savedProfileFromDraft(draft);
+    },
+  });
+
+  render(<LaunchProfilesPanel initialTool="codex" />);
 }
 
 describe("LaunchProfilesPanel external skills", () => {
@@ -169,7 +208,7 @@ describe("LaunchProfilesPanel external skills", () => {
     });
   });
 
-  it("saves native Kimi config mode and blocks explicit Provider selection", async () => {
+  it("saves a Kimi Provider through the unified profile field", async () => {
     const user = userEvent.setup();
     let savedDraft: LaunchProfileDraft | null = null;
     renderKimiPanel((draft) => {
@@ -179,15 +218,42 @@ describe("LaunchProfilesPanel external skills", () => {
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
 
     const providerSelect = screen.getByLabelText("Provider") as HTMLSelectElement;
-    expect(providerSelect.disabled).toBe(true);
-    expect(screen.getByText(new RegExp(tp("kimiManagedHint").split("；")[0]))).toBeTruthy();
+    expect(providerSelect.disabled).toBe(false);
 
-    await user.selectOptions(screen.getByLabelText(tp("fieldKimiConfigSource")), "native");
+    await user.selectOptions(providerSelect, "kimi-provider");
+    const modelSelect = screen.getByLabelText(tp("fieldModel")) as HTMLSelectElement;
+    await user.selectOptions(modelSelect, "kimi-k2-thinking");
     await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
 
     await waitFor(() => {
-      expect(savedDraft?.providerId).toBeNull();
-      expect(savedDraft?.adapterOptions?.kimiConfigMode).toBe("native");
+      expect(savedDraft?.providerId).toBe("kimi-provider");
+      expect(savedDraft?.modelId).toBe("kimi-k2-thinking");
+      expect(savedDraft?.adapterOptions?.kimiConfigMode).toBeUndefined();
+    });
+  });
+
+  it("inherits the model effort by default and saves a profile override", async () => {
+    const user = userEvent.setup();
+    let savedDraft: LaunchProfileDraft | null = null;
+    renderCodexPanel((draft) => {
+      savedDraft = draft;
+    });
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
+    await user.selectOptions(screen.getByLabelText("Provider"), "codex-provider");
+
+    const effortSelect = screen.getByLabelText(tp("fieldReasoningEffort")) as HTMLSelectElement;
+    expect(effortSelect).toHaveValue("");
+    expect(within(effortSelect).getByRole("option", {
+      name: tp("useModelDefaultEffort", { effort: tp("reasoningEffortLevel.high") }),
+    })).toBeInTheDocument();
+
+    await user.selectOptions(effortSelect, "xhigh");
+    await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
+
+    await waitFor(() => {
+      expect(savedDraft?.providerId).toBe("codex-provider");
+      expect(savedDraft?.adapterOptions?.effort).toBe("xhigh");
     });
   });
 });

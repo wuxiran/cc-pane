@@ -17,10 +17,56 @@ const mockInvoke = invoke as ReturnType<typeof vi.fn>;
 function setup(providers: Provider[]) {
   mockTauriInvoke({
     list_providers: providers,
-    list_cli_tools: [],
+    list_cli_tools: [
+      {
+        id: "claude",
+        displayName: "Claude Code",
+        executable: "claude",
+        versionArgs: [],
+        installed: true,
+        version: null,
+        path: null,
+        capabilities: {
+          supportsProvider: true,
+          supportsResume: true,
+          supportsMcp: true,
+          supportsSystemPrompt: true,
+          supportsWorkspace: true,
+          supportsProjectHooks: true,
+          compatibleProviderTypes: ["anthropic"],
+        },
+      },
+      {
+        id: "codex",
+        displayName: "Codex",
+        executable: "codex",
+        versionArgs: [],
+        installed: true,
+        version: null,
+        path: null,
+        capabilities: {
+          supportsProvider: true,
+          supportsResume: true,
+          supportsMcp: true,
+          supportsSystemPrompt: true,
+          supportsWorkspace: true,
+          supportsProjectHooks: true,
+          compatibleProviderTypes: ["open_ai"],
+        },
+      },
+    ],
     list_workspaces: [],
     remove_provider: undefined,
     set_default_provider: undefined,
+    detect_system_provider: {
+      active: false,
+      ccSwitch: false,
+      envKeys: [],
+      defaultIsSystem: providers.some((provider) => provider.isDefault),
+      defaultProviderIds: providers.find((provider) => provider.isDefault)
+        ? { claude: providers.find((provider) => provider.isDefault)!.id }
+        : {},
+    },
   });
 }
 
@@ -28,7 +74,7 @@ describe("ProvidersView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetTestDataCounter();
-    useProvidersStore.setState({ providers: [] });
+    useProvidersStore.setState({ providers: [], defaultProviderIds: {} });
   });
 
   it("renders the Providers header and CLI tool tabs", async () => {
@@ -91,7 +137,10 @@ describe("ProvidersView", () => {
     fireEvent.click(screen.getByTitle(/Set as default|设为默认/i));
 
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith("set_default_provider", { id: provider.id }),
+      expect(mockInvoke).toHaveBeenCalledWith("set_default_provider", {
+        id: provider.id,
+        cliTool: "claude",
+      }),
     );
   });
 

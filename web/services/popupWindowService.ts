@@ -13,6 +13,7 @@ export interface PopupTabData {
   title: string;
   workspaceName?: string;
   providerId?: string;
+  modelId?: string;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
   workspacePath?: string;

@@ -1498,7 +1498,6 @@ pub fn run() {
     let notification_service = Arc::new(NotificationService::new());
     let ccchan_service = Arc::new(CCChanService::new(
         settings_service.clone(),
-        provider_service.clone(),
         app_paths.clone(),
     ));
     let mcp_config_service = Arc::new(McpConfigService::new());

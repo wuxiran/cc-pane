@@ -103,6 +103,9 @@ impl std::error::Error for AppError {}
 
 impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
+        if let Some(app_error) = err.downcast_ref::<Self>() {
+            return app_error.clone();
+        }
         Self::message_error(None, err.to_string(), None)
     }
 }

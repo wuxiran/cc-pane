@@ -6,9 +6,14 @@ import { Badge } from "@/components/ui/badge";
 import { useProvidersStore } from "@/stores";
 import { ProviderAvatar } from "@/components/providers";
 import ProviderToolTabs from "@/components/providers/ProviderToolTabs";
-import { getCompatibleCliTools, CLI_TOOL_TABS } from "@/types/provider";
+import { CLI_TOOL_TABS } from "@/types/provider";
 import type { Provider } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
+import { useCliTools } from "@/hooks/useCliTools";
+import {
+  compatibleCliToolsForProviderType,
+  isProviderTypeCompatibleWithCli,
+} from "@/utils/providerCompatibility";
 
 export default function ProvidersView() {
   const { t } = useTranslation(["settings", "sidebar"]);
@@ -16,6 +21,8 @@ export default function ProvidersView() {
   const loadProviders = useProvidersStore((s) => s.loadProviders);
   const removeProvider = useProvidersStore((s) => s.removeProvider);
   const setDefault = useProvidersStore((s) => s.setDefault);
+  const defaultProviderIds = useProvidersStore((s) => s.defaultProviderIds);
+  const { tools: cliTools } = useCliTools();
 
   const [activeTab, setActiveTab] = useState<KnownCliTool>("claude");
 
@@ -25,16 +32,20 @@ export default function ProvidersView() {
     const counts: Record<string, number> = {};
     for (const tab of CLI_TOOL_TABS) { counts[tab.id] = 0; }
     for (const p of providers) {
-      for (const tool of getCompatibleCliTools(p.providerType)) {
+      for (const tool of compatibleCliToolsForProviderType(
+        p.providerType,
+        cliTools,
+        CLI_TOOL_TABS.map((tab) => tab.id),
+      )) {
         if (counts[tool] !== undefined) counts[tool]++;
       }
     }
     return counts;
-  }, [providers]);
+  }, [cliTools, providers]);
 
   const filteredProviders = useMemo(() =>
-    providers.filter((p) => getCompatibleCliTools(p.providerType).includes(activeTab)),
-    [providers, activeTab],
+    providers.filter((p) => isProviderTypeCompatibleWithCli(p.providerType, activeTab, cliTools)),
+    [providers, activeTab, cliTools],
   );
 
   const handleDelete = useCallback(async (id: string) => {
@@ -48,12 +59,12 @@ export default function ProvidersView() {
 
   const handleSetDefault = useCallback(async (id: string) => {
     try {
-      await setDefault(id);
+      await setDefault(id, activeTab);
       toast.success(t("setAsDefault"));
     } catch (e) {
       toast.error(String(e));
     }
-  }, [setDefault, t]);
+  }, [activeTab, setDefault, t]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -86,6 +97,7 @@ export default function ProvidersView() {
               <ProviderListItem
                 key={p.id}
                 provider={p}
+                isDefault={defaultProviderIds[activeTab] === p.id}
                 onDelete={handleDelete}
                 onSetDefault={handleSetDefault}
               />
@@ -97,8 +109,9 @@ export default function ProvidersView() {
   );
 }
 
-function ProviderListItem({ provider, onDelete, onSetDefault }: {
+function ProviderListItem({ provider, isDefault, onDelete, onSetDefault }: {
   provider: Provider;
+  isDefault: boolean;
   onDelete: (id: string) => void;
   onSetDefault: (id: string) => void;
 }) {
@@ -114,7 +127,7 @@ function ProviderListItem({ provider, onDelete, onSetDefault }: {
           <span className="text-xs font-medium truncate" style={{ color: "var(--app-text-primary)" }}>
             {provider.name}
           </span>
-          {provider.isDefault && (
+          {isDefault && (
             <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
               {t("defaultBadge")}
             </Badge>
@@ -122,7 +135,7 @@ function ProviderListItem({ provider, onDelete, onSetDefault }: {
         </div>
       </div>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        {!provider.isDefault && (
+        {!isDefault && (
           <button
             className="p-1 rounded hover:bg-[var(--app-hover)]"
             style={{ color: "var(--app-text-tertiary)" }}

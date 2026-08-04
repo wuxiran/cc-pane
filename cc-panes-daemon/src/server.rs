@@ -17,6 +17,7 @@ use cc_panes_core::models::{
 };
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
 use cc_panes_core::services::{SessionStatusInfo, TerminalAdoptionSnapshot, TerminalBackend};
+use cc_panes_core::utils::error::AppError;
 use cc_panes_core::utils::project_paths_equivalent;
 use cc_panes_core::utils::{atomic_file, normalize_session_request_for_current_host};
 use futures_util::{SinkExt, StreamExt};
@@ -407,6 +408,7 @@ pub struct PartialCreateSessionRequest {
     pub rows: Option<u16>,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    pub model_id: Option<String>,
     #[serde(default)]
     pub provider_selection: LaunchProviderSelection,
     pub launch_profile_id: Option<String>,
@@ -751,6 +753,7 @@ async fn create_session(
         rows: req.core.rows.unwrap_or(30),
         workspace_name: req.core.workspace_name,
         provider_id: req.core.provider_id,
+        model_id: req.core.model_id,
         provider_selection: req.core.provider_selection,
         launch_profile_id: req.core.launch_profile_id,
         workspace_path: req.core.workspace_path,
@@ -1379,12 +1382,43 @@ fn json_error(
     )
 }
 
+fn json_error_with_params(
+    status: StatusCode,
+    code: &str,
+    message: impl Into<String>,
+    params: serde_json::Value,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        status,
+        Json(serde_json::json!({
+            "code": code,
+            "message": message.into(),
+            "params": params,
+        })),
+    )
+}
+
 fn internal_error(error: impl std::fmt::Display) -> (StatusCode, Json<serde_json::Value>) {
     json_error(
         StatusCode::INTERNAL_SERVER_ERROR,
         "INTERNAL_ERROR",
         error.to_string(),
     )
+}
+
+fn app_error(error: AppError) -> (StatusCode, Json<serde_json::Value>) {
+    let status = match &error {
+        AppError::NotFound(_) => StatusCode::NOT_FOUND,
+        AppError::Message { .. } if error.code().is_some() => StatusCode::BAD_REQUEST,
+        AppError::Message { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    let body = serde_json::to_value(&error).unwrap_or_else(|_| {
+        serde_json::json!({
+            "code": "INTERNAL_ERROR",
+            "message": "Failed to serialize daemon error"
+        })
+    });
+    (status, Json(body))
 }
 
 fn not_found(message: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
@@ -1422,6 +1456,25 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+
+    #[test]
+    fn app_error_preserves_provider_code_and_safe_params() {
+        let error = AppError::coded_with_params(
+            "PROVIDER_NOT_FOUND",
+            "Provider was not found",
+            HashMap::from([
+                ("cliTool".to_string(), "claude".to_string()),
+                ("providerId".to_string(), "deleted-provider".to_string()),
+            ]),
+        );
+
+        let (status, Json(body)) = app_error(error);
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "PROVIDER_NOT_FOUND");
+        assert_eq!(body["params"]["providerId"], "deleted-provider");
+        assert!(!body.to_string().contains("apiKey"));
+    }
 
     #[derive(Default)]
     struct MockTerminalBackend {

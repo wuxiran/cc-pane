@@ -59,6 +59,8 @@ pub struct CreateSessionRequest {
     pub rows: u16,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
     #[serde(default)]
     pub provider_selection: LaunchProviderSelection,
     pub launch_profile_id: Option<String>,

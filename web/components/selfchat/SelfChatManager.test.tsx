@@ -11,6 +11,7 @@ interface TerminalViewProps {
   projectPath: string;
   cliTool?: string;
   providerId?: string;
+  providerSelection?: string;
   appendSystemPrompt?: string;
   onSessionCreated: (sessionId: string) => void;
   onSessionExited?: (exitCode: number) => void;
@@ -60,8 +61,9 @@ describe("SelfChatManager", () => {
         type: "panel",
         id: "pane-1",
         activeTabId: "tab-1",
-        tabs: [{ id: "tab-1", providerId: "provider-9" }],
+        tabs: [{ id: "tab-1", providerId: "provider-9", providerSelection: "explicit" }],
       },
+      activePaneId: "pane-1",
     } as never);
     getAppCwd.mockResolvedValue("/app/cwd");
     collectAppContext.mockResolvedValue("app context prompt");
@@ -102,7 +104,57 @@ describe("SelfChatManager", () => {
     expect(terminalViewProps?.projectPath).toBe("/app/cwd");
     expect(terminalViewProps?.cliTool).toBe("codex");
     expect(terminalViewProps?.providerId).toBe("provider-9");
+    expect(terminalViewProps?.providerSelection).toBe("explicit");
     expect(terminalViewProps?.appendSystemPrompt).toBe("app context prompt");
+  });
+
+  it("preserves an explicit native selection without a provider id", async () => {
+    usePanesStore.setState({
+      rootPane: {
+        type: "panel",
+        id: "pane-1",
+        activeTabId: "tab-native",
+        tabs: [{ id: "tab-native", providerSelection: "none" }],
+      },
+      activePaneId: "pane-1",
+    } as never);
+
+    render(<SelfChatManager />);
+    expect(await screen.findByTestId("terminal-view")).toBeInTheDocument();
+    expect(terminalViewProps?.providerId).toBeUndefined();
+    expect(terminalViewProps?.providerSelection).toBe("none");
+  });
+
+  it("inherits Provider from the active panel when the root is split", async () => {
+    usePanesStore.setState({
+      rootPane: {
+        type: "split",
+        id: "split-root",
+        direction: "horizontal",
+        sizes: [50, 50],
+        children: [
+          {
+            type: "panel",
+            id: "pane-left",
+            activeTabId: "tab-left",
+            tabs: [{ id: "tab-left", providerSelection: "none" }],
+          },
+          {
+            type: "panel",
+            id: "pane-right",
+            activeTabId: "tab-right",
+            tabs: [{ id: "tab-right", providerId: "provider-split", providerSelection: "explicit" }],
+          },
+        ],
+      },
+      activePaneId: "pane-right",
+    } as never);
+
+    render(<SelfChatManager />);
+
+    expect(await screen.findByTestId("terminal-view")).toBeInTheDocument();
+    expect(terminalViewProps?.providerId).toBe("provider-split");
+    expect(terminalViewProps?.providerSelection).toBe("explicit");
   });
 
   it("shows the loading state while no session exists", () => {

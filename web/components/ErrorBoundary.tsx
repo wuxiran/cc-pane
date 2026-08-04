@@ -19,6 +19,58 @@ interface State {
   error: Error | null;
   crashLogDir: string | null;
   crashLogStatus: "idle" | "pending" | "written" | "failed";
+  retryPending: boolean;
+}
+
+const MODULE_LOAD_ERROR_PATTERN =
+  /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|failed to load module script|unable to preload css|^loading chunk \S+ failed\b/i;
+
+type RetryResult = "reset" | "reload" | "unavailable";
+type PageLocation = Pick<Location, "href" | "protocol">;
+type PageFetcher = (url: string, init: RequestInit) => Promise<Pick<Response, "ok">>;
+
+function requiresPageReload(error: Error): boolean {
+  return error.name === "ChunkLoadError" || MODULE_LOAD_ERROR_PATTERN.test(error.message);
+}
+
+export async function canReloadPage(
+  location: PageLocation,
+  fetchPage: PageFetcher = (url, init) => fetch(url, init),
+  timeoutMs = 3_000,
+): Promise<boolean> {
+  if (!/^https?:$/.test(location.protocol)) return true;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchPage(location.href, {
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+const canReloadCurrentPage = () => canReloadPage(window.location);
+
+export async function retryAfterError(
+  error: Error | null,
+  reset: () => void,
+  reload: () => void = () => window.location.reload(),
+  canReload: () => Promise<boolean> = canReloadCurrentPage,
+): Promise<RetryResult> {
+  // React.lazy caches rejected imports, so resetting the boundary alone cannot retry them.
+  if (error && requiresPageReload(error)) {
+    if (!(await canReload())) return "unavailable";
+    reload();
+    return "reload";
+  }
+  reset();
+  return "reset";
 }
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -27,9 +79,11 @@ export default class ErrorBoundary extends Component<Props, State> {
     error: null,
     crashLogDir: null,
     crashLogStatus: "idle",
+    retryPending: false,
   };
 
   private mounted = true;
+  private retryInProgress = false;
 
   static getDerivedStateFromError(error: Error): State {
     return {
@@ -37,6 +91,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       error,
       crashLogDir: null,
       crashLogStatus: "pending",
+      retryPending: false,
     };
   }
 
@@ -71,7 +126,23 @@ export default class ErrorBoundary extends Component<Props, State> {
       error: null,
       crashLogDir: null,
       crashLogStatus: "idle",
+      retryPending: false,
     });
+  };
+
+  handleRetry = async () => {
+    if (this.retryInProgress) return;
+    this.retryInProgress = true;
+    this.setState({ retryPending: true });
+    try {
+      const result = await retryAfterError(this.state.error, this.handleReset);
+      if (result === "unavailable") {
+        console.warn("[ErrorBoundary] Retry skipped because the page origin is unavailable");
+      }
+    } finally {
+      this.retryInProgress = false;
+      if (this.mounted) this.setState({ retryPending: false });
+    }
   };
 
   handleOpenLogDir = async () => {
@@ -113,7 +184,12 @@ export default class ErrorBoundary extends Component<Props, State> {
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button size="sm" variant="outline" onClick={this.handleReset}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={this.handleRetry}
+              disabled={this.state.crashLogStatus === "pending" || this.state.retryPending}
+            >
               <RotateCcw size={14} className="mr-1" />
               {i18n.t("retry")}
             </Button>

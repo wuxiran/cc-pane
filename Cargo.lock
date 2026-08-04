@@ -880,6 +880,7 @@ dependencies = [
  "toml_edit 0.22.27",
  "tracing",
  "which",
+ "windows 0.62.2",
 ]
 
 [[package]]

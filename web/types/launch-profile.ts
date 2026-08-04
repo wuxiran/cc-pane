@@ -1,4 +1,5 @@
 import type { Provider } from "./provider";
+import type { LaunchEffort } from "./terminal";
 import type { WorkspaceLaunchEnvironment } from "./workspace";
 
 export type LaunchProfileMcpMode = "default" | "custom" | "disabled";
@@ -9,6 +10,7 @@ export type KimiConfigMode = "managed" | "native";
 
 export interface LaunchProfileAdapterOptions {
   kimiConfigMode?: KimiConfigMode;
+  effort?: LaunchEffort;
   [key: string]: unknown;
 }
 
@@ -45,6 +47,7 @@ export interface LaunchProfile {
   alias?: string | null;
   description?: string | null;
   providerId?: string | null;
+  modelId?: string | null;
   adapterOptions?: LaunchProfileAdapterOptions;
   targetTools: string[];
   targetRuntime?: LaunchProfileRuntime;
@@ -71,6 +74,7 @@ export interface LaunchProfilePreviewRequest {
   workspaceName?: string | null;
   projectId?: string | null;
   providerId?: string | null;
+  modelId?: string | null;
   providerSelection?: LaunchProviderSelection;
   cliTool?: string | null;
   runtimeKind?: LaunchProfileRuntime;
@@ -99,6 +103,9 @@ export interface LaunchProfileResolution {
   profileAlias?: string | null;
   providerId?: string | null;
   providerName?: string | null;
+  modelId?: string | null;
+  modelLabel?: string | null;
+  modelSource?: "request" | "launchProfile" | "providerDefault" | "nativeDefault" | null;
   mcpServers: ResolvedMcpServer[];
   skills: ResolvedSkill[];
   warnings: string[];
@@ -111,6 +118,7 @@ export function defaultLaunchProfileDraft(provider?: Provider | null): LaunchPro
     alias: provider ? `${provider.name} 运行配置` : "新运行配置",
     description: "",
     providerId: provider?.id ?? null,
+    modelId: null,
     adapterOptions: {},
     targetTools: [],
     targetRuntime: null,

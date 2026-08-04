@@ -137,6 +137,7 @@ async function launchAgent(
     path: tab.projectPath,
     workspaceName: tab.workspaceName,
     providerId: tab.providerId ?? "",
+    modelId: tab.modelId,
     providerSelection: tab.providerSelection,
     launchProfileId: tab.launchProfileId,
     workspacePath: tab.workspacePath,
@@ -146,6 +147,24 @@ async function launchAgent(
     machineName: tab.machineName,
     initialPrompt: command.text,
   });
+}
+
+export function buildQuickCommandTerminalTab(command: QuickCommand, tab: Tab) {
+  return {
+    projectId: `quick-command-${crypto.randomUUID()}`,
+    projectPath: tab.projectPath,
+    workspaceName: tab.workspaceName,
+    providerId: undefined,
+    providerSelection: "none" as const,
+    launchProfileId: tab.launchProfileId,
+    workspacePath: tab.workspacePath,
+    workspaceSnapshotId: tab.workspaceSnapshotId,
+    cliTool: "none" as const,
+    customTitle: command.name,
+    ssh: tab.ssh,
+    wsl: tab.wsl,
+    machineName: tab.machineName,
+  };
 }
 
 async function launchTerminal(
@@ -161,21 +180,7 @@ async function launchTerminal(
     throw new Error("Quick command target pane is unavailable");
   }
   const existingTabIds = new Set(pane.tabs.map((item) => item.id));
-  panes.addTab(paneId, {
-    projectId: `quick-command-${crypto.randomUUID()}`,
-    projectPath: tab.projectPath,
-    workspaceName: tab.workspaceName,
-    providerId: tab.providerId,
-    providerSelection: tab.providerSelection,
-    launchProfileId: tab.launchProfileId,
-    workspacePath: tab.workspacePath,
-    workspaceSnapshotId: tab.workspaceSnapshotId,
-    cliTool: "none",
-    customTitle: command.name,
-    ssh: tab.ssh,
-    wsl: tab.wsl,
-    machineName: tab.machineName,
-  });
+  panes.addTab(paneId, buildQuickCommandTerminalTab(command, tab));
   const updatedPane = usePanesStore.getState().findPaneById(paneId);
   const createdTab = updatedPane?.type === "panel"
     ? updatedPane.tabs.find((item) => !existingTabIds.has(item.id))
