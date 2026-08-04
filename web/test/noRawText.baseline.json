@@ -15,7 +15,6 @@
   "settings/AboutSection.tsx": 1,
   "settings/CCChanSettings.tsx": 10,
   "settings/VoiceSection.tsx": 2,
-  "settings/WebAccessSection.tsx": 56,
   "sidebar/OrchestratorTaskCard.tsx": 6,
   "sidebar/OrchestratorTaskTree.tsx": 1,
   "sidebar/ProcessMonitorSection.tsx": 9,

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import i18n from "@/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CCCHAN_SETTINGS, FALLBACK_PET, useCCChanStore } from "@/stores/useCCChanStore";
 import { useTerminalStatusStore } from "@/stores";
@@ -110,6 +111,27 @@ describe("CCChanApp pet interactions", () => {
       expect(mockInvoke).toHaveBeenCalledWith("resize_ccchan_for_chat", { expanded: true });
     });
     resolvePosition({ x: 200, y: 120 });
+  });
+
+  it("switches cc-chan labels when the app language changes", async () => {
+    mockCcChanInvoke();
+    await act(async () => {
+      await i18n.changeLanguage("zh-CN");
+    });
+    render(<CCChanApp />);
+
+    expect(screen.getByTitle("打开 cc酱 chat")).toBeInTheDocument();
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    expect(screen.getByTitle("Open cc-chan chat")).toBeInTheDocument();
+    expect(screen.queryByTitle("打开 cc酱 chat")).not.toBeInTheDocument();
+
+    await act(async () => {
+      await i18n.changeLanguage("zh-CN");
+    });
   });
 
   it("opens the menu from right pointer down and can open chat from the menu", async () => {

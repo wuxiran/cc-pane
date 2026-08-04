@@ -1,4 +1,6 @@
 import { emitTo } from "@tauri-apps/api/event";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { useMemo } from "react";
 import { useTerminalStatusStore } from "@/stores";
 import type { TerminalStatusInfo, TerminalStatusType } from "@/types";
@@ -25,9 +27,25 @@ const VISIBLE_DOT_STATUSES: ReadonlySet<TerminalStatusType> = new Set([
   "active",
 ]);
 
-function getDotTitle(info: TerminalStatusInfo) {
+const STATUS_LABEL_KEYS = {
+  initializing: "sessionStatus.initializing",
+  idle: "sessionStatus.idle",
+  thinking: "sessionStatus.thinking",
+  toolRunning: "sessionStatus.toolRunning",
+  compacting: "sessionStatus.compacting",
+  waitingInput: "sessionStatus.waitingInput",
+  error: "sessionStatus.error",
+  exited: "sessionStatus.exited",
+  active: "sessionStatus.active",
+} as const satisfies Record<TerminalStatusType, string>;
+
+function getDotTitle(info: TerminalStatusInfo, t: TFunction<"ccchan">) {
   const tool = info.currentToolName ? ` · ${info.currentToolName}` : "";
-  return `${info.sessionId} · ${info.status}${tool}`;
+  return t("sessionDot.title", {
+    sessionId: info.sessionId,
+    status: t(STATUS_LABEL_KEYS[info.status]),
+    tool,
+  });
 }
 
 export function visibleSessionDots(statuses: TerminalStatusInfo[]) {
@@ -37,6 +55,7 @@ export function visibleSessionDots(statuses: TerminalStatusInfo[]) {
 }
 
 export function SessionDots() {
+  const { t } = useTranslation("ccchan");
   const statusMap = useTerminalStatusStore((state) => state.statusMap);
   const dots = useMemo(
     () => visibleSessionDots(Array.from(statusMap.values())),
@@ -51,8 +70,8 @@ export function SessionDots() {
         <button
           key={info.sessionId}
           type="button"
-          aria-label={`Focus session ${info.sessionId}`}
-          title={getDotTitle(info)}
+          aria-label={t("sessionDot.focus", { sessionId: info.sessionId })}
+          title={getDotTitle(info, t)}
           className="h-2.5 w-2.5 rounded-full border border-black/25 p-0 shadow-sm transition-transform hover:scale-125"
           style={{ backgroundColor: STATUS_COLORS[info.status] ?? "#6e6e73" }}
           onClick={(event) => {

@@ -26,19 +26,7 @@ interface WebAccessSectionProps {
   onOrchestratorChange?: (value: OrchestratorSettings) => void;
 }
 
-const ORCHESTRATOR_BIND_MODES: Array<{ mode: OrchestratorBindMode; label: string; hint: string }> = [
-  {
-    mode: "auto",
-    label: "自动（推荐）",
-    hint: "默认仅本机；WSL mirrored 网络下回环即可被 WSL 访问，仅 NAT 模式的 WSL 使用会开放所有网卡。",
-  },
-  {
-    mode: "loopback",
-    label: "仅本机",
-    hint: "始终 127.0.0.1。WSL mirrored 网络下 WSL 仍可访问；NAT 模式下 WSL 内 CLI 可能无法回连 MCP。",
-  },
-  { mode: "all", label: "所有网卡", hint: "始终 0.0.0.0（局域网可见，凭随机端口 + token 防护）。" },
-];
+const ORCHESTRATOR_BIND_MODES: OrchestratorBindMode[] = ["auto", "loopback", "all"];
 
 function normalizeWhitelistText(value: string): string[] {
   return value
@@ -77,7 +65,7 @@ export default function WebAccessSection({
     try {
       setStatus(await settingsService.getWebAccessStatus());
     } catch (error) {
-      toast.error(`Web 状态读取失败: ${error}`);
+      toast.error(t("webAccessSection.errors.statusReadFailed", { error: String(error) }));
     } finally {
       setLoadingStatus(false);
     }
@@ -94,9 +82,9 @@ export default function WebAccessSection({
       setPassword("");
       await loadSettings();
       await refreshStatus();
-      toast.success(password.trim() ? "Web 密码已更新" : "Web 密码已清空");
+      toast.success(t(password.trim() ? "webAccessSection.errors.passwordUpdated" : "webAccessSection.errors.passwordCleared"));
     } catch (error) {
-      toast.error(`Web 密码更新失败: ${error}`);
+      toast.error(t("webAccessSection.errors.passwordUpdateFailed", { error: String(error) }));
     } finally {
       setSavingPassword(false);
     }
@@ -107,7 +95,7 @@ export default function WebAccessSection({
     try {
       setTailscale(await settingsService.detectTailscaleStatus());
     } catch (error) {
-      toast.error(`Tailscale 检测失败: ${error}`);
+      toast.error(t("webAccessSection.errors.tailscaleDetectionFailed", { error: String(error) }));
     } finally {
       setDetectingTailscale(false);
     }
@@ -116,9 +104,9 @@ export default function WebAccessSection({
   async function copyText(text: string, label: string) {
     try {
       await navigator.clipboard.writeText(text);
-      toast.success(`${label}已复制`);
+      toast.success(t("webAccessSection.errors.copied", { label }));
     } catch (error) {
-      toast.error(`复制失败: ${error}`);
+      toast.error(t("webAccessSection.errors.copyFailed", { error: String(error) }));
     }
   }
 
@@ -129,7 +117,7 @@ export default function WebAccessSection({
       if (action === "restart") setStatus(await settingsService.restartWebAccess());
       if (action === "open") await settingsService.openWebAccess();
     } catch (error) {
-      toast.error(`Web 服务操作失败: ${error}`);
+      toast.error(t("webAccessSection.errors.serviceActionFailed", { error: String(error) }));
     }
   }
 
@@ -137,9 +125,9 @@ export default function WebAccessSection({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <Label>启动时启用 Web 端</Label>
+          <Label>{t("webAccessSection.startupEnabled")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            关闭后桌面端启动时不会拉起 Web 服务。
+            {t("webAccessSection.startupEnabledHint")}
           </p>
         </div>
         <input
@@ -153,7 +141,7 @@ export default function WebAccessSection({
 
       <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
         <div className="flex flex-col gap-1">
-          <Label>端口</Label>
+          <Label>{t("webAccessSection.port")}</Label>
           <Input
             type="number"
             min={1}
@@ -169,15 +157,15 @@ export default function WebAccessSection({
           onClick={() => update("port", 18080)}
         >
           <RotateCcw className="w-3.5 h-3.5 mr-1" />
-          重置
+          {t("webAccessSection.reset")}
         </Button>
       </div>
 
       <div className="flex items-center justify-between">
         <div>
-          <Label>启动后自动打开浏览器</Label>
+          <Label>{t("webAccessSection.autoOpen")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            适合把 Web 端作为默认入口的场景。
+            {t("webAccessSection.autoOpenHint")}
           </p>
         </div>
         <input
@@ -192,9 +180,9 @@ export default function WebAccessSection({
       <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
         <div className="flex items-center justify-between">
           <div>
-            <Label>账号密码登录</Label>
+            <Label>{t("webAccessSection.authEnabled")}</Label>
             <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              启用后 Web 端 API 和终端 WebSocket 都需要登录 session。
+              {t("webAccessSection.authEnabledHint")}
             </p>
           </div>
           <input
@@ -208,11 +196,11 @@ export default function WebAccessSection({
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <Label>账号</Label>
+            <Label>{t("webAccessSection.username")}</Label>
             <Input value={value.username} onChange={(event) => update("username", event.target.value)} />
           </div>
           <div className="flex flex-col gap-1">
-            <Label>空闲锁屏</Label>
+            <Label>{t("webAccessSection.idleLock")}</Label>
             <Input
               type="number"
               min={0}
@@ -225,17 +213,17 @@ export default function WebAccessSection({
 
         <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
           <div className="flex flex-col gap-1">
-            <Label>{passwordConfigured ? "更新密码" : "设置密码"}</Label>
+            <Label>{t(passwordConfigured ? "webAccessSection.updatePassword" : "webAccessSection.setPassword")}</Label>
             <Input
               type="password"
               value={password}
-              placeholder={passwordConfigured ? "留空并点击保存可清空密码" : "请输入 Web 登录密码"}
+              placeholder={t(passwordConfigured ? "webAccessSection.passwordPlaceholderConfigured" : "webAccessSection.passwordPlaceholder")}
               onChange={(event) => setPassword(event.target.value)}
             />
           </div>
           <Button type="button" size="sm" onClick={handleSetPassword} disabled={savingPassword}>
             <ShieldCheck className="w-3.5 h-3.5 mr-1" />
-            保存密码
+            {t("webAccessSection.savePassword")}
           </Button>
         </div>
       </div>
@@ -243,9 +231,9 @@ export default function WebAccessSection({
       <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
         <div className="flex items-center justify-between">
           <div>
-            <Label>允许局域网访问</Label>
+            <Label>{t("webAccessSection.allowLan")}</Label>
             <p className="text-xs m-0" style={{ color: canUseLan ? "var(--app-text-tertiary)" : "var(--app-accent)" }}>
-              {canUseLan ? "开启后服务会监听 0.0.0.0。" : "需要先启用账号密码并设置密码。"}
+              {t(canUseLan ? "webAccessSection.allowLanEnabledHint" : "webAccessSection.allowLanRequiresAuthHint")}
             </p>
           </div>
           <input
@@ -260,9 +248,9 @@ export default function WebAccessSection({
 
         <div className="flex items-center justify-between">
           <div>
-            <Label>远程只读模式</Label>
+            <Label>{t("webAccessSection.remoteReadOnly")}</Label>
             <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              非本机来源（含经 Tailscale Serve 访问）登录后只能查看，禁止终端输入与文件改动；本机浏览器不受影响。保存后重启 Web 服务生效。
+              {t("webAccessSection.remoteReadOnlyHint")}
             </p>
           </div>
           <input
@@ -277,11 +265,13 @@ export default function WebAccessSection({
         {value.remoteReadOnly && (
           <div className="flex items-center justify-between pl-4">
             <div>
-              <Label>允许已登录的远程会话写入</Label>
+              <Label>{t("webAccessSection.remoteAuthenticatedWrite")}</Label>
               <p className="text-xs m-0" style={{ color: canUseLan ? "var(--app-text-tertiary)" : "var(--app-accent)" }}>
-                {canUseLan
-                  ? "只读模式的例外：通过账号密码登录的远程设备（如手机端）可以输入终端、执行写操作。请确认远程链路可信（建议仅配合 Tailscale 使用）。保存后重启 Web 服务生效。"
-                  : "需要先启用账号密码并设置密码，未配置密码时该开关不生效。"}
+                {t(
+                  canUseLan
+                    ? "webAccessSection.remoteAuthenticatedWriteHint"
+                    : "webAccessSection.remoteAuthenticatedWriteRequiresAuthHint",
+                )}
               </p>
             </div>
             <input
@@ -296,7 +286,7 @@ export default function WebAccessSection({
         )}
 
         <div className="flex flex-col gap-1">
-          <Label>IP 白名单</Label>
+          <Label>{t("webAccessSection.ipWhitelist")}</Label>
           <textarea
             value={whitelistText}
             onChange={(event) => update("ipWhitelist", normalizeWhitelistText(event.target.value))}
@@ -310,7 +300,7 @@ export default function WebAccessSection({
             }}
           />
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            留空表示允许任意局域网客户端；多条用换行或逗号分隔。
+            {t("webAccessSection.ipWhitelistHint")}
           </p>
         </div>
       </div>
@@ -318,9 +308,9 @@ export default function WebAccessSection({
       {orchestrator && onOrchestratorChange && isTauriRuntime() && (
         <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
           <div>
-            <Label>MCP 编排服务监听</Label>
+            <Label>{t("webAccessSection.orchestrator.title")}</Label>
             <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              CC-Panes 内置 orchestrator（供 CLI 的 ccpanes MCP 工具回连）。修改后重启应用生效。
+              {t("webAccessSection.orchestrator.description")}
             </p>
           </div>
           <select
@@ -335,21 +325,25 @@ export default function WebAccessSection({
               color: "var(--app-text-primary)",
             }}
           >
-            {ORCHESTRATOR_BIND_MODES.map((item) => (
-              <option key={item.mode} value={item.mode}>
-                {item.label}
+            {ORCHESTRATOR_BIND_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {t(`webAccessSection.orchestrator.bindModes.${mode}.label`)}
               </option>
             ))}
           </select>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {ORCHESTRATOR_BIND_MODES.find((item) => item.mode === orchestrator.bindMode)?.hint}
+            {t(`webAccessSection.orchestrator.bindModes.${orchestrator.bindMode}.hint`)}
           </p>
           <McpYoloProfilesToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
           <FollowAgentLaunchToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
           {orchestratorStatus?.bind && (
             <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
-              当前实际监听 {orchestratorStatus.bind.host}
-              {orchestratorStatus.port != null ? `:${orchestratorStatus.port}` : ""}（{orchestratorStatus.bind.reason}）
+              {t("webAccessSection.orchestrator.currentListen", {
+                address: `${orchestratorStatus.bind.host}${
+                  orchestratorStatus.port != null ? `:${orchestratorStatus.port}` : ""
+                }`,
+                reason: orchestratorStatus.bind.reason,
+              })}
             </p>
           )}
           {orchestratorStatus && (
@@ -387,24 +381,28 @@ export default function WebAccessSection({
         <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
           <div className="flex items-center justify-between">
             <div>
-              <Label>Tailscale 远程访问（推荐）</Label>
+              <Label>{t("webAccessSection.tailscale.title")}</Label>
               <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-                通过 Tailscale Serve 从你自己的设备安全访问 Web 端：无需开局域网、服务保持仅本机监听。CC-Panes 只做只读检测，不代执行、不保存任何 Tailscale 凭证。
+                {t("webAccessSection.tailscale.description")}
               </p>
             </div>
             <Button type="button" variant="secondary" size="sm" onClick={() => void detectTailscale()} disabled={detectingTailscale}>
               <RefreshCw className={`w-3.5 h-3.5 mr-1 ${detectingTailscale ? "animate-spin" : ""}`} />
-              检测
+              {t("webAccessSection.tailscale.detect")}
             </Button>
           </div>
           {tailscale && !tailscale.installed && (
             <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
-              未检测到 tailscale CLI。安装后再来：https://tailscale.com/download
+              {t("webAccessSection.tailscale.cliNotFound")}
             </p>
           )}
           {tailscale?.installed && tailscale.backendState !== "Running" && (
             <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
-              Tailscale 已安装但未运行{tailscale.backendState ? `（${tailscale.backendState}）` : ""}。请先在终端执行 <code>tailscale up</code> 登录。
+              {t("webAccessSection.tailscale.notRunning", {
+                state: tailscale.backendState
+                  ? t("webAccessSection.tailscale.stateSuffix", { state: tailscale.backendState })
+                  : "",
+              })} <code>tailscale up</code> {t("webAccessSection.tailscale.login")}
             </p>
           )}
           {tailscale?.installed && tailscale.backendState === "Running" && (
@@ -419,9 +417,14 @@ export default function WebAccessSection({
                 <Button
                   type="button"
                   size="sm"
-                  onClick={() => void copyText(`tailscale serve --bg --https=443 http://127.0.0.1:${value.port}`, "命令")}
+                  onClick={() =>
+                    void copyText(
+                      `tailscale serve --bg --https=443 http://127.0.0.1:${value.port}`,
+                      t("webAccessSection.tailscale.command"),
+                    )
+                  }
                 >
-                  复制命令
+                  {t("webAccessSection.tailscale.copyCommand")}
                 </Button>
               </div>
               {tailscale.dnsName && (
@@ -436,14 +439,17 @@ export default function WebAccessSection({
                     type="button"
                     variant="secondary"
                     size="sm"
-                    onClick={() => void copyText(`https://${tailscale.dnsName}`, "访问地址")}
+                    onClick={() =>
+                      void copyText(`https://${tailscale.dnsName}`, t("webAccessSection.tailscale.address"))
+                    }
                   >
-                    复制地址
+                    {t("webAccessSection.tailscale.copyAddress")}
                   </Button>
                 </div>
               )}
               <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-                在终端执行上面的命令后，用 tailnet 内任意设备访问该地址。建议同时启用「账号密码登录」和「远程只读模式」——经 Tailscale 访问会按远程来源处理。取消发布：<code>tailscale serve reset</code>。
+                {t("webAccessSection.tailscale.tailnetHint")} <code>tailscale serve reset</code>
+                {t("webAccessSection.tailscale.tailnetHintEnd")}
               </p>
             </div>
           )}
@@ -454,8 +460,8 @@ export default function WebAccessSection({
         <div className="flex items-center justify-between">
           <div className="text-xs" style={{ color: "var(--app-text-secondary)" }}>
             {status
-              ? `${status.running ? "运行中" : "未运行"} · ${status.url} · ${status.bindHost}:${status.port}`
-              : "状态未读取"}
+              ? `${t(status.running ? "webAccessSection.status.running" : "webAccessSection.status.stopped")} · ${status.url} · ${status.bindHost}:${status.port}`
+              : t("webAccessSection.status.unread")}
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={refreshStatus} disabled={loadingStatus}>
             <RefreshCw className={`w-3.5 h-3.5 ${loadingStatus ? "animate-spin" : ""}`} />
@@ -464,27 +470,27 @@ export default function WebAccessSection({
         <div className="flex flex-wrap gap-2">
           <Button type="button" size="sm" onClick={() => void handleAction("open")}>
             <ExternalLink className="w-3.5 h-3.5 mr-1" />
-            打开 Web
+            {t("webAccessSection.openWeb")}
           </Button>
           {isTauriRuntime() && (
             <>
               <Button type="button" variant="secondary" size="sm" onClick={() => void handleAction("start")}>
                 <Wifi className="w-3.5 h-3.5 mr-1" />
-                启动
+                {t("webAccessSection.start")}
               </Button>
               <Button type="button" variant="secondary" size="sm" onClick={() => void handleAction("restart")}>
                 <RefreshCw className="w-3.5 h-3.5 mr-1" />
-                重启
+                {t("webAccessSection.restart")}
               </Button>
               <Button type="button" variant="secondary" size="sm" onClick={() => void handleAction("stop")}>
                 <Square className="w-3.5 h-3.5 mr-1" />
-                停止
+                {t("webAccessSection.stop")}
               </Button>
             </>
           )}
         </div>
         <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          端口、局域网访问和密码策略保存后，重启 Web 服务生效。
+          {t("webAccessSection.restartHint")}
         </p>
       </div>
     </div>

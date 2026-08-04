@@ -8,7 +8,7 @@ loader.config({ monaco });
 
 import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
-import "@/i18n";
+import i18n from "@/i18n";
 import App from "./App";
 import "./assets/index.css";
 import { recordFrontendCrash } from "@/utils/frontendCrashLog";
@@ -78,7 +78,7 @@ async function renderRoot() {
           userSelect: "none",
         }}
       >
-        cc酱加载失败，请重开窗口
+        {i18n.t("ccchan:fallbackLoadFailed")}
       </div>
     );
     root.render(
