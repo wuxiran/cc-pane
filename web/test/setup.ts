@@ -13,20 +13,20 @@ if (typeof window !== "undefined") {
     const key = (index: number) => Array.from(values.keys())[index] ?? null;
     const removeItem = (item: string) => values.delete(item);
     const setItem = (item: string, value: string) => values.set(item, String(value));
+    // 方法必须挂在实例上，不能挂 Storage.prototype——sessionStorage 继承同一个原型，
+    // 会与 localStorage 共用这里的 values Map，测试间互相串数据。
     const storagePrototype = window.Storage?.prototype;
-    if (storagePrototype) {
-      Object.defineProperties(storagePrototype, {
-        clear: { configurable: true, value: clear },
-        getItem: { configurable: true, value: getItem },
-        key: { configurable: true, value: key },
-        length: { configurable: true, get: () => values.size },
-        removeItem: { configurable: true, value: removeItem },
-        setItem: { configurable: true, value: setItem },
-      });
-    }
-    const storage = storagePrototype
-      ? (Object.create(storagePrototype) as Storage)
-      : ({ clear, getItem, key, length: 0, removeItem, setItem } as unknown as Storage);
+    const storage = (
+      storagePrototype ? Object.create(storagePrototype) : {}
+    ) as Storage;
+    Object.defineProperties(storage, {
+      clear: { configurable: true, value: clear },
+      getItem: { configurable: true, value: getItem },
+      key: { configurable: true, value: key },
+      length: { configurable: true, get: () => values.size },
+      removeItem: { configurable: true, value: removeItem },
+      setItem: { configurable: true, value: setItem },
+    });
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       value: storage,

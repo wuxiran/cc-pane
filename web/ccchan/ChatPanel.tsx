@@ -402,7 +402,10 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [onSessionIdChange, sessionId, t]);
+    // t 不进 deps：切语言会换 t 的 identity，重跑该 effect 会打断在途的会话 bootstrap
+    // （cleanup 置 cancelled=true → setStarting(false) 被跳过 → 控件永久禁用 + CLI 进程成孤儿）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSessionIdChange, sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -471,7 +474,10 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [autoStartPaused, checkingSession, onSessionIdChange, restartRequestId, sessionId, settings.aiEngine, switchingEngine, t]);
+    // t 不进 deps：切语言会换 t 的 identity，重跑该 effect 会打断在途的会话 bootstrap
+    // （cleanup 置 cancelled=true → setStarting(false) 被跳过 → 控件永久禁用 + CLI 进程成孤儿）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStartPaused, checkingSession, onSessionIdChange, restartRequestId, sessionId, settings.aiEngine, switchingEngine]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -552,7 +558,10 @@ export function ChatPanel({
       cancelled = true;
       unlisten?.();
     };
-  }, [onSessionIdChange, sessionId, settings.aiEngine, t]);
+    // t 不进 deps：切语言会换 t 的 identity，重跑该 effect 会打断在途的会话 bootstrap
+    // （cleanup 置 cancelled=true → setStarting(false) 被跳过 → 控件永久禁用 + CLI 进程成孤儿）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSessionIdChange, sessionId, settings.aiEngine]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -657,7 +666,10 @@ export function ChatPanel({
       cancelled = true;
       unlisten?.();
     };
-  }, [onSessionIdChange, sessionId, settings.aiEngine, t]);
+    // t 不进 deps：切语言会换 t 的 identity，重跑该 effect 会打断在途的会话 bootstrap
+    // （cleanup 置 cancelled=true → setStarting(false) 被跳过 → 控件永久禁用 + CLI 进程成孤儿）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSessionIdChange, sessionId, settings.aiEngine]);
 
   useEffect(() => {
     const output = outputRef.current;

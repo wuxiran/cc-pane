@@ -452,7 +452,10 @@ export function CCChanApp() {
       if (timer) clearTimeout(timer);
       unlisten?.();
     };
-  }, [clearBubble, showBubble, t]);
+    // t 不进 deps：切语言会换 t 的 identity，重跑该 effect 会打断在途的会话 bootstrap
+    // （cleanup 置 cancelled=true → setStarting(false) 被跳过 → 控件永久禁用 + CLI 进程成孤儿）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearBubble, showBubble]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;

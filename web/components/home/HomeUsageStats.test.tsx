@@ -177,7 +177,7 @@ describe("HomeUsageStats", () => {
     expect(buttons[buttons.length - 1]).toBeDisabled();
   });
 
-  it("工作空间下拉合并 store 与统计数据来源，_global 显示为已删除空间", async () => {
+  it("工作空间下拉合并 store 与统计数据来源，_global 显示为未匹配会话", async () => {
     const user = userEvent.setup();
     render(<HomeUsageStats />);
 
@@ -189,22 +189,22 @@ describe("HomeUsageStats", () => {
     );
     // 第一项为 全部工作空间，其后 _global 排最前
     expect(items[0]).toBe("全部工作空间");
-    expect(items[1]).toBe("已删除空间");
+    expect(items[1]).toBe("未匹配会话");
+    expect(items).toContain("alpha");
     expect(items).toContain("beta");
-    expect(items).not.toContain("alpha");
 
-    await user.click(screen.getByRole("menuitem", { name: "beta" }));
+    await user.click(screen.getByRole("menuitem", { name: "alpha" }));
     await waitFor(() => {
       expect(
         useUsageStatsStore.getState().setWorkspaceFilter,
-      ).toHaveBeenCalledWith("beta");
+      ).toHaveBeenCalledWith("alpha");
     });
   });
 
-  it("workspaceFilter 为 _global 时触发按钮显示已删除空间", () => {
+  it("workspaceFilter 为 _global 时触发按钮显示未匹配会话", () => {
     useUsageStatsStore.setState({ workspaceFilter: "_global" } as never);
     render(<HomeUsageStats />);
 
-    expect(screen.getByText("已删除空间")).toBeVisible();
+    expect(screen.getByText("未匹配会话")).toBeVisible();
   });
 });
