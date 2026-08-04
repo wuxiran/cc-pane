@@ -48,6 +48,18 @@ describe("usageStatsService", () => {
     });
   });
 
+  describe("queryContextUsage", () => {
+    it("calls the context usage command with the active PTY id", async () => {
+      const snapshot = { status: "waiting", observedAt: 1 };
+      mockTauriInvoke({ query_context_usage: snapshot });
+
+      await expect(usageStatsService.queryContextUsage("pty-1")).resolves.toEqual(snapshot);
+      expect(invoke).toHaveBeenCalledWith("query_context_usage", {
+        ptySessionId: "pty-1",
+      });
+    });
+  });
+
   describe("refreshUsage", () => {
     it("应该调用 refresh_usage_stats", async () => {
       mockTauriInvoke({ refresh_usage_stats: undefined });

@@ -267,6 +267,7 @@ use commands::{
     prune_terminal_sessions,
     // Local History - 标签
     put_label,
+    query_context_usage,
     query_task_bindings,
     query_todos,
     query_usage_stats,
@@ -2371,6 +2372,7 @@ pub fn run() {
             get_terminal_recent_output,
             get_terminal_replay_snapshot,
             record_terminal_input,
+            query_context_usage,
             query_usage_stats,
             refresh_usage_stats,
             list_session_index,

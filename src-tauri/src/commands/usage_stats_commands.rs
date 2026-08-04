@@ -1,5 +1,5 @@
 use crate::utils::AppResult;
-use cc_panes_core::models::UsageQueryResult;
+use cc_panes_core::models::{ContextUsageSnapshot, UsageQueryResult};
 use cc_panes_core::services::UsageStatsService;
 use std::sync::Arc;
 use tauri::State;
@@ -26,6 +26,14 @@ pub fn query_usage_stats(
     workspace_filter: Option<String>,
 ) -> AppResult<UsageQueryResult> {
     service.query_usage(range_days.unwrap_or(30), workspace_filter)
+}
+
+#[tauri::command]
+pub fn query_context_usage(
+    service: State<'_, Arc<UsageStatsService>>,
+    pty_session_id: String,
+) -> AppResult<ContextUsageSnapshot> {
+    Ok(service.context_usage_for_pty(&pty_session_id))
 }
 
 #[tauri::command]

@@ -24,6 +24,18 @@ pub struct CodexSession {
     pub description: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct LatestContextUsage {
+    pub usage: UsageEntry,
+    pub model: Option<String>,
+    pub window_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+}
+
+const MAX_CONTEXT_USAGE_FILE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_CONTEXT_USAGE_LINE_BYTES: usize = 1024 * 1024;
+const MAX_CONTEXT_USAGE_LINES: usize = 20_000;
+
 fn normalize_compare_path(path: &str) -> String {
     path.replace('\\', "/").trim_end_matches('/').to_lowercase()
 }
@@ -330,6 +342,136 @@ pub fn read_session_usage(
     Ok((entries, offset))
 }
 
+/// Read the latest token_count observation, including the context window when present.
+pub fn read_latest_context_usage(
+    jsonl_path: &Path,
+    from_byte_offset: u64,
+) -> Result<(Option<LatestContextUsage>, u64), String> {
+    let file = File::open(jsonl_path).map_err(|error| error.to_string())?;
+    let len = file.metadata().map_err(|error| error.to_string())?.len();
+    if len > MAX_CONTEXT_USAGE_FILE_BYTES {
+        return Err("context usage file exceeds read limit".to_string());
+    }
+    let start = from_byte_offset.min(len);
+    let mut file = file;
+    file.seek(SeekFrom::Start(start))
+        .map_err(|error| error.to_string())?;
+    let mut reader = BufReader::new(file);
+    let mut model: Option<String> = None;
+    let mut latest: Option<LatestContextUsage> = None;
+    let mut offset = start;
+    let mut lines_read = 0usize;
+
+    loop {
+        if lines_read >= MAX_CONTEXT_USAGE_LINES {
+            break;
+        }
+        let mut buffer = Vec::new();
+        let read = reader
+            .read_until(b'\n', &mut buffer)
+            .map_err(|error| error.to_string())?;
+        if read == 0 || !buffer.ends_with(b"\n") {
+            break;
+        }
+        lines_read += 1;
+        if buffer.len() > MAX_CONTEXT_USAGE_LINE_BYTES {
+            offset = offset.saturating_add(read as u64);
+            continue;
+        }
+        offset = offset.saturating_add(read as u64);
+        let line = String::from_utf8_lossy(&buffer);
+        if line.trim().is_empty() {
+            continue;
+        }
+        let json: Value = match serde_json::from_str(&line) {
+            Ok(json) => json,
+            Err(_) => continue,
+        };
+        if let Some(found_model) = codex_model(&json) {
+            model = Some(found_model);
+        }
+        let Some(observation) = extract_codex_context_usage(&json) else {
+            continue;
+        };
+        latest = Some(LatestContextUsage {
+            usage: observation.0,
+            model: model.clone(),
+            window_tokens: observation.1,
+            total_tokens: observation.2,
+        });
+    }
+
+    Ok((latest, offset))
+}
+
+fn extract_codex_context_usage(json: &Value) -> Option<(UsageEntry, Option<u64>, Option<u64>)> {
+    let is_token_count = json.get("type").and_then(Value::as_str) == Some("event_msg")
+        && json.pointer("/payload/type").and_then(Value::as_str) == Some("token_count");
+    if is_token_count {
+        let usage = json.pointer("/payload/info/last_token_usage")?;
+        let input = strict_context_number_field(usage, &["input_tokens", "prompt_tokens"])?;
+        let output = strict_context_number_field(usage, &["output_tokens", "completion_tokens"])?;
+        let total = strict_context_number_field(usage, &["total_tokens"])?.or_else(|| {
+            input
+                .zip(output)
+                .map(|(input, output)| input.saturating_add(output))
+        });
+        return Some((
+            UsageEntry {
+                date: usage_date(json),
+                token_input: input.unwrap_or(0),
+                token_output: output.unwrap_or(0),
+                token_cache_read: cache_read_tokens(usage),
+                token_cache_creation: number_field(usage, &["cache_creation_input_tokens"]),
+            },
+            json.pointer("/payload/info/model_context_window")
+                .and_then(Value::as_u64),
+            total,
+        ));
+    }
+
+    if json.get("type").and_then(Value::as_str) != Some("response_item") {
+        return None;
+    }
+    let payload = json.get("payload")?;
+    let usage = payload
+        .get("usage")
+        .or_else(|| {
+            payload
+                .get("response")
+                .and_then(|response| response.get("usage"))
+        })
+        .or_else(|| payload.get("payload").and_then(|inner| inner.get("usage")))?;
+    let input = strict_context_number_field(usage, &["input_tokens", "prompt_tokens"])?;
+    let output = strict_context_number_field(usage, &["output_tokens", "completion_tokens"])?;
+    let total = input
+        .zip(output)
+        .map(|(input, output)| input.saturating_add(output));
+    Some((
+        UsageEntry {
+            date: usage_date(json),
+            token_input: input.unwrap_or(0),
+            token_output: output.unwrap_or(0),
+            token_cache_read: cache_read_tokens(usage),
+            token_cache_creation: number_field(usage, &["cache_creation_input_tokens"]),
+        },
+        payload.get("model_context_window").and_then(Value::as_u64),
+        total,
+    ))
+}
+
+fn codex_model(json: &Value) -> Option<String> {
+    [
+        "/payload/info/model",
+        "/payload/model",
+        "/payload/turn_context/model",
+        "/payload/session_meta/model",
+    ]
+    .iter()
+    .find_map(|pointer| json.pointer(pointer).and_then(Value::as_str))
+    .map(str::to_string)
+}
+
 fn extract_codex_usage(json: &Value) -> Option<UsageEntry> {
     if json.get("type").and_then(|value| value.as_str()) == Some("event_msg")
         && json
@@ -399,6 +541,16 @@ fn number_field(value: &Value, names: &[&str]) -> u64 {
         .iter()
         .find_map(|name| value.get(*name).and_then(|field| field.as_u64()))
         .unwrap_or(0)
+}
+
+/// Returns `Some(None)` for an absent field and `None` for a schema/type error.
+fn strict_context_number_field(value: &Value, names: &[&str]) -> Option<Option<u64>> {
+    for name in names {
+        if let Some(field) = value.get(*name) {
+            return field.as_u64().map(Some);
+        }
+    }
+    Some(None)
 }
 
 fn cache_read_tokens(usage: &Value) -> u64 {
@@ -653,7 +805,7 @@ pub fn detect_wsl_session(
 mod tests {
     use super::{
         detect_in_sessions, extract_session_description, normalize_cross_platform_compare_path,
-        parse_session_file, CodexSession,
+        parse_session_file, read_latest_context_usage, CodexSession,
     };
     use std::fs;
     use tempfile::NamedTempFile;
@@ -676,6 +828,21 @@ mod tests {
         let description = extract_session_description(&path);
 
         assert_eq!(description, "fix the failing codex resume flow");
+    }
+
+    #[test]
+    fn latest_context_usage_reads_total_and_context_window() {
+        let path = write_session_file(&[
+            r#"{"type":"session_meta","payload":{"id":"codex-1","cwd":"/tmp/project","model":"gpt-5.6-sol"}}"#,
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":139000,"input_tokens":100000,"output_tokens":39000},"model_context_window":353000}}}"#,
+            "",
+        ]);
+
+        let (observation, _offset) = read_latest_context_usage(&path, 0).expect("context usage");
+        let observation = observation.expect("latest observation");
+        assert_eq!(observation.total_tokens, Some(139_000));
+        assert_eq!(observation.window_tokens, Some(353_000));
+        assert_eq!(observation.model.as_deref(), Some("gpt-5.6-sol"));
     }
 
     #[test]

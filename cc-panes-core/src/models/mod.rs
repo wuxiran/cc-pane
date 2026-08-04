@@ -1,4 +1,5 @@
 pub mod ai_panel;
+pub mod context_usage;
 pub mod external_skill;
 pub mod filesystem;
 pub mod git;
@@ -29,6 +30,7 @@ mod workspace;
 pub mod workspace_snapshot;
 pub mod wsl;
 
+pub use context_usage::{ContextUsageSnapshot, ContextUsageStatus};
 pub use external_skill::{DiscoveredExternalSkill, ExternalSkillSource};
 pub use git::{
     GitChangeStatus, GitChangedFile, GitCommit, GitDiffSpec, GitLogPage, GitLogQuery, GitRepoInfo,
