@@ -153,6 +153,7 @@
 /* ===== Light 主题（默认）— Refined Developer Tool（冷调 off-white / 发丝边框 / 柔和 elevation）===== */
 :root {
   --radius: 0.5rem;
+  color-scheme: light;
 
   /* Elevation（柔和低透明）+ 顶部内高光 */
   --sh-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
@@ -329,6 +330,7 @@
 
 /* ===== Dark 主题 — Refined Developer Tool（冷调近黑 / 发丝边框 / 明度分层 / 克制 elevation）===== */
 .dark {
+  color-scheme: dark;
   /* Elevation（暗色极克制）+ Linear 招牌顶部内高光 */
   --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --sh-md: 0 4px 14px rgba(0, 0, 0, 0.42), 0 1px 2px rgba(0, 0, 0, 0.3);
