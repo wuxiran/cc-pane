@@ -367,7 +367,7 @@ describe("terminal IME guard", () => {
     guard.dispose();
   });
 
-  it("resets stuck composition state on paste cleanup so later IME input still forwards", () => {
+  it("resets guard composition state after explicit native edit cleanup", () => {
     const textarea = document.createElement("textarea");
     const terminal = { input: vi.fn() };
     const guard = attachTerminalImeGuard({
@@ -377,15 +377,14 @@ describe("terminal IME guard", () => {
       now: () => 1000,
     });
 
-    // 组合开始后被粘贴打断，WebKitGTK 此后不再发 compositionend（issue #41）。
+    // 组合开始后被显式清理打断，WebKitGTK 此后可能不再发 compositionend（issue #41）。
     textarea.dispatchEvent(new CompositionEvent("compositionstart", {
       data: "",
       bubbles: true,
       cancelable: true,
       composed: true,
     }));
-    guard.clearNativeEditState("before-paste");
-    guard.clearNativeEditState("after-paste");
+    guard.clearNativeEditState();
 
     // 之后的中文上屏没有新的 compositionstart，guard 必须按 malformed
     // composition 接管转发，而不是因残留的 composing 标志放行（放行后
@@ -438,13 +437,12 @@ describe("terminal IME guard", () => {
       guard.dispose();
     });
 
-    it("still clears the document selection for the IME workaround reasons", () => {
+    it("clears the document selection for explicit cleanup", () => {
       const { removeAllRanges, guard } = setupGuard();
 
-      guard.clearNativeEditState("before-paste");
       guard.clearNativeEditState();
 
-      expect(removeAllRanges).toHaveBeenCalledTimes(2);
+      expect(removeAllRanges).toHaveBeenCalledTimes(1);
       guard.dispose();
     });
   });

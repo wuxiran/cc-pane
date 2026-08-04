@@ -16,6 +16,7 @@ import { createTerminalLayoutScheduler } from "./terminalLayoutScheduler";
 import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
 import { terminalRestoreLaunchQueue } from "./terminalRestoreQueue";
 import TerminalView from "./TerminalView";
+import { attachTerminalImeGuard } from "./terminalImeGuard";
 
 /* ------------------------------------------------------------------ */
 /* xterm mock                                                          */
@@ -161,6 +162,17 @@ vi.mock("./terminalImeGuard", () => ({
   })),
   isLinuxWebKitImeEnvironment: vi.fn(() => false),
 }));
+
+vi.mock("./terminalClipboard", async () => {
+  const actual = await vi.importActual<typeof import("./terminalClipboard")>("./terminalClipboard");
+  return {
+    ...actual,
+    resolveTerminalPastePayload: vi.fn().mockResolvedValue({
+      kind: "text",
+      text: "pasted text",
+    }),
+  };
+});
 
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   writeText: vi.fn().mockResolvedValue(undefined),
@@ -649,6 +661,25 @@ describe("TerminalView", () => {
       "ls -la\r",
       expect.objectContaining({ traceId: expect.any(Number) })
     );
+  });
+
+  it("does not clear native IME state around programmatic paste", async () => {
+    renderTerminalView();
+    const term = await lastTerm();
+    const textarea = term.textarea;
+    expect(textarea).not.toBeNull();
+
+    fireEvent.paste(textarea!, {
+      clipboardData: {
+        getData: vi.fn(() => "pasted text"),
+      },
+    });
+
+    await waitFor(() => expect(term.paste).toHaveBeenCalledWith("pasted text"));
+
+    const guardResults = vi.mocked(attachTerminalImeGuard).mock.results;
+    const guard = guardResults[guardResults.length - 1]?.value;
+    expect(guard?.clearNativeEditState).not.toHaveBeenCalled();
   });
 
   it("drops input typed before the session exists", async () => {

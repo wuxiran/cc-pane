@@ -1050,10 +1050,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             kind,
             textLength: text.length,
           });
-          imeGuardRef.current?.clearNativeEditState("before-paste");
           term.focus();
           term.paste(text);
-          imeGuardRef.current?.clearNativeEditState("after-paste");
         };
 
         const pasteTerminalPayload = (clipboardData?: DataTransfer | null) => {
