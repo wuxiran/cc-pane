@@ -158,4 +158,32 @@ describe("CCChanSettings", () => {
     expect(screen.getByRole("button", { name: "Reset position" })).toBeInTheDocument();
     expect(screen.queryByText("AI 引擎")).not.toBeInTheDocument();
   });
+
+  it("localizes bundled pet descriptions while keeping custom descriptions intact", async () => {
+    const yePet = {
+      ...FALLBACK_PET,
+      id: "ye-shunguang-jk",
+      displayName: "叶瞬光JK (Ye Shunguang)",
+      description: "绝区零角色叶瞬光（小师姐）的校园风小宠物，抱着笔记本和铅笔陪你工作、等待、复盘和冲刺。",
+    };
+    useCCChanStore.setState({ pets: [yePet], load: loadMock });
+
+    await i18n.changeLanguage("en");
+    render(
+      <CCChanSettings
+        value={createValue({ defaultPetId: "ye-shunguang-jk" })}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "A school-themed companion inspired by Ye Shunguang from Zenless Zone Zero, carrying a notebook and pencil to accompany you while you work, wait, review, and sprint.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(yePet.description)).not.toBeInTheDocument();
+
+    await i18n.changeLanguage("zh-CN");
+    expect(screen.getByText("来自《绝区零》叶瞬光（小师姐）的校园风小宠物，抱着笔记本和铅笔陪你工作、等待、复盘和冲刺。")).toBeInTheDocument();
+  });
 });

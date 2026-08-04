@@ -24,11 +24,21 @@ const ENGINE_OPTIONS = [
   { value: "codex", label: "Codex" },
 ] as const;
 
+const PET_DESCRIPTION_KEYS = {
+  homie: "ccchanPetDescriptionHomie",
+  "doro.codex-pet": "ccchanPetDescriptionDoro",
+  "ye-shunguang-jk": "ccchanPetDescriptionYeShunguang",
+} as const;
+
 export default function CCChanSettings({ value, onChange }: CCChanSettingsProps) {
   const { t } = useTranslation("settings");
   const pets = useCCChanStore((state) => state.pets);
   const load = useCCChanStore((state) => state.load);
   const petOptions = pets.length > 0 ? pets : [FALLBACK_PET];
+  const selectedPet = petOptions.find((pet) => pet.id === value.defaultPetId);
+  const selectedPetDescriptionKey = selectedPet
+    ? PET_DESCRIPTION_KEYS[selectedPet.id as keyof typeof PET_DESCRIPTION_KEYS]
+    : undefined;
   const [petsDir, setPetsDir] = useState<string | null>(null);
 
   useEffect(() => {
@@ -92,7 +102,9 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           ))}
         </select>
         <p className="m-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {petOptions.find((pet) => pet.id === value.defaultPetId)?.description ?? t("ccchanCurrentPet")}
+          {selectedPetDescriptionKey
+            ? t(selectedPetDescriptionKey)
+            : selectedPet?.description ?? t("ccchanCurrentPet")}
         </p>
       </div>
 
