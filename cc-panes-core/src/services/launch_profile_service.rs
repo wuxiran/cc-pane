@@ -688,6 +688,7 @@ impl LaunchProfileService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn resolve_profile_with_provider(
         &self,
         request: &LaunchProfilePreviewRequest,

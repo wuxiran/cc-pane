@@ -3046,9 +3046,8 @@ impl TerminalService {
                 .map_err(|_| AppError::from("sessions lock poisoned"))?;
             let session_ids = sessions
                 .iter()
-                .filter_map(|(session_id, session)| {
-                    (session.launch_id.as_deref() == Some(launch_id)).then(|| session_id.clone())
-                })
+                .filter(|(_, session)| session.launch_id.as_deref() == Some(launch_id))
+                .map(|(session_id, _)| session_id.clone())
                 .collect::<Vec<_>>();
             if !session_ids.is_empty() {
                 cancelled_launches.remove(launch_id);

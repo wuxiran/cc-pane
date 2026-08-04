@@ -87,6 +87,9 @@ fn sibling_temp_path(path: &Path) -> PathBuf {
     path.with_file_name(name)
 }
 
+// 两个分支各自是完整函数体，`return` 由 cfg 结构决定：Windows 上 cfg(not(windows))
+// 那段被整块剥掉，此处若去掉 return 就没有尾表达式了。
+#[allow(clippy::needless_return)]
 fn replace_file(temp_path: &Path, path: &Path) -> Result<()> {
     #[cfg(windows)]
     {

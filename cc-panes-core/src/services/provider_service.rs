@@ -110,10 +110,8 @@ impl ProviderService {
                     config
                         .default_provider_ids
                         .insert("claude".to_string(), SYSTEM_PROVIDER_ID.to_string());
-                } else if let Some(provider) = config
-                    .providers
-                    .iter()
-                    .find(|provider| provider.is_default)
+                } else if let Some(provider) =
+                    config.providers.iter().find(|provider| provider.is_default)
                 {
                     config.default_provider_ids.insert(
                         Self::native_cli_for_provider_type(provider.provider_type).to_string(),
@@ -130,9 +128,11 @@ impl ProviderService {
                     if provider_id == SYSTEM_PROVIDER_ID {
                         return cli_tool == "claude";
                     }
-                    provider_types.get(provider_id).is_some_and(|provider_type| {
-                        Self::native_cli_for_provider_type(*provider_type) == cli_tool
-                    })
+                    provider_types
+                        .get(provider_id)
+                        .is_some_and(|provider_type| {
+                            Self::native_cli_for_provider_type(*provider_type) == cli_tool
+                        })
                 });
             }
             config.default_provider_ids_version = DEFAULT_PROVIDER_IDS_VERSION;
@@ -1143,7 +1143,10 @@ mod tests {
         assert_eq!(providers.len(), 1);
         assert!(providers[0].is_default);
         assert_eq!(service.get_default_provider().unwrap().id, "a");
-        assert_eq!(service.get_default_provider_id("claude").as_deref(), Some("a"));
+        assert_eq!(
+            service.get_default_provider_id("claude").as_deref(),
+            Some("a")
+        );
         assert_eq!(service.get_default_provider_id("opencode"), None);
         assert_eq!(service.get_default_provider_id("codex"), None);
     }

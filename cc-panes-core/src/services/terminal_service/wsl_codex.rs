@@ -718,11 +718,15 @@ fn translate_wsl_adapter_arg(arg: &str, data_dir: &std::path::Path) -> Result<St
     }
 }
 
+/// managed 适配器计划：(可选的替换 argv, 追加的环境变量)
+#[cfg(windows)]
+type WslManagedAdapterPlan = (Option<Vec<String>>, HashMap<String, String>);
+
 #[cfg(windows)]
 fn build_wsl_managed_adapter_plan(
     cli_tool: CliTool,
     context: &cc_cli_adapters::CliAdapterContext,
-) -> Result<(Option<Vec<String>>, HashMap<String, String>)> {
+) -> Result<WslManagedAdapterPlan> {
     let result = match cli_tool {
         CliTool::Kimi => Some(cc_cli_adapters::CliToolAdapter::build_command(
             &cc_cli_adapters::KimiAdapter::new(),

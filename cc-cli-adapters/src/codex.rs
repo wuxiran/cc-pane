@@ -610,6 +610,9 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
     ) {
     }
 
+    // 同 atomic_file::replace_file：cfg(test) 下的 return 是结构性的，去掉会让
+    // cfg(not(test)) 那段在测试构建里被执行。
+    #[allow(clippy::needless_return)]
     fn migrate_stale_global_ccpanes_mcp_config() {
         #[cfg(test)]
         {
