@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.11.10 - 2026-08-05
+
+This release is mostly community contributions. Thanks to @zhengjunkj, @Curl-007 and @yanjiuding.
+
+### Breaking
+
+- **Codex no longer accepts `config_profile` providers.** Codex's managed configuration is written as an OpenAI-compatible provider block, and a `config_profile` binding cannot be expressed that way — it used to be accepted and then quietly ignored. It is now rejected at launch with `PROVIDER_INCOMPATIBLE` naming the offending provider. If a Codex launch stops working after upgrading, open Settings → Providers and rebind it to an OpenAI-compatible provider. `config_profile` remains valid for Claude.
+- **Per-CLI default providers whose type does not match that CLI are dropped on first launch.** These bindings could never have launched successfully; the affected CLI falls back to its native mode. Nothing tells you this happened, so if a CLI you had pointed at a specific provider starts behaving like a fresh install, check Settings → Providers first.
+
+### Added
+
+- **Providers now have an explicit managed mode.** Previously the only way to run a CLI against a non-default endpoint was to edit that CLI's own configuration files, which meant CC-Panes and the CLI could disagree about which provider was in use — and a wrong provider looks exactly like a right one. In managed mode CC-Panes writes a private, per-session configuration for the CLI instead, and a provider that cannot be honored fails the launch outright rather than silently falling back to the CLI's own settings. Your own `~/.config/opencode/config.json`, `~/.codex/`, and `~/.claude.json` are read but never written. Native mode — the CLI uses its own configuration, as before — remains available per launch profile.
+- **Model selection per provider.** Launch profiles can pin a specific model rather than taking the provider default.
+- **Context usage in the status bar.** Claude and Codex sessions show how much of the context window is consumed, so a compaction is no longer a surprise. It polls only while a supported session is active and stops while the window is hidden.
+- **Managed providers work for WSL sessions.** The configuration is written on the Linux side with paths translated accordingly, rather than pointing the CLI at a Windows path it cannot read.
+- **README documents web access and background settings**, with recordings for both.
+
+### Fixed
+
+- **OpenCode could hang forever at launch.** A managed configuration write that never completed left the launch with no timeout and no error — the pane simply stayed empty. Configuration writes now have a deadline, and a launch that exceeds the overall time limit is reported as a launch timeout, cleaned up, and distinguished from a session that genuinely exited. On a slow or network-backed disk this deadline may be tight; if you hit it, the error names the stage that timed out.
+- **Installing an update from the status bar, the home header, or Settings → About gave no warning about running sessions.** Installing stops the terminal daemon and restarts the app, which interrupts every running agent. Only the update card asked for confirmation; the other three entry points went straight to install. All of them now warn when sessions are running.
+- **Provider configuration files are written atomically**, so an interrupted write can no longer leave a CLI pointed at a truncated configuration. On Unix they are created with owner-only permissions.
+- **The layout context menu could appear behind the layout selector.**
+- **The ccchan window and the web access settings page were English-only** regardless of the selected language.
+- **Native controls follow the theme** (date pickers, scrollbars, and similar) instead of always rendering light.
+- **Pasting into the terminal no longer forces an IME context rebuild on Linux.** The rebuild was added for issue #41 (input method state surviving a paste on WebKitGTK) and has been removed after testing on Linux; the guard itself is unchanged and still covers explicit clearing. Note that no test now covers the paste path specifically — if #41 resurfaces, this is where to look.
+- **The Vite dev server no longer watches Rust build output directories**, which could grow to hundreds of thousands of files and stall the dev server.
+
 ## 0.11.9 - 2026-08-03
 
 ### Fixed
