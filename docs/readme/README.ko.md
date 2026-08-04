@@ -122,6 +122,26 @@
 <a href="../guide/06-files-and-editor.md"><picture><source srcset="../assets/readme-recordings/files-editor.gif" type="image/gif" /><img src="../assets/readme-recordings/files-editor.jpg" alt="CC-Panes 탐색기와 편집 워크플로" width="100%" /></picture></a>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>웹 접속</h3>
+<p>어느 브라우저에서든 워크스페이스에 접속하세요. 데스크톱·웹·Android가 동일한 워크스페이스 모델로 세션을 동기화합니다.</p>
+<p><a href="../guide/16-web-and-mobile.md">가이드 →</a></p>
+</td>
+<td width="50%">
+<a href="../guide/16-web-and-mobile.md"><picture><source srcset="../assets/readme-recordings/web-access.gif" type="image/gif" /><img src="../assets/readme-recordings/web-access.jpg" alt="브라우저로 CC-Panes 워크스페이스에 접속" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>배경 설정</h3>
+<p>테마, 배경화면, 불투명도, 창 효과로 셸을 개인화하세요. 외관을 재사용 가능한 프리셋으로 저장해 워크스페이스 간에 사용합니다.</p>
+<p><a href="../guide/10-settings.md">가이드 →</a></p>
+</td>
+<td width="50%">
+<a href="../guide/10-settings.md"><picture><source srcset="../assets/readme-recordings/background-settings.gif" type="image/gif" /><img src="../assets/readme-recordings/background-settings.jpg" alt="CC-Panes의 배경 및 외관 설정" width="100%" /></picture></a>
+</td>
+</tr>
 </table>
 
 **추가로 포함:**

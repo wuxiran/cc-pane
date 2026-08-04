@@ -122,6 +122,26 @@
 <a href="../guide/06-files-and-editor.md"><picture><source srcset="../assets/readme-recordings/files-editor.gif" type="image/gif" /><img src="../assets/readme-recordings/files-editor.jpg" alt="Explorateur et flux d’édition dans CC-Panes" width="100%" /></picture></a>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Accès Web</h3>
+<p>Connectez-vous à un workspace depuis n’importe quel navigateur. Gardez les sessions synchronisées entre desktop, web et Android avec le même modèle de workspace.</p>
+<p><a href="../guide/16-web-and-mobile.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="../guide/16-web-and-mobile.md"><picture><source srcset="../assets/readme-recordings/web-access.gif" type="image/gif" /><img src="../assets/readme-recordings/web-access.jpg" alt="Accès navigateur à un workspace CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Paramètres de fond</h3>
+<p>Personnalisez le shell avec thèmes, fond d’écran, opacité et effets de fenêtre. Enregistrez les apparences comme presets réutilisables entre workspaces.</p>
+<p><a href="../guide/10-settings.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="../guide/10-settings.md"><picture><source srcset="../assets/readme-recordings/background-settings.gif" type="image/gif" /><img src="../assets/readme-recordings/background-settings.jpg" alt="Paramètres de fond et d’apparence dans CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
 </table>
 
 **Également inclus :**

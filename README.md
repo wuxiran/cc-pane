@@ -139,6 +139,26 @@ Browse reusable workflows, manage global skills, and attach shared MCP services 
 <a href="docs/guide/06-files-and-editor.md"><picture><source srcset="docs/assets/readme-recordings/files-editor.gif" type="image/gif" /><img src="docs/assets/readme-recordings/files-editor.jpg" alt="Explorer and editor workflow in CC-Panes" width="100%" /></picture></a>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Web Access</h3>
+<p>Connect to a workspace from any browser. Keep sessions in sync across desktop, web, and Android with the same workspace model.</p>
+<p><a href="docs/guide/16-web-and-mobile.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="docs/guide/16-web-and-mobile.md"><picture><source srcset="docs/assets/readme-recordings/web-access.gif" type="image/gif" /><img src="docs/assets/readme-recordings/web-access.jpg" alt="Browser-based web access to a CC-Panes workspace" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Background Settings</h3>
+<p>Personalize the shell with themes, wallpaper, opacity, and window effects. Save looks as reusable presets across workspaces.</p>
+<p><a href="docs/guide/10-settings.md">Guide →</a></p>
+</td>
+<td width="50%">
+<a href="docs/guide/10-settings.md"><picture><source srcset="docs/assets/readme-recordings/background-settings.gif" type="image/gif" /><img src="docs/assets/readme-recordings/background-settings.jpg" alt="Background and appearance settings in CC-Panes" width="100%" /></picture></a>
+</td>
+</tr>
 
 </table>
 
