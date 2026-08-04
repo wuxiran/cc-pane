@@ -2410,6 +2410,7 @@ export const usePanesStore = create<PanesState>()(
           rows: 24,
           workspaceName: leaf?.workspaceName ?? tab.workspaceName,
           providerId: leaf?.providerId ?? tab.providerId,
+          modelId: leaf?.modelId ?? tab.modelId,
           providerSelection: leaf?.providerSelection ?? tab.providerSelection,
           launchProfileId: leaf?.launchProfileId ?? tab.launchProfileId,
           workspacePath: leaf?.workspacePath ?? tab.workspacePath,
