@@ -234,6 +234,7 @@ export type {
   WslDetectionStatus,
   WslDetectionResult,
 } from "./wsl";
+export type { ContextUsageStatus, ContextUsageSnapshot } from "./contextUsage";
 export type {
   TaskBindingStatus,
   TaskBindingRole,

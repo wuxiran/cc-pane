@@ -1,9 +1,9 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
-use cc_panes_core::models::UsageQueryResult;
+use cc_panes_core::models::{ContextUsageSnapshot, UsageQueryResult};
 use serde::Deserialize;
 
 use crate::state::AppState;
@@ -20,6 +20,17 @@ pub struct RecordTerminalInputRequest {
 pub struct UsageStatsQuery {
     pub range_days: Option<u32>,
     pub workspace_filter: Option<String>,
+}
+
+pub async fn query_context_usage(
+    State(state): State<AppState>,
+    Path(pty_session_id): Path<String>,
+) -> Result<Json<ContextUsageSnapshot>, (StatusCode, String)> {
+    Ok(Json(
+        state
+            .usage_stats_service
+            .context_usage_for_pty(&pty_session_id),
+    ))
 }
 
 fn service_error(error: impl ToString) -> (StatusCode, String) {

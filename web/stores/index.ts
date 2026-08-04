@@ -63,6 +63,7 @@ export { useProcessMonitorStore } from "./useProcessMonitorStore";
 export { useResourceStatsStore } from "./useResourceStatsStore";
 export { useRunnerStore } from "./useRunnerStore";
 export { useUsageStatsStore } from "./useUsageStatsStore";
+export { useContextUsageStore } from "./useContextUsageStore";
 export { useSharedMcpStore } from "./useSharedMcpStore";
 export { useOrchestratorStore } from "./useOrchestratorStore";
 export { useVoiceInputStore } from "./useVoiceInputStore";

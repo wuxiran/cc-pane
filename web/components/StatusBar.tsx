@@ -24,6 +24,7 @@ import { useWindowControl } from "@/hooks/useWindowControl";
 import { isBusyStatus } from "@/types";
 import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
 import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment";
+import ContextUsageIndicator from "@/components/ContextUsageIndicator";
 
 export default function StatusBar() {
   const { t, i18n } = useTranslation();
@@ -164,6 +165,8 @@ export default function StatusBar() {
             <span>{activeCount}</span>
           </span>
         )}
+
+        <ContextUsageIndicator />
 
         {/* 版本更新提示 */}
         {isTauriRuntime() && updateAvailable && updateVersion && (
