@@ -184,4 +184,9 @@ describe("direct color guard", () => {
       ].join("\n"),
     ).toEqual([]);
   });
+
+  it("原生表单控件应随主题使用对应的 color-scheme", () => {
+    expect(themeBlock(indexCss, ":root")).toMatch(/color-scheme:\s*light\s*;/);
+    expect(themeBlock(indexCss, ".dark")).toMatch(/color-scheme:\s*dark\s*;/);
+  });
 });
