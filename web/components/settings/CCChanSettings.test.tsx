@@ -1,7 +1,7 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FALLBACK_PET, useCCChanStore } from "@/stores/useCCChanStore";
 import type { CCChanSettings as CCChanSettingsValue } from "@/ccchan/types";
 import CCChanSettings from "./CCChanSettings";
@@ -24,9 +24,14 @@ function createValue(overrides: Partial<CCChanSettingsValue> = {}): CCChanSettin
 const loadMock = vi.fn(async () => {});
 
 describe("CCChanSettings", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    await i18n.changeLanguage("zh-CN");
     useCCChanStore.setState({ pets: [FALLBACK_PET], load: loadMock });
+  });
+
+  afterEach(async () => {
+    await i18n.changeLanguage("zh-CN");
   });
 
   it("loads pets from the store on mount", () => {
@@ -138,5 +143,19 @@ describe("CCChanSettings", () => {
     );
 
     expect(screen.getByText(/x: - · y: -/)).toBeInTheDocument();
+  });
+
+  it("switches all cc-chan setting labels with the app language", async () => {
+    await i18n.changeLanguage("en");
+    render(<CCChanSettings value={createValue()} onChange={vi.fn()} />);
+
+    expect(screen.getByText("AI Engine")).toBeInTheDocument();
+    expect(screen.getByText("Default character")).toBeInTheDocument();
+    expect(screen.getByText("Show on startup")).toBeInTheDocument();
+    expect(screen.getByText("Notification sound")).toBeInTheDocument();
+    expect(screen.getByText("Companion window visible")).toBeInTheDocument();
+    expect(screen.getByText("Current position")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset position" })).toBeInTheDocument();
+    expect(screen.queryByText("AI 引擎")).not.toBeInTheDocument();
   });
 });

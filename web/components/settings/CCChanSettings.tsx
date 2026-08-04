@@ -53,7 +53,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
       <div className="flex flex-col gap-2">
         <Label className="flex items-center gap-2">
           <Sparkles size={14} />
-          <span>AI 引擎</span>
+          <span>{t("ccchanEngine")}</span>
         </Label>
         <div className="flex flex-wrap gap-2">
           {ENGINE_OPTIONS.map((option) => {
@@ -78,7 +78,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label>默认角色</Label>
+        <Label>{t("ccchanDefaultPet")}</Label>
         <select
           value={value.defaultPetId}
           className="h-9 w-52 rounded-md px-2 text-[13px] outline-none"
@@ -92,7 +92,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           ))}
         </select>
         <p className="m-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {petOptions.find((pet) => pet.id === value.defaultPetId)?.description ?? "当前角色"}
+          {petOptions.find((pet) => pet.id === value.defaultPetId)?.description ?? t("ccchanCurrentPet")}
         </p>
       </div>
 
@@ -100,7 +100,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
         <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
           <span className="flex items-center gap-2">
             <Power size={14} />
-            开机自动显示
+            {t("ccchanAutoStart")}
           </span>
           <input
             type="checkbox"
@@ -114,7 +114,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
         <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
           <span className="flex items-center gap-2">
             <Music size={14} />
-            启用通知音
+            {t("ccchanSoundEnabled")}
           </span>
           <input
             type="checkbox"
@@ -126,7 +126,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
         </label>
 
         <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
-          <span>浮窗可见</span>
+          <span>{t("ccchanWindowVisible")}</span>
           <input
             type="checkbox"
             checked={value.windowVisible}
@@ -229,7 +229,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
       <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
         <Label className="flex items-center gap-2">
           <MapPin size={14} />
-          <span>当前位置</span>
+          <span>{t("ccchanPosition")}</span>
         </Label>
         <div className="flex items-center gap-2">
           <span
@@ -248,7 +248,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
             variant="secondary"
             onClick={() => onChange({ ...value, windowX: null, windowY: null })}
           >
-            重置位置
+            {t("ccchanResetPosition")}
           </Button>
         </div>
       </div>

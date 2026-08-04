@@ -13,7 +13,6 @@
   "resources/ImportConfirmDialog.tsx": 16,
   "selfchat/SelfChatManager.tsx": 1,
   "settings/AboutSection.tsx": 1,
-  "settings/CCChanSettings.tsx": 10,
   "settings/VoiceSection.tsx": 2,
   "sidebar/OrchestratorTaskCard.tsx": 6,
   "sidebar/OrchestratorTaskTree.tsx": 1,
