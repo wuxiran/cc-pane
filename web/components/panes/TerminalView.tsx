@@ -16,6 +16,7 @@ import { pickCreateSessionResumeId } from "./terminalResume";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
 import {
   bindTerminalSessionCallbacks,
+  createHiddenWriteFlusher,
   createTerminalExitHandler,
   type PendingSessionExit,
 } from "./terminalSessionBinding";
@@ -434,23 +435,20 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     /** desync 重同步闸门：置真期间实时输出改走积压，防 reset 抹掉快照外的新输出。 */
     const resyncInProgressRef = useRef(false);
+    const overflowResyncRef = useRef<(() => void) | null>(null);
 
-    /** 把不可见期间攒下的输出一次性写进 xterm。 */
-    const flushHiddenWrites = useCallback((reason: string) => {
-      // 重同步在途时推迟，收尾（onResyncSettled）统一放行。
-      if (resyncInProgressRef.current) return;
-      const pending = hiddenWriteBufferRef.current?.drain();
-      if (!pending) return;
-      debugLog("output.hidden.flush", { reason, length: pending.length });
-      void writeTerminalData(pending, () => {
-        syncTrackedBufferType("output.hidden.flush");
-      }).catch((error) => {
-        debugLog("output.hidden.flush.failed", {
-          reason,
-          error: getErrorMessage(error),
-        });
-      });
-    }, [debugLog, syncTrackedBufferType, writeTerminalData]);
+    const flushHiddenWrites = useMemo(
+      () =>
+        createHiddenWriteFlusher({
+          hiddenWriteBufferRef,
+          resyncActiveRef: resyncInProgressRef,
+          overflowResyncRef,
+          writeTerminalData,
+          syncTrackedBufferType,
+          debugLog,
+        }),
+      [debugLog, syncTrackedBufferType, writeTerminalData],
+    );
 
     const shouldRunWebglRecovery = useCallback(() => {
       const renderer = rendererControllerRef.current;
@@ -620,9 +618,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       desyncUnsubRef.current = null;
       // 换绑/重连时丢弃积压：上一会话的输出串进新会话会直接写坏画面。
       hiddenWriteBufferRef.current?.reset();
-      // 同理丢弃上一会话挂起的 exit 与重同步闸门，防串到新会话。
+      // 同理丢弃上一会话挂起的 exit、重同步闸门与溢出恢复入口，防串到新会话。
       pendingExitDuringResyncRef.current = null;
       resyncInProgressRef.current = false;
+      overflowResyncRef.current = null;
     }, []);
 
     // Dispose listeners, timers, observers, addons, and the terminal instance.
@@ -764,6 +763,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         unbindSessionCallbacks,
         onSessionExit: handleSessionExit,
         resyncActiveRef: resyncInProgressRef,
+        overflowResyncRef,
         flushHiddenWrites,
         pendingExitRef: pendingExitDuringResyncRef,
         debugLog,

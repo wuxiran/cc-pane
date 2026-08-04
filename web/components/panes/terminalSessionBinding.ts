@@ -93,11 +93,66 @@ export interface BindTerminalSessionCallbacksOptions {
   onSessionExit: (sessionId: string, exitCode: number) => void;
   /** desync 重同步闸门（见 createTerminalDesyncHandler 的时序契约）。 */
   resyncActiveRef: RefValue<boolean>;
+  /**
+   * 对外暴露重同步入口：隐藏积压溢出的可见性回归走同一条 snapshot 重放路
+   * （语义与 daemon desync 完全一致——积压带缺口，flush 必花屏）。解绑时置空。
+   */
+  overflowResyncRef: RefValue<(() => void) | null>;
   /** 闸门收尾放行：flush 闸门期积压。 */
   flushHiddenWrites: (reason: string) => void;
   /** resync 期间挂起的 exit，收尾时补执行（经 onSessionExit）。 */
   pendingExitRef: RefValue<PendingSessionExit | null>;
   debugLog: BindingLogger;
+}
+
+/**
+ * snapshot 重放失败（快照缺失/请求失败）时的兜底提示：画面可能有缺口，
+ * 指路右键「刷新终端显示」（Refresh Terminal Display）——它会强制 resize 让
+ * CLI 自行重绘，TUI 场景基本都能救回来。不能静默留残画面。
+ */
+const RESYNC_FAILED_NOTICE =
+  "\r\n\x1b[33m[CC-Panes] Some output could not be restored. " +
+  'Right-click → "Refresh Terminal Display" to force a redraw.\x1b[0m\r\n';
+
+interface CreateHiddenWriteFlusherOptions {
+  hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
+  resyncActiveRef: RefValue<boolean>;
+  overflowResyncRef: RefValue<(() => void) | null>;
+  writeTerminalData: (data: string, onWritten?: () => void) => Promise<void>;
+  syncTrackedBufferType: (reason: string) => void;
+  debugLog: BindingLogger;
+}
+
+/** 把不可见期间攒下的输出一次性写进 xterm（可见性回归/收尾统一入口）。 */
+export function createHiddenWriteFlusher({
+  hiddenWriteBufferRef,
+  resyncActiveRef,
+  overflowResyncRef,
+  writeTerminalData,
+  syncTrackedBufferType,
+  debugLog,
+}: CreateHiddenWriteFlusherOptions): (reason: string) => void {
+  return (reason) => {
+    // 重同步在途时推迟，收尾（onResyncSettled）统一放行。
+    if (resyncActiveRef.current) return;
+    // 积压溢出（带缺口）：flush 必花屏，改走 snapshot 重放自动恢复画面。
+    if (hiddenWriteBufferRef.current?.didOverflow() && overflowResyncRef.current) {
+      debugLog("output.hidden.overflow-resync", { reason });
+      overflowResyncRef.current();
+      return;
+    }
+    const pending = hiddenWriteBufferRef.current?.drain();
+    if (!pending) return;
+    debugLog("output.hidden.flush", { reason, length: pending.length });
+    void writeTerminalData(pending, () => {
+      syncTrackedBufferType("output.hidden.flush");
+    }).catch((error) => {
+      debugLog("output.hidden.flush.failed", {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
 }
 
 /** 输出/退出/desync 三路订阅的标准接线（从 TerminalView 抽出，行数棘轮）。 */
@@ -119,6 +174,7 @@ export async function bindTerminalSessionCallbacks(
     unbindSessionCallbacks,
     onSessionExit,
     resyncActiveRef,
+    overflowResyncRef,
     flushHiddenWrites,
     pendingExitRef,
     debugLog,
@@ -146,9 +202,7 @@ export async function bindTerminalSessionCallbacks(
   exitUnsubRef.current = await terminalService.registerExit(sessionId, (exitCode) => {
     onSessionExit(sessionId, exitCode);
   });
-  desyncUnsubRef.current = await terminalService.registerDesync(
-    sessionId,
-    createTerminalDesyncHandler({
+  const resyncHandler = createTerminalDesyncHandler({
       sessionId,
       terminalRef: terminalInstanceRef,
       hiddenWriteBufferRef,
@@ -172,10 +226,14 @@ export async function bindTerminalSessionCallbacks(
             force: true,
             allowInactive: true,
           });
+        } else {
+          // 恢复失败不能哑掉：残画面 + 一条指路提示（右键刷新可让 CLI 重绘）。
+          void writeTerminalData(RESYNC_FAILED_NOTICE).catch(() => {});
         }
       },
       debugLog,
-    }),
-  );
+    });
+  desyncUnsubRef.current = await terminalService.registerDesync(sessionId, resyncHandler);
+  overflowResyncRef.current = resyncHandler;
   debugLog("session.bind-callbacks.end", { bindSessionId: sessionId });
 }

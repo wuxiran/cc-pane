@@ -20,6 +20,11 @@ export interface TerminalHiddenWriteBuffer {
   drain(): string | null;
   /** 丢弃积压（换绑到别的会话时调用，避免上一会话的数据串到新会话）。 */
   reset(): void;
+  /**
+   * 是否已溢出（积压带缺口）。可见性回归的消费方应据此改走 snapshot 重放
+   * 而不是 drain——带缺口的积压 flush 出来必然花屏。drain/reset 会清除该标志。
+   */
+  didOverflow(): boolean;
   pendingLength(): number;
 }
 
@@ -84,6 +89,8 @@ export function createTerminalHiddenWriteBuffer({
       pendingLength = 0;
       overflowed = false;
     },
+
+    didOverflow: () => overflowed,
 
     pendingLength: () => pendingLength,
   };

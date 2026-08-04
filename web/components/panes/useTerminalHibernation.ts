@@ -83,8 +83,10 @@ export function useTerminalHibernation({
       return;
     }
     // 休眠时点的积压排在 serialize 产物之后（都是成品 VT 流，直接拼接保序）。
+    // 积压已溢出（带缺口）时不可入基底——整体作废，唤醒改走 snapshot。
+    const backlogOverflowed = hiddenWriteBufferRef.current?.didOverflow() ?? false;
     const backlog = hiddenWriteBufferRef.current?.drain();
-    if (backlog) base += backlog;
+    if (backlog && !backlogOverflowed) base += backlog;
 
     hibernatedStateRef.current = createHibernatedTerminalState({
       sessionId,
@@ -93,6 +95,7 @@ export function useTerminalHibernation({
         debugLog("hibernate.overflow", { hibernateSessionId: sessionId });
       },
     });
+    if (backlogOverflowed) hibernatedStateRef.current.markDesynced();
     debugLog("hibernate.begin", {
       hibernateSessionId: sessionId,
       baseChars: base.length,

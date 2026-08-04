@@ -214,7 +214,7 @@ PTY reader (4KB read)
 | 背压（反压上游） | ✅ WS 广播改有界 256 + desync 契约（见 §3.1）；`terminal_service.rs:2141` 的 std mpsc 仍无界（Tauri 直连路径，待观察） | ✅ `terminalWriteFlowControl.ts`（128KB/水位 10↔5）**全平台启用** |
 | 丢弃策略 | ✅ ring buffer FIFO + spinner 行过滤 + 连续空行压缩（`terminal_service.rs:592-617`）；WS 溢出整段跳过 + desync 重放 | ⚠️ 仅无订阅者时丢最旧一半（`terminalService.ts:79`） |
 | ring buffer 上限 | ✅ 20k行/20MB/8MB replay（`terminal_service.rs:849-854`） | ✅ scrollback 默认 20k，钳 200–100000，运行时热更 |
-| **后台 tab 暂停** | — | ✅ 512KB 隐藏积压 + 边沿 flush（0.11.8，`terminalHiddenWriteBuffer.ts`） |
+| **后台 tab 暂停** | — | ✅ 512KB 隐藏积压 + 边沿 flush（0.11.8）；溢出时可见性回归自动 snapshot 重放（0.11.9 后续，复用 desync 链路），截断提示仅剩退出兜底 |
 | **后台降档/休眠** | — | ✅ 5min 挂 WebGL / 30min 休眠（§3.1） |
 | renderer | — | webgl/dom；**Windows 默认 dom**（`terminalRenderer.ts:171` `windows-cjk-guard`） |
 

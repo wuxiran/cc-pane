@@ -53,6 +53,25 @@ describe("terminalHiddenWriteBuffer", () => {
     expect(buffer.pendingLength()).toBe(0);
   });
 
+  it("didOverflow 标记溢出，drain/reset 后清除（可见性回归据此改走 snapshot 重放）", () => {
+    const buffer = createTerminalHiddenWriteBuffer({
+      isVisible: () => false,
+      maxPendingChars: 4,
+    });
+
+    expect(buffer.didOverflow()).toBe(false);
+    buffer.push("12345");
+    expect(buffer.didOverflow()).toBe(true);
+
+    buffer.drain();
+    expect(buffer.didOverflow()).toBe(false);
+
+    buffer.push("67890");
+    expect(buffer.didOverflow()).toBe(true);
+    buffer.reset();
+    expect(buffer.didOverflow()).toBe(false);
+  });
+
   it("单个超大 chunk 不会被保留或切开", () => {
     const buffer = createTerminalHiddenWriteBuffer({
       isVisible: () => false,
