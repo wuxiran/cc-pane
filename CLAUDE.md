@@ -377,5 +377,6 @@ flutter pub get && flutter analyze && flutter test
 | `docs/72-legacy-branch-triage.md` | **老分支收编判定**：`git cherry` 说「未合并」≠「还有价值」——四条分支的判定结论与三层判据 |
 | `docs/74-dev-ledger.md` | **开发台账方向文档**：编排面板重定位为进行中/台账两模式，工作项骨干 = task_binding，worktree/todo/plan 为切面——四批 roadmap，实施逐批抽 plan |
 | `docs/75-layout-card-rework.md` | **布局卡片改造**：状态三重编码（形状+色+数）/ 七类 contentType 归四桁计数 / 点击跳转轮换 / 补齐浏览器·文件新建入口——新增 contentType 必须同步 `lib/tabContentType.ts` 两张表 |
+| `docs/78-tab-lifecycle-and-recovery-rework.md` | **Tab 生命周期与恢复统一重构总纲**：useTabLifecycle 钩子 + 三轴模型 + 登记表/销毁管线 + 可见性单源 (tabId,role) + checkpoint+delta 恢复归一 + daemon 边界契约——五批 roadmap（0.11.11+ 逐批抽 plan + codex 评审），含 Orca 源码对照判决 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
