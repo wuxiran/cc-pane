@@ -3,6 +3,7 @@ import { emitTo, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { MessageCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { Toaster, toast } from "sonner";
 import { useCCChanStore } from "@/stores/useCCChanStore";
@@ -65,38 +66,23 @@ interface PetPointerGesture {
   moveFailLogged: boolean;
 }
 
-const IDLE_BUBBLES = [
-  "我在旁边，有事点我。",
-  "有卡住的会话就喊我。",
-  "点我可以打开 chat。",
-  "我会安静盯着后台。",
-  "需要我看输出时叫我。",
-];
-
-const WORKING_BUBBLES = [
-  "后台还在跑，我盯着。",
-  "有任务在工作中。",
-  "我在看这些会话的状态。",
-];
-
-const WAITING_BUBBLES = [
-  "有会话像是在等输入。",
-  "右上角的小点可以跳过去。",
-  "需要回复的 tab 我会提醒。",
-];
+const IDLE_BUBBLE_KEYS = ["bubbles.idle.nearby", "bubbles.idle.stuck", "bubbles.idle.openChat", "bubbles.idle.background", "bubbles.idle.output"] as const;
+const WORKING_BUBBLE_KEYS = ["bubbles.working.running", "bubbles.working.working", "bubbles.working.status"] as const;
+const WAITING_BUBBLE_KEYS = ["bubbles.waiting.input", "bubbles.waiting.jump", "bubbles.waiting.reminder"] as const;
+type BubbleKey = (typeof IDLE_BUBBLE_KEYS | typeof WORKING_BUBBLE_KEYS | typeof WAITING_BUBBLE_KEYS)[number];
 
 function randomDelay(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
-function pickOne(items: string[]): string {
-  return items[Math.floor(Math.random() * items.length)] ?? items[0] ?? "";
+function pickOne<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)] ?? items[0]!;
 }
 
-function pickIdleBubble(state: CCChanPetState, activeSessions: number): string {
-  if (state === "waiting") return pickOne(WAITING_BUBBLES);
-  if (state === "working" || activeSessions > 0) return pickOne(WORKING_BUBBLES);
-  return pickOne(IDLE_BUBBLES);
+function pickIdleBubbleKey(state: CCChanPetState, activeSessions: number): BubbleKey {
+  if (state === "waiting") return pickOne(WAITING_BUBBLE_KEYS);
+  if (state === "working" || activeSessions > 0) return pickOne(WORKING_BUBBLE_KEYS);
+  return pickOne(IDLE_BUBBLE_KEYS);
 }
 
 function debugCCChan(event: string, payload: Record<string, unknown> = {}): void {
@@ -111,6 +97,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 export function CCChanApp() {
+  const { t } = useTranslation("ccchan");
   const settings = useCCChanStore((state) => state.settings);
   const pets = useCCChanStore((state) => state.pets);
   const expanded = useCCChanStore((state) => state.expanded);
@@ -360,7 +347,7 @@ export function CCChanApp() {
         }
 
         const id = showBubble(
-          pickIdleBubble(petStateRef.current, activeSessionCountRef.current),
+          t(pickIdleBubbleKey(petStateRef.current, activeSessionCountRef.current)),
           "idle",
         );
         hideTimer = setTimeout(() => {
@@ -381,6 +368,7 @@ export function CCChanApp() {
     expanded,
     menuPosition,
     showBubble,
+    t,
   ]);
 
   useEffect(() => {
@@ -440,10 +428,10 @@ export function CCChanApp() {
       setEventState(nextState);
       const bubbleId = showBubble(
         payload.kind === "task-complete"
-          ? `${title} 完成`
+          ? t("events.completed", { title })
           : payload.kind === "task-failed"
-            ? `${title} 失败`
-            : `${title} 等待输入`,
+            ? t("events.failed", { title })
+            : t("events.waiting", { title }),
         "event",
       );
       if (payload.kind === "task-complete") toast.success(title);
@@ -464,7 +452,7 @@ export function CCChanApp() {
       if (timer) clearTimeout(timer);
       unlisten?.();
     };
-  }, [clearBubble, showBubble]);
+  }, [clearBubble, showBubble, t]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -896,7 +884,7 @@ export function CCChanApp() {
             borderColor: "#bfdbfe",
             color: "#2563eb",
           }}
-          title="打开 cc酱对话"
+          title={t("openConversation")}
           onClick={(event) => {
             event.stopPropagation();
             debugCCChan("chat-button.click", {});
@@ -915,7 +903,7 @@ export function CCChanApp() {
           pet={selectedPet}
           state={petState}
           size={petSize}
-          title="打开 cc酱 chat"
+          title={t("openChat")}
           onContextMenu={handleContextMenu}
           onClick={(event) => {
             event.stopPropagation();

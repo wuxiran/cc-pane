@@ -236,7 +236,7 @@ export default function SortableLayoutTab({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{tabButton}</ContextMenuTrigger>
-      <ContextMenuContent className="z-[120] w-44">
+      <ContextMenuContent className="z-[160] w-44">
         {layout.kind !== "starred" ? (
           <>
             <ContextMenuItem onSelect={onStartRename}>

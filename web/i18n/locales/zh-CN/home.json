@@ -69,7 +69,7 @@
     "range30d": "30天",
     "range90d": "90天",
     "allWorkspaces": "全部工作空间",
-    "unmatchedSessions": "未匹配会话",
+    "deletedWorkspaces": "已删除空间",
     "refresh": "刷新用量统计",
     "loading": "正在加载用量统计...",
     "noData": "暂无用量数据",

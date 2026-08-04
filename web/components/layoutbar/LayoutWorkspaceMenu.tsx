@@ -25,7 +25,7 @@ export function LayoutWorkspaceMenuItems({ layout }: { layout: LayoutEntry }) {
     <>
       <ContextMenuSub>
         <ContextMenuSubTrigger>{t("bindWorkspace")}</ContextMenuSubTrigger>
-        <ContextMenuSubContent className="z-[130] max-h-64 w-48 overflow-y-auto">
+        <ContextMenuSubContent className="z-[170] max-h-64 w-48 overflow-y-auto">
           {workspaces.length === 0 ? (
             <ContextMenuItem disabled>{t("bindWorkspaceEmpty")}</ContextMenuItem>
           ) : (

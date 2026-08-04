@@ -1,0 +1,76 @@
+{
+  "brand": "cc-chan",
+  "fallbackLoadFailed": "cc-chan failed to load. Reopen the window.",
+  "openConversation": "Open cc-chan conversation",
+  "openChat": "Open cc-chan chat",
+  "contextMenu": {
+    "title": "cc-chan",
+    "openChat": "Open conversation",
+    "hide": "Hide",
+    "switchPet": "Switch character",
+    "settings": "Settings",
+    "exit": "Exit"
+  },
+  "bubbles": {
+    "idle": {
+      "nearby": "I'm nearby if you need me.",
+      "stuck": "Call me if a session gets stuck.",
+      "openChat": "Click me to open chat.",
+      "background": "I'll keep an eye on the background.",
+      "output": "Call me when you need me to check the output."
+    },
+    "working": {
+      "running": "Something is still running in the background. I'll keep watch.",
+      "working": "A task is still working.",
+      "status": "I'm watching the session statuses."
+    },
+    "waiting": {
+      "input": "A session looks like it is waiting for input.",
+      "jump": "The small dots in the top-right can take you there.",
+      "reminder": "I'll remind you when a tab needs a reply."
+    }
+  },
+  "events": {
+    "completed": "{{title}} completed",
+    "failed": "{{title}} failed",
+    "waiting": "{{title}} is waiting for input"
+  },
+  "chat": {
+    "activityRefreshing": "Refreshing {{engine}} CLI session...",
+    "activityChecking": "Checking chat session...",
+    "activityStarting": "Starting...",
+    "activityWaiting": "Waiting for a reply...",
+    "sessionInvalid": "The previous chat session is no longer available. Reconnecting.",
+    "sessionStarting": "Starting {{engine}} CLI...",
+    "sessionConnected": "{{engine}} CLI connected.",
+    "sessionStartFailed": "Start failed: {{error}}",
+    "cliReturnedError": "{{engine}} CLI returned an error.",
+    "cliExited": "{{engine}} CLI exited. Click \"Restart CLI\" to reconnect.",
+    "cliExitedWithCode": "{{engine}} CLI exited (exit {{exitCode}}). Click \"Restart CLI\" to reconnect.",
+    "sendFailed": "{{error}}. Click \"Restart CLI\" to reconnect.",
+    "refreshSession": "Refresh session",
+    "stopCurrent": "Stop current chat",
+    "close": "Close chat",
+    "empty": "Enter a message to start chatting with cc-chan.",
+    "placeholderPaused": "CLI exited. Click Restart CLI...",
+    "placeholderChecking": "Confirming chat session...",
+    "placeholderInput": "Enter a message...",
+    "placeholderStarting": "Starting chat...",
+    "send": "Send"
+  },
+  "sessionDot": {
+    "focus": "Focus session {{sessionId}}",
+    "title": "{{sessionId}} · {{status}}{{tool}}"
+  },
+  "sessionStatus": {
+    "initializing": "Initializing",
+    "idle": "Idle",
+    "thinking": "Thinking",
+    "toolRunning": "Tool running",
+    "compacting": "Compacting",
+    "waitingInput": "Waiting for input",
+    "error": "Error",
+    "exited": "Exited",
+    "active": "Active"
+  }
+}

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Bot, ChevronDown, Loader2, Maximize2, RefreshCw, Send, Square, User, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -323,7 +324,7 @@ export function ChatPanel({
   width = 432,
   height = 508,
 }: ChatPanelProps) {
-  const saveSettings = useCCChanStore((state) => state.saveSettings);
+  const { t } = useTranslation("ccchan"); const saveSettings = useCCChanStore((state) => state.saveSettings);
   const [input, setInput] = useState("");
   const [starting, setStarting] = useState(false);
   const [sending, setSending] = useState(false);
@@ -339,18 +340,17 @@ export function ChatPanel({
   const ignoredStartupOutputLoggedRef = useRef(false);
   const verifiedSessionRef = useRef<string | null>(null);
   const setMessages = onMessagesChange;
-
   const controlsDisabled = starting || sending || restarting || checkingSession || Boolean(switchingEngine);
   const inputDisabled = controlsDisabled || autoStartPaused;
   const activeEngineLabel = useMemo(() => engineLabel(settings.aiEngine), [settings.aiEngine]);
   const activityLabel = restarting
-    ? `正在刷新 ${activeEngineLabel} CLI 会话...`
+    ? t("chat.activityRefreshing", { engine: activeEngineLabel })
     : checkingSession
-      ? "正在确认 chat 会话..."
+      ? t("chat.activityChecking")
       : starting
-        ? "启动中..."
+        ? t("chat.activityStarting")
         : sending
-          ? "等待回复..."
+          ? t("chat.activityWaiting")
           : null;
 
   useEffect(() => {
@@ -381,7 +381,7 @@ export function ChatPanel({
           setError(null);
           setMessages((current) => [
             ...current,
-            createChatMessage("system", "上次 chat 会话已失效，正在重新连接。"),
+            createChatMessage("system", t("chat.sessionInvalid")),
           ].slice(-MAX_MESSAGES));
           onSessionIdChange(null);
         }
@@ -402,7 +402,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [onSessionIdChange, sessionId]);
+  }, [onSessionIdChange, sessionId, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -426,7 +426,7 @@ export function ChatPanel({
         aiEngine: settings.aiEngine,
       });
       setMessages([
-        createChatMessage("system", `正在启动 ${engineLabel(settings.aiEngine)} CLI...`),
+        createChatMessage("system", t("chat.sessionStarting", { engine: engineLabel(settings.aiEngine) })),
       ]);
       try {
         const nextSessionId = await invoke<string>("start_ccchan_chat", { aiEngine: settings.aiEngine });
@@ -435,7 +435,7 @@ export function ChatPanel({
           onSessionIdChange(nextSessionId);
           setMessages((current) => [
             ...current,
-            createChatMessage("system", `${engineLabel(settings.aiEngine)} CLI 已连接。`),
+            createChatMessage("system", t("chat.sessionConnected", { engine: engineLabel(settings.aiEngine) })),
           ].slice(-MAX_MESSAGES));
         }
         debugCCChanChat("session.start.end", {
@@ -455,7 +455,7 @@ export function ChatPanel({
           setError(message);
           setMessages((current) => [
             ...current,
-            createChatMessage("system", `启动失败：${message}`),
+            createChatMessage("system", t("chat.sessionStartFailed", { error: message })),
           ].slice(-MAX_MESSAGES));
         }
       } finally {
@@ -471,7 +471,7 @@ export function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [autoStartPaused, checkingSession, onSessionIdChange, restartRequestId, sessionId, settings.aiEngine, switchingEngine]);
+  }, [autoStartPaused, checkingSession, onSessionIdChange, restartRequestId, sessionId, settings.aiEngine, switchingEngine, t]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -506,14 +506,14 @@ export function ChatPanel({
           return;
         }
         if (event.payload.status === "error") {
-          const message = event.payload.message ?? `${engineLabel(settings.aiEngine)} CLI 返回错误。`;
+          const message = event.payload.message ?? t("chat.cliReturnedError", { engine: engineLabel(settings.aiEngine) });
           setSending(false);
           setRestarting(false);
           setError(message);
           return;
         }
         if (event.payload.status === "exited") {
-          const message = event.payload.message ?? `${engineLabel(settings.aiEngine)} CLI 已退出。点“重启 CLI”重新连接。`;
+          const message = event.payload.message ?? t("chat.cliExited", { engine: engineLabel(settings.aiEngine) });
           startingRef.current = false;
           hasSubmittedRef.current = false;
           setStarting(false);
@@ -552,7 +552,7 @@ export function ChatPanel({
       cancelled = true;
       unlisten?.();
     };
-  }, [onSessionIdChange, sessionId, settings.aiEngine]);
+  }, [onSessionIdChange, sessionId, settings.aiEngine, t]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -621,7 +621,7 @@ export function ChatPanel({
       unlisten = await getCurrentWebview().listen<TerminalExitPayload>("terminal-exit", (event) => {
         if (event.payload.sessionId !== sessionId) return;
         const exitCode = event.payload.exitCode;
-        const message = `${engineLabel(settings.aiEngine)} CLI 已退出（exit ${exitCode}）。点“重启 CLI”重新连接。`;
+        const message = t("chat.cliExitedWithCode", { engine: engineLabel(settings.aiEngine), exitCode });
         debugCCChanChat("session.exit", {
           sessionId,
           exitCode,
@@ -657,7 +657,7 @@ export function ChatPanel({
       cancelled = true;
       unlisten?.();
     };
-  }, [onSessionIdChange, sessionId, settings.aiEngine]);
+  }, [onSessionIdChange, sessionId, settings.aiEngine, t]);
 
   useEffect(() => {
     const output = outputRef.current;
@@ -704,7 +704,7 @@ export function ChatPanel({
         error: message,
         rawError: err,
       });
-      const uiMessage = `${message}。点“重启 CLI”重新连接。`;
+      const uiMessage = t("chat.sendFailed", { error: message });
       setAutoStartPaused(true);
       setError(uiMessage);
       setMessages((current) => [
@@ -740,7 +740,7 @@ export function ChatPanel({
     setAutoStartPaused(false);
     setError(null);
     setMessages([
-      createChatMessage("system", `正在刷新 ${engineLabel(settings.aiEngine)} CLI 会话...`),
+      createChatMessage("system", t("chat.activityRefreshing", { engine: engineLabel(settings.aiEngine) })),
     ]);
     setRestartRequestId((id) => id + 1);
     if (sessionId) {
@@ -858,7 +858,7 @@ export function ChatPanel({
         <div className="flex min-w-0 items-center gap-2">
           <Maximize2 size={14} style={{ color: "#2563eb" }} />
           <span className="truncate text-[13px] font-semibold" style={{ color: "#0f172a" }}>
-            cc酱 · {activeEngineLabel}
+            {t("brand")} · {activeEngineLabel}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
@@ -888,7 +888,7 @@ export function ChatPanel({
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-40"
-            title="刷新会话"
+            title={t("chat.refreshSession")}
             disabled={controlsDisabled}
             onClick={handleRestart}
           >
@@ -901,7 +901,7 @@ export function ChatPanel({
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
-            title="停止当前 chat"
+            title={t("chat.stopCurrent")}
             disabled={!sessionId}
             onClick={handleStop}
           >
@@ -910,7 +910,7 @@ export function ChatPanel({
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center rounded text-slate-700 transition-colors hover:bg-slate-100"
-            title="关闭 chat"
+            title={t("chat.close")}
             onClick={onClose}
           >
             <X size={14} />
@@ -927,7 +927,7 @@ export function ChatPanel({
           <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
             <ChevronDown size={22} style={{ color: "#64748b" }} />
             <p className="m-0 text-[12px]" style={{ color: "#64748b" }}>
-              输入消息开始和 cc酱对话。
+              {t("chat.empty")}
             </p>
           </div>
         )}
@@ -956,7 +956,7 @@ export function ChatPanel({
             background: "#ffffff",
             color: "#0f172a",
           }}
-          placeholder={autoStartPaused ? "CLI 已退出，点重启 CLI..." : checkingSession ? "确认 chat 会话..." : sessionId ? "输入消息..." : "chat 启动中..."}
+          placeholder={autoStartPaused ? t("chat.placeholderPaused") : checkingSession ? t("chat.placeholderChecking") : sessionId ? t("chat.placeholderInput") : t("chat.placeholderStarting")}
           disabled={!sessionId || inputDisabled}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
@@ -971,7 +971,7 @@ export function ChatPanel({
           className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-md transition-colors hover:bg-blue-700 disabled:opacity-50"
           style={{ background: "#2563eb", color: "#ffffff" }}
           disabled={!sessionId || inputDisabled || input.trimEnd().length === 0}
-          title="发送"
+          title={t("chat.send")}
           onClick={() => void handleSubmit()}
         >
           <Send size={16} />

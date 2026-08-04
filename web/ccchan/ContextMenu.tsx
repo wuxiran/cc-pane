@@ -1,4 +1,5 @@
 import { Bot, EyeOff, LogOut, MessageCircle, Settings, Shuffle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export interface CCChanContextMenuPosition {
   x: number;
@@ -24,12 +25,13 @@ export function ContextMenu({
   onExit,
   onClose,
 }: ContextMenuProps) {
+  const { t } = useTranslation("ccchan");
   const items = [
-    { label: "打开对话", icon: MessageCircle, action: onOpenChat, closeAfter: false },
-    { label: "隐藏", icon: EyeOff, action: onHide },
-    { label: "切换角色", icon: Shuffle, action: onSwitchPet },
-    { label: "设置", icon: Settings, action: onOpenSettings },
-    { label: "退出", icon: LogOut, action: onExit },
+    { label: t("contextMenu.openChat"), icon: MessageCircle, action: onOpenChat, closeAfter: false },
+    { label: t("contextMenu.hide"), icon: EyeOff, action: onHide },
+    { label: t("contextMenu.switchPet"), icon: Shuffle, action: onSwitchPet },
+    { label: t("contextMenu.settings"), icon: Settings, action: onOpenSettings },
+    { label: t("contextMenu.exit"), icon: LogOut, action: onExit },
   ];
 
   return (
@@ -63,7 +65,7 @@ export function ContextMenu({
       >
         <div className="flex items-center gap-2 px-3 py-2 text-[12px] font-semibold" style={{ color: "#0f172a" }}>
           <Bot size={14} />
-          <span>cc酱</span>
+          <span>{t("contextMenu.title")}</span>
         </div>
         <div className="h-px" style={{ background: "#bae6fd" }} />
         {items.map((item) => {

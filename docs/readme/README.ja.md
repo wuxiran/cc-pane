@@ -122,6 +122,26 @@
 <a href="../guide/06-files-and-editor.md"><picture><source srcset="../assets/readme-recordings/files-editor.gif" type="image/gif" /><img src="../assets/readme-recordings/files-editor.jpg" alt="CC-Panes のエクスプローラと編集ワークフロー" width="100%" /></picture></a>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Web アクセス</h3>
+<p>任意のブラウザからワークスペースに接続。デスクトップ、Web、Android で同じワークスペースモデルによりセッションを同期します。</p>
+<p><a href="../guide/16-web-and-mobile.md">ガイド →</a></p>
+</td>
+<td width="50%">
+<a href="../guide/16-web-and-mobile.md"><picture><source srcset="../assets/readme-recordings/web-access.gif" type="image/gif" /><img src="../assets/readme-recordings/web-access.jpg" alt="ブラウザから CC-Panes ワークスペースにアクセス" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>背景設定</h3>
+<p>テーマ、壁紙、不透明度、ウィンドウ効果でシェルをカスタマイズ。見た目を再利用可能なプリセットとして保存し、ワークスペース間で使い回せます。</p>
+<p><a href="../guide/10-settings.md">ガイド →</a></p>
+</td>
+<td width="50%">
+<a href="../guide/10-settings.md"><picture><source srcset="../assets/readme-recordings/background-settings.gif" type="image/gif" /><img src="../assets/readme-recordings/background-settings.jpg" alt="CC-Panes の背景と外観設定" width="100%" /></picture></a>
+</td>
+</tr>
 </table>
 
 **その他:**

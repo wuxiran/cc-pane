@@ -97,6 +97,22 @@ describe("WebAccessSection", () => {
     expect(settingsService.getWebAccessStatus).toHaveBeenCalled();
   });
 
+  it("switches Web access copy when the app language changes", async () => {
+    render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
+    await act(async () => {});
+
+    expect(screen.getByText("启动时启用 Web 端")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "打开 Web" })).toBeInTheDocument();
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    expect(screen.getByText("Enable Web on startup")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Web" })).toBeInTheDocument();
+    expect(screen.queryByText("启动时启用 Web 端")).not.toBeInTheDocument();
+  });
+
   it("emits enabled/autoOpen/authEnabled checkbox changes", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

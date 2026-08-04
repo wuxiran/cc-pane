@@ -69,7 +69,7 @@
     "range30d": "30d",
     "range90d": "90d",
     "allWorkspaces": "All workspaces",
-    "unmatchedSessions": "Unmatched sessions",
+    "deletedWorkspaces": "Deleted workspaces",
     "refresh": "Refresh usage stats",
     "loading": "Loading usage stats...",
     "noData": "No usage data yet",

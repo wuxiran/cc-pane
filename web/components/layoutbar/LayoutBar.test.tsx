@@ -249,6 +249,20 @@ describe("LayoutBar", () => {
     expect(screen.queryByRole("menuitem", { name: /删除布局|Delete Layout/i })).not.toBeInTheDocument();
   });
 
+  it("固定布局窗口内右键菜单显示在布局窗口之上", async () => {
+    const user = userEvent.setup();
+    render(<LayoutBar />);
+
+    await user.click(screen.getByRole("button", { name: /布局|Layout/i }));
+    const dialog = await screen.findByRole("dialog", { name: /布局|Layouts/i });
+    expect(dialog).toHaveClass("z-[140]");
+
+    fireEvent.contextMenu(await screen.findByText("布局 1"));
+
+    const menu = await screen.findByRole("menu");
+    expect(menu).toHaveClass("z-[160]");
+  });
+
   it("多布局时行内删除按钮打开确认框", async () => {
     const user = userEvent.setup();
     addSecondLayout();

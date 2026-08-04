@@ -122,6 +122,26 @@
 <a href="../guide/06-files-and-editor.md"><picture><source srcset="../assets/readme-recordings/files-editor.gif" type="image/gif" /><img src="../assets/readme-recordings/files-editor.jpg" alt="CC-Panes 资源管理器与编辑工作流" width="100%" /></picture></a>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>Web 端接入</h3>
+<p>从任意浏览器接入工作区，桌面、Web、Android 使用同一套工作区模型保持会话同步。</p>
+<p><a href="../guide/16-web-and-mobile.md">指南 →</a></p>
+</td>
+<td width="50%">
+<a href="../guide/16-web-and-mobile.md"><picture><source srcset="../assets/readme-recordings/web-access.gif" type="image/gif" /><img src="../assets/readme-recordings/web-access.jpg" alt="通过浏览器接入 CC-Panes 工作区" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+<h3>背景设置</h3>
+<p>通过主题、壁纸、透明度与窗口效果个性化你的 Shell，并可保存为可复用的预设跨工作区使用。</p>
+<p><a href="../guide/10-settings.md">指南 →</a></p>
+</td>
+<td width="50%">
+<a href="../guide/10-settings.md"><picture><source srcset="../assets/readme-recordings/background-settings.gif" type="image/gif" /><img src="../assets/readme-recordings/background-settings.jpg" alt="CC-Panes 背景与外观设置" width="100%" /></picture></a>
+</td>
+</tr>
 </table>
 
 **另外还包括：**

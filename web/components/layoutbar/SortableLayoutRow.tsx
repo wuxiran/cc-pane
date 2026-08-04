@@ -199,7 +199,7 @@ export function SortableLayoutRow({
         </div>
       </ContextMenuTrigger>
       {!isStarredLayout ? (
-        <ContextMenuContent className="z-[120] w-44">
+        <ContextMenuContent className="z-[160] w-44">
           <ContextMenuItem onClick={() => startRename(layout)}>
             {t("renameLayout")}
           </ContextMenuItem>
