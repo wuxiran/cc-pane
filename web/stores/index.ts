@@ -8,6 +8,10 @@ export {
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_DEFAULT,
   normalizeTerminalFontSize,
+  TERMINAL_SCROLLBACK_MIN,
+  TERMINAL_SCROLLBACK_MAX,
+  TERMINAL_SCROLLBACK_DEFAULT,
+  normalizeTerminalScrollback,
 } from "./useSettingsStore";
 export { useProjectsStore } from "./useProjectsStore";
 export { useWorkspacesStore } from "./useWorkspacesStore";

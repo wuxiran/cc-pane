@@ -185,6 +185,7 @@ vi.mock("@/services/terminalService", () => ({
     createSession: vi.fn(),
     registerOutput: vi.fn().mockResolvedValue(undefined),
     registerExit: vi.fn().mockResolvedValue(undefined),
+    registerDesync: vi.fn().mockResolvedValue(undefined),
     detachOutput: vi.fn(),
     detachExit: vi.fn(),
     resize: vi.fn().mockResolvedValue(undefined),
@@ -804,6 +805,27 @@ describe("TerminalView", () => {
     expect(term.options.cursorStyle).toBe("bar");
     expect(term.options.cursorBlink).toBe(true);
     expect(term.options.scrollback).toBe(5000);
+  });
+
+  it("applies scrollback changes to a live terminal at runtime (clamped)", async () => {
+    renderTerminalView();
+    const term = await lastTerm();
+
+    act(() => {
+      useSettingsStore.setState({
+        settings: {
+          terminal: {
+            fontSize: 15,
+            fontFamily: "monospace",
+            cursorStyle: "block",
+            cursorBlink: false,
+            scrollback: 9_999_999, // 超出上限 → 钳到 100000
+          },
+        },
+      } as never);
+    });
+
+    await waitFor(() => expect(term.options.scrollback).toBe(100_000));
   });
 
   it("swallows Codex background color queries after wallpaper transparency is enabled", async () => {

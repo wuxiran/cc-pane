@@ -85,6 +85,10 @@
   "layoutDensityComfortable": "Switch to comfortable density",
   "layoutIdle": "Idle",
   "layoutNoSessions": "No sessions",
+  "tabGroupTerminal": "terminal",
+  "tabGroupBrowser": "browser",
+  "tabGroupFiles": "files",
+  "tabGroupTools": "tool panels",
   "layoutPresets": "Layout presets",
   "layoutPresetSingle": "Single",
   "layoutPresetTwoCol": "Two columns",
@@ -196,5 +200,12 @@
     "title": "{{count}} restored terminal sessions lost their conversation history",
     "impact": "Those sessions started fresh instead of resuming. The resume id may not have reached the database; check [restore-report] and bind_resume_id in the app log.",
     "dismiss": "Dismiss"
-  }
+  },
+  "newTabMenu": "New…",
+  "newTerminalTab": "New Terminal",
+  "newBrowserTab": "New Browser",
+  "openFileTab": "Open File…",
+  "newFileExplorerTab": "Open File Tree",
+  "copyBrowserUrl": "Copy URL",
+  "copyFilePath": "Copy File Path"
 }

@@ -223,6 +223,8 @@ export interface PanesState extends BrowserTabActions {
     filePath: string,
     title: string,
     layoutId?: string,
+    /** forcePaneTab：无视 Files 视图分支，强制落成分屏区 tab（分屏区内的新建入口用） */
+    options?: { forcePaneTab?: boolean },
   ) => string | null;
   closeEditorTabsByPath: (filePath: string) => void;
   listEditorTabsAcrossLayouts: () => Array<{

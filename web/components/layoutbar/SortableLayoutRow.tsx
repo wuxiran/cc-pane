@@ -13,7 +13,9 @@ import {
 } from "@/components/ui/context-menu";
 import { LayoutWorkspaceBadge, LayoutWorkspaceMenuItems } from "./LayoutWorkspaceMenu";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
-import LayoutStatusDots from "./LayoutStatusDots";
+import LayoutStatusRow from "./LayoutStatusRow";
+import LayoutTypeCounts from "./LayoutTypeCounts";
+import { deriveLayoutTypeSummary } from "./layoutTypeSummary";
 
 export function layoutRowStyle(selected: boolean): React.CSSProperties {
   return {
@@ -44,6 +46,7 @@ export function SortableLayoutRow({
   handleContextMenuOpenChange,
   statusMap,
   onMouseEnter,
+  onJumpToTab,
   t,
 }: {
   layout: LayoutEntry;
@@ -62,8 +65,10 @@ export function SortableLayoutRow({
   handleContextMenuOpenChange: (open: boolean) => void;
   statusMap: Map<string, TerminalStatusInfo>;
   onMouseEnter: () => void;
+  onJumpToTab: (layoutId: string, paneId: string, tabId: string) => void;
   t: TFunction<"panes">;
 }) {
+  const typeCounts = deriveLayoutTypeSummary(rootPane, layout.kind);
   const {
     attributes,
     listeners,
@@ -164,8 +169,17 @@ export function SortableLayoutRow({
             </span>
             <span className="min-w-0 flex-1 truncate">{layout.name}</span>
             {isStarredLayout ? null : <LayoutWorkspaceBadge layout={layout} rootPane={rootPane} />}
-            {isStarredLayout ? null : <LayoutStatusDots rootPane={rootPane} statusMap={statusMap} />}
+            {isStarredLayout ? null : <LayoutStatusRow rootPane={rootPane} statusMap={statusMap} />}
           </button>
+          {/* 类型计数桁自身是一组 button，必须放在选择按钮**外面**——嵌套 button
+              是非法 HTML，React 会警告且点击行为不可预期。 */}
+          {isStarredLayout ? null : (
+            <LayoutTypeCounts
+              summary={typeCounts}
+              selected={selected}
+              onJump={(paneId, tabId) => onJumpToTab(layout.id, paneId, tabId)}
+            />
+          )}
           {!isStarredLayout ? (
             <button
               type="button"

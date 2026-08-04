@@ -14,12 +14,12 @@ import {
   useTerminalStatusStore,
 } from "@/stores";
 import { matchLayoutPreset } from "@/stores/usePanesStore";
-import { collectTerminalTabs } from "@/lib/paneSessions";
 import type { LayoutEntry } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
 import SortableLayoutTab from "./SortableLayoutTab";
 import { deriveLayoutStatusSummary } from "./layoutStatusSummary";
+import { deriveLayoutTypeSummary } from "./layoutTypeSummary";
 
 // 预设示意图标：16×16 小色块拼出目标分屏结构
 const PRESET_ICONS: Record<LayoutPresetId, React.ReactNode> = {
@@ -78,6 +78,8 @@ export default function LayoutTopBar() {
   const createLayout = usePanesStore((s) => s.createLayout);
   const renameLayout = usePanesStore((s) => s.renameLayout);
   const applyLayoutPreset = usePanesStore((s) => s.applyLayoutPreset);
+  const selectTab = usePanesStore((s) => s.selectTab);
+  const setActivePane = usePanesStore((s) => s.setActivePane);
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const density = useLayoutUiStore((s) => s.layoutBarDensity);
@@ -106,6 +108,15 @@ export default function LayoutTopBar() {
   function selectLayout(layoutId: string) {
     setAppViewMode("panes");
     switchLayout(layoutId);
+  }
+
+  // 类型计数桁的跳转：先切到目标布局，再把 active 指针指过去。
+  // 只改指针不动挂载——切布局的 keep-alive 靠 display:none，卸载会重建终端。
+  function jumpToTab(layoutId: string, paneId: string, tabId: string) {
+    setAppViewMode("panes");
+    if (layoutId !== currentLayoutId) switchLayout(layoutId);
+    setActivePane(paneId);
+    selectTab(paneId, tabId);
   }
 
   function startRename(layout: LayoutEntry) {
@@ -139,7 +150,7 @@ export default function LayoutTopBar() {
   return (
     <div
       className={`flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2 ${
-        density === "comfortable" ? "h-[58px]" : "h-9"
+        density === "comfortable" ? "h-[72px]" : "h-9"
       }`}
       style={{
         background: "var(--app-panel-bg)",
@@ -159,7 +170,10 @@ export default function LayoutTopBar() {
           {layouts.map((layout) => {
             const selected = layout.id === currentLayoutId;
             const tree = selected ? liveRootPane : layout.rootPane;
-            const tabCount = layout.kind === "starred" ? 0 : collectTerminalTabs(tree).length;
+            // tabCount 是**全类型** tab 总数，与下方类型计数桁各桁之和一致——
+            // 顶部写 5 而下面加起来是 3 会让人以为少的两个丢了。
+            const typeCounts = deriveLayoutTypeSummary(tree, layout.kind);
+            const tabCount = typeCounts.total;
             const statusSummary = deriveLayoutStatusSummary(tree, statusMap);
             const isEditing = editingId === layout.id;
 
@@ -193,6 +207,7 @@ export default function LayoutTopBar() {
                 selected={selected}
                 tabCount={tabCount}
                 density={density}
+                typeCounts={typeCounts}
                 statusSummary={statusSummary}
                 statusMap={statusMap}
                 idleLabel={t("layoutNoSessions")}
@@ -203,6 +218,7 @@ export default function LayoutTopBar() {
                 onStartRename={() => startRename(layout)}
                 onRequestDelete={() => requestDelete(layout)}
                 onToggleDensity={() => setDensity(nextDensity)}
+                onJumpToTab={(paneId, tabId) => jumpToTab(layout.id, paneId, tabId)}
               />
             );
           })}

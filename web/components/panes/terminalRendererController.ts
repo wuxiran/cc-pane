@@ -51,6 +51,12 @@ export interface TerminalRendererController {
   repaint: (reason: string) => void;
   clearTextureAtlas: (reason: string) => boolean;
   recreateWebgl: (reason: string) => boolean;
+  /**
+   * 后台降档：释放 WebGL context（含 16 上限的槽位），保持 DOM 渲染。
+   * 挂起期间 `configure` 只记账不重建 WebGL（防设置变更/壁纸翻转打穿挂起）。
+   */
+  suspendWebgl: (reason: string) => void;
+  resumeWebgl: (reason: string) => void;
   getDiagnostics: () => TerminalRendererDiagnostics;
   getActiveRenderer: () => ActiveTerminalRenderer;
 }
@@ -77,6 +83,7 @@ export function createTerminalRendererController({
   let webglDisposables: IDisposable[] = [];
   let disposed = false;
   let configured = false;
+  let suspended = false;
   let contextLossCount = 0;
   let atlasClearCount = 0;
   let atlasChangeCount = 0;
@@ -306,6 +313,9 @@ export function createTerminalRendererController({
     decision = nextDecision;
     configured = true;
 
+    // 挂起期间只记账：decision 保存下来，resume 时按最新决策重建。
+    if (suspended) return;
+
     if (!shouldReconfigure && (nextDecision.renderer !== "webgl" || webglAddon)) {
       return;
     }
@@ -362,12 +372,34 @@ export function createTerminalRendererController({
     }
   };
 
+  const suspendWebgl = (reason: string) => {
+    if (disposed || suspended) return;
+    suspended = true;
+    if (webglAddon) {
+      disposeWebgl(`suspend.${reason}`);
+      repaint(`suspend.${reason}`);
+      logger("renderer.webgl.suspended", { reason, ...getDiagnostics() });
+      onRendererChanged(`webgl.suspended.${reason}`, getDiagnostics());
+    }
+  };
+
+  const resumeWebgl = (reason: string) => {
+    if (disposed || !suspended) return;
+    suspended = false;
+    logger("renderer.webgl.resumed", { reason, ...getDiagnostics() });
+    // 按挂起期间可能已更新的最新决策重建（configure 内部处理 webgl/dom 分支与失败降级）。
+    configured = false;
+    configure(requestedMode);
+  };
+
   return {
     configure,
     dispose: () => {
       disposed = true;
       disposeWebgl("dispose");
     },
+    suspendWebgl,
+    resumeWebgl,
     repaint,
     clearTextureAtlas,
     recreateWebgl,

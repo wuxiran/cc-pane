@@ -28,6 +28,7 @@ export interface EditorTabActions {
     filePath: string,
     title: string,
     layoutId?: string,
+    options?: { forcePaneTab?: boolean },
   ) => string | null;
   closeEditorTabsByPath: (filePath: string) => void;
   listEditorTabsAcrossLayouts: () => EditorTabFileInfo[];
@@ -65,11 +66,15 @@ export function createEditorTabActions(
   get: () => EditorHostStore,
 ): EditorTabActions {
   return {
-    openEditor: (projectPath, filePath, title, layoutId) => {
+    openEditor: (projectPath, filePath, title, layoutId, options) => {
       // Files 视图不渲染分屏区：留在该视图的编辑面板内打开
       // （useEditorTabsStore.openFile 自带去重与 recentFiles 登记）。
+      //
+      // forcePaneTab 是给「分屏区里的新建入口」用的逃生阀：用户从 TabBar 的 ＋
+      // 点「打开文件」时，期望文件出现在**这个 pane** 里；若恰好 appViewMode 还
+      // 是 files，走上面那条岔路会返回 null、分屏区毫无反应——看着像点了没用。
       const activity = useActivityBarStore.getState();
-      if (activity.appViewMode === "files") {
+      if (activity.appViewMode === "files" && !options?.forcePaneTab) {
         useEditorTabsStore.getState().openFile(projectPath, filePath, title);
         return null;
       }
