@@ -2056,7 +2056,14 @@ impl TerminalService {
                     disable_unlisted_mcp_servers,
                 };
 
-                let result = adapter.build_command(&ctx)?;
+                let mut result = adapter.build_command(&ctx)?;
+                if provider_plan.mode == ProviderMode::Managed {
+                    result
+                        .env_remove
+                        .extend(provider_conflict_env_remove.iter().cloned());
+                    result.env_remove.sort();
+                    result.env_remove.dedup();
+                }
                 env_vars.extend(result.env_inject);
                 (result.command, result.args, result.env_remove)
             };

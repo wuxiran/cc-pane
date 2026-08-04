@@ -1145,6 +1145,25 @@ mod tests {
     }
 
     #[test]
+    fn session_config_writes_are_isolated_and_replaced_atomically() {
+        let dir = fresh_data_dir("atomic-config");
+        let adapter = OpenCodeAdapter::new();
+        let first = ctx(dir.clone());
+        let mut second = ctx(dir);
+        second.session_id = "sess-2".to_string();
+        let first_path = adapter
+            .write_session_config(&first, Some(&serde_json::json!("ccpanes")))
+            .unwrap()
+            .unwrap();
+        let second_path = adapter
+            .write_session_config(&second, Some(&serde_json::json!("ccpanes")))
+            .unwrap()
+            .unwrap();
+        assert_ne!(first_path, second_path);
+        assert!(Path::new(&first_path).is_file());
+        assert!(Path::new(&second_path).is_file());
+    }
+
     fn build_command_passes_initial_prompt_via_prompt_flag() {
         let mut c = ctx(fresh_data_dir("prompt"));
         // override 跳过可执行解析，测试不依赖本机安装 opencode
