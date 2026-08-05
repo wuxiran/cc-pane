@@ -7,11 +7,7 @@ import { terminalService, ensureListeners } from "@/services/terminalService";
 import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRestoreBarrier";
 import { devDebugLog } from "@/utils/devLogger";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
-import {
-  collectTerminalLeaves,
-  collectTerminalSessionIdsWithSavedFromTree,
-  findTerminalPane,
-} from "@/lib/paneSessions";
+import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 // 树辅助（findPane 等）与 close 系树操作已随 B1-03 下沉到 paneTreeHelpers /
@@ -32,6 +28,7 @@ import {
   syncTabTerminalState,
 } from "./paneTreeRemovalHelpers";
 import { createBackendCloseActions } from "./backendCloseActions";
+import { collectSnapshotSessionIds, reportSnapshotWouldKill } from "./snapshotSessionDiff";
 import { createPaneRemovalActions } from "./paneRemovalActions";
 import {
   activateFirstNormalLayout,
@@ -628,21 +625,6 @@ function cleanRehydratedPanes(node: PaneNode) {
   }
 }
 
-/**
- * 全部布局（含星标）的会话引用全集，**含 savedSessionId**。
- *
- * 供快照覆盖算差集用：口径必须与销毁侧一致，漏掉 savedSessionId 会把
- * 「恢复中、尚未 attach」的活会话算成待杀，开闸后就是误杀。
- */
-function collectSnapshotSessionIds(state: PanesState): string[] {
-  const ids: string[] = [];
-  for (const layout of state.layouts) {
-    const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
-    if (!tree) continue;
-    ids.push(...collectTerminalSessionIdsWithSavedFromTree(tree));
-  }
-  return ids;
-}
 
 export const usePanesStore = create<PanesState>()(
   persist(
@@ -2095,17 +2077,7 @@ export const usePanesStore = create<PanesState>()(
         applied = true;
       });
       if (applied) {
-        const afterIds = new Set(collectSnapshotSessionIds(get()));
-        const wouldKill = [...beforeIds].filter((id) => !afterIds.has(id));
-        if (wouldKill.length > 0) {
-          // 观察期日志：真杀开闸前，这里每出现一条都要能在孤儿对账 GC 里
-          // 找到对应发现；对不上说明差集算多了，开闸即误杀活会话。
-          console.info("[destroy] snapshot-apply would-kill", {
-            sessionIds: wouldKill,
-            beforeCount: beforeIds.size,
-            afterCount: afterIds.size,
-          });
-        }
+        reportSnapshotWouldKill(beforeIds, new Set(collectSnapshotSessionIds(get())));
         // 全屏中的 tab 若被快照换掉，fullscreenTabId 会悬空（poppedOutTabs
         // 上面已重置，这条是同批补的）。
         const fullscreen = useFullscreenStore.getState();
