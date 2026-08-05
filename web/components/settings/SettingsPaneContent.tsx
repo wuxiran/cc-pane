@@ -1,27 +1,30 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { isTauriRuntime } from "@/services/runtime";
 import type { SettingsDraft } from "./settingsDraft";
 import type { SettingsPaneId } from "./settingsRegistry";
 import { cn } from "@/lib/utils";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
-const AboutSection = lazy(() => import("./AboutSection"));
-const SetupGuideChecklist = lazy(() => import("@/components/onboarding/SetupGuideChecklist"));
-const CCChanSettings = lazy(() => import("./CCChanSettings"));
-const CliLaunchersSection = lazy(() => import("./CliLaunchersSection"));
-const ExperimentalSection = lazy(() => import("./ExperimentalSection"));
-const GeneralSection = lazy(() => import("./GeneralSection"));
-const ModulesSection = lazy(() => import("./ModulesSection"));
-const NotificationSection = lazy(() => import("./NotificationSection"));
-const ProviderSection = lazy(() => import("./ProviderSection"));
-const ProxySection = lazy(() => import("./ProxySection"));
-const QuickCommandsSection = lazy(() => import("./QuickCommandsSection"));
-const ScreenshotSection = lazy(() => import("./ScreenshotSection"));
-const SharedMcpSection = lazy(() => import("./SharedMcpSection"));
-const ShortcutsSection = lazy(() => import("./ShortcutsSection"));
-const TerminalSection = lazy(() => import("./TerminalSection"));
-const VoiceSection = lazy(() => import("./VoiceSection"));
-const WallpaperSection = lazy(() => import("./WallpaperSection"));
-const WebAccessSection = lazy(() => import("./WebAccessSection"));
+const AboutSection = lazyWithRetry(() => import("./AboutSection"), "AboutSection");
+const SetupGuideChecklist = lazyWithRetry(() => import("@/components/onboarding/SetupGuideChecklist"), "SetupGuideChecklist");
+const CCChanSettings = lazyWithRetry(() => import("./CCChanSettings"), "CCChanSettings");
+const CliLaunchersSection = lazyWithRetry(() => import("./CliLaunchersSection"), "CliLaunchersSection");
+const ExperimentalSection = lazyWithRetry(() => import("./ExperimentalSection"), "ExperimentalSection");
+const GeneralSection = lazyWithRetry(() => import("./GeneralSection"), "GeneralSection");
+const ModulesSection = lazyWithRetry(() => import("./ModulesSection"), "ModulesSection");
+const NotificationSection = lazyWithRetry(() => import("./NotificationSection"), "NotificationSection");
+const ProviderSection = lazyWithRetry(() => import("./ProviderSection"), "ProviderSection");
+const ProxySection = lazyWithRetry(() => import("./ProxySection"), "ProxySection");
+const QuickCommandsSection = lazyWithRetry(() => import("./QuickCommandsSection"), "QuickCommandsSection");
+const ScreenshotSection = lazyWithRetry(() => import("./ScreenshotSection"), "ScreenshotSection");
+const SharedMcpSection = lazyWithRetry(() => import("./SharedMcpSection"), "SharedMcpSection");
+const ShortcutsSection = lazyWithRetry(() => import("./ShortcutsSection"), "ShortcutsSection");
+const TerminalSection = lazyWithRetry(() => import("./TerminalSection"), "TerminalSection");
+const ThemeSection = lazyWithRetry(() => import("./ThemeSection"), "ThemeSection");
+const VoiceSection = lazyWithRetry(() => import("./VoiceSection"), "VoiceSection");
+const WallpaperSection = lazyWithRetry(() => import("./WallpaperSection"), "WallpaperSection");
+const WebAccessSection = lazyWithRetry(() => import("./WebAccessSection"), "WebAccessSection");
 
 interface SettingsPaneContentProps {
   paneId: SettingsPaneId;
@@ -52,6 +55,8 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
           }
         />
       );
+    case "theme":
+      return <ThemeSection value={draft.theme} onChange={(theme) => updateDraft({ ...draft, theme })} />;
     case "notification":
       return <NotificationSection value={draft.notification} onChange={(notification) => updateDraft({ ...draft, notification })} />;
     case "modules":
@@ -97,7 +102,7 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
 }
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
-  const hasOwnCardLayout = ["setup-guide", "provider", "cli-launchers", "shared-mcp", "quick-commands", "experimental"].includes(props.paneId);
+  const hasOwnCardLayout = ["setup-guide", "theme", "provider", "cli-launchers", "shared-mcp", "quick-commands", "experimental"].includes(props.paneId);
   const fillsAvailableHeight = props.paneId === "provider" || props.paneId === "quick-commands";
   return (
     <div
@@ -113,9 +118,14 @@ export default function SettingsPaneContent(props: SettingsPaneContentProps) {
         ],
       )}
     >
-      <Suspense fallback={null}>
-        <Pane {...props} />
-      </Suspense>
+      {/* 分片取回失败只应炸掉这一个设置分区。没有这层边界时，throw 会一路冒泡到
+          App.tsx 顶层的 ErrorBoundary，把整个窗口换成错误页——用户看到的是「应用挂了」，
+          而实际只是某个设置分区没加载出来。 */}
+      <ErrorBoundary key={props.paneId}>
+        <Suspense fallback={null}>
+          <Pane {...props} />
+        </Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

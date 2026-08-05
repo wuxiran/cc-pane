@@ -28,6 +28,45 @@ describe("historyService", () => {
         workspacePath: null,
         launchCwd: null,
         providerId: null,
+        modelId: null,
+        providerSelection: null,
+        launchProfileId: null,
+        workspaceSnapshotId: null,
+      });
+    });
+
+    it("应该把 Provider 和模型标识一起写入启动历史", async () => {
+      mockTauriInvoke({ add_launch_history: undefined });
+
+      await historyService.add(
+        "proj-model",
+        "Model Project",
+        "/path/to/model-project",
+        "claude",
+        "local",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "provider-a",
+        "claude-sonnet-4-5",
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      expect(invoke).toHaveBeenCalledWith("add_launch_history", {
+        projectId: "proj-model",
+        projectName: "Model Project",
+        projectPath: "/path/to/model-project",
+        cliTool: "claude",
+        runtimeKind: "local",
+        wslDistro: null,
+        workspaceName: null,
+        workspacePath: null,
+        launchCwd: null,
+        providerId: "provider-a",
+        modelId: "claude-sonnet-4-5",
         providerSelection: null,
         launchProfileId: null,
         workspaceSnapshotId: null,

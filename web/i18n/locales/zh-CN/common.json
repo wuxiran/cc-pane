@@ -23,6 +23,7 @@
   "errorLogWriting": "正在写入崩溃日志...",
   "errorLogWritten": "崩溃日志已写入应用日志目录。请把目录中的最新 cc-panes*.log 附到 GitHub Issue：https://github.com/wuxiran/cc-pane/issues/new",
   "errorLogFailed": "崩溃日志写入失败。请重启后到 设置 > 关于 > 打开日志目录，将最新 cc-panes*.log 附到 GitHub Issue。",
+  "errorRetryUnavailable": "页面源当前不可达（开发服务器可能未启动），已保留错误页避免刷成空白。请确认服务恢复后再重试。",
   "browse": "浏览",
   "default": "默认",
   "pin": "固定",
@@ -106,5 +107,11 @@
   "contextUsage.effective": "\u6709\u6548\u53e3\u5f84",
   "contextUsage.waiting": "\u7b49\u5f85\u9996\u6761\u7528\u91cf\u6570\u636e",
   "contextUsage.stale": "\u6570\u636e\u5df2 {{seconds}} \u79d2\u672a\u66f4\u65b0",
-  "contextUsage.error": "\u6682\u65f6\u65e0\u6cd5\u8bfb\u53d6\u4e0a\u4e0b\u6587\u7528\u91cf"
+  "contextUsage.error": "\u6682\u65f6\u65e0\u6cd5\u8bfb\u53d6\u4e0a\u4e0b\u6587\u7528\u91cf",
+  "contextUsage.windowUnknown": "\u5df2\u8bfb\u53d6\u7528\u91cf\uff0c\u4f46\u4e0a\u4e0b\u6587\u7a97\u53e3\u672a\u77e5\u3002\u8bf7\u5728 Provider \u6a21\u578b\u8bbe\u7f6e\u4e2d\u914d\u7f6e\u3002",
+  "contextUsage.windowSource": "\u7a97\u53e3\u6765\u6e90\uff1a{{source}}",
+  "contextUsage.windowSources.codexJsonl": "Codex \u8fd0\u884c\u65f6",
+  "contextUsage.windowSources.claudeJsonl": "Claude \u4f1a\u8bdd",
+  "contextUsage.windowSources.providerModel": "Provider \u6a21\u578b\u914d\u7f6e",
+  "contextUsage.windowSources.unknown": "\u672a\u77e5"
 }

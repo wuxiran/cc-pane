@@ -30,6 +30,14 @@ pub struct LatestContextUsage {
     pub model: Option<String>,
     pub window_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    pub window_diagnostic: Option<String>,
+}
+
+struct ParsedContextUsage {
+    usage: UsageEntry,
+    window_tokens: Option<u64>,
+    total_tokens: Option<u64>,
+    window_diagnostic: Option<String>,
 }
 
 const MAX_CONTEXT_USAGE_FILE_BYTES: u64 = 4 * 1024 * 1024;
@@ -394,17 +402,18 @@ pub fn read_latest_context_usage(
             continue;
         };
         latest = Some(LatestContextUsage {
-            usage: observation.0,
+            usage: observation.usage,
             model: model.clone(),
-            window_tokens: observation.1,
-            total_tokens: observation.2,
+            window_tokens: observation.window_tokens,
+            total_tokens: observation.total_tokens,
+            window_diagnostic: observation.window_diagnostic,
         });
     }
 
     Ok((latest, offset))
 }
 
-fn extract_codex_context_usage(json: &Value) -> Option<(UsageEntry, Option<u64>, Option<u64>)> {
+fn extract_codex_context_usage(json: &Value) -> Option<ParsedContextUsage> {
     let is_token_count = json.get("type").and_then(Value::as_str) == Some("event_msg")
         && json.pointer("/payload/type").and_then(Value::as_str) == Some("token_count");
     if is_token_count {
@@ -416,18 +425,20 @@ fn extract_codex_context_usage(json: &Value) -> Option<(UsageEntry, Option<u64>,
                 .zip(output)
                 .map(|(input, output)| input.saturating_add(output))
         });
-        return Some((
-            UsageEntry {
+        let (window_tokens, window_diagnostic) =
+            context_window_candidate(json.pointer("/payload/info/model_context_window"));
+        return Some(ParsedContextUsage {
+            usage: UsageEntry {
                 date: usage_date(json),
                 token_input: input.unwrap_or(0),
                 token_output: output.unwrap_or(0),
                 token_cache_read: cache_read_tokens(usage),
                 token_cache_creation: number_field(usage, &["cache_creation_input_tokens"]),
             },
-            json.pointer("/payload/info/model_context_window")
-                .and_then(Value::as_u64),
-            total,
-        ));
+            window_tokens,
+            total_tokens: total,
+            window_diagnostic,
+        });
     }
 
     if json.get("type").and_then(Value::as_str) != Some("response_item") {
@@ -447,17 +458,30 @@ fn extract_codex_context_usage(json: &Value) -> Option<(UsageEntry, Option<u64>,
     let total = input
         .zip(output)
         .map(|(input, output)| input.saturating_add(output));
-    Some((
-        UsageEntry {
+    let (window_tokens, window_diagnostic) =
+        context_window_candidate(payload.get("model_context_window"));
+    Some(ParsedContextUsage {
+        usage: UsageEntry {
             date: usage_date(json),
             token_input: input.unwrap_or(0),
             token_output: output.unwrap_or(0),
             token_cache_read: cache_read_tokens(usage),
             token_cache_creation: number_field(usage, &["cache_creation_input_tokens"]),
         },
-        payload.get("model_context_window").and_then(Value::as_u64),
-        total,
-    ))
+        window_tokens,
+        total_tokens: total,
+        window_diagnostic,
+    })
+}
+
+fn context_window_candidate(candidate: Option<&Value>) -> (Option<u64>, Option<String>) {
+    match candidate {
+        None => (None, None),
+        Some(value) => match value.as_u64() {
+            Some(window) if window >= 1_000 => (Some(window), None),
+            _ => (None, Some("WINDOW_INVALID".to_string())),
+        },
+    }
 }
 
 fn codex_model(json: &Value) -> Option<String> {
@@ -843,6 +867,22 @@ mod tests {
         assert_eq!(observation.total_tokens, Some(139_000));
         assert_eq!(observation.window_tokens, Some(353_000));
         assert_eq!(observation.model.as_deref(), Some("gpt-5.6-sol"));
+    }
+
+    #[test]
+    fn latest_context_usage_reports_an_invalid_window_candidate() {
+        let path = write_session_file(&[
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":1000,"input_tokens":900,"output_tokens":100},"model_context_window":"353000"}}}"#,
+            "",
+        ]);
+
+        let (observation, _offset) = read_latest_context_usage(&path, 0).expect("context usage");
+        let observation = observation.expect("latest observation");
+        assert_eq!(observation.window_tokens, None);
+        assert_eq!(
+            observation.window_diagnostic.as_deref(),
+            Some("WINDOW_INVALID")
+        );
     }
 
     #[test]

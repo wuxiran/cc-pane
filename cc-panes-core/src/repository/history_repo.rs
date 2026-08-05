@@ -25,6 +25,7 @@ pub struct LaunchRecord {
     pub workspace_path: Option<String>,
     pub launch_cwd: Option<String>,
     pub provider_id: Option<String>,
+    pub model_id: Option<String>,
     pub provider_selection: Option<String>,
     pub launch_profile_id: Option<String>,
     pub workspace_snapshot_id: Option<String>,
@@ -56,6 +57,7 @@ const LAUNCH_RECORD_COLUMNS: &str = "
     workspace_path,
     launch_cwd,
     provider_id,
+    model_id,
     provider_selection,
     launch_profile_id,
     COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id,
@@ -78,10 +80,11 @@ fn map_launch_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<LaunchRecord> 
         workspace_path: row.get(12)?,
         launch_cwd: row.get(13)?,
         provider_id: row.get(14)?,
-        provider_selection: row.get(15)?,
-        launch_profile_id: row.get(16)?,
-        workspace_snapshot_id: row.get(17)?,
-        resume_source: row.get(18)?,
+        model_id: row.get(15)?,
+        provider_selection: row.get(16)?,
+        launch_profile_id: row.get(17)?,
+        workspace_snapshot_id: row.get(18)?,
+        resume_source: row.get(19)?,
     })
 }
 
@@ -108,6 +111,7 @@ impl HistoryRepository {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        model_id: Option<&str>,
         provider_selection: Option<&str>,
         launch_profile_id: Option<&str>,
         workspace_snapshot_id: Option<&str>,
@@ -121,8 +125,8 @@ impl HistoryRepository {
         conn.execute(
             "INSERT INTO launch_history (
                 project_id, project_name, project_path, launched_at,
-                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, model_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             rusqlite::params![
                 project_id,
                 project_name,
@@ -135,6 +139,7 @@ impl HistoryRepository {
                 workspace_path,
                 launch_cwd,
                 provider_id,
+                model_id,
                 provider_selection,
                 launch_profile_id,
                 workspace_snapshot_id,
@@ -169,6 +174,7 @@ impl HistoryRepository {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        model_id: Option<&str>,
         provider_selection: Option<&str>,
         launch_profile_id: Option<&str>,
         workspace_snapshot_id: Option<&str>,
@@ -183,8 +189,8 @@ impl HistoryRepository {
             "INSERT INTO launch_history (
                 project_id, project_name, project_path, launched_at,
                 pty_session_id,
-                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                cli_tool, runtime_kind, wsl_distro, workspace_name, workspace_path, launch_cwd, provider_id, model_id, provider_selection, launch_profile_id, workspace_session_id, workspace_snapshot_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             rusqlite::params![
                 project_id,
                 project_name,
@@ -198,6 +204,7 @@ impl HistoryRepository {
                 workspace_path,
                 launch_cwd,
                 provider_id,
+                model_id,
                 provider_selection,
                 launch_profile_id,
                 workspace_snapshot_id,
@@ -377,19 +384,20 @@ impl HistoryRepository {
         launch_id: &str,
         pty_session_id: &str,
         cli_tool: &str,
+        model_id: Option<&str>,
     ) -> Result<Option<i64>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let affected = conn
             .execute(
                 "UPDATE launch_history
-                 SET pty_session_id = ?1
+                 SET pty_session_id = ?1, model_id = ?4
                  WHERE id = (
                      SELECT id FROM launch_history
                      WHERE project_id = ?2 AND cli_tool = ?3
                        AND (pty_session_id IS NULL OR pty_session_id = ?1)
                      ORDER BY launched_at DESC LIMIT 1
                  )",
-                rusqlite::params![pty_session_id, launch_id, cli_tool],
+                rusqlite::params![pty_session_id, launch_id, cli_tool, model_id],
             )
             .map_err(|e| {
                 error!(table = "launch_history", launch_id = %launch_id, pty_session_id = %pty_session_id, cli_tool = %cli_tool, err = %e, "SQL bind_pty_session failed");
@@ -931,6 +939,7 @@ mod tests {
                 None,
                 Some("/tmp/my-project"),
                 None,
+                None, // model_id
                 None,
                 None,
                 None,
@@ -949,6 +958,71 @@ mod tests {
         assert_eq!(found.runtime_kind, "local");
         // resume_session_id is filled later by `update_session_started`.
         assert!(found.resume_session_id.is_none());
+    }
+
+    #[test]
+    fn add_with_pty_session_preserves_provider_and_model_ids() {
+        let r = repo();
+        let launch_id = "orch-model-a";
+
+        r.add_with_pty_session(
+            launch_id,
+            "my-project",
+            "/tmp/my-project",
+            "pty-model-a",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            Some("/tmp/my-project"),
+            Some("provider-a"),
+            Some("claude-sonnet-4-5"),
+            None,
+            None,
+            None,
+        )
+        .expect("insert");
+
+        let found = r
+            .find_by_launch_id(launch_id)
+            .expect("find ok")
+            .expect("row exists");
+
+        assert_eq!(found.provider_id.as_deref(), Some("provider-a"));
+        assert_eq!(found.model_id.as_deref(), Some("claude-sonnet-4-5"));
+    }
+
+    #[test]
+    fn add_round_trip_preserves_provider_and_model_ids() {
+        let r = repo();
+        let launch_id = "launch-model-a";
+
+        r.add(
+            launch_id,
+            "my-project",
+            "/tmp/my-project",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            Some("/tmp/my-project"),
+            Some("provider-a"),
+            Some("claude-sonnet-4-5"),
+            None,
+            None,
+            None,
+        )
+        .expect("insert");
+
+        let found = r
+            .find_by_launch_id(launch_id)
+            .expect("find ok")
+            .expect("row exists");
+
+        assert_eq!(found.provider_id.as_deref(), Some("provider-a"));
+        assert_eq!(found.model_id.as_deref(), Some("claude-sonnet-4-5"));
     }
 
     #[test]
@@ -972,6 +1046,7 @@ mod tests {
             None,
             None,
             None,
+            None, // model_id
             None,
             None,
             None,
@@ -1053,6 +1128,7 @@ mod tests {
             None,
             None,
             None,
+            None, // model_id
             None,
             None,
             None,
@@ -1110,6 +1186,7 @@ mod tests {
             None,
             None,
             None,
+            None, // model_id
             None,
             None,
             None,
@@ -1182,6 +1259,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None, // model_id
                 None,
                 None,
                 None,
@@ -1220,6 +1298,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("insert");
 
@@ -1249,6 +1328,7 @@ mod tests {
             None,
             None,
             Some(r"C:\proj"),
+            None,
             None,
             None,
             None,
@@ -1318,6 +1398,7 @@ mod tests {
             None,
             Some(weird),
             Some(weird),
+            None,
             None,
             None,
             None,

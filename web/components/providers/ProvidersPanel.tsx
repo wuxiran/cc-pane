@@ -74,6 +74,7 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
   const profileCounts = useMemo(() => countProfilesPerTool(launchProfiles), [launchProfiles]);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
+  const [duplicateSeed, setDuplicateSeed] = useState<Provider | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
   const [activeTab, setActiveTab] = useState<KnownCliTool>(() => launchDefaults.tool);
 
@@ -181,7 +182,8 @@ export default function ProvidersPanel({ compact }: Props = {}) {
       name: `${p.name} (Copy)`,
       isDefault: false,
     };
-    setEditingProvider(duplicated);
+    setDuplicateSeed(duplicated);
+    setEditingProvider(null);
     setSelectedPreset(null);
     setView("form");
     toast.success(t("duplicated"));
@@ -190,18 +192,21 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   const handleSelectPreset = useCallback((preset: ProviderPreset) => {
     setSelectedPreset(preset);
     setEditingProvider(null);
+    setDuplicateSeed(null);
     setView("form");
   }, []);
 
   const handleCustomNew = useCallback(() => {
     setSelectedPreset(null);
     setEditingProvider(null);
+    setDuplicateSeed(null);
     setView("form");
   }, []);
 
   const handleBack = useCallback(() => {
     setView("list");
     setEditingProvider(null);
+    setDuplicateSeed(null);
     setSelectedPreset(null);
   }, []);
 
@@ -210,6 +215,7 @@ export default function ProvidersPanel({ compact }: Props = {}) {
     return (
       <ProviderFormPanel
         editProvider={editingProvider}
+        duplicateSeed={duplicateSeed}
         preset={selectedPreset}
         activeTab={activeTab}
         onBack={handleBack}

@@ -23,6 +23,7 @@
   "errorLogWriting": "Writing crash log...",
   "errorLogWritten": "Crash details were written to the app log directory. Attach the latest cc-panes*.log in this folder to a GitHub Issue: https://github.com/wuxiran/cc-pane/issues/new",
   "errorLogFailed": "Failed to write the crash log. After restarting, open Settings > About > Open Log Directory and attach the latest cc-panes*.log to a GitHub Issue.",
+  "errorRetryUnavailable": "The page origin is unreachable right now (the dev server may be down), so the error page was kept instead of reloading into a blank window. Retry once the service is back.",
   "browse": "Browse",
   "default": "Default",
   "pin": "Pin",
@@ -106,5 +107,11 @@
   "contextUsage.effective": "Effective",
   "contextUsage.waiting": "Waiting for usage data",
   "contextUsage.stale": "Data is {{seconds}}s old",
-  "contextUsage.error": "Context usage is unavailable"
+  "contextUsage.error": "Context usage is unavailable",
+  "contextUsage.windowUnknown": "Usage is available, but the context window is unknown. Configure it in the Provider model settings.",
+  "contextUsage.windowSource": "Window source: {{source}}",
+  "contextUsage.windowSources.codexJsonl": "Codex runtime",
+  "contextUsage.windowSources.claudeJsonl": "Claude session",
+  "contextUsage.windowSources.providerModel": "Provider model settings",
+  "contextUsage.windowSources.unknown": "Unknown"
 }

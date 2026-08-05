@@ -1,5 +1,5 @@
 import i18n from "@/i18n";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Tab } from "@/types";
@@ -7,6 +7,11 @@ import { usePanesStore, useTerminalRestoreLogStore } from "@/stores";
 import TerminalTabContent from "./TerminalTabContent";
 
 const terminalViewMock = vi.hoisted(() => vi.fn());
+const coldRestoreMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/hooks/coldTerminalRestore", () => ({
+  coldRestoreBlockedTerminal: coldRestoreMock,
+}));
 
 vi.mock("./TerminalView", () => ({
   default: vi.fn((props: { onRestoreLaunchState?: (state: string) => void }) => {
@@ -43,7 +48,10 @@ function createTerminalTab(overrides?: Partial<Tab>): Tab {
   };
 }
 
-function renderTerminalTabContent(tab: Tab, options?: { isVisible?: boolean; isActive?: boolean }) {
+function renderTerminalTabContent(
+  tab: Tab,
+  options?: { isVisible?: boolean; isActive?: boolean; showStatusBar?: boolean },
+) {
   render(
     <TooltipProvider>
       <TerminalTabContent
@@ -51,6 +59,7 @@ function renderTerminalTabContent(tab: Tab, options?: { isVisible?: boolean; isA
         isVisible={options?.isVisible ?? true}
         isActive={options?.isActive ?? true}
         layoutActive
+        showStatusBar={options?.showStatusBar}
         onSessionCreated={vi.fn()}
         onSessionExited={vi.fn()}
         onTerminalRef={vi.fn()}
@@ -63,6 +72,7 @@ describe("TerminalTabContent", () => {
   beforeEach(() => {
     useTerminalRestoreLogStore.getState().reset();
     terminalViewMock.mockClear();
+    coldRestoreMock.mockReset();
   });
 
   it("把 leaf 的 launchId 传给 TerminalView，而不是复用 tab projectId", () => {
@@ -241,5 +251,67 @@ describe("TerminalTabContent", () => {
     expect(screen.getByText("准备就绪")).toBeVisible();
     expect(screen.getByText("从左侧选择一个项目以启动终端")).toBeVisible();
     expect(screen.queryByText("正在启动终端")).not.toBeInTheDocument();
+  });
+
+  it("shows a per-terminal status bar when the layout is a grid", () => {
+    renderTerminalTabContent(
+      createTerminalTab({
+        sessionId: "session-grid",
+        cliTool: "none",
+        terminalRootPane: {
+          type: "leaf",
+          id: "leaf-1",
+          sessionId: "session-grid",
+          cliTool: "none",
+        },
+      }),
+      { showStatusBar: true },
+    );
+
+    expect(screen.getByTestId("terminal-status-bar")).toBeInTheDocument();
+  });
+
+  it("offers an explicit cold restore for a live legacy-daemon session", async () => {
+    coldRestoreMock.mockResolvedValue(undefined);
+    renderTerminalTabContent(
+      createTerminalTab({
+        terminalRootPane: {
+          type: "leaf",
+          id: "leaf-1",
+          sessionId: null,
+          restoring: true,
+          savedSessionId: "old-session",
+          restoreBlockedReason: "claims-unsupported",
+        },
+      }),
+    );
+
+    expect(screen.getByText("需要恢复旧会话")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "结束旧终端并恢复" }));
+
+    await waitFor(() => {
+      expect(coldRestoreMock).toHaveBeenCalledWith("tab-1", "leaf-1");
+    });
+  });
+
+  it("keeps the blocked surface and reports a failed legacy-daemon kill", async () => {
+    coldRestoreMock.mockRejectedValue(new Error("daemon unavailable"));
+    renderTerminalTabContent(
+      createTerminalTab({
+        terminalRootPane: {
+          type: "leaf",
+          id: "leaf-1",
+          sessionId: null,
+          restoring: true,
+          savedSessionId: "old-session",
+          restoreBlockedReason: "claims-unsupported",
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "结束旧终端并恢复" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("旧终端未能结束");
+    expect(screen.queryByTestId("terminal-view")).not.toBeInTheDocument();
   });
 });

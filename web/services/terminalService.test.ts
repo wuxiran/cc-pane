@@ -411,6 +411,31 @@ describe("terminalService", () => {
       });
     });
 
+    it("读取快照后保留此前探测到的进程内 backend 模式", async () => {
+      mockTauriInvoke({
+        get_terminal_daemon_client_info: {
+          mode: "in-process",
+          claimsSupported: false,
+        },
+        get_terminal_adoption_snapshot: {
+          claimsSupported: false,
+          capturedAtMs: 1,
+          complete: true,
+          sessions: [],
+          claims: {},
+          provenance: {},
+        },
+      });
+
+      await terminalService.getDaemonClientInfo();
+      await terminalService.getAdoptionSnapshot();
+
+      expect(terminalService.getCachedDaemonClientInfo()).toMatchObject({
+        mode: "in-process",
+        claimsSupported: false,
+      });
+    });
+
     it("claim 和 detach 分别调用 adopt/release IPC", async () => {
       mockTauriInvoke({
         adopt_terminal_session: true,

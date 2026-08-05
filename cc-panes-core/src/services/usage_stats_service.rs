@@ -3,7 +3,9 @@ use crate::models::{
     UsageStatsDelta, UsageTotals, WslDistro, WslDistroState,
 };
 use crate::repository::UsageStatsRepository;
-use crate::services::{claude_session_service, codex_session_service, LaunchHistoryService};
+use crate::services::{
+    claude_session_service, codex_session_service, LaunchHistoryService, ProviderService,
+};
 use crate::utils::{error::AppError, AppResult};
 use anyhow::{anyhow, Context, Result};
 use chrono::{Duration as ChronoDuration, Local};
@@ -53,6 +55,7 @@ struct ContextRequest {
 struct ContextObservation {
     used_tokens: u64,
     window_tokens: Option<u64>,
+    window_diagnostic: Option<String>,
     model: Option<String>,
 }
 
@@ -76,6 +79,7 @@ enum ScanOrigin {
 pub struct UsageStatsService {
     repo: Arc<UsageStatsRepository>,
     launch_history: Arc<LaunchHistoryService>,
+    provider_service: Option<Arc<ProviderService>>,
     pending_inputs: Mutex<HashMap<UsageKey, u64>>,
     wsl_distros: Mutex<Vec<WslDistro>>,
     background_started: AtomicBool,
@@ -88,16 +92,34 @@ pub struct UsageStatsService {
 
 impl UsageStatsService {
     pub fn new(repo: Arc<UsageStatsRepository>, launch_history: Arc<LaunchHistoryService>) -> Self {
+        Self::new_internal(repo, launch_history, None, None)
+    }
+
+    pub fn new_with_provider(
+        repo: Arc<UsageStatsRepository>,
+        launch_history: Arc<LaunchHistoryService>,
+        provider_service: Arc<ProviderService>,
+    ) -> Self {
+        Self::new_internal(repo, launch_history, Some(provider_service), None)
+    }
+
+    fn new_internal(
+        repo: Arc<UsageStatsRepository>,
+        launch_history: Arc<LaunchHistoryService>,
+        provider_service: Option<Arc<ProviderService>>,
+        settings: Option<Arc<crate::services::SettingsService>>,
+    ) -> Self {
         Self {
             repo,
             launch_history,
+            provider_service,
             pending_inputs: Mutex::new(HashMap::new()),
             wsl_distros: Mutex::new(Vec::new()),
             background_started: AtomicBool::new(false),
             scan_running: AtomicBool::new(false),
             context_file_cache: Mutex::new(HashMap::new()),
             context_reads: Mutex::new(HashSet::new()),
-            settings: None,
+            settings,
         }
     }
 
@@ -106,10 +128,16 @@ impl UsageStatsService {
         launch_history: Arc<LaunchHistoryService>,
         settings: Arc<crate::services::SettingsService>,
     ) -> Self {
-        Self {
-            settings: Some(settings),
-            ..Self::new(repo, launch_history)
-        }
+        Self::new_internal(repo, launch_history, None, Some(settings))
+    }
+
+    pub fn new_with_provider_and_settings(
+        repo: Arc<UsageStatsRepository>,
+        launch_history: Arc<LaunchHistoryService>,
+        provider_service: Arc<ProviderService>,
+        settings: Arc<crate::services::SettingsService>,
+    ) -> Self {
+        Self::new_internal(repo, launch_history, Some(provider_service), Some(settings))
     }
 
     /// WSL 扫描是否被设置禁用
@@ -460,7 +488,11 @@ impl UsageStatsService {
                 && entry.file_len == file_len
                 && entry.modified_at_ms == modified_at_ms
         }) {
-            return context_observation_snapshot(request, entry.observation.as_ref(), observed_at);
+            return self.context_observation_snapshot(
+                request,
+                entry.observation.as_ref(),
+                observed_at,
+            );
         }
         let from_offset = cached
             .as_ref()
@@ -483,7 +515,8 @@ impl UsageStatsService {
                                 .token_input
                                 .saturating_add(value.usage.token_cache_read)
                                 .saturating_add(value.usage.token_cache_creation),
-                            window_tokens: Some(200_000),
+                            window_tokens: value.window_tokens,
+                            window_diagnostic: value.window_diagnostic,
                             model: value.model,
                         }),
                         offset,
@@ -497,6 +530,7 @@ impl UsageStatsService {
                             value.total_tokens.map(|used_tokens| ContextObservation {
                                 used_tokens,
                                 window_tokens: value.window_tokens,
+                                window_diagnostic: value.window_diagnostic,
                                 model: value.model,
                             })
                         }),
@@ -528,7 +562,7 @@ impl UsageStatsService {
                 },
             );
         }
-        context_observation_snapshot(request, observation.as_ref(), observed_at)
+        self.context_observation_snapshot(request, observation.as_ref(), observed_at)
     }
 
     fn refresh_usage_stats_from_cache_logged(&self) {
@@ -727,6 +761,7 @@ fn valid_context_session_id(value: &str) -> bool {
 fn ready_claude_snapshot(
     resume_id: &str,
     usage: UsageEntry,
+    window_tokens: u64,
     model: Option<String>,
     observed_at: i64,
 ) -> ContextUsageSnapshot {
@@ -738,11 +773,11 @@ fn ready_claude_snapshot(
         resume_id,
         used,
         used,
-        200_000,
-        200_000,
+        window_tokens,
+        window_tokens,
         model,
         "claude-jsonl",
-        "claude-default:200k",
+        "claude-jsonl",
         observed_at,
     )
 }
@@ -757,16 +792,22 @@ fn ready_codex_snapshot(
     observed_at: i64,
 ) -> ContextUsageSnapshot {
     let Some(window) = window_tokens else {
-        return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+        return unknown_window_snapshot(
+            resume_id,
+            total_tokens.unwrap_or(0),
+            model,
+            "codex-jsonl",
+            observed_at,
+        );
     };
     let Some(raw_used) = total_tokens else {
         return ContextUsageSnapshot::error("USAGE_INVALID", observed_at);
     };
     let Some(effective_window) = window.checked_sub(CODEX_CONTEXT_BASELINE) else {
-        return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+        return unknown_window_snapshot(resume_id, raw_used, model, "codex-jsonl", observed_at);
     };
     if effective_window == 0 {
-        return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
+        return unknown_window_snapshot(resume_id, raw_used, model, "codex-jsonl", observed_at);
     }
     let effective_used = raw_used.saturating_sub(CODEX_CONTEXT_BASELINE);
     ready_snapshot(
@@ -777,56 +818,166 @@ fn ready_codex_snapshot(
         effective_window,
         model,
         "codex-jsonl",
-        "codex-model-context-window",
+        "codex-jsonl",
         observed_at,
     )
 }
 
-fn context_observation_snapshot(
-    request: &ContextRequest,
-    observation: Option<&ContextObservation>,
+impl UsageStatsService {
+    fn provider_window_for_request(&self, request: &ContextRequest) -> Option<u64> {
+        let provider_service = self.provider_service.as_ref()?;
+        let provider_id = request
+            .record
+            .provider_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        let provider = match provider_id {
+            Some(provider_id) => provider_service.get_provider(provider_id)?,
+            None => provider_service.get_default_provider_for_cli(&request.cli)?,
+        };
+        let model_id = request
+            .record
+            .model_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                provider
+                    .default_model_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+            })?;
+        provider
+            .models
+            .into_iter()
+            .find(|model| model.id == model_id)
+            .and_then(|model| model.context_window_tokens)
+    }
+
+    fn context_observation_snapshot(
+        &self,
+        request: &ContextRequest,
+        observation: Option<&ContextObservation>,
+        observed_at: i64,
+    ) -> ContextUsageSnapshot {
+        let Some(observation) = observation else {
+            return ContextUsageSnapshot::waiting("WAITING_FIRST_RESPONSE", observed_at);
+        };
+        match request.cli.as_str() {
+            "claude" => with_window_diagnostic(
+                if let Some(window) = observation.window_tokens {
+                    ready_snapshot(
+                        &request.resume_id,
+                        observation.used_tokens,
+                        observation.used_tokens,
+                        window,
+                        window,
+                        observation.model.clone(),
+                        "claude-jsonl",
+                        "claude-jsonl",
+                        observed_at,
+                    )
+                } else {
+                    match self.provider_window_for_request(request) {
+                        Some(window) => ready_snapshot(
+                            &request.resume_id,
+                            observation.used_tokens,
+                            observation.used_tokens,
+                            window,
+                            window,
+                            observation.model.clone(),
+                            "claude-jsonl",
+                            "provider-model",
+                            observed_at,
+                        ),
+                        None => unknown_window_snapshot(
+                            &request.resume_id,
+                            observation.used_tokens,
+                            observation.model.clone(),
+                            "claude-jsonl",
+                            observed_at,
+                        ),
+                    }
+                },
+                observation.window_diagnostic.as_deref(),
+            ),
+            "codex" => {
+                let (window, window_source) = match observation.window_tokens {
+                    Some(window) => (Some(window), "codex-jsonl"),
+                    None => (self.provider_window_for_request(request), "provider-model"),
+                };
+                let effective_window = window.and_then(|window| {
+                    window
+                        .checked_sub(CODEX_CONTEXT_BASELINE)
+                        .filter(|effective| *effective > 0)
+                        .map(|effective| (window, effective))
+                });
+                with_window_diagnostic(
+                    if let Some((window, effective_window)) = effective_window {
+                        ready_snapshot(
+                            &request.resume_id,
+                            observation.used_tokens,
+                            observation
+                                .used_tokens
+                                .saturating_sub(CODEX_CONTEXT_BASELINE),
+                            window,
+                            effective_window,
+                            observation.model.clone(),
+                            "codex-jsonl",
+                            window_source,
+                            observed_at,
+                        )
+                    } else {
+                        unknown_window_snapshot(
+                            &request.resume_id,
+                            observation.used_tokens,
+                            observation.model.clone(),
+                            "codex-jsonl",
+                            observed_at,
+                        )
+                    },
+                    observation.window_diagnostic.as_deref(),
+                )
+            }
+            _ => ContextUsageSnapshot::error("RUNTIME_UNSUPPORTED", observed_at),
+        }
+    }
+}
+
+fn with_window_diagnostic(
+    mut snapshot: ContextUsageSnapshot,
+    diagnostic_code: Option<&str>,
+) -> ContextUsageSnapshot {
+    if let Some(diagnostic_code) = diagnostic_code {
+        snapshot.diagnostic_code = Some(diagnostic_code.to_string());
+    }
+    snapshot
+}
+
+fn unknown_window_snapshot(
+    resume_id: &str,
+    used_tokens: u64,
+    model: Option<String>,
+    usage_source: &str,
     observed_at: i64,
 ) -> ContextUsageSnapshot {
-    let Some(observation) = observation else {
-        return ContextUsageSnapshot::waiting("WAITING_FIRST_RESPONSE", observed_at);
-    };
-    match request.cli.as_str() {
-        "claude" => ready_snapshot(
-            &request.resume_id,
-            observation.used_tokens,
-            observation.used_tokens,
-            200_000,
-            200_000,
-            observation.model.clone(),
-            "claude-jsonl",
-            "claude-default:200k",
-            observed_at,
-        ),
-        "codex" => {
-            let Some(window) = observation.window_tokens else {
-                return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
-            };
-            let Some(effective_window) = window.checked_sub(CODEX_CONTEXT_BASELINE) else {
-                return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
-            };
-            if effective_window == 0 {
-                return ContextUsageSnapshot::error("WINDOW_UNKNOWN", observed_at);
-            }
-            ready_snapshot(
-                &request.resume_id,
-                observation.used_tokens,
-                observation
-                    .used_tokens
-                    .saturating_sub(CODEX_CONTEXT_BASELINE),
-                window,
-                effective_window,
-                observation.model.clone(),
-                "codex-jsonl",
-                "codex-model-context-window",
-                observed_at,
-            )
-        }
-        _ => ContextUsageSnapshot::error("RUNTIME_UNSUPPORTED", observed_at),
+    ContextUsageSnapshot {
+        status: ContextUsageStatus::Ready,
+        used_tokens: Some(used_tokens),
+        effective_used_tokens: Some(used_tokens),
+        window_tokens: None,
+        effective_window_tokens: None,
+        used_percentage: None,
+        remaining_percentage: None,
+        model,
+        usage_source: Some(usage_source.to_string()),
+        window_source: Some("unknown".to_string()),
+        agent_session_id: Some(resume_id.to_string()),
+        parser_version: Some(CONTEXT_USAGE_PARSER_VERSION.to_string()),
+        observed_at,
+        diagnostic_code: Some("WINDOW_UNKNOWN".to_string()),
     }
 }
 
@@ -842,19 +993,18 @@ fn ready_snapshot(
     window_source: &str,
     observed_at: i64,
 ) -> ContextUsageSnapshot {
-    let percent = ((effective_used
-        .saturating_mul(100)
-        .saturating_add(effective_window / 2))
-        / effective_window)
-        .min(100) as u8;
+    let percent = effective_used
+        .checked_mul(100)
+        .and_then(|value| value.checked_add(effective_window / 2))
+        .map(|value| (value / effective_window).min(100) as u8);
     ContextUsageSnapshot {
         status: ContextUsageStatus::Ready,
         used_tokens: Some(used),
         effective_used_tokens: Some(effective_used),
         window_tokens: Some(window),
         effective_window_tokens: Some(effective_window),
-        used_percentage: Some(percent),
-        remaining_percentage: Some(100u8.saturating_sub(percent)),
+        used_percentage: percent,
+        remaining_percentage: percent.map(|value| 100u8.saturating_sub(value)),
         model,
         usage_source: Some(usage_source.to_string()),
         window_source: Some(window_source.to_string()),
@@ -1253,11 +1403,16 @@ fn should_count_input_char(ch: char) -> bool {
 mod tests {
     use super::{
         collect_codex_home_scan_roots, collect_scan_roots, count_input_chars,
-        ready_claude_snapshot, ready_codex_snapshot, valid_context_session_id, wsl_home_from_cwd,
-        ScanOrigin,
+        ready_claude_snapshot, ready_codex_snapshot, ready_snapshot, valid_context_session_id,
+        wsl_home_from_cwd, ContextObservation, ContextRequest, ScanOrigin, UsageStatsService,
     };
+    use crate::models::provider::{Provider, ProviderConfig, ProviderModel, ProviderType};
     use crate::models::{ContextUsageStatus, UsageEntry, WslDistro, WslDistroState};
+    use crate::repository::{Database, HistoryRepository, LaunchRecord, UsageStatsRepository};
+    use crate::services::{LaunchHistoryService, ProviderService};
+    use std::collections::HashMap;
     use std::fs;
+    use std::sync::Arc;
 
     fn wsl_distro(name: &str, state: WslDistroState, default_user: Option<&str>) -> WslDistro {
         WslDistro {
@@ -1309,6 +1464,7 @@ mod tests {
                 token_cache_read: 30,
                 token_cache_creation: 40,
             },
+            1_000_000,
             Some("claude-sonnet".to_string()),
             1,
         );
@@ -1316,10 +1472,7 @@ mod tests {
         assert_eq!(snapshot.status, ContextUsageStatus::Ready);
         assert_eq!(snapshot.used_tokens, Some(80));
         assert_eq!(snapshot.used_percentage, Some(0));
-        assert_eq!(
-            snapshot.window_source.as_deref(),
-            Some("claude-default:200k")
-        );
+        assert_eq!(snapshot.window_source.as_deref(), Some("claude-jsonl"));
     }
 
     #[test]
@@ -1343,6 +1496,244 @@ mod tests {
         assert_eq!(snapshot.effective_used_tokens, Some(127_000));
         assert_eq!(snapshot.effective_window_tokens, Some(341_000));
         assert_eq!(snapshot.used_percentage, Some(37));
+    }
+
+    #[test]
+    fn percentage_overflow_returns_null_without_losing_raw_usage() {
+        let snapshot = ready_snapshot(
+            "overflow-session",
+            u64::MAX,
+            u64::MAX,
+            1_000,
+            1_000,
+            None,
+            "claude-jsonl",
+            "claude-jsonl",
+            1,
+        );
+
+        assert_eq!(snapshot.used_tokens, Some(u64::MAX));
+        assert_eq!(snapshot.used_percentage, None);
+        assert_eq!(snapshot.remaining_percentage, None);
+    }
+
+    fn context_request(cli: &str, model_id: Option<&str>) -> ContextRequest {
+        ContextRequest {
+            record: LaunchRecord {
+                id: 1,
+                project_id: "project".to_string(),
+                project_name: "Project".to_string(),
+                project_path: "/tmp/project".to_string(),
+                launched_at: "2026-01-01T00:00:00Z".to_string(),
+                pty_session_id: Some("pty".to_string()),
+                resume_session_id: Some("resume".to_string()),
+                cli_tool: cli.to_string(),
+                runtime_kind: "local".to_string(),
+                wsl_distro: None,
+                last_prompt: None,
+                workspace_name: None,
+                workspace_path: None,
+                launch_cwd: None,
+                provider_id: Some("provider".to_string()),
+                model_id: model_id.map(str::to_string),
+                provider_selection: None,
+                launch_profile_id: None,
+                workspace_snapshot_id: None,
+                resume_source: None,
+            },
+            pty_session_id: "pty".to_string(),
+            cli: cli.to_string(),
+            resume_id: "resume".to_string(),
+        }
+    }
+
+    fn provider_aware_service(default_model_id: Option<&str>) -> UsageStatsService {
+        let db = Arc::new(Database::new_in_memory().expect("in-memory db"));
+        let history = Arc::new(LaunchHistoryService::new(Arc::new(HistoryRepository::new(
+            db.clone(),
+        ))));
+        let usage_repo = Arc::new(UsageStatsRepository::new(db));
+        let config_path = tempfile::tempdir().expect("provider temp dir");
+        let provider = Provider {
+            id: "provider".to_string(),
+            name: "Provider".to_string(),
+            provider_type: ProviderType::Anthropic,
+            api_key: None,
+            base_url: None,
+            region: None,
+            project_id: None,
+            aws_profile: None,
+            config_dir: None,
+            models: vec![ProviderModel {
+                id: "claude-configured".to_string(),
+                label: None,
+                default_effort: None,
+                context_window_tokens: Some(1_000_000),
+            }],
+            default_model_id: default_model_id.map(str::to_string),
+            is_default: true,
+        };
+        let mut default_provider_ids = HashMap::new();
+        default_provider_ids.insert("claude".to_string(), "other-provider".to_string());
+        let other_provider = Provider {
+            id: "other-provider".to_string(),
+            name: "Other Provider".to_string(),
+            provider_type: ProviderType::Anthropic,
+            api_key: None,
+            base_url: None,
+            region: None,
+            project_id: None,
+            aws_profile: None,
+            config_dir: None,
+            models: vec![ProviderModel {
+                id: "other-model".to_string(),
+                label: None,
+                default_effort: None,
+                context_window_tokens: Some(2_000_000),
+            }],
+            default_model_id: Some("other-model".to_string()),
+            is_default: false,
+        };
+        let config = ProviderConfig {
+            providers: vec![provider, other_provider],
+            default_provider_ids,
+            default_provider_ids_version: 2,
+            default_is_system: false,
+        };
+        let path = config_path.path().join("providers.json");
+        fs::write(
+            &path,
+            serde_json::to_string(&config).expect("provider json"),
+        )
+        .expect("write provider config");
+        let providers = Arc::new(ProviderService::new(path));
+        UsageStatsService::new_with_provider(usage_repo, history, providers)
+    }
+
+    #[test]
+    fn claude_context_uses_launch_provider_window_when_jsonl_has_none() {
+        let service = provider_aware_service(None);
+        let request = context_request("claude", Some("claude-configured"));
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 80_000,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: Some("claude-configured".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.window_tokens, Some(1_000_000));
+        assert_eq!(snapshot.window_source.as_deref(), Some("provider-model"));
+        assert_eq!(snapshot.diagnostic_code, None);
+    }
+
+    #[test]
+    fn provider_fallback_preserves_an_invalid_jsonl_window_diagnostic() {
+        let service = provider_aware_service(None);
+        let request = context_request("claude", Some("claude-configured"));
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 80_000,
+                window_tokens: None,
+                window_diagnostic: Some("WINDOW_INVALID".to_string()),
+                model: Some("claude-configured".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.window_tokens, Some(1_000_000));
+        assert_eq!(snapshot.window_source.as_deref(), Some("provider-model"));
+        assert_eq!(snapshot.diagnostic_code.as_deref(), Some("WINDOW_INVALID"));
+    }
+
+    #[test]
+    fn context_does_not_guess_a_model_from_another_provider() {
+        let service = provider_aware_service(None);
+        let request = context_request("claude", Some("other-model"));
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 80_000,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: Some("other-model".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.window_tokens, None);
+        assert_eq!(snapshot.window_source.as_deref(), Some("unknown"));
+    }
+
+    #[test]
+    fn context_without_model_uses_the_launch_provider_default() {
+        let service = provider_aware_service(Some("claude-configured"));
+        let request = context_request("claude", None);
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 80_000,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: None,
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.window_tokens, Some(1_000_000));
+        assert_eq!(snapshot.window_source.as_deref(), Some("provider-model"));
+    }
+
+    #[test]
+    fn codex_runtime_window_wins_over_provider_metadata() {
+        let service = provider_aware_service(None);
+        let request = context_request("codex", Some("claude-configured"));
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 139_000,
+                window_tokens: Some(353_000),
+                window_diagnostic: None,
+                model: Some("claude-configured".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.window_tokens, Some(353_000));
+        assert_eq!(snapshot.effective_window_tokens, Some(341_000));
+        assert_eq!(snapshot.window_source.as_deref(), Some("codex-jsonl"));
+    }
+
+    #[test]
+    fn context_without_window_is_ready_with_raw_usage_and_unknown_diagnostic() {
+        let db = Arc::new(Database::new_in_memory().expect("in-memory db"));
+        let history = Arc::new(LaunchHistoryService::new(Arc::new(HistoryRepository::new(
+            db.clone(),
+        ))));
+        let service = UsageStatsService::new(Arc::new(UsageStatsRepository::new(db)), history);
+        let request = context_request("claude", None);
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 81_234,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: None,
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.status, ContextUsageStatus::Ready);
+        assert_eq!(snapshot.used_tokens, Some(81_234));
+        assert_eq!(snapshot.effective_used_tokens, Some(81_234));
+        assert_eq!(snapshot.window_tokens, None);
+        assert_eq!(snapshot.used_percentage, None);
+        assert_eq!(snapshot.window_source.as_deref(), Some("unknown"));
+        assert_eq!(snapshot.diagnostic_code.as_deref(), Some("WINDOW_UNKNOWN"));
     }
 
     #[test]

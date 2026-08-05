@@ -100,6 +100,7 @@ import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
 import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
 import { useTerminalWheelZoom } from "./useTerminalWheelZoom";
 import { getCachedWindowsBuildNumber } from "./terminalWindows";
+import { createTerminalPathLinkIntegration } from "./terminalPathLinkRegistration";
 // 注意：resolveCliTool / resolveRuntimeKind / notifySessionClaimed 不从这里导入——
 // 它们在 0.11.8 阶段 A 已被拆到 terminalLaunchIdentity / terminalSessionNotices
 // （见上方 import）。本批抽 helpers 时一并搬过一份，合入时保留 main 的模块划分，
@@ -116,7 +117,6 @@ import {
 import "@xterm/xterm/css/xterm.css";
 
 import type { CliTool, CreateSessionRequest, SshConnectionInfo, TerminalRendererMode, TerminalThemeMode, WslLaunchInfo } from "@/types";
-
 const TERMINAL_DEBUG = import.meta.env.DEV;
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
 const WEBGL_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -853,6 +853,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // Seed the appearance baseline so the first real font change (after this
         // async terminal is created) is detected and clears the WebGL atlas.
         lastAppearanceFontRef.current = `${fontSize}|${fontFamily}`;
+        const pathLinkIntegration = createTerminalPathLinkIntegration(!isTauriRuntime() || !IS_WINDOWS, () => currentSessionIdRef.current, () => isSshRef.current, t);
         const term = new Terminal({
           allowProposedApi: true,
           // 无条件常量化：若随壁纸设置开关，切壁纸就得重建终端（渲染生命周期红线）。
@@ -872,16 +873,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               buildNumber,
             },
           }),
-          theme: xtermTheme,
+          theme: xtermTheme, linkHandler: pathLinkIntegration.linkHandler,
         });
-
         const fit = new FitAddon();
         term.loadAddon(fit);
         // 休眠（Tier2）时把整个缓冲序列化成 VT 字符串（含全部 scrollback 与颜色）。
         const serialize = new SerializeAddon();
         term.loadAddon(serialize);
         serializeAddonRef.current = serialize;
-
         term.open(terminalRef.current);
         applyTerminalElementTheme(term, xtermTheme);
         focusReportModeRef.current = false;
@@ -1026,6 +1025,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           term.parser.registerOscHandler(10, handleOscColorQuery(10)),
           term.parser.registerOscHandler(11, handleOscColorQuery(11)),
         ];
+        if (!isSshRef.current) parserDisposableRefs.current.push(pathLinkIntegration.register(term));
 
         // Use Unicode 11 widths so CJK and emoji render correctly.
         const unicode11 = new Unicode11Addon();

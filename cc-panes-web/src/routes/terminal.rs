@@ -11,11 +11,12 @@ use cc_panes_core::{
         SshConnectionInfo, TerminalReplaySnapshot,
     },
     services::{
+        resolve_terminal_path_link as resolve_core_terminal_path_link,
         session_provenance_persist::persist_created_session_or_cleanup,
-        terminal_service::SessionOutput, CreateSessionOutcome, SessionStatusInfo,
-        TerminalAdoptionSnapshot, TerminalBackend,
+        terminal_service::SessionOutput, CreateSessionOutcome, CreatedLaunchHistory,
+        ResolvedTerminalPathLink, SessionStatusInfo, TerminalAdoptionSnapshot, TerminalBackend,
     },
-    utils::{normalize_session_request_for_current_host, AppResult},
+    utils::{error::AppError, normalize_session_request_for_current_host, AppResult},
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -48,6 +49,90 @@ fn terminal_operation_error(error: impl ToString) -> (StatusCode, String) {
         StatusCode::INTERNAL_SERVER_ERROR
     };
     (status, message)
+}
+
+fn launch_project_name(project_path: &str) -> String {
+    let trimmed = project_path.trim_end_matches(['/', '\\']);
+    trimmed
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+type TerminalPathLinkHttpError = (StatusCode, Json<AppError>);
+
+fn terminal_path_link_error(error: AppError) -> TerminalPathLinkHttpError {
+    let status = match error.code() {
+        Some("TERMINAL_PATH_INVALID" | "TERMINAL_PATH_OUTSIDE_ROOT") => StatusCode::BAD_REQUEST,
+        Some("TERMINAL_PATH_CONTEXT_UNAVAILABLE" | "TERMINAL_PATH_UNAVAILABLE") => {
+            StatusCode::NOT_FOUND
+        }
+        Some("TERMINAL_PATH_REMOTE_UNSUPPORTED" | "TERMINAL_PATH_TYPE_UNSUPPORTED") => {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (status, Json(error))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveTerminalPathLinkRequest {
+    pub session_id: String,
+    pub raw_path: String,
+}
+
+pub async fn resolve_terminal_path_link(
+    State(state): State<AppState>,
+    Json(request): Json<ResolveTerminalPathLinkRequest>,
+) -> Result<Json<ResolvedTerminalPathLink>, TerminalPathLinkHttpError> {
+    let backend = state.terminal_backend.clone();
+    tokio::task::spawn_blocking(move || {
+        let context = backend.terminal_link_context(&request.session_id)?;
+        resolve_terminal_path_link_for_context(context, &request.raw_path)
+    })
+    .await
+    .map_err(|error| terminal_path_link_error(AppError::from(error.to_string())))?
+    .map(Json)
+    .map_err(terminal_path_link_error)
+}
+
+fn resolve_terminal_path_link_for_context(
+    context: Option<cc_panes_core::services::TerminalLinkContext>,
+    raw_path: &str,
+) -> AppResult<ResolvedTerminalPathLink> {
+    let context = context.ok_or_else(|| {
+        AppError::coded(
+            "TERMINAL_PATH_CONTEXT_UNAVAILABLE",
+            "The terminal path context is unavailable",
+        )
+    })?;
+    resolve_core_terminal_path_link(&context, raw_path)
+}
+
+#[cfg(test)]
+mod terminal_path_link_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_path_link_route_maps_typed_errors_without_paths() {
+        let (status, body) = terminal_path_link_error(AppError::coded(
+            "TERMINAL_PATH_OUTSIDE_ROOT",
+            "The terminal path is outside the session project",
+        ));
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.0.code(), Some("TERMINAL_PATH_OUTSIDE_ROOT"));
+        assert!(!body.0.message().contains("C:\\"));
+    }
+
+    #[test]
+    fn terminal_path_link_route_fails_closed_without_context() {
+        let error = resolve_terminal_path_link_for_context(None, "src/main.rs")
+            .expect_err("missing context");
+        assert_eq!(error.code(), Some("TERMINAL_PATH_CONTEXT_UNAVAILABLE"));
+    }
 }
 
 fn summarize_terminal_input(data: &str) -> serde_json::Value {
@@ -133,6 +218,7 @@ pub struct PartialCreateSessionRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CreateSessionResponse {
     pub session_id: String,
+    pub resolved_model_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -245,6 +331,7 @@ pub async fn create_session(
     };
     let session_id = outcome.session_id;
     let reused_existing = outcome.reused_existing;
+    let resolved_model_id = outcome.resolved_model_id;
 
     // 出生凭证必须在 session id 返回给调用方之前落进 SQLite，否则这条会话在 app
     // 重启后会被 identity-mismatch 永久拦下。fail-closed：写不进去就清掉刚建的会话。
@@ -257,9 +344,94 @@ pub async fn create_session(
     )
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
+    if let Some(launch_id) = launch_id.as_deref() {
+        let cli_tool = observation_request.effective_cli_tool();
+        let mut bound = false;
+        for attempt in 0..10 {
+            match state.launch_history_service.bind_pty_session(
+                launch_id,
+                &session_id,
+                cli_tool.as_id(),
+                resolved_model_id.as_deref(),
+            ) {
+                Ok(Some(_)) => {
+                    bound = true;
+                    break;
+                }
+                Ok(None) if attempt < 9 => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        launch_id,
+                        session_id,
+                        cli_tool = cli_tool.as_id(),
+                        error = %error,
+                        "failed to bind Web PTY to launch history"
+                    );
+                    break;
+                }
+            }
+        }
+        if !bound {
+            let runtime_kind = if observation_request.ssh.is_some() {
+                "ssh"
+            } else if observation_request.wsl.is_some() {
+                "wsl"
+            } else {
+                "local"
+            };
+            let project_name = launch_project_name(&observation_request.project_path);
+            let launch_cwd = if observation_request.ssh.is_some() {
+                Some(observation_request.project_path.as_str())
+            } else {
+                observation_request
+                    .workspace_path
+                    .as_deref()
+                    .or(Some(observation_request.project_path.as_str()))
+            };
+            if let Err(error) =
+                state
+                    .launch_history_service
+                    .bind_or_add_created_session(CreatedLaunchHistory {
+                        launch_id,
+                        project_name: &project_name,
+                        project_path: &observation_request.project_path,
+                        pty_session_id: &session_id,
+                        cli_tool: cli_tool.as_id(),
+                        runtime_kind,
+                        wsl_distro: observation_request
+                            .wsl
+                            .as_ref()
+                            .and_then(|wsl| wsl.distro.as_deref()),
+                        workspace_name: observation_request.workspace_name.as_deref(),
+                        workspace_path: observation_request.workspace_path.as_deref(),
+                        launch_cwd,
+                        provider_id: observation_request.provider_id.as_deref(),
+                        model_id: resolved_model_id.as_deref(),
+                        provider_selection: Some(observation_request.provider_selection.as_str()),
+                        launch_profile_id: observation_request.launch_profile_id.as_deref(),
+                        workspace_snapshot_id: observation_request.workspace_snapshot_id.as_deref(),
+                    })
+            {
+                tracing::warn!(
+                    launch_id,
+                    session_id,
+                    cli_tool = cli_tool.as_id(),
+                    error = %error,
+                    "failed to create fallback Web launch history row"
+                );
+            }
+        }
+    }
+
     Ok((
         StatusCode::CREATED,
-        Json(CreateSessionResponse { session_id }),
+        Json(CreateSessionResponse {
+            session_id,
+            resolved_model_id,
+        }),
     ))
 }
 
@@ -493,6 +665,7 @@ mod tests {
     struct MockTerminalBackend {
         created: Mutex<Vec<CoreCreateSessionRequest>>,
         created_session_id: Mutex<Option<String>>,
+        resolved_model_id: Mutex<Option<String>>,
         create_error: Mutex<Option<AppError>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
@@ -520,6 +693,25 @@ mod tests {
                 .unwrap()
                 .clone()
                 .unwrap_or_else(|| "created-session".to_string()))
+        }
+
+        fn create_session_with_outcome(
+            &self,
+            request: CoreCreateSessionRequest,
+        ) -> AppResult<CreateSessionOutcome> {
+            let expected_session_id = request.expected_saved_session_id.clone();
+            let requested_model_id = request.model_id.clone();
+            let session_id = self.create_session(request)?;
+            Ok(CreateSessionOutcome {
+                reused_existing: expected_session_id.as_deref() == Some(session_id.as_str()),
+                session_id,
+                resolved_model_id: self
+                    .resolved_model_id
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .or(requested_model_id),
+            })
         }
 
         fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -795,6 +987,55 @@ mod tests {
         );
         assert!(created[0].skip_mcp);
         assert_eq!(created[0].initial_prompt.as_deref(), Some("inspect"));
+    }
+
+    #[tokio::test]
+    async fn create_session_binds_resolved_model_to_launch_history() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        *backend.resolved_model_id.lock().unwrap() = Some("provider-default".to_string());
+        let state = test_state(backend);
+        state
+            .launch_history_service
+            .add(
+                "launch-model",
+                "Project",
+                "/repo",
+                "claude",
+                "local",
+                None,
+                None,
+                None,
+                None,
+                Some("provider-a"),
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("seed launch history");
+
+        let request = CreateSessionRequest {
+            core: PartialCreateSessionRequest {
+                launch_id: Some("launch-model".to_string()),
+                project_path: Some("/repo".to_string()),
+                cli_tool: CliTool::Claude,
+                provider_id: Some("provider-a".to_string()),
+                ..Default::default()
+            },
+            cwd: None,
+        };
+
+        let _response = create_session(State(state.clone()), Json(request))
+            .await
+            .expect("create session");
+
+        let record = state
+            .launch_history_service
+            .find_by_launch_id("launch-model")
+            .expect("find launch history")
+            .expect("launch history row");
+        assert_eq!(record.pty_session_id.as_deref(), Some("created-session"));
+        assert_eq!(record.model_id.as_deref(), Some("provider-default"));
     }
 
     fn restore_test_provenance() -> cc_panes_core::models::TerminalSessionProvenance {
@@ -1137,6 +1378,7 @@ mod tests {
             CreateSessionOutcome {
                 session_id: "reused".to_string(),
                 reused_existing: true,
+                resolved_model_id: None,
             },
         )
         .expect("release reused session");
@@ -1152,6 +1394,7 @@ mod tests {
             CreateSessionOutcome {
                 session_id: "fresh".to_string(),
                 reused_existing: false,
+                resolved_model_id: None,
             },
         )
         .expect("kill fresh session");

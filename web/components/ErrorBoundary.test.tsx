@@ -186,6 +186,25 @@ describe("ErrorBoundary", () => {
     )).resolves.toBe(false);
   });
 
+  test("dev server 未恢复时给出可见反馈，而不是静默无动作", async () => {
+    // 事故形态：点重试 → 探测失败 → 只 console.warn → 界面纹丝不动，看着像按钮坏了。
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    const user = userEvent.setup();
+
+    render(
+      <ErrorBoundary>
+        <DynamicImportCrashingChild />
+      </ErrorBoundary>,
+    );
+
+    await screen.findByText(logDir);
+    expect(screen.queryByText(/页面源当前不可达/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByText(/页面源当前不可达/)).toBeInTheDocument();
+  });
+
   test("disables retry until the crash log attempt finishes", async () => {
     let resolveLog!: () => void;
     vi.mocked(logError).mockReturnValueOnce(new Promise<void>((resolve) => {

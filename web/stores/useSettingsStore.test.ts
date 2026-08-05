@@ -144,6 +144,8 @@ describe("useSettingsStore", () => {
       expect(defaults.terminal.scrollback).toBe(20000);
       expect(defaults.terminal.themeMode).toBe("followApp");
       expect(defaults.terminal.rendererMode).toBe("auto");
+      expect(defaults.terminal.showContextUsage).toBe(true);
+      expect(defaults.terminal.showStatusBar).toBe(true);
       expect(defaults.terminal.autoAdoptDaemonSessions).toBe(true);
       expect(defaults.proxy.enabled).toBe(false);
       expect(defaults.general.language).toBe("zh-CN");

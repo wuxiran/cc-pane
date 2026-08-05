@@ -77,12 +77,33 @@ pub fn app_instance_id() -> &'static str {
     })
 }
 
+#[derive(Debug, Default)]
+enum ResponseField<T> {
+    #[default]
+    Missing,
+    Present(Option<T>),
+}
+
+impl<'de, T> Deserialize<'de> for ResponseField<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Option::<T>::deserialize(deserializer).map(Self::Present)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateSessionResponse {
     session_id: String,
     #[serde(default)]
     reused_existing: bool,
+    #[serde(default)]
+    resolved_model_id: ResponseField<String>,
 }
 
 #[derive(Serialize)]
@@ -223,6 +244,7 @@ impl TerminalDaemonClient {
         request: CreateSessionRequest,
     ) -> AppResult<crate::services::CreateSessionOutcome> {
         let expected_session_id = request.expected_saved_session_id.clone();
+        let requested_model_id = request.model_id.clone();
         let body =
             serde_json::to_string(&request).map_err(|error| AppError::from(error.to_string()))?;
         let response = self.request_with_timeout(
@@ -237,6 +259,10 @@ impl TerminalDaemonClient {
             reused_existing: parsed.reused_existing
                 || expected_session_id.as_deref() == Some(parsed.session_id.as_str()),
             session_id: parsed.session_id,
+            resolved_model_id: match parsed.resolved_model_id {
+                ResponseField::Missing => requested_model_id,
+                ResponseField::Present(model_id) => model_id,
+            },
         })
     }
 
@@ -1015,6 +1041,30 @@ mod tests {
 
         assert_eq!(outcome.session_id, "replacement-1");
         assert!(outcome.reused_existing);
+    }
+
+    #[test]
+    fn create_session_distinguishes_missing_and_explicit_null_resolved_model() {
+        let mut request = test_create_request();
+        request.model_id = Some("requested-model".to_string());
+        let response = http_json_response("201 Created", r#"{"sessionId":"legacy"}"#);
+        let (addr, _) = spawn_response_server(response);
+        let legacy = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1))
+            .create_session_with_outcome(request.clone())
+            .expect("legacy response");
+        assert_eq!(legacy.resolved_model_id.as_deref(), Some("requested-model"));
+
+        let response = http_json_response(
+            "201 Created",
+            r#"{"sessionId":"native","resolvedModelId":null}"#,
+        );
+        let (addr, _) = spawn_response_server(response);
+        let native = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1))
+            .create_session_with_outcome(request)
+            .expect("explicit null response");
+        assert_eq!(native.resolved_model_id, None);
     }
 
     #[test]

@@ -16,6 +16,25 @@ use tracing::{info, warn};
 const HOOK_BINARY_NAME: &str = "cc-panes-cli-hook";
 const LEGACY_HOOK_BINARY_NAME: &str = "cc-panes-hook";
 const LEGACY_PYTHON_FILES: &[&str] = &["ccpanes-inject.py", "ccpanes-plan-archive.py"];
+const PROVIDER_SETTINGS_PREFIX: &str = "claude-provider-";
+const PROVIDER_ENV_RESET_KEYS: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "AWS_REGION",
+    "AWS_PROFILE",
+    "CLOUD_ML_REGION",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+];
+const MODEL_ENV_KEYS: &[&str] = &[
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+];
 
 struct HookDef {
     name: &'static str,
@@ -153,6 +172,55 @@ impl ClaudeAdapter {
 
     fn push_yolo_mode_arg(args: &mut Vec<String>) {
         args.push("--dangerously-skip-permissions".to_string());
+    }
+
+    fn cleanup_stale_provider_settings(data_dir: &Path, current_file: &str) {
+        let Ok(entries) = fs::read_dir(data_dir) else {
+            return;
+        };
+        let cutoff = std::time::SystemTime::now() - Duration::from_secs(3600);
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(PROVIDER_SETTINGS_PREFIX)
+                && name.ends_with(".json")
+                && name != current_file
+                && entry
+                    .metadata()
+                    .and_then(|metadata| metadata.modified())
+                    .is_ok_and(|modified| modified < cutoff)
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    fn generate_provider_settings(ctx: &CliAdapterContext) -> Result<Option<String>> {
+        let Some(value) = ctx.adapter_options.get(crate::MANAGED_PROVIDER_ENV_OPTION) else {
+            return Ok(None);
+        };
+        let mut env: HashMap<String, String> = serde_json::from_value(value.clone())
+            .context("managed Claude Provider environment is invalid")?;
+        if env.is_empty() {
+            return Ok(None);
+        }
+
+        // Claude loads user settings after process creation. Explicitly reset all routing keys,
+        // then apply the selected Provider and model through command-line settings precedence.
+        for key in PROVIDER_ENV_RESET_KEYS {
+            env.entry((*key).to_string()).or_default();
+        }
+        let model = ctx.model_id().unwrap_or_default().to_string();
+        for key in MODEL_ENV_KEYS {
+            env.insert((*key).to_string(), model.clone());
+        }
+
+        let file_name = format!("{PROVIDER_SETTINGS_PREFIX}{}.json", ctx.session_id);
+        let settings_path = ctx.data_dir.join(&file_name);
+        Self::cleanup_stale_provider_settings(&ctx.data_dir, &file_name);
+        let content = serde_json::to_vec(&serde_json::json!({ "env": env }))?;
+        crate::atomic_file::write_atomic(&settings_path, content)?;
+        Ok(Some(settings_path.to_string_lossy().into_owned()))
     }
 
     /// 生成 MCP 配置文件，返回路径
@@ -959,6 +1027,10 @@ impl CliToolAdapter for ClaudeAdapter {
         let mut args = Vec::new();
 
         crate::push_model_arg(&mut args, ctx);
+        if let Some(settings_path) = Self::generate_provider_settings(ctx)? {
+            args.push("--settings".to_string());
+            args.push(settings_path);
+        }
 
         // Resume（claude --resume 复用原会话 id，无需重新发号/捕获）
         if let Some(ref rid) = ctx.resume_id {
@@ -1351,6 +1423,56 @@ mod tests {
             .expect("prompt separator present");
         assert!(model_pos < resume_pos);
         assert!(resume_pos < prompt_pos);
+    }
+
+    #[test]
+    fn build_command_overrides_user_routing_with_managed_provider_settings() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some(r"C:\Tools\claude.exe"));
+        ctx.data_dir = dir.path().to_path_buf();
+        ctx.adapter_options.insert(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("claude-sonnet-5"),
+        );
+        ctx.adapter_options.insert(
+            crate::MANAGED_PROVIDER_ENV_OPTION.to_string(),
+            serde_json::json!({
+                "ANTHROPIC_API_KEY": "provider-secret",
+                "ANTHROPIC_BASE_URL": "https://provider.example.test"
+            }),
+        );
+
+        let result = adapter.build_command(&ctx).unwrap();
+        let settings_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "--settings")
+            .expect("managed settings argument present");
+        let settings_path = PathBuf::from(&result.args[settings_pos + 1]);
+        let settings: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(settings_path).unwrap()).unwrap();
+
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_BASE_URL"),
+            Some(&serde_json::json!("https://provider.example.test"))
+        );
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_MODEL"),
+            Some(&serde_json::json!("claude-sonnet-5"))
+        );
+        assert_eq!(
+            settings.pointer("/env/CLAUDE_CODE_SUBAGENT_MODEL"),
+            Some(&serde_json::json!("claude-sonnet-5"))
+        );
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_AUTH_TOKEN"),
+            Some(&serde_json::json!(""))
+        );
+        assert!(result
+            .args
+            .iter()
+            .all(|arg| !arg.contains("provider-secret")));
     }
 
     #[test]

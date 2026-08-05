@@ -15,6 +15,7 @@
   },
   "searchKeywords": {
     "general": "startup tray language history data directory search scope version update notification feature tips",
+    "theme": "theme style skin dark light system colors appearance",
     "wallpaper": "image video background music opacity blur",
     "font": "font size family typography CJK",
     "shortcuts": "shortcut hotkey keyboard binding",
@@ -68,6 +69,25 @@
     }
   },
   "general": "General",
+  "theme": {
+    "styleTitle": "Theme style",
+    "styleDescription": "Choose a workspace look. Changes apply immediately and are saved automatically.",
+    "openMenu": "Choose theme",
+    "groups": {
+      "dark": "Dark",
+      "light": "Light",
+      "system": "System"
+    },
+    "followSystem": "Follow system",
+    "presets": {
+      "deepInk": "Midnight blue",
+      "cyberPurple": "Neon violet",
+      "amberGold": "Molten gold",
+      "classicWhite": "Snow white",
+      "warmGray": "Warm mist",
+      "skyBlue": "Clear sky"
+    }
+  },
   "notification": "Notification",
   "proxy": "Proxy",
   "terminal": "Terminal",
@@ -233,6 +253,10 @@
   "rendererWebgl": "Try WebGL",
   "rendererDom": "DOM fallback",
   "rendererHint": "Auto uses the DOM renderer on Windows (WebGL has known CJK glyph-atlas corruption) and prefers WebGL on other Chromium hosts; choosing WebGL explicitly still enables it.",
+  "showContextUsage": "Show context usage",
+  "showContextUsageHint": "Show the context usage indicator in the global and per-terminal status bars.",
+  "showStatusBar": "Show terminal status bar",
+  "showStatusBarHint": "When off, the whole bottom status bar (CLI label, model, context usage, project path) is hidden across every terminal tab, giving the space back to the terminal. Toggle quickly via right-click on any status bar.",
   "shellAutoDetect": "Auto-detect if empty",
   "voiceTitle": "Voice Input",
   "voiceDesc": "Record from any terminal pane and insert the transcript into that pane without auto-submitting.",
@@ -307,6 +331,30 @@
   "providerModelIdPlaceholder": "e.g. claude-sonnet-4-5",
   "providerModelLabel": "Display name (optional)",
   "providerModelLabelPlaceholder": "e.g. Sonnet 4.5",
+  "providerModelContextWindow": "Context window (tokens)",
+  "providerModelContextWindowPlaceholder": "e.g. 200000",
+  "providerModelContextWindowHint": "1,000-10,000,000; leave blank if unknown",
+  "providerModelContextWindowInvalid": "Context window must be a whole number from 1,000 to 10,000,000",
+  "providerModelContextWindowPreset": "Common sizes",
+  "providerModelContextWindowUnknown": "Unknown / unset",
+  "providerModelContextWindowCustom": "Custom ({{tokens}})",
+  "providerModelContextWindowCustomPlaceholder": "Type a value",
+  "providerModelContextWindowCustomHint": "Custom value; range 1,000-10,000,000",
+  "providerContextWindow": {
+    "4k": "4K (tiny)",
+    "8k": "8K",
+    "16k": "16K",
+    "32k": "32K",
+    "64k": "64K",
+    "128k": "128K (Kimi K2, etc.)",
+    "200k": "200K (Claude / GPT / Gemini default)",
+    "256k": "256K (Grok 4 / Qwen3 Max)",
+    "400k": "400K (GPT-5 default)",
+    "500k": "500K (Mistral / Grok)",
+    "1m": "1M (Claude 4.5 extended / Gemini / GPT-4.1)",
+    "2m": "2M (Gemini 2.5 Pro long context)",
+    "10m": "10M (Llama 4 Scout)"
+  },
   "providerModelDefaultEffort": "Default reasoning effort",
   "providerModelCliDefaultEffort": "Use CLI default",
   "providerEffortLevel": {
@@ -508,6 +556,7 @@
   "wallpaperTerminalOpacityHint": "Strength of the terminal's own backdrop. Lowering it reveals more wallpaper; 0% puts the text straight on the wallpaper.",
   "wallpaperGlassBlur": "Panel glass blur",
   "wallpaperGlassBlurHint": "Frost applied by the panel sitting on top of the wallpaper — a separate layer from \"Blur\" above. Raising it washes out video; defaults to 0.",
+  "wallpaperPreview": "Preview",
   "wallpaperPickVideo": "Choose video…",
   "wallpaperVideoFilter": "Videos",
   "wallpaperVideoAutoplay": "Autoplay video",

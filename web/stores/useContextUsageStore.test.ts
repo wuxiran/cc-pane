@@ -39,6 +39,7 @@ describe("useContextUsageStore", () => {
       lastReady: null,
       loading: false,
       requestId: 0,
+      sessions: new Map(),
     });
   });
 
@@ -58,5 +59,18 @@ describe("useContextUsageStore", () => {
     newRequest.resolve(snapshot("new"));
     await newLoad;
     expect(useContextUsageStore.getState().snapshot?.model).toBe("new");
+  });
+
+  it("keeps independent snapshots for terminals shown at the same time", async () => {
+    vi.spyOn(usageStatsService, "queryContextUsage")
+      .mockImplementation(async (sessionId) => snapshot(sessionId));
+
+    await Promise.all([
+      useContextUsageStore.getState().loadSession("pty-a"),
+      useContextUsageStore.getState().loadSession("pty-b"),
+    ]);
+
+    expect(useContextUsageStore.getState().sessions.get("pty-a")?.snapshot?.model).toBe("pty-a");
+    expect(useContextUsageStore.getState().sessions.get("pty-b")?.snapshot?.model).toBe("pty-b");
   });
 });

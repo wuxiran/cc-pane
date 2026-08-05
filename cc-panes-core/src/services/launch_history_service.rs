@@ -1,9 +1,41 @@
 use crate::repository::{HistoryRepository, LaunchRecord, SessionStartedUpsertResult};
 use std::sync::Arc;
 
+const MAX_MODEL_ID_CHARS: usize = 256;
+
+fn validate_model_id(model_id: Option<&str>) -> Result<(), String> {
+    if model_id.is_some_and(|value| {
+        value.chars().count() > MAX_MODEL_ID_CHARS
+            || value.chars().any(|character| character.is_control())
+    }) {
+        return Err(format!(
+            "launch history model id must be at most {MAX_MODEL_ID_CHARS} characters and contain no control characters"
+        ));
+    }
+    Ok(())
+}
+
 /// 启动历史 Service - 封装对 HistoryRepository 的操作
 pub struct LaunchHistoryService {
     repo: Arc<HistoryRepository>,
+}
+
+pub struct CreatedLaunchHistory<'a> {
+    pub launch_id: &'a str,
+    pub project_name: &'a str,
+    pub project_path: &'a str,
+    pub pty_session_id: &'a str,
+    pub cli_tool: &'a str,
+    pub runtime_kind: &'a str,
+    pub wsl_distro: Option<&'a str>,
+    pub workspace_name: Option<&'a str>,
+    pub workspace_path: Option<&'a str>,
+    pub launch_cwd: Option<&'a str>,
+    pub provider_id: Option<&'a str>,
+    pub model_id: Option<&'a str>,
+    pub provider_selection: Option<&'a str>,
+    pub launch_profile_id: Option<&'a str>,
+    pub workspace_snapshot_id: Option<&'a str>,
 }
 
 impl LaunchHistoryService {
@@ -25,10 +57,12 @@ impl LaunchHistoryService {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        model_id: Option<&str>,
         provider_selection: Option<&str>,
         launch_profile_id: Option<&str>,
         workspace_snapshot_id: Option<&str>,
     ) -> Result<i64, String> {
+        validate_model_id(model_id)?;
         self.repo.add(
             project_id,
             project_name,
@@ -40,6 +74,7 @@ impl LaunchHistoryService {
             workspace_path,
             launch_cwd,
             provider_id,
+            model_id,
             provider_selection,
             launch_profile_id,
             workspace_snapshot_id,
@@ -68,10 +103,12 @@ impl LaunchHistoryService {
         workspace_path: Option<&str>,
         launch_cwd: Option<&str>,
         provider_id: Option<&str>,
+        model_id: Option<&str>,
         provider_selection: Option<&str>,
         launch_profile_id: Option<&str>,
         workspace_snapshot_id: Option<&str>,
     ) -> Result<i64, String> {
+        validate_model_id(model_id)?;
         self.repo.add_with_pty_session(
             project_id,
             project_name,
@@ -84,6 +121,7 @@ impl LaunchHistoryService {
             workspace_path,
             launch_cwd,
             provider_id,
+            model_id,
             provider_selection,
             launch_profile_id,
             workspace_snapshot_id,
@@ -140,9 +178,43 @@ impl LaunchHistoryService {
         launch_id: &str,
         pty_session_id: &str,
         cli_tool: &str,
+        model_id: Option<&str>,
     ) -> Result<Option<i64>, String> {
+        validate_model_id(model_id)?;
         self.repo
-            .bind_pty_session(launch_id, pty_session_id, cli_tool)
+            .bind_pty_session(launch_id, pty_session_id, cli_tool, model_id)
+    }
+
+    pub fn bind_or_add_created_session(
+        &self,
+        record: CreatedLaunchHistory<'_>,
+    ) -> Result<i64, String> {
+        if let Some(id) = self.bind_pty_session(
+            record.launch_id,
+            record.pty_session_id,
+            record.cli_tool,
+            record.model_id,
+        )? {
+            return Ok(id);
+        }
+
+        self.add_with_pty_session(
+            record.launch_id,
+            record.project_name,
+            record.project_path,
+            record.pty_session_id,
+            record.cli_tool,
+            record.runtime_kind,
+            record.wsl_distro,
+            record.workspace_name,
+            record.workspace_path,
+            record.launch_cwd,
+            record.provider_id,
+            record.model_id,
+            record.provider_selection,
+            record.launch_profile_id,
+            record.workspace_snapshot_id,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -306,6 +378,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("add record")
     }
@@ -325,6 +398,61 @@ mod tests {
         assert_eq!(rec.runtime_kind, "local");
         assert!(rec.pty_session_id.is_none());
         assert!(rec.resume_session_id.is_none());
+    }
+
+    #[test]
+    fn add_preserves_provider_and_model_ids() {
+        let svc = service();
+
+        svc.add(
+            "launch-model-a",
+            "proj",
+            "/tmp/proj",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            None,
+            Some("provider-a"),
+            Some("claude-sonnet-4-5"),
+            None,
+            None,
+            None,
+        )
+        .expect("add record");
+
+        let record = &svc.list(1).expect("list ok")[0];
+        assert_eq!(record.provider_id.as_deref(), Some("provider-a"));
+        assert_eq!(record.model_id.as_deref(), Some("claude-sonnet-4-5"));
+    }
+
+    #[test]
+    fn add_rejects_invalid_model_ids_without_persisting() {
+        let invalid_model_ids = ["x".repeat(257), "model\nid".to_string()];
+
+        for (index, model_id) in invalid_model_ids.iter().enumerate() {
+            let svc = service();
+            let result = svc.add(
+                &format!("launch-invalid-model-{index}"),
+                "proj",
+                "/tmp/proj",
+                "claude",
+                "local",
+                None,
+                None,
+                None,
+                None,
+                Some("provider-a"),
+                Some(model_id),
+                None,
+                None,
+                None,
+            );
+
+            assert!(result.is_err(), "model id should be rejected: {model_id:?}");
+            assert!(svc.list(1).expect("list history").is_empty());
+        }
     }
 
     #[test]
@@ -360,6 +488,7 @@ mod tests {
             None,
             None,
             None,
+            None, // workspace_snapshot_id
         )
         .expect("add ok");
 
@@ -395,11 +524,12 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("add codex record");
 
         assert!(svc
-            .bind_pty_session("launch-codex", "pty-codex", "claude")
+            .bind_pty_session("launch-codex", "pty-codex", "claude", None)
             .expect("mismatch is not an error")
             .is_none());
         assert!(svc
@@ -408,7 +538,7 @@ mod tests {
             .is_none());
 
         let id = svc
-            .bind_pty_session("launch-codex", "pty-codex", "codex")
+            .bind_pty_session("launch-codex", "pty-codex", "codex", None)
             .expect("bind")
             .expect("record id");
         let record = svc
@@ -418,6 +548,39 @@ mod tests {
         assert_eq!(record.id, id);
         assert_eq!(record.project_id, "launch-codex");
         assert_eq!(record.cli_tool, "codex");
+    }
+
+    #[test]
+    fn bind_or_add_created_session_inserts_missing_history_with_model() {
+        let svc = service();
+
+        let id = svc
+            .bind_or_add_created_session(CreatedLaunchHistory {
+                launch_id: "launch-fallback",
+                project_name: "proj",
+                project_path: "/tmp/proj",
+                pty_session_id: "pty-fallback",
+                cli_tool: "claude",
+                runtime_kind: "local",
+                wsl_distro: None,
+                workspace_name: None,
+                workspace_path: None,
+                launch_cwd: Some("/tmp/proj"),
+                provider_id: Some("provider-a"),
+                model_id: Some("provider-default"),
+                provider_selection: Some("inherit"),
+                launch_profile_id: None,
+                workspace_snapshot_id: None,
+            })
+            .expect("record created session");
+
+        let record = svc
+            .find_by_launch_id("launch-fallback")
+            .expect("find history")
+            .expect("history row");
+        assert_eq!(record.id, id);
+        assert_eq!(record.pty_session_id.as_deref(), Some("pty-fallback"));
+        assert_eq!(record.model_id.as_deref(), Some("provider-default"));
     }
 
     #[test]
@@ -466,6 +629,7 @@ mod tests {
             None,
             None,
             None,
+            None, // model_id
             None,
             None,
             None,

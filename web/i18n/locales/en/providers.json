@@ -42,6 +42,8 @@
   "useProviderDefaultModel": "Use Provider default ({{model}})",
   "nativeCliDefaultModel": "CLI native default model",
   "missingProviderModel": "{{model}} (removed from Provider)",
+  "modelContextWindowTokens": "{{window}} tokens",
+  "modelContextWindowUnknown": "Not configured",
   "fieldReasoningEffort": "Reasoning effort",
   "useModelDefaultEffort": "Use model default ({{effort}})",
   "useCliDefaultEffort": "Use CLI default",

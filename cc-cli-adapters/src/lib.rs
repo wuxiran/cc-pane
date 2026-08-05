@@ -572,6 +572,10 @@ pub struct CliAdapterContext {
     pub disable_unlisted_mcp_servers: bool,
 }
 
+/// Internal adapter option carrying the resolved managed Provider environment.
+/// The value may contain credentials and must never be logged or forwarded to CLI arguments.
+pub const MANAGED_PROVIDER_ENV_OPTION: &str = "__ccpanesProviderEnv";
+
 impl CliAdapterContext {
     pub fn model_id(&self) -> Option<&str> {
         self.adapter_options

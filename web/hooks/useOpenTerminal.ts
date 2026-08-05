@@ -79,6 +79,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
         workspacePath,
         launchCwd,
         providerId,
+        modelId,
         providerSelection,
         workspaceSnapshotId,
         launchProfileId,

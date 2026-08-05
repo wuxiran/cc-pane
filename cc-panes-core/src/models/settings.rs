@@ -368,7 +368,7 @@ pub struct ProxySettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeSettings {
-    pub mode: String, // "light" | "dark" | "system"
+    pub mode: String, // theme preset id | "light" | "dark" | "system"
 }
 
 /// 终端设置
@@ -386,6 +386,14 @@ pub struct TerminalSettings {
     /// 终端渲染器: "auto" | "webgl" | "dom"
     #[serde(default = "default_terminal_renderer_mode")]
     pub renderer_mode: String,
+    /// Display context usage indicators in terminal status bars.
+    #[serde(default = "default_true")]
+    pub show_context_usage: bool,
+    /// Display the bottom status bar of each terminal tab. When off, the whole
+    /// status bar (cli label / model / effort / context usage / project path)
+    /// collapses and the tab gains the vertical space.
+    #[serde(default = "default_true")]
+    pub show_status_bar: bool,
     /// 用户选择的 Shell ID（如 "pwsh", "cmd", "git-bash"），None 表示自动探测
     #[serde(default)]
     pub shell: Option<String>,
@@ -1080,6 +1088,8 @@ impl Default for TerminalSettings {
             scrollback: crate::constants::terminal::DEFAULT_SCROLLBACK,
             theme_mode: default_terminal_theme_mode(),
             renderer_mode: default_terminal_renderer_mode(),
+            show_context_usage: true,
+            show_status_bar: true,
             shell: None,
             disable_conpty_sanitize: None,
             resume_id_backfill_enabled: None,
@@ -1306,11 +1316,28 @@ mod tests {
             DEFAULT_DAEMON_ORPHAN_TTL_MINUTES
         );
         assert!(!settings.daemon_orphan_reaper_disabled);
+        assert!(settings.show_context_usage);
     }
 
     #[test]
     fn terminal_settings_enable_auto_adoption_by_default() {
         assert!(TerminalSettings::default().auto_adopt_daemon_sessions);
+        assert!(TerminalSettings::default().show_context_usage);
+        assert!(TerminalSettings::default().show_status_bar);
+    }
+
+    #[test]
+    fn terminal_settings_without_show_status_bar_defaults_to_true() {
+        // 老 config.toml 不含 showStatusBar：回落 true，不能整段失败。
+        let toml_str = r#"
+            fontSize = 15
+            fontFamily = "monospace"
+            cursorStyle = "block"
+            cursorBlink = false
+            scrollback = 20000
+        "#;
+        let settings: TerminalSettings = toml::from_str(toml_str).expect("parse legacy config");
+        assert!(settings.show_status_bar);
     }
 
     #[test]

@@ -97,6 +97,7 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   const isActivePane = activePaneId === pane.id;
   const isFullscreenPanel = isFullscreen && fullscreenPaneId === pane.id;
+  const showTerminalStatusBar = collectPanels(rootPane).length > 1 && !isFullscreenPanel;
 
   const activeTab = useMemo(
     () => pane.tabs.find((t) => t.id === pane.activeTabId),
@@ -462,6 +463,7 @@ export default memo(function Panel({ pane }: PanelProps) {
               isVisible={layoutVisible && tab.id === pane.activeTabId}
               isActive={layoutVisible && tab.id === pane.activeTabId && isActivePane}
               layoutActive={layoutVisible}
+              showTerminalStatusBar={showTerminalStatusBar}
               paneId={pane.id}
               isPoppedOut={isTabPoppedOut(tab.id)}
               onSessionCreated={(sid, terminalPaneId) => handleSessionCreated(tab.id, sid, terminalPaneId)}

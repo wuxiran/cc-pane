@@ -54,6 +54,7 @@ const READ_ONLY_POST_ALLOWLIST: &[&str] = &[
     "/api/launch-profiles/preview",
     "/api/workspace-migrations/preview",
     "/api/project-migrations/preview",
+    "/api/terminal/path-link/resolve",
 ];
 
 /// 本请求来源在当前设置下是否应被限制为只读。
@@ -456,6 +457,12 @@ mod tests {
             true,
             &Method::POST,
             "/api/memories/search"
+        ));
+        assert!(!read_only_denies(
+            RequestOrigin::Remote,
+            true,
+            &Method::POST,
+            "/api/terminal/path-link/resolve"
         ));
     }
 

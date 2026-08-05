@@ -8,8 +8,9 @@ use crate::models::{
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
-    LaunchProfileService, ProjectCliHooksService, ProviderMode, ProviderResolutionInput,
-    ProviderService, SettingsService, SpecService, SshCredentialService, WorkspaceService,
+    CreateSessionOutcome, LaunchProfileService, ProjectCliHooksService, ProviderMode,
+    ProviderResolutionInput, ProviderService, ResolvedProviderPlan, SettingsService, SpecService,
+    SshCredentialService, TerminalLinkContext, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
@@ -56,6 +57,18 @@ fn to_cli_provider(provider: crate::models::provider::Provider) -> CliProvider {
         aws_profile: provider.aws_profile,
         config_dir: provider.config_dir,
         is_default: provider.is_default,
+    }
+}
+
+fn create_session_outcome(
+    session_id: String,
+    reused_existing: bool,
+    provider_plan: &ResolvedProviderPlan,
+) -> CreateSessionOutcome {
+    CreateSessionOutcome {
+        session_id,
+        reused_existing,
+        resolved_model_id: provider_plan.model_id.clone(),
     }
 }
 
@@ -759,6 +772,8 @@ impl ReplayBuffer {
 /// 终端会话
 struct TerminalSession {
     launch_id: Option<String>,
+    project_path: String,
+    runtime_kind: String,
     process: Arc<dyn PtyProcess>,
     writer_tx: mpsc::Sender<WriterCommand>,
     status: Arc<Mutex<SessionStatus>>,
@@ -1406,6 +1421,57 @@ impl TerminalService {
         ssh: Option<&SshConnectionInfo>,
         wsl: Option<&WslLaunchInfo>,
     ) -> Result<String> {
+        self.create_session_with_outcome(
+            launch_id,
+            project_path,
+            cols,
+            rows,
+            workspace_name,
+            provider_id,
+            model_id,
+            provider_selection,
+            launch_profile_id,
+            workspace_path,
+            workspace_snapshot_id,
+            cli_tool,
+            resume_id,
+            skip_mcp,
+            append_system_prompt,
+            initial_prompt,
+            yolo_mode,
+            request_adapter_options,
+            extra_env,
+            ssh,
+            wsl,
+        )
+        .map(|outcome| outcome.session_id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_session_with_outcome(
+        &self,
+        launch_id: Option<&str>,
+        project_path: &str,
+        cols: u16,
+        rows: u16,
+        workspace_name: Option<&str>,
+        provider_id: Option<&str>,
+        model_id: Option<&str>,
+        provider_selection: LaunchProviderSelection,
+        launch_profile_id: Option<&str>,
+        workspace_path: Option<&str>,
+        workspace_snapshot_id: Option<&str>,
+        cli_tool: CliTool,
+        resume_id: Option<&str>,
+        skip_mcp: bool,
+        append_system_prompt: Option<&str>,
+        initial_prompt: Option<&str>,
+        yolo_mode: Option<bool>,
+        request_adapter_options: Option<&HashMap<String, serde_json::Value>>,
+        extra_env: Option<&HashMap<String, String>>,
+        ssh: Option<&SshConnectionInfo>,
+        wsl: Option<&WslLaunchInfo>,
+    ) -> Result<CreateSessionOutcome> {
         // 归一化前端遗留哨兵："new"/空串都视为「新会话」（避免 `--resume new`，
         // 并让 Claude 发号分支正确生效）
         let resume_id = resume_id.filter(|rid| {
@@ -2121,6 +2187,13 @@ impl TerminalService {
                 };
                 let effective_prompt =
                     merge_session_prompts([launch_append_system_prompt.clone(), spec_prompt]);
+                let mut local_adapter_options = adapter_options.clone();
+                if cli_tool == CliTool::Claude && provider_plan.mode == ProviderMode::Managed {
+                    local_adapter_options.insert(
+                        cc_cli_adapters::MANAGED_PROVIDER_ENV_OPTION.to_string(),
+                        serde_json::to_value(&provider_vars)?,
+                    );
+                }
 
                 let ctx = CliAdapterContext {
                     session_id: session_id.clone(),
@@ -2133,7 +2206,7 @@ impl TerminalService {
                         .cli_launchers
                         .command_for(cli_tool_id)
                         .map(str::to_string),
-                    adapter_options: adapter_options.clone(),
+                    adapter_options: local_adapter_options,
                     resume_id: resume_id.map(|s| s.to_string()),
                     issued_session_id: issued_session_id.clone(),
                     skip_mcp: effective_skip_mcp,
@@ -2413,6 +2486,8 @@ impl TerminalService {
                 session_id.clone(),
                 TerminalSession {
                     launch_id: launch_id.map(str::to_string),
+                    project_path: project_path.to_string(),
+                    runtime_kind: runtime_kind.to_string(),
                     process,
                     writer_tx,
                     status: status.clone(),
@@ -2960,7 +3035,7 @@ impl TerminalService {
             "ok",
         );
         info!(session_id = %session_id, project = %project_path, launch_claude, "Terminal session created");
-        Ok(session_id)
+        Ok(create_session_outcome(session_id, false, &provider_plan))
     }
 
     fn ensure_launch_active(&self, launch_id: Option<&str>, stage: &str) -> Result<()> {
@@ -3192,6 +3267,30 @@ impl TerminalService {
                     .and_then(|guard| guard.as_ref().cloned())
                     .as_ref(),
             )
+        }))
+    }
+
+    pub fn terminal_link_context(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<TerminalLinkContext>> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| AppError::from("sessions lock poisoned"))?;
+        let Some(session) = sessions.get(session_id) else {
+            return Ok(None);
+        };
+        let status = session
+            .status
+            .lock()
+            .map_err(|_| AppError::from("session status lock poisoned"))?;
+        if status.is_terminal() {
+            return Ok(None);
+        }
+        Ok(Some(TerminalLinkContext {
+            project_path: session.project_path.clone(),
+            runtime_kind: session.runtime_kind.clone(),
         }))
     }
 
@@ -3990,11 +4089,58 @@ pub fn get_windows_build_number() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::provider::{Provider, ProviderModel, ProviderType};
     use crate::models::shared_mcp::{BridgeMode, SharedMcpServerConfig};
     use crate::services::{ProjectCliHooksService, ProviderService, SettingsService};
     use crate::utils::orchestrator_manifest::ORCHESTRATOR_MANIFEST_FILE;
     use crate::utils::AppPaths;
     use std::io;
+
+    #[test]
+    fn create_session_outcome_exposes_provider_default_model() {
+        let provider = Provider {
+            id: "anthropic-proxy".to_string(),
+            name: "Anthropic Proxy".to_string(),
+            provider_type: ProviderType::Anthropic,
+            api_key: Some("test-secret".to_string()),
+            base_url: Some("https://example.test".to_string()),
+            region: None,
+            project_id: None,
+            aws_profile: None,
+            config_dir: None,
+            models: vec![ProviderModel {
+                id: "provider-default".to_string(),
+                label: None,
+                default_effort: None,
+                context_window_tokens: Some(200_000),
+            }],
+            default_model_id: Some("provider-default".to_string()),
+            is_default: true,
+        };
+        let provider_plan = resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool: CliTool::Claude,
+                selection: LaunchProviderSelection::Inherit,
+                requested_provider_id: None,
+                requested_model_id: None,
+                profile_provider_id: None,
+                profile_model_id: None,
+                workspace_provider_id: None,
+                default_provider_id: Some("anthropic-proxy"),
+                adapter_options: None,
+            },
+            &[provider],
+            &CliToolRegistry::with_builtin_adapters(),
+        )
+        .expect("resolve provider default model");
+
+        let outcome = create_session_outcome("session-1".to_string(), false, &provider_plan);
+
+        assert_eq!(
+            outcome.resolved_model_id.as_deref(),
+            Some("provider-default")
+        );
+    }
 
     #[test]
     fn ssh_remote_cli_command_applies_yolo_and_codex_semantics() {
@@ -4327,6 +4473,8 @@ mod tests {
                 session_id.to_string(),
                 TerminalSession {
                     launch_id: launch_id.map(str::to_string),
+                    project_path: "/repo".to_string(),
+                    runtime_kind: "local".to_string(),
                     process: Arc::new(FakePtyProcess),
                     writer_tx,
                     status: Arc::new(Mutex::new(SessionStatus::Idle)),
@@ -4338,6 +4486,37 @@ mod tests {
                     paste_ready: Arc::new(AtomicBool::new(false)),
                 },
             );
+    }
+
+    #[test]
+    fn terminal_link_context_only_uses_live_session_metadata() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        install_recording_session(
+            &service,
+            "session-context",
+            Arc::new(Mutex::new(Vec::new())),
+        );
+
+        let context = service
+            .terminal_link_context("session-context")
+            .expect("context query")
+            .expect("live context");
+        assert_eq!(context.project_path, "/repo");
+        assert_eq!(context.runtime_kind, "local");
+        assert!(service
+            .terminal_link_context("missing")
+            .expect("missing query")
+            .is_none());
+
+        {
+            let sessions = service.sessions.lock().expect("sessions lock");
+            let session = sessions.get("session-context").expect("installed session");
+            *session.status.lock().expect("status lock") = SessionStatus::Exited;
+        }
+        assert!(service
+            .terminal_link_context("session-context")
+            .expect("exited query")
+            .is_none());
     }
 
     #[test]

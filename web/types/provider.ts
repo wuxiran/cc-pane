@@ -18,6 +18,20 @@ export interface ProviderModel {
   id: string;
   label?: string | null;
   defaultEffort?: LaunchEffort | null;
+  contextWindowTokens?: number | null;
+}
+
+export const MIN_PROVIDER_CONTEXT_WINDOW_TOKENS = 1_000;
+export const MAX_PROVIDER_CONTEXT_WINDOW_TOKENS = 10_000_000;
+
+export function isValidProviderContextWindowTokens(
+  value: number | null | undefined,
+): boolean {
+  return value === null || value === undefined || (
+    Number.isInteger(value)
+    && value >= MIN_PROVIDER_CONTEXT_WINDOW_TOKENS
+    && value <= MAX_PROVIDER_CONTEXT_WINDOW_TOKENS
+  );
 }
 
 export interface Provider {

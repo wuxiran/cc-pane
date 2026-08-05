@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ArrowLeft, Eye, EyeOff, ExternalLink, FolderOpen, FileText, Settings } from "lucide-react";
@@ -12,9 +12,10 @@ import { providerService } from "@/services/providerService";
 import { filesystemService } from "@/services/filesystemService";
 import { isTauriRuntime } from "@/services/runtime";
 import { isJsonFile } from "@/utils/json";
+import { lazyWithRetry } from "@/lib/lazyRetry";
 import ProviderAvatar from "./ProviderAvatar";
 import {
-  PROVIDER_TYPE_META,
+  PROVIDER_TYPE_META, isValidProviderContextWindowTokens,
   type Provider,
   type ProviderModel,
   type ProviderType,
@@ -25,7 +26,7 @@ import type { KnownCliTool } from "@/types/terminal";
 import ProviderTypeSelect from "./ProviderTypeSelect";
 import ProviderModelsEditor from "./ProviderModelsEditor";
 
-const JsonEditor = lazy(() => import("@/components/editor/JsonEditor"));
+const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"), "JsonEditor");
 
 interface FormState {
   name: string;
@@ -166,12 +167,18 @@ function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
 
 interface ProviderFormPanelProps {
   editProvider?: Provider | null;
+  /**
+   * 复制目标复制走「新建保存」路径：保留被复制 provider 的字段作为初始 form 值，
+   * 但 `id` 重新生成、保存走 addProvider 分支。
+   * 与 editProvider 互斥：传入 duplicateSeed 时忽略 editProvider。
+   */
+  duplicateSeed?: Provider | null;
   preset?: ProviderPreset | null;
   activeTab?: KnownCliTool;
   onBack: () => void;
 }
 
-export default function ProviderFormPanel({ editProvider, preset, activeTab, onBack }: ProviderFormPanelProps) {
+export default function ProviderFormPanel({ editProvider, duplicateSeed, preset, activeTab, onBack }: ProviderFormPanelProps) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
   const addProvider = useProvidersStore((s) => s.addProvider);
@@ -197,6 +204,27 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
         ) >= 0
           ? (editProvider.models ?? []).findIndex((model) => model.id === editProvider.defaultModelId)
           : (editProvider.models?.length ? 0 : null),
+      };
+    }
+    if (duplicateSeed) {
+      // 复制种子: 字段沿用, name 不带 "(Copy)" 后缀（由调用方决定），
+      // models 全部浅拷贝, defaultModelIndex 复用被复制 provider 的索引（无则为 0）。
+      return {
+        name: duplicateSeed.name,
+        providerType: duplicateSeed.providerType,
+        apiKey: duplicateSeed.apiKey || "",
+        baseUrl: duplicateSeed.baseUrl || "",
+        region: duplicateSeed.region || "",
+        projectId: duplicateSeed.projectId || "",
+        awsProfile: duplicateSeed.awsProfile || "",
+        configDir: duplicateSeed.configDir || "",
+        models: (duplicateSeed.models ?? []).map((model) => ({ ...model })),
+        defaultModelIndex: (() => {
+          const models = duplicateSeed.models ?? [];
+          if (models.length === 0) return null;
+          const idx = models.findIndex((model) => model.id === duplicateSeed.defaultModelId);
+          return idx >= 0 ? idx : 0;
+        })(),
       };
     }
     if (preset) {
@@ -305,8 +333,10 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
       id: model.id.trim(),
       label: model.label?.trim() || null,
       defaultEffort: model.defaultEffort ?? null,
+      ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens ?? null }),
     }));
     if (models.some((model) => !model.id)) { toast.error(t("providerModelIdRequired")); return; }
+    if (models.some((model) => !isValidProviderContextWindowTokens(model.contextWindowTokens))) { toast.error(t("providerModelContextWindowInvalid")); return; }
     if (new Set(models.map((model) => model.id)).size !== models.length) {
       toast.error(t("providerModelIdsUnique"));
       return;
@@ -319,8 +349,12 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
         toast.success(t("jsonFileSaved"));
       }
 
+      // 复制种子路径永远走 add：editProvider 为空或 duplicateSeed 非空 → 一律 add。
+      const saveAsUpdate = !!editProvider && !duplicateSeed;
       const provider: Provider = {
-        id: editProvider?.id || crypto.randomUUID(),
+        // 复制种子也复用 seed 的 id 作为新 provider 的 id，保证确定性。
+        // 否则 add 路径下用 crypto.randomUUID() 也行，但调用方传入 seed 时保持一致更可追踪。
+        id: editProvider?.id ?? duplicateSeed?.id ?? crypto.randomUUID(),
         name: form.name.trim(),
         providerType: form.providerType,
         apiKey: form.apiKey || null,
@@ -330,12 +364,10 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
         awsProfile: form.awsProfile || null,
         configDir: form.configDir || null,
         models,
-        defaultModelId: form.defaultModelIndex === null
-          ? null
-          : models[form.defaultModelIndex]?.id ?? models[0]?.id ?? null,
+        defaultModelId: form.defaultModelIndex === null ? null : models[form.defaultModelIndex]?.id ?? models[0]?.id ?? null,
         isDefault: false,
       };
-      if (editProvider) {
+      if (saveAsUpdate) {
         const existing = providers.find((p) => p.id === editProvider.id);
         if (existing) provider.isDefault = existing.isDefault;
         await updateProvider(provider);

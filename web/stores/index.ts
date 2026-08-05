@@ -28,6 +28,11 @@ export {
 } from "./useTerminalRestoreLogStore";
 export { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
 export {
+  useTerminalPathLinkStore,
+  type TerminalPathLinkAction,
+  type TerminalPathLinkDialogState,
+} from "./useTerminalPathLinkStore";
+export {
   useLayoutUiStore,
   type LayoutBarDensity,
   type LayoutSwitcherMode,
@@ -56,6 +61,7 @@ export { useNotificationStore } from "./useNotificationStore";
 export { useSelfChatStore } from "./useSelfChatStore";
 export { useFileBrowserStore } from "./useFileBrowserStore";
 export { useEditorTabsStore, type EditorTab } from "./useEditorTabsStore";
+export { useEditorRevealStore, type EditorRevealRequest } from "./useEditorRevealStore";
 export { useUpdateStore } from "./useUpdateStore";
 export { useSshMachinesStore } from "./useSshMachinesStore";
 export { useEnvironmentStore } from "./useEnvironmentStore";

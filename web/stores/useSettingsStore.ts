@@ -261,6 +261,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       scrollback: TERMINAL_SCROLLBACK_DEFAULT,
       themeMode: "followApp",
       rendererMode: "auto",
+      showContextUsage: true,
+      showStatusBar: true,
       shell: null,
       disableConptySanitize: null,
       resumeIdBackfillEnabled: null,

@@ -35,6 +35,7 @@ vi.mock("./TabBar", () => ({
 interface TabContentProps {
   tab: Tab;
   isVisible: boolean;
+  showTerminalStatusBar?: boolean;
   onSessionExited?: (exitCode: number, terminalPaneId?: string) => void;
 }
 
@@ -127,6 +128,29 @@ describe("Panel", () => {
     expect(t2.style.display).toBe("none");
     expect(tabContentPropsByTab.get("t1")?.isVisible).toBe(true);
     expect(tabContentPropsByTab.get("t2")?.isVisible).toBe(false);
+  });
+
+  it("enables terminal status bars only when the layout has multiple panes", () => {
+    const pane = makePane([makeTab("t1")]);
+    const otherPane: PanelType = {
+      type: "panel",
+      id: "pane-2",
+      tabs: [makeTab("t2")],
+      activeTabId: "t2",
+    };
+    setPanesState(pane, {
+      rootPane: {
+        type: "split",
+        id: "root-split",
+        direction: "horizontal",
+        sizes: [50, 50],
+        children: [pane, otherPane],
+      },
+    });
+
+    render(<Panel pane={pane} />);
+
+    expect(tabContentPropsByTab.get("t1")?.showTerminalStatusBar).toBe(true);
   });
 
   it("shows the empty state when the active tab has no project", () => {

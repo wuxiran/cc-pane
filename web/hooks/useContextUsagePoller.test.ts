@@ -39,6 +39,7 @@ describe("useContextUsagePoller", () => {
       lastReady: null,
       loading: false,
       requestId: 0,
+      sessions: new Map(),
     });
   });
 
@@ -52,6 +53,43 @@ describe("useContextUsagePoller", () => {
     });
     expect(result.current).toBeNull();
     expect(query).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("polls an explicitly supplied grid terminal session", async () => {
+    const query = vi.spyOn(usageStatsService, "queryContextUsage").mockResolvedValue({
+      status: "ready",
+      usedTokens: 10,
+      effectiveUsedTokens: 10,
+      windowTokens: 100,
+      effectiveWindowTokens: 100,
+      usedPercentage: 10,
+      remainingPercentage: 90,
+      model: "claude-sonnet",
+      usageSource: "test",
+      windowSource: "test",
+      agentSessionId: "agent-1",
+      parserVersion: "test",
+      observedAt: Date.now(),
+      diagnosticCode: null,
+    });
+    const context = {
+      sessionId: "pty-grid",
+      cliTool: "claude",
+      ssh: false,
+      providerId: null,
+      modelId: null,
+      providerSelection: null,
+      launchProfileId: null,
+    };
+
+    const { result, unmount } = renderHook(() => useContextUsagePoller(context));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current).toBe("pty-grid");
+    expect(query).toHaveBeenCalledWith("pty-grid");
     unmount();
   });
 });

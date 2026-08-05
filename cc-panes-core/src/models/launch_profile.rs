@@ -70,6 +70,16 @@ pub enum LaunchProviderSelection {
     None,
 }
 
+impl LaunchProviderSelection {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inherit => "inherit",
+            Self::Explicit => "explicit",
+            Self::None => "none",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum LaunchProfileMcpMode {

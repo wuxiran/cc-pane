@@ -11,6 +11,12 @@ function normalize(value: string | null | undefined): string | null {
   return value?.trim() || null;
 }
 
+export function normalizeContextPercentage(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  if (!Number.isInteger(value) || value < 0 || value > 100) return null;
+  return value;
+}
+
 /** Prefer the model selected for this launch over a proxy-reported response model. */
 export function resolveContextDisplayModel(
   selection: ContextModelSelection,

@@ -8,6 +8,7 @@ export type SettingsDraft = AppSettings & { ccchan: CCChanSettings };
 export const SECTION_DRAFT_KEYS: Partial<
   Record<SettingsPaneId, (keyof SettingsDraft)[]>
 > = {
+  theme: ["theme"],
   general: ["general", "localHistory", "update", "tips"],
   notification: ["notification"],
   "web-access": ["webAccess", "orchestrator"],

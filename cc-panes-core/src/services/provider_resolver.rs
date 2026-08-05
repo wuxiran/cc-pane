@@ -91,6 +91,11 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "CLAUDE_CODE_SUBAGENT_MODEL",
             "CLAUDE_CODE_USE_BEDROCK",
             "CLAUDE_CODE_USE_VERTEX",
             "AWS_REGION",
@@ -484,16 +489,19 @@ mod tests {
                 id: "provider-default".to_string(),
                 label: Some("Provider Default".to_string()),
                 default_effort: Some("high".to_string()),
+                context_window_tokens: None,
             },
             ProviderModel {
                 id: "profile-model".to_string(),
                 label: Some("Profile Model".to_string()),
                 default_effort: Some("low".to_string()),
+                context_window_tokens: None,
             },
             ProviderModel {
                 id: "request-model".to_string(),
                 label: Some("Request Model".to_string()),
                 default_effort: Some("xhigh".to_string()),
+                context_window_tokens: None,
             },
         ];
         configured.default_model_id = Some("provider-default".to_string());
@@ -1095,6 +1103,9 @@ mod tests {
     fn managed_conflict_lists_are_cli_scoped_and_never_apply_to_shell() {
         assert!(managed_provider_conflict_env_keys(CliTool::Claude)
             .contains(&"CLAUDE_CODE_USE_BEDROCK"));
+        assert!(managed_provider_conflict_env_keys(CliTool::Claude).contains(&"ANTHROPIC_MODEL"));
+        assert!(managed_provider_conflict_env_keys(CliTool::Claude)
+            .contains(&"CLAUDE_CODE_SUBAGENT_MODEL"));
         assert!(!managed_provider_conflict_env_keys(CliTool::Codex)
             .contains(&"CLAUDE_CODE_USE_BEDROCK"));
         assert!(managed_provider_conflict_env_keys(CliTool::Codex).contains(&"OPENAI_BASE_URL"));

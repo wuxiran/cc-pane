@@ -9,12 +9,18 @@ import { markTabReclaimed } from "@/services";
 import TabContentRenderer from "./TabContentRenderer";
 
 vi.mock("./TerminalTabContent", () => ({
-  default: ({ tab, isVisible, isActive }: { tab: Tab; isVisible: boolean; isActive: boolean }) => (
+  default: ({ tab, isVisible, isActive, showStatusBar }: {
+    tab: Tab;
+    isVisible: boolean;
+    isActive: boolean;
+    showStatusBar?: boolean;
+  }) => (
     <div
       data-testid="terminal-tab-content"
       data-tab-id={tab.id}
       data-visible={String(isVisible)}
       data-active={String(isActive)}
+      data-status-bar={String(Boolean(showStatusBar))}
     />
   ),
 }));
@@ -71,13 +77,14 @@ function makeTab(overrides?: Partial<Tab>): Tab {
   } as Tab;
 }
 
-function renderContent(tab: Tab, options?: { isPoppedOut?: boolean }) {
+function renderContent(tab: Tab, options?: { isPoppedOut?: boolean; showTerminalStatusBar?: boolean }) {
   return render(
     <TabContentRenderer
       tab={tab}
       isVisible
       isActive
       layoutActive
+      showTerminalStatusBar={options?.showTerminalStatusBar}
       paneId="pane-1"
       isPoppedOut={options?.isPoppedOut}
       onSessionCreated={vi.fn()}
@@ -105,6 +112,12 @@ describe("TabContentRenderer", () => {
     const { container } = renderContent(makeTab({ projectPath: "" }));
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("forwards the grid status-bar flag to terminal content", () => {
+    renderContent(makeTab(), { showTerminalStatusBar: true });
+
+    expect(screen.getByTestId("terminal-tab-content")).toHaveAttribute("data-status-bar", "true");
   });
 
   it("shows the popped-out placeholder and reclaims via store and service", async () => {

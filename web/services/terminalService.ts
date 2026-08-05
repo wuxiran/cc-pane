@@ -452,7 +452,7 @@ export const terminalService = {
       () => apiGet<TerminalAdoptionSnapshot>("/api/sessions/adoption-snapshot"),
     );
     cachedBackendClientInfo = {
-      mode: "daemon",
+      mode: cachedBackendClientInfo?.mode ?? "daemon",
       claimsSupported: snapshot.claimsSupported,
       daemonGeneration: snapshot.daemonGeneration,
       instanceId: snapshot.ownerInstanceId,
@@ -484,7 +484,7 @@ export const terminalService = {
         "create_terminal_session",
         { request: compactRequest },
         async () => {
-          const response = await apiJson<{ sessionId: string }>(
+          const response = await apiJson<{ sessionId: string; resolvedModelId?: string | null }>(
             "/api/sessions",
             "POST",
             compactRequest,

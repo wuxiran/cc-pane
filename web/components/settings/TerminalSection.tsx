@@ -194,6 +194,44 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         </p>
       </div>
 
+      <SearchableSetting sectionId="terminal-context-usage">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              aria-label={t("showContextUsage")}
+              checked={value.showContextUsage ?? true}
+              onChange={(e) => update("showContextUsage", e.target.checked)}
+              className="h-4 w-4 cursor-pointer"
+              style={{ accentColor: "var(--app-accent)" }}
+            />
+            <Label>{t("showContextUsage")}</Label>
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("showContextUsageHint")}
+          </p>
+        </div>
+      </SearchableSetting>
+
+      <SearchableSetting sectionId="terminal-status-bar">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              aria-label={t("showStatusBar")}
+              checked={value.showStatusBar ?? true}
+              onChange={(e) => update("showStatusBar", e.target.checked)}
+              className="h-4 w-4 cursor-pointer"
+              style={{ accentColor: "var(--app-accent)" }}
+            />
+            <Label>{t("showStatusBar")}</Label>
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("showStatusBarHint")}
+          </p>
+        </div>
+      </SearchableSetting>
+
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <input

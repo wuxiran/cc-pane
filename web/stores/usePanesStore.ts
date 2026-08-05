@@ -27,6 +27,7 @@ import { createBrowserTabActions } from "./browserTabActions";
 import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
+import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
 import type {
   ClosedTabSnapshot,
   CreateTabOptions,
@@ -57,14 +58,11 @@ import type {
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
-
 // 生成唯一 ID
 function generateId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
-
 export const TERMINAL_LAYOUT_CHANGED_EVENT = "cc-panes:terminal-layout-changed";
-
 function notifyTerminalLayoutChanged(reason: string): void {
   if (typeof window === "undefined") return;
   const dispatch = () => {
@@ -2682,6 +2680,8 @@ export const usePanesStore = create<PanesState>()(
         syncTabTerminalState(tab);
       });
     },
+
+    ...createTerminalColdRestoreActions({ set, findTab: findTabAcrossLayouts, syncTab: syncTabTerminalState, notifyLayoutChanged: notifyTerminalLayoutChanged }),
 
     setTerminalRestoreBlocked: (tabId, terminalPaneId, reason) => {
       set((state) => {

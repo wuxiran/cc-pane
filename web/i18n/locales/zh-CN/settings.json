@@ -15,6 +15,7 @@
   },
   "searchKeywords": {
     "general": "启动 托盘 语言 历史 数据目录 搜索范围 版本更新提示 功能提示",
+    "theme": "主题 风格 皮肤 深色 浅色 系统 外观 配色",
     "wallpaper": "图片 视频 背景 音乐 透明度 模糊",
     "font": "字体 字号 font family 中文 CJK",
     "shortcuts": "快捷键 热键 键盘 绑定",
@@ -68,6 +69,25 @@
     }
   },
   "general": "通用",
+  "theme": {
+    "styleTitle": "主题风格",
+    "styleDescription": "选择应用外观。点击后立即生效并自动保存。",
+    "openMenu": "选择主题",
+    "groups": {
+      "dark": "深色",
+      "light": "浅色",
+      "system": "系统"
+    },
+    "followSystem": "跟随系统",
+    "presets": {
+      "deepInk": "午夜蓝",
+      "cyberPurple": "霓虹紫",
+      "amberGold": "熔金黑",
+      "classicWhite": "雪原白",
+      "warmGray": "暖雾灰",
+      "skyBlue": "晴空蓝"
+    }
+  },
   "notification": "通知",
   "proxy": "代理",
   "terminal": "终端",
@@ -233,6 +253,10 @@
   "rendererWebgl": "尝试 WebGL",
   "rendererDom": "DOM 降级",
   "rendererHint": "自动模式在 Windows 上默认使用 DOM（WebGL 存在中文字形花屏问题），其他 Chromium 宿主优先 WebGL；显式选择 WebGL 仍会尝试启用。",
+  "showContextUsage": "显示上下文使用量",
+  "showContextUsageHint": "在全局和每个终端的状态栏中显示上下文使用量指示器。",
+  "showStatusBar": "显示终端状态栏",
+  "showStatusBarHint": "关闭后每个终端底部的状态栏(CLI 标签、模型、上下文用量、项目路径)整条不渲染,腾出空间给终端区。可在状态栏上右键快速切换。",
   "shellAutoDetect": "留空则自动检测",
   "voiceTitle": "语音输入",
   "voiceDesc": "每个终端窗格可录音，识别完成后把文字写入对应终端，不自动提交。",
@@ -307,6 +331,30 @@
   "providerModelIdPlaceholder": "例如 claude-sonnet-4-5",
   "providerModelLabel": "显示名称（可选）",
   "providerModelLabelPlaceholder": "例如 Sonnet 4.5",
+  "providerModelContextWindow": "上下文窗口（tokens）",
+  "providerModelContextWindowPlaceholder": "例如 200000",
+  "providerModelContextWindowHint": "范围 1,000-10,000,000；不确定时留空",
+  "providerModelContextWindowInvalid": "上下文窗口必须是 1,000 到 10,000,000 之间的整数",
+  "providerModelContextWindowPreset": "常用容量",
+  "providerModelContextWindowUnknown": "未知 / 不配置",
+  "providerModelContextWindowCustom": "自定义（{{tokens}}）",
+  "providerModelContextWindowCustomPlaceholder": "手动输入",
+  "providerModelContextWindowCustomHint": "自定义值；范围 1,000-10,000,000",
+  "providerContextWindow": {
+    "4k": "4K（极小）",
+    "8k": "8K",
+    "16k": "16K",
+    "32k": "32K",
+    "64k": "64K",
+    "128k": "128K（Kimi K2 等）",
+    "200k": "200K（Claude / GPT / Gemini 默认）",
+    "256k": "256K（Grok 4 / Qwen3 Max）",
+    "400k": "400K（GPT-5 默认）",
+    "500k": "500K（Mistral / Grok）",
+    "1m": "1M（Claude 4.5 扩展 / Gemini / GPT-4.1）",
+    "2m": "2M（Gemini 2.5 Pro 长上下文）",
+    "10m": "10M（Llama 4 Scout）"
+  },
   "providerModelDefaultEffort": "默认推理强度",
   "providerModelCliDefaultEffort": "使用 CLI 默认",
   "providerEffortLevel": {
@@ -508,6 +556,7 @@
   "wallpaperTerminalOpacityHint": "终端自己那层底色的浓度。调低壁纸更清楚，0% = 字直接浮在壁纸上。",
   "wallpaperGlassBlur": "面板玻璃模糊",
   "wallpaperGlassBlurHint": "面板叠在壁纸上的磨砂强度，与上面的「模糊」是两层。调大会把视频糊没，默认 0。",
+  "wallpaperPreview": "预览",
   "wallpaperPickVideo": "选择视频…",
   "wallpaperVideoFilter": "视频",
   "wallpaperVideoAutoplay": "自动播放视频",

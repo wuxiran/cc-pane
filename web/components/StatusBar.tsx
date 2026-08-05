@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pin, Minimize2, Sun, Moon, Terminal, ArrowUpCircle, Eye, EyeOff, LockKeyhole, Music, Music2 } from "lucide-react";
+import { Check, Eye, EyeOff, LockKeyhole, Minimize2, MonitorCog, Palette, Pin, Terminal, ArrowUpCircle, Music, Music2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip,
@@ -25,10 +25,21 @@ import { isBusyStatus } from "@/types";
 import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
 import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment";
 import ContextUsageIndicator from "@/components/ContextUsageIndicator";
+import { PresetSwatches } from "@/components/theme/ThemeSwatches";
+import { THEME_PRESETS, type ThemePreference } from "@/theme/themePresets";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function StatusBar() {
   const { t, i18n } = useTranslation();
-  const isDark = useThemeStore((s) => s.isDark);
+  const { t: settingsT } = useTranslation("settings");
+  const themePreference = useThemeStore((s) => s.preference);
   const enterMiniMode = useMiniModeStore((s) => s.enterMiniMode);
   const miniModeTransitioning = useMiniModeStore((s) => s.isTransitioning);
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
@@ -45,6 +56,9 @@ export default function StatusBar() {
   const [webAuthStatus, setWebAuthStatus] = useState<WebAuthStatus | null>(null);
   const showSystemResources = useSettingsStore(
     (s) => s.settings?.general.showSystemResources ?? true,
+  );
+  const showContextUsage = useSettingsStore(
+    (s) => s.settings?.terminal.showContextUsage ?? true,
   );
   const { isPinned, togglePin } = useWindowControl();
 
@@ -111,8 +125,7 @@ export default function StatusBar() {
     }
   }
 
-  async function handleToggleTheme() {
-    const nextTheme = isDark ? "light" : "dark";
+  async function handleSelectTheme(nextTheme: ThemePreference) {
     useThemeStore.getState().setThemeMode(nextTheme);
     const store = useSettingsStore.getState();
     if (store.settings) {
@@ -166,7 +179,7 @@ export default function StatusBar() {
           </span>
         )}
 
-        <ContextUsageIndicator />
+        {showContextUsage && <ContextUsageIndicator />}
 
         {/* 版本更新提示 */}
         {isTauriRuntime() && updateAvailable && updateVersion && (
@@ -329,22 +342,63 @@ export default function StatusBar() {
           </TooltipContent>
         </Tooltip>
 
-        {/* 主题切换 */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className={`p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] ${
-                isDark ? "text-[var(--app-status-warning)]" : ""
-              }`}
-              onClick={() => void handleToggleTheme()}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  aria-label={settingsT("theme.openMenu")}
+                  className="rounded p-0.5 transition-colors hover:bg-[var(--app-hover)]"
+                >
+                  <Palette className="h-3.5 w-3.5 text-[var(--app-accent)]" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{settingsT("theme.openMenu")}</p>
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" side="top" className="w-52 p-1.5">
+            <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
+              {settingsT("theme.groups.dark")}
+            </DropdownMenuLabel>
+            {THEME_PRESETS.filter((preset) => preset.group === "dark").map((preset) => (
+              <DropdownMenuItem
+                key={preset.id}
+                onSelect={() => void handleSelectTheme(preset.id)}
+                className={themePreference === preset.id ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : ""}
+              >
+                <PresetSwatches preset={preset} />
+                <span className="min-w-0 flex-1 truncate text-[12px]">{settingsT(preset.labelKey as never)}</span>
+                {themePreference === preset.id && <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator className="my-1" />
+            <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
+              {settingsT("theme.groups.light")}
+            </DropdownMenuLabel>
+            {THEME_PRESETS.filter((preset) => preset.group === "light").map((preset) => (
+              <DropdownMenuItem
+                key={preset.id}
+                onSelect={() => void handleSelectTheme(preset.id)}
+                className={themePreference === preset.id ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : ""}
+              >
+                <PresetSwatches preset={preset} />
+                <span className="min-w-0 flex-1 truncate text-[12px]">{settingsT(preset.labelKey as never)}</span>
+                {themePreference === preset.id && <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator className="my-1" />
+            <DropdownMenuItem
+              onSelect={() => void handleSelectTheme("system")}
+              className={themePreference === "system" ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : ""}
             >
-              {isDark ? <Sun className="w-3 h-3" /> : <Moon className="w-3 h-3" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{isDark ? t("switchToLight", { ns: "dialogs" }) : t("switchToDark", { ns: "dialogs" })}</p>
-          </TooltipContent>
-        </Tooltip>
+              <MonitorCog className="size-4 text-[var(--app-text-secondary)]" />
+              <span className="min-w-0 flex-1 truncate text-[12px]">{settingsT("theme.followSystem")}</span>
+              {themePreference === "system" && <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

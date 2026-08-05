@@ -5,22 +5,15 @@ import { toast } from "sonner";
 import { handleError, getErrorMessage } from "@/utils";
 import { filesystemService } from "@/services/filesystemService";
 import { usePanesStore } from "@/stores";
+import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { useThemeStore } from "@/stores/useThemeStore";
 import EditorToolbar from "./EditorToolbar";
 import EditorBreadcrumb from "./EditorBreadcrumb";
 import MarkdownPreview from "./MarkdownPreview";
 import ImagePreview from "./ImagePreview";
+import { isImageFile } from "@/lib/fileTypes";
 
 /** 支持预览的图片扩展名（SVG 不纳入，保持 Monaco XML 编辑） */
-const IMAGE_EXTENSIONS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
-]);
-
-function isImageFile(filePath: string): boolean {
-  const ext = filePath.split(".").pop()?.toLowerCase() || "";
-  return IMAGE_EXTENSIONS.has(ext);
-}
-
 /** 文件扩展名 → Monaco 语言 ID */
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
   ts: "typescript",
@@ -98,6 +91,7 @@ export default function EditorView({
 }: EditorViewProps) {
   void _projectPath; // 保留 prop 供未来使用（如路径沙箱验证）
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const [editorMounted, setEditorMounted] = useState(false);
   const [content, setContent] = useState<string>("");
   const [originalContent, setOriginalContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -113,6 +107,7 @@ export default function EditorView({
 
   const isDark = useThemeStore((s) => s.isDark);
   const setTabDirty = usePanesStore((s) => s.setTabDirty);
+  const revealRequest = useEditorRevealStore((state) => state.requests[filePath]);
 
   const language = getLanguageFromPath(filePath);
   const isMarkdown = language === "markdown";
@@ -260,6 +255,7 @@ export default function EditorView({
   const handleEditorMount: OnMount = useCallback(
     (editor) => {
       editorRef.current = editor;
+      setEditorMounted(true);
       editor.onDidScrollChange(syncPreviewFromEditor);
 
       // Ctrl+S 快捷键
@@ -277,6 +273,35 @@ export default function EditorView({
     },
     [handleSave]
   );
+
+  useEffect(() => {
+    if (!revealRequest || loading || !editorMounted) return;
+    if (isMarkdown && previewMode === "preview") {
+      setPreviewMode("edit");
+      return;
+    }
+
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model) return;
+    const lineNumber = Math.min(Math.max(revealRequest.line, 1), model.getLineCount());
+    const column = Math.min(
+      Math.max(revealRequest.column ?? 1, 1),
+      model.getLineMaxColumn(lineNumber),
+    );
+    const position = { lineNumber, column };
+    editor.setPosition(position);
+    editor.revealPositionInCenterIfOutsideViewport(position);
+    editor.focus();
+    useEditorRevealStore.getState().acknowledge(filePath, revealRequest.requestId);
+  }, [editorMounted, filePath, isMarkdown, loading, previewMode, revealRequest]);
+
+  useEffect(() => {
+    if (!revealRequest) return;
+    if (isImageFile(filePath) || (!loading && error)) {
+      useEditorRevealStore.getState().acknowledge(filePath, revealRequest.requestId);
+    }
+  }, [error, filePath, loading, revealRequest]);
 
   // 编辑器内容变化
   const handleEditorChange = useCallback(

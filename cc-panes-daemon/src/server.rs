@@ -449,6 +449,8 @@ pub struct CreateSessionResponse {
     pub session_id: String,
     #[serde(default)]
     pub reused_existing: bool,
+    #[serde(default)]
+    pub resolved_model_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -788,6 +790,7 @@ async fn create_session(
             Json(CreateSessionResponse {
                 session_id,
                 reused_existing: true,
+                resolved_model_id: None,
             }),
         ));
     }
@@ -797,8 +800,9 @@ async fn create_session(
     let launch_id = core_request.launch_id.clone();
     let runtime_kind = provenance_runtime_kind.clone();
     let backend = config.terminal_backend_arc();
-    let mut create_task = tokio::task::spawn_blocking(move || backend.create_session(core_request));
-    let session_id = match tokio::time::timeout(DAEMON_CREATE_DEADLINE, &mut create_task).await {
+    let mut create_task =
+        tokio::task::spawn_blocking(move || backend.create_session_with_outcome(core_request));
+    let outcome = match tokio::time::timeout(DAEMON_CREATE_DEADLINE, &mut create_task).await {
         Ok(result) => result
             .map_err(|error| {
                 json_error(
@@ -811,9 +815,10 @@ async fn create_session(
         Err(_) => {
             let late_backend = config.terminal_backend_arc();
             tokio::spawn(async move {
-                if let Ok(Ok(session_id)) = create_task.await {
+                if let Ok(Ok(outcome)) = create_task.await {
                     let _ = tokio::task::spawn_blocking(move || {
-                        late_backend.kill_with_reason(&session_id, KillReason::LaunchTimeout)
+                        late_backend
+                            .kill_with_reason(&outcome.session_id, KillReason::LaunchTimeout)
                     })
                     .await;
                 }
@@ -843,6 +848,8 @@ async fn create_session(
             ));
         }
     };
+    let session_id = outcome.session_id;
+    let resolved_model_id = outcome.resolved_model_id;
     config.touch_session(&session_id);
     // create+claim 原子化（docs/61 评审 #2）：会话对外可见前就把写权限归给创建者，
     // 否则"先创建后 claim"之间存在窗口，另一实例可以抢走刚建好的会话。
@@ -889,6 +896,7 @@ async fn create_session(
         Json(CreateSessionResponse {
             session_id,
             reused_existing: false,
+            resolved_model_id,
         }),
     ))
 }
@@ -1514,6 +1522,7 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use cc_panes_core::models::TerminalBufferMode;
     use cc_panes_core::services::terminal_service::SessionStatus;
+    use cc_panes_core::services::CreateSessionOutcome;
     use cc_panes_core::utils::AppResult;
     use tower::ServiceExt;
 
@@ -1538,9 +1547,23 @@ mod tests {
         assert!(!body.to_string().contains("apiKey"));
     }
 
+    #[test]
+    fn create_session_response_serializes_an_explicit_null_resolved_model() {
+        let value = serde_json::to_value(CreateSessionResponse {
+            session_id: "session-native".to_string(),
+            reused_existing: false,
+            resolved_model_id: None,
+        })
+        .expect("serialize create response");
+
+        assert!(value.get("resolvedModelId").is_some());
+        assert!(value["resolvedModelId"].is_null());
+    }
+
     #[derive(Default)]
     struct MockTerminalBackend {
         created: Mutex<Vec<CoreCreateSessionRequest>>,
+        resolved_model_id: Mutex<Option<String>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
         resizes: Mutex<Vec<(String, u16, u16)>>,
@@ -1553,6 +1576,18 @@ mod tests {
         fn create_session(&self, request: CoreCreateSessionRequest) -> AppResult<String> {
             self.created.lock().unwrap().push(request);
             Ok("session-1".to_string())
+        }
+
+        fn create_session_with_outcome(
+            &self,
+            request: CoreCreateSessionRequest,
+        ) -> AppResult<CreateSessionOutcome> {
+            let session_id = self.create_session(request)?;
+            Ok(CreateSessionOutcome {
+                session_id,
+                reused_existing: false,
+                resolved_model_id: self.resolved_model_id.lock().unwrap().clone(),
+            })
         }
 
         fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -2342,6 +2377,7 @@ mod tests {
     #[tokio::test]
     async fn terminal_routes_require_token_and_delegate_to_backend() {
         let backend = Arc::new(MockTerminalBackend::default());
+        *backend.resolved_model_id.lock().unwrap() = Some("provider-default".to_string());
         let app = router(test_config("secret", "127.0.0.1:18084", backend.clone()));
 
         let unauthorized = app
@@ -2380,6 +2416,10 @@ mod tests {
         let response: CreateSessionResponse =
             serde_json::from_slice(&bytes).expect("create response");
         assert_eq!(response.session_id, "session-1");
+        assert_eq!(
+            response.resolved_model_id.as_deref(),
+            Some("provider-default")
+        );
         assert_eq!(
             backend.created.lock().unwrap()[0]
                 .extra_env

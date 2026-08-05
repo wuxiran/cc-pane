@@ -12,9 +12,14 @@
   "restoreLogPending": "恢复链路初始化中...",
   "restoreFailed": "恢复失败",
   "restoreFailedHint": "查看终端输出获取详情",
+  "coldRestoreTitle": "需要恢复旧会话",
+  "coldRestoreHint": "当前终端后端版本较旧，无法安全接管仍在运行的终端。可结束旧终端，并按上次的配置恢复会话。",
+  "coldRestoreAction": "结束旧终端并恢复",
+  "coldRestoreRunning": "正在结束旧终端...",
+  "coldRestoreFailed": "旧终端未能结束，未启动新的恢复进程。请重试或在资源管理器中处理旧会话。",
   "restoreBlockedTitle": "会话恢复已阻断",
   "restoreBlocked": {
-    "claims-unsupported": "当前终端后端不支持安全认领，已停止自动重建。",
+    "claims-unsupported": "当前终端后端不支持安全认领，已停止自动重建；可结束旧终端后手动恢复。",
     "reconciliation-failed": "无法确认 daemon 会话归属，已停止自动重建。",
     "missing-provenance": "会话缺少完整出生证据，只能在资源管理器中人工接管。",
     "identity-mismatch": "会话身份或运行环境与当前分屏不一致，已拒绝自动接管。",
@@ -252,6 +257,8 @@
   "terminalFitAll": "全部终端适应大小",
   "terminalCopySessionId": "复制会话 ID",
   "terminalSessionIdCopied": "已复制会话 ID: {{id}}",
+  "statusBarHide": "隐藏状态栏",
+  "statusBarShow": "显示状态栏",
   "bindWorkspace": "绑定工作空间…",
   "bindWorkspaceEmpty": "暂无工作空间",
   "unbindWorkspace": "解除绑定",
@@ -282,5 +289,22 @@
   "openFileTab": "打开文件…",
   "newFileExplorerTab": "打开目录树",
   "copyBrowserUrl": "复制链接",
-  "copyFilePath": "复制文件路径"
+  "copyFilePath": "复制文件路径",
+  "terminalPathLink": {
+    "resolvingTitle": "打开终端路径",
+    "resolvingDescription": "正在检查路径...",
+    "fileTitle": "打开文件",
+    "fileDescription": "终端会话中的文件",
+    "directoryTitle": "打开目录",
+    "directoryDescription": "终端会话中的目录",
+    "openEditor": "在编辑器中打开",
+    "openDefault": "使用默认程序打开",
+    "reveal": "在文件管理器中显示",
+    "openFolder": "在文件管理器中打开",
+    "copy": "复制路径",
+    "copied": "路径已复制",
+    "actionFailed": "路径操作失败：{{error}}",
+    "resolveFailed": "无法打开终端路径：{{error}}",
+    "sessionUnavailable": "终端会话已不可用"
+  }
 }

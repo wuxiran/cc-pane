@@ -314,6 +314,51 @@ describe("usePanesStore", () => {
     });
   });
 
+  describe("legacy-daemon cold restore", () => {
+    function blockedLeaf() {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, {
+        projectId: "proj-1",
+        projectPath: "/tmp/proj1",
+        cliTool: "claude",
+        resumeId: "resume-1",
+      });
+      const pane = usePanesStore.getState().rootPane as Panel;
+      const tab = pane.tabs[pane.tabs.length - 1];
+      usePanesStore.setState((state) => {
+        const current = (state.rootPane as Panel).tabs.find((item) => item.id === tab.id)!;
+        const leaf = current.terminalRootPane!;
+        if (leaf.type !== "leaf") throw new Error("expected leaf");
+        leaf.restoring = true;
+        leaf.savedSessionId = "old-session";
+        leaf.restoreBlockedReason = "claims-unsupported";
+      });
+      return { tabId: tab.id, leafId: (tab.terminalRootPane as { id: string }).id };
+    }
+
+    it("解除旧引用后可在成功时清除阻断，失败时完整回滚", () => {
+      const { tabId, leafId } = blockedLeaf();
+      const state = usePanesStore.getState();
+
+      expect(state.beginTerminalColdRestore(tabId, leafId)).toBe("old-session");
+      let leaf = ((usePanesStore.getState().rootPane as Panel).tabs[1].terminalRootPane)!;
+      expect(leaf.type === "leaf" ? leaf.savedSessionId : "unexpected").toBeUndefined();
+      expect(leaf.type === "leaf" ? leaf.restoreBlockedReason : "unexpected").toBe("claims-unsupported");
+
+      state.finishTerminalColdRestore(tabId, leafId, "old-session", false);
+      leaf = ((usePanesStore.getState().rootPane as Panel).tabs[1].terminalRootPane)!;
+      expect(leaf.type === "leaf" ? leaf.savedSessionId : "unexpected").toBe("old-session");
+
+      expect(usePanesStore.getState().beginTerminalColdRestore(tabId, leafId)).toBe("old-session");
+      usePanesStore.getState().finishTerminalColdRestore(tabId, leafId, "old-session", true);
+      leaf = ((usePanesStore.getState().rootPane as Panel).tabs[1].terminalRootPane)!;
+      expect(leaf.type === "leaf" ? leaf.savedSessionId : "unexpected").toBeUndefined();
+      expect(leaf.type === "leaf" ? leaf.restoreBlockedReason : "unexpected").toBeUndefined();
+      expect(leaf.type === "leaf" ? leaf.restoring : false).toBe(true);
+      expect(leaf.type === "leaf" ? leaf.launchAttempt : 0).toBe(1);
+    });
+  });
+
   describe("closeTab", () => {
     it("多 tab 面板应移除 tab 并更新 activeTabId", () => {
       const paneId = usePanesStore.getState().rootPane.id;

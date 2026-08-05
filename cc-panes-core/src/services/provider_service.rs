@@ -26,6 +26,8 @@ const MAX_PROVIDER_COUNT: usize = 256;
 const MAX_PROVIDER_MODELS: usize = 100;
 const MAX_PROVIDER_MODEL_ID_CHARS: usize = 256;
 const MAX_PROVIDER_MODEL_LABEL_CHARS: usize = 128;
+const MIN_PROVIDER_CONTEXT_WINDOW_TOKENS: u64 = 1_000;
+const MAX_PROVIDER_CONTEXT_WINDOW_TOKENS: u64 = 10_000_000;
 const PROVIDER_MODEL_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 const PROVIDER_CLI_TOOLS: [&str; 8] = [
     "claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok",
@@ -669,6 +671,18 @@ impl ProviderService {
                 "Provider model defaultEffort is invalid",
             ));
         }
+        if model.context_window_tokens.is_some_and(|window| {
+            !(MIN_PROVIDER_CONTEXT_WINDOW_TOKENS..=MAX_PROVIDER_CONTEXT_WINDOW_TOKENS)
+                .contains(&window)
+        }) {
+            return Err(Self::provider_model_error(
+                EC::PROVIDER_MODEL_INVALID,
+                format!(
+                    "Provider model contextWindowTokens must be between {} and {}",
+                    MIN_PROVIDER_CONTEXT_WINDOW_TOKENS, MAX_PROVIDER_CONTEXT_WINDOW_TOKENS
+                ),
+            ));
+        }
         Ok(())
     }
 
@@ -756,6 +770,7 @@ mod tests {
             id: id.to_string(),
             label: Some(format!("Label {id}")),
             default_effort: None,
+            context_window_tokens: None,
         }
     }
 
@@ -809,12 +824,14 @@ mod tests {
                 id: "  model-a  ".to_string(),
                 label: Some("  Model A  ".to_string()),
                 default_effort: Some(" HIGH ".to_string()),
+                context_window_tokens: None,
             },
             provider_model("model-b"),
             ProviderModel {
                 id: "model-c".to_string(),
                 label: Some("   ".to_string()),
                 default_effort: None,
+                context_window_tokens: None,
             },
         ];
 
@@ -829,6 +846,70 @@ mod tests {
     }
 
     #[test]
+    fn persists_context_window_tokens_and_validates_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = new_service(&dir);
+
+        for (id, window) in [
+            (
+                "models-context-window-min",
+                MIN_PROVIDER_CONTEXT_WINDOW_TOKENS,
+            ),
+            (
+                "models-context-window-max",
+                MAX_PROVIDER_CONTEXT_WINDOW_TOKENS,
+            ),
+        ] {
+            let mut provider = make_provider(id, false);
+            provider.models = vec![ProviderModel {
+                id: "model-a".to_string(),
+                label: Some("Model A".to_string()),
+                default_effort: None,
+                context_window_tokens: Some(window),
+            }];
+
+            service.add_provider(provider).unwrap();
+            assert_eq!(
+                service.get_provider(id).unwrap().models[0].context_window_tokens,
+                Some(window)
+            );
+        }
+
+        let persisted_id = "models-context-window-invalid-update";
+        let mut persisted = make_provider(persisted_id, false);
+        persisted.models = vec![ProviderModel {
+            id: "model-a".to_string(),
+            label: None,
+            default_effort: None,
+            context_window_tokens: Some(128_000),
+        }];
+        service.add_provider(persisted).unwrap();
+
+        for invalid_window in [
+            MIN_PROVIDER_CONTEXT_WINDOW_TOKENS - 1,
+            MAX_PROVIDER_CONTEXT_WINDOW_TOKENS + 1,
+        ] {
+            let mut invalid = service.get_provider(persisted_id).unwrap();
+            invalid.models[0].context_window_tokens = Some(invalid_window);
+            let error = service.update_provider(invalid).unwrap_err();
+            assert_eq!(
+                provider_model_error_code(&error),
+                Some("PROVIDER_MODEL_INVALID")
+            );
+            assert_eq!(
+                service.get_provider(persisted_id).unwrap().models[0].context_window_tokens,
+                Some(128_000)
+            );
+        }
+
+        let reloaded = new_service(&dir);
+        assert_eq!(
+            reloaded.get_provider(persisted_id).unwrap().models[0].context_window_tokens,
+            Some(128_000)
+        );
+    }
+
+    #[test]
     fn accepts_provider_model_id_and_label_at_exact_limits() {
         let dir = tempfile::tempdir().unwrap();
         let service = new_service(&dir);
@@ -837,6 +918,7 @@ mod tests {
             id: "i".repeat(MAX_PROVIDER_MODEL_ID_CHARS),
             label: Some("l".repeat(MAX_PROVIDER_MODEL_LABEL_CHARS)),
             default_effort: None,
+            context_window_tokens: None,
         }];
 
         service.add_provider(provider).unwrap();
@@ -957,16 +1039,19 @@ mod tests {
                 id: "   ".to_string(),
                 label: None,
                 default_effort: None,
+                context_window_tokens: None,
             },
             ProviderModel {
                 id: "i".repeat(MAX_PROVIDER_MODEL_ID_CHARS + 1),
                 label: None,
                 default_effort: None,
+                context_window_tokens: None,
             },
             ProviderModel {
                 id: "valid-id".to_string(),
                 label: Some("l".repeat(MAX_PROVIDER_MODEL_LABEL_CHARS + 1)),
                 default_effort: None,
+                context_window_tokens: None,
             },
         ];
 
