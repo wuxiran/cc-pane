@@ -7,7 +7,11 @@ import { terminalService, ensureListeners } from "@/services/terminalService";
 import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRestoreBarrier";
 import { devDebugLog } from "@/utils/devLogger";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
-import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
+import {
+  collectTerminalLeaves,
+  collectTerminalSessionIdsWithSavedFromTree,
+  findTerminalPane,
+} from "@/lib/paneSessions";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 // 树辅助（findPane 等）与 close 系树操作已随 B1-03 下沉到 paneTreeHelpers /
@@ -622,6 +626,22 @@ function cleanRehydratedPanes(node: PaneNode) {
   } else {
     node.children.forEach(cleanRehydratedPanes);
   }
+}
+
+/**
+ * 全部布局（含星标）的会话引用全集，**含 savedSessionId**。
+ *
+ * 供快照覆盖算差集用：口径必须与销毁侧一致，漏掉 savedSessionId 会把
+ * 「恢复中、尚未 attach」的活会话算成待杀，开闸后就是误杀。
+ */
+function collectSnapshotSessionIds(state: PanesState): string[] {
+  const ids: string[] = [];
+  for (const layout of state.layouts) {
+    const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+    if (!tree) continue;
+    ids.push(...collectTerminalSessionIdsWithSavedFromTree(tree));
+  }
+  return ids;
 }
 
 export const usePanesStore = create<PanesState>()(
@@ -2048,6 +2068,17 @@ export const usePanesStore = create<PanesState>()(
       if (!payload || !Array.isArray(payload.layouts)) return false;
       // 接受 v1（无绑定字段）与 v2；未来更高版本结构未知，拒绝以免半解析
       if (typeof payload.schemaVersion === "number" && payload.schemaVersion > 2) return false;
+
+      // B1-11：整树替换会让旧树里的会话失去全部引用——它们**可能**是该回收的
+      // 孤儿，也**可能**马上被收养回来。跨端同步每 5s 跑一轮
+      // apply → reconcileTerminalSessions → runBackgroundLayoutRestore，
+      // 新树经 savedSessionId 引用的常常就是当前活着的会话。所以：
+      //   1. 这里只算差集（旧引用 − 新引用，两侧都含 savedSessionId），不杀；
+      //   2. 真杀推迟到批2 完成后开闸，且必须等本轮收养 settle 再按当前活会话
+      //      复核一遍（Codex 评审必修1）。
+      // 现在先把「如果真杀会杀掉谁」打进日志，与孤儿对账 GC 的发现对账，
+      // 攒够零误报的样本再开闸。
+      const beforeIds = new Set(collectSnapshotSessionIds(get()));
       let applied = false;
       set((state) => {
         const layoutState = ensureLayoutState({
@@ -2064,6 +2095,23 @@ export const usePanesStore = create<PanesState>()(
         applied = true;
       });
       if (applied) {
+        const afterIds = new Set(collectSnapshotSessionIds(get()));
+        const wouldKill = [...beforeIds].filter((id) => !afterIds.has(id));
+        if (wouldKill.length > 0) {
+          // 观察期日志：真杀开闸前，这里每出现一条都要能在孤儿对账 GC 里
+          // 找到对应发现；对不上说明差集算多了，开闸即误杀活会话。
+          console.info("[destroy] snapshot-apply would-kill", {
+            sessionIds: wouldKill,
+            beforeCount: beforeIds.size,
+            afterCount: afterIds.size,
+          });
+        }
+        // 全屏中的 tab 若被快照换掉，fullscreenTabId 会悬空（poppedOutTabs
+        // 上面已重置，这条是同批补的）。
+        const fullscreen = useFullscreenStore.getState();
+        if (fullscreen.fullscreenTabId && !findTabAcrossLayouts(get(), fullscreen.fullscreenTabId)) {
+          void fullscreen.exitFullscreen();
+        }
         notifyTerminalLayoutChanged("layout.snapshot.apply");
       }
       return applied;

@@ -103,8 +103,14 @@ const terminalEntry: TabLifecycleEntry = {
   //    的先例，不去改 BUSY_STATUSES 本体（打扰闸门等多处共用）。
   // 3. 分屏 tab 逐 leaf 判，任一 leaf 忙就挡——确认框会列出具体是哪个会话。
   closeGuards: (tab, ctx) => {
-    if (!isAgentTab(tab)) return [];
     const guards: CloseGuard[] = [];
+    // dirty 是跨 contentType 的通用状态（改道前 useTabClosing 对所有 tab 无差别
+    // 检查它）。终端 tab 也可能带 dirty——按 contentType 分派后若只在 editor
+    // 登记，终端上的未保存确认就会静默消失。
+    if (tab.dirty) {
+      guards.push({ kind: "editor-dirty", tabId: tab.id, tabTitle: tab.title });
+    }
+    if (!isAgentTab(tab)) return guards;
     for (const sessionId of collectTerminalSessionIdsWithSaved(tab)) {
       const status = ctx.statusOf(sessionId);
       if (!status) continue;
