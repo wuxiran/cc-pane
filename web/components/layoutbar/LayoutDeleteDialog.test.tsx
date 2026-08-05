@@ -31,6 +31,27 @@ vi.mock("@/services", async (importOriginal) => {
   };
 });
 
+// B1-08 起回收由 destroyPipeline 执行，它从下面这两个模块**直接**导入
+// （不经 @/services 桶文件），所以观察点必须同时打在这里——只 mock 桶文件
+// 会看不到任何调用，测试会误报「语义退化」。
+vi.mock("@/services/terminalService", () => ({
+  terminalService: {
+    detachOutput: (id: string) => detachOutput(id),
+    detachExit: (id: string) => detachExit(id),
+    killSession: (id: string) => killSession(id),
+  },
+}));
+
+vi.mock("@/services/popupWindowService", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/popupWindowService")>();
+  return {
+    ...actual,
+    getPoppedTabs: () => getPoppedTabs(),
+    isTabPoppedOut: (id: string) => getPoppedTabs().has(id),
+    markTabReclaimed: (id: string) => markTabReclaimed(id),
+  };
+});
+
 vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),
