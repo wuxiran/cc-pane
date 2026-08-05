@@ -30,6 +30,7 @@ mod runner_service;
 mod session_index_parser;
 mod session_index_roots;
 mod session_index_service;
+pub mod session_provenance_persist;
 mod session_restore_service;
 pub mod session_state_machine;
 mod settings_service;
@@ -86,6 +87,11 @@ pub use quick_command_service::QuickCommandService;
 pub use resume_identity::{should_replace_source, should_retain_incoming, source_priority};
 pub use runner_service::RunnerService;
 pub use session_index_service::SessionIndexService;
+pub use session_provenance_persist::{
+    backfill_missing_provenance, cleanup_failed_session_persistence,
+    persist_created_session_observation, persist_created_session_or_cleanup,
+    ProvenanceBackfillReport,
+};
 pub use session_restore_service::{write_session_output, SessionRestoreService};
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;

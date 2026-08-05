@@ -8,9 +8,10 @@ use axum::{
 use cc_panes_core::{
     models::{
         CliTool, CreateSessionRequest as CoreCreateSessionRequest, LaunchProviderSelection,
-        SavedSession, SshConnectionInfo, TerminalReplaySnapshot,
+        SshConnectionInfo, TerminalReplaySnapshot,
     },
     services::{
+        session_provenance_persist::persist_created_session_or_cleanup,
         terminal_service::SessionOutput, CreateSessionOutcome, SessionStatusInfo,
         TerminalAdoptionSnapshot, TerminalBackend,
     },
@@ -245,39 +246,16 @@ pub async fn create_session(
     let session_id = outcome.session_id;
     let reused_existing = outcome.reused_existing;
 
-    if state.terminal_backend.claims_supported() {
-        let provenance = state
-            .terminal_backend
-            .session_provenance(&session_id)
-            .map_err(terminal_operation_error)?
-            .ok_or_else(|| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "claim-capable daemon omitted session provenance".to_string(),
-                )
-            })?;
-        if let Err(error) = state.session_restore_service.save_provenance(&provenance) {
-            if reused_existing {
-                let _ = state.terminal_backend.release_session(&session_id);
-            } else {
-                let _ = state.terminal_backend.kill(&session_id);
-            }
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, error));
-        }
-        if !reused_existing {
-            if let Some(observation) =
-                SavedSession::from_creation(&observation_request, &provenance)
-            {
-                if let Err(error) = state
-                    .session_restore_service
-                    .save_initial_observation(&observation)
-                {
-                    let _ = state.terminal_backend.kill(&session_id);
-                    return Err((StatusCode::INTERNAL_SERVER_ERROR, error));
-                }
-            }
-        }
-    }
+    // 出生凭证必须在 session id 返回给调用方之前落进 SQLite，否则这条会话在 app
+    // 重启后会被 identity-mismatch 永久拦下。fail-closed：写不进去就清掉刚建的会话。
+    persist_created_session_or_cleanup(
+        state.terminal_backend.as_ref(),
+        state.session_restore_service.as_ref(),
+        &observation_request,
+        &session_id,
+        reused_existing,
+    )
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     Ok((
         StatusCode::CREATED,
@@ -495,7 +473,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use cc_panes_core::{
-        models::{TerminalBufferMode, WslLaunchInfo},
+        models::{SavedSession, TerminalBufferMode, WslLaunchInfo},
         services::{
             terminal_service::SessionStatus, FileSystemService, HistoryService,
             LaunchHistoryService, LayoutSnapshotService, McpConfigService, PlanService,

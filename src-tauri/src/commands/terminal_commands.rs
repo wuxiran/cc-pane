@@ -4,12 +4,17 @@ use crate::services::terminal_service;
 use crate::services::terminal_service::{KillReason, SessionOutput};
 use crate::services::{
     BridgeStats, HistoryWatchManager, LaunchHistoryService, SessionRestoreService,
-    SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackend, TerminalBackendKind,
+    SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackendKind,
     TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
 use crate::utils::{validate_launch_cwd, validate_ssh_info, AppResult, LaunchRuntime};
 use cc_cli_adapters::{CliToolInfo, CliToolRegistry};
+// 出生凭证落库 / 失败清理已提到 cc-panes-core，由 Tauri 命令、REST、orchestrator
+// launch_task 三条创建路径共用，保证行为（含 fail-closed 语义）一致。
+use cc_panes_core::services::session_provenance_persist::{
+    cleanup_failed_session_persistence, persist_created_session_observation,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -109,43 +114,6 @@ fn summarize_terminal_input(data: &str) -> serde_json::Value {
         "bytes": bytes,
         "truncated": data.chars().count() > 24 || data.len() > 32,
     })
-}
-
-fn persist_created_session_observation(
-    backend: &dyn TerminalBackend,
-    session_restore_service: &SessionRestoreService,
-    request: &CreateSessionRequest,
-    session_id: &str,
-    reused_existing: bool,
-) -> AppResult<()> {
-    let provenance = backend
-        .session_provenance(session_id)?
-        .ok_or_else(|| AppError::from("claim-capable daemon omitted session provenance"))?;
-    session_restore_service
-        .save_provenance(&provenance)
-        .map_err(AppError::from)?;
-    if !reused_existing {
-        if let Some(observation) =
-            cc_panes_core::models::SavedSession::from_creation(request, &provenance)
-        {
-            session_restore_service
-                .save_initial_observation(&observation)
-                .map_err(AppError::from)?;
-        }
-    }
-    Ok(())
-}
-
-fn cleanup_failed_session_persistence(
-    backend: &dyn TerminalBackend,
-    session_id: &str,
-    reused_expected_session: bool,
-) -> AppResult<()> {
-    if reused_expected_session {
-        backend.release_session(session_id)
-    } else {
-        backend.kill_with_reason(session_id, KillReason::Unknown)
-    }
 }
 
 /// 创建终端会话
@@ -707,6 +675,7 @@ mod tests {
 
     use cc_panes_core::models::{SavedSession, TerminalBufferMode, TerminalSessionProvenance};
     use cc_panes_core::repository::Database;
+    use cc_panes_core::services::TerminalBackend;
     use cc_panes_core::utils::AppPaths;
 
     use super::*;

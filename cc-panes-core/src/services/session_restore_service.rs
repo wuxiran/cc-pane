@@ -94,6 +94,11 @@ impl SessionRestoreService {
         self.repo.save_provenance(provenance)
     }
 
+    /// 有观测行但缺出生凭证行的会话 id（启动期回填用）。
+    pub fn list_sessions_missing_provenance(&self) -> Result<Vec<String>, String> {
+        self.repo.list_sessions_missing_provenance()
+    }
+
     /// Persist the source leaf before returning a newly created session id. Unlike periodic saves,
     /// this does not emit a workspace snapshot file.
     pub fn save_initial_observation(&self, session: &SavedSession) -> Result<(), String> {
