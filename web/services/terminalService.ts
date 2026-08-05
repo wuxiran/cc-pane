@@ -452,7 +452,7 @@ export const terminalService = {
       () => apiGet<TerminalAdoptionSnapshot>("/api/sessions/adoption-snapshot"),
     );
     cachedBackendClientInfo = {
-      mode: "daemon",
+      mode: cachedBackendClientInfo?.mode ?? "daemon",
       claimsSupported: snapshot.claimsSupported,
       daemonGeneration: snapshot.daemonGeneration,
       instanceId: snapshot.ownerInstanceId,

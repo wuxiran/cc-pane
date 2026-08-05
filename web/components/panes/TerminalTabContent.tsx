@@ -1,4 +1,4 @@
-import { memo, useCallback, type ReactNode } from "react";
+import { memo, useCallback, useState, type ReactNode } from "react";
 import { CircleAlert, LockKeyhole, RotateCcw, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab, TerminalLaunchError, TerminalPaneNode } from "@/types";
@@ -8,11 +8,14 @@ import {
   useTerminalRestoreLogStore,
 } from "@/stores";
 import type { TerminalRestoreLogEntry } from "@/stores/useTerminalRestoreLogStore";
+import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
+import { coldRestoreBlockedTerminal } from "@/hooks/coldTerminalRestore";
 import { Button } from "@/components/ui/button";
 import { classifyTerminalLaunchPath, translateError } from "@/utils";
 import SplitView from "./SplitView";
 import TerminalView from "./TerminalView";
 import type { TerminalViewHandle } from "./TerminalView";
+import TerminalStatusBar from "./TerminalStatusBar";
 import VoiceInputButton from "./VoiceInputButton";
 
 interface TerminalTabContentProps {
@@ -20,10 +23,23 @@ interface TerminalTabContentProps {
   isVisible: boolean;
   isActive: boolean;
   layoutActive: boolean;
+  showStatusBar?: boolean;
   onSessionCreated: (sessionId: string, terminalPaneId?: string) => void;
   onSessionExited?: (exitCode: number, terminalPaneId?: string) => void;
   onTerminalRef: (terminalPaneId: string, ref: TerminalViewHandle | null) => void;
   onReconnect?: (terminalPaneId: string) => Promise<string | null>;
+}
+
+function terminalContextForLeaf(tab: Tab, leaf: Extract<TerminalPaneNode, { type: "leaf" }>): ActiveTerminalContext {
+  return {
+    sessionId: leaf.sessionId,
+    cliTool: (leaf.cliTool ?? tab.cliTool)?.toLowerCase() ?? null,
+    ssh: Boolean(leaf.ssh ?? tab.ssh),
+    providerId: (leaf.providerId ?? tab.providerId)?.trim() || null,
+    modelId: (leaf.modelId ?? tab.modelId)?.trim() || null,
+    providerSelection: leaf.providerSelection ?? tab.providerSelection ?? null,
+    launchProfileId: (leaf.launchProfileId ?? tab.launchProfileId)?.trim() || null,
+  };
 }
 
 function normalizeSizes(sizes: number[]): number[] {
@@ -55,6 +71,69 @@ function RestoreLogSurface({ entries }: { entries: TerminalRestoreLogEntry[] }) 
               </div>
             ))
           : t("restoreLogPending")}
+      </div>
+    </div>
+  );
+}
+
+function BlockedRestorePanel({
+  tabId,
+  terminalPaneId,
+  leaf,
+  reason,
+  entries,
+}: {
+  tabId: string;
+  terminalPaneId: string;
+  leaf: Extract<TerminalPaneNode, { type: "leaf" }>;
+  reason: NonNullable<Extract<TerminalPaneNode, { type: "leaf" }>["restoreBlockedReason"]>;
+  entries: TerminalRestoreLogEntry[];
+}) {
+  const { t } = useTranslation("panes");
+  const [running, setRunning] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const canColdRestore = reason === "claims-unsupported"
+    && Boolean(leaf.savedSessionId);
+
+  const handleColdRestore = async () => {
+    if (!canColdRestore || running) return;
+    setFailed(false);
+    setRunning(true);
+    try {
+      await coldRestoreBlockedTerminal(tabId, terminalPaneId);
+    } catch {
+      setFailed(true);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-background/95 px-6 py-8">
+      <div className="flex w-full max-w-3xl flex-col items-center text-center">
+        <CircleAlert className="mb-4 h-9 w-9 text-[var(--app-status-warning)]" aria-hidden="true" />
+        <h3 className="text-base font-semibold text-foreground">
+          {canColdRestore ? t("coldRestoreTitle") : t("restoreBlockedTitle")}
+        </h3>
+        <p className="mt-2 max-w-full break-words text-sm leading-6 text-muted-foreground">
+          {canColdRestore ? t("coldRestoreHint") : t(`restoreBlocked.${reason}`)}
+        </p>
+        {canColdRestore ? (
+          <div className="mt-5 flex flex-col items-center gap-2">
+            <Button size="sm" onClick={() => void handleColdRestore()} disabled={running}>
+              <RotateCcw className="h-4 w-4" />
+              {running ? t("coldRestoreRunning") : t("coldRestoreAction")}
+            </Button>
+            {failed ? (
+              <p className="max-w-xl text-xs leading-5 text-destructive" role="alert">
+                {t("coldRestoreFailed")}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="mt-5 w-full text-left">
+          <RestoreLogSurface entries={entries} />
+        </div>
       </div>
     </div>
   );
@@ -104,6 +183,7 @@ export default memo(function TerminalTabContent({
   isVisible,
   isActive,
   layoutActive,
+  showStatusBar = false,
   onSessionCreated,
   onSessionExited,
   onTerminalRef,
@@ -138,24 +218,18 @@ export default memo(function TerminalTabContent({
       return (
         <div
           key={leaf.id}
-          className="relative h-full w-full overflow-hidden"
+          className="flex h-full w-full min-h-0 flex-col overflow-hidden"
           onMouseDown={() => setActiveTerminalPane(tab.id, leaf.id)}
         >
+          <div className="relative min-h-0 flex-1 overflow-hidden">
           {restoreBlocked ? (
-            <div className="flex h-full w-full items-center justify-center bg-background/95 px-6 py-8">
-              <div className="flex w-full max-w-3xl flex-col items-center text-center">
-                <CircleAlert className="mb-4 h-9 w-9 text-[var(--app-status-warning)]" aria-hidden="true" />
-                <h3 className="text-base font-semibold text-foreground">
-                  {t("restoreBlockedTitle")}
-                </h3>
-                <p className="mt-2 max-w-full break-words text-sm leading-6 text-muted-foreground">
-                  {t(`restoreBlocked.${restoreBlocked}`)}
-                </p>
-                <div className="mt-5 w-full text-left">
-                  <RestoreLogSurface entries={leafRestoreLogs} />
-                </div>
-              </div>
-            </div>
+            <BlockedRestorePanel
+              tabId={tab.id}
+              terminalPaneId={leaf.id}
+              leaf={leaf}
+              reason={restoreBlocked}
+              entries={leafRestoreLogs}
+            />
           ) : launchError ? (
             <LaunchErrorPanel
               error={launchError}
@@ -273,6 +347,15 @@ export default memo(function TerminalTabContent({
               <span className="min-w-0 break-words">{t("terminalLeaseReadOnly")}</span>
             </div>
           ) : null}
+          </div>
+          {showStatusBar ? (
+            <TerminalStatusBar
+              terminalContext={terminalContextForLeaf(tab, leaf)}
+              projectPath={tab.projectPath}
+              effort={leaf.launchExtras?.adapterOptions?.effort ?? tab.launchExtras?.adapterOptions?.effort}
+              enabled={isVisible && layoutActive}
+            />
+          ) : null}
         </div>
       );
     }
@@ -306,6 +389,7 @@ export default memo(function TerminalTabContent({
     setTerminalLaunchError,
     setActiveTerminalPane,
     restoreLogs,
+    showStatusBar,
     tab.activeTerminalPaneId,
     tab.id,
     tab.projectPath,

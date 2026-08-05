@@ -163,6 +163,12 @@ export async function reconcileTerminalSessions(
 ): Promise<AdoptionReport> {
   const report: AdoptionReport = { attached: 0, skipped: 0, blocked: 0 };
   const leaves = restorableLeaves();
+  let backendMode: "in-process" | "daemon" = "daemon";
+  try {
+    backendMode = (await terminalService.getDaemonClientInfo()).mode;
+  } catch (error) {
+    console.warn("[SessionAdopt] backend mode lookup failed; assuming daemon:", error);
+  }
   for (const leaf of leaves) {
     writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.begin", {
       savedSessionId: leaf.leaf.savedSessionId ?? null,
@@ -192,18 +198,60 @@ export async function reconcileTerminalSessions(
   }
 
   useTerminalStatusStore.getState().replaceLiveStatuses(snapshot.sessions);
+  const liveIds = new Set(
+    snapshot.sessions
+      .filter((status) => status.status !== "exited")
+      .map((status) => status.sessionId),
+  );
+
+  if (!snapshot.claimsSupported) {
+    if (backendMode === "in-process") {
+      report.attached += usePanesStore.getState().restoreLiveDaemonSessions(snapshot.sessions);
+    }
+    // In-process sessions are exclusive to this app and can reattach directly.
+    // An old daemon cannot arbitrate cross-instance ownership, so its live ids
+    // remain blocked until the user explicitly terminates the old PTY.
+    for (const leaf of leaves) {
+      if (leaf.leaf.sessionId) continue;
+      const liveSavedSession = Boolean(
+        leaf.leaf.savedSessionId && liveIds.has(leaf.leaf.savedSessionId),
+      );
+      if (backendMode === "in-process" && liveSavedSession) {
+        usePanesStore.getState().setTerminalRestoreBlocked(leaf.tabId, leaf.leaf.id, undefined);
+        writeRestoreLog(leaf.tabId, leaf.leaf.id, "in-process-session.reattach-ready", {
+          savedSessionId: leaf.leaf.savedSessionId,
+        });
+        continue;
+      }
+      if (liveSavedSession) {
+        writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.blocked", {
+          reason: "claims-unsupported",
+          savedSessionId: leaf.leaf.savedSessionId,
+        });
+        setBlocked(leaf, "claims-unsupported");
+        report.blocked += 1;
+      } else {
+        writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.cold-restore-ready", {
+          reason: "claims-unsupported",
+          savedSessionId: leaf.leaf.savedSessionId ?? null,
+        });
+        usePanesStore.getState().setTerminalRestoreBlocked(leaf.tabId, leaf.leaf.id, undefined);
+      }
+    }
+    return report;
+  }
+
   if (
     !snapshot.complete
-    || !snapshot.claimsSupported
     || snapshot.daemonGeneration === undefined
     || !snapshot.ownerInstanceId
   ) {
     for (const leaf of leaves) {
       writeRestoreLog(leaf.tabId, leaf.leaf.id, "daemon-snapshot.blocked", {
-        reason: "claims-unsupported",
+        reason: "reconciliation-failed",
       });
     }
-    report.blocked = blockPendingLeaves("claims-unsupported");
+    report.blocked = blockPendingLeaves("reconciliation-failed");
     return report;
   }
 
@@ -229,12 +277,6 @@ export async function reconcileTerminalSessions(
       count: saved.length,
     });
   }
-
-  const liveIds = new Set(
-    snapshot.sessions
-      .filter((status) => status.status !== "exited")
-      .map((status) => status.sessionId),
-  );
 
   for (const leaf of leaves) {
     if (leaf.leaf.sessionId) continue;

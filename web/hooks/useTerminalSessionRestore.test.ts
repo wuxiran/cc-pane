@@ -5,6 +5,7 @@ import {
   runBackgroundLayoutRestore,
   useTerminalResumeIdBridge,
 } from "./useTerminalSessionRestore";
+import { coldRestoreBlockedTerminal } from "./coldTerminalRestore";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import { sessionRestoreService, terminalService } from "@/services";
 import { listenIfTauri } from "@/services/runtime";
@@ -19,6 +20,7 @@ vi.mock("@/services", () => ({
     createSession: vi.fn(),
     killSession: vi.fn(),
     getAdoptionSnapshot: vi.fn(),
+    getDaemonClientInfo: vi.fn(),
     adoptSession: vi.fn(),
     releaseSession: vi.fn(),
   },
@@ -166,6 +168,7 @@ describe("reconcileTerminalSessions", () => {
   const setSessionLeaseReadOnly = vi.fn();
   const attachSessionToAnchor = vi.fn();
   const replaceLiveStatuses = vi.fn();
+  const restoreLiveDaemonSessions = vi.fn();
 
   const leaf = {
     type: "leaf",
@@ -241,9 +244,11 @@ describe("reconcileTerminalSessions", () => {
       setTerminalRestoreBlocked,
       setSessionLeaseReadOnly,
       attachSessionToAnchor,
+      restoreLiveDaemonSessions,
     });
     vi.mocked(useTerminalStatusStore.getState).mockReturnValue({ replaceLiveStatuses } as never);
     vi.mocked(terminalService.getAdoptionSnapshot).mockResolvedValue(snapshot() as never);
+    vi.mocked(terminalService.getDaemonClientInfo).mockResolvedValue({ mode: "daemon" } as never);
     vi.mocked(terminalService.adoptSession).mockResolvedValue(true);
     vi.mocked(terminalService.releaseSession).mockResolvedValue(undefined);
     vi.mocked(sessionRestoreService.load).mockResolvedValue([saved] as never);
@@ -397,6 +402,43 @@ describe("reconcileTerminalSessions", () => {
     expect(sessionRestoreService.load).not.toHaveBeenCalled();
   });
 
+  it("daemon 不支持 claim 但旧 PTY 已退出时允许冷恢复", async () => {
+    vi.mocked(terminalService.getAdoptionSnapshot).mockResolvedValue(snapshot({
+      claimsSupported: false,
+      complete: false,
+      daemonGeneration: undefined,
+      ownerInstanceId: undefined,
+      sessions: [],
+    }) as never);
+
+    const report = await reconcileTerminalSessions({ autoAdopt: true });
+
+    expect(report.blocked).toBe(0);
+    expect(setTerminalRestoreBlocked).toHaveBeenCalledWith("tab-1", "leaf-1", undefined);
+    expect(sessionRestoreService.load).not.toHaveBeenCalled();
+  });
+
+  it("进程内后端的活 PTY 直接重新挂回，不要求 kill", async () => {
+    vi.mocked(terminalService.getDaemonClientInfo).mockResolvedValue({ mode: "in-process" } as never);
+    restoreLiveDaemonSessions.mockReturnValue(1);
+    vi.mocked(terminalService.getAdoptionSnapshot).mockResolvedValue(snapshot({
+      claimsSupported: false,
+      sessions: [{ sessionId: "session-1", status: "idle", lastOutputAt: 1, updatedAt: 1 }],
+    }) as never);
+
+    const report = await reconcileTerminalSessions({ autoAdopt: true });
+
+    expect(restoreLiveDaemonSessions).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ sessionId: "session-1" }),
+    ]));
+    expect(setTerminalRestoreBlocked).not.toHaveBeenCalledWith(
+      "tab-1",
+      "leaf-1",
+      "claims-unsupported",
+    );
+    expect(report.attached).toBe(1);
+  });
+
   it("默认关闭自动认领时保留会话并阻断重建", async () => {
     await reconcileTerminalSessions({ autoAdopt: false });
 
@@ -406,6 +448,45 @@ describe("reconcileTerminalSessions", () => {
       "auto-adopt-disabled",
     );
     expect(terminalService.adoptSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("coldRestoreBlockedTerminal", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("先结束旧 PTY，再提交冷恢复", async () => {
+    const beginTerminalColdRestore = vi.fn().mockReturnValue("old-session");
+    const finishTerminalColdRestore = vi.fn();
+    mockPanesState({ beginTerminalColdRestore, finishTerminalColdRestore });
+    vi.mocked(terminalService.killSession).mockResolvedValue(undefined);
+
+    await coldRestoreBlockedTerminal("tab-1", "leaf-1");
+
+    expect(beginTerminalColdRestore).toHaveBeenCalledWith("tab-1", "leaf-1");
+    expect(terminalService.killSession).toHaveBeenCalledWith("old-session");
+    expect(finishTerminalColdRestore).toHaveBeenCalledWith(
+      "tab-1",
+      "leaf-1",
+      "old-session",
+      true,
+    );
+  });
+
+  it("结束旧 PTY 失败时回滚引用且不提交新 PTY", async () => {
+    const beginTerminalColdRestore = vi.fn().mockReturnValue("old-session");
+    const finishTerminalColdRestore = vi.fn();
+    mockPanesState({ beginTerminalColdRestore, finishTerminalColdRestore });
+    vi.mocked(terminalService.killSession).mockRejectedValue(new Error("daemon unavailable"));
+
+    await expect(coldRestoreBlockedTerminal("tab-1", "leaf-1")).rejects.toThrow("daemon unavailable");
+    expect(finishTerminalColdRestore).toHaveBeenCalledWith(
+      "tab-1",
+      "leaf-1",
+      "old-session",
+      false,
+    );
   });
 });
 

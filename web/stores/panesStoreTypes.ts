@@ -272,6 +272,15 @@ export interface PanesState extends BrowserTabActions {
     terminalPaneId: string,
     savedSessionId: string,
   ) => void;
+  /** Detach a blocked legacy-daemon session before explicitly cold-restoring it. */
+  beginTerminalColdRestore: (tabId: string, terminalPaneId: string) => string | null;
+  /** Commit or roll back the explicit cold restore after the old PTY kill resolves. */
+  finishTerminalColdRestore: (
+    tabId: string,
+    terminalPaneId: string,
+    previousSessionId: string,
+    succeeded: boolean,
+  ) => void;
   setTerminalRestoreBlocked: (
     tabId: string,
     terminalPaneId: string,
