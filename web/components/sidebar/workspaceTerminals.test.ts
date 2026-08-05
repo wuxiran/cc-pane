@@ -133,6 +133,37 @@ describe("deriveWorkspaceTerminals", () => {
     expect(rows.find((r) => r.tabId === sentinel.id)?.firstPrompt).toBeNull();
   });
 
+  it("counts restoring tabs whose only id is savedSessionId (not yet attached)", () => {
+    // 恢复中：sessionId 还没 attach，只有 savedSessionId——它对应真实 PTY，必须进列表
+    const restoring = makeTab({ sessionId: undefined, restoring: true, savedSessionId: "saved-1" });
+    const layouts = [layout("l1", panel([restoring]))];
+    const grouped = deriveWorkspaceTerminals(slice(layouts, "l1"), [wsAlpha], new Map());
+    const row = grouped.get("ws-1")![0];
+    expect(row.tabId).toBe(restoring.id);
+    expect(row.sessionCount).toBe(1);
+  });
+
+  it("dedupes leaf sessionId/savedSessionId pairs in the ×N session count", () => {
+    const tab = makeTab({
+      sessionId: undefined,
+      terminalRootPane: {
+        type: "split",
+        id: "s2",
+        direction: "vertical",
+        children: [
+          { type: "leaf", id: "leaf-1", sessionId: "sess-live", savedSessionId: "sess-live" },
+          { type: "leaf", id: "leaf-2", sessionId: null, savedSessionId: "sess-saved" },
+        ],
+      },
+    } as Partial<Tab>);
+    const layouts = [layout("l1", panel([tab]))];
+    const statusMap = new Map([["sess-live", status("toolRunning", "Bash")]]);
+    const grouped = deriveWorkspaceTerminals(slice(layouts, "l1"), [wsAlpha], statusMap);
+    const row = grouped.get("ws-1")![0];
+    expect(row.sessionCount).toBe(2);
+    expect(row.status).toBe("toolRunning");
+  });
+
   it("keeps rows in stable layout/tree order regardless of status", () => {
     const busy = makeTab();
     const idle = makeTab();

@@ -31,6 +31,22 @@ export function collectTerminalSessionIds(tab: Tab): string[] {
     .filter((sessionId): sessionId is string => Boolean(sessionId));
 }
 
+/** 含 savedSessionId 的全量口径。restoring 中尚未 attach 的 savedSessionId 是真实 PTY，
+ *  销毁/统计都必须算进去，否则漏杀成孤儿、少算成显示不一致。 */
+export function collectTerminalSessionIdsWithSaved(tab: Tab): string[] {
+  const ids = new Set<string>();
+  if (tab.contentType !== "terminal" || !tab.terminalRootPane) {
+    if (tab.sessionId) ids.add(tab.sessionId);
+    if (tab.savedSessionId) ids.add(tab.savedSessionId);
+    return [...ids];
+  }
+  for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
+    if (leaf.sessionId) ids.add(leaf.sessionId);
+    if (leaf.savedSessionId) ids.add(leaf.savedSessionId);
+  }
+  return [...ids];
+}
+
 /** 全类型 tab 扁平化。与 contentType 无关，是下面所有分类统计的唯一遍历实现。 */
 export function collectTabs(node: PaneNode): Tab[] {
   return collectPanels(node).flatMap((panel) => panel.tabs);
@@ -60,4 +76,9 @@ export function collectTerminalTabs(node: PaneNode): Tab[] {
 
 export function collectTerminalSessionIdsFromTree(node: PaneNode): string[] {
   return collectTerminalTabs(node).flatMap(collectTerminalSessionIds);
+}
+
+/** collectTerminalSessionIdsFromTree 的全量口径版本（含 savedSessionId），跨 tab 去重。 */
+export function collectTerminalSessionIdsWithSavedFromTree(node: PaneNode): string[] {
+  return [...new Set(collectTerminalTabs(node).flatMap(collectTerminalSessionIdsWithSaved))];
 }
