@@ -11,6 +11,7 @@
 | `feat/opencode-parity` | **已抽取**，其余作废 | 27 文件里 main 已有 24 个更新版本；只有 OpenCode 会话反查是真缺的 |
 | `pr-22` | **完全被取代** | main 的 `terminalImeGuard.ts` 350 行 + 测试 451 行，均多于分支的 431/339 |
 | `0111-module-registry` | **完全被取代** | main 上 `registry.ts` 193 行 / `useModulePrefsStore.ts` 127 行，均多于分支的 136/82 |
+| `fix/cli-resolution-and-schema-drift` | **保留，待抽取 3 块** | 见下节。24 个新增文件里 21 个 main 已有，3 个是真缺口 |
 
 四条都**不要整分支 merge**。已抽取的两块见下文，其余可视为历史归档。
 
@@ -68,6 +69,25 @@ Codex 靠 OSC 自报，OpenCode 两者都没有，会话只存在它自己的 SQ
 
 抽取内容：`opencode_session_service.rs` + `/api/opencode/sessions` +
 `list_opencode_sessions` 命令 + `opencodeService.ts`，接口形态对齐既有的 codex 版。
+
+## `fix/cli-resolution-and-schema-drift`：唯一还留着的分支（2026-08-05 判定）
+
+0.11.10 发版后清理时，本地 57 条分支删到只剩这一条。它 `+5` 提交 / 130 文件，
+24 个「新增」文件里 **21 个 main 上已有且不短于分支版本**，只有 3 块是真缺口。
+核心提交 `c4f6f26 feat: CLI 解析与 schema 漂移修复批(未提交工作树归档)` 是**工作树归档**
+——写完没走评审就搁置了，所以缺口不是"main 淘汰了它"，而是"根本没进过 main"。
+
+**不要整分支 merge**（`be77891 release: v0.11.4` 在分支上，合并会把版本号拖回 0.11.4，
+与 `fix-web-process-lifecycle` 那次同型）。三块待抽取：
+
+| 缺口 | 内容 | 为什么值得抽 |
+|---|---|---|
+| Rust 行数棘轮 | `cc-panes-core/tests/line_ratchet.rs` + 21 条基线 | 前端有 `web/test/lineRatchet.test.ts`，Rust 侧**完全没有**门禁，而全仓最大的非测试文件 `orchestrator_service.rs` 正在这个无人区。作者已处理两处 Rust 特有陷阱：遇 `#[cfg(test)]` 停止计数（否则"缩短文件"最省事的做法变成删测试），挂 `cc-panes-core` 而非 `src-tauri`（否则应用运行时构建会因 Windows 锁 exe 失败） |
+| 移动端 Keychain 策略 | `lib/core/app_secure_storage.dart` 的 `iOptions` | main 的 `secureStorageProvider` 只设了 `aOptions`（Android），**iOS 侧走默认 accessibility = 凭证会同步进 iCloud Keychain**。分支版加 `first_unlock_this_device`：仅留本机、首次解锁后可用 |
+| 默认 skill 旧版哈希 | `legacy-skill-hashes.json` + `default_skill_service.rs` 的 `LEGACY_HASH_FILE_NAME` | 用于识别"用户没改过的旧版内置 skill"从而安全覆盖；缺了只能靠内容比对或一律不覆盖 |
+
+抽取时照本文「编译过 ≠ 语义对」那节的流程走（抽 → 适配 main 现状 → 跑验证 → 交叉评审）。
+三块都抽完后这条分支即可删除。
 
 ## 抽取时的硬教训：编译过 ≠ 语义对
 
