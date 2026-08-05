@@ -97,6 +97,34 @@ describe("BrowserTabContent", () => {
     expect(browserService.close).toHaveBeenCalledWith("browser-tab-1");
   });
 
+  it("shows a localized prompt when the browser rejects a protocol", async () => {
+    const originalLanguage = i18n.language;
+    vi.mocked(browserService.create).mockRejectedValueOnce(
+      new Error("unsupported browser URL scheme: file"),
+    );
+    try {
+      renderBrowser();
+
+      await waitFor(() => {
+        expect(screen.getByText(i18n.t("browserUnsupportedProtocol", { ns: "panes" })))
+          .toBeInTheDocument();
+      });
+      expect(screen.queryByText("unsupported browser URL scheme: file"))
+        .not.toBeInTheDocument();
+
+      const nextLanguage = originalLanguage.startsWith("en") ? "zh-CN" : "en";
+      await act(async () => {
+        await i18n.changeLanguage(nextLanguage);
+      });
+      expect(screen.getByText(i18n.t("browserUnsupportedProtocol", { ns: "panes" })))
+        .toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage(originalLanguage);
+      });
+    }
+  });
+
   it("normalizes address input and exposes back, forward, refresh and devtools controls", async () => {
     const user = userEvent.setup();
     renderBrowser();

@@ -483,6 +483,7 @@ fn validate_browser_url(value: &str) -> AppResult<url::Url> {
         url::Url::parse(value.trim()).map_err(|error| format!("invalid browser URL: {error}"))?;
     match url.scheme() {
         "http" | "https" => Ok(url),
+        "about" if url.as_str() == "about:blank" => Ok(url),
         scheme => Err(format!("unsupported browser URL scheme: {scheme}").into()),
     }
 }
