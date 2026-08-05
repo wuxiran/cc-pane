@@ -24,6 +24,13 @@ interface ProviderModelsEditorProps {
 /** 当 contextWindowTokens 不在预设表内时，下拉用此虚拟选项识别「自定义」分支 */
 const CUSTOM_PRESET_TOKENS = "__custom__";
 
+/**
+ * 新增模型行的默认 context window tokens。
+ * 选 1M 是因为主流 Claude / Gemini / GPT-4.1 等最新模型默认就是 1M 上下文。
+ * 仅影响 `addModel`，不影响 edit hydrate（编辑模式保留用户原值不变）。
+ */
+const DEFAULT_NEW_MODEL_CONTEXT_WINDOW_TOKENS = 1_000_000;
+
 export default function ProviderModelsEditor({
   models,
   defaultIndex,
@@ -33,7 +40,19 @@ export default function ProviderModelsEditor({
 
   const addModel = () => {
     if (models.length >= 100) return;
-    onChange([...models, { id: "", label: null, defaultEffort: null }], defaultIndex ?? 0);
+    onChange(
+      [
+        ...models,
+        {
+          id: "",
+          label: null,
+          defaultEffort: null,
+          // 默认填主流 Claude 的 200k，避免保存后 indicator 缺窗口显示「未知」。
+          contextWindowTokens: DEFAULT_NEW_MODEL_CONTEXT_WINDOW_TOKENS,
+        },
+      ],
+      defaultIndex ?? 0,
+    );
   };
 
   const updateModel = (index: number, update: Partial<ProviderModel>) => {

@@ -24,13 +24,21 @@ vi.mock("./LaunchProfilesPanel", () => ({
 vi.mock("./ProviderFormPanel", () => ({
   default: ({
     editProvider,
+    duplicateSeed,
     preset,
   }: {
     editProvider?: Provider | null;
+    duplicateSeed?: Provider | null;
     preset?: { id: string } | null;
   }) => (
     <div data-testid="provider-form">
-      {editProvider ? `edit:${editProvider.name}` : preset ? `preset:${preset.id}` : "new"}
+      {editProvider
+        ? `edit:${editProvider.name}`
+        : duplicateSeed
+          ? `dup:${duplicateSeed.name}`
+          : preset
+            ? `preset:${preset.id}`
+            : "new"}
     </div>
   ),
 }));
@@ -254,8 +262,9 @@ describe("ProvidersPanel", () => {
     await switchToProvidersList(user);
 
     await user.click(screen.getByLabelText(i18n.t("settings:duplicate")));
+    // 复制走 duplicateSeed → 标题与表单状态属「新增」语义，避免误落 update 路径。
     expect(screen.getByTestId("provider-form")).toHaveTextContent(
-      "edit:Claude API (Copy)"
+      "dup:Claude API (Copy)"
     );
     expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:duplicated"));
   });

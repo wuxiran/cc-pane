@@ -221,6 +221,48 @@ describe("ProviderFormPanel", () => {
     });
   });
 
+  it("prefills a new model row with the default 1M context window", async () => {
+    const user = userEvent.setup();
+    const actions = setupStore();
+    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+
+    await user.type(
+      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
+      "Default Cap"
+    );
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("settings:addProviderModel") })
+    );
+    const row = screen.getByTestId("provider-model-row-0");
+    await user.type(
+      within(row).getByLabelText(i18n.t("settings:providerModelId")),
+      "claude-sonnet-5"
+    );
+
+    // 「常用容量」下拉默认应是 1M（prefill，不再是「未知」），
+    // 数字 input 同步显示 1000000，避免用户漏配导致 ContextUsage 显示「未知」。
+    const presetSelect = within(row).getByTestId(
+      "provider-model-context-window-preset-0"
+    ) as HTMLSelectElement;
+    expect(presetSelect.value).toBe("preset:1000000");
+    const numberInput = within(row).getByLabelText(
+      i18n.t("settings:providerModelContextWindow")
+    ) as HTMLInputElement;
+    expect(numberInput.value).toBe("1000000");
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await waitFor(() => {
+      expect(actions.addProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: [expect.objectContaining({
+            id: "claude-sonnet-5",
+            contextWindowTokens: 1_000_000,
+          })],
+        })
+      );
+    });
+  });
+
   it("adds the first model as the default and saves the catalog", async () => {
     const user = userEvent.setup();
     const actions = setupStore();
@@ -241,6 +283,9 @@ describe("ProviderFormPanel", () => {
     await user.type(
       within(row).getByLabelText(i18n.t("settings:providerModelLabel")),
       "Sonnet 4.5"
+    );
+    await user.clear(
+      within(row).getByLabelText(i18n.t("settings:providerModelContextWindow"))
     );
     await user.type(
       within(row).getByLabelText(i18n.t("settings:providerModelContextWindow")),
@@ -435,6 +480,55 @@ describe("ProviderFormPanel", () => {
         })
       );
     });
+  });
+
+  it("saves a duplicated provider as a new entry (add path, not update)", async () => {
+    const user = userEvent.setup();
+    const actions = setupStore();
+    const onBack = vi.fn();
+    const seed = makeProvider({
+      name: "Anthropic A",
+      apiKey: "sk-seed",
+      models: [{ id: "claude-sonnet-5", label: "Sonnet 5" }],
+      defaultModelId: "claude-sonnet-5",
+    });
+    render(
+      <ProviderFormPanel
+        duplicateSeed={seed}
+        activeTab="claude"
+        onBack={onBack}
+      />
+    );
+
+    // 表单预填：name 沿用 seed, apiKey 沿用 seed, 模型从 seed 拷贝
+    expect(
+      screen.getByDisplayValue("Anthropic A")
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("sk-seed")).toBeInTheDocument();
+    expect(screen.getByTestId("provider-model-row-0")).toBeInTheDocument();
+
+    // 标题应是「新增 Provider」，不能显示「编辑」字样
+    expect(screen.queryByText(i18n.t("settings:editProvider"))).not.toBeInTheDocument();
+    expect(screen.getByText(i18n.t("settings:addProvider"))).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+
+    // 保存走 add 分支：seed 的 id 是已有 provider 的 id，不能误传给 update_provider。
+    // 因此 addProvider 应被调用，而 updateProvider 必须没被调用。
+    await waitFor(() => {
+      expect(actions.addProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Anthropic A",
+          apiKey: "sk-seed",
+          models: [expect.objectContaining({ id: "claude-sonnet-5" })],
+          defaultModelId: "claude-sonnet-5",
+          isDefault: false,
+        })
+      );
+    });
+    expect(actions.updateProvider).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:providerAdded"));
+    expect(onBack).toHaveBeenCalled();
   });
 
   it("calls onBack from the cancel button without saving", async () => {
