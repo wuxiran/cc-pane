@@ -475,5 +475,9 @@
   "rightDock.selectProject": "在左侧添加项目后即可浏览 Git 与文件",
   "rightDock.switchProject": "切换项目",
   "rightDock.changeCount": "{{count}} 个变更",
-  "workspaceGroupCreateDescription": "输入组名并勾选要加入的工作空间。"
+  "workspaceGroupCreateDescription": "输入组名并勾选要加入的工作空间。",
+  "treeModeProjects": "项目列表",
+  "treeModeTerminals": "运行中的终端",
+  "noRunningTerminals": "暂无运行中的终端",
+  "terminalSplitCount": "×{{count}}"
 }

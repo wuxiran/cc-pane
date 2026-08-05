@@ -79,11 +79,20 @@ vi.mock("@/stores/useDialogStore", () => ({
 
 // --- useWorkspacesStore: selector 化 + getState ---
 let storeState: Record<string, unknown>;
+// 终端模式接线后 WorkspaceTree 还订阅 usePanesStore（projects 模式下 selector 返回 null/常量）
+const panesState = { layouts: [], rootPane: { type: "panel", id: "p", tabs: [], activeTabId: "" }, currentLayoutId: "l1" };
 vi.mock("@/stores", () => ({
   useWorkspacesStore: Object.assign(
     (selector: (s: unknown) => unknown) => selector(storeState),
     { getState: () => storeState },
   ),
+  usePanesStore: Object.assign(
+    (selector: (s: unknown) => unknown) => selector(panesState),
+    { getState: () => panesState },
+  ),
+}));
+vi.mock("@/stores/useTerminalStatusStore", () => ({
+  useTerminalStatusStore: (selector: (s: unknown) => unknown) => selector({ statusMap: new Map() }),
 }));
 
 let layoutState: Record<string, unknown>;

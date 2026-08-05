@@ -17,15 +17,20 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { Plus, FolderGit2, FolderTree, ListFilter } from "lucide-react";
+import { Plus, FolderGit2, FolderTree, ListFilter, TerminalSquare } from "lucide-react";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import WorkspaceCreateGroupDialog from "./WorkspaceCreateGroupDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useWorkspacesStore } from "@/stores";
+import { usePanesStore, useWorkspacesStore } from "@/stores";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores/useDialogStore";
 import { useLayoutUiStore } from "@/stores/useLayoutUiStore";
+import { useExplorerSectionsStore } from "@/stores/useExplorerSectionsStore";
+import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
+import { deriveWorkspaceTerminals } from "./workspaceTerminals";
+import WorkspaceTerminalList from "./WorkspaceTerminalList";
+import { useFirstPromptIndex } from "@/hooks/useFirstPromptIndex";
 import { filterWorkspaces, UNGROUPED_WORKSPACE_FILTER } from "@/stores/useWorkspacesStore";
 import { partitionWorkspaces } from "./workspaceDnd";
 import { useWorkspaceDragDrop } from "./useWorkspaceDragDrop";
@@ -68,6 +73,8 @@ interface SortableWorkspaceItemProps {
   onClearPath: (ws: Workspace) => void;
   onOpenEnvironment: (ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
+  /** 头部计数徽章覆盖值（终端模式显示终端数而非项目数） */
+  countOverride?: number;
   children: ReactNode;
 }
 
@@ -116,6 +123,23 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const openWorkspaceEnvironment = useDialogStore((s) => s.openWorkspaceEnvironment);
   const [filterOpen, setFilterOpen] = useState(false);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const treeMode = useExplorerSectionsStore((s) => s.workspaceTreeMode);
+  const setTreeMode = useExplorerSectionsStore((s) => s.setWorkspaceTreeMode);
+  // 终端模式的数据派生：只在该模式下订阅 panes/status，项目模式零开销
+  const layouts = usePanesStore((s) => (treeMode === "terminals" ? s.layouts : null));
+  const rootPane = usePanesStore((s) => (treeMode === "terminals" ? s.rootPane : null));
+  const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
+  const statusMap = useTerminalStatusStore((s) => s.statusMap);
+  const firstPrompts = useFirstPromptIndex(treeMode === "terminals");
+  const workspaceTerminals = useMemo(() => {
+    if (treeMode !== "terminals" || !layouts || !rootPane) return null;
+    return deriveWorkspaceTerminals(
+      { layouts, rootPane, currentLayoutId },
+      workspaces,
+      statusMap,
+      firstPrompts,
+    );
+  }, [treeMode, layouts, rootPane, currentLayoutId, workspaces, statusMap, firstPrompts]);
   const visibleWorkspaces = useMemo(
     () => filterWorkspaces(workspaces, workspaceFilter),
     [workspaces, workspaceFilter],
@@ -199,41 +223,49 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
     }
   }, [t, updateWorkspacePath]);
 
-  const renderWorkspace = (ws: Workspace) => (
-    <SortableWorkspaceItem
-      key={ws.id}
-      ws={ws}
-      expanded={expandedWorkspaceId === ws.id}
-      onExpand={expandWorkspace}
-      onOpenTerminal={onOpenTerminal}
-      onRename={actions.handleRenameWorkspace}
-      onDelete={actions.handleDeleteWorkspace}
-      onSetAlias={actions.handleSetWorkspaceAlias}
-      onImportProject={actions.handleImportProject}
-      onScanImport={actions.handleScanImport}
-      onGitClone={actions.handleGitClone}
-      onSetPath={handleSetWorkspacePath}
-      onClearPath={handleClearWorkspacePath}
-      onOpenEnvironment={(workspace) => openWorkspaceEnvironment(workspace.id)}
-      onOpenInFileBrowser={handleOpenInFileBrowser}
-    >
-      <ProjectListView
-        projects={ws.projects}
+  const renderWorkspace = (ws: Workspace) => {
+    const terminalRows = workspaceTerminals?.get(ws.id) ?? [];
+    return (
+      <SortableWorkspaceItem
+        key={ws.id}
         ws={ws}
-        gitBranches={actions.gitBranches}
-        worktreeCache={actions.worktreeCache}
-        projectPathStatus={actions.projectPathStatus}
+        expanded={expandedWorkspaceId === ws.id}
+        onExpand={expandWorkspace}
         onOpenTerminal={onOpenTerminal}
-        onRemoveProject={actions.handleRemoveProject}
-        onCleanupMissingProjects={actions.handleCleanupMissingProjects}
-        onSetProjectAlias={actions.handleSetAlias}
+        onRename={actions.handleRenameWorkspace}
+        onDelete={actions.handleDeleteWorkspace}
+        onSetAlias={actions.handleSetWorkspaceAlias}
         onImportProject={actions.handleImportProject}
-        onMigrateProject={actions.handleMigrateProject}
-        onOpenWorktreeManager={handleOpenWorktreeManager}
+        onScanImport={actions.handleScanImport}
+        onGitClone={actions.handleGitClone}
+        onSetPath={handleSetWorkspacePath}
+        onClearPath={handleClearWorkspacePath}
+        onOpenEnvironment={(workspace) => openWorkspaceEnvironment(workspace.id)}
         onOpenInFileBrowser={handleOpenInFileBrowser}
-      />
-    </SortableWorkspaceItem>
-  );
+        countOverride={treeMode === "terminals" ? terminalRows.length : undefined}
+      >
+        {treeMode === "terminals" ? (
+          <WorkspaceTerminalList workspaceName={ws.name} rows={terminalRows} />
+        ) : (
+          <ProjectListView
+            projects={ws.projects}
+            ws={ws}
+            gitBranches={actions.gitBranches}
+            worktreeCache={actions.worktreeCache}
+            projectPathStatus={actions.projectPathStatus}
+            onOpenTerminal={onOpenTerminal}
+            onRemoveProject={actions.handleRemoveProject}
+            onCleanupMissingProjects={actions.handleCleanupMissingProjects}
+            onSetProjectAlias={actions.handleSetAlias}
+            onImportProject={actions.handleImportProject}
+            onMigrateProject={actions.handleMigrateProject}
+            onOpenWorktreeManager={handleOpenWorktreeManager}
+            onOpenInFileBrowser={handleOpenInFileBrowser}
+          />
+        )}
+      </SortableWorkspaceItem>
+    );
+  };
 
   // 分组成员统一缩进一格 + 左侧竖向引导线，避免与顶层（未分组）工作空间混成一片
   const renderGroupMembers = (members: Workspace[]) => (
@@ -271,6 +303,33 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           </span>
         </div>
         <div className="flex items-center gap-0.5">
+          {/* 树模式切换：项目列表 / 运行中的终端（常驻，不做 hover 才显示） */}
+          <IconTooltipButton
+            label={t("treeModeProjects")}
+            aria-pressed={treeMode === "projects"}
+            onClick={() => setTreeMode("projects")}
+            className="size-5 p-0"
+            style={
+              treeMode === "projects"
+                ? { color: "var(--app-accent)", background: "color-mix(in srgb, var(--app-accent) 12%, transparent)" }
+                : { color: "var(--app-text-tertiary)" }
+            }
+          >
+            <FolderGit2 className="size-3.5" />
+          </IconTooltipButton>
+          <IconTooltipButton
+            label={t("treeModeTerminals")}
+            aria-pressed={treeMode === "terminals"}
+            onClick={() => setTreeMode("terminals")}
+            className="size-5 p-0"
+            style={
+              treeMode === "terminals"
+                ? { color: "var(--app-accent)", background: "color-mix(in srgb, var(--app-accent) 12%, transparent)" }
+                : { color: "var(--app-text-tertiary)" }
+            }
+          >
+            <TerminalSquare className="size-3.5" />
+          </IconTooltipButton>
           <IconTooltipButton
             label={t("workspaceFilterToggle")}
             onClick={() => setFilterOpen((open) => !open)}

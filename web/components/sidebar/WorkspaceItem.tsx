@@ -81,6 +81,7 @@ interface WorkspaceItemProps {
   onOpenEnvironment: (ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
   dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
+  countOverride?: number; // 头部计数徽章覆盖值（终端模式=终端数）
 }
 
 export default function WorkspaceItem({
@@ -97,9 +98,8 @@ export default function WorkspaceItem({
   onGitClone,
   onSetPath,
   onClearPath,
-  onOpenEnvironment,
-  onOpenInFileBrowser,
-  dragHandleProps,
+  onOpenEnvironment, onOpenInFileBrowser,
+  dragHandleProps, countOverride,
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const projects = normalizeWorkspaceProjects(ws.projects);
@@ -458,7 +458,7 @@ export default function WorkspaceItem({
               className="shrink-0 text-[12px] font-medium tabular-nums leading-none min-w-[22px] text-center px-2 py-1 rounded-full text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors"
               style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
             >
-              {projects.length}
+              {countOverride ?? projects.length}
             </span>
           </div>
         </ContextMenuTrigger>

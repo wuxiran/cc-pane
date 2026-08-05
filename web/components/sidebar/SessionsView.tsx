@@ -3,6 +3,7 @@ import { Terminal } from "lucide-react";
 import { useTerminalStatusStore, usePanesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
+import { focusTab } from "@/hooks/useFocusTab";
 import { handleErrorSilent } from "@/utils";
 import { isBusyStatus } from "@/types";
 
@@ -72,16 +73,6 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
       }))
   );
 
-  function focusTab(tabId: string) {
-    const store = usePanesStore.getState();
-    const location = store.findTabAcrossLayouts(tabId);
-    if (!location) return;
-    if (location.layoutId !== store.currentLayoutId) {
-      store.switchLayout(location.layoutId);
-    }
-    store.setActivePane(location.panel.id);
-    store.selectTab(location.panel.id, location.tab.id);
-  }
 
   return (
     <div className="flex flex-col h-full">

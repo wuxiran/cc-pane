@@ -475,5 +475,9 @@
   "rightDock.selectProject": "Add a project in the left Explorer to browse Git and files",
   "rightDock.switchProject": "Switch project",
   "rightDock.changeCount": "{{count}} changes",
-  "workspaceGroupCreateDescription": "Enter a group name and pick the workspaces to include."
+  "workspaceGroupCreateDescription": "Enter a group name and pick the workspaces to include.",
+  "treeModeProjects": "Projects",
+  "treeModeTerminals": "Running terminals",
+  "noRunningTerminals": "No running terminals",
+  "terminalSplitCount": "×{{count}}"
 }
