@@ -10,9 +10,10 @@
 // 2. 三个新出口骨架（removeTabsInternal / removeTerminalLeafInternal / removeEmptyPane）
 //    ——树操作已实现，**资源回收（detach/kill/关弹窗/onClosed）留 TODO**，由
 //    destroyPipeline（轨 A / B1-02）在改道 commit 接入。本 commit 无任何调用方。
-import { DESTROY_POLICY } from "@/lib/tabLifecycle/destroyPipeline";
+import { commitResourceDestroy, DESTROY_POLICY } from "@/lib/tabLifecycle/destroyPipeline";
 import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
+import type { Tab } from "@/types";
 import type {
   ClosedTabSnapshot,
   PanesDraft,
@@ -40,8 +41,11 @@ import { useFullscreenStore } from "./useFullscreenStore";
 export interface PaneRemovalActions {
   closePane: (paneId: string) => void;
   closeTab: (paneId: string, tabId: string) => void;
+  /** @deprecated B1-04 已改道 removeTabsInternal(ids, "batch-close")。零调用方，留待批1 收尾删除。 */
   closeTabsToLeft: (paneId: string, tabId: string) => void;
+  /** @deprecated 同 closeTabsToLeft。 */
   closeTabsToRight: (paneId: string, tabId: string) => void;
+  /** @deprecated 同 closeTabsToLeft。 */
   closeOtherTabs: (paneId: string, tabId: string) => void;
   closeTerminalPane: (tabId: string, terminalPaneId: string) => void;
   removeTabsInternal: (
@@ -307,18 +311,41 @@ export function createPaneRemovalActions(
 
     // ============ 以下为 B1-03 新出口骨架（暂无调用方，B1-04+ 逐出口改道接入） ============
 
-    removeTabsInternal: (tabIds, reason, _opts) => {
-      // 唯一逐-tab 销毁出口（目标态）。本骨架只做：树 splice → closedTabs(cap 20)
-      // → poppedOut / fullscreen 附属清理。幂等：找不到的 tabId 静默跳过。
+    removeTabsInternal: (tabIds, reason, opts) => {
+      // 唯一逐-tab 销毁出口：重定位重收集 → 回收（commitResourceDestroy）
+      // → 树 splice → closedTabs(cap 20) → poppedOut / fullscreen 附属清理。
+      // 幂等：找不到的 tabId 静默跳过。
       //
-      // TODO(B1-04+，回收管线接入): 在树 splice **之前**重定位重收集资源
-      // （collectTerminalSessionIdsWithSaved 全量 + poppedOut），调
-      // destroyPipeline.commitResourceDestroy(tabs, reason, { protectSessionIds:
-      // opts?.protectSessionIds })——plan 只存 tabId 不存 Tab 引用，commit 时重收集
-      // （确认弹窗窗口期树可能变化）。多杀/少杀断言全部打在本出口。
+      // **重定位重收集而非信任调用方传来的 Tab 引用**：确认弹窗打开期间树可能
+      // 变化（后端 kill / 跨端快照同步），拿旧引用去杀会杀错对象。
       if (tabIds.length === 0) return;
       const policy = DESTROY_POLICY[reason];
       const removedIds = new Set<string>();
+
+      // 阶段 0：树 splice 前按当前树重新定位，收集真正要回收的 tab。
+      // pinned 豁免在此判定，与下方树操作同一口径——两处判据必须一致，
+      // 否则会出现「资源杀了但标签还在」或反之。
+      const doomedTabs: Tab[] = [];
+      {
+        const state = get();
+        for (const tabId of tabIds) {
+          for (const layout of state.layouts) {
+            const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+            if (!tree) continue;
+            const location = findTabLocation(tree, tabId);
+            if (!location) continue;
+            if (policy.respectsPinned && location.tab.pinned) continue;
+            if (!doomedTabs.some((t) => t.id === location.tab.id)) doomedTabs.push(location.tab);
+          }
+        }
+      }
+      // 回收先于树操作：树 splice 后 tab 数据就找不回来了。commitResourceDestroy
+      // 内部按矩阵决定杀不杀（backend-close 的 PTY 已死，kills=false 整步跳过）。
+      if (doomedTabs.length > 0) {
+        void commitResourceDestroy(doomedTabs, reason, {
+          protectSessionIds: opts?.protectSessionIds,
+        });
+      }
 
       set((state) => {
         for (const tabId of tabIds) {

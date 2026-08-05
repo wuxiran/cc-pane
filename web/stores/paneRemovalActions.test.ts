@@ -3,6 +3,7 @@
 // 外加三个新出口骨架的契约——重点是 removeEmptyPane 的「非空即拒」硬守卫。
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { usePanesStore } from "./usePanesStore";
+import { terminalService } from "@/services";
 import { useFullscreenStore } from "./useFullscreenStore";
 import { createPanel } from "./paneTreeHelpers";
 import { CLOSED_TABS_LIMIT } from "./closedTabsCap";
@@ -74,6 +75,14 @@ function currentPanel(paneId: string): Panel {
   return pane as Panel;
 }
 
+/** killSession 的观察点：B1-04 起回收由 destroyPipeline 发起，断言打在这里。 */
+let killSpy: ReturnType<typeof vi.spyOn>;
+
+/** 杀集（排序后比较，断言的是集合而非调用顺序）。 */
+function killedIds(): string[] {
+  return killSpy.mock.calls.map((c) => c[0] as string).sort();
+}
+
 beforeEach(() => {
   const initialPanel = createPanel();
   setPanesState(initialPanel, initialPanel.id);
@@ -82,6 +91,9 @@ beforeEach(() => {
     fullscreenTabId: null,
     fullscreenPaneId: null,
   });
+  killSpy = vi.spyOn(terminalService, "killSession").mockResolvedValue(undefined);
+  vi.spyOn(terminalService, "detachOutput").mockImplementation(() => {});
+  vi.spyOn(terminalService, "detachExit").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -502,3 +514,108 @@ function collectTabIds(node: PaneNode): string[] {
   if (node.type === "panel") return node.tabs.map((t) => t.id);
   return node.children.flatMap(collectTabIds);
 }
+
+// ============================================================================
+// B1-04 改道后的回收断言。
+//
+// 这一组是批1 的核心防线：多杀 = 用户正在跑的 agent 会话永久丢失，
+// 少杀 = 孤儿 PTY 常驻。因此断言的是 killSession 调用集合**精确相等**，
+// 不是「至少杀了」或「没多杀」——两侧都必须挂。
+// ============================================================================
+describe("removeTabsInternal（改道后：回收管线接入）", () => {
+  function splitTab(id: string, sessions: Array<string | null>, saved?: string): Tab {
+    const children: TerminalPaneLeaf[] = sessions.map((sid, i) => ({
+      type: "leaf",
+      id: `${id}-leaf-${i}`,
+      launchId: `${id}-launch-${i}`,
+      restoreMode: "shell",
+      sessionId: sid,
+      ...(saved && i === sessions.length - 1 ? { savedSessionId: saved } : {}),
+    }));
+    const tab = makeTerminalTab(id);
+    tab.terminalRootPane = {
+      type: "split",
+      id: `${id}-split`,
+      direction: "horizontal",
+      children,
+      sizes: children.map(() => 100 / children.length),
+    } as unknown as Tab["terminalRootPane"];
+    tab.activeTerminalPaneId = children[0].id;
+    return tab;
+  }
+
+  it("分屏 tab：全部 leaf 的会话都被杀，一个不漏一个不多", async () => {
+    const tab = splitTab("t1", ["sess-a", "sess-b", "sess-c"]);
+    setPanesState(makePanel("p1", [tab]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
+
+    expect(killedIds()).toEqual(["sess-a", "sess-b", "sess-c"]);
+  });
+
+  it("savedSessionId 并入杀集（恢复中的会话是真实 PTY，漏了就是孤儿）", async () => {
+    const tab = splitTab("t1", ["sess-live", null], "sess-saved");
+    setPanesState(makePanel("p1", [tab]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
+
+    expect(killedIds()).toEqual(["sess-live", "sess-saved"]);
+  });
+
+  it("backend-close 零 kill（PTY 已死，再杀是重杀）", async () => {
+    const tab = splitTab("t1", ["sess-a", "sess-b"]);
+    setPanesState(makePanel("p1", [tab]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["t1"], "backend-close");
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(killSpy).not.toHaveBeenCalled();
+    // 树操作照常发生：backend-close 不杀，但标签必须收掉（PTY 已经没了）
+    expect(collectTabIds(usePanesStore.getState().rootPane)).not.toContain("t1");
+  });
+
+  it("pinned 被矩阵豁免时：既不关也不杀（资源与树两处判据必须同口径）", async () => {
+    const pinned = splitTab("t1", ["sess-pinned"]);
+    pinned.pinned = true;
+    const normal = splitTab("t2", ["sess-normal"]);
+    setPanesState(makePanel("p1", [pinned, normal]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["t1", "t2"], "user-close");
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
+
+    expect(killedIds()).toEqual(["sess-normal"]);
+    expect(collectTabIds(usePanesStore.getState().rootPane)).toEqual(["t1"]);
+  });
+
+  it("幂等：同一 tabId 连调两次，第二次零 kill 零树变化（React19 dev 双挂载）", async () => {
+    const tab = splitTab("t1", ["sess-a"]);
+    setPanesState(makePanel("p1", [tab]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
+    const afterFirst = killedIds();
+
+    killSpy.mockClear();
+    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(afterFirst).toEqual(["sess-a"]);
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  it("protectSessionIds 名单内的会话不杀（snapshot-apply 差集保护）", async () => {
+    const tab = splitTab("t1", ["sess-keep", "sess-drop"]);
+    setPanesState(makePanel("p1", [tab]), "p1");
+
+    usePanesStore
+      .getState()
+      .removeTabsInternal(["t1"], "snapshot-apply", {
+        protectSessionIds: new Set(["sess-keep"]),
+      });
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
+
+    expect(killedIds()).toEqual(["sess-drop"]);
+  });
+});
