@@ -238,11 +238,36 @@ export async function commitResourceDestroy(
   reason: DestroyReason,
   opts: { protectSessionIds?: ReadonlySet<string> } = {},
 ): Promise<void> {
-  const policy = DESTROY_POLICY[reason];
   const plan = planTabDestroy(tabs, reason, liveGuardContext());
 
+  await destroySessionsDirectly(plan.sessionIds, plan.poppedOutTabIds, reason, opts);
+
+  // 阶段 4：per-tab 附属状态清理
+  for (const tab of plan.tabs) {
+    TAB_LIFECYCLE[tab.contentType].onClosed(tab, { detach: false, reason });
+  }
+}
+
+/**
+ * 资源回收的前三阶段（detach → kill → 关弹窗），按**会话 id 集合**驱动。
+ *
+ * 给「手里只有 id、没有 Tab 」的调用方用：整层删除的 summary 是打开对话框
+ * 那一刻算好的，用户看到的数字就是它——重新遍历树去反推 tab 会与展示脱节
+ * （树在对话框打开期间可能已经变了）。
+ *
+ * 阶段顺序不可变：先把**全部**会话 detach 完再开始 kill，否则杀 A 的等待
+ * 期间 B 的 exit 事件会回流到正在销毁的视图。
+ */
+export async function destroySessionsDirectly(
+  sessionIds: readonly string[],
+  poppedOutTabIds: readonly string[],
+  reason: DestroyReason,
+  opts: { protectSessionIds?: ReadonlySet<string> } = {},
+): Promise<void> {
+  const policy = DESTROY_POLICY[reason];
+
   // 阶段 1：detach 全部
-  for (const sessionId of plan.sessionIds) {
+  for (const sessionId of sessionIds) {
     terminalService.detachOutput(sessionId);
     terminalService.detachExit(sessionId);
   }
@@ -251,7 +276,7 @@ export async function commitResourceDestroy(
   if (policy.kills) {
     const killReason = DESTROY_KILL_REASON[reason] ?? undefined;
     await Promise.all(
-      plan.sessionIds
+      sessionIds
         .filter((sessionId) => !opts.protectSessionIds?.has(sessionId))
         .map((sessionId) =>
           terminalService.killSession(sessionId, killReason).catch((error) => {
@@ -263,11 +288,6 @@ export async function commitResourceDestroy(
 
   // 阶段 3：关弹出窗口
   if (policy.closesPopups) {
-    await closePoppedWindows(plan.poppedOutTabIds);
-  }
-
-  // 阶段 4：per-tab 附属状态清理
-  for (const tab of plan.tabs) {
-    TAB_LIFECYCLE[tab.contentType].onClosed(tab, { detach: false, reason });
+    await closePoppedWindows([...poppedOutTabIds]);
   }
 }

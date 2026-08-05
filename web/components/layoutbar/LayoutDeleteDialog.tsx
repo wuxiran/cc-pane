@@ -1,12 +1,14 @@
 import { useMemo } from "react";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { TFunction } from "i18next";
 import { toast } from "sonner";
 import { usePanesStore } from "@/stores";
-import { terminalService, getPoppedTabs, markTabReclaimed as popupMarkReclaimed } from "@/services";
-import { isTauriRuntime } from "@/services/runtime";
-import { handleErrorSilent } from "@/utils";
-import { collectTerminalLeaves, collectTerminalSessionIdsFromTree, collectTerminalTabs } from "@/lib/paneSessions";
+import { getPoppedTabs } from "@/services";
+import {
+  collectTerminalLeaves,
+  collectTerminalSessionIdsFromTree,
+  collectTerminalTabs,
+} from "@/lib/paneSessions";
+import { destroySessionsDirectly } from "@/lib/tabLifecycle/destroyPipeline";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -64,21 +66,6 @@ export function summarizeLayoutDelete(layout: LayoutEntry): DeleteSummary {
   };
 }
 
-async function closePoppedWindows(tabIds: string[]) {
-  if (!isTauriRuntime()) return;
-  const poppedTabs = getPoppedTabs();
-  await Promise.all(tabIds.map(async (tabId) => {
-    const label = poppedTabs.get(tabId);
-    if (!label) return;
-    try {
-      const win = await WebviewWindow.getByLabel(label);
-      await win?.close();
-      popupMarkReclaimed(tabId);
-    } catch (error) {
-      handleErrorSilent(error, "close popup window");
-    }
-  }));
-}
 
 export default function LayoutDeleteDialog({
   summary,
@@ -105,18 +92,15 @@ export default function LayoutDeleteDialog({
 
   async function confirmDelete() {
     if (!summary) return;
-    const { layout, sessionIds, poppedTabIds } = summary;
+    const { layout } = summary;
     try {
-      for (const sessionId of sessionIds) {
-        terminalService.detachOutput(sessionId);
-        terminalService.detachExit(sessionId);
-      }
-      await Promise.all(sessionIds.map((sessionId) =>
-        terminalService.killSession(sessionId).catch((error) => {
-          handleErrorSilent(error, "kill layout session");
-        })
-      ));
-      await closePoppedWindows(poppedTabIds);
+      // B1-08：回收统一走销毁管线（detach 全部 → kill 全部 → 关弹出窗口 →
+      // 附属清理），本组件不再自己编排顺序。整层删除的树操作仍由 deleteLayout
+      // 一步完成——逐 tab splice 会制造 N 个中间树状态与 notify 风暴。
+      //
+      // 传 summary.sessionIds 而不是重新遍历树：summary 是打开对话框那一刻
+      // 算好的（用户看到的数字就是它），重新遍历会与展示脱节。
+      await destroySessionsDirectly(summary.sessionIds, summary.poppedTabIds, "delete-layout");
       deleteLayout(layout.id);
       toast.success(t("layoutDeleted", { name: layout.name }));
     } finally {
