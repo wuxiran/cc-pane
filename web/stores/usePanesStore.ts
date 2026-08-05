@@ -10,7 +10,23 @@ import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
-import { createPanel } from "./paneTreeHelpers";
+// 树辅助（findPane 等）与 close 系树操作已随 B1-03 下沉到 paneTreeHelpers /
+// paneTreeRemovalHelpers，本文件与 paneRemovalActions 共用同一份实现。
+import {
+  closeTabInTree,
+  collectPanels,
+  createPanel,
+  findPane,
+  findParent,
+  findTabLocation,
+  notifyTerminalLayoutChanged,
+} from "./paneTreeHelpers";
+import {
+  closeTerminalLeafInTab,
+  findTerminalPaneParent,
+  syncTabTerminalState,
+} from "./paneTreeRemovalHelpers";
+import { createPaneRemovalActions } from "./paneRemovalActions";
 import {
   activateFirstNormalLayout,
   activeLayout,
@@ -27,8 +43,8 @@ import { createBrowserTabActions } from "./browserTabActions";
 import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
+import { trimClosedTabs } from "./closedTabsCap";
 import type {
-  ClosedTabSnapshot,
   CreateTabOptions,
   DraftTabAcrossLayoutsLocation,
   PaneAcrossLayoutsLocation,
@@ -52,7 +68,6 @@ import type {
   SplitDirection,
   TerminalPaneNode,
   TerminalPaneLeaf,
-  TerminalPaneSplit,
   LaunchExtras,
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
@@ -63,25 +78,8 @@ function generateId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-export const TERMINAL_LAYOUT_CHANGED_EVENT = "cc-panes:terminal-layout-changed";
-
-function notifyTerminalLayoutChanged(reason: string): void {
-  if (typeof window === "undefined") return;
-  const dispatch = () => {
-    window.dispatchEvent(
-      new CustomEvent(TERMINAL_LAYOUT_CHANGED_EVENT, {
-        detail: { reason },
-      })
-    );
-  };
-
-  if (typeof window.requestAnimationFrame === "function") {
-    window.requestAnimationFrame(dispatch);
-    return;
-  }
-
-  window.setTimeout(dispatch, 0);
-}
+// B1-03 起真身在 paneTreeHelpers；这里保留 re-export 维持既有 import 路径。
+export { TERMINAL_LAYOUT_CHANGED_EVENT } from "./paneTreeHelpers";
 
 function createTab(opts: CreateTabOptions): Tab {
   const { projectId, projectPath, launchId, sessionId, resumeId, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId, launchExtras } = opts;
@@ -190,103 +188,6 @@ function stripInitialPrompt(extras: LaunchExtras | undefined): LaunchExtras | un
   if (extras.initialPrompt === undefined) return extras;
   const { initialPrompt: _initialPrompt, ...rest } = extras;
   return Object.keys(rest).length > 0 ? rest : undefined;
-}
-
-function findTerminalPaneParent(
-  node: TerminalPaneNode,
-  paneId: string,
-  parent: TerminalPaneSplit | null = null
-): { parent: TerminalPaneSplit | null; index: number } | null {
-  if (node.id === paneId) {
-    return { parent, index: parent ? parent.children.indexOf(node) : -1 };
-  }
-  if (node.type === "split") {
-    for (let i = 0; i < node.children.length; i += 1) {
-      const result = findTerminalPaneParent(node.children[i], paneId, node);
-      if (result) return result;
-    }
-  }
-  return null;
-}
-
-function syncTabTerminalState(tab: Tab): void {
-  if (tab.contentType !== "terminal") return;
-
-  if (!tab.terminalRootPane) {
-    const fallbackLeaf: TerminalPaneLeaf = {
-      type: "leaf",
-      id: generateId("terminal-pane"),
-      launchId: generateId("launch"),
-      restoreMode: resolveRestoreMode({
-        cliTool: inferCliTool(tab.cliTool, tab.launchClaude, tab.resumeId),
-        resumeId: tab.resumeId,
-      }),
-      sessionId: tab.sessionId ?? null,
-      resumeId: tab.resumeId,
-      resumeIdSource: tab.resumeIdSource,
-      workspaceName: tab.workspaceName,
-      providerId: tab.providerId,
-      modelId: tab.modelId,
-      providerSelection: tab.providerSelection,
-      launchProfileId: tab.launchProfileId,
-      workspacePath: tab.workspacePath,
-      workspaceSnapshotId: tab.workspaceSnapshotId,
-      cliTool: tab.cliTool,
-      launchClaude: tab.launchClaude,
-      ssh: tab.ssh,
-      wsl: tab.wsl,
-      machineName: tab.machineName,
-      disconnected: tab.disconnected,
-      restoring: tab.restoring,
-      savedSessionId: tab.savedSessionId,
-      restoreBlockedReason: tab.restoreBlockedReason,
-      leaseReadOnly: tab.leaseReadOnly,
-      launchError: tab.launchError,
-      launchAttempt: tab.launchAttempt,
-    };
-    tab.terminalRootPane = fallbackLeaf;
-    tab.activeTerminalPaneId = fallbackLeaf.id;
-  }
-
-  const leaves = collectTerminalLeaves(tab.terminalRootPane);
-  if (leaves.length === 0) return;
-
-  const activeLeaf =
-    (tab.activeTerminalPaneId
-      ? leaves.find((leaf) => leaf.id === tab.activeTerminalPaneId)
-      : null) ?? leaves[0];
-
-  tab.activeTerminalPaneId = activeLeaf.id;
-  tab.sessionId = activeLeaf.sessionId;
-  tab.resumeId = activeLeaf.resumeId;
-  tab.resumeIdSource = activeLeaf.resumeIdSource;
-  tab.workspaceName = activeLeaf.workspaceName;
-  tab.providerId = activeLeaf.providerId;
-  tab.modelId = activeLeaf.modelId;
-  tab.providerSelection = activeLeaf.providerSelection;
-  tab.launchProfileId = activeLeaf.launchProfileId;
-  tab.workspacePath = activeLeaf.workspacePath;
-  tab.workspaceSnapshotId = activeLeaf.workspaceSnapshotId;
-  tab.cliTool = activeLeaf.cliTool;
-  tab.launchClaude = activeLeaf.launchClaude;
-  tab.ssh = activeLeaf.ssh;
-  tab.wsl = activeLeaf.wsl;
-  tab.machineName = activeLeaf.machineName;
-  tab.disconnected = activeLeaf.disconnected;
-  tab.restoring = activeLeaf.restoring;
-  tab.savedSessionId = activeLeaf.savedSessionId;
-  tab.restoreBlockedReason = activeLeaf.restoreBlockedReason;
-  tab.leaseReadOnly = activeLeaf.leaseReadOnly;
-  tab.launchError = activeLeaf.launchError;
-  tab.launchAttempt = activeLeaf.launchAttempt;
-}
-
-function findTabLocation(rootPane: PaneNode, tabId: string): { panel: Panel; tab: Tab } | null {
-  for (const panel of collectPanels(rootPane)) {
-    const tab = panel.tabs.find((item) => item.id === tabId);
-    if (tab) return { panel, tab };
-  }
-  return null;
 }
 
 export const STARRED_LAYOUT_NAME = "星标";
@@ -484,97 +385,6 @@ function findSessionInTab(tab: Tab, sessionId: string): TerminalPaneLeaf | null 
     : null;
 }
 
-function closeTabInTree(
-  rootPane: PaneNode,
-  paneId: string,
-  tabId: string,
-  force = false,
-): PaneNode {
-  const pane = findPane(rootPane, paneId);
-  if (pane?.type !== "panel") return rootPane;
-  const idx = pane.tabs.findIndex((tab) => tab.id === tabId);
-  if (idx === -1 || (!force && pane.tabs[idx].pinned)) return rootPane;
-
-  if (pane.tabs.length > 1) {
-    pane.tabs.splice(idx, 1);
-    if (pane.activeTabId === tabId) {
-      const nextIdx = Math.min(idx, pane.tabs.length - 1);
-      pane.activeTabId = pane.tabs[nextIdx].id;
-    }
-    return rootPane;
-  }
-
-  const parentResult = findParent(rootPane, paneId);
-  if (!parentResult) return rootPane;
-
-  if (parentResult.parent === null) {
-    return createPanel();
-  }
-
-  const parent = parentResult.parent;
-  parent.children.splice(parentResult.index, 1);
-  parent.sizes.splice(parentResult.index, 1);
-  const total = parent.sizes.reduce((sum, size) => sum + size, 0);
-  parent.sizes = total > 0
-    ? parent.sizes.map((size) => (size / total) * 100)
-    : parent.sizes.map(() => 100 / parent.sizes.length);
-
-  return normalizePaneTree(rootPane);
-}
-
-function closeTerminalLeafInTab(tab: Tab, terminalPaneId: string): boolean {
-  if (tab.contentType !== "terminal" || !tab.terminalRootPane) return false;
-  const leaves = collectTerminalLeaves(tab.terminalRootPane);
-  if (leaves.length <= 1) return false;
-
-  const parentResult = findTerminalPaneParent(tab.terminalRootPane, terminalPaneId);
-  if (!parentResult || parentResult.parent === null) return false;
-
-  const parent = parentResult.parent;
-  parent.children.splice(parentResult.index, 1);
-  parent.sizes.splice(parentResult.index, 1);
-
-  // 单 child 时保留 split 壳（不上提），避免幸存终端 remount；见 normalizePaneTree。
-  const total = parent.sizes.reduce((sum, size) => sum + size, 0);
-  parent.sizes = total > 0
-    ? parent.sizes.map((size) => (size / total) * 100)
-    : parent.children.map(() => 100 / parent.children.length);
-
-  const nextLeaves = collectTerminalLeaves(tab.terminalRootPane);
-  tab.activeTerminalPaneId = nextLeaves[Math.min(parentResult.index, nextLeaves.length - 1)]?.id;
-  syncTabTerminalState(tab);
-  return true;
-}
-
-function findPane(node: PaneNode, paneId: string): PaneNode | null {
-  if (node.id === paneId) return node;
-  if (node.type === "split") {
-    for (const child of node.children) {
-      const found = findPane(child, paneId);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-// 查找父节点
-function findParent(
-  node: PaneNode,
-  paneId: string,
-  parent: SplitPane | null = null
-): { parent: SplitPane | null; index: number } | null {
-  if (node.id === paneId) {
-    return { parent, index: parent ? parent.children.indexOf(node) : -1 };
-  }
-  if (node.type === "split") {
-    for (let i = 0; i < node.children.length; i++) {
-      const result = findParent(node.children[i], paneId, node);
-      if (result) return result;
-    }
-  }
-  return null;
-}
-
 /** 从根到目标节点的 split 祖先链（自顶向下，不含目标本身）；未找到返回 null */
 function findAncestorSplits(
   node: PaneNode,
@@ -605,37 +415,6 @@ function resolveAutoDirection(root: PaneNode, paneId: string): SplitDirection {
     }
   }
   return "right";
-}
-
-// Flatten all panels in the pane tree.
-function collectPanels(node: PaneNode): Panel[] {
-  if (node.type === "panel") return [node];
-  return node.children.flatMap(collectPanels);
-}
-
-function normalizePaneTree(root: PaneNode): PaneNode {
-  if (root.type === "panel") return root;
-
-  root.children = root.children.map((child) => normalizePaneTree(child));
-
-  if (root.children.length === 0) {
-    return createPanel();
-  }
-
-  // 单 child 时保留 split 壳而不上提：上提会让 PaneContainer 组件类型 /
-  // 祖父 SplitView 的 key 变化，React 整棵卸载重挂，幸存终端 xterm 被销毁重建。
-  // 壳链只在快照/持久化加载入口由 flattenPaneTreeForImport 压平。
-  if (root.sizes.length !== root.children.length) {
-    root.sizes = root.children.map(() => 100 / root.children.length);
-    return root;
-  }
-
-  const total = root.sizes.reduce((sum, size) => sum + size, 0);
-  root.sizes = total > 0
-    ? root.sizes.map((size) => (size / total) * 100)
-    : root.children.map(() => 100 / root.children.length);
-
-  return root;
 }
 
 /** 各预设的格子数 */
@@ -1180,79 +959,8 @@ export const usePanesStore = create<PanesState>()(
       }
     },
 
-    closePane: (paneId) => {
-      // 保存可恢复标签
-      const closingPane = findPane(get().rootPane, paneId);
-      if (closingPane?.type === "panel") {
-        const recoverableTabs: ClosedTabSnapshot[] = closingPane.tabs
-          .filter((t) => t.projectPath && t.contentType === "terminal")
-          .map((t) => ({
-            projectId: t.projectId,
-            projectPath: t.projectPath,
-            title: t.title,
-            resumeId: t.resumeId,
-            workspaceName: t.workspaceName,
-            providerId: t.providerId,
-            modelId: t.modelId,
-            providerSelection: t.providerSelection,
-            launchProfileId: t.launchProfileId,
-            workspacePath: t.workspacePath,
-            workspaceSnapshotId: t.workspaceSnapshotId,
-            launchClaude: t.launchClaude,
-            cliTool: t.cliTool,
-            ssh: t.ssh,
-            wsl: t.wsl,
-            machineName: t.machineName,
-          }));
-        if (recoverableTabs.length > 0) {
-          set((state) => {
-            state.closedTabs.push(...recoverableTabs);
-          });
-        }
-      }
-
-      set((state) => {
-        const parentResult = findParent(state.rootPane, paneId);
-        if (!parentResult) return;
-
-        if (parentResult.parent === null) {
-          const newPane = createPanel();
-          state.rootPane = newPane;
-          state.activePaneId = newPane.id;
-          return;
-        }
-
-        const parent = parentResult.parent;
-        const index = parentResult.index;
-
-        parent.children.splice(index, 1);
-        parent.sizes.splice(index, 1);
-
-        const total = parent.sizes.reduce((a, b) => a + b, 0);
-        parent.sizes = total > 0
-          ? parent.sizes.map((s) => (s / total) * 100)
-          : parent.sizes.map(() => 100 / parent.sizes.length);
-
-        if (parent.children.length > 0) {
-          const newIndex = Math.min(index, parent.children.length - 1);
-          const nextPane = parent.children[newIndex];
-          const panels = collectPanels(nextPane);
-          if (panels.length > 0) {
-            state.activePaneId = panels[0].id;
-          }
-        }
-
-        state.rootPane = normalizePaneTree(state.rootPane);
-        const activePane = findPane(state.rootPane, state.activePaneId);
-        if (activePane?.type !== "panel") {
-          const panels = collectPanels(state.rootPane);
-          if (panels.length > 0) {
-            state.activePaneId = panels[0].id;
-          }
-        }
-      });
-      notifyTerminalLayoutChanged("pane.close");
-    },
+    // closePane / closeTab / closeTabsToLeft-Right / closeOtherTabs / closeTerminalPane
+    // 六个关闭出口随 B1-03 迁入 createPaneRemovalActions（文件底部 spread 挂载）。
 
     applyLayoutPreset: (preset) => {
       set((state) => {
@@ -1634,136 +1342,6 @@ export const usePanesStore = create<PanesState>()(
       notifyTerminalLayoutChanged("tab.split-move");
     },
 
-    closeTab: (paneId, tabId) => {
-      const snapshot = get();
-      const snapPane = findPane(snapshot.rootPane, paneId);
-      if (snapPane?.type !== "panel") return;
-      const snapTab = snapPane.tabs.find((t) => t.id === tabId);
-      if (!snapTab || snapTab.pinned) return;
-
-      // 保存可恢复标签
-      if (snapTab.projectPath && snapTab.contentType === "terminal") {
-        set((state) => {
-          state.closedTabs.push({
-            projectId: snapTab.projectId,
-            projectPath: snapTab.projectPath,
-            title: snapTab.title,
-            resumeId: snapTab.resumeId,
-            workspaceName: snapTab.workspaceName,
-            providerId: snapTab.providerId,
-            modelId: snapTab.modelId,
-            providerSelection: snapTab.providerSelection,
-            launchProfileId: snapTab.launchProfileId,
-            workspacePath: snapTab.workspacePath,
-            workspaceSnapshotId: snapTab.workspaceSnapshotId,
-            launchClaude: snapTab.launchClaude,
-            cliTool: snapTab.cliTool,
-            ssh: snapTab.ssh,
-            wsl: snapTab.wsl,
-            machineName: snapTab.machineName,
-          });
-        });
-      }
-
-      if (snapPane.tabs.length <= 1) {
-        get().closePane(paneId);
-        return;
-      }
-
-      set((state) => {
-        const p = findPane(state.rootPane, paneId);
-        if (p?.type !== "panel") return;
-
-        const idx = p.tabs.findIndex((t) => t.id === tabId);
-        if (idx === -1) return;
-        if (p.tabs[idx].pinned) return;
-        if (p.tabs.length <= 1) return;
-
-        p.tabs.splice(idx, 1);
-        if (p.activeTabId === tabId) {
-          const newIdx = Math.min(idx, p.tabs.length - 1);
-          p.activeTabId = p.tabs[newIdx].id;
-        }
-      });
-    },
-
-    closeTabsToLeft: (paneId, tabId) => {
-      const snapshot = get();
-      const snapPane = findPane(snapshot.rootPane, paneId);
-      if (snapPane?.type !== "panel") return;
-      const targetIdx = snapPane.tabs.findIndex((t) => t.id === tabId);
-      if (targetIdx <= 0) return;
-
-      const toClose = snapPane.tabs.slice(0, targetIdx).filter((t) => !t.pinned);
-      if (toClose.length === 0) return;
-
-      set((state) => {
-        const p = findPane(state.rootPane, paneId);
-        if (p?.type !== "panel") return;
-        const closeIds = new Set(toClose.map((t) => t.id));
-        p.tabs = p.tabs.filter((t) => !closeIds.has(t.id));
-        if (p.activeTabId && closeIds.has(p.activeTabId)) {
-          p.activeTabId = tabId;
-        }
-      });
-
-      // Close the pane if every tab was removed.
-      const afterPane = findPane(get().rootPane, paneId);
-      if (afterPane?.type === "panel" && afterPane.tabs.length === 0) {
-        get().closePane(paneId);
-      }
-    },
-
-    closeTabsToRight: (paneId, tabId) => {
-      const snapshot = get();
-      const snapPane = findPane(snapshot.rootPane, paneId);
-      if (snapPane?.type !== "panel") return;
-      const targetIdx = snapPane.tabs.findIndex((t) => t.id === tabId);
-      if (targetIdx === -1 || targetIdx >= snapPane.tabs.length - 1) return;
-
-      const toClose = snapPane.tabs.slice(targetIdx + 1).filter((t) => !t.pinned);
-      if (toClose.length === 0) return;
-
-      set((state) => {
-        const p = findPane(state.rootPane, paneId);
-        if (p?.type !== "panel") return;
-        const closeIds = new Set(toClose.map((t) => t.id));
-        p.tabs = p.tabs.filter((t) => !closeIds.has(t.id));
-        if (p.activeTabId && closeIds.has(p.activeTabId)) {
-          p.activeTabId = tabId;
-        }
-      });
-
-      const afterPane = findPane(get().rootPane, paneId);
-      if (afterPane?.type === "panel" && afterPane.tabs.length === 0) {
-        get().closePane(paneId);
-      }
-    },
-
-    closeOtherTabs: (paneId, tabId) => {
-      const snapshot = get();
-      const snapPane = findPane(snapshot.rootPane, paneId);
-      if (snapPane?.type !== "panel") return;
-
-      const toClose = snapPane.tabs.filter((t) => t.id !== tabId && !t.pinned);
-      if (toClose.length === 0) return;
-
-      set((state) => {
-        const p = findPane(state.rootPane, paneId);
-        if (p?.type !== "panel") return;
-        const closeIds = new Set(toClose.map((t) => t.id));
-        p.tabs = p.tabs.filter((t) => !closeIds.has(t.id));
-        if (p.activeTabId && closeIds.has(p.activeTabId)) {
-          p.activeTabId = tabId;
-        }
-      });
-
-      const afterPane = findPane(get().rootPane, paneId);
-      if (afterPane?.type === "panel" && afterPane.tabs.length === 0) {
-        get().closePane(paneId);
-      }
-    },
-
     selectTab: (paneId, tabId) => {
       let changed = false;
       set((state) => {
@@ -1940,40 +1518,6 @@ export const usePanesStore = create<PanesState>()(
         syncTabTerminalState(tab);
       });
       notifyTerminalLayoutChanged("terminal.split");
-    },
-
-    closeTerminalPane: (tabId, terminalPaneId) => {
-      set((state) => {
-        const location = findTabLocation(state.rootPane, tabId);
-        if (!location) return;
-        const { tab } = location;
-        if (tab.contentType !== "terminal" || !tab.terminalRootPane) return;
-
-        const leaves = collectTerminalLeaves(tab.terminalRootPane);
-        if (leaves.length <= 1) return;
-
-        const parentResult = findTerminalPaneParent(tab.terminalRootPane, terminalPaneId);
-        if (!parentResult) return;
-
-        if (parentResult.parent === null) {
-          return;
-        }
-
-        const parent = parentResult.parent;
-        parent.children.splice(parentResult.index, 1);
-        parent.sizes.splice(parentResult.index, 1);
-
-        // 单 child 时保留 split 壳（不上提），避免幸存终端 remount；见 normalizePaneTree。
-        const total = parent.sizes.reduce((sum, size) => sum + size, 0);
-        parent.sizes = total > 0
-          ? parent.sizes.map((size) => (size / total) * 100)
-          : parent.children.map(() => 100 / parent.children.length);
-
-        const nextLeaves = collectTerminalLeaves(tab.terminalRootPane);
-        tab.activeTerminalPaneId = nextLeaves[Math.min(parentResult.index, nextLeaves.length - 1)]?.id;
-        syncTabTerminalState(tab);
-      });
-      notifyTerminalLayoutChanged("terminal.close");
     },
 
     resizeTerminalPanes: (tabId, terminalPaneId, sizes) => {
@@ -2197,6 +1741,8 @@ export const usePanesStore = create<PanesState>()(
       const lastClosed = closedTabs[closedTabs.length - 1];
       set((state) => {
         state.closedTabs.pop();
+        // 惰性上限裁剪；push 点在轨 B 搬家范围，严格上限由 B1-05 收口（closedTabsCap.ts）
+        trimClosedTabs(state.closedTabs);
       });
 
       get().addTab(paneId, {
@@ -2210,7 +1756,9 @@ export const usePanesStore = create<PanesState>()(
         launchProfileId: lastClosed.launchProfileId,
         workspacePath: lastClosed.workspacePath,
         workspaceSnapshotId: lastClosed.workspaceSnapshotId,
-        cliTool: lastClosed.cliTool,
+        // title/launchClaude 此前被丢弃（docs/68 §2.2）；写法对齐 Panel.handleCloneTab
+        customTitle: lastClosed.title,
+        cliTool: lastClosed.cliTool ?? (lastClosed.launchClaude ? "claude" : undefined),
         ssh: lastClosed.ssh,
         wsl: lastClosed.wsl,
         machineName: lastClosed.machineName,
@@ -2331,6 +1879,8 @@ export const usePanesStore = create<PanesState>()(
     },
 
     ...createEditorTabActions(set, get),
+
+    ...createPaneRemovalActions(set, get),
 
     setTabDirty: (_paneId, tabId, dirty) => {
       set((state) => {

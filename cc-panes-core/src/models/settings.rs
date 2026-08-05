@@ -1100,6 +1100,7 @@ impl Default for ShortcutSettings {
         bindings.insert("toggle-fullscreen".to_string(), "F11".to_string());
         bindings.insert("new-tab".to_string(), "Ctrl+T".to_string());
         bindings.insert("close-tab".to_string(), "Ctrl+W".to_string());
+        bindings.insert("reopen-closed-tab".to_string(), "Ctrl+Shift+T".to_string());
         bindings.insert("settings".to_string(), "Ctrl+,".to_string());
         bindings.insert("command-palette".to_string(), "Ctrl+K".to_string());
         bindings.insert("toggle-layouts".to_string(), "Ctrl+Alt+L".to_string());

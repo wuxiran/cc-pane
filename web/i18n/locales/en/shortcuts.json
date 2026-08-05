@@ -3,6 +3,7 @@
   "toggle-fullscreen": "Toggle Fullscreen",
   "new-tab": "New Tab",
   "close-tab": "Close Tab",
+  "reopen-closed-tab": "Restore Closed Tab",
   "settings": "Open Settings",
   "command-palette": "Command Palette",
   "toggle-layouts": "Open Layouts",

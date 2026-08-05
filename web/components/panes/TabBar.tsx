@@ -1,40 +1,21 @@
 import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
-import { X, PanelRight, PanelBottom, Pin, Pencil, FolderTree, ExternalLink, ChevronLeft, ChevronRight, Settings2, Send, Link2, Star, CopyPlus, Maximize2, Minimize2, Copy } from "lucide-react";
+import { X, Pin, ChevronLeft, ChevronRight, Link2, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import { useTerminalStatusStore } from "@/stores";
 import InlineRename from "@/components/ui/InlineRename";
 import SessionBindDialog from "@/components/panes/SessionBindDialog";
 import { computeTabNumbers } from "@/lib/tabNumbering";
 import type { Tab, TerminalStatusType } from "@/types";
 import type { TFunction } from "i18next";
-import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 import { DENSITY, type Density } from "./tabBarDensity";
 import NewTabMenu from "./NewTabMenu";
 import TabTypeIcon from "./TabTypeIcon";
-
-
-interface PaneMoveTarget {
-  id: string;
-  label: string;
-}
-
-interface LayoutMoveTarget {
-  id: string;
-  label: string;
-  panes: PaneMoveTarget[];
-}
+import TabContextMenu, {
+  type LayoutMoveTarget,
+  type PaneMoveTarget,
+} from "./TabContextMenu";
 
 interface TabBarProps {
   paneId: string;
@@ -189,10 +170,6 @@ function SortableTab({
 
   const d = DENSITY[density];
   const active = tab.id === activeId;
-  const terminalLeafCount =
-    tab.contentType === "terminal" && tab.terminalRootPane
-      ? countTerminalLeaves(tab.terminalRootPane)
-      : 0;
   const showSeparator = index > 0
     && tab.id !== activeId
     && tabs[index - 1].id !== activeId;
@@ -351,180 +328,40 @@ function SortableTab({
   }
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        {tabNode}
-      </ContextMenuTrigger>
-      <ContextMenuContent className="w-48">
-        <ContextMenuItem onClick={() => startRename(tab)}>
-          <Pencil /> {t("renameTab")}
-        </ContextMenuItem>
-        <ContextMenuItem inset onClick={() => onTogglePin(tab.id)}>
-          {tab.pinned ? t("unpinTab") : t("pinTab")}
-        </ContextMenuItem>
-        <ContextMenuItem inset onClick={() => onToggleStar(tab.id)}>
-          {tab.starred ? t("unstarTab") : t("starTab")}
-        </ContextMenuItem>
-        {tab.contentType === "terminal" && tab.projectPath && onCloneTab && (
-          <ContextMenuItem onClick={() => onCloneTab(tab)}>
-            <CopyPlus /> {t("cloneTerminal")}
-          </ContextMenuItem>
-        )}
-        {onToggleFullscreen && (
-          <ContextMenuItem onClick={() => onToggleFullscreen(tab.id)}>
-            {isPaneFullscreen ? <Minimize2 /> : <Maximize2 />}{" "}
-            {isPaneFullscreen ? t("exitFullscreenTab") : t("enterFullscreenTab")}
-          </ContextMenuItem>
-        )}
-        {tab.contentType === "terminal" && tab.sessionId && onPopOutTab && (
-          <ContextMenuItem onClick={() => onPopOutTab(tab.id)}>
-            <ExternalLink /> {t("popOutWindow")}
-          </ContextMenuItem>
-        )}
-        {tab.contentType === "editor" && tab.filePath && onRevealInExplorer && (
-          <ContextMenuItem onClick={() => onRevealInExplorer(tab)}>
-            <FolderTree /> {t("revealInExplorer")}
-          </ContextMenuItem>
-        )}
-        {/* 非终端 tab 此前只能沿用一套按终端做的菜单。浏览器复制 URL、文件复制
-            路径是这两类最常用的动作，缺了就只能手抄地址栏。 */}
-        {tab.contentType === "browser" && tab.browserUrl && (
-          <ContextMenuItem onClick={() => void navigator.clipboard.writeText(tab.browserUrl!)}>
-            <Copy /> {t("copyBrowserUrl")}
-          </ContextMenuItem>
-        )}
-        {tab.contentType === "editor" && tab.filePath && (
-          <ContextMenuItem onClick={() => void navigator.clipboard.writeText(tab.filePath!)}>
-            <Copy /> {t("copyFilePath")}
-          </ContextMenuItem>
-        )}
-        {onEditWorkspaceEnvironment && canEditWorkspaceEnvironment?.(tab) ? (
-          <ContextMenuItem onClick={() => onEditWorkspaceEnvironment(tab)}>
-            <Settings2 /> {t("editWorkspaceEnvironment")}
-          </ContextMenuItem>
-        ) : null}
-        <TabQuickCommandsMenu tab={tab} paneId={paneId} />
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={onSplitRight}>
-          <PanelRight /> {t("splitPanelRight")}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={onSplitDown}>
-          <PanelBottom /> {t("splitPanelDown")}
-        </ContextMenuItem>
-        {tabs.length > 1 && (
-          <>
-            <ContextMenuItem onClick={() => onSplitAndMoveRight(tab.id)}>
-              <PanelRight /> {t("splitAndMoveRight")}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => onSplitAndMoveDown(tab.id)}>
-              <PanelBottom /> {t("splitAndMoveDown")}
-            </ContextMenuItem>
-          </>
-        )}
-        {moveTargets.length > 0 && (
-          <ContextMenuSub>
-            <ContextMenuSubTrigger inset>
-              <Send /> {t("sendToPane")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {moveTargets.map((target) => (
-                <ContextMenuItem key={target.id} onClick={() => onMoveTabToPane(tab.id, target.id)}>
-                  {target.label}
-                </ContextMenuItem>
-              ))}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-        )}
-        {layoutMoveTargets.length > 0 && (
-          <ContextMenuSub>
-            <ContextMenuSubTrigger inset>
-              <Send /> {t("sendToLayout")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-56">
-              {layoutMoveTargets.map((layout) => {
-                if (layout.panes.length === 1) {
-                  const targetPane = layout.panes[0];
-                  return (
-                    <ContextMenuItem
-                      key={layout.id}
-                      onClick={() => onMoveTabToLayoutPane(tab.id, layout.id, targetPane.id)}
-                    >
-                      {layout.label}
-                    </ContextMenuItem>
-                  );
-                }
-                return (
-                  <ContextMenuSub key={layout.id}>
-                    <ContextMenuSubTrigger>{layout.label}</ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="w-56">
-                      {layout.panes.map((targetPane) => (
-                        <ContextMenuItem
-                          key={targetPane.id}
-                          onClick={() => onMoveTabToLayoutPane(tab.id, layout.id, targetPane.id)}
-                        >
-                          {targetPane.label}
-                        </ContextMenuItem>
-                      ))}
-                    </ContextMenuSubContent>
-                  </ContextMenuSub>
-                );
-              })}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-        )}
-        {tab.contentType === "terminal" && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={() => onSplitTerminalRight(tab.id)}>
-              <PanelRight /> {t("splitRight")}
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => onSplitTerminalDown(tab.id)}>
-              <PanelBottom /> {t("splitDown")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              disabled={terminalLeafCount <= 1}
-              onSelect={() => onCloseTerminalPane(tab.id)}
-            >
-              {t("closeTerminalPane")}
-            </ContextMenuItem>
-          </>
-        )}
-        {tabs.length > 1 && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              inset
-              disabled={tabs.slice(0, index).filter((t) => !t.pinned).length === 0}
-              onClick={() => onCloseTabsToLeft(tab.id)}
-            >
-              {t("closeTabsToLeft")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              inset
-              disabled={tabs.slice(index + 1).filter((t) => !t.pinned).length === 0}
-              onClick={() => onCloseTabsToRight(tab.id)}
-            >
-              {t("closeTabsToRight")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              inset
-              disabled={tabs.filter((_, i) => i !== index && !tabs[i].pinned).length === 0}
-              onClick={() => onCloseOtherTabs(tab.id)}
-            >
-              {t("closeOtherTabs")}
-            </ContextMenuItem>
-          </>
-        )}
-        {!tab.pinned && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" inset onClick={() => onClose(tab.id)}>
-              {t("closeTab")}
-            </ContextMenuItem>
-          </>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
+    <TabContextMenu
+      tab={tab}
+      index={index}
+      paneId={paneId}
+      tabs={tabs}
+      startRename={startRename}
+      onClose={onClose}
+      onTogglePin={onTogglePin}
+      onToggleStar={onToggleStar}
+      onSplitRight={onSplitRight}
+      onSplitDown={onSplitDown}
+      onSplitAndMoveRight={onSplitAndMoveRight}
+      onSplitAndMoveDown={onSplitAndMoveDown}
+      moveTargets={moveTargets}
+      onMoveTabToPane={onMoveTabToPane}
+      layoutMoveTargets={layoutMoveTargets}
+      onMoveTabToLayoutPane={onMoveTabToLayoutPane}
+      onSplitTerminalRight={onSplitTerminalRight}
+      onSplitTerminalDown={onSplitTerminalDown}
+      onCloseTerminalPane={onCloseTerminalPane}
+      onCloseTabsToLeft={onCloseTabsToLeft}
+      onCloseTabsToRight={onCloseTabsToRight}
+      onCloseOtherTabs={onCloseOtherTabs}
+      onRevealInExplorer={onRevealInExplorer}
+      onPopOutTab={onPopOutTab}
+      onEditWorkspaceEnvironment={onEditWorkspaceEnvironment}
+      canEditWorkspaceEnvironment={canEditWorkspaceEnvironment}
+      onCloneTab={onCloneTab}
+      onToggleFullscreen={onToggleFullscreen}
+      isPaneFullscreen={isPaneFullscreen}
+      t={t}
+    >
+      {tabNode}
+    </TabContextMenu>
   );
 }
 
@@ -784,9 +621,3 @@ export default memo(function TabBar({
     </div>
   );
 });
-
-function countTerminalLeaves(node: Tab["terminalRootPane"]): number {
-  if (!node) return 0;
-  if (node.type === "leaf") return 1;
-  return node.children.reduce((total, child) => total + countTerminalLeaves(child), 0);
-}

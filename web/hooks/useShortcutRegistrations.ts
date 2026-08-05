@@ -106,6 +106,15 @@ export function useShortcutRegistrations(): void {
       handler: () => window.dispatchEvent(new Event(CLOSE_ACTIVE_TAB_EVENT)),
     });
     register({
+      id: "reopen-closed-tab",
+      label: i18n.t("reopen-closed-tab", { ns: "shortcuts" }),
+      // 无已关闭标签时 reopenClosedTab 自身就是 no-op，这里不重复判断。
+      handler: () => {
+        const s = usePanesStore.getState();
+        s.reopenClosedTab(s.activePaneId);
+      },
+    });
+    register({
       id: "settings",
       label: i18n.t("settings", { ns: "shortcuts" }),
       handler: () => useDialogStore.getState().openSettings(),
