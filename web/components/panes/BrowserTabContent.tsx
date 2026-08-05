@@ -25,11 +25,21 @@ interface BrowserTabContentProps {
   isActive: boolean;
 }
 
+type BrowserError =
+  | { kind: "unsupportedProtocol" }
+  | { kind: "message"; value: string };
+
 function viewportBounds(node: HTMLDivElement | null): BrowserBounds | null {
   if (!node) return null;
   const rect = node.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return null;
   return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+}
+
+function isUnsupportedBrowserProtocolError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("unsupported browser url scheme")
+    || normalized.includes("browser tabs only support http and https urls");
 }
 
 export default memo(function BrowserTabContent({
@@ -47,13 +57,21 @@ export default memo(function BrowserTabContent({
   const webviewVisible = isVisible && !webviewBlocked;
   const [address, setAddress] = useState(tab.browserUrl ?? "");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<BrowserError | null>(null);
   const security = browserSecurityKind(address);
 
   const reportError = useCallback((value: unknown) => {
-    const message = value instanceof Error ? value.message : String(value);
-    setError(message);
-    toast.error(t("browserActionFailed", { error: message }));
+    const rawMessage = value instanceof Error ? value.message : String(value);
+    const unsupportedProtocol = isUnsupportedBrowserProtocolError(rawMessage);
+    const message = unsupportedProtocol ? t("browserUnsupportedProtocol") : rawMessage;
+    setError(
+      unsupportedProtocol
+        ? { kind: "unsupportedProtocol" }
+        : { kind: "message", value: rawMessage },
+    );
+    toast.error(
+      unsupportedProtocol ? message : t("browserActionFailed", { error: rawMessage }),
+    );
   }, [t]);
 
   const syncBounds = useCallback(() => {
@@ -230,7 +248,9 @@ export default memo(function BrowserTabContent({
           </div>
         ) : error ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-[var(--app-status-danger)]">
-            {error}
+            {error.kind === "unsupportedProtocol"
+              ? t("browserUnsupportedProtocol")
+              : error.value}
           </div>
         ) : null}
       </div>

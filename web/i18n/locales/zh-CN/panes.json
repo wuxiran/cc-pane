@@ -232,6 +232,7 @@
   "browserLocal": "本机或内网页面",
   "browserInsecure": "不安全的 HTTP 页面",
   "browserDesktopOnly": "浏览器标签仅在桌面应用中可用。",
+  "browserUnsupportedProtocol": "不支持此协议，请使用 HTTP 或 HTTPS 地址。",
   "browserActionFailed": "浏览器操作失败: {{error}}",
   "enterFullscreenTab": "进入全屏",
   "exitFullscreenTab": "退出全屏",

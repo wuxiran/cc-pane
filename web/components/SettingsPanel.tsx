@@ -14,6 +14,7 @@ import {
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
 import { useCCChanStore } from "@/stores/useCCChanStore";
+import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import SettingsPaneContent from "./settings/SettingsPaneContent";
 import SettingsSearchBox from "./settings/SettingsSearchBox";
 import {
@@ -42,11 +43,14 @@ interface SettingsPanelProps {
   onOpenChange: (open: boolean) => void;
 }
 
+const SETTINGS_WEBVIEW_BLOCKER_ID = "settings-panel";
+
 export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
   const { t } = useTranslation("settings");
   const settings = useSettingsStore((state) => state.settings);
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const getDefaults = useSettingsStore((state) => state.getDefaults);
+  const setBrowserWebviewBlocked = useBrowserWebviewOverlayStore((state) => state.setBlocked);
   const [draft, setDraft] = useState<SettingsDraft>(() => createSettingsDraft(getDefaults()));
   const [activePaneId, setActivePaneId] = useState<SettingsPaneId>("general");
   const [searchQuery, setSearchQuery] = useState("");
@@ -57,6 +61,11 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   const dirtyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setBrowserWebviewBlocked(SETTINGS_WEBVIEW_BLOCKER_ID, open);
+    return () => setBrowserWebviewBlocked(SETTINGS_WEBVIEW_BLOCKER_ID, false);
+  }, [open, setBrowserWebviewBlocked]);
 
   const panes = useMemo(() => getVisibleSettingsPanes({
     isMac: navigator.platform.toUpperCase().includes("MAC"),

@@ -232,6 +232,7 @@
   "browserLocal": "Local or private network page",
   "browserInsecure": "Insecure HTTP page",
   "browserDesktopOnly": "Browser tabs are available in the desktop app.",
+  "browserUnsupportedProtocol": "This protocol is not supported. Use an HTTP or HTTPS URL.",
   "browserActionFailed": "Browser action failed: {{error}}",
   "enterFullscreenTab": "Enter Full Screen",
   "exitFullscreenTab": "Exit Full Screen",
