@@ -2,7 +2,6 @@ import { useMemo, useEffect, useCallback, useRef, memo, useContext } from "react
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { handleErrorSilent } from "@/utils";
 import type { Panel as PanelType, Tab } from "@/types";
 import { useShallow } from "zustand/react/shallow";
 import { useDialogStore, usePanesStore, useFullscreenStore, useFileTreeStore, useWorkspacesStore } from "@/stores";
@@ -50,7 +49,7 @@ export default memo(function Panel({ pane }: PanelProps) {
   // Action 选择器合并 + useShallow：浅比较避免对象引用变化导致的重渲染
   const {
     selectTab, togglePinTab, toggleStarTab, renameTab, addTab,
-    splitRight, splitDown, splitAndMoveTab, splitTerminalPane, closeTerminalPane,
+    splitRight, splitDown, splitAndMoveTab, splitTerminalPane, removeTerminalLeafInternal,
     moveTab, moveTabToLayoutPane,
     setActivePane, updateTabSession, reconnectTab,
     setTabDisconnected, markTabPoppedOut, isTabPoppedOut,
@@ -64,7 +63,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     splitDown: s.splitDown,
     splitAndMoveTab: s.splitAndMoveTab,
     splitTerminalPane: s.splitTerminalPane,
-    closeTerminalPane: s.closeTerminalPane,
+    removeTerminalLeafInternal: s.removeTerminalLeafInternal,
     moveTab: s.moveTab,
     moveTabToLayoutPane: s.moveTabToLayoutPane,
     setActivePane: s.setActivePane,
@@ -218,17 +217,13 @@ export default memo(function Panel({ pane }: PanelProps) {
     splitTerminalPane(tabId, tab.activeTerminalPaneId, "down");
   }, [pane.tabs, splitTerminalPane]);
 
+  // 关一格：回收与树操作统一交给 removeTerminalLeafInternal——它按当前树
+  // 重新定位该 leaf 并只杀这一格的会话（含 savedSessionId，改道前会漏）。
   const handleCloseTerminalPane = useCallback((tabId: string) => {
     const tab = pane.tabs.find((item) => item.id === tabId);
     if (tab?.contentType !== "terminal" || !tab.activeTerminalPaneId) return;
-    const activeLeaf = tab.terminalRootPane
-      ? findActiveTerminalSessionId(tab)
-      : null;
-    if (activeLeaf) {
-      terminalService.killSession(activeLeaf).catch((e) => handleErrorSilent(e, "kill session"));
-    }
-    closeTerminalPane(tabId, tab.activeTerminalPaneId);
-  }, [closeTerminalPane, pane.tabs]);
+    removeTerminalLeafInternal(tabId, tab.activeTerminalPaneId, "user-close");
+  }, [removeTerminalLeafInternal, pane.tabs]);
 
   const handleFullscreen = useCallback(
     (tabId: string) => enterFullscreen(pane.id, tabId),

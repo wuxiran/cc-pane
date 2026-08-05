@@ -10,7 +10,11 @@
 // 2. 三个新出口骨架（removeTabsInternal / removeTerminalLeafInternal / removeEmptyPane）
 //    ——树操作已实现，**资源回收（detach/kill/关弹窗/onClosed）留 TODO**，由
 //    destroyPipeline（轨 A / B1-02）在改道 commit 接入。本 commit 无任何调用方。
-import { commitResourceDestroy, DESTROY_POLICY } from "@/lib/tabLifecycle/destroyPipeline";
+import {
+  commitResourceDestroy,
+  DESTROY_KILL_REASON,
+  DESTROY_POLICY,
+} from "@/lib/tabLifecycle/destroyPipeline";
 import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import type { Tab } from "@/types";
@@ -20,6 +24,9 @@ import type {
   PanesState,
   RemoveTabsInternalOptions,
 } from "./panesStoreTypes";
+import { terminalService } from "@/services/terminalService";
+import { handleErrorSilent } from "@/utils/errorHandler";
+import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { trimClosedTabs } from "./closedTabsCap";
 import {
   closeTabInTree,
@@ -395,13 +402,36 @@ export function createPaneRemovalActions(
       notifyTerminalLayoutChanged("tab.remove");
     },
 
-    removeTerminalLeafInternal: (tabId, terminalPaneId, _reason) => {
+    removeTerminalLeafInternal: (tabId, terminalPaneId, reason) => {
       // 「关一格」：分屏 tab 里关掉一个终端 leaf（树操作与 closeTerminalPane 同实现）。
       //
-      // TODO(B1-07，回收接入): 树 splice 前在本出口内重新定位 leaf，按
-      // `sessionId ?? savedSessionId` 走 destroyPipeline kill（开放问题1 取 Codex
-      // 倾向 B，不复用 findActiveTerminalSessionId）。最后一个 leaf 不在这里关——
-      // 调用方应改走 removeTabsInternal 关整个 tab。
+      // 杀集是**这一格自己的**会话，不是整个 tab 的——关一格只该杀一格，
+      // 用 collectResources 全量会连坐同 tab 的其他分屏。按
+      // `sessionId ?? savedSessionId` 取（改道前只看 sessionId，恢复中的格子
+      // 关掉就成孤儿）。最后一个 leaf 不在这里关，调用方走 removeTabsInternal。
+      const policy = DESTROY_POLICY[reason];
+      if (policy.kills) {
+        const state = get();
+        for (const layout of state.layouts) {
+          const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+          if (!tree) continue;
+          const location = findTabLocation(tree, tabId);
+          if (!location) continue;
+          const leaf = collectTerminalLeaves(location.tab.terminalRootPane)
+            .find((l) => l.id === terminalPaneId);
+          const sessionId = leaf?.sessionId ?? leaf?.savedSessionId;
+          if (sessionId) {
+            terminalService.detachOutput(sessionId);
+            terminalService.detachExit(sessionId);
+            void terminalService
+              .killSession(sessionId, DESTROY_KILL_REASON[reason] ?? undefined)
+              .catch((error) => handleErrorSilent(error, "kill terminal leaf session"));
+            useTerminalStatusStore.getState().removeSession(sessionId);
+          }
+          break;
+        }
+      }
+
       let changed = false;
       set((state) => {
         for (const layout of state.layouts) {

@@ -688,3 +688,48 @@ describe("moveTab / closeTab 改道后（搬走不杀、双 push 已修）", () 
     expect(killedIds()).toEqual(["sess-a", "sess-b"]);
   });
 });
+
+// ============================================================================
+// B1-07：关一格的杀集边界。
+// 关一格只该杀一格——用整 tab 的口径会连坐同一个分屏里的其他会话。
+// ============================================================================
+describe("removeTerminalLeafInternal（改道后：只杀这一格）", () => {
+  function twoLeafTab(id: string, a: string, b: string, savedOnB?: string): Tab {
+    const tab = makeTerminalTab(id);
+    tab.terminalRootPane = {
+      type: "split",
+      id: `${id}-split`,
+      direction: "horizontal",
+      children: [
+        { type: "leaf", id: `${id}-leaf-a`, sessionId: a },
+        {
+          type: "leaf",
+          id: `${id}-leaf-b`,
+          sessionId: savedOnB ? null : b,
+          ...(savedOnB ? { savedSessionId: savedOnB } : {}),
+        },
+      ],
+      sizes: [50, 50],
+    } as unknown as Tab["terminalRootPane"];
+    tab.activeTerminalPaneId = `${id}-leaf-a`;
+    return tab;
+  }
+
+  it("只杀目标格的会话，同 tab 其他格不受牵连", async () => {
+    setPanesState(makePanel("p1", [twoLeafTab("t1", "sess-a", "sess-b")]), "p1");
+
+    usePanesStore.getState().removeTerminalLeafInternal("t1", "t1-leaf-a", "user-close");
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
+
+    expect(killedIds()).toEqual(["sess-a"]);
+  });
+
+  it("目标格只有 savedSessionId（恢复中）也杀——改道前这里会漏成孤儿", async () => {
+    setPanesState(makePanel("p1", [twoLeafTab("t1", "sess-a", "", "sess-saved")]), "p1");
+
+    usePanesStore.getState().removeTerminalLeafInternal("t1", "t1-leaf-b", "user-close");
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
+
+    expect(killedIds()).toEqual(["sess-saved"]);
+  });
+});
