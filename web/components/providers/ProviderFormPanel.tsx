@@ -22,7 +22,7 @@ import {
   type ConfigDirInfo,
 } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
-import ProviderTypeOptions from "./ProviderTypeOptions";
+import ProviderTypeSelect from "./ProviderTypeSelect";
 import ProviderModelsEditor from "./ProviderModelsEditor";
 
 const JsonEditor = lazy(() => import("@/components/editor/JsonEditor"));
@@ -463,14 +463,11 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
             ) : (
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs font-medium">{t("providerType")}</Label>
-                <select
+                <ProviderTypeSelect
                   value={form.providerType}
-                  onChange={(e) => handleTypeChange(e.target.value as ProviderType)}
-                  className="h-10 px-3 rounded-md text-sm outline-none"
-                  style={{ border: "1px solid var(--app-border)", background: "var(--app-content)", color: "var(--app-text-primary)" }}
-                >
-                  <ProviderTypeOptions activeTab={activeTab} />
-                </select>
+                  onChange={handleTypeChange}
+                  activeTab={activeTab}
+                />
               </div>
             )}
 
@@ -563,7 +560,7 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
                 {form.configDir && configDirInfo && (
                   <div
                     className="flex flex-col gap-2 p-3 rounded-lg text-xs"
-                    style={{ background: "var(--app-content)", border: "1px solid var(--app-border)" }}
+                    style={{ background: "var(--app-panel-bg)", border: "1px solid var(--app-border)" }}
                   >
                     {configDirInfo.files.map((f) => (
                       <div key={f} className="flex items-center gap-2" style={{ color: "var(--app-text-secondary)" }}>
@@ -623,7 +620,7 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
                       </div>
                     </div>
                     {showSensitiveJson && (
-                      <Suspense fallback={<div className="h-48 rounded-md border animate-pulse" style={{ background: "var(--app-content)" }} />}>
+                      <Suspense fallback={<div className="h-48 rounded-md border animate-pulse" style={{ background: "var(--app-panel-bg)" }} />}>
                         <JsonEditor
                           value={configFileContent}
                           onChange={setConfigFileContent}
@@ -672,7 +669,7 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
                   </div>
                 </div>
                 {showSensitiveJson && (
-                  <Suspense fallback={<div className="h-36 rounded-md border animate-pulse" style={{ background: "var(--app-content)" }} />}>
+                  <Suspense fallback={<div className="h-36 rounded-md border animate-pulse" style={{ background: "var(--app-panel-bg)" }} />}>
                     <JsonEditor
                       value={configJson}
                       onChange={handleConfigJsonChange}

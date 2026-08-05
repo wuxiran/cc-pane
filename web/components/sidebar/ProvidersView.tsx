@@ -81,7 +81,6 @@ export default function ProvidersView() {
           activeTab={activeTab}
           onTabChange={setActiveTab}
           providerCounts={providerCounts}
-          compact
         />
       </div>
 

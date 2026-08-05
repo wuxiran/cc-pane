@@ -61,6 +61,12 @@
 - **持久“当前”行**：accent + `data-current="true"` 属性区分于键盘高亮。
 - **禁止**：硬编码 `bg-[#...]` 或发明新“选中色”。
 
+### 4.1 长列表分组（`CollapsibleCheckGroup`）
+
+- 短组（`total ≤ collapseThreshold`，默认 8）平铺且不显示折叠交互；长组默认折叠，组头给 `n 项 · 启用 m` + 已启用 chips 摘要，展开后进 `max-h` 滚动区并在**底部复述一次计数**（滚动区截断视野，否则读者以为「看到的就是全部」）。
+- 卡顶搜索框只裁剪**可见行**，分组计数仍按全量——否则「12 项 · 启用 3」会随输入逐字跳变。查询非空时给所有组传 `forceOpen`：`defaultOpen` 只在 mount 取一次值，光靠它展不开。
+- ⚠ **异步加载的分组会「忘记」折叠**：折叠态是 `useState(defaultOpen ?? !collapsible)`，首帧数据未到 → `total = 0` → 判定为不可折叠 → 开着，数据到位后不再收起。市场技能/共享 MCP 这类先渲染后取数的组因此实际总是展开的。要修得让组件感知 `collapsible` 的迟到变化（且不能覆盖用户已手动切换过的状态），别指望调整阈值。
+
 ## 5. 排版与图标
 
 - UI 字体 Inter Variable / 终端 Maple Mono NF CN，不引第三字体；`font-feature-settings` 已调优勿覆盖。

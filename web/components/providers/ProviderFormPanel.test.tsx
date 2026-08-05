@@ -41,6 +41,17 @@ vi.mock("sonner", () => ({
 
 const { toast } = await import("sonner");
 
+/** Radix Select 交互：点 trigger 展开 listbox，再点选项（原生 selectOptions 不适用） */
+async function selectOption(
+  user: ReturnType<typeof userEvent.setup>,
+  trigger: HTMLElement,
+  optionName: string,
+) {
+  await user.click(trigger);
+  const listbox = await screen.findByRole("listbox");
+  await user.click(within(listbox).getByRole("option", { name: optionName }));
+}
+
 function setupStore(providers: Provider[] = []) {
   const actions = {
     addProvider: vi.fn().mockResolvedValue(undefined),
@@ -80,8 +91,9 @@ describe("ProviderFormPanel", () => {
   it("derives the default provider type from the active CLI tab", () => {
     setupStore();
     render(<ProviderFormPanel activeTab="codex" onBack={vi.fn()} />);
-    const typeSelect = screen.getByRole("combobox") as HTMLSelectElement;
-    expect(typeSelect.value).toBe("open_ai");
+    // Radix Select 的 trigger 是 button，只能读展示文案（不再有 HTMLSelectElement.value）
+    const typeSelect = screen.getByRole("combobox", { name: i18n.t("settings:providerType") });
+    expect(typeSelect).toHaveTextContent(i18n.t("settings:providerTypeOpenAILabel"));
   });
 
   it("mirrors form fields into the config JSON", async () => {
@@ -129,7 +141,11 @@ describe("ProviderFormPanel", () => {
 
     await user.type(screen.getByPlaceholderText("https://api.anthropic.com"), "https://x.dev");
     // anthropic → bedrock：baseUrl/apiKey 不再适用
-    await user.selectOptions(screen.getByRole("combobox"), "bedrock");
+    await selectOption(
+      user,
+      screen.getByRole("combobox", { name: i18n.t("settings:providerType") }),
+      i18n.t("settings:providerTypeBedrockLabel"),
+    );
     await revealJson(user);
 
     expect(screen.queryByPlaceholderText("https://api.anthropic.com")).not.toBeInTheDocument();
@@ -242,9 +258,10 @@ describe("ProviderFormPanel", () => {
       within(row).getByLabelText(i18n.t("settings:providerModelLabel")),
       "Sonnet 4.5"
     );
-    await user.selectOptions(
+    await selectOption(
+      user,
       within(row).getByLabelText(i18n.t("settings:providerModelDefaultEffort")),
-      "high"
+      i18n.t("settings:providerEffortLevel.high"),
     );
 
     expect(

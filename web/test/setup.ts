@@ -51,6 +51,16 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   } as unknown as typeof ResizeObserver;
 }
 
+// jsdom 未实现 Pointer Capture / scrollIntoView，Radix Select 在打开面板与
+// 键盘/指针定位时会调用它们；缺失会让 SelectTrigger 点击直接抛错。
+if (typeof Element !== "undefined") {
+  const proto = Element.prototype as unknown as Record<string, unknown>;
+  if (typeof proto.hasPointerCapture !== "function") proto.hasPointerCapture = () => false;
+  if (typeof proto.setPointerCapture !== "function") proto.setPointerCapture = () => {};
+  if (typeof proto.releasePointerCapture !== "function") proto.releasePointerCapture = () => {};
+  if (typeof proto.scrollIntoView !== "function") proto.scrollIntoView = () => {};
+}
+
 // 每个测试后自动清理 DOM
 afterEach(() => {
   cleanup();

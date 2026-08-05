@@ -1,8 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactElement } from "react";
 import i18n from "@/i18n";
 import { CLI_TOOL_TABS } from "@/types/provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import ProviderToolTabs from "./ProviderToolTabs";
 
 const getToolById = vi.fn();
@@ -10,6 +12,9 @@ const getToolById = vi.fn();
 vi.mock("@/hooks/useCliTools", () => ({
   useCliTools: () => ({ getToolById }),
 }));
+
+// 未安装点现在包在 Tooltip 里（替代原生 title=），需要 Provider 环境
+const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
 describe("ProviderToolTabs", () => {
   beforeEach(() => {

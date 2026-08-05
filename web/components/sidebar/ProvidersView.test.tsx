@@ -1,5 +1,7 @@
 import "@/i18n";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useProvidersStore } from "@/stores";
@@ -7,6 +9,9 @@ import { mockTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import { createTestProvider, resetTestDataCounter } from "@/test/utils/testData";
 import type { Provider } from "@/types";
 import ProvidersView from "./ProvidersView";
+
+// CLI chips 的未安装点改用 Tooltip（替代原生 title=），测试需要 Provider 环境
+const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },

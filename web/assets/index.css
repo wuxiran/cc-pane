@@ -292,6 +292,34 @@
   /* 身份色（运行环境等"是什么"而非"什么状态"）：WSL / SSH */
   --app-identity-wsl: #B45309;
   --app-identity-ssh: #0E7490;
+  /* CLI 工具身份色（品牌识别，仅用于 Provider/启动器等 CLI 选择场景） */
+  --app-cli-claude: #E8590C;
+  --app-cli-codex: #10A37F;
+  --app-cli-gemini: #4285F4;
+  --app-cli-kimi: #F97316;
+  --app-cli-glm: #2563EB;
+  --app-cli-opencode: #8B5CF6;
+  --app-cli-cursor: #111827;
+  --app-cli-grok: #71767B;
+  /*
+   * Provider 类型身份色（ProviderAvatar 头像底色）。
+   * 与 --app-cli-* 数值多有重合但**不能复用**：cli 那套是前景色，暗色下被整体提亮
+   * （cursor 亮到 #D1D5DB），而头像是「底色 + 白字」，照搬会白字压浅灰糊成一片。
+   */
+  --app-identity-provider-anthropic: #E8590C;
+  --app-identity-provider-bedrock: #FF9900;
+  --app-identity-provider-vertex: #4285F4;
+  --app-identity-provider-proxy: #6366F1;
+  --app-identity-provider-config-profile: #6B7280;
+  --app-identity-provider-open-ai: #10A37F;
+  --app-identity-provider-gemini: #4285F4;
+  --app-identity-provider-kimi: #F97316;
+  --app-identity-provider-glm: #2563EB;
+  --app-identity-provider-opencode: #8B5CF6;
+  --app-identity-provider-cursor: #111827;
+  --app-identity-provider-grok: #71767B;
+  /* 浅色身份底（bedrock/kimi）上的深墨前景，见 ProviderAvatar */
+  --app-identity-provider-ink: #111827;
 
   /* TitleBar 高光线 */
   --app-titlebar-highlight: none;
@@ -458,6 +486,36 @@
   /* 身份色（暗色亮化） */
   --app-identity-wsl: #FCD34D;
   --app-identity-ssh: #67E8F9;
+  /* CLI 工具身份色（暗色亮化，cursor/grok 品牌色过暗改中性亮灰） */
+  --app-cli-claude: #F97B4D;
+  --app-cli-codex: #2FBF9B;
+  --app-cli-gemini: #6FA8FF;
+  --app-cli-kimi: #FB923C;
+  --app-cli-glm: #5B8DEF;
+  --app-cli-opencode: #A78BFA;
+  --app-cli-cursor: #D1D5DB;
+  --app-cli-grok: #9CA3AF;
+  /*
+   * Provider 身份色暗色套：只有对暗底不成立的两个改值（cursor / config_profile），
+   * 其余品牌色本就是「深底白字」，提亮反而伤对比度，故与亮色同值。
+   * cursor #111827 在 #1E2024 上几乎隐形 → #4B5563（白字对比 7.6:1）；
+   * config_profile #6B7280 亮暗都发灰 → #8892A4（白字 3.1:1，对底色 4.7:1）。
+   * 同值项不能省：colorGuard 要求 :root 与 .dark 的 token 清单全等。
+   */
+  --app-identity-provider-anthropic: #E8590C;
+  --app-identity-provider-bedrock: #FF9900;
+  --app-identity-provider-vertex: #4285F4;
+  --app-identity-provider-proxy: #6366F1;
+  --app-identity-provider-config-profile: #8892A4;
+  --app-identity-provider-open-ai: #10A37F;
+  --app-identity-provider-gemini: #4285F4;
+  --app-identity-provider-kimi: #F97316;
+  --app-identity-provider-glm: #2563EB;
+  --app-identity-provider-opencode: #8B5CF6;
+  --app-identity-provider-cursor: #4B5563;
+  --app-identity-provider-grok: #71767B;
+  /* 浅色身份底（bedrock/kimi）上的深墨前景，见 ProviderAvatar */
+  --app-identity-provider-ink: #111827;
 
   /* TitleBar 高光线 */
   --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.05) 80%, transparent);

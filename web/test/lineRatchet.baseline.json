@@ -8,7 +8,7 @@
   "components/panes/Panel.tsx": 561,
   "components/panes/TabBar.tsx": 807,
   "components/panes/TerminalView.tsx": 2183,
-  "components/providers/LaunchProfilesPanel.tsx": 2139,
+  "components/providers/LaunchProfilesPanel.tsx": 577,
   "components/providers/ProviderFormPanel.tsx": 700,
   "components/settings/SharedMcpSection.tsx": 608,
   "components/sidebar/SshMachineDialog.tsx": 603,

@@ -66,21 +66,8 @@ const ALLOWLIST: Record<string, string[]> = {
     "rgba(${r}, ${g}, ${b}, ${alpha})",
     "rgba(0, 0, 0, 0)",
   ],
-  // Provider 品牌与产品身份色，不随主题状态变化。
-  "providers/ProviderAvatar.tsx": [
-    "#E8590C",
-    "#FF9900",
-    "#4285F4",
-    "#6366F1",
-    "#6B7280",
-    "#10A37F",
-    "#F97316",
-    "#2563EB",
-    "#8B5CF6",
-    "#111827",
-    "#71767B",
-    "#fff",
-  ],
+  // 品牌身份色已迁到 --app-identity-provider-*；只剩头像字色（底色恒为深色品牌色）。
+  "providers/ProviderAvatar.tsx": ["#fff"],
   "providers/ProviderCard.tsx": ["#6B7280"],
   // 导入类型使用 Provider/Skill/MCP 类别色；背板黑色仅用于模态 dim。
   "resources/ImportConfirmDialog.tsx": ["#E8590C", "#8B5CF6", "#0EA5E9", "rgba(0,0,0,0.5)"],

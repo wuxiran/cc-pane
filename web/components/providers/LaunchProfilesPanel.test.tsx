@@ -3,9 +3,11 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Provider } from "@/types";
+import type { SkillMarketEntry } from "@/types/skill";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 
 vi.mock("sonner", () => ({
@@ -18,6 +20,17 @@ vi.mock("sonner", () => ({
 
 const tp = (key: string, opts?: Record<string, unknown>) =>
   String(i18n.t(`providers:${key}` as never, opts as never));
+
+/** Radix Select 交互：点 trigger 展开 listbox，再点选项（原生 selectOptions 不适用） */
+async function selectOption(
+  user: ReturnType<typeof userEvent.setup>,
+  trigger: HTMLElement,
+  optionName: string,
+) {
+  await user.click(trigger);
+  const listbox = await screen.findByRole("listbox");
+  await user.click(within(listbox).getByRole("option", { name: optionName }));
+}
 
 const externalSkills: DiscoveredExternalSkill[] = [{
   id: "claude:rust-patterns",
@@ -70,6 +83,37 @@ function renderPanelWithExternalSkills(onSave: (draft: LaunchProfileDraft) => vo
   });
 
   render(<LaunchProfilesPanel initialTool="claude" />);
+}
+
+/** 12 条市场技能：超过 CollapsibleCheckGroup 的 collapseThreshold(8)，默认折叠 */
+const marketEntries: SkillMarketEntry[] = Array.from({ length: 12 }, (_, i) => ({
+  id: `market-${i}`,
+  name: i === 0 ? "Git Flow Helper" : `Market Skill ${i}`,
+  description: i === 0 ? "branch and rebase helpers" : `filler ${i}`,
+  tags: [],
+  version: "1.0.0",
+  recommended: false,
+}));
+
+function renderPanelWithMarketSkills() {
+  mockTauriInvoke({
+    list_launch_profiles: [],
+    list_providers: [],
+    list_workspaces: [],
+    get_shared_mcp_status: [],
+    list_skill_market_entries: marketEntries,
+    list_user_skills: [],
+    list_external_skills: [],
+    list_cli_tools: [],
+    preview_launch_profile_resolution: emptyResolution,
+  });
+
+  // 市场技能行带 Tooltip，需 provider 包裹（其余用例不渲染市场组，故无此依赖）
+  render(
+    <TooltipProvider>
+      <LaunchProfilesPanel initialTool="claude" />
+    </TooltipProvider>,
+  );
 }
 
 function renderKimiPanel(onSave: (draft: LaunchProfileDraft) => void) {
@@ -174,10 +218,11 @@ describe("LaunchProfilesPanel external skills", () => {
       savedDraft = draft;
     });
 
-    const skillSection = (await screen.findByRole("heading", { name: "Skill" })).closest("section");
+    // Skill 卡现为 ui/card（data-slot=card），mode 三连改 SegmentedTabs（role=tab）
+    const skillSection = (await screen.findByRole("heading", { name: "Skill" })).closest('[data-slot="card"]');
     expect(skillSection).not.toBeNull();
     await screen.findByText("Idiomatic Rust");
-    await user.click(within(skillSection as HTMLElement).getByRole("button", { name: tp("skillMode.custom") }));
+    await user.click(within(skillSection as HTMLElement).getByRole("tab", { name: tp("skillMode.custom") }));
     await user.click(within(skillSection as HTMLElement).getByRole("checkbox", { name: /Idiomatic Rust/ }));
     await user.click(within(skillSection as HTMLElement).getByRole("checkbox", { name: /Idiomatic Rust/ }));
     const saveButtons = screen.getAllByRole("button", { name: new RegExp(tp("saveDefault")) });
@@ -196,8 +241,9 @@ describe("LaunchProfilesPanel external skills", () => {
       savedDraft = draft;
     });
 
+    // YOLO 从 checkbox 行改为 ui/switch 行（role=switch）
     await screen.findByText("YOLO mode");
-    await user.click(screen.getByRole("checkbox", { name: /YOLO mode/ }));
+    await user.click(screen.getByRole("switch", { name: /YOLO mode/ }));
     // 开启 YOLO 是危险操作，需点"确认开启"二次确认后才写入 draft
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("yoloConfirmBtn")) }));
     const saveButtons = screen.getAllByRole("button", { name: new RegExp(tp("saveDefault")) });
@@ -217,12 +263,11 @@ describe("LaunchProfilesPanel external skills", () => {
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
 
-    const providerSelect = screen.getByLabelText("Provider") as HTMLSelectElement;
-    expect(providerSelect.disabled).toBe(false);
+    const providerSelect = screen.getByRole("combobox", { name: "Provider" });
+    expect(providerSelect).not.toBeDisabled();
 
-    await user.selectOptions(providerSelect, "kimi-provider");
-    const modelSelect = screen.getByLabelText(tp("fieldModel")) as HTMLSelectElement;
-    await user.selectOptions(modelSelect, "kimi-k2-thinking");
+    await selectOption(user, providerSelect, "Kimi API");
+    await selectOption(user, screen.getByRole("combobox", { name: tp("fieldModel") }), "Kimi K2 Thinking (kimi-k2-thinking)");
     await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
 
     await waitFor(() => {
@@ -240,20 +285,63 @@ describe("LaunchProfilesPanel external skills", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await user.selectOptions(screen.getByLabelText("Provider"), "codex-provider");
+    await selectOption(user, screen.getByRole("combobox", { name: "Provider" }), "Codex API");
 
-    const effortSelect = screen.getByLabelText(tp("fieldReasoningEffort")) as HTMLSelectElement;
-    expect(effortSelect).toHaveValue("");
-    expect(within(effortSelect).getByRole("option", {
-      name: tp("useModelDefaultEffort", { effort: tp("reasoningEffortLevel.high") }),
-    })).toBeInTheDocument();
+    // 未覆盖时 trigger 显示「沿用模型默认强度（高）」，而非某个具体档位
+    const effortSelect = screen.getByRole("combobox", { name: tp("fieldReasoningEffort") });
+    expect(effortSelect).toHaveTextContent(
+      tp("useModelDefaultEffort", { effort: tp("reasoningEffortLevel.high") }),
+    );
 
-    await user.selectOptions(effortSelect, "xhigh");
+    await selectOption(user, effortSelect, tp("reasoningEffortLevel.xhigh"));
     await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
 
     await waitFor(() => {
       expect(savedDraft?.providerId).toBe("codex-provider");
       expect(savedDraft?.adapterOptions?.effort).toBe("xhigh");
     });
+  });
+
+  it("filters skills by query across the market group", async () => {
+    const user = userEvent.setup();
+    renderPanelWithMarketSkills();
+
+    const skillSection = (await screen.findByRole("heading", { name: "Skill" }))
+      .closest('[data-slot="card"]') as HTMLElement;
+    await within(skillSection).findByText("Market Skill 3");
+
+    await user.type(
+      within(skillSection).getByLabelText(tp("searchSkillPlaceholder")),
+      "git",
+    );
+
+    // 只裁剪可见行，不改分组计数（forceOpen 的单测见 CollapsibleCheckGroup.test.tsx）
+    expect(await within(skillSection).findByText("Git Flow Helper")).toBeInTheDocument();
+    expect(within(skillSection).queryByText("Market Skill 3")).not.toBeInTheDocument();
+  });
+
+  it("shows the no-match hint when the query matches nothing", async () => {
+    const user = userEvent.setup();
+    renderPanelWithMarketSkills();
+
+    const skillSection = (await screen.findByRole("heading", { name: "Skill" }))
+      .closest('[data-slot="card"]') as HTMLElement;
+    await user.type(
+      within(skillSection).getByLabelText(tp("searchSkillPlaceholder")),
+      "zzz-nothing-matches",
+    );
+
+    expect(
+      await within(skillSection).findAllByText(tp("searchNoMatch")),
+    ).not.toHaveLength(0);
+  });
+
+  it("creates a profile from the empty-state action in the list aside", async () => {
+    const user = userEvent.setup();
+    renderPanelWithMarketSkills();
+
+    // 无运行配置 → 左列表空态，其动作与顶部「复制为运行配置」同一回调
+    await user.click(await screen.findByRole("button", { name: tp("listEmptyAction") }));
+    expect(await screen.findByRole("button", { name: new RegExp(tp("saveAsProfile")) })).toBeInTheDocument();
   });
 });

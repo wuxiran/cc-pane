@@ -5,6 +5,7 @@ import { Plus, Zap, Wrench, ArrowLeft, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
+  useLaunchProfilesStore,
   usePanesStore,
   useProvidersStore,
   useSettingsStore,
@@ -12,8 +13,9 @@ import {
 } from "@/stores";
 import ProviderCard, { type SystemProbeInfo } from "./ProviderCard";
 import ProviderFormPanel from "./ProviderFormPanel";
-import ProviderToolTabs from "./ProviderToolTabs";
+import ProviderPagesHeader, { type ProviderTopView } from "./ProviderPagesHeader";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
+import { countProfilesPerTool } from "./launchProfileHelpers";
 import type { Provider, ProviderPreset } from "@/types/provider";
 import { CLI_TOOL_TABS, createSystemProvider, SYSTEM_PROVIDER_ID } from "@/types/provider";
 import { useCliTools } from "@/hooks/useCliTools";
@@ -27,7 +29,7 @@ import {
 } from "@/utils/providerCompatibility";
 
 type PanelView = "list" | "preset_pick" | "form";
-type TopView = "providers" | "profiles";
+type TopView = ProviderTopView;
 
 interface Props {
   compact?: boolean;
@@ -69,6 +71,8 @@ export default function ProvidersPanel({ compact }: Props = {}) {
 
   const [view, setView] = useState<PanelView>("list");
   const [topView, setTopView] = useState<TopView>("profiles");
+  const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
+  const profileCounts = useMemo(() => countProfilesPerTool(launchProfiles), [launchProfiles]);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
   const [activeTab, setActiveTab] = useState<KnownCliTool>(() => launchDefaults.tool);
@@ -258,7 +262,7 @@ export default function ProvidersPanel({ compact }: Props = {}) {
                       className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-all duration-[var(--dur-fast)] hover:shadow-sm"
                       style={{
                         border: "1px solid var(--app-border)",
-                        background: "var(--app-content)",
+                        background: "var(--app-panel-bg)",
                         color: "var(--app-text-primary)",
                       }}
                       onMouseEnter={(e) => {
@@ -302,22 +306,34 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   }
 
   // ── List view (default) ──
+  // 统一单行 header：segmented 子页切换 + CLI chips + 页面级动作，两个子页共用（data-settings-section 供设置搜索定位）
+  const header = (
+    <ProviderPagesHeader
+      topView={topView}
+      onTopViewChange={setTopView}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      counts={topView === "providers" ? providerCounts : profileCounts}
+      compact={compact}
+      actions={
+        topView === "providers" ? (
+          <Button size="sm" onClick={() => setView("preset_pick")}>
+            <Plus size={16} className="mr-1.5" />
+            {t("fromPreset")}
+          </Button>
+        ) : undefined
+      }
+    />
+  );
+
   if (topView === "profiles") {
     return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <div
-          className={`flex items-center gap-2 shrink-0 ${compact ? "px-4 py-3" : "px-6 py-4"}`}
-          style={{ borderBottom: "1px solid var(--app-border)" }}
-        >
-          <Button size="sm" variant="default">{t("launchProfilesTab")}</Button>
-          <Button size="sm" variant="outline" onClick={() => setTopView("providers")}>
-            {t("providerCredentialsTab")}
-          </Button>
-        </div>
+      <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-root">
+        {header}
         <div className="flex-1 min-h-0">
           <LaunchProfilesPanel
             compact={compact}
-            initialTool={activeTab}
+            tool={activeTab}
             initialRuntime={launchDefaults.runtime}
             onActiveToolChange={setActiveTab}
           />
@@ -327,50 +343,18 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div
-        className={`flex items-center justify-between shrink-0 ${compact ? "px-4 py-3" : "px-6 py-4"}`}
-        style={{ borderBottom: "1px solid var(--app-border)" }}
-      >
-        <div className="flex items-center gap-2">
-          <Zap size={compact ? 16 : 20} style={{ color: "var(--app-accent)" }} />
-          <Button size="sm" variant="outline" onClick={() => setTopView("profiles")}>
-            {t("launchProfilesTab")}
-          </Button>
-          <Button size="sm" variant="default">{t("providerCredentialsTab")}</Button>
-        </div>
-        <Button size="sm" onClick={() => setView("preset_pick")}>
-          <Plus size={16} className="mr-1.5" />
-          {t("fromPreset")}
-        </Button>
-      </div>
-
-      {/* Tab bar */}
-      <div
-        className={`shrink-0 ${compact ? "px-4 py-2" : "px-6 py-3"}`}
-        style={{ borderBottom: "1px solid var(--app-border)" }}
-      >
-        <ProviderToolTabs
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          providerCounts={providerCounts}
-          compact={compact}
-        />
-      </div>
-
-      {/* 本面板只管理凭证；启动会话走全局启动器（删除卡上启动按钮后需明示，避免误以为功能丢失） */}
-      <div
-        className={`flex items-start gap-2 shrink-0 text-xs ${compact ? "px-4 py-2" : "px-6 py-2.5"}`}
-        style={{ borderBottom: "1px solid var(--app-border)", color: "var(--app-text-tertiary)" }}
-      >
-        <Keyboard size={13} className="mt-0.5 shrink-0" />
-        <span>{t("providerLaunchHint", { shortcut: launcherShortcut })}</span>
-      </div>
+    <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-root">
+      {header}
 
       {/* Provider list（「系统环境变量」恒置顶，故列表永不为空；无真实 provider 时在下方给引导） */}
       <div className="flex-1 overflow-y-auto">
-        <div className={`mx-auto ${compact ? "px-4 py-3" : "max-w-3xl px-6 py-4"}`}>
+        <div className={`mx-auto w-full ${compact ? "px-4 py-3" : "max-w-3xl px-6 py-4"}`}>
+          {/* 本面板只管理凭证；启动会话走全局启动器（删除卡上启动按钮后需明示，避免误以为功能丢失） */}
+          <div className="mb-3 flex items-start gap-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+            <Keyboard size={13} className="mt-0.5 shrink-0" />
+            <span>{t("providerLaunchHint", { shortcut: launcherShortcut })}</span>
+          </div>
+
           <div className="flex flex-col gap-3">
             {displayProviders.map((p) => (
               <ProviderCard
