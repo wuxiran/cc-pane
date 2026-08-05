@@ -1,28 +1,36 @@
 import { useEffect } from "react";
-import { useActiveTerminalContext } from "./useActiveTerminalSession";
+import {
+  useActiveTerminalContext,
+  type ActiveTerminalContext,
+} from "./useActiveTerminalSession";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
 
 const POLL_INTERVAL_MS = 10_000;
 
-export function useContextUsagePoller(): string | null {
+export function useContextUsagePoller(
+  terminalContext?: ActiveTerminalContext | null,
+  enabled = true,
+): string | null {
   const active = useActiveTerminalContext();
-  const cliTool = active?.cliTool;
+  const terminal = terminalContext === undefined ? active : terminalContext;
+  const followsActiveTerminal = terminalContext === undefined;
+  const cliTool = terminal?.cliTool;
   const supported = Boolean(
-    active?.sessionId
-      && !active.ssh
+    terminal?.sessionId
+      && !terminal.ssh
       && (cliTool === "claude" || cliTool === "codex"),
   );
-  const sessionId = supported ? active?.sessionId ?? null : null;
+  const sessionId = supported ? terminal?.sessionId ?? null : null;
   const setSession = useContextUsageStore((state) => state.setSession);
-  const load = useContextUsageStore((state) => state.load);
+  const loadSession = useContextUsageStore((state) => state.loadSession);
 
   useEffect(() => {
-    setSession(sessionId);
-    if (!sessionId) return;
+    if (followsActiveTerminal) setSession(sessionId);
+    if (!enabled || !sessionId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
     const refresh = () => {
-      if (!cancelled && !document.hidden) void load(sessionId);
+      if (!cancelled && !document.hidden) void loadSession(sessionId);
     };
     const stop = () => {
       if (timer !== null) clearInterval(timer);
@@ -41,7 +49,7 @@ export function useContextUsagePoller(): string | null {
       stop();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [load, sessionId, setSession]);
+  }, [enabled, followsActiveTerminal, loadSession, sessionId, setSession]);
 
   return sessionId;
 }

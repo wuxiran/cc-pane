@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Clock3, Gauge } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
+import {
+  useActiveTerminalContext,
+  type ActiveTerminalContext,
+} from "@/hooks/useActiveTerminalSession";
 import { useContextUsagePoller } from "@/hooks/useContextUsagePoller";
 import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import { useProvidersStore } from "@/stores/useProvidersStore";
@@ -29,33 +32,36 @@ function statusColor(snapshot: ContextUsageSnapshot): string {
   return "var(--app-status-success)";
 }
 
-function windowSourceKey(source: string | null) {
-  switch (source) {
-    case "codex-jsonl":
-      return "contextUsage.windowSources.codexJsonl";
-    case "claude-jsonl":
-      return "contextUsage.windowSources.claudeJsonl";
-    case "provider-model":
-      return "contextUsage.windowSources.providerModel";
-    default:
-      return "contextUsage.windowSources.unknown";
-  }
-}
-
 function toStale(snapshot: ContextUsageSnapshot): ContextUsageSnapshot {
   return { ...snapshot, status: "stale" };
 }
 
-export default function ContextUsageIndicator() {
+interface ContextUsageIndicatorProps {
+  terminalContext?: ActiveTerminalContext | null;
+  enabled?: boolean;
+}
+
+export default function ContextUsageIndicator({
+  terminalContext,
+  enabled = true,
+}: ContextUsageIndicatorProps = {}) {
   const { t } = useTranslation("common");
-  const sessionId = useContextUsagePoller();
+  const sessionId = useContextUsagePoller(terminalContext, enabled);
   const storeSessionId = useContextUsageStore((state) => state.sessionId);
-  const snapshot = useContextUsageStore((state) => state.snapshot);
-  const lastReady = useContextUsageStore((state) => state.lastReady);
+  const sessionEntry = useContextUsageStore((state) => (
+    sessionId ? state.sessions.get(sessionId) : undefined
+  ));
+  const activeSnapshot = useContextUsageStore((state) => state.snapshot);
+  const activeLastReady = useContextUsageStore((state) => state.lastReady);
   const activeTerminal = useActiveTerminalContext();
   const profiles = useLaunchProfilesStore((state) => state.profiles);
   const providers = useProvidersStore((state) => state.providers);
   const [now, setNow] = useState(() => Date.now());
+  const resolvedTerminal = terminalContext === undefined ? activeTerminal : terminalContext;
+  const snapshot = sessionEntry?.snapshot
+    ?? (storeSessionId === sessionId ? activeSnapshot : null);
+  const lastReady = sessionEntry?.lastReady
+    ?? (storeSessionId === sessionId ? activeLastReady : null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 5_000);
@@ -64,7 +70,7 @@ export default function ContextUsageIndicator() {
 
   const displaySnapshot = useMemo(() => {
     if (!sessionId) return null;
-    if (storeSessionId !== sessionId || !snapshot) {
+    if (!snapshot) {
       return {
         status: "waiting",
         usedTokens: null,
@@ -88,7 +94,7 @@ export default function ContextUsageIndicator() {
       return now - lastReady.observedAt > STALE_AFTER_MS ? toStale(lastReady) : lastReady;
     }
     return snapshot;
-  }, [lastReady, now, sessionId, snapshot, storeSessionId]);
+  }, [lastReady, now, sessionId, snapshot]);
 
   if (!displaySnapshot || displaySnapshot.diagnosticCode === "RUNTIME_UNSUPPORTED") return null;
 
@@ -103,10 +109,9 @@ export default function ContextUsageIndicator() {
   const effectiveDiffers = displaySnapshot.effectiveUsedTokens !== displaySnapshot.usedTokens
     || displaySnapshot.effectiveWindowTokens !== displaySnapshot.windowTokens;
   const ageSeconds = Math.max(0, Math.round((now - displaySnapshot.observedAt) / 1_000));
-  const displayModel = activeTerminal
-    ? resolveContextDisplayModel(activeTerminal, displaySnapshot.model, profiles, providers)
+  const displayModel = resolvedTerminal
+    ? resolveContextDisplayModel(resolvedTerminal, displaySnapshot.model, profiles, providers)
     : displaySnapshot.model;
-  const windowSourceLabel = t(windowSourceKey(displaySnapshot.windowSource));
 
   return (
     <Tooltip>
@@ -114,12 +119,12 @@ export default function ContextUsageIndicator() {
         <span
           data-testid="context-usage-indicator"
           aria-label={t("contextUsage.title")}
-          className="flex h-full min-w-0 shrink-0 items-center gap-1 px-1.5 tabular-nums whitespace-nowrap max-[760px]:w-6 max-[760px]:justify-center max-[760px]:px-0"
+          className="flex h-full min-w-0 shrink-0 items-center gap-1.5 px-1.5 tabular-nums whitespace-nowrap max-[760px]:w-6 max-[760px]:justify-center max-[760px]:px-0"
           style={{ color: statusColor(displaySnapshot) }}
         >
-          <span className="h-1.5 w-10 overflow-hidden rounded-full bg-[var(--app-border)] max-[760px]:hidden">
+          <span className="h-2 w-10 overflow-hidden rounded-[1px] border border-[var(--app-border)] bg-[var(--app-content)] p-px max-[760px]:hidden">
             <span
-              className="block h-full rounded-full transition-[width] duration-300"
+              className="block h-full transition-[width] duration-300"
               style={{
                 width: `${Math.min(100, Math.max(0, percentage ?? 0))}%`,
                 background: statusColor(displaySnapshot),
@@ -131,26 +136,37 @@ export default function ContextUsageIndicator() {
             <span className="inline-flex max-[760px]:hidden">{icon}</span>
           )}
           <span className="max-[760px]:hidden">
-            {primary}{percentage === null ? "" : ` · ${formatTokens(displaySnapshot.usedTokens)}`}
+            {primary}
           </span>
         </span>
       </TooltipTrigger>
-      <TooltipContent side="top" className="space-y-1">
-        <p className="font-medium">{t("contextUsage.title")}</p>
+      <TooltipContent
+        side="top"
+        sideOffset={8}
+        className="w-[200px] space-y-1 rounded-sm border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-2 text-left text-[11px] text-[var(--app-text-secondary)] shadow-lg text-pretty"
+      >
+        <p className="flex items-center gap-1.5 font-semibold text-[var(--app-text-primary)]">
+          <Gauge className="h-3 w-3 text-[var(--app-accent)]" />
+          {t("contextUsage.title")}
+        </p>
         {displaySnapshot.status === "waiting" && <p>{t("contextUsage.waiting")}</p>}
         {displaySnapshot.status === "error" && <p>{t("contextUsage.error")}</p>}
         {displaySnapshot.status === "stale" && <p>{t("contextUsage.stale", { seconds: ageSeconds })}</p>}
         {displaySnapshot.status !== "waiting" && displaySnapshot.status !== "error" && (
           <>
-            <p>{primary} · {rawSummary}</p>
+            <p className="tabular-nums">
+              <span style={{ color: statusColor(displaySnapshot) }}>{primary}</span>
+              <span> · {rawSummary}</span>
+            </p>
             {displaySnapshot.diagnosticCode === "WINDOW_UNKNOWN" && (
               <p>{t("contextUsage.windowUnknown")}</p>
             )}
-            <p>{t("contextUsage.windowSource", { source: windowSourceLabel })}</p>
             {effectiveDiffers && (
-              <p>{t("contextUsage.effective")}: {formatTokens(displaySnapshot.effectiveUsedTokens)} / {formatTokens(displaySnapshot.effectiveWindowTokens)}</p>
+              <p className="tabular-nums text-[var(--app-text-tertiary)]">
+                {t("contextUsage.effective")}: {formatTokens(displaySnapshot.effectiveUsedTokens)} / {formatTokens(displaySnapshot.effectiveWindowTokens)}
+              </p>
             )}
-            {displayModel && <p>{displayModel}</p>}
+            {displayModel && <p className="truncate text-[var(--app-text-tertiary)]">{displayModel}</p>}
           </>
         )}
       </TooltipContent>

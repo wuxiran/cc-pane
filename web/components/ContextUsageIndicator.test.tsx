@@ -9,8 +9,12 @@ import { useProvidersStore } from "@/stores/useProvidersStore";
 import type { ContextUsageSnapshot } from "@/types/contextUsage";
 import ContextUsageIndicator from "./ContextUsageIndicator";
 
+const contextUsagePollerMock = vi.hoisted(() => vi.fn(
+  (context?: { sessionId?: string | null }) => context?.sessionId ?? "pty-context",
+));
+
 vi.mock("@/hooks/useContextUsagePoller", () => ({
-  useContextUsagePoller: () => "pty-context",
+  useContextUsagePoller: contextUsagePollerMock,
 }));
 
 vi.mock("@/hooks/useActiveTerminalSession", () => ({
@@ -57,6 +61,41 @@ describe("ContextUsageIndicator", () => {
     await i18n.changeLanguage("zh-CN");
     useLaunchProfilesStore.setState({ profiles: [], loading: false });
     useProvidersStore.setState({ providers: [] });
+    useContextUsageStore.setState({ sessions: new Map() });
+  });
+
+  it("reads the snapshot for an explicitly supplied grid terminal", () => {
+    const gridSnapshot = snapshot({
+      usedPercentage: 73,
+      remainingPercentage: 27,
+      windowTokens: 100_000,
+      effectiveWindowTokens: 100_000,
+      diagnosticCode: null,
+    });
+    useContextUsageStore.setState({
+      sessions: new Map([["pty-grid", {
+        snapshot: gridSnapshot,
+        lastReady: gridSnapshot,
+        loading: false,
+        requestId: 1,
+      }]]),
+    });
+
+    render(<ContextUsageIndicator terminalContext={{
+      sessionId: "pty-grid",
+      cliTool: "claude",
+      ssh: false,
+      providerId: null,
+      modelId: null,
+      providerSelection: null,
+      launchProfileId: null,
+    }} />);
+
+    expect(contextUsagePollerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "pty-grid" }),
+      true,
+    );
+    expect(screen.getByTestId("context-usage-indicator")).toHaveTextContent("73%");
   });
 
   it("shows an unknown percentage with a Provider maintenance action", () => {
@@ -65,10 +104,10 @@ describe("ContextUsageIndicator", () => {
 
     expect(screen.getAllByText("-%").length).toBeGreaterThan(0);
     expect(screen.getByText(/请在 Provider 模型设置中配置/)).toBeInTheDocument();
-    expect(screen.getByText("窗口来源：未知")).toBeInTheDocument();
+    expect(screen.queryByText(/窗口来源/)).not.toBeInTheDocument();
   });
 
-  it("renders a localized Provider model source", () => {
+  it("renders a compact usage summary", () => {
     setSnapshot(snapshot({
       windowTokens: 1_000_000,
       effectiveWindowTokens: 1_000_000,
@@ -80,7 +119,10 @@ describe("ContextUsageIndicator", () => {
     render(<ContextUsageIndicator />);
 
     expect(screen.getAllByText(/8%/).length).toBeGreaterThan(0);
-    expect(screen.getByText("窗口来源：Provider 模型配置")).toBeInTheDocument();
+    expect(screen.getByTestId("context-usage-indicator")).toHaveTextContent("8%");
+    expect(screen.getByTestId("context-usage-indicator")).not.toHaveTextContent("81k");
+    expect(screen.getByText(/· 81k \/ 1.0m/).parentElement).toHaveTextContent("8% · 81k / 1.0m");
+    expect(screen.queryByText(/窗口来源/)).not.toBeInTheDocument();
   });
 
   it("keeps the waiting state separate from an unknown window", () => {

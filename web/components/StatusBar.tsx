@@ -57,6 +57,9 @@ export default function StatusBar() {
   const showSystemResources = useSettingsStore(
     (s) => s.settings?.general.showSystemResources ?? true,
   );
+  const showContextUsage = useSettingsStore(
+    (s) => s.settings?.terminal.showContextUsage ?? true,
+  );
   const { isPinned, togglePin } = useWindowControl();
 
   const activeWorkspace = selectedWorkspace();
@@ -176,7 +179,7 @@ export default function StatusBar() {
           </span>
         )}
 
-        <ContextUsageIndicator />
+        {showContextUsage && <ContextUsageIndicator />}
 
         {/* 版本更新提示 */}
         {isTauriRuntime() && updateAvailable && updateVersion && (
