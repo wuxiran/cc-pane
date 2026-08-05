@@ -126,3 +126,18 @@ export function closeTerminalLeafInTab(tab: Tab, terminalPaneId: string): boolea
   syncTabTerminalState(tab);
   return true;
 }
+
+/** 在 tab（含分屏树）里按 sessionId 找 leaf；非分屏 tab 用 tab 自身伪造一个 leaf。 */
+export function findSessionInTab(tab: Tab, sessionId: string): TerminalPaneLeaf | null {
+  if (tab.contentType === "terminal" && tab.terminalRootPane) {
+    return collectTerminalLeaves(tab.terminalRootPane)
+      .find((leaf) => leaf.sessionId === sessionId) ?? null;
+  }
+  return tab.sessionId === sessionId
+    ? {
+        type: "leaf",
+        id: tab.id,
+        sessionId,
+      }
+    : null;
+}

@@ -150,29 +150,26 @@ export function createEditorTabActions(
     },
 
     closeEditorTabsByPath: (filePath) => {
-      // 当前布局：走 closeTab（保持 activeTab 收敛等既有语义）
-      for (const panel of collectPanels(get().rootPane)) {
-        const tab = panel.tabs.find(
-          (t) => t.contentType === "editor" && t.filePath === filePath,
-        );
-        if (tab) get().closeTab(panel.id, tab.id);
-      }
-      // 其他布局：直接从各自布局树移除
-      set((state) => {
-        for (const layout of state.layouts) {
-          if (layout.id === state.currentLayoutId || isStarredLayout(layout)) continue;
-          for (const panel of collectPanels(layout.rootPane)) {
-            const idx = panel.tabs.findIndex(
-              (t) => t.contentType === "editor" && t.filePath === filePath,
-            );
-            if (idx === -1) continue;
-            panel.tabs.splice(idx, 1);
-            if (panel.activeTabId && !panel.tabs.some((t) => t.id === panel.activeTabId)) {
-              panel.activeTabId = panel.tabs[panel.tabs.length - 1]?.id ?? null;
+      // B1-09：两条路径合一。改道前当前布局走 closeTab、其他布局裸 splice
+      // 绕过一切语义（activeTabId 收敛口径都不同）——现在统一交给唯一销毁出口。
+      //
+      // reason=editor-path-close：不可否决（MCP 说文件已关，就是已关，不该弹框
+      // 拦住自动化流程）、无 PTY 可回收、不记撤销栈。星标布局维持跳过。
+      const state = get();
+      const tabIds: string[] = [];
+      for (const layout of state.layouts) {
+        if (isStarredLayout(layout)) continue;
+        const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+        if (!tree) continue;
+        for (const panel of collectPanels(tree)) {
+          for (const tab of panel.tabs) {
+            if (tab.contentType === "editor" && tab.filePath === filePath) {
+              tabIds.push(tab.id);
             }
           }
         }
-      });
+      }
+      if (tabIds.length > 0) get().removeTabsInternal(tabIds, "editor-path-close");
     },
 
     listEditorTabsAcrossLayouts: () => {
