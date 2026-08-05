@@ -17,6 +17,7 @@ const ALLOWLIST: Record<string, string[]> = {
   "editor/JsonEditor.tsx": ["#22863a", "#005cc5", "#d73a49", "#6f42c1", "#e36209", "#586069"],
   // 壁纸 dim 层必须使用中性黑混合，避免随主题产生彩色遮罩。
   "layout/MainWallpaperLayer.tsx": ["#000"],
+  "settings/WallpaperPreview.tsx": ["#000"],
   // Local History 标签来源色区分 git/会话/用户/构建/恢复，属于类别编码。
   "localhistory/useLocalHistoryData.ts": [
     "#f59e0b",

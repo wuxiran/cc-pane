@@ -14,6 +14,7 @@ import {
   LibraryBig,
   ListChecks,
   Mic,
+  Palette,
   PanelsTopLeft,
   Settings,
   Share2,
@@ -32,6 +33,7 @@ export type SettingsGroupId =
 
 export type SettingsPaneId =
   | "setup-guide"
+  | "theme"
   | "general"
   | "wallpaper"
   | "terminal"
@@ -103,6 +105,16 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       keywordsKey: "searchKeywords.setupGuide",
       targetSectionId: "setup-guide-root",
     }],
+  },
+  {
+    id: "theme",
+    icon: Palette,
+    titleKey: "theme.styleTitle",
+    descriptionKey: "theme.styleDescription",
+    group: "appearance",
+    searchEntries: [
+      { id: "theme-style", titleKey: "theme.styleTitle", descriptionKey: "theme.styleDescription", keywordsKey: "searchKeywords.theme", targetSectionId: "theme-style" },
+    ],
   },
   {
     id: "general",

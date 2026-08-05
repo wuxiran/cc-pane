@@ -15,6 +15,7 @@
   },
   "searchKeywords": {
     "general": "startup tray language history data directory search scope version update notification feature tips",
+    "theme": "theme style skin dark light system colors appearance",
     "wallpaper": "image video background music opacity blur",
     "font": "font size family typography CJK",
     "shortcuts": "shortcut hotkey keyboard binding",
@@ -68,6 +69,25 @@
     }
   },
   "general": "General",
+  "theme": {
+    "styleTitle": "Theme style",
+    "styleDescription": "Choose a workspace look. Changes apply immediately and are saved automatically.",
+    "openMenu": "Choose theme",
+    "groups": {
+      "dark": "Dark",
+      "light": "Light",
+      "system": "System"
+    },
+    "followSystem": "Follow system",
+    "presets": {
+      "deepInk": "Midnight blue",
+      "cyberPurple": "Neon violet",
+      "amberGold": "Molten gold",
+      "classicWhite": "Snow white",
+      "warmGray": "Warm mist",
+      "skyBlue": "Clear sky"
+    }
+  },
   "notification": "Notification",
   "proxy": "Proxy",
   "terminal": "Terminal",
@@ -307,6 +327,10 @@
   "providerModelIdPlaceholder": "e.g. claude-sonnet-4-5",
   "providerModelLabel": "Display name (optional)",
   "providerModelLabelPlaceholder": "e.g. Sonnet 4.5",
+  "providerModelContextWindow": "Context window (tokens)",
+  "providerModelContextWindowPlaceholder": "e.g. 200000",
+  "providerModelContextWindowHint": "1,000-10,000,000; leave blank if unknown",
+  "providerModelContextWindowInvalid": "Context window must be a whole number from 1,000 to 10,000,000",
   "providerModelDefaultEffort": "Default reasoning effort",
   "providerModelCliDefaultEffort": "Use CLI default",
   "providerEffortLevel": {
@@ -508,6 +532,7 @@
   "wallpaperTerminalOpacityHint": "Strength of the terminal's own backdrop. Lowering it reveals more wallpaper; 0% puts the text straight on the wallpaper.",
   "wallpaperGlassBlur": "Panel glass blur",
   "wallpaperGlassBlurHint": "Frost applied by the panel sitting on top of the wallpaper — a separate layer from \"Blur\" above. Raising it washes out video; defaults to 0.",
+  "wallpaperPreview": "Preview",
   "wallpaperPickVideo": "Choose video…",
   "wallpaperVideoFilter": "Videos",
   "wallpaperVideoAutoplay": "Autoplay video",

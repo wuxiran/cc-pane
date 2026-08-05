@@ -7,6 +7,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import WallpaperPreview from "@/components/settings/WallpaperPreview";
 import WallpaperSliderRow from "@/components/settings/WallpaperSliderRow";
 import { wallpaperService } from "@/services";
 import { getErrorMessage } from "@/utils";
@@ -44,6 +45,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
   // 预览：settings 页内独立解析（与工作空间无关，看的是全局配置本身）
   useEffect(() => {
     let cancelled = false;
+    setPreviewUrl(null);
     if ((value.kind === "image" || value.kind === "video") && value.file) {
       wallpaperService
         .resolveWallpaperAsset(value.file, value.kind)
@@ -53,8 +55,6 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
         .catch(() => {
           if (!cancelled) setPreviewUrl(null);
         });
-    } else {
-      setPreviewUrl(null);
     }
     return () => {
       cancelled = true;
@@ -294,6 +294,12 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
           {t("wallpaperGlassBlurHint")}
         </p>
       </div>
+
+      <WallpaperPreview
+        wallpaper={value}
+        assetUrl={previewUrl}
+        label={t("wallpaperPreview")}
+      />
 
       {/* 视频选项 */}
       {value.kind === "video" && (
