@@ -207,5 +207,22 @@
   "openFileTab": "Open File…",
   "newFileExplorerTab": "Open File Tree",
   "copyBrowserUrl": "Copy URL",
-  "copyFilePath": "Copy File Path"
+  "copyFilePath": "Copy File Path",
+  "terminalPathLink": {
+    "resolvingTitle": "Open terminal path",
+    "resolvingDescription": "Checking path...",
+    "fileTitle": "Open file",
+    "fileDescription": "File from the terminal session",
+    "directoryTitle": "Open folder",
+    "directoryDescription": "Folder from the terminal session",
+    "openEditor": "Open in editor",
+    "openDefault": "Open with default app",
+    "reveal": "Show in file manager",
+    "openFolder": "Open in file manager",
+    "copy": "Copy path",
+    "copied": "Path copied",
+    "actionFailed": "Path action failed: {{error}}",
+    "resolveFailed": "Could not open terminal path: {{error}}",
+    "sessionUnavailable": "The terminal session is no longer available"
+  }
 }

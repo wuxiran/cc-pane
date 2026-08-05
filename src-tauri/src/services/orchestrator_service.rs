@@ -4583,7 +4583,7 @@ impl McpToolHandler {
             wsl: runtime.wsl.clone(),
         };
         apply_project_launch_context_to_request(&mut create_request, &project_context);
-        let session_id = match create_launch_session(
+        let (session_id, resolved_model_id) = match create_launch_session(
             self.state.terminal_backend.clone(),
             Some(self.state.app_handle.clone()),
             create_request,
@@ -4654,6 +4654,7 @@ impl McpToolHandler {
             ws_path.as_deref(),
             Some(&params.project_path),
             params.provider_id.as_deref(),
+            resolved_model_id.as_deref(),
             provider_selection_str,
             launch_profile_id.as_deref(),
             None,
@@ -4744,7 +4745,7 @@ impl McpToolHandler {
             project_id,
             workspace_name: ws_name,
             provider_id: params.provider_id.clone(),
-            model_id: params.model_id.clone(),
+            model_id: resolved_model_id.clone(),
             provider_selection: params.provider_selection.clone(),
             launch_profile_id: launch_profile_id.clone(),
             workspace_path: ws_path,
@@ -8600,7 +8601,7 @@ async fn handle_launch_task(
         wsl: runtime.wsl.clone(),
     };
     apply_project_launch_context_to_request(&mut create_request, &project_context);
-    let session_id = match create_launch_session(
+    let (session_id, resolved_model_id) = match create_launch_session(
         state.terminal_backend.clone(),
         Some(state.app_handle.clone()),
         create_request,
@@ -8609,9 +8610,9 @@ async fn handle_launch_task(
     )
     .await
     {
-        Ok(sid) => {
+        Ok((sid, resolved_model_id)) => {
             info!(session_id = %sid, "REST::launch_task session created");
-            sid
+            (sid, resolved_model_id)
         }
         Err(e) => {
             error!(project = %req.project_path, err = %e, "REST::launch_task failed to create session");
@@ -8649,6 +8650,7 @@ async fn handle_launch_task(
             workspace_name: workspace_name.as_deref(),
             workspace_path: workspace_path.as_deref(),
             provider_id: req.provider_id.as_deref(),
+            model_id: resolved_model_id.as_deref(),
             provider_selection: req.provider_selection.as_deref(),
             launch_profile_id: launch_profile_id.as_deref(),
             resume_id: req.resume_id.as_deref(),
@@ -8677,7 +8679,7 @@ async fn handle_launch_task(
         project_id,
         workspace_name,
         provider_id: req.provider_id.clone(),
-        model_id: req.model_id.clone(),
+        model_id: resolved_model_id,
         provider_selection: req.provider_selection.clone(),
         launch_profile_id: launch_profile_id.clone(),
         workspace_path,
@@ -10067,8 +10069,8 @@ async fn create_launch_session(
     mut request: CoreCreateSessionRequest,
     deferred_prompt: Option<String>,
     ready_timeout: std::time::Duration,
-) -> std::result::Result<String, String> {
-    let (session_id, _, _) = create_backend_session_with_deadline(
+) -> std::result::Result<(String, Option<String>), String> {
+    let (session_id, _, _, resolved_model_id) = create_backend_session_with_deadline(
         terminal_backend.clone(),
         app_handle.clone(),
         request.clone(),
@@ -10076,14 +10078,14 @@ async fn create_launch_session(
     .await?;
 
     let Some(prompt) = deferred_prompt else {
-        return Ok(session_id);
+        return Ok((session_id, resolved_model_id));
     };
 
     if wait_for_paste_ready(terminal_backend.clone(), &session_id, ready_timeout).await? {
         submit_text_to_session(terminal_backend.backend(), &session_id, &prompt)
             .await
             .map_err(|error| error.to_string())?;
-        return Ok(session_id);
+        return Ok((session_id, resolved_model_id));
     }
 
     warn!(
@@ -10098,29 +10100,43 @@ async fn create_launch_session(
     .await?;
 
     request.initial_prompt = Some(prompt);
-    let (session_id, _, _) =
+    let (session_id, _, _, resolved_model_id) =
         create_backend_session_with_deadline(terminal_backend, app_handle, request).await?;
-    Ok(session_id)
+    Ok((session_id, resolved_model_id))
 }
 
 async fn create_backend_session_with_deadline(
     terminal_backend: Arc<TerminalBackendState>,
     app_handle: Option<tauri::AppHandle>,
     request: CoreCreateSessionRequest,
-) -> std::result::Result<(String, Arc<dyn TerminalBackend>, bool), String> {
+) -> std::result::Result<(String, Arc<dyn TerminalBackend>, bool, Option<String>), String> {
     let launch_id = request.launch_id.clone();
     let recover_state = terminal_backend.clone();
     let recover_handle = app_handle.clone();
     let mut create_task = tokio::task::spawn_blocking(move || match recover_handle {
         Some(handle) => recover_state
             .create_session_with_recovery(&handle, request)
-            .map(|created| (created.session_id, created.backend, created.reused_existing))
+            .map(|created| {
+                (
+                    created.session_id,
+                    created.backend,
+                    created.reused_existing,
+                    created.resolved_model_id,
+                )
+            })
             .map_err(|error| error.to_string()),
         None => {
             let backend = recover_state.backend();
             backend
-                .create_session(request)
-                .map(|session_id| (session_id, backend, false))
+                .create_session_with_outcome(request)
+                .map(|outcome| {
+                    (
+                        outcome.session_id,
+                        backend,
+                        outcome.reused_existing,
+                        outcome.resolved_model_id,
+                    )
+                })
                 .map_err(|error| error.to_string())
         }
     });
@@ -10138,7 +10154,7 @@ async fn create_backend_session_with_deadline(
                 });
             }
             tokio::spawn(async move {
-                if let Ok(Ok((session_id, backend, reused_existing))) = create_task.await {
+                if let Ok(Ok((session_id, backend, reused_existing, _))) = create_task.await {
                     let _ = tokio::task::spawn_blocking(move || {
                         if reused_existing {
                             backend.release_session(&session_id)
@@ -11574,7 +11590,7 @@ mod tests {
         backend.ready.store(true, Ordering::SeqCst);
         let state = Arc::new(TerminalBackendState::new(backend.clone()));
 
-        let session_id = create_launch_session(
+        let (session_id, _) = create_launch_session(
             state,
             None,
             launch_prompt_test_request(),
@@ -11606,7 +11622,7 @@ mod tests {
         let backend = Arc::new(LaunchPromptTestBackend::default());
         let state = Arc::new(TerminalBackendState::new(backend.clone()));
 
-        let session_id = create_launch_session(
+        let (session_id, _) = create_launch_session(
             state,
             None,
             launch_prompt_test_request(),
@@ -14117,6 +14133,7 @@ mod tests {
                 Some("cc-book"),
                 Some(r"D:\04_workspace_rust\cc-book"),
                 Some(r"D:\04_workspace_rust\cc-book"),
+                None,
                 None,
                 None,
                 None,

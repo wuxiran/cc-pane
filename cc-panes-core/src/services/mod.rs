@@ -41,6 +41,7 @@ mod ssh_machine_service;
 mod system_stats_service;
 mod task_binding_service;
 mod terminal_backend;
+mod terminal_path_link_service;
 pub mod terminal_service;
 mod todo_service;
 mod uninstall_cleanup_service;
@@ -65,7 +66,7 @@ pub use git_service::GitService;
 pub use history_service::HistoryService;
 pub use history_watch_manager::{HistoryWatchManager, HistoryWatchStats};
 pub use journal_service::{JournalIndex, JournalService, SessionSummary};
-pub use launch_history_service::LaunchHistoryService;
+pub use launch_history_service::{CreatedLaunchHistory, LaunchHistoryService};
 pub use launch_profile_service::LaunchProfileService;
 pub use layout_snapshot_service::LayoutSnapshotService;
 pub use mcp_config_service::McpConfigService;
@@ -99,6 +100,9 @@ pub use task_binding_service::TaskBindingService;
 pub use terminal_backend::{
     set_claim_lost_hook, CreateSessionOutcome, DaemonTerminalBackend, InProcessTerminalBackend,
     TerminalAdoptionSnapshot, TerminalBackend,
+};
+pub use terminal_path_link_service::{
+    resolve_terminal_path_link, ResolvedTerminalPathLink, TerminalLinkContext, TerminalPathKind,
 };
 pub use terminal_service::{
     codex_rollout_exists, KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo,

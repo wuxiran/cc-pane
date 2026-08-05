@@ -82,9 +82,7 @@ export function useAppLifecycleLate(): {
   }, []);
 
   useEffect(() => {
-    if (themeMode === "dark" || themeMode === "light" || themeMode === "system") {
-      useThemeStore.getState().setThemeMode(themeMode);
-    }
+    useThemeStore.getState().setThemeMode(themeMode);
   }, [themeMode]);
 
   // 重启时为 rehydrated Claude tabs touch 历史记录时间戳

@@ -8,6 +8,7 @@ import {
   usePanesStore,
   useSettingsStore,
   useTerminalStatusStore,
+  useTerminalPathLinkStore,
   useWallpaperStore,
 } from "@/stores";
 import { historyService, sessionRestoreService, terminalService } from "@/services";
@@ -52,6 +53,8 @@ const MockXterm = vi.hoisted(() => class MockXterm {
   writeEvents: string[] = [];
   dataHandler: ((data: string) => void) | null = null;
   keyEventHandler: ((event: KeyboardEvent) => boolean) | null = null;
+  linkProvider: unknown = null;
+  linkProviderDisposable = { dispose: vi.fn() };
   disposed = false;
 
   constructor(options: Record<string, unknown>) {
@@ -83,6 +86,11 @@ const MockXterm = vi.hoisted(() => class MockXterm {
     this.dataHandler = handler;
     return { dispose: vi.fn() };
   }
+
+  registerLinkProvider = vi.fn((provider: unknown) => {
+    this.linkProvider = provider;
+    return this.linkProviderDisposable;
+  });
 
   attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
     this.keyEventHandler = handler;
@@ -223,6 +231,14 @@ vi.mock("@/services/sessionRestoreService", () => ({
   },
 }));
 
+vi.mock("@/services/terminalPathLinkService", () => ({
+  terminalPathLinkService: {
+    resolve: vi.fn(),
+    runDesktopAction: vi.fn(),
+    openExternalUrl: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
     observe() {}
@@ -318,6 +334,39 @@ describe("TerminalView", () => {
     expect(registerExit).toHaveBeenCalledWith("new-session-1", expect.any(Function));
     // 新建会话不回放快照
     expect(getReplaySnapshot).not.toHaveBeenCalled();
+  });
+
+  it("registers one local path provider and disposes it on unmount", async () => {
+    const view = renderTerminalView();
+    const term = await lastTerm();
+
+    expect(term.registerLinkProvider).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(term.linkProviderDisposable.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not register a local path provider for SSH terminals", async () => {
+    renderTerminalView({ ssh: { host: "example.com", username: "dev" } as never });
+    const term = await lastTerm();
+
+    expect(term.registerLinkProvider).not.toHaveBeenCalled();
+  });
+
+  it("routes OSC 8 file links through the current live session", async () => {
+    const open = vi.spyOn(useTerminalPathLinkStore.getState(), "open").mockResolvedValue();
+    renderTerminalView({ sessionId: "existing-1" });
+    const term = await lastTerm();
+    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith("existing-1", expect.any(Function)));
+
+    const linkHandler = term.options.linkHandler as {
+      activate: (event: MouseEvent, uri: string) => void;
+    };
+    linkHandler.activate({} as MouseEvent, "file:///tmp/proj/src/App.tsx:12:8");
+
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "/tmp/proj/src/App.tsx", line: 12, column: 8 }),
+      "existing-1",
+    );
   });
 
   it("backfills launch history for CLI sessions without a resume id", async () => {

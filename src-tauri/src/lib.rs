@@ -298,6 +298,7 @@ use commands::{
     reorder_todos,
     reorder_workspaces,
     resize_terminal,
+    resolve_terminal_path_link,
     resolve_wallpaper_asset,
     respond_orchestrator_query,
     restart_shared_mcp_server,
@@ -306,6 +307,7 @@ use commands::{
     restore_to_label,
     rollback_project_migration,
     rollback_workspace_migration,
+    run_terminal_path_link_action,
     // Runner Registry 命令
     runner_delete_profile,
     runner_get_profile,
@@ -1434,12 +1436,14 @@ pub fn run() {
         db.clone(),
     ));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
+    let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let plan_archive_service = Arc::new(PlanArchiveService::new(plan_repo));
-    let usage_stats_service = Arc::new(UsageStatsService::new_with_settings(
+    let usage_stats_service = Arc::new(UsageStatsService::new_with_provider_and_settings(
         usage_stats_repo,
         launch_history_service.clone(),
+        provider_service.clone(),
         settings_service.clone(),
     ));
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
@@ -1478,7 +1482,6 @@ pub fn run() {
         workspace_service.clone(),
         settings_service.clone(),
     ));
-    let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let cli_registry = {
         let mut reg = cc_cli_adapters::CliToolRegistry::new();
         reg.register(Arc::new(cc_cli_adapters::ClaudeAdapter::new()));
@@ -2373,6 +2376,8 @@ pub fn run() {
             get_terminal_output,
             get_terminal_recent_output,
             get_terminal_replay_snapshot,
+            resolve_terminal_path_link,
+            run_terminal_path_link_action,
             record_terminal_input,
             query_context_usage,
             query_usage_stats,

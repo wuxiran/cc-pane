@@ -33,6 +33,7 @@ pub struct CreatedTerminalSession {
     pub session_id: String,
     pub backend: Arc<dyn TerminalBackend>,
     pub reused_existing: bool,
+    pub resolved_model_id: Option<String>,
 }
 
 struct RecoveredTerminalDaemon {
@@ -133,6 +134,7 @@ impl TerminalBackendState {
                 session_id: outcome.session_id,
                 backend: initial_backend,
                 reused_existing: outcome.reused_existing,
+                resolved_model_id: outcome.resolved_model_id,
             }),
             Err(error) if self.kind() != TerminalBackendKind::Daemon => Err(error),
             Err(error) => {
@@ -148,6 +150,7 @@ impl TerminalBackendState {
                     session_id: outcome.session_id,
                     backend: recovered.backend,
                     reused_existing: outcome.reused_existing,
+                    resolved_model_id: outcome.resolved_model_id,
                 })
             }
         }

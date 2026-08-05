@@ -207,5 +207,22 @@
   "openFileTab": "打开文件…",
   "newFileExplorerTab": "打开目录树",
   "copyBrowserUrl": "复制链接",
-  "copyFilePath": "复制文件路径"
+  "copyFilePath": "复制文件路径",
+  "terminalPathLink": {
+    "resolvingTitle": "打开终端路径",
+    "resolvingDescription": "正在检查路径...",
+    "fileTitle": "打开文件",
+    "fileDescription": "终端会话中的文件",
+    "directoryTitle": "打开目录",
+    "directoryDescription": "终端会话中的目录",
+    "openEditor": "在编辑器中打开",
+    "openDefault": "使用默认程序打开",
+    "reveal": "在文件管理器中显示",
+    "openFolder": "在文件管理器中打开",
+    "copy": "复制路径",
+    "copied": "路径已复制",
+    "actionFailed": "路径操作失败：{{error}}",
+    "resolveFailed": "无法打开终端路径：{{error}}",
+    "sessionUnavailable": "终端会话已不可用"
+  }
 }

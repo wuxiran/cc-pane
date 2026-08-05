@@ -8,7 +8,7 @@ use crate::services::terminal_service::KillReason;
 use crate::services::terminal_service::SessionOutput;
 use crate::services::terminal_service::SessionStatus;
 use crate::services::terminal_service::TerminalService;
-use crate::services::SessionStatusInfo;
+use crate::services::{SessionStatusInfo, TerminalLinkContext};
 use crate::utils::error::AppError;
 use crate::utils::AppResult;
 
@@ -32,6 +32,7 @@ pub struct TerminalAdoptionSnapshot {
 pub struct CreateSessionOutcome {
     pub session_id: String,
     pub reused_existing: bool,
+    pub resolved_model_id: Option<String>,
 }
 
 fn current_epoch_millis() -> u64 {
@@ -53,10 +54,12 @@ pub trait TerminalBackend: Send + Sync {
         request: CreateSessionRequest,
     ) -> AppResult<CreateSessionOutcome> {
         let expected_session_id = request.expected_saved_session_id.clone();
+        let resolved_model_id = request.model_id.clone();
         let session_id = self.create_session(request)?;
         Ok(CreateSessionOutcome {
             reused_existing: expected_session_id.as_deref() == Some(session_id.as_str()),
             session_id,
+            resolved_model_id,
         })
     }
     fn write(&self, session_id: &str, data: &str) -> AppResult<()>;
@@ -150,6 +153,10 @@ pub trait TerminalBackend: Send + Sync {
         &self,
         _session_id: &str,
     ) -> AppResult<Option<TerminalSessionProvenance>> {
+        Ok(None)
+    }
+
+    fn terminal_link_context(&self, _session_id: &str) -> AppResult<Option<TerminalLinkContext>> {
         Ok(None)
     }
 }
@@ -380,6 +387,42 @@ impl TerminalBackend for TerminalService {
         })
     }
 
+    fn create_session_with_outcome(
+        &self,
+        request: CreateSessionRequest,
+    ) -> AppResult<CreateSessionOutcome> {
+        TerminalService::create_session_with_outcome(
+            self,
+            request.launch_id.as_deref(),
+            &request.project_path,
+            request.cols,
+            request.rows,
+            request.workspace_name.as_deref(),
+            request.provider_id.as_deref(),
+            request.model_id.as_deref(),
+            request.provider_selection,
+            request.launch_profile_id.as_deref(),
+            request.workspace_path.as_deref(),
+            request.workspace_snapshot_id.as_deref(),
+            request.effective_cli_tool(),
+            request.resume_id.as_deref(),
+            request.skip_mcp,
+            request.append_system_prompt.as_deref(),
+            request.initial_prompt.as_deref(),
+            request.yolo_mode,
+            request.adapter_options.as_ref(),
+            request.extra_env.as_ref(),
+            request.ssh.as_ref(),
+            request.wsl.as_ref(),
+        )
+        .map_err(|error| {
+            error
+                .downcast_ref::<AppError>()
+                .cloned()
+                .unwrap_or_else(|| AppError::from(error))
+        })
+    }
+
     fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
         TerminalService::write(self, session_id, data).map_err(AppError::from)
     }
@@ -437,11 +480,25 @@ impl TerminalBackend for TerminalService {
         TerminalService::apply_hook_status(self, session_id, status);
         Ok(())
     }
+
+    fn terminal_link_context(&self, session_id: &str) -> AppResult<Option<TerminalLinkContext>> {
+        TerminalService::terminal_link_context(self, session_id)
+    }
 }
 
 impl TerminalBackend for InProcessTerminalBackend {
     fn create_session(&self, request: CreateSessionRequest) -> AppResult<String> {
         <TerminalService as TerminalBackend>::create_session(self.service.as_ref(), request)
+    }
+
+    fn create_session_with_outcome(
+        &self,
+        request: CreateSessionRequest,
+    ) -> AppResult<CreateSessionOutcome> {
+        <TerminalService as TerminalBackend>::create_session_with_outcome(
+            self.service.as_ref(),
+            request,
+        )
     }
 
     fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
@@ -519,6 +576,10 @@ impl TerminalBackend for InProcessTerminalBackend {
             session_id,
             status,
         )
+    }
+
+    fn terminal_link_context(&self, session_id: &str) -> AppResult<Option<TerminalLinkContext>> {
+        self.service.terminal_link_context(session_id)
     }
 }
 
@@ -603,6 +664,22 @@ impl TerminalBackend for DaemonTerminalBackend {
         self.client.get_session_provenance(session_id)
     }
 
+    fn terminal_link_context(&self, session_id: &str) -> AppResult<Option<TerminalLinkContext>> {
+        let Some(status) = self.client.get_session_status(session_id)? else {
+            return Ok(None);
+        };
+        if status.status.is_terminal() {
+            return Ok(None);
+        }
+        Ok(self
+            .client
+            .get_session_provenance(session_id)?
+            .map(|provenance| TerminalLinkContext {
+                project_path: provenance.project_path,
+                runtime_kind: provenance.runtime_kind,
+            }))
+    }
+
     fn kill_with_reason(&self, session_id: &str, reason: KillReason) -> AppResult<()> {
         let result = self.client.kill_session_with_reason(session_id, reason);
         if result.is_ok() {
@@ -671,28 +748,34 @@ mod tests {
     }
 
     fn spawn_response_server(response: String) -> (SocketAddr, mpsc::Receiver<String>) {
+        spawn_response_sequence(vec![response])
+    }
+
+    fn spawn_response_sequence(responses: Vec<String>) -> (SocketAddr, mpsc::Receiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
         let addr = listener.local_addr().expect("local addr");
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept client");
-            let mut request_bytes = Vec::new();
-            let mut chunk = [0_u8; 1024];
-            loop {
-                let n = stream.read(&mut chunk).expect("read request");
-                if n == 0 {
-                    break;
+            for response in responses {
+                let (mut stream, _) = listener.accept().expect("accept client");
+                let mut request_bytes = Vec::new();
+                let mut chunk = [0_u8; 1024];
+                loop {
+                    let n = stream.read(&mut chunk).expect("read request");
+                    if n == 0 {
+                        break;
+                    }
+                    request_bytes.extend_from_slice(&chunk[..n]);
+                    if request_bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
                 }
-                request_bytes.extend_from_slice(&chunk[..n]);
-                if request_bytes.windows(4).any(|window| window == b"\r\n\r\n") {
-                    break;
-                }
+                let request = String::from_utf8(request_bytes).expect("utf8 request");
+                tx.send(request).ok();
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("write response");
             }
-            let request = String::from_utf8(request_bytes).expect("utf8 request");
-            tx.send(request).ok();
-            stream
-                .write_all(response.as_bytes())
-                .expect("write response");
         });
         (addr, rx)
     }
@@ -808,5 +891,68 @@ mod tests {
             .expect("result");
 
         assert!(snapshot.is_none());
+    }
+
+    #[test]
+    fn daemon_backend_derives_terminal_link_context_from_provenance() {
+        let status =
+            r#"{"sessionId":"s1","status":"idle","lastOutputAt":10,"pid":42,"updatedAt":20}"#;
+        let provenance = r#"{"sessionId":"s1","daemonGeneration":42,"birthNonce":"birth-1","projectPath":"C:/repo","runtimeKind":"wsl","cliTool":"codex","createdAtMs":100}"#;
+        let (addr, rx) = spawn_response_sequence(vec![
+            http_json_response("200 OK", status),
+            http_json_response("200 OK", provenance),
+        ]);
+        let backend = backend_for(addr);
+
+        let context = backend
+            .terminal_link_context("s1")
+            .expect("context query")
+            .expect("provenance context");
+
+        assert_eq!(context.project_path, "C:/repo");
+        assert_eq!(context.runtime_kind, "wsl");
+        assert!(rx
+            .recv()
+            .expect("status request")
+            .starts_with("GET /api/sessions/s1/status HTTP/1.1"));
+        assert!(rx
+            .recv()
+            .expect("provenance request")
+            .starts_with("GET /api/sessions/s1/provenance HTTP/1.1"));
+    }
+
+    #[test]
+    fn daemon_backend_fails_closed_without_provenance() {
+        let status =
+            r#"{"sessionId":"s1","status":"idle","lastOutputAt":10,"pid":42,"updatedAt":20}"#;
+        let (addr, _) = spawn_response_sequence(vec![
+            http_json_response("200 OK", status),
+            http_json_response(
+                "404 Not Found",
+                r#"{"code":"NOT_FOUND","message":"Session not found"}"#,
+            ),
+        ]);
+        let backend = backend_for(addr);
+
+        assert!(backend
+            .terminal_link_context("missing")
+            .expect("context query")
+            .is_none());
+    }
+
+    #[test]
+    fn daemon_backend_fails_closed_for_exited_sessions() {
+        let status = r#"{"sessionId":"s1","status":"exited","lastOutputAt":10,"pid":42,"exitCode":0,"updatedAt":20}"#;
+        let (addr, rx) = spawn_response_server(http_json_response("200 OK", status));
+        let backend = backend_for(addr);
+
+        assert!(backend
+            .terminal_link_context("s1")
+            .expect("context query")
+            .is_none());
+        assert!(rx
+            .recv()
+            .expect("status request")
+            .starts_with("GET /api/sessions/s1/status HTTP/1.1"));
     }
 }

@@ -3,9 +3,9 @@ use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::terminal_service;
 use crate::services::terminal_service::{KillReason, SessionOutput};
 use crate::services::{
-    BridgeStats, HistoryWatchManager, LaunchHistoryService, SessionRestoreService,
-    SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackend, TerminalBackendKind,
-    TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
+    BridgeStats, CreatedLaunchHistory, HistoryWatchManager, LaunchHistoryService,
+    SessionRestoreService, SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackend,
+    TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
 use crate::utils::{validate_launch_cwd, validate_ssh_info, AppResult, LaunchRuntime};
@@ -17,6 +17,16 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tracing::{debug, warn};
 
 const TAURI_CREATE_DEADLINE: Duration = Duration::from_secs(50);
+
+fn launch_project_name(project_path: &str) -> String {
+    let trimmed = project_path.trim_end_matches(['/', '\\']);
+    trimmed
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
+}
 
 fn launch_timeout_error(launch_id: Option<&str>, request: &CreateSessionRequest) -> AppError {
     let runtime = if request.ssh.is_some() {
@@ -196,10 +206,7 @@ pub async fn create_terminal_session(
     }
 
     let project_path = request.project_path.clone();
-    let launch_binding = request
-        .launch_id
-        .clone()
-        .map(|launch_id| (launch_id, request.effective_cli_tool().as_id().to_string()));
+    let launch_binding = request.launch_id.clone();
     let observation_request = request.clone();
     let launch_id_for_timeout = request.launch_id.clone();
     let observation_request_for_timeout = request.clone();
@@ -242,6 +249,7 @@ pub async fn create_terminal_session(
     let session_id = created.session_id;
     let backend = created.backend;
     let reused_existing = created.reused_existing;
+    let resolved_model_id = created.resolved_model_id;
 
     // A claim-capable daemon must issue immutable birth evidence, and it must reach SQLite before
     // the session id is returned to the webview. Otherwise a crash in this window recreates the
@@ -250,11 +258,12 @@ pub async fn create_terminal_session(
         let persist_backend = backend.clone();
         let persist_service = (*session_restore_service).clone();
         let persist_session_id = session_id.clone();
+        let persistence_request = observation_request.clone();
         let persist_result = tauri::async_runtime::spawn_blocking(move || {
             persist_created_session_observation(
                 persist_backend.as_ref(),
                 persist_service.as_ref(),
-                &observation_request,
+                &persistence_request,
                 &persist_session_id,
                 reused_existing,
             )
@@ -277,10 +286,17 @@ pub async fn create_terminal_session(
         }
     }
 
-    if let Some((launch_id, cli_tool)) = launch_binding {
+    if let Some(launch_id) = launch_binding {
+        let effective_cli_tool = observation_request.effective_cli_tool();
+        let cli_tool = effective_cli_tool.as_id();
         let mut bound = false;
         for attempt in 0..10 {
-            match launch_history_service.bind_pty_session(&launch_id, &session_id, &cli_tool) {
+            match launch_history_service.bind_pty_session(
+                &launch_id,
+                &session_id,
+                cli_tool,
+                resolved_model_id.as_deref(),
+            ) {
                 Ok(Some(_)) => {
                     bound = true;
                     break;
@@ -290,13 +306,57 @@ pub async fn create_terminal_session(
                 }
                 Ok(None) => {}
                 Err(error) => {
-                    warn!(launch_id = %launch_id, session_id = %session_id, cli_tool = %cli_tool, error = %error, "failed to bind PTY to launch history");
+                    warn!(launch_id = %launch_id, session_id = %session_id, cli_tool, error = %error, "failed to bind PTY to launch history");
                     break;
                 }
             }
         }
         if !bound {
-            warn!(launch_id = %launch_id, session_id = %session_id, cli_tool = %cli_tool, "launch history row was not available for exact PTY binding");
+            let runtime_kind = if observation_request.ssh.is_some() {
+                "ssh"
+            } else if observation_request.wsl.is_some() {
+                "wsl"
+            } else {
+                "local"
+            };
+            let project_name = launch_project_name(&observation_request.project_path);
+            let launch_cwd = if observation_request.ssh.is_some() {
+                Some(observation_request.project_path.as_str())
+            } else {
+                observation_request
+                    .workspace_path
+                    .as_deref()
+                    .or(Some(observation_request.project_path.as_str()))
+            };
+            match launch_history_service.bind_or_add_created_session(CreatedLaunchHistory {
+                launch_id: &launch_id,
+                project_name: &project_name,
+                project_path: &observation_request.project_path,
+                pty_session_id: &session_id,
+                cli_tool,
+                runtime_kind,
+                wsl_distro: observation_request
+                    .wsl
+                    .as_ref()
+                    .and_then(|wsl| wsl.distro.as_deref()),
+                workspace_name: observation_request.workspace_name.as_deref(),
+                workspace_path: observation_request.workspace_path.as_deref(),
+                launch_cwd,
+                provider_id: observation_request.provider_id.as_deref(),
+                model_id: resolved_model_id.as_deref(),
+                provider_selection: Some(observation_request.provider_selection.as_str()),
+                launch_profile_id: observation_request.launch_profile_id.as_deref(),
+                workspace_snapshot_id: observation_request.workspace_snapshot_id.as_deref(),
+            }) {
+                Ok(_) => {}
+                Err(error) => warn!(
+                    launch_id = %launch_id,
+                    session_id = %session_id,
+                    cli_tool,
+                    error = %error,
+                    "failed to create fallback launch history row"
+                ),
+            }
         }
     }
 

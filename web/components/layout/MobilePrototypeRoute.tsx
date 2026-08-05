@@ -93,6 +93,7 @@ export default function MobilePrototypeRoute() {
         workspacePath,
         project.ssh ? project.path : (workspacePath ?? project.path),
         workspace.providerId,
+        undefined,
         "inherit",
         workspaceSnapshotId,
         launchProfileId,

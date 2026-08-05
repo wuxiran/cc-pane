@@ -10,6 +10,7 @@ import SelfChatPanel from "@/components/SelfChatPanel";
 import AiPanelDialog from "@/components/aipanel/AiPanelDialog";
 import RecentFilesPicker from "@/components/RecentFilesPicker";
 import CommandPalette from "@/components/CommandPalette";
+import TerminalPathLinkDialog from "@/components/panes/TerminalPathLinkDialog";
 import { useDialogStore } from "@/stores";
 
 interface AppDialogsProps {
@@ -85,6 +86,7 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
         onOpenChange={(open) => open ? useDialogStore.getState().openSelfChat() : useDialogStore.getState().closeSelfChat()}
       />
       <AiPanelDialog />
+      <TerminalPathLinkDialog />
 
       {/* 最近文件选择器（Ctrl+E） */}
       <RecentFilesPicker open={recentFilesOpen} onClose={onCloseRecentFiles} />
