@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.12 - 2026-08-05
+
+### Added
+
+- **The workspace tree gained a second display mode: running terminals.** A toggle in the sidebar section header switches each workspace between its project list and the terminals currently running in it. Terminal rows are named by **the first thing you asked that session to do** (falling back to the tab title until the transcript index catches up — at most a minute), with the project/CLI context demoted to a second line. The right side shows the session state as a colored dot plus a status word (amber for waiting on input, red for error, pulsing accent for working); split-pane tabs aggregate to their most severe state with a ×N count. Clicking a row focuses that tab across layouts and views. Rows keep a stable order rather than re-sorting by status, so the row you are about to click never jumps away. The chosen mode persists across restarts.
+
+### Fixed
+
+- **Window controls work again and the settings panel no longer fights the browser overlay.** Minimize/maximize/close are routed through the native main window, the settings dialog is no longer covered by an embedded browser WebView, and browser protocol errors show localized messages instead of raw errors. (PR #54, contributed by @Curl-007)
+
 ## 0.11.11 - 2026-08-05
 
 ### Fixed
