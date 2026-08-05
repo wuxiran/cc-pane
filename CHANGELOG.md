@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.11 - 2026-08-05
+
+### Fixed
+
+- **Sessions dispatched via `launch_task` could never be reclaimed after an app restart.** Session restore requires a birth certificate (daemon generation + birth nonce) persisted at creation, but only the manual-launch and REST paths wrote one — the orchestrator path used by `launch_task` and runners never did. Every dispatched worker (in practice almost all WSL Codex sessions — 41 of 47 missing rows on the reporting machine) was permanently blocked by the identity check with "identity mismatch" while manually opened terminals reattached fine. All creation paths now persist provenance through one shared fail-closed helper, and on startup the app backfills provenance for live daemon sessions that predate the fix, so existing stranded sessions become reclaimable too.
+
+### Changed
+
+- **The terminal restore log now reads as plain language instead of raw JSON.** Restore events are kept structured, rendered with a local timestamp, severity coloring, and human-readable text in both Chinese and English ("this round: 15 reattached, 0 skipped, 1 blocked", "session still held by the previous app instance — the write lease expires in 30 seconds and this retries automatically"). A toggle reveals the original event payloads for debugging; unknown events fall back to raw display so nothing is ever hidden.
+- **Settings → Provider was redesigned** (docs/46 conformance). The three stacked navigation rows collapsed into a single header (segmented sub-page switch + uniformly sized CLI chips + page actions); the launch-profile page went single-column with a summary strip, a Switch row for YOLO (its own half-empty card is gone), neutral checkbox rows instead of full-blue selection fills, and collapsible groups with enabled-item chips and inner scrolling for long skill/MCP lists plus a cross-group search; shared-MCP management moved into a right-side sheet; the credentials page became one centered column. Under the hood: five new UI primitives (card/segmented/checkbox/checkbox-row/collapsible-group, plus a Radix select), CLI brand colors are theme tokens now, and the 2139-line panel was split into files each under 500 lines.
+
 ## 0.11.10 - 2026-08-05
 
 This release is mostly community contributions. Thanks to @zhengjunkj, @Curl-007 and @yanjiuding.
