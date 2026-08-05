@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import type { AppSettings } from "@/types";
 import { useSettingsStore } from "@/stores";
 import { DEFAULT_CCCHAN_SETTINGS, useCCChanStore } from "@/stores/useCCChanStore";
+import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import SettingsPanel from "./SettingsPanel";
 
 vi.mock("sonner", () => ({
@@ -106,6 +107,7 @@ describe("SettingsPanel", () => {
   }));
 
   beforeEach(() => {
+    useBrowserWebviewOverlayStore.setState({ blockers: new Set() });
     useSettingsStore.setState({
       settings: makeSettings(),
       saveSettings,
@@ -115,6 +117,7 @@ describe("SettingsPanel", () => {
   });
 
   afterEach(() => {
+    useBrowserWebviewOverlayStore.setState({ blockers: new Set() });
     generalSectionProps = null;
     vi.clearAllMocks();
   });
@@ -125,6 +128,20 @@ describe("SettingsPanel", () => {
     expect(screen.getByText(tSettings("title"))).toBeInTheDocument();
     expect(await screen.findByTestId("general-section")).toBeInTheDocument();
     expect(screen.queryByTestId("terminal-section")).not.toBeInTheDocument();
+  });
+
+  it("blocks native browser webviews while the settings dialog is open", async () => {
+    const view = render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(useBrowserWebviewOverlayStore.getState().blockers).toContain("settings-panel");
+    });
+
+    view.rerender(<SettingsPanel open={false} onOpenChange={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(useBrowserWebviewOverlayStore.getState().blockers).not.toContain("settings-panel");
+    });
   });
 
   it("syncs the draft from the stored settings when opened", async () => {

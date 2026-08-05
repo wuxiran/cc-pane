@@ -4,7 +4,7 @@ use crate::utils::{AppError, AppPaths, AppResult};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{
-    AppHandle, LogicalSize, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, LogicalSize, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
 };
 use tracing::debug;
 
@@ -16,22 +16,30 @@ const LAYOUT_SWITCHER_WINDOW_LABEL: &str = "layout-switcher";
 const LAYOUT_SWITCHER_WIDTH: f64 = 280.0;
 const LAYOUT_SWITCHER_HEIGHT: f64 = 420.0;
 
+fn main_window(app: &AppHandle) -> AppResult<Window> {
+    app.get_window("main")
+        .ok_or_else(|| AppError::from("main window is unavailable"))
+}
+
 /// 关闭窗口
 #[tauri::command]
-pub fn close_window(window: WebviewWindow) -> AppResult<()> {
+pub fn close_window(app: AppHandle) -> AppResult<()> {
     debug!("cmd::close_window");
+    let window = main_window(&app)?;
     Ok(window.close().map_err(|e| e.to_string())?)
 }
 
 /// 最小化窗口
 #[tauri::command]
-pub fn minimize_window(window: WebviewWindow) -> AppResult<()> {
+pub fn minimize_window(app: AppHandle) -> AppResult<()> {
+    let window = main_window(&app)?;
     Ok(window.minimize().map_err(|e| e.to_string())?)
 }
 
 /// 最大化/还原窗口
 #[tauri::command]
-pub fn maximize_window(window: WebviewWindow) -> AppResult<()> {
+pub fn maximize_window(app: AppHandle) -> AppResult<()> {
+    let window = main_window(&app)?;
     let is_maximized = window.is_maximized().map_err(|e| e.to_string())?;
     if is_maximized {
         Ok(window.unmaximize().map_err(|e| e.to_string())?)
