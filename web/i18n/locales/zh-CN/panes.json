@@ -98,7 +98,13 @@
       "background_backend-create_end": "后台会话已创建（{{sessionId}}）",
       "background_create_cancelled-after-create": "后台会话创建后发现重复，已撤销（{{sessionId}}）",
       "background_restore_ready": "后台恢复完成，切到该标签即可使用",
-      "background_restore_failed": "后台恢复失败：{{error}}"
+      "background_restore_failed": "后台恢复失败：{{error}}",
+      "in-process-session_reattach-ready": "检测到本进程内的活会话，将直接重连",
+      "daemon-snapshot_cold-restore-ready": "旧守护进程不支持安全认领，可手动结束旧终端后恢复",
+      "cold-restore_kill_begin": "正在结束旧终端进程（{{sessionId}}）...",
+      "cold-restore_kill_failed": "结束旧终端失败：{{error}}",
+      "cold-restore_kill_end": "旧终端已结束（{{sessionId}}）",
+      "cold-restore_create_ready": "旧终端已清理，准备创建新会话"
     }
   },
   "terminalLeaseReadOnly": "只读：写权限由另一个 CC-Panes 实例持有",

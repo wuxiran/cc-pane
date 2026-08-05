@@ -334,6 +334,95 @@ describe("ProviderFormPanel", () => {
     });
   });
 
+  // 复制 Provider 走 add 路径：字段全带过来，但 id 必须是新的——沿用 seed.id 会把
+  // 「复制」静默变成「覆盖原 Provider」。
+  it("duplicates a provider through the add path with a freshly generated id", async () => {
+    const user = userEvent.setup();
+    const seed = {
+      ...makeProvider(),
+      id: "seed-provider-id",
+      name: "Seed Provider",
+      models: [
+        { id: "claude-sonnet-4-5", label: "Sonnet 4.5" },
+        { id: "claude-opus-4-1", label: "Opus 4.1" },
+      ],
+      defaultModelId: "claude-opus-4-1",
+    } as Provider;
+    const actions = setupStore([seed]);
+    render(<ProviderFormPanel duplicateSeed={seed} onBack={vi.fn()} />);
+
+    // 表单初值沿用被复制的 provider
+    expect(
+      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder"))
+    ).toHaveValue("Seed Provider");
+    const rows = screen.getAllByTestId(/^provider-model-row-/);
+    expect(rows).toHaveLength(2);
+    expect(
+      within(rows[1]).getByRole("button", {
+        name: i18n.t("settings:defaultProviderModel"),
+      })
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+
+    await waitFor(() => expect(actions.addProvider).toHaveBeenCalled());
+    expect(actions.updateProvider).not.toHaveBeenCalled();
+    const saved = actions.addProvider.mock.calls[0][0] as Provider;
+    expect(saved.id).not.toBe("seed-provider-id");
+    expect(saved.name).toBe("Seed Provider");
+    expect(saved.defaultModelId).toBe("claude-opus-4-1");
+  });
+
+  // 新模型行的上下文窗口默认留空（走 WINDOW_UNKNOWN 降级），不能默认写 1M——
+  // 对 200k 的主流 Claude 模型那是个「看着精确但分母是错的」百分比。
+  it("leaves the context window empty for new model rows and applies the preset picker", async () => {
+    const user = userEvent.setup();
+    const actions = setupStore();
+    render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
+
+    await user.type(
+      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
+      "Window Provider"
+    );
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("settings:addProviderModel") })
+    );
+    const row = screen.getByTestId("provider-model-row-0");
+    await user.type(
+      within(row).getByLabelText(i18n.t("settings:providerModelId")),
+      "claude-sonnet-4-5"
+    );
+
+    const windowInput = within(row).getByLabelText(
+      i18n.t("settings:providerModelContextWindow")
+    );
+    expect(windowInput).toHaveValue("");
+    expect(
+      within(row).getByLabelText(i18n.t("settings:providerModelContextWindowPreset"))
+    ).toHaveTextContent(i18n.t("settings:providerModelContextWindowUnknown"));
+
+    await selectOption(
+      user,
+      within(row).getByLabelText(i18n.t("settings:providerModelContextWindowPreset")),
+      i18n.t("settings:providerContextWindow.200k"),
+    );
+    expect(windowInput).toHaveValue("200000");
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+    await waitFor(() => {
+      expect(actions.addProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: [{
+            id: "claude-sonnet-4-5",
+            label: null,
+            defaultEffort: null,
+            contextWindowTokens: 200_000,
+          }],
+        })
+      );
+    });
+  });
+
   it("shows save failures as an error toast and stays on the form", async () => {
     const user = userEvent.setup();
     const actions = setupStore();

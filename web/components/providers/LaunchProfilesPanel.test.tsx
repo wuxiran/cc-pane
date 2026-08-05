@@ -267,7 +267,11 @@ describe("LaunchProfilesPanel external skills", () => {
     expect(providerSelect).not.toBeDisabled();
 
     await selectOption(user, providerSelect, "Kimi API");
-    await selectOption(user, screen.getByRole("combobox", { name: tp("fieldModel") }), "Kimi K2 Thinking (kimi-k2-thinking)");
+    await selectOption(
+      user,
+      screen.getByRole("combobox", { name: tp("fieldModel") }),
+      "Kimi K2 Thinking (kimi-k2-thinking) - 未配置",
+    );
     await user.click(screen.getByRole("button", { name: new RegExp(tp("saveAsProfile")) }));
 
     await waitFor(() => {
@@ -282,13 +286,15 @@ describe("LaunchProfilesPanel external skills", () => {
     renderKimiPanel(() => {});
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await user.selectOptions(screen.getByLabelText("Provider"), "kimi-provider");
+    await selectOption(user, screen.getByRole("combobox", { name: "Provider" }), "Kimi API");
 
-    const modelSelect = screen.getByLabelText(tp("fieldModel"));
-    expect(within(modelSelect).getByRole("option", {
+    // 模型下拉逐项标注上下文窗口；未配置窗口的模型显式写「未配置」而不是留白
+    await user.click(screen.getByRole("combobox", { name: tp("fieldModel") }));
+    const listbox = await screen.findByRole("listbox");
+    expect(within(listbox).getByRole("option", {
       name: "Kimi K2.5 (kimi-k2.5) - 1,000,000 tokens",
     })).toBeInTheDocument();
-    expect(within(modelSelect).getByRole("option", {
+    expect(within(listbox).getByRole("option", {
       name: "Kimi K2 Thinking (kimi-k2-thinking) - 未配置",
     })).toBeInTheDocument();
   });

@@ -98,7 +98,13 @@
       "background_backend-create_end": "Background session created ({{sessionId}})",
       "background_create_cancelled-after-create": "The background session turned out to be a duplicate and was rolled back ({{sessionId}})",
       "background_restore_ready": "Background restore done, switch to this tab to use it",
-      "background_restore_failed": "Background restore failed: {{error}}"
+      "background_restore_failed": "Background restore failed: {{error}}",
+      "in-process-session_reattach-ready": "Live in-process session detected; reattaching directly",
+      "daemon-snapshot_cold-restore-ready": "The old daemon does not support safe claims; end the previous terminal manually to restore",
+      "cold-restore_kill_begin": "Ending the previous terminal process ({{sessionId}})...",
+      "cold-restore_kill_failed": "Failed to end the previous terminal: {{error}}",
+      "cold-restore_kill_end": "Previous terminal ended ({{sessionId}})",
+      "cold-restore_create_ready": "Previous terminal cleaned up; creating a new session"
     }
   },
   "terminalLeaseReadOnly": "Read-only: another CC-Panes instance owns the write lease",

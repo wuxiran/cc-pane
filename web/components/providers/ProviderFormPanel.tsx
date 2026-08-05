@@ -17,139 +17,22 @@ import ProviderAvatar from "./ProviderAvatar";
 import {
   PROVIDER_TYPE_META, isValidProviderContextWindowTokens,
   type Provider,
-  type ProviderModel,
   type ProviderType,
   type ProviderPreset,
   type ConfigDirInfo,
 } from "@/types/provider";
 import type { KnownCliTool } from "@/types/terminal";
 import ProviderTypeSelect from "./ProviderTypeSelect";
+import {
+  buildConfigJson,
+  emptyForm,
+  formFromProvider,
+  parseConfigJson,
+  type FormState,
+} from "./providerFormState";
 import ProviderModelsEditor from "./ProviderModelsEditor";
 
 const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"), "JsonEditor");
-
-interface FormState {
-  name: string;
-  providerType: ProviderType;
-  apiKey: string;
-  baseUrl: string;
-  region: string;
-  projectId: string;
-  awsProfile: string;
-  configDir: string;
-  models: ProviderModel[];
-  defaultModelIndex: number | null;
-}
-
-const emptyForm: FormState = {
-  name: "",
-  providerType: "anthropic",
-  apiKey: "",
-  baseUrl: "",
-  region: "",
-  projectId: "",
-  awsProfile: "",
-  configDir: "",
-  models: [],
-  defaultModelIndex: null,
-};
-
-/** 根据 Provider 类型，从表单字段构建 {"env": {...}} JSON 字符串 */
-function buildConfigJson(form: FormState): string {
-  const env: Record<string, string> = {};
-  switch (form.providerType) {
-    case "anthropic":
-      if (form.apiKey) env["ANTHROPIC_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["ANTHROPIC_BASE_URL"] = form.baseUrl;
-      break;
-    case "bedrock":
-      env["CLAUDE_CODE_USE_BEDROCK"] = "1";
-      if (form.region) env["AWS_REGION"] = form.region;
-      if (form.awsProfile) env["AWS_PROFILE"] = form.awsProfile;
-      break;
-    case "vertex":
-      env["CLAUDE_CODE_USE_VERTEX"] = "1";
-      if (form.region) env["CLOUD_ML_REGION"] = form.region;
-      if (form.projectId) env["ANTHROPIC_VERTEX_PROJECT_ID"] = form.projectId;
-      break;
-    case "proxy":
-      if (form.apiKey) env["ANTHROPIC_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["ANTHROPIC_BASE_URL"] = form.baseUrl;
-      break;
-    case "open_ai":
-      if (form.apiKey) env["CODEX_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["OPENAI_BASE_URL"] = form.baseUrl;
-      break;
-    case "gemini":
-      if (form.apiKey) env["GEMINI_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["GEMINI_API_BASE"] = form.baseUrl;
-      break;
-    case "kimi":
-      if (form.apiKey) env["KIMI_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["KIMI_BASE_URL"] = form.baseUrl;
-      break;
-    case "glm":
-      if (form.apiKey) env["ZAI_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["ZAI_BASE_URL"] = form.baseUrl;
-      break;
-    case "opencode":
-      if (form.apiKey) env["OPENAI_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["OPENAI_BASE_URL"] = form.baseUrl;
-      break;
-    case "cursor":
-      if (form.apiKey) env["CURSOR_API_KEY"] = form.apiKey;
-      break;
-    case "grok":
-      if (form.apiKey) env["XAI_API_KEY"] = form.apiKey;
-      if (form.baseUrl) {
-        env["GROK_MODELS_BASE_URL"] = form.baseUrl;
-        env["GROK_CLI_CHAT_PROXY_BASE_URL"] = form.baseUrl;
-      }
-      break;
-    default:
-      break;
-  }
-  return JSON.stringify({ env }, null, 2);
-}
-
-/** 从 JSON 字符串解析 env 对象并回填表单字段 */
-function parseConfigJson(jsonStr: string, providerType: ProviderType): Partial<FormState> | null {
-  try {
-    const config = JSON.parse(jsonStr);
-    const env: Record<string, string> = config?.env || {};
-    switch (providerType) {
-      case "anthropic":
-        return { apiKey: env["ANTHROPIC_API_KEY"] || "", baseUrl: env["ANTHROPIC_BASE_URL"] || "" };
-      case "bedrock":
-        return { region: env["AWS_REGION"] || "", awsProfile: env["AWS_PROFILE"] || "" };
-      case "vertex":
-        return { region: env["CLOUD_ML_REGION"] || "", projectId: env["ANTHROPIC_VERTEX_PROJECT_ID"] || "" };
-      case "proxy":
-        return { apiKey: env["ANTHROPIC_API_KEY"] || "", baseUrl: env["ANTHROPIC_BASE_URL"] || "" };
-      case "open_ai":
-        return { apiKey: env["CODEX_API_KEY"] || "", baseUrl: env["OPENAI_BASE_URL"] || "" };
-      case "gemini":
-        return { apiKey: env["GEMINI_API_KEY"] || "", baseUrl: env["GEMINI_API_BASE"] || "" };
-      case "kimi":
-        return { apiKey: env["KIMI_API_KEY"] || "", baseUrl: env["KIMI_BASE_URL"] || "" };
-      case "glm":
-        return { apiKey: env["ZAI_API_KEY"] || "", baseUrl: env["ZAI_BASE_URL"] || "" };
-      case "opencode":
-        return { apiKey: env["OPENAI_API_KEY"] || "", baseUrl: env["OPENAI_BASE_URL"] || "" };
-      case "cursor":
-        return { apiKey: env["CURSOR_API_KEY"] || "" };
-      case "grok":
-        return {
-          apiKey: env["XAI_API_KEY"] || "",
-          baseUrl: env["GROK_MODELS_BASE_URL"] || env["GROK_CLI_CHAT_PROXY_BASE_URL"] || "",
-        };
-      default:
-        return null;
-    }
-  } catch {
-    return null;
-  }
-}
 
 /** 根据当前 Tab 推导手动创建时的默认 ProviderType */
 function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
@@ -188,45 +71,8 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
   const isPresetMode = !!preset && !editProvider;
 
   const [form, setForm] = useState<FormState>(() => {
-    if (editProvider) {
-      return {
-        name: editProvider.name,
-        providerType: editProvider.providerType,
-        apiKey: editProvider.apiKey || "",
-        baseUrl: editProvider.baseUrl || "",
-        region: editProvider.region || "",
-        projectId: editProvider.projectId || "",
-        awsProfile: editProvider.awsProfile || "",
-        configDir: editProvider.configDir || "",
-        models: (editProvider.models ?? []).map((model) => ({ ...model })),
-        defaultModelIndex: (editProvider.models ?? []).findIndex(
-          (model) => model.id === editProvider.defaultModelId,
-        ) >= 0
-          ? (editProvider.models ?? []).findIndex((model) => model.id === editProvider.defaultModelId)
-          : (editProvider.models?.length ? 0 : null),
-      };
-    }
-    if (duplicateSeed) {
-      // 复制种子: 字段沿用, name 不带 "(Copy)" 后缀（由调用方决定），
-      // models 全部浅拷贝, defaultModelIndex 复用被复制 provider 的索引（无则为 0）。
-      return {
-        name: duplicateSeed.name,
-        providerType: duplicateSeed.providerType,
-        apiKey: duplicateSeed.apiKey || "",
-        baseUrl: duplicateSeed.baseUrl || "",
-        region: duplicateSeed.region || "",
-        projectId: duplicateSeed.projectId || "",
-        awsProfile: duplicateSeed.awsProfile || "",
-        configDir: duplicateSeed.configDir || "",
-        models: (duplicateSeed.models ?? []).map((model) => ({ ...model })),
-        defaultModelIndex: (() => {
-          const models = duplicateSeed.models ?? [];
-          if (models.length === 0) return null;
-          const idx = models.findIndex((model) => model.id === duplicateSeed.defaultModelId);
-          return idx >= 0 ? idx : 0;
-        })(),
-      };
-    }
+    const seed = editProvider ?? duplicateSeed;
+    if (seed) return formFromProvider(seed);
     if (preset) {
       return {
         ...emptyForm,
@@ -352,9 +198,9 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
       // 复制种子路径永远走 add：editProvider 为空或 duplicateSeed 非空 → 一律 add。
       const saveAsUpdate = !!editProvider && !duplicateSeed;
       const provider: Provider = {
-        // 复制种子也复用 seed 的 id 作为新 provider 的 id，保证确定性。
-        // 否则 add 路径下用 crypto.randomUUID() 也行，但调用方传入 seed 时保持一致更可追踪。
-        id: editProvider?.id ?? duplicateSeed?.id ?? crypto.randomUUID(),
+        // 只有 update 路径复用既有 id；add 路径（含复制种子）一律重新生成，
+        // 防御调用方忘记换 id 时把复制写成覆盖原 Provider。
+        id: saveAsUpdate ? editProvider.id : crypto.randomUUID(),
         name: form.name.trim(),
         providerType: form.providerType,
         apiKey: form.apiKey || null,

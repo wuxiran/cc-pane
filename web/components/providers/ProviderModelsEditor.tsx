@@ -5,9 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EFFORT_LEVELS } from "@/constants/effortMapping";
+import {
+  CONTEXT_WINDOW_PRESETS,
+  findContextWindowPreset,
+} from "@/constants/contextWindowPresets";
 import type { ProviderModel } from "@/types/provider";
 import type { LaunchEffort } from "@/types/terminal";
 import { SELECT_NONE } from "./launchProfileHelpers";
+
+/** 当 contextWindowTokens 不在预设表内时，下拉用此虚拟选项识别「自定义」分支 */
+const CUSTOM_PRESET_VALUE = "__custom__";
 
 interface ProviderModelsEditorProps {
   models: ProviderModel[];
@@ -80,11 +87,24 @@ export default function ProviderModelsEditor({
             const idInputId = `provider-model-id-${index}`;
             const labelInputId = `provider-model-label-${index}`;
             const effortInputId = `provider-model-effort-${index}`;
+            const contextWindowInputId = `provider-model-context-window-${index}`;
+            const contextWindowPresetId = `provider-model-context-window-preset-${index}`;
+            const matchedPreset = findContextWindowPreset(model.contextWindowTokens);
+            const isCustomContextWindow = model.contextWindowTokens != null && !matchedPreset;
+            // 下拉选中值：null → SELECT_NONE（未知/不配置），命中预设 → tokens 字符串，其余 → 自定义哨兵
+            const contextWindowPresetValue = model.contextWindowTokens == null
+              ? SELECT_NONE
+              : matchedPreset
+                ? String(matchedPreset.tokens)
+                : CUSTOM_PRESET_VALUE;
+            const contextWindowDisplayValue = model.contextWindowTokens == null
+              ? ""
+              : String(model.contextWindowTokens);
             return (
               <div
                 key={index}
                 data-testid={`provider-model-row-${index}`}
-                className="grid grid-cols-1 items-end gap-2 rounded-md border p-2.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(8rem,0.75fr)_auto]"
+                className="grid grid-cols-1 items-end gap-2 rounded-md border p-2.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(8rem,0.75fr)_minmax(11rem,1fr)_auto]"
                 style={{ borderColor: "var(--app-border)", background: "var(--app-panel-bg)" }}
               >
                 <div className="min-w-0 space-y-1.5">
@@ -135,6 +155,75 @@ export default function ProviderModelsEditor({
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor={contextWindowInputId} className="text-[11px]">
+                    {t("providerModelContextWindow")}
+                  </Label>
+                  <div className="flex items-center gap-1.5">
+                    {/* 常用容量预设：选中即写数值；「未知」写 null 走 WINDOW_UNKNOWN 降级 */}
+                    <Select
+                      value={contextWindowPresetValue}
+                      onValueChange={(value) => {
+                        if (value === SELECT_NONE) {
+                          updateModel(index, { contextWindowTokens: null });
+                          return;
+                        }
+                        if (value === CUSTOM_PRESET_VALUE) return;
+                        const next = Number(value);
+                        if (Number.isFinite(next)) updateModel(index, { contextWindowTokens: next });
+                      }}
+                    >
+                      <SelectTrigger
+                        id={contextWindowPresetId}
+                        className="h-9 w-[7.5rem] shrink-0 text-sm"
+                        aria-label={t("providerModelContextWindowPreset")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SELECT_NONE}>
+                          {t("providerModelContextWindowUnknown")}
+                        </SelectItem>
+                        {CONTEXT_WINDOW_PRESETS.map((preset) => (
+                          <SelectItem
+                            key={preset.size}
+                            value={String(preset.tokens)}
+                            title={preset.familyHint}
+                          >
+                            {t(`providerContextWindow.${preset.size}` as never)}
+                          </SelectItem>
+                        ))}
+                        {isCustomContextWindow && (
+                          <SelectItem value={CUSTOM_PRESET_VALUE}>
+                            {t("providerModelContextWindowCustom", { tokens: contextWindowDisplayValue })}
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      id={contextWindowInputId}
+                      className="h-9 min-w-0 text-sm"
+                      inputMode="numeric"
+                      value={contextWindowDisplayValue}
+                      placeholder={t("providerModelContextWindowPlaceholder")}
+                      onChange={(event) => {
+                        const raw = event.target.value.trim();
+                        if (raw === "") {
+                          updateModel(index, { contextWindowTokens: null });
+                          return;
+                        }
+                        const next = Number(raw);
+                        if (!Number.isFinite(next)) return;
+                        updateModel(index, { contextWindowTokens: next });
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] leading-4" style={{ color: "var(--app-text-tertiary)" }}>
+                    {isCustomContextWindow
+                      ? t("providerModelContextWindowCustomHint")
+                      : t("providerModelContextWindowHint")}
+                  </p>
+                </div>
                 <div className="flex h-9 items-center justify-end gap-1 sm:col-start-2 xl:col-start-auto">
                   <button
                     type="button"
@@ -159,7 +248,7 @@ export default function ProviderModelsEditor({
                   </button>
                 </div>
                 {isDefault && (
-                  <span className="text-[10px] font-medium sm:col-span-2 xl:col-span-4" style={{ color: "var(--app-accent)" }}>
+                  <span className="text-[10px] font-medium sm:col-span-2 xl:col-span-5" style={{ color: "var(--app-accent)" }}>
                     {t("defaultProviderModel")}
                   </span>
                 )}

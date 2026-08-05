@@ -42,6 +42,15 @@ export default function LaunchProfileBasicsCard({
 }: LaunchProfileBasicsCardProps) {
   const { t } = useTranslation(["providers", "common"]);
 
+  /** 模型下拉文案带上下文窗口标注：未配置窗口时显式标「未配置」而不是留白。 */
+  const providerModelOptionLabel = (model: ProviderModel) => {
+    const base = model.label ? `${model.label} (${model.id})` : model.id;
+    const window = model.contextWindowTokens == null
+      ? t("modelContextWindowUnknown")
+      : t("modelContextWindowTokens", { window: model.contextWindowTokens.toLocaleString("en-US") });
+    return `${base} - ${window}`;
+  };
+
   return (
     <Section
       title={t("sectionBasicTitle")}
@@ -95,7 +104,7 @@ export default function LaunchProfileBasicsCard({
               <SelectItem value={SELECT_NONE}>
                 {selectedProviderDefaultModel
                   ? t("useProviderDefaultModel", {
-                      model: selectedProviderDefaultModel.label || selectedProviderDefaultModel.id,
+                      model: providerModelOptionLabel(selectedProviderDefaultModel),
                     })
                   : t("nativeCliDefaultModel")}
               </SelectItem>
@@ -104,7 +113,7 @@ export default function LaunchProfileBasicsCard({
               )}
               {selectedProviderModels.map((model) => (
                 <SelectItem key={model.id} value={model.id}>
-                  {model.label ? `${model.label} (${model.id})` : model.id}
+                  {providerModelOptionLabel(model)}
                 </SelectItem>
               ))}
             </SelectContent>
