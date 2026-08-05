@@ -16,6 +16,7 @@ import TabBar from "./TabBar";
 import PanelEmptyState from "./PanelEmptyState";
 import TabContentRenderer from "./TabContentRenderer";
 import { useTabClosing } from "./useTabClosing";
+import { useReportPaneVisibility } from "./useReportPaneVisibility";
 import { TabCloseConfirmDialog } from "./TabCloseConfirmDialog";
 import { useNewTabActions } from "./useNewTabActions";
 import type { TerminalViewHandle } from "./TerminalView";
@@ -217,6 +218,9 @@ export default memo(function Panel({ pane }: PanelProps) {
     if (tab?.contentType !== "terminal" || !tab.activeTerminalPaneId) return;
     splitTerminalPane(tabId, tab.activeTerminalPaneId, "down");
   }, [pane.tabs, splitTerminalPane]);
+
+  // 可见性双写（B2-02）：props 照旧传，同时写进单源 store。
+  useReportPaneVisibility(pane, layoutVisible, isActivePane);
 
   // 关一格：回收与树操作统一交给 removeTerminalLeafInternal——它按当前树
   // 重新定位该 leaf 并只杀这一格的会话（含 savedSessionId，改道前会漏）。
