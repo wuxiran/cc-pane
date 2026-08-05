@@ -312,5 +312,12 @@
     "actionFailed": "路径操作失败：{{error}}",
     "resolveFailed": "无法打开终端路径：{{error}}",
     "sessionUnavailable": "终端会话已不可用"
-  }
+  },
+  "closeTabConfirmTitle": "关闭标签？",
+  "closeTabConfirmDescription": "继续将丢失以下内容。",
+  "closeTabBusyAgents_other": "{{count}} 个 agent 会话仍在运行：",
+  "closeTabDirtyEditors_other": "{{count}} 个编辑器有未保存的修改：",
+  "closeTabConfirmAction": "仍然关闭",
+  "closeTabBusyAgents_one": "{{count}} 个 agent 会话仍在运行：",
+  "closeTabDirtyEditors_one": "{{count}} 个编辑器有未保存的修改："
 }

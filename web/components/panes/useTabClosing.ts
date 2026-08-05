@@ -1,73 +1,74 @@
-import { useCallback, useEffect, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePanesStore } from "@/stores";
+import { liveGuardContext, planTabDestroy } from "@/lib/tabLifecycle/destroyPipeline";
+import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
+import type { CloseGuard } from "@/lib/tabLifecycle/registry";
 import type { Tab } from "@/types";
 
 /**
  * 请求关闭「当前激活面板的当前标签」。
  *
  * close-tab 快捷键（Ctrl+W）派发本事件，激活面板收到后走与鼠标点 × 完全相同的
- * handleCloseTab —— pinned 保护、dirty 确认、分屏标签全量 kill 只此一份实现，
+ * handleCloseTab —— pinned 保护、关闭确认、分屏标签全量回收只此一份实现，
  * 快捷键侧不再复制（复制过一次，结果漏杀分屏会话并绕过确认）。
  */
 export const CLOSE_ACTIVE_TAB_EVENT = "cc-panes:close-active-tab";
+
+/** 待确认的销毁请求：确认框打开期间只存 tabId，不存 Tab 引用（树随时可能变）。 */
+interface PendingClose {
+  tabIds: string[];
+  guards: CloseGuard[];
+  reason: DestroyReason;
+}
 
 export interface TabClosing {
   handleCloseTab: (tabId: string) => void;
   handleCloseTabsToLeft: (tabId: string) => void;
   handleCloseTabsToRight: (tabId: string) => void;
   handleCloseOtherTabs: (tabId: string) => void;
-  /** 单个 dirty 标签的确认对话框：非 null 时打开 */
-  dirtyConfirmTabId: string | null;
-  cancelDirtyConfirm: () => void;
-  confirmCloseDirty: () => void;
-  /** 批量关闭的确认对话框：非 null 时打开，值为 dirty 标签数 */
-  dirtyConfirmBatchCount: number | null;
-  cancelBatchConfirm: () => void;
-  confirmBatchClose: () => void;
+  /** 确认框要展示的条目；空数组 = 不打开。 */
+  pendingGuards: CloseGuard[];
+  cancelPendingClose: () => void;
+  confirmPendingClose: () => void;
 }
 
 /**
- * 面板的关闭标签逻辑：pinned 保护 + dirty 确认 + 会话回收。
+ * 面板的关闭标签逻辑：pinned 保护 + 关闭确认 + 资源回收。
  *
- * 鼠标点 ×、右键批量关闭、close-tab 快捷键三个入口都收敛到这里。
+ * 鼠标点 ×、右键批量关闭、close-tab 快捷键三个入口都收敛到这里；回收与树操作
+ * 统一交给 store 的 removeTabsInternal（唯一销毁出口），此处只负责「问不问」。
  */
 export function useTabClosing(paneId: string, tabs: Tab[], activeTabId?: string): TabClosing {
-  const { closeTab, removeTabsInternal } = usePanesStore(
-    useShallow((s) => ({
-      closeTab: s.closeTab,
-      removeTabsInternal: s.removeTabsInternal,
-    })),
-  );
+  const removeTabsInternal = usePanesStore((s) => s.removeTabsInternal);
 
-  const [dirtyConfirmTabId, setDirtyConfirmTabId] = useState<string | null>(null);
-  const [dirtyConfirmBatch, setDirtyConfirmBatch] = useState<{
-    tabIds: string[];
-    action: () => void;
-  } | null>(null);
+  // B1-06：单一 pending 状态取代原先的 dirtyConfirmTabId + dirtyConfirmBatch 两个
+  // state——确认项来自 planTabDestroy 的聚合（agent 忙 / 编辑器未保存），
+  // 调用方不再需要知道「这次是因为什么弹的框」。
+  const [pending, setPending] = useState<PendingClose | null>(null);
 
-  // 执行单个 tab 关闭（不检查 dirty）。
-  // B1-04 起会话回收归 store 出口统一处理，UI 侧不再自己 kill——两边都杀会
-  // 重复调用（幂等但污染 dev 断言），半改道状态下更会漏杀。
-  const doCloseTab = useCallback(
-    (tabId: string) => {
-      closeTab(paneId, tabId);
+  /** 走一次销毁计划：有确认项就弹框，否则直接执行。 */
+  const requestClose = useCallback(
+    (targets: Tab[], reason: DestroyReason) => {
+      if (targets.length === 0) return;
+      const plan = planTabDestroy(targets, reason, liveGuardContext());
+      const tabIds = plan.tabs.map((t) => t.id);
+      if (tabIds.length === 0) return;
+      if (plan.guards.length > 0) {
+        setPending({ tabIds, guards: plan.guards, reason });
+        return;
+      }
+      removeTabsInternal(tabIds, reason);
     },
-    [paneId, closeTab],
+    [removeTabsInternal],
   );
 
-  // 关闭 tab（检查 pinned + dirty）
   const handleCloseTab = useCallback(
     (tabId: string) => {
       const tab = tabs.find((t) => t.id === tabId);
       if (!tab || tab.pinned) return;
-      if (tab.dirty) {
-        setDirtyConfirmTabId(tabId);
-        return;
-      }
-      doCloseTab(tabId);
+      requestClose([tab], "user-close");
     },
-    [tabs, doCloseTab],
+    [tabs, requestClose],
   );
 
   // close-tab 快捷键：只有激活面板响应，复用同一个 handleCloseTab
@@ -81,78 +82,50 @@ export function useTabClosing(paneId: string, tabs: Tab[], activeTabId?: string)
     return () => window.removeEventListener(CLOSE_ACTIVE_TAB_EVENT, onCloseActiveTab);
   }, [paneId, activeTabId, handleCloseTab]);
 
-  const confirmCloseDirty = useCallback(() => {
-    if (dirtyConfirmTabId) {
-      doCloseTab(dirtyConfirmTabId);
-      setDirtyConfirmTabId(null);
-    }
-  }, [dirtyConfirmTabId, doCloseTab]);
-
-  // 批量关闭辅助：有 dirty tabs 则先弹确认。
-  // 回收与树操作统一走 removeTabsInternal("batch-close")——pinned 豁免、
-  // closedTabs 记录、会话回收全部按 DESTROY_POLICY 矩阵执行，此处不再自行判定。
-  const doBatchClose = useCallback(
-    (tabsToClose: Tab[]) => {
-      const targetIds = tabsToClose.filter((t) => !t.pinned).map((t) => t.id);
-      if (targetIds.length === 0) return;
-      const dirtyTabs = tabsToClose.filter((t) => t.dirty && !t.pinned);
-      if (dirtyTabs.length > 0) {
-        setDirtyConfirmBatch({
-          tabIds: dirtyTabs.map((t) => t.id),
-          action: () => removeTabsInternal(targetIds, "batch-close"),
-        });
-        return;
-      }
-      removeTabsInternal(targetIds, "batch-close");
-    },
-    [removeTabsInternal],
-  );
-
-  const confirmBatchClose = useCallback(() => {
-    if (dirtyConfirmBatch) {
-      dirtyConfirmBatch.action();
-      setDirtyConfirmBatch(null);
-    }
-  }, [dirtyConfirmBatch]);
-
   const handleCloseTabsToLeft = useCallback(
     (tabId: string) => {
       const targetIdx = tabs.findIndex((t) => t.id === tabId);
       if (targetIdx < 0) return;
-      doBatchClose(tabs.slice(0, targetIdx));
+      requestClose(tabs.slice(0, targetIdx), "batch-close");
     },
-    [tabs, doBatchClose],
+    [tabs, requestClose],
   );
 
   const handleCloseTabsToRight = useCallback(
     (tabId: string) => {
       const targetIdx = tabs.findIndex((t) => t.id === tabId);
       if (targetIdx < 0) return;
-      doBatchClose(tabs.slice(targetIdx + 1));
+      requestClose(tabs.slice(targetIdx + 1), "batch-close");
     },
-    [tabs, doBatchClose],
+    [tabs, requestClose],
   );
 
   const handleCloseOtherTabs = useCallback(
     (tabId: string) => {
-      doBatchClose(tabs.filter((t) => t.id !== tabId));
+      requestClose(tabs.filter((t) => t.id !== tabId), "batch-close");
     },
-    [tabs, doBatchClose],
+    [tabs, requestClose],
   );
 
-  const cancelDirtyConfirm = useCallback(() => setDirtyConfirmTabId(null), []);
-  const cancelBatchConfirm = useCallback(() => setDirtyConfirmBatch(null), []);
+  const confirmPendingClose = useCallback(() => {
+    if (!pending) return;
+    // 只传 tabId：确认框打开期间树可能已变（后端 kill / 跨端快照同步），
+    // removeTabsInternal 会按当前树重新定位重新收集。
+    removeTabsInternal(pending.tabIds, pending.reason);
+    setPending(null);
+  }, [pending, removeTabsInternal]);
+
+  const cancelPendingClose = useCallback(() => setPending(null), []);
+
+  const pendingGuards = useMemo(() => pending?.guards ?? [], [pending]);
 
   return {
     handleCloseTab,
     handleCloseTabsToLeft,
     handleCloseTabsToRight,
     handleCloseOtherTabs,
-    dirtyConfirmTabId,
-    cancelDirtyConfirm,
-    confirmCloseDirty,
-    dirtyConfirmBatchCount: dirtyConfirmBatch ? dirtyConfirmBatch.tabIds.length : null,
-    cancelBatchConfirm,
-    confirmBatchClose,
+    pendingGuards,
+    cancelPendingClose,
+    confirmPendingClose,
   };
 }

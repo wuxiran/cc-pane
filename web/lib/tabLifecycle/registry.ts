@@ -17,6 +17,7 @@
 //   （管线阶段 1 已 detach，传 false）。
 import { collectTerminalSessionIdsWithSaved } from "@/lib/paneSessions";
 import type { TabContentType } from "@/lib/tabContentType";
+import { isBusyStatus } from "@/types/settings";
 import { browserService } from "@/services/browserService";
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
@@ -74,6 +75,17 @@ function collectPoppedOut(tab: Tab, ctx: GuardContext): string[] {
   return ctx.isPoppedOut(tab.id) ? [tab.id] : [];
 }
 
+/**
+ * 是不是 agent 会话（Claude/Codex/OpenCode 等），而不是裸 shell。
+ *
+ * 关闭确认只对 agent 生效：agent 里跑着的是一整段有价值的上下文，误关的代价
+ * 是它整个消失；纯 shell 关掉重开即可。`launchClaude` 是老快照的遗留字段。
+ */
+function isAgentTab(tab: Tab): boolean {
+  if (tab.launchClaude) return true;
+  return Boolean(tab.cliTool && tab.cliTool !== "none");
+}
+
 const terminalEntry: TabLifecycleEntry = {
   collectResources: (tab, ctx) => ({
     // savedSessionId 必须并入：restoring 中尚未 attach 的 savedSessionId 是真实 PTY，
@@ -81,9 +93,33 @@ const terminalEntry: TabLifecycleEntry = {
     sessionIds: collectTerminalSessionIdsWithSaved(tab),
     poppedOutTabIds: collectPoppedOut(tab, ctx),
   }),
-  // B1-06 前恒放行：agent-busy guard 的类型已就位，但发射点留到确认弹窗接好之后
-  // 再打开——先等价迁移现状（现状关终端 tab 不确认），再增强。届时用 ctx.statusOf。
-  closeGuards: () => [],
+  // B1-06 打开：agent 会话忙碌/等输入时挡一道确认。
+  //
+  // 三条判定要点：
+  // 1. **只挡 agent，不挡纯 shell**——shell 的状态是 none 而非 idle，关一个 shell
+  //    弹确认纯属骚扰（docs/78 §2.2 三轴模型：纯 shell 无「内容忙碌」轴）。
+  // 2. `waitingInput` 必须显式并入——它不在 BUSY_STATUSES 里，但「等你回答」的
+  //    会话被静默关掉，损失和忙碌时一样大。照抄 interruptGate.isAnySessionBusy
+  //    的先例，不去改 BUSY_STATUSES 本体（打扰闸门等多处共用）。
+  // 3. 分屏 tab 逐 leaf 判，任一 leaf 忙就挡——确认框会列出具体是哪个会话。
+  closeGuards: (tab, ctx) => {
+    if (!isAgentTab(tab)) return [];
+    const guards: CloseGuard[] = [];
+    for (const sessionId of collectTerminalSessionIdsWithSaved(tab)) {
+      const status = ctx.statusOf(sessionId);
+      if (!status) continue;
+      if (isBusyStatus(status) || status === "waitingInput") {
+        guards.push({
+          kind: "agent-busy",
+          tabId: tab.id,
+          tabTitle: tab.title,
+          sessionId,
+          status,
+        });
+      }
+    }
+    return guards;
+  },
   onClosed: (tab, opts) => {
     for (const sessionId of collectTerminalSessionIdsWithSaved(tab)) {
       if (opts.detach) {

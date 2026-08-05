@@ -144,9 +144,39 @@ describe("terminal", () => {
     expect(entry.collectResources(makeSplitTerminalTab(), inertCtx).poppedOutTabIds).toEqual([]);
   });
 
-  it("closeGuards 本轮恒为空——即使会话正忙（agent-busy 留 B1-06 打开）", () => {
+  // ===== B1-06：agent-busy 守卫已启用。以下四条锁死「何时弹、何时不弹」 =====
+
+  it("agent 会话忙碌时逐 leaf 产出确认项", () => {
+    const busyCtx: GuardContext = { statusOf: () => "thinking", isPoppedOut: () => false };
+    const guards = entry.closeGuards(makeSplitTerminalTab({ cliTool: "claude" }), busyCtx);
+    expect(guards.map((g) => g.kind)).toEqual(["agent-busy", "agent-busy", "agent-busy"]);
+    expect(guards.every((g) => g.kind === "agent-busy" && g.status === "thinking")).toBe(true);
+  });
+
+  it("waitingInput 同样拦——它不在 BUSY_STATUSES 里，但静默关掉损失一样大", () => {
+    const ctx: GuardContext = { statusOf: () => "waitingInput", isPoppedOut: () => false };
+    const guards = entry.closeGuards(makeTab({ cliTool: "codex", sessionId: "s1" }), ctx);
+    expect(guards).toHaveLength(1);
+    expect(guards[0]).toMatchObject({ kind: "agent-busy", status: "waitingInput" });
+  });
+
+  it("纯 shell 不拦——即使状态看起来在忙（三轴模型：shell 无「内容忙碌」轴）", () => {
     const busyCtx: GuardContext = { statusOf: () => "thinking", isPoppedOut: () => false };
     expect(entry.closeGuards(makeSplitTerminalTab(), busyCtx)).toEqual([]);
+    expect(entry.closeGuards(makeSplitTerminalTab({ cliTool: "none" }), busyCtx)).toEqual([]);
+  });
+
+  it("agent 空闲不拦（idle / 无状态记录）", () => {
+    const idleCtx: GuardContext = { statusOf: () => "idle", isPoppedOut: () => false };
+    const noneCtx: GuardContext = { statusOf: () => null, isPoppedOut: () => false };
+    expect(entry.closeGuards(makeSplitTerminalTab({ cliTool: "claude" }), idleCtx)).toEqual([]);
+    expect(entry.closeGuards(makeSplitTerminalTab({ cliTool: "claude" }), noneCtx)).toEqual([]);
+  });
+
+  it("legacy launchClaude 快照也认作 agent", () => {
+    const busyCtx: GuardContext = { statusOf: () => "toolRunning", isPoppedOut: () => false };
+    const guards = entry.closeGuards(makeTab({ launchClaude: true, sessionId: "s1" }), busyCtx);
+    expect(guards).toHaveLength(1);
   });
 
   it("onClosed detach:true 时对每个会话 detachOutput + detachExit", () => {
