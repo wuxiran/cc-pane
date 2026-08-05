@@ -50,8 +50,9 @@ pub fn maximize_window(app: AppHandle) -> AppResult<()> {
 
 /// 切换窗口置顶状态
 #[tauri::command]
-pub fn toggle_always_on_top(window: WebviewWindow) -> AppResult<bool> {
+pub fn toggle_always_on_top(app: AppHandle) -> AppResult<bool> {
     debug!("cmd::toggle_always_on_top");
+    let window = main_window(&app)?;
     let is_on_top = window.is_always_on_top().map_err(|e| e.to_string())?;
     window
         .set_always_on_top(!is_on_top)
@@ -61,28 +62,32 @@ pub fn toggle_always_on_top(window: WebviewWindow) -> AppResult<bool> {
 
 /// 进入全屏模式
 #[tauri::command]
-pub fn enter_fullscreen(window: WebviewWindow) -> AppResult<()> {
+pub fn enter_fullscreen(app: AppHandle) -> AppResult<()> {
     debug!("cmd::enter_fullscreen");
+    let window = main_window(&app)?;
     Ok(window.set_fullscreen(true).map_err(|e| e.to_string())?)
 }
 
 /// 退出全屏模式
 #[tauri::command]
-pub fn exit_fullscreen(window: WebviewWindow) -> AppResult<()> {
+pub fn exit_fullscreen(app: AppHandle) -> AppResult<()> {
     debug!("cmd::exit_fullscreen");
+    let window = main_window(&app)?;
     Ok(window.set_fullscreen(false).map_err(|e| e.to_string())?)
 }
 
 /// 检查是否处于全屏模式
 #[tauri::command]
-pub fn is_fullscreen(window: WebviewWindow) -> AppResult<bool> {
+pub fn is_fullscreen(app: AppHandle) -> AppResult<bool> {
+    let window = main_window(&app)?;
     Ok(window.is_fullscreen().map_err(|e| e.to_string())?)
 }
 
 /// 设置窗口边框（标题栏）
 #[tauri::command]
-pub fn set_decorations(window: WebviewWindow, decorations: bool) -> AppResult<()> {
+pub fn set_decorations(app: AppHandle, decorations: bool) -> AppResult<()> {
     debug!("cmd::set_decorations decorations={}", decorations);
+    let window = main_window(&app)?;
     Ok(window
         .set_decorations(decorations)
         .map_err(|e| e.to_string())?)
@@ -90,8 +95,9 @@ pub fn set_decorations(window: WebviewWindow, decorations: bool) -> AppResult<()
 
 /// 进入迷你模式
 #[tauri::command]
-pub fn enter_mini_mode(window: WebviewWindow) -> AppResult<()> {
+pub fn enter_mini_mode(app: AppHandle) -> AppResult<()> {
     debug!("cmd::enter_mini_mode");
+    let window = main_window(&app)?;
     window
         .set_size(LogicalSize::new(320.0, 200.0))
         .map_err(|e| e.to_string())?;
@@ -102,8 +108,9 @@ pub fn enter_mini_mode(window: WebviewWindow) -> AppResult<()> {
 
 /// 退出迷你模式
 #[tauri::command]
-pub fn exit_mini_mode(window: WebviewWindow, width: f64, height: f64) -> AppResult<()> {
+pub fn exit_mini_mode(app: AppHandle, width: f64, height: f64) -> AppResult<()> {
     debug!("cmd::exit_mini_mode");
+    let window = main_window(&app)?;
     window.set_always_on_top(false).map_err(|e| e.to_string())?;
     window
         .set_size(LogicalSize::new(width, height))
