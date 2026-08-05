@@ -4,7 +4,12 @@ const MAX_RESTORE_LOG_ENTRIES = 20;
 
 export interface TerminalRestoreLogEntry {
   id: number;
-  message: string;
+  /** ISO 串，与写入日志文件的 timestamp 同源 */
+  timestamp: string;
+  /** 原始事件名（如 `identity.blocked`），渲染层据此翻译 */
+  event: string;
+  /** 事件附带的结构化字段，渲染层内插关键项、其余留给「原始详情」 */
+  details: Record<string, unknown>;
 }
 
 interface TerminalRestoreLogState {
@@ -30,11 +35,12 @@ export const useTerminalRestoreLogStore = create<TerminalRestoreLogState>((set) 
 
   append: (tabId, terminalPaneId, event, details = {}) => {
     const key = terminalRestoreLogKey(tabId, terminalPaneId);
-    const message = `[layout-restore] ${event} ${JSON.stringify({
+    const entry: TerminalRestoreLogEntry = {
+      id: nextRestoreLogId++,
       timestamp: new Date().toISOString(),
-      ...details,
-    })}`;
-    const entry = { id: nextRestoreLogId++, message };
+      event,
+      details,
+    };
     set((state) => ({
       logs: {
         ...state.logs,

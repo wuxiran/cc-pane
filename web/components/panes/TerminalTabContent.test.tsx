@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -193,8 +193,9 @@ describe("TerminalTabContent", () => {
       }),
     );
 
-    expect(screen.getByRole("log")).toHaveTextContent("[layout-restore] queue.queued");
-    expect(screen.getByRole("log")).toHaveTextContent('"active":3,"pending":1');
+    expect(screen.getByRole("log")).toHaveTextContent(
+      i18n.t("panes:restoreLog.events.queue_queued", { pending: 1, active: 3 }),
+    );
     expect(screen.queryByText("排队恢复中")).not.toBeInTheDocument();
     expect(screen.queryByText("等待其他终端完成启动...")).not.toBeInTheDocument();
   });
@@ -202,6 +203,7 @@ describe("TerminalTabContent", () => {
   it("shows reconcile logs on a blocked restore surface", () => {
     useTerminalRestoreLogStore.getState().append("tab-1", "leaf-1", "identity.blocked", {
       reason: "identity-mismatch",
+      sessionId: "sess-abcdef123456",
     });
     renderTerminalTabContent(
       createTerminalTab({
@@ -216,6 +218,14 @@ describe("TerminalTabContent", () => {
     );
 
     expect(screen.getByText("会话恢复已阻断")).toBeVisible();
+    expect(screen.getByRole("log")).toHaveTextContent(
+      i18n.t("panes:restoreLog.events.identity_blocked__identity-mismatch", {
+        sessionId: "sess-abc",
+      }),
+    );
+    // 原始事件名默认收起，展开「原始详情」后才出现。
+    expect(screen.getByRole("log")).not.toHaveTextContent("identity.blocked");
+    fireEvent.click(screen.getByText(i18n.t("panes:restoreLogDetails")));
     expect(screen.getByRole("log")).toHaveTextContent("identity.blocked");
     expect(screen.getByRole("log")).toHaveTextContent("identity-mismatch");
   });
