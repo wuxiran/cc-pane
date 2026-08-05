@@ -27,6 +27,8 @@ function createValue(overrides: Partial<TerminalSettings> = {}): TerminalSetting
     scrollback: 5000,
     themeMode: "followApp",
     rendererMode: "auto",
+    showContextUsage: true,
+    showStatusBar: true,
     shell: null,
     disableConptySanitize: null,
     resumeIdBackfillEnabled: null,
@@ -102,6 +104,33 @@ describe("TerminalSection", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ rendererMode: "webgl" }));
   });
 
+  it("emits showContextUsage changes", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TerminalSection value={createValue()} onChange={onChange} />);
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes[1]).toBeChecked();
+    await user.click(checkboxes[1]);
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showContextUsage: false }));
+  });
+
+  it("emits showStatusBar changes", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TerminalSection value={createValue()} onChange={onChange} />);
+
+    // 顺序：cursorBlink → showContextUsage → showStatusBar → resumeIdBackfillEnabled
+    const showStatusBar = screen.getAllByRole("checkbox")[2];
+    expect(showStatusBar).toBeChecked();
+    await user.click(showStatusBar);
+
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ showStatusBar: false }));
+    // 不应误伤相邻开关
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ showContextUsage: true }));
+  });
+
   it("emits null when the shell input is cleared", () => {
     const onChange = vi.fn();
     render(<TerminalSection value={createValue({ shell: "pwsh" })} onChange={onChange} />);
@@ -151,9 +180,9 @@ describe("TerminalSection", () => {
     render(<TerminalSection value={createValue()} onChange={onChange} />);
 
     const checkboxes = screen.getAllByRole("checkbox");
-    // 顺序：cursorBlink → resumeIdBackfillEnabled
-    expect(checkboxes[1]).not.toBeChecked();
-    await user.click(checkboxes[1]);
+    // 顺序：cursorBlink → showContextUsage → showStatusBar → resumeIdBackfillEnabled
+    expect(checkboxes[3]).not.toBeChecked();
+    await user.click(checkboxes[3]);
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ resumeIdBackfillEnabled: true }));
   });

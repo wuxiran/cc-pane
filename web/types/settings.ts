@@ -118,6 +118,10 @@ export interface TerminalSettings {
   themeMode: TerminalThemeMode;
   /** 终端渲染器: auto 默认优先 WebGL, webgl 强制尝试, dom 诊断降级 */
   rendererMode: TerminalRendererMode;
+  /** Display the context usage indicator in terminal status surfaces. */
+  showContextUsage: boolean;
+  /** 终端底部状态栏(整条)的开关。关闭后状态栏整段不渲染,把空间让给终端区。 */
+  showStatusBar: boolean;
   /** 用户选择的 Shell ID（如 "pwsh", "cmd"），null 表示自动探测 */
   shell: string | null;
   /** 禁用 ConPTY 输出 sanitize（默认 true） */

@@ -107,6 +107,8 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       scrollback: 20000,
       themeMode: "followApp",
       rendererMode: "auto",
+      showContextUsage: true,
+      showStatusBar: true,
       shell: null,
       disableConptySanitize: null,
       resumeIdBackfillEnabled: null,
