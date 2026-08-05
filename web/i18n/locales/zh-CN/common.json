@@ -23,6 +23,7 @@
   "errorLogWriting": "正在写入崩溃日志...",
   "errorLogWritten": "崩溃日志已写入应用日志目录。请把目录中的最新 cc-panes*.log 附到 GitHub Issue：https://github.com/wuxiran/cc-pane/issues/new",
   "errorLogFailed": "崩溃日志写入失败。请重启后到 设置 > 关于 > 打开日志目录，将最新 cc-panes*.log 附到 GitHub Issue。",
+  "errorRetryUnavailable": "页面源当前不可达（开发服务器可能未启动），已保留错误页避免刷成空白。请确认服务恢复后再重试。",
   "browse": "浏览",
   "default": "默认",
   "pin": "固定",

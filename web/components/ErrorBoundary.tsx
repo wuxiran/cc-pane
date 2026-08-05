@@ -20,6 +20,8 @@ interface State {
   crashLogDir: string | null;
   crashLogStatus: "idle" | "pending" | "written" | "failed";
   retryPending: boolean;
+  /** 上一次重试因页面源不可达而放弃。用于把静默失败变成可见反馈。 */
+  retryUnavailable: boolean;
 }
 
 const MODULE_LOAD_ERROR_PATTERN =
@@ -80,6 +82,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     crashLogDir: null,
     crashLogStatus: "idle",
     retryPending: false,
+    retryUnavailable: false,
   };
 
   private mounted = true;
@@ -92,6 +95,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       crashLogDir: null,
       crashLogStatus: "pending",
       retryPending: false,
+      retryUnavailable: false,
     };
   }
 
@@ -127,17 +131,21 @@ export default class ErrorBoundary extends Component<Props, State> {
       crashLogDir: null,
       crashLogStatus: "idle",
       retryPending: false,
+      retryUnavailable: false,
     });
   };
 
   handleRetry = async () => {
     if (this.retryInProgress) return;
     this.retryInProgress = true;
-    this.setState({ retryPending: true });
+    this.setState({ retryPending: true, retryUnavailable: false });
     try {
       const result = await retryAfterError(this.state.error, this.handleReset);
       if (result === "unavailable") {
         console.warn("[ErrorBoundary] Retry skipped because the page origin is unavailable");
+        // 光 warn 到 console 等于没反馈：用户点了重试，界面纹丝不动，看起来像按钮坏了。
+        // 实际是 dev server / 页面源还没起来，必须在界面上说清楚。
+        if (this.mounted) this.setState({ retryUnavailable: true });
       }
     } finally {
       this.retryInProgress = false;
@@ -182,6 +190,13 @@ export default class ErrorBoundary extends Component<Props, State> {
                 </>
               )}
             </p>
+            {this.state.retryUnavailable && (
+              // 等待输入/需用户处置 → 琥珀，并带图标做形状冗余（docs/46 风格宪法）。
+              <p className="mt-2 flex items-start justify-center gap-1.5 text-xs text-[var(--app-tag-amber)] max-w-md">
+                <AlertTriangle size={14} className="mt-px shrink-0" />
+                <span>{i18n.t("errorRetryUnavailable")}</span>
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
             <Button

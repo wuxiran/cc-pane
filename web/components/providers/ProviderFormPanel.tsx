@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ArrowLeft, Eye, EyeOff, ExternalLink, FolderOpen, FileText, Settings } from "lucide-react";
@@ -12,6 +12,7 @@ import { providerService } from "@/services/providerService";
 import { filesystemService } from "@/services/filesystemService";
 import { isTauriRuntime } from "@/services/runtime";
 import { isJsonFile } from "@/utils/json";
+import { lazyWithRetry } from "@/lib/lazyRetry";
 import ProviderAvatar from "./ProviderAvatar";
 import {
   PROVIDER_TYPE_META,
@@ -25,7 +26,7 @@ import type { KnownCliTool } from "@/types/terminal";
 import ProviderTypeOptions from "./ProviderTypeOptions";
 import ProviderModelsEditor from "./ProviderModelsEditor";
 
-const JsonEditor = lazy(() => import("@/components/editor/JsonEditor"));
+const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"), "JsonEditor");
 
 interface FormState {
   name: string;

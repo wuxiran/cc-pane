@@ -1,19 +1,21 @@
-import { memo, lazy, Suspense, useCallback } from "react";
+import { memo, Suspense, useCallback, type ReactNode } from "react";
 import { ExternalLink, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
 import { markTabReclaimed } from "@/services";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import TerminalTabContent from "./TerminalTabContent";
 import type { TerminalViewHandle } from "./TerminalView";
 
-// 懒加载非终端组件
-const McpConfigPanel = lazy(() => import("@/components/settings/ProjectMcpSection"));
-const SkillManager = lazy(() => import("@/components/skill/SkillManager"));
-const MemoryManager = lazy(() => import("@/components/memory/MemoryManager"));
-const FileExplorerView = lazy(() => import("@/components/explorer/FileExplorerView"));
-const EditorView = lazy(() => import("@/components/editor/EditorView"));
-const BrowserTabContent = lazy(() => import("./BrowserTabContent"));
+// 懒加载非终端组件（lazyWithRetry：分片取回失败时自愈，见 lib/lazyRetry.ts）
+const McpConfigPanel = lazyWithRetry(() => import("@/components/settings/ProjectMcpSection"), "ProjectMcpSection");
+const SkillManager = lazyWithRetry(() => import("@/components/skill/SkillManager"), "SkillManager");
+const MemoryManager = lazyWithRetry(() => import("@/components/memory/MemoryManager"), "MemoryManager");
+const FileExplorerView = lazyWithRetry(() => import("@/components/explorer/FileExplorerView"), "FileExplorerView");
+const EditorView = lazyWithRetry(() => import("@/components/editor/EditorView"), "EditorView");
+const BrowserTabContent = lazyWithRetry(() => import("./BrowserTabContent"), "BrowserTabContent");
 
 interface TabContentRendererProps {
   tab: Tab;
@@ -33,6 +35,20 @@ function LoadingFallback() {
     <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
       Loading...
     </div>
+  );
+}
+
+/**
+ * 懒加载 tab 内容的统一包装。
+ *
+ * ErrorBoundary 必须在 Suspense 外层且**逐 tab 隔离**：一个分片取回失败只应换掉那个
+ * 标签的内容区，而不是让 throw 冒泡到 App.tsx 顶层把整个窗口变成错误页。
+ */
+function LazyContent({ children }: { children: ReactNode }) {
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<LoadingFallback />}>{children}</Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -106,51 +122,51 @@ export default memo(function TabContentRenderer({
     case "file-explorer":
       if (!tab.projectPath) return null;
       return (
-        <Suspense fallback={<LoadingFallback />}>
+        <LazyContent>
           <FileExplorerView projectPath={tab.projectPath} />
-        </Suspense>
+        </LazyContent>
       );
 
     case "browser":
       if (!tab.browserUrl) return null;
       return (
-        <Suspense fallback={<LoadingFallback />}>
+        <LazyContent>
           <BrowserTabContent tab={tab} isVisible={isVisible} isActive={isActive} />
-        </Suspense>
+        </LazyContent>
       );
 
     case "editor":
       if (!tab.filePath || !tab.projectPath) return null;
       return (
-        <Suspense fallback={<LoadingFallback />}>
+        <LazyContent>
           <EditorView
             filePath={tab.filePath}
             projectPath={tab.projectPath}
             tabId={tab.id}
             paneId={paneId}
           />
-        </Suspense>
+        </LazyContent>
       );
 
     case "mcp-config":
       return (
-        <Suspense fallback={<LoadingFallback />}>
+        <LazyContent>
           <McpConfigPanel projectPath={tab.projectPath} />
-        </Suspense>
+        </LazyContent>
       );
 
     case "skill-manager":
       return (
-        <Suspense fallback={<LoadingFallback />}>
+        <LazyContent>
           <SkillManager projectPath={tab.projectPath} />
-        </Suspense>
+        </LazyContent>
       );
 
     case "memory-manager":
       return (
-        <Suspense fallback={<LoadingFallback />}>
+        <LazyContent>
           <MemoryManager projectPath={tab.projectPath} />
-        </Suspense>
+        </LazyContent>
       );
 
     default:
