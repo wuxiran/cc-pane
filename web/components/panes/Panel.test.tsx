@@ -47,8 +47,15 @@ vi.mock("./TabContentRenderer", () => ({
   },
 }));
 
+// 回收管线在 kill 之前会先 detach 全部会话（阶段 1）——mock 缺了这两个方法
+// 会让管线在第一阶段就抛错中断，表现为「killSession 没被调用」，看着像功能
+// 坏了，其实是观察点不全。
 vi.mock("@/services/terminalService", () => ({
-  terminalService: { killSession: vi.fn().mockResolvedValue(undefined) },
+  terminalService: {
+    killSession: vi.fn().mockResolvedValue(undefined),
+    detachOutput: vi.fn(),
+    detachExit: vi.fn(),
+  },
 }));
 
 vi.mock("@/services/popupWindowService", () => ({
@@ -87,15 +94,41 @@ function makePane(tabs: Tab[], activeTabId = tabs[0]?.id ?? ""): PanelType {
 }
 
 function setPanesState(pane: PanelType, overrides?: Record<string, unknown>) {
+  // layouts 必须给一条真实条目：B1-04 起关闭走 removeTabsInternal，它跨全部
+  // 布局定位目标 tab（星标布局里的标签同样要能关）。空 layouts 会让它一个
+  // tab 都找不到，表现为「点了没反应」。
   usePanesStore.setState({
     activePaneId: pane.id,
     rootPane: pane,
     allPanels: () => [pane],
-    layouts: [],
+    layouts: [
+      {
+        id: "layout-1",
+        name: "布局 1",
+        kind: "normal",
+        rootPane: pane,
+        activePaneId: pane.id,
+      },
+    ],
     currentLayoutId: "layout-1",
+    closedTabs: [],
+    poppedOutTabs: new Set<string>(),
     isTabPoppedOut: () => false,
     ...overrides,
   } as never);
+}
+
+/**
+ * 关闭路径的观察点。
+ *
+ * B1-04 起 UI 不再自己 kill、也不调 closeTab —— 回收与树操作统一交给
+ * removeTabsInternal（唯一销毁出口）。所以断言打在「出口收到了哪些 tabId
+ * 与什么 reason」上，而不是旧的 closeTab + killSession 组合。
+ */
+function spyRemoveTabs() {
+  const spy = vi.fn();
+  usePanesStore.setState({ removeTabsInternal: spy } as never);
+  return spy;
 }
 
 const tRaw = i18n.t as (key: string, options?: Record<string, unknown>) => string;
@@ -156,8 +189,7 @@ describe("Panel", () => {
     expect(screen.getByTestId("tab-content-browser-1")).toBeInTheDocument();
   });
 
-  it("kills all terminal sessions of a tab and closes it", () => {
-    const closeTab = vi.fn();
+  it("把整个 tab 交给销毁出口（分屏会话由出口全量回收）", () => {
     const pane = makePane([
       makeTab("t1", {
         terminalRootPane: {
@@ -172,93 +204,86 @@ describe("Panel", () => {
         } as Tab["terminalRootPane"],
       }),
     ]);
-    setPanesState(pane, { closeTab });
+    setPanesState(pane);
+    const removeTabs = spyRemoveTabs();
 
     render(<Panel pane={pane} />);
     tabBarProps!.onClose("t1");
 
-    expect(killSession).toHaveBeenCalledWith("sess-a");
-    expect(killSession).toHaveBeenCalledWith("sess-b");
-    expect(closeTab).toHaveBeenCalledWith("pane-1", "t1");
+    expect(removeTabs).toHaveBeenCalledWith(["t1"], "user-close");
   });
 
   it("ignores close requests for pinned tabs", () => {
-    const closeTab = vi.fn();
     const pane = makePane([makeTab("t1", { pinned: true })]);
-    setPanesState(pane, { closeTab });
+    setPanesState(pane);
+    const removeTabs = spyRemoveTabs();
 
     render(<Panel pane={pane} />);
     tabBarProps!.onClose("t1");
 
-    expect(closeTab).not.toHaveBeenCalled();
+    expect(removeTabs).not.toHaveBeenCalled();
     expect(killSession).not.toHaveBeenCalled();
   });
 
   it("asks for confirmation before closing a dirty tab and closes on confirm", async () => {
     const user = userEvent.setup();
-    const closeTab = vi.fn();
     const pane = makePane([makeTab("t1", { dirty: true })]);
-    setPanesState(pane, { closeTab });
+    setPanesState(pane);
+    const removeTabs = spyRemoveTabs();
 
     render(<Panel pane={pane} />);
     tabBarProps!.onClose("t1");
 
-    expect(await screen.findByText(tPanes("unsavedChanges"))).toBeInTheDocument();
-    expect(closeTab).not.toHaveBeenCalled();
+    expect(await screen.findByText(tPanes("closeTabConfirmTitle"))).toBeInTheDocument();
+    expect(removeTabs).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: tPanes("discardAndClose") }));
+    await user.click(screen.getByRole("button", { name: tPanes("closeTabConfirmAction") }));
 
-    expect(closeTab).toHaveBeenCalledWith("pane-1", "t1");
-    expect(killSession).toHaveBeenCalledWith("sess-t1");
+    expect(removeTabs).toHaveBeenCalledWith(["t1"], "user-close");
   });
 
   it("cancelling the dirty confirm keeps the tab open", async () => {
     const user = userEvent.setup();
-    const closeTab = vi.fn();
     const pane = makePane([makeTab("t1", { dirty: true })]);
-    setPanesState(pane, { closeTab });
+    setPanesState(pane);
+    const removeTabs = spyRemoveTabs();
 
     render(<Panel pane={pane} />);
     tabBarProps!.onClose("t1");
-    await screen.findByText(tPanes("unsavedChanges"));
+    await screen.findByText(tPanes("closeTabConfirmTitle"));
 
     await user.click(screen.getByRole("button", { name: i18n.t("cancel") }));
 
-    expect(closeTab).not.toHaveBeenCalled();
+    expect(removeTabs).not.toHaveBeenCalled();
     expect(killSession).not.toHaveBeenCalled();
   });
 
-  it("closes other tabs directly when none are dirty, sparing pinned tabs' sessions", () => {
-    const closeOtherTabs = vi.fn();
+  it("批量关闭把未 pinned 的其余 tab 交给出口，pinned 与目标不动", () => {
     const pane = makePane([makeTab("keep"), makeTab("x"), makeTab("pinned", { pinned: true })], "keep");
-    setPanesState(pane, { closeOtherTabs });
+    setPanesState(pane);
+    const removeTabs = spyRemoveTabs();
 
     render(<Panel pane={pane} />);
     tabBarProps!.onCloseOtherTabs("keep");
 
-    expect(killSession).toHaveBeenCalledWith("sess-x");
-    expect(killSession).not.toHaveBeenCalledWith("sess-pinned");
-    expect(killSession).not.toHaveBeenCalledWith("sess-keep");
-    expect(closeOtherTabs).toHaveBeenCalledWith("pane-1", "keep");
+    expect(removeTabs).toHaveBeenCalledWith(["x"], "batch-close");
   });
 
   it("shows the batch confirm with dirty count and applies the batch close on confirm", async () => {
     const user = userEvent.setup();
-    const closeOtherTabs = vi.fn();
     const pane = makePane([makeTab("keep"), makeTab("d1", { dirty: true }), makeTab("d2", { dirty: true })], "keep");
-    setPanesState(pane, { closeOtherTabs });
+    setPanesState(pane);
+    const removeTabs = spyRemoveTabs();
 
     render(<Panel pane={pane} />);
     tabBarProps!.onCloseOtherTabs("keep");
 
-    expect(await screen.findByText(tPanes("unsavedTabsCount", { count: 2 }))).toBeInTheDocument();
-    expect(closeOtherTabs).not.toHaveBeenCalled();
+    expect(await screen.findByText(tPanes("closeTabDirtyEditors", { count: 2 }))).toBeInTheDocument();
+    expect(removeTabs).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: tPanes("discardAndClose") }));
+    await user.click(screen.getByRole("button", { name: tPanes("closeTabConfirmAction") }));
 
-    expect(closeOtherTabs).toHaveBeenCalledWith("pane-1", "keep");
-    expect(killSession).toHaveBeenCalledWith("sess-d1");
-    expect(killSession).toHaveBeenCalledWith("sess-d2");
+    expect(removeTabs).toHaveBeenCalledWith(["d1", "d2"], "batch-close");
   });
 
   // close-tab 快捷键（Ctrl+W）派发 CLOSE_ACTIVE_TAB_EVENT，必须与鼠标点 × 同路径
@@ -267,8 +292,7 @@ describe("Panel", () => {
       fireEvent(window, new Event(CLOSE_ACTIVE_TAB_EVENT));
     }
 
-    it("kills every session of a split tab, not just tab.sessionId", () => {
-      const closeTab = vi.fn();
+    it("与鼠标点 × 同路径：整个 tab 交给销毁出口（分屏会话由出口全量回收）", () => {
       const pane = makePane([
         makeTab("t1", {
           sessionId: "sess-a",
@@ -284,44 +308,42 @@ describe("Panel", () => {
           } as Tab["terminalRootPane"],
         }),
       ]);
-      setPanesState(pane, { closeTab });
+      setPanesState(pane);
+      const removeTabs = spyRemoveTabs();
 
       render(<Panel pane={pane} />);
       fireCloseShortcut();
 
-      expect(killSession.mock.calls.map((call) => call[0]).sort()).toEqual(["sess-a", "sess-b"]);
-      expect(closeTab).toHaveBeenCalledWith("pane-1", "t1");
+      expect(removeTabs).toHaveBeenCalledWith(["t1"], "user-close");
     });
 
     it("does not close a pinned tab", () => {
-      const closeTab = vi.fn();
       const pane = makePane([makeTab("t1", { pinned: true })]);
-      setPanesState(pane, { closeTab });
+      setPanesState(pane);
+      const removeTabs = spyRemoveTabs();
 
       render(<Panel pane={pane} />);
       fireCloseShortcut();
 
-      expect(closeTab).not.toHaveBeenCalled();
+      expect(removeTabs).not.toHaveBeenCalled();
       expect(killSession).not.toHaveBeenCalled();
     });
 
     it("asks for confirmation on a dirty tab instead of closing it silently", async () => {
       const user = userEvent.setup();
-      const closeTab = vi.fn();
       const pane = makePane([makeTab("t1", { dirty: true })]);
-      setPanesState(pane, { closeTab });
+      setPanesState(pane);
+      const removeTabs = spyRemoveTabs();
 
       render(<Panel pane={pane} />);
       fireCloseShortcut();
 
-      expect(await screen.findByText(tPanes("unsavedChanges"))).toBeInTheDocument();
-      expect(closeTab).not.toHaveBeenCalled();
-      expect(killSession).not.toHaveBeenCalled();
+      expect(await screen.findByText(tPanes("closeTabConfirmTitle"))).toBeInTheDocument();
+      expect(removeTabs).not.toHaveBeenCalled();
 
-      await user.click(screen.getByRole("button", { name: tPanes("discardAndClose") }));
+      await user.click(screen.getByRole("button", { name: tPanes("closeTabConfirmAction") }));
 
-      expect(closeTab).toHaveBeenCalledWith("pane-1", "t1");
-      expect(killSession).toHaveBeenCalledWith("sess-t1");
+      expect(removeTabs).toHaveBeenCalledWith(["t1"], "user-close");
     });
 
     it("is ignored by panels that are not the active pane", () => {

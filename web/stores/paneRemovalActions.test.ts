@@ -733,3 +733,72 @@ describe("removeTerminalLeafInternal（改道后：只杀这一格）", () => {
     expect(killedIds()).toEqual(["sess-saved"]);
   });
 });
+
+// ============================================================================
+// B1-11：快照覆盖的差集观察（真杀未开闸）。
+//
+// 最危险的一条路径：跨端同步每 5s 一轮，整树替换后旧树会话失去引用，但它们
+// 常常马上被 reconcile 收养回来。差集算错 = 开闸后杀光用户所有活会话。
+// ============================================================================
+describe("applyLayoutSnapshotPayload（差集观察，本轮不真杀）", () => {
+  function leafTab(id: string, sessionId: string | null, saved?: string): Tab {
+    const tab = makeTerminalTab(id);
+    const leaf = tab.terminalRootPane as TerminalPaneLeaf;
+    leaf.sessionId = sessionId;
+    if (saved) leaf.savedSessionId = saved;
+    return tab;
+  }
+
+  function payloadWith(tabs: Tab[]) {
+    const panel = makePanel("p-new", tabs);
+    return {
+      schemaVersion: 2 as const,
+      currentLayoutId: "layout-new",
+      layouts: [
+        {
+          id: "layout-new",
+          name: "新布局",
+          kind: "normal" as const,
+          rootPane: panel,
+          activePaneId: panel.id,
+        },
+      ],
+    };
+  }
+
+  it("快照期间绝不 kill——真杀要等批2 后开闸并复核活会话", async () => {
+    setPanesState(makePanel("p1", [leafTab("t1", "sess-old")]), "p1");
+
+    usePanesStore.getState().applyLayoutSnapshotPayload(payloadWith([leafTab("t2", "sess-new")]));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  it("新树仍引用的会话不进 would-kill（收养场景，误判即误杀）", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    setPanesState(makePanel("p1", [leafTab("t1", "sess-keep")]), "p1");
+
+    // 新树用 savedSessionId 引用同一个会话——reconcile 随后会把它收养回来
+    usePanesStore.getState().applyLayoutSnapshotPayload(
+      payloadWith([leafTab("t2", null, "sess-keep")]),
+    );
+
+    const wouldKill = info.mock.calls
+      .filter((c) => c[0] === "[destroy] snapshot-apply would-kill")
+      .flatMap((c) => (c[1] as { sessionIds: string[] }).sessionIds);
+    expect(wouldKill).not.toContain("sess-keep");
+  });
+
+  it("确实消失的会话才进 would-kill", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    setPanesState(makePanel("p1", [leafTab("t1", "sess-gone")]), "p1");
+
+    usePanesStore.getState().applyLayoutSnapshotPayload(payloadWith([leafTab("t2", "sess-new")]));
+
+    const wouldKill = info.mock.calls
+      .filter((c) => c[0] === "[destroy] snapshot-apply would-kill")
+      .flatMap((c) => (c[1] as { sessionIds: string[] }).sessionIds);
+    expect(wouldKill).toContain("sess-gone");
+  });
+});
