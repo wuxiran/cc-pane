@@ -147,3 +147,12 @@ export function removeSubscriber<T>(
   set.delete(callback);
   if (set.size === 0) map.delete(sessionId);
 }
+
+/**
+ * 会话已死：回收 per-session 上下文用量缓存条目。
+ * 延迟 import 避免 store ↔ service 循环依赖。
+ */
+export function dropContextUsage(sessionId: string): void {
+  void import("@/stores/useContextUsageStore")
+    .then(({ useContextUsageStore }) => useContextUsageStore.getState().dropSession(sessionId));
+}

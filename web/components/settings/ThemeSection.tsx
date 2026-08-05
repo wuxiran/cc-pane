@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PresetSwatches, SystemThemePreview } from "@/components/theme/ThemeSwatches";
@@ -20,8 +21,14 @@ export default function ThemeSection({ value, onChange }: ThemeSectionProps) {
   const { t } = useTranslation("settings");
   const preference = canonicalThemePreference(value.mode);
 
+  // 视觉主题只跟随 draft.mode 一个源。点卡片只写 draft（设置面板 500ms 自动落盘，
+  // 与 StatusBar 下拉的即时保存语义一致）；「重置本节」等外部改 draft 的路径也能
+  // 立刻反映到画面上，不会出现「选中态变了但颜色没变」的分叉。
+  useEffect(() => {
+    useThemeStore.getState().setThemeMode(preference);
+  }, [preference]);
+
   function selectTheme(next: ThemePreference) {
-    useThemeStore.getState().setThemeMode(next);
     onChange({ ...value, mode: next });
   }
 

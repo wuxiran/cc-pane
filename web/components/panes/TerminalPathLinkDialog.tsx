@@ -62,10 +62,14 @@ export default function TerminalPathLinkDialog() {
           dialog.column,
         );
       }
+      // 终端住在分屏区：必须 forcePaneTab，否则 appViewMode === "files" 时
+      // openEditor 会静默返回 null，分屏区毫无反应（CLAUDE.md 已知坑）。
       usePanesStore.getState().openEditor(
         editorProjectPath(dialog.sessionId, dialog.canonicalPath),
         dialog.canonicalPath,
         fileName(dialog.canonicalPath),
+        undefined,
+        { forcePaneTab: true },
       );
     });
   };

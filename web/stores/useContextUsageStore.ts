@@ -12,6 +12,27 @@ interface ContextUsageState {
   setSession: (sessionId: string | null) => void;
   load: (sessionId: string) => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
+  dropSession: (sessionId: string) => void;
+}
+
+/**
+ * per-session 快照缓存的条目上限。会话退出后前端可能仍展示标签（reclaim 类 kill
+ * 保留标签），因此不能只靠退出事件回收——长跑实例里会话 id 只增不减。
+ * 超限时按插入顺序淘汰最旧的（Map 保序），当前活跃会话永不淘汰。
+ */
+export const MAX_CONTEXT_USAGE_ENTRIES = 64;
+
+function pruneSessions(
+  sessions: Map<string, ContextUsageEntry>,
+  keepSessionId: string | null,
+): Map<string, ContextUsageEntry> {
+  if (sessions.size <= MAX_CONTEXT_USAGE_ENTRIES) return sessions;
+  for (const key of sessions.keys()) {
+    if (sessions.size <= MAX_CONTEXT_USAGE_ENTRIES) break;
+    if (key === keepSessionId) continue;
+    sessions.delete(key);
+  }
+  return sessions;
 }
 
 export interface ContextUsageEntry {
@@ -74,6 +95,18 @@ export const useContextUsageStore = create<ContextUsageState>((set, get) => ({
     await get().loadSession(sessionId);
   },
 
+  /** 会话退出（terminal-exit / session-killed）时回收其快照条目，避免 Map 只增不减。 */
+  dropSession: (sessionId) => {
+    set((state) => {
+      if (!state.sessions.has(sessionId)) return {};
+      const sessions = new Map(state.sessions);
+      sessions.delete(sessionId);
+      return state.sessionId === sessionId
+        ? { sessions, snapshot: null, lastReady: null, loading: false, requestId: 0 }
+        : { sessions };
+    });
+  },
+
   loadSession: async (sessionId) => {
     // Grid layouts can render the same session in more than one status surface.
     // Cache and de-duplicate requests per PTY instead of letting the active
@@ -84,6 +117,7 @@ export const useContextUsageStore = create<ContextUsageState>((set, get) => ({
     set((state) => {
       const sessions = new Map(state.sessions);
       sessions.set(sessionId, { ...previous, loading: true, requestId });
+      pruneSessions(sessions, state.sessionId);
       return state.sessionId === sessionId
         ? { sessions, loading: true, requestId }
         : { sessions };

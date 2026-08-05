@@ -173,6 +173,34 @@ describe("direct color guard", () => {
     ).toEqual([]);
   });
 
+  // 主题预设块只覆盖 :root/.dark 的一个子集，其余 token 靠继承取值（暗色主题同时挂
+  // .dark class，继承到的是暗色值）。护栏管两件事：①不许出现 :root 里没有的野 token
+  // （拼错的 key 只会静默不生效）；②四个主题块必须覆盖同一套 token，否则某个主题少定义
+  // 一个键就会静默漂移成别的主题的颜色，肉眼要逐主题切才看得出来。
+  it("每个 [data-theme] 主题块的 --app-* 集合一致且是 :root 的子集", () => {
+    const rootTokens = appTokens(themeBlock(indexCss, ":root"));
+    const themeNames = [...indexCss.matchAll(/:root\[data-theme="([a-z0-9-]+)"\]\s*\{/gi)]
+      .map((match) => match[1]);
+    expect(themeNames.length, "index.css 里应至少有一个 [data-theme] 主题块").toBeGreaterThan(0);
+
+    const perTheme = themeNames.map((name) => ({
+      name,
+      tokens: appTokens(themeBlock(indexCss, `:root[data-theme="${name}"]`)),
+    }));
+
+    const unknown = perTheme.flatMap(({ name, tokens }) =>
+      difference(tokens, rootTokens).map((token) => `${name}: ${token}`),
+    );
+    expect(unknown, `主题块里存在 :root 未定义的 token：\n${unknown.join("\n")}`).toEqual([]);
+
+    const [first, ...rest] = perTheme;
+    const drift = rest.flatMap(({ name, tokens }) => [
+      ...difference(first.tokens, tokens).map((token) => `${name} 缺少 ${token}`),
+      ...difference(tokens, first.tokens).map((token) => `${name} 多出 ${token}`),
+    ]);
+    expect(drift, `主题块之间 token 覆盖面不一致：\n${drift.join("\n")}`).toEqual([]);
+  });
+
   it("原生表单控件应随主题使用对应的 color-scheme", () => {
     expect(themeBlock(indexCss, ":root")).toMatch(/color-scheme:\s*light\s*;/);
     expect(themeBlock(indexCss, ".dark")).toMatch(/color-scheme:\s*dark\s*;/);

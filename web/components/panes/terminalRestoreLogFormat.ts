@@ -93,6 +93,8 @@ function toneOf(event: string, details: Record<string, unknown>): RestoreLogTone
     || event === "activation.create.end"
     || event === "background.backend-create.end"
     || event === "background.restore.ready"
+    || event === "cold-restore.kill.end"
+    || event === "in-process-session.reattach-ready"
   ) {
     return "ok";
   }

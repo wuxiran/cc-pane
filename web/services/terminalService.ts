@@ -24,16 +24,10 @@ import { apiDelete, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiCl
 import { waitForTerminalRestoreBarrier } from "./terminalRestoreBarrier";
 import { cancelTerminalLaunch, isTerminalReclaimKillReason, withTerminalLaunchDeadline } from "./terminalLaunchDeadline";
 import {
-  addSubscriber,
-  assertCreateSessionRequest,
-  compactCreateSessionRequest,
-  countTerminalInputChars,
-  debugTerminalService,
-  isSessionClaimedError,
-  isWebSocketDesyncMessage,
-  parseWebSocketOutput,
-  removeSubscriber,
-  summarizeTerminalInput,
+  addSubscriber, assertCreateSessionRequest, compactCreateSessionRequest,
+  countTerminalInputChars, debugTerminalService, dropContextUsage,
+  isSessionClaimedError, isWebSocketDesyncMessage, parseWebSocketOutput,
+  removeSubscriber, summarizeTerminalInput,
 } from "./terminalServiceShared";
 export { isSessionClaimedError };import type {
   TerminalBackendClientInfo,
@@ -57,6 +51,7 @@ function dispatchOutput(sessionId: string, data: string): boolean {
 }
 
 function dispatchExit(sessionId: string, exitCode: number): void {
+  dropContextUsage(sessionId);
   const set = exitCallbacks.get(sessionId);
   if (!set) return;
   for (const callback of set) callback(exitCode);
@@ -305,6 +300,7 @@ export async function ensureListeners(): Promise<void> {
       // 延迟 import 避免循环依赖
       const { usePanesStore } = await import("@/stores/usePanesStore");
       usePanesStore.getState().closeTabBySessionId(sessionId);
+      dropContextUsage(sessionId); // 会话已死，回收上下文用量缓存
     }
   );
 
@@ -703,9 +699,9 @@ export const terminalService = {
   },
 
   /**
-   * 注册 desync 回调（daemon 输出镜像流溢出跳段，中段输出永久缺失）。
-   * 订阅方收到后必须丢弃现有画面、用 replay snapshot 重放。
-   * 返回 unsubscribe，语义同 registerOutput（但不参与 WS 生命周期判定）。
+   * 注册 desync 回调（daemon 输出镜像流溢出跳段，中段输出永久缺失）。订阅方收到后必须
+   * 丢弃现有画面、用 replay snapshot 重放。返回 unsubscribe，语义同 registerOutput
+   * （但不参与 WS 生命周期判定）。
    */
   async registerDesync(sessionId: string, callback: () => void): Promise<() => void> {
     await ensureListeners();

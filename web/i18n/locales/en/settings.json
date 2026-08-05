@@ -256,7 +256,7 @@
   "showContextUsage": "Show context usage",
   "showContextUsageHint": "Show the context usage indicator in the global and per-terminal status bars.",
   "showStatusBar": "Show terminal status bar",
-  "showStatusBarHint": "When off, the whole bottom status bar (CLI label, model, context usage, project path) is hidden across every terminal tab, giving the space back to the terminal. Toggle quickly via right-click on any status bar.",
+  "showStatusBarHint": "The per-terminal status bar (CLI label, model, context usage, project path) only appears in multi-pane layouts; with a single or fullscreen pane the same information lives in the global status bar. When off it is not rendered at all, giving the space back to the terminal. Toggle quickly via right-click on any status bar.",
   "shellAutoDetect": "Auto-detect if empty",
   "voiceTitle": "Voice Input",
   "voiceDesc": "Record from any terminal pane and insert the transcript into that pane without auto-submitting.",
