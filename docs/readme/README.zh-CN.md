@@ -202,7 +202,7 @@ CC-Panes 支持任意能在终端运行的 CLI Agent。一等适配器会在各 
 
 ## 开发
 
-贡献或本地运行请看 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
+贡献或本地运行请看 [CONTRIBUTING.md](https://github.com/wuxiran/cc-pane/blob/main/CONTRIBUTING.md)。
 
 ```bash
 git clone https://github.com/wuxiran/cc-pane.git
@@ -226,7 +226,7 @@ cargo test --workspace
 
 ## 许可证
 
-CC-Panes 使用 [GPL-3.0](../../LICENSE) 协议开源。
+CC-Panes 使用 [GPL-3.0](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) 协议开源。
 
 ## 致谢
 

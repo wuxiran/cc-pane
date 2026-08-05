@@ -202,7 +202,7 @@ CC-Panes はターミナルで動く任意の CLI エージェントに対応し
 
 ## 開発
 
-貢献ガイドは [CONTRIBUTING.md](../../CONTRIBUTING.md) を参照してください。
+貢献ガイドは [CONTRIBUTING.md](https://github.com/wuxiran/cc-pane/blob/main/CONTRIBUTING.md) を参照してください。
 
 ```bash
 git clone https://github.com/wuxiran/cc-pane.git
@@ -226,7 +226,7 @@ cargo test --workspace
 
 ## ライセンス
 
-CC-Panes は [GPL-3.0](../../LICENSE) で公開されている無料のオープンソースです。
+CC-Panes は [GPL-3.0](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) で公開されている無料のオープンソースです。
 
 ## 謝辞
 

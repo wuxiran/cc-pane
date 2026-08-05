@@ -202,7 +202,7 @@ CC-Panes는 터미널에서 실행되는 모든 CLI 에이전트와 함께 동�
 
 ## 개발
 
-기여 안내는 [CONTRIBUTING.md](../../CONTRIBUTING.md)를 참고하세요.
+기여 안내는 [CONTRIBUTING.md](https://github.com/wuxiran/cc-pane/blob/main/CONTRIBUTING.md)를 참고하세요.
 
 ```bash
 git clone https://github.com/wuxiran/cc-pane.git
@@ -226,7 +226,7 @@ cargo test --workspace
 
 ## 라이선스
 
-CC-Panes는 [GPL-3.0](../../LICENSE) 라이선스의 무료 오픈 소스입니다.
+CC-Panes는 [GPL-3.0](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) 라이선스의 무료 오픈 소스입니다.
 
 ## 감사
 

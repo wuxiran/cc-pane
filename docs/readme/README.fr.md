@@ -202,7 +202,7 @@ Pour le parcours complet, voir le [guide utilisateur](../guide/README.md). Pour 
 
 ## Développement
 
-Voir [CONTRIBUTING.md](../../CONTRIBUTING.md) pour le guide de contribution.
+Voir [CONTRIBUTING.md](https://github.com/wuxiran/cc-pane/blob/main/CONTRIBUTING.md) pour le guide de contribution.
 
 ```bash
 git clone https://github.com/wuxiran/cc-pane.git
@@ -226,7 +226,7 @@ cargo test --workspace
 
 ## Licence
 
-CC-Panes est libre et open source sous la [licence GPL-3.0](../../LICENSE).
+CC-Panes est libre et open source sous la [licence GPL-3.0](https://github.com/wuxiran/cc-pane/blob/main/LICENSE).
 
 ## Remerciements
 
