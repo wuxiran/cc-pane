@@ -75,4 +75,40 @@ describe("deriveLayoutStatusSummary", () => {
   it("无会话布局 total 为 0", () => {
     expect(deriveLayoutStatusSummary(createPanel(), new Map()).total).toBe(0);
   });
+
+  it("恢复中的 savedSessionId 计入 total（全量口径，与关闭确认弹窗计数一致）", () => {
+    const restoringTab = terminalTab("tab-restoring", null);
+    restoringTab.restoring = true;
+    restoringTab.savedSessionId = "s-saved";
+    const liveTab = terminalTab("tab-live", "s-live");
+    const rootPane = createPanel();
+    rootPane.tabs = [restoringTab, liveTab];
+    const statusMap = new Map([["s-live", status("s-live", "thinking")]]);
+
+    expect(deriveLayoutStatusSummary(rootPane, statusMap)).toEqual({
+      running: 1,
+      waitingInput: 0,
+      blocked: 0,
+      idle: 0,
+      total: 2,
+    });
+  });
+
+  it("分屏 leaf 的 sessionId 与 savedSessionId 同为一个 id 时不重复计数", () => {
+    const tab = terminalTab("tab-split", null);
+    tab.terminalRootPane = {
+      type: "split",
+      id: "split-1",
+      direction: "horizontal",
+      children: [
+        { type: "leaf", id: "leaf-1", sessionId: "s-dup", savedSessionId: "s-dup" },
+        { type: "leaf", id: "leaf-2", sessionId: null, savedSessionId: "s-saved" },
+      ],
+      sizes: [0.5, 0.5],
+    };
+    const rootPane = createPanel();
+    rootPane.tabs = [tab];
+
+    expect(deriveLayoutStatusSummary(rootPane, new Map()).total).toBe(2);
+  });
 });

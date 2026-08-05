@@ -5,7 +5,7 @@ import { eachLayoutTree } from "@/stores/paneLayoutHelpers";
 
 /** eachLayoutTree/layoutTree 实际只读这三个字段；收窄签名便于调用方按需订阅 */
 export type PanesLayoutSlice = Pick<PanesState, "layouts" | "rootPane" | "currentLayoutId">;
-import { collectTerminalLeaves, collectTerminalSessionIds, collectTerminalTabs } from "@/lib/paneSessions";
+import { collectTerminalLeaves, collectTerminalSessionIdsWithSaved, collectTerminalTabs } from "@/lib/paneSessions";
 import { resolveTerminalContextSelection } from "@/hooks/useFollowActiveTerminalContext";
 import type { Tab, Workspace } from "@/types";
 import type { TerminalStatusInfo, TerminalStatusType } from "@/types";
@@ -119,7 +119,8 @@ export function deriveWorkspaceTerminals(
   const grouped = new Map<string, WorkspaceTerminalRow[]>();
   eachLayoutTree(state as PanesState, (layout, tree) => {
     for (const tab of collectTerminalTabs(tree)) {
-      const sessionIds = collectTerminalSessionIds(tab);
+      // 全量口径：恢复中（savedSessionId 尚未 attach）的会话也算活 PTY，进列表且计入 ×N
+      const sessionIds = collectTerminalSessionIdsWithSaved(tab);
       if (sessionIds.length === 0) continue;
       const workspaceId = resolveWorkspaceId(tab, workspaces);
       if (!workspaceId) continue;

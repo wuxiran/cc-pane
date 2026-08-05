@@ -1,7 +1,7 @@
 // 布局标签 2×2 状态块的分桶统计：按会话状态计数。
 // 桶语义与 StatusIndicator 的状态色一致：blocked=error(红)、waitingInput=等授权(琥珀)、
 // running=在干活(accent)、idle=真空闲(灰)；total=会话总数（区分"无会话"与"全零"）。
-import { collectTerminalSessionIds, collectTerminalTabs } from "@/lib/paneSessions";
+import { collectTerminalSessionIdsWithSaved, collectTerminalTabs } from "@/lib/paneSessions";
 import type { PaneNode, TerminalStatusInfo, TerminalStatusType } from "@/types";
 
 export interface LayoutStatusSummary {
@@ -32,7 +32,8 @@ export function deriveLayoutStatusSummary(
   };
 
   for (const tab of collectTerminalTabs(rootPane)) {
-    for (const sessionId of collectTerminalSessionIds(tab)) {
+    // 全量口径：restoring 中尚未 attach 的 savedSessionId 也是真实 PTY，计入 total
+    for (const sessionId of collectTerminalSessionIdsWithSaved(tab)) {
       summary.total += 1;
       const status = statusMap.get(sessionId)?.status;
       if (!status) continue;
