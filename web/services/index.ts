@@ -1,5 +1,11 @@
 export { projectService } from "./projectService";
 export { terminalService } from "./terminalService";
+export { terminalPathLinkService } from "./terminalPathLinkService";
+export type {
+  ResolvedTerminalPathLink,
+  TerminalPathDesktopAction,
+  TerminalPathKind,
+} from "./terminalPathLinkService";
 export { usageStatsService } from "./usageStatsService";
 export { historyService } from "./historyService";
 export { claudeService } from "./claudeService";

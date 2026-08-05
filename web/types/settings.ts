@@ -100,6 +100,7 @@ export interface ProxySettings {
 
 /** 主题设置 */
 export interface ThemeSettings {
+  /** Theme preset id, or the legacy light/dark/system values. */
   mode: string;
 }
 

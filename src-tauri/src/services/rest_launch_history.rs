@@ -24,6 +24,7 @@ pub struct RestLaunchRecord<'a> {
     pub workspace_name: Option<&'a str>,
     pub workspace_path: Option<&'a str>,
     pub provider_id: Option<&'a str>,
+    pub model_id: Option<&'a str>,
     pub provider_selection: Option<&'a str>,
     pub launch_profile_id: Option<&'a str>,
     /// resume 启动时已知的 resume id：不必等 Claude hook / Codex OSC 回报。
@@ -56,6 +57,7 @@ pub fn record_rest_launch(
         record.workspace_path,
         Some(record.project_path),
         record.provider_id,
+        record.model_id,
         record.provider_selection,
         record.launch_profile_id,
         None,

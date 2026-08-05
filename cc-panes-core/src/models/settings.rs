@@ -368,7 +368,7 @@ pub struct ProxySettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeSettings {
-    pub mode: String, // "light" | "dark" | "system"
+    pub mode: String, // theme preset id | "light" | "dark" | "system"
 }
 
 /// 终端设置

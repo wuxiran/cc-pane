@@ -42,6 +42,8 @@
   "useProviderDefaultModel": "跟随 Provider 默认（{{model}}）",
   "nativeCliDefaultModel": "CLI 自身默认模型",
   "missingProviderModel": "{{model}}（已从 Provider 移除）",
+  "modelContextWindowTokens": "{{window}} tokens",
+  "modelContextWindowUnknown": "未配置",
   "fieldReasoningEffort": "推理强度",
   "useModelDefaultEffort": "跟随模型默认（{{effort}}）",
   "useCliDefaultEffort": "跟随 CLI 默认",

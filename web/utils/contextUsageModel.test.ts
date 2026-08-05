@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LaunchProfile, Provider } from "@/types";
-import { resolveContextDisplayModel } from "./contextUsageModel";
+import { normalizeContextPercentage, resolveContextDisplayModel } from "./contextUsageModel";
 
 function profile(overrides: Partial<LaunchProfile> = {}): LaunchProfile {
   return {
@@ -87,5 +87,20 @@ describe("resolveContextDisplayModel", () => {
       [profile()],
       [provider],
     )).toBe("MiniMax-M3");
+  });
+});
+
+describe("normalizeContextPercentage", () => {
+  it.each([
+    [null, null],
+    [Number.NaN, null],
+    [Number.POSITIVE_INFINITY, null],
+    [-1, null],
+    [101, null],
+    [12.5, null],
+    [0, 0],
+    [100, 100],
+  ])("normalizes %s", (value, expected) => {
+    expect(normalizeContextPercentage(value as number | null)).toBe(expected);
   });
 });

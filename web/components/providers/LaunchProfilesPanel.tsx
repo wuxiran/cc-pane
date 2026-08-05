@@ -10,7 +10,7 @@ import type { DiscoveredExternalSkill, InstalledUserSkill, LaunchProfile, Launch
 import { cn } from "@/lib/utils";
 import ProviderToolTabs from "./ProviderToolTabs";
 import SharedMcpSection from "@/components/settings/SharedMcpSection";
-import { CLI_TOOL_TABS } from "@/types/provider";
+import { CLI_TOOL_TABS, type ProviderModel } from "@/types/provider";
 import { useCliTools } from "@/hooks/useCliTools";
 import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
 import type { KnownCliTool } from "@/types/terminal";
@@ -457,11 +457,11 @@ export default function LaunchProfilesPanel({
   const selectedEffectiveModel = draft.modelId
     ? selectedProviderModels.find((model) => model.id === draft.modelId)
     : selectedProviderDefaultModel;
+  const providerModelOptionLabel = (model: ProviderModel) => `${model.label ? `${model.label} (${model.id})` : model.id} - ${model.contextWindowTokens == null ? t("modelContextWindowUnknown") : t("modelContextWindowTokens", { window: model.contextWindowTokens.toLocaleString("en-US") })}`;
   const selectedProfileEffort = draft.adapterOptions?.effort;
   const providerOptions = selectedDraftProvider && !compatibleProviders.some((provider) => provider.id === selectedDraftProvider.id)
     ? [selectedDraftProvider, ...compatibleProviders]
     : compatibleProviders;
-
   const refreshSkillMarket = useCallback(async () => {
     setSkillMarketLoading(true);
     try {
@@ -1342,7 +1342,7 @@ export default function LaunchProfilesPanel({
                     <option value="">
                       {selectedProviderDefaultModel
                         ? t("useProviderDefaultModel", {
-                            model: selectedProviderDefaultModel.label || selectedProviderDefaultModel.id,
+                            model: providerModelOptionLabel(selectedProviderDefaultModel),
                           })
                         : t("nativeCliDefaultModel")}
                     </option>
@@ -1351,7 +1351,7 @@ export default function LaunchProfilesPanel({
                     )}
                     {selectedProviderModels.map((model) => (
                       <option key={model.id} value={model.id}>
-                        {model.label ? `${model.label} (${model.id})` : model.id}
+                        {providerModelOptionLabel(model)}
                       </option>
                     ))}
                   </select>

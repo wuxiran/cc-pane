@@ -80,7 +80,7 @@ function renderKimiPanel(onSave: (draft: LaunchProfileDraft) => void) {
     apiKey: "test-key",
     baseUrl: "https://api.moonshot.cn/v1",
     models: [
-      { id: "kimi-k2.5", label: "Kimi K2.5" },
+      { id: "kimi-k2.5", label: "Kimi K2.5", contextWindowTokens: 1_000_000 },
       { id: "kimi-k2-thinking", label: "Kimi K2 Thinking" },
     ],
     defaultModelId: "kimi-k2.5",
@@ -230,6 +230,22 @@ describe("LaunchProfilesPanel external skills", () => {
       expect(savedDraft?.modelId).toBe("kimi-k2-thinking");
       expect(savedDraft?.adapterOptions?.kimiConfigMode).toBeUndefined();
     });
+  });
+
+  it("shows configured and unknown context windows in Provider model options", async () => {
+    const user = userEvent.setup();
+    renderKimiPanel(() => {});
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
+    await user.selectOptions(screen.getByLabelText("Provider"), "kimi-provider");
+
+    const modelSelect = screen.getByLabelText(tp("fieldModel"));
+    expect(within(modelSelect).getByRole("option", {
+      name: "Kimi K2.5 (kimi-k2.5) - 1,000,000 tokens",
+    })).toBeInTheDocument();
+    expect(within(modelSelect).getByRole("option", {
+      name: "Kimi K2 Thinking (kimi-k2-thinking) - 未配置",
+    })).toBeInTheDocument();
   });
 
   it("inherits the model effort by default and saves a profile override", async () => {

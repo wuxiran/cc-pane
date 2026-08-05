@@ -27,6 +27,8 @@ pub struct ClaudeSession {
 pub struct LatestContextUsage {
     pub usage: UsageEntry,
     pub model: Option<String>,
+    pub window_tokens: Option<u64>,
+    pub window_diagnostic: Option<String>,
 }
 
 const MAX_CONTEXT_USAGE_FILE_BYTES: u64 = 32 * 1024 * 1024;
@@ -335,7 +337,13 @@ pub fn read_latest_context_usage(
             .and_then(|message| message.get("model"))
             .and_then(Value::as_str)
             .map(str::to_string);
-        latest = Some(LatestContextUsage { usage, model });
+        let (window_tokens, window_diagnostic) = extract_claude_context_window(&json);
+        latest = Some(LatestContextUsage {
+            usage,
+            model,
+            window_tokens,
+            window_diagnostic,
+        });
     }
 
     Ok((latest, offset))
@@ -376,6 +384,36 @@ fn extract_claude_context_usage(json: &Value) -> Option<UsageEntry> {
         token_cache_read: cache_read,
         token_cache_creation: cache_creation,
     })
+}
+
+fn extract_claude_context_window(json: &Value) -> (Option<u64>, Option<String>) {
+    let message = json.get("message");
+    let usage = message.and_then(|value| value.get("usage"));
+    let metadata = json.get("metadata");
+    let mut window_tokens = None;
+    let mut invalid_candidate = false;
+    for value in [Some(json), message, usage, metadata].into_iter().flatten() {
+        for name in [
+            "context_window",
+            "context_window_tokens",
+            "max_context_tokens",
+        ] {
+            let Some(candidate) = value.get(name) else {
+                continue;
+            };
+            match candidate.as_u64() {
+                Some(window) if window >= 1_000 && window_tokens.is_none() => {
+                    window_tokens = Some(window);
+                }
+                Some(window) if window >= 1_000 => {}
+                _ => invalid_candidate = true,
+            }
+        }
+    }
+    (
+        window_tokens,
+        invalid_candidate.then(|| "WINDOW_INVALID".to_string()),
+    )
 }
 
 fn usage_date(json: &Value) -> String {
@@ -568,6 +606,33 @@ mod tests {
         assert_eq!(observation.usage.token_input, 20);
         assert_eq!(observation.usage.token_cache_read, 4);
         assert_eq!(observation.model.as_deref(), Some("claude-sonnet"));
+    }
+
+    #[test]
+    fn latest_context_usage_reads_explicit_window_and_ignores_invalid_candidates() {
+        let path = write_raw_file(concat!(
+            r#"{"type":"assistant","message":{"model":"claude-sonnet","usage":{"input_tokens":20},"context_window_tokens":"200000"}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"model":"claude-sonnet","usage":{"input_tokens":30},"max_context_tokens":1000000}}"#,
+            "\n",
+        ));
+
+        let (observation, _offset) = read_latest_context_usage(&path, 0).expect("context usage");
+        let observation = observation.expect("latest observation");
+        assert_eq!(observation.usage.token_input, 30);
+        assert_eq!(observation.window_tokens, Some(1_000_000));
+
+        let path = write_raw_file(
+            r#"{"type":"assistant","message":{"usage":{"input_tokens":30,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"context_window":999}}
+"#,
+        );
+        let (observation, _offset) = read_latest_context_usage(&path, 0).expect("context usage");
+        let observation = observation.expect("usage");
+        assert_eq!(observation.window_tokens, None);
+        assert_eq!(
+            observation.window_diagnostic.as_deref(),
+            Some("WINDOW_INVALID")
+        );
     }
 
     #[test]

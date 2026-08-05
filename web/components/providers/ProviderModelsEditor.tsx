@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EFFORT_LEVELS } from "@/constants/effortMapping";
-import type { ProviderModel } from "@/types/provider";
+import {
+  MAX_PROVIDER_CONTEXT_WINDOW_TOKENS,
+  MIN_PROVIDER_CONTEXT_WINDOW_TOKENS,
+  type ProviderModel,
+} from "@/types/provider";
 import type { LaunchEffort } from "@/types/terminal";
 
 interface ProviderModelsEditorProps {
@@ -77,12 +81,14 @@ export default function ProviderModelsEditor({
             const isDefault = index === defaultIndex;
             const idInputId = `provider-model-id-${index}`;
             const labelInputId = `provider-model-label-${index}`;
+            const contextWindowInputId = `provider-model-context-window-${index}`;
+            const contextWindowHintId = `${contextWindowInputId}-hint`;
             const effortInputId = `provider-model-effort-${index}`;
             return (
               <div
                 key={index}
                 data-testid={`provider-model-row-${index}`}
-                className="grid grid-cols-1 items-end gap-2 rounded-md border p-2.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(8rem,0.75fr)_auto]"
+                className="grid grid-cols-1 items-end gap-2 rounded-md border p-2.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(9rem,0.75fr)_minmax(8rem,0.7fr)_auto]"
                 style={{ borderColor: "var(--app-border)", background: "var(--app-content)" }}
               >
                 <div className="min-w-0 space-y-1.5">
@@ -108,6 +114,36 @@ export default function ProviderModelsEditor({
                   />
                 </div>
                 <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor={contextWindowInputId} className="text-[11px]">
+                    {t("providerModelContextWindow")}
+                  </Label>
+                  <Input
+                    id={contextWindowInputId}
+                    type="number"
+                    inputMode="numeric"
+                    min={MIN_PROVIDER_CONTEXT_WINDOW_TOKENS}
+                    max={MAX_PROVIDER_CONTEXT_WINDOW_TOKENS}
+                    step={1}
+                    className="h-9 text-sm"
+                    value={model.contextWindowTokens ?? ""}
+                    aria-describedby={contextWindowHintId}
+                    onChange={(event) => {
+                      const value = event.target.value.trim();
+                      updateModel(index, {
+                        contextWindowTokens: value === "" ? null : Number(value),
+                      });
+                    }}
+                    placeholder={t("providerModelContextWindowPlaceholder")}
+                  />
+                  <p
+                    id={contextWindowHintId}
+                    className="text-[11px]"
+                    style={{ color: "var(--app-text-tertiary)" }}
+                  >
+                    {t("providerModelContextWindowHint")}
+                  </p>
+                </div>
+                <div className="min-w-0 space-y-1.5">
                   <Label htmlFor={effortInputId} className="text-[11px]">
                     {t("providerModelDefaultEffort")}
                   </Label>
@@ -125,7 +161,7 @@ export default function ProviderModelsEditor({
                     ))}
                   </select>
                 </div>
-                <div className="flex h-9 items-center justify-end gap-1 sm:col-start-2 xl:col-start-auto">
+                <div className="flex h-9 items-center justify-end gap-1 sm:col-span-2 xl:col-span-1">
                   <button
                     type="button"
                     className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
@@ -149,7 +185,7 @@ export default function ProviderModelsEditor({
                   </button>
                 </div>
                 {isDefault && (
-                  <span className="text-[10px] font-medium sm:col-span-2 xl:col-span-4" style={{ color: "var(--app-accent)" }}>
+                  <span className="text-[10px] font-medium sm:col-span-2 xl:col-span-5" style={{ color: "var(--app-accent)" }}>
                     {t("defaultProviderModel")}
                   </span>
                 )}

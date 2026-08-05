@@ -703,6 +703,13 @@ const MIGRATIONS: &[Migration] = &[
                 ON launch_history(project_id);
         ",
     },
+    Migration {
+        version: 30,
+        description: "launch_history: add model_id",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN model_id TEXT;
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1155,6 +1162,44 @@ mod tests {
                 [],
             )
             .is_err());
+    }
+
+    #[test]
+    fn migration_30_preserves_v29_rows_with_a_null_model_id() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             INSERT INTO schema_migrations (version, description) VALUES (29, 'seeded v29');
+             CREATE TABLE launch_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                project_name TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                launched_at TEXT NOT NULL,
+                provider_id TEXT
+             );
+             INSERT INTO launch_history (
+                project_id, project_name, project_path, launched_at, provider_id
+             ) VALUES ('legacy-launch', 'Legacy', '/legacy', '2026-01-01', 'provider-a');",
+        )
+        .expect("seed v29 database");
+
+        Database::run_migrations(&conn).expect("v30 migration");
+
+        let (project_id, model_id): (String, Option<String>) = conn
+            .query_row(
+                "SELECT project_id, model_id FROM launch_history WHERE project_id = 'legacy-launch'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read migrated row");
+        assert_eq!(project_id, "legacy-launch");
+        assert_eq!(model_id, None);
+        Database::run_migrations(&conn).expect("v30 migration remains idempotent");
     }
 
     #[test]

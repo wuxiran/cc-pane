@@ -8,7 +8,7 @@ import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import { useProvidersStore } from "@/stores/useProvidersStore";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
 import type { ContextUsageSnapshot } from "@/types/contextUsage";
-import { resolveContextDisplayModel } from "@/utils/contextUsageModel";
+import { normalizeContextPercentage, resolveContextDisplayModel } from "@/utils/contextUsageModel";
 
 const STALE_AFTER_MS = 25_000;
 
@@ -22,11 +22,24 @@ function formatTokens(value: number | null): string {
 function statusColor(snapshot: ContextUsageSnapshot): string {
   if (snapshot.status === "error") return "var(--app-status-danger)";
   if (snapshot.status === "stale") return "var(--app-status-warning)";
-  const percentage = snapshot.usedPercentage;
+  const percentage = normalizeContextPercentage(snapshot.usedPercentage);
   if (percentage === null) return "var(--app-text-secondary)";
   if (percentage >= 90) return "var(--app-status-danger)";
   if (percentage >= 50) return "var(--app-status-warning)";
   return "var(--app-status-success)";
+}
+
+function windowSourceKey(source: string | null) {
+  switch (source) {
+    case "codex-jsonl":
+      return "contextUsage.windowSources.codexJsonl";
+    case "claude-jsonl":
+      return "contextUsage.windowSources.claudeJsonl";
+    case "provider-model":
+      return "contextUsage.windowSources.providerModel";
+    default:
+      return "contextUsage.windowSources.unknown";
+  }
 }
 
 function toStale(snapshot: ContextUsageSnapshot): ContextUsageSnapshot {
@@ -79,7 +92,7 @@ export default function ContextUsageIndicator() {
 
   if (!displaySnapshot || displaySnapshot.diagnosticCode === "RUNTIME_UNSUPPORTED") return null;
 
-  const percentage = displaySnapshot.usedPercentage;
+  const percentage = normalizeContextPercentage(displaySnapshot.usedPercentage);
   const icon = displaySnapshot.status === "stale"
     ? <Clock3 className="h-3.5 w-3.5" />
     : displaySnapshot.status === "error"
@@ -93,6 +106,7 @@ export default function ContextUsageIndicator() {
   const displayModel = activeTerminal
     ? resolveContextDisplayModel(activeTerminal, displaySnapshot.model, profiles, providers)
     : displaySnapshot.model;
+  const windowSourceLabel = t(windowSourceKey(displaySnapshot.windowSource));
 
   return (
     <Tooltip>
@@ -129,6 +143,10 @@ export default function ContextUsageIndicator() {
         {displaySnapshot.status !== "waiting" && displaySnapshot.status !== "error" && (
           <>
             <p>{primary} · {rawSummary}</p>
+            {displaySnapshot.diagnosticCode === "WINDOW_UNKNOWN" && (
+              <p>{t("contextUsage.windowUnknown")}</p>
+            )}
+            <p>{t("contextUsage.windowSource", { source: windowSourceLabel })}</p>
             {effectiveDiffers && (
               <p>{t("contextUsage.effective")}: {formatTokens(displaySnapshot.effectiveUsedTokens)} / {formatTokens(displaySnapshot.effectiveWindowTokens)}</p>
             )}

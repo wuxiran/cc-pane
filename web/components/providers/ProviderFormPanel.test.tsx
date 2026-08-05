@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -242,6 +242,10 @@ describe("ProviderFormPanel", () => {
       within(row).getByLabelText(i18n.t("settings:providerModelLabel")),
       "Sonnet 4.5"
     );
+    await user.type(
+      within(row).getByLabelText(i18n.t("settings:providerModelContextWindow")),
+      "1000000"
+    );
     await user.selectOptions(
       within(row).getByLabelText(i18n.t("settings:providerModelDefaultEffort")),
       "high"
@@ -261,6 +265,7 @@ describe("ProviderFormPanel", () => {
             id: "claude-sonnet-4-5",
             label: "Sonnet 4.5",
             defaultEffort: "high",
+            contextWindowTokens: 1_000_000,
           }],
           defaultModelId: "claude-sonnet-4-5",
         })
@@ -315,6 +320,65 @@ describe("ProviderFormPanel", () => {
         })
       );
     });
+  });
+
+  it("clears a model context window and saves it as unknown", async () => {
+    const user = userEvent.setup();
+    const existing = {
+      ...makeProvider(),
+      models: [{
+        id: "claude-sonnet-4-5",
+        label: "Sonnet 4.5",
+        contextWindowTokens: 200_000,
+      }],
+      defaultModelId: "claude-sonnet-4-5",
+    } as Provider;
+    const actions = setupStore([existing]);
+    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+
+    const row = screen.getByTestId("provider-model-row-0");
+    const contextWindowInput = within(row).getByLabelText(
+      i18n.t("settings:providerModelContextWindow")
+    );
+    expect(contextWindowInput).toHaveValue(200_000);
+
+    await user.clear(contextWindowInput);
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+
+    await waitFor(() => {
+      expect(actions.updateProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: [expect.objectContaining({
+            id: "claude-sonnet-4-5",
+            contextWindowTokens: null,
+          })],
+          defaultModelId: "claude-sonnet-4-5",
+        })
+      );
+    });
+  });
+
+  it("rejects a fractional model context window before saving", async () => {
+    const user = userEvent.setup();
+    const existing = {
+      ...makeProvider(),
+      models: [{ id: "claude-sonnet-4-5", contextWindowTokens: 200_000 }],
+      defaultModelId: "claude-sonnet-4-5",
+    } as Provider;
+    const actions = setupStore([existing]);
+    render(<ProviderFormPanel editProvider={existing} onBack={vi.fn()} />);
+
+    const row = screen.getByTestId("provider-model-row-0");
+    const contextWindowInput = within(row).getByLabelText(
+      i18n.t("settings:providerModelContextWindow")
+    );
+    fireEvent.change(contextWindowInput, { target: { value: "10000000.5" } });
+    await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
+
+    expect(toast.error).toHaveBeenCalledWith(
+      i18n.t("settings:providerModelContextWindowInvalid")
+    );
+    expect(actions.updateProvider).not.toHaveBeenCalled();
   });
 
   it("shows save failures as an error toast and stays on the form", async () => {

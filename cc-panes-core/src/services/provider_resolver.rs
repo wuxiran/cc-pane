@@ -484,16 +484,19 @@ mod tests {
                 id: "provider-default".to_string(),
                 label: Some("Provider Default".to_string()),
                 default_effort: Some("high".to_string()),
+                context_window_tokens: None,
             },
             ProviderModel {
                 id: "profile-model".to_string(),
                 label: Some("Profile Model".to_string()),
                 default_effort: Some("low".to_string()),
+                context_window_tokens: None,
             },
             ProviderModel {
                 id: "request-model".to_string(),
                 label: Some("Request Model".to_string()),
                 default_effort: Some("xhigh".to_string()),
+                context_window_tokens: None,
             },
         ];
         configured.default_model_id = Some("provider-default".to_string());

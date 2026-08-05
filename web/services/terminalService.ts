@@ -484,7 +484,7 @@ export const terminalService = {
         "create_terminal_session",
         { request: compactRequest },
         async () => {
-          const response = await apiJson<{ sessionId: string }>(
+          const response = await apiJson<{ sessionId: string; resolvedModelId?: string | null }>(
             "/api/sessions",
             "POST",
             compactRequest,

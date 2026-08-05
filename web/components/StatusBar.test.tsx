@@ -126,16 +126,16 @@ describe("StatusBar", () => {
     );
   });
 
-  it("切换主题时翻转 theme store 并保存设置", async () => {
+  it("通过主题菜单切换预设并保存设置", async () => {
     const user = userEvent.setup();
-    const { container } = renderSB();
+    renderSB();
 
-    const moon = container.querySelector("svg.lucide-moon");
-    expect(moon).not.toBeNull();
-    await user.click(moon!.closest("button")!);
+    await user.click(screen.getByRole("button", { name: "选择主题" }));
+    await user.click(screen.getByRole("menuitem", { name: /霓虹紫/ }));
 
     await waitFor(() => expect(useThemeStore.getState().isDark).toBe(true));
-    expect(useSettingsStore.getState().settings?.theme.mode).toBe("dark");
+    expect(useThemeStore.getState().themeId).toBe("cyber-purple");
+    expect(useSettingsStore.getState().settings?.theme.mode).toBe("cyber-purple");
   });
 
   it("切换 cc酱 浮窗调用 IPC 并更新可见状态", async () => {

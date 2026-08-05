@@ -15,7 +15,7 @@ import { isJsonFile } from "@/utils/json";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import ProviderAvatar from "./ProviderAvatar";
 import {
-  PROVIDER_TYPE_META,
+  PROVIDER_TYPE_META, isValidProviderContextWindowTokens,
   type Provider,
   type ProviderModel,
   type ProviderType,
@@ -306,8 +306,10 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
       id: model.id.trim(),
       label: model.label?.trim() || null,
       defaultEffort: model.defaultEffort ?? null,
+      ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens ?? null }),
     }));
     if (models.some((model) => !model.id)) { toast.error(t("providerModelIdRequired")); return; }
+    if (models.some((model) => !isValidProviderContextWindowTokens(model.contextWindowTokens))) { toast.error(t("providerModelContextWindowInvalid")); return; }
     if (new Set(models.map((model) => model.id)).size !== models.length) {
       toast.error(t("providerModelIdsUnique"));
       return;
@@ -331,9 +333,7 @@ export default function ProviderFormPanel({ editProvider, preset, activeTab, onB
         awsProfile: form.awsProfile || null,
         configDir: form.configDir || null,
         models,
-        defaultModelId: form.defaultModelIndex === null
-          ? null
-          : models[form.defaultModelIndex]?.id ?? models[0]?.id ?? null,
+        defaultModelId: form.defaultModelIndex === null ? null : models[form.defaultModelIndex]?.id ?? models[0]?.id ?? null,
         isDefault: false,
       };
       if (editProvider) {

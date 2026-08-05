@@ -107,5 +107,11 @@
   "contextUsage.effective": "Effective",
   "contextUsage.waiting": "Waiting for usage data",
   "contextUsage.stale": "Data is {{seconds}}s old",
-  "contextUsage.error": "Context usage is unavailable"
+  "contextUsage.error": "Context usage is unavailable",
+  "contextUsage.windowUnknown": "Usage is available, but the context window is unknown. Configure it in the Provider model settings.",
+  "contextUsage.windowSource": "Window source: {{source}}",
+  "contextUsage.windowSources.codexJsonl": "Codex runtime",
+  "contextUsage.windowSources.claudeJsonl": "Claude session",
+  "contextUsage.windowSources.providerModel": "Provider model settings",
+  "contextUsage.windowSources.unknown": "Unknown"
 }

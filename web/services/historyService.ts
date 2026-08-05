@@ -16,6 +16,7 @@ export interface LaunchRecord {
   workspacePath?: string;
   launchCwd?: string;
   providerId?: string;
+  modelId?: string | null;
   providerSelection?: LaunchProviderSelection;
   launchProfileId?: string;
   workspaceSnapshotId?: string;
@@ -43,6 +44,7 @@ export const historyService = {
     workspacePath?: string,
     launchCwd?: string,
     providerId?: string,
+    modelId?: string,
     providerSelection?: LaunchProviderSelection,
     workspaceSnapshotId?: string,
     launchProfileId?: string,
@@ -58,6 +60,7 @@ export const historyService = {
       workspacePath: workspacePath ?? null,
       launchCwd: launchCwd ?? null,
       providerId: providerId ?? null,
+      modelId: modelId ?? null,
       providerSelection: providerSelection ?? null,
       launchProfileId: launchProfileId ?? null,
       workspaceSnapshotId: workspaceSnapshotId ?? null,

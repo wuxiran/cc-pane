@@ -37,6 +37,8 @@ pub struct ProviderModel {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<u64>,
 }
 
 /// Provider 配置
@@ -228,7 +230,7 @@ mod tests {
             "name": "Provider 1",
             "providerType": "open_ai",
             "models": [
-                { "id": "gpt-5.4", "label": "GPT 5.4", "defaultEffort": "high" },
+                { "id": "gpt-5.4", "label": "GPT 5.4", "defaultEffort": "high", "contextWindowTokens": 353000 },
                 { "id": "gpt-5.4-mini", "label": "GPT 5.4 Mini" }
             ],
             "defaultModelId": "gpt-5.4-mini",
@@ -254,6 +256,38 @@ mod tests {
 
         assert!(provider.models.is_empty());
         assert!(provider.default_model_id.is_none());
+    }
+
+    #[test]
+    fn provider_model_context_window_rejects_invalid_json_number_types() {
+        for invalid_window in [json!(-1), json!(1_000.5), json!("1000")] {
+            let result = serde_json::from_value::<Provider>(json!({
+                "id": "provider-invalid-window",
+                "name": "Provider Invalid Window",
+                "providerType": "anthropic",
+                "models": [{
+                    "id": "model-a",
+                    "contextWindowTokens": invalid_window
+                }],
+                "isDefault": false
+            }));
+
+            assert!(result.is_err());
+        }
+
+        let provider: Provider = serde_json::from_value(json!({
+            "id": "provider-null-window",
+            "name": "Provider Null Window",
+            "providerType": "anthropic",
+            "models": [{
+                "id": "model-a",
+                "contextWindowTokens": null
+            }],
+            "isDefault": false
+        }))
+        .expect("null context window should mean unknown");
+
+        assert!(provider.models[0].context_window_tokens.is_none());
     }
 
     #[test]

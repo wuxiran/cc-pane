@@ -23,6 +23,7 @@ use cc_panes_core::{
     },
     utils::{AppPaths, AppResult},
 };
+use serde_json::json;
 
 use super::*;
 use crate::{state::TerminalOutputMode, ws_emitter::WsEmitter};
@@ -225,6 +226,26 @@ fn saved_session(root: &std::path::Path) -> SavedSession {
     }
 }
 
+#[test]
+fn add_launch_history_request_accepts_legacy_and_camel_case_model_payloads() {
+    let legacy: AddLaunchHistoryRequest = serde_json::from_value(json!({
+        "projectId": "legacy-launch",
+        "projectName": "Legacy",
+        "projectPath": "/legacy"
+    }))
+    .expect("legacy payload");
+    assert_eq!(legacy.model_id, None);
+
+    let current: AddLaunchHistoryRequest = serde_json::from_value(json!({
+        "projectId": "model-launch",
+        "projectName": "Model",
+        "projectPath": "/model",
+        "modelId": "claude-sonnet"
+    }))
+    .expect("current payload");
+    assert_eq!(current.model_id.as_deref(), Some("claude-sonnet"));
+}
+
 #[tokio::test]
 async fn launch_history_routes_match_core_service_operations() {
     let (state, root) = test_state("launch-history");
@@ -243,6 +264,7 @@ async fn launch_history_routes_match_core_service_operations() {
             workspace_path: Some(root.to_string_lossy().to_string()),
             launch_cwd: Some(project_path.clone()),
             provider_id: Some("provider-a".to_string()),
+            model_id: Some("model-a".to_string()),
             provider_selection: Some("explicit".to_string()),
             launch_profile_id: Some("profile-a".to_string()),
             workspace_snapshot_id: Some("snapshot-a".to_string()),
@@ -292,6 +314,7 @@ async fn launch_history_routes_match_core_service_operations() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].resume_session_id.as_deref(), Some("resume-a"));
     assert_eq!(records[0].resume_source.as_deref(), Some("manual"));
+    assert_eq!(records[0].model_id.as_deref(), Some("model-a"));
 
     let Json(project_records) = list_launch_history(
         State(state.clone()),
@@ -357,6 +380,7 @@ async fn launch_history_session_started_routes_update_and_upsert() {
             workspace_path: None,
             launch_cwd: None,
             provider_id: None,
+            model_id: None,
             provider_selection: None,
             launch_profile_id: None,
             workspace_snapshot_id: None,
