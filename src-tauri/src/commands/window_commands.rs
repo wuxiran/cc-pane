@@ -16,6 +16,9 @@ const LAYOUT_SWITCHER_WINDOW_LABEL: &str = "layout-switcher";
 const LAYOUT_SWITCHER_WIDTH: f64 = 280.0;
 const LAYOUT_SWITCHER_HEIGHT: f64 = 420.0;
 
+/// 主窗口是原生 `Window` + 子 webview 结构（浏览器标签依赖子 webview），
+/// 不能按 `WebviewWindow` 命令参数注入解析——主窗口命令必须经此按 label 取原生
+/// `Window`。调用方自身的窗口操作（如 layout-switcher 关自己）才用 `WebviewWindow` 参数。
 fn main_window(app: &AppHandle) -> AppResult<Window> {
     app.get_window("main")
         .ok_or_else(|| AppError::from("main window is unavailable"))

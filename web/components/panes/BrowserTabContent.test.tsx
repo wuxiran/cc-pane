@@ -99,29 +99,50 @@ describe("BrowserTabContent", () => {
 
   it("shows a localized prompt when the browser rejects a protocol", async () => {
     const originalLanguage = i18n.language;
-    vi.mocked(browserService.create).mockRejectedValueOnce(
+    // Persistent rejection (not `Once`): if the environment ever triggers a
+    // second create, a one-shot rejection would be consumed and the retry
+    // would silently succeed, hiding the error overlay this test asserts on.
+    vi.mocked(browserService.create).mockRejectedValue(
       new Error("unsupported browser URL scheme: file"),
     );
     try {
+      // Pin the language instead of trusting the runner's ambient default —
+      // CI and local machines resolve different navigator languages.
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
       renderBrowser();
 
+      // Webview creation is deferred via setTimeout(0); anchor the async
+      // chain on the create call before asserting on its rejection UI.
+      await waitFor(() => expect(browserService.create).toHaveBeenCalled());
+      expect(
+        await screen.findByText(
+          i18n.t("browserUnsupportedProtocol", { ns: "panes" }),
+          undefined,
+          { timeout: 5000 },
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("unsupported browser URL scheme: file"))
+        .not.toBeInTheDocument();
+
+      await act(async () => {
+        await i18n.changeLanguage("zh-CN");
+      });
+      // The re-render after a language change commits asynchronously; a
+      // synchronous getByText races it.
       await waitFor(() => {
         expect(screen.getByText(i18n.t("browserUnsupportedProtocol", { ns: "panes" })))
           .toBeInTheDocument();
       });
-      expect(screen.queryByText("unsupported browser URL scheme: file"))
-        .not.toBeInTheDocument();
-
-      const nextLanguage = originalLanguage.startsWith("en") ? "zh-CN" : "en";
-      await act(async () => {
-        await i18n.changeLanguage(nextLanguage);
-      });
-      expect(screen.getByText(i18n.t("browserUnsupportedProtocol", { ns: "panes" })))
-        .toBeInTheDocument();
     } finally {
       await act(async () => {
         await i18n.changeLanguage(originalLanguage);
       });
+      // restoreAllMocks does not touch factory vi.fn()s — put the default
+      // resolve back so the persistent rejection cannot leak into later tests.
+      vi.mocked(browserService.create).mockReset();
+      vi.mocked(browserService.create).mockResolvedValue(undefined);
     }
   });
 
