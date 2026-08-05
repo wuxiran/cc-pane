@@ -4,7 +4,7 @@ use crate::services::terminal_service;
 use crate::services::terminal_service::{KillReason, SessionOutput};
 use crate::services::{
     BridgeStats, CreatedLaunchHistory, HistoryWatchManager, LaunchHistoryService,
-    SessionRestoreService, SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot, TerminalBackend,
+    SessionRestoreService, SessionStatusInfo, ShellInfo, TerminalAdoptionSnapshot,
     TerminalBackendKind, TerminalBackendState, TerminalDaemonEventBridge, TerminalService,
 };
 use crate::utils::error::AppError;
