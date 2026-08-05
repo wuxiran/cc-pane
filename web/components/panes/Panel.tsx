@@ -12,15 +12,12 @@ import type { PopupTabData } from "@/services/popupWindowService";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { collectPanels } from "@/stores/paneTreeHelpers";
 import TabBar from "./TabBar";
 import PanelEmptyState from "./PanelEmptyState";
 import TabContentRenderer from "./TabContentRenderer";
 import { useTabClosing } from "./useTabClosing";
+import { TabCloseConfirmDialog } from "./TabCloseConfirmDialog";
 import { useNewTabActions } from "./useNewTabActions";
 import type { TerminalViewHandle } from "./TerminalView";
 
@@ -91,8 +88,7 @@ export default memo(function Panel({ pane }: PanelProps) {
   // 关闭标签（含 pinned 保护、dirty 确认、会话回收）；close-tab 快捷键也走这里
   const {
     handleCloseTab, handleCloseTabsToLeft, handleCloseTabsToRight, handleCloseOtherTabs,
-    dirtyConfirmTabId, cancelDirtyConfirm, confirmCloseDirty,
-    dirtyConfirmBatchCount, cancelBatchConfirm, confirmBatchClose,
+    pendingGuards, cancelPendingClose, confirmPendingClose,
   } = useTabClosing(pane.id, pane.tabs, pane.activeTabId);
 
   const isActivePane = activePaneId === pane.id;
@@ -496,43 +492,12 @@ export default memo(function Panel({ pane }: PanelProps) {
         </div>
       )}
 
-      {/* Dirty tab 单个关闭确认 */}
-      <Dialog open={dirtyConfirmTabId !== null} onOpenChange={cancelDirtyConfirm}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t("unsavedChanges")}</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground py-2">{t("unsavedChangesDesc")}</p>
-          <DialogFooter>
-            <Button variant="secondary" onClick={cancelDirtyConfirm}>
-              {t("cancel", { ns: "common" })}
-            </Button>
-            <Button variant="destructive" onClick={confirmCloseDirty}>
-              {t("discardAndClose")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dirty tab 批量关闭确认 */}
-      <Dialog open={dirtyConfirmBatchCount !== null} onOpenChange={cancelBatchConfirm}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t("unsavedChanges")}</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground py-2">
-            {t("unsavedTabsCount", { count: dirtyConfirmBatchCount ?? 0 })}
-          </p>
-          <DialogFooter>
-            <Button variant="secondary" onClick={cancelBatchConfirm}>
-              {t("cancel", { ns: "common" })}
-            </Button>
-            <Button variant="destructive" onClick={confirmBatchClose}>
-              {t("discardAndClose")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* 关闭确认：agent 忙碌 / 编辑器未保存，条目由 planTabDestroy 聚合 */}
+      <TabCloseConfirmDialog
+        guards={pendingGuards}
+        onCancel={cancelPendingClose}
+        onConfirm={confirmPendingClose}
+      />
     </div>
   );
 });

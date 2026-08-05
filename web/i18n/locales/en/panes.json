@@ -282,5 +282,12 @@
   "openFileTab": "Open File…",
   "newFileExplorerTab": "Open File Tree",
   "copyBrowserUrl": "Copy URL",
-  "copyFilePath": "Copy File Path"
+  "copyFilePath": "Copy File Path",
+  "closeTabConfirmTitle": "Close tab?",
+  "closeTabConfirmDescription": "The following will be lost if you continue.",
+  "closeTabBusyAgents_one": "{{count}} agent session still running:",
+  "closeTabBusyAgents_other": "{{count}} agent sessions still running:",
+  "closeTabDirtyEditors_one": "{{count}} editor with unsaved changes:",
+  "closeTabDirtyEditors_other": "{{count}} editors with unsaved changes:",
+  "closeTabConfirmAction": "Close anyway"
 }

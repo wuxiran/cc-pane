@@ -282,5 +282,12 @@
   "openFileTab": "打开文件…",
   "newFileExplorerTab": "打开目录树",
   "copyBrowserUrl": "复制链接",
-  "copyFilePath": "复制文件路径"
+  "copyFilePath": "复制文件路径",
+  "closeTabConfirmTitle": "关闭标签？",
+  "closeTabConfirmDescription": "继续将丢失以下内容。",
+  "closeTabBusyAgents_other": "{{count}} 个 agent 会话仍在运行：",
+  "closeTabDirtyEditors_other": "{{count}} 个编辑器有未保存的修改：",
+  "closeTabConfirmAction": "仍然关闭",
+  "closeTabBusyAgents_one": "{{count}} 个 agent 会话仍在运行：",
+  "closeTabDirtyEditors_one": "{{count}} 个编辑器有未保存的修改："
 }
