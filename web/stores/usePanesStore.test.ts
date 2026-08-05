@@ -1057,6 +1057,74 @@ describe("usePanesStore", () => {
       const tabCountAfter = (usePanesStore.getState().rootPane as Panel).tabs.length;
       expect(tabCountAfter).toBe(tabCountBefore);
     });
+
+    it("应往返保留 title 与 cliTool（此前丢字段：标题被重算、CLI 配置丢失）", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, {
+        projectId: "proj-1",
+        projectPath: "/tmp/proj1",
+        cliTool: "codex",
+        customTitle: "我的自定义标题",
+      });
+
+      const pane = usePanesStore.getState().rootPane as Panel;
+      const tabToClose = pane.tabs[pane.tabs.length - 1];
+      expect(tabToClose.title).toBe("我的自定义标题");
+      usePanesStore.getState().closeTab(paneId, tabToClose.id);
+
+      usePanesStore.getState().reopenClosedTab(usePanesStore.getState().activePaneId);
+
+      const restored = usePanesStore
+        .getState()
+        .allPanels()
+        .flatMap((p) => p.tabs)
+        .find((t) => t.projectPath === "/tmp/proj1");
+      expect(restored).toBeTruthy();
+      expect(restored!.title).toBe("我的自定义标题");
+      expect(restored!.cliTool).toBe("codex");
+    });
+
+    it("旧快照只有 launchClaude 时应恢复为 claude（对齐 handleCloneTab 的回退表达式）", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.setState({
+        closedTabs: [{
+          projectId: "proj-legacy",
+          projectPath: "/tmp/legacy",
+          title: "Legacy (Claude)",
+          launchClaude: true,
+        }],
+      });
+
+      usePanesStore.getState().reopenClosedTab(paneId);
+
+      const restored = usePanesStore
+        .getState()
+        .allPanels()
+        .flatMap((p) => p.tabs)
+        .find((t) => t.projectPath === "/tmp/legacy");
+      expect(restored).toBeTruthy();
+      expect(restored!.title).toBe("Legacy (Claude)");
+      expect(restored!.cliTool).toBe("claude");
+    });
+
+    it("reopen 后应把 closedTabs 裁剪到上限 20（push 点上限由 B1-05 收口）", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      const snapshots = Array.from({ length: 30 }, (_, i) => ({
+        projectId: `proj-${i}`,
+        projectPath: `/tmp/proj-${i}`,
+        title: `Tab ${i}`,
+      }));
+      usePanesStore.setState({ closedTabs: snapshots });
+
+      // 弹出最新的一个（proj-29），剩 29 条，裁剪后应只留最近的 20 条
+      usePanesStore.getState().reopenClosedTab(paneId);
+
+      const closed = usePanesStore.getState().closedTabs;
+      expect(closed).toHaveLength(20);
+      // 保尾不保头：最旧的被丢弃，栈顶是 proj-28
+      expect(closed[closed.length - 1].projectId).toBe("proj-28");
+      expect(closed[0].projectId).toBe("proj-9");
+    });
   });
 
   describe("nextTab", () => {

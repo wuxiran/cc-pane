@@ -279,6 +279,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         "toggle-fullscreen": "F11",
         "new-tab": "Ctrl+T",
         "close-tab": "Ctrl+W",
+        "reopen-closed-tab": "Ctrl+Shift+T",
         settings: "Ctrl+,",
         "command-palette": "Ctrl+K",
         "terminal-zoom-in": "Ctrl+=",

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Zap, FolderOpen, LayoutGrid, Play } from "lucide-react";
+import { Zap, FolderOpen, LayoutGrid, Play, History } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -38,7 +38,7 @@ import type { ScopedQuickCommand } from "@/types";
 export const COMMAND_PALETTE_TOGGLE_EVENT = "cc-panes:command-palette-toggle";
 
 export default function CommandPalette() {
-  const { t } = useTranslation(["shortcuts", "sidebar", "common", "settings"]);
+  const { t } = useTranslation(["shortcuts", "sidebar", "common", "settings", "panes"]);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -54,6 +54,7 @@ export default function CommandPalette() {
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
   const rootPane = usePanesStore((s) => s.rootPane);
   const activePaneId = usePanesStore((s) => s.activePaneId);
+  const closedTabsCount = usePanesStore((s) => s.closedTabs.length);
   const quickCommands = useQuickCommandsStore((s) => s.commands);
   const quickCommandsProjectPath = useQuickCommandsStore((s) => s.activeProjectPath);
   const activeContext = useMemo(() => {
@@ -123,9 +124,13 @@ export default function CommandPalette() {
     });
   }, [activeContext, quickCommandDisabledReason, runAndClose, t]);
 
-  // 面板打开的动作本身（command-palette）不列入清单
+  // 面板打开的动作本身（command-palette）不列入清单；
+  // reopen-closed-tab 走下方带计数/禁用态的专属条目，避免重复出现两条
   const listedActions = Array.from(actions.values()).filter(
-    (action) => action.id !== "command-palette" && !/^switch-(tab|layout)-\d+$/.test(action.id),
+    (action) =>
+      action.id !== "command-palette"
+      && action.id !== "reopen-closed-tab"
+      && !/^switch-(tab|layout)-\d+$/.test(action.id),
   );
 
   return (
@@ -155,6 +160,22 @@ export default function CommandPalette() {
               )}
             </CommandItem>
           ))}
+          <CommandItem
+            value={`${t("restoreClosedTabs", { ns: "panes", count: closedTabsCount })} reopen-closed-tab`}
+            disabled={closedTabsCount === 0}
+            onSelect={() => runAndClose(() => {
+              const s = usePanesStore.getState();
+              s.reopenClosedTab(s.activePaneId);
+            })}
+          >
+            <History strokeWidth={1.5} />
+            <span className="truncate">
+              {t("restoreClosedTabs", { ns: "panes", count: closedTabsCount })}
+            </span>
+            {bindings?.["reopen-closed-tab"] && (
+              <CommandShortcut>{formatKeyCombo(bindings["reopen-closed-tab"])}</CommandShortcut>
+            )}
+          </CommandItem>
         </CommandGroup>
 
         <CommandGroup heading={t("modules.commandGroup", { ns: "settings" })}>

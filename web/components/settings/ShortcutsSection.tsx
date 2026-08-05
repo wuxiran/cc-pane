@@ -16,6 +16,7 @@ const actionI18nKeys: Record<string, string> = {
   "toggle-fullscreen": "toggle-fullscreen",
   "new-tab": "new-tab",
   "close-tab": "close-tab",
+  "reopen-closed-tab": "reopen-closed-tab",
   settings: "settings",
   "command-palette": "command-palette",
   "toggle-layouts": "toggle-layouts",

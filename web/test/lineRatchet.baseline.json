@@ -6,7 +6,7 @@
   "components/mobile/MobilePrototype.tsx": 1041,
   "components/orchestration/OrchestrationFullView.tsx": 511,
   "components/panes/Panel.tsx": 561,
-  "components/panes/TabBar.tsx": 807,
+  "components/panes/TabBar.tsx": 623,
   "components/panes/TerminalView.tsx": 2183,
   "components/providers/LaunchProfilesPanel.tsx": 577,
   "components/providers/ProviderFormPanel.tsx": 575,
@@ -17,7 +17,7 @@
   "components/sidebar/WorkspaceItem.tsx": 703,
   "components/todo/TodoEditor.tsx": 614,
   "components/todo/TodoManager.tsx": 507,
-  "services/terminalService.ts": 737,
-  "stores/usePanesStore.ts": 2888,
+  "services/terminalService.ts": 741,
+  "stores/usePanesStore.ts": 2438,
   "utils/workspaceLaunch.ts": 663
 }

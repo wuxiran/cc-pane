@@ -16,6 +16,7 @@ import type {
   WslLaunchInfo,
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
+import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
 import type { BrowserTabActions } from "./browserTabActions";
 
 export interface CreateTabOptions {
@@ -106,6 +107,15 @@ export interface CloseTabBySessionIdResult {
   blockedByPinned: number;
 }
 
+/** removeTabsInternal 的调用方选项（B1-03 骨架；回收管线接入后消费）。 */
+export interface RemoveTabsInternalOptions {
+  /**
+   * 已由调用方保护、不得 kill 的会话集合（snapshot-apply 差集复核用）。
+   * 树操作阶段不读——只在回收管线（destroyPipeline.commitResourceDestroy）消费。
+   */
+  protectSessionIds?: ReadonlySet<string>;
+}
+
 export interface ClosedTabSnapshot {
   projectId: string;
   projectPath: string;
@@ -184,6 +194,28 @@ export interface PanesState extends BrowserTabActions {
   closeTabsToLeft: (paneId: string, tabId: string) => void;
   closeTabsToRight: (paneId: string, tabId: string) => void;
   closeOtherTabs: (paneId: string, tabId: string) => void;
+  /**
+   * 唯一逐-tab 销毁出口（docs/78 批1）。B1-03 骨架：树 splice + closedTabs +
+   * poppedOut/fullscreen 附属清理；资源回收由销毁管线在改道 commit 接入。
+   * 幂等——找不到的 tabId 静默跳过。
+   */
+  removeTabsInternal: (
+    tabIds: string[],
+    reason: DestroyReason,
+    opts?: RemoveTabsInternalOptions,
+  ) => void;
+  /** 「关一格」：关掉分屏 tab 里的一个终端 leaf（最后一格不关，调用方改走 removeTabsInternal）。 */
+  removeTerminalLeafInternal: (
+    tabId: string,
+    terminalPaneId: string,
+    reason: DestroyReason,
+  ) => void;
+  /**
+   * 纯树操作、**零销毁语义**：只收「tab 已全部搬走」的空 pane（moveTab 系专用）。
+   * 非空 pane 一律 no-op + dev 告警——这是硬守卫，防止未来 closePane 挂上
+   * 杀会话副作用后拖动标签误杀会话。
+   */
+  removeEmptyPane: (paneId: string) => void;
   selectTab: (paneId: string, tabId: string) => void;
   setActivePane: (paneId: string) => void;
   updateTabSession: (
