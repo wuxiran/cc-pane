@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Pencil, Trash2, Copy, MonitorCog, Check, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ProviderAvatar, { PROVIDER_TYPE_COLORS } from "./ProviderAvatar";
 import { PROVIDER_TYPE_META, isSystemProvider, type Provider } from "@/types/provider";
@@ -61,8 +62,9 @@ function cardShellStyle(isDefault: boolean): React.CSSProperties {
   };
 }
 
+/** 卡壳走 ui/card 的 Card 原语；`.group` 保留（hover 才现的 CRUD 行依赖它） */
 const CARD_SHELL_CLASS =
-  "group relative rounded-lg rounded-r-md transition-[background-color,box-shadow] duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:shadow-[var(--sh-md)]";
+  "group relative rounded-r-md transition-[background-color,box-shadow] duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:shadow-[var(--sh-md)]";
 
 /** 「设为默认」主操作：非默认为文字按钮，已默认为不可点的状态标识 */
 function DefaultAction({
@@ -114,7 +116,7 @@ export default function ProviderCard({
       ...(systemProbe?.envKeys ?? []),
     ];
     return (
-      <div className={CARD_SHELL_CLASS} style={cardShellStyle(provider.isDefault)}>
+      <Card className={CARD_SHELL_CLASS} style={cardShellStyle(provider.isDefault)}>
         <div className="p-3 flex gap-3 items-center">
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
@@ -158,7 +160,7 @@ export default function ProviderCard({
             defaultLabel={t("defaultBadge")}
           />
         </div>
-      </div>
+      </Card>
     );
   }
 
@@ -174,7 +176,7 @@ export default function ProviderCard({
   };
 
   return (
-    <div className={CARD_SHELL_CLASS} style={cardShellStyle(provider.isDefault)}>
+    <Card className={CARD_SHELL_CLASS} style={cardShellStyle(provider.isDefault)}>
       <div className="p-3 flex gap-3 items-center">
         {/* Avatar（身份色） */}
         <ProviderAvatar
@@ -252,6 +254,6 @@ export default function ProviderCard({
           </IconTooltipButton>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

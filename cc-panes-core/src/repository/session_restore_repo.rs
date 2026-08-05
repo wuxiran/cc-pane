@@ -162,6 +162,35 @@ impl SessionRestoreRepository {
         Ok(sessions)
     }
 
+    /// 列出「有观测行但无出生凭证行」的 session_id。
+    ///
+    /// 这些会话在恢复期会被 `identityMatches` 拦下（没有 daemonGeneration/birthNonce 可比），
+    /// 表现为永远无法自动接管。启动期据此向 daemon 反查凭证补写（治存量）。
+    pub fn list_sessions_missing_provenance(&self) -> Result<Vec<String>, String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT ts.session_id
+                 FROM terminal_sessions ts
+                 LEFT JOIN terminal_session_provenance provenance
+                   ON provenance.session_id = ts.session_id
+                 WHERE provenance.session_id IS NULL",
+            )
+            .map_err(|e| format!("Failed to prepare missing-provenance query: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query sessions missing provenance: {e}"))?;
+
+        let mut ids = Vec::new();
+        for row in rows {
+            match row {
+                Ok(id) => ids.push(id),
+                Err(e) => error!(err = %e, "Failed to read missing-provenance row"),
+            }
+        }
+        Ok(ids)
+    }
+
     /// Persist immutable daemon birth evidence. A conflicting second write is ignored: mutable
     /// layout observation saves must never rewrite the identity of an existing PTY.
     pub fn save_provenance(&self, provenance: &TerminalSessionProvenance) -> Result<(), String> {
@@ -278,6 +307,69 @@ impl SessionRestoreRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bare_session(session_id: &str) -> SavedSession {
+        SavedSession {
+            workspace_snapshot_id: None,
+            session_id: session_id.into(),
+            tab_id: format!("t-{session_id}"),
+            pane_id: format!("p-{session_id}"),
+            terminal_pane_id: None,
+            layout_id: None,
+            wsl_config: None,
+            machine_name: None,
+            observer_instance_id: None,
+            daemon_generation: None,
+            birth_nonce: None,
+            origin_instance_id: None,
+            project_path: "/repo".into(),
+            workspace_name: None,
+            workspace_path: None,
+            provider_id: None,
+            provider_selection: None,
+            launch_profile_id: None,
+            cli_tool: "claude".into(),
+            runtime_kind: Some("local".into()),
+            resume_id: None,
+            ssh_config: None,
+            custom_title: None,
+            created_at: "2025-01-01T00:00:00Z".into(),
+            saved_at: "2025-01-01T00:01:00Z".into(),
+            has_output: false,
+        }
+    }
+
+    /// 缺凭证的会话在恢复期会被 identity-mismatch 永久拦下——这个查询是启动期
+    /// 回填的输入，必须只返回「有观测行但无凭证行」的那部分。
+    #[test]
+    fn list_sessions_missing_provenance_returns_only_rows_without_evidence() {
+        let db = Arc::new(Database::new_in_memory().expect("should create db"));
+        let repo = SessionRestoreRepository::new(db);
+
+        repo.save_sessions(&[bare_session("missing"), bare_session("complete")])
+            .expect("save observations");
+        repo.save_provenance(&TerminalSessionProvenance {
+            session_id: "complete".into(),
+            daemon_generation: 3,
+            birth_nonce: "nonce-complete".into(),
+            origin_instance_id: Some("inst-1".into()),
+            origin_layout_id: Some("layout-1".into()),
+            origin_tab_id: Some("tab-1".into()),
+            origin_terminal_pane_id: Some("leaf-1".into()),
+            project_path: "/repo".into(),
+            runtime_kind: "local".into(),
+            cli_tool: "claude".into(),
+            resume_id: None,
+            created_at_ms: 1_000,
+        })
+        .expect("save provenance");
+
+        assert_eq!(
+            repo.list_sessions_missing_provenance()
+                .expect("query missing"),
+            vec!["missing".to_string()]
+        );
+    }
 
     #[test]
     fn test_save_and_load_sessions() {

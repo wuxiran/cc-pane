@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EFFORT_LEVELS } from "@/constants/effortMapping";
 import type { ProviderModel } from "@/types/provider";
 import type { LaunchEffort } from "@/types/terminal";
+import { SELECT_NONE } from "./launchProfileHelpers";
 
 interface ProviderModelsEditorProps {
   models: ProviderModel[];
@@ -83,7 +85,7 @@ export default function ProviderModelsEditor({
                 key={index}
                 data-testid={`provider-model-row-${index}`}
                 className="grid grid-cols-1 items-end gap-2 rounded-md border p-2.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(8rem,0.75fr)_auto]"
-                style={{ borderColor: "var(--app-border)", background: "var(--app-content)" }}
+                style={{ borderColor: "var(--app-border)", background: "var(--app-panel-bg)" }}
               >
                 <div className="min-w-0 space-y-1.5">
                   <Label htmlFor={idInputId} className="text-[11px]">{t("providerModelId")}</Label>
@@ -111,19 +113,27 @@ export default function ProviderModelsEditor({
                   <Label htmlFor={effortInputId} className="text-[11px]">
                     {t("providerModelDefaultEffort")}
                   </Label>
-                  <select
-                    id={effortInputId}
-                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-                    value={model.defaultEffort ?? ""}
-                    onChange={(event) => updateModel(index, {
-                      defaultEffort: (event.target.value || null) as LaunchEffort | null,
+                  {/* Radix Select 不接受空串 value，「使用 CLI 默认」走 SELECT_NONE 哨兵再转回 null */}
+                  <Select
+                    value={model.defaultEffort ?? SELECT_NONE}
+                    onValueChange={(value) => updateModel(index, {
+                      defaultEffort: value === SELECT_NONE ? null : (value as LaunchEffort),
                     })}
                   >
-                    <option value="">{t("providerModelCliDefaultEffort")}</option>
-                    {EFFORT_LEVELS.map((level) => (
-                      <option key={level} value={level}>{t(`providerEffortLevel.${level}`)}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger
+                      id={effortInputId}
+                      className="h-9 w-full text-sm"
+                      aria-label={t("providerModelDefaultEffort")}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SELECT_NONE}>{t("providerModelCliDefaultEffort")}</SelectItem>
+                      {EFFORT_LEVELS.map((level) => (
+                        <SelectItem key={level} value={level}>{t(`providerEffortLevel.${level}`)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex h-9 items-center justify-end gap-1 sm:col-start-2 xl:col-start-auto">
                   <button

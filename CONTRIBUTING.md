@@ -208,7 +208,24 @@ docs: update development setup instructions
 
 Contributions are welcome. Please open an issue before large changes so the scope and design can be discussed.
 
-1. **Fork** the repository and create a feature branch from `main`.
+### Two contribution paths
+
+- **Collaborators** (repository write access): create your feature branch **directly in this repository** — no fork needed. Use a `type/short-topic` branch name (`feat/layout-cards`, `fix/pty-orphan`, `docs/readme-i18n`).
+- **External contributors**: fork the repository and create your branch from `main` as usual.
+
+Both paths end the same way: a Pull Request against `main`.
+
+### Branch protection (what the rules enforce)
+
+`main` is protected by repository rulesets:
+
+- **No direct pushes** — every change lands through a PR with **at least 1 approving review**. Collaborators may review and merge each other's PRs once approvals and CI are green.
+- **Protected paths require maintainer review** (via CODEOWNERS): anything under `.github/` (CI & release workflows) and `src-tauri/tauri.conf.json` / `tauri.dev.conf.json` needs an approval from @wuxiran before it can merge.
+- **Release tags (`v*`) are maintainer-only.** Releases are cut by pushing a version tag, which triggers the signed build pipeline. Please **do not bump `version` fields or edit `CHANGELOG.md`** in feature PRs — release commits are curated by the maintainer. Instead, describe user-facing changes clearly in your PR so the changelog entry can be written at release time.
+
+### Workflow
+
+1. **Branch** — in-repo (collaborators) or from your fork (external), based on `main`.
 2. **Implement** your changes following the coding standards above.
 3. **Test** your changes:
    - Run `npx tsc --noEmit` (frontend type check)
@@ -220,7 +237,7 @@ Contributions are welcome. Please open an issue before large changes so the scop
    - A concise title (< 70 characters)
    - A summary of what changed and why
    - A test plan describing how the changes were verified
-6. **Address feedback** from code review promptly.
+6. **Address feedback** from code review promptly; a collaborator (or the maintainer, for protected paths) merges once approved and CI passes.
 
 ### PR Checklist
 
@@ -230,6 +247,7 @@ Contributions are welcome. Please open an issue before large changes so the scop
 - [ ] TypeScript check passes (`npx tsc --noEmit`)
 - [ ] Rust clippy passes (`cargo clippy --workspace -- -D warnings`)
 - [ ] Commit messages follow Conventional Commits format
+- [ ] No `version` / `CHANGELOG.md` bumps (maintainer handles these at release)
 
 ## Reporting Bugs
 

@@ -1,4 +1,4 @@
-import { memo, useCallback, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { CircleAlert, LockKeyhole, RotateCcw, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab, TerminalLaunchError, TerminalPaneNode } from "@/types";
@@ -11,6 +11,7 @@ import type { TerminalRestoreLogEntry } from "@/stores/useTerminalRestoreLogStor
 import { Button } from "@/components/ui/button";
 import { classifyTerminalLaunchPath, translateError } from "@/utils";
 import SplitView from "./SplitView";
+import { formatRestoreLogEntry, restoreLogToneColor } from "./terminalRestoreLogFormat";
 import TerminalView from "./TerminalView";
 import type { TerminalViewHandle } from "./TerminalView";
 import VoiceInputButton from "./VoiceInputButton";
@@ -37,21 +38,56 @@ function normalizeSizes(sizes: number[]): number[] {
 
 function RestoreLogSurface({ entries }: { entries: TerminalRestoreLogEntry[] }) {
   const { t } = useTranslation("panes");
+  const [showRaw, setShowRaw] = useState(false);
+  const formatted = useMemo(
+    () => entries.map((entry) => ({ id: entry.id, ...formatRestoreLogEntry(entry, t) })),
+    [entries, t],
+  );
   return (
     <div className="flex min-h-0 w-full flex-col overflow-hidden border-t border-[var(--app-border)]">
       <div className="flex items-center gap-2 px-3 py-2">
         <Terminal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="text-xs font-medium text-foreground">{t("restoreLogTitle")}</span>
+        <button
+          type="button"
+          aria-pressed={showRaw}
+          onClick={() => setShowRaw((value) => !value)}
+          className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[11px] leading-4 hover:bg-[var(--app-hover)]"
+          style={{ color: showRaw ? "var(--app-text-primary)" : "var(--app-text-tertiary)" }}
+        >
+          {t("restoreLogDetails")}
+        </button>
       </div>
       <div
         role="log"
         aria-live="polite"
-        className="max-h-52 overflow-y-auto border-t border-[var(--app-border)] px-3 py-2 font-mono text-[11px] leading-4 text-muted-foreground"
+        className="max-h-52 overflow-y-auto border-t border-[var(--app-border)] px-3 py-2 text-[11px] leading-4 text-muted-foreground"
       >
-        {entries.length > 0
-          ? entries.map((entry) => (
-              <div key={entry.id} className="break-all whitespace-pre-wrap">
-                {entry.message}
+        {formatted.length > 0
+          ? formatted.map((entry) => (
+              <div key={entry.id} className="flex items-start gap-2">
+                <span
+                  className="shrink-0 font-mono tabular-nums"
+                  style={{ color: "var(--app-text-tertiary)" }}
+                >
+                  {entry.time}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="break-words whitespace-pre-wrap"
+                    style={{ color: restoreLogToneColor(entry.tone) }}
+                  >
+                    {entry.text}
+                  </div>
+                  {showRaw ? (
+                    <div
+                      className="break-all whitespace-pre-wrap font-mono"
+                      style={{ color: "var(--app-text-tertiary)" }}
+                    >
+                      {entry.raw}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ))
           : t("restoreLogPending")}

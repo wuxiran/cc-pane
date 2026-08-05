@@ -1836,6 +1836,36 @@ pub fn run() {
                 daemon_control_link.replace_client(client);
             }
 
+            // ---- 出生凭证存量回填 ----
+            // 历史上 orchestrator 的 launch_task 路径从不写凭证，这些会话（实测绝大多数
+            // 是 wsl/codex worker）在重启后被 identity-mismatch 永久拦下。daemon 就绪后
+            // 做一次性回填：对「有观测行但无凭证行」的会话向 daemon 反查并补写。
+            // 幂等；死会话查不到凭证，跳过。失败只 warn，不阻塞启动。
+            {
+                let backend_state = app.state::<Arc<TerminalBackendState>>().inner().clone();
+                let restore_svc = app.state::<Arc<SessionRestoreService>>().inner().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    match cc_panes_core::services::backfill_missing_provenance(
+                        backend_state.backend().as_ref(),
+                        restore_svc.as_ref(),
+                    ) {
+                        Ok(report) if report.missing > 0 => {
+                            info!(
+                                missing = report.missing,
+                                backfilled = report.backfilled,
+                                skipped_dead = report.skipped_dead,
+                                failed = report.failed,
+                                "[boot] terminal session provenance backfill done"
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            warn!(error = %error, "[boot] terminal session provenance backfill failed");
+                        }
+                    }
+                });
+            }
+
             // ---- Web 端访问服务 lifecycle ----
             {
                 let settings_svc = app.state::<Arc<SettingsService>>();
@@ -2049,6 +2079,7 @@ pub fn run() {
                 let orch_svc = app.state::<Arc<OrchestratorService>>();
                 let term_svc = app.state::<Arc<TerminalService>>();
                 let terminal_backend_state = app.state::<Arc<TerminalBackendState>>();
+                let session_restore_svc = app.state::<Arc<SessionRestoreService>>();
                 let prov_svc = app.state::<Arc<ProviderService>>();
                 let launch_profile_svc = app.state::<Arc<LaunchProfileService>>();
                 let shared_mcp_svc = app.state::<Arc<SharedMcpService>>();
@@ -2076,6 +2107,7 @@ pub fn run() {
                 if let Err(e) = orch_svc.start(
                     term_svc.inner().clone(),
                     terminal_backend_state.inner().clone(),
+                    session_restore_svc.inner().clone(),
                     prov_svc.inner().clone(),
                     launch_profile_svc.inner().clone(),
                     shared_mcp_svc.inner().clone(),

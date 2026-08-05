@@ -16,8 +16,8 @@ import ProvidersPanel from "./ProvidersPanel";
 
 // 运行配置面板与 Provider 表单都是重组件，桩掉并回显关键 props
 vi.mock("./LaunchProfilesPanel", () => ({
-  default: ({ initialTool }: { initialTool?: string }) => (
-    <div data-testid="launch-profiles">{initialTool}</div>
+  default: ({ tool }: { tool?: string }) => (
+    <div data-testid="launch-profiles">{tool}</div>
   ),
 }));
 
@@ -111,9 +111,10 @@ function setupStores(providers: Provider[] = []) {
   return actions;
 }
 
+// 子页切换已改为统一 header 的 SegmentedTabs（role=tab）
 async function switchToProvidersList(user: ReturnType<typeof userEvent.setup>) {
   await user.click(
-    screen.getByRole("button", { name: i18n.t("settings:providerCredentialsTab") })
+    screen.getByRole("tab", { name: i18n.t("settings:providerCredentialsTab") })
   );
 }
 

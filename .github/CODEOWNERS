@@ -1,0 +1,5 @@
+# 敏感路径需仓库所有者审查（配合 main 规则集的 require code owner review 生效）
+# CI/发版流水线与签名相关配置
+/.github/ @wuxiran
+/src-tauri/tauri.conf.json @wuxiran
+/src-tauri/tauri.dev.conf.json @wuxiran

@@ -23,9 +23,9 @@ use crate::models::{
 use crate::services::{
     BrowserOpenTabEvent, BrowserTabManager, ExternalSkillRegistry, LaunchHistoryService,
     LaunchProfileService, MemoryService, NotificationRequest, NotificationService, ProjectService,
-    ProviderService, ScreenshotService, SettingsService, SharedMcpService, SkillService,
-    SpecService, SshMachineService, TerminalBackendKind, TerminalBackendState, TerminalService,
-    TodoService, WorkspaceService,
+    ProviderService, ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService,
+    SkillService, SpecService, SshMachineService, TerminalBackendKind, TerminalBackendState,
+    TerminalService, TodoService, WorkspaceService,
 };
 use crate::utils::{validate_command, validate_mcp_name, validate_path, AppPaths};
 use anyhow::Result;
@@ -770,6 +770,9 @@ pub struct AppState {
     pub started_at: u64,
     pub local_terminal_service: Arc<TerminalService>,
     pub terminal_backend: Arc<TerminalBackendState>,
+    /// launch_task / runner 创建的会话也必须写出生凭证，否则 app 重启后被
+    /// identity-mismatch 永久拦下（实测缺凭证会话里绝大多数是 launch_task 派发的 worker）。
+    pub session_restore_service: Arc<SessionRestoreService>,
     pub provider_service: Arc<ProviderService>,
     pub launch_profile_service: Arc<LaunchProfileService>,
     pub shared_mcp_service: Arc<SharedMcpService>,
@@ -1635,6 +1638,7 @@ impl OrchestratorService {
         &self,
         local_terminal_service: Arc<TerminalService>,
         terminal_backend: Arc<TerminalBackendState>,
+        session_restore_service: Arc<SessionRestoreService>,
         provider_service: Arc<ProviderService>,
         launch_profile_service: Arc<LaunchProfileService>,
         shared_mcp_service: Arc<SharedMcpService>,
@@ -1696,6 +1700,7 @@ impl OrchestratorService {
             started_at: self.started_at,
             local_terminal_service,
             terminal_backend,
+            session_restore_service,
             provider_service,
             launch_profile_service,
             shared_mcp_service,
@@ -4585,6 +4590,7 @@ impl McpToolHandler {
         apply_project_launch_context_to_request(&mut create_request, &project_context);
         let session_id = match create_launch_session(
             self.state.terminal_backend.clone(),
+            Some(self.state.session_restore_service.clone()),
             Some(self.state.app_handle.clone()),
             create_request,
             prompt_delivery.deferred_prompt,
@@ -7382,6 +7388,7 @@ trait RunnerTerminal {
 
 struct AppRunnerTerminal {
     backend: Arc<TerminalBackendState>,
+    session_restore_service: Arc<SessionRestoreService>,
     app_handle: tauri::AppHandle,
 }
 
@@ -7391,40 +7398,48 @@ impl RunnerTerminal for AppRunnerTerminal {
         profile: &RunnerProfile,
         runtime: &ResolvedLaunchRuntime,
     ) -> std::result::Result<String, String> {
-        self.backend
-            .create_session_with_recovery(
-                &self.app_handle,
-                CoreCreateSessionRequest {
-                    launch_id: None,
-                    project_path: profile.cwd.clone(),
-                    cols: 120,
-                    rows: 30,
-                    workspace_name: profile.workspace_name.clone(),
-                    provider_id: None,
-                    model_id: None,
-                    provider_selection: LaunchProviderSelection::None,
-                    launch_profile_id: None,
-                    workspace_path: None,
-                    workspace_snapshot_id: None,
-                    origin_layout_id: None,
-                    origin_tab_id: None,
-                    origin_terminal_pane_id: None,
-                    expected_saved_session_id: None,
-                    launch_claude: false,
-                    cli_tool: CliTool::None,
-                    resume_id: None,
-                    skip_mcp: true,
-                    append_system_prompt: None,
-                    initial_prompt: None,
-                    yolo_mode: None,
-                    adapter_options: None,
-                    extra_env: Some(profile.env.clone()),
-                    ssh: runtime.ssh.clone(),
-                    wsl: runtime.wsl.clone(),
-                },
-            )
-            .map(|created| created.session_id)
-            .map_err(|e| e.to_string())
+        let request = CoreCreateSessionRequest {
+            launch_id: None,
+            project_path: profile.cwd.clone(),
+            cols: 120,
+            rows: 30,
+            workspace_name: profile.workspace_name.clone(),
+            provider_id: None,
+            model_id: None,
+            provider_selection: LaunchProviderSelection::None,
+            launch_profile_id: None,
+            workspace_path: None,
+            workspace_snapshot_id: None,
+            origin_layout_id: None,
+            origin_tab_id: None,
+            origin_terminal_pane_id: None,
+            expected_saved_session_id: None,
+            launch_claude: false,
+            cli_tool: CliTool::None,
+            resume_id: None,
+            skip_mcp: true,
+            append_system_prompt: None,
+            initial_prompt: None,
+            yolo_mode: None,
+            adapter_options: None,
+            extra_env: Some(profile.env.clone()),
+            ssh: runtime.ssh.clone(),
+            wsl: runtime.wsl.clone(),
+        };
+        let created = self
+            .backend
+            .create_session_with_recovery(&self.app_handle, request.clone())
+            .map_err(|e| e.to_string())?;
+        // runner 就是一条普通 PTY 会话，同样需要出生凭证，否则重启后接管不了。
+        cc_panes_core::services::persist_created_session_or_cleanup(
+            created.backend.as_ref(),
+            self.session_restore_service.as_ref(),
+            &request,
+            &created.session_id,
+            created.reused_existing,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(created.session_id)
     }
 
     fn submit_text_to_session<'a>(
@@ -7474,6 +7489,7 @@ async fn start_runner_coordinator(
 
     let terminal = AppRunnerTerminal {
         backend: app_state.terminal_backend.clone(),
+        session_restore_service: app_state.session_restore_service.clone(),
         app_handle: app_state.app_handle.clone(),
     };
     start_runner_coordinator_with_terminal(
@@ -8602,6 +8618,7 @@ async fn handle_launch_task(
     apply_project_launch_context_to_request(&mut create_request, &project_context);
     let session_id = match create_launch_session(
         state.terminal_backend.clone(),
+        Some(state.session_restore_service.clone()),
         Some(state.app_handle.clone()),
         create_request,
         prompt_delivery.deferred_prompt,
@@ -10063,6 +10080,7 @@ async fn wait_for_paste_ready(
 
 async fn create_launch_session(
     terminal_backend: Arc<TerminalBackendState>,
+    session_restore_service: Option<Arc<SessionRestoreService>>,
     app_handle: Option<tauri::AppHandle>,
     mut request: CoreCreateSessionRequest,
     deferred_prompt: Option<String>,
@@ -10070,6 +10088,7 @@ async fn create_launch_session(
 ) -> std::result::Result<String, String> {
     let (session_id, _, _) = create_backend_session_with_deadline(
         terminal_backend.clone(),
+        session_restore_service.clone(),
         app_handle.clone(),
         request.clone(),
     )
@@ -10098,17 +10117,26 @@ async fn create_launch_session(
     .await?;
 
     request.initial_prompt = Some(prompt);
-    let (session_id, _, _) =
-        create_backend_session_with_deadline(terminal_backend, app_handle, request).await?;
+    let (session_id, _, _) = create_backend_session_with_deadline(
+        terminal_backend,
+        session_restore_service,
+        app_handle,
+        request,
+    )
+    .await?;
     Ok(session_id)
 }
 
+/// 所有 orchestrator 侧的会话创建都汇到这里（launch_task 两次创建路径 + runner），
+/// 因此出生凭证落库也放在这一层的成功出口——上层任何新增调用点自动获得凭证。
 async fn create_backend_session_with_deadline(
     terminal_backend: Arc<TerminalBackendState>,
+    session_restore_service: Option<Arc<SessionRestoreService>>,
     app_handle: Option<tauri::AppHandle>,
     request: CoreCreateSessionRequest,
 ) -> std::result::Result<(String, Arc<dyn TerminalBackend>, bool), String> {
     let launch_id = request.launch_id.clone();
+    let observation_request = request.clone();
     let recover_state = terminal_backend.clone();
     let recover_handle = app_handle.clone();
     let mut create_task = tokio::task::spawn_blocking(move || match recover_handle {
@@ -10126,7 +10154,30 @@ async fn create_backend_session_with_deadline(
     });
 
     match tokio::time::timeout(CREATE_LAUNCH_DEADLINE, &mut create_task).await {
-        Ok(result) => result.map_err(|error| error.to_string())?,
+        Ok(result) => {
+            let (session_id, backend, reused_existing) =
+                result.map_err(|error| error.to_string())??;
+            // 出生凭证必须在 session id 返回给调用方之前落进 SQLite（与 Tauri 命令 /
+            // REST 两条路径同款 fail-closed 语义）。缺凭证的会话在 app 重启后被
+            // identity-mismatch 永久拦下，无法自动接管。
+            if let Some(restore_service) = session_restore_service {
+                let persist_backend = backend.clone();
+                let persist_session_id = session_id.clone();
+                tokio::task::spawn_blocking(move || {
+                    cc_panes_core::services::persist_created_session_or_cleanup(
+                        persist_backend.as_ref(),
+                        restore_service.as_ref(),
+                        &observation_request,
+                        &persist_session_id,
+                        reused_existing,
+                    )
+                })
+                .await
+                .map_err(|error| error.to_string())?
+                .map_err(|error| error.to_string())?;
+            }
+            Ok((session_id, backend, reused_existing))
+        }
         Err(_) => {
             if let Some(launch_id) = launch_id {
                 let cancel_backend = terminal_backend.backend();
@@ -11398,6 +11449,10 @@ mod tests {
         kills: Mutex<Vec<String>>,
         ready: AtomicBool,
         sequence: AtomicUsize,
+        /// 后端是否具备凭证能力（老 daemon 为 false，此时创建路径不写凭证）
+        claims: AtomicBool,
+        /// 模拟 claim-capable daemon 漏发凭证：persist 必须 fail-closed 并清掉会话
+        omit_provenance: AtomicBool,
     }
 
     impl TerminalBackend for LaunchPromptTestBackend {
@@ -11480,6 +11535,142 @@ mod tests {
         {
             Ok(None)
         }
+
+        fn claims_supported(&self) -> bool {
+            self.claims.load(Ordering::SeqCst)
+        }
+
+        fn session_provenance(
+            &self,
+            session_id: &str,
+        ) -> cc_panes_core::utils::AppResult<Option<cc_panes_core::models::TerminalSessionProvenance>>
+        {
+            if self.omit_provenance.load(Ordering::SeqCst) {
+                return Ok(None);
+            }
+            Ok(Some(cc_panes_core::models::TerminalSessionProvenance {
+                session_id: session_id.to_string(),
+                daemon_generation: 11,
+                birth_nonce: format!("nonce-{session_id}"),
+                origin_instance_id: Some("inst-orch".to_string()),
+                origin_layout_id: Some("layout-1".to_string()),
+                origin_tab_id: Some("tab-1".to_string()),
+                origin_terminal_pane_id: Some("leaf-1".to_string()),
+                project_path: "/tmp/project".to_string(),
+                runtime_kind: "local".to_string(),
+                cli_tool: "claude".to_string(),
+                resume_id: None,
+                created_at_ms: 1_234,
+            }))
+        }
+    }
+
+    /// `Database::new_in_memory` 是 core 内部的 `#[cfg(test)]`，下游 crate 用不了；
+    /// 跟 terminal_commands 的持久化测试一样走 `new_fallback`（内存库）。
+    fn make_session_restore_service() -> (Arc<SessionRestoreService>, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app_paths = Arc::new(AppPaths::new(Some(
+            tmp.path().to_string_lossy().to_string(),
+        )));
+        let db =
+            Arc::new(cc_panes_core::repository::Database::new_fallback().expect("fallback db"));
+        (Arc::new(SessionRestoreService::new(db, app_paths)), tmp)
+    }
+
+    /// launch_task 派发的会话必须写出生凭证：缺凭证的会话重启后被 identity-mismatch
+    /// 永久拦下（实测缺凭证会话里 41/47 是 launch_task 派的 wsl/codex worker）。
+    #[tokio::test]
+    async fn launch_task_persists_session_provenance() {
+        let backend = Arc::new(LaunchPromptTestBackend::default());
+        backend.claims.store(true, Ordering::SeqCst);
+        let state = Arc::new(TerminalBackendState::new(backend.clone()));
+        let (restore, _tmp) = make_session_restore_service();
+
+        let session_id = create_launch_session(
+            state,
+            Some(restore.clone()),
+            None,
+            launch_prompt_test_request(),
+            None,
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("create launch session");
+
+        assert_eq!(session_id, "launch-session-1");
+        assert!(
+            restore
+                .list_sessions_missing_provenance()
+                .expect("query missing")
+                .is_empty(),
+            "凭证行必须在 session id 返回前落库"
+        );
+        let saved = restore.load_sessions().expect("load sessions");
+        let row = saved
+            .iter()
+            .find(|s| s.session_id == session_id)
+            .expect("observation row");
+        assert_eq!(row.daemon_generation, Some(11));
+        assert_eq!(row.birth_nonce.as_deref(), Some("nonce-launch-session-1"));
+    }
+
+    /// 老 daemon 没有凭证能力：跳过，且绝不能因此把会话清理掉。
+    #[tokio::test]
+    async fn launch_task_skips_provenance_without_claims_support() {
+        let backend = Arc::new(LaunchPromptTestBackend::default());
+        let state = Arc::new(TerminalBackendState::new(backend.clone()));
+        let (restore, _tmp) = make_session_restore_service();
+
+        let session_id = create_launch_session(
+            state,
+            Some(restore.clone()),
+            None,
+            launch_prompt_test_request(),
+            None,
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("create launch session");
+
+        assert_eq!(session_id, "launch-session-1");
+        assert!(restore.load_sessions().expect("load").is_empty());
+        assert!(backend
+            .kills
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_empty());
+    }
+
+    /// fail-closed：凭证落不了库就杀掉刚建的会话并把错误抛给调用方，不静默吞掉。
+    #[tokio::test]
+    async fn launch_task_kills_session_when_provenance_persist_fails() {
+        let backend = Arc::new(LaunchPromptTestBackend::default());
+        backend.claims.store(true, Ordering::SeqCst);
+        backend.omit_provenance.store(true, Ordering::SeqCst);
+        let state = Arc::new(TerminalBackendState::new(backend.clone()));
+        let (restore, _tmp) = make_session_restore_service();
+
+        let error = create_launch_session(
+            state,
+            Some(restore.clone()),
+            None,
+            launch_prompt_test_request(),
+            None,
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect_err("must fail closed");
+
+        assert!(error.contains("provenance"), "unexpected error: {error}");
+        assert_eq!(
+            backend
+                .kills
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_slice(),
+            ["launch-session-1"]
+        );
+        assert!(restore.load_sessions().expect("load").is_empty());
     }
 
     fn launch_prompt_test_request() -> CoreCreateSessionRequest {
@@ -11577,6 +11768,7 @@ mod tests {
         let session_id = create_launch_session(
             state,
             None,
+            None,
             launch_prompt_test_request(),
             Some("first\nsecond".to_string()),
             std::time::Duration::ZERO,
@@ -11608,6 +11800,7 @@ mod tests {
 
         let session_id = create_launch_session(
             state,
+            None,
             None,
             launch_prompt_test_request(),
             Some("first\nsecond".to_string()),
