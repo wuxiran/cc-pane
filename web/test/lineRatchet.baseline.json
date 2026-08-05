@@ -18,6 +18,6 @@
   "components/todo/TodoEditor.tsx": 614,
   "components/todo/TodoManager.tsx": 507,
   "services/terminalService.ts": 741,
-  "stores/usePanesStore.ts": 2438,
+  "stores/usePanesStore.ts": 2376,
   "utils/workspaceLaunch.ts": 663
 }

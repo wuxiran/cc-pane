@@ -20,3 +20,42 @@ export function trimClosedTabs(
   }
   return list;
 }
+
+/** closeTab / closePane 记入 closedTabs 的快照映射（两处共用，字段一字不差） */
+export function toClosedTabSnapshot(t: {
+  projectId: string;
+  projectPath: string;
+  title: string;
+  resumeId?: string;
+  workspaceName?: string;
+  providerId?: string;
+  modelId?: string;
+  providerSelection?: ClosedTabSnapshot["providerSelection"];
+  launchProfileId?: string;
+  workspacePath?: string;
+  workspaceSnapshotId?: string;
+  launchClaude?: boolean;
+  cliTool?: ClosedTabSnapshot["cliTool"];
+  ssh?: ClosedTabSnapshot["ssh"];
+  wsl?: ClosedTabSnapshot["wsl"];
+  machineName?: string;
+}): ClosedTabSnapshot {
+  return {
+    projectId: t.projectId,
+    projectPath: t.projectPath,
+    title: t.title,
+    resumeId: t.resumeId,
+    workspaceName: t.workspaceName,
+    providerId: t.providerId,
+    modelId: t.modelId,
+    providerSelection: t.providerSelection,
+    launchProfileId: t.launchProfileId,
+    workspacePath: t.workspacePath,
+    workspaceSnapshotId: t.workspaceSnapshotId,
+    launchClaude: t.launchClaude,
+    cliTool: t.cliTool,
+    ssh: t.ssh,
+    wsl: t.wsl,
+    machineName: t.machineName,
+  };
+}

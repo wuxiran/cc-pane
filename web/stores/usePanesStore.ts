@@ -23,9 +23,11 @@ import {
 } from "./paneTreeHelpers";
 import {
   closeTerminalLeafInTab,
+  findSessionInTab,
   findTerminalPaneParent,
   syncTabTerminalState,
 } from "./paneTreeRemovalHelpers";
+import { createBackendCloseActions } from "./backendCloseActions";
 import { createPaneRemovalActions } from "./paneRemovalActions";
 import {
   activateFirstNormalLayout,
@@ -371,19 +373,6 @@ function ensureLayoutState(
   };
 }
 
-function findSessionInTab(tab: Tab, sessionId: string): TerminalPaneLeaf | null {
-  if (tab.contentType === "terminal" && tab.terminalRootPane) {
-    return collectTerminalLeaves(tab.terminalRootPane)
-      .find((leaf) => leaf.sessionId === sessionId) ?? null;
-  }
-  return tab.sessionId === sessionId
-    ? {
-        type: "leaf",
-        id: tab.id,
-        sessionId,
-      }
-    : null;
-}
 
 /** 从根到目标节点的 split 祖先链（自顶向下，不含目标本身）；未找到返回 null */
 function findAncestorSplits(
@@ -1881,6 +1870,7 @@ export const usePanesStore = create<PanesState>()(
     ...createEditorTabActions(set, get),
 
     ...createPaneRemovalActions(set, get),
+    ...createBackendCloseActions(set),
 
     setTabDirty: (_paneId, tabId, dirty) => {
       set((state) => {
@@ -2004,58 +1994,6 @@ export const usePanesStore = create<PanesState>()(
         console.error("[reconnectTab] Failed to reconnect:", error);
         return null;
       }
-    },
-
-    closeTabBySessionId: (sessionId) => {
-      let closed = 0;
-      let blockedByPinned = 0;
-      set((state) => {
-        // 不用 eachLayoutTree：它跳过星标布局，而星标布局里的标签同样是真实 PTY 镜像，
-        // 后端 kill 后必须一并关掉，否则星标布局里的标签永远关不掉。
-        // eachLayoutTree 的跳过语义被布局编辑等多处依赖，不在此处改动它。
-        // 同一会话可能同时出现在普通布局和星标布局，因此不在首个命中处停止，逐布局各关一次。
-        for (const layout of state.layouts) {
-          const isCurrent = layout.id === state.currentLayoutId;
-          const tree = isCurrent ? state.rootPane : layout.rootPane;
-          if (!tree) continue;
-          for (const panel of collectPanels(tree)) {
-            const tab = panel.tabs.find((item) => Boolean(findSessionInTab(item, sessionId)));
-            if (!tab) continue;
-            // 这是唯一由后端事件驱动的关标签路径，必须留痕便于排障
-            console.info("[panes] closeTabBySessionId", {
-              sessionId,
-              layoutId: layout.id,
-              paneId: panel.id,
-              tabId: tab.id,
-              tabTitle: tab.title,
-            });
-            const leaf = findSessionInTab(tab, sessionId);
-            if (leaf && closeTerminalLeafInTab(tab, leaf.id)) {
-              closed += 1;
-              break;
-            }
-            // backend-driven kill 表示 PTY 已不存在；即使标签 pinned 也必须关闭，
-            // pinned 只保护用户手动关闭，不应留下已死亡的终端壳。
-            const nextTree = closeTabInTree(tree, panel.id, tab.id, true);
-            if (isCurrent) {
-              state.rootPane = nextTree;
-              const activePane = findPane(state.rootPane, state.activePaneId);
-              if (activePane?.type !== "panel") {
-                state.activePaneId = collectPanels(state.rootPane)[0]?.id ?? state.rootPane.id;
-              }
-            } else {
-              layout.rootPane = nextTree;
-              const activePane = findPane(layout.rootPane, layout.activePaneId);
-              if (activePane?.type !== "panel") {
-                layout.activePaneId = collectPanels(layout.rootPane)[0]?.id ?? layout.rootPane.id;
-              }
-            }
-            closed += 1;
-            break;
-          }
-        }
-      });
-      return { closed, blockedByPinned };
     },
 
     restoreLiveDaemonSessions: (statuses) => {
