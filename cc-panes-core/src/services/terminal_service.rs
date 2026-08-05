@@ -2187,6 +2187,13 @@ impl TerminalService {
                 };
                 let effective_prompt =
                     merge_session_prompts([launch_append_system_prompt.clone(), spec_prompt]);
+                let mut local_adapter_options = adapter_options.clone();
+                if cli_tool == CliTool::Claude && provider_plan.mode == ProviderMode::Managed {
+                    local_adapter_options.insert(
+                        cc_cli_adapters::MANAGED_PROVIDER_ENV_OPTION.to_string(),
+                        serde_json::to_value(&provider_vars)?,
+                    );
+                }
 
                 let ctx = CliAdapterContext {
                     session_id: session_id.clone(),
@@ -2199,7 +2206,7 @@ impl TerminalService {
                         .cli_launchers
                         .command_for(cli_tool_id)
                         .map(str::to_string),
-                    adapter_options: adapter_options.clone(),
+                    adapter_options: local_adapter_options,
                     resume_id: resume_id.map(|s| s.to_string()),
                     issued_session_id: issued_session_id.clone(),
                     skip_mcp: effective_skip_mcp,

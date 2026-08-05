@@ -91,6 +91,11 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "CLAUDE_CODE_SUBAGENT_MODEL",
             "CLAUDE_CODE_USE_BEDROCK",
             "CLAUDE_CODE_USE_VERTEX",
             "AWS_REGION",
@@ -1098,6 +1103,9 @@ mod tests {
     fn managed_conflict_lists_are_cli_scoped_and_never_apply_to_shell() {
         assert!(managed_provider_conflict_env_keys(CliTool::Claude)
             .contains(&"CLAUDE_CODE_USE_BEDROCK"));
+        assert!(managed_provider_conflict_env_keys(CliTool::Claude).contains(&"ANTHROPIC_MODEL"));
+        assert!(managed_provider_conflict_env_keys(CliTool::Claude)
+            .contains(&"CLAUDE_CODE_SUBAGENT_MODEL"));
         assert!(!managed_provider_conflict_env_keys(CliTool::Codex)
             .contains(&"CLAUDE_CODE_USE_BEDROCK"));
         assert!(managed_provider_conflict_env_keys(CliTool::Codex).contains(&"OPENAI_BASE_URL"));
