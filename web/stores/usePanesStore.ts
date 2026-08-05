@@ -1164,14 +1164,17 @@ export const usePanesStore = create<PanesState>()(
         toPane: summarizePanel(afterToPane),
       });
 
-      // closePane uses its own state update, so do this after the move completes.
+      // 搬走 tab 后收掉空壳。**必须走 removeEmptyPane 而不是 closePane**：
+      // closePane 自 B1-05 起会销毁 pane 里的 tab（回收 PTY），而这里的 pane
+      // 是「tab 已经搬到别处」的空壳——借道它等于用户拖一下标签就杀掉自己
+      // 正在跑的会话。removeEmptyPane 非空即拒，类型层就调不到杀人的路径。
       const fromPane = findPane(get().rootPane, fromPaneId);
       if (fromPane?.type === "panel" && fromPane.tabs.length === 0) {
         debugPanes("moveTab.close-empty-pane", {
           paneId: fromPaneId,
           tabId,
         });
-        get().closePane(fromPaneId);
+        get().removeEmptyPane(fromPaneId);
 
         const targetPane = findPane(get().rootPane, toPaneId);
         if (targetPane?.type === "panel" && targetPane.tabs.some((t) => t.id === tabId)) {
@@ -1244,8 +1247,9 @@ export const usePanesStore = create<PanesState>()(
 
       if (!moved) return;
 
+      // 同 moveTab：tab 已搬到目标布局，源 pane 是空壳，只收树不碰会话。
       if (closeEmptyCurrentSource) {
-        get().closePane(fromPaneId);
+        get().removeEmptyPane(fromPaneId);
       }
       notifyTerminalLayoutChanged("tab.move-layout");
     },

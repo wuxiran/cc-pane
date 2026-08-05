@@ -80,7 +80,7 @@ let killSpy: ReturnType<typeof vi.spyOn>;
 
 /** 杀集（排序后比较，断言的是集合而非调用顺序）。 */
 function killedIds(): string[] {
-  return killSpy.mock.calls.map((c) => c[0] as string).sort();
+  return killSpy.mock.calls.map((c: unknown[]) => c[0] as string).sort();
 }
 
 beforeEach(() => {
@@ -233,10 +233,22 @@ describe("closeTabsToLeft / closeTabsToRight / closeOtherTabs（搬家后行为�
     expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t2", "t3"]);
   });
 
-  it("批量关闭不记 closedTabs（迁移前语义，B1-04 才修复）", () => {
+  // 三个 store 出口自 B1-04 起已无调用方（@deprecated），保留用例只为锁住
+  // 「搬家没改变它们」；UI 侧批量关闭的真实语义见下条。
+  it("废弃出口维持迁移前语义：不记 closedTabs", () => {
     setPanesState(threeTabs(), "p1");
     usePanesStore.getState().closeOtherTabs("p1", "t1");
     expect(usePanesStore.getState().closedTabs).toHaveLength(0);
+  });
+
+  it("改道后的批量关闭记 closedTabs（batch-close 矩阵，修复撤销失效）", () => {
+    setPanesState(threeTabs(), "p1");
+
+    // UI 侧 doBatchClose 的等价调用
+    usePanesStore.getState().removeTabsInternal(["t2", "t3"], "batch-close");
+
+    expect(usePanesStore.getState().closedTabs.map((s) => s.projectId).sort())
+      .toEqual(["proj-t2", "proj-t3"]);
   });
 });
 
@@ -617,5 +629,62 @@ describe("removeTabsInternal（改道后：回收管线接入）", () => {
     await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
 
     expect(killedIds()).toEqual(["sess-drop"]);
+  });
+});
+
+// ============================================================================
+// B1-05 改道后的关键回归。
+//
+// 「拖动标签杀掉自己的会话」是本批最容易造成的灾难：moveTab 系搬走 tab 后
+// 借道 closePane 收空壳，而 closePane 自 B1-05 起会销毁 pane 内的 tab。
+// 这组断言把「搬走 ≠ 销毁」永久钉死。
+// ============================================================================
+describe("moveTab / closeTab 改道后（搬走不杀、双 push 已修）", () => {
+  function tabWithSession(id: string, sessionId: string): Tab {
+    const tab = makeTerminalTab(id);
+    (tab.terminalRootPane as TerminalPaneLeaf).sessionId = sessionId;
+    return tab;
+  }
+
+  it("moveTab 搬空源 pane：收树但零 kill", async () => {
+    const tab = tabWithSession("t1", "sess-moving");
+    const src = makePanel("p1", [tab]);
+    const dst = makePanel("p2", [makeTerminalTab("t2")]);
+    setPanesState(makeSplit("root", [src, dst]), "p1");
+
+    usePanesStore.getState().moveTab("p1", "p2", "t1");
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(killSpy).not.toHaveBeenCalled();
+    // tab 活着，只是换了 pane
+    expect(collectTabIds(usePanesStore.getState().rootPane)).toContain("t1");
+  });
+
+  it("closeTab 关最后一个 tab：杀会话且撤销栈只记一条（双 push 已修）", async () => {
+    const tab = tabWithSession("t1", "sess-last");
+    const src = makePanel("p1", [tab]);
+    const dst = makePanel("p2", [makeTerminalTab("t2")]);
+    setPanesState(makeSplit("root", [src, dst]), "p1");
+
+    usePanesStore.getState().closeTab("p1", "t1");
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
+
+    expect(killedIds()).toEqual(["sess-last"]);
+    expect(usePanesStore.getState().closedTabs.filter((s) => s.projectId === "proj-t1"))
+      .toHaveLength(1);
+  });
+
+  it("closePane 有 tab 时销毁全部内容（close-pane 矩阵：不豁免 pinned）", async () => {
+    const normal = tabWithSession("t1", "sess-a");
+    const pinned = tabWithSession("t2", "sess-b");
+    pinned.pinned = true;
+    const src = makePanel("p1", [normal, pinned]);
+    const dst = makePanel("p2", [makeTerminalTab("t3")]);
+    setPanesState(makeSplit("root", [src, dst]), "p1");
+
+    usePanesStore.getState().closePane("p1");
+    await vi.waitFor(() => expect(killSpy).toHaveBeenCalledTimes(2));
+
+    expect(killedIds()).toEqual(["sess-a", "sess-b"]);
   });
 });
