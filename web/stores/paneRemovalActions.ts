@@ -106,17 +106,16 @@ export function createPaneRemovalActions(
 ): PaneRemovalActions {
   return {
     closePane: (paneId) => {
-      // 保存可恢复标签
+      // B1-05 语义拆分：**关 pane = 销毁里面的 tab + 收掉空壳**，两件事分开做。
+      // 有 tab 时先走销毁出口（回收 + closedTabs 按矩阵），再收空壳；
+      // 已空则只收空壳。搬空 pane 的调用方（moveTab 系）改用 removeEmptyPane，
+      // 不再借道这里——那条路径绝不能沾上杀会话副作用。
       const closingPane = findPane(get().rootPane, paneId);
-      if (closingPane?.type === "panel") {
-        const recoverableTabs: ClosedTabSnapshot[] = closingPane.tabs
-          .filter((t) => t.projectPath && t.contentType === "terminal")
-          .map((t) => toClosedTabSnapshot(t));
-        if (recoverableTabs.length > 0) {
-          set((state) => {
-            state.closedTabs.push(...recoverableTabs);
-          });
-        }
+      if (closingPane?.type === "panel" && closingPane.tabs.length > 0) {
+        get().removeTabsInternal(
+          closingPane.tabs.map((t) => t.id),
+          "close-pane",
+        );
       }
 
       set((state) => {
@@ -163,39 +162,23 @@ export function createPaneRemovalActions(
     },
 
     closeTab: (paneId, tabId) => {
-      const snapshot = get();
-      const snapPane = findPane(snapshot.rootPane, paneId);
-      if (snapPane?.type !== "panel") return;
-      const snapTab = snapPane.tabs.find((t) => t.id === tabId);
-      if (!snapTab || snapTab.pinned) return;
+      // B1-05 改道：回收 + closedTabs + 树操作统一走 removeTabsInternal。
+      //
+      // 顺带修掉双 push——改道前 closeTab 先 push 快照，pane 只剩这一个 tab 时
+      // 又转调 closePane，后者再 push 一次，同一个 tab 在撤销栈里占两格。
+      // 现在 push 只发生在 removeTabsInternal 一处。
+      const pane = findPane(get().rootPane, paneId);
+      if (pane?.type !== "panel") return;
+      const tab = pane.tabs.find((t) => t.id === tabId);
+      if (!tab) return;
 
-      // 保存可恢复标签
-      if (snapTab.projectPath && snapTab.contentType === "terminal") {
-        set((state) => {
-          state.closedTabs.push(toClosedTabSnapshot(snapTab));
-        });
+      get().removeTabsInternal([tabId], "user-close");
+
+      // 关掉最后一个 tab 后 pane 成空壳，收掉它（纯树操作，零销毁语义）。
+      const after = findPane(get().rootPane, paneId);
+      if (after?.type === "panel" && after.tabs.length === 0) {
+        get().removeEmptyPane(paneId);
       }
-
-      if (snapPane.tabs.length <= 1) {
-        get().closePane(paneId);
-        return;
-      }
-
-      set((state) => {
-        const p = findPane(state.rootPane, paneId);
-        if (p?.type !== "panel") return;
-
-        const idx = p.tabs.findIndex((t) => t.id === tabId);
-        if (idx === -1) return;
-        if (p.tabs[idx].pinned) return;
-        if (p.tabs.length <= 1) return;
-
-        p.tabs.splice(idx, 1);
-        if (p.activeTabId === tabId) {
-          const newIdx = Math.min(idx, p.tabs.length - 1);
-          p.activeTabId = p.tabs[newIdx].id;
-        }
-      });
     },
 
     closeTabsToLeft: (paneId, tabId) => {
