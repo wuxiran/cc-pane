@@ -15,7 +15,7 @@ import {
   sweepOwnerState,
 } from "@/lib/tabLifecycle/destroyPipeline";
 import { TAB_LIFECYCLE } from "@/lib/tabLifecycle/registry";
-import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
+import type { DestroyPolicy, DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
 import { collectTerminalLeaves, collectTerminalSessionIdsWithSaved } from "@/lib/paneSessions";
 import type { Tab } from "@/types";
 import type {
@@ -57,6 +57,120 @@ export interface PaneRemovalActions {
 }
 
 
+/**
+ * removeTabsInternal 第一段：树 splice 前按当前树**重新定位**、收集要回收的
+ * tab，并发起资源回收（回收先于树操作：splice 后 tab 数据就找不回来了）。
+ *
+ * 重定位重收集而非信任调用方传来的 Tab 引用：确认弹窗打开期间树可能变化
+ * （后端 kill / 跨端快照同步），拿旧引用去杀会杀错对象。
+ *
+ * 历史快照互覆盖会造成**跨布局同 id 的分叉副本**，收集必须逐位置进行、不能
+ * 按 tab.id 去重——去重会漏掉后续副本的资源（不同 sessionId 的分叉副本成
+ * 孤儿）。pinned 豁免的副本仍在树上显示它的会话：该会话必须进保护集，否则
+ * 「杀掉 pinned 副本正在用的会话」= 一个杀不掉的死终端。
+ */
+function relocateAndCollect(
+  state: PanesState,
+  tabIds: string[],
+  policy: DestroyPolicy,
+  reason: DestroyReason,
+  opts: RemoveTabsInternalOptions | undefined,
+): void {
+  const doomedTabs: Tab[] = [];
+  const pinnedProtected = new Set<string>();
+  for (const tabId of tabIds) {
+    for (const layout of state.layouts) {
+      const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+      if (!tree) continue;
+      const location = findTabLocation(tree, tabId);
+      if (!location) continue;
+      if (policy.respectsPinned && location.tab.pinned) {
+        for (const sid of collectTerminalSessionIdsWithSaved(location.tab)) {
+          pinnedProtected.add(sid);
+        }
+        continue;
+      }
+      doomedTabs.push(location.tab);
+    }
+  }
+  // commitResourceDestroy 内部按矩阵决定杀不杀（backend-close 的 PTY 已死，
+  // kills=false 整步跳过）。
+  if (doomedTabs.length > 0) {
+    const protect = pinnedProtected.size > 0
+      ? new Set([...(opts?.protectSessionIds ?? []), ...pinnedProtected])
+      : opts?.protectSessionIds;
+    void commitResourceDestroy(doomedTabs, reason, { protectSessionIds: protect });
+  }
+}
+
+/**
+ * removeTabsInternal 第二段：逐 tab × 逐布局（含星标——镜像标签同样要能移除）
+ * 树 splice + closedTabs 撤销快照。pinned 豁免与第一段同口径判定（两处判据
+ * 必须一致，否则会出现「资源杀了但标签还在」或反之）。
+ * 同 id 继续扫完其余布局（历史快照互覆盖的跨布局分叉副本要移除干净）。
+ */
+function spliceAcrossLayouts(
+  state: PanesDraft,
+  tabIds: string[],
+  policy: DestroyPolicy,
+  removedIds: Set<string>,
+): void {
+  for (const tabId of tabIds) {
+    for (const layout of state.layouts) {
+      const isCurrent = layout.id === state.currentLayoutId;
+      const tree = isCurrent ? state.rootPane : layout.rootPane;
+      if (!tree) continue;
+      const location = findTabLocation(tree, tabId);
+      if (!location) continue;
+      const { panel, tab } = location;
+      if (policy.respectsPinned && tab.pinned) continue;
+
+      if (policy.recordsClosedTabs && tab.projectPath && tab.contentType === "terminal") {
+        state.closedTabs.push(toClosedTabSnapshot(tab));
+      } else if (policy.recordsClosedTabs) {
+        // 非终端撤销（docs/78）：browser 存 URL、editor 存 filePath。
+        const snap = TAB_LIFECYCLE[tab.contentType].persistForUndo?.(tab);
+        if (snap) state.closedTabs.push(snap);
+      }
+
+      // pinned 语义已按矩阵判过，这里恒 force。
+      const nextTree = closeTabInTree(tree, panel.id, tabId, true);
+      assignTreeAndConvergeActive(isCurrent ? state : layout, nextTree);
+      removedIds.add(tabId);
+    }
+  }
+  if (removedIds.size > 0) {
+    trimClosedTabs(state.closedTabs);
+  }
+}
+
+/**
+ * removeTabsInternal 第三段：附属状态清理——poppedOutTabs / 全屏退出 /
+ * owner 键卫星态清扫（视图聚合 + 注意标记，不清的话死标签会被 hidden 上报
+ * 当「可见」报给 daemon）+ 布局变更通知。
+ */
+function cleanupSatelliteState(
+  set: (recipe: (state: PanesDraft) => void) => void,
+  get: () => PanesState,
+  removedIds: Set<string>,
+): void {
+  const popped = get().poppedOutTabs;
+  const stalePopped = [...removedIds].filter((id) => popped.has(id));
+  if (stalePopped.length > 0) {
+    const next = new Set(popped);
+    for (const id of stalePopped) next.delete(id);
+    set((state) => {
+      state.poppedOutTabs = next;
+    });
+  }
+  const fullscreen = useFullscreenStore.getState();
+  if (fullscreen.fullscreenTabId && removedIds.has(fullscreen.fullscreenTabId)) {
+    void fullscreen.exitFullscreen();
+  }
+  sweepOwnerState(removedIds);
+  notifyTerminalLayoutChanged("tab.remove");
+}
+
 export function createPaneRemovalActions(
   set: (recipe: (state: PanesDraft) => void) => void,
   get: () => PanesState,
@@ -65,108 +179,17 @@ export function createPaneRemovalActions(
     // ============ 统一销毁出口（全部关闭路径的唯一入口） ============
 
     removeTabsInternal: (tabIds, reason, opts) => {
-      // 唯一逐-tab 销毁出口：重定位重收集 → 回收（commitResourceDestroy）
-      // → 树 splice → closedTabs(cap 20) → poppedOut / fullscreen 附属清理。
+      // 唯一逐-tab 销毁出口，三段编排（docs/78 §8）：
+      // relocateAndCollect（回收先于树操作）→ spliceAcrossLayouts（树 splice
+      // + closedTabs）→ cleanupSatelliteState（附属清理 + 通知）。
       // 幂等：找不到的 tabId 静默跳过。
-      //
-      // **重定位重收集而非信任调用方传来的 Tab 引用**：确认弹窗打开期间树可能
-      // 变化（后端 kill / 跨端快照同步），拿旧引用去杀会杀错对象。
       if (tabIds.length === 0) return;
       const policy = DESTROY_POLICY[reason];
+      relocateAndCollect(get(), tabIds, policy, reason, opts);
       const removedIds = new Set<string>();
-
-      // 阶段 0：树 splice 前按当前树重新定位，收集真正要回收的 tab。
-      // pinned 豁免在此判定，与下方树操作同一口径——两处判据必须一致，
-      // 否则会出现「资源杀了但标签还在」或反之。
-      const doomedTabs: Tab[] = [];
-      // 历史快照互覆盖会造成**跨布局同 id 的分叉副本**（下方
-      // 树操作的注释即为此扫完全部布局）。收集必须逐位置进行，不能按 tab.id
-      // 去重——去重会漏掉后续副本的资源（不同 sessionId 的分叉副本成孤儿）。
-      // 同时 pinned 豁免的副本仍在树上显示它的会话：该会话必须进保护集，
-      // 否则「杀掉 pinned 副本正在用的会话」= 一个杀不掉的死终端。
-      const pinnedProtected = new Set<string>();
-      {
-        const state = get();
-        for (const tabId of tabIds) {
-          for (const layout of state.layouts) {
-            const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
-            if (!tree) continue;
-            const location = findTabLocation(tree, tabId);
-            if (!location) continue;
-            if (policy.respectsPinned && location.tab.pinned) {
-              for (const sid of collectTerminalSessionIdsWithSaved(location.tab)) {
-                pinnedProtected.add(sid);
-              }
-              continue;
-            }
-            doomedTabs.push(location.tab);
-          }
-        }
-      }
-      // 回收先于树操作：树 splice 后 tab 数据就找不回来了。commitResourceDestroy
-      // 内部按矩阵决定杀不杀（backend-close 的 PTY 已死，kills=false 整步跳过）。
-      if (doomedTabs.length > 0) {
-        const protect = pinnedProtected.size > 0
-          ? new Set([...(opts?.protectSessionIds ?? []), ...pinnedProtected])
-          : opts?.protectSessionIds;
-        void commitResourceDestroy(doomedTabs, reason, { protectSessionIds: protect });
-      }
-
-      set((state) => {
-        for (const tabId of tabIds) {
-          // 不用 eachLayoutTree：它跳过星标布局，而星标布局里的标签同样要能移除
-          // （与 closeTabBySessionId 同理）。当前布局的活树在工作副本 state.rootPane 上。
-          for (const layout of state.layouts) {
-            const isCurrent = layout.id === state.currentLayoutId;
-            const tree = isCurrent ? state.rootPane : layout.rootPane;
-            if (!tree) continue;
-            const location = findTabLocation(tree, tabId);
-            if (!location) continue;
-            const { panel, tab } = location;
-            if (policy.respectsPinned && tab.pinned) continue;
-
-            if (policy.recordsClosedTabs && tab.projectPath && tab.contentType === "terminal") {
-              state.closedTabs.push(toClosedTabSnapshot(tab));
-            } else if (policy.recordsClosedTabs) {
-              // 非终端撤销（docs/78）：browser 存 URL、editor 存 filePath。
-              const snap = TAB_LIFECYCLE[tab.contentType].persistForUndo?.(tab);
-              if (snap) state.closedTabs.push(snap);
-            }
-
-            // pinned 语义已在上面按矩阵判过，这里恒 force。
-            const nextTree = closeTabInTree(tree, panel.id, tabId, true);
-            assignTreeAndConvergeActive(isCurrent ? state : layout, nextTree);
-            removedIds.add(tabId);
-            // tab id 理论上全局唯一，但历史快照互覆盖出现过跨布局同 id（见
-            // attachSessionToAnchor 注释）——继续扫完其余布局，保证移除干净。
-          }
-        }
-        if (removedIds.size > 0) {
-          trimClosedTabs(state.closedTabs);
-        }
-      });
-
+      set((state) => spliceAcrossLayouts(state, tabIds, policy, removedIds));
       if (removedIds.size === 0) return;
-
-      // 附属状态清理（store 侧两份真相；popupWindowService 侧与窗口关闭属回收管线，见上方 TODO）
-      const popped = get().poppedOutTabs;
-      const stalePopped = [...removedIds].filter((id) => popped.has(id));
-      if (stalePopped.length > 0) {
-        const next = new Set(popped);
-        for (const id of stalePopped) next.delete(id);
-        set((state) => {
-          state.poppedOutTabs = next;
-        });
-      }
-      const fullscreen = useFullscreenStore.getState();
-      if (fullscreen.fullscreenTabId && removedIds.has(fullscreen.fullscreenTabId)) {
-        void fullscreen.exitFullscreen();
-      }
-      // owner 键卫星态清扫（视图聚合 + 注意标记）：不清的话被关标签的
-      // views/aggregate 条目永远留在 store，且大概率停在 active（人总是关
-      // 当前标签）——hidden 上报会把死标签当「可见」上报给 daemon。
-      sweepOwnerState(removedIds);
-      notifyTerminalLayoutChanged("tab.remove");
+      cleanupSatelliteState(set, get, removedIds);
     },
 
     removeTerminalLeafInternal: (tabId, terminalPaneId, reason) => {
