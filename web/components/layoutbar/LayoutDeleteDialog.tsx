@@ -8,6 +8,7 @@ import {
   collectTerminalSessionIdsFromTree,
   collectTerminalTabs,
 } from "@/lib/paneSessions";
+import { phaseOf } from "@/lib/terminalRuntimePhase";
 import { destroySessionsDirectly } from "@/lib/tabLifecycle/destroyPipeline";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,11 +49,13 @@ export function summarizeLayoutDelete(layout: LayoutEntry): DeleteSummary {
 
   for (const tab of tabs) {
     if (tab.ssh) sshCount += 1;
-    if (tab.restoring) restoringCount += 1;
+    // phaseOf 消费方（批5 接线）：restoring 判定含「savedSessionId 已置、
+    // 标志未及置位」的窗口——旧写法只看布尔会少算这段。
+    if (phaseOf(tab) === "restoring") restoringCount += 1;
     if (tab.terminalRootPane) {
       for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
         if (leaf.ssh) sshCount += 1;
-        if (leaf.restoring) restoringCount += 1;
+        if (phaseOf(leaf) === "restoring") restoringCount += 1;
       }
     }
   }

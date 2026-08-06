@@ -1,3 +1,4 @@
+import { isInteractivePhase, phaseOf } from "@/lib/terminalRuntimePhase";
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { CircleAlert, LockKeyhole, RotateCcw, Terminal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -316,7 +317,9 @@ export default memo(function TerminalTabContent({
             <VoiceInputButton
               sessionId={leaf.sessionId}
               paneId={leaf.id}
-              disabled={Boolean(leaf.disconnected || leaf.restoring || leaf.leaseReadOnly)}
+              // phaseOf 首批消费方（批5 接线）：可交互判定不再手工组合字段。
+              // 语义增强：restore-blocked 也会禁用（旧表达式漏了这档）。
+              disabled={!isInteractivePhase(phaseOf(leaf), leaf.leaseReadOnly)}
             />
           ) : null}
           {!restoreBlocked && !launchError && showPlaceholder ? (
