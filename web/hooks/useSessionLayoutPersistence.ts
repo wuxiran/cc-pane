@@ -3,7 +3,16 @@
 // 必须保持模块级单例，不要把它们改成 hook 内部 state。
 import { useEffect, useRef, useState } from "react";
 import { usePanesStore, useSettingsStore, useWorkspacesStore } from "@/stores";
-import { collectSnapshotSessionIds, finalizeSnapshotWouldKill } from "@/stores/snapshotSessionDiff";
+import {
+  abandonSnapshotKillCandidates,
+  collectSnapshotSessionIds,
+  finalizeSnapshotWouldKill,
+  performSnapshotApplyKills,
+} from "@/stores/snapshotSessionDiff";
+import {
+  collectReferencedSessionIdsAcrossSources,
+  isSweepUnsafeForMultiClient,
+} from "@/hooks/sessionReferenceCollector";
 import { sessionRestoreService, layoutSnapshotService, terminalService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime, resolveRuntimeKind } from "@/utils/desktopRuntime";
@@ -279,19 +288,39 @@ export function useSharedLayoutSnapshotSync(): void {
           })
             .then(() => runBackgroundLayoutRestore())
             .then(async () => {
-              // 杀决策后置：收养已 settle，按当前树引用 + 后端活会话
-              // 复核 apply 时登记的候选杀集。仍只打日志——开闸等观察期零误报，
-              // 但从此观察到的 would-kill 就是复核后的最终口径。
+              // 杀决策后置：收养已 settle，按当前树引用 ∪ 共享引用集
+              // （SelfChat/runner/task binding，与孤儿 GC 同源）∪ 后端活会话
+              // 复核 apply 时登记的候选杀集。任一保护集来源不可达都放弃本轮
+              // ——少一路保护集只会**放大**杀集，方向与「宁可不杀」相反。
               const state = usePanesStore.getState();
-              const treeRefs = new Set(collectSnapshotSessionIds(state));
-              let live = new Set<string>();
+              const protect = new Set(collectSnapshotSessionIds(state));
+              let live: Set<string>;
               try {
                 const statuses = await terminalService.getAllStatus();
                 live = new Set(statuses.map((s) => s.sessionId));
               } catch {
-                // 后端不可达：保护集退化为仅树引用（宁可少报也不误报杀活）
+                abandonSnapshotKillCandidates("backend-unreachable");
+                return;
               }
-              finalizeSnapshotWouldKill(treeRefs, live);
+              try {
+                for (const id of await collectReferencedSessionIdsAcrossSources()) {
+                  protect.add(id);
+                }
+              } catch {
+                abandonSnapshotKillCandidates("reference-sources-unreachable");
+                return;
+              }
+              const finalKill = finalizeSnapshotWouldKill(protect, live);
+              const killEnabled = Boolean(
+                useSettingsStore.getState().settings?.terminal.snapshotApplyKillEnabled,
+              );
+              if (finalKill.length === 0 || !killEnabled) return;
+              // 真杀前的多实例守卫：共享 daemon 时别端 tab 不可见，差集必然算多
+              if (await isSweepUnsafeForMultiClient("[destroy] snapshot-apply")) return;
+              await performSnapshotApplyKills(finalKill, {
+                enabled: killEnabled,
+                killSession: (id, reason) => terminalService.killSession(id, reason),
+              });
             });
         }).catch((error) => {
           console.warn("[LayoutSnapshot] Failed to poll shared layout:", error);

@@ -418,6 +418,10 @@ pub struct TerminalSettings {
     /// 禁用 daemon 孤儿会话回收（true = 永不回收）。取代旧的"TTL=0 表示永不过期"语义。
     #[serde(default)]
     pub daemon_orphan_reaper_disabled: bool,
+    /// 跨端快照覆盖的差集真杀开闸（默认 false = 只打 would-kill 观察日志）。
+    /// 开闸前提：观察期零误报（与孤儿对账 GC 逐条互证），见 docs/78。
+    #[serde(default)]
+    pub snapshot_apply_kill_enabled: bool,
     /// 启动时自动认领 daemon 中的无主会话（docs/61 阶段 3）。
     ///
     /// 默认开启；严格 provenance、daemon generation、birth nonce 与原 leaf 锚点匹配
@@ -1096,6 +1100,7 @@ impl Default for TerminalSettings {
             daemon_enabled: true,
             daemon_orphan_ttl_minutes: default_daemon_orphan_ttl_minutes(),
             daemon_orphan_reaper_disabled: false,
+            snapshot_apply_kill_enabled: false,
             auto_adopt_daemon_sessions: true,
             lower_session_priority: true,
             session_cpu_weight: None,

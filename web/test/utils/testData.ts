@@ -115,6 +115,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       daemonEnabled: false,
       daemonOrphanTtlMinutes: 1440,
       daemonOrphanReaperDisabled: false,
+      snapshotApplyKillEnabled: false,
       autoAdoptDaemonSessions: true,
       lowerSessionPriority: true,
       sessionCpuWeight: null,

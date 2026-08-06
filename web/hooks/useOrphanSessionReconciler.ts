@@ -1,118 +1,25 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { usePanesStore } from "@/stores/usePanesStore";
-import { useSelfChatStore } from "@/stores/useSelfChatStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { terminalService } from "@/services/terminalService";
-import { runnerService } from "@/services/runnerService";
-import { taskBindingService } from "@/services/taskBindingService";
 import { notificationService } from "@/services/notificationService";
 import { isTauriRuntime } from "@/services/runtime";
 import { waitForTauri } from "@/utils";
 import { selectOrphanSessions } from "@/lib/orphanSessionReconcile";
-import type { TaskBindingStatus } from "@/types";
+import {
+  collectReferencedSessionIdsAcrossSources,
+  isSweepUnsafeForMultiClient,
+} from "./sessionReferenceCollector";
 
 /** 首轮延迟：等布局 rehydrate、会话收养/restore 完成后再对账 */
 const FIRST_SWEEP_DELAY_MS = 5 * 60 * 1000;
 /** 对账周期 */
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
-/** 视为"仍被引用"的活跃 task binding 状态 */
-const LIVE_BINDING_STATUSES: TaskBindingStatus[] = ["pending", "running", "waiting"];
-const TASK_BINDING_PAGE_SIZE = 200;
+const LOG_PREFIX = "[orphan-reconcile]";
 
 function isReapingDisabled(): boolean {
   const settings = useSettingsStore.getState().settings;
   return settings === null || settings.terminal.daemonOrphanReaperDisabled;
-}
-
-/**
- * 多桌面实例守卫：本 hook 的"被引用会话全集"只来自本实例内存，
- * 多个桌面实例共享 daemon 时其他实例的 tab 不可见，据此杀会话会误杀
- * 别的窗口刚打开的面板（残留旧实例事故的根因）。
- * daemon 且计数 ≠1（含旧 daemon 无计数、查询失败）一律 fail-closed 跳过。
- */
-async function isSweepUnsafeForMultiClient(): Promise<boolean> {
-  try {
-    const info = await terminalService.getDaemonClientInfo();
-    if (info.mode === "in-process") return false; // 会话为本实例独占
-    if (info.desktopClientCount === 1) return false;
-    console.info(
-      "[orphan-reconcile] sweep skipped: daemon shared by",
-      info.desktopClientCount ?? "unknown",
-      "desktop clients",
-    );
-    return true;
-  } catch (error) {
-    console.warn("[orphan-reconcile] client info query failed; skipping sweep", error);
-    return true;
-  }
-}
-
-async function collectBindingSessionIds(status: TaskBindingStatus): Promise<Set<string>> {
-  const sessionIds = new Set<string>();
-  const bindingIds = new Set<string>();
-  let expectedTotal: number | undefined;
-  let offset = 0;
-
-  while (true) {
-    const result = await taskBindingService.query({
-      status,
-      limit: TASK_BINDING_PAGE_SIZE,
-      offset,
-    });
-    if (expectedTotal === undefined) {
-      expectedTotal = result.total;
-    } else if (result.total !== expectedTotal) {
-      throw new Error(`task bindings changed during ${status} pagination`);
-    }
-
-    for (const binding of result.items) {
-      if (bindingIds.has(binding.id)) {
-        throw new Error(`duplicate task binding during ${status} pagination: ${binding.id}`);
-      }
-      bindingIds.add(binding.id);
-      if (binding.sessionId) sessionIds.add(binding.sessionId);
-    }
-
-    if (!result.hasMore) {
-      if (bindingIds.size !== expectedTotal) {
-        throw new Error(
-          `incomplete task binding pagination for ${status}: expected ${expectedTotal}, got ${bindingIds.size}`,
-        );
-      }
-      return sessionIds;
-    }
-    if (result.items.length === 0) {
-      throw new Error(`empty task binding page for ${status} at offset ${offset}`);
-    }
-    offset += TASK_BINDING_PAGE_SIZE;
-  }
-}
-
-/**
- * 收集当前仍被引用的 sessionId 全集：
- * 全布局 tab（含星标/非当前布局）+ Self-Chat + Runner 实例 + 活跃编排任务。
- * 任一来源查询失败即抛错，调用方跳过本轮（fail-closed，宁可不杀）。
- */
-async function collectReferencedIds(): Promise<Set<string>> {
-  const referenced = usePanesStore.getState().collectReferencedSessionIds();
-
-  const selfChatPty = useSelfChatStore.getState().activeSession?.ptySessionId;
-  if (selfChatPty) referenced.add(selfChatPty);
-
-  const runners = await runnerService.listActiveInstances();
-  for (const runner of runners) {
-    if (runner.sessionId) referenced.add(runner.sessionId);
-  }
-
-  const bindingSessionIds = await Promise.all(
-    LIVE_BINDING_STATUSES.map((status) => collectBindingSessionIds(status)),
-  );
-  for (const sessionIds of bindingSessionIds) {
-    for (const sessionId of sessionIds) referenced.add(sessionId);
-  }
-
-  return referenced;
 }
 
 /**
@@ -140,8 +47,8 @@ export function useOrphanSessionReconciler() {
       if (isReapingDisabled()) return;
       sweeping.current = true;
       try {
-        if (await isSweepUnsafeForMultiClient()) return;
-        const referenced = await collectReferencedIds();
+        if (await isSweepUnsafeForMultiClient(LOG_PREFIX)) return;
+        const referenced = await collectReferencedSessionIdsAcrossSources();
         const statuses = await terminalService.getAllStatus();
         const orphans = selectOrphanSessions(statuses, referenced, Date.now());
 
@@ -163,9 +70,9 @@ export function useOrphanSessionReconciler() {
         for (const sessionId of orphans) {
           if (disposed || isReapingDisabled()) break;
           // sweep 期间可能有第二个桌面实例刚启动，杀前复查
-          if (await isSweepUnsafeForMultiClient()) break;
+          if (await isSweepUnsafeForMultiClient(LOG_PREFIX)) break;
           // TOCTOU 复查：对账快照与 kill 之间该会话可能刚被 tab/binding 认领
-          const latest = await collectReferencedIds();
+          const latest = await collectReferencedSessionIdsAcrossSources();
           if (latest.has(sessionId)) continue;
           try {
             await terminalService.killSession(sessionId, "orphan-reclaim");

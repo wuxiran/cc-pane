@@ -269,6 +269,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       daemonEnabled: true,
       daemonOrphanTtlMinutes: 1440,
       daemonOrphanReaperDisabled: false,
+      snapshotApplyKillEnabled: false,
       autoAdoptDaemonSessions: true,
       lowerSessionPriority: true,
       sessionCpuWeight: null,

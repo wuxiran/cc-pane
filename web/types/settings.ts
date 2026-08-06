@@ -134,6 +134,8 @@ export interface TerminalSettings {
   daemonOrphanTtlMinutes: number;
   /** 禁用 daemon 孤儿会话回收（true = 永不回收）。取代旧的"TTL=0 表示永不过期"语义 */
   daemonOrphanReaperDisabled: boolean;
+  /** 跨端快照覆盖的差集真杀开闸（默认 false = 只打 would-kill 观察日志）。观察期零误报后方可开启 */
+  snapshotApplyKillEnabled: boolean;
   /** 启动时自动认领 daemon 无主会话（严格身份匹配失败时仍会阻断） */
   autoAdoptDaemonSessions: boolean;
   /** 降低会话子进程调度优先级，让 UI 抢得过窗格里的编译任务。默认开启，新会话生效 */
