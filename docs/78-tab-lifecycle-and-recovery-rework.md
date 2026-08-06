@@ -191,6 +191,23 @@ removeView(tabId, role);              // 批1 的 removeTabsInternal 也调
 验收仪表：后台标签 WS 流量归零；恢复路径实现数 5→1；desync 重放从"近似"变"精确"（重放后画面与休眠序列化逐字节一致的用例）。
 收益兜底：即使 checkpoint 部分延期，零投递闸门 + desync 单独成立（复用 0.11.9 机制），本批可再拆两个子发版。
 
+> **0.12.0 实施记录（批3 裁剪）**：本批只落地 M3a（契约表 + 隐藏零投递闸门的
+> daemon 侧），M3b（checkpoint+delta）顺延。理由是探索阶段发现三条本文未写的
+> 约束：①`generation` 名字已被 `daemon_generation`（进程 started_at，用于认领
+> 判定）占用，语义完全不同，必须改名；②checkpoint 锚定会打断轮询降级路径的
+> 增量算法——`replay_snapshot_delta` 依赖快照「前缀增长」用 `strip_prefix` 取
+> 增量，失配分支是**整屏重发**，而那条路径没有测试；③前端 serialize 产物目前
+> 只存内存，上传 daemon 是全新链路，与 control 上行改造同批风险叠乘。
+>
+> 已落地：`cc-panes-core/src/services/boundary_events.rs` 契约表 + emitter 穷举
+> 守卫（让 `_ => {}` 吞新事件在 CI 报错）、`web/services/daemonEventContract.ts`
+> 镜像表 + 三处分发覆盖断言、daemon 侧 hidden 闸门（按连接记账、只掐可丢输出、
+> 断线清标记）。
+>
+> **未接线**：前端上报 hidden 需要 app 侧 control link 的发送路径（现为只读，
+> `ws` 未 split）+ Tauri command + 前端订阅 `aggregate.anyVisible`，三层改动，
+> 与 M3b 一并排期。在此之前闸门不生效，后台节流仍由前端 512KB 积压承担。
+
 ### 批 4 · 创建收敛（可与批 2/3 并行）
 
 registry 补 `createDefaults(input): Partial<Tab>`；`usePanesStore.createTab` 成唯一构造点，6 处内联字面量改道（**逐处 diff，不顺手统一**——字面量里可能有故意差异），删 `paneTreeHelpers.ts:41` 遗留工厂；修 `useOrchestratorListener.ts` 把 projectId 复用当 launchId 的 bug（docs/69 暗雷活体：launch id 必须每次新生成）；`ClosedTabSnapshot` 扩容（starred/pinned/parentTabId/launchExtras/分屏结构，以 `cloneTerminalLeaf` 的重置清单为准）让撤销真正无损；`canCreateTerminalSession` 6 处守卫收进模块级 `acquireTerminalSlot()`（防重入状态从组件 ref 移出）；三处 PTY spawn 本体**不合并**。`onPersist/onRestoreState` 推广同批：browser 存 URL+滚动、editor 存 filePath+光标。
