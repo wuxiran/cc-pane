@@ -1,7 +1,8 @@
-import { useContext } from "react";
+import { useContext, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Star } from "lucide-react";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import TerminalView from "./TerminalView";
 import type { StarredMirrorTileData } from "./starredMirrors";
 
@@ -24,6 +25,27 @@ const noop = () => {};
 export default function StarredMirrorTile({ tile, onJump }: StarredMirrorTileProps) {
   const { t } = useTranslation("panes");
   const layoutVisible = useContext(LayoutVisibilityContext);
+
+  // B2-03 可见性上报：owner 是被镜像的那个 tab，role=mirror。
+  //
+  // 这条上报正是修「星标页正看着、原 tab 却休眠」的关键：聚合按 owner 算
+  // 「任一视图可见」，原 tab 的 primary 视图隐藏时，mirror 这条会把
+  // anyVisible 顶住（B2-04 让降档改读聚合后生效）。
+  //
+  // 镜像本身不注册降档（TerminalView 侧 B2-06 处理）——它是只读第二视图，
+  // 降它没有意义，而且 drivesBackendPty={false} 已挡掉后端 resize。
+  const tabId = tile.tabId;
+  useEffect(() => {
+    useTabViewStateStore
+      .getState()
+      .reportView(tabId, "mirror", layoutVisible ? "visible" : "hidden");
+  }, [tabId, layoutVisible]);
+
+  useEffect(() => {
+    return () => {
+      useTabViewStateStore.getState().removeView(tabId, "mirror");
+    };
+  }, [tabId]);
 
   return (
     <div
