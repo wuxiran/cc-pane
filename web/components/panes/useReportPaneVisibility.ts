@@ -1,7 +1,7 @@
 // Panel 的可见性上报（docs/78）。
 //
 // 双写期：三个 props 照旧传给 TabContentRenderer，同时把同一份判定写进
-// useTabViewStateStore。等 双写断言跑通零漂移后，props 那条路才拆。
+// useTabViewStateStore。待双写断言跑通零漂移后，props 那条路才拆。
 //
 // 为什么上报点在 Panel 而不是各内容组件：**后台标签也必须有记录**。
 // 五种 contentType（editor/file-explorer/mcp-config/skill-manager/memory-manager）

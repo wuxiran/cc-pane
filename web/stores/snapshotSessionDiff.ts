@@ -54,8 +54,8 @@ export function reportSnapshotWouldKill(
 // apply 时算差集是不够的：跨端同步是 apply → reconcileTerminalSessions →
 // runBackgroundLayoutRestore 三段，新树经 savedSessionId 引用的会话会在后两段
 // 被**收养回来**。杀点必须等 settle，且杀前按当时的活会话/归属复核一遍。
-// 本模块仍只打日志（开闸等观察期零误报），但日志口径已是「复核后的最终杀集」
-// 观察数据从此可信。
+// 本模块仍只打日志（开闸等观察期零误报）。日志口径为 settle 复核后的最终
+// 杀集，可直接与孤儿对账 GC 的发现互相印证。
 // ============================================================================
 
 interface PendingSnapshotKill {
