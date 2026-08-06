@@ -28,9 +28,9 @@ export function createPanel(tab?: Tab): Panel {
     restoreMode: "shell",
     sessionId: null,
   };
-  // 占位空标签（docs/78）：**不走** usePanesStore.createTab 富工厂——本模块
-  // 按头部约定只依赖 @/types，反向 import 会成环；且这不是可启动身份，只是
-  // 空 pane 的 UI 占位。真正的会话标签一律经富工厂构造。
+  // 占位空标签（docs/78 批4）：**不走** lib/tabLifecycle/tabFactory 的唯一构造
+  // 点——tabFactory 反过来依赖本模块的 generateId，改道会成环；且这不是可启动
+  // 身份，只是空 pane 的 UI 占位。真正的会话标签一律经工厂构造。
   const defaultTab: Tab = tab || {
     id: generateId("tab"),
     title: "Terminal",
@@ -48,8 +48,6 @@ export function createPanel(tab?: Tab): Panel {
     activeTabId: defaultTab.id,
   };
 }
-
-/** 创建新标签 */
 
 /** 递归查找面板 */
 export function findPane(node: PaneNode, paneId: string): PaneNode | null {
