@@ -7,7 +7,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { info as logInfo } from "@tauri-apps/plugin-log";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { terminalService, historyService, sessionRestoreService } from "@/services";
+import { terminalService, sessionRestoreService } from "@/services";
 import { ensureListeners, isSessionClaimedError } from "@/services/terminalService";
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage, toTerminalLaunchError } from "@/utils";
@@ -36,6 +36,8 @@ import {
   useWallpaperStore,
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
+import { createTerminalSlotHolder } from "@/lib/terminalSlot";
+import { startLaunchBackfillIfNeeded } from "./terminalLaunchBackfill";
 import type { ViewRole } from "@/stores/useTabViewStateStore";
 import {
   useAggregateVisibilitySubscription,
@@ -51,7 +53,7 @@ import {
   replayAttachOrWake,
   useTerminalHibernation,
 } from "./useTerminalHibernation";
-import { formatTerminalInitError } from "./terminalInitError";
+import { describeTerminalInitError } from "./terminalInitError";
 import { buildCursorPositionReport } from "./terminalCpr";
 import {
   buildKittyKeyboardProtocolReport,
@@ -76,7 +78,6 @@ import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalI
 import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
 import { isXtermFocusReportInput } from "./terminalFocusReport";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
-import { getCliInstallHint } from "./terminalCliInstallHint";
 import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "./terminalLaunchIdentity";
 import { notifySessionClaimed } from "./terminalSessionNotices";
 import {
@@ -873,6 +874,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         instanceEpoch,
       });
 
+      // 创建槽位（docs/78 批4）声明在 effect 作用域：卸载清理必须够得着它。
+      // 放在 init 内部时，「createSession 永不落定就被卸载」会让槽位永久泄漏
+      // ——那一格此后再也建不出会话，且没有任何报错。
+      const slot = createTerminalSlotHolder();
+
       const init = async () => {
         // Read the Windows build number once so xterm can enable ConPTY tuning.
         let buildNumber = 0;
@@ -1628,6 +1634,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 ) {
                   throw createRestoreLaunchCancelledError();
                 }
+                if (!slot.acquire(props.tabId, props.paneId)) {
+                  debugLog("session.create.cancelled-slot-in-flight", {});
+                  throw createRestoreLaunchCancelledError();
+                }
                 const originLayoutId = props.tabId
                   ? usePanesStore.getState().findTabAcrossLayouts(props.tabId)?.layoutId
                   : undefined;
@@ -1699,6 +1709,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 }
                 throw createRestoreLaunchCancelledError();
               }
+              slot.release();
               reportRestoreLaunchState("idle");
               if (props.restoring) {
                 logRestoreEvent("init.create.end", {
@@ -1710,22 +1721,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 createdSessionId: sessionId,
               });
               console.info(`[TerminalView] Session created: ${sessionId}`);
-              // 带 resumeId 恢复的会话同样要跑 backfill。这里使用本次创建 PTY 前刚落到
-              // leaf 的 one-shot launch id，绝不能退回 tab 级稳定字段或上一次 launch id。
-              // backfill 内部对「行已有 resume_session_id」会提前退出，不覆盖已绑定的值。
-              // cliTool === "none" 仍跳过：纯 shell 没有 resume 语义。
-              if (cliTool !== "none" && createdLaunchId) {
-                historyService.startLaunchHistoryBackfill(
-                  createdLaunchId,
-                  sessionId,
-                  cliTool,
-                  runtimeKind,
-                  props.wsl?.distro,
-                  props.wsl?.remotePath ?? props.projectPath,
-                  runtimeKind === "wsl" ? undefined : props.workspacePath,
-                  backfillStartTime,
-                ).catch(console.error);
-              }
+              startLaunchBackfillIfNeeded({
+                createdLaunchId,
+                sessionId,
+                cliTool,
+                runtimeKind,
+                projectPath: props.projectPath,
+                workspacePath: props.workspacePath,
+                wsl: props.wsl,
+                backfillStartTime,
+              });
             }
 
             if (!isMounted) {
@@ -1775,6 +1780,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               );
             }
           } catch (error) {
+            slot.release();
             if (!isMounted) return;
             if (isRestoreLaunchCancelled(error)) {
               deferredRestoreRef.current = true;
@@ -1800,32 +1806,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               `[TerminalView] FAILED to init session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, error=`,
               error
             );
-            const errorMsg = getErrorMessage(error);
-            const formattedInitError = formatTerminalInitError(errorMsg);
-            if (formattedInitError) {
-              for (const line of formattedInitError) {
-                term.writeln(line);
-              }
-              return;
-            }
-            const cliNotFoundMatch = errorMsg.match(/(\w+) CLI not found/);
-            if (cliNotFoundMatch) {
-              const toolName = cliNotFoundMatch[1];
-              const installHint = getCliInstallHint(toolName);
-              console.error(`[TerminalView] ${toolName} CLI not found in PATH`);
-              term.writeln(
-                `\x1b[31m${toolName} CLI is not installed or not in PATH.\x1b[0m`
-              );
-              term.writeln(
-                `\x1b[33mPlease install the ${toolName} CLI and make sure it's available in your PATH.\x1b[0m`
-              );
-              if (installHint) {
-                term.writeln(`\x1b[33m${installHint}\x1b[0m`);
-              }
-            } else {
-              term.writeln(
-                `\x1b[31mFailed to initialize terminal session: ${errorMsg}\x1b[0m`
-              );
+            // 文案三级降级（结构化错误码 / CLI 未安装 / 通用）在 terminalInitError。
+            for (const line of describeTerminalInitError(getErrorMessage(error))) {
+              term.writeln(line);
             }
           }
         }
@@ -1836,6 +1819,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       return () => {
         isMounted = false;
         isUnmountedRef.current = true;
+        // 槽位不得比组件活得长：create 永不落定时 finally 不会执行，只有这里能收。
+        slot.release();
         cleanup();
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1969,6 +1954,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         // Session recovery cannot depend on fit succeeding. Hidden tabs use
         // display:none, so layout scheduling may legitimately skip them.
+        // 同 init 路径的创建槽位（docs/78 批4）；两条路径共用同一把 (tabId, paneId) 锁。
+        const slot = createTerminalSlotHolder();
         void (async () => {
             try {
               await ensureListeners();
@@ -2029,6 +2016,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                     props.savedSessionId,
                   )
                 ) {
+                  throw createRestoreLaunchCancelledError();
+                }
+                if (!slot.acquire(props.tabId, props.paneId)) {
+                  debugLog("session.deferred-restore.cancelled-slot-in-flight", {});
                   throw createRestoreLaunchCancelledError();
                 }
                 const originLayoutId = props.tabId
@@ -2093,6 +2084,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 }
                 throw createRestoreLaunchCancelledError();
               }
+              slot.release();
               reportRestoreLaunchState("idle");
 
               if (isUnmountedRef.current) {
@@ -2108,22 +2100,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               });
               logRestoreEvent("activation.create.end", { createdSessionId: sessionId });
               onSessionCreatedRef.current(sessionId);
-              // 带 resumeId 恢复的会话同样要跑 backfill；必须绑定到这次新建 PTY 的
-              // one-shot launch id，不能复用恢复快照里的旧值。
-              // backfill 内部对「行已有 resume_session_id」会提前退出，不覆盖已绑定的值。
-              // cliTool === "none" 仍跳过：纯 shell 没有 resume 语义。
-              if (cliTool !== "none" && createdLaunchId) {
-                historyService.startLaunchHistoryBackfill(
-                  createdLaunchId,
-                  sessionId,
-                  cliTool,
-                  runtimeKind,
-                  props.wsl?.distro,
-                  props.wsl?.remotePath ?? props.projectPath,
-                  runtimeKind === "wsl" ? undefined : props.workspacePath,
-                  backfillStartTime,
-                ).catch(console.error);
-              }
+              startLaunchBackfillIfNeeded({
+                createdLaunchId,
+                sessionId,
+                cliTool,
+                runtimeKind,
+                projectPath: props.projectPath,
+                workspacePath: props.workspacePath,
+                wsl: props.wsl,
+                backfillStartTime,
+              });
 
               // Clear restoring state once the deferred session is live.
               if (props.paneId && props.tabId) {
@@ -2137,6 +2123,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 unbindSessionCallbacks();
               }
             } catch (err) {
+              slot.release();
               if (isUnmountedRef.current) return;
               if (isRestoreLaunchCancelled(err)) {
                 deferredRestoreRef.current = true;
@@ -2151,10 +2138,17 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               logRestoreEvent("activation.create.failed", { error: getErrorMessage(err) });
               console.error("[TerminalView] Deferred restore failed:", err);
               term.writeln(`\x1b[31m--- Failed to restore session: ${getErrorMessage(err)} ---\x1b[0m`);
+            } finally {
+              // 同 init 路径：提前 return 也必须释放（见那边的注释）。
+              slot.release();
             }
         })();
 
-        return () => layoutSchedulerRef.current?.cancel();
+        return () => {
+          // 同 init 路径：create 永不落定时 finally 不执行，槽位只能在这里收。
+          slot.release();
+          layoutSchedulerRef.current?.cancel();
+        };
       }
 
       if (isRenderVisible() && fitAddonRef.current) {
