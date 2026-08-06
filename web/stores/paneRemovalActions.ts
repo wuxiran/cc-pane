@@ -46,7 +46,9 @@ import { useFullscreenStore } from "./useFullscreenStore";
 import { useTabViewStateStore } from "./useTabViewStateStore";
 
 export interface PaneRemovalActions {
+  /** @deprecated 仅被三个已废弃批量出口调用。UI 走 removeTabsInternal + removeEmptyPane，双写拆除专题一并删。 */
   closePane: (paneId: string) => void;
+  /** @deprecated 零调用方（UI 经 useTabClosing 直调 removeTabsInternal）。双写拆除专题一并删。 */
   closeTab: (paneId: string, tabId: string) => void;
   /** @deprecated 已改道 removeTabsInternal(ids, "batch-close")。零调用方，双写拆除专题一并删。 */
   closeTabsToLeft: (paneId: string, tabId: string) => void;
@@ -142,12 +144,8 @@ export function createPaneRemovalActions(
       if (!tab) return;
 
       get().removeTabsInternal([tabId], "user-close");
-
-      // 关掉最后一个 tab 后 pane 成空壳，收掉它（纯树操作，零销毁语义）。
-      const after = findPane(get().rootPane, paneId);
-      if (after?.type === "panel" && after.tabs.length === 0) {
-        get().removeEmptyPane(paneId);
-      }
+      // 无需收空壳：closeTabInTree 删最后一个 tab 时连 panel 一起从父分屏
+      // 摘除并 normalize（见 paneTreeHelpers），此处不存在空壳残留路径。
     },
 
     closeTabsToLeft: (paneId, tabId) => {
