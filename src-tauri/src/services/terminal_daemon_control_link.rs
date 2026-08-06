@@ -70,6 +70,32 @@ impl Drop for ControlConnectionGuard {
     }
 }
 
+/// 待上报的 hidden 会话全集（批3 闸门接线）。
+///
+/// 用 watch 而非 mpsc：上报是**全量覆盖**语义（daemon 侧按连接替换整个集合），
+/// 中间状态没有价值，断线重连后只需补发最新值。None = 尚无上报。
+type HiddenChannel = (
+    tokio::sync::watch::Sender<Option<Vec<String>>>,
+    tokio::sync::watch::Receiver<Option<Vec<String>>>,
+);
+
+fn hidden_sessions_channel() -> &'static HiddenChannel {
+    static CHANNEL: std::sync::OnceLock<HiddenChannel> = std::sync::OnceLock::new();
+    CHANNEL.get_or_init(|| tokio::sync::watch::channel(None))
+}
+
+/// 前端经 Tauri command 调用：声明当前不可见的会话全集。
+///
+/// **不保证送达**（daemon 可能是旧版或断线）——调用方不得据此放松前端积压
+/// 兜底；这只是让 daemon 有机会在源头断流。
+pub fn report_hidden_sessions(sessions: Vec<String>) {
+    let _ = hidden_sessions_channel().0.send(Some(sessions));
+}
+
+fn hidden_sessions_message(sessions: &[String]) -> String {
+    serde_json::json!({ "type": "hiddenSessions", "sessions": sessions }).to_string()
+}
+
 async fn run_control_link(
     mut client_rx: watch::Receiver<Option<TerminalDaemonClient>>,
     app_handle: tauri::AppHandle,
@@ -106,6 +132,19 @@ async fn run_control_link(
                     debug!(daemon_addr = %client.addr(), "terminal daemon control link connected");
                     backoff = RECONNECT_MIN;
                     replay_identity_events(&app_handle, &client, &mut applied_identity);
+                    // 重连补发：daemon 侧 hidden 标记随旧连接清零（防旧标记压住
+                    // 新订阅），所以新连接必须把当前全集重新声明一次。
+                    let mut hidden_rx = hidden_sessions_channel().1.clone();
+                    // 先克隆出值再 await：watch::Ref 跨 await 会让 future 失去 Send
+                    let latest_hidden = hidden_rx.borrow_and_update().clone();
+                    if let Some(sessions) = latest_hidden {
+                        use futures_util::SinkExt;
+                        let _ = ws
+                            .send(tokio_tungstenite::tungstenite::Message::Text(
+                                hidden_sessions_message(&sessions).into(),
+                            ))
+                            .await;
+                    }
                     loop {
                         let message = tokio::select! {
                             changed = client_rx.changed() => {
@@ -113,6 +152,24 @@ async fn run_control_link(
                                     return;
                                 }
                                 continue 'client;
+                            }
+                            changed = hidden_rx.changed() => {
+                                if changed.is_ok() {
+                                    let latest = hidden_rx.borrow_and_update().clone();
+                                    if let Some(sessions) = latest {
+                                        use futures_util::SinkExt;
+                                        if ws
+                                            .send(tokio_tungstenite::tungstenite::Message::Text(
+                                                hidden_sessions_message(&sessions).into(),
+                                            ))
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                }
+                                continue;
                             }
                             message = ws.next() => message,
                         };

@@ -962,3 +962,12 @@ mod tests {
         assert_eq!(summary["truncated"], true);
     }
 }
+
+/// 前端声明当前不可见的会话全集（批3 hidden 闸门接线）。
+///
+/// 全量覆盖语义，daemon 按连接替换整个集合。**不保证送达**（旧 daemon 会
+/// 静默丢弃、断线期间无投递），调用方不得据此放松前端 512KB 积压兜底。
+#[tauri::command]
+pub fn set_hidden_terminal_sessions(sessions: Vec<String>) {
+    crate::services::report_hidden_sessions(sessions);
+}

@@ -10,6 +10,7 @@ import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
 import { useOrchestratorListener } from "@/hooks/useOrchestratorListener";
 import { useAiPanelListener } from "@/hooks/useAiPanelListener";
 import { useOrphanSessionReconciler } from "@/hooks/useOrphanSessionReconciler";
+import { useHiddenSessionReporter } from "@/hooks/useHiddenSessionReporter";
 import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import useLayoutSwitcherSync from "@/hooks/useLayoutSwitcherSync";
 import { useLaunchWarnings } from "@/hooks/useLaunchWarnings";
@@ -76,6 +77,7 @@ function MainApp() {
 
   // 孤儿终端会话对账回收（仅桌面端；daemon TTL 兜底覆盖 app 关闭时段）
   useOrphanSessionReconciler();
+  useHiddenSessionReporter();
 
   // fix(M4) review: Orchestrator 同步提升到 App 顶层，全局只挂一次。
   useOrchestratorSync();

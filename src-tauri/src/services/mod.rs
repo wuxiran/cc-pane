@@ -37,6 +37,7 @@ pub use skill_market_service::{SkillMarketEntry, SkillMarketService};
 pub use tailscale_service::{detect_tailscale, TailscaleStatus};
 pub use terminal_backend_state::{TerminalBackendKind, TerminalBackendState};
 pub use terminal_daemon_bridge_reliability::BridgeStats;
+pub use terminal_daemon_control_link::report_hidden_sessions;
 pub use terminal_daemon_control_link::TerminalDaemonControlLink;
 pub use terminal_daemon_event_bridge::TerminalDaemonEventBridge;
 pub use terminal_daemon_lifecycle::TerminalDaemonLifecycle;

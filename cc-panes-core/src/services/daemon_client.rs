@@ -211,13 +211,17 @@ impl TerminalDaemonClient {
         )
     }
 
-    /// 客户端存在性控制连接 URL（kind: desktop 计入 desktopClientCount / web 不计入）
+    /// 客户端存在性控制连接 URL（kind: desktop 计入 desktopClientCount / web 不计入）。
+    ///
+    /// instanceId 与 per-session WS 用同一个（批3 闸门接线）：daemon 按它把
+    /// control 连接上报的 hidden 集合关联到该实例的全部会话订阅。
     pub fn websocket_control_url(&self, kind: &str) -> String {
         format!(
-            "ws://{}/ws/control?token={}&kind={}",
+            "ws://{}/ws/control?token={}&kind={}&instanceId={}",
             self.addr,
             urlencoding::encode(&self.token),
-            urlencoding::encode(kind)
+            urlencoding::encode(kind),
+            urlencoding::encode(&self.instance_id)
         )
     }
 

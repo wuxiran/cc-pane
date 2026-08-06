@@ -76,6 +76,9 @@ impl WsEmitter {
         *self.output_store.write() = Some(store);
     }
 
+    /// 无身份订阅（hidden 闸门对其不生效）。生产路径已全部改走
+    /// `subscribe_with_connection`；保留本入口供测试与匿名旧客户端语义。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn subscribe(&self, session_id: &str) -> mpsc::Receiver<String> {
         self.subscribe_with_connection(session_id, None)
     }

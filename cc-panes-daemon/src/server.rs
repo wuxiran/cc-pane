@@ -522,6 +522,10 @@ pub struct ControlWsQuery {
     pub token: Option<String>,
     /// 客户端类型：desktop（默认，计入 desktopClientCount）/ web（不计入）
     pub kind: Option<String>,
+    /// 订阅方实例身份（与 per-session WS 的 instanceId 同源）。hidden 闸门
+    /// 按它把本连接的上报关联到该实例的全部会话订阅；缺失=旧客户端，
+    /// 上报无法关联（闸门对其不生效）。
+    pub instance_id: Option<String>,
 }
 
 pub fn router(config: DaemonConfig) -> Router {
@@ -1310,7 +1314,8 @@ async fn ws_control(
     }
 
     let is_desktop = query.kind.as_deref().unwrap_or("desktop") == "desktop";
-    Ok(ws.on_upgrade(move |socket| handle_control_ws(socket, config, is_desktop)))
+    let instance_id = query.instance_id.clone();
+    Ok(ws.on_upgrade(move |socket| handle_control_ws(socket, config, is_desktop, instance_id)))
 }
 
 /// control 通道的入站消息（客户端 → daemon）。
@@ -1327,16 +1332,25 @@ enum ControlInboundMessage {
     Unknown,
 }
 
-async fn handle_control_ws(socket: WebSocket, config: DaemonConfig, is_desktop: bool) {
+async fn handle_control_ws(
+    socket: WebSocket,
+    config: DaemonConfig,
+    is_desktop: bool,
+    instance_id: Option<String>,
+) {
     let _guard = is_desktop.then(|| config.register_desktop_client());
-    // 每条 control 连接一个身份：hidden 按连接记账，多客户端互不影响。
-    // 用进程内单调计数即可——身份只需在本 daemon 生命周期内唯一。
+    // hidden 按连接记账。**优先用客户端自报的 instanceId**——它与该实例全部
+    // per-session WS 的 instanceId 同源，闸门靠这个同源性把「control 上报的
+    // hidden 集合」关联到「会话订阅」。旧客户端缺失时退回进程内计数（此时
+    // 上报无法关联到任何订阅，闸门对其不生效——设计内的降级）。
     static CONTROL_CONNECTION_SEQ: std::sync::atomic::AtomicU64 =
         std::sync::atomic::AtomicU64::new(0);
-    let connection_id = format!(
-        "ctl-{}",
-        CONTROL_CONNECTION_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
+    let connection_id = instance_id.unwrap_or_else(|| {
+        format!(
+            "ctl-{}",
+            CONTROL_CONNECTION_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )
+    });
     if is_desktop {
         info!(
             desktop_client_count = config.desktop_client_count(),
@@ -1401,7 +1415,11 @@ async fn handle_ws(
 ) {
     config.touch_session(&session_id);
     let (mut ws_tx, mut ws_rx) = socket.split();
-    let mut output_rx = config.ws_emitter().subscribe(&session_id);
+    // caller = per-session WS 的 instanceId（WsQuery 既有字段）——与 control
+    // 连接同源，hidden 闸门据此定位到本连接（批3 接线）。
+    let mut output_rx = config
+        .ws_emitter()
+        .subscribe_with_connection(&session_id, caller.clone());
     let send_session_id = session_id.clone();
 
     let send_task = tokio::spawn(async move {
@@ -1553,6 +1571,28 @@ pub async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+
+    /// 跨侧契约：app 侧 control link 发的 hiddenSessions JSON 必须能被这里
+    /// 解析（两边各自演进时这条测试是唯一的形状锁）。
+    #[test]
+    fn control_inbound_hidden_sessions_parses() {
+        let msg: ControlInboundMessage =
+            serde_json::from_str(r#"{"type":"hiddenSessions","sessions":["s1","s2"]}"#)
+                .expect("parse");
+        match msg {
+            ControlInboundMessage::HiddenSessions { sessions } => {
+                assert_eq!(sessions, vec!["s1".to_string(), "s2".to_string()]);
+            }
+            other => panic!("expected HiddenSessions, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_inbound_unknown_is_tolerated() {
+        let msg: ControlInboundMessage =
+            serde_json::from_str(r#"{"type":"futureThing","x":1}"#).expect("parse");
+        assert!(matches!(msg, ControlInboundMessage::Unknown));
+    }
     use std::sync::{Arc, Mutex};
 
     use axum::body::{to_bytes, Body};
