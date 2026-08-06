@@ -131,3 +131,18 @@ describe("通道语义", () => {
     expect(findBoundaryEvent("terminal-desync")?.origin).toBe("emitter-generated");
   });
 });
+
+describe("销毁口径守卫（坏味道审计 D）", () => {
+  it("调用销毁管线的文件禁用窄口径 FromTree（漏 savedSessionId = 孤儿）", async () => {
+    // 与本文件其他守卫同款：扫源码而非信约定。当前唯一销毁调用方是
+    // LayoutDeleteDialog，白名单为空——新增销毁调用方若用窄口径，这里挂。
+    const dialogSrc = (await import("../components/layoutbar/LayoutDeleteDialog.tsx?raw")).default;
+    const usesPipeline = dialogSrc.includes("destroySessionsDirectly")
+      || dialogSrc.includes("commitResourceDestroy");
+    expect(usesPipeline).toBe(true);
+    expect(
+      dialogSrc.includes("collectTerminalSessionIdsFromTree("),
+      "销毁路径出现窄口径调用",
+    ).toBe(false);
+  });
+});

@@ -74,6 +74,12 @@ export function collectTerminalTabs(node: PaneNode): Tab[] {
   return collectTabs(node).filter((tab) => tab.contentType === "terminal");
 }
 
+/**
+ * 窄口径（不含 savedSessionId）。**展示遗留专用，销毁路径禁用**——
+ * 恢复中的会话是真实 PTY，用本函数做杀集会漏杀成孤儿。
+ * 守卫测试锁死：调用 destroySessionsDirectly/commitResourceDestroy 的文件
+ * 不得使用本函数（daemonEventContract.test.ts 同款扫描）。
+ */
 export function collectTerminalSessionIdsFromTree(node: PaneNode): string[] {
   return collectTerminalTabs(node).flatMap(collectTerminalSessionIds);
 }

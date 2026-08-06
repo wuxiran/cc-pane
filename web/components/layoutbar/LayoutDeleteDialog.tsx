@@ -5,7 +5,7 @@ import { usePanesStore } from "@/stores";
 import { getPoppedTabs } from "@/services";
 import {
   collectTerminalLeaves,
-  collectTerminalSessionIdsFromTree,
+  collectTerminalSessionIdsWithSavedFromTree,
   collectTerminalTabs,
 } from "@/lib/paneSessions";
 import { phaseOf } from "@/lib/terminalRuntimePhase";
@@ -62,7 +62,9 @@ export function summarizeLayoutDelete(layout: LayoutEntry): DeleteSummary {
 
   return {
     layout,
-    sessionIds: collectTerminalSessionIdsFromTree(layout.rootPane),
+    // 杀集必须用含 savedSessionId 的全量口径：恢复中的会话是真实 PTY，
+    // 窄口径会让删布局漏杀它们成孤儿（销毁军规见 paneSessions.ts）
+    sessionIds: collectTerminalSessionIdsWithSavedFromTree(layout.rootPane),
     poppedTabIds,
     sshCount,
     restoringCount,

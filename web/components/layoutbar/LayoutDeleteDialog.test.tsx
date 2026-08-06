@@ -165,3 +165,33 @@ describe("LayoutDeleteDialog side effects", () => {
     expect(callOrder).toContain("deleteLayout");
   });
 });
+
+describe("杀集口径（坏味道审计 D 的 bug 修复）", () => {
+  it("恢复中的会话（仅 savedSessionId）必须进杀集——窄口径会漏成孤儿", async () => {
+    const { summarizeLayoutDelete } = await import("./LayoutDeleteDialog");
+    const layout = {
+      id: "l1",
+      name: "L1",
+      kind: "normal" as const,
+      activePaneId: "p1",
+      rootPane: {
+        type: "panel" as const,
+        id: "p1",
+        activeTabId: "t1",
+        tabs: [{
+          id: "t1", title: "restoring", contentType: "terminal" as const,
+          projectId: "p", projectPath: "/tmp/p", sessionId: null,
+          restoring: true,
+          terminalRootPane: {
+            type: "leaf" as const, id: "leaf-1",
+            sessionId: null, savedSessionId: "sess-restoring",
+          },
+          activeTerminalPaneId: "leaf-1",
+        }],
+      },
+    };
+
+    const summary = summarizeLayoutDelete(layout as never);
+    expect(summary.sessionIds).toContain("sess-restoring");
+  });
+});
