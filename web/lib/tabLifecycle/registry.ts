@@ -151,6 +151,10 @@ const terminalEntry: TabLifecycleEntry = {
       // owner 键的（视图聚合 / 注意标记）归 destroyPipeline.sweepOwnerState。
       useTerminalStatusStore.getState().removeSession(sessionId);
       useTerminalInputActivityStore.getState().clearSession(sessionId);
+      // per-session 上下文用量缓存条目随会话回收。exit 驱动的 dropSession
+      // 对管线销毁不可达——阶段 1 已 detach exit 监听，事件到不了前端，
+      // 条目原本只能等 64 上限硬淘汰。
+      useContextUsageStore.getState().dropSession(sessionId);
       // useContextUsageStore 是单例（当前聚焦会话），不是 Record：
       // 只有被关会话恰是当前会话时才清。每轮重读 state，避免 setSession 后用陈旧快照。
       if (useContextUsageStore.getState().sessionId === sessionId) {

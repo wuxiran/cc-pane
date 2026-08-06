@@ -91,6 +91,7 @@ beforeEach(() => {
     snapshot: null,
     lastReady: null,
     loading: false,
+    sessions: new Map(),
   });
 });
 
@@ -207,6 +208,20 @@ describe("terminal", () => {
     expect(map.has("s1")).toBe(false);
     expect(map.has("s2")).toBe(false);
     expect(map.has("other")).toBe(true);
+  });
+
+  it("onClosed 回收 per-session 上下文用量缓存条目（exit 驱动的 dropSession 对管线销毁不可达）", () => {
+    const cacheEntry = { snapshot: null, lastReady: null, loading: false, requestId: 0 };
+    useContextUsageStore.setState({
+      sessions: new Map([
+        ["s1", cacheEntry],
+        ["unrelated", cacheEntry],
+      ]),
+    });
+    entry.onClosed(makeSplitTerminalTab(), { detach: false, reason: "user-close" });
+    const sessions = useContextUsageStore.getState().sessions;
+    expect(sessions.has("s1")).toBe(false);
+    expect(sessions.has("unrelated")).toBe(true);
   });
 
   it("onClosed 清理输入活跃条目，且不动无关会话（会话键卫星态与 status 同点清）", () => {
