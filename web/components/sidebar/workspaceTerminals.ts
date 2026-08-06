@@ -6,9 +6,12 @@ import { eachLayoutTree } from "@/stores/paneLayoutHelpers";
 /** eachLayoutTree/layoutTree 实际只读这三个字段；收窄签名便于调用方按需订阅 */
 export type PanesLayoutSlice = Pick<PanesState, "layouts" | "rootPane" | "currentLayoutId">;
 import { collectTerminalLeaves, collectTerminalSessionIdsWithSaved, collectTerminalTabs } from "@/lib/paneSessions";
+import { severityRank } from "@/lib/statusPresentation";
 import { resolveTerminalContextSelection } from "@/hooks/useFollowActiveTerminalContext";
 import type { Tab, Workspace } from "@/types";
 import type { TerminalStatusInfo, TerminalStatusType } from "@/types";
+
+export { severityRank } from "@/lib/statusPresentation";
 
 export interface WorkspaceTerminalRow {
   tabId: string;
@@ -25,25 +28,6 @@ export interface WorkspaceTerminalRow {
   toolName: string | null;
   /** 该 tab 下的活 PTY 会话数（分屏 >1 时 UI 显示 ×N） */
   sessionCount: number;
-}
-
-/** 状态严重度：越靠前越需要用户注意。分屏 tab 聚合时取最严重。 */
-const STATUS_SEVERITY: TerminalStatusType[] = [
-  "error",
-  "waitingInput",
-  "compacting",
-  "toolRunning",
-  "thinking",
-  "initializing",
-  "active",
-  "idle",
-  "exited",
-];
-
-export function severityRank(status: TerminalStatusType | null): number {
-  if (!status) return STATUS_SEVERITY.length;
-  const index = STATUS_SEVERITY.indexOf(status);
-  return index === -1 ? STATUS_SEVERITY.length : index;
 }
 
 function worstStatus(

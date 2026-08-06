@@ -2,31 +2,13 @@ import { useMemo } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal, Circle } from "lucide-react";
+import { statusColorToken } from "@/lib/statusPresentation";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import { isBusyStatus, type PaneNode, type Tab, type TerminalStatusType } from "@/types";
 
 function getAllTabs(pane: PaneNode): Tab[] {
   if (pane.type === "panel") return pane.tabs;
   return pane.children.flatMap(getAllTabs);
-}
-
-function statusColor(status: TerminalStatusType | null): string {
-  switch (status) {
-    case "active":
-    case "thinking":
-    case "toolRunning":
-      return "var(--chart-2)";
-    case "compacting":
-      return "var(--chart-1)";
-    case "waitingInput":
-      return "var(--app-warning)";
-    case "error":
-      return "var(--destructive)";
-    case "idle":
-      return "var(--app-text-tertiary)";
-    default:
-      return "var(--app-text-tertiary)";
-  }
 }
 
 export default function HomeActiveSessions() {
@@ -115,7 +97,7 @@ export default function HomeActiveSessions() {
             >
               <Circle
                 className={`w-2.5 h-2.5 shrink-0 ${isBusyStatus(status) ? "animate-pulse" : ""}`}
-                fill={statusColor(status)}
+                fill={statusColorToken(status)}
                 stroke="none"
               />
               <span

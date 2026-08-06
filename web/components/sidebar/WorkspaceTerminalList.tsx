@@ -4,31 +4,14 @@ import { useTranslation } from "react-i18next";
 import { TerminalSquare } from "lucide-react";
 import StatusIndicator from "@/components/StatusIndicator";
 import { focusTab } from "@/hooks/useFocusTab";
+import { DEFAULT_STATUS_COLOR_TOKEN, statusColorToken, statusLabelKey } from "@/lib/statusPresentation";
 import { useDialogStore } from "@/stores";
 import type { WorkspaceTerminalRow } from "./workspaceTerminals";
-import type { TerminalStatusType } from "@/types";
 
 interface Props {
   workspaceName: string;
   rows: WorkspaceTerminalRow[];
 }
-
-const STATUS_LABEL_KEYS: Partial<Record<TerminalStatusType, string>> = {
-  initializing: "statusInitializing",
-  idle: "statusIdle",
-  thinking: "statusThinking",
-  toolRunning: "statusToolRunning",
-  compacting: "statusCompacting",
-  waitingInput: "statusWaitingInput",
-  error: "statusError",
-  exited: "statusExited",
-  active: "statusActive",
-};
-
-const STATUS_TEXT_COLORS: Partial<Record<TerminalStatusType, string>> = {
-  waitingInput: "var(--app-status-warning)",
-  error: "var(--app-status-danger)",
-};
 
 export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
   const { t } = useTranslation(["sidebar", "dialogs"]);
@@ -53,7 +36,7 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
     // 容器 padding 对齐 ProjectListView（px-3 pb-3 pt-2），行缩进与项目行一致
     <div className="flex flex-col gap-1 px-3 pb-3 pt-2">
       {rows.map((row) => {
-        const labelKey = row.status ? STATUS_LABEL_KEYS[row.status] : undefined;
+        const labelKey = statusLabelKey(row.status);
         const statusLabel = labelKey ? t(`dialogs:${labelKey}` as never) : "";
         return (
           <button
@@ -82,7 +65,7 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
             {statusLabel && (
               <span
                 className="shrink-0 text-[11px]"
-                style={{ color: (row.status && STATUS_TEXT_COLORS[row.status]) || "var(--app-text-tertiary)" }}
+                style={{ color: row.status ? statusColorToken(row.status) : DEFAULT_STATUS_COLOR_TOKEN }}
               >
                 {statusLabel}
               </span>
