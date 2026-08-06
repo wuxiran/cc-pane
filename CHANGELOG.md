@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.13 - 2026-08-06
+
+This release integrates a substantial community contribution batch (PR #55, thanks @zhengjunkj), reworked where needed to fit the Provider UI redesign and session-provenance fixes that landed just before it.
+
+### Added
+
+- **Cold restore for sessions stranded by an abnormal exit.** When the app dies and comes back against an old daemon that cannot prove session ownership, blocked terminals used to offer nothing but a dead end. Restores now distinguish the cases: an in-process live session reattaches directly; a session that is provably gone restores silently; only a still-live session behind a claims-incapable daemon stays blocked — and now shows an explicit "end the old terminal and restore" button that kills the old process first and only then recreates. The fail-closed identity checks are unchanged. New restore-log events are covered by the plain-language log in both languages.
+- **Per-terminal status bar.** In multi-pane layouts each terminal gets a bottom bar with its session state, CLI, model, effort, context usage, and project path (right-click to hide; hidden entirely in single-pane layouts where the space matters). Context usage is now tracked **per terminal** instead of the focused terminal overwriting everyone's numbers, with per-session snapshots that are cleaned up on session exit and capped as a backstop. Two new terminal settings control the status bar and the global context indicator.
+- **Context windows finally reflect your provider's models.** Provider model entries can declare a context window (with common-capacity presets in the editor); usage indicators prefer the transcript's measured window, fall back to the provider's configured one, and show usage-without-percentage instead of an error when neither is known. Claude's hardcoded 200k assumption is gone. `launch_history` now records the model per launch (migration v30).
+- **Duplicating a provider now creates a copy** instead of silently editing the original, with a fresh id on every save.
+- **Claude managed-mode providers inject environment through a per-session `--settings` file** — credentials no longer pass through CLI arguments, and your own `~/.claude.json` remains untouched. Stale per-session files are cleaned up like their MCP counterparts. Two behaviors are documented for verification: empty-string resets and subagent model pinning (docs/82 §8).
+- **Theme presets.** Multiple built-in themes with live preview and a wallpaper preview panel; the status-bar theme button becomes a menu. Old light/dark choices migrate. The color guard now checks token parity across every theme block.
+- **Terminal path-link dialog.** Paths printed in terminal output become clickable, with a confirmation dialog that opens the file in the editor — hardened against URI schemes, control characters, path escapes, and non-local runtimes.
+- **Lazy-loaded views self-heal after an update.** A failed chunk fetch (typically a stale module map after upgrading) retries with cache busting per tab or settings pane instead of taking the whole window to an error page.
+- **Windows portable build.** Every release now ships `cc-panes_<version>_x64-portable.zip` — the installer payload repackaged byte-identical, no installation required (data still lives in `~/.cc-panes`).
+
 ## 0.11.12 - 2026-08-05
 
 ### Added
