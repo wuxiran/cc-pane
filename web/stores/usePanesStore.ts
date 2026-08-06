@@ -47,7 +47,7 @@ import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
 import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
-import { restoreClosedTabIdentity, trimClosedTabs } from "./closedTabsCap";
+import { reopenNonTerminalSnapshot, restoreClosedTabIdentity, trimClosedTabs } from "./closedTabsCap";
 import type {
   CreateTabOptions,
   DraftTabAcrossLayoutsLocation,
@@ -1737,16 +1737,7 @@ export const usePanesStore = create<PanesState>()(
       });
 
       // 非终端撤销分流（批4）：browser/editor 各走自己的创建入口。
-      if (lastClosed.contentType === "browser" && lastClosed.browserUrl) {
-        get().openBrowser(lastClosed.browserUrl, lastClosed.title);
-        return;
-      }
-      if (lastClosed.contentType === "editor" && lastClosed.filePath) {
-        get().openEditor(lastClosed.projectPath, lastClosed.filePath, lastClosed.title, undefined, {
-          forcePaneTab: true,
-        });
-        return;
-      }
+      if (reopenNonTerminalSnapshot(get(), lastClosed)) return;
 
       get().addTab(paneId, {
         projectId: lastClosed.projectId,
@@ -2092,8 +2083,7 @@ export const usePanesStore = create<PanesState>()(
         applied = true;
       });
       if (applied) {
-        // 杀决策后置（补账2）：apply 只登记候选，settle 后由
-        // useSessionLayoutPersistence 复核并输出最终 would-kill。
+        // 杀决策后置（补账2）：只登记候选，settle 后复核输出（persistence 侧）
         beginSnapshotKillCandidates(beforeIds, new Set(collectSnapshotSessionIds(get())));
         // 全屏中的 tab 若被快照换掉，fullscreenTabId 会悬空（poppedOutTabs
         // 上面已重置，这条是同批补的）。

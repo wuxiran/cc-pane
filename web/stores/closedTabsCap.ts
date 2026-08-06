@@ -88,3 +88,33 @@ export function restoreClosedTabIdentity(
   if (snapshot.pinned) store.togglePinTab(paneId, tabId);
   if (snapshot.starred) store.toggleStarTab(tabId);
 }
+
+/**
+ * 非终端快照的重开分流（批4）。命中并处理返回 true；terminal 快照返回 false
+ * 由调用方走 addTab 富路径。
+ */
+export function reopenNonTerminalSnapshot(
+  store: {
+    openBrowser: (url: string, title?: string) => string | null;
+    openEditor: (
+      projectPath: string,
+      filePath: string,
+      title: string,
+      layoutId?: string,
+      options?: { forcePaneTab?: boolean },
+    ) => string | null;
+  },
+  snap: ClosedTabSnapshot,
+): boolean {
+  if (snap.contentType === "browser" && snap.browserUrl) {
+    store.openBrowser(snap.browserUrl, snap.title);
+    return true;
+  }
+  if (snap.contentType === "editor" && snap.filePath) {
+    store.openEditor(snap.projectPath, snap.filePath, snap.title, undefined, {
+      forcePaneTab: true,
+    });
+    return true;
+  }
+  return false;
+}
