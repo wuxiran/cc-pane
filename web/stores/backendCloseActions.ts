@@ -8,7 +8,7 @@ import { current } from "immer";
 import { commitResourceDestroy, sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
 import type { Tab } from "@/types";
 import type { CloseTabBySessionIdResult, PanesDraft } from "./panesStoreTypes";
-import { closeTabInTree, collectPanels, findPane } from "@/lib/paneTree";
+import { assignTreeAndConvergeActive, closeTabInTree, collectPanels } from "@/lib/paneTree";
 import { closeTerminalLeafInTab, findSessionInTab } from "@/lib/paneTree";
 
 export interface BackendCloseActions {
@@ -59,19 +59,7 @@ export function createBackendCloseActions(
           // 「Cannot perform 'get' on a proxy that has been revoked」。
           doomedTabs.push(structuredClone(current(tab)));
           const nextTree = closeTabInTree(tree, panel.id, tab.id, true);
-          if (isCurrent) {
-            state.rootPane = nextTree;
-            const activePane = findPane(state.rootPane, state.activePaneId);
-            if (activePane?.type !== "panel") {
-              state.activePaneId = collectPanels(state.rootPane)[0]?.id ?? state.rootPane.id;
-            }
-          } else {
-            layout.rootPane = nextTree;
-            const activePane = findPane(layout.rootPane, layout.activePaneId);
-            if (activePane?.type !== "panel") {
-              layout.activePaneId = collectPanels(layout.rootPane)[0]?.id ?? layout.rootPane.id;
-            }
-          }
+          assignTreeAndConvergeActive(isCurrent ? state : layout, nextTree);
           closed += 1;
           break;
         }

@@ -141,10 +141,7 @@ export function normalizePaneTree(root: PaneNode): PaneNode {
     return root;
   }
 
-  const total = root.sizes.reduce((sum, size) => sum + size, 0);
-  root.sizes = total > 0
-    ? root.sizes.map((size) => (size / total) * 100)
-    : root.children.map(() => 100 / root.children.length);
+  normalizeSplitSizes(root);
 
   return root;
 }
@@ -179,10 +176,7 @@ export function closeTabInTree(
   const parent = parentResult.parent;
   parent.children.splice(parentResult.index, 1);
   parent.sizes.splice(parentResult.index, 1);
-  const total = parent.sizes.reduce((sum, size) => sum + size, 0);
-  parent.sizes = total > 0
-    ? parent.sizes.map((size) => (size / total) * 100)
-    : parent.sizes.map(() => 100 / parent.sizes.length);
+  normalizeSplitSizes(parent);
 
   return normalizePaneTree(rootPane);
 }
@@ -311,10 +305,7 @@ export function closeTerminalLeafInTab(tab: Tab, terminalPaneId: string): boolea
   parent.sizes.splice(parentResult.index, 1);
 
   // 单 child 时保留 split 壳（不上提），避免幸存终端 remount；见 normalizePaneTree。
-  const total = parent.sizes.reduce((sum, size) => sum + size, 0);
-  parent.sizes = total > 0
-    ? parent.sizes.map((size) => (size / total) * 100)
-    : parent.children.map(() => 100 / parent.children.length);
+  normalizeSplitSizes(parent);
 
   const nextLeaves = collectTerminalLeaves(tab.terminalRootPane);
   tab.activeTerminalPaneId = nextLeaves[Math.min(parentResult.index, nextLeaves.length - 1)]?.id;
@@ -335,4 +326,46 @@ export function findSessionInTab(tab: Tab, sessionId: string): TerminalPaneLeaf 
         sessionId,
       }
     : null;
+}
+
+/** split 的 sizes 重归一化到 100（splice 后调用；全零时按 children 均分）。 */
+export function normalizeSplitSizes(node: { sizes: number[]; children: unknown[] }): void {
+  const total = node.sizes.reduce((sum, size) => sum + size, 0);
+  node.sizes = total > 0
+    ? node.sizes.map((size) => (size / total) * 100)
+    : node.children.map(() => 100 / node.children.length);
+}
+
+/**
+ * splice 后收敛：把新树写回持有者并把 activePaneId 落到首个 panel。
+ *
+ * holder 既可以是 store 工作副本（state），也可以是隐藏布局条目（layout）——
+ * 两者结构同形（rootPane + activePaneId），这正是此前 8 处逐字副本的由来。
+ */
+export function assignTreeAndConvergeActive(
+  holder: { rootPane: PaneNode; activePaneId: string },
+  nextTree: PaneNode,
+): void {
+  holder.rootPane = nextTree;
+  const activePane = findPane(holder.rootPane, holder.activePaneId);
+  if (activePane?.type !== "panel") {
+    holder.activePaneId = collectPanels(holder.rootPane)[0]?.id ?? holder.rootPane.id;
+  }
+}
+
+/**
+ * 逐布局遍历**含星标**（与消费侧 eachLayoutTree 的关键区别）：销毁/移除类
+ * 操作必须扫星标布局——镜像标签同样要能移除，否则星标布局里的标签永远
+ * 关不掉。当前布局的活树取工作副本 rootPane（layouts[i].rootPane 是旧的）。
+ */
+export function eachLayoutTreeWithStarred<L extends { id: string; rootPane?: PaneNode }>(
+  state: { layouts: L[]; currentLayoutId: string; rootPane: PaneNode },
+  fn: (tree: PaneNode, layout: L, isCurrent: boolean) => void,
+): void {
+  for (const layout of state.layouts) {
+    const isCurrent = layout.id === state.currentLayoutId;
+    const tree = isCurrent ? state.rootPane : layout.rootPane;
+    if (!tree) continue;
+    fn(tree, layout, isCurrent);
+  }
 }

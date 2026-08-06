@@ -28,6 +28,7 @@ import { handleErrorSilent } from "@/utils/errorHandler";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { toClosedTabSnapshot, trimClosedTabs } from "./closedTabsCap";
 import {
+  assignTreeAndConvergeActive,
   closeTabInTree,
   collectPanels,
   createPanel,
@@ -35,6 +36,7 @@ import {
   findParent,
   findTabLocation,
   normalizePaneTree,
+  normalizeSplitSizes,
   notifyTerminalLayoutChanged,
 } from "@/lib/paneTree";
 import { closeTerminalLeafInTab } from "@/lib/paneTree";
@@ -133,19 +135,7 @@ export function createPaneRemovalActions(
 
             // pinned 语义已在上面按矩阵判过，这里恒 force。
             const nextTree = closeTabInTree(tree, panel.id, tabId, true);
-            if (isCurrent) {
-              state.rootPane = nextTree;
-              const activePane = findPane(state.rootPane, state.activePaneId);
-              if (activePane?.type !== "panel") {
-                state.activePaneId = collectPanels(state.rootPane)[0]?.id ?? state.rootPane.id;
-              }
-            } else {
-              layout.rootPane = nextTree;
-              const activePane = findPane(layout.rootPane, layout.activePaneId);
-              if (activePane?.type !== "panel") {
-                layout.activePaneId = collectPanels(layout.rootPane)[0]?.id ?? layout.rootPane.id;
-              }
-            }
+            assignTreeAndConvergeActive(isCurrent ? state : layout, nextTree);
             removedIds.add(tabId);
             // tab id 理论上全局唯一，但历史快照互覆盖出现过跨布局同 id（见
             // attachSessionToAnchor 注释）——继续扫完其余布局，保证移除干净。
@@ -263,10 +253,7 @@ export function createPaneRemovalActions(
         parent.children.splice(index, 1);
         parent.sizes.splice(index, 1);
 
-        const total = parent.sizes.reduce((a, b) => a + b, 0);
-        parent.sizes = total > 0
-          ? parent.sizes.map((s) => (s / total) * 100)
-          : parent.sizes.map(() => 100 / parent.sizes.length);
+        normalizeSplitSizes(parent);
 
         if (parent.children.length > 0) {
           const newIndex = Math.min(index, parent.children.length - 1);

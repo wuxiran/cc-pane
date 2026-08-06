@@ -5,6 +5,7 @@
 // 被收养回来（新树经 savedSessionId 引用同一个会话）。所以杀决策必须后置到
 // settle 之后复核，且真杀藏在默认关的开关后面——开闸前提是观察期零误报。
 import { collectTerminalSessionIdsWithSavedFromTree } from "@/lib/paneSessions";
+import { eachLayoutTreeWithStarred } from "@/lib/paneTree";
 import { isTauriRuntime } from "@/services/runtime";
 import type { PanesState } from "./panesStoreTypes";
 
@@ -16,11 +17,9 @@ import type { PanesState } from "./panesStoreTypes";
  */
 export function collectSnapshotSessionIds(state: PanesState): string[] {
   const ids: string[] = [];
-  for (const layout of state.layouts) {
-    const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
-    if (!tree) continue;
+  eachLayoutTreeWithStarred(state, (tree) => {
     ids.push(...collectTerminalSessionIdsWithSavedFromTree(tree));
-  }
+  });
   return ids;
 }
 

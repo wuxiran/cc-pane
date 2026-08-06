@@ -8,6 +8,7 @@ import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRe
 import { devDebugLog } from "@/utils/devLogger";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { collectTabs, collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
+import { assignTreeAndConvergeActive } from "@/lib/paneTree";
 import { sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
@@ -1441,21 +1442,11 @@ export const usePanesStore = create<PanesState>()(
 
         const isCurrent = location.layoutId === state.currentLayoutId;
         const nextTree = closeTabInTree(location.tree, location.panel.id, tabId);
-        if (isCurrent) {
-          state.rootPane = nextTree;
-          const activePane = findPane(state.rootPane, state.activePaneId);
-          if (activePane?.type !== "panel") {
-            state.activePaneId = collectPanels(state.rootPane)[0]?.id ?? state.rootPane.id;
-          }
-        } else {
-          const layout = state.layouts.find((item) => item.id === location.layoutId);
-          if (!layout) return;
-          layout.rootPane = nextTree;
-          const activePane = findPane(layout.rootPane, layout.activePaneId);
-          if (activePane?.type !== "panel") {
-            layout.activePaneId = collectPanels(layout.rootPane)[0]?.id ?? layout.rootPane.id;
-          }
-        }
+        const holder = isCurrent
+          ? state
+          : state.layouts.find((item) => item.id === location.layoutId);
+        if (!holder) return;
+        assignTreeAndConvergeActive(holder, nextTree);
       });
       notifyTerminalLayoutChanged("terminal.launch-remove");
     },
