@@ -775,31 +775,37 @@ describe("applyLayoutSnapshotPayload（差集观察，本轮不真杀）", () =>
     expect(killSpy).not.toHaveBeenCalled();
   });
 
-  it("新树仍引用的会话不进 would-kill（收养场景，误判即误杀）", () => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  it("新树仍引用的会话不进候选（apply 阶段差集就排除）", async () => {
+    const { finalizeSnapshotWouldKill, resetSnapshotKillState } =
+      await import("./snapshotSessionDiff");
+    resetSnapshotKillState();
     setPanesState(makePanel("p1", [leafTab("t1", "sess-keep")]), "p1");
 
-    // 新树用 savedSessionId 引用同一个会话——reconcile 随后会把它收养回来
+    // 新树用 savedSessionId 引用同一个会话——差集里不该有它
     usePanesStore.getState().applyLayoutSnapshotPayload(
       payloadWith([leafTab("t2", null, "sess-keep")]),
     );
 
-    const wouldKill = info.mock.calls
-      .filter((c) => c[0] === "[destroy] snapshot-apply would-kill")
-      .flatMap((c) => (c[1] as { sessionIds: string[] }).sessionIds);
-    expect(wouldKill).not.toContain("sess-keep");
+    expect(finalizeSnapshotWouldKill(new Set(), new Set())).not.toContain("sess-keep");
   });
 
-  it("确实消失的会话才进 would-kill", () => {
+  it("补账2：apply 只登记候选，settle 复核后才出最终 would-kill（含收养扣除）", async () => {
+    const { finalizeSnapshotWouldKill, resetSnapshotKillState } =
+      await import("./snapshotSessionDiff");
+    resetSnapshotKillState();
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     setPanesState(makePanel("p1", [leafTab("t1", "sess-gone")]), "p1");
 
     usePanesStore.getState().applyLayoutSnapshotPayload(payloadWith([leafTab("t2", "sess-new")]));
 
-    const wouldKill = info.mock.calls
-      .filter((c) => c[0] === "[destroy] snapshot-apply would-kill")
-      .flatMap((c) => (c[1] as { sessionIds: string[] }).sessionIds);
-    expect(wouldKill).toContain("sess-gone");
+    // apply 阶段不出 would-kill 日志（口径已后置）
+    expect(
+      info.mock.calls.some((c) => String(c[0]).includes("would-kill")),
+    ).toBe(false);
+
+    // settle：后端说 sess-gone 其实还活着（被收养）→ 扣除；此处模拟没活 → 进最终集
+    const final = finalizeSnapshotWouldKill(new Set(), new Set());
+    expect(final).toContain("sess-gone");
   });
 });
 

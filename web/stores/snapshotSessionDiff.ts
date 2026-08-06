@@ -47,3 +47,74 @@ export function reportSnapshotWouldKill(
     afterCount: after.size,
   });
 }
+
+// ============================================================================
+// 杀决策后置（Codex plan 评审必修1 的完整落地；补账2）。
+//
+// apply 时算差集是不够的：跨端同步是 apply → reconcileTerminalSessions →
+// runBackgroundLayoutRestore 三段，新树经 savedSessionId 引用的会话会在后两段
+// 被**收养回来**。杀点必须等 settle，且杀前按当时的活会话/归属复核一遍。
+// 本模块仍只打日志（开闸等观察期零误报），但日志口径已是「复核后的最终杀集」
+// ——观察数据从此可信。
+// ============================================================================
+
+interface PendingSnapshotKill {
+  candidates: Set<string>;
+  startedAt: number;
+}
+
+let pendingKill: PendingSnapshotKill | null = null;
+
+/** 测试用。 */
+export function resetSnapshotKillState(): void {
+  pendingKill = null;
+}
+
+/**
+ * apply 阶段：登记候选杀集（旧引用 − 新引用），不杀。
+ *
+ * in-flight 锁：上一轮 apply→复核还没走完时，本轮**跳过杀决策**（树照常替换）。
+ * 5s 轮询下两轮交叠意味着 reconcile 还在途，此时叠加候选集必然误判。
+ */
+export function beginSnapshotKillCandidates(
+  before: ReadonlySet<string>,
+  after: ReadonlySet<string>,
+): void {
+  const candidates = diffSnapshotSessionIds(before, after);
+  if (candidates.length === 0) return;
+  if (pendingKill) {
+    console.info("[destroy] snapshot-apply kill-decision skipped (previous round in flight)", {
+      skippedCandidates: candidates.length,
+    });
+    return;
+  }
+  pendingKill = { candidates: new Set(candidates), startedAt: Date.now() };
+}
+
+/**
+ * settle 阶段（reconcile + backgroundRestore 完成后）：复核并给出最终杀集。
+ *
+ * 保护集 = 当前树全部引用 ∪ 后端仍活的会话。候选 ∩ 保护 = 被收养回来的，
+ * 从杀集扣除。返回最终集合供调用方记录；本函数只打日志不杀。
+ */
+export function finalizeSnapshotWouldKill(
+  currentTreeRefs: ReadonlySet<string>,
+  liveBackendSessions: ReadonlySet<string>,
+): string[] {
+  const pending = pendingKill;
+  pendingKill = null;
+  if (!pending) return [];
+
+  const finalKill = [...pending.candidates].filter(
+    (id) => !currentTreeRefs.has(id) && !liveBackendSessions.has(id),
+  );
+  const adopted = pending.candidates.size - finalKill.length;
+  if (finalKill.length > 0 || adopted > 0) {
+    console.info("[destroy] snapshot-apply would-kill (post-settle, re-verified)", {
+      sessionIds: finalKill,
+      adoptedBack: adopted,
+      settleMs: Date.now() - pending.startedAt,
+    });
+  }
+  return finalKill;
+}

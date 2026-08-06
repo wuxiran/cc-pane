@@ -28,7 +28,7 @@ import {
   syncTabTerminalState,
 } from "./paneTreeRemovalHelpers";
 import { createBackendCloseActions } from "./backendCloseActions";
-import { collectSnapshotSessionIds, reportSnapshotWouldKill } from "./snapshotSessionDiff";
+import { beginSnapshotKillCandidates, collectSnapshotSessionIds } from "./snapshotSessionDiff";
 import { createPaneRemovalActions } from "./paneRemovalActions";
 import {
   activateFirstNormalLayout,
@@ -2080,7 +2080,9 @@ export const usePanesStore = create<PanesState>()(
         applied = true;
       });
       if (applied) {
-        reportSnapshotWouldKill(beforeIds, new Set(collectSnapshotSessionIds(get())));
+        // 杀决策后置（补账2）：apply 只登记候选，settle 后由
+        // useSessionLayoutPersistence 复核并输出最终 would-kill。
+        beginSnapshotKillCandidates(beforeIds, new Set(collectSnapshotSessionIds(get())));
         // 全屏中的 tab 若被快照换掉，fullscreenTabId 会悬空（poppedOutTabs
         // 上面已重置，这条是同批补的）。
         const fullscreen = useFullscreenStore.getState();

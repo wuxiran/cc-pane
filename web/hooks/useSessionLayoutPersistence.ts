@@ -3,6 +3,7 @@
 // 必须保持模块级单例，不要把它们改成 hook 内部 state。
 import { useEffect, useRef, useState } from "react";
 import { usePanesStore, useSettingsStore, useWorkspacesStore } from "@/stores";
+import { collectSnapshotSessionIds, finalizeSnapshotWouldKill } from "@/stores/snapshotSessionDiff";
 import { sessionRestoreService, layoutSnapshotService, terminalService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime, resolveRuntimeKind } from "@/utils/desktopRuntime";
@@ -275,7 +276,23 @@ export function useSharedLayoutSnapshotSync(): void {
             autoAdopt: Boolean(
               useSettingsStore.getState().settings?.terminal.autoAdoptDaemonSessions,
             ),
-          }).then(() => runBackgroundLayoutRestore());
+          })
+            .then(() => runBackgroundLayoutRestore())
+            .then(async () => {
+              // 杀决策后置（补账2）：收养已 settle，按当前树引用 + 后端活会话
+              // 复核 apply 时登记的候选杀集。仍只打日志——开闸等观察期零误报，
+              // 但从此观察到的 would-kill 就是复核后的最终口径。
+              const state = usePanesStore.getState();
+              const treeRefs = new Set(collectSnapshotSessionIds(state));
+              let live = new Set<string>();
+              try {
+                const statuses = await terminalService.getAllStatus();
+                live = new Set(statuses.map((s) => s.sessionId));
+              } catch {
+                // 后端不可达：保护集退化为仅树引用（宁可少报也不误报杀活）
+              }
+              finalizeSnapshotWouldKill(treeRefs, live);
+            });
         }).catch((error) => {
           console.warn("[LayoutSnapshot] Failed to poll shared layout:", error);
         });
