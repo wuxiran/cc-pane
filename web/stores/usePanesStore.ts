@@ -47,7 +47,7 @@ import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
 import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
-import { trimClosedTabs } from "./closedTabsCap";
+import { restoreClosedTabIdentity, trimClosedTabs } from "./closedTabsCap";
 import type {
   CreateTabOptions,
   DraftTabAcrossLayoutsLocation,
@@ -1753,7 +1753,10 @@ export const usePanesStore = create<PanesState>()(
         ssh: lastClosed.ssh,
         wsl: lastClosed.wsl,
         machineName: lastClosed.machineName,
+        parentTabId: lastClosed.parentTabId,
       });
+
+      restoreClosedTabIdentity(get(), paneId, lastClosed);
     },
 
     openMcpConfig: (projectPath, title) => {

@@ -133,6 +133,14 @@ export interface ClosedTabSnapshot {
   ssh?: SshConnectionInfo;
   wsl?: WslLaunchInfo;
   machineName?: string;
+  /**
+   * 以下三个是「标签在布局里的身份」，不是创建参数（批4 扩容）。
+   * 不存它们的话，撤销出来的标签会丢掉置顶/星标状态与父子关系——
+   * 用户看到的是「恢复了，但不是原来那个」。
+   */
+  pinned?: boolean;
+  starred?: boolean;
+  parentTabId?: string;
 }
 
 export interface PanesState extends BrowserTabActions {
