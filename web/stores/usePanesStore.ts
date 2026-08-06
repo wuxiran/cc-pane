@@ -11,6 +11,10 @@ import { collectTabs, collectTerminalLeaves, findTerminalPane } from "@/lib/pane
 import { assignTreeAndConvergeActive } from "@/lib/paneTree";
 import { sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
 import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
+import {
+  resetTerminalLeafForRelaunch,
+  stripInitialPrompt,
+} from "@/lib/tabLifecycle/terminalLeafReset";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 // 树辅助（findPane 等）与 close 系树操作已下沉到 paneTreeHelpers /
@@ -51,7 +55,12 @@ import { inferCliTool, resolveRestoreMode } from "@/lib/terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
 import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
-import { reopenNonTerminalSnapshot, restoreClosedTabIdentity, trimClosedTabs } from "./closedTabsUndo";
+import {
+  reopenNonTerminalSnapshot,
+  restoreClosedTabIdentity,
+  restoreClosedTabSplitTree,
+  trimClosedTabs,
+} from "./closedTabsUndo";
 import type {
   CreateTabOptions,
   DraftTabAcrossLayoutsLocation,
@@ -76,7 +85,6 @@ import type {
   SplitDirection,
   TerminalPaneNode,
   TerminalPaneLeaf,
-  LaunchExtras,
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
@@ -97,34 +105,12 @@ export function createTab(opts: CreateTabOptions): Tab {
   });
 }
 
+/**
+ * 分屏克隆。重置清单的唯一真身在 `lib/tabLifecycle/terminalLeafReset`
+ * （关闭撤销的树回放共用同一份，docs/78 批4）。
+ */
 function cloneTerminalLeaf(source: TerminalPaneLeaf): TerminalPaneLeaf {
-  return {
-    ...source,
-    id: generateId("terminal-pane"),
-    launchId: generateId("launch"),
-    restoreMode: resolveRestoreMode({
-      cliTool: inferCliTool(source.cliTool, source.launchClaude, source.resumeId),
-      resumeId: source.resumeId,
-    }),
-    sessionId: null,
-    disconnected: false,
-    restoring: false,
-    savedSessionId: undefined,
-    restoreBlockedReason: undefined,
-    leaseReadOnly: false,
-    launchError: undefined,
-    launchAttempt: 0,
-    // initialPrompt 仅首启生效：分屏克隆的新 leaf 不得重放
-    launchExtras: stripInitialPrompt(source.launchExtras),
-  };
-}
-
-/** 去掉 launchExtras 中的 initialPrompt（防重放）；无其余字段时整体归 undefined */
-function stripInitialPrompt(extras: LaunchExtras | undefined): LaunchExtras | undefined {
-  if (!extras) return undefined;
-  if (extras.initialPrompt === undefined) return extras;
-  const { initialPrompt: _initialPrompt, ...rest } = extras;
-  return Object.keys(rest).length > 0 ? rest : undefined;
+  return resetTerminalLeafForRelaunch(source);
 }
 
 export const STARRED_LAYOUT_NAME = "星标";
@@ -1693,8 +1679,23 @@ export const usePanesStore = create<PanesState>()(
         wsl: lastClosed.wsl,
         machineName: lastClosed.machineName,
         parentTabId: lastClosed.parentTabId,
+        launchExtras: lastClosed.launchExtras,
       });
 
+      // 分屏结构回放（docs/78 批4）：addTab 只建单格。
+      restoreClosedTabSplitTree(
+        (tabId, root, activeLeafId) => {
+          set((state) => {
+            const location = findTabAcrossLayouts(state, tabId);
+            if (!location) return;
+            location.tab.terminalRootPane = root;
+            location.tab.activeTerminalPaneId = activeLeafId;
+          });
+        },
+        get().findPaneById,
+        paneId,
+        lastClosed,
+      );
       restoreClosedTabIdentity(get(), paneId, lastClosed);
     },
 

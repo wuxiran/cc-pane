@@ -11,6 +11,7 @@ import type {
   SplitDirection,
   SshConnectionInfo,
   Tab,
+  TerminalPaneNode,
   TerminalRestoreBlockedReason,
   TerminalStatusInfo,
   WslLaunchInfo,
@@ -141,9 +142,19 @@ export interface ClosedTabSnapshot {
   starred?: boolean;
   parentTabId?: string;
   /**
+   * 启动附加项（yolo / skipMcp / appendSystemPrompt / adapterOptions）。
+   * initialPrompt 在存快照时就已剥掉——撤销出来的会话不得重放首启 prompt。
+   */
+  launchExtras?: LaunchExtras;
+  /**
+   * 分屏结构（docs/78 批4）。只有多格 tab 才存：单格由 addTab 自然重建。
+   * 存的是**已过重置清单**的树（resetTerminalTreeForRelaunch），里面绝无
+   * 活会话字段——撤销恢复的是「布局与启动身份」，不是死掉的 PTY。
+   */
+  terminalRootPane?: TerminalPaneNode;
+  /**
    * 非终端标签的撤销（docs/78）。缺省 = terminal（历史快照兼容）。
-   * browser 存 URL、editor 存 filePath——滚动位置与光标需要组件级通道，
-   * 留作后续（registry.onPersist 的形状已为此预留）。
+   * browser 存 URL、editor 存 filePath。
    */
   contentType?: "terminal" | "browser" | "editor";
   browserUrl?: string;
