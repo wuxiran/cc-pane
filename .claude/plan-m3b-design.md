@@ -1,4 +1,26 @@
-# M3b「checkpoint+delta 恢复归一」实施设计（待 codex 评审）
+# M3b「checkpoint+delta 恢复归一」实施设计（codex 评审已吸收）
+
+> **评审修订（2026-08-06，5 必修 + 3 开放全采纳）**：
+> 1. **锚点重定义**：daemon 记 raw 字节 seq，前端写入的是渲染后字节——两个流
+>    长度不同。anchorSeq 改为「最后一个**完成渲染写入的 raw chunk 的 endSeq**」
+>    ：seq 永远活在 daemon 的 raw 空间；确认条件 = 该 chunk 过完 render→write
+>    回调 + output-drain barrier（有 in-flight 时禁拍）。照片语义 = 「seq ≤
+>    anchor 的全部 raw 字节的渲染效果」。
+> 2. **新增 `checkpoint_epoch`**（独立字段，不复用 daemon_generation）：
+>    ReplayBuffer 创建时生成；照片带 epoch，不等即拒收（第四拒收态），
+>    daemon 重启 / 会话重建 / seq 归零天然失效旧照片。
+> 3. **兼容矩阵补显式行**：轮询降级 + 新 daemon（照旧走 snapshot() 拼接串）；
+>    SSH 会话（重连建新会话 = 新 epoch，旧照片自然拒收）；in-process→daemon
+>    切换与 daemonGeneration 变化时 **capability 缓存必须失效重探**。
+> 4. **M3b-4 回退语义诚实化**：前缀 trim 后历史不可恢复，常量翻转只保证
+>    「新照片停产 + 恢复路径回落」；已 trim 会话接受 scrollback 深度损失
+>    （画面完整性不受影响）。发版说明如实写明，不承诺无损热回退。
+> 5. **测试基建**：@xterm/headless 用例放独立 node 环境测试文件
+>    （vitest environment 注释指定，不进默认 jsdom）；Rust 侧用 seeded
+>    table-driven 序列代替 proptest（不新增依赖）。
+> 6. **render_flavor 删除**：alt-strip 规则由 cliTool 确定性决定
+>    （NORMAL_BUFFER_CLI_TOOLS），各端一致无用户分歧，字段冗余。
+> 7. 上传权限维持 ensure_may_write（只读镜像不得上传）。
 
 > 设计产出：0.12.0 收官期 Plan agent（探索 + 接口核对后输出）。
 > 实施批准后按 plan-lands-in-docs 纪律并入 docs/78 §4。
