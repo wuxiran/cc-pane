@@ -245,6 +245,24 @@ registry 补 `createDefaults(input): Partial<Tab>`；`usePanesStore.createTab` �
 - **docs/64**（fleet）：会话监控维度不混入 tab 生命周期；`onOutputActivity` 归它。
 - **docs/74**（开发台账）：任务生命周期与 tab 生命周期是两个正交模型，互不吸收。
 
+## 7.5 M3b 实施记录（0.12.0 收官期）
+
+> 批3 顺延的 M3b 已全量落地（六子批，设计与评审吸收见
+> `.claude/plan-m3b-design.md`，按 plan-lands-in-docs 纪律择要并入本节）：
+> **M3b-0** 轮询失配→desync（两份实现测试互指）；**M3b-1** ReplayBuffer
+> checkpoint 槽 + epoch/seq 记账（五态拒收 + seeded 重组测试）；**M3b-2**
+> REST 上传端点（16MB body limit + ensure_may_write）+ seq 四层贯通
+> （TerminalOutput.endSeq）+ 补拍扫描（30s/4MB/60s 节流）+ 前端三触发点
+> （休眠 Tier2 / 隐藏 5min 边沿 / daemon 补拍）+ capability 关断；**M3b-3**
+> recovery-snapshot 读端点 + 前端读路径 5→1（photo 直写/delta 过渲染双管道，
+> epoch 激活上传）；**M3b-4** 锚定裁剪开启（旧端点返回 photo+delta 拼接串
+> 保画面完整）；**M3b-5** checkpoint 落盘（只写不读）。
+>
+> 关键裁决与评审修订：anchorSeq 活在 daemon raw seq 空间（锚点只认 chunk
+> endSeq + onWritten 确认 + 无 in-flight）；checkpoint_epoch 独立于
+> daemon_generation（第四拒收态）；恢复响应结构化不预拼接；回退语义诚实
+> 降级；render_flavor 删除。遗留：checkpoint.json 冷恢复读回（§6）。
+
 ## 8. 清理待办（rebase + 双写拆除专题之后执行）
 
 > **已全部完成（0.12.0 收官期，P1 双写拆除 + P2 结构四件）**：双写拆除删净
