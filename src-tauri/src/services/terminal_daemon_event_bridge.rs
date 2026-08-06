@@ -387,14 +387,23 @@ impl TerminalDaemonEventBridge {
             return Ok(());
         };
 
-        if let Some(delta) = self.apply_snapshot_delta(session_id, &snapshot) {
-            self.emit_to_webview(
-                EV::TERMINAL_OUTPUT,
-                serde_json::to_value(TerminalOutput {
-                    session_id: session_id.to_string(),
-                    data: delta,
-                })?,
-            )?;
+        match self.apply_snapshot_delta(session_id, &snapshot) {
+            SnapshotDelta::Delta(delta) => {
+                self.emit_to_webview(
+                    EV::TERMINAL_OUTPUT,
+                    serde_json::to_value(TerminalOutput {
+                        session_id: session_id.to_string(),
+                        data: delta,
+                    })?,
+                )?;
+            }
+            SnapshotDelta::Mismatch => {
+                self.emit_to_webview(
+                    EV::TERMINAL_DESYNC,
+                    serde_json::json!({ "sessionId": session_id }),
+                )?;
+            }
+            SnapshotDelta::Unchanged => {}
         }
 
         Ok(())
@@ -436,12 +445,16 @@ impl TerminalDaemonEventBridge {
         &self,
         session_id: &str,
         snapshot: &TerminalReplaySnapshot,
-    ) -> Option<String> {
+    ) -> SnapshotDelta {
         let mut sessions = self.sessions.lock().unwrap_or_else(|err| err.into_inner());
         let state = sessions.entry(session_id.to_string()).or_default();
-        let delta = replay_snapshot_delta(&state.last_snapshot, &snapshot.data)?;
-        state.last_snapshot = snapshot.data.clone();
-        Some(delta)
+        let outcome = replay_snapshot_delta(&state.last_snapshot, &snapshot.data);
+        // Mismatch 也要重置基线：desync 恢复后前端画面 == 当前快照，
+        // 下一轮轮询从此处继续前缀比对。
+        if !matches!(outcome, SnapshotDelta::Unchanged) {
+            state.last_snapshot = snapshot.data.clone();
+        }
+        outcome
     }
 
     fn should_emit_status(&self, session_id: &str, status: &SessionStatusInfo) -> bool {
@@ -550,20 +563,31 @@ fn poll_status_from_session_presence(status: Option<&SessionStatusInfo>) -> Poll
     }
 }
 
-fn replay_snapshot_delta(previous: &str, current: &str) -> Option<String> {
+/// 快照增量三态（M3b-0）：失配不再冒充增量。
+#[derive(Debug, PartialEq)]
+enum SnapshotDelta {
+    Unchanged,
+    Delta(String),
+    /// 当前快照不再以上次快照为前缀（8MB front-drop / 未来的 photo rebase）：
+    /// 中段不连续。把整屏当增量 append 会产生重复画面——唯一诚实做法是发
+    /// desync 走统一快照恢复（前端 reset + 全量重放）。
+    Mismatch,
+}
+
+fn replay_snapshot_delta(previous: &str, current: &str) -> SnapshotDelta {
     if current.is_empty() {
-        return None;
+        return SnapshotDelta::Unchanged;
     }
     if previous.is_empty() {
-        return Some(current.to_string());
+        return SnapshotDelta::Delta(current.to_string());
     }
     if current == previous {
-        return None;
+        return SnapshotDelta::Unchanged;
     }
     if let Some(delta) = current.strip_prefix(previous) {
-        return Some(delta.to_string());
+        return SnapshotDelta::Delta(delta.to_string());
     }
-    Some(current.to_string())
+    SnapshotDelta::Mismatch
 }
 
 fn same_status_payload(left: &SessionStatusInfo, right: &SessionStatusInfo) -> bool {
@@ -629,14 +653,31 @@ mod tests {
     fn replay_snapshot_delta_returns_only_new_suffix() {
         assert_eq!(
             replay_snapshot_delta("\u{1b}[2Jready", "\u{1b}[2Jready\nnext"),
-            Some("\nnext".to_string())
+            SnapshotDelta::Delta("\nnext".to_string())
         );
-        assert_eq!(replay_snapshot_delta("same", "same"), None);
+        assert_eq!(
+            replay_snapshot_delta("same", "same"),
+            SnapshotDelta::Unchanged
+        );
+        assert_eq!(replay_snapshot_delta("", ""), SnapshotDelta::Unchanged);
+        assert_eq!(
+            replay_snapshot_delta("", "fresh"),
+            SnapshotDelta::Delta("fresh".to_string())
+        );
+    }
+
+    #[test]
+    fn replay_snapshot_delta_mismatch_is_desync_not_full_resend() {
+        // M3b-0：前缀断裂（front-drop / photo rebase）绝不把整屏当增量重发——
+        // 那会在前端 append 出重复画面。失配 = 不连续 = desync。
         assert_eq!(
             replay_snapshot_delta("old prefix", "new buffer"),
-            Some("new buffer".to_string())
+            SnapshotDelta::Mismatch
         );
-        assert_eq!(replay_snapshot_delta("", ""), None);
+        assert_eq!(
+            replay_snapshot_delta("abcdef", "cdef-extended"),
+            SnapshotDelta::Mismatch
+        );
     }
 
     #[test]
