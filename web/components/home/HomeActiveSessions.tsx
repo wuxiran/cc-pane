@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal, Circle } from "lucide-react";
+import { focusTab } from "@/hooks/useFocusTab";
 import { statusColorToken } from "@/lib/statusPresentation";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import { isBusyStatus, type PaneNode, type Tab, type TerminalStatusType } from "@/types";
@@ -25,17 +26,6 @@ export default function HomeActiveSessions() {
     if (status === "waitingInput") return t("waiting");
     return t("idle");
   };
-
-  function focusTab(tabId: string) {
-    const store = usePanesStore.getState();
-    const location = store.findTabAcrossLayouts(tabId);
-    if (!location) return;
-    if (location.layoutId !== store.currentLayoutId) {
-      store.switchLayout(location.layoutId);
-    }
-    store.setActivePane(location.panel.id);
-    store.selectTab(location.panel.id, location.tab.id);
-  }
 
   if (activeTabs.length === 0) {
     return (
