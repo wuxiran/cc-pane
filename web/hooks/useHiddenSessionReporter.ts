@@ -31,10 +31,17 @@ export function deriveHiddenSessions(
   layouts: Array<Pick<LayoutEntry, "id" | "rootPane">>,
   currentLayoutId: string,
   currentRootPane: PaneNode,
+  isPoppedOut: (tabId: string) => boolean,
 ): string[] {
   const hiddenOwners = new Set<string>();
   for (const [owner, agg] of Object.entries(aggregate)) {
     if (owner.startsWith("selfchat:")) continue;
+    // **弹出标签必须排除**（补账后自审抓的真 bug）：弹窗在独立 WebView、
+    // 独立 store，它的 popup 视图上报主窗口永远看不见——主窗口切走后本
+    // 派生会把它判成 hidden，而 daemon 掐的是整个 app 连接（Rust 桥被两个
+    // WebView 共用），结果是**弹窗里正在看的终端冻结**。弹出期间一律视为
+    // 可见，宁可多推流。
+    if (isPoppedOut(owner)) continue;
     if (!agg.anyVisible) hiddenOwners.add(owner);
   }
   if (hiddenOwners.size === 0) return [];
@@ -68,6 +75,7 @@ export function useHiddenSessionReporter(): void {
         panes.layouts,
         panes.currentLayoutId,
         panes.rootPane,
+        (tabId) => panes.poppedOutTabs.has(tabId),
       );
       const key = hidden.join(",");
       // 同值不重发：聚合高频变化，但 hidden 全集往往不变
@@ -82,10 +90,14 @@ export function useHiddenSessionReporter(): void {
     };
 
     const unsubscribe = useTabViewStateStore.subscribe(schedule);
+    // poppedOutTabs 的翻转也影响派生（弹出/收回不经过可见性聚合），
+    // 同值去抖比较会吸收无关的 panes store 变化。
+    const unsubscribePanes = usePanesStore.subscribe(schedule);
     schedule();
 
     return () => {
       unsubscribe();
+      unsubscribePanes();
       if (timer) clearTimeout(timer);
     };
   }, []);

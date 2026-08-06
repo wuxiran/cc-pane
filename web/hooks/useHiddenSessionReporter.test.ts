@@ -29,21 +29,21 @@ describe("deriveHiddenSessions", () => {
     const hidden = deriveHiddenSessions(
       { t1: agg(false), t2: agg(true) },
       [{ id: "l1", rootPane: p1 }],
-      "l1", p1,
+      "l1", p1, () => false,
     );
     expect(hidden).toEqual(["s1", "s1-saved"]);
   });
 
   it("**无聚合记录的 owner 不进隐藏集**——安全默认，宁可多推流也不错杀", () => {
     const p1 = panel("p1", [tab("t-unknown", "s-x")]);
-    expect(deriveHiddenSessions({}, [{ id: "l1", rootPane: p1 }], "l1", p1)).toEqual([]);
+    expect(deriveHiddenSessions({}, [{ id: "l1", rootPane: p1 }], "l1", p1, () => false)).toEqual([]);
   });
 
   it("selfchat 命名空间不参与（它没有 daemon 镜像诉求）", () => {
     const p1 = panel("p1", []);
     expect(deriveHiddenSessions(
       { "selfchat:abc": agg(false) },
-      [{ id: "l1", rootPane: p1 }], "l1", p1,
+      [{ id: "l1", rootPane: p1 }], "l1", p1, () => false,
     )).toEqual([]);
   });
 
@@ -53,7 +53,7 @@ describe("deriveHiddenSessions", () => {
     const hidden = deriveHiddenSessions(
       { t1: agg(false), t2: agg(false) },
       [{ id: "l1", rootPane: p1 }, { id: "l2", rootPane: p2 }],
-      "l1", p1,
+      "l1", p1, () => false,
     );
     expect(hidden).toEqual(["s1", "s2"]);
   });
@@ -62,8 +62,19 @@ describe("deriveHiddenSessions", () => {
     const p1 = panel("p1", [tab("tb", "s-b"), tab("ta", "s-a")]);
     const hidden = deriveHiddenSessions(
       { ta: agg(false), tb: agg(false) },
-      [{ id: "l1", rootPane: p1 }], "l1", p1,
+      [{ id: "l1", rootPane: p1 }], "l1", p1, () => false,
     );
     expect(hidden).toEqual(["s-a", "s-b"]);
+  });
+
+  it("**弹出标签排除**：主窗口切走也不报隐藏（弹窗在另一上下文，掐了它会冻结）", () => {
+    const p1 = panel("p1", [tab("t-popped", "s-popped"), tab("t-normal", "s-normal")]);
+    const hidden = deriveHiddenSessions(
+      { "t-popped": agg(false), "t-normal": agg(false) },
+      [{ id: "l1", rootPane: p1 }],
+      "l1", p1,
+      (tabId) => tabId === "t-popped",
+    );
+    expect(hidden).toEqual(["s-normal"]);
   });
 });
