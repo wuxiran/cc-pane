@@ -259,6 +259,27 @@ registry 补 `createDefaults(input): Partial<Tab>`；`usePanesStore.createTab` �
 
 判据：批 1-4 观察期内 `syncTabTerminalState` 相关 bug 数与被迫双写次数，接近零则**降级为只做判别联合**（`TerminalRuntimePhase`: idle/launching/restoring/restore-blocked/running/disconnected/exited——非法组合类型层不可表达，独立有价值）。若做全量：leaf 为终端运行时单一真相、删 syncTabTerminalState；持久化版本号 + 单向迁移 + 旧格式读入测试；恢复链路全量手工回归（18-tab 重启恢复为既有事故复现用例）。全项目最高风险，独占一批灰度发版。
 
+> **架构合理性复评（0.12.0 收官期）**：门判据实测——观察期双写归因 bug **0**、
+> 被迫新增双写 **0**（调用点反而净减 2），维持「不做大爆炸」；但**推翻「双写可
+> 作为终态」**。结构性问题三条：①tab 拷贝是**有损投影**（分屏 N leaf 只反映活跃
+> 那个，per-session 逻辑读 tab.* 构造上就错，逃生舱 collect*/phaseOf/statusMap
+> 全是为绕它长出来的）；②**存储型投影 = 每个 mutation 点付同步税**，忘调即静默
+> 发散；③同批字段双份持久化。正确终态：leaf 单源 + tab 级访问经**计算型投影**
+> （`activeTerminalLeaf(tab)` selector 现算，永不过期），title/pinned/starred 等
+> 真 tab 域字段留 Tab。原「全量 or 降级」二选一是错误切法——改**绞杀者式逐字段
+> 迁移**，按剩余 tab 读者数排班：
+>
+> - **第一段（已落地）**：restoring / disconnected / savedSessionId / launchError
+>   ——4 字段从 syncTabTerminalState 复制清单移除，读侧迁 leaf 单源（quickCommand
+>   经 activeTerminalLeaf；保护集读 tab.savedSessionId 保留=超集安全+legacy 兜底），
+>   Tab 类型标 @deprecated（仅无树 legacy 形态可读写）。回归：sync 不物化断言 +
+>   selector 三态测试。
+> - **第二段（M3b 之后）**：sessionId / resumeId（约 54 消费点，真正的工作量）——
+>   借批4 构造收敛 + branded ids 导航（类型改 selector 返回值让编译器列出全部消费点）。
+> - **第三段（纯机械）**：从 Tab 类型删字段 + 持久化版本号。
+>
+> 复评触发器：M3b 被迫新增双写 ≥3 处即提前动第二段。
+
 ## 5. 明确不做
 
 1. Panel 常驻挂载不动（display:none 保留；React 卸载对 xterm 是灾难，休眠+checkpoint 已覆盖内存与恢复诉求）；

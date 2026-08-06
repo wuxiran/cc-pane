@@ -168,14 +168,18 @@ export interface Tab {
   ssh?: import("./workspace").SshConnectionInfo;
   wsl?: WslLaunchInfo;
   machineName?: string;
+  /** @deprecated 运行时单源在 leaf（批5 绞杀第一段）。仅「无 terminalRootPane 的 legacy 形态」可读写；有树时读 activeTerminalLeaf(tab)/phaseOf。 */
   disconnected?: boolean;
+  /** @deprecated 同上——leaf 单源，仅 legacy 形态兜底。 */
   restoring?: boolean;
+  /** @deprecated 同上——会话收集走 collectTerminalSessionIdsWithSaved（leaf 全量口径）。 */
   savedSessionId?: string;
   restoreBlockedReason?: TerminalRestoreBlockedReason;
   leaseReadOnly?: boolean;
   terminalRootPane?: TerminalPaneNode;
   activeTerminalPaneId?: string;
   launchExtras?: LaunchExtras;
+  /** @deprecated 同上——leaf 单源，仅 legacy 形态兜底。 */
   launchError?: TerminalLaunchError;
   launchAttempt?: number;
   /**

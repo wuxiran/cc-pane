@@ -6,6 +6,7 @@ import {
   findPane,
   findParent,
   collectPanels,
+  syncTabTerminalState,
 } from "@/lib/paneTree";
 import { createTab } from "@/stores/usePanesStore";
 
@@ -328,5 +329,35 @@ describe("collectPanels", () => {
     expect(panels[0]).toBe(p1);
     expect(panels[1]).toBe(p2);
     expect(panels[2]).toBe(p3);
+  });
+});
+
+describe("syncTabTerminalState（批5 绞杀第一段：运行时字段不再物化到 tab）", () => {
+  it("leaf 的 restoring/disconnected/savedSessionId/launchError 不复制到 tab", () => {
+    const tab = {
+      id: "t1",
+      title: "T",
+      contentType: "terminal",
+      projectPath: "D:\repo",
+      sessionId: null,
+      activeTerminalPaneId: "l1",
+      terminalRootPane: {
+        type: "leaf",
+        id: "l1",
+        sessionId: "s1",
+        restoring: true,
+        disconnected: true,
+        savedSessionId: "saved-1",
+        launchError: { code: "X", message: "boom" },
+      },
+    } as unknown as import("@/types").Tab;
+    syncTabTerminalState(tab);
+    // 身份/标识字段照常投影
+    expect(tab.sessionId).toBe("s1");
+    // 运行时字段保持未物化——读侧必须经 activeTerminalLeaf/phaseOf 走 leaf 单源
+    expect(tab.restoring).toBeUndefined();
+    expect(tab.disconnected).toBeUndefined();
+    expect(tab.savedSessionId).toBeUndefined();
+    expect(tab.launchError).toBeUndefined();
   });
 });

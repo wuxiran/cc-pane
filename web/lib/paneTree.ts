@@ -281,13 +281,13 @@ export function syncTabTerminalState(tab: Tab): void {
   tab.ssh = activeLeaf.ssh;
   tab.wsl = activeLeaf.wsl;
   tab.machineName = activeLeaf.machineName;
-  tab.disconnected = activeLeaf.disconnected;
-  tab.restoring = activeLeaf.restoring;
-  tab.savedSessionId = activeLeaf.savedSessionId;
   tab.restoreBlockedReason = activeLeaf.restoreBlockedReason;
   tab.leaseReadOnly = activeLeaf.leaseReadOnly;
-  tab.launchError = activeLeaf.launchError;
   tab.launchAttempt = activeLeaf.launchAttempt;
+  // 批5 绞杀第一段：restoring / disconnected / savedSessionId / launchError 不再
+  // 物化到 tab——消费方已全部迁到 leaf 单源（读侧经 activeTerminalLeaf/phaseOf 现算，
+  // 会话收集经 collectTerminalSessionIdsWithSaved 全量口径）。tab 上的同名字段仅剩
+  // 「无 terminalRootPane 的 legacy 形态」语义，读写都只允许出现在该形态的兜底分支。
 }
 
 export function closeTerminalLeafInTab(tab: Tab, terminalPaneId: string): boolean {

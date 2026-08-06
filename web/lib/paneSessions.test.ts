@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PaneNode, Tab, TerminalPaneNode } from "@/types";
 import {
+  activeTerminalLeaf,
   collectTerminalSessionIds,
   collectTerminalSessionIdsWithSaved,
   collectTerminalSessionIdsWithSavedFromTree,
@@ -94,5 +95,31 @@ describe("collectTerminalSessionIdsWithSavedFromTree", () => {
     expect(collectTerminalSessionIdsWithSavedFromTree(tree).sort()).toEqual(
       ["live-a", "saved-a"].sort(),
     );
+  });
+});
+
+describe("activeTerminalLeaf（批5 绞杀第一段：tab 级运行时读取的唯一投影入口）", () => {
+  const leaf = (id: string, sessionId?: string) =>
+    ({ type: "leaf", id, sessionId: sessionId ?? null }) as TerminalPaneNode;
+
+  it("activeTerminalPaneId 命中时返回该 leaf", () => {
+    const tab = makeTab({
+      terminalRootPane: split([leaf("l1", "s1"), leaf("l2", "s2")]),
+      activeTerminalPaneId: "l2",
+    });
+    expect(activeTerminalLeaf(tab)?.id).toBe("l2");
+  });
+
+  it("未命中/未设置时回退第一个 leaf", () => {
+    const tab = makeTab({
+      terminalRootPane: split([leaf("l1", "s1"), leaf("l2", "s2")]),
+      activeTerminalPaneId: "gone",
+    });
+    expect(activeTerminalLeaf(tab)?.id).toBe("l1");
+  });
+
+  it("无树（legacy 形态）与非终端返回 null", () => {
+    expect(activeTerminalLeaf(makeTab())).toBeNull();
+    expect(activeTerminalLeaf(makeTab({ contentType: "browser" } as Partial<Tab>))).toBeNull();
   });
 });
