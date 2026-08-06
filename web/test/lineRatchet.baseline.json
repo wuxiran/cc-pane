@@ -7,7 +7,7 @@
   "components/orchestration/OrchestrationFullView.tsx": 511,
   "components/panes/Panel.tsx": 561,
   "components/panes/TabBar.tsx": 623,
-  "components/panes/TerminalView.tsx": 2183,
+  "components/panes/TerminalView.tsx": 2229,
   "components/providers/LaunchProfilesPanel.tsx": 577,
   "components/providers/ProviderFormPanel.tsx": 700,
   "components/settings/SharedMcpSection.tsx": 608,
@@ -17,7 +17,7 @@
   "components/sidebar/WorkspaceItem.tsx": 703,
   "components/todo/TodoEditor.tsx": 614,
   "components/todo/TodoManager.tsx": 507,
-  "services/terminalService.ts": 741,
+  "services/terminalService.ts": 743,
   "stores/usePanesStore.ts": 2396,
   "utils/workspaceLaunch.ts": 663
 }
