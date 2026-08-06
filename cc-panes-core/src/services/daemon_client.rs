@@ -6,7 +6,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::models::TerminalReplaySnapshot;
-use crate::models::{CreateSessionRequest, TerminalSessionProvenance};
+use crate::models::{
+    CreateSessionRequest, StoreCheckpointOutcome, TerminalCheckpoint, TerminalSessionProvenance,
+};
 use crate::services::terminal_backend::TerminalAdoptionSnapshot;
 use crate::services::terminal_service::KillReason;
 use crate::services::terminal_service::SessionOutput;
@@ -571,6 +573,71 @@ impl TerminalDaemonClient {
         Ok(Some(snapshot))
     }
 
+    /// 上传前端拍摄的终端画面照片（M3b-2）。
+    ///
+    /// - 200 → `Accepted { anchor_seq }`；
+    /// - 409 + 结构化拒收 code → 对应 `Rejected*` 变体（拒收是**结果**不是错误，
+    ///   幂等重试会拿到 STALE_ANCHOR）；409 的其他 code（如 SESSION_CLAIMED）仍是错误；
+    /// - 404/405 无结构化 NOT_FOUND → 旧 daemon 无此路由，返回
+    ///   `CHECKPOINT_UNSUPPORTED` 结构化错误（app 侧 capability 探测点，
+    ///   首个命中后应关断防探测风暴）。
+    pub fn upload_checkpoint(
+        &self,
+        session_id: &str,
+        checkpoint: &TerminalCheckpoint,
+    ) -> AppResult<StoreCheckpointOutcome> {
+        let body =
+            serde_json::to_string(checkpoint).map_err(|error| AppError::from(error.to_string()))?;
+        let response = self.request(
+            "POST",
+            &session_path(session_id, "/checkpoint"),
+            true,
+            Some(&body),
+        )?;
+        let (status, body) = split_http_response(&response)?;
+        let structured_code = |body: &str| {
+            serde_json::from_str::<serde_json::Value>(body)
+                .ok()
+                .and_then(|value| value.get("code")?.as_str().map(str::to_string))
+        };
+        match status {
+            code if (200..300).contains(&code) => {
+                let value: serde_json::Value = serde_json::from_str(body)
+                    .map_err(|error| AppError::from(error.to_string()))?;
+                let anchor_seq = value
+                    .get("anchorSeq")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| {
+                        AppError::from("checkpoint upload response missing anchorSeq")
+                    })?;
+                Ok(StoreCheckpointOutcome::Accepted { anchor_seq })
+            }
+            409 => match structured_code(body).as_deref() {
+                Some("STALE_ANCHOR") => Ok(StoreCheckpointOutcome::RejectedStaleAnchor),
+                Some("ANCHOR_GAP") => Ok(StoreCheckpointOutcome::RejectedAnchorGap),
+                Some("FUTURE_ANCHOR") => Ok(StoreCheckpointOutcome::RejectedFutureAnchor),
+                Some("EPOCH_MISMATCH") => Ok(StoreCheckpointOutcome::RejectedEpochMismatch),
+                Some("TOO_LARGE") => Ok(StoreCheckpointOutcome::RejectedTooLarge),
+                // SESSION_CLAIMED 等其他 409：不是拒收裁决，按错误上抛。
+                _ => Err(daemon_http_error(status, body)),
+            },
+            404 | 405 => {
+                if structured_code(body).as_deref() == Some("NOT_FOUND") {
+                    // 新 daemon 的会话不存在（与旧 daemon 的未知路由区分开）。
+                    Err(AppError::NotFound(format!(
+                        "session not found for checkpoint upload: {session_id}"
+                    )))
+                } else {
+                    Err(AppError::coded(
+                        "CHECKPOINT_UNSUPPORTED",
+                        format!("daemon has no checkpoint endpoint (HTTP {status})"),
+                    ))
+                }
+            }
+            code => Err(daemon_http_error(code, body)),
+        }
+    }
+
     fn get_json<T>(&self, path: &str, authorize: bool) -> AppResult<T>
     where
         T: for<'de> Deserialize<'de>,
@@ -883,6 +950,99 @@ mod tests {
             client.websocket_url("session/1"),
             "ws://127.0.0.1:1234/ws/session%2F1?token=a%20b&instanceId=inst%20a"
         );
+    }
+
+    // ===== checkpoint 上传（M3b-2）=====
+
+    fn test_checkpoint_payload() -> TerminalCheckpoint {
+        TerminalCheckpoint {
+            checkpoint_epoch: 7,
+            anchor_seq: 5,
+            snapshot_ansi: "PHOTO".to_string(),
+            buffer_mode: TerminalBufferMode::Normal,
+            cols: 80,
+            rows: 24,
+            checkpointed_at_ms: 1,
+        }
+    }
+
+    #[test]
+    fn upload_checkpoint_maps_accepted_response() {
+        let response = http_json_response("200 OK", r#"{"accepted":true,"anchorSeq":5}"#);
+        let (addr, rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let outcome = client
+            .upload_checkpoint("s1", &test_checkpoint_payload())
+            .expect("upload outcome");
+        assert_eq!(outcome, StoreCheckpointOutcome::Accepted { anchor_seq: 5 });
+
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/sessions/s1/checkpoint "));
+        assert!(request.contains("\"anchorSeq\":5"));
+    }
+
+    #[test]
+    fn upload_checkpoint_maps_structured_409_to_rejection_not_error() {
+        let response = http_json_response("409 Conflict", r#"{"code":"STALE_ANCHOR"}"#);
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let outcome = client
+            .upload_checkpoint("s1", &test_checkpoint_payload())
+            .expect("rejection is an outcome, not an error");
+        assert_eq!(outcome, StoreCheckpointOutcome::RejectedStaleAnchor);
+    }
+
+    /// SESSION_CLAIMED 等其他 409 不是拒收裁决：必须按错误上抛，不能被
+    /// 误映射成 stale（只读镜像会以为「照片只是旧了」而继续重拍）。
+    #[test]
+    fn upload_checkpoint_keeps_claim_conflict_as_error() {
+        let response = http_json_response(
+            "409 Conflict",
+            r#"{"code":"SESSION_CLAIMED","message":"held","owner":"inst-b"}"#,
+        );
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let error = client
+            .upload_checkpoint("s1", &test_checkpoint_payload())
+            .expect_err("claim conflict must stay an error");
+        assert_eq!(error.code(), Some("SESSION_CLAIMED"));
+    }
+
+    /// 旧 daemon 无此路由：错误必须可区分（capability 探测点，前端首个命中后关断）。
+    #[test]
+    fn upload_checkpoint_flags_missing_route_as_unsupported() {
+        let response = http_json_response("404 Not Found", r#"{"message":"no route"}"#);
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let error = client
+            .upload_checkpoint("s1", &test_checkpoint_payload())
+            .expect_err("missing route must error");
+        assert_eq!(error.code(), Some("CHECKPOINT_UNSUPPORTED"));
+    }
+
+    /// 新 daemon 的结构化 NOT_FOUND = 会话真不存在，与旧 daemon 缺路由区分开。
+    #[test]
+    fn upload_checkpoint_distinguishes_session_not_found_from_missing_route() {
+        let response = http_json_response(
+            "404 Not Found",
+            r#"{"code":"NOT_FOUND","message":"Session not found"}"#,
+        );
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let error = client
+            .upload_checkpoint("s1", &test_checkpoint_payload())
+            .expect_err("missing session must error");
+        assert!(matches!(error, AppError::NotFound(_)));
     }
 
     // ===== 写权限租约（docs/61 阶段 2）=====

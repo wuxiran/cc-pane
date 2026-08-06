@@ -14,6 +14,7 @@ import terminalServiceSrc from "./terminalService.ts?raw";
 import {
   BOUNDARY_EVENTS,
   BOUNDARY_EVENT_NAMES,
+  INBOUND_CONTROL_MESSAGES,
   INBOUND_CONTROL_MESSAGE_NAMES,
   findBoundaryEvent,
   isFrontendListenedEvent,
@@ -89,6 +90,7 @@ const EXPECTED_VARIANTS: Record<string, { stream?: string; control?: string }> =
   "terminal-resume-id-detected": { control: "ResumeIdDetected" },
   "terminal-launch-warning": { control: "LaunchWarning" },
   notifier: { control: "Notifier" },
+  "terminal-checkpoint-request": { control: "CheckpointRequest" },
 };
 
 describe("app 侧三处分发都覆盖了契约事件", () => {
@@ -157,18 +159,46 @@ describe("入站方向（app → daemon）契约", () => {
     expect([...names].sort()).toEqual([...INBOUND_CONTROL_MESSAGE_NAMES].sort());
   });
 
-  it("daemon 侧每条都有非 Unknown 的接收变体（serde camelCase：变体名 = tag 首字母大写）", () => {
+  it("daemon 侧每条都有接收点（control-ws：非 Unknown 变体；rest：路由 handler）", () => {
     const enumBlock = extractEnumBlock(daemonServer, "ControlInboundMessage");
     expect(enumBlock).toContain("#[serde(other)]");
-    for (const name of INBOUND_CONTROL_MESSAGE_NAMES) {
-      const variant = name[0].toUpperCase() + name.slice(1);
-      expect(enumBlock, `${name} 在 ControlInboundMessage 里缺 ${variant} 变体`).toContain(variant);
+    for (const message of INBOUND_CONTROL_MESSAGES) {
+      if (message.channel === "control-ws") {
+        const variant = message.name[0].toUpperCase() + message.name.slice(1);
+        expect(
+          enumBlock,
+          `${message.name} 在 ControlInboundMessage 里缺 ${variant} 变体`,
+        ).toContain(variant);
+      } else {
+        // rest 类没有 serde tag，配对物是路由：daemonHandler 里声明的
+        // handler fn 必须真的出现在 server.rs 的 route 表附近。
+        const fnMatch = message.daemonHandler.match(/^server\.rs (\w+)/);
+        expect(fnMatch, `${message.name} 的 daemonHandler 必须以 "server.rs <fn>" 开头`).toBeTruthy();
+        expect(
+          daemonServer,
+          `${message.name} 在 server.rs 里缺 handler fn ${fnMatch![1]}`,
+        ).toContain(`async fn ${fnMatch![1]}`);
+      }
     }
   });
 
-  it("app 侧发送点真的存在（tag 字面量出现在 control link 源码里）", () => {
-    for (const name of INBOUND_CONTROL_MESSAGE_NAMES) {
-      expect(controlLink, `${name} 在 control link 里没有发送点`).toContain(`"${name}"`);
+  it("app 侧发送点真的存在（control-ws：tag 字面量在 control link；rest：命令在 terminal_commands）", async () => {
+    for (const message of INBOUND_CONTROL_MESSAGES) {
+      if (message.channel === "control-ws") {
+        expect(controlLink, `${message.name} 在 control link 里没有发送点`).toContain(
+          `"${message.name}"`,
+        );
+      } else {
+        const commandsSrc = (
+          await import("../../src-tauri/src/commands/terminal_commands.rs?raw")
+        ).default;
+        const cmdMatch = message.appSender.match(/terminal_commands::(\w+)/);
+        expect(cmdMatch, `${message.name} 的 appSender 必须引用 terminal_commands::<fn>`).toBeTruthy();
+        expect(
+          commandsSrc,
+          `${message.name} 在 terminal_commands.rs 里缺命令 ${cmdMatch![1]}`,
+        ).toContain(`pub async fn ${cmdMatch![1]}`);
+      }
     }
   });
 });

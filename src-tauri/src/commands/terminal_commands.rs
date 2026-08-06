@@ -971,3 +971,24 @@ mod tests {
 pub fn set_hidden_terminal_sessions(sessions: Vec<String>) {
     crate::services::report_hidden_sessions(sessions);
 }
+
+/// 前端上传终端画面照片（checkpoint，M3b-2）。
+///
+/// 经 backend 分发：daemon 模式走 REST（旧 daemon 返回 CHECKPOINT_UNSUPPORTED
+/// 结构化错误，供前端 capability 探测关断）；in-process 模式直存 ReplayBuffer。
+/// 拒收（stale/gap/future/epoch/too-large）是**结果**不是错误，以
+/// `StoreCheckpointOutcome` 结构化返回。
+#[tauri::command]
+pub async fn upload_terminal_checkpoint(
+    service: State<'_, Arc<TerminalBackendState>>,
+    session_id: String,
+    checkpoint: crate::models::TerminalCheckpoint,
+) -> AppResult<crate::models::StoreCheckpointOutcome> {
+    debug!(session_id = %session_id, "cmd::upload_terminal_checkpoint");
+    let backend = service.backend();
+    tauri::async_runtime::spawn_blocking(move || {
+        backend.store_session_checkpoint(&session_id, checkpoint)
+    })
+    .await
+    .map_err(|e| AppError::from(e.to_string()))?
+}

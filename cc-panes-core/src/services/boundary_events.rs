@@ -43,6 +43,10 @@ pub enum LossSemantics {
     DroppableWithDesync,
     /// 必达：丢了没有任何补救路径，必须有兜底通道。
     MustDeliver,
+    /// 可丢但重发：单次丢失无补救通道，但 daemon 周期扫描会再次发起
+    /// （条件仍满足时）。与 DroppableWithDesync 不同——它不依赖 desync 重放，
+    /// 也**不该**被算进「可丢事件例外」断言（那条只锁 output 独占的 desync 语义）。
+    BestEffortWithResend,
     /// 可丢但留存：daemon 侧留副本，客户端重连时补拉。
     RetainedForReplay,
 }
@@ -131,6 +135,17 @@ pub const BOUNDARY_EVENTS: &[BoundaryEvent] = &[
                     画面永久带缺口。它自己不能再走可丢路径。",
     },
     BoundaryEvent {
+        name: crate::constants::events::TERMINAL_CHECKPOINT_REQUEST,
+        origin: EventOrigin::DedicatedApi,
+        channel: BoundaryChannel::Control,
+        loss: LossSemantics::BestEffortWithResend,
+        legacy_app_behavior: "旧 app 走 DaemonControlMessage::Unknown 静默忽略",
+        rationale: "补拍语义（M3b-2）：会话照片锚点之后的 delta 超 4MB 阈值时，daemon \
+                    30s 周期扫描经 control 催前端重拍上传，每会话节流 ≥60s。丢了不致命\
+                    ——条件仍满足时下一轮扫描会重发，照片只是暂时变旧；首拍由前端边沿\
+                    触发，无照片的会话不催。",
+    },
+    BoundaryEvent {
         name: "notifier",
         origin: EventOrigin::DedicatedApi,
         channel: BoundaryChannel::Control,
@@ -149,8 +164,12 @@ pub const BOUNDARY_EVENTS: &[BoundaryEvent] = &[
 /// 会核对键集、daemon 接收变体与 app 发送点三者都存在。
 #[derive(Debug, Clone, Copy)]
 pub struct InboundControlMessage {
-    /// serde tag（`{"type": ...}`，camelCase；daemon 侧变体名 = 首字母大写）。
+    /// serde tag（control-ws：`{"type": ...}`，camelCase；daemon 侧变体名 =
+    /// 首字母大写）或逻辑名（rest：无 serde tag，靠路由配对）。
     pub name: &'static str,
+    /// 入站通道："control-ws"（`/ws/control` 单帧）或 "rest"（独立 HTTP 请求，
+    /// 大 payload / 需要应答的离散提交走这里，不占 control 队头）。
+    pub channel: &'static str,
     /// daemon 侧在哪里消费它。
     pub daemon_handler: &'static str,
     /// app 侧从哪里发出。
@@ -159,13 +178,27 @@ pub struct InboundControlMessage {
 }
 
 /// 全部入站控制消息。**新增入站消息必须先在这里加一行。**
-pub const INBOUND_CONTROL_MESSAGES: &[InboundControlMessage] = &[InboundControlMessage {
-    name: "hiddenSessions",
-    daemon_handler: "server.rs ControlInboundMessage::HiddenSessions → clear/set_hidden_sessions",
-    app_sender: "terminal_daemon_control_link（连接建立补发 + watch 变更推送）",
-    rationale: "后台会话断流门（docs/78）。best-effort：旧 daemon 静默忽略、断线期间\
-                无投递——app 侧不得据此放松前端 512KB 积压兜底。",
-}];
+pub const INBOUND_CONTROL_MESSAGES: &[InboundControlMessage] = &[
+    InboundControlMessage {
+        name: "hiddenSessions",
+        channel: "control-ws",
+        daemon_handler:
+            "server.rs ControlInboundMessage::HiddenSessions → clear/set_hidden_sessions",
+        app_sender: "terminal_daemon_control_link（连接建立补发 + watch 变更推送）",
+        rationale: "后台会话断流门（docs/78）。best-effort：旧 daemon 静默忽略、断线期间\
+                    无投递——app 侧不得据此放松前端 512KB 积压兜底。",
+    },
+    InboundControlMessage {
+        name: "checkpointUpload",
+        channel: "rest",
+        daemon_handler: "server.rs upload_session_checkpoint（POST /api/sessions/{id}/checkpoint）",
+        app_sender:
+            "terminal_commands::upload_terminal_checkpoint → daemon_client.upload_checkpoint",
+        rationale: "照片是大 payload（数百 KB–4MB）的离散提交，需要应答（409 拒收可感知、\
+                    404 = capability 探测），且不能被 coalesce——走 REST 而非 control \
+                    单帧通道（M3b §3 选型）。写权限过 ensure_may_write（只读镜像不得上传）。",
+    },
+];
 
 /// 表中是否已登记该事件。emitter 守卫测试用。
 pub fn is_boundary_event(name: &str) -> bool {
@@ -231,6 +264,12 @@ mod tests {
         names.dedup();
         assert_eq!(before, names.len(), "入站契约表里有重名消息");
         for message in INBOUND_CONTROL_MESSAGES {
+            assert!(
+                matches!(message.channel, "control-ws" | "rest"),
+                "{} 的 channel 必须是 control-ws 或 rest，实为 {}",
+                message.name,
+                message.channel
+            );
             assert!(
                 !message.daemon_handler.trim().is_empty(),
                 "{} 缺 daemon 侧 handler 说明",

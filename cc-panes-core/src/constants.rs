@@ -71,6 +71,9 @@ pub mod events {
     /// daemon 输出镜像流曾溢出跳段（desync 契约）：前端必须丢弃现有终端画面、
     /// 用 replay snapshot 重放，否则 VT 流缺口必然花屏。
     pub const TERMINAL_DESYNC: &str = "terminal-desync";
+    /// daemon 侧补拍请求（M3b-2）：某会话照片锚点之后的 delta 已超阈值，
+    /// 催前端重拍并上传。best-effort：丢了 daemon 周期扫描会重发。
+    pub const TERMINAL_CHECKPOINT_REQUEST: &str = "terminal-checkpoint-request";
 }
 
 /// 终端默认值

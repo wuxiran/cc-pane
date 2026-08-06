@@ -13,7 +13,8 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use cc_panes_core::models::{
     CliTool, CreateSessionRequest as CoreCreateSessionRequest, LaunchProviderSelection,
-    SshConnectionInfo, TerminalReplaySnapshot, TerminalSessionProvenance, WslLaunchInfo,
+    SshConnectionInfo, StoreCheckpointOutcome, TerminalCheckpoint, TerminalReplaySnapshot,
+    TerminalSessionProvenance, WslLaunchInfo,
 };
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
 use cc_panes_core::services::{SessionStatusInfo, TerminalAdoptionSnapshot, TerminalBackend};
@@ -544,6 +545,12 @@ pub fn router(config: DaemonConfig) -> Router {
         .route("/api/sessions/{id}/hook-status", post(hook_status))
         .route("/api/sessions/{id}/output", get(get_session_output))
         .route("/api/sessions/{id}/snapshot", get(get_session_snapshot))
+        .route(
+            "/api/sessions/{id}/checkpoint",
+            // 显式 16MB body 上限：axum 默认 2MB 会把大照片静默 413（M3b 风险表）。
+            post(upload_session_checkpoint)
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
         .route("/api/sessions/{id}/write", post(write_session))
         .route("/api/sessions/{id}/submit", post(submit_session))
         .route("/api/sessions/{id}/resize", post(resize_session))
@@ -1246,6 +1253,48 @@ async fn get_session_snapshot(
     Ok(Json(snapshot))
 }
 
+/// 前端上传终端画面照片（M3b-2）。
+///
+/// 写权限过 ensure_may_write（照片影响所有客户端的恢复数据，只读镜像端不得
+/// 污染）。拒收以 409 + 结构化 code 返回（幂等：重复上传同锚点 = STALE_ANCHOR）；
+/// 会话不存在 404；旧 daemon 无此路由（app 侧 capability 探测点）。
+async fn upload_session_checkpoint(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(checkpoint): Json<TerminalCheckpoint>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let _visibility = config.inner.session_visibility.read().await;
+    ensure_may_write(&config, &id, &headers)?;
+    config.touch_session(&id);
+    let outcome = config
+        .terminal_backend()
+        .store_session_checkpoint(&id, checkpoint)
+        .map_err(not_found_from_error)?;
+    match outcome {
+        StoreCheckpointOutcome::Accepted { anchor_seq } => Ok(Json(serde_json::json!({
+            "accepted": true,
+            "anchorSeq": anchor_seq,
+        }))),
+        rejected => {
+            let code = match rejected {
+                StoreCheckpointOutcome::RejectedStaleAnchor => "STALE_ANCHOR",
+                StoreCheckpointOutcome::RejectedAnchorGap => "ANCHOR_GAP",
+                StoreCheckpointOutcome::RejectedFutureAnchor => "FUTURE_ANCHOR",
+                StoreCheckpointOutcome::RejectedEpochMismatch => "EPOCH_MISMATCH",
+                StoreCheckpointOutcome::RejectedTooLarge => "TOO_LARGE",
+                StoreCheckpointOutcome::Accepted { .. } => unreachable!("handled above"),
+            };
+            Err(json_error(
+                StatusCode::CONFLICT,
+                code,
+                "checkpoint rejected by replay buffer",
+            ))
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct KillQuery {
     reason: Option<String>,
@@ -1647,6 +1696,7 @@ mod tests {
         kills: Mutex<Vec<String>>,
         kill_reasons: Mutex<Vec<(String, KillReason)>>,
         hook_statuses: Mutex<Vec<(String, SessionStatus)>>,
+        checkpoints: Mutex<Vec<(String, TerminalCheckpoint)>>,
     }
 
     impl TerminalBackend for MockTerminalBackend {
@@ -1758,6 +1808,28 @@ mod tests {
                 .push((session_id.to_string(), status));
             Ok(())
         }
+
+        fn store_session_checkpoint(
+            &self,
+            session_id: &str,
+            checkpoint: TerminalCheckpoint,
+        ) -> AppResult<StoreCheckpointOutcome> {
+            // 约定：只有 "session-1" 存在；anchor 0 模拟 stale 拒收。
+            if session_id != "session-1" {
+                return Err(AppError::NotFound(format!(
+                    "Session not found: {session_id}"
+                )));
+            }
+            if checkpoint.anchor_seq == 0 {
+                return Ok(StoreCheckpointOutcome::RejectedStaleAnchor);
+            }
+            let anchor_seq = checkpoint.anchor_seq;
+            self.checkpoints
+                .lock()
+                .unwrap()
+                .push((session_id.to_string(), checkpoint));
+            Ok(StoreCheckpointOutcome::Accepted { anchor_seq })
+        }
     }
 
     fn test_config(token: &str, addr: &str, backend: Arc<MockTerminalBackend>) -> DaemonConfig {
@@ -1828,6 +1900,93 @@ mod tests {
                 created_at_ms: 1,
             },
         );
+    }
+
+    fn checkpoint_upload_request(session_id: &str, anchor_seq: u64, token: bool) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(format!("/api/sessions/{session_id}/checkpoint"))
+            .header(header::CONTENT_TYPE, "application/json");
+        if token {
+            builder = builder.header(header::AUTHORIZATION, "Bearer secret");
+        }
+        builder
+            .body(Body::from(
+                serde_json::json!({
+                    "checkpointEpoch": 7,
+                    "anchorSeq": anchor_seq,
+                    "snapshotAnsi": "PHOTO",
+                    "bufferMode": "normal",
+                    "cols": 80,
+                    "rows": 24,
+                    "checkpointedAtMs": 1,
+                })
+                .to_string(),
+            ))
+            .expect("request")
+    }
+
+    #[tokio::test]
+    async fn checkpoint_upload_accepts_and_returns_anchor_seq() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18094", backend.clone());
+
+        let response = router(config)
+            .oneshot(checkpoint_upload_request("session-1", 5, true))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body"),
+        )
+        .expect("json");
+        assert_eq!(body["accepted"], true);
+        assert_eq!(body["anchorSeq"], 5);
+        let stored = backend.checkpoints.lock().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].0, "session-1");
+        assert_eq!(stored[0].1.snapshot_ansi, "PHOTO");
+    }
+
+    #[tokio::test]
+    async fn checkpoint_upload_rejection_maps_to_409_with_structured_code() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18095", backend);
+
+        let response = router(config)
+            .oneshot(checkpoint_upload_request("session-1", 0, true))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body: serde_json::Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body"),
+        )
+        .expect("json");
+        assert_eq!(body["code"], "STALE_ANCHOR");
+    }
+
+    #[tokio::test]
+    async fn checkpoint_upload_requires_token_and_existing_session() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18096", backend);
+
+        let unauthorized = router(config.clone())
+            .oneshot(checkpoint_upload_request("session-1", 5, false))
+            .await
+            .expect("unauthorized response");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let missing = router(config)
+            .oneshot(checkpoint_upload_request("session-nope", 5, true))
+            .await
+            .expect("missing response");
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

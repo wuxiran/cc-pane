@@ -127,6 +127,10 @@ pub struct ResizeRequest {
 pub struct TerminalOutput {
     pub session_id: String,
     pub data: String,
+    /// 本批数据最后一个 raw chunk 的 seq（与 ReplayBuffer 记账同源，M3b-2）。
+    /// None = 该路径不产 seq（轮询降级 / 旧 daemon）；旧端收到多字段自然忽略。
+    #[serde(default, rename = "endSeq", skip_serializing_if = "Option::is_none")]
+    pub end_seq: Option<u64>,
 }
 
 /// 终端重放快照的屏幕模式

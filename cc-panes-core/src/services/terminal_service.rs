@@ -793,6 +793,19 @@ impl ReplayBuffer {
         StoreCheckpointOutcome::Accepted { anchor_seq }
     }
 
+    /// 是否需要催前端补拍：有效照片存在且 anchor 之后已积累超过阈值的新字节。
+    /// **无照片（或照片已失效）不催**——首拍由前端边沿触发（M3b-2 补拍语义）。
+    fn needs_checkpoint(&self, threshold_bytes: u64) -> bool {
+        match self.checkpoint.as_ref() {
+            Some(cp)
+                if cp.checkpoint_epoch == self.epoch && cp.anchor_seq >= self.window_start_seq =>
+            {
+                self.pushed_seq.saturating_sub(cp.anchor_seq) > threshold_bytes
+            }
+            _ => false,
+        }
+    }
+
     /// 结构化恢复快照：有效照片时 photo + anchor 之后的保留字节作 delta；
     /// 无照片或已失效时 checkpoint: None + delta = 全窗口拼接（等价 snapshot().data）。
     fn recovery_snapshot(&self) -> TerminalRecoverySnapshot {
@@ -2619,8 +2632,11 @@ impl TerminalService {
         );
 
         // 启动输出批量合并线程（减少 IPC 事件频率，防止 WKWebView 主线程死锁）
-        // 策略：累积数据，满足任一条件时刷出：≥16KB 或 ≥16ms 超时
-        let (batch_tx, batch_rx) = std::sync::mpsc::channel::<String>();
+        // 策略：累积数据，满足任一条件时刷出：≥16KB 或 ≥16ms 超时。
+        // 每个 chunk 附带 ReplayBuffer 记账的 end seq（同一字节流同一计数，M3b-2）；
+        // 合批时取批内最后一个 chunk 的 end seq，emit 是整数个 read-chunk 拼接，
+        // 前端见到的任何 endSeq 必落 chunk 边界。
+        let (batch_tx, batch_rx) = std::sync::mpsc::channel::<(String, Option<u64>)>();
         let batch_emitter = emitter.clone();
         let batch_sid = session_id.clone();
         thread::spawn(move || {
@@ -2628,25 +2644,30 @@ impl TerminalService {
             const BATCH_TIMEOUT: Duration = Duration::from_millis(16); // ~60fps
 
             let mut batch = String::with_capacity(BATCH_SIZE_THRESHOLD);
+            let mut batch_end_seq: Option<u64> = None;
             loop {
                 match batch_rx.recv_timeout(BATCH_TIMEOUT) {
-                    Ok(data) => {
+                    Ok((data, end_seq)) => {
                         batch.push_str(&data);
+                        batch_end_seq = end_seq;
                         // 排空通道中已有的数据
-                        while let Ok(more) = batch_rx.try_recv() {
+                        while let Ok((more, more_seq)) = batch_rx.try_recv() {
                             batch.push_str(&more);
+                            batch_end_seq = more_seq;
                             if batch.len() >= BATCH_SIZE_THRESHOLD {
                                 break;
                             }
                         }
                         // 达到大小阈值则立即刷出
                         if batch.len() >= BATCH_SIZE_THRESHOLD {
+                            let end_seq = batch_end_seq.take();
                             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 let _ = batch_emitter.emit(
                                     EV::TERMINAL_OUTPUT,
                                     serde_json::to_value(&TerminalOutput {
                                         session_id: batch_sid.clone(),
                                         data: std::mem::take(&mut batch),
+                                        end_seq,
                                     })
                                     .unwrap_or_default(),
                                 );
@@ -2657,12 +2678,14 @@ impl TerminalService {
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                         // 超时：刷出累积的数据（保证低吞吐场景下数据不滞留）
                         if !batch.is_empty() {
+                            let end_seq = batch_end_seq.take();
                             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 let _ = batch_emitter.emit(
                                     EV::TERMINAL_OUTPUT,
                                     serde_json::to_value(&TerminalOutput {
                                         session_id: batch_sid.clone(),
                                         data: std::mem::take(&mut batch),
+                                        end_seq,
                                     })
                                     .unwrap_or_default(),
                                 );
@@ -2673,12 +2696,14 @@ impl TerminalService {
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         // 读取线程退出，刷出残留数据
                         if !batch.is_empty() {
+                            let end_seq = batch_end_seq.take();
                             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 let _ = batch_emitter.emit(
                                     EV::TERMINAL_OUTPUT,
                                     serde_json::to_value(&TerminalOutput {
                                         session_id: batch_sid.clone(),
                                         data: batch,
+                                        end_seq,
                                     })
                                     .unwrap_or_default(),
                                 );
@@ -2886,10 +2911,16 @@ impl TerminalService {
 
                         let normalized_prompt = normalize_prompt_text(&data);
 
-                        // 追加到原始 VT 回放缓冲区
-                        if let Ok(mut replay) = read_replay_buffer.lock() {
-                            replay.push(&data);
-                        }
+                        // 追加到原始 VT 回放缓冲区，并取 push 后的 pushed_seq 作为
+                        // 本 chunk 的 end seq——seq 必须与 ReplayBuffer 记账同源
+                        // （同一字节流同一计数），锁失败时不产 seq（None）。
+                        let chunk_end_seq = match read_replay_buffer.lock() {
+                            Ok(mut replay) => {
+                                replay.push(&data);
+                                Some(replay.pushed_seq)
+                            }
+                            Err(_) => None,
+                        };
 
                         // 追加到纯文本输出缓冲区
                         if let Ok(mut buf) = read_output_buffer.lock() {
@@ -2897,7 +2928,7 @@ impl TerminalService {
                         }
 
                         // 发送到批量合并线程（替代直接 emit，降低 IPC 频率）
-                        let _ = batch_tx.send(data.clone());
+                        let _ = batch_tx.send((data.clone(), chunk_end_seq));
 
                         if let Some(runtime) = read_ssh_auth_runtime.as_ref() {
                             if let Ok(mut runtime) = runtime.lock() {
@@ -3781,6 +3812,31 @@ impl TerminalService {
             .lock()
             .map_err(|_| AppError::from("replay_buffer lock poisoned"))?;
         Ok(replay.store_checkpoint(cp))
+    }
+
+    /// 需要补拍照片的活跃会话（daemon 周期扫描用，M3b-2）：
+    /// 有效照片的 anchor 与 pushed_seq 差超过 `threshold_bytes`。
+    /// **无照片不催**（首拍由前端边沿触发）；dead 会话不催（前端已不在看）。
+    pub fn sessions_needing_checkpoint(&self, threshold_bytes: u64) -> Vec<String> {
+        let replay_arcs: Vec<(String, Arc<Mutex<ReplayBuffer>>)> = match self.sessions.lock() {
+            Ok(sessions) => sessions
+                .iter()
+                .map(|(session_id, session)| {
+                    (session_id.clone(), Arc::clone(&session.replay_buffer))
+                })
+                .collect(),
+            Err(_) => return Vec::new(),
+        };
+        replay_arcs
+            .into_iter()
+            .filter(|(_, replay_arc)| {
+                replay_arc
+                    .lock()
+                    .map(|replay| replay.needs_checkpoint(threshold_bytes))
+                    .unwrap_or(false)
+            })
+            .map(|(session_id, _)| session_id)
+            .collect()
     }
 
     /// 读取 checkpoint+delta 结构化恢复快照。会话不存在时返回 None。
@@ -5410,6 +5466,79 @@ mod tests {
         assert!(recovery.checkpoint.is_some());
         assert_eq!(recovery.delta, "");
         assert_eq!(recovery.end_seq, 3);
+    }
+
+    // --- M3b-2: 补拍扫描（needs_checkpoint / sessions_needing_checkpoint） ---
+
+    #[test]
+    fn needs_checkpoint_requires_valid_photo_and_threshold_excess() {
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("12345");
+
+        // 无照片不催——首拍由前端边沿触发。
+        assert!(!replay.needs_checkpoint(0));
+
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 5)),
+            StoreCheckpointOutcome::Accepted { anchor_seq: 5 }
+        );
+        // 锚点即最新：无新增字节，不催。
+        assert!(!replay.needs_checkpoint(0));
+
+        replay.push("abc");
+        // 差 3 字节：阈值 3 不催（严格大于），阈值 2 催。
+        assert!(!replay.needs_checkpoint(3));
+        assert!(replay.needs_checkpoint(2));
+    }
+
+    #[test]
+    fn needs_checkpoint_false_after_window_pushes_past_anchor() {
+        let mut replay = ReplayBuffer::new(8);
+        replay.push("1234");
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 4)),
+            StoreCheckpointOutcome::Accepted { anchor_seq: 4 }
+        );
+        // anchor == 窗口起点仍有效（delta 从锚点起完整保留），此时该催。
+        replay.push("5678");
+        replay.push("90ab");
+        assert!(replay.needs_checkpoint(0));
+        // front-drop 真正推过锚点 → 照片作废 → 回到"无照片不催"。
+        replay.push("cdef");
+        assert!(!replay.needs_checkpoint(0));
+    }
+
+    #[test]
+    fn sessions_needing_checkpoint_scans_active_sessions_only() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        install_recording_session(&service, "session-hot", Arc::new(Mutex::new(Vec::new())));
+        install_recording_session(&service, "session-cold", Arc::new(Mutex::new(Vec::new())));
+
+        {
+            let sessions = service.sessions.lock().expect("sessions lock");
+            let hot = sessions.get("session-hot").expect("hot session");
+            let mut replay = hot.replay_buffer.lock().expect("replay lock");
+            replay.push("base");
+            let cp = test_checkpoint(&replay, 4);
+            assert_eq!(
+                replay.store_checkpoint(cp),
+                StoreCheckpointOutcome::Accepted { anchor_seq: 4 }
+            );
+            replay.push("lots-of-new-bytes");
+            // cold：有输出但没有照片 → 不该被催。
+            let cold = sessions.get("session-cold").expect("cold session");
+            cold.replay_buffer
+                .lock()
+                .expect("cold replay lock")
+                .push("plenty of output without a photo");
+        }
+
+        assert_eq!(
+            service.sessions_needing_checkpoint(8),
+            vec!["session-hot".to_string()]
+        );
+        // 阈值大于差值：谁都不催。
+        assert!(service.sessions_needing_checkpoint(1024).is_empty());
     }
 
     #[test]

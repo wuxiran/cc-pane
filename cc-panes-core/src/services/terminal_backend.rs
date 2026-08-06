@@ -769,6 +769,16 @@ impl TerminalBackend for DaemonTerminalBackend {
         self.client.get_session_replay_snapshot(session_id)
     }
 
+    fn store_session_checkpoint(
+        &self,
+        session_id: &str,
+        checkpoint: TerminalCheckpoint,
+    ) -> AppResult<StoreCheckpointOutcome> {
+        // 转发 daemon REST（M3b-2）。旧 daemon 无此路由时 client 返回
+        // CHECKPOINT_UNSUPPORTED 结构化错误，供前端 capability 探测关断。
+        self.client.upload_checkpoint(session_id, &checkpoint)
+    }
+
     fn find_session_id_by_launch_id(&self, launch_id: &str) -> AppResult<Option<String>> {
         self.client.find_session_id_by_launch_id(launch_id)
     }

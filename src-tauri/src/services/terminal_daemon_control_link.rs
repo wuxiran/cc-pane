@@ -260,6 +260,12 @@ enum DaemonControlMessage {
     /// 启动降级告警（launch profile 回落 / codex resume 目标缺失）。
     /// 降级必须对用户可见，丢掉就等于"设置静默不生效"。
     LaunchWarning { payload: serde_json::Value },
+    /// daemon 侧补拍请求（M3b-2）：某会话照片锚点之后的 delta 超阈值，
+    /// 催前端重拍上传。best-effort：丢了 daemon 30s 周期扫描会重发。
+    CheckpointRequest {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
     /// daemon 侧 PTY 推断出的会话副作用，交给桌面已有的 notifier 执行。
     Notifier {
         event: String,
@@ -314,6 +320,12 @@ fn parse_control_event(text: &str) -> serde_json::Result<Option<ControlAction>> 
             Some(ControlAction::Emit(ControlEvent {
                 name: EV::TERMINAL_LAUNCH_WARNING,
                 payload,
+            }))
+        }
+        DaemonControlMessage::CheckpointRequest { session_id } => {
+            Some(ControlAction::Emit(ControlEvent {
+                name: EV::TERMINAL_CHECKPOINT_REQUEST,
+                payload: serde_json::json!({ "sessionId": session_id }),
             }))
         }
         DaemonControlMessage::Notifier {
@@ -592,6 +604,20 @@ mod tests {
                 exit_code: None,
             }
         );
+    }
+
+    /// 补拍请求转成 WebView 事件（前端触发 serialize + 上传）。
+    #[test]
+    fn checkpoint_request_control_message_maps_to_frontend_event() {
+        let event = parse_control_event(r#"{"type":"checkpointRequest","sessionId":"pty-3"}"#)
+            .expect("valid control message")
+            .expect("known control message");
+
+        let ControlAction::Emit(event) = event else {
+            panic!("checkpoint request stays a UI emit");
+        };
+        assert_eq!(event.name, EV::TERMINAL_CHECKPOINT_REQUEST);
+        assert_eq!(event.payload, serde_json::json!({ "sessionId": "pty-3" }));
     }
 
     #[test]

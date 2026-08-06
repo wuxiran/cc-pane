@@ -76,6 +76,14 @@ export const BOUNDARY_EVENTS: readonly BoundaryEventContract[] = [
     appHandler: "terminal_daemon_control_link（Notify，带去重与未注册排队）",
     rationale: "waitingInput / sessionExited / cleanup 三类，曾整族静默丢失。",
   },
+  {
+    name: "terminal-checkpoint-request",
+    origin: "dedicated-api",
+    channel: "control",
+    appHandler: "terminal_daemon_control_link（Emit → EV::TERMINAL_CHECKPOINT_REQUEST）",
+    rationale:
+      "daemon 补拍请求（M3b-2）：照片锚点后 delta 超 4MB 时催前端重拍。best-effort：丢了 30s 周期扫描会重发（每会话节流 ≥60s），无照片不催。",
+  },
 ] as const;
 
 /** 键集。与 Rust 侧 diff 用。 */
@@ -104,8 +112,12 @@ export function isFrontendListenedEvent(name: string): boolean {
  * 是同一种病）。键集与 Rust 侧 INBOUND_CONTROL_MESSAGES 一致。
  */
 export interface InboundControlContract {
-  /** serde tag（`{"type": ...}`，camelCase；daemon 侧变体名 = 首字母大写）。 */
+  /** serde tag（control-ws：`{"type": ...}`，camelCase；daemon 侧变体名 = 首字母大写）
+   *  或逻辑名（rest：无 serde tag，靠路由配对）。 */
   name: string;
+  /** 入站通道：control-ws（`/ws/control` 单帧）或 rest（独立 HTTP 请求，
+   *  大 payload / 需要应答的离散提交走这里，不占 control 队头）。 */
+  channel: "control-ws" | "rest";
   /** daemon 侧在哪里消费它。 */
   daemonHandler: string;
   /** app 侧从哪里发出。 */
@@ -116,10 +128,19 @@ export interface InboundControlContract {
 export const INBOUND_CONTROL_MESSAGES: readonly InboundControlContract[] = [
   {
     name: "hiddenSessions",
+    channel: "control-ws",
     daemonHandler: "server.rs ControlInboundMessage::HiddenSessions → clear/set_hidden_sessions",
     appSender: "terminal_daemon_control_link（连接建立补发 + watch 变更推送）",
     rationale:
       "后台会话断流门。best-effort：旧 daemon 静默忽略、断线期间无投递，前端 512KB 积压是永久兜底。",
+  },
+  {
+    name: "checkpointUpload",
+    channel: "rest",
+    daemonHandler: "server.rs upload_session_checkpoint（POST /api/sessions/{id}/checkpoint）",
+    appSender: "terminal_commands::upload_terminal_checkpoint → daemon_client.upload_checkpoint",
+    rationale:
+      "照片是大 payload 的离散提交，需要应答（409 拒收可感知、404 = capability 探测），走 REST 而非 control 单帧通道（M3b §3 选型）。",
   },
 ] as const;
 

@@ -58,6 +58,9 @@ impl SessionBridgeState {
 enum DaemonStreamMessage {
     Output {
         data: String,
+        /// 本批数据最后一个 raw chunk 的 seq（M3b-2）。旧 daemon 不发 → None。
+        #[serde(default, rename = "endSeq")]
+        end_seq: Option<u64>,
     },
     Exit {
         #[serde(rename = "exitCode")]
@@ -297,12 +300,13 @@ impl TerminalDaemonEventBridge {
     fn handle_stream_message(&self, session_id: &str, text: &str) -> anyhow::Result<bool> {
         let message: DaemonStreamMessage = serde_json::from_str(text)?;
         match message {
-            DaemonStreamMessage::Output { data } => {
+            DaemonStreamMessage::Output { data, end_seq } => {
                 self.emit_to_webview(
                     EV::TERMINAL_OUTPUT,
                     serde_json::to_value(TerminalOutput {
                         session_id: session_id.to_string(),
                         data,
+                        end_seq,
                     })?,
                 )?;
                 Ok(false)
@@ -394,6 +398,8 @@ impl TerminalDaemonEventBridge {
                     serde_json::to_value(TerminalOutput {
                         session_id: session_id.to_string(),
                         data: delta,
+                        // 轮询降级路径按快照差分产出，坐标系与 raw seq 无关，不产 seq。
+                        end_seq: None,
                     })?,
                 )?;
             }
@@ -712,7 +718,19 @@ mod tests {
         match serde_json::from_str::<DaemonStreamMessage>(r#"{"type":"output","data":"ready"}"#)
             .expect("output message")
         {
-            DaemonStreamMessage::Output { data } => assert_eq!(data, "ready"),
+            DaemonStreamMessage::Output { data, end_seq } => {
+                assert_eq!(data, "ready");
+                assert_eq!(end_seq, None, "旧 daemon 不发 endSeq，必须解析为 None");
+            }
+            other => panic!("unexpected message: {other:?}"),
+        }
+
+        match serde_json::from_str::<DaemonStreamMessage>(
+            r#"{"type":"output","data":"ready","endSeq":42}"#,
+        )
+        .expect("output message with seq")
+        {
+            DaemonStreamMessage::Output { end_seq, .. } => assert_eq!(end_seq, Some(42)),
             other => panic!("unexpected message: {other:?}"),
         }
 

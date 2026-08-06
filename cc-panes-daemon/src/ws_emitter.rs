@@ -326,6 +326,19 @@ impl WsEmitter {
         );
     }
 
+    /// 补拍请求（M3b-2，契约表 `terminal-checkpoint-request`）：独立入口
+    /// （DedicatedApi，不经 emit，形态同 publish_notifier_event）。低频小载荷、
+    /// 可丢可重发（周期扫描会再发），正是 control 的设计用途。
+    pub(crate) fn publish_checkpoint_request(&self, session_id: &str) {
+        self.publish_control(
+            serde_json::json!({
+                "type": "checkpointRequest",
+                "sessionId": session_id,
+            })
+            .to_string(),
+        );
+    }
+
     fn persist_session_output(&self, session_id: &str) {
         let store = self.output_store.read().clone();
         if let Some(store) = store {
@@ -374,14 +387,16 @@ impl EventEmitter for WsEmitter {
                     .get("data")
                     .and_then(|value| value.as_str())
                     .unwrap_or_default();
-                self.publish(
-                    session_id,
-                    serde_json::json!({
-                        "type": "output",
-                        "data": data,
-                    })
-                    .to_string(),
-                );
+                let mut message = serde_json::json!({
+                    "type": "output",
+                    "data": data,
+                });
+                // endSeq 透传（M3b-2）：seq 由 TerminalService 的 ReplayBuffer 记账，
+                // 缺失（轮询降级等不产 seq 的路径）时不发字段，旧客户端自然忽略。
+                if let Some(end_seq) = payload.get("endSeq").and_then(Value::as_u64) {
+                    message["endSeq"] = end_seq.into();
+                }
+                self.publish(session_id, message.to_string());
             }
             "terminal-exit" => {
                 let exit_code = payload
@@ -658,6 +673,56 @@ mod tests {
         assert!(a.try_recv().is_err(), "ctl-a 的 s1 应断流");
         assert!(b.try_recv().is_ok(), "ctl-a 的 s2 不受影响");
         assert!(c.try_recv().is_ok(), "ctl-b 的 s1 不受影响");
+    }
+
+    /// endSeq 必须透传到 per-session WS 输出帧；缺失时不发字段（旧路径兼容）。
+    #[test]
+    fn output_end_seq_is_forwarded_when_present_and_omitted_when_absent() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe("session-1");
+
+        emitter
+            .emit(
+                EV::TERMINAL_OUTPUT,
+                serde_json::json!({ "sessionId": "session-1", "data": "x", "endSeq": 42 }),
+            )
+            .expect("output emit with seq");
+        emitter
+            .emit(
+                EV::TERMINAL_OUTPUT,
+                serde_json::json!({ "sessionId": "session-1", "data": "y" }),
+            )
+            .expect("output emit without seq");
+
+        let with_seq: serde_json::Value =
+            serde_json::from_str(&rx.try_recv().expect("seq message")).expect("json");
+        assert_eq!(
+            with_seq,
+            serde_json::json!({"type":"output","data":"x","endSeq":42})
+        );
+        let without_seq: serde_json::Value =
+            serde_json::from_str(&rx.try_recv().expect("no-seq message")).expect("json");
+        assert_eq!(without_seq, serde_json::json!({"type":"output","data":"y"}));
+    }
+
+    /// 补拍请求走 control 的独立入口（DedicatedApi），同样不能静默丢。
+    #[test]
+    fn checkpoint_request_reaches_control_channel() {
+        let emitter = WsEmitter::new();
+        let mut control = emitter.subscribe_control();
+        let mut session = emitter.subscribe("session-1");
+
+        emitter.publish_checkpoint_request("session-1");
+
+        let message = control.try_recv().expect("control message");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&message).expect("json"),
+            serde_json::json!({ "type": "checkpointRequest", "sessionId": "session-1" })
+        );
+        assert!(
+            session.try_recv().is_err(),
+            "checkpoint request must not enter the per-session mirror stream"
+        );
     }
 
     /// notifier 走独立入口，同样不能静默丢。

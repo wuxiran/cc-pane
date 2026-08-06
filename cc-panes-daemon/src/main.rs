@@ -1,3 +1,4 @@
+mod checkpoint_monitor;
 mod control_notifier;
 mod identity_routes;
 mod self_check;
@@ -266,6 +267,11 @@ async fn main() -> anyhow::Result<()> {
     }
     // 孤儿会话回收：无人查看超过 TTL（设置可调，0=禁用）的会话按 FIFO 回收。
     session_reaper::spawn_session_reaper(config.clone(), settings_service);
+    // 补拍周期扫描（M3b-2）：delta 超阈值的会话经 control 催前端重拍照片。
+    checkpoint_monitor::spawn_checkpoint_monitor(
+        _terminal_service_guard.clone(),
+        config.ws_emitter(),
+    );
 
     info!(addr = %local_addr, cwd = cwd_str, "CC-Panes daemon listening");
     let serve_result = axum::serve(listener, server::router(config))
