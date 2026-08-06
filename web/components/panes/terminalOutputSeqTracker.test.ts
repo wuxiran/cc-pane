@@ -72,6 +72,19 @@ describe("失效与重锚", () => {
     expect(anchorCandidate("s1")).toEqual({ anchorSeq: 10, checkpointEpoch: 8 });
   });
 
+  it("noteWritten 的重复/迟到确认（多视图各写一遍）是幂等，不触发失效", () => {
+    noteEpoch("s1", 7);
+    noteReceived("s1", 100);
+    noteWritten("s1", 100); // 主视图
+    noteWritten("s1", 100); // 星标镜像同 chunk 重复确认
+    expect(anchorCandidate("s1")).toEqual({ anchorSeq: 100, checkpointEpoch: 7 });
+
+    noteReceived("s1", 160);
+    noteWritten("s1", 160); // 主视图已到 160
+    noteWritten("s1", 100); // 滞后镜像迟到确认旧 chunk
+    expect(anchorCandidate("s1")).toEqual({ anchorSeq: 160, checkpointEpoch: 7 });
+  });
+
   it("clearSession 后如新会话（销毁侧卫星态清理）", () => {
     noteEpoch("s1", 7);
     noteReceived("s1", 100);

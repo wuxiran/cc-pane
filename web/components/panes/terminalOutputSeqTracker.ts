@@ -56,17 +56,17 @@ export function noteReceived(sessionId: string, endSeq: number): void {
   entry.lastReceivedEndSeq = endSeq;
 }
 
-/** 该 chunk 已完成 render → write（xterm 确认解析）。 */
+/**
+ * 该 chunk 已完成 render → write（xterm 确认解析）。
+ *
+ * 同一 chunk 可能被多个视图（主标签 + 星标镜像 + 弹窗）各写一遍自己的 xterm，
+ * 且各视图完成顺序不定——`endSeq ≤ 已确认` 是滞后视图的重复/迟到确认，不是
+ * 回绕，直接忽略（锚点取最大已确认 seq）。真正的会话重建/缺口由 noteReceived
+ * 的非单调判定负责失效（received 只在分发单点记一次，没有多视图重复问题）。
+ */
 export function noteWritten(sessionId: string, endSeq: number): void {
   const entry = entryOf(sessionId);
-  if (entry.lastWrittenEndSeq !== null && endSeq <= entry.lastWrittenEndSeq) {
-    devDebugLog("seq-tracker", "non-monotonic written seq; invalidating", {
-      sessionId,
-      endSeq,
-      last: entry.lastWrittenEndSeq,
-    });
-    entry.valid = false;
-  }
+  if (entry.lastWrittenEndSeq !== null && endSeq <= entry.lastWrittenEndSeq) return;
   entry.lastWrittenEndSeq = endSeq;
 }
 

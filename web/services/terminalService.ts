@@ -19,6 +19,7 @@ import type {
   TerminalSessionOutput,
   TerminalAdoptionSnapshot,
 } from "@/types";
+import { invalidateSeq, noteReceived } from "@/components/panes/terminalOutputSeqTracker";
 import { checkEnvironment } from "./environmentService";
 import { usageStatsService } from "./usageStatsService";
 import { apiDelete, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
@@ -43,11 +44,12 @@ export type {
   TerminalWriteSource,
 } from "./terminalServiceShared";
 
-/** 把输出分发给该 session 的全部订阅者；无订阅者时返回 false。 */
-function dispatchOutput(sessionId: string, data: string): boolean {
+/** 把输出分发给该 session 的全部订阅者；无订阅者时返回 false。带 endSeq 时先记 received——无订阅（进 pendingBuffers）也算已接收（M3b-2 seq 记账）。 */
+function dispatchOutput(sessionId: string, data: string, endSeq?: number): boolean {
+  if (typeof endSeq === "number") noteReceived(sessionId, endSeq);
   const set = outputCallbacks.get(sessionId);
   if (!set || set.size === 0) return false;
-  for (const callback of set) callback(data);
+  for (const callback of set) (endSeq === undefined ? callback(data) : callback(data, endSeq));
   return true;
 }
 
@@ -58,8 +60,9 @@ function dispatchExit(sessionId: string, exitCode: number): void {
   for (const callback of set) callback(exitCode);
 }
 
-/** desync 契约：中段输出永久缺失，订阅方必须丢弃画面走 snapshot 重放（否则花屏）。 */
+/** desync 契约：中段输出永久缺失，订阅方必须丢弃画面走 snapshot 重放（否则花屏）。seq 记账同点作废（禁拍直到统一恢复 reanchor，M3b-2）。 */
 function dispatchDesync(sessionId: string): void {
+  invalidateSeq(sessionId);
   const set = desyncCallbacks.get(sessionId);
   if (!set) return;
   for (const callback of set) callback();
@@ -77,7 +80,7 @@ function maybeCloseWebSocket(sessionId: string): void {
 // 每个 session 一组订阅者（Set）：同一会话可被多个视图同时渲染
 // （星标镜像 = 同一 PTY 的第二视图），事件按 Set 广播分发。
 
-const outputCallbacks = new Map<string, Set<(data: string) => void>>();
+const outputCallbacks = new Map<string, Set<(data: string, endSeq?: number) => void>>();
 const exitCallbacks = new Map<string, Set<(exitCode: number) => void>>();
 const desyncCallbacks = new Map<string, Set<() => void>>();
 const pendingBuffers = new Map<string, string[]>();
@@ -246,12 +249,12 @@ export async function ensureListeners(): Promise<void> {
 
   const webviewWindow = getCurrentWebview();
 
-  unlistenOutput = await webviewWindow.listen<{ sessionId: string; data: string }>(
+  unlistenOutput = await webviewWindow.listen<{ sessionId: string; data: string; endSeq?: number }>(
     "terminal-output",
     (event) => {
-      const { sessionId, data } = event.payload;
+      const { sessionId, data, endSeq } = event.payload;
       if (killedSessions.has(sessionId)) return;
-      if (!dispatchOutput(sessionId, data)) {
+      if (!dispatchOutput(sessionId, data, endSeq)) {
         // 回调未注册 — 缓冲等待 flush
         debugTerminalService("output.buffered", {
           sessionId,
@@ -387,9 +390,9 @@ function ensureWebSocket(sessionId: string): void {
       dispatchDesync(sessionId);
       return;
     }
-    const data = parseWebSocketOutput(event.data);
+    const { data, endSeq } = parseWebSocketOutput(event.data);
     if (!data) return;
-    if (dispatchOutput(sessionId, data)) return;
+    if (dispatchOutput(sessionId, data, endSeq)) return;
     const buf = pendingBuffers.get(sessionId);
     if (buf) {
       if (buf.length >= MAX_PENDING_CHUNKS) {
@@ -641,7 +644,7 @@ export const terminalService = {
    */
   async registerOutput(
     sessionId: string,
-    callback: (data: string) => void
+    callback: (data: string, endSeq?: number) => void
   ): Promise<() => void> {
     await ensureListeners();
     ensureWebSocket(sessionId);

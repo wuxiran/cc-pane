@@ -1,7 +1,9 @@
 import type { Terminal } from "@xterm/xterm";
 
+import { registerCheckpointRequest } from "@/services/terminalCheckpoint";
 import { terminalService } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
+import { captureAndUploadCheckpoint, type CheckpointSerializer } from "./terminalCheckpointUpload";
 import {
   createTerminalOutputHandler,
   flushHiddenOutputBeforeExit,
@@ -76,6 +78,8 @@ export function createTerminalExitHandler({
 
 export interface BindTerminalSessionCallbacksOptions {
   terminalInstanceRef: RefValue<Terminal | null>;
+  /** 拍照用 serialize addon（M3b-2 daemon 补拍触发点）；不传 = 本视图不响应补拍。 */
+  serializeAddonRef?: RefValue<CheckpointSerializer | null>;
   focusReportModeRef: RefValue<boolean>;
   hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
   layoutSchedulerRef: RefValue<TerminalLayoutScheduler | null>;
@@ -160,6 +164,7 @@ export async function bindTerminalSessionCallbacks(
   sessionId: string,
   {
     terminalInstanceRef,
+    serializeAddonRef,
     focusReportModeRef,
     hiddenWriteBufferRef,
     layoutSchedulerRef,
@@ -233,7 +238,23 @@ export async function bindTerminalSessionCallbacks(
       },
       debugLog,
     });
-  desyncUnsubRef.current = await terminalService.registerDesync(sessionId, resyncHandler);
+  const desyncUnsub = await terminalService.registerDesync(sessionId, resyncHandler);
+  // daemon 补拍请求（M3b-2 触发点③）：与 desync 同为会话级订阅、同一绑定生命周期，
+  // 注销复用 desyncUnsubRef 承载（TerminalView 贴着行数棘轮，不再穿新 ref）。
+  const checkpointRequestUnsub = await registerCheckpointRequest(sessionId, () => {
+    void captureAndUploadCheckpoint(
+      sessionId,
+      terminalInstanceRef.current,
+      serializeAddonRef?.current ?? null,
+      { reason: "daemon-request" },
+    );
+  });
+  desyncUnsubRef.current = () => {
+    // 可选调用：测试替身的 registerDesync/registerCheckpointRequest 可能不返回
+    // unsubscribe（真实实现恒返回函数）。
+    desyncUnsub?.();
+    checkpointRequestUnsub?.();
+  };
   overflowResyncRef.current = resyncHandler;
   debugLog("session.bind-callbacks.end", { bindSessionId: sessionId });
 }

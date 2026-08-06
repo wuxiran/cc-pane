@@ -450,6 +450,81 @@ describe("terminalService", () => {
     });
   });
 
+  describe("endSeq 记账接线（M3b-2）", () => {
+    type SeqOutputHandler = (event: {
+      payload: { sessionId: string; data: string; endSeq?: number };
+    }) => void;
+
+    async function getSeqOutputHandler(): Promise<SeqOutputHandler> {
+      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+      const listenMock = vi.mocked(getCurrentWebview().listen);
+      const entry = listenMock.mock.calls.find(([event]) => event === "terminal-output");
+      expect(entry).toBeDefined();
+      return entry![1] as unknown as SeqOutputHandler;
+    }
+
+    it("带 endSeq 的输出推进 tracker 的 received（in-flight 禁拍可观测），并把 endSeq 传给订阅者", async () => {
+      const { _resetSeqTrackersForTest, anchorCandidate, reanchorSeq } = await import(
+        "@/components/panes/terminalOutputSeqTracker"
+      );
+      _resetSeqTrackersForTest();
+      mockTauriInvoke({});
+      const subscriber = vi.fn();
+      await terminalService.registerOutput("s-seq", subscriber);
+      reanchorSeq("s-seq", 4, 1);
+      expect(anchorCandidate("s-seq")).toEqual({ anchorSeq: 4, checkpointEpoch: 1 });
+
+      const handler = await getSeqOutputHandler();
+      handler({ payload: { sessionId: "s-seq", data: "a" } });
+      // 无 endSeq（旧 daemon/轮询降级）：记账不动
+      expect(anchorCandidate("s-seq")).toEqual({ anchorSeq: 4, checkpointEpoch: 1 });
+
+      handler({ payload: { sessionId: "s-seq", data: "b", endSeq: 9 } });
+      // received 推进到 9，written 还在 4 → in-flight 禁拍
+      expect(anchorCandidate("s-seq")).toBeNull();
+      expect(subscriber).toHaveBeenCalledWith("b", 9);
+      _resetSeqTrackersForTest();
+    });
+
+    it("desync 事件作废 seq 记账（即使无 desync 订阅者）", async () => {
+      const { _resetSeqTrackersForTest, anchorCandidate, reanchorSeq } = await import(
+        "@/components/panes/terminalOutputSeqTracker"
+      );
+      _resetSeqTrackersForTest();
+      mockTauriInvoke({});
+      // 注册任一监听器以初始化全局 listeners
+      await terminalService.registerOutput("s-desync", vi.fn());
+      reanchorSeq("s-desync", 10, 2);
+
+      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+      const listenMock = vi.mocked(getCurrentWebview().listen);
+      const entry = listenMock.mock.calls.find(([event]) => event === "terminal-desync");
+      expect(entry).toBeDefined();
+      const handler = entry![1] as unknown as (event: {
+        payload: { sessionId: string };
+      }) => void;
+      handler({ payload: { sessionId: "s-desync" } });
+
+      expect(anchorCandidate("s-desync")).toBeNull();
+      _resetSeqTrackersForTest();
+    });
+
+    it("killSession 清掉 seq 记账（会话键卫星态随销毁回收）", async () => {
+      const { _resetSeqTrackersForTest, anchorCandidate, reanchorSeq } = await import(
+        "@/components/panes/terminalOutputSeqTracker"
+      );
+      _resetSeqTrackersForTest();
+      mockTauriInvoke({ kill_terminal_idempotent: undefined });
+      reanchorSeq("s-kill", 10, 2);
+      expect(anchorCandidate("s-kill")).not.toBeNull();
+
+      await terminalService.killSession("s-kill");
+
+      expect(anchorCandidate("s-kill")).toBeNull();
+      _resetSeqTrackersForTest();
+    });
+  });
+
   describe("getReplaySnapshot", () => {
     it("calls get_terminal_replay_snapshot and returns the snapshot", async () => {
       const snapshot = {

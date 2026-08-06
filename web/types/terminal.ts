@@ -256,8 +256,37 @@ export interface OpenTerminalOptions {
 /** 终端输出事件 */
 export interface TerminalOutput {
   sessionId: string;
+  /** 本批数据最后一个 raw chunk 的 seq（M3b-2 锚点记账）。缺失 = 旧后端/轮询降级路径不产 seq。 */
+  endSeq?: number;
   data: string;
 }
+
+/**
+ * 前端拍摄的终端画面照片上传载荷（M3b-2）。
+ * 与 Rust `TerminalCheckpoint`（serde camelCase）逐字段对齐。
+ */
+export interface TerminalCheckpointUpload {
+  checkpointEpoch: number;
+  anchorSeq: number;
+  snapshotAnsi: string;
+  bufferMode: "normal" | "alternate";
+  cols: number;
+  rows: number;
+  checkpointedAtMs: number;
+}
+
+/**
+ * store_checkpoint 的结构化结果。与 Rust `StoreCheckpointOutcome`
+ * （`#[serde(tag = "kind", rename_all = "camelCase")]`）对齐：变体名 camelCase。
+ * 拒收是**结果**不是错误（幂等重传拿到 stale）。
+ */
+export type StoreCheckpointOutcome =
+  | { kind: "accepted"; anchorSeq: number }
+  | { kind: "rejectedEpochMismatch" }
+  | { kind: "rejectedStaleAnchor" }
+  | { kind: "rejectedAnchorGap" }
+  | { kind: "rejectedFutureAnchor" }
+  | { kind: "rejectedTooLarge" };
 
 /** 最近终端输出快照 */
 export interface TerminalSessionOutput {

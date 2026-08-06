@@ -14,6 +14,7 @@ import {
   createTerminalBackgroundLifecycle,
   type TerminalBackgroundLifecycle,
 } from "./terminalBackgroundLifecycle";
+import { captureAndUploadCheckpoint } from "./terminalCheckpointUpload";
 import {
   createHibernatedTerminalState,
   type HibernatedTerminalState,
@@ -95,6 +96,13 @@ export function useTerminalHibernation({
       debugLog("hibernate.serialize.failed", { error: getErrorMessage(error) });
       return;
     }
+    // M3b-2 触发点①：休眠 Tier2，serialize 已在手，fire-and-forget 上传（不阻塞
+    // 休眠）。照片必须是拼接积压**之前**的产物——积压是尚未写入 xterm 的字节，
+    // 不属于「seq ≤ anchor 的渲染效果」；有积压时 seq 记账已失效，内部自动 skip。
+    void captureAndUploadCheckpoint(sessionId, term, serialize, {
+      reason: "hibernate-tier2",
+      snapshotAnsi: base,
+    });
     // 休眠时点的积压排在 serialize 产物之后（都是成品 VT 流，直接拼接保序）。
     // 积压已溢出（带缺口）时不可入基底——整体作废，唤醒改走 snapshot。
     const backlogOverflowed = hiddenWriteBufferRef.current?.didOverflow() ?? false;
@@ -147,14 +155,27 @@ export function useTerminalHibernation({
     (visible: boolean) => {
       // 回调走 ref 蹦床：本函数在每次 render 被调用，notifyVisibility 幂等。
       backgroundLifecycleRef.current ??= createTerminalBackgroundLifecycle({
-        onTier1: () => rendererControllerRef.current?.suspendWebgl("background"),
+        onTier1: () => {
+          rendererControllerRef.current?.suspendWebgl("background");
+          // M3b-2 触发点②：隐藏 5min 边沿补拍——xterm 还活着，休眠（Tier2）
+          // 还有 25min 才到，先抢一张。守卫（无锚点/去抖/无实例）在内部。
+          const checkpointSessionId = currentSessionIdRef.current;
+          if (checkpointSessionId) {
+            void captureAndUploadCheckpoint(
+              checkpointSessionId,
+              terminalInstanceRef.current,
+              serializeAddonRef.current,
+              { reason: "hidden-tier1-edge" },
+            );
+          }
+        },
         onTier1Restore: () => rendererControllerRef.current?.resumeWebgl("foreground"),
         onTier2: () => hibernateNowRef.current(),
         onTier2Restore: () => wakeFromHibernationRef.current(),
       });
       backgroundLifecycleRef.current.notifyVisibility(visible);
     },
-    [rendererControllerRef],
+    [currentSessionIdRef, rendererControllerRef, serializeAddonRef, terminalInstanceRef],
   );
 
   // 组件级定时器随卸载销毁（React 19 dev 双挂载下重建无害：notifyVisibility 幂等）。

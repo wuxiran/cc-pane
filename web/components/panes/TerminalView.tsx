@@ -109,9 +109,7 @@ import { useTerminalWheelZoom } from "./useTerminalWheelZoom";
 import { getCachedWindowsBuildNumber } from "./terminalWindows";
 import { createTerminalPathLinkIntegration } from "./terminalPathLinkRegistration";
 // 注意：resolveCliTool / resolveRuntimeKind / notifySessionClaimed 不从这里导入——
-// 它们在 0.11.8 阶段 A 已被拆到 terminalLaunchIdentity / terminalSessionNotices
-// （见上方 import）。本批抽 helpers 时一并搬过一份，合入时保留 main 的模块划分，
-// 避免同一函数两处定义。
+// 它们在 0.11.8 阶段 A 已被拆到 terminalLaunchIdentity / terminalSessionNotices。
 import {
   applyTerminalElementTheme,
   findLiveSavedSessionId,
@@ -800,6 +798,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const bindSessionCallbacks = useCallback(async (sessionId: string) => {
       await bindTerminalSessionCallbacks(sessionId, {
         terminalInstanceRef,
+        serializeAddonRef,
         focusReportModeRef,
         hiddenWriteBufferRef,
         layoutSchedulerRef,

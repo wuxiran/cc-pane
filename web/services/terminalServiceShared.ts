@@ -1,4 +1,5 @@
 import type { CreateSessionRequest } from "@/types";
+import { clearSeqTracker } from "@/components/panes/terminalOutputSeqTracker";
 import { disposeSessionScopedResources } from "@/lib/tabLifecycle/sessionScopedResources";
 import { asPtySessionId } from "@/types/ids";
 import { devDebugLog } from "@/utils/devLogger";
@@ -97,21 +98,29 @@ export function isWebSocketDesyncMessage(message: unknown): boolean {
   }
 }
 
-export function parseWebSocketOutput(message: unknown): string {
-  if (typeof message !== "string") return "";
+export interface ParsedWebSocketOutput {
+  data: string;
+  /** 本批数据最后一个 raw chunk 的 seq（M3b-2）。旧 daemon / 非 output 帧无。 */
+  endSeq?: number;
+}
+
+export function parseWebSocketOutput(message: unknown): ParsedWebSocketOutput {
+  if (typeof message !== "string") return { data: "" };
   try {
-    const parsed = JSON.parse(message) as { type?: string; data?: unknown };
+    const parsed = JSON.parse(message) as { type?: string; data?: unknown; endSeq?: unknown };
     if (parsed.type === "output" && typeof parsed.data === "string") {
-      return parsed.data;
+      return typeof parsed.endSeq === "number"
+        ? { data: parsed.data, endSeq: parsed.endSeq }
+        : { data: parsed.data };
     }
     // 其他结构化消息（exit/killed/未来类型）不是终端输出，不能注入 xterm
     if (typeof parsed.type === "string") {
-      return "";
+      return { data: "" };
     }
   } catch {
-    return message;
+    return { data: message };
   }
-  return message;
+  return { data: message };
 }
 
 /**
@@ -152,5 +161,8 @@ export function removeSubscriber<T>(
 
 /** 会话已死：回收所有已登记的 per-session 前端资源。 */
 export function disposeTerminalSessionResources(sessionId: string): void {
+  // seq 记账是会话键卫星态（M3b-2）：会话死了锚点必须一并清，否则重建同名
+  // 会话会带着旧 seq 记账拍出错配照片。
+  clearSeqTracker(sessionId);
   disposeSessionScopedResources(asPtySessionId(sessionId));
 }

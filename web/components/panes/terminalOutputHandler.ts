@@ -7,13 +7,14 @@ import {
   createTerminalHiddenWriteBuffer,
   type TerminalHiddenWriteBuffer,
 } from "./terminalHiddenWriteBuffer";
+import { invalidateSeq, noteWritten } from "./terminalOutputSeqTracker";
 
 interface RefValue<T> {
   current: T;
 }
 
 export interface CreateTerminalOutputHandlerOptions {
-  /** 事件源会话 id，只用于日志归因。 */
+  /** 事件源会话 id：日志归因 + seq 记账（noteWritten/invalidate）的键。 */
   sessionId: string;
   terminalRef: RefValue<Terminal | null>;
   focusReportModeRef: RefValue<boolean>;
@@ -94,8 +95,8 @@ export function createTerminalOutputHandler({
   writeTerminalData,
   syncTrackedBufferType,
   debugLog,
-}: CreateTerminalOutputHandlerOptions): (data: string) => void {
-  return (data: string) => {
+}: CreateTerminalOutputHandlerOptions): (data: string, endSeq?: number) => void {
+  return (data: string, endSeq?: number) => {
     const term = terminalRef.current;
     const focusReportMode = detectFocusReportMode(data, focusReportModeRef.current);
     if (focusReportMode !== focusReportModeRef.current) {
@@ -124,10 +125,15 @@ export function createTerminalOutputHandler({
         dataLength: data.length,
         transitions,
       });
+      // 数据被丢弃（xterm 不在）：锚点连续性破坏，禁拍直到统一恢复 reanchor。
+      if (endSeq !== undefined) invalidateSeq(sessionId);
       return;
     }
 
     if (!renderedData) {
+      // 整段被剥掉（如 alt-screen 序列）：该 chunk 的渲染效果就是"空"，
+      // 视同写完——否则最后一个 chunk 恰好为空时 in-flight 永不闭合、恒禁拍。
+      if (endSeq !== undefined) noteWritten(sessionId, endSeq);
       syncTrackedBufferType(
         transitions.length > 0 ? "output.alternate-sequence.stripped" : "output.empty",
       );
@@ -141,9 +147,16 @@ export function createTerminalOutputHandler({
       },
     });
     const writableData = hiddenWriteBufferRef.current.push(renderedData);
-    if (writableData === null) return;
+    if (writableData === null) {
+      // 保守禁拍（M3b-2 设计裁决）：chunk 进了隐藏积压后，flush 是拼接整段
+      // 补投（drain 合并），无法把 onWritten 逐 chunk 归属回 endSeq；溢出更是
+      // 整段缺口。进入积压即 invalidate，直到统一恢复路径 reanchor（M3b-3）。
+      invalidateSeq(sessionId);
+      return;
+    }
 
     void writeTerminalData(writableData, () => {
+      if (endSeq !== undefined) noteWritten(sessionId, endSeq);
       if (transitions.length > 0) {
         debugLog("output.alternate-sequence.applied", {
           bindSessionId: sessionId,
@@ -156,6 +169,8 @@ export function createTerminalOutputHandler({
         transitions.length > 0 ? "output.alternate-sequence" : "output.write",
       );
     }).catch((error) => {
+      // 写入失败 = 该 chunk 未必落屏：锚点连续性存疑，禁拍。
+      if (endSeq !== undefined) invalidateSeq(sessionId);
       debugLog("output.write.failed", {
         bindSessionId: sessionId,
         dataLength: data.length,
