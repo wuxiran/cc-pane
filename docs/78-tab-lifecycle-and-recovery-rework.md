@@ -247,7 +247,11 @@ registry 补 `createDefaults(input): Partial<Tab>`；`usePanesStore.createTab` �
 
 ## 8. 清理待办（rebase + 双写拆除专题之后执行）
 
-坏味道审计（0.12.0 收尾期）定为结构级、因 rebase 在即而推迟的四件：
+> **已全部完成（0.12.0 收官期，P1 双写拆除 + P2 结构四件）**：双写拆除删净
+> 旧可见性 props 链与六个散装销毁出口（P1-1..P1-6）；四件结构清理落地为
+> P2-1（lib/paneTree 搬家）、P2-2（splice 收敛/sizes 归一/含星标遍历去重，
+> a、b 两对已随旧出口删除消失）、P2-3（closedTabsUndo 改名）、P2-4
+> （removeTabsInternal 三段拆分）。尾注三项仍为待办。原文留档：
 
 1. **纯树函数搬 `lib/paneTree.ts`**：collectPanels/findPane/findTabLocation/
    normalizePaneTree 等零 store 依赖的纯函数现住 `stores/paneTreeHelpers.ts`，
