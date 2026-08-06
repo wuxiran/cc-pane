@@ -1,19 +1,18 @@
 // 后端事件驱动的标签关闭（docs/78）。
 //
-// 与其他销毁出口的根本区别：**PTY 已经死了**（session-killed 事件），所以
+// 与其他销毁出口的根本区别：**PTY 已经死了**（session-killed 事件）——所以
 // 这条路径只做树操作与附属清理，绝不 kill——矩阵里 backend-close 的
 // kills=false 就是这个意思。另有一个独有语义：分屏 tab 优先只摘掉那一格，
 // 保留其余格子，removeTabsInternal 的整 tab 口径覆盖不了。
 import { current } from "immer";
-import { commitResourceDestroy } from "@/lib/tabLifecycle/destroyPipeline";
+import { commitResourceDestroy, sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
 import type { Tab } from "@/types";
-import type { PanesDraft } from "./panesStoreTypes";
+import type { CloseTabBySessionIdResult, PanesDraft } from "./panesStoreTypes";
 import { closeTabInTree, collectPanels, findPane } from "./paneTreeHelpers";
-import { useTabViewStateStore } from "./useTabViewStateStore";
 import { closeTerminalLeafInTab, findSessionInTab } from "./paneTreeRemovalHelpers";
 
 export interface BackendCloseActions {
-  closeTabBySessionId: (sessionId: string) => { closed: number; blockedByPinned: number };
+  closeTabBySessionId: (sessionId: string) => CloseTabBySessionIdResult;
 }
 
 export function createBackendCloseActions(
@@ -26,7 +25,6 @@ export function createBackendCloseActions(
     // 与附属清理。分屏 tab 优先只摘掉那一格（保留其余格子），这是本出口
     // 独有的语义，removeTabsInternal 的整 tab 口径覆盖不了，故保留自有实现。
     let closed = 0;
-    let blockedByPinned = 0;
     const doomedTabs: Tab[] = [];
     set((state) => {
       // 不用 eachLayoutTree：它跳过星标布局，而星标布局里的标签同样是真实 PTY 镜像，
@@ -83,11 +81,9 @@ export function createBackendCloseActions(
     // 但**不 kill**——PTY 已死。tab 快照在树操作前抓好，摘完就取不到了。
     if (doomedTabs.length > 0) {
       void commitResourceDestroy(doomedTabs, "backend-close", {});
-      for (const tab of doomedTabs) {
-        useTabViewStateStore.getState().removeOwner(tab.id);
-      }
+      sweepOwnerState(doomedTabs.map((tab) => tab.id));
     }
-    return { closed, blockedByPinned };
+    return { closed };
   },
   };
 }

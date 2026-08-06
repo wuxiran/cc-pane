@@ -7,12 +7,14 @@
 // 两组成员：
 // 1. 六个既有出口（closeTab / closeTabsToLeft / closeTabsToRight / closeOtherTabs /
 //    closePane / closeTerminalPane）——历史出口，UI 已全部改道统一出口；
-// 2. 三个统一出口（removeTabsInternal / removeTerminalLeafInternal / removeEmptyPane）
-// 全部 UI 与后端销毁路径的唯一入口，资源回收统一走 destroyPipeline。
+// 2. 三个统一出口（removeTabsInternal / removeTerminalLeafInternal /
+//    removeEmptyPane）——全部 UI 与后端销毁路径的唯一入口，资源回收统一走
+//    destroyPipeline。
 import {
   commitResourceDestroy,
   DESTROY_KILL_REASON,
   DESTROY_POLICY,
+  sweepOwnerState,
 } from "@/lib/tabLifecycle/destroyPipeline";
 import { TAB_LIFECYCLE } from "@/lib/tabLifecycle/registry";
 import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
@@ -43,7 +45,6 @@ import {
   syncTabTerminalState,
 } from "./paneTreeRemovalHelpers";
 import { useFullscreenStore } from "./useFullscreenStore";
-import { useTabViewStateStore } from "./useTabViewStateStore";
 
 export interface PaneRemovalActions {
   /** @deprecated 仅被三个已废弃批量出口调用。UI 走 removeTabsInternal + removeEmptyPane，双写拆除专题一并删。 */
@@ -371,12 +372,10 @@ export function createPaneRemovalActions(
       if (fullscreen.fullscreenTabId && removedIds.has(fullscreen.fullscreenTabId)) {
         void fullscreen.exitFullscreen();
       }
-      // 视图条目清理（docs/78）：不清的话被关标签的
+      // owner 键卫星态清扫（视图聚合 + 注意标记）：不清的话被关标签的
       // views/aggregate 条目永远留在 store，且大概率停在 active（人总是关
       // 当前标签）——hidden 上报会把死标签当「可见」上报给 daemon。
-      for (const id of removedIds) {
-        useTabViewStateStore.getState().removeOwner(id);
-      }
+      sweepOwnerState(removedIds);
       notifyTerminalLayoutChanged("tab.remove");
     },
 

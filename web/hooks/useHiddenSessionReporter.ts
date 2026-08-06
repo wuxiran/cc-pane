@@ -12,6 +12,7 @@ import { usePanesStore } from "@/stores";
 import { useTabViewStateStore, type ViewAggregate } from "@/stores/useTabViewStateStore";
 import { collectTabs, collectTerminalSessionIdsWithSaved } from "@/lib/paneSessions";
 import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
+import { handleErrorSilent } from "@/utils/errorHandler";
 import type { LayoutEntry, PaneNode } from "@/types";
 
 const REPORT_DEBOUNCE_MS = 800;
@@ -81,7 +82,14 @@ export function useHiddenSessionReporter(): void {
       // 同值不重发：聚合高频变化，但 hidden 全集往往不变
       if (key === lastReported) return;
       lastReported = key;
-      void invokeIfTauri("set_hidden_terminal_sessions", { sessions: hidden });
+      // best-effort 链路在前端的唯一观测点：不留痕的话「上报没生效」与
+      // 「根本没发出去」无法区分。失败后清掉去重键，允许下次同值重试。
+      void Promise.resolve(
+        invokeIfTauri("set_hidden_terminal_sessions", { sessions: hidden }),
+      ).catch((error) => {
+        lastReported = "";
+        handleErrorSilent(error, "report hidden sessions");
+      });
     };
 
     const schedule = () => {

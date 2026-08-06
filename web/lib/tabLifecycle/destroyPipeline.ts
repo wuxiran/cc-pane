@@ -14,6 +14,8 @@ import {
 } from "@/services/popupWindowService";
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
+import { useTabAttentionStore } from "@/stores/useTabAttentionStore";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import type { KillReason, Tab } from "@/types";
@@ -198,6 +200,23 @@ export function planTabDestroy(
     poppedOutTabIds: [...poppedOutTabIds],
     guards,
   };
+}
+
+/**
+ * owner(tabId) 键卫星态的统一清扫：视图聚合 + 注意标记。
+ *
+ * 销毁侧卫星态清理只有两个归属点，新增卫星 store 时先归类，不要在出口各自脑补：
+ * - **会话键**状态（status / contextUsage / 输入活跃）在 registry 的 terminal
+ *   onClosed 清——它们随 PTY 会话生灭；
+ * - **owner 键**状态（视图聚合 / 注意标记）在树操作出口清（removeTabsInternal /
+ *   closeTabBySessionId / deleteLayout）——它们随标签生灭，且只有树操作知道
+ *   标签是否真的从所有布局消失（星标镜像同 id 仍在别的布局时不能清）。
+ */
+export function sweepOwnerState(tabIds: Iterable<string>): void {
+  for (const tabId of tabIds) {
+    useTabViewStateStore.getState().removeOwner(tabId);
+    useTabAttentionStore.getState().clearAttention(tabId);
+  }
 }
 
 /**

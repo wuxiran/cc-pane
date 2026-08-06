@@ -7,7 +7,8 @@ import { terminalService, ensureListeners } from "@/services/terminalService";
 import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRestoreBarrier";
 import { devDebugLog } from "@/utils/devLogger";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
-import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
+import { collectTabs, collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
+import { sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 // 树辅助（findPane 等）与 close 系树操作已下沉到 paneTreeHelpers /
@@ -701,6 +702,7 @@ export const usePanesStore = create<PanesState>()(
 
     deleteLayout: (id) => {
       let deleted = false;
+      let doomedTabIds: string[] = [];
       set((state) => {
         const index = state.layouts.findIndex((layout) => layout.id === id);
         if (index === -1) return;
@@ -712,6 +714,16 @@ export const usePanesStore = create<PanesState>()(
         const deletingCurrent = state.currentLayoutId === id;
         state.layouts.splice(index, 1);
         deleted = true;
+        // owner 键卫星态只扫「从所有布局彻底消失」的标签——星标镜像同 id
+        // 的标签可能仍活在别的布局，扫了会误清活标签的视图/注意状态。
+        const survivors = new Set(
+          state.layouts.flatMap((layout) =>
+            layout.rootPane ? collectTabs(layout.rootPane).map((tab) => tab.id) : [],
+          ),
+        );
+        doomedTabIds = (deletingLayout.rootPane ? collectTabs(deletingLayout.rootPane) : [])
+          .map((tab) => tab.id)
+          .filter((tabId) => !survivors.has(tabId));
 
         if (deletingCurrent) {
           const normalLayouts = state.layouts.filter(isNormalLayout);
@@ -727,6 +739,7 @@ export const usePanesStore = create<PanesState>()(
         }
       });
       if (!deleted) return;
+      sweepOwnerState(doomedTabIds);
       useFullscreenStore.getState().exitFullscreen();
       notifyTerminalLayoutChanged("layout.delete");
     },

@@ -104,7 +104,6 @@ export interface StarredTabShortcut {
 
 export interface CloseTabBySessionIdResult {
   closed: number;
-  blockedByPinned: number;
 }
 
 /** removeTabsInternal 的调用方选项。 */
@@ -211,8 +210,8 @@ export interface PanesState extends BrowserTabActions {
   closeTabsToRight: (paneId: string, tabId: string) => void;
   closeOtherTabs: (paneId: string, tabId: string) => void;
   /**
-   * 唯一逐-tab 销毁出口（docs/78）：回收管线 + 树 splice + closedTabs +
-   * poppedOut/fullscreen 附属清理；资源回收由销毁管线在改道 commit 接入。
+   * 唯一逐-tab 销毁出口（docs/78）：资源回收（destroyPipeline.commitResourceDestroy）+ 树 splice + closedTabs +
+   * poppedOut/fullscreen 附属清理；资源回收由 destroyPipeline.commitResourceDestroy 执行。
    * 幂等——找不到的 tabId 静默跳过。
    */
   removeTabsInternal: (

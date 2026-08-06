@@ -96,3 +96,34 @@ export function isFrontendListenedEvent(name: string): boolean {
   if (!event) return false;
   return event.channel !== "control";
 }
+
+/**
+ * 入站控制消息（app → daemon）的契约。BOUNDARY_EVENTS 只覆盖 daemon → app
+ * 出站方向；这张表补上反向——它同样是跨界契约，漏了同样死得无声（daemon 侧
+ * `#[serde(other)] Unknown` 会把没接上的入站消息静默吞掉，与出站 `_ => {}`
+ * 是同一种病）。键集与 Rust 侧 INBOUND_CONTROL_MESSAGES 一致。
+ */
+export interface InboundControlContract {
+  /** serde tag（`{"type": ...}`，camelCase；daemon 侧变体名 = 首字母大写）。 */
+  name: string;
+  /** daemon 侧在哪里消费它。 */
+  daemonHandler: string;
+  /** app 侧从哪里发出。 */
+  appSender: string;
+  rationale: string;
+}
+
+export const INBOUND_CONTROL_MESSAGES: readonly InboundControlContract[] = [
+  {
+    name: "hiddenSessions",
+    daemonHandler: "server.rs ControlInboundMessage::HiddenSessions → clear/set_hidden_sessions",
+    appSender: "terminal_daemon_control_link（连接建立补发 + watch 变更推送）",
+    rationale:
+      "后台会话断流门。best-effort：旧 daemon 静默忽略、断线期间无投递，前端 512KB 积压是永久兜底。",
+  },
+] as const;
+
+/** 入站消息键集。与 Rust 侧 diff 用。 */
+export const INBOUND_CONTROL_MESSAGE_NAMES: readonly string[] = INBOUND_CONTROL_MESSAGES.map(
+  (m) => m.name,
+);

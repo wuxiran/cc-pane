@@ -9,10 +9,12 @@ import rustContract from "../../cc-panes-core/src/services/boundary_events.rs?ra
 import rustConstants from "../../cc-panes-core/src/constants.rs?raw";
 import perSessionBridge from "../../src-tauri/src/services/terminal_daemon_event_bridge.rs?raw";
 import controlLink from "../../src-tauri/src/services/terminal_daemon_control_link.rs?raw";
+import daemonServer from "../../cc-panes-daemon/src/server.rs?raw";
 import terminalServiceSrc from "./terminalService.ts?raw";
 import {
   BOUNDARY_EVENTS,
   BOUNDARY_EVENT_NAMES,
+  INBOUND_CONTROL_MESSAGE_NAMES,
   findBoundaryEvent,
   isFrontendListenedEvent,
 } from "./daemonEventContract";
@@ -32,9 +34,20 @@ describe("契约表自身", () => {
   });
 });
 
+// 表的抽取必须切到 const 块内：模块文档/别的表也会出现 `name: "..."`，
+// 全文件扫描会把入站表条目算进出站键集（反之亦然）。
+function extractRustConstBlock(src: string, constName: string): string {
+  const start = src.indexOf(`pub const ${constName}`);
+  expect(start, `找不到 pub const ${constName}`).toBeGreaterThanOrEqual(0);
+  // 终止符不带换行前缀：单元素表 rustfmt 会折成 `}];` 单行
+  const end = src.indexOf("];", start);
+  expect(end, `${constName} 未找到闭合 ];`).toBeGreaterThan(start);
+  return src.slice(start, end + 2);
+}
+
 describe("与 Rust 侧契约表键集一致", () => {
   it("**两份表的事件名完全相同**（跨语言无法共享源码，只能靠这条守）", () => {
-    const rust = rustContract;
+    const rust = extractRustConstBlock(rustContract, "BOUNDARY_EVENTS");
 
     // 从 Rust 表里抽事件名：常量引用 + 字面量两种写法
     const constNames = [...rust.matchAll(/name:\s*crate::constants::events::(\w+)/g)].map(
@@ -134,6 +147,29 @@ describe("通道语义", () => {
 
   it("desync 是 emitter 自生成而非 emit 输入（决定了 emit 里不该有它的分支）", () => {
     expect(findBoundaryEvent("terminal-desync")?.origin).toBe("emitter-generated");
+  });
+});
+
+describe("入站方向（app → daemon）契约", () => {
+  it("与 Rust 侧 INBOUND_CONTROL_MESSAGES 键集一致", () => {
+    const block = extractRustConstBlock(rustContract, "INBOUND_CONTROL_MESSAGES");
+    const names = [...block.matchAll(/name:\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect([...names].sort()).toEqual([...INBOUND_CONTROL_MESSAGE_NAMES].sort());
+  });
+
+  it("daemon 侧每条都有非 Unknown 的接收变体（serde camelCase：变体名 = tag 首字母大写）", () => {
+    const enumBlock = extractEnumBlock(daemonServer, "ControlInboundMessage");
+    expect(enumBlock).toContain("#[serde(other)]");
+    for (const name of INBOUND_CONTROL_MESSAGE_NAMES) {
+      const variant = name[0].toUpperCase() + name.slice(1);
+      expect(enumBlock, `${name} 在 ControlInboundMessage 里缺 ${variant} 变体`).toContain(variant);
+    }
+  });
+
+  it("app 侧发送点真的存在（tag 字面量出现在 control link 源码里）", () => {
+    for (const name of INBOUND_CONTROL_MESSAGE_NAMES) {
+      expect(controlLink, `${name} 在 control link 里没有发送点`).toContain(`"${name}"`);
+    }
   });
 });
 

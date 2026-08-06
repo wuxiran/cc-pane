@@ -5,6 +5,7 @@ import { browserService } from "@/services/browserService";
 import { terminalService } from "@/services/terminalService";
 import { createPanel } from "@/stores/paneTreeHelpers";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
+import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import type { Tab, TerminalStatusInfo } from "@/types";
 import { TAB_LIFECYCLE } from "./registry";
@@ -206,6 +207,16 @@ describe("terminal", () => {
     expect(map.has("s1")).toBe(false);
     expect(map.has("s2")).toBe(false);
     expect(map.has("other")).toBe(true);
+  });
+
+  it("onClosed 清理输入活跃条目，且不动无关会话（会话键卫星态与 status 同点清）", () => {
+    useTerminalInputActivityStore.getState().recordInput("s1", "working");
+    useTerminalInputActivityStore.getState().recordInput("unrelated", "working");
+    entry.onClosed(makeSplitTerminalTab(), { detach: false, reason: "user-close" });
+    expect(useTerminalInputActivityStore.getState().getEntry("s1")).toBeUndefined();
+    expect(useTerminalInputActivityStore.getState().getEntry("s2")).toBeUndefined();
+    expect(useTerminalInputActivityStore.getState().getEntry("unrelated")).toBeDefined();
+    useTerminalInputActivityStore.getState().clearSession("unrelated");
   });
 
   it("onClosed 仅当被关会话是 contextUsage 当前会话时才清（单例 store）", () => {

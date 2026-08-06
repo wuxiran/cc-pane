@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
 import { useFullscreenStore } from "./useFullscreenStore";
+import { useTabAttentionStore } from "./useTabAttentionStore";
+import { useTabViewStateStore } from "./useTabViewStateStore";
 import { createPanel,  } from "./paneTreeHelpers";
 import { createTab } from "@/stores/usePanesStore";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
@@ -264,6 +266,35 @@ describe("usePanesStore layouts", () => {
     expect(usePanesStore.getState().currentLayoutId).toBe("layout-2");
   });
 
+  it("deleteLayout 清扫被删布局标签的 owner 键卫星态；同 id 星标镜像仍在时不误清", () => {
+    const doomed = makeTerminalTab("doomed-tab", "session-doomed");
+    const mirrored = makeTerminalTab("mirrored-tab", "session-mirrored");
+    const layout2 = makeLayout("layout-2", "布局 2", doomed);
+    panel(layout2.rootPane).tabs.push({ ...mirrored });
+    usePanesStore.setState((state) => {
+      state.layouts.push(layout2);
+      const starred = state.layouts.find((layout) => layout.kind === "starred");
+      panel(starred!.rootPane).tabs.push({ ...mirrored });
+    });
+    useTabViewStateStore.getState().reportView("doomed-tab", "primary", "hidden");
+    useTabViewStateStore.getState().reportView("mirrored-tab", "mirror", "visible");
+    useTabAttentionStore.getState().markAttention("doomed-tab", "error");
+    useTabAttentionStore.getState().markAttention("mirrored-tab", "error");
+
+    usePanesStore.getState().deleteLayout("layout-2");
+
+    const viewState = useTabViewStateStore.getState();
+    expect(viewState.aggregate["doomed-tab"]).toBeUndefined();
+    expect(viewState.getViewVisibility("doomed-tab", "primary")).toBeUndefined();
+    expect(viewState.aggregate["mirrored-tab"]).toBeDefined();
+    expect(useTabAttentionStore.getState().entries["doomed-tab"]).toBeUndefined();
+    expect(useTabAttentionStore.getState().entries["mirrored-tab"]).toBeDefined();
+
+    // 清掉本用例的残留，避免污染后续用例
+    useTabViewStateStore.getState().removeOwner("mirrored-tab");
+    useTabAttentionStore.getState().clearAttention("mirrored-tab");
+  });
+
   it("allPanels 只返回当前布局，allPanelsAcrossLayouts 返回全部布局", () => {
     const hidden = makeLayout("layout-hidden", "隐藏", makeTerminalTab("hidden-tab"));
     usePanesStore.setState((state) => {
@@ -516,7 +547,7 @@ describe("usePanesStore layouts", () => {
 
     const result = usePanesStore.getState().closeTabBySessionId("session-starred");
 
-    expect(result).toEqual({ closed: 1, blockedByPinned: 0 });
+    expect(result).toEqual({ closed: 1 });
     const starred = usePanesStore.getState().layouts.find((layout) => layout.kind === "starred");
     expect(panel(starred!.rootPane).tabs.map((tab) => tab.id)).not.toContain("starred-tab");
   });
@@ -533,7 +564,7 @@ describe("usePanesStore layouts", () => {
 
     const result = usePanesStore.getState().closeTabBySessionId("session-mirrored");
 
-    expect(result).toEqual({ closed: 2, blockedByPinned: 0 });
+    expect(result).toEqual({ closed: 2 });
     const state = usePanesStore.getState();
     const normalTabIds = panel(state.rootPane).tabs.map((tab) => tab.id);
     expect(normalTabIds).not.toContain("normal-tab");
@@ -551,7 +582,7 @@ describe("usePanesStore layouts", () => {
 
     const result = usePanesStore.getState().closeTabBySessionId("session-pinned");
 
-    expect(result).toEqual({ closed: 1, blockedByPinned: 0 });
+    expect(result).toEqual({ closed: 1 });
     expect(panel(usePanesStore.getState().rootPane).tabs.map((tab) => tab.id)).not.toContain(
       "pinned-tab"
     );

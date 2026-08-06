@@ -17,6 +17,12 @@
 //! 2. daemon emitter 加非默认分支（不加则守卫测试挂）；
 //! 3. app 侧加 handler（`DaemonStreamMessage` / `DaemonControlMessage` /
 //!    TS 的 `daemonEventContract.ts`，三处键集必须与本表一致）。
+//!
+//! # 方向说明
+//!
+//! [`BOUNDARY_EVENTS`] 只覆盖 **daemon → app** 出站方向；反向（app → daemon
+//! 的 control 入站消息）见 [`INBOUND_CONTROL_MESSAGES`]——同一种契约，
+//! 漏接的下场也相同（daemon 侧 `#[serde(other)] Unknown` 静默吞掉）。
 
 /// 事件走哪条跨界通道。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +141,32 @@ pub const BOUNDARY_EVENTS: &[BoundaryEvent] = &[
     },
 ];
 
+/// 入站控制消息（app → daemon）的契约。
+///
+/// 出站表覆盖不到这个方向：daemon 侧 `ControlInboundMessage` 的
+/// `#[serde(other)] Unknown` 会把没接上的入站消息静默吞掉，与出站
+/// `_ => {}` 是同一种病。TS 镜像（`daemonEventContract.ts`）的扫源测试
+/// 会核对键集、daemon 接收变体与 app 发送点三者都存在。
+#[derive(Debug, Clone, Copy)]
+pub struct InboundControlMessage {
+    /// serde tag（`{"type": ...}`，camelCase；daemon 侧变体名 = 首字母大写）。
+    pub name: &'static str,
+    /// daemon 侧在哪里消费它。
+    pub daemon_handler: &'static str,
+    /// app 侧从哪里发出。
+    pub app_sender: &'static str,
+    pub rationale: &'static str,
+}
+
+/// 全部入站控制消息。**新增入站消息必须先在这里加一行。**
+pub const INBOUND_CONTROL_MESSAGES: &[InboundControlMessage] = &[InboundControlMessage {
+    name: "hiddenSessions",
+    daemon_handler: "server.rs ControlInboundMessage::HiddenSessions → clear/set_hidden_sessions",
+    app_sender: "terminal_daemon_control_link（连接建立补发 + watch 变更推送）",
+    rationale: "后台会话断流门（docs/78）。best-effort：旧 daemon 静默忽略、断线期间\
+                无投递——app 侧不得据此放松前端 512KB 积压兜底。",
+}];
+
 /// 表中是否已登记该事件。emitter 守卫测试用。
 pub fn is_boundary_event(name: &str) -> bool {
     BOUNDARY_EVENTS.iter().any(|e| e.name == name)
@@ -189,6 +221,32 @@ mod tests {
             .map(|e| e.name)
             .collect();
         assert_eq!(droppable, vec![crate::constants::events::TERMINAL_OUTPUT]);
+    }
+
+    #[test]
+    fn inbound_messages_are_unique_and_documented() {
+        let mut names: Vec<&str> = INBOUND_CONTROL_MESSAGES.iter().map(|m| m.name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(before, names.len(), "入站契约表里有重名消息");
+        for message in INBOUND_CONTROL_MESSAGES {
+            assert!(
+                !message.daemon_handler.trim().is_empty(),
+                "{} 缺 daemon 侧 handler 说明",
+                message.name
+            );
+            assert!(
+                !message.app_sender.trim().is_empty(),
+                "{} 缺 app 侧发送点说明",
+                message.name
+            );
+            assert!(
+                !message.rationale.trim().is_empty(),
+                "{} 缺语义说明",
+                message.name
+            );
+        }
     }
 
     #[test]

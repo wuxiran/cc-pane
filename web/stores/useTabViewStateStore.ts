@@ -65,7 +65,7 @@ export interface TabViewState {
 
   reportView: (owner: ViewOwnerId, role: ViewRole, visibility: ViewVisibility) => void;
   removeView: (owner: ViewOwnerId, role: ViewRole) => void;
-  /** 移除该 owner 的全部视图（removeTabsInternal 在销毁 tab 时调）。 */
+  /** 移除该 owner 的全部视图（销毁出口经 destroyPipeline.sweepOwnerState 调）。 */
   removeOwner: (owner: ViewOwnerId) => void;
 
   getAggregate: (owner: ViewOwnerId) => ViewAggregate | undefined;

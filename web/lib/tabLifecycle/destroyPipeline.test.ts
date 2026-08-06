@@ -9,12 +9,15 @@ import { isTerminalReclaimKillReason } from "@/services/terminalLaunchDeadline";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import type { KillReason, Tab } from "@/types";
+import { useTabAttentionStore } from "@/stores/useTabAttentionStore";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import {
   ALL_DESTROY_REASONS,
   DESTROY_KILL_REASON,
   DESTROY_POLICY,
   commitResourceDestroy,
   planTabDestroy,
+  sweepOwnerState,
 } from "./destroyPipeline";
 import type { DestroyReason } from "./destroyPipeline";
 import type { GuardContext } from "./registry";
@@ -340,5 +343,24 @@ describe("commitResourceDestroy 阶段顺序", () => {
     expect(killSession).toHaveBeenCalledTimes(1);
     expect(killSession).toHaveBeenCalledWith("s-normal", "user-close");
     expect(detachOutput).not.toHaveBeenCalledWith("s-pinned");
+  });
+});
+
+describe("sweepOwnerState（owner 键卫星态清扫）", () => {
+  it("清掉视图聚合与注意标记，且不动其他 owner", () => {
+    useTabViewStateStore.getState().reportView("tab-swept", "primary", "active");
+    useTabViewStateStore.getState().reportView("tab-kept", "primary", "active");
+    useTabAttentionStore.getState().markAttention("tab-swept", "error");
+    useTabAttentionStore.getState().markAttention("tab-kept", "waiting-input");
+
+    sweepOwnerState(["tab-swept"]);
+
+    expect(useTabViewStateStore.getState().aggregate["tab-swept"]).toBeUndefined();
+    expect(useTabViewStateStore.getState().getViewVisibility("tab-swept", "primary")).toBeUndefined();
+    expect(useTabViewStateStore.getState().aggregate["tab-kept"]).toBeDefined();
+    expect(useTabAttentionStore.getState().entries["tab-swept"]).toBeUndefined();
+    expect(useTabAttentionStore.getState().entries["tab-kept"]).toBeDefined();
+
+    sweepOwnerState(["tab-kept"]);
   });
 });

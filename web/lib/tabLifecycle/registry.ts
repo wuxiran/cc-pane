@@ -22,6 +22,7 @@ import { browserService } from "@/services/browserService";
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
+import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import type { Tab, TerminalStatusType } from "@/types";
@@ -146,7 +147,10 @@ const terminalEntry: TabLifecycleEntry = {
         terminalService.detachOutput(sessionId);
         terminalService.detachExit(sessionId);
       }
+      // 会话键卫星态统一在这里清（status / contextUsage / 输入活跃）；
+      // owner 键的（视图聚合 / 注意标记）归 destroyPipeline.sweepOwnerState。
       useTerminalStatusStore.getState().removeSession(sessionId);
+      useTerminalInputActivityStore.getState().clearSession(sessionId);
       // useContextUsageStore 是单例（当前聚焦会话），不是 Record：
       // 只有被关会话恰是当前会话时才清。每轮重读 state，避免 setSession 后用陈旧快照。
       if (useContextUsageStore.getState().sessionId === sessionId) {

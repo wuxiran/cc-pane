@@ -139,11 +139,24 @@ async fn run_control_link(
                     let latest_hidden = hidden_rx.borrow_and_update().clone();
                     if let Some(sessions) = latest_hidden {
                         use futures_util::SinkExt;
-                        let _ = ws
+                        // best-effort 链路的仅有观测点：不留痕的话「daemon 没生效」
+                        // 与「app 根本没发」无法区分。失败不 break——ws.next()
+                        // 很快会看到同一个断连并走重连。
+                        match ws
                             .send(tokio_tungstenite::tungstenite::Message::Text(
                                 hidden_sessions_message(&sessions).into(),
                             ))
-                            .await;
+                            .await
+                        {
+                            Ok(()) => debug!(
+                                count = sessions.len(),
+                                "hidden sessions resent on control connect"
+                            ),
+                            Err(error) => debug!(
+                                %error,
+                                "hidden sessions resend failed; reconnect will retry"
+                            ),
+                        }
                     }
                     loop {
                         let message = tokio::select! {
@@ -165,8 +178,10 @@ async fn run_control_link(
                                             .await
                                             .is_err()
                                         {
+                                            debug!("hidden sessions push failed; reconnecting");
                                             break;
                                         }
+                                        debug!(count = sessions.len(), "hidden sessions pushed");
                                     }
                                 }
                                 continue;
