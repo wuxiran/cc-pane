@@ -139,6 +139,9 @@ describe("React19 dev 双挂载不产生假边沿", () => {
   });
 });
 
+// 注意：以下弹窗用例把 popup 与 primary 接进**同一份** store——生产里两者在
+// 不同 WebView（各一份 store），这个组合不会出现。用例测的是 store 的聚合
+// 语义本身；跨窗口场景的行为正确性依赖「主窗口对弹出标签不挂 TerminalView」。
 describe("弹窗与 SelfChat 的可见性语义（B2-05）", () => {
   it("弹窗最小化但主标签可见 → 该会话不降档（同一 PTY 两路视图）", () => {
     const store = useTabViewStateStore.getState();

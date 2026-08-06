@@ -9,6 +9,7 @@ import { commitResourceDestroy } from "@/lib/tabLifecycle/destroyPipeline";
 import type { Tab } from "@/types";
 import type { PanesDraft } from "./panesStoreTypes";
 import { closeTabInTree, collectPanels, findPane } from "./paneTreeHelpers";
+import { useTabViewStateStore } from "./useTabViewStateStore";
 import { closeTerminalLeafInTab, findSessionInTab } from "./paneTreeRemovalHelpers";
 
 export interface BackendCloseActions {
@@ -82,6 +83,9 @@ export function createBackendCloseActions(
     // 但**不 kill**——PTY 已死。tab 快照在树操作前抓好，摘完就取不到了。
     if (doomedTabs.length > 0) {
       void commitResourceDestroy(doomedTabs, "backend-close", {});
+      for (const tab of doomedTabs) {
+        useTabViewStateStore.getState().removeOwner(tab.id);
+      }
     }
     return { closed, blockedByPinned };
   },

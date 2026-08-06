@@ -204,9 +204,13 @@ removeView(tabId, role);              // 批1 的 removeTabsInternal 也调
 > 镜像表 + 三处分发覆盖断言、daemon 侧 hidden 闸门（按连接记账、只掐可丢输出、
 > 断线清标记）。
 >
-> **未接线**：前端上报 hidden 需要 app 侧 control link 的发送路径（现为只读，
-> `ws` 未 split）+ Tauri command + 前端订阅 `aggregate.anyVisible`，三层改动，
-> 与 M3b 一并排期。在此之前闸门不生效，后台节流仍由前端 512KB 积压承担。
+> **未接线（自审修正：缺口比首次记录的多一层）**：闸门在生产中**永远不会
+> 触发**，缺两块——①前端上报（app 侧 control link 现为只读，`ws` 未 split，
+> 需发送路径 + Tauri command + 订阅聚合三层）；②**daemon 侧连接关联机制**：
+> `subscribe_with_connection` 零生产调用方，`handle_ws` 仍用无身份的
+> `subscribe()`，且「per-session WS 如何声明自己属于哪条 control 连接」的
+> 协议片段（如握手带 client id）尚未设计。闸门逻辑与 7 条测试就绪，但那是
+> 直接调带身份入口测的。两块都补齐前，后台节流仍由前端 512KB 积压承担。
 
 ### 批 4 · 创建收敛（可与批 2/3 并行）
 

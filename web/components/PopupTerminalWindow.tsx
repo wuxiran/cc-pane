@@ -41,8 +41,10 @@ export default function PopupTerminalWindow() {
   // `isVisible ?? isActive` 回退变成永久自认可见——积压/降档/休眠全不生效，
   // 最小化半天也不降档。
   //
-  // 注意上报的是 popup 这一路视图，聚合仍按 owner=原 tabId 算：弹窗开着时
-  // 主标签即使切走也不该休眠（同一个 PTY），这正是 B2-04 聚合语义的用途。
+  // **上下文边界（自审修正）**：弹窗是独立 WebView，本 store 是弹窗自己
+  // 那份——主窗口的聚合看不到这条上报。跨窗口聚合并不存在；行为仍正确是
+  // 因为主窗口对弹出标签只渲染占位符（不挂 TerminalView），没有消费方。
+  // 弹窗自己的降档/休眠在本上下文内自洽（owner 聚合只有 popup 一路）。
   useEffect(() => {
     const tabId = tabData?.tabId;
     if (!tabId) return;

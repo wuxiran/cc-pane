@@ -43,6 +43,7 @@ import {
   syncTabTerminalState,
 } from "./paneTreeRemovalHelpers";
 import { useFullscreenStore } from "./useFullscreenStore";
+import { useTabViewStateStore } from "./useTabViewStateStore";
 
 export interface PaneRemovalActions {
   closePane: (paneId: string) => void;
@@ -359,6 +360,12 @@ export function createPaneRemovalActions(
       const fullscreen = useFullscreenStore.getState();
       if (fullscreen.fullscreenTabId && removedIds.has(fullscreen.fullscreenTabId)) {
         void fullscreen.exitFullscreen();
+      }
+      // 视图条目清理（批2 计划项，自审补上）：不清的话被关标签的
+      // views/aggregate 条目永远留在 store，且大概率停在 active（人总是关
+      // 当前标签）——批3 的 hidden 上报接线后会把死标签当「可见」上报。
+      for (const id of removedIds) {
+        useTabViewStateStore.getState().removeOwner(id);
       }
       notifyTerminalLayoutChanged("tab.remove");
     },

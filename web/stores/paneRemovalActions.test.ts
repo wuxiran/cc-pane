@@ -802,3 +802,22 @@ describe("applyLayoutSnapshotPayload（差集观察，本轮不真杀）", () =>
     expect(wouldKill).toContain("sess-gone");
   });
 });
+
+// ============================================================================
+// 自审补漏：销毁标签必须清视图 store（批2 计划项，实施时漏接）。
+// 不清的话条目永远残留且大概率停在 active（人总是关当前标签），批3 的
+// hidden 上报接线后会把死标签当「可见」上报。
+// ============================================================================
+describe("销毁标签清理视图 store", () => {
+  it("removeTabsInternal 清掉被关标签的 views 与 aggregate 条目", async () => {
+    const { useTabViewStateStore } = await import("./useTabViewStateStore");
+    useTabViewStateStore.setState({ views: {}, aggregate: {} });
+    useTabViewStateStore.getState().reportView("t1", "primary", "active");
+
+    setPanesState(makePanel("p1", [makeTerminalTab("t1"), makeTerminalTab("t2")]), "p1");
+    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
+
+    expect(useTabViewStateStore.getState().aggregate["t1"]).toBeUndefined();
+    expect(Object.keys(useTabViewStateStore.getState().views)).toEqual([]);
+  });
+});
