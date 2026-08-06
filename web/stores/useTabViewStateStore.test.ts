@@ -223,3 +223,32 @@ describe("清理", () => {
     expect(useTabViewStateStore.getState().views).toEqual({});
   });
 });
+
+describe("镜像与主视图的聚合协作（B2-03）", () => {
+  it("原 tab 隐藏、星标镜像可见 → 该会话不该被休眠", () => {
+    const store = useTabViewStateStore.getState();
+    // 用户切到星标页：原布局隐藏，星标布局可见
+    store.reportView("t1", "primary", "hidden");
+    store.reportView("t1", "mirror", "visible");
+
+    expect(aggregateOf("t1").anyVisible).toBe(true);
+  });
+
+  it("离开星标页后镜像退场，只剩隐藏的主视图 → 可以休眠", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "primary", "hidden");
+    store.reportView("t1", "mirror", "visible");
+    store.removeView("t1", "mirror");
+
+    expect(aggregateOf("t1").anyVisible).toBe(false);
+  });
+
+  it("镜像只报 visible/hidden，不参与 anyActive（无焦点概念）", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "mirror", "visible");
+
+    const agg = aggregateOf("t1");
+    expect(agg.anyVisible).toBe(true);
+    expect(agg.anyActive).toBe(false);
+  });
+});
