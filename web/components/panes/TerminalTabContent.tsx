@@ -231,6 +231,7 @@ export default memo(function TerminalTabContent({
               readOnly={leaf.leaseReadOnly}
               paneId={leaf.id}
               tabId={tab.id}
+              visibilityOwnerId={tab.id}
               onLaunchError={(error) => setTerminalLaunchError(tab.id, leaf.id, error)}
               onSessionCreated={(sessionId) => onSessionCreated(sessionId, leaf.id)}
               onSessionExited={onSessionExited ? (code) => onSessionExited(code, leaf.id) : undefined}

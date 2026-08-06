@@ -1,0 +1,140 @@
+// B2-04 回归网：降档/休眠的判据从「本视图可见」切到「任一视图可见」。
+//
+// 既有测试覆盖了定时器状态机（terminalBackgroundLifecycle.test.ts）与休眠容器
+// （terminalHibernation.test.ts），但**接线层没有回归网**——降档信号源换掉时
+// 没有任何测试会挂。这个文件补的就是那一层：store 聚合 → 降档状态机的联动。
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { createTerminalBackgroundLifecycle } from "./terminalBackgroundLifecycle";
+import { aggregateOf, useTabViewStateStore } from "@/stores/useTabViewStateStore";
+
+const TIER1_MS = 5 * 60_000;
+const TIER2_MS = 30 * 60_000;
+
+function makeLifecycle() {
+  const events: string[] = [];
+  const lifecycle = createTerminalBackgroundLifecycle({
+    onTier1: () => events.push("tier1"),
+    onTier1Restore: () => events.push("tier1-restore"),
+    onTier2: () => events.push("tier2"),
+    onTier2Restore: () => events.push("tier2-restore"),
+  });
+  return { lifecycle, events };
+}
+
+/** 模拟 TerminalView 的接线：聚合变化 → notifyVisibility。 */
+function wire(owner: string, lifecycle: ReturnType<typeof makeLifecycle>["lifecycle"]) {
+  lifecycle.notifyVisibility(aggregateOf(owner).anyVisible);
+  let last = aggregateOf(owner).anyVisible;
+  return useTabViewStateStore.subscribe((state) => {
+    const next = state.aggregate[owner]?.anyVisible ?? false;
+    if (next === last) return;
+    last = next;
+    lifecycle.notifyVisibility(next);
+  });
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  useTabViewStateStore.setState({ views: {}, aggregate: {} });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("同一 PTY 多视图：任一可见就不降档", () => {
+  it("主视图隐藏但镜像可见 → 不进 Tier1/Tier2（修「星标页在看、原 tab 休眠」）", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "primary", "active");
+    store.reportView("t1", "mirror", "hidden");
+
+    const { lifecycle, events } = makeLifecycle();
+    const unsub = wire("t1", lifecycle);
+
+    // 用户切到星标页：主视图隐藏，镜像变可见
+    store.reportView("t1", "primary", "hidden");
+    store.reportView("t1", "mirror", "visible");
+
+    vi.advanceTimersByTime(TIER2_MS + 1000);
+    expect(events).toEqual([]);
+
+    unsub();
+    lifecycle.dispose();
+  });
+
+  it("全部视图隐藏后才开始计时，5min 进 Tier1、30min 进 Tier2", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "primary", "active");
+
+    const { lifecycle, events } = makeLifecycle();
+    const unsub = wire("t1", lifecycle);
+
+    store.reportView("t1", "primary", "hidden");
+
+    vi.advanceTimersByTime(TIER1_MS);
+    expect(events).toEqual(["tier1"]);
+
+    vi.advanceTimersByTime(TIER2_MS - TIER1_MS);
+    expect(events).toEqual(["tier1", "tier2"]);
+
+    unsub();
+    lifecycle.dispose();
+  });
+
+  it("降档后任一视图恢复可见 → 唤醒", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "primary", "hidden");
+
+    const { lifecycle, events } = makeLifecycle();
+    const unsub = wire("t1", lifecycle);
+
+    vi.advanceTimersByTime(TIER2_MS + 1000);
+    expect(events).toContain("tier2");
+
+    // 弹窗打开（不是主视图）也应当唤醒
+    store.reportView("t1", "popup", "active");
+    expect(events).toContain("tier2-restore");
+
+    unsub();
+    lifecycle.dispose();
+  });
+
+  it("镜像退场后只剩隐藏主视图 → 计时重新开始", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "primary", "hidden");
+    store.reportView("t1", "mirror", "visible");
+
+    const { lifecycle, events } = makeLifecycle();
+    const unsub = wire("t1", lifecycle);
+
+    vi.advanceTimersByTime(TIER2_MS + 1000);
+    expect(events).toEqual([]);
+
+    store.removeView("t1", "mirror");
+    vi.advanceTimersByTime(TIER1_MS);
+    expect(events).toEqual(["tier1"]);
+
+    unsub();
+    lifecycle.dispose();
+  });
+});
+
+describe("React19 dev 双挂载不产生假边沿", () => {
+  it("removeView 后同周期 report 复位 → 不触发降档计时", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "primary", "active");
+
+    const { lifecycle, events } = makeLifecycle();
+    const unsub = wire("t1", lifecycle);
+
+    // cleanup → mount
+    store.removeView("t1", "primary");
+    store.reportView("t1", "primary", "active");
+
+    vi.advanceTimersByTime(TIER2_MS + 1000);
+    expect(events).toEqual([]);
+
+    unsub();
+    lifecycle.dispose();
+  });
+});
