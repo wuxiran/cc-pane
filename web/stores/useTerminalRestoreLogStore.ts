@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { registerSessionScopedResource } from "@/lib/tabLifecycle/sessionScopedResources";
 
 const MAX_RESTORE_LOG_ENTRIES = 20;
 
@@ -61,6 +62,14 @@ export const useTerminalRestoreLogStore = create<TerminalRestoreLogState>((set) 
 
   reset: () => set({ logs: {} }),
 }));
+
+registerSessionScopedResource({
+  name: "terminalRestoreLog",
+  dispose: (_sessionId) => {
+    // TODO: Restore logs are keyed by tabId + terminalPaneId today. Add a
+    // sessionId reverse index before deleting them from a session-scoped hook.
+  },
+});
 
 export function writeTerminalRestoreLog(
   tabId: string,

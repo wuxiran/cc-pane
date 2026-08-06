@@ -7,6 +7,8 @@ import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortabl
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import { focusTab } from "@/hooks/useFocusTab";
+import { asTabId } from "@/types/ids";
 import {
   useActivityBarStore,
   useLayoutUiStore,
@@ -113,6 +115,7 @@ export default function LayoutTopBar() {
   // 类型计数桁的跳转：先切到目标布局，再把 active 指针指过去。
   // 只改指针不动挂载——切布局的 keep-alive 靠 display:none，卸载会重建终端。
   function jumpToTab(layoutId: string, paneId: string, tabId: string) {
+    if (focusTab(asTabId(tabId), { switchAppView: true })) return;
     setAppViewMode("panes");
     if (layoutId !== currentLayoutId) switchLayout(layoutId);
     setActivePane(paneId);

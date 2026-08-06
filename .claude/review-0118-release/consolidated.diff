@@ -1,0 +1,4231 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index b31d677..7b529db 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -328,6 +328,15 @@ flutter pub get && flutter analyze && flutter test
+ - **`launch_history.project_id` 是「每次启动唯一的 launch id」，不是项目 id**（`proj-` 前端生成 / `orch-` orchestrator 生成；实测 cc-book 有 307 行、307 个不同值）。列名极具误导性：按「项目 id」去理解，会以为 `WHERE project_id = ?` 的 UPDATE 要误伤整个项目的历史，实际只命中 1 行。而 tab 手里的 `props.projectId` 是它**上一次** launch 的 launch_id——**恢复路径复用它去 `bind_pty_session` 必然落空**（那行的 `pty_session_id` 已被上次的 PTY 占用，不满足 `IS NULL OR = 本次`）。0.11.7 期实测：18/18 个 tab 恢复后全无 resumeId，6 条已送达的 resume id 事件全被丢弃，且**不可自愈**（恢复出的会话不写行 → 下次重启又没 resumeId → 永久退化）。新增「跨重启复用 launch id」的链路前先问：这个 id 是每次启动新生成的，还是稳定的？详见 docs/69。
+ - **stdio MCP 服务器不能给 `Stdio::null()` 的 stdin，它靠 stdin 活着**：`shared_mcp_service.rs::spawn_server_process` 对所有 bridgeMode 一律 null 掉三个流，stdio 类服务器于是启动后 1ms 就 `Shutting down (stdin end)`，三次重启耗尽后彻底停摆。**用户侧的表现完全不像"MCP 挂了"**——AI 拿不到那套工具就静默退到别的工具，实测「让 AI 打开 chromedev」变成打开 CC-Panes 自己的浏览器窗格，看着像 AI 乱点。判定：看该 MCP 自己的 `--logFile`，`connected` 紧跟 `Shutting down (stdin end)` 即命中。注意 Windows 上内层 `cmd /c` **不能去掉**（`npx` 是 .cmd 脚本，直接 spawn 起不来），修复只能落在 stdin 传递上。详见 docs/70。
+ - **resume id 出问题先分清是「捕获链」还是「落库链」，两者会互相伪装**：日志里**没有** `bind_resume_id` 行 = 事件根本没到 app（捕获/跨 daemon 传输断，docs/45、CLAUDE.md 的 daemon 边界那条）；**有**但报 `no launch_history row matched` = 拿到了 id 但没地方存（落库断，docs/69）。两种都表现为 `resume_session_id` 全 null、恢复出空会话，症状完全同形，但修的是完全不同的两段。
++- **`pty/job.rs` 的 Job Object 现在承载两件事：`KILL_ON_JOB_CLOSE` + 资源策略，两段式下发**：进程回收与资源限制是**分开的两次设置**，第二段（优先级/配额）失败**不得赔掉第一段**（回收兜底必须始终生效），改这里时别把两者合成一次 set。资源策略是 0.11.8 批次1 加的（Windows 降 `PRIORITY_CLASS` / Unix `nice`），此前 PTY 子进程与 UI 线程平等竞争，**任一窗格的 `cargo build` / `rg` 大目录都能把整机吃满**。注意仍未覆盖：WSL 会话（需 systemd cgroup scope）、内存/CPU 硬上限、全局并发闸门；runner 就是普通 PTY 会话（`orchestrator_service.rs`），走同一套策略。`OpenProcess` 已带 `PROCESS_SET_QUOTA`，加限制不需要提权。剩余批次与三类"卡"的判据见 docs/71。
++- **验证 `#[cfg]` 分支时，`cargo check` 通过可能是假绿**：cfg 没命中的代码根本不参与编译，也就不报错——只在 Windows 上编过就发版，等于把未编译代码发给 mac/Linux 用户。判定方法：往目标分支里**故意塞一个不存在的类型**，看是否报 `E0425`，报了才说明该分支真的在这个平台参与编译，之后再还原并核对 diffstat/hunk 数。另注意跨平台跑 cargo 必须设独立 `CARGO_TARGET_DIR`，否则 Linux 产物会覆盖共享 `target-dir` 里的 Windows 同名文件，污染所有 worktree。
++- **判断"卡"属于哪一类，先看整机 CPU**：整机 CPU 高（非 CC-Panes 程序也卡）= 子进程资源争抢（docs/71 第 2 节）；整机 CPU 不高但 UI 掉帧 = xterm 输出洪水（docs/71 第 3 节）。两者症状同形、治法完全不同，搞反了会去优化渲染而实际是编译器在吃满核。输出链路的已知缺口：**后台标签页完全不暂停输出**（`TerminalView.tsx:774-838` 的回调不看 `isVisibleRef`，非活动 tab 只是 `display:none` 仍挂载），N 个后台会话刷屏 = N 份 xterm parser + DOM renderer 压主线程；写流控 `terminalWriteFlowControl.ts` **只在 Windows 启用**；daemon 的 `ws_emitter.rs::publish` 是无界广播。
++- **WSL 会话在资源视图里恒显示 ~8 MB / 0% CPU，那是假的**：`wsl.exe` 只是瘦客户端，真实负载在 `vmmemWSL`（实测 4 个 WSL 会话对应 10.7 GB，且未归属任何会话）。两个后果：①`get_resource_tree` 与状态栏 popover 对 WSL 会话的读数**接近于零且不可信**，"WSL 会话很闲"与"WSL 会话在狂吃内存"完全同形；②Job Object 对 WSL 会话**完全无效**（那些进程不是 Windows 进程）。WSL 侧要用 `systemd-run --user --scope` + cgroup v2（实测 `user@1000` 已委派 `cpu memory pids`，无需 root、无需 `wsl --shutdown`）。注意 CC-Panes 起的 WSL 会话落在 `/init.scope` 而非 `user.slice`，**不显式包 scope 就没有任何约束**；注入点 `wsl_codex.rs:748-755`。详见 docs/71 第 7 节。
++- **`wsl --shutdown` 的杀伤面远超"我的 WSL 会话"**：它终止**所有**发行版——实测本机除 `Ubuntu` 外还跑着 `docker-desktop`，一次 shutdown 等于拆掉用户整个 Docker 环境（容器全停、Docker Desktop 需重启），而用户点按钮时完全想不到这层。任何"改 `.wslconfig` 后引导生效"的流程必须先 `wsl.exe --list --running` 算出完整影响面并对基础设施发行版单独高亮，绝不能把重启做成写入的副作用。另注意 `/etc/wsl.conf` 是 per-distro 且**写入需 root**，只能只读+给命令，不能代写。
++- **读 `.wslconfig` 必须直读文件，且它是 INI 不是 TOML**：碰 `\\wsl$` 或调 `wsl.exe` 会拉起/保活 Vmmem VM（issue #37，`usage_stats_service.rs:131`）——一个"读 WSL 配置"的功能若把 VM 唤醒了，自己就成了新的资源问题；需判断 VM 状态时用 `wsl_discovery_service.rs:92` 的 `is_wsl_vm_running()`（只查 vmmemWSL 进程，零副作用）。解析上 `memory=80GB` 这种裸值会让 `toml` crate 直接失败，且写回时必须保留用户注释与键顺序（实测用户配置里带注释说明为何调高 memory）。另注意「文件不存在」≠「无配置」，而是全部取默认（`processors` 默认 = **全部逻辑核**），UI 必须展示 effective 值。详见 docs/71 第 7.4 节。
++- **别用 MSIX 打包的进程去验证 Windows Job 限制**：MSIX 容器自带一层 job，嵌套 job 下 `QueryInformationJobObject(NULL)` 只报**最内层**，会把真实的 PTY 会话 job 完全遮住——实测用 MSIX 的 pwsh（`WindowsApps\...\pwsh.exe`）探到 `LimitFlags=0x800`(BREAKAWAY_OK)，换 System32 的 `powershell.exe` 才看到真值 `0x2000`。同理适用于任何"从子进程反查父级 job 配置"的排障。
++- **终端"乱了"要先分清是 buffer 乱还是渲染乱，两者同形、治法完全不同**：错乱内容**能选中复制出来** = buffer 级——我们对 claude/codex 主动剥掉 alt-screen（`terminalBufferMode.ts:138`），TUI 的相对定位锚点会在主缓冲区滚动时被 xterm 的 `cursorUp` **静默截断**（`InputHandler.ts:902` 钳到 `scrollTop`），之后每帧都画错行；此时渲染层刷新永远无效，只有让 CLI 自己重绘（SIGWINCH）才修得掉。错乱是色块/字形碎片、复制出来却是正常文本 = 渲染级（WebGL atlas），那才是右键「刷新终端显示」的原始目标场景。用户报"刷新没用"时大概率是前一类。详见 docs/73。
++- **Windows 上终端渲染器恒为 DOM，一切 WebGL 补救路径都是死代码**：`windows-cjk-guard` 与 `wallpaper-transparency` 两条都把 auto 打到 DOM（`terminalRenderer.ts:167/179`）。任何写在 `if (webglAddon)` 里的修复在 Windows 主力场景下**从不执行**——`clearTextureAtlas` 首行就 `return false`。写完自测"没报错"不等于生效。
+ - **Zustand selector 里不要调用返回新集合的 store 方法**：`usePanesStore((s) => s.listLayouts())` 这类写法，因 `listLayouts` 内部是 `filter().map()` 每次返回新数组，`useSyncExternalStore` 的快照永不相等 → `Maximum update depth exceeded` 崩页。正确做法是选稳定引用（如 `s.layouts`）后用 `useMemo` 本地派生；`.getState().listLayouts()` 在渲染外调用则不受影响。
+ 
+ ## 文档引用
+@@ -362,6 +371,7 @@ flutter pub get && flutter analyze && flutter test
+ | `docs/68-interaction-quality-plan.md` | **交互质量计划**：关闭标签杀 agent 会话无确认 / 终端聚焦时 7 个快捷键静默失效 / 空态不统一（与 67 发现性分工，未排期） |
+ | `docs/69-resume-id-binding-gap.md` | **resume id 落库缺口**：恢复出来的会话只能恢复一次（捕获链 vs 落库链的区分判据） |
+ | `docs/70-shared-mcp-stdio-death.md` | **shared MCP 启动即自杀**：stdio 服务器被 `Stdio::null()` 掐死（**待修**，含 Chrome 9222 责任归属决策） |
++| `docs/71-multi-pane-resource-contention.md` | **多窗格资源争抢**：一个窗格 `cargo build` 拖垮整机（批次1 已落地，含三类"卡"的判据与输出洪水链路现状） |
+ | `docs/72-legacy-branch-triage.md` | **老分支收编判定**：`git cherry` 说「未合并」≠「还有价值」——四条分支的判定结论与三层判据 |
+ | `docs/references.md` | 外部参考项目索引 |
+ | `docs/archive-v1.md` | 旧版本归档说明 |
+diff --git a/cc-panes-core/src/models/mod.rs b/cc-panes-core/src/models/mod.rs
+index 756a43a..38f94ac 100644
+--- a/cc-panes-core/src/models/mod.rs
++++ b/cc-panes-core/src/models/mod.rs
+@@ -11,6 +11,7 @@ pub mod process_info;
+ mod project;
+ pub mod provider;
+ pub mod quick_command;
++pub mod resource_policy;
+ pub mod runner;
+ pub mod screenshot;
+ pub mod session_index;
+@@ -65,6 +66,7 @@ pub use project::Project;
+ pub use quick_command::{
+     QuickCommand, QuickCommandConfig, QuickCommandDraft, QuickCommandKind, QuickCommandTarget,
+ };
++pub use resource_policy::{PolicyOutcome, SessionResourcePolicy};
+ pub use runner::{
+     PortClaim, PortConflict, PortReservation, RunnerInstance, RunnerInstanceStatus,
+     RunnerLaunchPlan, RunnerLaunchSuggestedAction, RunnerProfile, RunnerProfileDraft,
+@@ -78,8 +80,8 @@ pub use session_index::{
+ pub use session_restore::{SavedSession, TerminalSessionProvenance};
+ pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest};
+ pub use system_stats::{
+-    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionResourceUsage,
+-    SystemStats,
++    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
++    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
+ };
+ pub use terminal::{
+     CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,
+diff --git a/cc-panes-core/src/models/resource_policy.rs b/cc-panes-core/src/models/resource_policy.rs
+new file mode 100644
+index 0000000..cffa93a
+--- /dev/null
++++ b/cc-panes-core/src/models/resource_policy.rs
+@@ -0,0 +1,168 @@
++//! 会话级资源策略：让一个窗格里的 `cargo build` 不至于拖垮整机。
++//!
++//! 设计要点见 `docs/71-multi-pane-resource-contention.md`：
++//! - **只降优先级，不设天花板**。目标是防失控，正常工作该跑多快还多快。
++//! - **内存不进执行面**。Windows 的 `JOB_OBJECT_LIMIT_JOB_MEMORY` 与
++//!   `_JOB_MEMORY_HIGH` 是同一个值（512），只有硬限一种——超限即分配失败，
++//!   用户看到的是"莫名其妙的 build 失败"且不会联想到是我们设的。内存一律
++//!   降级为观测 + 告警。
++//! - **降级必须可见**（docs/45 教训）：每次应用策略都产出 [`PolicyOutcome`]。
++
++use serde::{Deserialize, Serialize};
++
++/// CPU 权重的中性值（不偏不倚，等同于不设）。
++pub const CPU_WEIGHT_NEUTRAL: u8 = 5;
++/// CPU 权重下界（最弱）。
++pub const CPU_WEIGHT_MIN: u8 = 1;
++/// CPU 权重上界（最强）。
++pub const CPU_WEIGHT_MAX: u8 = 9;
++
++/// cgroup `cpu.weight` 与本刻度的换算系数：本刻度 5（中性）→ cgroup 100（中性）。
++const CGROUP_WEIGHT_SCALE: u16 = 20;
++
++/// 单个 PTY 会话的资源策略。
++///
++/// 刻度统一采用 **Windows Job 的 1..=9（中性 5）**，因为它是三个平台里最窄的；
++/// cgroup 的 1..=10000 由 [`Self::cgroup_cpu_weight`] 放大还原。换算只允许出现
++/// 在本类型的方法里——各处自行折算必然出现"两边默认值对不上"的偏差。
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct SessionResourcePolicy {
++    /// 降低调度优先级。Windows → Job 的 `BELOW_NORMAL_PRIORITY_CLASS`；
++    /// WSL / Unix → `nice`。
++    ///
++    /// 保持 bool 而非 enum：Windows 上只有 `BELOW_NORMAL` 一档是安全的，
++    /// `IDLE` 会被后台任务饿死。
++    pub lower_priority: bool,
++    /// CPU 相对权重（[`CPU_WEIGHT_MIN`]..=[`CPU_WEIGHT_MAX`]）。
++    /// `None` 表示不设——与显式给中性值等价，但省掉一次系统调用。
++    pub cpu_weight: Option<u8>,
++}
++
++impl Default for SessionResourcePolicy {
++    fn default() -> Self {
++        // 默认只降优先级：收益/风险比最高，且不影响吞吐（空闲核照样跑满）。
++        Self {
++            lower_priority: true,
++            cpu_weight: None,
++        }
++    }
++}
++
++impl SessionResourcePolicy {
++    /// 完全不干预（用于关闭开关、或平台不支持时的占位）。
++    pub fn disabled() -> Self {
++        Self {
++            lower_priority: false,
++            cpu_weight: None,
++        }
++    }
++
++    /// 是否什么都不用做——省掉一次系统调用，也让日志不产生噪声。
++    pub fn is_noop(&self) -> bool {
++        !self.lower_priority && self.effective_cpu_weight().is_none()
++    }
++
++    /// 收敛后的 CPU 权重：越界值 clamp 回合法区间，中性值视同不设。
++    pub fn effective_cpu_weight(&self) -> Option<u8> {
++        let weight = self.cpu_weight?.clamp(CPU_WEIGHT_MIN, CPU_WEIGHT_MAX);
++        (weight != CPU_WEIGHT_NEUTRAL).then_some(weight)
++    }
++
++    /// 换算成 cgroup v2 的 `cpu.weight`（1..=10000，中性 100）。
++    pub fn cgroup_cpu_weight(&self) -> Option<u16> {
++        self.effective_cpu_weight()
++            .map(|weight| u16::from(weight) * CGROUP_WEIGHT_SCALE)
++    }
++
++    /// WSL / Unix 侧 `nice` 的增量。仅 `lower_priority` 时生效。
++    ///
++    /// 取 5 而非 19：19 等同于 Windows 的 `IDLE`，会在持续满载时被饿死。
++    pub fn nice_increment(&self) -> Option<i8> {
++        self.lower_priority.then_some(5)
++    }
++}
++
++/// 应用一次策略的结果。**必须回传前端**——只有输入没有产出，就会变成
++/// docs/45 那种"功能死了没人知道"的静默降级。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", tag = "kind")]
++pub enum PolicyOutcome {
++    /// 完整生效。
++    Applied,
++    /// 部分生效或完全未生效，但会话正常启动（fail-open）。
++    Degraded { reason: String },
++    /// 当前平台不支持该策略，非错误。
++    Unsupported,
++}
++
++impl PolicyOutcome {
++    pub fn degraded(reason: impl Into<String>) -> Self {
++        Self::Degraded {
++            reason: reason.into(),
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn default_lowers_priority_without_touching_cpu() {
++        let policy = SessionResourcePolicy::default();
++        assert!(policy.lower_priority);
++        assert_eq!(policy.cpu_weight, None);
++        assert_eq!(policy.cgroup_cpu_weight(), None);
++        assert!(!policy.is_noop());
++    }
++
++    #[test]
++    fn disabled_is_noop() {
++        assert!(SessionResourcePolicy::disabled().is_noop());
++    }
++
++    #[test]
++    fn neutral_weight_is_treated_as_unset() {
++        // 中性值等同于不设：避免为"什么都不改"白发一次系统调用。
++        let policy = SessionResourcePolicy {
++            lower_priority: false,
++            cpu_weight: Some(CPU_WEIGHT_NEUTRAL),
++        };
++        assert_eq!(policy.effective_cpu_weight(), None);
++        assert!(policy.is_noop());
++    }
++
++    #[test]
++    fn out_of_range_weight_is_clamped_not_rejected() {
++        let low = SessionResourcePolicy {
++            lower_priority: false,
++            cpu_weight: Some(0),
++        };
++        assert_eq!(low.effective_cpu_weight(), Some(CPU_WEIGHT_MIN));
++
++        let high = SessionResourcePolicy {
++            lower_priority: false,
++            cpu_weight: Some(200),
++        };
++        assert_eq!(high.effective_cpu_weight(), Some(CPU_WEIGHT_MAX));
++    }
++
++    #[test]
++    fn cgroup_weight_maps_neutral_to_100() {
++        // 本刻度 5 → cgroup 100，两边中性值必须对齐，否则默认配置就已经在偏袒。
++        let scaled = SessionResourcePolicy {
++            lower_priority: false,
++            cpu_weight: Some(4),
++        }
++        .cgroup_cpu_weight();
++        assert_eq!(scaled, Some(80));
++        assert_eq!(u16::from(CPU_WEIGHT_NEUTRAL) * CGROUP_WEIGHT_SCALE, 100);
++    }
++
++    #[test]
++    fn nice_increment_follows_lower_priority() {
++        assert_eq!(SessionResourcePolicy::default().nice_increment(), Some(5));
++        assert_eq!(SessionResourcePolicy::disabled().nice_increment(), None);
++    }
++}
+diff --git a/cc-panes-core/src/models/settings.rs b/cc-panes-core/src/models/settings.rs
+index 44138e5..4272e4e 100644
+--- a/cc-panes-core/src/models/settings.rs
++++ b/cc-panes-core/src/models/settings.rs
+@@ -416,6 +416,17 @@ pub struct TerminalSettings {
+     /// 仍保持 fail-closed。设置页保留显式关闭入口。
+     #[serde(default = "default_true")]
+     pub auto_adopt_daemon_sessions: bool,
++    /// 降低会话子进程的调度优先级，让 UI 永远抢得过窗格里的编译任务。
++    ///
++    /// 默认开启：空闲核照样跑满，不影响编译吞吐，只在争抢时让路（docs/71）。
++    /// 关掉后所有会话与 CC-Panes 自身平级竞争，一个 `cargo build` 足以拖卡整机。
++    #[serde(default = "default_true")]
++    pub lower_session_priority: bool,
++    /// 会话 CPU 相对权重（1..=9，中性 5）。None / 5 表示不设。
++    ///
++    /// 刻意默认不设：目标是防失控，不是给正常工作设天花板。
++    #[serde(default)]
++    pub session_cpu_weight: Option<u8>,
+ }
+ 
+ /// 孤儿会话 TTL 上限：7 天
+@@ -446,6 +457,22 @@ impl TerminalSettings {
+         if self.daemon_orphan_ttl_minutes > MAX_DAEMON_ORPHAN_TTL_MINUTES {
+             self.daemon_orphan_ttl_minutes = MAX_DAEMON_ORPHAN_TTL_MINUTES;
+         }
++        // 越界的 CPU 权重 clamp 回合法区间而不是丢弃：手改过 config.toml 的用户
++        // 不该因为写了个 0 就悄悄失去整项设置。
++        if let Some(weight) = self.session_cpu_weight {
++            self.session_cpu_weight = Some(weight.clamp(
++                crate::models::resource_policy::CPU_WEIGHT_MIN,
++                crate::models::resource_policy::CPU_WEIGHT_MAX,
++            ));
++        }
++    }
++
++    /// 汇成 PTY 层消费的资源策略。
++    pub fn resource_policy(&self) -> crate::models::SessionResourcePolicy {
++        crate::models::SessionResourcePolicy {
++            lower_priority: self.lower_session_priority,
++            cpu_weight: self.session_cpu_weight,
++        }
+     }
+ }
+ 
+@@ -1060,6 +1087,8 @@ impl Default for TerminalSettings {
+             daemon_orphan_ttl_minutes: default_daemon_orphan_ttl_minutes(),
+             daemon_orphan_reaper_disabled: false,
+             auto_adopt_daemon_sessions: true,
++            lower_session_priority: true,
++            session_cpu_weight: None,
+         }
+     }
+ }
+@@ -1467,6 +1496,42 @@ mod tests {
+         assert_eq!(settings.scrollback, 5_000);
+     }
+ 
++    /// 旧 config.toml 里没有这两个键，反序列化必须补默认而不是整段失败。
++    #[test]
++    fn terminal_settings_deserialize_without_resource_keys() {
++        let settings: TerminalSettings =
++            toml::from_str("fontSize = 14\nfontFamily = \"Consolas\"\ncursorStyle = \"block\"\ncursorBlink = false\nscrollback = 20000\n")
++                .expect("legacy config without resource policy keys must still parse");
++
++        assert!(settings.lower_session_priority, "默认应降优先级");
++        assert_eq!(settings.session_cpu_weight, None);
++    }
++
++    #[test]
++    fn terminal_settings_clamp_out_of_range_cpu_weight() {
++        // 手改过 config.toml 的用户写了越界值，不该因此丢掉整项设置。
++        let mut settings = TerminalSettings {
++            session_cpu_weight: Some(200),
++            ..TerminalSettings::default()
++        };
++        settings.merge_missing_defaults();
++        assert_eq!(
++            settings.session_cpu_weight,
++            Some(crate::models::resource_policy::CPU_WEIGHT_MAX)
++        );
++    }
++
++    #[test]
++    fn terminal_settings_resource_policy_reflects_toggle() {
++        let mut settings = TerminalSettings::default();
++        assert!(settings.resource_policy().lower_priority);
++
++        settings.lower_session_priority = false;
++        let policy = settings.resource_policy();
++        assert!(!policy.lower_priority);
++        assert!(policy.is_noop(), "关掉开关后应完全不干预");
++    }
++
+     #[test]
+     fn terminal_merge_missing_defaults_resets_invalid_renderer_mode() {
+         let mut settings = TerminalSettings::default();
+diff --git a/cc-panes-core/src/models/system_stats.rs b/cc-panes-core/src/models/system_stats.rs
+index 5e8ea8a..4f97d3e 100644
+--- a/cc-panes-core/src/models/system_stats.rs
++++ b/cc-panes-core/src/models/system_stats.rs
+@@ -16,6 +16,31 @@ pub struct ManagedSessionRoot {
+     pub root_pid: u32,
+ }
+ 
++/// 会话进程树里的单个进程，用于在资源管理器里展开查看「底下挂了什么」。
++#[derive(Debug, Clone, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct SessionProcessInfo {
++    pub pid: u32,
++    pub parent_pid: Option<u32>,
++    pub name: String,
++    pub command: String,
++    pub cpu_percent: f32,
++    pub memory_bytes: u64,
++}
++
++/// 明细上限之外那部分的聚合。
++///
++/// 存在的意义是**不静默截断**：`cargo build` 能挂出上百个 rustc，明细不可能全回传，
++/// 但"回传了前 N 条"与"一共就这 N 条"在 UI 上完全同形——不回传这个摘要，用户会以为
++/// 看到的就是全部。
++#[derive(Debug, Clone, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct TruncatedProcessSummary {
++    pub process_count: u32,
++    pub cpu_percent: f32,
++    pub memory_bytes: u64,
++}
++
+ /// 单个受管会话的整棵 PTY 进程树资源聚合。
+ #[derive(Debug, Clone, Serialize)]
+ #[serde(rename_all = "camelCase")]
+@@ -25,6 +50,10 @@ pub struct SessionResourceUsage {
+     pub cpu_percent: f32,
+     pub memory_bytes: u64,
+     pub process_count: u32,
++    /// 进程树明细，按内存降序，最多 `SESSION_PROCESS_DETAIL_LIMIT` 条。
++    pub processes: Vec<SessionProcessInfo>,
++    /// 超出上限被折叠的部分；`None` 表示 `processes` 就是全部。
++    pub truncated: Option<TruncatedProcessSummary>,
+ }
+ 
+ /// 可安全清理的孤立终端进程树根节点。
+diff --git a/cc-panes-core/src/pty/job.rs b/cc-panes-core/src/pty/job.rs
+index b8ee8a1..6c473ba 100644
+--- a/cc-panes-core/src/pty/job.rs
++++ b/cc-panes-core/src/pty/job.rs
+@@ -10,14 +10,20 @@
+ 
+ #![cfg(windows)]
+ 
++use crate::models::{PolicyOutcome, SessionResourcePolicy};
+ use anyhow::{anyhow, Result};
+ use windows::Win32::Foundation::{CloseHandle, HANDLE};
+ use windows::Win32::System::JobObjects::{
+-    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+-    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
++    AssignProcessToJobObject, CreateJobObjectW, JobObjectCpuRateControlInformation,
++    JobObjectExtendedLimitInformation, SetInformationJobObject,
++    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0,
++    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_CPU_RATE_CONTROL_ENABLE,
++    JOB_OBJECT_CPU_RATE_CONTROL_WEIGHT_BASED, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
++    JOB_OBJECT_LIMIT_PRIORITY_CLASS,
++};
++use windows::Win32::System::Threading::{
++    OpenProcess, BELOW_NORMAL_PRIORITY_CLASS, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+ };
+-use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+ 
+ /// 持有 Job Object 句柄；Drop（含进程异常终止时的 OS 句柄回收）即击杀
+ /// 已分配进程及其所有子孙。
+@@ -30,13 +36,27 @@ unsafe impl Send for ProcessJob {}
+ unsafe impl Sync for ProcessJob {}
+ 
+ impl ProcessJob {
+-    /// 为已 spawn 的进程创建 Job 并分配进入。
++    /// 建 Job + 分配进程 + 应用资源策略，返回策略结果供上层上报。
++    ///
+     /// spawn 与 assign 之间存在极小窗口（此间创建的孙进程不入 Job），可接受。
+-    pub fn create_for(pid: u32) -> Result<Self> {
++    ///
++    /// **两段式下发是刻意的，不要合并回一次调用。** `SetInformationJobObject`
++    /// 是全有或全无：一次调用里塞进策略 flag 后，只要有任何一项被组策略 /
++    /// AppLocker / 嵌套 Job 拒绝，整次调用就失败——而调用方对失败的处理是把
++    /// 整个 Job 丢掉（`pty/mod.rs` 降级成 `_job = None`），于是连
++    /// `KILL_ON_JOB_CLOSE` 的孤儿防护一起赔进去。所以：
++    ///
++    /// 1. 第一次只设 `KILL_ON_JOB_CLOSE`，失败才返回 `Err`（维持原语义）；
++    /// 2. 之后的策略下发失败一律**保留 Job**，只产出 [`PolicyOutcome::Degraded`]。
++    pub fn create_for_with_policy(
++        pid: u32,
++        policy: &SessionResourcePolicy,
++    ) -> Result<(Self, PolicyOutcome)> {
+         unsafe {
+             let job = CreateJobObjectW(None, None)
+                 .map_err(|e| anyhow!("CreateJobObjectW failed: {e}"))?;
+ 
++            // —— 第一段：孤儿防护，必须成功 ——
+             let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+             info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+             if let Err(e) = SetInformationJobObject(
+@@ -64,9 +84,81 @@ impl ProcessJob {
+                 return Err(anyhow!("AssignProcessToJobObject({pid}) failed: {e}"));
+             }
+ 
+-            Ok(Self { handle: job })
++            // —— 第二段：资源策略，失败不影响已建立的孤儿防护 ——
++            let outcome = apply_policy(job, policy);
++
++            Ok((Self { handle: job }, outcome))
++        }
++    }
++
++    /// 对运行中的会话重新下发策略（批次 5 的"降优先级"干预档位）。
++    pub fn reapply_policy(&self, policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
++        if self.handle.is_invalid() {
++            return Ok(PolicyOutcome::Unsupported);
++        }
++        // SAFETY: handle 由本类型持有，Drop 前始终有效。
++        Ok(unsafe { apply_policy(self.handle, policy) })
++    }
++}
++
++/// 下发资源策略。任何失败都只降级、不销毁 Job（调用方已持有孤儿防护）。
++///
++/// # Safety
++/// `job` 必须是有效的 Job Object 句柄。
++unsafe fn apply_policy(job: HANDLE, policy: &SessionResourcePolicy) -> PolicyOutcome {
++    let mut failures: Vec<String> = Vec::new();
++
++    // 始终整体重写 LimitFlags，**不做 is_noop 早退**：早退会让"把优先级调回正常"
++    // 变成空操作（批次 5 的干预档位要能双向调）。`KILL_ON_JOB_CLOSE` 必须每次都带上
++    // ——SetInformationJobObject 是整结构体覆盖，漏掉它就等于亲手拆了孤儿防护。
++    {
++        // PRIORITY_CLASS 作用于**整棵进程树**（含 assign 之后新建的子孙），
++        // 这正是我们要的：cargo 是 CLI 的孙进程，对根 pid 调 SetPriorityClass 管不到它。
++        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
++        info.BasicLimitInformation.LimitFlags = if policy.lower_priority {
++            info.BasicLimitInformation.PriorityClass = BELOW_NORMAL_PRIORITY_CLASS.0;
++            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PRIORITY_CLASS
++        } else {
++            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
++        };
++        if let Err(e) = SetInformationJobObject(
++            job,
++            JobObjectExtendedLimitInformation,
++            &info as *const _ as *const _,
++            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
++        ) {
++            failures.push(format!("priority class: {e}"));
++        }
++    }
++
++    // CPU 配额只在显式设置时下发。不为"清空"发一次 ControlFlags=0：CPU rate control
++    // 需要 Win8+，在不支持的系统上那一次调用必然失败，会把默认路径（不设权重）
++    // 全都误报成 Degraded——降级提示一旦变成噪声就没人看了。
++    if let Some(weight) = policy.effective_cpu_weight() {
++        // WEIGHT_BASED 是软配额：仅在 CPU 满载竞争时按权重分配，空闲时照样跑满。
++        // 不用 HARD_CAP——那会把正常编译拖成龟速。
++        let rate = JOBOBJECT_CPU_RATE_CONTROL_INFORMATION {
++            ControlFlags: JOB_OBJECT_CPU_RATE_CONTROL_ENABLE
++                | JOB_OBJECT_CPU_RATE_CONTROL_WEIGHT_BASED,
++            Anonymous: JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0 {
++                Weight: u32::from(weight),
++            },
++        };
++        if let Err(e) = SetInformationJobObject(
++            job,
++            JobObjectCpuRateControlInformation,
++            &rate as *const _ as *const _,
++            std::mem::size_of::<JOBOBJECT_CPU_RATE_CONTROL_INFORMATION>() as u32,
++        ) {
++            failures.push(format!("cpu rate control: {e}"));
+         }
+     }
++
++    if failures.is_empty() {
++        PolicyOutcome::Applied
++    } else {
++        PolicyOutcome::degraded(failures.join("; "))
++    }
+ }
+ 
+ impl Drop for ProcessJob {
+@@ -87,7 +179,114 @@ mod tests {
+ 
+     #[test]
+     fn create_for_invalid_pid_errors() {
+-        assert!(ProcessJob::create_for(0xFFFF_FFFE).is_err());
++        assert!(ProcessJob::create_for_with_policy(
++            0xFFFF_FFFE,
++            &SessionResourcePolicy::disabled()
++        )
++        .is_err());
++    }
++
++    /// 查回 Job 的 LimitFlags。
++    ///
++    /// 注意：**不能**用 `QueryInformationJobObject(None, ..)` 去查"当前进程所在的
++    /// Job"来做断言——MSIX 打包的进程自带一层容器 Job，嵌套 Job 下该调用只报最内层，
++    /// 实测会看到 `0x800`(BREAKAWAY_OK) 而不是我们设的值（docs/71 第 2.7 节）。
++    /// 这里显式传入自己创建的句柄，绕开该陷阱。
++    fn query_limit_flags(job: &ProcessJob) -> u32 {
++        use windows::Win32::System::JobObjects::QueryInformationJobObject;
++        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
++        unsafe {
++            QueryInformationJobObject(
++                Some(job.handle),
++                JobObjectExtendedLimitInformation,
++                &mut info as *mut _ as *mut _,
++                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
++                None,
++            )
++            .expect("QueryInformationJobObject");
++        }
++        info.BasicLimitInformation.LimitFlags.0
++    }
++
++    fn spawn_sleeper() -> std::process::Child {
++        Command::new("cmd.exe")
++            .args(["/C", "ping -n 30 127.0.0.1 > nul"])
++            .spawn()
++            .expect("spawn cmd.exe")
++    }
++
++    #[test]
++    fn policy_applies_priority_class_to_job() {
++        let mut child = spawn_sleeper();
++        let policy = SessionResourcePolicy {
++            lower_priority: true,
++            cpu_weight: None,
++        };
++        let (job, outcome) =
++            ProcessJob::create_for_with_policy(child.id(), &policy).expect("create job");
++
++        assert_eq!(
++            outcome,
++            PolicyOutcome::Applied,
++            "priority class should apply"
++        );
++        let flags = query_limit_flags(&job);
++        assert_ne!(
++            flags & JOB_OBJECT_LIMIT_PRIORITY_CLASS.0,
++            0,
++            "PRIORITY_CLASS missing from LimitFlags: 0x{flags:08X}"
++        );
++
++        drop(job);
++        let _ = child.kill();
++        let _ = child.wait();
++    }
++
++    /// 回归护栏：应用资源策略**绝不能**赔掉孤儿防护。
++    ///
++    /// 两段式下发之前，策略与 KILL_ON_JOB_CLOSE 挤在同一次 SetInformationJobObject
++    /// 里，任何一项被拒就整次失败 → 调用方丢弃整个 Job → 宿主暴毙时进程树变孤儿。
++    #[test]
++    fn policy_never_drops_kill_on_job_close() {
++        let mut child = spawn_sleeper();
++        let policy = SessionResourcePolicy {
++            lower_priority: true,
++            cpu_weight: Some(2),
++        };
++        let (job, _) = ProcessJob::create_for_with_policy(child.id(), &policy).expect("create job");
++
++        let flags = query_limit_flags(&job);
++        assert_ne!(
++            flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.0,
++            0,
++            "KILL_ON_JOB_CLOSE lost after applying policy: 0x{flags:08X}"
++        );
++
++        drop(job);
++        let _ = child.kill();
++        let _ = child.wait();
++    }
++
++    /// 策略生效后 Drop 仍须清树——孤儿防护的端到端验证。
++    #[test]
++    fn policy_job_still_kills_tree_on_drop() {
++        let mut child = spawn_sleeper();
++        let (job, _) =
++            ProcessJob::create_for_with_policy(child.id(), &SessionResourcePolicy::default())
++                .expect("create job");
++        drop(job);
++
++        let deadline = Instant::now() + Duration::from_secs(3);
++        loop {
++            match child.try_wait().expect("try_wait") {
++                Some(_) => break,
++                None if Instant::now() >= deadline => {
++                    let _ = child.kill();
++                    panic!("child survived 3s after policy-applied ProcessJob drop");
++                }
++                None => std::thread::sleep(Duration::from_millis(50)),
++            }
++        }
+     }
+ 
+     #[test]
+@@ -97,7 +296,9 @@ mod tests {
+             .spawn()
+             .expect("spawn cmd.exe");
+ 
+-        let job = ProcessJob::create_for(child.id()).expect("create job");
++        let (job, _) =
++            ProcessJob::create_for_with_policy(child.id(), &SessionResourcePolicy::disabled())
++                .expect("create job");
+         drop(job);
+ 
+         let deadline = Instant::now() + Duration::from_secs(3);
+diff --git a/cc-panes-core/src/pty/mod.rs b/cc-panes-core/src/pty/mod.rs
+index 9c27fe1..1626dba 100644
+--- a/cc-panes-core/src/pty/mod.rs
++++ b/cc-panes-core/src/pty/mod.rs
+@@ -3,6 +3,7 @@
+ //! 提供统一的 `spawn_pty()` 入口，Windows/macOS/Linux 均使用 portable-pty。
+ //! portable-pty 在 Windows 上内部使用 ConPTY，无需自研绑定。
+ 
++use crate::models::{PolicyOutcome, SessionResourcePolicy};
+ use crate::utils::{simplify_path, validate_spawn_cwd};
+ use anyhow::{anyhow, Result};
+ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+@@ -26,6 +27,11 @@ pub struct PtyConfig {
+     pub env: HashMap<String, String>,
+     /// 需要从继承环境中移除的变量名列表
+     pub env_remove: Vec<String>,
++    /// 会话级资源策略（降优先级 / CPU 权重）。
++    ///
++    /// 刻意不给 `PtyConfig` 加 `Default`：`cols`/`rows` 默认 0 会 spawn 出 0×0
++    /// 终端，是个安静的陷阱。字面量构造点只有 3 处，显式写出来更安全。
++    pub resource_policy: SessionResourcePolicy,
+ }
+ 
+ /// PTY 创建后返回的三件套（所有权一次性转移）
+@@ -45,6 +51,13 @@ pub trait PtyProcess: Send + Sync {
+     fn pid(&self) -> u32;
+     fn wait(&self) -> Result<ExitStatus>;
+     fn kill(&self) -> Result<()>;
++
++    /// 对运行中的会话重新下发资源策略（"降优先级"这一档干预，低于杀进程）。
++    ///
++    /// 默认返回 `Unsupported`，实现者按需覆盖——这样新增实现不会被迫关心资源策略。
++    fn set_resource_policy(&self, _policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
++        Ok(PolicyOutcome::Unsupported)
++    }
+ }
+ 
+ /// portable-pty 包装的 PTY 进程（全平台通用）
+@@ -57,8 +70,9 @@ struct PortablePtyProcess {
+     pid: u32,
+     /// Windows：KILL_ON_JOB_CLOSE Job Object。宿主进程异常终止时由 OS 回收
+     /// 句柄并击杀整棵子进程树（taskkill 只覆盖显式 kill 路径）。
++    /// 同时承载会话级资源策略（优先级 / CPU 权重），见 `set_resource_policy`。
+     #[cfg(windows)]
+-    _job: Option<job::ProcessJob>,
++    job: Option<job::ProcessJob>,
+ }
+ 
+ impl PtyProcess for PortablePtyProcess {
+@@ -80,6 +94,35 @@ impl PtyProcess for PortablePtyProcess {
+         self.pid
+     }
+ 
++    fn set_resource_policy(&self, policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
++        #[cfg(windows)]
++        {
++            match self.job.as_ref() {
++                Some(job) => job.reapply_policy(policy),
++                // Job 创建当初就失败了（权限受限），没有可调的载体。
++                None => Ok(PolicyOutcome::Unsupported),
++            }
++        }
++        #[cfg(unix)]
++        {
++            match policy.nice_increment() {
++                Some(increment) => {
++                    apply_unix_nice(self.pid, increment);
++                    Ok(PolicyOutcome::Applied)
++                }
++                // 提高优先级需要 CAP_SYS_NICE，普通用户降了就回不去。
++                None => Ok(PolicyOutcome::degraded(
++                    "raising priority back requires CAP_SYS_NICE",
++                )),
++            }
++        }
++        #[cfg(not(any(windows, unix)))]
++        {
++            let _ = policy;
++            Ok(PolicyOutcome::Unsupported)
++        }
++    }
++
+     fn wait(&self) -> Result<ExitStatus> {
+         let mut child = self
+             .child
+@@ -132,6 +175,8 @@ impl PtyProcess for PortablePtyProcess {
+ /// 创建 PTY 进程（全平台统一入口）
+ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
+     validate_spawn_cwd(&config.cwd).map_err(anyhow::Error::new)?;
++    #[cfg_attr(not(any(windows, unix)), allow(unused_variables))]
++    let policy = config.resource_policy;
+     let pty_system = native_pty_system();
+     let pair = pty_system.openpty(PtySize {
+         rows: config.rows,
+@@ -167,10 +212,21 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
+ 
+     // Windows：把子进程挂进 KILL_ON_JOB_CLOSE Job，宿主暴毙时由内核清树。
+     // 创建失败（权限受限等）不阻断 spawn——显式 kill 路径仍有 taskkill /T 兜底。
++    // 资源策略在同一处下发，但失败只降级、不影响孤儿防护（见 job::create_for_with_policy）。
+     #[cfg(windows)]
+     let job = if pid != 0 {
+-        match job::ProcessJob::create_for(pid) {
+-            Ok(j) => Some(j),
++        match job::ProcessJob::create_for_with_policy(pid, &policy) {
++            Ok((j, outcome)) => {
++                // 降级必须可见：静默失败 = 用户以为限制生效、实际裸奔（docs/45 教训）。
++                if let PolicyOutcome::Degraded { reason } = &outcome {
++                    tracing::warn!(
++                        pid,
++                        reason = %reason,
++                        "resource policy degraded (session still started)"
++                    );
++                }
++                Some(j)
++            }
+             Err(e) => {
+                 tracing::warn!("ProcessJob create failed for pid {pid} (non-fatal): {e}");
+                 None
+@@ -180,6 +236,14 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
+         None
+     };
+ 
++    // Unix：优先级用 nice 表达（Windows 侧走 Job 的 PRIORITY_CLASS）。
++    #[cfg(unix)]
++    if pid != 0 {
++        if let Some(increment) = policy.nice_increment() {
++            apply_unix_nice(pid, increment);
++        }
++    }
++
+     Ok(PtySpawnResult {
+         process: Arc::new(PortablePtyProcess {
+             child: Mutex::new(child),
+@@ -187,13 +251,30 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
+             exited: AtomicBool::new(false),
+             pid,
+             #[cfg(windows)]
+-            _job: job,
++            job,
+         }),
+         reader,
+         writer,
+     })
+ }
+ 
++/// Unix：对已 spawn 的进程调低调度优先级。
++///
++/// 失败只 warn——`setpriority` 在容器/受限环境下可能被拒，但那不该阻断会话。
++#[cfg(unix)]
++fn apply_unix_nice(pid: u32, increment: i8) {
++    // SAFETY: setpriority 对不存在的 pid 只返回 -1，不会有内存安全问题。
++    let rc = unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, i32::from(increment)) };
++    if rc != 0 {
++        tracing::warn!(
++            pid,
++            increment,
++            error = %std::io::Error::last_os_error(),
++            "setpriority failed (non-fatal, session still started)"
++        );
++    }
++}
++
+ fn env_remove_keys(mut env_remove: Vec<String>) -> Vec<String> {
+     if !env_remove.iter().any(|key| key == "NO_COLOR") {
+         env_remove.push("NO_COLOR".to_string());
+@@ -216,6 +297,7 @@ mod tests {
+             args: Vec::new(),
+             env: HashMap::new(),
+             env_remove: Vec::new(),
++            resource_policy: crate::models::SessionResourcePolicy::default(),
+         }
+     }
+ 
+@@ -230,6 +312,50 @@ mod tests {
+         ))
+     }
+ 
++    /// 端到端护栏：策略从 `PtyConfig` 一路走到**真实进程的优先级**。
++    ///
++    /// 单测 job.rs 只证明 Job 的 LimitFlags 被设上了；这里验证经由 spawn_pty
++    /// 起的真进程确实跑在 BELOW_NORMAL——中间任何一段接线断掉都会被这条测出来。
++    #[cfg(windows)]
++    #[test]
++    fn spawn_pty_applies_below_normal_priority_to_child() {
++        use windows::Win32::System::Threading::{
++            GetPriorityClass, OpenProcess, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS,
++            PROCESS_QUERY_LIMITED_INFORMATION,
++        };
++
++        let cwd = std::env::temp_dir();
++        let spawn = spawn_pty(PtyConfig {
++            cols: 80,
++            rows: 24,
++            cwd,
++            command: "cmd.exe".to_string(),
++            args: vec!["/C".to_string(), "ping -n 20 127.0.0.1 > nul".to_string()],
++            env: HashMap::new(),
++            env_remove: Vec::new(),
++            resource_policy: crate::models::SessionResourcePolicy::default(),
++        })
++        .expect("spawn pty");
++
++        let pid = spawn.process.pid();
++        assert_ne!(pid, 0, "need a real pid to query priority");
++
++        let priority = unsafe {
++            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
++                .expect("OpenProcess for priority query");
++            let class = GetPriorityClass(handle);
++            let _ = windows::Win32::Foundation::CloseHandle(handle);
++            class
++        };
++
++        let _ = spawn.process.kill();
++        assert_eq!(
++            priority, BELOW_NORMAL_PRIORITY_CLASS.0,
++            "expected BELOW_NORMAL ({}), got {priority} (NORMAL is {})",
++            BELOW_NORMAL_PRIORITY_CLASS.0, NORMAL_PRIORITY_CLASS.0
++        );
++    }
++
+     #[test]
+     fn spawn_pty_rejects_missing_cwd_before_portable_pty_fallback() {
+         let path = temp_test_path("missing");
+diff --git a/cc-panes-core/src/services/session_restore_service.rs b/cc-panes-core/src/services/session_restore_service.rs
+index 87a4e80..8320907 100644
+--- a/cc-panes-core/src/services/session_restore_service.rs
++++ b/cc-panes-core/src/services/session_restore_service.rs
+@@ -467,7 +467,6 @@ mod tests {
+ 
+     // ===== 输出文件 =====
+ 
+-    #[test]
+     /// 落盘必须原子：写坏一次就等于把"会话已死时唯一能重放的历史"毁掉。
+     /// 这里验证覆写失败/并发不会留下截断文件——写入过程不触碰目标路径本身。
+     #[test]
+diff --git a/cc-panes-core/src/services/system_stats_service.rs b/cc-panes-core/src/services/system_stats_service.rs
+index 51ba345..2465efa 100644
+--- a/cc-panes-core/src/services/system_stats_service.rs
++++ b/cc-panes-core/src/services/system_stats_service.rs
+@@ -1,6 +1,6 @@
+ use crate::models::{
+-    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionResourceUsage,
+-    SystemStats,
++    KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
++    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
+ };
+ use parking_lot::Mutex;
+ use std::collections::{HashMap, HashSet};
+@@ -388,6 +388,72 @@ fn capture_process_topology(system: &mut System) -> Vec<ProcessSnapshot> {
+     capture_processes(system)
+ }
+ 
++/// 单会话明细条数上限。`cargo build` 能挂出上百个 rustc，全量回传会把每 3 秒一次的
++/// 弹层轮询 payload 撑爆；超出部分聚合进 `truncated` 回传，不静默丢弃。
++const SESSION_PROCESS_DETAIL_LIMIT: usize = 24;
++/// 命令行截断长度。明细里的 command 只用于识别进程（tooltip），
++/// 没必要每 3 秒把完整 rustc 命令行（常有数百字符）回传一遍。
++const SESSION_PROCESS_COMMAND_LIMIT: usize = 200;
++
++/// 按字符边界截断，避免在多字节字符中间切断（路径里有中文时会 panic）。
++fn truncate_command(command: &str) -> String {
++    if command.chars().count() <= SESSION_PROCESS_COMMAND_LIMIT {
++        return command.to_string();
++    }
++    let mut truncated: String = command
++        .chars()
++        .take(SESSION_PROCESS_COMMAND_LIMIT)
++        .collect();
++    truncated.push('…');
++    truncated
++}
++
++/// 把会话进程树摊成"谁在吃资源"的明细列表。
++///
++/// 按内存降序而不是按树形结构：用户展开明细是为了找元凶，不是为了看进程树形状。
++fn session_process_detail(
++    index: &ProcessIndex<'_>,
++    pids: &HashSet<u32>,
++) -> (Vec<SessionProcessInfo>, Option<TruncatedProcessSummary>) {
++    let mut snapshots = pids
++        .iter()
++        .filter_map(|pid| index.by_pid.get(pid).copied())
++        .collect::<Vec<_>>();
++    // pid 作为次序键：HashSet 的迭代顺序不稳定，同内存的进程不加次序键会每次刷新都跳位。
++    snapshots.sort_by(|left, right| {
++        right
++            .memory_bytes
++            .cmp(&left.memory_bytes)
++            .then_with(|| left.pid.cmp(&right.pid))
++    });
++
++    let truncated = if snapshots.len() > SESSION_PROCESS_DETAIL_LIMIT {
++        let rest = &snapshots[SESSION_PROCESS_DETAIL_LIMIT..];
++        Some(TruncatedProcessSummary {
++            process_count: rest.len() as u32,
++            cpu_percent: rest.iter().map(|process| process.cpu_percent).sum(),
++            memory_bytes: rest.iter().map(|process| process.memory_bytes).sum(),
++        })
++    } else {
++        None
++    };
++
++    snapshots.truncate(SESSION_PROCESS_DETAIL_LIMIT);
++    let processes = snapshots
++        .into_iter()
++        .map(|process| SessionProcessInfo {
++            pid: process.pid,
++            parent_pid: process.parent_pid,
++            name: process.name.clone(),
++            command: truncate_command(&process.command),
++            cpu_percent: process.cpu_percent,
++            memory_bytes: process.memory_bytes,
++        })
++        .collect();
++
++    (processes, truncated)
++}
++
+ fn build_resource_tree_from_snapshot(
+     system: SystemStats,
+     processes: &[ProcessSnapshot],
+@@ -409,6 +475,7 @@ fn build_resource_tree_from_snapshot(
+                 .filter(|pid| assigned.insert(*pid))
+                 .collect::<HashSet<_>>();
+             let (cpu_percent, memory_bytes) = aggregate(&index, &process_ids);
++            let (processes, truncated) = session_process_detail(&index, &process_ids);
+             SessionResourceUsage {
+                 session_id: session.session_id.clone(),
+                 root_pid: session.root_pid,
+@@ -418,6 +485,8 @@ fn build_resource_tree_from_snapshot(
+                     .iter()
+                     .filter(|pid| index.by_pid.contains_key(pid))
+                     .count() as u32,
++                processes,
++                truncated,
+             }
+         })
+         .collect::<Vec<_>>();
+diff --git a/cc-panes-core/src/services/system_stats_service/tests.rs b/cc-panes-core/src/services/system_stats_service/tests.rs
+index 84add93..c988f27 100644
+--- a/cc-panes-core/src/services/system_stats_service/tests.rs
++++ b/cc-panes-core/src/services/system_stats_service/tests.rs
+@@ -194,6 +194,94 @@ fn resource_tree_aggregates_managed_session_descendants_once() {
+     assert_eq!(tree.app_memory_bytes, 100);
+     assert_eq!(tree.app_memory_percent, 1.0);
+     assert_eq!(tree.elapsed_micros, 250);
++
++    // 明细按内存降序，且加总必须等于会话聚合值——否则展开后数字对不上，
++    // 用户没法判断到底该信哪个。
++    let detail = &tree.sessions[0].processes;
++    assert_eq!(detail.len(), 2);
++    assert_eq!(detail[0].pid, 21);
++    assert_eq!(detail[0].name, "codex.exe");
++    assert_eq!(detail[1].pid, 20);
++    assert_eq!(
++        detail
++            .iter()
++            .map(|process| process.memory_bytes)
++            .sum::<u64>(),
++        tree.sessions[0].memory_bytes,
++    );
++    assert!(tree.sessions[0].truncated.is_none());
++}
++
++#[test]
++fn session_process_detail_caps_the_list_and_reports_what_it_folded() {
++    let mut processes = vec![
++        process(1, None, "explorer.exe", "explorer.exe", 0.0, 1_000),
++        process(10, Some(1), "cc-panes.exe", "cc-panes.exe", 1.0, 100),
++        process(20, Some(10), "pwsh.exe", "pwsh.exe", 0.0, 10_000),
++    ];
++    // 30 个 rustc 挂在会话根下，超过 SESSION_PROCESS_DETAIL_LIMIT (24)。
++    let rustc_count = 30u32;
++    for offset in 0..rustc_count {
++        processes.push(process(
++            100 + offset,
++            Some(20),
++            "rustc.exe",
++            "rustc --crate-name x",
++            1.0,
++            u64::from(offset) + 1,
++        ));
++    }
++
++    let tree = build_resource_tree_from_snapshot(
++        SystemStats {
++            cpu_percent: 0.0,
++            mem_used: 0,
++            mem_total: 1_000,
++        },
++        &processes,
++        &[ManagedSessionRoot {
++            session_id: "session-1".to_string(),
++            root_pid: 20,
++        }],
++        10,
++        &identities(&[(10, 100)]),
++        0,
++    );
++
++    let session = &tree.sessions[0];
++    assert_eq!(session.process_count, rustc_count + 1);
++    assert_eq!(session.processes.len(), SESSION_PROCESS_DETAIL_LIMIT);
++
++    // 截断绝不能静默：折叠掉的条数与用量必须回传，否则 UI 上"前 24 条"和"一共 24 条"同形。
++    let truncated = session
++        .truncated
++        .as_ref()
++        .expect("folded remainder reported");
++    assert_eq!(
++        session.processes.len() as u32 + truncated.process_count,
++        session.process_count,
++    );
++    let detail_memory = session
++        .processes
++        .iter()
++        .map(|process| process.memory_bytes)
++        .sum::<u64>();
++    assert_eq!(detail_memory + truncated.memory_bytes, session.memory_bytes);
++}
++
++#[test]
++fn session_process_detail_truncates_command_on_char_boundaries() {
++    // 路径含中文时按字节截断会 panic；这里用中文命令行确认走的是字符边界。
++    let long_command = "启动".repeat(SESSION_PROCESS_COMMAND_LIMIT);
++    let truncated = truncate_command(&long_command);
++
++    assert_eq!(
++        truncated.chars().count(),
++        SESSION_PROCESS_COMMAND_LIMIT + 1,
++        "截断后应为上限长度加一个省略号",
++    );
++    assert!(truncated.ends_with('…'));
++    assert_eq!(truncate_command("short"), "short");
+ }
+ 
+ #[test]
+diff --git a/cc-panes-core/src/services/terminal_service.rs b/cc-panes-core/src/services/terminal_service.rs
+index 60c5134..c9b4141 100644
+--- a/cc-panes-core/src/services/terminal_service.rs
++++ b/cc-panes-core/src/services/terminal_service.rs
+@@ -2064,6 +2064,13 @@ impl TerminalService {
+         #[cfg(not(windows))]
+         let (pty_command, pty_args) = (command, args);
+ 
++        // 资源策略随会话启动一次性下发（docs/71）：让窗格里的 cargo/rg 抢不过 UI。
++        let resource_policy = self
++            .settings_service
++            .get_settings()
++            .terminal
++            .resource_policy();
++
+         let config = PtyConfig {
+             cols,
+             rows,
+@@ -2072,6 +2079,7 @@ impl TerminalService {
+             args: pty_args,
+             env: env_vars,
+             env_remove,
++            resource_policy,
+         };
+ 
+         let spawn_result = match spawn_pty(config) {
+diff --git a/cc-panes-core/src/services/terminal_service/windows_codex.rs b/cc-panes-core/src/services/terminal_service/windows_codex.rs
+index badcf65..184925a 100644
+--- a/cc-panes-core/src/services/terminal_service/windows_codex.rs
++++ b/cc-panes-core/src/services/terminal_service/windows_codex.rs
+@@ -174,6 +174,9 @@ mod tests {
+             args,
+             env,
+             env_remove: Vec::new(),
++            // 本测试只验 PowerShell bootstrap 的命令行拼装，不测资源策略；
++            // 用默认值即可（默认不施加任何限制，行为与加此字段之前一致）。
++            resource_policy: Default::default(),
+         })
+         .unwrap();
+ 
+diff --git a/cc-panes-core/tests/manual_codex_osc_windows.rs b/cc-panes-core/tests/manual_codex_osc_windows.rs
+index b0ec53a..1a7d4d5 100644
+--- a/cc-panes-core/tests/manual_codex_osc_windows.rs
++++ b/cc-panes-core/tests/manual_codex_osc_windows.rs
+@@ -21,7 +21,7 @@ fn extract_osc_titles(data: &str) -> Vec<String> {
+         let Some(body) = rest.strip_prefix("0;").or_else(|| rest.strip_prefix("2;")) else {
+             continue;
+         };
+-        if let Some(end) = body.find(|c| c == '\u{7}' || c == '\u{1b}') {
++        if let Some(end) = body.find(['\u{7}', '\u{1b}']) {
+             titles.push(body[..end].to_string());
+             rest = &body[end..];
+         }
+@@ -51,6 +51,7 @@ fn windows_codex_emits_thread_id_in_osc_title() {
+         ],
+         env: HashMap::new(),
+         env_remove: vec![],
++        resource_policy: Default::default(),
+     };
+ 
+     let spawn = spawn_pty(config).expect("spawn codex in ConPTY");
+diff --git a/docs/71-multi-pane-resource-contention.md b/docs/71-multi-pane-resource-contention.md
+new file mode 100644
+index 0000000..f9b9756
+--- /dev/null
++++ b/docs/71-multi-pane-resource-contention.md
+@@ -0,0 +1,495 @@
++# 71 · 多窗格资源争抢：一个窗格能拖垮整机
++
++> 状态：**调查完成，待修**
++> 触发场景：任一窗格里跑 `cargo build` / `rg` 扫大目录 / `npm run build`，整机 CPU 与内存被吃满，所有窗格连带整台机器一起卡。
++> 关联：`docs/41-wallpaper-perf-investigation.md`（轮询扫描器把 28.6 核打满的先例）、`docs/46-frontend-styleguide.md`（琥珀约定）、`docs/17-persistent-terminal-daemon.md`
++
++---
++
++## 1. 现象与同形陷阱
++
++用户说"卡"的时候，至少有三种**症状高度相似、治法完全不同**的情况。先分清，否则一定修错地方。
++
++| 类型 | 判定方法 | 根因所在 | 本文 |
++|------|----------|----------|------|
++| **A. 整机资源被吃满** | 任务管理器整机 CPU/内存高位；**与 CC-Panes 无关的程序也卡**（浏览器、编辑器） | 子进程无任何资源约束（第 2 节） | ✅ 主题 |
++| **B. 前端渲染卡顿** | CC-Panes UI 掉帧/滚动迟滞，但**整机 CPU 不高**；通常伴随某个窗格在疯狂刷屏 | xterm 写入链路缺背压、后台标签不暂停（第 3 节） | 附带调查 |
++| **C. app 假死 / 白屏** | 窗口完全无响应或永久 `Loading CC-Panes...` | 已知 gotcha：Vite watch 事件风暴、失效 WebView 的 emit 自放大洪水 | 见 CLAUDE.md |
++
++**同形陷阱**：A 和 B 都表现为"开了几个窗格之后就卡"，但 A 的元凶是子进程（cargo/rg），B 的元凶是 CC-Panes 自己的渲染线程。**判据是整机 CPU**：整机高 = A，整机不高但 UI 掉帧 = B。搞反了会去优化渲染，而实际是编译器在吃 32 个核。
++
++---
++
++## 2. 现状（A 类：资源争抢）
++
++### 2.1 PTY 子进程资源限制：完全没有
++
++`cc-panes-core/src/pty/job.rs:40-47`：
++
++```rust
++let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
++info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
++```
++
++`JOBOBJECT_EXTENDED_LIMIT_INFORMATION` 其余字段全部 `::default()`（零值 = 不生效），所以：
++
++- ❌ 无 `JOB_OBJECT_LIMIT_JOB_MEMORY` / `PROCESS_MEMORY`
++- ❌ 无 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS`
++- ❌ 无 `JOB_OBJECT_LIMIT_PRIORITY_CLASS` / `AFFINITY`
++- ❌ 无 `JobObjectCpuRateControlInformation`（需另一次 `SetInformationJobObject` 调用，全仓零命中）
++
++`spawn_pty`（`cc-panes-core/src/pty/mod.rs:133-195`）只做 cwd 净化 + env 增删，assign Job 在 `:170-181`，之后**没有**任何 `SetPriorityClass` / `SetProcessAffinityMask` / Unix `nice` / `setrlimit` / cgroup。全仓 grep `SetPriorityClass|SetProcessAffinityMask|nice` 零命中。
++
++> **Job Object 现在的唯一职责是"宿主暴毙时清树"，它不是资源闸门。** 看到 `job.rs` 里有 Job Object 就以为进程被限住了，是本仓库最容易踩的误读之一。
++
++### 2.2 并发闸门：没有全局的
++
++只有三处**局部**限流，都不管用户开窗格：
++
++| 位置 | 限的是什么 | 为什么不解决本问题 |
++|------|-----------|-------------------|
++| `web/components/panes/terminalRestoreQueue.ts:3` | `DEFAULT_MAX_RESTORE_LAUNCHES = 3` + 45s 超时 | **仅崩溃/重启后恢复标签**，手动开标签与 `launch_task` 都绕过 |
++| `src-tauri/src/services/terminal_daemon_bridge_reliability.rs:38` | 到 daemon 的**连接**并发（默认 4） | 与子进程资源无关 |
++| `src-tauri/src/services/orchestrator_service.rs:744` | `StartLocks::acquire(profile.id)`，per-profile 串行 | 防重复启动，不是全局上限 |
++
++无 `MAX_SESSIONS`、无"同时编译数量"限制、`launch_task` 路径无 semaphore。**十个窗格同时 `cargo build` 是被允许的。**
++
++### 2.3 资源采集：已经很完整，不需要重造
++
++后端（sysinfo 0.33，`cc-panes-core/Cargo.toml:36`）：
++
++- `cc-panes-core/src/services/system_stats_service.rs` — 整机 `global_cpu_usage`（:267）；Windows 走 Toolhelp 快照建 PID 拓扑再用 sysinfo 补细节（:189, :330 fallback）
++- `cc-panes-core/src/models/system_stats.rs:22-53` — `SessionResourceUsage { session_id, root_pid, cpu_percent, memory_bytes, process_count }` + `OrphanProcessInfo` + `ResourceTree`
++- `src-tauri/src/commands/system_stats_commands.rs:41-64` — `get_resource_tree` / `get_system_stats` / `kill_orphan_processes`
++
++**per-session 的 CPU/内存/进程数已经全都有了。** 阶段二不需要新采集器。
++
++### 2.4 归因可见性：数据有，但藏在 popover 里
++
++- 整机数据：`web/components/statusbar/SystemResourceSegment.tsx:27,115` — `POLL_INTERVAL_MS = 3_000` **常驻轮询**（`document.hidden` 时暂停）
++- per-session 明细：`SystemResourcePopover.tsx` 的 `refreshResourceTree` — **只在 popover 打开时**才 3s 轮询
++
++结果是：**卡的时候，用户得先自己想到去点状态栏那个 popover**，才能知道是哪个窗格在肇事。而机器卡顿时恰恰最不想点东西。标签页上没有任何资源徽标。
++
++**已补（2026-08-02）：popover 里能看到"底下挂了什么"。** 此前每行只显示 CPU/内存两个数——它们**本来就是整棵进程树的聚合**（`system_stats_service.rs` 的 `descendants_including` + `aggregate`），但 UI 不展示构成，"只有 claude 自己"和"claude + 一个 cargo build"完全同形，用户没法判断该不该信这个数。现在：
++
++- 折叠态显示进程数徽标（`processCount > 1` 才显示，避免每行挂个无信息量的 `1`）
++- 展开后按内存降序列出各进程（name / PID / CPU / 内存，command 作 tooltip）
++- 明细上限 24 条，超出部分聚合成 `truncated` 回传并显式渲染"另有 N 个进程"——**不静默截断**，否则"前 24 条"和"一共 24 条"又是一组同形
++
++新增模型 `SessionProcessInfo` / `TruncatedProcessSummary`（`models/system_stats.rs`）。前端类型里 `processes` / `truncated` 都是可选的：运行中的旧 daemon 不返回这两个字段，缺失时退回成"没有可展开的东西"，不画假箭头。
++
++仍未做：标签页上的资源徽标（不打开 popover 就能看见谁在肇事），以及本节开头说的"卡的时候主动说"。
++
++### 2.5 管控手段：只有"全杀"这一档
++
++- `kill_orphan_processes` — 孤儿进程批量终止（`SystemResourcePopover.tsx:197-240`，带二次确认 `orphanKillArmed`）
++- `stop_runner` — `runner_service.rs:253-259` 走 `kill_process(root_pid)`
++
++**没有"这个窗格在吃 CPU，先降它优先级"这一档。** 想让编译慢一点给 UI 让路，唯一办法是杀掉它重来。
++
++### 2.6 runner 与 PTY 会话是同一套
++
++`orchestrator_service.rs:7424-7495` 的 `start_runner_coordinator_with_terminal` 里，runner 就是通过 `terminal.create_shell_session()` 起的**普通 PTY 会话**（:7457），只是额外在 `runner_service` 记了一笔账（:7469-7478）。
++
++**含义**：runner 进程同样受 Job Object 保护、同样出现在 `get_resource_tree` 的 sessions 里、也同样**不受任何资源限制**。阶段一在 `job.rs` / `mod.rs` 的改动对 runner 自动生效，不需要单独处理。
++
++### 2.7 实测验证（2026-08-01，本机 32 核 / 93.6 GB）
++
++以上结论**不是读代码推断，是运行时实测**。
++
++**进程链**（一个 Claude 会话）：
++
++```
++cc-panes.exe → cc-panes-daemon.exe → claude.exe → bash.exe ×3 → powershell.exe
++   47368           63364              96868 ↑PTY根            （4 层之后）
++```
++
++注意 **CLI 进程的父进程直接是 daemon**，中间没有 shell——PTY 根进程就是 `claude.exe` 本身。
++
++**Job 继承与实际生效的限制**（在距 PTY 根 4 层的孙进程里查 `QueryInformationJobObject`）：
++
++```
++LimitFlags=0x00002000   ← 仅 KILL_ON_JOB_CLOSE
++ActiveProc=0  ProcMem=0  JobMem=0
++```
++
++两点被同时证实：**Job 归属沿进程树无限继承**（CLI 工具起的 `rg`/`cargo`/`node` 全在里面，阶段一的限制自动覆盖），且**除 KILL_ON_JOB_CLOSE 外确实什么都没设**。
++
++> ⚠️ **踩坑记录：别用 MSIX 进程验证 Job 限制**。首次探测拿到 `LimitFlags=0x800`(`BREAKAWAY_OK`)，因为用的是 MSIX 打包的 pwsh——MSIX 容器自带一层 job，嵌套 job 下 `QueryInformationJobObject(NULL)` 只报**最内层**，把真实的 PTY 会话 job 完全遮住了。必须用非 MSIX 的进程链（如 System32 的 `powershell.exe`）去探。
++
++**并发规模现状**：
++
++```
++17 × claude.exe  +  4 × wsl.exe  +  1 × pwsh   = 22 个会话根
++22 × OpenConsole.exe                            = 每会话一个 ConPTY 宿主
++整机 57.1 / 93.6 GB 已用，32 逻辑核，无任何并发闸门
++```
++
++**不在会话树内的进程**（`cc-panes.exe` 的直接子进程）：`msedgewebview2.exe`、`cc-panes-web.exe`、`cc-panes-daemon.exe` 自身。shared MCP 服务器也在这一层。这些**不受任何会话级限制**。
++
++**架构含义**：Job 是在 **daemon 进程**里创建的，所以 `KILL_ON_JOB_CLOSE` 绑的是 daemon 生命周期而非 app。这与「daemon 是跨 app 重启存活的锚点」自洽——app 重启不会误杀会话树。
++
++### 2.8 WSL 会话在资源视图里是隐形的（严重）
++
++同一次实测：
++
++| | Windows 侧读数 | 真实负载 |
++|---|---|---|
++| 4 个 `wsl.exe` 会话根 | 各 **7.9 MB / 0.1s CPU** | — |
++| `vmmemWSL` | 未归属任何会话 | **10.7 GB** |
++
++`wsl.exe` 只是个瘦客户端，真正干活的进程活在 WSL2 VM 里。所以：
++
++- **`get_resource_tree` / 状态栏 popover 对 WSL 会话的读数接近于零**——它们看起来永远"很闲"
++- 用户看到的是"所有会话都不占资源，但整机被吃满 12 GB"
++- **Job Object 对 WSL 会话完全无效**：那些进程根本不是 Windows 进程
++
++这是一个比"限制缺失"更隐蔽的问题——**监控在说谎**，而且症状与"WSL 会话确实空闲"完全同形。
++
++### 2.9 会话进程归属会随迭代顺序漂移（**待修**，已登记未排期）
++
++> 发现于 2026-08-02 加进程明细列表时。**不在 0.11.8 批次内**——属于另一条链路，混进当前批次会让 review 和回滚变难。
++
++`system_stats_service.rs::build_resource_tree_from_snapshot` 用一个"先到先得"的集合给进程去重：
++
++```rust
++let mut assigned = HashSet::new();
++sessions.iter().map(|session| {
++    let owned = index.descendants_including(session.root_pid);
++    let process_ids = owned.into_iter()
++        .filter(|pid| assigned.insert(*pid))   // ← 谁先迭代到谁拿走
++```
++
++去重本身是必要的（否则嵌套会话的进程被重复计入，整机加总超过 100%）。问题是**用什么规则决定归谁**。
++
++**根因一 · 输入顺序不确定。** `sessions` 一路回溯是：
++
++```
++build_resource_tree_from_snapshot(&roots)
++  ← system_stats_commands.rs:46  session_roots(...get_all_status()?)
++  ← terminal_service.rs:2700     sessions.iter().map(...)          ← 直接迭代 HashMap
++  ← terminal_service.rs:803      sessions: Arc<Mutex<HashMap<String, TerminalSession>>>
++```
++
++`HashMap` 的迭代顺序是未指定的。注意**不是每次刷新都会变**——同一个 map 实例在不发生 rehash 时顺序是稳的，所以平时看不出来；顺序会在**插入/删除会话时**（开标签、关标签、会话退出）改变，跨进程重启也不保证一致。这正是它难被发现的原因：偶发、且与"进程真的挪了窝"同形。
++
++注意 `session_usage.sort_by(session_id)` 排的是**结果**，去重在那之前就按输入顺序做完了——排序修不了这个。
++
++**根因二（更本质）· "先到先得"本身就是错的规则。** 就算把顺序完全定死，它依然给不出正确答案：若会话 B 的根进程是会话 A 根进程的后代，`descendants_including(A)` 会把 B 的整棵子树一并吞掉，B 报出接近 0。谁赢**只取决于迭代顺序，与进程树的实际形状无关**。
++
++**复现条件**：需要「一个会话根是另一个会话根的后代」。我**没有确认**本仓库当前存在这种拓扑——runner 虽然是普通 PTY 会话（见 2.6），但 worker 的 PTY 由 app 直接 spawn，是 app 的子进程而非派发者会话的子进程；Windows 上父进程死亡也不会把子进程重挂到 init。所以这条目前更像**潜在缺陷**而非已复现的线上问题。**但根因一（顺序不定）是无条件成立的**，只要出现嵌套就会以随机的一侧表现出来。
++
++**为什么现在值得记**：加了进程明细列表之后，这个漂移从"两个汇总数字微妙地不对"变成了"同一个 `rustc.exe` 这次挂在会话 A、下次挂在会话 B"——**可见性大幅提高，用户会先看到它**。
++
++**建议修法**（按推荐度）：
++
++1. **按最近祖先归属**（推荐）。对每个 pid 向上走祖先链，遇到的**第一个**会话根即所有者——语义正确、与迭代顺序无关，天然处理嵌套。`ProcessIndex::ancestors_including` 已经有了，改动集中在这一个函数。同 `root_pid` 注册了多个会话时按 `session_id` 定序兜底。
++2. **仅稳定化顺序**（下策）。去重前按 `session_id` 排序 `sessions`。只解决根因一，赢家依然是"字典序最小的那个"这种无意义规则；但改动一行，可作为临时止血。
++
++**实施注意**：`orphan_roots` / `kill_orphans_from_snapshot` 共用同一套 `analyze_process_ownership`，改归属规则时必须确认孤儿判定与终止守卫的语义不被牵动——**杀错进程的代价远高于统计偏差**。需要一个「B 的根是 A 的后代」的双会话测试，断言两种输入顺序下结果完全一致。
++
++---
++
++## 3. 附带调查（B 类：输出洪水）
++
++虽然本文主题是 A，但探索中把 B 的链路也摸清了，一并记录，避免下次重查。
++
++```
++PTY reader (4KB read)
++  → ReplayBuffer(8MB) + OutputBuffer(20k行/20MB)
++  → batch_tx (std mpsc, 无界)
++  → 合批线程 (16KB 或 16ms)
++  → EventEmitter.emit("terminal-output")
++      ├─ Tauri 直连: emit_to_webview
++      └─ daemon: WsEmitter.publish → tokio unbounded → WS → 桥 → emit_to_webview
++  → terminalService dispatchOutput (无订阅者时 pendingBuffers 上限 1000)
++  → TerminalView → createTerminalWriteFlowControl (仅 Windows) → term.write()
++```
++
++| 机制 | 后端 | 前端 |
++|---|---|---|
++| chunk 大小限制 | ✅ 4KB read / 16KB batch（`terminal_service.rs:2145`） | ❌ |
++| 时间窗合批 | ✅ 16ms（`terminal_service.rs:2146`，注释写明防 WKWebView 主线程死锁） | ❌ 无 rAF 合批 |
++| 背压（反压上游） | ❌ **两级通道均无界**（`terminal_service.rs:2141` std mpsc；`ws_emitter.rs:136-146` `UnboundedSender`） | ⚠️ 有 `terminalWriteFlowControl.ts`（128KB/水位 10↔5），但 `TerminalView.tsx:967-969` 传 `enabled: IS_WINDOWS`，**非 Windows 平台关闭** |
++| 丢弃策略 | ✅ ring buffer FIFO + spinner 行过滤 + 连续空行压缩（`terminal_service.rs:592-617`） | ⚠️ 仅无订阅者时丢最旧一半（`terminalService.ts:79`） |
++| ring buffer 上限 | ✅ 20k行/20MB/8MB replay（`terminal_service.rs:849-854`） | ✅ scrollback 20k（`TerminalView.tsx:96`） |
++| **后台 tab 暂停** | — | ❌ **完全没有** |
++| renderer | — | webgl/dom；**Windows 默认 dom**（`terminalRenderer.ts:171` `windows-cjk-guard`） |
++
++**三个最大风险点**：
++
++1. **后台标签页不暂停** — `TerminalView.tsx:774-838` 的 output 回调完全不检查 `isVisibleRef/isActiveRef`；非活动 tab 只是 `display: none`（`Panel.tsx:443-455`）仍保持挂载。N 个后台会话同时刷屏 = N 份 xterm parser + DOM renderer 同时压主线程。
++2. **daemon 侧无界广播** — `ws_emitter.rs:136-146` 的 `publish()` 无水位、无丢弃，慢客户端会让 daemon 内存无界增长。
++3. **flow control 只在 Windows 开** — 而 Windows 又恰好默认跑最慢的 DOM renderer，两个条件耦合在一起，其他平台等于裸奔。
++
++> 仓库里其实**已有**"有界通道 + shed"的成熟范式（文件监听：有界 30k channel + 128 路径 debounce cap + shed，见 `CHANGELOG.md:147`），只是**从没应用到 PTY 输出链路**。
++
++---
++
++## 4. 根因
++
++**CC-Panes 把子进程的资源约束完全交给了操作系统的默认调度。**
++
++三件事叠加：
++
++1. **无约束** — 每个 PTY 子进程都以 `NORMAL_PRIORITY_CLASS` 起、无内存上限、无 CPU 配额，跟 CC-Panes 自己的 UI 线程平起平坐抢资源
++2. **无闸门** — 没有任何机制阻止十个窗格同时启动重负载
++3. **归因数据存在但不主动呈现** — 系统知道是谁在吃资源，却要求用户在最卡的时候主动去点 popover 才肯说
++
++值得强调的是第 3 点：**这不是数据缺失问题，是产品形态问题**。`ResourceTree` 已经能回答"谁在吃 CPU"，只是没人在正确的时机问它。
++
++---
++
++## 5. 为什么 Job Object 是正确的切入点
++
++- 每个 PTY 会话**已经有一个专属 Job**（`ProcessJob::create_for`，每次 spawn 创建一个），不需要新建对象或改变生命周期
++- `OpenProcess` 已经带了 `PROCESS_SET_QUOTA`（`job.rs:52`）——**加 limit 不需要提权、不需要改权限申请**
++- 限制作用于**整棵进程树**，正好匹配"pwsh → cargo → rustc ×N"这种真实负载形状；按单 PID 限根本限不住
++- 改动范围极小：同一个 `SetInformationJobObject` 调用里多设几个字段，再加一次 `JobObjectCpuRateControlInformation` 调用
++- Job 创建失败已有 warn-not-fatal 的降级路径（`pty/mod.rs:170-181`），加限制不改变失败语义
++
++**风险**：Job Object 是 Windows-only（`job.rs:11` 的 `#![cfg(windows)]`）。Linux/macOS 侧无对应实现，见第 7 节。
++
++---
++
++## 6. 分期方案
++
++### 阶段一：防洪与限流
++
++| 项 | 落点 | 说明 |
++|----|------|------|
++| **默认降优先级** | `pty/mod.rs:170-181` assign 之后对 `root_pid` 设 `BELOW_NORMAL_PRIORITY_CLASS` | **收益/风险比最高，优先做**。让 UI 永远抢得过编译，且不影响吞吐（空闲核照样用满） |
++| Job 内存/进程数上限 | `pty/job.rs:40-47` 加 `JOB_OBJECT_LIMIT_JOB_MEMORY` + `ACTIVE_PROCESS` | 上限**可配置且默认宽松**，目标是防失控不是设天花板 |
++| Job CPU 配额 | 新增 `SetInformationJobObject(JobObjectCpuRateControlInformation)` | 用 `WEIGHT_BASED` **软配额**，不要 `HARD_CAP`——硬顶会把正常编译拖成龟速 |
++| **WSL 会话配额** | `wsl_codex.rs:748-755` 包 `systemd-run --user --scope` | 见 7.2，**已实测可用**。Job Object 对 WSL 无效，不做这条则 WSL 会话完全裸奔 |
++| **WSL 配置面板** | Settings → System 新增 WSL 段 + `EnvironmentPreflightCard` 提示 | 见 7.4。读 `.wslconfig` 给推荐值，覆盖"用户自己的 WSL 配置有洞"这一层 |
++| 通用启动闸门 | 上提 `terminalRestoreQueue.ts` 的队列，覆盖 `launch_task` 与手动开标签 | 现在只管崩溃恢复 |
++| （B 类，可同期）后台 tab 输出暂停 | `TerminalView.tsx:774-838` output 回调消费 `isVisibleRef` | 需保证切回时能从 ring buffer 补齐，不能丢字 |
++
++**验收标准**：
++- 单窗格 `cargo build --workspace` 期间，CC-Panes UI 切标签/拖分屏无可感延迟
++- 三窗格并发编译，整机仍可正常操作浏览器
++- Job 限制生效验证：`SetInformationJobObject` 返回值断言 + 一个超限进程被拒的集成测试
++- 降优先级不得让单次编译耗时上升超过 15%（空闲机器上对照测量）
++- WSL 会话包 scope 后，`cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/cpu.weight` 返回设定值而非 `100`
++- **WSL 配置面板打开时 `vmmemWSL` 不被拉起**（VM 原本未运行的情况下，打开设置页后仍不存在该进程）——这是零唤醒要求的直接验收项
++- 写入 `.wslconfig` 后重新读取，用户原有注释与未涉及的键**逐字保持不变**
++
++### 阶段二：资源可见性与管控
++
++| 项 | 落点 | 说明 |
++|----|------|------|
++| per-session 采集**边沿触发**常驻化 | `SystemResourceSegment.tsx` / `system_stats_commands.rs` | 整机 CPU 越阈值才开 per-session 采样，回落即停 |
++| 标签页资源徽标 | 复用 `SystemResourcePopover.tsx:132-160` 的数据源 | 超阈值时肇事标签打琥珀徽标（遵循 `docs/46-frontend-styleguide.md` 琥珀约定） |
++| 低于杀进程的干预档位 | 复用 `root_pid` + 进程树能力 | 单会话"临时降优先级 / 限核"入口 |
++
++> ⚠️ **边沿触发是硬要求**，不是优化。`docs/41` 记录过：0.10.20 给 129 个注册项目各起一个 2 秒轮询线程，28.6 核持续忙碌。**用一个监控资源的功能把资源吃掉，是本仓库犯过的错。** 采集必须跟随信号惰性起停。
++
++**验收标准**：
++- 空闲时（整机 CPU 低于阈值）per-session 采集**完全不运行**，可用采样计数断言
++- 制造一个吃 CPU 的窗格，徽标在 10s 内出现在**正确的**标签上
++- **WSL 会话的读数不再是 7.9 MB 的假值**（第 2.8 节），而是来自 cgroup 的真实用量
++- 降优先级操作后，`get_resource_tree` 中该会话 CPU 占比下降
++
++---
++
++## 7. WSL 管理设计
++
++WSL 会话不是边角情况：本机 22 个会话里有 4 个是 WSL，占了 **10.7 GB**（第 2.8 节）。Job Object 对它们**完全无效**，需要一套独立机制。
++
++### 7.1 实测：能力探底（2026-08-01，Ubuntu 24.04）
++
++```
++systemd            : running
++cgroup             : cgroup2fs（统一层级）
++root controllers   : cpuset cpu io memory hugetlb pids rdma
++user@1000 委派     : cpu memory pids          ← 关键，无需 root
++```
++
++**CC-Panes 会话的实际落点是 `/init.scope`**（不是 `user.slice`）：
++
++```
++裸跑（现状）                    memory.max=max   cpu.weight=100   cpu.max=max
++包进 systemd-run --user --scope  memory.max=2G    cpu.weight=20    cpu.max=400000 100000
++```
++
++**`systemd-run --user --scope -p CPUWeight=20 -p MemoryMax=2G -p CPUQuota=400%` 三项全部生效**——无需 root、无需 `wsl --shutdown`、每会话独立、可动态调整。这是 WSL 侧的正解。
++
++### 7.2 三层设计
++
++| 层 | 机制 | 粒度 | 性质 |
++|----|------|------|------|
++| **L1 VM 天花板** | `.wslconfig` 的 `processors` / `memory` | 全 VM | 用户配置建议，**非代码改动** |
++| **L2 会话级配额** | `systemd-run --user --scope` + cgroup v2 | 单会话 | **主方案**，代码改动 |
++| **L3 降级兜底** | `nice -n N` 前缀 | 单会话 | systemd 不可用时 |
++
++**L1 现状问题**：本机 `.wslconfig` 有 `memory=80GB` 但 **`processors` 未设 = 全部 32 核**。建议设 `processors=24` 给 Windows 留出余量。注意 L1 是**全局**的、影响用户所有 WSL 用途（不只 CC-Panes）、且需 `wsl --shutdown` 生效——所以它只能是兜底，不能替代 L2。
++
++**L2 注入点**：`cc-panes-core/src/services/terminal_service/wsl_codex.rs:748-755`
++
++```rust
++let args = vec!["-d", distro, "--", "bash", WSL_BASH_LOGIN_FLAG, script_path];
++//                              ↓ 改为
++let args = vec!["-d", distro, "--",
++                "systemd-run", "--user", "--scope", "-q",
++                "-p", "CPUWeight=20", "-p", "MemoryHigh=8G", "--",
++                "bash", WSL_BASH_LOGIN_FLAG, script_path];
++```
++
++包住登录 shell 后，会话内起的一切（`rg`、`cargo`、子 agent）都继承该 cgroup。
++
++### 7.3 设计要点（易错处）
++
++1. **用 `MemoryHigh` 而非 `MemoryMax`**。`MemoryMax` 是硬限，超了直接 OOM kill——用户看到的是**莫名其妙的 build 失败**，且不会联想到是 CC-Panes 设的限制。`MemoryHigh` 是软限，只触发激进回收+throttle，不杀进程。同理 `CPUWeight`（竞争时降权、空闲时仍可用满）优于 `CPUQuota`（硬顶，会把正常编译拖成龟速）。
++2. **必须探测 + 缓存 + 降级可见**。systemd 可能被 `wsl.conf` 关掉、非 systemd 发行版也存在。探测结果要缓存（复用 `wsl_codex.rs:18` 已有的 WSL 能力探测缓存模式，避免每次 `create_session` 冷跑）。降级到 L3 时**必须对用户可见**——这是本仓库的既有教训（docs/45：Codex resume 捕获链静默失效）。
++3. **多 distro 各自独立**。cgroup 只在其所属 VM 内有效，配额是 per-distro 的。
++4. **抽象要统一，实现可分叉**。用户不该被迫理解两套机制。建议引入统一的 `SessionResourcePolicy { priority, memory_soft_limit }`，Windows 走 Job Object + `SetPriorityClass`，WSL 走 systemd scope，SSH runtime 走 `nice`。否则 UI 上会长出两套互不相干的开关。
++5. **可观测性必须同期补**，否则限制生效与否无法验证。方案：会话为 WSL 时，从 cgroup 读 `memory.current` / `cpu.stat` 回传，替换掉当前那个恒为 7.9 MB 的 `wsl.exe` 读数。这也顺带修掉第 2.8 节的"监控说谎"问题。
++
++### 7.4 WSL 配置面板（读取 + 推荐 + 引导应用）
++
++L1 那层不能只写在文档里指望用户自己去改 `.wslconfig`——**绝大多数用户根本不知道这个文件存在**。需要在应用内给出读取入口与推荐值。
++
++#### 落点
++
++| 位置 | 职责 |
++|------|------|
++| **Settings → System 新增 "WSL" 段** | 正式的家：三态展示 + 推荐 + 应用 |
++| **`EnvironmentPreflightCard`** | 发现性：`processors` 未设时出一条琥珀提示，点进去跳转 WSL 段 |
++
++数据模型扩展现有的 `EnvironmentInfoRaw.wsl`（`web/types/settings.ts:201`，现为 `{ installed, version, applicable }`）。
++
++#### 配置全景：约 30 个键，两个文件，两套权限
++
++WSL 的配置面比"改几个资源参数"大得多：
++
++| 文件 | 作用域 | 写入权限 | 主要 section |
++|------|--------|----------|--------------|
++| `%USERPROFILE%\.wslconfig` | **全局**（所有发行版） | 普通用户 | `[wsl2]`、`[experimental]` |
++| `/etc/wsl.conf` | **单个发行版**（在 distro 内部） | **需 root/sudo** | `[boot]`、`[interop]`、`[network]`、`[automount]`、`[user]` |
++
++**设计原则：CC-Panes 只对「影响 CC-Panes 自身行为」的键给建议，其余只读或不显示。** 否则就是在做一个更难用的文本编辑器——既是范围蔓延，也没有价值：用户要通改配置，记事本比我们强。
++
++按"CC-Panes 为什么关心"分四类：
++
++| 类 | 键 | 利害关系 | 面板行为 |
++|----|----|----------|----------|
++| **A 资源争抢** | `processors`、`memory`、`swap`、`autoMemoryReclaim`、`vmIdleTimeout` | 本文主线 | 给建议 + **可写** |
++| **B 功能前置条件** | `[boot] systemd`、`[interop] enabled`、`[interop] appendWindowsPath` | 决定 CC-Panes 的能力**能否工作** | 给诊断 + **只读**（需 root） |
++| **C 网络 / 端口** | `networkingMode`、`hostAddressLoopback`、`firewall`、`dnsTunneling`、`autoProxy`、`localhostForwarding` | 与端口冲突检测、runner 端口、代理设置交互 | 只读 + 解释影响 |
++| **D 无关** | `kernel*`、`debugConsole`、`safeMode`、`nestedVirtualization`、`defaultVhdSize`、`guiApplications`、`[automount]`、`[user]` | 无 | 折叠区只读，或不显示 |
++
++**B 类是配置面板真正的价值所在**，因为它把面板从"信息展示"变成了"能力前置检查"：
++
++- **`[boot] systemd`** —— 7.2 的 cgroup 方案**完全依赖它**。为 `false` 时 `systemd-run` 不可用，WSL 会话资源限制只能降级到 `nice`。面板应直接显示「systemd 未启用 → WSL 会话资源限制不可用」并给出修复命令。
++- **`[interop] appendWindowsPath`** —— 默认 `true`，是 CLAUDE.md 里那条「WSL 里 `claude` 静默解析到 `claude.exe`，报错伪装成我们的路径 bug」的根源。
++- **`[interop] enabled`** —— 关掉则 WSL↔Windows 互操作断裂，CC-Panes 的 MCP proxy 链路受影响。
++
++> 实测本机 `[interop] appendWindowsPath` **未显式设置**（即默认 `true`），但 login shell 的**实际 PATH 里 `/mnt/c` 条目数为 0**。配置默认值与实际生效状态可以不一致（profile 脚本会重写 PATH）——这再次说明面板必须展示 **effective 值**，光读配置文件会得出错误结论。
++
++#### 渐进披露：默认只显示"有问题的"
++
++约 30 个键全列出来等于没列。默认视图只显示**有建议或有风险**的项（正常机器通常 0–3 条），其余进折叠区；全部正常时显示一句「WSL 配置无明显问题」即可。
++
++#### WSL1 / 多发行版
++
++- **WSL1 发行版**无 VM、无 cgroup，`.wslconfig` 完全不适用 → 整体标记「资源管控不适用」，不要给任何建议
++- `/etc/wsl.conf` 是 **per-distro** 的，N 个发行版要读 N 份；`.wslconfig` 全局一份
++- 实测本机同时运行 `Ubuntu` 与 `docker-desktop` 两个发行版（WSL 2.7.11.0）
++
++#### 读取：必须零唤醒 VM
++
++> ⚠️ 这是本功能最容易做错的地方。`usage_stats_service.rs:131` 记着 issue #37：**访问 `\\wsl$` 或调用 `wsl.exe` 会拉起/保活 Vmmem VM**。一个"读配置"的功能如果把用户的 WSL 唤醒了，它自己就变成了新的资源问题。
++
++规则：
++
++- 直接读 `%USERPROFILE%\.wslconfig` **文件**，绝不经 `wsl.exe`
++- 需要判断 VM 是否在跑时，复用 `wsl_discovery_service.rs:92` 的 `is_wsl_vm_running()`（只查 vmmemWSL 进程，零副作用）
++- 任何 `wsl.exe --list --running` 类调用必须先过 `is_wsl_vm_running()` 门控（沿用 `usage_stats_service.rs:300` 的既有模式）
++
++**`/etc/wsl.conf` 与零唤醒的冲突**：它在 distro 内部，读它要么走 `\\wsl$`、要么 `wsl.exe -d X cat`——**两条路都会唤醒 VM**，与上述规则直接冲突。
++
++解法是**搭 launch 的便车**：CC-Panes 启动 WSL 会话时本来就在跑脚本，此时顺带读一次 `/etc/wsl.conf` 并缓存。仓库里已有完全对应的先例——`wsl_codex.rs:183` 的 `probe_wsl_locale_summary` 就是在 launch 时（`:738`）搭车探测 locale 的；能力缓存则复用 `wsl_codex.rs:18` 那套（其注释写明目的正是"避免每次 create_session 冷跑 wsl.exe"）。
++
++规则：**永不为了读配置而唤醒 VM**。VM 未运行且无缓存时，B 类项显示「未知（WSL 未运行）」，而不是去把它拉起来。
++
++#### 解析：INI 不是 TOML
++
++`.wslconfig` 是 INI 格式。**不要用 `toml` crate**——`memory=80GB` 这种裸值会直接解析失败。workspace 当前无 ini 依赖。建议手写解析：格式极简，且手写才能在写回时**保留用户的注释与键顺序**（实测用户配置里带着中文注释说明为何调高 memory，抹掉是不可接受的）。
++
++#### 展示：三态，必须区分"未设置"与"无风险"
++
++| 列 | 含义 |
++|----|------|
++| 当前值 | `.wslconfig` 里字面写的（可能为"未设置"） |
++| **实际生效** | 未设置时填入 WSL 的默认行为 |
++| 推荐值 | 见下表，附理由 |
++
++> **"文件不存在" ≠ "没问题"。** 大多数用户没建过 `.wslconfig`，此时是全部取默认：`memory` ≈ 50% 物理内存、**`processors` = 全部逻辑核**。UI 必须显示"未设置 → 实际生效 32 核"，只显示空白会让用户以为一切正常。实测本机就是这个情况。
++
++#### 推荐规则：只对隐性风险告警，不干涉显式选择
++
++| 类 | 项 | 判定 | 动作 |
++|----|----|------|------|
++| A | `processors` | 未设 / = 全部核 | ⚠️ 建议 `max(2, 核数 - 8)`（32 核 → 24） |
++| A | `memory` | 未设 | ℹ️ 说明默认约 50%，通常不必改 |
++| A | `memory` | **已显式设置** | ✅ **不给建议**，只展示 |
++| A | `autoMemoryReclaim` | 未设 | ℹ️ 建议 `dropcache` |
++| **B** | `[boot] systemd` | `false` / 未设且发行版无 systemd | ⚠️ **WSL 会话资源限制不可用**（7.2 失效），给出修复命令，**不代写**（需 root） |
++| **B** | `[interop] appendWindowsPath` | `true`（默认） | ℹ️ 提示 CLI 可能解析到 Windows 版（CLAUDE.md 既有 gotcha），仅在检测到实际命中时才升级为警告 |
++| C | `networkingMode` 等 | 任意 | 只读展示 + 一句影响说明，**不给建议** |
++| D | 其余约 15 个键 | 任意 | 折叠区只读 |
++
++设计原则：**只对"未设置导致的隐性风险"告警，不对用户的显式选择指手画脚。**
++
++理由有二。其一，实测用户配置里 `memory=80GB` 带着注释"ML 训练需要大内存"——这是刻意的，工具若因"高于默认"就劝其调低，等于跟用户吵架，用两次就再也不会被打开。其二，从资源争抢角度，`memory` 是**天花板不是预留**，配合 `autoMemoryReclaim` 危害有限；**CPU 饱和才是 UI 卡顿的直接原因**，内存压力是更慢更间接的路径。故推荐优先级 `processors` > `memory`。
++
++#### 应用：写入 + 引导重启
++
++`.wslconfig` 需 `wsl --shutdown` 才生效。**`wsl --shutdown` 会终止所有 WSL 发行版**——含 CC-Panes 自己的 WSL 会话，以及用户在 CC-Panes 之外的全部 WSL 工作。
++
++分两步，不可合并：
++
++**步骤 1 · 写入**（低风险）
++- 保留原有注释与键顺序，只改动目标键
++- 写入前备份为 `.wslconfig.bak`
++- 写完即告知"下次 WSL 重启后生效"，**此步到此为止，不隐含重启**
++
++**步骤 2 · 引导重启**（高风险，独立触发 + 二次确认）
++
++确认对话框必须**先算出并列出完整影响面**，再让用户点：
++
++1. CC-Panes 自己的 WSL 会话数与标签名（从会话账本按 `runtimeKind == "wsl"` 过滤）
++2. **CC-Panes 之外的运行中发行版**（`wsl.exe --list --running`，需先过 `is_wsl_vm_running()` 门控）
++3. 明示"这些会话中未保存的工作会丢失"
++
++> ⚠️ **第 2 条不是形式主义**。实测本机除 `Ubuntu` 外还跑着 **`docker-desktop`**——`wsl --shutdown` 会把它一起关掉，等于**拆掉用户整个 Docker 环境**（所有容器停止，Docker Desktop 需重新启动）。这个杀伤面远超"4 个 CC-Panes 会话"，而用户在点按钮时**完全想不到**。对 `docker-desktop`、`docker-desktop-data` 这类基础设施发行版必须**单独高亮标注**，不能混在普通列表里一笔带过。
++
++**硬性要求**：
++
++- 绝不自动重启，绝不把重启做成写入的副作用
++- 影响面为空（无运行中 WSL）时才可提供"一键重启"；否则默认动作是**取消**，重启为次要按钮
++- 检测到基础设施发行版（docker-desktop 等）时，进一步降级为「只显示手动命令，不提供按钮」
++- 重启后 CC-Panes 侧的 WSL 会话会走正常的 `terminal-exit` 路径，不需要特殊处理；但应提示用户可用会话恢复（docs/66）找回上下文
++
++### 7.5 其他平台
++
++| 平台 | 原语 | 建议 |
++|------|------|------|
++| Windows | Job Object（已有对象，加 limit 即可）+ `SetPriorityClass` | 阶段一主战场 |
++| WSL2 | systemd scope + cgroup v2（**已验证可用**） | 阶段一同期，见 7.2 |
++| Linux 原生 | 同 WSL2（若有 systemd） | 复用 L2 实现 |
++| macOS | `setpriority` / `posix_spawn` QoS | 仅做 `nice`，成本极低 |
++
++---
++
++## 8. 新增 Known Gotcha 候选
++
++> **`pty/job.rs` 的 Job Object 只做 `KILL_ON_JOB_CLOSE`，它不限任何资源**：`JOBOBJECT_EXTENDED_LIMIT_INFORMATION` 除 `LimitFlags` 外全是零值默认，看到代码里有 Job Object 就以为子进程被限住了是误读。PTY 子进程当前以 `NORMAL_PRIORITY_CLASS` 起、无内存/CPU 上限，与 CC-Panes 自己的 UI 线程平等竞争——**任一窗格的 `cargo build` 都能把整机吃满**，且没有低于"杀进程"的干预档位。`OpenProcess` 已带 `PROCESS_SET_QUOTA`，加限制不需要提权（docs/71）。
++
++> **判断"卡"属于哪一类，先看整机 CPU**：整机高 = 子进程资源争抢（docs/71 第 2 节）；整机不高但 UI 掉帧 = xterm 输出洪水（docs/71 第 3 节，后台标签页**不暂停**输出，N 个后台会话刷屏 = N 份渲染压主线程）。两者症状同形、治法完全不同。
++
++> **WSL 会话在资源视图里恒显示 ~8 MB / 0% CPU，那是假的**：`wsl.exe` 只是瘦客户端，真实负载在 `vmmemWSL`（实测 4 个 WSL 会话对应 10.7 GB，未归属任何会话）。所以 ①`get_resource_tree` 与状态栏 popover 对 WSL 会话的读数**接近于零且不可信**，②Job Object 对 WSL 会话**完全无效**。WSL 侧要用 `systemd-run --user --scope` + cgroup v2（实测 `user@1000` 已委派 `cpu memory pids`，无需 root）。注意 CC-Panes 起的 WSL 会话落在 `/init.scope` 而非 `user.slice`，不显式包 scope 就没有任何约束（docs/71 第 7 节）。
++
++> **别用 MSIX 打包的进程去验证 Windows Job 限制**：MSIX 容器自带一层 job，嵌套 job 下 `QueryInformationJobObject(NULL)` 只报**最内层**，会把真实的 PTY 会话 job 完全遮住——实测用 MSIX 的 pwsh 探到 `LimitFlags=0x800`(BREAKAWAY_OK)，换 System32 的 `powershell.exe` 才看到真值 `0x2000`。
+diff --git a/docs/73-terminal-repaint-and-altscreen.md b/docs/73-terminal-repaint-and-altscreen.md
+new file mode 100644
+index 0000000..26a8ee5
+--- /dev/null
++++ b/docs/73-terminal-repaint-and-altscreen.md
+@@ -0,0 +1,175 @@
++# 73 · 终端显示错乱 与「刷新终端显示」失效
++
++> 状态：**调查完成，部分已修**
++> 触发场景：Claude/Codex 窗格里粘贴长文本（尤其中文）或图片后，输入框与底部提示行互相重叠、漏出转义碎片；右键「刷新终端显示」点了没反应。
++> 关联：`docs/71-multi-pane-resource-contention.md`（卡顿的三类判据 + 输出洪水链路）、`docs/46-frontend-styleguide.md`
++
++---
++
++## 1. 三个症状，两条独立的链
++
++用户一次报了三件事，它们**不是同一个 bug**：
++
++| 症状 | 所在层 | 根因 | 本文 |
++|------|--------|------|------|
++| **A. 画面重叠/错乱** | xterm **buffer** | 我们主动剥掉 alt-screen（第 2 节） | ✅ 主题 |
++| **B. 右键「刷新终端显示」无效** | xterm **renderer** | 菜单只作用于渲染层，修不了 A；且 Windows 上近乎空操作（第 3 节） | ✅ 主题 |
++| **C. 页面卡顿** | 前端渲染线程 | 后台标签页不暂停输出（属 docs/71 B 类） | → docs/71 §3 |
++
++**同形陷阱**：A 和 B 会互相伪装。用户看到"乱了"→ 点"刷新"→ 没反应 → 自然得出"刷新功能坏了"。实际是**刷新功能修的根本不是那一层**——B 不是 A 的失败修复，两者是独立缺陷，需要分别修。
++
++判据：
++- 错乱内容**能被选中复制出来**（说明 buffer 里就是错的）→ A 类，渲染层任何操作都救不了
++- 错乱是**色块/黑块/字形碎片**、选中复制出来是正常文本 → 渲染层（WebGL atlas），才是「刷新终端显示」的目标场景
++
++---
++
++## 2. A 类：alt-screen 被主动剥离
++
++### 2.1 现状
++
++`web/components/panes/terminalBufferMode.ts:138-142`：
++
++```ts
++const NORMAL_BUFFER_CLI_TOOLS = new Set(["claude", "codex"]);
++```
++
++对 claude / codex，`createTerminalDataRenderer` 会把 PTY 输出流里的 `\x1b[?1049h` / `1047` / `47`（进入/退出备用屏）**整段剥掉**（`ALTERNATE_BUFFER_MODES`，同文件 `:13`），让 TUI 输出留在主缓冲区。
++
++这个设计本身是有意为之，收益明确：**保住滚动历史**。alt-screen 退出后内容会被终端整体丢弃，而 CC-Panes 要求 agent 的对话历史可回滚、可导出、可 `serializeTerminalBuffer`。剥离的实现也很扎实——跨 chunk 截断、组合参数（`\x1b[?1049;25h` → `\x1b[?25h`）、会话切换清残留都覆盖了，且有对应单测。
++
++**问题不在实现，在这个决策的代价从没被量化。**
++
++### 2.2 失效机制（关键前提已在 xterm 源码证实，端到端复现待补）
++
++Claude Code 的 TUI 是 Ink，它的重绘模型是：
++
++1. 记住上一帧占了 N 行
++2. 下一帧渲染前发 `\x1b[<N>A`（光标上移 N 行）+ `\x1b[J`（擦到屏幕末尾）
++3. 重画
++
++这套**相对定位**在 alt-screen 里是安全的：视口固定、内容不滚动、第 1 行永远在。
++
++剥掉 alt-screen 后跑在主缓冲区里，多了一个 alt-screen 不存在的行为：**滚动**。当光标已在视口底部、新一帧比上一帧高（粘贴长中文让输入框从 2 行涨到 6 行），终端会向上滚动腾行——上一帧的头部被推出视口。此时 Ink 发的 `\x1b[<N>A` 会**在第 1 行被钳住**，锚点永久丢失，之后每一帧都擦错行数、画在旧内容上。
++
++**"钳住"这一步在 xterm 源码里可以直接确认**（`node_modules/@xterm/xterm/src/common/InputHandler.ts:902`）：
++
++```ts
++public cursorUp(params: IParams): boolean {
++  // stop at scrollTop
++  const diffToTop = this._activeBuffer.y - this._activeBuffer.scrollTop;
++  if (diffToTop >= 0) {
++    this._moveCursor(0, -Math.min(diffToTop, params.params[0] || 1));   // ← 截断
++  }
++  ...
++```
++
++主缓冲区默认 `scrollTop = 0`（视口顶），所以 CUU 会被**静默截断**到视口顶——不报错、不回执，CLI 永远不知道自己的锚点已经错了。alt-screen 里这一步不会发生，因为 TUI 的整帧始终在 `rows` 内、内容不会被滚出去。
++
++这解释了全部观察到的特征：
++
++- **只在"有时候"发生** —— 需要一帧比上一帧高、且恰好在视口底部
++- **一旦发生就持续** —— 锚点已丢，后续每帧都错
++- **粘贴长中文/图片时最容易触发** —— 这两种恰好让输入框高度突变
++- **漏出 `◐m` 这类碎片** —— 被覆盖写坏的转义序列残片
++- **点刷新没用** —— 错的内容已经在 buffer 里了
++
++### 2.3 端到端复现（未做，判定方式如下）
++
++1. Settings 把该 CLI 从 `NORMAL_BUFFER_CLI_TOOLS` 摘掉（或临时改代码），重跑同样的粘贴操作，看是否复现
++2. 复现时在窗格里按 `Ctrl+L`（Ink 收到会做一次全清+重绘）——能恢复即证实是锚点丢失而非数据损坏
++3. 对照组：同一个 Claude Code 跑在 Windows Terminal（不剥 alt-screen）里做同样操作，应不复现
++
++### 2.4 方案（未定，需交叉评审）
++
++| 方案 | 做法 | 代价 |
++|------|------|------|
++| **a. 收窄适用面** | 只对确认无此问题的 CLI 版本开启剥离，其余走原生 alt-screen | 要维护版本矩阵；Codex 升版静默打断的前例见 docs/45 |
++| **b. 做成可配置** | Settings 加开关，默认保持现状，出问题的用户可关 | 把判断推给用户；但成本最低、可立即止血 |
++| **c. alt-screen + 退出时回灌** | 不剥离，让 CLI 正常用 alt-screen；在收到 `1049l` 时把 alt buffer 的内容回灌进主缓冲区 | 改动最大，但**同时拿到滚动历史与正确渲染**，是唯一没有取舍的方向 |
++| **d. 补偿滚动** | 检测到滚动发生时向 CLI 补一次 SIGWINCH 强制全量重绘 | 治标；重绘闪烁；滚动检测本身不可靠 |
++
++**结论：目标形态是 c，先落 b 止血。**
++
++- **a 直接否掉**：docs/45 已有前车之鉴——Codex v0.145 一次升版就打断了整条 resume 捕获链。把正确性绑在"某个 CLI 的某个版本区间"上，等于给自己排了一颗定时炸弹，且爆炸时症状是静默的显示错乱。
++- **d 直接否掉**：治标。滚动检测本身就不可靠（我们看不到 CLI 的内部帧模型），且每次补 SIGWINCH 都是一次可见闪烁——把偶发错乱换成了持续闪烁，用户体感更差。
++- **b 先做**：加一个开关（默认维持现状），碰到的用户可以自己关掉换回原生 alt-screen。代价是丢滚动历史，但那是**用户自己在知情下做的取舍**，比现在这种"画面莫名其妙就乱了、还修不好"强。工作量小、可立即发。
++- **c 是唯一没有取舍的方向**：不剥离，让 CLI 正常进 alt-screen；在收到 `1049l`（退出备用屏）时把 alt buffer 的内容回灌进主缓冲区。渲染完全正确，滚动历史照样留下。
++
++c 的已知难点，实施前必须回答：
++
++1. 回灌的**时机与粒度**——TUI 每次退出 alt-screen 都回灌一整屏，会不会把中间态刷进历史？可能需要只在会话结束/显式退出时回灌。
++2. `serializeTerminalBuffer` / 导出 / `get_session_output` 这些消费方读的是哪个 buffer，全部要跟着改判。
++3. daemon 侧的 `ReplayBuffer` 存的是原始字节流，回放时会重新触发 alt-screen 进出——回灌逻辑必须对回放幂等，否则恢复出来的会话历史会翻倍。
++
++> 按项目惯例，c **实施前需单独出 plan 并交叉评审**（改动面大、触及数据完整性）；本节只是方向结论，不是实施规格。
++
++---
++
++## 3. B 类：「刷新终端显示」修的是另一层
++
++### 3.1 现状
++
++`web/components/panes/useTerminalContextMenuActions.ts:84-90` 原实现做三件事：
++
++```ts
++rendererControllerRef.current?.clearTextureAtlas("context-menu.refresh");
++refitAndRepaintTerminal("context-menu.refresh", { focusIfSafe: true });
++repaintTerminal("context-menu.refresh");
++```
++
++三件全在渲染层。菜单项注释（`TerminalContextMenu.tsx:40`）写的是"修花屏/变形/未铺满"——那是 WebGL 字形图集错位的场景，与用户点它时的期望（"画面乱了，重画一下"）已经错位。
++
++### 3.2 在 Windows 上它接近字面意义的空操作
++
++`terminalRenderer.ts` 有两条路都把 Windows 打到 DOM 渲染器：
++
++- `:167` `windows-cjk-guard` —— auto 模式下 Windows 恒走 DOM（WebGL 的 CJK 字形图集花屏）
++- `:179` `wallpaper-transparency` —— 开壁纸时强制 DOM（WebGL 不透传背景）
++
++DOM 渲染器下：
++
++- `clearTextureAtlas` 首行 `if (!webglAddon) return false`（`terminalRendererController.ts:155`）→ 直接返回
++- `repaint` 走 `term.refresh(0, rows-1)`（`:180-193`）→ 重画的是同一份 buffer，像素级一致
++
++即：**Windows 用户点这个菜单项，三件事里两件不执行、一件无可见效果**。
++
++### 3.3 已做的修复（本次）
++
++改为在原有渲染层动作之外，额外向 CLI 请求一次全量重绘——用 **resize 抖动触发 SIGWINCH**（`cols-1` → 恢复 `cols`）：
++
++- TUI（Ink/Codex）收到 SIGWINCH 会重置锚点并全量重画，**能修 2.2 的锚点丢失**
++- 普通 shell 只是重画提示符，无副作用
++- 比 `Ctrl+L` 好：Ctrl+L 会清屏，属于破坏性操作，不该藏在"刷新显示"后面
++
++约束：
++
++- 共享 PTY 的镜像面板（`StarredMirrorTile` 传 `drivesBackendPty={false}`）与只读面板**不得发 resize**——否则一个镜像会改掉主视图的 PTY 尺寸
++- 绕过 `terminalLayoutScheduler` 的 250ms 去抖直接发（否则两次 resize 会被合并成一次，抖动失效）
++
++---
++
++## 4. C 类：卡顿
++
++不在本文展开，链路与三个风险点见 `docs/71-multi-pane-resource-contention.md` §3。与本次现场相关的一条实测：
++
++**本机同时挂着 18 个会话（5 个 active）**（`list_sessions`，2026-08-02）。原先 output 回调完全不看 `isVisibleRef`，后台标签页只是 `display:none` 仍保持挂载 —— 18 份 xterm parser + DOM renderer 全速抢主线程。叠加 Windows 恒 DOM 渲染器与 `allowTransparency: true`（`TerminalView.tsx:851`，无条件常量化），单帧成本本来就偏高。
++
++### 已做的修复（本次）
++
++新增 `terminalHiddenWriteBuffer.ts`：不可见期间**合并而不是丢弃**——把输出攒起来，切回可见时一次性写入。
++
++- 数据零丢失、顺序不变；省掉的是 N 次 parse + N 次渲染帧
++- 积压超 512K 字符整块 flush 一次，内存有界；flush 出来的始终是**完整前缀**，不切割转义序列
++- 换绑/重连时 `reset()` 丢弃积压，防止上一会话的数据串进新会话
++
++同时把 output 管线整体抽到 `terminalOutputHandler.ts`（TerminalView.tsx 已触行数棘轮上限，抽出后 2249 → 2193，基线同步下调）。
++
++**未做**：docs/71 §3 列的另外两条——daemon 侧 `ws_emitter.rs::publish` 无界广播、写流控只在 Windows 启用——本次没碰。
++
++---
++
++## 5. 新增 Known Gotcha 候选
++
++- **终端"乱了"要先分清是 buffer 乱还是渲染乱，两者同形但治法完全不同**：错乱内容**能选中复制出来** = buffer 级（我们剥了 alt-screen，见本文第 2 节），渲染层刷新永远无效；错乱是色块/字形碎片、复制出来却是正常文本 = 渲染级（WebGL atlas），才是右键「刷新终端显示」的目标。用户报"刷新没用"时，大概率不是刷新坏了，而是他碰到的是前一类。
++- **Windows 上终端渲染器恒为 DOM，一切 WebGL 补救路径都是死代码**：`windows-cjk-guard` 与 `wallpaper-transparency` 两条都把 auto 打到 DOM。任何写在 `if (webglAddon)` 里的修复在 Windows 主力场景下**从不执行**，写完自测"没报错"不等于生效。
+diff --git a/src-tauri/src/services/browser_service.rs b/src-tauri/src/services/browser_service.rs
+index 28ba535..aa71e2b 100644
+--- a/src-tauri/src/services/browser_service.rs
++++ b/src-tauri/src/services/browser_service.rs
+@@ -46,6 +46,10 @@ pub struct BrowserOpenTabEvent {
+     pub pane_id: Option<String>,
+     /// 已有同 URL 标签时是否复用（默认 true）。前端消费；旧前端忽略该字段仍按新开处理。
+     pub reuse: bool,
++    /// 发起本次打开的 PTY 会话 id（MCP 调用方）。前端据此把标签落到**指挥者所在布局**，
++    /// 而不是用户此刻正看着的那个布局。None = 无调用方身份（UI/命令入口），落当前布局。
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub caller_session_id: Option<String>,
+ }
+ 
+ impl BrowserOpenTabEvent {
+@@ -75,6 +79,7 @@ impl BrowserOpenTabEvent {
+                 .filter(|value| !value.is_empty())
+                 .map(str::to_string),
+             reuse,
++            caller_session_id: None,
+         })
+     }
+ }
+diff --git a/src-tauri/src/services/orchestrator_service.rs b/src-tauri/src/services/orchestrator_service.rs
+index 4cf5101..dd7ffa2 100644
+--- a/src-tauri/src/services/orchestrator_service.rs
++++ b/src-tauri/src/services/orchestrator_service.rs
+@@ -200,6 +200,10 @@ pub struct OrchestratorOpenFileEvent {
+     pub file_path: String,
+     pub project_path: String,
+     pub title: String,
++    /// 发起本次打开的 PTY 会话 id（MCP 调用方）。前端据此把编辑器标签落到
++    /// **指挥者所在布局**；None = 无调用方身份，落当前布局。
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub caller_session_id: Option<String>,
+ }
+ 
+ fn parse_launch_cli_tool(cli_tool: Option<&str>) -> std::result::Result<CliTool, String> {
+@@ -5537,10 +5541,18 @@ impl McpToolHandler {
+         serde_json::json!({ "success": true, "path": canonical }).to_string()
+     }
+ 
+-    /// 在 CC-Panes 编辑器中打开文件标签页，自动切换到 Files 视图模式。projectPath 可选，不传则自动推断
++    /// 在 CC-Panes 编辑器中打开文件标签页。projectPath 可选，不传则自动推断。
++    /// 默认落在**调用方自己所在的布局**；文件已在别的布局打开时聚焦原处，不切走用户视图。
+     #[tool]
+-    async fn open_file(&self, Parameters(params): Parameters<McpOpenFileParams>) -> String {
+-        info!(file = %params.file_path, "mcp::open_file");
++    async fn open_file(
++        &self,
++        Parameters(params): Parameters<McpOpenFileParams>,
++        extensions: Extensions,
++    ) -> String {
++        // 与 open_browser_tab 同：调用方身份是软依赖，解析不出就退回当前布局。
++        let caller_session_id =
++            resolve_caller_session_id_for(&self.state, &extensions, "open_file").ok();
++        info!(file = %params.file_path, caller = ?caller_session_id, "mcp::open_file");
+         let file_path = std::path::Path::new(&params.file_path);
+         if !file_path.exists() {
+             return format!("错误: 文件 '{}' 不存在", params.file_path);
+@@ -5593,6 +5605,7 @@ impl McpToolHandler {
+             file_path: canonical_file.clone(),
+             project_path: project_path.clone(),
+             title,
++            caller_session_id,
+         };
+         let _ = self.state.app_handle.emit("orchestrator-open-file", &event);
+         serde_json::json!({
+@@ -5603,14 +5616,26 @@ impl McpToolHandler {
+         .to_string()
+     }
+ 
+-    /// 在 CC-Panes 当前窗格中打开浏览器标签。优先用于 localhost 或内网开发预览；仅支持 http/https URL。
++    /// 在 CC-Panes 中打开浏览器标签。优先用于 localhost 或内网开发预览；仅支持 http/https URL。
++    /// 默认落在**调用方自己所在的布局/窗格**（不会飞到用户当前正看着的布局）；
++    /// 传 paneId 可指定落位，跨布局的 paneId 也认。
+     #[tool]
+     async fn open_browser_tab(
+         &self,
+         Parameters(params): Parameters<McpOpenBrowserTabParams>,
++        extensions: Extensions,
+     ) -> String {
+         let reuse = params.reuse.unwrap_or(true);
+-        info!(url = %params.url, pane_id = ?params.pane_id, reuse, "mcp::open_browser_tab");
++        // 调用方身份是**软**依赖：解析不出（UI/外部调用）就退回当前布局，不拒绝这次打开。
++        let caller_session_id =
++            resolve_caller_session_id_for(&self.state, &extensions, "open_browser_tab").ok();
++        info!(
++            url = %params.url,
++            pane_id = ?params.pane_id,
++            reuse,
++            caller = ?caller_session_id,
++            "mcp::open_browser_tab"
++        );
+         let mut event = match BrowserOpenTabEvent::try_new_with(
+             &params.url,
+             None,
+@@ -5623,6 +5648,7 @@ impl McpToolHandler {
+         let request_id = uuid::Uuid::new_v4().to_string();
+         let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+         event.request_id = Some(request_id.clone());
++        event.caller_session_id = caller_session_id;
+         {
+             let mut queries = self
+                 .state
+diff --git a/web/components/panes/TerminalView.test.tsx b/web/components/panes/TerminalView.test.tsx
+index 4f20b65..d4e9e25 100644
+--- a/web/components/panes/TerminalView.test.tsx
++++ b/web/components/panes/TerminalView.test.tsx
+@@ -184,7 +184,7 @@ vi.mock("@/services/terminalService", () => ({
+     registerExit: vi.fn().mockResolvedValue(undefined),
+     detachOutput: vi.fn(),
+     detachExit: vi.fn(),
+-    resize: vi.fn(),
++    resize: vi.fn().mockResolvedValue(undefined),
+     write: vi.fn().mockResolvedValue(undefined),
+     killSession: vi.fn().mockResolvedValue(undefined),
+     releaseSession: vi.fn().mockResolvedValue(undefined),
+@@ -669,6 +669,37 @@ describe("TerminalView", () => {
+     await waitFor(() => expect(term.writtenData).toContain("hello from pty"));
+   });
+ 
++  it("后台标签页的输出先积压，切回可见时一次性补齐且保序", async () => {
++    const element = (visible: boolean) => (
++      <TerminalView
++        sessionId={null}
++        launchId="reserved-launch"
++        projectPath="/tmp/proj"
++        isActive={visible}
++        isVisible={visible}
++        paneId="pane-1"
++        tabId="tab-1"
++        onSessionCreated={vi.fn()}
++      />
++    );
++    const view = render(element(false));
++    await waitFor(() => expect(registerOutput).toHaveBeenCalled());
++    const term = await lastTerm();
++    const outputHandler = registerOutput.mock.calls[0][1] as (data: string) => void;
++
++    act(() => outputHandler("part-1 "));
++    act(() => outputHandler("part-2"));
++
++    // 不可见期间一个字都不该进 xterm——这正是 N 个后台会话压主线程的成本来源。
++    await new Promise((resolve) => setTimeout(resolve, 20));
++    expect(term.writtenData).not.toContain("part-1");
++
++    view.rerender(element(true));
++
++    // 切回后补齐，且顺序不变、零丢失。
++    await waitFor(() => expect(term.writtenData).toContain("part-1 part-2"));
++  });
++
+   it("announces process exit in the terminal and to the parent", async () => {
+     const onSessionExited = vi.fn();
+     renderTerminalView({ onSessionExited });
+@@ -805,15 +836,46 @@ describe("TerminalView", () => {
+     const controller = controllerResults[controllerResults.length - 1]
+       .value as { clearTextureAtlas: ReturnType<typeof vi.fn> };
+ 
++    resize.mockClear();
+     fireEvent.contextMenu(host!);
+     await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
+     expect(controller.clearTextureAtlas).toHaveBeenCalledWith("context-menu.refresh");
+ 
++    // 渲染层重画救不了 buffer 级错乱（docs/73），必须同时向 CLI 抖一次 SIGWINCH：
++    // 先缩一列，再抖回原宽度。
++    await waitFor(() =>
++      expect(resize).toHaveBeenCalledWith({ sessionId: "new-session-1", cols: 79, rows: 24 }),
++    );
++    await waitFor(() =>
++      expect(resize).toHaveBeenCalledWith({ sessionId: "new-session-1", cols: 80, rows: 24 }),
++    );
++
+     fireEvent.contextMenu(host!);
+     await user.click(await screen.findByRole("menuitem", { name: /复制会话 ID|Copy Session ID/i }));
+     await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("new-session-1"));
+   });
+ 
++  it("mirror panes never send the refresh SIGWINCH to the shared PTY", async () => {
++    const user = userEvent.setup();
++    const view = renderTerminalView({
++      sessionId: "shared-session",
++      paneId: undefined,
++      tabId: undefined,
++      drivesBackendPty: false,
++    });
++    await waitFor(() => expect(registerOutput).toHaveBeenCalled());
++    const host = view.container.querySelector(".cc-terminal-host");
++    expect(host).not.toBeNull();
++
++    resize.mockClear();
++    fireEvent.contextMenu(host!);
++    await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
++
++    // 镜像面板改后端尺寸会连带改掉主视图的 PTY，必须完全不发。
++    await new Promise((resolve) => setTimeout(resolve, 150));
++    expect(resize).not.toHaveBeenCalled();
++  });
++
+   it("terminal context menu fits the current terminal and requests all terminals to fit", async () => {
+     const user = userEvent.setup();
+     const view = renderTerminalView();
+diff --git a/web/components/panes/TerminalView.tsx b/web/components/panes/TerminalView.tsx
+index 61819a7..d80ed83 100644
+--- a/web/components/panes/TerminalView.tsx
++++ b/web/components/panes/TerminalView.tsx
+@@ -2,7 +2,6 @@ import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImper
+ import { Terminal, type IDisposable } from "@xterm/xterm";
+ import { FitAddon } from "@xterm/addon-fit";
+ import { Unicode11Addon } from "@xterm/addon-unicode11";
+-import { invoke } from "@tauri-apps/api/core";
+ import { getCurrentWebview } from "@tauri-apps/api/webview";
+ import { info as logInfo } from "@tauri-apps/plugin-log";
+ import { useTranslation } from "react-i18next";
+@@ -13,6 +12,8 @@ import { isTauriRuntime } from "@/services/runtime";
+ import { getErrorMessage, toTerminalLaunchError } from "@/utils";
+ import type { TerminalLaunchError } from "@/types";
+ import { pickCreateSessionResumeId } from "./terminalResume";
++import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
++import { createTerminalOutputHandler } from "./terminalOutputHandler";
+ import { devDebugLog } from "@/utils/devLogger";
+ import { captureTerminalWrite, noteTerminalGeometry } from "@/utils/terminalCast";
+ import { TERMINAL_APP_MENU_PASTE_EVENT } from "@/utils/appMenuPaste";
+@@ -24,7 +25,6 @@ import {
+   useSettingsStore,
+   usePanesStore,
+   useThemeStore,
+-  useTerminalStatusStore,
+   useTerminalRestoreLogStore,
+   useWallpaperStore,
+ } from "@/stores";
+@@ -39,7 +39,6 @@ import {
+ import { resolveOscColorQuery } from "./terminalOscColor";
+ import {
+   createTerminalDataRenderer,
+-  detectAlternateBufferTransitions,
+   shouldKeepCliOutputInNormalBuffer,
+   type TerminalDataRenderer,
+ } from "./terminalBufferMode";
+@@ -54,7 +53,7 @@ import { attachTerminalInputDebugLog } from "./terminalInputDebug";
+ import { attachTerminalDomInputFallback } from "./terminalDomInputFallback";
+ import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
+ import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
+-import { detectFocusReportMode, isXtermFocusReportInput } from "./terminalFocusReport";
++import { isXtermFocusReportInput } from "./terminalFocusReport";
+ import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
+ import { getCliInstallHint } from "./terminalCliInstallHint";
+ import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "./terminalLaunchIdentity";
+@@ -79,7 +78,6 @@ import { resolveTerminalRendererModeForSession } from "./terminalRenderer";
+ import {
+   getTerminalTheme,
+   withTransparentTerminalBackground,
+-  type TerminalThemePalette,
+ } from "./terminalTheme";
+ import { normalizeTerminalFontFamily } from "./terminalFont";
+ import TerminalContextMenu from "./TerminalContextMenu";
+@@ -88,87 +86,29 @@ import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
+ import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
+ import { useTerminalWheelZoom } from "./useTerminalWheelZoom";
+ import { getCachedWindowsBuildNumber } from "./terminalWindows";
++// 注意：resolveCliTool / resolveRuntimeKind / notifySessionClaimed 不从这里导入——
++// 它们在 0.11.8 阶段 A 已被拆到 terminalLaunchIdentity / terminalSessionNotices
++// （见上方 import）。本批抽 helpers 时一并搬过一份，合入时保留 main 的模块划分，
++// 避免同一函数两处定义。
++import {
++  applyTerminalElementTheme,
++  findLiveSavedSessionId,
++  IS_MAC,
++  normalizeTerminalCursorStyle,
++  setMacosTerminalNativeFocus,
++  waitForTerminalFont,
++  writeTerminalReply,
++} from "./terminalViewHelpers";
+ import "@xterm/xterm/css/xterm.css";
+ 
+ import type { CliTool, CreateSessionRequest, SshConnectionInfo, TerminalRendererMode, TerminalThemeMode, WslLaunchInfo } from "@/types";
+ 
+ const TERMINAL_DEBUG = import.meta.env.DEV;
+ const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
+-const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+ const DEFAULT_TERMINAL_SCROLLBACK = 20_000;
+ const WEBGL_HEARTBEAT_INTERVAL_MS = 30_000;
+ const WEBGL_SLEEP_GAP_MS = 75_000;
+ const WEBGL_RECOVERY_PROMOTION_WINDOW_MS = 12_000;
+-const TERMINAL_FONT_WAIT_TIMEOUT_MS = 1_500;
+-
+-// Best-effort wait for the configured terminal font to be ready before the
+-// WebGL renderer rasterizes its first glyph atlas (otherwise the first paint
+-// uses a blurry fallback). `document.fonts.ready` alone only settles fonts the
+-// page already requested, so we also explicitly request the configured family.
+-// A timeout guarantees a never-resolving font load can't block the terminal.
+-async function waitForTerminalFont(fontSize: number, fontFamily: string): Promise<void> {
+-  if (typeof document === "undefined" || !document.fonts) return;
+-
+-  const loadFont = (async () => {
+-    try {
+-      await document.fonts.load(`${fontSize}px ${fontFamily}`);
+-    } catch {
+-      // Ignore parse/load failures; fall through to the readiness signal.
+-    }
+-    try {
+-      await document.fonts.ready;
+-    } catch {
+-      // Best-effort only.
+-    }
+-  })();
+-
+-  const timeout = new Promise<void>((resolve) => {
+-    setTimeout(resolve, TERMINAL_FONT_WAIT_TIMEOUT_MS);
+-  });
+-
+-  await Promise.race([loadFont, timeout]);
+-}
+-
+-type TerminalCursorStyle = "block" | "underline" | "bar";
+-
+-function setMacosTerminalNativeFocus(focused: boolean): void {
+-  if (!IS_MAC || !isTauriRuntime()) return;
+-  void invoke("set_macos_terminal_focused", { focused }).catch(() => {});
+-}
+-
+-function normalizeTerminalCursorStyle(value?: string | null): TerminalCursorStyle {
+-  return value === "underline" || value === "bar" ? value : "block";
+-}
+-
+-function findLiveSavedSessionId(savedSessionId?: string): string | null {
+-  if (!savedSessionId) return null;
+-  // 读共享状态缓存（useTerminalStatusStore，由 terminal-status 事件 + 定时刷新维护），
+-  // 不再每个 tab 各发一次 getAllStatus IPC。重启时几十个 tab 同时挂载会并发打几十次
+-  // get_all_terminal_status，把后端拖住，让后续 tab 卡在进启动队列前的这个 await，
+-  // 导致"放约 10 个就停"的恢复 stall。同步读内存 map 不会 hang，也消除了 IPC 扇出。
+-  // 缓存里没有（冷启动未命中）→ 视为非 live → 走 relaunch（队列），功能不丢。
+-  const info = useTerminalStatusStore.getState().statusMap.get(savedSessionId);
+-  return info && info.status !== "exited" ? savedSessionId : null;
+-}
+-
+-function writeTerminalReply(
+-  sessionId: string | null,
+-  response: string,
+-  onError: (error: unknown) => void,
+-) {
+-  if (!sessionId) return;
+-  void terminalService.write(sessionId, response, { source: "system" }).catch(onError);
+-}
+-
+-function applyTerminalElementTheme(
+-  term: Terminal | null,
+-  theme: TerminalThemePalette,
+-) {
+-  if (!term?.element) return;
+-  term.element.style.backgroundColor = theme.background;
+-  term.element.style.color = theme.foreground;
+-}
+-
+ interface TerminalViewProps {
+   sessionId: string | null;
+   /** One-shot launch identity reserved for, or used by, this terminal leaf. */
+@@ -346,6 +286,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
+     const isActiveRef = useRef(props.isActive);
+     const isVisibleRef = useRef(props.isVisible ?? props.isActive);
+     const layoutActiveRef = useRef(props.layoutActive ?? true);
++    const hiddenWriteBufferRef = useRef<TerminalHiddenWriteBuffer | null>(null);
+     const terminalRendererMode = useSettingsStore((s) => s.settings?.terminal.rendererMode ?? "auto");
+     const effectiveCliTool = resolveCliTool(props.cliTool, props.launchClaude);
+     const resolveRendererMode = useCallback((mode: TerminalRendererMode) => {
+@@ -464,6 +405,30 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
+       await flowControl.write(data, onWritten);
+     }, [props.sessionId]);
+ 
++    /**
++     * 本终端当前是否值得渲染。后台标签页只是 `display: none` 仍保持挂载，
++     * 照单全收会让 N 个后台会话各压一份 parser + renderer 上主线程（docs/71 §3）。
++     */
++    const isRenderVisible = useCallback(
++      () => isVisibleRef.current && layoutActiveRef.current,
++      [],
++    );
++
++    /** 把不可见期间攒下的输出一次性写进 xterm。 */
++    const flushHiddenWrites = useCallback((reason: string) => {
++      const pending = hiddenWriteBufferRef.current?.drain();
++      if (!pending) return;
++      debugLog("output.hidden.flush", { reason, length: pending.length });
++      void writeTerminalData(pending, () => {
++        syncTrackedBufferType("output.hidden.flush");
++      }).catch((error) => {
++        debugLog("output.hidden.flush.failed", {
++          reason,
++          error: getErrorMessage(error),
++        });
++      });
++    }, [debugLog, syncTrackedBufferType, writeTerminalData]);
++
+     const shouldRunWebglRecovery = useCallback(() => {
+       const renderer = rendererControllerRef.current;
+       return Boolean(
+@@ -535,8 +500,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
+       onLaunchErrorRef.current = props.onLaunchError;
+       onReconnectRef.current = props.onReconnect;
+       isActiveRef.current = props.isActive;
++      const wasRenderVisible = isRenderVisible();
+       isVisibleRef.current = props.isVisible ?? props.isActive;
+       layoutActiveRef.current = props.layoutActive ?? true;
++      // 由隐藏转可见：把积压一次性补上。必须在两个 ref 都更新之后判定，
++      // 否则 flush 会走进"仍不可见"的分支被再次积压。
++      if (!wasRenderVisible && isRenderVisible()) {
++        flushHiddenWrites("visibility.gained");
++      }
+       readOnlyRef.current = Boolean(props.readOnly);
+       if (terminalInstanceRef.current) {
+         terminalInstanceRef.current.options.disableStdin = Boolean(props.readOnly);
+@@ -605,6 +576,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
+       outputUnsubRef.current = null;
+       exitUnsubRef.current?.();
+       exitUnsubRef.current = null;
++      // 换绑/重连时丢弃积压：上一会话的输出串进新会话会直接写坏画面。
++      hiddenWriteBufferRef.current?.reset();
+     }, []);
+ 
+     // Dispose listeners, timers, observers, addons, and the terminal instance.
+@@ -734,64 +707,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
+       });
+       // 换绑前先注销旧订阅（重连等场景），避免旧回调残留
+       unbindSessionCallbacks();
+-      outputUnsubRef.current = await terminalService.registerOutput(sessionId, (data) => {
+-        const term = terminalInstanceRef.current;
+-        const focusReportMode = detectFocusReportMode(data, focusReportModeRef.current);
+-        if (focusReportMode !== focusReportModeRef.current) {
+-          debugLog("output.focus-report-mode.changed", {
+-            bindSessionId: sessionId,
+-            enabled: focusReportMode,
+-          });
+-          focusReportModeRef.current = focusReportMode;
+-        }
+-        const transitions = detectAlternateBufferTransitions(data);
+-        const renderedData = renderTerminalData(data);
+-        if (transitions.length > 0) {
+-          debugLog("output.alternate-sequence.received", {
+-            bindSessionId: sessionId,
+-            transitions,
+-            dataLength: data.length,
+-            renderedDataLength: renderedData.length,
+-            stripped: keepCliOutputInNormalBuffer,
+-          });
+-        }
+-
+-        if (!term) {
+-          debugLog("output.write.skipped", {
+-            bindSessionId: sessionId,
+-            dataLength: data.length,
+-            transitions,
+-          });
+-          return;
+-        }
+-
+-        if (!renderedData) {
+-          syncTrackedBufferType(
+-            transitions.length > 0 ? "output.alternate-sequence.stripped" : "output.empty"
+-          );
+-          return;
+-        }
+-
+-        void writeTerminalData(renderedData, () => {
+-          if (transitions.length > 0) {
+-            debugLog("output.alternate-sequence.applied", {
+-              bindSessionId: sessionId,
+-              transitions,
+-              bufferAfter: term.buffer.active.type,
+-              stripped: keepCliOutputInNormalBuffer,
+-            });
+-          }
+-          syncTrackedBufferType(
+-            transitions.length > 0 ? "output.alternate-sequence" : "output.write"
+-          );
+-        }).catch((error) => {
+-          debugLog("output.write.failed", {
+-            bindSessionId: sessionId,
+-            dataLength: data.length,
+-            error: getErrorMessage(error),
+-          });
+-        });
+-      });
++      outputUnsubRef.current = await terminalService.registerOutput(
++        sessionId,
++        createTerminalOutputHandler({
++          sessionId,
++          terminalRef: terminalInstanceRef,
++          focusReportModeRef,
++          hiddenWriteBufferRef,
++          isRenderVisible,
++          keepCliOutputInNormalBuffer,
++          renderTerminalData,
++          writeTerminalData,
++          syncTrackedBufferType,
++          debugLog,
++        }),
++      );
+       exitUnsubRef.current = await terminalService.registerExit(sessionId, (exitCode) => {
+         handleSessionExit(sessionId, exitCode);
+       });
+@@ -801,6 +731,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
+     }, [
+       debugLog,
+       handleSessionExit,
++      isRenderVisible,
+       keepCliOutputInNormalBuffer,
+       renderTerminalData,
+       syncTrackedBufferType,
+@@ -2210,6 +2141,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
+       debugLog,
+       refitAndRepaintTerminal,
+       repaintTerminal,
++      canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
+     });
+ 
+     return (
+diff --git a/web/components/panes/terminalHiddenWriteBuffer.test.ts b/web/components/panes/terminalHiddenWriteBuffer.test.ts
+new file mode 100644
+index 0000000..e6e737b
+--- /dev/null
++++ b/web/components/panes/terminalHiddenWriteBuffer.test.ts
+@@ -0,0 +1,69 @@
++import { describe, expect, it, vi } from "vitest";
++
++import { createTerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
++
++describe("terminalHiddenWriteBuffer", () => {
++  it("可见时数据直通", () => {
++    const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => true });
++    expect(buffer.push("hello")).toBe("hello");
++    expect(buffer.pendingLength()).toBe(0);
++  });
++
++  it("不可见时积压，drain 一次性取回且保序", () => {
++    const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => false });
++    expect(buffer.push("a")).toBeNull();
++    expect(buffer.push("b")).toBeNull();
++    expect(buffer.push("c")).toBeNull();
++    expect(buffer.pendingLength()).toBe(3);
++    expect(buffer.drain()).toBe("abc");
++    expect(buffer.drain()).toBeNull();
++  });
++
++  it("变可见后的第一个 chunk 会把积压拼在自己前面（不乱序）", () => {
++    let visible = false;
++    const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => visible });
++    buffer.push("old1");
++    buffer.push("old2");
++
++    visible = true;
++    expect(buffer.push("new")).toBe("old1old2new");
++    expect(buffer.pendingLength()).toBe(0);
++  });
++
++  it("积压超上限时整块 flush，且内存归零", () => {
++    const onOverflowFlush = vi.fn();
++    const buffer = createTerminalHiddenWriteBuffer({
++      isVisible: () => false,
++      maxPendingChars: 8,
++      onOverflowFlush,
++    });
++
++    expect(buffer.push("1234")).toBeNull();
++    expect(buffer.push("5678")).toBe("12345678");
++    expect(onOverflowFlush).toHaveBeenCalledWith(8);
++    expect(buffer.pendingLength()).toBe(0);
++  });
++
++  it("flush 出来的始终是完整前缀，不切断转义序列", () => {
++    const buffer = createTerminalHiddenWriteBuffer({
++      isVisible: () => false,
++      maxPendingChars: 4,
++    });
++
++    // 单个 chunk 就超限时也整块吐出，不做任何切割。
++    expect(buffer.push("\x1b[?1049h_long_chunk")).toBe("\x1b[?1049h_long_chunk");
++  });
++
++  it("reset 丢弃积压（换绑会话时防串台）", () => {
++    const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => false });
++    buffer.push("stale");
++    buffer.reset();
++    expect(buffer.pendingLength()).toBe(0);
++    expect(buffer.drain()).toBeNull();
++  });
++
++  it("忽略空 chunk", () => {
++    const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => true });
++    expect(buffer.push("")).toBeNull();
++  });
++});
+diff --git a/web/components/panes/terminalHiddenWriteBuffer.ts b/web/components/panes/terminalHiddenWriteBuffer.ts
+new file mode 100644
+index 0000000..2583867
+--- /dev/null
++++ b/web/components/panes/terminalHiddenWriteBuffer.ts
+@@ -0,0 +1,81 @@
++/**
++ * 后台（不可见）终端的写入积压缓冲。
++ *
++ * 背景：非活动标签页只是 `display: none`，TerminalView 仍保持挂载、output 回调仍全速
++ * 把数据喂给 xterm。N 个后台会话同时刷屏 = N 份 parser + DOM renderer 抢主线程
++ * （实测本机同时挂 18 个会话，见 docs/71 §3、docs/73 §4）。
++ *
++ * 策略是**合并而不是丢弃**：不可见期间把数据攒起来，可见时一次性写入。数据零丢失、
++ * 顺序不变，省掉的是 N 次 parse + N 次渲染帧。积压超过上限时立刻整块 flush 一次，
++ * 让内存有界——flush 仍是完整前缀，不破坏转义序列。
++ */
++
++export interface TerminalHiddenWriteBuffer {
++  /**
++   * 收下一个 chunk。
++   * 返回应当立即写进 xterm 的数据；返回 `null` 表示已收进积压、暂时别写。
++   */
++  push(data: string): string | null;
++  /** 取出全部积压（变可见、解绑会话时调用）。无积压时返回 `null`。 */
++  drain(): string | null;
++  /** 丢弃积压（换绑到别的会话时调用，避免上一会话的数据串到新会话）。 */
++  reset(): void;
++  pendingLength(): number;
++}
++
++/** 积压上限（字符数）。超过即整块 flush，保证内存有界。 */
++const DEFAULT_MAX_PENDING_CHARS = 512 * 1024;
++
++interface CreateTerminalHiddenWriteBufferOptions {
++  /** 当前终端是否可见。可见时数据直通，不进积压。 */
++  isVisible: () => boolean;
++  maxPendingChars?: number;
++  /** 触发上限 flush 时的观测钩子。 */
++  onOverflowFlush?: (pendingLength: number) => void;
++}
++
++export function createTerminalHiddenWriteBuffer({
++  isVisible,
++  maxPendingChars = DEFAULT_MAX_PENDING_CHARS,
++  onOverflowFlush,
++}: CreateTerminalHiddenWriteBufferOptions): TerminalHiddenWriteBuffer {
++  let pending: string[] = [];
++  let pendingLength = 0;
++
++  const takeAll = (): string | null => {
++    if (pendingLength === 0) return null;
++    const merged = pending.join("");
++    pending = [];
++    pendingLength = 0;
++    return merged;
++  };
++
++  return {
++    push(data: string): string | null {
++      if (!data) return null;
++
++      if (isVisible()) {
++        // 可见时直通。但仍要把残留的积压拼在前面：可见性翻转与本次 push 的先后
++        // 不由本模块决定，漏拼会让积压数据永远排在后面 → 乱序。
++        const drained = takeAll();
++        return drained === null ? data : drained + data;
++      }
++
++      pending.push(data);
++      pendingLength += data.length;
++      if (pendingLength < maxPendingChars) return null;
++
++      onOverflowFlush?.(pendingLength);
++      return takeAll();
++    },
++
++    drain: takeAll,
++
++    reset(): void {
++      pending = [];
++      pendingLength = 0;
++    },
++
++    pendingLength: () => pendingLength,
++  };
++}
+diff --git a/web/components/panes/terminalOutputHandler.ts b/web/components/panes/terminalOutputHandler.ts
+new file mode 100644
+index 0000000..7b5c5a3
+--- /dev/null
++++ b/web/components/panes/terminalOutputHandler.ts
+@@ -0,0 +1,122 @@
++import type { Terminal } from "@xterm/xterm";
++
++import { getErrorMessage } from "@/utils";
++import { detectAlternateBufferTransitions } from "./terminalBufferMode";
++import { detectFocusReportMode } from "./terminalFocusReport";
++import {
++  createTerminalHiddenWriteBuffer,
++  type TerminalHiddenWriteBuffer,
++} from "./terminalHiddenWriteBuffer";
++
++interface RefValue<T> {
++  current: T;
++}
++
++export interface CreateTerminalOutputHandlerOptions {
++  /** 事件源会话 id，只用于日志归因。 */
++  sessionId: string;
++  terminalRef: RefValue<Terminal | null>;
++  focusReportModeRef: RefValue<boolean>;
++  hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
++  /** 本终端当前是否值得渲染（可见 且 所在布局是当前布局）。 */
++  isRenderVisible: () => boolean;
++  /** 当前 CLI 是否剥离 alt-screen，只用于日志归因。 */
++  keepCliOutputInNormalBuffer: boolean;
++  /** alt-screen 剥离等写入前的数据变换。 */
++  renderTerminalData: (data: string) => string;
++  writeTerminalData: (data: string, onWritten?: () => void) => Promise<void>;
++  syncTrackedBufferType: (reason: string) => void;
++  debugLog: (event: string, payload?: Record<string, unknown>) => void;
++}
++
++/**
++ * PTY 输出 → xterm 的写入管线。
++ *
++ * 从 TerminalView 抽出（该文件已触到行数棘轮上限，见 web/test/lineRatchet.test.ts）。
++ * 判据：只依赖显式传入的 ref 与回调，不碰组件内 state。
++ *
++ * 这里唯一的非平凡行为是**后台标签页积压**：非活动 tab 只是 `display: none` 仍保持挂载，
++ * 照单全收会让 N 个后台会话各压一份 parser + renderer 上主线程（docs/71 §3、docs/73 §4）。
++ * 策略是合并而非丢弃——不可见期间攒着，切回可见时一次性写入，零丢失、保序。
++ */
++export function createTerminalOutputHandler({
++  sessionId,
++  terminalRef,
++  focusReportModeRef,
++  hiddenWriteBufferRef,
++  isRenderVisible,
++  keepCliOutputInNormalBuffer,
++  renderTerminalData,
++  writeTerminalData,
++  syncTrackedBufferType,
++  debugLog,
++}: CreateTerminalOutputHandlerOptions): (data: string) => void {
++  return (data: string) => {
++    const term = terminalRef.current;
++    const focusReportMode = detectFocusReportMode(data, focusReportModeRef.current);
++    if (focusReportMode !== focusReportModeRef.current) {
++      debugLog("output.focus-report-mode.changed", {
++        bindSessionId: sessionId,
++        enabled: focusReportMode,
++      });
++      focusReportModeRef.current = focusReportMode;
++    }
++
++    const transitions = detectAlternateBufferTransitions(data);
++    const renderedData = renderTerminalData(data);
++    if (transitions.length > 0) {
++      debugLog("output.alternate-sequence.received", {
++        bindSessionId: sessionId,
++        transitions,
++        dataLength: data.length,
++        renderedDataLength: renderedData.length,
++        stripped: keepCliOutputInNormalBuffer,
++      });
++    }
++
++    if (!term) {
++      debugLog("output.write.skipped", {
++        bindSessionId: sessionId,
++        dataLength: data.length,
++        transitions,
++      });
++      return;
++    }
++
++    if (!renderedData) {
++      syncTrackedBufferType(
++        transitions.length > 0 ? "output.alternate-sequence.stripped" : "output.empty",
++      );
++      return;
++    }
++
++    hiddenWriteBufferRef.current ??= createTerminalHiddenWriteBuffer({
++      isVisible: isRenderVisible,
++      onOverflowFlush: (length) => {
++        debugLog("output.hidden.overflow-flush", { bindSessionId: sessionId, length });
++      },
++    });
++    const writableData = hiddenWriteBufferRef.current.push(renderedData);
++    if (writableData === null) return;
++
++    void writeTerminalData(writableData, () => {
++      if (transitions.length > 0) {
++        debugLog("output.alternate-sequence.applied", {
++          bindSessionId: sessionId,
++          transitions,
++          bufferAfter: term.buffer.active.type,
++          stripped: keepCliOutputInNormalBuffer,
++        });
++      }
++      syncTrackedBufferType(
++        transitions.length > 0 ? "output.alternate-sequence" : "output.write",
++      );
++    }).catch((error) => {
++      debugLog("output.write.failed", {
++        bindSessionId: sessionId,
++        dataLength: data.length,
++        error: getErrorMessage(error),
++      });
++    });
++  };
++}
+diff --git a/web/components/panes/terminalViewHelpers.ts b/web/components/panes/terminalViewHelpers.ts
+new file mode 100644
+index 0000000..bbba93d
+--- /dev/null
++++ b/web/components/panes/terminalViewHelpers.ts
+@@ -0,0 +1,121 @@
++// TerminalView 的模块级纯辅助：字体预热、光标样式归一、启动参数推导、
++// 系统回写与提示。从 TerminalView.tsx 拆出（该文件已触到行数棘轮上限，
++// 见 web/test/lineRatchet.test.ts），与同目录既有的 terminalXxx.ts 一脉。
++//
++// 判据：只依赖入参与全局单例、不碰组件内 ref/state 的才放这里。
++import { invoke } from "@tauri-apps/api/core";
++import type { Terminal } from "@xterm/xterm";
++import { toast } from "sonner";
++
++import { terminalService } from "@/services";
++import { isTauriRuntime } from "@/services/runtime";
++import { useTerminalStatusStore } from "@/stores";
++import type { CliTool, SshConnectionInfo, WslLaunchInfo } from "@/types";
++import type { TerminalThemePalette } from "./terminalTheme";
++
++export const IS_MAC =
++  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
++
++const TERMINAL_FONT_WAIT_TIMEOUT_MS = 1_500;
++
++// Best-effort wait for the configured terminal font to be ready before the
++// WebGL renderer rasterizes its first glyph atlas (otherwise the first paint
++// uses a blurry fallback). `document.fonts.ready` alone only settles fonts the
++// page already requested, so we also explicitly request the configured family.
++// A timeout guarantees a never-resolving font load can't block the terminal.
++export async function waitForTerminalFont(
++  fontSize: number,
++  fontFamily: string,
++): Promise<void> {
++  if (typeof document === "undefined" || !document.fonts) return;
++
++  const loadFont = (async () => {
++    try {
++      await document.fonts.load(`${fontSize}px ${fontFamily}`);
++    } catch {
++      // Ignore parse/load failures; fall through to the readiness signal.
++    }
++    try {
++      await document.fonts.ready;
++    } catch {
++      // Best-effort only.
++    }
++  })();
++
++  const timeout = new Promise<void>((resolve) => {
++    setTimeout(resolve, TERMINAL_FONT_WAIT_TIMEOUT_MS);
++  });
++
++  await Promise.race([loadFont, timeout]);
++}
++
++export type TerminalCursorStyle = "block" | "underline" | "bar";
++
++export function setMacosTerminalNativeFocus(focused: boolean): void {
++  if (!IS_MAC || !isTauriRuntime()) return;
++  void invoke("set_macos_terminal_focused", { focused }).catch(() => {});
++}
++
++export function normalizeTerminalCursorStyle(value?: string | null): TerminalCursorStyle {
++  return value === "underline" || value === "bar" ? value : "block";
++}
++
++export function resolveCliTool(cliTool?: CliTool, launchClaude?: boolean): string {
++  return cliTool ?? (launchClaude ? "claude" : "none");
++}
++
++export function resolveRuntimeKind(
++  ssh?: SshConnectionInfo,
++  wsl?: WslLaunchInfo,
++): "local" | "wsl" | "ssh" {
++  if (ssh) return "ssh";
++  if (wsl) return "wsl";
++  return "local";
++}
++
++export function findLiveSavedSessionId(savedSessionId?: string): string | null {
++  if (!savedSessionId) return null;
++  // 读共享状态缓存（useTerminalStatusStore，由 terminal-status 事件 + 定时刷新维护），
++  // 不再每个 tab 各发一次 getAllStatus IPC。重启时几十个 tab 同时挂载会并发打几十次
++  // get_all_terminal_status，把后端拖住，让后续 tab 卡在进启动队列前的这个 await，
++  // 导致"放约 10 个就停"的恢复 stall。同步读内存 map 不会 hang，也消除了 IPC 扇出。
++  // 缓存里没有（冷启动未命中）→ 视为非 live → 走 relaunch（队列），功能不丢。
++  const info = useTerminalStatusStore.getState().statusMap.get(savedSessionId);
++  return info && info.status !== "exited" ? savedSessionId : null;
++}
++
++export function writeTerminalReply(
++  sessionId: string | null,
++  response: string,
++  onError: (error: unknown) => void,
++) {
++  if (!sessionId) return;
++  void terminalService.write(sessionId, response, { source: "system" }).catch(onError);
++}
++
++/**
++ * 会话被另一个 CC-Panes 实例持有写权限时提示用户（docs/61 阶段 2）。
++ *
++ * 按会话去重 + 冷却：否则用户每敲一个字符都会弹一次 toast。
++ * 冷却窗口取 30s，与 daemon 侧租约 TTL 一致——租约过期后本实例可能重新拿到
++ * 写权限，那时再提示才有意义。
++ */
++const sessionClaimedNotifiedAt = new Map<string, number>();
++const SESSION_CLAIMED_NOTICE_COOLDOWN_MS = 30_000;
++
++export function notifySessionClaimed(sessionId: string, message: string) {
++  const now = Date.now();
++  const last = sessionClaimedNotifiedAt.get(sessionId) ?? 0;
++  if (now - last < SESSION_CLAIMED_NOTICE_COOLDOWN_MS) return;
++  sessionClaimedNotifiedAt.set(sessionId, now);
++  toast.warning(message);
++}
++
++export function applyTerminalElementTheme(
++  term: Terminal | null,
++  theme: TerminalThemePalette,
++) {
++  if (!term?.element) return;
++  term.element.style.backgroundColor = theme.background;
++  term.element.style.color = theme.foreground;
++}
+diff --git a/web/components/panes/useTerminalContextMenuActions.ts b/web/components/panes/useTerminalContextMenuActions.ts
+index 7245409..95b430d 100644
+--- a/web/components/panes/useTerminalContextMenuActions.ts
++++ b/web/components/panes/useTerminalContextMenuActions.ts
+@@ -4,9 +4,10 @@ import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+ import { useTranslation } from "react-i18next";
+ import { toast } from "sonner";
+ 
+-import { filesystemService, providerService } from "@/services";
++import { filesystemService, providerService, terminalService } from "@/services";
+ import { isTauriRuntime } from "@/services/runtime";
+ import { getErrorMessage } from "@/utils";
++import { noteTerminalGeometry } from "@/utils/terminalCast";
+ import { buildTerminalExportFileName, serializeTerminalBuffer } from "./terminalBufferSnapshot";
+ import { copyTerminalSelection } from "./terminalClipboard";
+ import { requestTerminalFitAll } from "./terminalFitEvents";
+@@ -29,8 +30,20 @@ interface UseTerminalContextMenuActionsOptions {
+     options?: { force?: boolean; focusIfSafe?: boolean; allowInactive?: boolean },
+   ) => void;
+   repaintTerminal: (reason: string) => void;
++  /**
++   * 本视图是否有权改后端 PTY 尺寸。共享 PTY 的镜像面板与只读面板必须为 false，
++   * 否则镜像里点一次刷新会改掉主视图的 PTY 尺寸。缺省保守取 false。
++   */
++  canResizeBackend?: () => boolean;
+ }
+ 
++/**
++ * SIGWINCH 抖动的两次 resize 间隔。要大于一帧、又不至于让用户看见明显闪动。
++ * 直接调 terminalService.resize（不走 layoutScheduler），否则会被它的 250ms
++ * 去抖合并成一次，抖动失效。
++ */
++const REDRAW_NUDGE_INTERVAL_MS = 80;
++
+ export function useTerminalContextMenuActions({
+   terminalRef,
+   rendererControllerRef,
+@@ -41,6 +54,7 @@ export function useTerminalContextMenuActions({
+   debugLog,
+   refitAndRepaintTerminal,
+   repaintTerminal,
++  canResizeBackend = () => false,
+ }: UseTerminalContextMenuActionsOptions) {
+   const { t } = useTranslation("panes");
+ 
+@@ -81,13 +95,59 @@ export function useTerminalContextMenuActions({
+     [currentSessionIdRef, sessionId],
+   );
+ 
++  /**
++   * 向 CLI 请求一次全量重绘：把 PTY 宽度抖一格再抖回来，触发 SIGWINCH。
++   *
++   * 为什么需要它——渲染层的 clearTextureAtlas/refresh 只能重画 xterm buffer 里已有的内容，
++   * 而实际错乱多半发生在 buffer 里（我们对 claude/codex 剥掉了 alt-screen，TUI 的相对定位
++   * 锚点会在主缓冲区滚动时丢失，之后每帧都画错行；详见 docs/73）。只有让 CLI 自己重画才修得掉。
++   * 不用 Ctrl+L：那会清屏，是破坏性操作，不该藏在"刷新显示"后面。
++   */
++  const requestCliRedraw = useCallback(() => {
++    if (!canResizeBackend()) return;
++    const term = terminalRef.current;
++    const activeSessionId = currentSessionIdRef.current ?? sessionId;
++    if (!term || !activeSessionId) return;
++
++    const { cols, rows } = term;
++    if (cols <= 1 || rows <= 0) return;
++
++    const send = (nextCols: number) => {
++      noteTerminalGeometry(activeSessionId, nextCols, rows);
++      void terminalService
++        .resize({ sessionId: activeSessionId, cols: nextCols, rows })
++        .catch((error) => {
++          debugLog("context-menu.refresh.resize.failed", {
++            cols: nextCols,
++            rows,
++            error: getErrorMessage(error),
++          });
++        });
++    };
++
++    debugLog("context-menu.refresh.sigwinch", { cols, rows });
++    send(cols - 1);
++    window.setTimeout(() => {
++      // 抖回来时重新取当前尺寸：这 80ms 内可能发生了真实的布局变化。
++      const current = terminalRef.current;
++      send(current?.cols === cols - 1 ? cols : (current?.cols ?? cols));
++    }, REDRAW_NUDGE_INTERVAL_MS);
++  }, [canResizeBackend, currentSessionIdRef, debugLog, sessionId, terminalRef]);
++
+   const handleMenuRefreshTerminal = useCallback(() => {
+     const term = terminalRef.current;
+     if (!term) return;
+     rendererControllerRef.current?.clearTextureAtlas("context-menu.refresh");
+     refitAndRepaintTerminal("context-menu.refresh", { focusIfSafe: true });
+     repaintTerminal("context-menu.refresh");
+-  }, [refitAndRepaintTerminal, repaintTerminal, rendererControllerRef, terminalRef]);
++    requestCliRedraw();
++  }, [
++    refitAndRepaintTerminal,
++    repaintTerminal,
++    rendererControllerRef,
++    requestCliRedraw,
++    terminalRef,
++  ]);
+ 
+   const handleMenuFitTerminal = useCallback(() => {
+     refitAndRepaintTerminal("context-menu.fit", {
+diff --git a/web/components/settings/TerminalSection.test.tsx b/web/components/settings/TerminalSection.test.tsx
+index 7e4d956..0f75e5b 100644
+--- a/web/components/settings/TerminalSection.test.tsx
++++ b/web/components/settings/TerminalSection.test.tsx
+@@ -34,6 +34,8 @@ function createValue(overrides: Partial<TerminalSettings> = {}): TerminalSetting
+     daemonOrphanTtlMinutes: 1440,
+     daemonOrphanReaperDisabled: false,
+     autoAdoptDaemonSessions: false,
++    lowerSessionPriority: true,
++    sessionCpuWeight: null,
+     ...overrides,
+   };
+ }
+diff --git a/web/components/settings/TerminalSection.tsx b/web/components/settings/TerminalSection.tsx
+index 3101c27..42193d3 100644
+--- a/web/components/settings/TerminalSection.tsx
++++ b/web/components/settings/TerminalSection.tsx
+@@ -200,6 +200,22 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
+         </p>
+       </div>
+ 
++      <div className="flex flex-col gap-1">
++        <div className="flex items-center gap-2">
++          <input
++            type="checkbox"
++            checked={value.lowerSessionPriority ?? true}
++            onChange={(e) => update("lowerSessionPriority", e.target.checked)}
++            className="w-4 h-4 cursor-pointer"
++            style={{ accentColor: "var(--app-accent)" }}
++          />
++          <Label>{t("lowerSessionPriority")}</Label>
++        </div>
++        <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
++          {t("lowerSessionPriorityHint")}
++        </p>
++      </div>
++
+       <div className="flex flex-col gap-1">
+         <div className="flex items-center gap-2">
+           <input
+diff --git a/web/components/settings/settingsRegistry.ts b/web/components/settings/settingsRegistry.ts
+index ca24e7f..85ce46a 100644
+--- a/web/components/settings/settingsRegistry.ts
++++ b/web/components/settings/settingsRegistry.ts
+@@ -140,6 +140,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
+       { id: "font", titleKey: "fontSize", descriptionKey: "fontFamilyCjkHint", keywordsKey: "searchKeywords.font", targetSectionId: "terminal-font" },
+       { id: "theme", titleKey: "terminalTheme", targetSectionId: "terminal-root" },
+       { id: "renderer", titleKey: "rendererMode", descriptionKey: "rendererHint", targetSectionId: "terminal-root" },
++      { id: "session-priority", titleKey: "lowerSessionPriority", descriptionKey: "lowerSessionPriorityHint", targetSectionId: "terminal-root" },
+       { id: "daemon", titleKey: "terminalDaemon", descriptionKey: "terminalDaemonHint", targetSectionId: "terminal-root" },
+     ],
+   },
+diff --git a/web/components/statusbar/SystemResourcePopover.tsx b/web/components/statusbar/SystemResourcePopover.tsx
+index 24738d8..313c3bf 100644
+--- a/web/components/statusbar/SystemResourcePopover.tsx
++++ b/web/components/statusbar/SystemResourcePopover.tsx
+@@ -42,8 +42,11 @@ interface SystemResourcePopoverProps {
+   orphansExpanded: boolean;
+   orphanKillArmed: boolean;
+   killingOrphans: boolean;
++  /** 已展开进程构成的会话。 */
++  expandedSessionIds: Set<string>;
+   onRefresh: () => void;
+   onToggleGroup: (name: string) => void;
++  onToggleSessionProcesses: (sessionId: string) => void;
+   onFocusSession: (sessionId: string) => void;
+   onArmSession: (sessionId: string) => void;
+   onKillSession: (sessionId: string) => void;
+@@ -72,8 +75,10 @@ export function SystemResourcePopover({
+   orphansExpanded,
+   orphanKillArmed,
+   killingOrphans,
++  expandedSessionIds,
+   onRefresh,
+   onToggleGroup,
++  onToggleSessionProcesses,
+   onFocusSession,
+   onArmSession,
+   onKillSession,
+@@ -132,8 +137,31 @@ export function SystemResourcePopover({
+                 {!collapsed && group.sessions.map((session) => {
+                   const armed = armedSessionId === session.sessionId;
+                   const killing = killingSessionId === session.sessionId;
++                  const processes = session.processes ?? [];
++                  // 旧后端不返回明细字段；此时退回成"没有可展开的东西"，不显示假的展开箭头。
++                  const expandable = processes.length > 0;
++                  const expanded = expandable && expandedSessionIds.has(session.sessionId);
+                   return (
+-                    <div key={session.sessionId} className="group flex h-8 items-center gap-1 pl-5 pr-1">
++                    <div key={session.sessionId}>
++                    <div className="group flex h-8 items-center gap-1 pl-2 pr-1">
++                      {expandable ? (
++                        <button
++                          type="button"
++                          aria-expanded={expanded}
++                          aria-label={t(
++                            expanded
++                              ? "resourceManagerCollapseProcesses"
++                              : "resourceManagerExpandProcesses",
++                            { name: session.title },
++                          )}
++                          className="flex size-4 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
++                          onClick={() => onToggleSessionProcesses(session.sessionId)}
++                        >
++                          {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
++                        </button>
++                      ) : (
++                        <span className="size-4 shrink-0" aria-hidden />
++                      )}
+                       <button
+                         type="button"
+                         aria-label={`${session.adoptable ? t("resourceManagerAdopt") : t("resourceManagerFocusSession")}: ${session.title}`}
+@@ -156,6 +184,12 @@ export function SystemResourcePopover({
+                         <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-text-primary)]">
+                           {session.title}
+                         </span>
++                        {/* 数字本来就是整棵进程树的聚合，但只显示 CPU/内存时"含不含子进程"完全看不出来。 */}
++                        {session.processCount > 1 && (
++                          <span className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[10px] tabular-nums text-[var(--app-text-tertiary)]">
++                            {t("resourceManagerProcessCount", { count: session.processCount })}
++                          </span>
++                        )}
+                         <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-[var(--app-text-secondary)]">
+                           {formatCpu(session.cpuPercent)}
+                         </span>
+@@ -183,6 +217,40 @@ export function SystemResourcePopover({
+                         </IconTooltipButton>
+                       )}
+                     </div>
++                    {expanded && (
++                      <div className="mb-1">
++                        {processes.map((process) => (
++                          <div
++                            key={process.pid}
++                            className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[11px]"
++                          >
++                            <span
++                              className="min-w-0 flex-1 truncate text-[var(--app-text-secondary)]"
++                              title={process.command}
++                            >
++                              {process.name}
++                            </span>
++                            <span className="shrink-0 tabular-nums text-[var(--app-text-tertiary)]">
++                              PID {process.pid} · {formatCpu(process.cpuPercent)} · {formatSize(process.memoryBytes)}
++                            </span>
++                          </div>
++                        ))}
++                        {/* 截断必须可见：不说"另有 N 个"，用户会以为上面就是全部。 */}
++                        {session.truncated && (
++                          <div className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[11px] text-[var(--app-text-tertiary)]">
++                            <span className="min-w-0 flex-1 truncate italic">
++                              {t("resourceManagerMoreProcesses", {
++                                count: session.truncated.processCount,
++                              })}
++                            </span>
++                            <span className="shrink-0 tabular-nums">
++                              {formatCpu(session.truncated.cpuPercent)} · {formatSize(session.truncated.memoryBytes)}
++                            </span>
++                          </div>
++                        )}
++                      </div>
++                    )}
++                    </div>
+                   );
+                 })}
+               </div>
+diff --git a/web/components/statusbar/SystemResourceSegment.test.tsx b/web/components/statusbar/SystemResourceSegment.test.tsx
+index d99d089..2077adf 100644
+--- a/web/components/statusbar/SystemResourceSegment.test.tsx
++++ b/web/components/statusbar/SystemResourceSegment.test.tsx
+@@ -260,6 +260,69 @@ describe("SystemResourceSegment", () => {
+     expect(terminalService.releaseSession).toHaveBeenCalledWith("session-1");
+   });
+ 
++  it("展开会话可看到底下挂了什么，且截断部分必须显式告知", async () => {
++    vi.mocked(systemStatsService.getResourceTree).mockResolvedValue({
++      ...tree,
++      sessions: [
++        {
++          ...tree.sessions[0],
++          processCount: 27,
++          processes: [
++            {
++              pid: 20,
++              parentPid: 19,
++              name: "pwsh.exe",
++              command: "pwsh.exe -NoLogo",
++              cpuPercent: 0.5,
++              memoryBytes: 50 * 1024 ** 2,
++            },
++            {
++              pid: 21,
++              parentPid: 20,
++              name: "cargo.exe",
++              command: "cargo build --workspace",
++              cpuPercent: 60,
++              memoryBytes: 180 * 1024 ** 2,
++            },
++          ],
++          truncated: {
++            processCount: 25,
++            cpuPercent: 120,
++            memoryBytes: 2 * 1024 ** 3,
++          },
++        },
++      ],
++    });
++
++    renderSegment();
++    await flushPromises();
++    await openPopover();
++
++    // 折叠态就要能看出这个数字含子进程，否则"含不含"完全同形。
++    expect(screen.getByText(/27 进程|27 procs/i)).toBeVisible();
++    expect(screen.queryByText("cargo.exe")).toBeNull();
++
++    fireEvent.click(
++      screen.getByRole("button", { name: /展开.*进程构成|show what .* is running/i }),
++    );
++
++    expect(screen.getByText("cargo.exe")).toBeVisible();
++    expect(screen.getByText("pwsh.exe")).toBeVisible();
++    // 只回传了 2 条明细但一共 27 个进程：不说"另有 25 个"，用户会以为上面就是全部。
++    expect(screen.getByText(/另有 25 个进程|25 more processes/i)).toBeVisible();
++  });
++
++  it("旧后端不返回明细时不显示假的展开箭头", async () => {
++    // tree 基线里的会话没有 processes 字段，正是旧后端的形态。
++    renderSegment();
++    await flushPromises();
++    await openPopover();
++
++    expect(
++      screen.queryByRole("button", { name: /展开.*进程构成|show what .* is running/i }),
++    ).toBeNull();
++  });
++
+   it("会话结束必须经过行内二次确认并走 killSession", async () => {
+     renderSegment();
+     await flushPromises();
+diff --git a/web/components/statusbar/SystemResourceSegment.tsx b/web/components/statusbar/SystemResourceSegment.tsx
+index 75325a4..056b312 100644
+--- a/web/components/statusbar/SystemResourceSegment.tsx
++++ b/web/components/statusbar/SystemResourceSegment.tsx
+@@ -140,6 +140,7 @@ export default function SystemResourceSegment() {
+   const [refreshing, setRefreshing] = useState(false);
+   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+   const [orphansExpanded, setOrphansExpanded] = useState(false);
++  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set());
+   const [armedSessionId, setArmedSessionId] = useState<string | null>(null);
+   const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
+   const [orphanKillArmed, setOrphanKillArmed] = useState(false);
+@@ -277,6 +278,15 @@ export default function SystemResourceSegment() {
+     });
+   };
+ 
++  const toggleSessionProcesses = (sessionId: string) => {
++    setExpandedSessionIds((current) => {
++      const next = new Set(current);
++      if (next.has(sessionId)) next.delete(sessionId);
++      else next.add(sessionId);
++      return next;
++    });
++  };
++
+   const focusSession = async (sessionId: string) => {
+     const panes = usePanesStore.getState();
+     const location = panes.findTabBySessionAcrossLayouts(sessionId);
+@@ -410,8 +420,10 @@ export default function SystemResourceSegment() {
+         orphansExpanded={orphansExpanded}
+         orphanKillArmed={orphanKillArmed}
+         killingOrphans={killingOrphans}
++        expandedSessionIds={expandedSessionIds}
+         onRefresh={() => void refreshResourceTree()}
+         onToggleGroup={toggleGroup}
++        onToggleSessionProcesses={toggleSessionProcesses}
+         onFocusSession={(sessionId) => void focusSession(sessionId)}
+         onArmSession={setArmedSessionId}
+         onKillSession={(sessionId) => void killSession(sessionId)}
+diff --git a/web/hooks/orchestratorOpenRouting.ts b/web/hooks/orchestratorOpenRouting.ts
+new file mode 100644
+index 0000000..5943df0
+--- /dev/null
++++ b/web/hooks/orchestratorOpenRouting.ts
+@@ -0,0 +1,70 @@
++// MCP 打开类事件（open_file / open_browser_tab）的布局路由。
++//
++// 从 useOrchestratorListener.ts 拆出：该文件已触到行数棘轮上限
++// （web/test/lineRatchet.test.ts）。这一组的共同点是「把调用方身份换算成落点，
++// 以及落点不在眼前时怎么告诉用户」，与事件订阅本身无关，自成一层。
++import { toast } from "sonner";
++
++import i18n from "@/i18n";
++import { useActivityBarStore, usePanesStore } from "@/stores";
++
++/**
++ * 「谁指挥的，就开到谁那儿」——把 MCP 调用方会话解析成它所在的布局/窗格。
++ *
++ * 不这么做的话，open_file / open_browser_tab 一律落在**用户此刻正看着的布局**：
++ * 另一个布局里的 agent 打开页面，标签会飞到用户眼前的布局里（用户报的「到处飞」）。
++ * 解析不出（无调用方身份 / 会话已关）返回 null → 保持旧行为落当前布局。
++ */
++export function resolveCallerPlacement(
++  callerSessionId?: string,
++): { layoutId: string; paneId: string } | null {
++  const sessionId = callerSessionId?.trim();
++  if (!sessionId) return null;
++  const location = usePanesStore.getState().findTabBySessionAcrossLayouts(sessionId);
++  if (!location) return null;
++  return { layoutId: location.layoutId, paneId: location.panel.id };
++}
++
++/**
++ * 浏览器标签落点：显式 paneId（连同它所在布局）> 调用方所在布局/窗格 > 当前布局。
++ * `landedLayoutId` 是实际落点，调用方据此决定要不要切视图 / 提示。
++ */
++export function resolveBrowserPlacement(payload: {
++  paneId?: string;
++  callerSessionId?: string;
++}): { layoutId?: string; paneId?: string; landedLayoutId: string } {
++  const panes = usePanesStore.getState();
++  const explicitPaneId = payload.paneId?.trim() || undefined;
++  const explicitPane = explicitPaneId ? panes.findPaneAcrossLayouts(explicitPaneId) : null;
++  const caller = resolveCallerPlacement(payload.callerSessionId);
++  const layoutId = explicitPane?.layoutId ?? caller?.layoutId;
++  return {
++    layoutId,
++    paneId: explicitPaneId ?? caller?.paneId,
++    landedLayoutId: layoutId ?? panes.currentLayoutId,
++  };
++}
++
++/**
++ * 落点不在用户眼前时给一条可点的提示。
++ * 不自动切布局：把用户从正在看的画面拽走比让他自己点一下更糟。
++ */
++export function notifyOpenedInOtherLayout(
++  landedLayoutId: string | null,
++  title: string,
++): void {
++  if (!landedLayoutId) return;
++  const store = usePanesStore.getState();
++  if (landedLayoutId === store.currentLayoutId) return;
++  const layout = store.listLayouts().find((item) => item.id === landedLayoutId);
++  if (!layout) return;
++  toast.info(i18n.t("orchestratorOpenedInLayout", { ns: "panes", title, layout: layout.name }), {
++    action: {
++      label: i18n.t("orchestratorLaunchedInLayoutGoto", { ns: "panes" }),
++      onClick: () => {
++        usePanesStore.getState().switchLayout(landedLayoutId);
++        useActivityBarStore.getState().setAppViewMode("panes");
++      },
++    },
++  });
++}
+diff --git a/web/hooks/useOrchestratorListener.test.tsx b/web/hooks/useOrchestratorListener.test.tsx
+index 415a535..3e7f3b0 100644
+--- a/web/hooks/useOrchestratorListener.test.tsx
++++ b/web/hooks/useOrchestratorListener.test.tsx
+@@ -599,4 +599,92 @@ describe("useOrchestratorListener layout placement", () => {
+       data: JSON.stringify({ tabId: "existing-tab" }),
+     });
+   });
++
++  // 「谁指挥的就开到谁那儿」：调用方在别的布局时，标签必须落在它那边，
++  // 不能飞到用户此刻正看着的布局，也不能把用户拽走。
++  it("open-browser-tab 落到调用方所在布局，不切走当前布局", async () => {
++    const listeners = mockWebviewListeners();
++    const secondPane = createPanel();
++    usePanesStore.setState((state) => ({
++      layouts: [
++        ...state.layouts,
++        { id: "layout-2", name: "第二布局", rootPane: secondPane, activePaneId: secondPane.id },
++      ],
++    }));
++    // 调用方会话住在 layout-2
++    usePanesStore.getState().addTab(
++      secondPane.id,
++      { projectId: "p", projectPath: "/tmp/project-b", sessionId: "caller-session" },
++      "layout-2",
++    );
++
++    renderHook(() => useOrchestratorListener());
++    await waitFor(() => expect(listeners.has("orchestrator-open-browser-tab")).toBe(true));
++
++    await act(async () => {
++      await listeners.get("orchestrator-open-browser-tab")?.({
++        payload: {
++          requestId: "browser-request-3",
++          tabId: "browser-tab-3",
++          url: "http://localhost:5173/from-caller",
++          callerSessionId: "caller-session",
++        },
++      });
++    });
++
++    const state = usePanesStore.getState();
++    expect(state.currentLayoutId).toBe("layout-1");
++    const layout2 = state.layouts.find((item) => item.id === "layout-2")!;
++    expect(
++      collectPanels(layout2.rootPane)
++        .flatMap((pane) => pane.tabs)
++        .map((tab) => tab.id),
++    ).toContain("browser-tab-3");
++    expect(
++      collectPanels(state.rootPane)
++        .flatMap((pane) => pane.tabs)
++        .map((tab) => tab.id),
++    ).not.toContain("browser-tab-3");
++    // 落点不在眼前：给一条可点提示，而不是自动切过去
++    expect(toast.info).toHaveBeenCalled();
++  });
++
++  it("open-file 落到调用方所在布局", async () => {
++    const listeners = mockWebviewListeners();
++    const secondPane = createPanel();
++    usePanesStore.setState((state) => ({
++      layouts: [
++        ...state.layouts,
++        { id: "layout-2", name: "第二布局", rootPane: secondPane, activePaneId: secondPane.id },
++      ],
++    }));
++    usePanesStore.getState().addTab(
++      secondPane.id,
++      { projectId: "p", projectPath: "/tmp/project-b", sessionId: "caller-session" },
++      "layout-2",
++    );
++
++    renderHook(() => useOrchestratorListener());
++    await waitFor(() => expect(listeners.has("orchestrator-open-file")).toBe(true));
++
++    await act(async () => {
++      await listeners.get("orchestrator-open-file")?.({
++        payload: {
++          filePath: "/tmp/project-b/main.rs",
++          projectPath: "/tmp/project-b",
++          title: "main.rs",
++          callerSessionId: "caller-session",
++        },
++      });
++    });
++
++    const state = usePanesStore.getState();
++    expect(state.currentLayoutId).toBe("layout-1");
++    const layout2 = state.layouts.find((item) => item.id === "layout-2")!;
++    expect(
++      collectPanels(layout2.rootPane)
++        .flatMap((pane) => pane.tabs)
++        .map((tab) => tab.filePath),
++    ).toContain("/tmp/project-b/main.rs");
++  });
+ });
+diff --git a/web/hooks/useOrchestratorListener.ts b/web/hooks/useOrchestratorListener.ts
+index 09133ce..b6ccc32 100644
+--- a/web/hooks/useOrchestratorListener.ts
++++ b/web/hooks/useOrchestratorListener.ts
+@@ -26,6 +26,11 @@ import { isTauriRuntime } from "@/services/runtime";
+ import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
+ import { collectPanels } from "@/stores/paneTreeHelpers";
+ import { resolveWorkspaceLaunchLayout } from "@/utils/layoutWorkspace";
++import {
++  notifyOpenedInOtherLayout,
++  resolveBrowserPlacement,
++  resolveCallerPlacement,
++} from "./orchestratorOpenRouting";
+ 
+ import type { CliTool, LaunchProviderSelection, SshConnectionInfo, WslLaunchInfo } from "@/types";
+ 
+@@ -313,7 +318,12 @@ export function useOrchestratorListener() {
+ 
+     // 3. open-file 事件
+     getCurrentWebview()
+-      .listen<{ filePath: string; projectPath: string; title: string }>(
++      .listen<{
++        filePath: string;
++        projectPath: string;
++        title: string;
++        callerSessionId?: string;
++      }>(
+         "orchestrator-open-file",
+         (event) => {
+           const { filePath, projectPath, title } = event.payload;
+@@ -321,8 +331,13 @@ export function useOrchestratorListener() {
+             "[Orchestrator] Received open-file event:",
+             event.payload
+           );
+-          // 在分屏区作为 editor tab 打开（与终端并列），去重聚焦由 openEditor 负责
+-          usePanesStore.getState().openEditor(projectPath, filePath, title);
++          // 在分屏区作为 editor tab 打开（与终端并列），去重聚焦由 openEditor 负责；
++          // 布局落点跟随调用方所在布局，解析不出才回落当前布局。
++          const caller = resolveCallerPlacement(event.payload.callerSessionId);
++          const landedLayoutId = usePanesStore
++            .getState()
++            .openEditor(projectPath, filePath, title, caller?.layoutId);
++          notifyOpenedInOtherLayout(landedLayoutId, title);
+         }
+       )
+       .then((fn) => unlisteners.push(fn));
+@@ -356,9 +371,13 @@ export function useOrchestratorListener() {
+         title?: string;
+         paneId?: string;
+         reuse?: boolean;
++        callerSessionId?: string;
+       }>("orchestrator-open-browser-tab", async (event) => {
++        const panes = usePanesStore.getState();
++        const { layoutId, paneId, landedLayoutId } = resolveBrowserPlacement(event.payload);
+         const activity = useActivityBarStore.getState();
+-        if (activity.appViewMode !== "panes") {
++        // 只有落在用户眼前的布局才切回分屏视图；否则切过去也看不到这次打开
++        if (landedLayoutId === panes.currentLayoutId && activity.appViewMode !== "panes") {
+           activity.setAppViewMode("panes");
+         }
+         const actualTabId = usePanesStore.getState().openBrowser(
+@@ -366,8 +385,9 @@ export function useOrchestratorListener() {
+           event.payload.title,
+           event.payload.tabId,
+           // 旧后端不带 paneId/reuse：reuse 缺失按 true 处理（复用是更安全的默认）
+-          { paneId: event.payload.paneId, reuse: event.payload.reuse !== false },
++          { paneId, reuse: event.payload.reuse !== false, layoutId },
+         );
++        notifyOpenedInOtherLayout(landedLayoutId, event.payload.title || event.payload.url);
+         if (event.payload.requestId) {
+           await invoke("respond_orchestrator_query", {
+             requestId: event.payload.requestId,
+diff --git a/web/i18n/locales/en/common.json b/web/i18n/locales/en/common.json
+index 3fce073..abdd22e 100644
+--- a/web/i18n/locales/en/common.json
++++ b/web/i18n/locales/en/common.json
+@@ -86,6 +86,14 @@
+   "resourceManagerConfirmTerminateOrphans": "Confirm termination of {{count}} orphaned processes",
+   "resourceManagerConfirmTerminateOrphans_one": "Confirm termination of {{count}} orphaned process",
+   "resourceManagerConfirmTerminateOrphans_other": "Confirm termination of {{count}} orphaned processes",
++  "resourceManagerExpandProcesses": "Show what {{name}} is running",
++  "resourceManagerCollapseProcesses": "Hide what {{name}} is running",
++  "resourceManagerProcessCount": "{{count}} procs",
++  "resourceManagerProcessCount_one": "{{count}} proc",
++  "resourceManagerProcessCount_other": "{{count}} procs",
++  "resourceManagerMoreProcesses": "{{count}} more processes",
++  "resourceManagerMoreProcesses_one": "{{count}} more process",
++  "resourceManagerMoreProcesses_other": "{{count}} more processes",
+   "resourceManagerKillSessionFailed": "Failed to end session",
+   "resourceManagerKillOrphansPartial": "Failed to terminate {{count}} orphaned processes",
+   "resourceManagerKillOrphansPartial_one": "Failed to terminate {{count}} orphaned process",
+diff --git a/web/i18n/locales/en/panes.json b/web/i18n/locales/en/panes.json
+index f1c9216..263a763 100644
+--- a/web/i18n/locales/en/panes.json
++++ b/web/i18n/locales/en/panes.json
+@@ -113,6 +113,7 @@
+   "orchestratorLaunchProjectPathMissing": "Ignored MCP launch event because project path is missing",
+   "orchestratorLaunchedInLayout": "Launched in \"{{layout}}\"",
+   "orchestratorLaunchedInLayoutGoto": "Go there",
++  "orchestratorOpenedInLayout": "Opened {{title}} in \"{{layout}}\"",
+   "voiceStartRecording": "Voice input",
+   "voiceStopRecording": "Stop recording",
+   "voiceTranscribing": "Transcribing",
+diff --git a/web/i18n/locales/en/settings.json b/web/i18n/locales/en/settings.json
+index 03a304f..857bdad 100644
+--- a/web/i18n/locales/en/settings.json
++++ b/web/i18n/locales/en/settings.json
+@@ -522,6 +522,8 @@
+   "editGlobalConfig": "Edit Global Config",
+   "resumeIdBackfill": "Enable legacy resume id backfill (troubleshooting)",
+   "resumeIdBackfillHint": "Legacy mechanism that guesses resume ids by scanning session directories. Superseded by deterministic binding (Claude issued id / Codex title capture). Keep off unless troubleshooting.",
++  "lowerSessionPriority": "Lower session process priority",
++  "lowerSessionPriorityHint": "Runs each session's process tree (the CLI and everything it spawns — cargo, rg, npm) at below-normal priority so a busy pane can't starve the UI. Idle cores are still used fully, so build throughput is unaffected. Applies to newly started sessions.",
+   "terminalDaemon": "Terminal session sharing (daemon)",
+   "terminalDaemonHint": "Host PTYs in a standalone daemon so desktop, Web and mobile attach to the same live sessions. Takes effect after app restart.",
+   "daemonOrphanTtl": "Unwatched session expiry (minutes)",
+diff --git a/web/i18n/locales/zh-CN/common.json b/web/i18n/locales/zh-CN/common.json
+index 5721e5f..01fd2f6 100644
+--- a/web/i18n/locales/zh-CN/common.json
++++ b/web/i18n/locales/zh-CN/common.json
+@@ -86,6 +86,14 @@
+   "resourceManagerConfirmTerminateOrphans": "确认终止 {{count}} 个孤立进程",
+   "resourceManagerConfirmTerminateOrphans_one": "确认终止 {{count}} 个孤立进程",
+   "resourceManagerConfirmTerminateOrphans_other": "确认终止 {{count}} 个孤立进程",
++  "resourceManagerExpandProcesses": "展开 {{name}} 的进程构成",
++  "resourceManagerCollapseProcesses": "折叠 {{name}} 的进程构成",
++  "resourceManagerProcessCount": "{{count}} 进程",
++  "resourceManagerProcessCount_one": "{{count}} 进程",
++  "resourceManagerProcessCount_other": "{{count}} 进程",
++  "resourceManagerMoreProcesses": "另有 {{count}} 个进程",
++  "resourceManagerMoreProcesses_one": "另有 {{count}} 个进程",
++  "resourceManagerMoreProcesses_other": "另有 {{count}} 个进程",
+   "resourceManagerKillSessionFailed": "结束会话失败",
+   "resourceManagerKillOrphansPartial": "{{count}} 个孤立进程终止失败",
+   "resourceManagerKillOrphansPartial_one": "{{count}} 个孤立进程终止失败",
+diff --git a/web/i18n/locales/zh-CN/panes.json b/web/i18n/locales/zh-CN/panes.json
+index 0fe6754..9f5b69b 100644
+--- a/web/i18n/locales/zh-CN/panes.json
++++ b/web/i18n/locales/zh-CN/panes.json
+@@ -113,6 +113,7 @@
+   "orchestratorLaunchProjectPathMissing": "MCP 启动事件缺少项目路径，已忽略",
+   "orchestratorLaunchedInLayout": "已在「{{layout}}」启动",
+   "orchestratorLaunchedInLayoutGoto": "切过去",
++  "orchestratorOpenedInLayout": "已在「{{layout}}」打开 {{title}}",
+   "voiceStartRecording": "语音输入",
+   "voiceStopRecording": "停止录音",
+   "voiceTranscribing": "正在识别",
+diff --git a/web/i18n/locales/zh-CN/settings.json b/web/i18n/locales/zh-CN/settings.json
+index 55cddb1..f12eaab 100644
+--- a/web/i18n/locales/zh-CN/settings.json
++++ b/web/i18n/locales/zh-CN/settings.json
+@@ -522,6 +522,8 @@
+   "editGlobalConfig": "编辑通用配置",
+   "resumeIdBackfill": "启用旧版 Resume ID 回填（排障用）",
+   "resumeIdBackfillHint": "旧机制：扫会话目录按时间猜测 resume id，已被确定性绑定（Claude 发号 / Codex 标题捕获）取代。默认关闭，仅排障时打开。",
++  "lowerSessionPriority": "降低会话进程优先级",
++  "lowerSessionPriorityHint": "让每个会话的整棵进程树（CLI 及它起的 cargo / rg / npm）以低于普通的优先级运行，忙碌的窗格就抢不过界面。空闲核心照样跑满，编译吞吐不受影响。对新启动的会话生效。",
+   "terminalDaemon": "终端会话共享（daemon）",
+   "terminalDaemonHint": "PTY 托管到独立守护进程：桌面与 Web/手机端看到并操作同一批会话（无缝接力）。重启应用生效。",
+   "daemonOrphanTtl": "无人查看会话过期（分钟）",
+diff --git a/web/stores/browserTabActions.ts b/web/stores/browserTabActions.ts
+index 86d1de1..be75b7e 100644
+--- a/web/stores/browserTabActions.ts
++++ b/web/stores/browserTabActions.ts
+@@ -1,13 +1,21 @@
+ import type { Draft } from "immer";
+ 
+-import type { LayoutEntry, PaneNode, Tab } from "@/types";
+-import { findPane, generateId } from "./paneTreeHelpers";
++import type { PaneNode, Tab } from "@/types";
++import type { PanesDraft } from "./panesStoreTypes";
++import { resolveLayoutWriteTarget } from "./paneLayoutHelpers";
++import { collectPanels, findPane, generateId } from "./paneTreeHelpers";
+ 
+ export interface OpenBrowserOptions {
+   /** 落位到指定窗格；缺省或找不到时回落当前活动窗格 */
+   paneId?: string;
+   /** 已有同 URL 标签时复用并聚焦（默认 true） */
+   reuse?: boolean;
++  /**
++   * 落位到指定布局；缺省 = 当前布局。
++   * MCP 调用方（agent）所在布局由此传入——不传就会落进用户此刻正看着的布局，
++   * 表现为「标签飞到别的布局去了」。
++   */
++  layoutId?: string;
+ }
+ 
+ export interface BrowserTabActions {
+@@ -20,11 +28,6 @@ export interface BrowserTabActions {
+   updateBrowserTab: (tabId: string, patch: { browserUrl?: string; title?: string }) => void;
+ }
+ 
+-interface BrowserTabState extends BrowserTabActions {
+-  rootPane: PaneNode;
+-  activePaneId: string;
+-  layouts: LayoutEntry[];
+-}
+ 
+ function findBrowserTab(node: Draft<PaneNode>, tabId: string): Draft<Tab> | null {
+   if (node.type === "panel") {
+@@ -74,23 +77,29 @@ function findTabByUrl(
+   return null;
+ }
+ 
+-export function createBrowserTabActions<T extends BrowserTabState>(
+-  set: (recipe: (state: Draft<T>) => void) => void,
++export function createBrowserTabActions(
++  set: (recipe: (state: PanesDraft) => void) => void,
+ ): BrowserTabActions {
+   return {
+     openBrowser: (url, title, tabId, options) => {
+       const reuse = options?.reuse !== false;
+       let actualTabId: string | null = null;
+       set((state) => {
++        // 0) 先定「写到哪个布局」：目标布局不存在时 resolveLayoutWriteTarget 会退回当前布局。
++        const target = resolveLayoutWriteTarget(state, options?.layoutId);
++        if (!target) return;
++        const tree = target.tree;
++
+         // 1) 复用：同一个页面已经开着就聚焦它，不再堆一个新标签。
+         //    这是默认路径——调用方每查一个页面就开一个标签会把版面堆满。
++        //    只在目标布局内查重：跨布局复用等于把用户拽走，正是要治的「到处飞」。
+         if (reuse) {
+-          const existing = findTabByUrl(state.rootPane, url);
++          const existing = findTabByUrl(tree, url);
+           if (existing) {
+-            const pane = findPane(state.rootPane, existing.paneId);
++            const pane = findPane(tree, existing.paneId);
+             if (pane?.type === "panel") {
+               pane.activeTabId = existing.tab.id;
+-              state.activePaneId = pane.id;
++              target.setActivePaneId(pane.id);
+               actualTabId = existing.tab.id;
+             }
+             return;
+@@ -98,9 +107,11 @@ export function createBrowserTabActions<T extends BrowserTabState>(
+         }
+ 
+         // 2) 落位：显式 paneId 优先；无效则回落活动窗格，绝不静默丢弃这次打开。
+-        const requested = options?.paneId ? findPane(state.rootPane, options.paneId) : null;
+-        const pane =
+-          requested?.type === "panel" ? requested : findPane(state.rootPane, state.activePaneId);
++        const requested = options?.paneId ? findPane(tree, options.paneId) : null;
++        const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
++        const found =
++          requested?.type === "panel" ? requested : findPane(tree, fallbackPaneId);
++        const pane = found?.type === "panel" ? found : collectPanels(tree)[0];
+         if (pane?.type !== "panel") return;
+ 
+         const newTab: Tab = {
+@@ -114,7 +125,7 @@ export function createBrowserTabActions<T extends BrowserTabState>(
+         };
+         pane.tabs.push(newTab);
+         pane.activeTabId = newTab.id;
+-        state.activePaneId = pane.id;
++        target.setActivePaneId(pane.id);
+         actualTabId = newTab.id;
+       });
+       return actualTabId;
+diff --git a/web/stores/editorTabActions.ts b/web/stores/editorTabActions.ts
+new file mode 100644
+index 0000000..e0948ad
+--- /dev/null
++++ b/web/stores/editorTabActions.ts
+@@ -0,0 +1,197 @@
++// 分屏区 editor 标签的打开 / 关闭 / 枚举。
++//
++// 从 usePanesStore.ts 拆出（该文件已触到行数棘轮上限，见 web/test/lineRatchet.test.ts），
++// 与 browserTabActions.ts 同一套路：只依赖 store 的 set/get 与布局辅助层。
++import type { PaneNode, Panel, Tab } from "@/types";
++import type { PanesDraft, PanesState, TabAcrossLayoutsLocation } from "./panesStoreTypes";
++import {
++  eachLayoutTree,
++  isStarredLayout,
++  resolveLayoutWriteTarget,
++} from "./paneLayoutHelpers";
++import { collectPanels, findPane, generateId } from "./paneTreeHelpers";
++import { useActivityBarStore } from "./useActivityBarStore";
++import { useEditorTabsStore } from "./useEditorTabsStore";
++
++export interface EditorTabFileInfo {
++  filePath: string;
++  projectPath: string;
++  title: string;
++  dirty: boolean;
++  pinned: boolean;
++  active: boolean;
++}
++
++export interface EditorTabActions {
++  openEditor: (
++    projectPath: string,
++    filePath: string,
++    title: string,
++    layoutId?: string,
++  ) => string | null;
++  closeEditorTabsByPath: (filePath: string) => void;
++  listEditorTabsAcrossLayouts: () => EditorTabFileInfo[];
++}
++
++/** 跨全部布局按 filePath 找 editor tab（分屏区文件去重/关闭/查询共用） */
++export function findEditorTabByPathAcrossLayouts(
++  state: PanesState,
++  filePath: string,
++): TabAcrossLayoutsLocation | null {
++  let found: TabAcrossLayoutsLocation | null = null;
++  eachLayoutTree(state, (layout, tree: PaneNode) => {
++    if (found) return;
++    for (const panel of collectPanels(tree)) {
++      const tab = panel.tabs.find(
++        (item: Tab) => item.contentType === "editor" && item.filePath === filePath,
++      );
++      if (tab) {
++        found = { layoutId: layout.id, layoutName: layout.name, tree, panel, tab };
++        return;
++      }
++    }
++  });
++  return found;
++}
++
++interface EditorHostStore extends PanesState {
++  selectTab: (paneId: string, tabId: string) => void;
++  switchLayout: (layoutId: string) => void;
++  closeTab: (paneId: string, tabId: string) => void;
++}
++
++export function createEditorTabActions(
++  set: (recipe: (state: PanesDraft) => void) => void,
++  get: () => EditorHostStore,
++): EditorTabActions {
++  return {
++    openEditor: (projectPath, filePath, title, layoutId) => {
++      // Files 视图不渲染分屏区：留在该视图的编辑面板内打开
++      // （useEditorTabsStore.openFile 自带去重与 recentFiles 登记）。
++      const activity = useActivityBarStore.getState();
++      if (activity.appViewMode === "files") {
++        useEditorTabsStore.getState().openFile(projectPath, filePath, title);
++        return null;
++      }
++
++      // 分屏区路径也要登记最近文件（RecentFilesPicker 数据源在 useEditorTabsStore）
++      useEditorTabsStore
++        .getState()
++        .addRecent({ filePath, projectPath, title, openedAt: Date.now() });
++
++      // 目标布局：调用方指定且确实存在才认，否则当前布局。
++      const requestedLayout = layoutId
++        ? get().listLayouts().find((layout) => layout.id === layoutId)
++        : undefined;
++      // 不传 layoutId = 用户在 UI 里点开的，视图跟着走（老行为）；
++      // 传了 = MCP 调用方指定落点，不许把用户从正在看的画面拽走。
++      const followView = !layoutId;
++
++      // 跨全部布局按 filePath 去重：同一文件双缓冲编辑会互相覆盖，聚焦已有 tab。
++      const found = findEditorTabByPathAcrossLayouts(get(), filePath);
++      const targetLayoutId = found?.layoutId ?? requestedLayout?.id ?? get().currentLayoutId;
++
++      // home/todo/providers 等视图看不到分屏区：落点在用户眼前（或视图跟着走）才切回 panes，
++      // 否则切过去也看不见这次打开。
++      if (
++        (followView || targetLayoutId === get().currentLayoutId) &&
++        activity.appViewMode !== "panes"
++      ) {
++        activity.setAppViewMode("panes");
++      }
++
++      if (found) {
++        if (followView && found.layoutId !== get().currentLayoutId) {
++          get().switchLayout(found.layoutId);
++        }
++        if (found.layoutId === get().currentLayoutId) {
++          get().selectTab(found.panel.id, found.tab.id);
++        } else {
++          // 目标在别的布局：原地聚焦，由调用方决定要不要提示「去看看」
++          set((state) => {
++            const target = resolveLayoutWriteTarget(state, found.layoutId);
++            if (!target) return;
++            const panel = findPane(target.tree, found.panel.id);
++            if (panel?.type !== "panel") return;
++            panel.activeTabId = found.tab.id;
++            target.setActivePaneId(panel.id);
++          });
++        }
++        return found.layoutId;
++      }
++
++      set((state) => {
++        const target = resolveLayoutWriteTarget(state, targetLayoutId);
++        if (!target) return;
++        const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
++        const basePane = findPane(target.tree, fallbackPaneId);
++        const pane = basePane?.type === "panel" ? basePane : collectPanels(target.tree)[0];
++        if (pane?.type !== "panel") return;
++        const newTab: Tab = {
++          id: generateId("tab"),
++          title,
++          contentType: "editor",
++          projectId: "",
++          projectPath,
++          sessionId: null,
++          filePath,
++        };
++        pane.tabs.push(newTab);
++        pane.activeTabId = newTab.id;
++        // 非当前布局：把落点记进该布局的 activePaneId，用户切过去就能看到这个文件
++        if (!target.isCurrent) target.setActivePaneId(pane.id);
++      });
++      return targetLayoutId;
++    },
++
++    closeEditorTabsByPath: (filePath) => {
++      // 当前布局：走 closeTab（保持 activeTab 收敛等既有语义）
++      for (const panel of collectPanels(get().rootPane)) {
++        const tab = panel.tabs.find(
++          (t) => t.contentType === "editor" && t.filePath === filePath,
++        );
++        if (tab) get().closeTab(panel.id, tab.id);
++      }
++      // 其他布局：直接从各自布局树移除
++      set((state) => {
++        for (const layout of state.layouts) {
++          if (layout.id === state.currentLayoutId || isStarredLayout(layout)) continue;
++          for (const panel of collectPanels(layout.rootPane)) {
++            const idx = panel.tabs.findIndex(
++              (t) => t.contentType === "editor" && t.filePath === filePath,
++            );
++            if (idx === -1) continue;
++            panel.tabs.splice(idx, 1);
++            if (panel.activeTabId && !panel.tabs.some((t) => t.id === panel.activeTabId)) {
++              panel.activeTabId = panel.tabs[panel.tabs.length - 1]?.id ?? null;
++            }
++          }
++        }
++      });
++    },
++
++    listEditorTabsAcrossLayouts: () => {
++      const state = get();
++      const result: EditorTabFileInfo[] = [];
++      eachLayoutTree(state, (layout, tree: PaneNode) => {
++        for (const panel of collectPanels(tree) as Panel[]) {
++          for (const t of panel.tabs) {
++            if (t.contentType !== "editor" || !t.filePath) continue;
++            result.push({
++              filePath: t.filePath,
++              projectPath: t.projectPath,
++              title: t.title,
++              dirty: t.dirty ?? false,
++              pinned: t.pinned ?? false,
++              active:
++                layout.id === state.currentLayoutId &&
++                panel.activeTabId === t.id &&
++                state.activePaneId === panel.id,
++            });
++          }
++        }
++      });
++      return result;
++    },
++  };
++}
+diff --git a/web/stores/paneLayoutHelpers.ts b/web/stores/paneLayoutHelpers.ts
+index f433337..9e3b1c2 100644
+--- a/web/stores/paneLayoutHelpers.ts
++++ b/web/stores/paneLayoutHelpers.ts
+@@ -11,6 +11,28 @@ import type {
+ } from "./panesStoreTypes";
+ import type { LayoutEntry, PaneNode } from "@/types";
+ 
++/** 遍历全部**普通**布局的树（跳过星标布局——它只是镜像，不是真实布局） */
++export function eachLayoutTree(
++  state: PanesState,
++  fn: (layout: LayoutEntry, tree: PaneNode) => void,
++): void;
++export function eachLayoutTree(
++  state: PanesDraft,
++  fn: (layout: LayoutDraft, tree: PaneNodeDraft) => void,
++): void;
++export function eachLayoutTree(
++  state: PanesState | PanesDraft,
++  fn: (layout: LayoutEntry | LayoutDraft, tree: PaneNode | PaneNodeDraft) => void,
++): void {
++  for (const layout of state.layouts) {
++    if (isStarredLayout(layout)) continue;
++    const tree = layoutTree(state, layout.id);
++    if (tree) {
++      fn(layout, tree);
++    }
++  }
++}
++
+ export function isStarredLayout(layout: Pick<LayoutEntry, "kind">): boolean {
+   return layout.kind === "starred";
+ }
+diff --git a/web/stores/panesStoreTypes.ts b/web/stores/panesStoreTypes.ts
+index c78255c..37a7a3b 100644
+--- a/web/stores/panesStoreTypes.ts
++++ b/web/stores/panesStoreTypes.ts
+@@ -214,7 +214,16 @@ export interface PanesState extends BrowserTabActions {
+   openSkillManager: (projectPath: string, title: string) => void;
+   openMemoryManager: (projectPath: string, title: string) => void;
+   openFileExplorer: (projectPath: string, title: string) => void;
+-  openEditor: (projectPath: string, filePath: string, title: string) => void;
++  /**
++   * 打开编辑器标签。`layoutId` 缺省 = 当前布局；MCP 调用方所在布局由调用者传入，
++   * 避免标签落进用户此刻正看着的布局。返回标签最终所在布局 id（Files 视图分支返回 null）。
++   */
++  openEditor: (
++    projectPath: string,
++    filePath: string,
++    title: string,
++    layoutId?: string,
++  ) => string | null;
+   closeEditorTabsByPath: (filePath: string) => void;
+   listEditorTabsAcrossLayouts: () => Array<{
+     filePath: string;
+diff --git a/web/stores/usePanesStore.crossLayout.test.ts b/web/stores/usePanesStore.crossLayout.test.ts
+index 42202a4..9df321d 100644
+--- a/web/stores/usePanesStore.crossLayout.test.ts
++++ b/web/stores/usePanesStore.crossLayout.test.ts
+@@ -113,3 +113,77 @@ describe("addTab / openSessionBesidePane 的 layoutId", () => {
+     expect(usePanesStore.getState().currentLayoutId).toBe("layout-a");
+   });
+ });
++
++// openBrowser / openEditor 的 layoutId：MCP 调用方所在布局。漏掉它，
++// 别的布局里的 agent 打开页面/文件会飞到用户眼前的布局（用户报的「到处飞」）。
++describe("openBrowser / openEditor 的 layoutId", () => {
++  beforeEach(() => {
++    resetTwoLayouts();
++  });
++
++  function tabIdsIn(layoutId: string): string[] {
++    return collectPanels(layoutTreeOf(layoutId))
++      .flatMap((pane) => pane.tabs)
++      .map((tab) => tab.id);
++  }
++
++  it("openBrowser 带 layoutId 落到目标布局，不切当前布局", () => {
++    usePanesStore
++      .getState()
++      .openBrowser("http://localhost:5173/", "Preview", "b1", { layoutId: "layout-b" });
++
++    expect(tabIdsIn("layout-b")).toContain("b1");
++    expect(tabIdsIn("layout-a")).not.toContain("b1");
++    expect(usePanesStore.getState().currentLayoutId).toBe("layout-a");
++  });
++
++  it("openBrowser 的复用只在目标布局内查重，不跨布局把用户拽走", () => {
++    const store = usePanesStore.getState();
++    store.openBrowser("http://localhost:5173/app", "A", "b1");
++    const created = store.openBrowser("http://localhost:5173/app", "B", "b2", {
++      layoutId: "layout-b",
++    });
++
++    expect(created).toBe("b2");
++    expect(tabIdsIn("layout-a")).toContain("b1");
++    expect(tabIdsIn("layout-b")).toContain("b2");
++  });
++
++  it("openEditor 带 layoutId 落到目标布局，返回落点布局 id", () => {
++    const landed = usePanesStore
++      .getState()
++      .openEditor("/tmp/proj", "/tmp/proj/a.ts", "a.ts", "layout-b");
++
++    expect(landed).toBe("layout-b");
++    expect(usePanesStore.getState().currentLayoutId).toBe("layout-a");
++    const tabsB = collectPanels(layoutTreeOf("layout-b")).flatMap((pane) => pane.tabs);
++    expect(tabsB.map((tab) => tab.filePath)).toContain("/tmp/proj/a.ts");
++  });
++
++  it("带 layoutId（MCP 路径）命中别的布局里的同名文件时不强切布局，只回报落点", () => {
++    usePanesStore.getState().openEditor("/tmp/proj", "/tmp/proj/a.ts", "a.ts", "layout-b");
++
++    // 调用方在 layout-a，但文件已开在 layout-b：聚焦原处，不把用户拽走
++    const landed = usePanesStore
++      .getState()
++      .openEditor("/tmp/proj", "/tmp/proj/a.ts", "a.ts", "layout-a");
++
++    expect(landed).toBe("layout-b");
++    expect(usePanesStore.getState().currentLayoutId).toBe("layout-a");
++    // 不得在当前布局再开一份（同文件双缓冲会互相覆盖）
++    expect(
++      collectPanels(layoutTreeOf("layout-a"))
++        .flatMap((pane) => pane.tabs)
++        .filter((tab) => tab.contentType === "editor"),
++    ).toHaveLength(0);
++  });
++
++  it("不带 layoutId（用户在 UI 里点开）命中别的布局时仍切过去，保持「打开必可见」", () => {
++    usePanesStore.getState().openEditor("/tmp/proj", "/tmp/proj/a.ts", "a.ts", "layout-b");
++
++    const landed = usePanesStore.getState().openEditor("/tmp/proj", "/tmp/proj/a.ts", "a.ts");
++
++    expect(landed).toBe("layout-b");
++    expect(usePanesStore.getState().currentLayoutId).toBe("layout-b");
++  });
++});
+diff --git a/web/stores/usePanesStore.ts b/web/stores/usePanesStore.ts
+index 095f468..a803e3b 100644
+--- a/web/stores/usePanesStore.ts
++++ b/web/stores/usePanesStore.ts
+@@ -1,8 +1,6 @@
+ import { create } from "zustand";
+ import { persist } from "zustand/middleware";
+ import { immer } from "zustand/middleware/immer";
+-import { useEditorTabsStore } from "./useEditorTabsStore";
+-import { useActivityBarStore } from "./useActivityBarStore";
+ import { useFullscreenStore } from "./useFullscreenStore";
+ import { useTerminalStatusStore } from "./useTerminalStatusStore";
+ import { terminalService, ensureListeners } from "@/services/terminalService";
+@@ -16,6 +14,7 @@ import { createPanel } from "./paneTreeHelpers";
+ import {
+   activateFirstNormalLayout,
+   activeLayout,
++  eachLayoutTree,
+   firstNormalLayout,
+   isNormalLayout,
+   isStarredLayout,
+@@ -27,13 +26,12 @@ import {
+ import { createBrowserTabActions } from "./browserTabActions";
+ import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
+ import { migratePersistedPanes } from "./panesPersistMigrations";
++import { createEditorTabActions } from "./editorTabActions";
+ import type {
+   ClosedTabSnapshot,
+   CreateTabOptions,
+   DraftTabAcrossLayoutsLocation,
+-  LayoutDraft,
+   PaneAcrossLayoutsLocation,
+-  PaneNodeDraft,
+   PanesDraft,
+   PanesState,
+   StarredTabShortcut,
+@@ -341,24 +339,6 @@ function ensureStarredLayoutInDraft(state: PanesDraft): string {
+   return layout.id;
+ }
+ 
+-function eachLayoutTree(state: PanesState, fn: (layout: LayoutEntry, tree: PaneNode) => void): void;
+-function eachLayoutTree(
+-  state: PanesDraft,
+-  fn: (layout: LayoutDraft, tree: PaneNodeDraft) => void
+-): void;
+-function eachLayoutTree(
+-  state: PanesState | PanesDraft,
+-  fn: (layout: LayoutEntry | LayoutDraft, tree: PaneNode | PaneNodeDraft) => void
+-): void {
+-  for (const layout of state.layouts) {
+-    if (isStarredLayout(layout)) continue;
+-    const tree = layoutTree(state, layout.id);
+-    if (tree) {
+-      fn(layout, tree);
+-    }
+-  }
+-}
+-
+ function findTabAcrossLayouts(state: PanesState, tabId: string): TabAcrossLayoutsLocation | null;
+ function findTabAcrossLayouts(state: PanesDraft, tabId: string): DraftTabAcrossLayoutsLocation | null;
+ function findTabAcrossLayouts(
+@@ -403,27 +383,6 @@ function findTabBySessionAcrossLayouts(state: PanesState, sessionId: string): Ta
+   return found;
+ }
+ 
+-/// 跨全部布局按 filePath 找 editor tab（分屏区文件去重/关闭/查询共用）
+-function findEditorTabByPathAcrossLayouts(
+-  state: PanesState,
+-  filePath: string
+-): TabAcrossLayoutsLocation | null {
+-  let found: TabAcrossLayoutsLocation | null = null;
+-  eachLayoutTree(state, (layout, tree) => {
+-    if (found) return;
+-    for (const panel of collectPanels(tree)) {
+-      const tab = panel.tabs.find(
+-        (item) => item.contentType === "editor" && item.filePath === filePath
+-      );
+-      if (tab) {
+-        found = { layoutId: layout.id, layoutName: layout.name, tree, panel, tab };
+-        return;
+-      }
+-    }
+-  });
+-  return found;
+-}
+-
+ function findPaneAcrossLayouts(state: PanesState, paneId: string): PaneAcrossLayoutsLocation | null {
+   let found: PaneAcrossLayoutsLocation | null = null;
+   eachLayoutTree(state, (layout, tree) => {
+@@ -2364,108 +2323,7 @@ export const usePanesStore = create<PanesState>()(
+       });
+     },
+ 
+-    openEditor: (projectPath, filePath, title) => {
+-      // Files 视图不渲染分屏区：留在该视图的编辑面板内打开
+-      // （useEditorTabsStore.openFile 自带去重与 recentFiles 登记）。
+-      const activity = useActivityBarStore.getState();
+-      if (activity.appViewMode === "files") {
+-        useEditorTabsStore.getState().openFile(projectPath, filePath, title);
+-        return;
+-      }
+-
+-      // 分屏区路径也要登记最近文件（RecentFilesPicker 数据源在 useEditorTabsStore）
+-      useEditorTabsStore
+-        .getState()
+-        .addRecent({ filePath, projectPath, title, openedAt: Date.now() });
+-
+-      // home/todo/providers 等视图看不到分屏区：切回 panes 保证"打开必可见"
+-      if (activity.appViewMode !== "panes") {
+-        activity.setAppViewMode("panes");
+-      }
+-
+-      // 跨全部布局按 filePath 去重：同一文件双缓冲编辑会互相覆盖，聚焦已有 tab
+-      const found = findEditorTabByPathAcrossLayouts(get(), filePath);
+-      if (found) {
+-        if (found.layoutId !== get().currentLayoutId) {
+-          get().switchLayout(found.layoutId);
+-        }
+-        get().selectTab(found.panel.id, found.tab.id);
+-        return;
+-      }
+-
+-      set((state) => {
+-        const pane = findPane(state.rootPane, state.activePaneId);
+-        if (pane?.type !== "panel") return;
+-        const newTab: Tab = {
+-          id: generateId("tab"),
+-          title,
+-          contentType: "editor",
+-          projectId: "",
+-          projectPath,
+-          sessionId: null,
+-          filePath,
+-        };
+-        pane.tabs.push(newTab);
+-        pane.activeTabId = newTab.id;
+-      });
+-    },
+-
+-    closeEditorTabsByPath: (filePath) => {
+-      // 当前布局：走 closeTab（保持 activeTab 收敛等既有语义）
+-      for (const panel of collectPanels(get().rootPane)) {
+-        const tab = panel.tabs.find(
+-          (t) => t.contentType === "editor" && t.filePath === filePath
+-        );
+-        if (tab) get().closeTab(panel.id, tab.id);
+-      }
+-      // 其他布局：直接从各自布局树移除
+-      set((state) => {
+-        for (const layout of state.layouts) {
+-          if (layout.id === state.currentLayoutId || isStarredLayout(layout)) continue;
+-          for (const panel of collectPanels(layout.rootPane)) {
+-            const idx = panel.tabs.findIndex(
+-              (t) => t.contentType === "editor" && t.filePath === filePath
+-            );
+-            if (idx === -1) continue;
+-            panel.tabs.splice(idx, 1);
+-            if (panel.activeTabId && !panel.tabs.some((t) => t.id === panel.activeTabId)) {
+-              panel.activeTabId = panel.tabs[panel.tabs.length - 1]?.id ?? null;
+-            }
+-          }
+-        }
+-      });
+-    },
+-
+-    listEditorTabsAcrossLayouts: () => {
+-      const state = get();
+-      const result: Array<{
+-        filePath: string;
+-        projectPath: string;
+-        title: string;
+-        dirty: boolean;
+-        pinned: boolean;
+-        active: boolean;
+-      }> = [];
+-      eachLayoutTree(state, (layout, tree) => {
+-        for (const panel of collectPanels(tree)) {
+-          for (const t of panel.tabs) {
+-            if (t.contentType !== "editor" || !t.filePath) continue;
+-            result.push({
+-              filePath: t.filePath,
+-              projectPath: t.projectPath,
+-              title: t.title,
+-              dirty: t.dirty ?? false,
+-              pinned: t.pinned ?? false,
+-              active:
+-                layout.id === state.currentLayoutId &&
+-                panel.activeTabId === t.id &&
+-                state.activePaneId === panel.id,
+-            });
+-          }
+-        }
+-      });
+-      return result;
+-    },
++    ...createEditorTabActions(set, get),
+ 
+     setTabDirty: (_paneId, tabId, dirty) => {
+       set((state) => {
+diff --git a/web/stores/useSettingsStore.ts b/web/stores/useSettingsStore.ts
+index 2a1cbb3..9f1419c 100644
+--- a/web/stores/useSettingsStore.ts
++++ b/web/stores/useSettingsStore.ts
+@@ -260,6 +260,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
+       daemonOrphanTtlMinutes: 1440,
+       daemonOrphanReaperDisabled: false,
+       autoAdoptDaemonSessions: true,
++      lowerSessionPriority: true,
++      sessionCpuWeight: null,
+     },
+     shortcuts: {
+       bindings: {
+diff --git a/web/test/lineRatchet.baseline.json b/web/test/lineRatchet.baseline.json
+index 8674e24..76ac7a4 100644
+--- a/web/test/lineRatchet.baseline.json
++++ b/web/test/lineRatchet.baseline.json
+@@ -7,7 +7,7 @@
+   "components/orchestration/OrchestrationFullView.tsx": 511,
+   "components/panes/Panel.tsx": 561,
+   "components/panes/TabBar.tsx": 807,
+-  "components/panes/TerminalView.tsx": 2278,
++  "components/panes/TerminalView.tsx": 2193,
+   "components/providers/LaunchProfilesPanel.tsx": 2094,
+   "components/providers/ProviderFormPanel.tsx": 640,
+   "components/settings/SharedMcpSection.tsx": 608,
+@@ -18,6 +18,6 @@
+   "components/todo/TodoEditor.tsx": 614,
+   "components/todo/TodoManager.tsx": 507,
+   "services/terminalService.ts": 734,
+-  "stores/usePanesStore.ts": 3054,
++  "stores/usePanesStore.ts": 2879,
+   "utils/workspaceLaunch.ts": 663
+ }
+diff --git a/web/test/utils/testData.ts b/web/test/utils/testData.ts
+index 42fc363..2015cd8 100644
+--- a/web/test/utils/testData.ts
++++ b/web/test/utils/testData.ts
+@@ -114,6 +114,8 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
+       daemonOrphanTtlMinutes: 1440,
+       daemonOrphanReaperDisabled: false,
+       autoAdoptDaemonSessions: true,
++      lowerSessionPriority: true,
++      sessionCpuWeight: null,
+     },
+     shortcuts: { bindings: {} },
+     general: {
+diff --git a/web/types/index.ts b/web/types/index.ts
+index b724f4a..2612500 100644
+--- a/web/types/index.ts
++++ b/web/types/index.ts
+@@ -198,8 +198,10 @@ export type {
+   KillProcessResult,
+   OrphanProcessInfo,
+   ResourceTree,
++  SessionProcessInfo,
+   SessionResourceUsage,
+   SystemStats,
++  TruncatedProcessSummary,
+ } from "./systemStats";
+ export type {
+   BridgeMode,
+diff --git a/web/types/settings.ts b/web/types/settings.ts
+index ff4d0aa..428f028 100644
+--- a/web/types/settings.ts
++++ b/web/types/settings.ts
+@@ -131,6 +131,10 @@ export interface TerminalSettings {
+   daemonOrphanReaperDisabled: boolean;
+   /** 启动时自动认领 daemon 无主会话（严格身份匹配失败时仍会阻断） */
+   autoAdoptDaemonSessions: boolean;
++  /** 降低会话子进程调度优先级，让 UI 抢得过窗格里的编译任务。默认开启，新会话生效 */
++  lowerSessionPriority: boolean;
++  /** 会话 CPU 相对权重（1..=9，中性 5）。null 表示不设 */
++  sessionCpuWeight: number | null;
+ }
+ 
+ /** Shell 信息 */
+diff --git a/web/types/systemStats.ts b/web/types/systemStats.ts
+index 295f47e..c4f7cb8 100644
+--- a/web/types/systemStats.ts
++++ b/web/types/systemStats.ts
+@@ -4,12 +4,32 @@ export interface SystemStats {
+   memTotal: number;
+ }
+ 
++/** 会话进程树里的单个进程（资源管理器展开明细用）。 */
++export interface SessionProcessInfo {
++  pid: number;
++  parentPid: number | null;
++  name: string;
++  command: string;
++  cpuPercent: number;
++  memoryBytes: number;
++}
++
++/** 明细上限之外被折叠的部分。不展示它，"前 N 条"和"一共 N 条"在 UI 上完全同形。 */
++export interface TruncatedProcessSummary {
++  processCount: number;
++  cpuPercent: number;
++  memoryBytes: number;
++}
++
+ export interface SessionResourceUsage {
+   sessionId: string;
+   rootPid: number;
+   cpuPercent: number;
+   memoryBytes: number;
+   processCount: number;
++  /** 进程树明细，按内存降序。旧后端可能不返回，消费方必须容忍缺失。 */
++  processes?: SessionProcessInfo[];
++  truncated?: TruncatedProcessSummary | null;
+ }
+ 
+ export interface OrphanProcessInfo {

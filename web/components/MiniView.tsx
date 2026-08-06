@@ -4,14 +4,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { Maximize2, Pin } from "lucide-react";
 import { usePanesStore, useTerminalStatusStore, useMiniModeStore } from "@/stores";
 import StatusIndicator from "@/components/StatusIndicator";
+import { focusTab } from "@/hooks/useFocusTab";
+import { asTabId } from "@/types/ids";
 import type { Tab } from "@/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriReady, handleErrorSilent } from "@/utils";
 
 interface MiniSessionTab {
   tab: Tab;
-  paneId: string;
-  layoutId: string;
 }
 
 export default function MiniView() {
@@ -29,7 +29,7 @@ export default function MiniView() {
     for (const panel of allPanels()) {
       for (const tab of panel.tabs) {
         if (tab.sessionId) {
-          tabs.push({ tab, paneId: panel.id, layoutId: currentLayoutId });
+          tabs.push({ tab });
         }
       }
     }
@@ -52,14 +52,7 @@ export default function MiniView() {
   }
 
   function handleRestoreTab(item: MiniSessionTab) {
-    const store = usePanesStore.getState();
-    const location = store.findTabAcrossLayouts(item.tab.id)
-      ?? { layoutId: item.layoutId, panel: { id: item.paneId }, tab: item.tab };
-    if (location.layoutId !== store.currentLayoutId) {
-      store.switchLayout(location.layoutId);
-    }
-    store.setActivePane(location.panel.id);
-    store.selectTab(location.panel.id, location.tab.id);
+    focusTab(asTabId(item.tab.id), { switchAppView: true });
     handleRestore();
   }
 

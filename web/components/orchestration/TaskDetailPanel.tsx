@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import { Check, ChevronRight, Clipboard, ExternalLink, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useActivityBarStore, usePanesStore } from "@/stores";
+import { focusTab } from "@/hooks/useFocusTab";
+import { usePanesStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import type { TaskBinding } from "@/types";
 
 interface TaskDetailPanelProps {
@@ -138,18 +140,11 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
 
   const openPty = () => {
     if (!binding.sessionId) return;
-    useActivityBarStore.getState().setAppViewMode("panes");
     window.requestAnimationFrame(() => {
       const panes = usePanesStore.getState();
       const location = panes.findTabBySessionAcrossLayouts(binding.sessionId!);
       if (location) {
-        if (location.layoutId !== panes.currentLayoutId) {
-          panes.switchLayout(location.layoutId);
-        }
-        const tabIndex = location.panel.tabs.findIndex((tab) => tab.id === location.tab.id);
-        // fix(C3) review: 详情页直接激活 pane/tab，不再依赖未监听的 focus-session 事件。
-        panes.setActivePane(location.panel.id);
-        panes.switchToTab(location.panel.id, tabIndex);
+        focusTab(asTabId(location.tab.id), { switchAppView: true });
       }
     });
   };

@@ -18,8 +18,10 @@ import { useTabAttentionStore } from "@/stores/useTabAttentionStore";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { asPtySessionId } from "@/types/ids";
 import type { KillReason, Tab } from "@/types";
 import { TAB_LIFECYCLE } from "./registry";
+import { disposeSessionScopedResources } from "./sessionScopedResources";
 import type { CloseGuard, GuardContext } from "./registry";
 
 /**
@@ -265,6 +267,7 @@ export async function commitResourceDestroy(
   for (const tab of plan.tabs) {
     TAB_LIFECYCLE[tab.contentType].onClosed(tab, { detach: false, reason });
   }
+  for (const sessionId of plan.sessionIds) disposeSessionScopedResources(asPtySessionId(sessionId));
 }
 
 /**

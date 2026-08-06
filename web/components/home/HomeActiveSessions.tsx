@@ -2,31 +2,15 @@ import { useMemo } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal, Circle } from "lucide-react";
+import { focusTab } from "@/hooks/useFocusTab";
+import { statusColorToken } from "@/lib/statusPresentation";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import { isBusyStatus, type PaneNode, type Tab, type TerminalStatusType } from "@/types";
 
 function getAllTabs(pane: PaneNode): Tab[] {
   if (pane.type === "panel") return pane.tabs;
   return pane.children.flatMap(getAllTabs);
-}
-
-function statusColor(status: TerminalStatusType | null): string {
-  switch (status) {
-    case "active":
-    case "thinking":
-    case "toolRunning":
-      return "var(--chart-2)";
-    case "compacting":
-      return "var(--chart-1)";
-    case "waitingInput":
-      return "var(--app-warning)";
-    case "error":
-      return "var(--destructive)";
-    case "idle":
-      return "var(--app-text-tertiary)";
-    default:
-      return "var(--app-text-tertiary)";
-  }
 }
 
 export default function HomeActiveSessions() {
@@ -43,17 +27,6 @@ export default function HomeActiveSessions() {
     if (status === "waitingInput") return t("waiting");
     return t("idle");
   };
-
-  function focusTab(tabId: string) {
-    const store = usePanesStore.getState();
-    const location = store.findTabAcrossLayouts(tabId);
-    if (!location) return;
-    if (location.layoutId !== store.currentLayoutId) {
-      store.switchLayout(location.layoutId);
-    }
-    store.setActivePane(location.panel.id);
-    store.selectTab(location.panel.id, location.tab.id);
-  }
 
   if (activeTabs.length === 0) {
     return (
@@ -111,11 +84,11 @@ export default function HomeActiveSessions() {
               type="button"
               className="home-session-item flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors duration-[var(--dur-fast)]"
               style={{ borderColor: "var(--app-home-row-border)" }}
-              onClick={() => focusTab(tab.id)}
+              onClick={() => focusTab(asTabId(tab.id))}
             >
               <Circle
                 className={`w-2.5 h-2.5 shrink-0 ${isBusyStatus(status) ? "animate-pulse" : ""}`}
-                fill={statusColor(status)}
+                fill={statusColorToken(status)}
                 stroke="none"
               />
               <span

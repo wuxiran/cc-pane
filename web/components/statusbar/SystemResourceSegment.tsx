@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { focusTab } from "@/hooks/useFocusTab";
 import { sessionRestoreService } from "@/services/sessionRestoreService";
 import { systemStatsService } from "@/services/systemStatsService";
 import { terminalService } from "@/services/terminalService";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import type {
   CliTool,
   ResourceTree,
@@ -344,9 +346,7 @@ export default function SystemResourceSegment() {
       setOpen(false);
       return;
     }
-    if (location.layoutId !== panes.currentLayoutId) panes.switchLayout(location.layoutId);
-    panes.setActivePane(location.panel.id);
-    panes.selectTab(location.panel.id, location.tab.id);
+    focusTab(asTabId(location.tab.id), { switchAppView: true });
     setOpen(false);
   };
 

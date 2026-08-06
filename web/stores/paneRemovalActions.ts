@@ -25,7 +25,6 @@ import type {
 } from "./panesStoreTypes";
 import { terminalService } from "@/services/terminalService";
 import { handleErrorSilent } from "@/utils/errorHandler";
-import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { toClosedTabSnapshot, trimClosedTabs } from "./closedTabsUndo";
 import {
   assignTreeAndConvergeActive,
@@ -221,7 +220,6 @@ export function createPaneRemovalActions(
             void terminalService
               .killSession(sessionId, DESTROY_KILL_REASON[reason] ?? undefined)
               .catch((error) => handleErrorSilent(error, "kill terminal leaf session"));
-            useTerminalStatusStore.getState().removeSession(sessionId);
           }
           break;
         }

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { focusTab } from "@/hooks/useFocusTab";
 import { localHistoryService } from "@/services";
 import { useActivityBarStore, useOrchestratorStore, usePanesStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import type { TaskBinding } from "@/types";
 import CurrentActivityBadge from "./CurrentActivityBadge";
 import OrchestratorTaskActions from "./OrchestratorTaskActions";
@@ -53,13 +55,7 @@ function focusSessionTab(sessionId: string): void {
   const panes = usePanesStore.getState();
   const location = panes.findTabBySessionAcrossLayouts(sessionId);
   if (!location) return;
-  if (location.layoutId !== panes.currentLayoutId) {
-    panes.switchLayout(location.layoutId);
-  }
-  const tabIndex = location.panel.tabs.findIndex((tab) => tab.id === location.tab.id);
-  // fix(C3) review: 不再发送 dead event，直接激活匹配 session 的 pane/tab。
-  panes.setActivePane(location.panel.id);
-  panes.switchToTab(location.panel.id, tabIndex);
+  focusTab(asTabId(location.tab.id), { switchAppView: true });
 }
 
 interface OrchestratorTaskCardProps {

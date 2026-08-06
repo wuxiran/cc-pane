@@ -1,0 +1,408 @@
+commit fa8a9922d0cf626bc894e4c0a6db88377756ab9d
+Author: wuxiran <anonymous@localhost>
+Date:   Sat Aug 1 23:49:06 2026 +0800
+
+    fix(web): web-access 子进程加 OS 级回收兜底，宿主崩溃不留孤儿
+    
+    web-access 子进程此前只有 `child.kill()` 一条收口路径。CLAUDE.md 早就记着
+    「portable-pty 的 kill() 只杀直接子进程」——同一个坑在这条链上也成立：
+    宿主 panic/崩溃/被 taskkill /F 时，web 进程及其孙子进程全部变成孤儿，
+    端口一直被占，下次启动撞端口。
+    
+    PTY 那侧早有 Job Object 兜底（cc-panes-core/src/pty/job.rs），web 这侧一直没有。
+    本次补齐：
+    - Windows：子进程挂进 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 的 Job Object，
+      宿主一死内核清整棵树
+    - Unix：子进程独立进程组，killpg 整组收
+    - attach 失败即杀掉子进程并让启动失败——留一个收不掉的孤儿比启动失败难排查
+    - stop() 从裸 kill 改为「请求退出 → 3s 宽限 → 强杀」，宽限期有界，
+      因为 stop() 会在 UI 线程和应用退出路径上跑
+    
+    来源：从 fix-web-process-lifecycle 分支逐项抽取，不整分支合并。
+    那条分支基线停在 0.10.5，整分支合会把版本号退回 0.11.7→0.10.5、删掉
+    tauri-plugin-single-instance/deep-link/socket2 等依赖、抹掉后加的
+    daemon_expected 告警、并把 no_window_command 换回裸 Command（Windows 闪黑窗）。
+    该分支 9 个文件里 main 已有 8 个更新版本，只有 process_guard.rs 是真缺的。
+
+diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
+index 80c31b2..ab7518b 100644
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -92,6 +92,9 @@ windows = { version = "0.62", features = [
+     "Win32_UI_HiDpi",
+     "Win32_UI_Input_KeyboardAndMouse",
+     "Win32_UI_WindowsAndMessaging",
++    # process_guard 的 Job Object 兜底（web-access 子进程随宿主一同回收）
++    "Win32_System_JobObjects",
++    "Win32_Security",
+ ] }
+ 
+ [target.'cfg(target_os = "macos")'.dependencies]
+diff --git a/src-tauri/src/services/mod.rs b/src-tauri/src/services/mod.rs
+index e3d1292..9700ec7 100644
+--- a/src-tauri/src/services/mod.rs
++++ b/src-tauri/src/services/mod.rs
+@@ -6,6 +6,7 @@ mod browser_service;
+ mod launch_backfill_service;
+ mod notification_service;
+ pub mod orchestrator_service;
++mod process_guard;
+ pub mod rest_launch_history;
+ mod resume_binding_service;
+ pub mod screenshot_overlay;
+diff --git a/src-tauri/src/services/process_guard.rs b/src-tauri/src/services/process_guard.rs
+new file mode 100644
+index 0000000..47cb770
+--- /dev/null
++++ b/src-tauri/src/services/process_guard.rs
+@@ -0,0 +1,226 @@
++//! OS-level guarantee that a spawned child process — and its whole descendant
++//! tree — is reclaimed when this (parent) process goes away, regardless of how
++//! the parent dies (clean exit, panic, crash, or `taskkill /F`).
++//!
++//! The cooperative `stop()` path in [`super::web_access_lifecycle`] still does a
++//! best-effort graceful shutdown, but it only runs when the parent exits
++//! normally. This guard is the backstop that covers the abnormal paths:
++//!
++//! * **Windows** — the child is assigned to a Job Object created with
++//!   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. The job handle is held for the
++//!   lifetime of the parent process; when the last handle closes (including
++//!   implicitly when the parent dies), the kernel terminates every process in
++//!   the job — the child *and* any grandchildren it spawned (PTYs, CLIs).
++//! * **Unix** — the child is spawned into its own process group; `stop()` signals
++//!   the whole group so descendants die with the leader.
++//!
++//! 与 PTY 那套 Job Object 是**两条独立的链**：`cc-panes-core/src/pty/job.rs` 保的是
++//! 终端会话，本文件保的是 web-access 子进程。后者此前只有 `child.kill()`——
++//! CLAUDE.md 记着「`kill()` 只杀直接子进程」，宿主崩溃时 web 进程及其孙子进程
++//! 会变成孤儿，端口一直被占。
++//!
++//! 来源：从 `fix-web-process-lifecycle` 分支（2026-06，5 周未合）**逐项抽取**而非
++//! 整分支合并。那条分支基线停在 0.10.5，整分支合会把版本号退回、删掉
++//! `tauri-plugin-single-instance`/`deep-link`/`socket2` 等依赖、抹掉
++//! `web_access_lifecycle` 后加的 daemon_expected 告警，还会把 `no_window_command`
++//! 换回裸 `Command`（Windows 上闪黑窗）。本文件是那条分支里 main 真正缺失的部分，
++//! 其余 8 个文件 main 均已有更新的实现。
++
++use std::process::{Child, Command};
++
++use cc_panes_core::utils::AppResult;
++
++#[cfg(windows)]
++use crate::utils::AppError;
++
++/// Prepare a [`Command`] so the spawned child can be reliably terminated
++/// together with its descendants. Call this before `spawn()`.
++pub fn configure_command(command: &mut Command) {
++    #[cfg(unix)]
++    {
++        use std::os::unix::process::CommandExt;
++        // New process group whose id equals the child pid (the leader), so the
++        // whole tree can be signalled via `killpg` later.
++        command.process_group(0);
++    }
++    #[cfg(windows)]
++    {
++        // Nothing to do pre-spawn on Windows; the Job Object is assigned right
++        // after spawn in `ProcessGuard::attach`.
++        let _ = command;
++    }
++    #[cfg(not(any(unix, windows)))]
++    {
++        let _ = command;
++    }
++}
++
++/// Holds the OS resources that bind a child's lifetime to this process.
++///
++/// On Windows it owns the Job Object handle (dropping it kills the tree). On
++/// Unix it records the process-group id used for signalling.
++pub struct ProcessGuard {
++    #[cfg(windows)]
++    job: JobHandle,
++    #[cfg(unix)]
++    pgid: i32,
++}
++
++impl ProcessGuard {
++    /// Attach a freshly spawned child to the OS-level guard.
++    ///
++    /// On Windows any failure (create/limit/assign) is fatal: the caller must
++    /// treat the child as unguarded and abort the launch, because an unguarded
++    /// child could outlive the parent.
++    #[cfg(windows)]
++    pub fn attach(child: &Child) -> AppResult<Self> {
++        Ok(Self {
++            job: attach_windows(child)?,
++        })
++    }
++
++    #[cfg(unix)]
++    pub fn attach(child: &Child) -> AppResult<Self> {
++        // The child is its own group leader (configure_command set pgid=0), so
++        // the group id equals the child pid.
++        Ok(Self {
++            pgid: child.id() as i32,
++        })
++    }
++
++    #[cfg(not(any(unix, windows)))]
++    pub fn attach(_child: &Child) -> AppResult<Self> {
++        Ok(Self {})
++    }
++
++    /// First, gentle termination request for the child and its descendants.
++    pub fn request_terminate(&self, child: &mut Child) {
++        #[cfg(windows)]
++        {
++            // Terminating the job kills the child and every grandchild at once.
++            self.job.terminate();
++            let _ = child;
++        }
++        #[cfg(unix)]
++        {
++            self.signal_group(libc::SIGTERM);
++            let _ = child;
++        }
++        #[cfg(not(any(unix, windows)))]
++        {
++            let _ = child.kill();
++        }
++    }
++
++    /// Forceful termination after the graceful window elapses.
++    pub fn force_kill(&self, child: &mut Child) {
++        #[cfg(windows)]
++        {
++            self.job.terminate();
++            let _ = child.kill();
++        }
++        #[cfg(unix)]
++        {
++            self.signal_group(libc::SIGKILL);
++            let _ = child;
++        }
++        #[cfg(not(any(unix, windows)))]
++        {
++            let _ = child.kill();
++        }
++    }
++
++    #[cfg(unix)]
++    fn signal_group(&self, signum: i32) {
++        // SAFETY: killpg on our own child's process group; ignore ESRCH etc.
++        unsafe {
++            libc::killpg(self.pgid, signum);
++        }
++    }
++}
++
++#[cfg(windows)]
++struct JobHandle(windows::Win32::Foundation::HANDLE);
++
++// SAFETY: a job-object HANDLE is just a kernel handle value; it is owned
++// exclusively by this struct and only used from behind the lifecycle mutex.
++#[cfg(windows)]
++unsafe impl Send for JobHandle {}
++#[cfg(windows)]
++unsafe impl Sync for JobHandle {}
++
++#[cfg(windows)]
++impl JobHandle {
++    fn terminate(&self) {
++        use windows::Win32::System::JobObjects::TerminateJobObject;
++        // SAFETY: self.0 is a valid job handle owned by this struct.
++        unsafe {
++            let _ = TerminateJobObject(self.0, 0);
++        }
++    }
++}
++
++#[cfg(windows)]
++impl Drop for JobHandle {
++    fn drop(&mut self) {
++        use windows::Win32::Foundation::CloseHandle;
++        // SAFETY: self.0 was created by CreateJobObjectW and is owned solely by
++        // this struct, so it is closed exactly once. Because the job was created
++        // with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, closing the last handle also
++        // terminates any processes still alive in the job.
++        unsafe {
++            let _ = CloseHandle(self.0);
++        }
++    }
++}
++
++#[cfg(windows)]
++fn attach_windows(child: &Child) -> AppResult<JobHandle> {
++    use std::os::windows::io::AsRawHandle;
++
++    use windows::core::PCWSTR;
++    use windows::Win32::Foundation::{CloseHandle, HANDLE};
++    use windows::Win32::System::JobObjects::{
++        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
++        SetInformationJobObject, JOBOBJECT_BASIC_LIMIT_INFORMATION,
++        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
++    };
++
++    // SAFETY: standard Win32 Job Object setup; every handle is checked and
++    // cleaned up on the error paths. The child handle is valid for the duration
++    // of this call because we hold `&Child`.
++    unsafe {
++        let job = CreateJobObjectW(None, PCWSTR::null())
++            .map_err(|e| AppError::from(format!("CreateJobObjectW failed: {e}")))?;
++
++        let info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
++            BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
++                LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
++                ..Default::default()
++            },
++            ..Default::default()
++        };
++
++        if let Err(e) = SetInformationJobObject(
++            job,
++            JobObjectExtendedLimitInformation,
++            &info as *const _ as *const core::ffi::c_void,
++            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
++        ) {
++            let _ = CloseHandle(job);
++            return Err(AppError::from(format!(
++                "SetInformationJobObject failed: {e}"
++            )));
++        }
++
++        let child_handle = HANDLE(child.as_raw_handle());
++        if let Err(e) = AssignProcessToJobObject(job, child_handle) {
++            let _ = CloseHandle(job);
++            return Err(AppError::from(format!(
++                "AssignProcessToJobObject failed: {e}"
++            )));
++        }
++
++        Ok(JobHandle(job))
++    }
++}
+diff --git a/src-tauri/src/services/web_access_lifecycle.rs b/src-tauri/src/services/web_access_lifecycle.rs
+index c964312..c8feb68 100644
+--- a/src-tauri/src/services/web_access_lifecycle.rs
++++ b/src-tauri/src/services/web_access_lifecycle.rs
+@@ -1,16 +1,22 @@
+ use std::path::{Path, PathBuf};
+ use std::process::{Child, Stdio};
+ use std::sync::Mutex;
++use std::time::{Duration, Instant};
+ 
+ use cc_panes_core::models::settings::WebAccessSettings;
+ use cc_panes_core::utils::{no_window_command, AppPaths, AppResult};
+ use serde::Serialize;
+ use tracing::{info, warn};
+ 
++use super::process_guard::{configure_command, ProcessGuard};
+ use crate::utils::AppError;
+ 
+ const WEB_BIN_ENV: &str = "CCPANES_WEB_BIN";
+ 
++/// `stop()` 等待 web 进程优雅退出的上限，超时即强杀。
++/// 有界是硬要求：`stop()` 会在 UI 线程和退出路径上跑，不能无限阻塞。
++const STOP_GRACE: Duration = Duration::from_secs(3);
++
+ #[derive(Debug, Clone, Serialize)]
+ #[serde(rename_all = "camelCase")]
+ pub struct WebAccessStatus {
+@@ -28,6 +34,13 @@ pub struct WebAccessStatus {
+ 
+ struct WebAccessProcess {
+     child: Child,
++    /// OS 级兜底：宿主以任何方式消失（正常退出/panic/崩溃/taskkill /F）时，
++    /// 内核负责收掉这个子进程**及其整棵后代树**。
++    ///
++    /// 下面 `stop()` 的协作式关闭只覆盖正常退出路径；异常路径靠这个 guard。
++    /// 字段顺序有意：Rust 按声明序 drop，`child` 先于 `guard`，
++    /// 于是 Windows 上 job handle 关闭（= 内核清树）发生在最后。
++    guard: ProcessGuard,
+     port: u16,
+     bind_host: String,
+ }
+@@ -124,13 +137,31 @@ impl WebAccessLifecycle {
+             );
+         }
+ 
+-        let child = command.spawn().map_err(|error| {
++        // Unix：把子进程放进自己的进程组，之后可整组收；Windows：spawn 后再挂 Job。
++        configure_command(&mut command);
++
++        let mut child = command.spawn().map_err(|error| {
+             AppError::from(format!(
+                 "failed to start Web access server {}: {}",
+                 binary.display(),
+                 error
+             ))
+         })?;
++
++        // 必须在把它登记为 running **之前**挂上 guard。挂不上就说明这个子进程不受
++        // 保护、可能活得比宿主久，那宁可杀掉它并让本次启动失败——留一个收不掉的
++        // 孤儿进程占着端口，比启动失败难排查得多。
++        let guard = match ProcessGuard::attach(&child) {
++            Ok(guard) => guard,
++            Err(error) => {
++                let _ = child.kill();
++                let _ = child.wait();
++                return Err(AppError::from(format!(
++                    "failed to guard Web access server process: {error}"
++                )));
++            }
++        };
++
+         info!(
+             binary = %binary.display(),
+             port = settings.port,
+@@ -140,6 +171,7 @@ impl WebAccessLifecycle {
+ 
+         *self.process.lock().unwrap_or_else(|err| err.into_inner()) = Some(WebAccessProcess {
+             child,
++            guard,
+             port: settings.port,
+             bind_host,
+         });
+@@ -157,12 +189,39 @@ impl WebAccessLifecycle {
+         self.start(app_paths, resource_dir, settings, daemon_expected)
+     }
+ 
++    /// 协作式关闭：先请求整棵进程树退出，给一小段宽限期，超时再强杀。
++    ///
++    /// 原来只有 `child.kill()`——CLAUDE.md 记着「`kill()` 只杀直接子进程」，
++    /// web 进程再派生的孙子进程会留下来占着端口。现在收的是整棵树。
++    ///
++    /// 宽限期必须有界（`STOP_GRACE`）：`stop()` 会在 UI 线程与应用退出路径上被调用，
++    /// 无限等待会让关窗卡死。
+     pub fn stop(&self) {
+         let mut guard = self.process.lock().unwrap_or_else(|err| err.into_inner());
+         if let Some(mut process) = guard.take() {
+-            if let Err(error) = process.child.kill() {
+-                warn!(error = %error, "failed to stop Web access server");
++            process.guard.request_terminate(&mut process.child);
++
++            let deadline = Instant::now() + STOP_GRACE;
++            loop {
++                match process.child.try_wait() {
++                    Ok(Some(_)) => return,
++                    Ok(None) => {}
++                    Err(error) => {
++                        warn!(error = %error, "failed to poll Web access server exit");
++                        break;
++                    }
++                }
++                if Instant::now() >= deadline {
++                    warn!(
++                        grace_ms = STOP_GRACE.as_millis(),
++                        "Web access server did not exit gracefully; force killing"
++                    );
++                    break;
++                }
++                std::thread::sleep(Duration::from_millis(50));
+             }
++
++            process.guard.force_kill(&mut process.child);
+             let _ = process.child.wait();
+         }
+     }

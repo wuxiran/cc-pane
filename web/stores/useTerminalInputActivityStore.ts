@@ -12,6 +12,7 @@
 // usageStatsService.recordInputChars——只计字符数做用量统计，不落时间戳、
 // 不进任何 store，所以「用户刚才有没有动过这个终端」根本无从判断。
 import { create } from "zustand";
+import { registerSessionScopedResource } from "@/lib/tabLifecycle/sessionScopedResources";
 
 /** 输入活跃的判定窗口：最后一次击键后多久仍算「人在手边」。 */
 export const INPUT_ACTIVE_WINDOW_MS = 60_000;
@@ -65,6 +66,11 @@ export const useTerminalInputActivityStore = create<TerminalInputActivityState>(
 
   getEntry: (sessionId) => get().entries[sessionId],
 }));
+
+registerSessionScopedResource({
+  name: "terminalInputActivity",
+  dispose: (sessionId) => useTerminalInputActivityStore.getState().clearSession(sessionId),
+});
 
 /**
  * 输入是否构成「休眠豁免」。

@@ -1,5 +1,17 @@
 export type { Project, CreateProjectRequest } from "./project";
 export type {
+  LaunchId,
+  PtySessionId,
+  ResumeId,
+  TabId,
+} from "./ids";
+export {
+  asLaunchId,
+  asPtySessionId,
+  asResumeId,
+  asTabId,
+} from "./ids";
+export type {
   PaneNode,
   Panel,
   SplitPane,

@@ -1,6 +1,9 @@
 import { Circle, Diamond, Triangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { TERMINAL_STATUS_PRESENTATION } from "@/lib/statusPresentation";
 import type { LayoutStatusSummary } from "./layoutStatusSummary";
+import type { LucideIcon } from "lucide-react";
+import type { TerminalStatusType } from "@/types";
 
 // 单行状态桁：每个非零桶渲染「形状 + 颜色 + 数字」三重编码。
 //
@@ -15,33 +18,27 @@ import type { LayoutStatusSummary } from "./layoutStatusSummary";
 const CELLS = [
   {
     key: "blocked",
-    Icon: Triangle,
-    filled: true,
-    color: "var(--app-status-danger)",
-    labelKey: "statusError",
+    status: "error",
   },
   {
     key: "waitingInput",
-    Icon: Diamond,
-    filled: true,
-    color: "var(--app-status-warning)",
-    labelKey: "statusWaitingInput",
+    status: "waitingInput",
   },
   {
     key: "running",
-    Icon: Circle,
-    filled: true,
-    color: "var(--app-accent)",
-    labelKey: "statusActive",
+    status: "active",
   },
   {
     key: "idle",
-    Icon: Circle,
-    filled: false,
-    color: "var(--app-text-tertiary)",
-    labelKey: "statusIdle",
+    status: "idle",
   },
-] as const;
+] as const satisfies readonly { key: keyof Omit<LayoutStatusSummary, "total">; status: TerminalStatusType }[];
+
+const SHAPE_ICON: Record<NonNullable<(typeof TERMINAL_STATUS_PRESENTATION)[TerminalStatusType]["shape"]>, LucideIcon> = {
+  circle: Circle,
+  diamond: Diamond,
+  triangle: Triangle,
+};
 
 export default function LayoutStatusGrid({ summary }: { summary: LayoutStatusSummary }) {
   const { t } = useTranslation("dialogs");
@@ -52,9 +49,12 @@ export default function LayoutStatusGrid({ summary }: { summary: LayoutStatusSum
       {CELLS.map((cell) => {
         const count = summary[cell.key];
         if (count === 0) return null;
+        const presentation = TERMINAL_STATUS_PRESENTATION[cell.status];
+        const Icon = SHAPE_ICON[presentation.shape ?? "circle"];
+        const filled = presentation.filled ?? true;
         // title 只给状态名——数字就在旁边，重复一遍是噪音；
         // aria-label 才带计数，屏幕阅读器读不到那个视觉上的相邻关系。
-        const name = t(cell.labelKey);
+        const name = t(presentation.labelKey);
         return (
           <span
             key={cell.key}
@@ -62,13 +62,13 @@ export default function LayoutStatusGrid({ summary }: { summary: LayoutStatusSum
             aria-label={`${count} ${name}`}
             data-status-cell={cell.key}
             className="flex items-center gap-0.5"
-            style={{ color: cell.color }}
+            style={{ color: presentation.colorToken }}
           >
-            <cell.Icon
+            <Icon
               aria-hidden
               className="size-[9px] shrink-0"
-              strokeWidth={cell.filled ? 1 : 2.5}
-              fill={cell.filled ? "currentColor" : "none"}
+              strokeWidth={filled ? 1 : 2.5}
+              fill={filled ? "currentColor" : "none"}
             />
             <span className="text-[11px] leading-none tabular-nums">{count}</span>
           </span>
