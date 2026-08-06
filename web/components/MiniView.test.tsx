@@ -91,17 +91,26 @@ describe("MiniView", () => {
     const selectTab = vi.fn();
     useMiniModeStore.setState({ exitMiniMode: exitSpy });
     usePanesStore.setState({
-      findTabAcrossLayouts: () => null,
+      currentLayoutId: "layout-1",
+      // focusTab 正门先定位：给出真定位（改道后无定位 = 正确地不聚焦）
+      findTabAcrossLayouts: () => ({
+        layoutId: "layout-2",
+        layoutName: "L2",
+        tree: { type: "panel", id: "pane-1", activeTabId: "tab-a", tabs: [] },
+        panel: { type: "panel", id: "pane-1", activeTabId: "tab-a", tabs: [] },
+        tab: { id: "tab-a" },
+      }),
       switchLayout,
       setActivePane,
       selectTab,
-    });
+    } as never);
 
     render(<MiniView />);
     await user.dblClick(screen.getByText("会话A"));
 
-    expect(setActivePane).toHaveBeenCalled();
-    expect(selectTab).toHaveBeenCalled();
+    expect(switchLayout).toHaveBeenCalledWith("layout-2");
+    expect(setActivePane).toHaveBeenCalledWith("pane-1");
+    expect(selectTab).toHaveBeenCalledWith("pane-1", "tab-a");
     expect(exitSpy).toHaveBeenCalled();
   });
 });

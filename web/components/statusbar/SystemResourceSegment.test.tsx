@@ -117,6 +117,23 @@ describe("SystemResourceSegment", () => {
     });
 
     const panes = usePanesStore.getState();
+    // focusTab 正门按 tabId 再定位一次，与按 session 的定位喂同一份
+    vi.spyOn(panes, "findTabAcrossLayouts").mockReturnValue({
+      layoutId: "layout-other",
+      layoutName: "Other layout",
+      tree: { type: "panel", id: "pane-1", activeTabId: "tab-1", tabs: [] },
+      panel: { type: "panel", id: "pane-1", activeTabId: "tab-1", tabs: [] },
+      tab: {
+        id: "tab-1",
+        title: "Codex tab",
+        contentType: "terminal",
+        projectId: "project-1",
+        projectPath: "D:/work/project-1",
+        sessionId: "session-1",
+        workspaceName: "Workspace A",
+        cliTool: "codex",
+      },
+    } as never);
     vi.spyOn(panes, "findTabBySessionAcrossLayouts").mockReturnValue({
       layoutId: "layout-other",
       layoutName: "Other layout",

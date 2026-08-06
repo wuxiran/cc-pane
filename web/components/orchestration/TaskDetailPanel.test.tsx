@@ -78,22 +78,27 @@ describe("TaskDetailPanel", () => {
 
     const switchLayout = vi.fn();
     const setActivePane = vi.fn();
-    const switchToTab = vi.fn();
+    const selectTab = vi.fn();
+    const location = {
+      layoutId: "layout-2",
+      layoutName: "L2",
+      tree: { type: "panel", id: "pane-9", activeTabId: "tab-8", tabs: [] },
+      panel: {
+        type: "panel",
+        id: "pane-9",
+        tabs: [{ id: "tab-8" }, { id: "tab-9" }],
+        activeTabId: "tab-8",
+      },
+      tab: { id: "tab-9" },
+    };
     usePanesStore.setState({
       currentLayoutId: "layout-1",
-      findTabBySessionAcrossLayouts: () => ({
-        layoutId: "layout-2",
-        panel: {
-          type: "panel",
-          id: "pane-9",
-          tabs: [{ id: "tab-8" }, { id: "tab-9" }],
-          activeTabId: "tab-8",
-        },
-        tab: { id: "tab-9" },
-      }),
+      findTabBySessionAcrossLayouts: () => location,
+      // focusTab 正门按 tabId 再定位一次
+      findTabAcrossLayouts: () => location,
       switchLayout,
       setActivePane,
-      switchToTab,
+      selectTab,
     } as never);
 
     render(<TaskDetailPanel binding={makeBinding({ sessionId: "sess-1" })} />);
@@ -102,7 +107,7 @@ describe("TaskDetailPanel", () => {
     expect(setAppViewMode).toHaveBeenCalledWith("panes");
     expect(switchLayout).toHaveBeenCalledWith("layout-2");
     expect(setActivePane).toHaveBeenCalledWith("pane-9");
-    expect(switchToTab).toHaveBeenCalledWith("pane-9", 1);
+    expect(selectTab).toHaveBeenCalledWith("pane-9", "tab-9");
     rafSpy.mockRestore();
   });
 
