@@ -96,3 +96,28 @@ describe("terminalHiddenWriteBuffer", () => {
     expect(buffer.push("")).toBeNull();
   });
 });
+
+// B2-07 复核：两条 flush 防线覆盖的场景不同，删任何一条都会丢字。
+describe("drain-on-push 的覆盖边界（为什么边沿 flush 不能删）", () => {
+  it("可见后有新数据 → 积压被 drain-on-push 带出来（防线一生效）", () => {
+    let visible = false;
+    const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => visible });
+
+    expect(buffer.push("backlog")).toBeNull();
+    visible = true;
+    // 新数据到来时，积压拼在前面（顺序正确）
+    expect(buffer.push("fresh")).toBe("backlogfresh");
+  });
+
+  it("**可见后没有新数据 → 积压出不来**（防线一够不着，必须靠边沿 flush）", () => {
+    let visible = false;
+    const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => visible });
+
+    expect(buffer.push("backlog")).toBeNull();
+    visible = true;
+
+    // 会话已经跑完，不再有 push——积压只能靠调用方在可见性边沿主动 flush，
+    // 否则屏幕永远停在切走前的样子。
+    expect(buffer.drain()).toBe("backlog");
+  });
+});
