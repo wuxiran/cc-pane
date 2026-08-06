@@ -70,7 +70,7 @@ export interface TabLifecycleEntry {
   onClosed(tab: Tab, opts: TabDestroyOptions): void;
   /**
    * 关闭时要进撤销栈的快照；null = 本类型不可撤销（docs/78）。
-   * terminal 不走这里（launch 身份字段多，专用映射在 closedTabsCap）。
+   * terminal 不走这里（launch 身份字段多，专用映射在 closedTabsUndo）。
    */
   persistForUndo?(tab: Tab): PersistedUndoSnapshot | null;
 }

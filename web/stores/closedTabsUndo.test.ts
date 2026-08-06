@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLOSED_TABS_LIMIT, trimClosedTabs } from "./closedTabsCap";
+import { CLOSED_TABS_LIMIT, trimClosedTabs } from "./closedTabsUndo";
 import type { ClosedTabSnapshot } from "./panesStoreTypes";
 
 function snapshot(i: number): ClosedTabSnapshot {

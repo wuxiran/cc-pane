@@ -6,7 +6,7 @@ import { usePanesStore } from "./usePanesStore";
 import { terminalService } from "@/services";
 import { useFullscreenStore } from "./useFullscreenStore";
 import { createPanel } from "@/lib/paneTree";
-import { CLOSED_TABS_LIMIT } from "./closedTabsCap";
+import { CLOSED_TABS_LIMIT } from "./closedTabsUndo";
 import type { ClosedTabSnapshot } from "./panesStoreTypes";
 import type { PaneNode, Panel, SplitPane, Tab, TerminalPaneLeaf } from "@/types";
 

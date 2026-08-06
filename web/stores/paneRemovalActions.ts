@@ -26,7 +26,7 @@ import type {
 import { terminalService } from "@/services/terminalService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
-import { toClosedTabSnapshot, trimClosedTabs } from "./closedTabsCap";
+import { toClosedTabSnapshot, trimClosedTabs } from "./closedTabsUndo";
 import {
   assignTreeAndConvergeActive,
   closeTabInTree,

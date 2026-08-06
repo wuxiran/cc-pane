@@ -50,7 +50,7 @@ import { inferCliTool, resolveRestoreMode } from "@/lib/terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
 import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
-import { reopenNonTerminalSnapshot, restoreClosedTabIdentity, trimClosedTabs } from "./closedTabsCap";
+import { reopenNonTerminalSnapshot, restoreClosedTabIdentity, trimClosedTabs } from "./closedTabsUndo";
 import type {
   CreateTabOptions,
   DraftTabAcrossLayoutsLocation,
