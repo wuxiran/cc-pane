@@ -5,6 +5,7 @@
 // 没有任何测试会挂。这个文件补的就是那一层：store 聚合 → 降档状态机的联动。
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { createTerminalBackgroundLifecycle } from "./terminalBackgroundLifecycle";
+import { subscribeViewVisibilityEdge } from "./useDowngradeVisibility";
 import { aggregateOf, selfChatOwnerId, useTabViewStateStore } from "@/stores/useTabViewStateStore";
 
 const TIER1_MS = 5 * 60_000;
@@ -198,5 +199,49 @@ describe("轴1 输入豁免（归段判定接进休眠）", () => {
     expect(inputBlocksHibernation({ lastInputAt: now, segment: "thinking" }, now + 1000)).toBe(true);
     // 已答完：waitingInput 段输入 → 不挡（否则确认过一次就永不休眠）
     expect(inputBlocksHibernation({ lastInputAt: now, segment: "waitingInput" }, now + 1000)).toBe(false);
+  });
+});
+
+describe("单视图边沿订阅（P1-1：聚合盖不住的场景）", () => {
+  it("主视图切回但镜像一直可见：聚合无边沿，单视图订阅必须触发", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t9", "mirror", "visible");
+    store.reportView("t9", "primary", "hidden");
+    expect(aggregateOf("t9").anyVisible).toBe(true); // 聚合恒 true，无边沿可用
+
+    const edges: boolean[] = [];
+    const unsubscribe = subscribeViewVisibilityEdge("t9", "primary", (v) => edges.push(v));
+
+    useTabViewStateStore.getState().reportView("t9", "primary", "visible");
+    expect(edges).toEqual([true]); // 聚合没动，单视图边沿到了
+
+    useTabViewStateStore.getState().reportView("t9", "primary", "hidden");
+    expect(edges).toEqual([true, false]);
+    unsubscribe();
+  });
+
+  it("其他角色的翻转不触发本视图订阅（role 隔离）", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t10", "primary", "hidden");
+    const edges: boolean[] = [];
+    const unsubscribe = subscribeViewVisibilityEdge("t10", "primary", (v) => edges.push(v));
+
+    useTabViewStateStore.getState().reportView("t10", "mirror", "visible");
+    useTabViewStateStore.getState().reportView("t10", "mirror", "hidden");
+    expect(edges).toEqual([]);
+    unsubscribe();
+  });
+
+  it("视图条目被移除（removeView）计为不可见边沿；重新上报计为可见边沿", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t11", "primary", "active");
+    const edges: boolean[] = [];
+    const unsubscribe = subscribeViewVisibilityEdge("t11", "primary", (v) => edges.push(v));
+
+    useTabViewStateStore.getState().removeView("t11", "primary");
+    expect(edges).toEqual([false]);
+    useTabViewStateStore.getState().reportView("t11", "primary", "active");
+    expect(edges).toEqual([false, true]);
+    unsubscribe();
   });
 });
