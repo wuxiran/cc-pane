@@ -7,6 +7,7 @@
  */
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { recordTerminalInputActivity } from "./terminalInputActivity";
 import type {
   CreateSessionRequest,
   ResizeRequest,
@@ -506,6 +507,7 @@ export const terminalService = {
       void usageStatsService.recordInputChars(sessionId, charCount).catch((error) => {
         console.warn("Failed to record terminal input chars:", error);
       });
+      recordTerminalInputActivity(sessionId);
     }
   },
 

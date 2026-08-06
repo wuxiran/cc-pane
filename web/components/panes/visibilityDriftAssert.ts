@@ -9,6 +9,7 @@
 // 页镜像着时，两者本来就该不同。所以按投影分别比：
 //   - 单视图可见性 ↔ 本视图的 role 条目
 //   - 聚合 anyVisible ↔ 只在「本视图是唯一视图」时才与旧 ref 可比
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { ViewRole, ViewVisibility } from "@/stores/useTabViewStateStore";
 
 export interface VisibilitySnapshot {
@@ -90,4 +91,26 @@ export function reportVisibilityDrift(
       viewCount: snap.storeViewCount,
     });
   }
+}
+
+/**
+ * 组件侧便捷入口：自己去 store 取新路的值再比对。
+ * 抽出来是为了让 TerminalView 的每帧 effect 只留一行（它已触到行数棘轮）。
+ */
+export function checkVisibilityDrift(
+  owner: string | undefined,
+  role: ViewRole | undefined,
+  legacyRenderVisible: boolean,
+  legacyActive: boolean,
+): void {
+  if (!import.meta.env.DEV || !owner) return;
+  const resolvedRole = role ?? "primary";
+  const state = useTabViewStateStore.getState();
+  reportVisibilityDrift(owner, resolvedRole, {
+    legacyRenderVisible,
+    legacyActive,
+    storeVisibility: state.getViewVisibility(owner, resolvedRole),
+    storeAnyVisible: state.aggregate[owner]?.anyVisible ?? false,
+    storeViewCount: Object.values(state.views).filter((v) => v.owner === owner).length,
+  });
 }

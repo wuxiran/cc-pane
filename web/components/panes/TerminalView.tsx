@@ -36,9 +36,13 @@ import {
   useWallpaperStore,
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
-import { aggregateOf, useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { ViewRole } from "@/stores/useTabViewStateStore";
-import { reportVisibilityDrift } from "./visibilityDriftAssert";
+import { checkVisibilityDrift } from "./visibilityDriftAssert";
+import {
+  resolveViewFocus,
+  useAggregateVisibilitySubscription,
+  useDowngradeVisibility,
+} from "./useDowngradeVisibility";
 import { replayAttachedSession } from "./terminalReplay";
 import { reconnectTerminalSession } from "./terminalReconnect";
 import { useTerminalAppearanceSync } from "./useTerminalAppearanceSync";
@@ -448,19 +452,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       [],
     );
 
-    /**
-     * 降档/休眠判据：有 owner 时读聚合（**任一视图可见**），否则退回本视图。
-     *
-     * 同一个 PTY 可能被主标签、星标镜像、弹出窗口同时观看，只看自己会把
-     * 「星标页正看着」的会话休眠掉——dispose xterm 时另一视图的写入路径踩空。
-     * 只读第二视图（星标镜像）不传 owner：它不该独立决定 PTY 的降档，主视图
-     * 会用聚合把它的可见性算进去。
-     */
-    const resolveDowngradeVisibility = useCallback(() => {
-      const owner = props.visibilityOwnerId;
-      if (!owner) return isRenderVisible();
-      return aggregateOf(owner).anyVisible;
-    }, [props.visibilityOwnerId, isRenderVisible]);
+    const resolveDowngradeVisibility = useDowngradeVisibility(
+      props.visibilityOwnerId,
+      isRenderVisible,
+    );
 
     /** desync 重同步闸门：置真期间实时输出改走积压，防 reset 抹掉快照外的新输出。 */
     const resyncInProgressRef = useRef(false);
@@ -595,36 +590,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         everHiddenRef.current = true;
       }
 
-      // B2-06 双写断言：dev 下比对旧 ref 与 store，漂移只打日志不抛错——
-      // 可见性判错顶多多降一次档，抛错会让终端白屏，代价远大于问题本身。
-      if (import.meta.env.DEV && props.visibilityOwnerId) {
-        const owner = props.visibilityOwnerId;
-        const role = props.viewRole ?? "primary";
-        const state = useTabViewStateStore.getState();
-        reportVisibilityDrift(owner, role, {
-          legacyRenderVisible: isRenderVisible(),
-          legacyActive: isActiveRef.current,
-          storeVisibility: state.getViewVisibility(owner, role),
-          storeAnyVisible: state.aggregate[owner]?.anyVisible ?? false,
-          storeViewCount: Object.values(state.views).filter((v) => v.owner === owner).length,
-        });
-      }
+      // B2-06 双写断言（dev only，只打日志不抛错）
+      checkVisibilityDrift(props.visibilityOwnerId, props.viewRole, isRenderVisible(), isActiveRef.current);
     });
 
-    // 聚合变化订阅（B2-04）：同一 PTY 的**其他视图**（星标镜像、弹出窗口）
-    // 可见性翻转时本组件不会 render，每帧 effect 够不着——没有这条订阅，
-    // 「打开星标页」不会取消原 tab 已经启动的休眠计时。
-    useEffect(() => {
-      const owner = props.visibilityOwnerId;
-      if (!owner) return;
-      let last = aggregateOf(owner).anyVisible;
-      return useTabViewStateStore.subscribe((state) => {
-        const next = state.aggregate[owner]?.anyVisible ?? false;
-        if (next === last) return;
-        last = next;
-        notifyVisibility(next);
-      });
-    }, [props.visibilityOwnerId, notifyVisibility]);
+    useAggregateVisibilitySubscription(props.visibilityOwnerId, notifyVisibility);
 
     useEffect(() => {
       const effectiveRendererMode = resolveRendererMode(terminalRendererMode);
@@ -964,14 +934,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           getSessionId: () => currentSessionIdRef.current,
           // B2-09：焦点判据改读单源（**不是**降档的 anyVisible——这里问的是
           // 「本视图是不是焦点」，决定要不要 refit）。无 owner 时退回旧 ref。
-          isActive: () => {
-            const owner = props.visibilityOwnerId;
-            if (!owner) return isActiveRef.current;
-            const role = props.viewRole ?? "primary";
-            const v = useTabViewStateStore.getState().getViewVisibility(owner, role);
-            // 首帧上报未跑时 v 为 undefined，退回旧 ref 免得 refit 被误跳过
-            return v === undefined ? isActiveRef.current : v === "active";
-          },
+          isActive: () =>
+            resolveViewFocus(props.visibilityOwnerId, props.viewRole, () => isActiveRef.current),
           canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
           repaint: repaintTerminal,
           resizeBackend: (cols, rows) => {
