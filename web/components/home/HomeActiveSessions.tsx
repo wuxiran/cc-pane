@@ -5,6 +5,7 @@ import { Terminal, Circle } from "lucide-react";
 import { focusTab } from "@/hooks/useFocusTab";
 import { statusColorToken } from "@/lib/statusPresentation";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import { isBusyStatus, type PaneNode, type Tab, type TerminalStatusType } from "@/types";
 
 function getAllTabs(pane: PaneNode): Tab[] {
@@ -83,7 +84,7 @@ export default function HomeActiveSessions() {
               type="button"
               className="home-session-item flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors duration-[var(--dur-fast)]"
               style={{ borderColor: "var(--app-home-row-border)" }}
-              onClick={() => focusTab(tab.id)}
+              onClick={() => focusTab(asTabId(tab.id))}
             >
               <Circle
                 className={`w-2.5 h-2.5 shrink-0 ${isBusyStatus(status) ? "animate-pulse" : ""}`}

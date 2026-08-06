@@ -4,6 +4,7 @@ import { useTerminalStatusStore, usePanesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
 import { focusTab } from "@/hooks/useFocusTab";
+import { asTabId } from "@/types/ids";
 import { handleErrorSilent } from "@/utils";
 import { isBusyStatus } from "@/types";
 
@@ -98,7 +99,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
                 <button
                   key={s.tabId}
                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors text-left hover:bg-[var(--app-hover)] text-[var(--app-text-secondary)]"
-                  onClick={() => focusTab(s.tabId)}
+                  onClick={() => focusTab(asTabId(s.tabId))}
                 >
                   <div className="relative shrink-0">
                     <Terminal className="w-3.5 h-3.5" />

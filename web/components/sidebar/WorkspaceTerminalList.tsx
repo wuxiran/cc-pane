@@ -6,6 +6,7 @@ import StatusIndicator from "@/components/StatusIndicator";
 import { focusTab } from "@/hooks/useFocusTab";
 import { DEFAULT_STATUS_COLOR_TOKEN, statusColorToken, statusLabelKey } from "@/lib/statusPresentation";
 import { useDialogStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import type { WorkspaceTerminalRow } from "./workspaceTerminals";
 
 interface Props {
@@ -43,7 +44,7 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
             key={row.tabId}
             type="button"
             className="flex w-full cursor-pointer items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-            onClick={() => focusTab(row.tabId)}
+            onClick={() => focusTab(asTabId(row.tabId))}
           >
             <TerminalSquare size={15} className="shrink-0" style={{ color: "var(--app-accent)" }} />
             {/* 首条输入优先作行名（用户记的是「让它干什么」而非项目名），原 title 降为次行 */}

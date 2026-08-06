@@ -3,6 +3,7 @@
 // 本次先接新调用方 + SessionsView，其余标记后续迁移。
 import { usePanesStore } from "@/stores";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import type { TabId } from "@/types/ids";
 
 interface FocusTabOptions {
   /** 从 Home/资源等非分屏视图跳转时需要切回 panes 视图（默认 true） */
@@ -10,7 +11,7 @@ interface FocusTabOptions {
 }
 
 /** 跨布局定位 tab 并聚焦：切布局 → 激活 pane → 选中 tab。非 hook，可在事件回调直接调用。 */
-export function focusTab(tabId: string, options: FocusTabOptions = {}): boolean {
+export function focusTab(tabId: TabId, options: FocusTabOptions = {}): boolean {
   const { switchAppView = true } = options;
   const store = usePanesStore.getState();
   const location = store.findTabAcrossLayouts(tabId);

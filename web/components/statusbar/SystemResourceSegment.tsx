@@ -7,6 +7,7 @@ import { sessionRestoreService } from "@/services/sessionRestoreService";
 import { systemStatsService } from "@/services/systemStatsService";
 import { terminalService } from "@/services/terminalService";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import type {
   CliTool,
   ResourceTree,
@@ -345,7 +346,7 @@ export default function SystemResourceSegment() {
       setOpen(false);
       return;
     }
-    focusTab(location.tab.id, { switchAppView: true });
+    focusTab(asTabId(location.tab.id), { switchAppView: true });
     setOpen(false);
   };
 

@@ -5,6 +5,7 @@ import { Maximize2, Pin } from "lucide-react";
 import { usePanesStore, useTerminalStatusStore, useMiniModeStore } from "@/stores";
 import StatusIndicator from "@/components/StatusIndicator";
 import { focusTab } from "@/hooks/useFocusTab";
+import { asTabId } from "@/types/ids";
 import type { Tab } from "@/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriReady, handleErrorSilent } from "@/utils";
@@ -51,7 +52,7 @@ export default function MiniView() {
   }
 
   function handleRestoreTab(item: MiniSessionTab) {
-    focusTab(item.tab.id, { switchAppView: true });
+    focusTab(asTabId(item.tab.id), { switchAppView: true });
     handleRestore();
   }
 

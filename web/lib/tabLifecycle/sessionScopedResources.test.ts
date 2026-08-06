@@ -3,6 +3,7 @@ import { useContextUsageStore } from "@/stores/useContextUsageStore";
 import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
 import "@/stores/useTerminalRestoreLogStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
+import { asPtySessionId } from "@/types/ids";
 import type { TerminalStatusInfo } from "@/types";
 import {
   disposeSessionScopedResources,
@@ -84,7 +85,7 @@ describe("sessionScopedResources", () => {
     useTerminalInputActivityStore.getState().recordInput("s1", "working", 100);
     useTerminalInputActivityStore.getState().recordInput("other", "working", 100);
 
-    disposeSessionScopedResources("s1");
+    disposeSessionScopedResources(asPtySessionId("s1"));
 
     expect(useContextUsageStore.getState().sessionId).toBeNull();
     expect(useContextUsageStore.getState().sessions.has("s1")).toBe(false);

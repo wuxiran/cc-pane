@@ -1,5 +1,6 @@
 import type { CreateSessionRequest } from "@/types";
 import { disposeSessionScopedResources } from "@/lib/tabLifecycle/sessionScopedResources";
+import { asPtySessionId } from "@/types/ids";
 import { devDebugLog } from "@/utils/devLogger";
 
 export interface TerminalReplaySnapshot {
@@ -151,5 +152,5 @@ export function removeSubscriber<T>(
 
 /** 会话已死：回收所有已登记的 per-session 前端资源。 */
 export function disposeTerminalSessionResources(sessionId: string): void {
-  disposeSessionScopedResources(sessionId);
+  disposeSessionScopedResources(asPtySessionId(sessionId));
 }

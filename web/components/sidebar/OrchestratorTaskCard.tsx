@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { focusTab } from "@/hooks/useFocusTab";
 import { localHistoryService } from "@/services";
 import { useActivityBarStore, useOrchestratorStore, usePanesStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import type { TaskBinding } from "@/types";
 import CurrentActivityBadge from "./CurrentActivityBadge";
 import OrchestratorTaskActions from "./OrchestratorTaskActions";
@@ -54,7 +55,7 @@ function focusSessionTab(sessionId: string): void {
   const panes = usePanesStore.getState();
   const location = panes.findTabBySessionAcrossLayouts(sessionId);
   if (!location) return;
-  focusTab(location.tab.id, { switchAppView: true });
+  focusTab(asTabId(location.tab.id), { switchAppView: true });
 }
 
 interface OrchestratorTaskCardProps {

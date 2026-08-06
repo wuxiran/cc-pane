@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { focusTab } from "@/hooks/useFocusTab";
 import { usePanesStore } from "@/stores";
+import { asTabId } from "@/types/ids";
 import type { TaskBinding } from "@/types";
 
 interface TaskDetailPanelProps {
@@ -143,7 +144,7 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
       const panes = usePanesStore.getState();
       const location = panes.findTabBySessionAcrossLayouts(binding.sessionId!);
       if (location) {
-        focusTab(location.tab.id, { switchAppView: true });
+        focusTab(asTabId(location.tab.id), { switchAppView: true });
       }
     });
   };

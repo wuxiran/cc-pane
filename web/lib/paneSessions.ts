@@ -1,6 +1,8 @@
 import { collectPanels } from "@/stores/paneTreeHelpers";
 import type { TabContentType } from "@/lib/tabContentType";
+import { asPtySessionId } from "@/types/ids";
 import type { PaneNode, Tab, TerminalPaneLeaf, TerminalPaneNode } from "@/types";
+import type { PtySessionId } from "@/types/ids";
 
 export function findTerminalPane(
   node: TerminalPaneNode,
@@ -22,27 +24,28 @@ export function collectTerminalLeaves(node?: TerminalPaneNode): TerminalPaneLeaf
   return node.children.flatMap(collectTerminalLeaves);
 }
 
-export function collectTerminalSessionIds(tab: Tab): string[] {
+export function collectTerminalSessionIds(tab: Tab): PtySessionId[] {
   if (tab.contentType !== "terminal" || !tab.terminalRootPane) {
-    return tab.sessionId ? [tab.sessionId] : [];
+    return tab.sessionId ? [asPtySessionId(tab.sessionId)] : [];
   }
   return collectTerminalLeaves(tab.terminalRootPane)
     .map((leaf) => leaf.sessionId)
-    .filter((sessionId): sessionId is string => Boolean(sessionId));
+    .filter((sessionId): sessionId is string => Boolean(sessionId))
+    .map(asPtySessionId);
 }
 
 /** 含 savedSessionId 的全量口径。restoring 中尚未 attach 的 savedSessionId 是真实 PTY，
  *  销毁/统计都必须算进去，否则漏杀成孤儿、少算成显示不一致。 */
-export function collectTerminalSessionIdsWithSaved(tab: Tab): string[] {
-  const ids = new Set<string>();
+export function collectTerminalSessionIdsWithSaved(tab: Tab): PtySessionId[] {
+  const ids = new Set<PtySessionId>();
   if (tab.contentType !== "terminal" || !tab.terminalRootPane) {
-    if (tab.sessionId) ids.add(tab.sessionId);
-    if (tab.savedSessionId) ids.add(tab.savedSessionId);
+    if (tab.sessionId) ids.add(asPtySessionId(tab.sessionId));
+    if (tab.savedSessionId) ids.add(asPtySessionId(tab.savedSessionId));
     return [...ids];
   }
   for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
-    if (leaf.sessionId) ids.add(leaf.sessionId);
-    if (leaf.savedSessionId) ids.add(leaf.savedSessionId);
+    if (leaf.sessionId) ids.add(asPtySessionId(leaf.sessionId));
+    if (leaf.savedSessionId) ids.add(asPtySessionId(leaf.savedSessionId));
   }
   return [...ids];
 }
@@ -80,11 +83,11 @@ export function collectTerminalTabs(node: PaneNode): Tab[] {
  * 守卫测试锁死：调用 destroySessionsDirectly/commitResourceDestroy 的文件
  * 不得使用本函数（daemonEventContract.test.ts 同款扫描）。
  */
-export function collectTerminalSessionIdsFromTree(node: PaneNode): string[] {
+export function collectTerminalSessionIdsFromTree(node: PaneNode): PtySessionId[] {
   return collectTerminalTabs(node).flatMap(collectTerminalSessionIds);
 }
 
 /** collectTerminalSessionIdsFromTree 的全量口径版本（含 savedSessionId），跨 tab 去重。 */
-export function collectTerminalSessionIdsWithSavedFromTree(node: PaneNode): string[] {
+export function collectTerminalSessionIdsWithSavedFromTree(node: PaneNode): PtySessionId[] {
   return [...new Set(collectTerminalTabs(node).flatMap(collectTerminalSessionIdsWithSaved))];
 }

@@ -1,6 +1,8 @@
+import type { PtySessionId } from "@/types/ids";
+
 export interface SessionScopedResource {
   name: string;
-  dispose(sessionId: string): void;
+  dispose(sessionId: PtySessionId): void;
 }
 
 const resources = new Map<string, SessionScopedResource>();
@@ -9,7 +11,7 @@ export function registerSessionScopedResource(resource: SessionScopedResource): 
   resources.set(resource.name, resource);
 }
 
-export function disposeSessionScopedResources(sessionId: string): void {
+export function disposeSessionScopedResources(sessionId: PtySessionId): void {
   for (const resource of resources.values()) {
     try {
       resource.dispose(sessionId);
