@@ -18,6 +18,7 @@ import type {
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
+import type { TabViewState } from "@/lib/tabLifecycle/tabViewState";
 import type { BrowserTabActions } from "./browserTabActions";
 
 export interface CreateTabOptions {
@@ -159,6 +160,12 @@ export interface ClosedTabSnapshot {
   contentType?: "terminal" | "browser" | "editor";
   browserUrl?: string;
   filePath?: string;
+  /**
+   * 组件级视图状态（docs/78 批4 的 onPersist）：editor 光标等。
+   * 与上面的字段分工——那些是标签数据（组件没挂载也读得到），这个只活在
+   * 组件实例里，由组件上报到 lib/tabLifecycle/tabViewState。
+   */
+  viewState?: TabViewState;
 }
 
 export interface PanesState extends BrowserTabActions {

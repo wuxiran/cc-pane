@@ -9,6 +9,13 @@ import { usePanesStore } from "./usePanesStore";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { createPanel } from "@/lib/paneTree";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
+import {
+  readTabViewState,
+  reportTabViewState,
+  resetTabViewStates,
+} from "@/lib/tabLifecycle/tabViewState";
+import { useActivityBarStore } from "./useActivityBarStore";
+import { useEditorRevealStore } from "./useEditorRevealStore";
 import type { Panel, Tab, TerminalPaneNode } from "@/types";
 
 function resetStore(): string {
@@ -226,6 +233,68 @@ describe("关闭撤销往返", () => {
     expect(all).toHaveLength(2);
     const secondIds = collectTerminalLeaves(all[all.length - 1].terminalRootPane).map((l) => l.id);
     expect(secondIds.some((id) => firstIds.includes(id))).toBe(false);
+  });
+
+  // onPersist / onRestoreState 走真实 store 的端到端（docs/78 批4）。
+  it("editor 撤销带回光标：关→撤销后发出 reveal 请求", () => {
+    resetTabViewStates();
+    useEditorRevealStore.getState().resetForTest();
+    useActivityBarStore.setState({ appViewMode: "panes" } as never);
+
+    const paneId = usePanesStore.getState().rootPane.id;
+    usePanesStore.getState().openEditor("/p", "/p/src/main.rs", "main.rs", undefined, {
+      forcePaneTab: true,
+    });
+    const opened = usePanesStore
+      .getState()
+      .allPanels()
+      .flatMap((p) => p.tabs)
+      .find((t) => t.contentType === "editor")!;
+    // 组件上报光标（EditorView 的 onDidChangeCursorPosition 等价物）
+    reportTabViewState(opened.id, { editorCursor: { line: 42, column: 7 } });
+
+    usePanesStore.getState().removeTabsInternal([opened.id], "user-close");
+    const closed = usePanesStore.getState().closedTabs;
+    const snap = closed[closed.length - 1];
+    expect(snap.contentType).toBe("editor");
+    expect(snap.viewState?.editorCursor).toEqual({ line: 42, column: 7 });
+
+    usePanesStore.getState().reopenClosedTab(paneId);
+
+    const request = useEditorRevealStore.getState().requests["/p/src/main.rs"];
+    expect(request).toBeTruthy();
+    expect(request.line).toBe(42);
+    expect(request.column).toBe(7);
+
+    // 状态记在**新标签**名下：openEditor 返回的是 layoutId，若拿它当 tabId 用，
+    // 这里就会记到一个不存在的标签上（docs/69 同型的静默失效）。
+    const reopened = usePanesStore
+      .getState()
+      .allPanels()
+      .flatMap((p) => p.tabs)
+      .find((t) => t.contentType === "editor" && t.filePath === "/p/src/main.rs")!;
+    expect(reopened.id).not.toBe(snap.projectId);
+    expect(readTabViewState(reopened.id)?.editorCursor).toEqual({ line: 42, column: 7 });
+  });
+
+  it("browser 撤销回到最后停留的 URL（onPageLoad 已写回 tab）", () => {
+    const paneId = usePanesStore.getState().rootPane.id;
+    usePanesStore.getState().openBrowser("https://start.example", "起点", "b-1");
+    usePanesStore.getState().updateBrowserTab("b-1", { browserUrl: "https://later.example" });
+
+    usePanesStore.getState().removeTabsInternal(["b-1"], "user-close");
+    const closed = usePanesStore.getState().closedTabs;
+    const snap = closed[closed.length - 1];
+    expect(snap.contentType).toBe("browser");
+    expect(snap.browserUrl).toBe("https://later.example");
+
+    usePanesStore.getState().reopenClosedTab(paneId);
+    const reopened = usePanesStore
+      .getState()
+      .allPanels()
+      .flatMap((p) => p.tabs)
+      .find((t) => t.contentType === "browser");
+    expect(reopened?.browserUrl).toBe("https://later.example");
   });
 
   it("快照里的嵌套对象已脱 draft（set 结束后仍可读）", () => {

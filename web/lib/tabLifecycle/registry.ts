@@ -22,12 +22,19 @@ import { browserService } from "@/services/browserService";
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
+import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import type { Tab, TerminalStatusType } from "@/types";
 import type { DestroyReason } from "./destroyPipeline";
 import type { TabCreateInput } from "./tabFactory";
+import {
+  clearTabViewState,
+  readTabViewState,
+  reportTabViewState,
+  type TabViewState,
+} from "./tabViewState";
 import { terminalTabDefaults } from "./terminalTabDefaults";
 
 /** 一个 tab 关闭时需要回收的后端资源清单。 */
@@ -81,6 +88,19 @@ export interface TabLifecycleEntry {
    * terminal 不走这里（launch 身份字段多，专用映射在 closedTabsUndo）。
    */
   persistForUndo?(tab: Tab): PersistedUndoSnapshot | null;
+  /**
+   * 关闭时取走组件级视图状态（docs/78 批4 的 onPersist）。
+   *
+   * 与 persistForUndo 的分工：那个存**标签数据**（filePath / URL——组件没挂载
+   * 也读得到），这个存**视图状态**（光标 / 滚动——只活在组件实例里）。后者由
+   * 组件在活着时上报到 tabViewState，这里只是取走。
+   */
+  onPersist?(tab: Tab): TabViewState | undefined;
+  /**
+   * 重开时把视图状态还给组件（docs/78 批4 的 onRestoreState）。
+   * 在新标签建好之后调用，`newTabId` 是新标签的 id。
+   */
+  onRestoreState?(newTabId: string, snapshot: PersistedUndoSnapshot): void;
 }
 
 /** persistForUndo 的产出（ClosedTabSnapshot 的非终端子集）。 */
@@ -91,6 +111,8 @@ export interface PersistedUndoSnapshot {
   title: string;
   browserUrl?: string;
   filePath?: string;
+  /** 组件级视图状态（onPersist 产出，onRestoreState 消费）。 */
+  viewState?: TabViewState;
 }
 
 /** 弹出窗口判定进 collectResources——防「漏杀修成多杀」的同族漏收（docs/78）。 */
@@ -194,6 +216,14 @@ const browserEntry: TabLifecycleEntry = {
     poppedOutTabIds: collectPoppedOut(tab, ctx),
   }),
   closeGuards: () => [], // v1 不拦浏览器（docs/78 §2.2 关闭确认矩阵）
+  // browserUrl 是**导航后的实时值**：BrowserTabContent 的 onPageLoad 会把每次
+  // 跳转写回 tab，所以撤销回到的是用户最后停留的页面，而不是当初打开的那个。
+  //
+  // 滚动位置**未覆盖**（docs/78 批4 偏差）：webview 是独立进程，读它的
+  // scrollY 需要 CDP `Runtime.evaluate`——该能力在 Rust 侧存在
+  // （browser_service.rs::evaluate）但没有注册成 command，前端够不着。
+  // 补一条命令属于新增 IPC 面，不在本批范围；此处记录为已知缺口，
+  // 免得后来者以为「存了 URL 就等于存了浏览位置」。
   persistForUndo: (tab) =>
     tab.browserUrl
       ? {
@@ -226,7 +256,10 @@ const editorEntry: TabLifecycleEntry = {
   // 承接现状语义：dirty 未保存 → 弹确认（pinned 保护不在这里，归 DESTROY_POLICY.respectsPinned）。
   closeGuards: (tab) =>
     tab.dirty ? [{ kind: "editor-dirty", tabId: tab.id, tabTitle: tab.title }] : [],
-  onClosed: () => {},
+  onClosed: (tab) => {
+    // 视图状态随标签回收——不清则 Map 随开关标签无限增长。
+    clearTabViewState(tab.id);
+  },
   persistForUndo: (tab) =>
     tab.filePath && tab.projectPath
       ? {
@@ -235,8 +268,21 @@ const editorEntry: TabLifecycleEntry = {
           projectPath: tab.projectPath,
           title: tab.title,
           filePath: tab.filePath,
+          viewState: editorEntry.onPersist?.(tab),
         }
       : null,
+  onPersist: (tab) => readTabViewState(tab.id),
+  // 恢复消费点是既有的 useEditorRevealStore：EditorView 挂载后会读该文件的
+  // reveal 请求并 setPosition + revealPositionInCenterIfOutsideViewport。
+  // 复用它而不是新造一条通道——EditorView 侧零改动，且「跳到某行」的时序
+  // 问题（Monaco 未挂载 / markdown 预览模式）那边已经处理过了。
+  onRestoreState: (newTabId, snapshot) => {
+    const cursor = snapshot.viewState?.editorCursor;
+    if (!cursor || !snapshot.filePath) return;
+    // 先把状态放回新标签名下，组件挂载后若继续上报即在此基础上累积。
+    reportTabViewState(newTabId, { editorCursor: cursor });
+    useEditorRevealStore.getState().request(snapshot.filePath, cursor.line, cursor.column);
+  },
 };
 
 /** 无后端资源、无守卫的显式 no-op 登记（工厂产实例，未来分化互不影响）。 */

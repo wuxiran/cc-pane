@@ -6,6 +6,7 @@ import { handleError, getErrorMessage } from "@/utils";
 import { filesystemService } from "@/services/filesystemService";
 import { usePanesStore } from "@/stores";
 import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
+import { reportTabViewState } from "@/lib/tabLifecycle/tabViewState";
 import { useThemeStore } from "@/stores/useThemeStore";
 import EditorToolbar from "./EditorToolbar";
 import EditorBreadcrumb from "./EditorBreadcrumb";
@@ -258,6 +259,20 @@ export default function EditorView({
       setEditorMounted(true);
       editor.onDidScrollChange(syncPreviewFromEditor);
 
+      // 光标位置上报（docs/78 批4 的 onPersist）：视图状态活在组件实例里，
+      // 而销毁管线必须在组件**可能从未挂载**时也能工作，所以只能由活着的组件
+      // 持续上报，关闭时由登记表去取。无 tabId（独立面板模式）时不上报。
+      if (tabId) {
+        editor.onDidChangeCursorPosition((event) => {
+          reportTabViewState(tabId, {
+            editorCursor: {
+              line: event.position.lineNumber,
+              column: event.position.column,
+            },
+          });
+        });
+      }
+
       // Ctrl+S 快捷键
       editor.addAction({
         id: "save-file",
@@ -271,7 +286,7 @@ export default function EditorView({
         },
       });
     },
-    [handleSave]
+    [handleSave, syncPreviewFromEditor, tabId]
   );
 
   useEffect(() => {

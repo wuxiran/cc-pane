@@ -1659,7 +1659,21 @@ export const usePanesStore = create<PanesState>()(
       });
 
       // 非终端撤销分流（docs/78）：browser/editor 各走自己的创建入口。
-      if (reopenNonTerminalSnapshot(get(), lastClosed)) return;
+      // findEditorTabIdByPath 供 onRestoreState 定位新标签——openEditor 返回的
+      // 是 layoutId，不能当 tabId 用。
+      const reopenHost = {
+        ...get(),
+        findEditorTabIdByPath: (filePath: string): string | null => {
+          const state = get();
+          for (const panel of state.allPanelsAcrossLayouts()) {
+            for (const tab of panel.tabs) {
+              if (tab.contentType === "editor" && tab.filePath === filePath) return tab.id;
+            }
+          }
+          return null;
+        },
+      };
+      if (reopenNonTerminalSnapshot(reopenHost, lastClosed)) return;
 
       get().addTab(paneId, {
         projectId: lastClosed.projectId,

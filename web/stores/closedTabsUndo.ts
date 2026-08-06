@@ -3,6 +3,8 @@
 // 严格上限 20），reopenClosedTab 侧另有惰性裁剪兜底。
 import { current, isDraft } from "immer";
 
+import { TAB_LIFECYCLE } from "@/lib/tabLifecycle/registry";
+
 import {
   resetTerminalTreeForRelaunch,
   stripInitialPrompt,
@@ -169,6 +171,8 @@ export function reopenNonTerminalSnapshot(
       layoutId?: string,
       options?: { forcePaneTab?: boolean },
     ) => string | null;
+    /** 按 filePath 找刚建出的 editor 标签（openEditor 只返回 layoutId）。 */
+    findEditorTabIdByPath?: (filePath: string) => string | null;
   },
   snap: ClosedTabSnapshot,
 ): boolean {
@@ -177,9 +181,28 @@ export function reopenNonTerminalSnapshot(
     return true;
   }
   if (snap.contentType === "editor" && snap.filePath) {
-    store.openEditor(snap.projectPath, snap.filePath, snap.title, undefined, {
+    const layoutId = store.openEditor(snap.projectPath, snap.filePath, snap.title, undefined, {
       forcePaneTab: true,
     });
+    // onRestoreState（docs/78 批4）：把光标还给新标签。
+    //
+    // **openEditor 返回的是 layoutId，不是 tabId**——直接拿它当标签 id 用，
+    // 视图状态会记在一个不存在的标签名下，光标恢复静默失效（docs/69 同型）。
+    // Files 视图下它还会返回 null（不建 pane tab，CLAUDE.md 明列）。
+    // 所以新标签 id 要按 filePath 去树里找。
+    if (layoutId) {
+      const newTabId = store.findEditorTabIdByPath?.(snap.filePath);
+      if (newTabId) {
+        TAB_LIFECYCLE.editor.onRestoreState?.(newTabId, {
+          contentType: "editor",
+          projectId: snap.projectId,
+          projectPath: snap.projectPath,
+          title: snap.title,
+          filePath: snap.filePath,
+          viewState: snap.viewState,
+        });
+      }
+    }
     return true;
   }
   return false;
