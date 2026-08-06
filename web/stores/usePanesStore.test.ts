@@ -1407,3 +1407,30 @@ describe("attachSessionToAnchor", () => {
     expect(tab.leaseReadOnly).toBe(true);
   });
 });
+
+describe("reopenClosedTab 无损恢复（批4 扩容）", () => {
+  it("恢复 pinned 与 starred 身份（此前只恢复创建参数）", () => {
+    const panel = createPanel();
+    usePanesStore.setState({
+      rootPane: panel,
+      activePaneId: panel.id,
+      layouts: [{ id: "l1", name: "L1", kind: "normal", rootPane: panel, activePaneId: panel.id }],
+      currentLayoutId: "l1",
+      closedTabs: [{
+        projectId: "p1",
+        projectPath: "/tmp/p1",
+        title: "原标题",
+        pinned: true,
+        starred: true,
+      }],
+    });
+
+    usePanesStore.getState().reopenClosedTab(panel.id);
+
+    const pane = usePanesStore.getState().findPaneById(panel.id);
+    const restored = pane?.type === "panel" ? pane.tabs[pane.tabs.length - 1] : undefined;
+    expect(restored?.title).toBe("原标题");
+    expect(restored?.pinned).toBe(true);
+    expect(restored?.starred).toBe(true);
+  });
+});

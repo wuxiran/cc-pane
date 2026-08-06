@@ -39,6 +39,9 @@ export function toClosedTabSnapshot(t: {
   ssh?: ClosedTabSnapshot["ssh"];
   wsl?: ClosedTabSnapshot["wsl"];
   machineName?: string;
+  pinned?: boolean;
+  starred?: boolean;
+  parentTabId?: string;
 }): ClosedTabSnapshot {
   return {
     projectId: t.projectId,
@@ -57,5 +60,31 @@ export function toClosedTabSnapshot(t: {
     ssh: t.ssh,
     wsl: t.wsl,
     machineName: t.machineName,
+    pinned: t.pinned,
+    starred: t.starred,
+    parentTabId: t.parentTabId,
   };
+}
+
+/**
+ * 恢复「标签在布局里的身份」（批4）。
+ *
+ * pinned/starred 不是创建参数，`addTab` 不接它们——必须在标签建好之后补打，
+ * 否则撤销出来的是「同一个会话，但不是原来那个标签」：置顶掉了、星标没了。
+ */
+export function restoreClosedTabIdentity(
+  store: {
+    findPaneById: (paneId: string) => { type: string; tabs?: Array<{ id: string }> } | null;
+    togglePinTab: (paneId: string, tabId: string) => void;
+    toggleStarTab: (tabId: string) => void;
+  },
+  paneId: string,
+  snapshot: Pick<ClosedTabSnapshot, "pinned" | "starred">,
+): void {
+  if (!snapshot.pinned && !snapshot.starred) return;
+  const pane = store.findPaneById(paneId);
+  if (pane?.type !== "panel" || !pane.tabs?.length) return;
+  const tabId = pane.tabs[pane.tabs.length - 1].id;
+  if (snapshot.pinned) store.togglePinTab(paneId, tabId);
+  if (snapshot.starred) store.toggleStarTab(tabId);
 }
