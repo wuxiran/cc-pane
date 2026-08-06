@@ -790,7 +790,34 @@ impl ReplayBuffer {
         }
         let anchor_seq = cp.anchor_seq;
         self.checkpoint = Some(cp);
+        if CHECKPOINT_ANCHORING_ENABLED {
+            // 锚定裁剪（M3b-4）：photo 已涵盖 anchor 之前全部字节的渲染效果，
+            // 裁掉它们即把窗口语义从「会话起点 8MB」换成「photo + delta」。
+            // 只裁整段（anchor 必落 chunk 边界，「丢弃只能整段」不变式无痛）。
+            self.trim_before_anchor(anchor_seq);
+        }
         StoreCheckpointOutcome::Accepted { anchor_seq }
+    }
+
+    /// 裁掉「整段位于 anchor 之前」的 chunks（起点 seq 与终点 seq 都 ≤ anchor）。
+    /// 与 evict_front 的容量淘汰共用 window_start_seq 记账；不会裁过 anchor，
+    /// 照片经本函数永不失效。
+    fn trim_before_anchor(&mut self, anchor_seq: u64) {
+        while let Some(front) = self.chunks.front() {
+            let front_end = self.window_start_seq + front.len() as u64;
+            if front_end > anchor_seq {
+                break;
+            }
+            let front = self.chunks.pop_front().expect("front checked above");
+            self.total_bytes = self.total_bytes.saturating_sub(front.len());
+            self.window_start_seq += front.len() as u64;
+        }
+        debug_assert!(
+            self.checkpoint
+                .as_ref()
+                .is_none_or(|cp| cp.anchor_seq >= self.window_start_seq),
+            "trim_before_anchor must never invalidate the checkpoint"
+        );
     }
 
     /// 是否需要催前端补拍：有效照片存在且 anchor 之后已积累超过阈值的新字节。
@@ -848,7 +875,21 @@ impl ReplayBuffer {
     }
 
     fn snapshot(&self) -> TerminalReplaySnapshot {
-        let mut data = String::with_capacity(self.total_bytes);
+        // 锚定裁剪后（M3b-4）旧端点必须仍返回完整画面：photo + 保留字节拼接串。
+        // 两张照片之间拼接串保持前缀增长；photo rebase 时轮询差分走一次
+        // desync（M3b-0 已修好该路）。未裁剪 / 无照片时行为逐字节等于旧实现。
+        let photo = self
+            .checkpoint
+            .as_ref()
+            .filter(|cp| {
+                CHECKPOINT_ANCHORING_ENABLED
+                    && cp.checkpoint_epoch == self.epoch
+                    && cp.anchor_seq >= self.window_start_seq
+            })
+            .map(|cp| cp.snapshot_ansi.as_str())
+            .unwrap_or("");
+        let mut data = String::with_capacity(photo.len() + self.total_bytes);
+        data.push_str(photo);
         for chunk in &self.chunks {
             data.push_str(chunk);
         }
@@ -1040,6 +1081,15 @@ const TERMINAL_WRITE_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const LIVE_OUTPUT_MAX_LINES: usize = 20_000;
 const LIVE_OUTPUT_MAX_BYTES: usize = 20 * 1024 * 1024;
 const LIVE_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// M3b-4 锚定开关：照片被接受后裁掉 anchor 之前的 chunks（内存从「会话起点
+/// 8MB 环」变「照片 + 照片之后的 delta」）。
+///
+/// **回退语义（评审修订 4，诚实版）**：翻回 false 只保证「新照片停止触发
+/// 裁剪 + 恢复路径回落」；已被裁剪的会话历史不可恢复——那些会话接受
+/// scrollback 深度损失（画面完整性不受影响：photo 涵盖被裁剪字节的渲染
+/// 效果）。不承诺无损热回退。
+const CHECKPOINT_ANCHORING_ENABLED: bool = true;
 /// 前端上传照片（snapshot_ansi）的体积上限，超过即拒收。
 const CHECKPOINT_SNAPSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
 const DEAD_OUTPUT_MAX_LINES: usize = 20_000;
@@ -5123,6 +5173,42 @@ mod tests {
     }
 
     #[test]
+    fn anchoring_trims_chunks_before_anchor_and_memory_shrinks() {
+        // M3b-4：photo 接受后 anchor 之前的整段 chunk 被裁掉，内存不再随
+        // 历史线性涨；照片经裁剪永不失效，恢复语义不变。
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("hello");
+        replay.push("world");
+        assert_eq!(replay.total_bytes, 10);
+
+        let outcome = replay.store_checkpoint(test_checkpoint(&replay, 5));
+        assert_eq!(outcome, StoreCheckpointOutcome::Accepted { anchor_seq: 5 });
+        // "hello"（整段位于 anchor 之前）被裁；"world" 保留
+        assert_eq!(replay.total_bytes, 5);
+        assert_eq!(replay.window_start_seq, 5);
+
+        let recovery = replay.recovery_snapshot();
+        assert!(recovery.checkpoint.is_some());
+        assert_eq!(recovery.delta, "world");
+        // 旧端点：photo + 保留字节拼接串，画面完整
+        assert_eq!(replay.snapshot().data, "PHOTOworld");
+    }
+
+    #[test]
+    fn anchoring_never_splits_chunks_across_anchor() {
+        // anchor 落 chunk 边界（seq 按 chunk 累加）；跨界 chunk 整段保留
+        // ——「丢弃只能整段」不变式。
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("abc");
+        replay.push("defgh");
+        // anchor = 3（第一段末尾）：裁 "abc" 留 "defgh"
+        let outcome = replay.store_checkpoint(test_checkpoint(&replay, 3));
+        assert_eq!(outcome, StoreCheckpointOutcome::Accepted { anchor_seq: 3 });
+        assert_eq!(replay.recovery_snapshot().delta, "defgh");
+        assert_eq!(replay.window_start_seq, 3);
+    }
+
+    #[test]
     fn checkpoint_store_rejects_epoch_mismatch() {
         let mut replay = ReplayBuffer::new(1024);
         replay.push("hello");
@@ -5320,10 +5406,18 @@ mod tests {
             );
 
             let window_start = replay.window_start_seq as usize;
+            // M3b-4 锚定后旧端点语义 = photo + 保留字节拼接串（画面完整）；
+            // 无有效照片时仍是纯窗口。
+            let photo_prefix = replay
+                .checkpoint
+                .as_ref()
+                .filter(|cp| cp.anchor_seq >= replay.window_start_seq)
+                .map(|cp| cp.snapshot_ansi.as_str())
+                .unwrap_or("");
             assert_eq!(
                 replay.snapshot().data,
-                &reference[window_start..],
-                "round {round}: window == reference suffix"
+                format!("{photo_prefix}{}", &reference[window_start..]),
+                "round {round}: legacy snapshot == photo + window suffix"
             );
 
             let recovery = replay.recovery_snapshot();
