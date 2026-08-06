@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { toast } from "sonner";
 import i18n from "@/i18n";
+import { nextLaunchId } from "@/components/panes/terminalLaunchIdentity";
 import {
   usePanesStore,
   useActivityBarStore,
@@ -200,7 +201,9 @@ export function useOrchestratorListener() {
           const resolvedCliTool = (rawCliTool || "claude") as CliTool;
           const tabOpts = {
             projectId,
-            launchId: projectId,
+            // 每次新生成，绝不复用 projectId——复用已被上次 PTY 占用的 launch id
+            // 会让 bind_pty_session 落空、resume id 永久丢失（docs/69）
+            launchId: nextLaunchId(),
             projectPath,
             sessionId,           // 后端已创建的 PTY session，避免前端重复创建
             resumeId: event.payload.resumeId,

@@ -4,8 +4,12 @@
 // 自己"，证明不了 handler 真的存在。docs/45 的事故形态正是「表写着要传、
 // 代码里没人接」。
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+// 用 Vite 的 raw import 读源码，避开 node:fs（web 的 tsconfig 不含 node 类型）
+import rustContract from "../../cc-panes-core/src/services/boundary_events.rs?raw";
+import rustConstants from "../../cc-panes-core/src/constants.rs?raw";
+import perSessionBridge from "../../src-tauri/src/services/terminal_daemon_event_bridge.rs?raw";
+import controlLink from "../../src-tauri/src/services/terminal_daemon_control_link.rs?raw";
+import terminalServiceSrc from "./terminalService.ts?raw";
 import {
   BOUNDARY_EVENTS,
   BOUNDARY_EVENT_NAMES,
@@ -13,8 +17,7 @@ import {
   isFrontendListenedEvent,
 } from "./daemonEventContract";
 
-const repoRoot = resolve(__dirname, "../..");
-const read = (p: string) => readFileSync(resolve(repoRoot, p), "utf8");
+
 
 describe("契约表自身", () => {
   it("事件名唯一", () => {
@@ -31,7 +34,7 @@ describe("契约表自身", () => {
 
 describe("与 Rust 侧契约表键集一致", () => {
   it("**两份表的事件名完全相同**（跨语言无法共享源码，只能靠这条守）", () => {
-    const rust = read("cc-panes-core/src/services/boundary_events.rs");
+    const rust = rustContract;
 
     // 从 Rust 表里抽事件名：常量引用 + 字面量两种写法
     const constNames = [...rust.matchAll(/name:\s*crate::constants::events::(\w+)/g)].map(
@@ -40,7 +43,7 @@ describe("与 Rust 侧契约表键集一致", () => {
     const literalNames = [...rust.matchAll(/name:\s*"([^"]+)"/g)].map((m) => m[1]);
 
     // 常量名 → 值（从 constants.rs 解析，避免手写映射漂移）
-    const constants = read("cc-panes-core/src/constants.rs");
+    const constants = rustConstants;
     const resolved = constNames.map((c) => {
       const m = constants.match(new RegExp(`${c}:\\s*&str\\s*=\\s*"([^"]+)"`));
       expect(m, `constants.rs 里找不到 ${c}`).toBeTruthy();
@@ -53,7 +56,7 @@ describe("与 Rust 侧契约表键集一致", () => {
 
 describe("app 侧三处分发都覆盖了契约事件", () => {
   it("Rust per-session 流（DaemonStreamMessage）覆盖 session-ws 类事件", () => {
-    const src = read("src-tauri/src/services/terminal_daemon_event_bridge.rs");
+    const src = perSessionBridge;
     // 未知消息必须有兜底，否则新增事件会让旧 app 反序列化失败
     expect(src).toMatch(/#\[serde\(other\)\]/);
 
@@ -66,7 +69,7 @@ describe("app 侧三处分发都覆盖了契约事件", () => {
   });
 
   it("Rust control 通道（DaemonControlMessage）覆盖 control 类事件", () => {
-    const src = read("src-tauri/src/services/terminal_daemon_control_link.rs");
+    const src = controlLink;
     expect(src).toMatch(/#\[serde\(other\)\]/);
 
     for (const event of BOUNDARY_EVENTS) {
@@ -82,7 +85,7 @@ describe("app 侧三处分发都覆盖了契约事件", () => {
   });
 
   it("前端监听器覆盖所有非 control 事件", () => {
-    const src = read("web/services/terminalService.ts");
+    const src = terminalServiceSrc;
     for (const event of BOUNDARY_EVENTS) {
       if (!isFrontendListenedEvent(event.name)) continue;
       expect(src, `${event.name} 前端没有监听器`).toContain(event.name);
