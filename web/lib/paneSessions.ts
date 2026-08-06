@@ -1,11 +1,27 @@
-import { collectPanels, collectTerminalLeaves } from "@/lib/paneTree";
+import { collectPanels, collectTerminalLeaves, findTerminalPane } from "@/lib/paneTree";
 import type { TabContentType } from "@/lib/tabContentType";
 import { asPtySessionId } from "@/types/ids";
-import type { PaneNode, Tab } from "@/types";
+import type { PaneNode, Tab, TerminalPaneLeaf } from "@/types";
 import type { PtySessionId } from "@/types/ids";
 
 // 真身在 lib/paneTree（纯树函数统一归位）；保留 re-export 维持既有 import 路径。
 export { collectTerminalLeaves, findTerminalPane } from "@/lib/paneTree";
+
+/**
+ * 「活跃 leaf 或首个」的统一投影入口（批5 绞杀第一段）。
+ * 终端运行时状态的唯一真相在 leaf 上；tab 级消费方要读运行时字段时经此现算，
+ * 不再依赖 syncTabTerminalState 物化到 tab 的存储拷贝（有损且有同步税）。
+ * 语义与 syncTabTerminalState 内部的活跃 leaf 解析一致：activeTerminalPaneId
+ * 命中优先，否则取第一个 leaf；无树（legacy 形态）返回 null，调用方回退 tab 字段。
+ */
+export function activeTerminalLeaf(tab: Tab): TerminalPaneLeaf | null {
+  if (tab.contentType !== "terminal" || !tab.terminalRootPane) return null;
+  if (tab.activeTerminalPaneId) {
+    const hit = findTerminalPane(tab.terminalRootPane, tab.activeTerminalPaneId);
+    if (hit?.type === "leaf") return hit;
+  }
+  return collectTerminalLeaves(tab.terminalRootPane)[0] ?? null;
+}
 
 export function collectTerminalSessionIds(tab: Tab): PtySessionId[] {
   if (tab.contentType !== "terminal" || !tab.terminalRootPane) {

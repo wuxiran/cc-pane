@@ -2171,6 +2171,8 @@ export const usePanesStore = create<PanesState>()(
           for (const tab of panel.tabs) {
             if (tab.contentType !== "terminal") continue;
             if (tab.sessionId) referenced.add(tab.sessionId);
+            // tab.savedSessionId 自批5 绞杀后不再物化刷新：有树时该值可能是快照载入的
+            // 陈旧拷贝。保护集语义是超集安全（多保护≠误杀），保留读取以覆盖 legacy 形态。
             if (tab.savedSessionId) referenced.add(tab.savedSessionId);
             for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
               if (leaf.sessionId) referenced.add(leaf.sessionId);

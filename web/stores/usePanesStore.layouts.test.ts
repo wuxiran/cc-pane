@@ -503,7 +503,8 @@ describe("usePanesStore layouts", () => {
     const sessionId = await usePanesStore.getState().reconnectTab("ignored", "hidden-tab", leaf.id);
 
     const hiddenTab = panel(hiddenLayout().rootPane).tabs[0];
-    expect(hiddenTab.disconnected).toBe(false);
+    // 批5 绞杀：disconnected 单源在 leaf，tab 不再物化
+    expect((hiddenTab.terminalRootPane as TerminalPaneLeaf).disconnected).toBe(false);
     expect(hiddenTab.dirty).toBe(true);
     expect(hiddenTab.sessionId).toBe("session-reconnected");
     expect(sessionId).toBe("session-reconnected");
