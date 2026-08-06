@@ -16,7 +16,7 @@ import {
   DESTROY_POLICY,
 } from "@/lib/tabLifecycle/destroyPipeline";
 import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
-import { collectTerminalLeaves } from "@/lib/paneSessions";
+import { collectTerminalLeaves, collectTerminalSessionIdsWithSaved } from "@/lib/paneSessions";
 import type { Tab } from "@/types";
 import type {
   PanesDraft,
@@ -278,6 +278,12 @@ export function createPaneRemovalActions(
       // pinned 豁免在此判定，与下方树操作同一口径——两处判据必须一致，
       // 否则会出现「资源杀了但标签还在」或反之。
       const doomedTabs: Tab[] = [];
+      // Codex 审查 P0：历史快照互覆盖会造成**跨布局同 id 的分叉副本**（下方
+      // 树操作的注释即为此扫完全部布局）。收集必须逐位置进行，不能按 tab.id
+      // 去重——去重会漏掉后续副本的资源（不同 sessionId 的分叉副本成孤儿）。
+      // 同时 pinned 豁免的副本仍在树上显示它的会话：该会话必须进保护集，
+      // 否则「杀掉 pinned 副本正在用的会话」= 一个杀不掉的死终端。
+      const pinnedProtected = new Set<string>();
       {
         const state = get();
         for (const tabId of tabIds) {
@@ -286,17 +292,23 @@ export function createPaneRemovalActions(
             if (!tree) continue;
             const location = findTabLocation(tree, tabId);
             if (!location) continue;
-            if (policy.respectsPinned && location.tab.pinned) continue;
-            if (!doomedTabs.some((t) => t.id === location.tab.id)) doomedTabs.push(location.tab);
+            if (policy.respectsPinned && location.tab.pinned) {
+              for (const sid of collectTerminalSessionIdsWithSaved(location.tab)) {
+                pinnedProtected.add(sid);
+              }
+              continue;
+            }
+            doomedTabs.push(location.tab);
           }
         }
       }
       // 回收先于树操作：树 splice 后 tab 数据就找不回来了。commitResourceDestroy
       // 内部按矩阵决定杀不杀（backend-close 的 PTY 已死，kills=false 整步跳过）。
       if (doomedTabs.length > 0) {
-        void commitResourceDestroy(doomedTabs, reason, {
-          protectSessionIds: opts?.protectSessionIds,
-        });
+        const protect = pinnedProtected.size > 0
+          ? new Set([...(opts?.protectSessionIds ?? []), ...pinnedProtected])
+          : opts?.protectSessionIds;
+        void commitResourceDestroy(doomedTabs, reason, { protectSessionIds: protect });
       }
 
       set((state) => {
@@ -385,8 +397,13 @@ export function createPaneRemovalActions(
           if (!tree) continue;
           const location = findTabLocation(tree, tabId);
           if (!location) continue;
-          const leaf = collectTerminalLeaves(location.tab.terminalRootPane)
-            .find((l) => l.id === terminalPaneId);
+          const leaves = collectTerminalLeaves(location.tab.terminalRootPane);
+          // Codex 审查 P0：**kill 必须与树操作同守卫**。最后一格时下面的
+          // closeTerminalLeafInTab 会 no-op（保持 tab 存在），若这里仍杀了
+          // 会话，结果是「会话已死但格子还在树上」——一个杀不掉又用不了的
+          // 死终端。最后一格由调用方走 removeTabsInternal 关整个 tab。
+          if (leaves.length <= 1) return;
+          const leaf = leaves.find((l) => l.id === terminalPaneId);
           const sessionId = leaf?.sessionId ?? leaf?.savedSessionId;
           if (sessionId) {
             terminalService.detachOutput(sessionId);

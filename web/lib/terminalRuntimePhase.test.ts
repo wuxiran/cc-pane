@@ -38,6 +38,14 @@ describe("单字段基本判定", () => {
   it("disconnected → disconnected", () => {
     expect(phaseOf({ disconnected: true })).toBe("disconnected");
   });
+
+  it("重试中（attempt>0 无 error 无 session）→ launching，不是 launch-failed", () => {
+    expect(phaseOf({ launchAttempt: 1 })).toBe("launching");
+  });
+
+  it("重试又失败（attempt>0 且有 error）→ launch-failed", () => {
+    expect(phaseOf({ launchAttempt: 1, launchError: { message: "x" } })).toBe("launch-failed");
+  });
 });
 
 describe("冲突组合的优先级（顺序本身就是规格）", () => {

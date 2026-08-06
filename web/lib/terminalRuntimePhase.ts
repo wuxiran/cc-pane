@@ -73,7 +73,10 @@ export function phaseOf(input: TerminalPhaseInput): TerminalRuntimePhase {
   if (input.savedSessionId && !input.sessionId) return "restoring";
   if (input.disconnected) return "disconnected";
   if (input.sessionId) return "running";
-  if ((input.launchAttempt ?? 0) > 0) return "launch-failed";
+  // Codex 审查 P3：launchAttempt > 0 且**无 launchError** = 重试已发起、错误
+  // 已清、会话尚未建立——这是 launching，不是 launch-failed。失败态只由
+  // launchError 判定（上面第 2 优先级），否则重试期间会显示成失败。
+  if ((input.launchAttempt ?? 0) > 0) return "launching";
   return "idle";
 }
 

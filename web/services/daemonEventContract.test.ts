@@ -54,41 +54,68 @@ describe("与 Rust 侧契约表键集一致", () => {
   });
 });
 
+// Codex 审查 P2：toContain 整文件匹配会被注释骗过（假阳性）。收紧为：
+// Rust 侧先抽出 enum 块再逐变体断言；前端断言「事件名出现在 listen 调用里」。
+function extractEnumBlock(src: string, enumName: string): string {
+  // 朴素切片而非正则：CRLF/属性宏/嵌套花括号都会让「匹配到闭合括号」的正则
+  // 变脆。变体断言只需要枚举附近的窗口，2000 字符足够覆盖任何合理的枚举体。
+  const start = src.indexOf(`enum ${enumName}`);
+  expect(start, `找不到 enum ${enumName}`).toBeGreaterThanOrEqual(0);
+  return src.slice(start, start + 2000);
+}
+
+/** 事件名 → 各分发处期望的变体名。新增跨界事件必须同步这张表。 */
+const EXPECTED_VARIANTS: Record<string, { stream?: string; control?: string }> = {
+  "terminal-output": { stream: "Output" },
+  "terminal-exit": { stream: "Exit" },
+  "session-killed": { stream: "Killed", control: "SessionKilled" },
+  "terminal-desync": { stream: "Desync" },
+  "terminal-resume-id-detected": { control: "ResumeIdDetected" },
+  "terminal-launch-warning": { control: "LaunchWarning" },
+  notifier: { control: "Notifier" },
+};
+
 describe("app 侧三处分发都覆盖了契约事件", () => {
-  it("Rust per-session 流（DaemonStreamMessage）覆盖 session-ws 类事件", () => {
-    const src = perSessionBridge;
-    // 未知消息必须有兜底，否则新增事件会让旧 app 反序列化失败
-    expect(src).toMatch(/#\[serde\(other\)\]/);
+  it("期望变体表与契约表键集一致（防这张表自己漂移）", () => {
+    expect(Object.keys(EXPECTED_VARIANTS).sort()).toEqual([...BOUNDARY_EVENT_NAMES].sort());
+  });
 
-    for (const event of BOUNDARY_EVENTS) {
-      if (event.channel === "control") continue;
-      // 消息 tag 是事件名去掉 terminal- 前缀后的驼峰（output/exit/killed/desync）
-      const tag = event.name.replace(/^terminal-/, "").replace(/^session-/, "");
-      expect(src.toLowerCase(), `${event.name} 在 per-session 分发里没有对应变体`).toContain(tag);
+  it("Rust per-session 流（DaemonStreamMessage）逐变体断言", () => {
+    const enumBlock = extractEnumBlock(perSessionBridge, "DaemonStreamMessage");
+    expect(enumBlock).toContain("#[serde(other)]");
+    for (const [name, v] of Object.entries(EXPECTED_VARIANTS)) {
+      if (!v.stream) continue;
+      expect(enumBlock, `${name} 在 DaemonStreamMessage 里缺 ${v.stream} 变体`)
+        .toContain(v.stream);
     }
   });
 
-  it("Rust control 通道（DaemonControlMessage）覆盖 control 类事件", () => {
-    const src = controlLink;
-    expect(src).toMatch(/#\[serde\(other\)\]/);
-
-    for (const event of BOUNDARY_EVENTS) {
-      if (event.channel === "session-ws") continue;
-      const key = event.name === "notifier" ? "Notifier" : null;
-      if (key) {
-        expect(src, `${event.name} 在 control 分发里缺变体`).toContain(key);
-      }
+  it("Rust control 通道（DaemonControlMessage）逐变体断言", () => {
+    const enumBlock = extractEnumBlock(controlLink, "DaemonControlMessage");
+    expect(enumBlock).toContain("#[serde(other)]");
+    for (const [name, v] of Object.entries(EXPECTED_VARIANTS)) {
+      if (!v.control) continue;
+      expect(enumBlock, `${name} 在 DaemonControlMessage 里缺 ${v.control} 变体`)
+        .toContain(v.control);
     }
-    // 具名检查两个曾出事故的事件
-    expect(src).toContain("ResumeIdDetected");
-    expect(src).toContain("LaunchWarning");
   });
 
-  it("前端监听器覆盖所有非 control 事件", () => {
-    const src = terminalServiceSrc;
+  it("前端监听器：事件名必须出现在 listen 调用里（不是注释里）", () => {
     for (const event of BOUNDARY_EVENTS) {
       if (!isFrontendListenedEvent(event.name)) continue;
-      expect(src, `${event.name} 前端没有监听器`).toContain(event.name);
+      // 切片判断替代正则（多层转义太脆）：带引号的事件名出现处，
+      // 其前 150 字符内必须有 listen 调用——排除纯注释里的提及。
+      const quoted = `"${event.name}"`;
+      let found = false;
+      let idx = terminalServiceSrc.indexOf(quoted);
+      while (idx !== -1) {
+        if (terminalServiceSrc.slice(Math.max(0, idx - 150), idx).includes("listen")) {
+          found = true;
+          break;
+        }
+        idx = terminalServiceSrc.indexOf(quoted, idx + 1);
+      }
+      expect(found, `${event.name} 没有 listen 注册`).toBe(true);
     }
   });
 });

@@ -124,10 +124,18 @@ impl WsEmitter {
                     sub.hidden = true;
                 } else if sub.hidden {
                     // unhide：期间真丢过数据才需要让它重建画面。
+                    //
+                    // Codex 审查 P1：不能直接 try_send——队列满时 desync 丢失
+                    // 而标记已清，客户端永远不知道自己缺了数据。改置 desynced
+                    // 标志复用 deliver 的排空机制：下一条消息投递前会先补插
+                    // desync，插不进就继续整段跳过，直到排空。
                     sub.hidden = false;
                     if sub.dropped_while_hidden {
                         sub.dropped_while_hidden = false;
-                        let _ = sub.tx.try_send(DESYNC_MESSAGE.to_string());
+                        match sub.tx.try_send(DESYNC_MESSAGE.to_string()) {
+                            Ok(()) => {}
+                            Err(_) => sub.desynced = true,
+                        }
                     }
                 }
             }

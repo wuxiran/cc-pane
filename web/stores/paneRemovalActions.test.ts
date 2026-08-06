@@ -821,3 +821,50 @@ describe("销毁标签清理视图 store", () => {
     expect(Object.keys(useTabViewStateStore.getState().views)).toEqual([]);
   });
 });
+
+// ============================================================================
+// Codex 代码审查 P0 两条的回归锁。
+// ============================================================================
+describe("Codex 审查 P0 回归", () => {
+  it("跨布局同 id 副本：pinned 副本正在用的会话进保护集，不被杀", async () => {
+    // 历史快照互覆盖会产生跨布局同 id 的副本（closeTabBySessionId 的注释
+    // 即为此扫完全部布局）。pinned 副本留在树上，它显示的会话绝不能被
+    // 另一个未 pinned 副本的销毁连坐——否则 pinned 标签里是个死终端。
+    const shared = makeTerminalTab("t1");
+    (shared.terminalRootPane as TerminalPaneLeaf).sessionId = "sess-shared";
+    const pinnedCopy = { ...shared, pinned: true };
+
+    const p1 = makePanel("p1", [shared]);
+    const p2 = makePanel("p2", [pinnedCopy]);
+    usePanesStore.setState({
+      rootPane: p1,
+      activePaneId: "p1",
+      layouts: [
+        { id: "l1", name: "L1", kind: "normal", rootPane: p1, activePaneId: "p1" },
+        { id: "l2", name: "L2", kind: "normal", rootPane: p2, activePaneId: "p2" },
+      ],
+      currentLayoutId: "l1",
+      closedTabs: [],
+      poppedOutTabs: new Set<string>(),
+    });
+
+    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
+    await new Promise((r) => setTimeout(r, 0));
+
+    // pinned 副本的会话被保护——零 kill
+    expect(killSpy).not.toHaveBeenCalledWith("sess-shared", expect.anything());
+    expect(killSpy).not.toHaveBeenCalledWith("sess-shared");
+  });
+
+  it("removeTerminalLeafInternal 最后一格：**零 kill 零树变化**（防「会话死了格子还在」）", async () => {
+    const tab = makeTerminalTab("t1");
+    (tab.terminalRootPane as TerminalPaneLeaf).sessionId = "sess-only";
+    setPanesState(makePanel("p1", [tab]), "p1");
+
+    usePanesStore.getState().removeTerminalLeafInternal("t1", "t1-leaf", "user-close");
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(currentPanel("p1").tabs).toHaveLength(1);
+  });
+});
