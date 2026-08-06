@@ -129,12 +129,9 @@ fn path_is_within(path: &Path, root: &Path) -> bool {
 fn requested_path(root: &Path, raw_path: &str) -> AppResult<PathBuf> {
     let requested = Path::new(raw_path);
     if requested.is_absolute() {
-        if !path_is_within(requested, &simplify_path(root)) {
-            return Err(coded(
-                "TERMINAL_PATH_OUTSIDE_ROOT",
-                "The terminal path is outside the session project",
-            ));
-        }
+        // 不在这里做包含性预检查：原始输入可能是 8.3 短名/大小写变体
+        // （GitHub runner 的 TEMP 就是 RUNNER~1 短名形式），字符串对比必然误判。
+        // 唯一的安全边界是下游 canonicalize 之后的 path_is_within 复核。
         return Ok(requested.to_path_buf());
     }
     if relative_escapes_root(requested) {

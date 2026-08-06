@@ -148,3 +148,21 @@ fn terminal_path_link_rejects_symlink_escape() {
         "TERMINAL_PATH_OUTSIDE_ROOT",
     );
 }
+
+/// 回归：绝对路径输入可能是与规范形不同的拼写（8.3 短名、大小写变体——
+/// GitHub runner 的 TEMP 就是 `RUNNER~1` 短名）。包含性判定必须在
+/// canonicalize 之后做，原始字符串对比会把项目内文件误判为出界。
+#[cfg(windows)]
+#[test]
+fn terminal_path_link_accepts_absolute_spelling_variants() {
+    let root = tempfile::tempdir().expect("project root");
+    let file = root.path().join("docs").join("report.md");
+    std::fs::create_dir_all(file.parent().unwrap()).expect("docs dir");
+    std::fs::write(&file, "report").expect("report file");
+
+    // 大小写变体：Windows 文件系统不区分大小写，canonicalize 会还原真实拼写
+    let upper = file.to_string_lossy().to_uppercase();
+    let resolved = resolve_terminal_path_link(&context(root.path(), "local"), &upper)
+        .expect("case-variant absolute path resolves");
+    assert_eq!(resolved.kind, TerminalPathKind::File);
+}
