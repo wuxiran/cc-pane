@@ -34,10 +34,15 @@ export type TerminalRuntimePhase =
   | "running"
   /** 会话还在但连接断了（daemon 不可达 / 租约被别人抢走） */
   | "disconnected"
-  /** 进程已退出 */
+  /** 进程已退出。当前无输入来源（exit 不写回 leaf/tab），phaseOf 不会返回
+   *  本值；保留变体是因为派生谓词（isLivePhase 等）以它为边界语义。 */
   | "exited";
 
-/** 判定所需的输入。字段名与 Tab / TerminalPaneLeaf 上的一致。 */
+/**
+ * 判定所需的输入。字段名与 Tab / TerminalPaneLeaf 上的可选字段一致。
+ * 刻意不含 exitCode：exit 事件不写回 leaf/tab（落点在会话回调与休眠容器），
+ * 接口只承诺拿得到的数据——「exited」阶段等 exit→leaf 写回接线后启用。
+ */
 export interface TerminalPhaseInput {
   sessionId?: string | null;
   savedSessionId?: string;
@@ -47,24 +52,21 @@ export interface TerminalPhaseInput {
   launchError?: unknown;
   launchAttempt?: number;
   disconnected?: boolean;
-  exitCode?: number;
 }
 
 /**
  * 折叠成单一阶段。
  *
  * 判定顺序不可随意调整——它编码了「哪个状态更要紧」：
- * 1. 退出码存在 = 已经死了，别的都不重要；
- * 2. 启动失败 = 用户需要看到错误并重试；
- * 3. 被挡住的恢复 = 需要用户处置（比「正在恢复」更要紧，否则会显示一个
+ * 1. 启动失败 = 用户需要看到错误并重试；
+ * 2. 被挡住的恢复 = 需要用户处置（比「正在恢复」更要紧，否则会显示一个
  *    永远转圈的假恢复）；
- * 4. 恢复中 / 启动中；
- * 5. 断连（会话还在，只是连不上）；
- * 6. 有会话 = 运行中；
- * 7. 都没有 = 空闲。
+ * 3. 恢复中 / 启动中；
+ * 4. 断连（会话还在，只是连不上）；
+ * 5. 有会话 = 运行中；
+ * 6. 都没有 = 空闲。
  */
 export function phaseOf(input: TerminalPhaseInput): TerminalRuntimePhase {
-  if (input.exitCode !== undefined && input.exitCode !== null) return "exited";
   if (input.launchError) return "launch-failed";
   if (input.restoreBlockedReason) return "restore-blocked";
   if (input.restoring) return "restoring";

@@ -30,11 +30,6 @@ describe("单字段基本判定", () => {
     expect(phaseOf({ savedSessionId: "s-old" })).toBe("restoring");
   });
 
-  it("exitCode 存在 → exited（含 0）", () => {
-    expect(phaseOf({ exitCode: 0 })).toBe("exited");
-    expect(phaseOf({ exitCode: 1 })).toBe("exited");
-  });
-
   it("disconnected → disconnected", () => {
     expect(phaseOf({ disconnected: true })).toBe("disconnected");
   });
@@ -49,17 +44,6 @@ describe("单字段基本判定", () => {
 });
 
 describe("冲突组合的优先级（顺序本身就是规格）", () => {
-  it("**已退出压倒一切**：别的字段再热闹也是 exited", () => {
-    expect(
-      phaseOf({
-        exitCode: 0,
-        sessionId: "s1",
-        restoring: true,
-        disconnected: true,
-      }),
-    ).toBe("exited");
-  });
-
   it("启动失败压过恢复中：用户需要看到错误而不是转圈", () => {
     expect(phaseOf({ launchError: { message: "boom" }, restoring: true })).toBe("launch-failed");
   });
