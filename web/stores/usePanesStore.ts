@@ -10,6 +10,7 @@ import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { collectTabs, collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
 import { assignTreeAndConvergeActive } from "@/lib/paneTree";
 import { sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
+import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 // 树辅助（findPane 等）与 close 系树操作已下沉到 paneTreeHelpers /
@@ -84,83 +85,16 @@ import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 // 真身在 paneTreeHelpers；这里保留 re-export 维持既有 import 路径。
 export { TERMINAL_LAYOUT_CHANGED_EVENT } from "@/lib/paneTree";
 
+/**
+ * 终端标签工厂。真身在 `lib/tabLifecycle/tabFactory` + 登记表的 createDefaults
+ * （docs/78 批4：Tab 构造收敛成唯一入口），这里保留既有调用签名与 import 路径。
+ */
 export function createTab(opts: CreateTabOptions): Tab {
-  const { projectId, projectPath, launchId, sessionId, resumeId, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId, launchExtras } = opts;
-  let title: string;
-  if (customTitle) {
-    title = customTitle;
-  } else {
-    const name = projectPath.split(/[/\\]/).pop() || "Terminal";
-    if (ssh) {
-      const label = machineName || "SSH";
-      title = `[${label}] ${name}`;
-    } else if (wsl && cliTool && cliTool !== "none") {
-      const toolLabel = cliTool.charAt(0).toUpperCase() + cliTool.slice(1);
-      title = `${name} (${toolLabel} WSL)`;
-    } else if (cliTool && cliTool !== "none") {
-      const toolLabel = cliTool.charAt(0).toUpperCase() + cliTool.slice(1);
-      title = `${name} (${toolLabel})`;
-    } else if (resumeId === "new") {
-      title = `${name} (Claude)`;
-    } else if (resumeId) {
-      title = `${name} (resume)`;
-    } else {
-      title = name;
-    }
-  }
-  const terminalLeaf: TerminalPaneLeaf = {
-    type: "leaf",
-    id: generateId("terminal-pane"),
-    launchId: launchId ?? generateId("launch"),
-    restoreMode: resolveRestoreMode({
-      cliTool: inferCliTool(cliTool, resumeId),
-      resumeId,
-    }),
-    sessionId: sessionId ?? null,
-    resumeId,
-    workspaceName,
-    providerId,
-    modelId,
-    providerSelection,
-    launchProfileId,
-    workspacePath,
-    workspaceSnapshotId,
-    cliTool,
-    launchClaude: (cliTool && cliTool !== "none") || undefined,
-    ssh,
-    wsl,
-    machineName,
-    launchExtras,
-  };
-
-  return {
-    id: generateId("tab"),
-    title,
-    contentType: "terminal",
-    projectId,
-    projectPath,
-    sessionId: terminalLeaf.sessionId,
-    resumeId: terminalLeaf.resumeId,
-    resumeIdSource: terminalLeaf.resumeIdSource,
-    workspaceName: terminalLeaf.workspaceName,
-    providerId: terminalLeaf.providerId,
-    modelId: terminalLeaf.modelId,
-    providerSelection: terminalLeaf.providerSelection,
-    launchProfileId: terminalLeaf.launchProfileId,
-    workspacePath: terminalLeaf.workspacePath,
-    workspaceSnapshotId: terminalLeaf.workspaceSnapshotId,
-    cliTool: terminalLeaf.cliTool,
-    launchClaude: terminalLeaf.launchClaude,
-    ssh: terminalLeaf.ssh,
-    wsl: terminalLeaf.wsl,
-    machineName: terminalLeaf.machineName,
-    terminalRootPane: terminalLeaf,
-    activeTerminalPaneId: terminalLeaf.id,
-    parentTabId,
-    launchExtras: terminalLeaf.launchExtras,
-    launchError: terminalLeaf.launchError,
-    launchAttempt: terminalLeaf.launchAttempt,
-  };
+  return createTabOfType("terminal", {
+    projectId: opts.projectId,
+    projectPath: opts.projectPath,
+    terminal: opts,
+  });
 }
 
 function cloneTerminalLeaf(source: TerminalPaneLeaf): TerminalPaneLeaf {

@@ -27,6 +27,8 @@ import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import type { Tab, TerminalStatusType } from "@/types";
 import type { DestroyReason } from "./destroyPipeline";
+import type { TabCreateInput } from "./tabFactory";
+import { terminalTabDefaults } from "./terminalTabDefaults";
 
 /** 一个 tab 关闭时需要回收的后端资源清单。 */
 export interface TabResources {
@@ -65,6 +67,12 @@ export interface TabDestroyOptions {
 }
 
 export interface TabLifecycleEntry {
+  /**
+   * 该类型的构造默认值（docs/78 批4）。只产字段，不落位——唯一消费点是
+   * `./tabFactory.ts` 的 createTabOfType，公共底座字段（id、contentType、
+   * projectId、projectPath、sessionId）由它给，这里只补类型特有的部分。
+   */
+  createDefaults(input: TabCreateInput): Partial<Tab>;
   collectResources(tab: Tab, ctx: GuardContext): TabResources;
   closeGuards(tab: Tab, ctx: GuardContext): CloseGuard[];
   onClosed(tab: Tab, opts: TabDestroyOptions): void;
@@ -102,6 +110,16 @@ function isAgentTab(tab: Tab): boolean {
 }
 
 const terminalEntry: TabLifecycleEntry = {
+  // 无 terminal 入参时退化为「空壳终端标签」（createPanel 的占位形态）：
+  // 仍建 leaf，projectPath 为空——没有 projectPath 的标签不会启动 PTY。
+  createDefaults: (input) =>
+    terminalTabDefaults(
+      input.terminal ?? {
+        projectId: input.projectId ?? "",
+        projectPath: input.projectPath ?? "",
+        customTitle: input.title,
+      },
+    ),
   collectResources: (tab, ctx) => ({
     // savedSessionId 必须并入：restoring 中尚未 attach 的 savedSessionId 是真实 PTY，
     // 漏掉即成孤儿。
@@ -165,6 +183,12 @@ const terminalEntry: TabLifecycleEntry = {
 };
 
 const browserEntry: TabLifecycleEntry = {
+  // 标题留空会让标签栏出现一个无名条目，故有兜底文案；URL 不兜底（无 URL 的
+  // browser 标签渲染层直接 return null，兜一个假 URL 只会掩盖调用方的 bug）。
+  createDefaults: (input) => ({
+    title: input.title?.trim() || "Browser",
+    browserUrl: input.browserUrl,
+  }),
   collectResources: (tab, ctx) => ({
     sessionIds: [],
     poppedOutTabIds: collectPoppedOut(tab, ctx),
@@ -194,6 +218,7 @@ const browserEntry: TabLifecycleEntry = {
 };
 
 const editorEntry: TabLifecycleEntry = {
+  createDefaults: (input) => ({ filePath: input.filePath }),
   collectResources: (tab, ctx) => ({
     sessionIds: [],
     poppedOutTabIds: collectPoppedOut(tab, ctx),
@@ -217,6 +242,8 @@ const editorEntry: TabLifecycleEntry = {
 /** 无后端资源、无守卫的显式 no-op 登记（工厂产实例，未来分化互不影响）。 */
 function inertEntry(): TabLifecycleEntry {
   return {
+    // 四种「面板类」标签只吃公共底座（标题由调用方按 `前缀 - 项目名` 拼好传入）。
+    createDefaults: () => ({}),
     collectResources: (tab, ctx) => ({
       sessionIds: [],
       poppedOutTabIds: collectPoppedOut(tab, ctx),
