@@ -963,7 +963,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           getFitAddon: () => fitAddonRef.current,
           getHost: () => terminalRef.current,
           getSessionId: () => currentSessionIdRef.current,
-          isActive: () => isActiveRef.current,
+          // B2-09：焦点判据改读单源（**不是**降档的 anyVisible——这里问的是
+          // 「本视图是不是焦点」，决定要不要 refit）。无 owner 时退回旧 ref。
+          isActive: () => {
+            const owner = props.visibilityOwnerId;
+            if (!owner) return isActiveRef.current;
+            const role = props.viewRole ?? "primary";
+            const v = useTabViewStateStore.getState().getViewVisibility(owner, role);
+            // 首帧上报未跑时 v 为 undefined，退回旧 ref 免得 refit 被误跳过
+            return v === undefined ? isActiveRef.current : v === "active";
+          },
           canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
           repaint: repaintTerminal,
           resizeBackend: (cols, rows) => {
@@ -1954,7 +1963,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       const scheduleRefit = () => {
         layoutSchedulerRef.current?.schedule("active.refit", {
           focusIfSafe: props.isActive,
-          allowInactive: Boolean(props.isVisible && (props.layoutActive ?? true)),
+          // 可见但非焦点 pane 也要 refit（分屏里的另一格）。判据走单源：
+          // 这是 8 处 allowInactive 里唯一从 props 算的一处，其余都是常量 true
+          // （拖拽/resync/verify 自链等，各有各的理由，本批只复核不删）。
+          allowInactive: isRenderVisible(),
         });
       };
 
