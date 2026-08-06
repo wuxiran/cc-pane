@@ -570,6 +570,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       layoutActiveRef.current = props.layoutActive ?? true;
       // 由隐藏转可见：把积压一次性补上。必须在两个 ref 都更新之后判定，
       // 否则 flush 会走进"仍不可见"的分支被再次积压。
+      //
+      // **这条不能删**（B2-07 复核结论，与初版设想相反）：buffer 自身的
+      // drain-on-push 只在「有新数据到来」时排空，而切回一个已经跑完、不再
+      // 产出的后台标签时 push 永远不会被调用——积压将永远显示不出来，屏幕
+      // 停在切走前的样子。两个防线覆盖的不是同一件事：
+      //   - drain-on-push：可见性翻转与数据到达的**竞态**（顺序不由本模块定）
+      //   - 这里的边沿 flush：**静默会话**切回可见时的补投
+      // 真正的收敛做法是把边沿判定移进 store（写前 diff 已保证同值不触发），
+      // 而不是删掉其中一条——那会丢字。
       if (!wasRenderVisible && isRenderVisible()) {
         flushHiddenWrites("visibility.gained");
       }
