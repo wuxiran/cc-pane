@@ -1,4 +1,6 @@
 import { useCallback, useRef, useEffect } from "react";
+import { selfChatOwnerId, useTabViewStateStore } from "@/stores/useTabViewStateStore";
+import { useActivityBarStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -141,6 +143,43 @@ export default function SelfChatManager() {
     [setStatus]
   );
 
+  // B2-05：SelfChat 的可见性上报。
+  //
+  // 它是全屏主视图（MainViewSwitcher 下），切到别的视图时组件仍挂载，此前
+  // 硬编码 isActive={true} → 永远自认可见，一个跑着 Claude 的终端从不降档。
+  //
+  // owner 用 selfChatOwnerId(session.id) 而非 tabId——它根本没有 tab（不在
+  // pane 树里）。**退场挂会话结束/切换，不挂 unmount**：terminalKeyRef 自增
+  // 会让 TerminalView 重建而外层组件不卸载，挂 unmount 的话旧 owner 条目
+  // 永久留在 store，anyVisible 被钉死成 true，那个会话再也不休眠。
+  const selfChatSessionId = activeSession?.id;
+  // 它是全屏主视图：切到分屏/文件等别的主视图时组件仍挂载但不可见，
+  // 光看 document.visibilityState（那是**整个窗口**的）会一直判成可见。
+  const isSelfChatView = useActivityBarStore((s) => s.appViewMode) === "selfchat";
+  useEffect(() => {
+    if (!selfChatSessionId) return;
+    const owner = selfChatOwnerId(selfChatSessionId);
+    const { reportView, removeOwner } = useTabViewStateStore.getState();
+
+    const sync = () => {
+      const windowHidden = document.visibilityState === "hidden";
+      const visible = !windowHidden && isSelfChatView;
+      reportView(owner, "selfchat", !visible ? "hidden" : document.hasFocus() ? "active" : "visible");
+    };
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener("blur", sync);
+
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("blur", sync);
+      // 会话结束/切换：整个 owner 退场（它只有这一路视图）
+      removeOwner(owner);
+    };
+  }, [selfChatSessionId, isSelfChatView]);
+
   // 会话存在 → 显示终端
   if (activeSession) {
     return (
@@ -157,6 +196,7 @@ export default function SelfChatManager() {
             sessionId={activeSession.ptySessionId}
             projectPath={activeSession.appCwd}
             isActive={true}
+            visibilityOwnerId={selfChatOwnerId(activeSession.id)}
             launchClaude={true}
             cliTool={defaultCliTool}
             providerId={activeProvider.id}

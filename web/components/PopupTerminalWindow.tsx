@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useCallback, useRef, useState } from "react";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import TerminalView from "@/components/panes/TerminalView";
 import { getPopupTabData } from "@/services/popupWindowService";
@@ -36,6 +37,34 @@ export default function PopupTerminalWindow() {
     currentWindow.setTitle(tabData.title || "Terminal").catch(console.error);
   }, [tabData]);
 
+  // B2-05：上报真实可见性。此前弹窗只传 isActive={true}，经 TerminalView 的
+  // `isVisible ?? isActive` 回退变成永久自认可见——积压/降档/休眠全不生效，
+  // 最小化半天也不降档。
+  //
+  // 注意上报的是 popup 这一路视图，聚合仍按 owner=原 tabId 算：弹窗开着时
+  // 主标签即使切走也不该休眠（同一个 PTY），这正是 B2-04 聚合语义的用途。
+  useEffect(() => {
+    const tabId = tabData?.tabId;
+    if (!tabId) return;
+    const { reportView, removeView } = useTabViewStateStore.getState();
+
+    const sync = () => {
+      const hidden = document.visibilityState === "hidden";
+      reportView(tabId, "popup", hidden ? "hidden" : document.hasFocus() ? "active" : "visible");
+    };
+    sync();
+
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener("blur", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("blur", sync);
+      removeView(tabId, "popup");
+    };
+  }, [tabData?.tabId]);
+
   const handleSessionCreated = useCallback(() => {
     sessionCreatedRef.current = true;
   }, []);
@@ -56,11 +85,13 @@ export default function PopupTerminalWindow() {
     );
   }
 
+
   return (
     <div className="h-screen w-screen overflow-hidden" style={{ background: "var(--app-terminal-bg)" }}>
       <TerminalView
         sessionId={tabData.sessionId}
         projectPath={tabData.projectPath}
+        visibilityOwnerId={tabData.tabId}
         isActive={true}
         workspaceName={tabData.workspaceName}
         providerId={tabData.providerId}
