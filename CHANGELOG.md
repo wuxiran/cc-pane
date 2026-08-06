@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.12.0 - 2026-08-07
+
+Lifecycle release: the docs/78 five-batch tab-lifecycle rework lands in full, plus the M3b checkpoint+delta recovery unification. 100+ commits, three external review rounds, all gates green.
+
+### Added
+
+- **Checkpoint+delta terminal recovery (M3b)**: the frontend periodically photographs terminal screens (SerializeAddon) and uploads them to the daemon; recovery replays photo + delta instead of an 8MB byte ring. Long sessions no longer grow daemon memory linearly, recovery depth is no longer capped at 8MB, and dead-session restore carries full screen semantics. Uploads activate automatically after the first recovery read (epoch handshake); old daemons degrade gracefully (capability probe + legacy fallback).
+- **Per-view visibility single source** (`useTabViewStateStore`, keyed `owner:role`): starred mirrors, popup windows, SelfChat and the mobile prototype all report real visibility. Watching a starred mirror now keeps the origin tab awake; popped-out terminals no longer freeze when the main window switches away.
+- **Background attention marks**: background agent sessions that error out or wait for input show a red dot on their tab; switching to the tab clears it automatically.
+- **Close confirmation for busy agents**: closing a tab whose agent session is running/waiting-for-input asks first (itemized dialog); plain shells close silently. Undo re-open now also restores browser tabs (URL) and editor tabs (file path).
+- **Input-aware hibernation**: typing into a working agent blocks hibernation (draft protection); answering a permission prompt does not (segment-attributed input, Orca-style).
+- Snapshot-apply kill switch (`terminal.snapshotApplyKillEnabled`, default off) with a repaired observation chain: protection sets now share one source with the orphan GC, unreachable sources abandon the round instead of shrinking protection, and dangling candidates expire after 60s.
+
+### Changed
+
+- **Destroy paths unified**: every tab-closing route (close/batch/pane/layout-delete/snapshot-apply/backend/editor-path) goes through one pipeline with an explicit policy matrix (vetoable / undo / pinned / kills / popups). Six legacy scattered exits deleted; killSession call sites are whitelist-guarded in CI.
+- **Recovery read path 5→1**: attach, crash restore, desync replay, overflow recovery and hibernation wake all read one structured `getRecoverySnapshot` (photo written verbatim, delta through the render pipeline).
+- Polling-degraded bridge no longer resends the whole snapshot as an "increment" on prefix mismatch (which duplicated the screen) — it emits a desync and rebuilds from snapshot.
+- Pure tree helpers moved to `web/lib/paneTree.ts` (layer inversion fixed); `closedTabsCap` renamed `closedTabsUndo`; `removeTabsInternal` split into three named stages.
+- Boundary contract table now covers both directions (daemon→app events and app→daemon messages, REST or control-ws), with cross-language exhaustive guards.
+
+### Fixed
+
+- Dragging a tab out of a pane can no longer kill the sessions left behind (tree ops and destroy physically separated; non-empty pane removal is rejected).
+- Layout delete now uses the saved-session-inclusive kill scope (restoring sessions no longer leak as orphans) and sweeps view/attention satellite state.
+- launchId is freshly generated per launch (docs/69): restored sessions bind resume ids again instead of silently degrading forever.
+- Per-session context-usage cache entries are reclaimed on destroy (previously only evicted at the 64-entry cap).
+- Hidden-session reporting failures are now observable (debug logs both sides; report retries after failure).
+
 ## 0.11.13 - 2026-08-06
 
 This release integrates a substantial community contribution batch (PR #55, thanks @zhengjunkj), reworked where needed to fit the Provider UI redesign and session-provenance fixes that landed just before it.
