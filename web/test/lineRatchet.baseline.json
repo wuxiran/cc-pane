@@ -17,6 +17,7 @@
   "components/sidebar/WorkspaceItem.tsx": 703,
   "components/todo/TodoEditor.tsx": 614,
   "components/todo/TodoManager.tsx": 507,
+  "hooks/useOrchestratorListener.ts": 502,
   "services/terminalService.ts": 743,
   "stores/usePanesStore.ts": 2396,
   "utils/workspaceLaunch.ts": 663

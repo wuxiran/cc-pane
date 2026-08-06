@@ -96,8 +96,15 @@ describe("useOrchestratorListener layout placement", () => {
       .find((tab) => tab.sessionId === "session-1");
     expect(launchedTab?.terminalRootPane).toMatchObject({
       type: "leaf",
-      launchId: "project-a",
     });
+
+    // launchId **每次启动新生成**，绝不等于 projectId（docs/69 活体暗雷）：
+    // 两者是不同概念，复用会让 launch id 跨启动绑死，而 bind_pty_session
+    // 要求那行的 pty_session_id 满足 `IS NULL OR = 本次`——拿一个已被上次
+    // PTY 占用的 id 去绑必然落空，resume id 永久丢失且不可自愈。
+    const leaf = launchedTab?.terminalRootPane as { launchId?: string } | undefined;
+    expect(leaf?.launchId).toMatch(/^launch-/);
+    expect(leaf?.launchId).not.toBe("project-a");
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
