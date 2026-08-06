@@ -779,6 +779,15 @@ impl TerminalBackend for DaemonTerminalBackend {
         self.client.upload_checkpoint(session_id, &checkpoint)
     }
 
+    fn get_session_recovery_snapshot(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<TerminalRecoverySnapshot>> {
+        // 转发 daemon REST（M3b-3）。旧 daemon 缺路由 → CHECKPOINT_UNSUPPORTED，
+        // 命令层回落旧 replay snapshot 包装成纯 delta 形状。
+        self.client.get_session_recovery_snapshot(session_id)
+    }
+
     fn find_session_id_by_launch_id(&self, launch_id: &str) -> AppResult<Option<String>> {
         self.client.find_session_id_by_launch_id(launch_id)
     }

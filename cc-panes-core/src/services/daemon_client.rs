@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::TerminalReplaySnapshot;
 use crate::models::{
-    CreateSessionRequest, StoreCheckpointOutcome, TerminalCheckpoint, TerminalSessionProvenance,
+    CreateSessionRequest, StoreCheckpointOutcome, TerminalCheckpoint, TerminalRecoverySnapshot,
+    TerminalSessionProvenance,
 };
 use crate::services::terminal_backend::TerminalAdoptionSnapshot;
 use crate::services::terminal_service::KillReason;
@@ -571,6 +572,48 @@ impl TerminalDaemonClient {
         let snapshot =
             serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))?;
         Ok(Some(snapshot))
+    }
+
+    /// 读取 checkpoint+delta 结构化恢复快照（M3b-3）。
+    ///
+    /// 404/405 分级同 upload_checkpoint：结构化 NOT_FOUND = 会话真没了
+    /// （返回 Ok(None)，与旧 get_session_replay_snapshot 口径一致）；
+    /// 无结构化 code = 旧 daemon 缺路由 → CHECKPOINT_UNSUPPORTED
+    /// （调用方回落旧 /snapshot 端点）。
+    pub fn get_session_recovery_snapshot(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<TerminalRecoverySnapshot>> {
+        let response = self.request(
+            "GET",
+            &session_path(session_id, "/recovery-snapshot"),
+            true,
+            None,
+        )?;
+        let (status, body) = split_http_response(&response)?;
+        let structured_code = |body: &str| {
+            serde_json::from_str::<serde_json::Value>(body)
+                .ok()
+                .and_then(|value| value.get("code")?.as_str().map(str::to_string))
+        };
+        match status {
+            code if (200..300).contains(&code) => {
+                let snapshot = serde_json::from_str(body)
+                    .map_err(|error| AppError::from(error.to_string()))?;
+                Ok(Some(snapshot))
+            }
+            404 | 405 => {
+                if structured_code(body).as_deref() == Some("NOT_FOUND") {
+                    Ok(None)
+                } else {
+                    Err(AppError::coded(
+                        "CHECKPOINT_UNSUPPORTED",
+                        format!("daemon has no recovery-snapshot endpoint (HTTP {status})"),
+                    ))
+                }
+            }
+            code => Err(daemon_http_error(code, body)),
+        }
     }
 
     /// 上传前端拍摄的终端画面照片（M3b-2）。

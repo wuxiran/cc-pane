@@ -546,6 +546,10 @@ pub fn router(config: DaemonConfig) -> Router {
         .route("/api/sessions/{id}/output", get(get_session_output))
         .route("/api/sessions/{id}/snapshot", get(get_session_snapshot))
         .route(
+            "/api/sessions/{id}/recovery-snapshot",
+            get(get_session_recovery_snapshot),
+        )
+        .route(
             "/api/sessions/{id}/checkpoint",
             // 显式 16MB body 上限：axum 默认 2MB 会把大照片静默 413（M3b 风险表）。
             post(upload_session_checkpoint)
@@ -1248,6 +1252,26 @@ async fn get_session_snapshot(
     let snapshot = config
         .terminal_backend()
         .get_session_replay_snapshot(&id)
+        .map_err(internal_error)?
+        .ok_or_else(|| not_found("Session not found"))?;
+    Ok(Json(snapshot))
+}
+
+/// checkpoint+delta 结构化恢复快照（M3b-3）。无照片/失效照片时 checkpoint
+/// 为 null、delta 为全窗口——前端消费方只有一个形状。
+async fn get_session_recovery_snapshot(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<
+    Json<cc_panes_core::models::TerminalRecoverySnapshot>,
+    (StatusCode, Json<serde_json::Value>),
+> {
+    authorize(&headers, config.token())?;
+    config.touch_session(&id);
+    let snapshot = config
+        .terminal_backend()
+        .get_session_recovery_snapshot(&id)
         .map_err(internal_error)?
         .ok_or_else(|| not_found("Session not found"))?;
     Ok(Json(snapshot))

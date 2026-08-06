@@ -972,6 +972,67 @@ pub fn set_hidden_terminal_sessions(sessions: Vec<String>) {
     crate::services::report_hidden_sessions(sessions);
 }
 
+/// checkpoint+delta 结构化恢复快照（M3b-3）。
+///
+/// **照抄旧 get_terminal_replay_snapshot 的两件副作用**（M3b 设计红线）：
+/// history watcher 恢复 + bridge.start_session_after_replay——轮询差分基线用
+/// photo+delta 的拼接串，与旧快照坐标系一致（前缀增长在两张照片之间保持）。
+/// 旧 daemon 缺路由（CHECKPOINT_UNSUPPORTED）→ 回落旧 /snapshot 包成纯 delta
+/// 形状——前端消费方只有一个形状。
+#[tauri::command]
+pub fn get_terminal_recovery_snapshot(
+    app_handle: AppHandle,
+    service: State<'_, Arc<TerminalBackendState>>,
+    launch_history_service: State<'_, Arc<LaunchHistoryService>>,
+    history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
+    session_id: String,
+) -> AppResult<Option<cc_panes_core::models::TerminalRecoverySnapshot>> {
+    debug!(session_id = %session_id, "cmd::get_terminal_recovery_snapshot");
+    let backend = service.backend();
+    let recovery = match backend.get_session_recovery_snapshot(&session_id) {
+        Ok(recovery) => recovery,
+        Err(error) if error.code() == Some("CHECKPOINT_UNSUPPORTED") => {
+            // 旧 daemon：回落旧端点，包成 checkpoint: None 纯 delta 形状。
+            backend
+                .get_session_replay_snapshot(&session_id)?
+                .map(|snapshot| cc_panes_core::models::TerminalRecoverySnapshot {
+                    checkpoint: None,
+                    delta: snapshot.data,
+                    buffer_mode: snapshot.buffer_mode,
+                    end_seq: 0,
+                    checkpoint_epoch: 0,
+                })
+        }
+        Err(error) => return Err(error),
+    };
+
+    if let Some(recovery) = recovery
+        .as_ref()
+        .filter(|_| service.kind() == TerminalBackendKind::Daemon)
+    {
+        if let Ok(Some(record)) = launch_history_service.find_by_pty_session_id(&session_id) {
+            if let Err(error) =
+                history_watch_manager.on_session_created(&session_id, &record.project_path)
+            {
+                warn!(session_id = %session_id, error = %error, "failed to restore local history watcher");
+            }
+        }
+        // 轮询差分基线 = photo+delta 拼接串（与旧快照同坐标系）
+        let baseline = TerminalReplaySnapshot {
+            data: recovery
+                .checkpoint
+                .as_ref()
+                .map(|cp| format!("{}{}", cp.snapshot_ansi, recovery.delta))
+                .unwrap_or_else(|| recovery.delta.clone()),
+            buffer_mode: recovery.buffer_mode,
+        };
+        let bridge = app_handle.state::<Arc<TerminalDaemonEventBridge>>();
+        bridge.start_session_after_replay(session_id, backend, &baseline);
+    }
+
+    Ok(recovery)
+}
+
 /// 前端上传终端画面照片（checkpoint，M3b-2）。
 ///
 /// 经 backend 分发：daemon 模式走 REST（旧 daemon 返回 CHECKPOINT_UNSUPPORTED
