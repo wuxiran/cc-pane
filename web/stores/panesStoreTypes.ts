@@ -141,6 +141,14 @@ export interface ClosedTabSnapshot {
   pinned?: boolean;
   starred?: boolean;
   parentTabId?: string;
+  /**
+   * 非终端标签的撤销（批4 onPersist 推广）。缺省 = terminal（历史快照兼容）。
+   * browser 存 URL、editor 存 filePath——滚动位置与光标需要组件级通道，
+   * 留作后续（registry.onPersist 的形状已为此预留）。
+   */
+  contentType?: "terminal" | "browser" | "editor";
+  browserUrl?: string;
+  filePath?: string;
 }
 
 export interface PanesState extends BrowserTabActions {

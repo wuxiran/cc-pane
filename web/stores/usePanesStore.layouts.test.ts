@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
 import { useFullscreenStore } from "./useFullscreenStore";
-import { createPanel, createTab } from "./paneTreeHelpers";
+import { createPanel,  } from "./paneTreeHelpers";
+import { createTab } from "@/stores/usePanesStore";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { LayoutEntry, Panel, PaneNode, Tab, TerminalPaneLeaf, TerminalPaneSplit } from "@/types";
 
@@ -757,7 +758,7 @@ describe("usePanesStore layouts", () => {
 
   it("星标布局不会自动固化工作空间绑定", () => {
     const starred = usePanesStore.getState().layouts.find((l) => l.id === "layout-starred")!;
-    const starredRoot = createPanel(createTab("starred", "/tmp/starred", undefined, "ws-starred"));
+    const starredRoot = createPanel(createTab({ projectId: "starred", projectPath: "/tmp/starred", workspaceName: "ws-starred" }));
     usePanesStore.setState((state) => {
       state.currentLayoutId = starred.id;
       state.rootPane = starredRoot;
@@ -855,11 +856,11 @@ describe("usePanesStore layouts", () => {
   });
 
   it("移动端选择 pane/tab 会触发布局快照保存事件", async () => {
-    const firstTab = createTab("first", "/tmp/first");
-    const secondTab = createTab("second", "/tmp/second");
+    const firstTab = createTab({ projectId: "first", projectPath: "/tmp/first" });
+    const secondTab = createTab({ projectId: "second", projectPath: "/tmp/second" });
     const rootPane = createPanel(firstTab);
     rootPane.tabs.push(secondTab);
-    const secondPane = createPanel(createTab("other", "/tmp/other"));
+    const secondPane = createPanel(createTab({ projectId: "other", projectPath: "/tmp/other" }));
 
     usePanesStore.setState((state) => {
       state.rootPane = {
@@ -928,7 +929,7 @@ describe("usePanesStore layouts", () => {
   });
 
   it("当前布局回写 action 修改工作副本而不是隐藏 layout 树", () => {
-    const tab = createTab("current", "/tmp/current");
+    const tab = createTab({ projectId: "current", projectPath: "/tmp/current" });
     usePanesStore.setState((state) => {
       const rootPane = createPanel(tab);
       state.rootPane = rootPane;

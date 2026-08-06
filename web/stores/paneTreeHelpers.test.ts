@@ -3,11 +3,11 @@ import type { Panel, SplitPane, PaneNode } from "@/types";
 import {
   generateId,
   createPanel,
-  createTab,
   findPane,
   findParent,
   collectPanels,
 } from "./paneTreeHelpers";
+import { createTab } from "@/stores/usePanesStore";
 
 describe("generateId", () => {
   it("生成格式为 prefix-UUID 的字符串", () => {
@@ -78,7 +78,7 @@ describe("createPanel", () => {
 
 describe("createTab", () => {
   it("基本调用 - title 为路径最后一段", () => {
-    const tab = createTab("proj-1", "/home/user/my-project");
+    const tab = createTab({ projectId: "proj-1", projectPath: "/home/user/my-project" });
     expect(tab.title).toBe("my-project");
     expect(tab.projectId).toBe("proj-1");
     expect(tab.projectPath).toBe("/home/user/my-project");
@@ -88,47 +88,47 @@ describe("createTab", () => {
   });
 
   it("resumeId 为 'new' 时 title 为 'name (Claude)'", () => {
-    const tab = createTab("proj-1", "/home/user/my-project", "new");
+    const tab = createTab({ projectId: "proj-1", projectPath: "/home/user/my-project", resumeId: "new" });
     expect(tab.title).toBe("my-project (Claude)");
     expect(tab.resumeId).toBe("new");
   });
 
   it("resumeId 为其他值时 title 为 'name (resume)'", () => {
-    const tab = createTab("proj-1", "/home/user/my-project", "abc-123");
+    const tab = createTab({ projectId: "proj-1", projectPath: "/home/user/my-project", resumeId: "abc-123" });
     expect(tab.title).toBe("my-project (resume)");
     expect(tab.resumeId).toBe("abc-123");
   });
 
   it("无 resumeId 时 title 为路径最后一段", () => {
-    const tab = createTab("proj-1", "/home/user/my-project");
+    const tab = createTab({ projectId: "proj-1", projectPath: "/home/user/my-project" });
     expect(tab.title).toBe("my-project");
     expect(tab.resumeId).toBeUndefined();
   });
 
   it("反斜杠路径也能正确提取名称", () => {
-    const tab = createTab("proj-1", "C:\\Users\\dev\\my-project");
+    const tab = createTab({ projectId: "proj-1", projectPath: "C:\\Users\\dev\\my-project" });
     expect(tab.title).toBe("my-project");
   });
 
   it("传入 workspaceName 和 providerId", () => {
-    const tab = createTab(
-      "proj-1",
-      "/home/user/project",
-      "new",
-      "ws-main",
-      "provider-1"
-    );
+    const tab = createTab({
+      projectId: "proj-1",
+      projectPath: "/home/user/project",
+      resumeId: "new",
+      workspaceName: "ws-main",
+      providerId: "provider-1",
+    });
     expect(tab.workspaceName).toBe("ws-main");
     expect(tab.providerId).toBe("provider-1");
   });
 
   it("路径仅有名称时正确处理", () => {
-    const tab = createTab("proj-1", "standalone");
+    const tab = createTab({ projectId: "proj-1", projectPath: "standalone" });
     expect(tab.title).toBe("standalone");
   });
 
   it("空路径时 title 为 Terminal", () => {
-    const tab = createTab("proj-1", "");
+    const tab = createTab({ projectId: "proj-1", projectPath: "" });
     // "".split(/[/\\]/) = [""], pop() = "", "" || "Terminal" = "Terminal"
     expect(tab.title).toBe("Terminal");
   });

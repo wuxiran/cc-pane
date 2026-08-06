@@ -1,5 +1,6 @@
 import { terminalRestoreLaunchQueue } from "@/components/panes/terminalRestoreQueue";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
+import { acquireTerminalSlot } from "@/lib/terminalSlot";
 import { terminalService } from "@/services";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import { writeTerminalRestoreLog } from "@/stores/useTerminalRestoreLogStore";
@@ -43,6 +44,9 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
       expectedSavedSessionId: expectedSavedSessionId ?? null,
       ...restoreQueueSnapshot(),
     });
+    // 槽位释放句柄提升到链外：create 抛错走 .catch 时也必须能释放，
+    // 否则该 (tabId, paneId) 的槽永久泄漏、再也无法创建。
+    let releaseSlotOuter: (() => void) | null = null;
     void terminalRestoreLaunchQueue
       .run(async () => {
         writeTerminalRestoreLog(tab.id, leaf.id, "background.queue.active", restoreQueueSnapshot());
@@ -64,6 +68,16 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
           || !live.canCreateTerminalSession(tab.id, leaf.id, expectedSavedSessionId)
         ) {
           writeTerminalRestoreLog(tab.id, leaf.id, "background.create.cancelled-before-create");
+          return null;
+        }
+        // 槽位（批4）：同进程并发的重复创建在 spawn 前就挡掉——否则竞态时
+        // 会真的起一个 PTY 再回滚杀掉。跨进程竞态仍靠下面的复查+回滚。
+        const releaseSlot = acquireTerminalSlot(tab.id, leaf.id);
+        releaseSlotOuter = releaseSlot;
+        if (!releaseSlot) {
+          writeTerminalRestoreLog(tab.id, leaf.id, "background.create.cancelled-before-create", {
+            reason: "slot-in-flight",
+          });
           return null;
         }
         writeTerminalRestoreLog(tab.id, leaf.id, "background.backend-create.begin", {
@@ -111,14 +125,17 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
             sessionId,
             killedDuplicate: sessionId !== expectedSavedSessionId,
           });
+          releaseSlot();
           return null;
         }
         useTerminalStatusStore.getState().markSessionLive(sessionId);
         afterCreate.setBackgroundRestoreSession(tab.id, leaf.id, sessionId);
         writeTerminalRestoreLog(tab.id, leaf.id, "background.restore.ready", { sessionId });
+        releaseSlot();
         return sessionId;
       })
       .catch((error) => {
+        releaseSlotOuter?.();
         writeTerminalRestoreLog(tab.id, leaf.id, "background.restore.failed", {
           error: error instanceof Error ? error.message : String(error),
         });

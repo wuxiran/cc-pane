@@ -167,7 +167,7 @@ describe("closeTab（搬家后行为等价）", () => {
     });
   });
 
-  it("非终端标签不进 closedTabs", () => {
+  it("editor 标签也进 closedTabs（批4 起可撤销，记 filePath 不记 launch 身份）", () => {
     const editorTab: Tab = {
       id: "e1",
       title: "file.ts",
@@ -181,7 +181,9 @@ describe("closeTab（搬家后行为等价）", () => {
 
     usePanesStore.getState().closeTab("p1", "e1");
 
-    expect(usePanesStore.getState().closedTabs).toHaveLength(0);
+    const snaps = usePanesStore.getState().closedTabs;
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]).toMatchObject({ contentType: "editor", filePath: "/tmp/proj/file.ts" });
     expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t2"]);
   });
 });
@@ -872,5 +874,45 @@ describe("Codex 审查 P0 回归", () => {
 
     expect(killSpy).not.toHaveBeenCalled();
     expect(currentPanel("p1").tabs).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// 批4 onPersist：browser/editor 的撤销（此前只有终端能撤销）。
+// ============================================================================
+describe("非终端标签的撤销（persistForUndo）", () => {
+  it("关掉 browser 标签 → 撤销栈记 URL；editor 记 filePath", () => {
+    const browserTab: Tab = {
+      id: "b1", title: "文档", contentType: "browser",
+      projectId: "p", projectPath: "/tmp/p", sessionId: null,
+      browserUrl: "https://example.com/docs",
+    } as Tab;
+    const editorTab: Tab = {
+      id: "e1", title: "main.rs", contentType: "editor",
+      projectId: "p", projectPath: "/tmp/p", sessionId: null,
+      filePath: "/tmp/p/src/main.rs",
+    } as Tab;
+    setPanesState(makePanel("p1", [browserTab, editorTab, makeTerminalTab("t1")]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["b1", "e1"], "user-close");
+
+    const snaps = usePanesStore.getState().closedTabs;
+    expect(snaps.map((s) => s.contentType).sort()).toEqual(["browser", "editor"]);
+    expect(snaps.find((s) => s.contentType === "browser")?.browserUrl)
+      .toBe("https://example.com/docs");
+    expect(snaps.find((s) => s.contentType === "editor")?.filePath)
+      .toBe("/tmp/p/src/main.rs");
+  });
+
+  it("mcp-config 等无 persistForUndo 的类型不进撤销栈", () => {
+    const tool: Tab = {
+      id: "m1", title: "MCP", contentType: "mcp-config",
+      projectId: "p", projectPath: "/tmp/p", sessionId: null,
+    } as Tab;
+    setPanesState(makePanel("p1", [tool, makeTerminalTab("t1")]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["m1"], "user-close");
+
+    expect(usePanesStore.getState().closedTabs).toHaveLength(0);
   });
 });

@@ -68,6 +68,21 @@ export interface TabLifecycleEntry {
   collectResources(tab: Tab, ctx: GuardContext): TabResources;
   closeGuards(tab: Tab, ctx: GuardContext): CloseGuard[];
   onClosed(tab: Tab, opts: TabDestroyOptions): void;
+  /**
+   * 关闭时要进撤销栈的快照；null = 本类型不可撤销（批4 onPersist）。
+   * terminal 不走这里（launch 身份字段多，专用映射在 closedTabsCap）。
+   */
+  persistForUndo?(tab: Tab): PersistedUndoSnapshot | null;
+}
+
+/** persistForUndo 的产出（ClosedTabSnapshot 的非终端子集）。 */
+export interface PersistedUndoSnapshot {
+  contentType: "browser" | "editor";
+  projectId: string;
+  projectPath: string;
+  title: string;
+  browserUrl?: string;
+  filePath?: string;
 }
 
 /** 弹出窗口判定进 collectResources（docs/78 批1 风险注：防「漏杀修成多杀」的同族漏收）。 */
@@ -148,12 +163,24 @@ const browserEntry: TabLifecycleEntry = {
     poppedOutTabIds: collectPoppedOut(tab, ctx),
   }),
   closeGuards: () => [], // v1 不拦浏览器（docs/78 §2.2 关闭确认矩阵）
+  persistForUndo: (tab) =>
+    tab.browserUrl
+      ? {
+          contentType: "browser",
+          projectId: tab.projectId,
+          projectPath: tab.projectPath,
+          title: tab.title,
+          browserUrl: tab.browserUrl,
+        }
+      : null,
   onClosed: (tab) => {
     // 收编 webview 关闭：不再只靠 BrowserTabContent 的 React unmount 兜底——
     // 组件从未挂载的销毁路径（快照覆盖/后台布局删除）也要能关掉 webview 进程。
     // 后端对不存在的 webview 幂等，双重 close 无害。
     if (!isTauriRuntime()) return;
-    void browserService.close(tab.id).catch((error) => {
+    // Promise.resolve 包一层：close 在 mock/降级环境可能返回 undefined，
+    // 裸 .catch 会把「回收兜底」本身变成未处理异常。
+    void Promise.resolve(browserService.close(tab.id)).catch((error) => {
       handleErrorSilent(error, "close browser webview");
     });
   },
@@ -168,6 +195,16 @@ const editorEntry: TabLifecycleEntry = {
   closeGuards: (tab) =>
     tab.dirty ? [{ kind: "editor-dirty", tabId: tab.id, tabTitle: tab.title }] : [],
   onClosed: () => {},
+  persistForUndo: (tab) =>
+    tab.filePath && tab.projectPath
+      ? {
+          contentType: "editor",
+          projectId: tab.projectId,
+          projectPath: tab.projectPath,
+          title: tab.title,
+          filePath: tab.filePath,
+        }
+      : null,
 };
 
 /** 无后端资源、无守卫的显式 no-op 登记（工厂产实例，未来分化互不影响）。 */

@@ -19,6 +19,9 @@ export function createPanel(tab?: Tab): Panel {
     restoreMode: "shell",
     sessionId: null,
   };
+  // 占位空标签（批4 判定）：**不走** usePanesStore.createTab 富工厂——本模块
+  // 按头部约定只依赖 @/types，反向 import 会成环；且这不是可启动身份，只是
+  // 空 pane 的 UI 占位。真正的会话标签一律经富工厂构造。
   const defaultTab: Tab = tab || {
     id: generateId("tab"),
     title: "Terminal",
@@ -38,48 +41,6 @@ export function createPanel(tab?: Tab): Panel {
 }
 
 /** 创建新标签 */
-export function createTab(
-  projectId: string,
-  projectPath: string,
-  resumeId?: string,
-  workspaceName?: string,
-  providerId?: string
-): Tab {
-  const name = projectPath.split(/[/\\]/).pop() || "Terminal";
-  let title = name;
-  if (resumeId === "new") {
-    title = `${name} (Claude)`;
-  } else if (resumeId) {
-    title = `${name} (resume)`;
-  }
-  const terminalLeaf: TerminalPaneLeaf = {
-    type: "leaf",
-    id: generateId("terminal-pane"),
-    launchId: generateId("launch"),
-    restoreMode: resumeId === undefined
-      ? "shell"
-      : resumeId !== "new"
-        ? "resumed"
-        : "fresh",
-    sessionId: null,
-    resumeId,
-    workspaceName,
-    providerId,
-  };
-  return {
-    id: generateId("tab"),
-    title,
-    contentType: "terminal",
-    projectId,
-    projectPath,
-    sessionId: null,
-    resumeId,
-    workspaceName,
-    providerId,
-    terminalRootPane: terminalLeaf,
-    activeTerminalPaneId: terminalLeaf.id,
-  };
-}
 
 /** 递归查找面板 */
 export function findPane(node: PaneNode, paneId: string): PaneNode | null {

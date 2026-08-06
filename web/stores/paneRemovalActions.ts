@@ -15,6 +15,7 @@ import {
   DESTROY_KILL_REASON,
   DESTROY_POLICY,
 } from "@/lib/tabLifecycle/destroyPipeline";
+import { TAB_LIFECYCLE } from "@/lib/tabLifecycle/registry";
 import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
 import { collectTerminalLeaves, collectTerminalSessionIdsWithSaved } from "@/lib/paneSessions";
 import type { Tab } from "@/types";
@@ -324,12 +325,12 @@ export function createPaneRemovalActions(
             const { panel, tab } = location;
             if (policy.respectsPinned && tab.pinned) continue;
 
-            if (
-              policy.recordsClosedTabs
-              && tab.projectPath
-              && tab.contentType === "terminal"
-            ) {
+            if (policy.recordsClosedTabs && tab.projectPath && tab.contentType === "terminal") {
               state.closedTabs.push(toClosedTabSnapshot(tab));
+            } else if (policy.recordsClosedTabs) {
+              // 非终端撤销（批4 onPersist）：browser 存 URL、editor 存 filePath。
+              const snap = TAB_LIFECYCLE[tab.contentType].persistForUndo?.(tab);
+              if (snap) state.closedTabs.push(snap);
             }
 
             // pinned 语义已在上面按矩阵判过，这里恒 force。

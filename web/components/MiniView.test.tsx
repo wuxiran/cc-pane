@@ -5,7 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MiniView from "./MiniView";
 import { usePanesStore, useMiniModeStore } from "@/stores";
-import { createPanel, createTab } from "@/stores/paneTreeHelpers";
+import { createPanel,  } from "@/stores/paneTreeHelpers";
+import { createTab } from "@/stores/usePanesStore";
 import type { Tab } from "@/types";
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -15,7 +16,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 function sessionTab(title: string, sessionId: string | null): Tab {
-  return { ...createTab("proj", "/repo"), title, sessionId };
+  return { ...createTab({ projectId: "proj", projectPath: "/repo" }), title, sessionId };
 }
 
 function seedPanes(tabs: Tab[]) {

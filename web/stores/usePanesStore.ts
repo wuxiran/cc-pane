@@ -84,7 +84,7 @@ function generateId(prefix: string): string {
 // B1-03 起真身在 paneTreeHelpers；这里保留 re-export 维持既有 import 路径。
 export { TERMINAL_LAYOUT_CHANGED_EVENT } from "./paneTreeHelpers";
 
-function createTab(opts: CreateTabOptions): Tab {
+export function createTab(opts: CreateTabOptions): Tab {
   const { projectId, projectPath, launchId, sessionId, resumeId, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId, launchExtras } = opts;
   let title: string;
   if (customTitle) {
@@ -1735,6 +1735,18 @@ export const usePanesStore = create<PanesState>()(
         // 惰性上限裁剪；push 点在轨 B 搬家范围，严格上限由 B1-05 收口（closedTabsCap.ts）
         trimClosedTabs(state.closedTabs);
       });
+
+      // 非终端撤销分流（批4）：browser/editor 各走自己的创建入口。
+      if (lastClosed.contentType === "browser" && lastClosed.browserUrl) {
+        get().openBrowser(lastClosed.browserUrl, lastClosed.title);
+        return;
+      }
+      if (lastClosed.contentType === "editor" && lastClosed.filePath) {
+        get().openEditor(lastClosed.projectPath, lastClosed.filePath, lastClosed.title, undefined, {
+          forcePaneTab: true,
+        });
+        return;
+      }
 
       get().addTab(paneId, {
         projectId: lastClosed.projectId,
