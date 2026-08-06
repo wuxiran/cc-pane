@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{CreateSessionRequest, TerminalReplaySnapshot, TerminalSessionProvenance};
+use crate::models::{
+    CreateSessionRequest, StoreCheckpointOutcome, TerminalCheckpoint, TerminalRecoverySnapshot,
+    TerminalReplaySnapshot, TerminalSessionProvenance,
+};
 use crate::services::daemon_client::TerminalDaemonClient;
 use crate::services::terminal_service::KillReason;
 use crate::services::terminal_service::SessionOutput;
@@ -95,6 +98,22 @@ pub trait TerminalBackend: Send + Sync {
         &self,
         session_id: &str,
     ) -> AppResult<Option<TerminalReplaySnapshot>>;
+    /// 存储前端上传的画面照片（M3b-1）。默认不支持：daemon 客户端等远端后端
+    /// 在 M3b-2/3 才接线，mock 后端不受影响。
+    fn store_session_checkpoint(
+        &self,
+        _session_id: &str,
+        _checkpoint: TerminalCheckpoint,
+    ) -> AppResult<StoreCheckpointOutcome> {
+        Err(AppError::from("checkpoint not supported by this backend"))
+    }
+    /// 读取 checkpoint+delta 结构化恢复快照（M3b-1）。默认不支持，同上。
+    fn get_session_recovery_snapshot(
+        &self,
+        _session_id: &str,
+    ) -> AppResult<Option<TerminalRecoverySnapshot>> {
+        Err(AppError::from("checkpoint not supported by this backend"))
+    }
     /// 按 launch_id 反查会话 id（launch_task 推导 parent_session_id 用）。
     /// daemon 模式下会话建在 daemon 进程，必须走 backend 而非 app 本地 service。
     /// 默认返回 `None`（不支持反查的后端，如测试 mock）；真实后端覆盖之。
@@ -470,6 +489,21 @@ impl TerminalBackend for TerminalService {
         TerminalService::get_session_replay_snapshot(self, session_id).map_err(AppError::from)
     }
 
+    fn store_session_checkpoint(
+        &self,
+        session_id: &str,
+        checkpoint: TerminalCheckpoint,
+    ) -> AppResult<StoreCheckpointOutcome> {
+        TerminalService::store_session_checkpoint(self, session_id, checkpoint)
+    }
+
+    fn get_session_recovery_snapshot(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<TerminalRecoverySnapshot>> {
+        TerminalService::get_session_recovery_snapshot(self, session_id)
+    }
+
     fn find_session_id_by_launch_id(&self, launch_id: &str) -> AppResult<Option<String>> {
         Ok(TerminalService::find_session_id_by_launch_id(
             self, launch_id,
@@ -558,6 +592,28 @@ impl TerminalBackend for InProcessTerminalBackend {
         session_id: &str,
     ) -> AppResult<Option<TerminalReplaySnapshot>> {
         <TerminalService as TerminalBackend>::get_session_replay_snapshot(
+            self.service.as_ref(),
+            session_id,
+        )
+    }
+
+    fn store_session_checkpoint(
+        &self,
+        session_id: &str,
+        checkpoint: TerminalCheckpoint,
+    ) -> AppResult<StoreCheckpointOutcome> {
+        <TerminalService as TerminalBackend>::store_session_checkpoint(
+            self.service.as_ref(),
+            session_id,
+            checkpoint,
+        )
+    }
+
+    fn get_session_recovery_snapshot(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<TerminalRecoverySnapshot>> {
+        <TerminalService as TerminalBackend>::get_session_recovery_snapshot(
             self.service.as_ref(),
             session_id,
         )

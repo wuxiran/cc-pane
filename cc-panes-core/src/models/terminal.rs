@@ -145,6 +145,57 @@ pub struct TerminalReplaySnapshot {
     pub buffer_mode: TerminalBufferMode,
 }
 
+/// 前端拍摄的终端画面照片（SerializeAddon 产物），以 raw 流字节锚点配对。
+///
+/// `anchor_seq` = 拍照时前端已确认写入 xterm 的最后一个 raw chunk 的 endSeq；
+/// 照片语义 = 「seq ≤ anchor 的全部 raw 字节的渲染效果」。
+/// `checkpoint_epoch` 由 ReplayBuffer 创建时生成，daemon 重启 / 会话重建后
+/// 必不相同，天然失效旧照片（绝不复用 daemon_generation）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalCheckpoint {
+    pub checkpoint_epoch: u64,
+    pub anchor_seq: u64,
+    pub snapshot_ansi: String,
+    pub buffer_mode: TerminalBufferMode,
+    pub cols: u16,
+    pub rows: u16,
+    pub checkpointed_at_ms: u64,
+}
+
+/// checkpoint+delta 结构化恢复响应（裁决 B：photo 直写、delta 必须过
+/// renderTerminalData，二者写入管道不同，不能预拼接）。
+///
+/// `checkpoint_epoch` 随读返回：前端上传照片时必须带同一 epoch。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalRecoverySnapshot {
+    #[serde(default)]
+    pub checkpoint: Option<TerminalCheckpoint>,
+    pub delta: String,
+    pub buffer_mode: TerminalBufferMode,
+    pub end_seq: u64,
+    pub checkpoint_epoch: u64,
+}
+
+/// store_checkpoint 的结构化结果（tag 化以便未来跨 REST 传输）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StoreCheckpointOutcome {
+    #[serde(rename_all = "camelCase")]
+    Accepted { anchor_seq: u64 },
+    /// epoch 不等：照片来自旧的 buffer 世代（daemon 重启 / 会话重建）。
+    RejectedEpochMismatch,
+    /// anchor ≤ 现有照片锚点：旧照片不覆盖新照片。
+    RejectedStaleAnchor,
+    /// anchor < 窗口起点：anchor 之后的中段字节已被 front-drop 丢弃。
+    RejectedAnchorGap,
+    /// anchor > 当前 pushed_seq：声称渲染了尚未产生的字节。
+    RejectedFutureAnchor,
+    /// snapshot_ansi 超过 8MB 上限。
+    RejectedTooLarge,
+}
+
 /// 终端退出事件
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

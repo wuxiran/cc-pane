@@ -3,7 +3,8 @@ use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
     CliTool, LaunchProfile, LaunchProfileMcpMode, LaunchProviderSelection, SshConnectionInfo,
-    TerminalBufferMode, TerminalExit, TerminalOutput, TerminalReplaySnapshot, WslLaunchInfo,
+    StoreCheckpointOutcome, TerminalBufferMode, TerminalCheckpoint, TerminalExit, TerminalOutput,
+    TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{
@@ -498,6 +499,29 @@ struct ReplayBuffer {
     total_bytes: usize,
     max_bytes: usize,
     buffer_mode: TerminalBufferMode,
+    /// checkpoint 世代：创建时生成，daemon 重启 / 会话重建后必不相同，
+    /// 用于拒收旧世代照片（评审修订 2 的第四拒收态）。
+    epoch: u64,
+    /// 会话起点以来累计推入的 raw 字节数（seq 记账，只增不减）。
+    pushed_seq: u64,
+    /// 窗口起点 seq：front-drop 丢弃 chunk 时前移被丢字节数。
+    /// 不变式：`pushed_seq - window_start_seq == total_bytes`。
+    window_start_seq: u64,
+    /// 前端上传的画面照片（M3b-1 只存不裁剪；锚定裁剪属 M3b-4）。
+    checkpoint: Option<TerminalCheckpoint>,
+}
+
+/// 生成 ReplayBuffer 的 checkpoint epoch：UNIX 毫秒 << 16 | 进程内单调计数低位。
+/// 同进程内连续创建（同毫秒）靠低位区分；跨进程（daemon 重启）靠时间戳区分。
+fn generate_checkpoint_epoch() -> u64 {
+    use std::sync::atomic::AtomicU64;
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let low = COUNTER.fetch_add(1, Ordering::Relaxed) & 0xFFFF;
+    (millis << 16) | low
 }
 
 /// 读取终端输出的返回类型
@@ -696,6 +720,10 @@ impl ReplayBuffer {
             total_bytes: 0,
             max_bytes,
             buffer_mode: TerminalBufferMode::Normal,
+            epoch: generate_checkpoint_epoch(),
+            pushed_seq: 0,
+            window_start_seq: 0,
+            checkpoint: None,
         }
     }
 
@@ -709,23 +737,101 @@ impl ReplayBuffer {
         let chunk_len = data.len();
         self.chunks.push_back(data.to_string());
         self.total_bytes += chunk_len;
+        self.pushed_seq += chunk_len as u64;
 
-        while self.total_bytes > self.max_bytes {
-            let Some(front) = self.chunks.pop_front() else {
-                break;
-            };
-            self.total_bytes = self.total_bytes.saturating_sub(front.len());
-        }
+        self.evict_front();
     }
 
     fn shrink(&mut self, max_bytes: usize) {
         self.max_bytes = max_bytes;
+        self.evict_front();
+    }
+
+    /// front-drop 淘汰到 max_bytes 以内，同步前移窗口起点并复查照片有效性。
+    fn evict_front(&mut self) {
         while self.total_bytes > self.max_bytes {
             let Some(front) = self.chunks.pop_front() else {
                 break;
             };
             self.total_bytes = self.total_bytes.saturating_sub(front.len());
+            self.window_start_seq += front.len() as u64;
         }
+        // 窗口推过锚点 → 照片与保留字节之间出现缝隙，整体作废（宁可截史不可花屏）。
+        if self
+            .checkpoint
+            .as_ref()
+            .is_some_and(|cp| cp.anchor_seq < self.window_start_seq)
+        {
+            self.checkpoint = None;
+        }
+    }
+
+    /// 存储前端上传的画面照片。校验顺序：too-large → epoch → stale → gap → future。
+    /// 本批不裁剪 chunks（锚定裁剪属 M3b-4）。
+    fn store_checkpoint(&mut self, cp: TerminalCheckpoint) -> StoreCheckpointOutcome {
+        if cp.snapshot_ansi.len() > CHECKPOINT_SNAPSHOT_MAX_BYTES {
+            return StoreCheckpointOutcome::RejectedTooLarge;
+        }
+        if cp.checkpoint_epoch != self.epoch {
+            return StoreCheckpointOutcome::RejectedEpochMismatch;
+        }
+        if self
+            .checkpoint
+            .as_ref()
+            .is_some_and(|existing| cp.anchor_seq <= existing.anchor_seq)
+        {
+            return StoreCheckpointOutcome::RejectedStaleAnchor;
+        }
+        if cp.anchor_seq < self.window_start_seq {
+            return StoreCheckpointOutcome::RejectedAnchorGap;
+        }
+        if cp.anchor_seq > self.pushed_seq {
+            return StoreCheckpointOutcome::RejectedFutureAnchor;
+        }
+        let anchor_seq = cp.anchor_seq;
+        self.checkpoint = Some(cp);
+        StoreCheckpointOutcome::Accepted { anchor_seq }
+    }
+
+    /// 结构化恢复快照：有效照片时 photo + anchor 之后的保留字节作 delta；
+    /// 无照片或已失效时 checkpoint: None + delta = 全窗口拼接（等价 snapshot().data）。
+    fn recovery_snapshot(&self) -> TerminalRecoverySnapshot {
+        let valid_checkpoint = self.checkpoint.as_ref().filter(|cp| {
+            cp.checkpoint_epoch == self.epoch && cp.anchor_seq >= self.window_start_seq
+        });
+        let (checkpoint, delta) = match valid_checkpoint {
+            Some(cp) => (Some(cp.clone()), self.concat_chunks_from(cp.anchor_seq)),
+            None => (None, self.snapshot().data),
+        };
+        TerminalRecoverySnapshot {
+            checkpoint,
+            delta,
+            buffer_mode: self.buffer_mode,
+            end_seq: self.pushed_seq,
+            checkpoint_epoch: self.epoch,
+        }
+    }
+
+    /// 按序拼接「起点 seq ≥ anchor」的 chunk。push 以 chunk 为单位、seq 按 chunk
+    /// 累加，前端见到的任何 endSeq 必落 chunk 边界；anchor 落在 chunk 中间理论
+    /// 不该发生，按保守整段包含（重复优于丢字）并在 debug_assert 里抓。
+    fn concat_chunks_from(&self, anchor_seq: u64) -> String {
+        let mut seq = self.window_start_seq;
+        let mut delta = String::new();
+        for chunk in &self.chunks {
+            let end = seq + chunk.len() as u64;
+            if seq >= anchor_seq {
+                delta.push_str(chunk);
+            } else if end > anchor_seq {
+                debug_assert!(
+                    false,
+                    "checkpoint anchor {anchor_seq} fell inside a chunk [{seq}, {end})"
+                );
+                delta.push_str(chunk);
+            }
+            seq = end;
+        }
+        delta
     }
 
     fn snapshot(&self) -> TerminalReplaySnapshot {
@@ -921,6 +1027,8 @@ const TERMINAL_WRITE_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const LIVE_OUTPUT_MAX_LINES: usize = 20_000;
 const LIVE_OUTPUT_MAX_BYTES: usize = 20 * 1024 * 1024;
 const LIVE_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
+/// 前端上传照片（snapshot_ansi）的体积上限，超过即拒收。
+const CHECKPOINT_SNAPSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
 const DEAD_OUTPUT_MAX_LINES: usize = 20_000;
 const DEAD_OUTPUT_MAX_BYTES: usize = 10 * 1024 * 1024;
 const DEAD_REPLAY_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -3633,6 +3741,62 @@ impl TerminalService {
         Ok(Some(replay.snapshot()))
     }
 
+    /// 活跃会话与 dead_buffers 双查 replay_buffer（懒清理过期条目）。
+    fn find_replay_buffer(&self, session_id: &str) -> AppResult<Option<Arc<Mutex<ReplayBuffer>>>> {
+        let replay_arc = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| AppError::from("sessions lock poisoned"))?;
+            sessions
+                .get(session_id)
+                .map(|session| Arc::clone(&session.replay_buffer))
+        };
+        if replay_arc.is_some() {
+            return Ok(replay_arc);
+        }
+        let mut dead = self
+            .dead_buffers
+            .lock()
+            .map_err(|_| AppError::from("dead_buffers lock poisoned"))?;
+        dead.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
+        Ok(dead
+            .get(session_id)
+            .map(|entry| Arc::clone(&entry.replay_buffer)))
+    }
+
+    /// 存储前端上传的画面照片（M3b-1：daemon 内部存储，不裁剪 chunks）。
+    ///
+    /// 会话不存在（活跃 + dead 双查均未命中）返回 Err；拒收原因以
+    /// `StoreCheckpointOutcome` 结构化返回而非错误。
+    pub fn store_session_checkpoint(
+        &self,
+        session_id: &str,
+        cp: TerminalCheckpoint,
+    ) -> AppResult<StoreCheckpointOutcome> {
+        let replay_arc = self
+            .find_replay_buffer(session_id)?
+            .ok_or_else(|| AppError::NotFound(format!("Session not found: {session_id}")))?;
+        let mut replay = replay_arc
+            .lock()
+            .map_err(|_| AppError::from("replay_buffer lock poisoned"))?;
+        Ok(replay.store_checkpoint(cp))
+    }
+
+    /// 读取 checkpoint+delta 结构化恢复快照。会话不存在时返回 None。
+    pub fn get_session_recovery_snapshot(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<TerminalRecoverySnapshot>> {
+        let Some(replay_arc) = self.find_replay_buffer(session_id)? else {
+            return Ok(None);
+        };
+        let replay = replay_arc
+            .lock()
+            .map_err(|_| AppError::from("replay_buffer lock poisoned"))?;
+        Ok(Some(replay.recovery_snapshot()))
+    }
+
     pub fn get_available_shells(&self) -> Vec<ShellInfo> {
         detect_shells()
     }
@@ -4868,6 +5032,384 @@ mod tests {
         let snapshot = replay.snapshot();
         assert_eq!(snapshot.data, "567890");
         assert_eq!(snapshot.buffer_mode, TerminalBufferMode::Normal);
+    }
+
+    // --- M3b-1: checkpoint 存储与 seq 记账 ---
+
+    fn test_checkpoint(replay: &ReplayBuffer, anchor_seq: u64) -> TerminalCheckpoint {
+        TerminalCheckpoint {
+            checkpoint_epoch: replay.epoch,
+            anchor_seq,
+            snapshot_ansi: "PHOTO".to_string(),
+            buffer_mode: TerminalBufferMode::Normal,
+            cols: 80,
+            rows: 24,
+            checkpointed_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn checkpoint_store_accepts_valid_anchor() {
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("hello");
+        replay.push("world");
+
+        let outcome = replay.store_checkpoint(test_checkpoint(&replay, 5));
+        assert_eq!(outcome, StoreCheckpointOutcome::Accepted { anchor_seq: 5 });
+
+        let recovery = replay.recovery_snapshot();
+        let cp = recovery.checkpoint.expect("stored checkpoint");
+        assert_eq!(cp.anchor_seq, 5);
+        assert_eq!(cp.snapshot_ansi, "PHOTO");
+        assert_eq!(recovery.delta, "world");
+        assert_eq!(recovery.end_seq, 10);
+        assert_eq!(recovery.checkpoint_epoch, replay.epoch);
+    }
+
+    #[test]
+    fn checkpoint_store_rejects_epoch_mismatch() {
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("hello");
+
+        let mut cp = test_checkpoint(&replay, 5);
+        cp.checkpoint_epoch = replay.epoch.wrapping_add(1);
+        assert_eq!(
+            replay.store_checkpoint(cp),
+            StoreCheckpointOutcome::RejectedEpochMismatch
+        );
+        assert!(replay.recovery_snapshot().checkpoint.is_none());
+    }
+
+    #[test]
+    fn checkpoint_store_rejects_stale_anchor() {
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("hello");
+        replay.push("world");
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 8)),
+            StoreCheckpointOutcome::Accepted { anchor_seq: 8 }
+        );
+
+        // 等于现有锚点与小于现有锚点都算 stale。
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 8)),
+            StoreCheckpointOutcome::RejectedStaleAnchor
+        );
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 3)),
+            StoreCheckpointOutcome::RejectedStaleAnchor
+        );
+    }
+
+    #[test]
+    fn checkpoint_store_rejects_anchor_gap_after_front_drop() {
+        let mut replay = ReplayBuffer::new(8);
+        replay.push("1234");
+        replay.push("5678");
+        replay.push("90");
+        // front-drop 丢掉 "1234"，窗口起点推到 4。
+        assert_eq!(replay.window_start_seq, 4);
+
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 2)),
+            StoreCheckpointOutcome::RejectedAnchorGap
+        );
+    }
+
+    #[test]
+    fn checkpoint_store_rejects_future_anchor() {
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("hello");
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 6)),
+            StoreCheckpointOutcome::RejectedFutureAnchor
+        );
+    }
+
+    #[test]
+    fn checkpoint_store_rejects_oversized_photo() {
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("hello");
+        let mut cp = test_checkpoint(&replay, 5);
+        cp.snapshot_ansi = "x".repeat(CHECKPOINT_SNAPSHOT_MAX_BYTES + 1);
+        assert_eq!(
+            replay.store_checkpoint(cp),
+            StoreCheckpointOutcome::RejectedTooLarge
+        );
+    }
+
+    #[test]
+    fn recovery_snapshot_without_checkpoint_returns_full_window() {
+        let mut replay = ReplayBuffer::new(8);
+        replay.push("1234");
+        replay.push("5678");
+        replay.push("90");
+
+        let recovery = replay.recovery_snapshot();
+        assert!(recovery.checkpoint.is_none());
+        assert_eq!(recovery.delta, "567890");
+        assert_eq!(recovery.delta, replay.snapshot().data);
+        assert_eq!(recovery.end_seq, 10);
+        assert_eq!(recovery.buffer_mode, TerminalBufferMode::Normal);
+    }
+
+    #[test]
+    fn checkpoint_invalidated_when_front_drop_passes_anchor() {
+        let mut replay = ReplayBuffer::new(8);
+        replay.push("abcd");
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 4)),
+            StoreCheckpointOutcome::Accepted { anchor_seq: 4 }
+        );
+
+        // 窗口起点推到 4 == anchor：照片仍有效（delta 无缝）。
+        replay.push("efgh");
+        replay.push("ijkl");
+        assert_eq!(replay.window_start_seq, 4);
+        let recovery = replay.recovery_snapshot();
+        assert!(recovery.checkpoint.is_some());
+        assert_eq!(recovery.delta, "efghijkl");
+
+        // 窗口起点推过 anchor：照片作废，回落纯窗口 delta。
+        replay.push("mnop");
+        assert_eq!(replay.window_start_seq, 8);
+        let recovery = replay.recovery_snapshot();
+        assert!(recovery.checkpoint.is_none());
+        assert_eq!(recovery.delta, "ijklmnop");
+    }
+
+    #[test]
+    fn checkpoint_invalidated_when_shrink_passes_anchor() {
+        let mut replay = ReplayBuffer::new(1024);
+        replay.push("abcd");
+        replay.push("efgh");
+        replay.push("ijkl");
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 4)),
+            StoreCheckpointOutcome::Accepted { anchor_seq: 4 }
+        );
+
+        // dead 转移路径就是 shrink：先缩到 anchor 边界（仍有效）。
+        replay.shrink(8);
+        assert_eq!(replay.window_start_seq, 4);
+        assert!(replay.recovery_snapshot().checkpoint.is_some());
+
+        // 再缩推过 anchor：照片作废。
+        replay.shrink(4);
+        assert_eq!(replay.window_start_seq, 8);
+        let recovery = replay.recovery_snapshot();
+        assert!(recovery.checkpoint.is_none());
+        assert_eq!(recovery.delta, "ijkl");
+    }
+
+    #[test]
+    fn checkpoint_epochs_are_unique_across_buffers() {
+        let first = ReplayBuffer::new(1024);
+        let second = ReplayBuffer::new(1024);
+        assert_ne!(first.epoch, second.epoch);
+    }
+
+    #[test]
+    fn checkpoint_seeded_reassembly_matches_reference_stream() {
+        // seeded table-driven 重组测试（评审修订 5：不引 proptest）。
+        struct Lcg(u64);
+        impl Lcg {
+            fn next(&mut self) -> u64 {
+                self.0 = self
+                    .0
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                self.0 >> 33
+            }
+        }
+
+        let mut rng = Lcg(0x5eed_2026);
+        let mut replay = ReplayBuffer::new(16 * 1024);
+        let mut reference = String::new();
+        let mut anchor: Option<u64> = None;
+
+        for round in 0..40 {
+            let chunk_count = 1 + (rng.next() % 3) as usize;
+            for _ in 0..chunk_count {
+                // 偶发超大 chunk 触发 front-drop（可能推过锚点）。
+                let len = if rng.next() % 7 == 0 {
+                    8 * 1024 + (rng.next() % 4096) as usize
+                } else {
+                    1 + (rng.next() % 4096) as usize
+                };
+                let byte = b'a' + (rng.next() % 26) as u8;
+                let chunk = String::from_utf8(vec![byte; len]).expect("ascii chunk");
+                replay.push(&chunk);
+                reference.push_str(&chunk);
+            }
+
+            // 随机时点拍照：anchor 取当时 pushed_seq（每轮至少 push 1 字节，
+            // anchor 严格递增，必被接受）。
+            if rng.next() % 3 == 0 {
+                let anchor_seq = replay.pushed_seq;
+                assert_eq!(
+                    replay.store_checkpoint(test_checkpoint(&replay, anchor_seq)),
+                    StoreCheckpointOutcome::Accepted { anchor_seq },
+                    "round {round}: photo at pushed_seq must be accepted"
+                );
+                anchor = Some(anchor_seq);
+            }
+
+            // seq 记账不变式。
+            assert_eq!(replay.pushed_seq, reference.len() as u64, "round {round}");
+            assert_eq!(
+                replay.pushed_seq - replay.window_start_seq,
+                replay.total_bytes as u64,
+                "round {round}: window accounting"
+            );
+
+            let window_start = replay.window_start_seq as usize;
+            assert_eq!(
+                replay.snapshot().data,
+                &reference[window_start..],
+                "round {round}: window == reference suffix"
+            );
+
+            let recovery = replay.recovery_snapshot();
+            assert_eq!(recovery.end_seq, replay.pushed_seq, "round {round}");
+            match (&recovery.checkpoint, anchor) {
+                (Some(cp), Some(anchor_seq)) => {
+                    assert_eq!(cp.anchor_seq, anchor_seq, "round {round}");
+                    assert_eq!(
+                        recovery.delta,
+                        &reference[anchor_seq as usize..],
+                        "round {round}: photo + delta 重组必须等于参考全流后缀"
+                    );
+                }
+                (None, stored) => {
+                    if let Some(anchor_seq) = stored {
+                        assert!(
+                            anchor_seq < replay.window_start_seq,
+                            "round {round}: valid photo must be returned"
+                        );
+                        // 照片被 front-drop 推过锚点后失效，后续轮次按无照片对待。
+                        anchor = None;
+                    }
+                    assert_eq!(
+                        recovery.delta,
+                        &reference[window_start..],
+                        "round {round}: fallback delta == window"
+                    );
+                }
+                (Some(_), None) => {
+                    panic!("round {round}: photo returned before any was stored")
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn store_session_checkpoint_reaches_live_and_missing_sessions() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        install_recording_session(&service, "session-cp", Arc::new(Mutex::new(Vec::new())));
+
+        let epoch = {
+            let sessions = service.sessions.lock().expect("sessions lock");
+            let session = sessions.get("session-cp").expect("installed session");
+            let mut replay = session.replay_buffer.lock().expect("replay lock");
+            replay.push("hello");
+            replay.epoch
+        };
+
+        let outcome = service
+            .store_session_checkpoint(
+                "session-cp",
+                TerminalCheckpoint {
+                    checkpoint_epoch: epoch,
+                    anchor_seq: 5,
+                    snapshot_ansi: "PHOTO".to_string(),
+                    buffer_mode: TerminalBufferMode::Normal,
+                    cols: 80,
+                    rows: 24,
+                    checkpointed_at_ms: 0,
+                },
+            )
+            .expect("store on live session");
+        assert_eq!(outcome, StoreCheckpointOutcome::Accepted { anchor_seq: 5 });
+
+        let recovery = service
+            .get_session_recovery_snapshot("session-cp")
+            .expect("recovery query")
+            .expect("live session snapshot");
+        assert!(recovery.checkpoint.is_some());
+        assert_eq!(recovery.delta, "");
+        assert_eq!(recovery.end_seq, 5);
+
+        // 会话不存在：store 报 NotFound，get 返回 None。
+        let error = service
+            .store_session_checkpoint(
+                "missing",
+                TerminalCheckpoint {
+                    checkpoint_epoch: epoch,
+                    anchor_seq: 0,
+                    snapshot_ansi: String::new(),
+                    buffer_mode: TerminalBufferMode::Normal,
+                    cols: 80,
+                    rows: 24,
+                    checkpointed_at_ms: 0,
+                },
+            )
+            .expect_err("missing session must error");
+        assert_eq!(error.code(), Some("NOT_FOUND"));
+        assert!(service
+            .get_session_recovery_snapshot("missing")
+            .expect("missing query")
+            .is_none());
+    }
+
+    #[test]
+    fn checkpoint_methods_reach_dead_buffers() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let replay_buffer = Arc::new(Mutex::new(ReplayBuffer::new(1024)));
+        let epoch = {
+            let mut replay = replay_buffer.lock().expect("replay lock");
+            replay.push("bye");
+            replay.epoch
+        };
+        service
+            .dead_buffers
+            .lock()
+            .expect("dead_buffers lock")
+            .insert(
+                "session-dead".to_string(),
+                DeadBufferEntry {
+                    output_buffer: Arc::new(Mutex::new(OutputBuffer::new(10, 1024))),
+                    replay_buffer,
+                    created_at: Instant::now(),
+                    exit_code: Arc::new(Mutex::new(Some(0))),
+                    pid: None,
+                    last_output_at: 0,
+                },
+            );
+
+        let outcome = service
+            .store_session_checkpoint(
+                "session-dead",
+                TerminalCheckpoint {
+                    checkpoint_epoch: epoch,
+                    anchor_seq: 3,
+                    snapshot_ansi: "PHOTO".to_string(),
+                    buffer_mode: TerminalBufferMode::Normal,
+                    cols: 80,
+                    rows: 24,
+                    checkpointed_at_ms: 0,
+                },
+            )
+            .expect("store on dead session");
+        assert_eq!(outcome, StoreCheckpointOutcome::Accepted { anchor_seq: 3 });
+
+        let recovery = service
+            .get_session_recovery_snapshot("session-dead")
+            .expect("recovery query")
+            .expect("dead session snapshot");
+        assert!(recovery.checkpoint.is_some());
+        assert_eq!(recovery.delta, "");
+        assert_eq!(recovery.end_seq, 3);
     }
 
     #[test]

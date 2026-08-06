@@ -86,7 +86,8 @@ pub use system_stats::{
     SessionResourceUsage, SystemStats, TruncatedProcessSummary,
 };
 pub use terminal::{
-    CliTool, CreateSessionRequest, ResizeRequest, TerminalBufferMode, TerminalExit, TerminalOutput,
+    CliTool, CreateSessionRequest, ResizeRequest, StoreCheckpointOutcome, TerminalBufferMode,
+    TerminalCheckpoint, TerminalExit, TerminalOutput, TerminalRecoverySnapshot,
     TerminalReplaySnapshot, WslLaunchInfo,
 };
 pub use usage_stats::{
