@@ -1,4 +1,4 @@
-// Tab 销毁管线（docs/78 批1 · B1-02）。
+// Tab 销毁管线（docs/78）。
 //
 // 「谁负责收尸」的唯一答案：任何关 tab 的出口最终都经 planTabDestroy（纯函数，
 // 收集资源 + 聚合确认项）与 commitResourceDestroy（固定四阶段副作用）。语义差异
@@ -58,7 +58,7 @@ export interface DestroyPolicy {
 }
 
 /**
- * 语义矩阵（docs/78 批1 用户拍板取值，逐格锁定，不要按直觉改）：
+ * 语义矩阵（docs/78；逐格锁定，勿按直觉改）：
  * - backend-close：session-killed 事件驱动，后端已经杀了，再 kill 是重杀 → kills=false。
  * - editor-path-close：closeEditorTabsByPath 只针对 editor tab，无 PTY 可杀，
  *   也不关弹窗（editor 不弹出）→ 两者皆 false。
@@ -230,7 +230,7 @@ async function closePoppedWindows(tabIds: string[]): Promise<void> {
  * 3. 关弹出窗口（policy.closesPopups=true 时）；
  * 4. per-tab onClosed 附属状态清理（detach: false——阶段 1 已做）。
  *
- * 只管资源，不做树操作：从布局树移除 tab 归 removeTabsInternal（轨 B），两者由
+ * 只管资源，不做树操作：从布局树移除 tab 归 removeTabsInternal，两者由
  * 各出口按「先 commit 再移树」顺序编排。单个 kill/close 失败不中断整条管线。
  */
 export async function commitResourceDestroy(

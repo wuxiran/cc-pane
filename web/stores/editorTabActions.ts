@@ -150,7 +150,7 @@ export function createEditorTabActions(
     },
 
     closeEditorTabsByPath: (filePath) => {
-      // B1-09：两条路径合一。改道前当前布局走 closeTab、其他布局裸 splice
+      // 两条路径合一。改道前当前布局走 closeTab、其他布局裸 splice
       // 绕过一切语义（activeTabId 收敛口径都不同）——现在统一交给唯一销毁出口。
       //
       // reason=editor-path-close：不可否决（MCP 说文件已关，就是已关，不该弹框

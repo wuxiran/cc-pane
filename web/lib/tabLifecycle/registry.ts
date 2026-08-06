@@ -1,4 +1,4 @@
-// Tab 生命周期登记表（docs/78 批1 · B1-01）。
+// Tab 生命周期登记表（docs/78）。
 //
 // 每种 contentType 在这里声明「关闭一个 tab 要收什么尸 / 要不要拦 / 收完还要清什么」。
 // 回收只依赖 tab 数据本身——组件从未挂载（快照覆盖、后台布局删除）时也必须能走通，
@@ -68,7 +68,7 @@ export interface TabLifecycleEntry {
   closeGuards(tab: Tab, ctx: GuardContext): CloseGuard[];
   onClosed(tab: Tab, opts: TabDestroyOptions): void;
   /**
-   * 关闭时要进撤销栈的快照；null = 本类型不可撤销（批4 onPersist）。
+   * 关闭时要进撤销栈的快照；null = 本类型不可撤销（docs/78）。
    * terminal 不走这里（launch 身份字段多，专用映射在 closedTabsCap）。
    */
   persistForUndo?(tab: Tab): PersistedUndoSnapshot | null;
@@ -84,7 +84,7 @@ export interface PersistedUndoSnapshot {
   filePath?: string;
 }
 
-/** 弹出窗口判定进 collectResources（docs/78 批1 风险注：防「漏杀修成多杀」的同族漏收）。 */
+/** 弹出窗口判定进 collectResources——防「漏杀修成多杀」的同族漏收（docs/78）。 */
 function collectPoppedOut(tab: Tab, ctx: GuardContext): string[] {
   return ctx.isPoppedOut(tab.id) ? [tab.id] : [];
 }
@@ -103,11 +103,11 @@ function isAgentTab(tab: Tab): boolean {
 const terminalEntry: TabLifecycleEntry = {
   collectResources: (tab, ctx) => ({
     // savedSessionId 必须并入：restoring 中尚未 attach 的 savedSessionId 是真实 PTY，
-    // 漏掉即成孤儿（轨 C 的新口径，旧口径 collectTerminalSessionIds 保持原样另有消费者）。
+    // 漏掉即成孤儿。
     sessionIds: collectTerminalSessionIdsWithSaved(tab),
     poppedOutTabIds: collectPoppedOut(tab, ctx),
   }),
-  // B1-06 打开：agent 会话忙碌/等输入时挡一道确认。
+  // agent 会话忙碌/等输入时挡一道确认。
   //
   // 三条判定要点：
   // 1. **只挡 agent，不挡纯 shell**——shell 的状态是 none 而非 idle，关一个 shell

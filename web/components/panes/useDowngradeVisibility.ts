@@ -1,7 +1,7 @@
-// 降档判据与聚合订阅（docs/78 批2 · B2-04）。
+// 降档判据与聚合订阅（docs/78）。
 //
 // 从 TerminalView 抽出：它已触到行数棘轮，且这两件事逻辑上属于同一个问题
-// ——「这个 PTY 现在还有人看吗」，与终端渲染细节无关。
+// 「这个 PTY 现在还有人看吗」，与终端渲染细节无关。
 import { useCallback, useEffect } from "react";
 import { aggregateOf, useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { ViewRole } from "@/stores/useTabViewStateStore";

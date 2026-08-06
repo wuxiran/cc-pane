@@ -70,7 +70,7 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
           writeTerminalRestoreLog(tab.id, leaf.id, "background.create.cancelled-before-create");
           return null;
         }
-        // 槽位（批4）：同进程并发的重复创建在 spawn 前就挡掉——否则竞态时
+        // 槽位（docs/78）：同进程并发的重复创建在 spawn 前就挡掉——否则竞态时
         // 会真的起一个 PTY 再回滚杀掉。跨进程竞态仍靠下面的复查+回滚。
         const releaseSlot = acquireTerminalSlot(tab.id, leaf.id);
         releaseSlotOuter = releaseSlot;

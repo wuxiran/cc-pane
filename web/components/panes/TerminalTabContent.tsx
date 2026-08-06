@@ -317,7 +317,7 @@ export default memo(function TerminalTabContent({
             <VoiceInputButton
               sessionId={leaf.sessionId}
               paneId={leaf.id}
-              // phaseOf 首批消费方（批5 接线）：可交互判定不再手工组合字段。
+              // phaseOf 首批消费方（docs/78）：可交互判定不再手工组合字段。
               // 语义增强：restore-blocked 也会禁用（旧表达式漏了这档）。
               disabled={!isInteractivePhase(phaseOf(leaf), leaf.leaseReadOnly)}
             />

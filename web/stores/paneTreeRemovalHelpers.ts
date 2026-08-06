@@ -1,4 +1,4 @@
-// 终端分屏树辅助（B1-03 自 usePanesStore.ts 原样下沉，行为零变化）。
+// 终端分屏树辅助。
 //
 // 为什么不并进 paneTreeHelpers.ts：这一组依赖 lib/paneSessions 与
 // terminalRestoreMode，而 lib/paneSessions 反向 import 了 paneTreeHelpers 的

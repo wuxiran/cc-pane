@@ -143,7 +143,7 @@ export default function SelfChatManager() {
     [setStatus]
   );
 
-  // B2-05：SelfChat 的可见性上报。
+  // SelfChat 的可见性上报。
   //
   // 它是全屏主视图（MainViewSwitcher 下），切到别的视图时组件仍挂载，此前
   // 硬编码 isActive={true} → 永远自认可见，一个跑着 Claude 的终端从不降档。

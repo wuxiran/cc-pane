@@ -1,4 +1,4 @@
-// 前端 hidden 会话上报（docs/78 批3 · 闸门接线最后一环）。
+// 前端 hidden 会话上报（docs/78）。
 //
 // 链路：本 hook 订阅可见性聚合 → Tauri command → app 侧 control link →
 // daemon 按连接把这些会话的输出在**源头**断流（delta 照常累积，unhide 走
@@ -36,7 +36,7 @@ export function deriveHiddenSessions(
   const hiddenOwners = new Set<string>();
   for (const [owner, agg] of Object.entries(aggregate)) {
     if (owner.startsWith("selfchat:")) continue;
-    // **弹出标签必须排除**（补账后自审抓的真 bug）：弹窗在独立 WebView、
+    // **弹出标签必须排除**：弹窗在独立 WebView、
     // 独立 store，它的 popup 视图上报主窗口永远看不见——主窗口切走后本
     // 派生会把它判成 hidden，而 daemon 掐的是整个 app 连接（Rust 桥被两个
     // WebView 共用），结果是**弹窗里正在看的终端冻结**。弹出期间一律视为

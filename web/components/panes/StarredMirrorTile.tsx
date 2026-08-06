@@ -26,13 +26,13 @@ export default function StarredMirrorTile({ tile, onJump }: StarredMirrorTilePro
   const { t } = useTranslation("panes");
   const layoutVisible = useContext(LayoutVisibilityContext);
 
-  // B2-03 可见性上报：owner 是被镜像的那个 tab，role=mirror。
+  // 可见性上报：owner 是被镜像的那个 tab，role=mirror。
   //
   // 这条上报正是修「星标页正看着、原 tab 却休眠」的关键：聚合按 owner 算
   // 「任一视图可见」，原 tab 的 primary 视图隐藏时，mirror 这条会把
-  // anyVisible 顶住（B2-04 让降档改读聚合后生效）。
+  // anyVisible 顶住。
   //
-  // 镜像本身不注册降档（TerminalView 侧 B2-06 处理）——它是只读第二视图，
+  // 镜像本身不注册降档（不传 visibilityOwnerId 即不注册）——它是只读第二视图，
   // 降它没有意义，而且 drivesBackendPty={false} 已挡掉后端 resize。
   const tabId = tile.tabId;
   useEffect(() => {

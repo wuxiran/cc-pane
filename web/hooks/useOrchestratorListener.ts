@@ -192,7 +192,7 @@ export function useOrchestratorListener() {
             if (boundLayout) {
               targetLayout = boundLayout.id;
               // resolver 只在「当前布局绑着别的工作空间 / 是星标」时才给出不同布局
-              // ——那种情况下当前布局本就不是这个工作空间的家，切过去不算抢用户画面。
+              // 那种情况下当前布局本就不是这个工作空间的家，切过去不算抢用户画面。
               // 当前布局未绑定或就是本工作空间时它返回当前布局，此处自然不置位。
               autoRoutedLayout = boundLayout.id !== latestPanesStore.currentLayoutId;
             }

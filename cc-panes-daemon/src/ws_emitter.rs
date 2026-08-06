@@ -241,7 +241,7 @@ impl WsEmitter {
     /// 置 desynced；为假（exit/killed 这类终止性消息）时队列满不置 desynced，
     /// 由调用方走 control 兜底。
     fn deliver(sub: &mut SessionSubscriber, msg: &str, drop_on_full: bool) -> bool {
-        // 隐藏零投递闸门（批3）：该连接看不见这个会话时，源头就不推。
+        // 隐藏零投递闸门（docs/78 §4）：该连接看不见这个会话时，源头就不推。
         //
         // **只掐可丢的输出**（drop_on_full=true 即 terminal-output）。exit /
         // killed 这类必达事件即使在隐藏期也要送达——它们决定标签的生死，
@@ -534,7 +534,7 @@ mod tests {
         }
     }
 
-    // ===== 隐藏零投递闸门（批3 B3-06）=====
+    // ===== 隐藏零投递闸门 =====
 
     #[test]
     fn hidden_connection_stops_receiving_output_but_others_keep_streaming() {

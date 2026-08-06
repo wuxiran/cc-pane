@@ -19,7 +19,7 @@ export function createPanel(tab?: Tab): Panel {
     restoreMode: "shell",
     sessionId: null,
   };
-  // 占位空标签（批4 判定）：**不走** usePanesStore.createTab 富工厂——本模块
+  // 占位空标签（docs/78）：**不走** usePanesStore.createTab 富工厂——本模块
   // 按头部约定只依赖 @/types，反向 import 会成环；且这不是可启动身份，只是
   // 空 pane 的 UI 占位。真正的会话标签一律经富工厂构造。
   const defaultTab: Tab = tab || {
@@ -78,7 +78,7 @@ export function collectPanels(node: PaneNode): Panel[] {
   return node.children.flatMap(collectPanels);
 }
 
-// ============ 以下自 usePanesStore.ts 下沉（B1-03 搬家，行为零变化） ============
+// ============ 以下自 usePanesStore.ts 下沉 ============
 // 本模块保持只依赖 @/types（lib/paneSessions 反向 import collectPanels，别在这里
 // import 会成环的模块）；需要 paneSessions / terminalRestoreMode 的树辅助放
 // paneTreeRemovalHelpers.ts。

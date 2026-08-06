@@ -107,7 +107,7 @@ export interface CloseTabBySessionIdResult {
   blockedByPinned: number;
 }
 
-/** removeTabsInternal 的调用方选项（B1-03 骨架；回收管线接入后消费）。 */
+/** removeTabsInternal 的调用方选项。 */
 export interface RemoveTabsInternalOptions {
   /**
    * 已由调用方保护、不得 kill 的会话集合（snapshot-apply 差集复核用）。
@@ -134,7 +134,7 @@ export interface ClosedTabSnapshot {
   wsl?: WslLaunchInfo;
   machineName?: string;
   /**
-   * 以下三个是「标签在布局里的身份」，不是创建参数（批4 扩容）。
+   * 以下三个是「标签在布局里的身份」，不是创建参数（docs/78）。
    * 不存它们的话，撤销出来的标签会丢掉置顶/星标状态与父子关系——
    * 用户看到的是「恢复了，但不是原来那个」。
    */
@@ -142,7 +142,7 @@ export interface ClosedTabSnapshot {
   starred?: boolean;
   parentTabId?: string;
   /**
-   * 非终端标签的撤销（批4 onPersist 推广）。缺省 = terminal（历史快照兼容）。
+   * 非终端标签的撤销（docs/78）。缺省 = terminal（历史快照兼容）。
    * browser 存 URL、editor 存 filePath——滚动位置与光标需要组件级通道，
    * 留作后续（registry.onPersist 的形状已为此预留）。
    */
@@ -211,7 +211,7 @@ export interface PanesState extends BrowserTabActions {
   closeTabsToRight: (paneId: string, tabId: string) => void;
   closeOtherTabs: (paneId: string, tabId: string) => void;
   /**
-   * 唯一逐-tab 销毁出口（docs/78 批1）。B1-03 骨架：树 splice + closedTabs +
+   * 唯一逐-tab 销毁出口（docs/78）：回收管线 + 树 splice + closedTabs +
    * poppedOut/fullscreen 附属清理；资源回收由销毁管线在改道 commit 接入。
    * 幂等——找不到的 tabId 静默跳过。
    */

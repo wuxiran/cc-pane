@@ -1,4 +1,4 @@
-// 跨 daemon 边界事件契约表（TS 侧镜像，docs/78 §3 · 批3 B3-03）。
+// 跨 daemon 边界事件契约表（TS 侧镜像，docs/78 §3）。
 //
 // 与 Rust 侧 `cc-panes-core/src/services/boundary_events.rs` **一一对应**。
 // 跨语言无法共享源码，所以靠两边各自的穷举测试 + 键集清单一致来守——

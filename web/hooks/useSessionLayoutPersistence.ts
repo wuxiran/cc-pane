@@ -279,7 +279,7 @@ export function useSharedLayoutSnapshotSync(): void {
           })
             .then(() => runBackgroundLayoutRestore())
             .then(async () => {
-              // 杀决策后置（补账2）：收养已 settle，按当前树引用 + 后端活会话
+              // 杀决策后置：收养已 settle，按当前树引用 + 后端活会话
               // 复核 apply 时登记的候选杀集。仍只打日志——开闸等观察期零误报，
               // 但从此观察到的 would-kill 就是复核后的最终口径。
               const state = usePanesStore.getState();

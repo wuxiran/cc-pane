@@ -174,7 +174,7 @@ interface TerminalViewProps {
   /** Tab id used to clear restoring state after recovery finishes. */
   tabId?: string;
   /**
-   * 可见性聚合的归属键（docs/78 批2）。降档/休眠读它去查
+   * 可见性聚合的归属键（docs/78）。降档/休眠读它去查
    * useTabViewStateStore.aggregate —— 判据是「任一视图可见」，不是本视图可见。
    *
    * 与 tabId 分开：tabId 会被 findTabAcrossLayouts / updateTerminalLaunchId 当作
@@ -566,7 +566,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // 由隐藏转可见：把积压一次性补上。必须在两个 ref 都更新之后判定，
       // 否则 flush 会走进"仍不可见"的分支被再次积压。
       //
-      // **这条不能删**（B2-07 复核结论，与初版设想相反）：buffer 自身的
+      // **这条不能删**：buffer 自身的
       // drain-on-push 只在「有新数据到来」时排空，而切回一个已经跑完、不再
       // 产出的后台标签时 push 永远不会被调用——积压将永远显示不出来，屏幕
       // 停在切走前的样子。两个防线覆盖的不是同一件事：
@@ -578,7 +578,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         flushHiddenWrites("visibility.gained");
       }
       // 后台分层降档（docs/71 §3.1）：5min 挂 WebGL，30min 休眠。幂等，可每次 render 调。
-      // B2-04：判据是「任一视图可见」而非「本视图可见」，见 resolveDowngradeVisibility。
+      // 判据是「任一视图可见」而非「本视图可见」，见 resolveDowngradeVisibility。
       // 注意本处只覆盖「自身 render 触发」的路径；别的视图变化（如切到星标页）
       // 不会让本组件 render，那条边沿由下面的 store 订阅补上。
       notifyVisibility(resolveDowngradeVisibility());
@@ -590,7 +590,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         everHiddenRef.current = true;
       }
 
-      // B2-06 双写断言（dev only，只打日志不抛错）
+      // 可见性双写断言（dev only，只打日志不抛错）
       checkVisibilityDrift(props.visibilityOwnerId, props.viewRole, isRenderVisible(), isActiveRef.current);
     });
 
@@ -932,7 +932,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           getFitAddon: () => fitAddonRef.current,
           getHost: () => terminalRef.current,
           getSessionId: () => currentSessionIdRef.current,
-          // B2-09：焦点判据改读单源（**不是**降档的 anyVisible——这里问的是
+          // 焦点判据改读单源（**不是**降档的 anyVisible——这里问的是
           // 「本视图是不是焦点」，决定要不要 refit）。无 owner 时退回旧 ref。
           isActive: () =>
             resolveViewFocus(props.visibilityOwnerId, props.viewRole, () => isActiveRef.current),

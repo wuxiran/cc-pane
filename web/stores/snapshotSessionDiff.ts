@@ -1,9 +1,9 @@
-// 快照覆盖的会话差集（docs/78 批1 · B1-11）。
+// 快照覆盖的会话差集（docs/78）。
 //
 // 跨端同步每 5s 跑一轮 apply → reconcileTerminalSessions →
 // runBackgroundLayoutRestore：整树替换后旧树会话会失去引用，但它们常常马上
 // 被收养回来（新树经 savedSessionId 引用同一个会话）。所以差集只用于**观察**，
-// 真杀要等批2 后开闸并在收养 settle 之后按当前活会话复核（Codex 评审必修1）。
+// 真杀开闸前提：观察期零误报；开闸后也必须在收养 settle 之后按当前活会话复核。
 import { collectTerminalSessionIdsWithSavedFromTree } from "@/lib/paneSessions";
 import type { PanesState } from "./panesStoreTypes";
 
@@ -49,13 +49,13 @@ export function reportSnapshotWouldKill(
 }
 
 // ============================================================================
-// 杀决策后置（Codex plan 评审必修1 的完整落地；补账2）。
+// 杀决策后置。
 //
 // apply 时算差集是不够的：跨端同步是 apply → reconcileTerminalSessions →
 // runBackgroundLayoutRestore 三段，新树经 savedSessionId 引用的会话会在后两段
 // 被**收养回来**。杀点必须等 settle，且杀前按当时的活会话/归属复核一遍。
 // 本模块仍只打日志（开闸等观察期零误报），但日志口径已是「复核后的最终杀集」
-// ——观察数据从此可信。
+// 观察数据从此可信。
 // ============================================================================
 
 interface PendingSnapshotKill {

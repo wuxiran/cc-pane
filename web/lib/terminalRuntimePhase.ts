@@ -1,4 +1,4 @@
-// 终端运行时阶段的判别联合（docs/78 批5，降级版）。
+// 终端运行时阶段的判别联合（docs/78，降级版：纯派生不动存储）。
 //
 // # 问题
 //
@@ -73,7 +73,7 @@ export function phaseOf(input: TerminalPhaseInput): TerminalRuntimePhase {
   if (input.savedSessionId && !input.sessionId) return "restoring";
   if (input.disconnected) return "disconnected";
   if (input.sessionId) return "running";
-  // Codex 审查 P3：launchAttempt > 0 且**无 launchError** = 重试已发起、错误
+  // launchAttempt > 0 且**无 launchError** = 重试已发起、错误
   // 已清、会话尚未建立——这是 launching，不是 launch-failed。失败态只由
   // launchError 判定（上面第 2 优先级），否则重试期间会显示成失败。
   if ((input.launchAttempt ?? 0) > 0) return "launching";

@@ -66,7 +66,7 @@ export function toClosedTabSnapshot(t: {
 }
 
 /**
- * 恢复「标签在布局里的身份」（批4）。
+ * 恢复「标签在布局里的身份」（docs/78）。
  *
  * pinned/starred 不是创建参数，`addTab` 不接它们——必须在标签建好之后补打，
  * 否则撤销出来的是「同一个会话，但不是原来那个标签」：置顶掉了、星标没了。
@@ -89,7 +89,7 @@ export function restoreClosedTabIdentity(
 }
 
 /**
- * 非终端快照的重开分流（批4）。命中并处理返回 true；terminal 快照返回 false
+ * 非终端快照的重开分流（docs/78）。命中并处理返回 true；terminal 快照返回 false
  * 由调用方走 addTab 富路径。
  */
 export function reopenNonTerminalSnapshot(

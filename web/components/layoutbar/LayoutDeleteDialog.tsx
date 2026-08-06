@@ -49,7 +49,7 @@ export function summarizeLayoutDelete(layout: LayoutEntry): DeleteSummary {
 
   for (const tab of tabs) {
     if (tab.ssh) sshCount += 1;
-    // phaseOf 消费方（批5 接线）：restoring 判定含「savedSessionId 已置、
+    // phaseOf 消费方（docs/78）：restoring 判定含「savedSessionId 已置、
     // 标志未及置位」的窗口——旧写法只看布尔会少算这段。
     if (phaseOf(tab) === "restoring") restoringCount += 1;
     if (tab.terminalRootPane) {
@@ -99,7 +99,7 @@ export default function LayoutDeleteDialog({
     if (!summary) return;
     const { layout } = summary;
     try {
-      // B1-08：回收统一走销毁管线（detach 全部 → kill 全部 → 关弹出窗口 →
+      // 回收统一走销毁管线（detach 全部 → kill 全部 → 关弹出窗口 →
       // 附属清理），本组件不再自己编排顺序。整层删除的树操作仍由 deleteLayout
       // 一步完成——逐 tab splice 会制造 N 个中间树状态与 notify 风暴。
       //

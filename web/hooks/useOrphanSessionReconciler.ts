@@ -145,7 +145,7 @@ export function useOrphanSessionReconciler() {
         const statuses = await terminalService.getAllStatus();
         const orphans = selectOrphanSessions(statuses, referenced, Date.now());
 
-        // 批1 验收仪表（docs/78）：销毁出口统一后，孤儿发现数应当趋零——
+        // 验收仪表（docs/78）：销毁出口统一后，孤儿发现数应当趋零——
         // 每轮都打一行，**包括零发现**。只在有发现时打印的话，「一直是 0」
         // 与「对账压根没跑」在日志里完全同形，趋势就无从判断。
         // 快照覆盖的 would-kill 日志要与这里的发现对账：would-kill 报了、

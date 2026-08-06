@@ -1,4 +1,4 @@
-// 分屏区 pane / tab 的关闭与移除（docs/78 批1 · B1-03）。
+// 分屏区 pane / tab 的关闭与移除（docs/78）。
 //
 // 从 usePanesStore.ts 拆出（该文件已触到行数棘轮上限，见 web/test/lineRatchet.test.ts），
 // 与 editorTabActions.ts 同一套路：createPaneRemovalActions(set, get) 工厂，
@@ -6,9 +6,9 @@
 //
 // 两组成员：
 // 1. 六个既有出口（closeTab / closeTabsToLeft / closeTabsToRight / closeOtherTabs /
-//    closePane / closeTerminalPane）——**原样搬家，行为零变化**，后续 B1-04+ 逐个改道；
+//    closePane / closeTerminalPane）——历史出口，UI 已全部改道统一出口；
 // 2. 三个统一出口（removeTabsInternal / removeTerminalLeafInternal / removeEmptyPane）
-//    ——全部 UI 与后端销毁路径的唯一入口，资源回收统一走 destroyPipeline。
+// 全部 UI 与后端销毁路径的唯一入口，资源回收统一走 destroyPipeline。
 import {
   commitResourceDestroy,
   DESTROY_KILL_REASON,
@@ -48,7 +48,7 @@ import { useTabViewStateStore } from "./useTabViewStateStore";
 export interface PaneRemovalActions {
   closePane: (paneId: string) => void;
   closeTab: (paneId: string, tabId: string) => void;
-  /** @deprecated B1-04 已改道 removeTabsInternal(ids, "batch-close")。零调用方，留待批1 收尾删除。 */
+  /** @deprecated 已改道 removeTabsInternal(ids, "batch-close")。零调用方，双写拆除专题一并删。 */
   closeTabsToLeft: (paneId: string, tabId: string) => void;
   /** @deprecated 同 closeTabsToLeft。 */
   closeTabsToRight: (paneId: string, tabId: string) => void;
@@ -75,7 +75,7 @@ export function createPaneRemovalActions(
 ): PaneRemovalActions {
   return {
     closePane: (paneId) => {
-      // B1-05 语义拆分：**关 pane = 销毁里面的 tab + 收掉空壳**，两件事分开做。
+      // 语义拆分：**关 pane = 销毁里面的 tab + 收掉空壳**，两件事分开做。
       // 有 tab 时先走销毁出口（回收 + closedTabs 按矩阵），再收空壳；
       // 已空则只收空壳。搬空 pane 的调用方（moveTab 系）改用 removeEmptyPane，
       // 不再借道这里——那条路径绝不能沾上杀会话副作用。
@@ -131,7 +131,7 @@ export function createPaneRemovalActions(
     },
 
     closeTab: (paneId, tabId) => {
-      // B1-05 改道：回收 + closedTabs + 树操作统一走 removeTabsInternal。
+      // 回收 + closedTabs + 树操作统一走 removeTabsInternal。
       //
       // 顺带修掉双 push——改道前 closeTab 先 push 快照，pane 只剩这一个 tab 时
       // 又转调 closePane，后者再 push 一次，同一个 tab 在撤销栈里占两格。
@@ -278,7 +278,7 @@ export function createPaneRemovalActions(
       // pinned 豁免在此判定，与下方树操作同一口径——两处判据必须一致，
       // 否则会出现「资源杀了但标签还在」或反之。
       const doomedTabs: Tab[] = [];
-      // Codex 审查 P0：历史快照互覆盖会造成**跨布局同 id 的分叉副本**（下方
+      // 历史快照互覆盖会造成**跨布局同 id 的分叉副本**（下方
       // 树操作的注释即为此扫完全部布局）。收集必须逐位置进行，不能按 tab.id
       // 去重——去重会漏掉后续副本的资源（不同 sessionId 的分叉副本成孤儿）。
       // 同时 pinned 豁免的副本仍在树上显示它的会话：该会话必须进保护集，
@@ -327,7 +327,7 @@ export function createPaneRemovalActions(
             if (policy.recordsClosedTabs && tab.projectPath && tab.contentType === "terminal") {
               state.closedTabs.push(toClosedTabSnapshot(tab));
             } else if (policy.recordsClosedTabs) {
-              // 非终端撤销（批4 onPersist）：browser 存 URL、editor 存 filePath。
+              // 非终端撤销（docs/78）：browser 存 URL、editor 存 filePath。
               const snap = TAB_LIFECYCLE[tab.contentType].persistForUndo?.(tab);
               if (snap) state.closedTabs.push(snap);
             }
@@ -373,9 +373,9 @@ export function createPaneRemovalActions(
       if (fullscreen.fullscreenTabId && removedIds.has(fullscreen.fullscreenTabId)) {
         void fullscreen.exitFullscreen();
       }
-      // 视图条目清理（批2 计划项，自审补上）：不清的话被关标签的
+      // 视图条目清理（docs/78）：不清的话被关标签的
       // views/aggregate 条目永远留在 store，且大概率停在 active（人总是关
-      // 当前标签）——批3 的 hidden 上报接线后会把死标签当「可见」上报。
+      // 当前标签）——hidden 上报会把死标签当「可见」上报给 daemon。
       for (const id of removedIds) {
         useTabViewStateStore.getState().removeOwner(id);
       }
@@ -398,7 +398,7 @@ export function createPaneRemovalActions(
           const location = findTabLocation(tree, tabId);
           if (!location) continue;
           const leaves = collectTerminalLeaves(location.tab.terminalRootPane);
-          // Codex 审查 P0：**kill 必须与树操作同守卫**。最后一格时下面的
+          // **kill 必须与树操作同守卫**。最后一格时下面的
           // closeTerminalLeafInTab 会 no-op（保持 tab 存在），若这里仍杀了
           // 会话，结果是「会话已死但格子还在树上」——一个杀不掉又用不了的
           // 死终端。最后一格由调用方走 removeTabsInternal 关整个 tab。
@@ -435,7 +435,7 @@ export function createPaneRemovalActions(
 
     removeEmptyPane: (paneId) => {
       // 纯树操作，**零销毁语义**：专供 moveTab / moveTabToLayoutPane 在 tab 搬走后
-      // 收掉留下的空壳（B1-05 改道）。它们的 pane 里已经没有任何 tab，绝不能借道
+      // 收掉留下的空壳。它们的 pane 里已经没有任何 tab，绝不能借道
       // closePane 沾上未来的杀会话副作用——非空即拒是硬守卫，不是防御式冗余。
       const pane = findPane(get().rootPane, paneId);
       if (pane?.type !== "panel") return;

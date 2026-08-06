@@ -1,7 +1,7 @@
-// Panel 的可见性上报（docs/78 批2 · B2-02）。
+// Panel 的可见性上报（docs/78）。
 //
 // 双写期：三个 props 照旧传给 TabContentRenderer，同时把同一份判定写进
-// useTabViewStateStore。等 B2-06 的双写断言跑通零漂移后，props 那条路才拆。
+// useTabViewStateStore。等 双写断言跑通零漂移后，props 那条路才拆。
 //
 // 为什么上报点在 Panel 而不是各内容组件：**后台标签也必须有记录**。
 // 五种 contentType（editor/file-explorer/mcp-config/skill-manager/memory-manager）
@@ -33,7 +33,7 @@ export function paneTabVisibility(
  * 把本 pane 全部 tab 的可见性写进单源 store。
  *
  * 退场：pane 卸载时逐个 removeView（幂等，React19 dev 双挂载安全）。
- * tab 被真正销毁时的清理走批1 的 removeTabsInternal → removeOwner，不在这里。
+ * tab 被真正销毁时的清理走 removeTabsInternal → removeOwner，不在这里。
  */
 export function useReportPaneVisibility(
   pane: Panel,

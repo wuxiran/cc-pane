@@ -1,4 +1,4 @@
-// 后端事件驱动的标签关闭（docs/78 批1 · B1-10）。
+// 后端事件驱动的标签关闭（docs/78）。
 //
 // 与其他销毁出口的根本区别：**PTY 已经死了**（session-killed 事件），所以
 // 这条路径只做树操作与附属清理，绝不 kill——矩阵里 backend-close 的
@@ -21,8 +21,8 @@ export function createBackendCloseActions(
 ): BackendCloseActions {
   return {
   closeTabBySessionId: (sessionId: string) => {
-    // B1-10：后端事件驱动（session-killed）。PTY 已经死了，**绝不能再 kill**
-    // ——矩阵里 backend-close 的 kills=false 就是这个意思；本路径只做树操作
+    // 后端事件驱动（session-killed）。PTY 已经死了，**绝不能再 kill**
+    // 矩阵里 backend-close 的 kills=false 就是这个意思；本路径只做树操作
     // 与附属清理。分屏 tab 优先只摘掉那一格（保留其余格子），这是本出口
     // 独有的语义，removeTabsInternal 的整 tab 口径覆盖不了，故保留自有实现。
     let closed = 0;

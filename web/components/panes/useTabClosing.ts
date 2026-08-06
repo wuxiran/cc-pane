@@ -41,7 +41,7 @@ export interface TabClosing {
 export function useTabClosing(paneId: string, tabs: Tab[], activeTabId?: string): TabClosing {
   const removeTabsInternal = usePanesStore((s) => s.removeTabsInternal);
 
-  // B1-06：单一 pending 状态取代原先的 dirtyConfirmTabId + dirtyConfirmBatch 两个
+  // 单一 pending 状态取代原先的 dirtyConfirmTabId + dirtyConfirmBatch 两个
   // state——确认项来自 planTabDestroy 的聚合（agent 忙 / 编辑器未保存），
   // 调用方不再需要知道「这次是因为什么弹的框」。
   const [pending, setPending] = useState<PendingClose | null>(null);

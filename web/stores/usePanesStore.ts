@@ -10,7 +10,7 @@ import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
-// 树辅助（findPane 等）与 close 系树操作已随 B1-03 下沉到 paneTreeHelpers /
+// 树辅助（findPane 等）与 close 系树操作已下沉到 paneTreeHelpers /
 // paneTreeRemovalHelpers，本文件与 paneRemovalActions 共用同一份实现。
 import {
   closeTabInTree,
@@ -81,7 +81,7 @@ function generateId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-// B1-03 起真身在 paneTreeHelpers；这里保留 re-export 维持既有 import 路径。
+// 真身在 paneTreeHelpers；这里保留 re-export 维持既有 import 路径。
 export { TERMINAL_LAYOUT_CHANGED_EVENT } from "./paneTreeHelpers";
 
 export function createTab(opts: CreateTabOptions): Tab {
@@ -950,7 +950,7 @@ export const usePanesStore = create<PanesState>()(
       }
     },
 
-    // 六个关闭出口随 B1-03 迁入 createPaneRemovalActions（文件底部 spread 挂载）。
+    // 六个关闭出口在 createPaneRemovalActions（文件底部 spread 挂载）。
     applyLayoutPreset: (preset) => {
       set((state) => {
         if (!activateFirstNormalLayout(state)) return;
@@ -1153,7 +1153,7 @@ export const usePanesStore = create<PanesState>()(
         toPane: summarizePanel(afterToPane),
       });
 
-      // 收空壳只能用 removeEmptyPane：closePane 自 B1-05 起会销毁 pane 内的 tab，
+      // 收空壳只能用 removeEmptyPane：closePane 现在会销毁 pane 内的 tab，
       // 而这里 tab 已搬到别处——借道它等于拖一下标签就杀掉自己的会话。
       const fromPane = findPane(get().rootPane, fromPaneId);
       if (fromPane?.type === "panel" && fromPane.tabs.length === 0) {
@@ -1736,7 +1736,7 @@ export const usePanesStore = create<PanesState>()(
         trimClosedTabs(state.closedTabs);
       });
 
-      // 非终端撤销分流（批4）：browser/editor 各走自己的创建入口。
+      // 非终端撤销分流（docs/78）：browser/editor 各走自己的创建入口。
       if (reopenNonTerminalSnapshot(get(), lastClosed)) return;
 
       get().addTab(paneId, {
@@ -2057,13 +2057,13 @@ export const usePanesStore = create<PanesState>()(
       // 接受 v1（无绑定字段）与 v2；未来更高版本结构未知，拒绝以免半解析
       if (typeof payload.schemaVersion === "number" && payload.schemaVersion > 2) return false;
 
-      // B1-11：整树替换会让旧树里的会话失去全部引用——它们**可能**是该回收的
+      // 整树替换会让旧树里的会话失去全部引用——它们**可能**是该回收的
       // 孤儿，也**可能**马上被收养回来。跨端同步每 5s 跑一轮
       // apply → reconcileTerminalSessions → runBackgroundLayoutRestore，
       // 新树经 savedSessionId 引用的常常就是当前活着的会话。所以：
       //   1. 这里只算差集（旧引用 − 新引用，两侧都含 savedSessionId），不杀；
-      //   2. 真杀推迟到批2 完成后开闸，且必须等本轮收养 settle 再按当前活会话
-      //      复核一遍（Codex 评审必修1）。
+      //   2. 真杀等观察期零误报才开闸，且必须等本轮收养 settle 再按当前活会话
+      //      复核一遍。
       // 现在先把「如果真杀会杀掉谁」打进日志，与孤儿对账 GC 的发现对账，
       // 攒够零误报的样本再开闸。
       const beforeIds = new Set(collectSnapshotSessionIds(get()));
@@ -2083,7 +2083,7 @@ export const usePanesStore = create<PanesState>()(
         applied = true;
       });
       if (applied) {
-        // 杀决策后置（补账2）：只登记候选，settle 后复核输出（persistence 侧）
+        // 杀决策后置：只登记候选，settle 后复核输出（persistence 侧）
         beginSnapshotKillCandidates(beforeIds, new Set(collectSnapshotSessionIds(get())));
         // 全屏中的 tab 若被快照换掉，fullscreenTabId 会悬空（poppedOutTabs
         // 上面已重置，这条是同批补的）。

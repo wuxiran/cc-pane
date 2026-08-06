@@ -1,4 +1,4 @@
-// 终端创建槽位（docs/78 批4 · acquireTerminalSlot；补账3）。
+// 终端创建槽位（docs/78）。
 //
 // 现有防线是 TOCTOU 三段式：check → create → 复查，输了竞态就 kill 回滚
 // （TerminalView 与 backgroundLayoutRestore 各一份）。它**正确**但有代价：

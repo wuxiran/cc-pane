@@ -1320,7 +1320,7 @@ async fn ws_control(
 
 /// control 通道的入站消息（客户端 → daemon）。
 ///
-/// 此前 control 是单向的（入站 Text 直接丢弃），批3 的 hidden 上报需要这条
+/// 此前 control 是单向的（入站 Text 直接丢弃），hidden 上报需要这条
 /// 上行路。旧 daemon 收到 hidden 上报会静默忽略——所以 app 侧**不能假设上报
 /// 生效**，前端 512KB 积压必须继续兜底。
 #[derive(Debug, serde::Deserialize)]
@@ -1416,7 +1416,7 @@ async fn handle_ws(
     config.touch_session(&session_id);
     let (mut ws_tx, mut ws_rx) = socket.split();
     // caller = per-session WS 的 instanceId（WsQuery 既有字段）——与 control
-    // 连接同源，hidden 闸门据此定位到本连接（批3 接线）。
+    // 连接同源，hidden 闸门据此定位到本连接。
     let mut output_rx = config
         .ws_emitter()
         .subscribe_with_connection(&session_id, caller.clone());

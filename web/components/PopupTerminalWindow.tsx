@@ -37,11 +37,11 @@ export default function PopupTerminalWindow() {
     currentWindow.setTitle(tabData.title || "Terminal").catch(console.error);
   }, [tabData]);
 
-  // B2-05：上报真实可见性。此前弹窗只传 isActive={true}，经 TerminalView 的
+  // 上报真实可见性。此前弹窗只传 isActive={true}，经 TerminalView 的
   // `isVisible ?? isActive` 回退变成永久自认可见——积压/降档/休眠全不生效，
   // 最小化半天也不降档。
   //
-  // **上下文边界（自审修正）**：弹窗是独立 WebView，本 store 是弹窗自己
+  // **上下文边界**：弹窗是独立 WebView，本 store 是弹窗自己
   // 那份——主窗口的聚合看不到这条上报。跨窗口聚合并不存在；行为仍正确是
   // 因为主窗口对弹出标签只渲染占位符（不挂 TerminalView），没有消费方。
   // 弹窗自己的降档/休眠在本上下文内自洽（owner 聚合只有 popup 一路）。

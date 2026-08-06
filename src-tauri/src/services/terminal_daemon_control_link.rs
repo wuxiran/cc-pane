@@ -70,7 +70,7 @@ impl Drop for ControlConnectionGuard {
     }
 }
 
-/// 待上报的 hidden 会话全集（批3 闸门接线）。
+/// 待上报的 hidden 会话全集（隐藏零投递闸门的上行，docs/78 §4）。
 ///
 /// 用 watch 而非 mpsc：上报是**全量覆盖**语义（daemon 侧按连接替换整个集合），
 /// 中间状态没有价值，断线重连后只需补发最新值。None = 尚无上报。

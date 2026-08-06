@@ -1,4 +1,4 @@
-// 可见性单一事实源（docs/78 批2 · B2-01）。
+// 可见性单一事实源（docs/78）。
 //
 // 此前「可见」至少有 6 种口径各说各话：Panel 三 props、TerminalView 三 ref、
 // isRenderVisible()、shouldRunWebglRecovery()、BrowserTabContent 自造一套、
@@ -65,7 +65,7 @@ export interface TabViewState {
 
   reportView: (owner: ViewOwnerId, role: ViewRole, visibility: ViewVisibility) => void;
   removeView: (owner: ViewOwnerId, role: ViewRole) => void;
-  /** 移除该 owner 的全部视图（批1 的 removeTabsInternal 在销毁 tab 时调）。 */
+  /** 移除该 owner 的全部视图（removeTabsInternal 在销毁 tab 时调）。 */
   removeOwner: (owner: ViewOwnerId) => void;
 
   getAggregate: (owner: ViewOwnerId) => ViewAggregate | undefined;
@@ -76,7 +76,7 @@ export function viewKey(owner: ViewOwnerId, role: ViewRole): ViewKey {
   return `${owner}:${role}`;
 }
 
-/** SelfChat 的 owner 标识（它没有 tabId，见 docs/78 批2 plan §2）。 */
+/** SelfChat 的 owner 标识（它是全屏主视图，不在 pane 树里、没有 tabId）。 */
 export function selfChatOwnerId(sessionId: string): ViewOwnerId {
   return `selfchat:${sessionId}`;
 }
@@ -173,7 +173,7 @@ export const useTabViewStateStore = create<TabViewState>((set, get) => ({
       // 最后一个视图没了：**保留聚合条目**（置为不可见）而不是删掉。
       // React19 dev 双挂载走 cleanup → mount，删掉的话 foregroundLastSeenAt
       // 会丢失，重新 report 时只能取当前时间，休眠时长在 dev 与 prod 算出
-      // 不同结果。真正的清理归 removeOwner（tab 销毁时由批1 的出口调）。
+      // 不同结果。真正的清理归 removeOwner（tab 销毁时由统一出口调）。
       const previous = state.aggregate[owner];
       return {
         views,
