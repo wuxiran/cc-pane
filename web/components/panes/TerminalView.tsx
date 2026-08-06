@@ -36,12 +36,14 @@ import {
   useWallpaperStore,
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { ViewRole } from "@/stores/useTabViewStateStore";
 import { checkVisibilityDrift } from "./visibilityDriftAssert";
 import {
   resolveViewFocus,
   useAggregateVisibilitySubscription,
   useDowngradeVisibility,
+  useViewVisibilityEdgeSubscription,
 } from "./useDowngradeVisibility";
 import { replayAttachedSession } from "./terminalReplay";
 import { reconnectTerminalSession } from "./terminalReconnect";
@@ -184,6 +186,12 @@ interface TerminalViewProps {
   visibilityOwnerId?: string;
   /** 本视图在可见性单源里的角色（默认 primary）。双写断言按 role 取本视图条目。 */
   viewRole?: ViewRole;
+  /**
+   * tab 内 leaf 焦点路由（分屏终端专用）：store 的 active 是 tab 级，同一 tab
+   * 的多个 leaf 必须再按此 prop 分焦点——否则分屏多 leaf 同时获焦、同时触发
+   * WebGL 恢复。不传（弹窗/SelfChat/镜像等单 leaf 视图）= true。
+   */
+  leafFocused?: boolean;
   onRestoreLaunchState?: (state: RestoreLaunchState) => void;
   onLaunchError?: (error: TerminalLaunchError) => void;
   onSessionCreated: (sessionId: string) => void;
@@ -446,11 +454,29 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     /**
      * 本终端当前是否值得渲染。后台标签页只是 `display: none` 仍保持挂载，
      * 照单全收会让 N 个后台会话各压一份 parser + renderer 上主线程（docs/71 §3）。
+     *
+     * 单源读 store 单视图：primary 写侧把「非当前 tab」与「非当前布局」都编码为
+     * hidden，故等价覆盖旧 `isVisible && layoutActive` 组合。store 条目未登记
+     * （首帧上报未跑 / MobilePrototype 迁移期无写侧）退回旧 ref。
      */
-    const isRenderVisible = useCallback(
-      () => isVisibleRef.current && layoutActiveRef.current,
-      [],
-    );
+    const isRenderVisible = useCallback(() => {
+      const owner = props.visibilityOwnerId;
+      if (!owner) return isVisibleRef.current && layoutActiveRef.current;
+      const v = useTabViewStateStore
+        .getState()
+        .getViewVisibility(owner, props.viewRole ?? "primary");
+      if (v === undefined) return isVisibleRef.current && layoutActiveRef.current;
+      return v !== "hidden";
+    }, [props.visibilityOwnerId, props.viewRole]);
+
+    /**
+     * 焦点类判定的 store 侧（tab 级单视图 active）。leaf 级焦点由
+     * `props.leafFocused` 参与组合——消费点写成
+     * `isViewActive() && (props.leafFocused ?? true)`。
+     */
+    const isViewActive = useCallback(() => {
+      return resolveViewFocus(props.visibilityOwnerId, props.viewRole, () => isActiveRef.current);
+    }, [props.visibilityOwnerId, props.viewRole]);
 
     const resolveDowngradeVisibility = useDowngradeVisibility(
       props.visibilityOwnerId,
@@ -476,14 +502,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     const shouldRunWebglRecovery = useCallback(() => {
       const renderer = rendererControllerRef.current;
+      // 焦点类判定：store 的 active 是 tab 级，必须再按 leafFocused 分焦点，
+      // 否则分屏多 leaf 同时判获焦、同时跑 WebGL 恢复。
       return Boolean(
         IS_WINDOWS &&
         renderer?.getActiveRenderer() === "webgl" &&
-        isActiveRef.current &&
-        isVisibleRef.current &&
-        layoutActiveRef.current
+        isViewActive() &&
+        (props.leafFocused ?? true) &&
+        isRenderVisible()
       );
-    }, []);
+    }, [isRenderVisible, isViewActive, props.leafFocused]);
 
     const scheduleWebglRecovery = useCallback((reason: string, options: { forceRecreate?: boolean } = {}) => {
       if (!shouldRunWebglRecovery()) return;
@@ -563,17 +591,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       const wasRenderVisible = isRenderVisible();
       isVisibleRef.current = props.isVisible ?? props.isActive;
       layoutActiveRef.current = props.layoutActive ?? true;
-      // 由隐藏转可见：把积压一次性补上。必须在两个 ref 都更新之后判定，
-      // 否则 flush 会走进"仍不可见"的分支被再次积压。
-      //
-      // **这条不能删**：buffer 自身的
-      // drain-on-push 只在「有新数据到来」时排空，而切回一个已经跑完、不再
-      // 产出的后台标签时 push 永远不会被调用——积压将永远显示不出来，屏幕
-      // 停在切走前的样子。两个防线覆盖的不是同一件事：
+      // 由隐藏转可见：把积压一次性补上。积压补投共三道防线，覆盖各不相同：
       //   - drain-on-push：可见性翻转与数据到达的**竞态**（顺序不由本模块定）
-      //   - 这里的边沿 flush：**静默会话**切回可见时的补投
-      // 真正的收敛做法是把边沿判定移进 store（写前 diff 已保证同值不触发），
-      // 而不是删掉其中一条——那会丢字。
+      //   - store 单视图边沿订阅（下方 useViewVisibilityEdgeSubscription）：
+      //     **静默会话**本视图翻可见时的补投——聚合 anyVisible 在镜像常开时
+      //     没有边沿，必须听单视图
+      //   - 本处 props 边沿：MobilePrototype 迁移期兜底（无 store 写侧，
+      //     isRenderVisible 退回旧 ref 才有边沿），写侧补齐后随三 ref 一起删
       if (!wasRenderVisible && isRenderVisible()) {
         flushHiddenWrites("visibility.gained");
       }
@@ -595,6 +619,25 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     });
 
     useAggregateVisibilitySubscription(props.visibilityOwnerId, notifyVisibility);
+
+    // 单视图边沿：本视图翻可见 → 补投积压 + 补一次 refit。聚合订阅（上一行）
+    // 管降档/休眠，盖不住「镜像常开时主视图切回」——聚合恒 true 无边沿。
+    useViewVisibilityEdgeSubscription(
+      props.visibilityOwnerId,
+      props.viewRole,
+      useCallback(
+        (visible: boolean) => {
+          if (!visible) return;
+          flushHiddenWrites("view.visible-edge");
+          layoutSchedulerRef.current?.schedule("view.visible-edge.refit", {
+            // 隐藏也允许：边沿本身就是「刚翻可见」，scheduler 焦点判据可能
+            // 还没跟上同一帧，不放行会漏掉这次 refit
+            allowInactive: true,
+          });
+        },
+        [flushHiddenWrites],
+      ),
+    );
 
     useEffect(() => {
       const effectiveRendererMode = resolveRendererMode(terminalRendererMode);
@@ -629,6 +672,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         debugLog("layout-change.refit.schedule", { reason });
         layoutSchedulerRef.current?.schedule(`layout-change.${reason}`, {
           force: true,
+          // 隐藏也允许：布局变更时所有格子都要重排（含 display:none 的
+          // 非焦点格），否则切回时尺寸是旧的
           allowInactive: true,
         });
       };
@@ -637,6 +682,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         if (!layoutActiveRef.current) return;
         layoutSchedulerRef.current?.schedule("context-menu.fit-all", {
           force: true,
+          // 隐藏也允许：用户显式要求全部重排，非焦点格一并处理
           allowInactive: true,
         });
       };
@@ -1427,6 +1473,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             layoutSchedulerRef.current?.flush("resize-observer.drag.fit", {
               containerSize: { width, height },
               minContainerDelta: DRAG_CONTAINER_CHANGE,
+              // 隐藏也允许：容器尺寸真实变了就得跟，恢复可见时才不错位
               allowInactive: true,
             });
             return;
@@ -1436,6 +1483,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             delayMs: 150,
             containerSize: { width, height },
             minContainerDelta: MIN_CONTAINER_CHANGE,
+            // 隐藏也允许：同上，容器实际尺寸变化不看焦点
             allowInactive: true,
           });
         });
@@ -1926,10 +1974,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
       const scheduleRefit = () => {
         layoutSchedulerRef.current?.schedule("active.refit", {
-          focusIfSafe: props.isActive,
-          // 可见但非焦点 pane 也要 refit（分屏里的另一格）。判据走单源：
-          // 这是 8 处 allowInactive 里唯一从 props 算的一处，其余都是常量 true
-          // （拖拽/resync/verify 自链等，各有各的理由，本批只复核不删）。
+          // 焦点抢占：tab 级 active（store）还要按 leaf 分焦点，
+          // 否则分屏多 leaf 同帧互抢 focus
+          focusIfSafe: isViewActive() && (props.leafFocused ?? true),
+          // 可见非焦点允许：分屏里的另一格可见时也要 refit；隐藏格子不放行
+          // （这是全部 allowInactive 里唯一按可见性算的一处，其余为常量 true）
           allowInactive: isRenderVisible(),
         });
       };
@@ -2146,7 +2195,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         return () => layoutSchedulerRef.current?.cancel();
       }
 
-      if (props.isVisible && (props.layoutActive ?? true) && fitAddonRef.current) {
+      if (isRenderVisible() && fitAddonRef.current) {
         scheduleRefit();
         return () => layoutSchedulerRef.current?.cancel();
       }

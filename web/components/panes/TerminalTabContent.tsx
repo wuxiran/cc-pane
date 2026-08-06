@@ -284,6 +284,7 @@ export default memo(function TerminalTabContent({
               isVisible={isVisible}
               isActive={isActive && tab.activeTerminalPaneId === leaf.id}
               layoutActive={layoutActive}
+              leafFocused={tab.activeTerminalPaneId === leaf.id}
               workspaceName={leaf.workspaceName}
               providerId={leaf.providerId}
               modelId={leaf.modelId}
