@@ -1732,7 +1732,7 @@ export const usePanesStore = create<PanesState>()(
       const lastClosed = closedTabs[closedTabs.length - 1];
       set((state) => {
         state.closedTabs.pop();
-        // 惰性上限裁剪；push 点在轨 B 搬家范围，严格上限由 B1-05 收口（closedTabsCap.ts）
+        // 惰性裁剪兜底（严格上限在 removeTabsInternal 的 push 后）
         trimClosedTabs(state.closedTabs);
       });
 

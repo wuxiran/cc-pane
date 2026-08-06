@@ -1,7 +1,6 @@
-// closedTabs 上限裁剪（docs/68 §2.3 T1-c）。
-// push 点（closeTab / closePane）正随 0.12.0 批1 迁往 paneRemovalActions.ts，
-// 本函数先独立成工具：reopenClosedTab 侧已接（惰性裁剪），push 点由 leader
-// 在 B1-05 收口时接入（push 后调一次即得严格上限）。
+// closedTabs 撤销栈的工具集（docs/68 §2.3 T1-c）：上限裁剪、快照映射、
+// 身份恢复、非终端重开分流。push 点在 removeTabsInternal（push 后裁剪，
+// 严格上限 20），reopenClosedTab 侧另有惰性裁剪兜底。
 import type { ClosedTabSnapshot } from "./panesStoreTypes";
 
 /** 单次运行内可恢复的已关闭标签上限；超出的最旧快照被丢弃。 */

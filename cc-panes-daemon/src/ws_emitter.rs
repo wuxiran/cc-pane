@@ -83,12 +83,10 @@ impl WsEmitter {
         self.subscribe_with_connection(session_id, None)
     }
 
-    /// 带连接标识的订阅。hidden 闸门按连接生效，所以需要可寻址身份。
-    ///
-    /// **当前零生产调用方**（自审记录）：`handle_ws` 仍用无身份的 `subscribe()`，
-    /// 且「per-session WS 声明自己属于哪条 control 连接」的协议片段尚未设计
-    /// （方案候选：握手 URL 带 client id）。接线前 `set_hidden_sessions` 在
-    /// 生产中永远匹配不到订阅者——闸门测试全绿是因为直接调本入口。
+    /// 带连接标识的订阅。hidden 闸门按连接生效，所以需要可寻址身份——
+    /// `handle_ws` 传入 per-session WS 握手里的 instanceId，它与 control 连接
+    /// 的 instanceId 同源，`set_hidden_sessions` 靠这个同源性定位到本连接的
+    /// 全部会话订阅。
     pub fn subscribe_with_connection(
         &self,
         session_id: &str,

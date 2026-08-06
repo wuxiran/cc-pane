@@ -37,7 +37,6 @@ export interface TabResources {
 
 /**
  * 关闭确认项。planTabDestroy 聚合后交由 UI 弹确认；[] = 放行。
- * `agent-busy` 分支本轮已定义但**不发射**（B1-06 才启用，绞杀者纪律：先等价迁移再增强）。
  */
 export type CloseGuard =
   | {

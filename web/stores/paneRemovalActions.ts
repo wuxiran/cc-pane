@@ -7,9 +7,8 @@
 // 两组成员：
 // 1. 六个既有出口（closeTab / closeTabsToLeft / closeTabsToRight / closeOtherTabs /
 //    closePane / closeTerminalPane）——**原样搬家，行为零变化**，后续 B1-04+ 逐个改道；
-// 2. 三个新出口骨架（removeTabsInternal / removeTerminalLeafInternal / removeEmptyPane）
-//    ——树操作已实现，**资源回收（detach/kill/关弹窗/onClosed）留 TODO**，由
-//    destroyPipeline（轨 A / B1-02）在改道 commit 接入。本 commit 无任何调用方。
+// 2. 三个统一出口（removeTabsInternal / removeTerminalLeafInternal / removeEmptyPane）
+//    ——全部 UI 与后端销毁路径的唯一入口，资源回收统一走 destroyPipeline。
 import {
   commitResourceDestroy,
   DESTROY_KILL_REASON,
@@ -262,7 +261,7 @@ export function createPaneRemovalActions(
       notifyTerminalLayoutChanged("terminal.close");
     },
 
-    // ============ 以下为 B1-03 新出口骨架（暂无调用方，B1-04+ 逐出口改道接入） ============
+    // ============ 统一销毁出口（全部关闭路径的唯一入口） ============
 
     removeTabsInternal: (tabIds, reason, opts) => {
       // 唯一逐-tab 销毁出口：重定位重收集 → 回收（commitResourceDestroy）
