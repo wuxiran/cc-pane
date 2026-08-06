@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MiniView from "./MiniView";
 import { usePanesStore, useMiniModeStore } from "@/stores";
-import { createPanel,  } from "@/stores/paneTreeHelpers";
+import { createPanel,  } from "@/lib/paneTree";
 import { createTab } from "@/stores/usePanesStore";
 import type { Tab } from "@/types";
 

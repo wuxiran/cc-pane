@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { matchLayoutPreset, usePanesStore } from "./usePanesStore";
-import { createPanel, generateId } from "./paneTreeHelpers";
+import { createPanel, generateId } from "@/lib/paneTree";
 import type { Panel, PaneNode, SplitPane, Tab, TerminalPaneLeaf } from "@/types";
 
 function makeTerminalTab(id: string): Tab {

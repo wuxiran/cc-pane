@@ -3,7 +3,7 @@ import { collectTabsByContentType } from "@/lib/paneSessions";
 import type { TabContentType } from "@/lib/tabContentType";
 import { browserService } from "@/services/browserService";
 import { terminalService } from "@/services/terminalService";
-import { createPanel } from "@/stores/paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
 import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";

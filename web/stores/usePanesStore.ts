@@ -21,13 +21,14 @@ import {
   findParent,
   findTabLocation,
   notifyTerminalLayoutChanged,
-} from "./paneTreeHelpers";
+  generateId,
+} from "@/lib/paneTree";
 import {
   closeTerminalLeafInTab,
   findSessionInTab,
   findTerminalPaneParent,
   syncTabTerminalState,
-} from "./paneTreeRemovalHelpers";
+} from "@/lib/paneTree";
 import { createBackendCloseActions } from "./backendCloseActions";
 import { beginSnapshotKillCandidates, collectSnapshotSessionIds } from "./snapshotSessionDiff";
 import { createPaneRemovalActions } from "./paneRemovalActions";
@@ -44,7 +45,7 @@ import {
   syncWorkingCopyToCurrentLayout,
 } from "./paneLayoutHelpers";
 import { createBrowserTabActions } from "./browserTabActions";
-import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
+import { inferCliTool, resolveRestoreMode } from "@/lib/terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
 import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
@@ -77,13 +78,10 @@ import type {
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
-// 生成唯一 ID
-function generateId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
-}
+
 
 // 真身在 paneTreeHelpers；这里保留 re-export 维持既有 import 路径。
-export { TERMINAL_LAYOUT_CHANGED_EVENT } from "./paneTreeHelpers";
+export { TERMINAL_LAYOUT_CHANGED_EVENT } from "@/lib/paneTree";
 
 export function createTab(opts: CreateTabOptions): Tab {
   const { projectId, projectPath, launchId, sessionId, resumeId, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId, launchExtras } = opts;

@@ -8,8 +8,8 @@ import { current } from "immer";
 import { commitResourceDestroy, sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
 import type { Tab } from "@/types";
 import type { CloseTabBySessionIdResult, PanesDraft } from "./panesStoreTypes";
-import { closeTabInTree, collectPanels, findPane } from "./paneTreeHelpers";
-import { closeTerminalLeafInTab, findSessionInTab } from "./paneTreeRemovalHelpers";
+import { closeTabInTree, collectPanels, findPane } from "@/lib/paneTree";
+import { closeTerminalLeafInTab, findSessionInTab } from "@/lib/paneTree";
 
 export interface BackendCloseActions {
   closeTabBySessionId: (sessionId: string) => CloseTabBySessionIdResult;

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TFunction } from "i18next";
 import LayoutDeleteDialog, { type DeleteSummary } from "./LayoutDeleteDialog";
 import { usePanesStore } from "@/stores";
-import { createPanel } from "@/stores/paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 
 const callOrder: string[] = [];
 

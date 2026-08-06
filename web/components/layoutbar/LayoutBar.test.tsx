@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import LayoutBar from "./LayoutBar";
 import { useActivityBarStore, usePanesStore } from "@/stores";
-import { createPanel } from "@/stores/paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 
 // LayoutSelectorPanel 内部使用统一 Tooltip，需要 TooltipProvider 包裹
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);

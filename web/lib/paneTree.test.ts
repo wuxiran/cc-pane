@@ -6,7 +6,7 @@ import {
   findPane,
   findParent,
   collectPanels,
-} from "./paneTreeHelpers";
+} from "@/lib/paneTree";
 import { createTab } from "@/stores/usePanesStore";
 
 describe("generateId", () => {

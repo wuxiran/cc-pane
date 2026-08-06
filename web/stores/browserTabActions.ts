@@ -3,7 +3,7 @@ import type { Draft } from "immer";
 import type { PaneNode, Tab } from "@/types";
 import type { PanesDraft } from "./panesStoreTypes";
 import { resolveLayoutWriteTarget } from "./paneLayoutHelpers";
-import { collectPanels, findPane, generateId } from "./paneTreeHelpers";
+import { collectPanels, findPane, generateId } from "@/lib/paneTree";
 
 export interface OpenBrowserOptions {
   /** 落位到指定窗格；缺省或找不到时回落当前活动窗格 */

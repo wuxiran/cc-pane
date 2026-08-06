@@ -36,8 +36,8 @@ import {
   findTabLocation,
   normalizePaneTree,
   notifyTerminalLayoutChanged,
-} from "./paneTreeHelpers";
-import { closeTerminalLeafInTab } from "./paneTreeRemovalHelpers";
+} from "@/lib/paneTree";
+import { closeTerminalLeafInTab } from "@/lib/paneTree";
 import { useFullscreenStore } from "./useFullscreenStore";
 
 export interface PaneRemovalActions {

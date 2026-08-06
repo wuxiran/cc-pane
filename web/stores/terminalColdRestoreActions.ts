@@ -5,7 +5,7 @@ import type {
   PanesDraft,
   PanesState,
 } from "./panesStoreTypes";
-import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
+import { inferCliTool, resolveRestoreMode } from "@/lib/terminalRestoreMode";
 
 type ColdRestoreActions = Pick<
   PanesState,

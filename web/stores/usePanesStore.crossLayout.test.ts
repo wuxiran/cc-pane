@@ -3,7 +3,7 @@
 // layoutId 参数语义——漏掉它 worker 就会插进用户正在看的布局。
 import { beforeEach, describe, expect, it } from "vitest";
 import { usePanesStore } from "./usePanesStore";
-import { collectPanels, createPanel } from "./paneTreeHelpers";
+import { collectPanels, createPanel } from "@/lib/paneTree";
 import type { Panel } from "@/types";
 
 function resetTwoLayouts() {

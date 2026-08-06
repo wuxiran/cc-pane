@@ -9,7 +9,7 @@
 //    传 `kind` 让本函数返回全零，与 LayoutTopBar 对 tabCount 的处理一致。
 // 2. 当前布局的活树在 store 工作副本 `rootPane` 上，不在 `layouts[i].rootPane`，
 //    调用方必须先按 `selected ? liveRootPane : layout.rootPane` 取树再传进来。
-import { collectPanels } from "@/stores/paneTreeHelpers";
+import { collectPanels } from "@/lib/paneTree";
 import { TAB_CONTENT_GROUP, TAB_CONTENT_GROUPS } from "@/lib/tabContentType";
 import type { TabContentGroup } from "@/lib/tabContentType";
 import type { LayoutEntry, PaneNode } from "@/types";

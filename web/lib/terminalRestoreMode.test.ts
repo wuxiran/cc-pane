@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { inferCliTool, resolveRestoreMode } from "./terminalRestoreMode";
+import { inferCliTool, resolveRestoreMode } from "@/lib/terminalRestoreMode";
 
 describe("inferCliTool", () => {
   it("显式 cliTool 优先，忽略 hints", () => {

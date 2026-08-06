@@ -11,7 +11,7 @@ import type { PopupTabData } from "@/services/popupWindowService";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
-import { collectPanels } from "@/stores/paneTreeHelpers";
+import { collectPanels } from "@/lib/paneTree";
 import TabBar from "./TabBar";
 import PanelEmptyState from "./PanelEmptyState";
 import TabContentRenderer from "./TabContentRenderer";

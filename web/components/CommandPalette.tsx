@@ -28,7 +28,7 @@ import { getVisibleSettingsPanes } from "@/components/settings/settingsRegistry"
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { getSettingsCommandTargets } from "@/components/settings/settingsSearch";
 import { MODULE_CONSUMERS } from "@/modules/registry";
-import { findPane } from "@/stores/paneTreeHelpers";
+import { findPane } from "@/lib/paneTree";
 import {
   executeQuickCommand,
   getQuickCommandSessionId,

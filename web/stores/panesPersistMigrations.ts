@@ -1,6 +1,6 @@
 import type { LayoutEntry, PaneNode, Tab } from "@/types";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
-import { collectPanels, generateId } from "./paneTreeHelpers";
+import { collectPanels, generateId } from "@/lib/paneTree";
 
 /**
  * usePanesStore 持久化快照的版本迁移（v1 → v5）。

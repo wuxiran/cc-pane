@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPanel } from "@/stores/paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 import type { PaneNode, SplitPane, Tab } from "@/types";
 import { deriveLayoutTypeSummary, nonEmptyGroups } from "./layoutTypeSummary";
 

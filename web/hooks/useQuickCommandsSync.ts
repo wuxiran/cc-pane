@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { usePanesStore, useQuickCommandsStore } from "@/stores";
-import { findPane } from "@/stores/paneTreeHelpers";
+import { findPane } from "@/lib/paneTree";
 
 export function useQuickCommandsSync(): void {
   const activeProjectPath = usePanesStore((state) => {

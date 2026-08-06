@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { emitTo } from "@tauri-apps/api/event";
 import { usePanesStore } from "@/stores";
-import { collectPanels } from "@/stores/paneTreeHelpers";
+import { collectPanels } from "@/lib/paneTree";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { layoutSwitcherService, type LayoutSwitcherSnapshot } from "@/services/layoutSwitcherService";
 import { isTauriRuntime, listenIfTauri } from "@/services/runtime";

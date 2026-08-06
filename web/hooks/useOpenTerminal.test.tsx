@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { usePanesStore } from "@/stores";
-import { createPanel } from "@/stores/paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 import { historyService, localHistoryService } from "@/services";
 import { useOpenTerminal } from "./useOpenTerminal";
 

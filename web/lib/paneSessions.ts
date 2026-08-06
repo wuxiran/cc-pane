@@ -1,26 +1,9 @@
-import { collectPanels } from "@/stores/paneTreeHelpers";
+import { collectPanels, collectTerminalLeaves } from "@/lib/paneTree";
 import type { TabContentType } from "@/lib/tabContentType";
-import type { PaneNode, Tab, TerminalPaneLeaf, TerminalPaneNode } from "@/types";
+import type { PaneNode, Tab } from "@/types";
 
-export function findTerminalPane(
-  node: TerminalPaneNode,
-  paneId: string,
-): TerminalPaneNode | null {
-  if (node.id === paneId) return node;
-  if (node.type === "split") {
-    for (const child of node.children) {
-      const found = findTerminalPane(child, paneId);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-export function collectTerminalLeaves(node?: TerminalPaneNode): TerminalPaneLeaf[] {
-  if (!node) return [];
-  if (node.type === "leaf") return [node];
-  return node.children.flatMap(collectTerminalLeaves);
-}
+// 真身在 lib/paneTree（纯树函数统一归位）；保留 re-export 维持既有 import 路径。
+export { collectTerminalLeaves, findTerminalPane } from "@/lib/paneTree";
 
 export function collectTerminalSessionIds(tab: Tab): string[] {
   if (tab.contentType !== "terminal" || !tab.terminalRootPane) {

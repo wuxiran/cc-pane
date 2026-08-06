@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPanel } from "@/stores/paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 import type { Tab, TerminalStatusInfo } from "@/types";
 import { deriveLayoutStatusSummary } from "./layoutStatusSummary";
 

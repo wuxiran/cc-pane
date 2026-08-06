@@ -9,7 +9,7 @@ import {
   isStarredLayout,
   resolveLayoutWriteTarget,
 } from "./paneLayoutHelpers";
-import { collectPanels, findPane, generateId } from "./paneTreeHelpers";
+import { collectPanels, findPane, generateId } from "@/lib/paneTree";
 import { useActivityBarStore } from "./useActivityBarStore";
 import { useEditorTabsStore } from "./useEditorTabsStore";
 

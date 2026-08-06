@@ -19,6 +19,6 @@
   "components/todo/TodoManager.tsx": 507,
   "hooks/useOrchestratorListener.ts": 502,
   "services/terminalService.ts": 743,
-  "stores/usePanesStore.ts": 2418,
+  "stores/usePanesStore.ts": 2416,
   "utils/workspaceLaunch.ts": 663
 }

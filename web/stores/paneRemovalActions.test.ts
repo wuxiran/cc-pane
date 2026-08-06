@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { usePanesStore } from "./usePanesStore";
 import { terminalService } from "@/services";
 import { useFullscreenStore } from "./useFullscreenStore";
-import { createPanel } from "./paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 import { CLOSED_TABS_LIMIT } from "./closedTabsCap";
 import type { ClosedTabSnapshot } from "./panesStoreTypes";
 import type { PaneNode, Panel, SplitPane, Tab, TerminalPaneLeaf } from "@/types";

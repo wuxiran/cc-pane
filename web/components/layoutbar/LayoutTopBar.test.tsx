@@ -13,7 +13,7 @@ import {
   useTerminalStatusStore,
   useWorkspacesStore,
 } from "@/stores";
-import { createPanel } from "@/stores/paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 import type { Panel, PaneNode, SplitPane, Tab, TerminalStatusInfo } from "@/types";
 
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);

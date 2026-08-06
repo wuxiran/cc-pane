@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { usePanesStore, useWorkspacesStore } from "@/stores";
-import { findPane } from "@/stores/paneTreeHelpers";
+import { findPane } from "@/lib/paneTree";
 import type { PaneNode, Workspace } from "@/types";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
 

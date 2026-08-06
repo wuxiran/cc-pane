@@ -1,6 +1,6 @@
 import { usePanesStore } from "@/stores";
 import { useShallow } from "zustand/react/shallow";
-import { findPane } from "@/stores/paneTreeHelpers";
+import { findPane } from "@/lib/paneTree";
 import { findTerminalPane } from "@/lib/paneSessions";
 import type { LaunchProviderSelection, PaneNode, TerminalPaneLeaf } from "@/types";
 

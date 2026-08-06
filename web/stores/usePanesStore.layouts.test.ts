@@ -3,7 +3,7 @@ import { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
 import { useFullscreenStore } from "./useFullscreenStore";
 import { useTabAttentionStore } from "./useTabAttentionStore";
 import { useTabViewStateStore } from "./useTabViewStateStore";
-import { createPanel,  } from "./paneTreeHelpers";
+import { createPanel,  } from "@/lib/paneTree";
 import { createTab } from "@/stores/usePanesStore";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { LayoutEntry, Panel, PaneNode, Tab, TerminalPaneLeaf, TerminalPaneSplit } from "@/types";

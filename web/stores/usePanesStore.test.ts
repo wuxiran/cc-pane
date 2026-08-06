@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
-import { createPanel } from "./paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 import {
   resetTestDataCounter,
 } from "@/test/utils/testData";

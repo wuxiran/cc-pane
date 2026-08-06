@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePanesStore } from "@/stores";
-import { collectPanels } from "@/stores/paneTreeHelpers";
+import { collectPanels } from "@/lib/paneTree";
 import type { LayoutEntry, PaneNode } from "@/types";
 import StarredMirrorGrid from "./StarredMirrorGrid";
 import type { StarredShortcutSource } from "./starredMirrors";

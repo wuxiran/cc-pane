@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useOrchestratorListener } from "./useOrchestratorListener";
 import { useActivityBarStore, usePanesStore } from "@/stores";
-import { createPanel, collectPanels } from "@/stores/paneTreeHelpers";
+import { createPanel, collectPanels } from "@/lib/paneTree";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 
 type WebviewListener = (event: { payload: Record<string, unknown> }) => void | Promise<void>;

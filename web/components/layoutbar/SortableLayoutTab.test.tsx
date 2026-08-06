@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import SortableLayoutTab from "./SortableLayoutTab";
 import { deriveLayoutTypeSummary } from "./layoutTypeSummary";
 import type { LayoutStatusSummary } from "./layoutStatusSummary";
-import { createPanel } from "@/stores/paneTreeHelpers";
+import { createPanel } from "@/lib/paneTree";
 import { useWorkspacesStore } from "@/stores";
 import type { LayoutEntry, PaneNode, Tab } from "@/types";
 

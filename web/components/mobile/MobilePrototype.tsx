@@ -15,7 +15,7 @@ import {
 import TerminalTabContent from "@/components/panes/TerminalTabContent";
 import type { TerminalViewHandle } from "@/components/panes/TerminalView";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
-import { collectPanels } from "@/stores/paneTreeHelpers";
+import { collectPanels } from "@/lib/paneTree";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { LayoutEntry, PaneNode, Panel, Tab, Workspace, WorkspaceProject } from "@/types";
 import { getProjectName } from "@/utils/path";

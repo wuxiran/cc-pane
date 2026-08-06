@@ -25,7 +25,7 @@ import {
 } from "@/stores";
 import { isTauriRuntime } from "@/services/runtime";
 import { computeGlobalTabNumbers } from "@/lib/tabNumbering";
-import { collectPanels } from "@/stores/paneTreeHelpers";
+import { collectPanels } from "@/lib/paneTree";
 import { resolveWorkspaceLaunchLayout } from "@/utils/layoutWorkspace";
 import {
   notifyOpenedInOtherLayout,
