@@ -204,13 +204,13 @@ removeView(tabId, role);              // 批1 的 removeTabsInternal 也调
 > 镜像表 + 三处分发覆盖断言、daemon 侧 hidden 闸门（按连接记账、只掐可丢输出、
 > 断线清标记）。
 >
-> **未接线（自审修正：缺口比首次记录的多一层）**：闸门在生产中**永远不会
-> 触发**，缺两块——①前端上报（app 侧 control link 现为只读，`ws` 未 split，
-> 需发送路径 + Tauri command + 订阅聚合三层）；②**daemon 侧连接关联机制**：
-> `subscribe_with_connection` 零生产调用方，`handle_ws` 仍用无身份的
-> `subscribe()`，且「per-session WS 如何声明自己属于哪条 control 连接」的
-> 协议片段（如握手带 client id）尚未设计。闸门逻辑与 7 条测试就绪，但那是
-> 直接调带身份入口测的。两块都补齐前，后台节流仍由前端 512KB 积压承担。
+> **已接线（补账1，0.12.0 收尾期）**：两块缺口均补齐——①关联协议复用既有
+> instanceId（per-session WS 的 WsQuery 本就带它，control URL 补上同一个，
+> 同源即关联）；②control link 改双向（watch 通道承载 hidden 全集，重连补发
+> 最新值）+ `set_hidden_terminal_sessions` command + 前端 useHiddenSessionReporter
+> （订阅聚合、去抖 800ms、纯函数派生带 5 测试）。**上报不保证生效**（旧
+> daemon 丢弃/断线/web 模式无 control），前端 512KB 积压是永久兜底。
+> 生效前提：daemon 二进制已更新且已重启（binaries 陈旧 gotcha）。
 
 ### 批 4 · 创建收敛（可与批 2/3 并行）
 
