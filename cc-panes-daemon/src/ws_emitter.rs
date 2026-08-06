@@ -27,11 +27,21 @@ const CONTROL_CHANNEL_CAPACITY: usize = 1024;
 /// 行为退化为溢出前的现状（可能花屏），但 daemon 侧内存已有界。
 const DESYNC_MESSAGE: &str = r#"{"type":"desync"}"#;
 
-/// 单个会话镜像订阅者：有界发送端 + desync 状态。
-/// `desynced` 只在持有 subscribers 写锁时读写，无需原子类型。
+/// 单个会话镜像订阅者：有界发送端 + desync 状态 + 隐藏闸门。
+/// 这些标志只在持有 subscribers 写锁时读写，无需原子类型。
 struct SessionSubscriber {
     tx: mpsc::Sender<String>,
     desynced: bool,
+    /// 订阅方的连接标识。**hidden 必须按连接记账而不是按会话**：daemon 是
+    /// 多客户端共享的（桌面 + web + 手机），桌面把标签切后台不得掐断手机端
+    /// 正在看的同一个会话。
+    connection_id: Option<String>,
+    /// 该连接已声明本会话不可见——跳过投递（delta 照常在 ReplayBuffer 累积），
+    /// unhide 时发 desync 让它走快照重建。
+    hidden: bool,
+    /// hidden 期间是否真的丢过数据。只由 unhide 消费（重复标记 hidden 不清除），
+    /// 否则「隐藏→再隐藏」会把待补的 desync 抹掉。
+    dropped_while_hidden: bool,
 }
 
 /// 按 session 去重 + 保序的身份事件留存。
@@ -67,6 +77,15 @@ impl WsEmitter {
     }
 
     pub fn subscribe(&self, session_id: &str) -> mpsc::Receiver<String> {
+        self.subscribe_with_connection(session_id, None)
+    }
+
+    /// 带连接标识的订阅。hidden 闸门按连接生效，所以需要可寻址身份。
+    pub fn subscribe_with_connection(
+        &self,
+        session_id: &str,
+        connection_id: Option<String>,
+    ) -> mpsc::Receiver<String> {
         let (tx, rx) = mpsc::channel(SESSION_CHANNEL_CAPACITY);
         self.subscribers
             .write()
@@ -75,9 +94,55 @@ impl WsEmitter {
             .push(SessionSubscriber {
                 tx,
                 desynced: false,
+                connection_id,
+                hidden: false,
+                dropped_while_hidden: false,
             });
         debug!(session_id, "daemon ws subscriber registered");
         rx
+    }
+
+    /// 某个连接声明「这些会话我看不见了」。
+    ///
+    /// 只影响该连接自己的投递：别的客户端（手机 / web）照常收流。
+    pub fn set_hidden_sessions(&self, connection_id: &str, hidden_sessions: &[String]) {
+        let hidden: std::collections::HashSet<&str> =
+            hidden_sessions.iter().map(|s| s.as_str()).collect();
+        let mut subscribers = self.subscribers.write();
+        for (session_id, list) in subscribers.iter_mut() {
+            let should_hide = hidden.contains(session_id.as_str());
+            for sub in list.iter_mut() {
+                if sub.connection_id.as_deref() != Some(connection_id) {
+                    continue;
+                }
+                if should_hide {
+                    sub.hidden = true;
+                } else if sub.hidden {
+                    // unhide：期间真丢过数据才需要让它重建画面。
+                    sub.hidden = false;
+                    if sub.dropped_while_hidden {
+                        sub.dropped_while_hidden = false;
+                        let _ = sub.tx.try_send(DESYNC_MESSAGE.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    /// 连接断开：清掉它的全部 hidden 标记。
+    ///
+    /// 不清的话，重连后的新订阅会被上一条连接留下的标记压住——表现为
+    /// 「重连后永久收不到输出」，且没有任何报错。
+    pub fn clear_connection_hidden(&self, connection_id: &str) {
+        let mut subscribers = self.subscribers.write();
+        for list in subscribers.values_mut() {
+            for sub in list.iter_mut() {
+                if sub.connection_id.as_deref() == Some(connection_id) {
+                    sub.hidden = false;
+                    sub.dropped_while_hidden = false;
+                }
+            }
+        }
     }
 
     /// 已留存的身份事件全集，供 `GET /api/sessions/identity` 返回。
@@ -162,6 +227,15 @@ impl WsEmitter {
     /// 置 desynced；为假（exit/killed 这类终止性消息）时队列满不置 desynced，
     /// 由调用方走 control 兜底。
     fn deliver(sub: &mut SessionSubscriber, msg: &str, drop_on_full: bool) -> bool {
+        // 隐藏零投递闸门（批3）：该连接看不见这个会话时，源头就不推。
+        //
+        // **只掐可丢的输出**（drop_on_full=true 即 terminal-output）。exit /
+        // killed 这类必达事件即使在隐藏期也要送达——它们决定标签的生死，
+        // 丢了会让前端永远显示一个已经死掉的「运行中」会话。
+        if sub.hidden && drop_on_full {
+            sub.dropped_while_hidden = true;
+            return false;
+        }
         if sub.desynced {
             // 排空到有空位时先插入 desync 标记，客户端据此走 snapshot 重放；
             // 标记进不去说明队列还满着，继续整段跳过。
@@ -444,6 +518,132 @@ mod tests {
                 ),
             }
         }
+    }
+
+    // ===== 隐藏零投递闸门（批3 B3-06）=====
+
+    #[test]
+    fn hidden_connection_stops_receiving_output_but_others_keep_streaming() {
+        let emitter = WsEmitter::new();
+        let mut desktop = emitter.subscribe_with_connection("s1", Some("ctl-desktop".into()));
+        let mut mobile = emitter.subscribe_with_connection("s1", Some("ctl-mobile".into()));
+
+        // 桌面把这个标签切到后台
+        emitter.set_hidden_sessions("ctl-desktop", &["s1".to_string()]);
+        emitter.emit(
+            EV::TERMINAL_OUTPUT,
+            serde_json::json!({ "sessionId": "s1", "data": "hello" }),
+        );
+
+        assert!(
+            desktop.try_recv().is_err(),
+            "隐藏的连接不该收到输出（源头断流）"
+        );
+        assert!(
+            mobile.try_recv().is_ok(),
+            "**别的客户端必须照常收流**——daemon 是多客户端共享的，             桌面切后台不能掐断手机端正在看的同一个会话"
+        );
+    }
+
+    #[test]
+    fn unhide_sends_desync_when_data_was_actually_dropped() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
+
+        emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        emitter.emit(
+            EV::TERMINAL_OUTPUT,
+            serde_json::json!({ "sessionId": "s1", "data": "missed" }),
+        );
+        emitter.set_hidden_sessions("ctl-1", &[]);
+
+        let msg = rx.try_recv().expect("unhide 后应收到 desync");
+        assert!(msg.contains("desync"), "期望 desync，实得 {msg}");
+    }
+
+    #[test]
+    fn unhide_without_dropped_data_does_not_send_desync() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
+
+        // 隐藏期间没有任何输出 → 画面没缺口 → 不该让客户端白重建一次
+        emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        emitter.set_hidden_sessions("ctl-1", &[]);
+
+        assert!(rx.try_recv().is_err(), "没丢数据就不该发 desync");
+    }
+
+    #[test]
+    fn re_hiding_does_not_clear_pending_drop_marker() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
+
+        emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        emitter.emit(
+            EV::TERMINAL_OUTPUT,
+            serde_json::json!({ "sessionId": "s1", "data": "missed" }),
+        );
+        // 隐藏 → 再次声明隐藏（前端重复上报）：待补的 desync 不能被抹掉
+        emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        emitter.set_hidden_sessions("ctl-1", &[]);
+
+        let msg = rx.try_recv().expect("重复标记隐藏后，unhide 仍应补 desync");
+        assert!(msg.contains("desync"));
+    }
+
+    #[test]
+    fn exit_still_delivered_while_hidden() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
+
+        emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        emitter.emit(
+            EV::TERMINAL_EXIT,
+            serde_json::json!({ "sessionId": "s1", "exitCode": 0 }),
+        );
+
+        // 闸门只掐可丢的输出。exit 决定标签生死，丢了会让前端永远显示
+        // 一个已经死掉的「运行中」会话。
+        let msg = rx.try_recv().expect("exit 在隐藏期也必须送达");
+        assert!(msg.contains("exit"), "期望 exit，实得 {msg}");
+    }
+
+    #[test]
+    fn clearing_connection_releases_hidden_marks() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
+
+        emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        emitter.clear_connection_hidden("ctl-1");
+
+        emitter.emit(
+            EV::TERMINAL_OUTPUT,
+            serde_json::json!({ "sessionId": "s1", "data": "after-reconnect" }),
+        );
+
+        // 不清的话重连后的新订阅会被旧标记压住 → 永久收不到输出且零报错
+        assert!(rx.try_recv().is_ok(), "连接清理后应恢复投递");
+    }
+
+    #[test]
+    fn hidden_marks_are_per_connection_not_per_session() {
+        let emitter = WsEmitter::new();
+        let mut a = emitter.subscribe_with_connection("s1", Some("ctl-a".into()));
+        let mut b = emitter.subscribe_with_connection("s2", Some("ctl-a".into()));
+        let mut c = emitter.subscribe_with_connection("s1", Some("ctl-b".into()));
+
+        // 同一连接只隐藏 s1
+        emitter.set_hidden_sessions("ctl-a", &["s1".to_string()]);
+        for sid in ["s1", "s2"] {
+            emitter.emit(
+                EV::TERMINAL_OUTPUT,
+                serde_json::json!({ "sessionId": sid, "data": "x" }),
+            );
+        }
+
+        assert!(a.try_recv().is_err(), "ctl-a 的 s1 应断流");
+        assert!(b.try_recv().is_ok(), "ctl-a 的 s2 不受影响");
+        assert!(c.try_recv().is_ok(), "ctl-b 的 s1 不受影响");
     }
 
     /// notifier 走独立入口，同样不能静默丢。
