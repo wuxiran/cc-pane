@@ -36,6 +36,7 @@ import {
   useWallpaperStore,
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
+import { aggregateOf, useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { replayAttachedSession } from "./terminalReplay";
 import { reconnectTerminalSession } from "./terminalReconnect";
 import { useTerminalAppearanceSync } from "./useTerminalAppearanceSync";
@@ -166,6 +167,15 @@ interface TerminalViewProps {
   paneId?: string;
   /** Tab id used to clear restoring state after recovery finishes. */
   tabId?: string;
+  /**
+   * 可见性聚合的归属键（docs/78 批2）。降档/休眠读它去查
+   * useTabViewStateStore.aggregate —— 判据是「任一视图可见」，不是本视图可见。
+   *
+   * 与 tabId 分开：tabId 会被 findTabAcrossLayouts / updateTerminalLaunchId 当作
+   * 真标签 id 用，而 SelfChat 之类的视图没有 tab，owner 却必须有。
+   * 不传（如星标镜像）= 本视图不注册降档。
+   */
+  visibilityOwnerId?: string;
   onRestoreLaunchState?: (state: RestoreLaunchState) => void;
   onLaunchError?: (error: TerminalLaunchError) => void;
   onSessionCreated: (sessionId: string) => void;
@@ -434,6 +444,20 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       [],
     );
 
+    /**
+     * 降档/休眠判据：有 owner 时读聚合（**任一视图可见**），否则退回本视图。
+     *
+     * 同一个 PTY 可能被主标签、星标镜像、弹出窗口同时观看，只看自己会把
+     * 「星标页正看着」的会话休眠掉——dispose xterm 时另一视图的写入路径踩空。
+     * 只读第二视图（星标镜像）不传 owner：它不该独立决定 PTY 的降档，主视图
+     * 会用聚合把它的可见性算进去。
+     */
+    const resolveDowngradeVisibility = useCallback(() => {
+      const owner = props.visibilityOwnerId;
+      if (!owner) return isRenderVisible();
+      return aggregateOf(owner).anyVisible;
+    }, [props.visibilityOwnerId, isRenderVisible]);
+
     /** desync 重同步闸门：置真期间实时输出改走积压，防 reset 抹掉快照外的新输出。 */
     const resyncInProgressRef = useRef(false);
     const overflowResyncRef = useRef<(() => void) | null>(null);
@@ -546,7 +570,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         flushHiddenWrites("visibility.gained");
       }
       // 后台分层降档（docs/71 §3.1）：5min 挂 WebGL，30min 休眠。幂等，可每次 render 调。
-      notifyVisibility(isRenderVisible());
+      // B2-04：判据是「任一视图可见」而非「本视图可见」，见 resolveDowngradeVisibility。
+      // 注意本处只覆盖「自身 render 触发」的路径；别的视图变化（如切到星标页）
+      // 不会让本组件 render，那条边沿由下面的 store 订阅补上。
+      notifyVisibility(resolveDowngradeVisibility());
       readOnlyRef.current = Boolean(props.readOnly);
       if (terminalInstanceRef.current) {
         terminalInstanceRef.current.options.disableStdin = Boolean(props.readOnly);
@@ -555,6 +582,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         everHiddenRef.current = true;
       }
     });
+
+    // 聚合变化订阅（B2-04）：同一 PTY 的**其他视图**（星标镜像、弹出窗口）
+    // 可见性翻转时本组件不会 render，每帧 effect 够不着——没有这条订阅，
+    // 「打开星标页」不会取消原 tab 已经启动的休眠计时。
+    useEffect(() => {
+      const owner = props.visibilityOwnerId;
+      if (!owner) return;
+      let last = aggregateOf(owner).anyVisible;
+      return useTabViewStateStore.subscribe((state) => {
+        const next = state.aggregate[owner]?.anyVisible ?? false;
+        if (next === last) return;
+        last = next;
+        notifyVisibility(next);
+      });
+    }, [props.visibilityOwnerId, notifyVisibility]);
 
     useEffect(() => {
       const effectiveRendererMode = resolveRendererMode(terminalRendererMode);
