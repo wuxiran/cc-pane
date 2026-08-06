@@ -244,3 +244,22 @@ registry 补 `createDefaults(input): Partial<Tab>`；`usePanesStore.createTab` �
 - **docs/71**：输出链现状（休眠/desync/流控）是本文批 3 的地基；三条不变式（丢弃整段/回放过 renderTerminalData/唤醒不丢字）全程有效。
 - **docs/64**（fleet）：会话监控维度不混入 tab 生命周期；`onOutputActivity` 归它。
 - **docs/74**（开发台账）：任务生命周期与 tab 生命周期是两个正交模型，互不吸收。
+
+## 8. 清理待办（rebase + 双写拆除专题之后执行）
+
+坏味道审计（0.12.0 收尾期）定为结构级、因 rebase 在即而推迟的四件：
+
+1. **纯树函数搬 `lib/paneTree.ts`**：collectPanels/findPane/findTabLocation/
+   normalizePaneTree 等零 store 依赖的纯函数现住 `stores/paneTreeHelpers.ts`，
+   导致 `lib/paneSessions → stores/` 的层次倒置；搬完即可合并
+   paneTreeRemovalHelpers 回去、删「只依赖 @/types」口头约定。
+2. **4 处收壳/收敛复制去重**：closePane↔removeEmptyPane 约 40 行逐字相同；
+   closeTerminalPane↔closeTerminalLeafInTab 内联复制；removeTabsInternal 与
+   backendCloseActions 的逐布局变体。单方向抽函数，行为零变化。
+3. **`closedTabsCap.ts` 改名 `closedTabsUndo.ts`**：四职责 = 撤销栈完整生命
+   周期（cap/快照映射/身份恢复/非终端重开），名字只描述了第一个。
+4. **`removeTabsInternal` 拆段**：118 行 8 步平铺，抽 relocateAndCollect /
+   spliceAcrossLayouts / cleanupSatelliteState 三个命名私有函数。
+
+另записан：exitCode→leaf 写回（让 phaseOf 的 "exited" 真可达）、非终端撤销的
+pinned/starred 保留、useHiddenSessionReporter 订阅面收窄（当前判定可接受）。

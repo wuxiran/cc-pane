@@ -57,11 +57,14 @@ describe("与 Rust 侧契约表键集一致", () => {
 // Codex 审查 P2：toContain 整文件匹配会被注释骗过（假阳性）。收紧为：
 // Rust 侧先抽出 enum 块再逐变体断言；前端断言「事件名出现在 listen 调用里」。
 function extractEnumBlock(src: string, enumName: string): string {
-  // 朴素切片而非正则：CRLF/属性宏/嵌套花括号都会让「匹配到闭合括号」的正则
-  // 变脆。变体断言只需要枚举附近的窗口，2000 字符足够覆盖任何合理的枚举体。
+  // 结构性终点：从枚举声明切到其后**首个行首 `}`**（Rust 顶层枚举的闭合括号
+  // 必在列 0；变体的内层 `}` 都有缩进）。不用正则匹配嵌套括号——CRLF/属性宏
+  // 都会让它变脆。
   const start = src.indexOf(`enum ${enumName}`);
   expect(start, `找不到 enum ${enumName}`).toBeGreaterThanOrEqual(0);
-  return src.slice(start, start + 2000);
+  const end = src.indexOf("\n}", start);
+  expect(end, `enum ${enumName} 未找到行首闭合括号`).toBeGreaterThan(start);
+  return src.slice(start, end + 2);
 }
 
 /** 事件名 → 各分发处期望的变体名。新增跨界事件必须同步这张表。 */
@@ -103,13 +106,15 @@ describe("app 侧三处分发都覆盖了契约事件", () => {
   it("前端监听器：事件名必须出现在 listen 调用里（不是注释里）", () => {
     for (const event of BOUNDARY_EVENTS) {
       if (!isFrontendListenedEvent(event.name)) continue;
-      // 切片判断替代正则（多层转义太脆）：带引号的事件名出现处，
-      // 其前 150 字符内必须有 listen 调用——排除纯注释里的提及。
+      // 带引号的事件名出现处，其前若干字符内必须有 listen 调用——排除纯
+      // 注释里的提及。窗口取 listen<泛型>( 换行到参数行的最大合理跨度；
+      // 失败模式：注册写法重构到超过窗口 → 本测试假红（loud，可调大）。
+      const LISTEN_PROXIMITY_CHARS = 150;
       const quoted = `"${event.name}"`;
       let found = false;
       let idx = terminalServiceSrc.indexOf(quoted);
       while (idx !== -1) {
-        if (terminalServiceSrc.slice(Math.max(0, idx - 150), idx).includes("listen")) {
+        if (terminalServiceSrc.slice(Math.max(0, idx - LISTEN_PROXIMITY_CHARS), idx).includes("listen")) {
           found = true;
           break;
         }
