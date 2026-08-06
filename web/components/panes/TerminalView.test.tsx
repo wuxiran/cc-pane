@@ -105,6 +105,13 @@ const MockXterm = vi.hoisted(() => class MockXterm {
   selectAll = vi.fn();
   clear = vi.fn();
 
+  reset() {
+    // 语义忠实：reset 丢弃现有画面（含 scrollback），resync 快照重建靠它
+    this.writtenData = [];
+    this.writtenLines = [];
+    this.writeEvents.push("<reset>");
+  }
+
   dispose() {
     this.disposed = true;
   }
@@ -773,6 +780,34 @@ describe("TerminalView", () => {
 
     // 切回后补齐，且顺序不变、零丢失。
     await waitFor(() => expect(term.writtenData).toContain("part-1 part-2"));
+  });
+
+  it("积压溢出后切回：走快照重建而非吐半截积压（不变式：丢弃只能整段）", async () => {
+    useTabViewStateStore.getState().reportView("tab-1", "primary", "hidden");
+    getReplaySnapshot.mockResolvedValue({ data: "SNAPSHOT-REBUILD", bufferMode: "normal" } as never);
+    renderTerminalView();
+    await waitFor(() => expect(registerOutput).toHaveBeenCalled());
+    const term = await lastTerm();
+    const outputHandler = registerOutput.mock.calls[0][1] as (data: string) => void;
+
+    // 撑爆 512KB 隐藏积压：溢出即整体作废，后续 tail 也不该以「半截积压」形式落屏
+    const big = "x".repeat(300 * 1024);
+    act(() => outputHandler(big));
+    act(() => outputHandler(big));
+    act(() => outputHandler("tail-after-overflow"));
+
+    act(() => {
+      useTabViewStateStore.getState().reportView("tab-1", "primary", "active");
+    });
+
+    // 溢出恢复必须走统一快照重建：reset + 快照全量写入
+    await waitFor(() => expect(getReplaySnapshot).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(term.writtenData.some((d) => d.includes("SNAPSHOT-REBUILD"))).toBe(true),
+    );
+    // 半截积压绝不落屏（快照之外看不到溢出期的任何原始字节）
+    expect(term.writtenData.some((d) => d.includes("tail-after-overflow"))).toBe(false);
+    expect(term.writtenData.some((d) => d.includes("xxxx"))).toBe(false);
   });
 
   it("announces process exit in the terminal and to the parent", async () => {
