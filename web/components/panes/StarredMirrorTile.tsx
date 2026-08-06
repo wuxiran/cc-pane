@@ -32,8 +32,9 @@ export default function StarredMirrorTile({ tile, onJump }: StarredMirrorTilePro
   // 「任一视图可见」，原 tab 的 primary 视图隐藏时，mirror 这条会把
   // anyVisible 顶住。
   //
-  // 镜像本身不注册降档（不传 visibilityOwnerId 即不注册）——它是只读第二视图，
-  // 降它没有意义，而且 drivesBackendPty={false} 已挡掉后端 resize。
+  // 写侧在这里，读侧经 visibilityOwnerId/viewRole 传给 TerminalView——镜像的
+  // 降档判据从此看聚合（全部视图都不可见才降），焦点判据看 mirror 单视图
+  // （上报只有 visible/hidden，永不 active，故不会抢 refit/focus）。
   const tabId = tile.tabId;
   useEffect(() => {
     useTabViewStateStore
@@ -82,6 +83,8 @@ export default function StarredMirrorTile({ tile, onJump }: StarredMirrorTilePro
             isActive={layoutVisible}
             isVisible={layoutVisible}
             layoutActive={layoutVisible}
+            visibilityOwnerId={tile.tabId}
+            viewRole="mirror"
             drivesBackendPty={false}
             onSessionCreated={noop}
           />
