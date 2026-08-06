@@ -44,6 +44,28 @@ pub fn write_session_output(
     Ok(())
 }
 
+/// 把会话的 checkpoint 恢复快照写入 `<data_dir>/sessions/<session_id>.checkpoint.json`
+/// （M3b-5）。**本批只写不读**：冷恢复读回（替代纯文本 .output 的富重放）记
+/// docs/78 §6 遗留。与 write_session_output 同款 atomic write——这份快照是
+/// 会话真死后唯一带画面语义的历史。
+pub fn write_session_checkpoint(
+    app_paths: &AppPaths,
+    session_id: &str,
+    recovery: &crate::models::TerminalRecoverySnapshot,
+) -> Result<(), String> {
+    let dir = app_paths.sessions_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create sessions dir: {}", e))?;
+    let body = serde_json::to_vec(recovery)
+        .map_err(|e| format!("Failed to serialize checkpoint: {}", e))?;
+    let path = dir.join(format!("{session_id}.checkpoint.json"));
+    crate::utils::atomic_file::write_atomic(&path, &body).map_err(|e| {
+        error!(path = %path.display(), err = %e, "Failed to write checkpoint file");
+        format!("Failed to write checkpoint file: {}", e)
+    })?;
+    info!(session_id, "Saved session checkpoint");
+    Ok(())
+}
+
 /// 终端会话恢复服务
 ///
 /// 管理终端会话的元数据持久化和输出文件存储，

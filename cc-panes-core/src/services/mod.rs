@@ -94,7 +94,9 @@ pub use session_provenance_persist::{
     persist_created_session_observation, persist_created_session_or_cleanup,
     ProvenanceBackfillReport,
 };
-pub use session_restore_service::{write_session_output, SessionRestoreService};
+pub use session_restore_service::{
+    write_session_checkpoint, write_session_output, SessionRestoreService,
+};
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;
 pub use shared_mcp_service::SharedMcpService;

@@ -10,7 +10,7 @@
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use cc_panes_core::services::{write_session_output, TerminalService};
+use cc_panes_core::services::{write_session_checkpoint, write_session_output, TerminalService};
 use cc_panes_core::utils::AppPaths;
 use tracing::{debug, warn};
 
@@ -63,6 +63,7 @@ impl SessionOutputStore {
             Ok(output) => self.write(session_id, &output.lines),
             Err(error) => debug!(session_id, %error, "no buffered output to persist"),
         }
+        self.write_checkpoint(session_id, &service);
     }
 
     /// 落盘所有仍有内容的会话（daemon 优雅关闭时调用）。
@@ -74,6 +75,22 @@ impl SessionOutputStore {
         debug!(count = outputs.len(), "persisting session outputs");
         for (session_id, lines) in &outputs {
             self.write(session_id, lines);
+            self.write_checkpoint(session_id, &service);
+        }
+    }
+
+    /// 顺带落盘 checkpoint 恢复快照（M3b-5，只写不读）。photo+delta 是唯一带
+    /// 画面语义的死会话历史；无照片时也写（纯 delta 形状，读侧统一）。
+    fn write_checkpoint(&self, session_id: &str, service: &Arc<TerminalService>) {
+        match service.get_session_recovery_snapshot(session_id) {
+            Ok(Some(recovery)) => {
+                if let Err(error) = write_session_checkpoint(&self.app_paths, session_id, &recovery)
+                {
+                    warn!(session_id, error, "failed to persist session checkpoint");
+                }
+            }
+            Ok(None) => {}
+            Err(error) => debug!(session_id, %error, "no recovery snapshot to persist"),
         }
     }
 
