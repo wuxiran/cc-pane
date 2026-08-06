@@ -13,6 +13,7 @@ import {
 } from "@/stores";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { historyService, sessionRestoreService, terminalService } from "@/services";
+import { getRecoverySnapshot as getRecoverySnapshotFn } from "@/services/terminalRecovery";
 import { createTerminalRendererController } from "./terminalRendererController";
 import { createTerminalLayoutScheduler } from "./terminalLayoutScheduler";
 import { TERMINAL_FIT_ALL_EVENT } from "./terminalFitEvents";
@@ -226,6 +227,13 @@ vi.mock("@/services/terminalService", () => ({
   },
 }));
 
+// 恢复读路径单入口（M3b-3）：TerminalView 与 terminalSessionBinding 都直连
+// 该模块（不经桶文件），必须 mock 直接模块而非桶（既往教训：mock 桶会被绕过）。
+vi.mock("@/services/terminalRecovery", () => ({
+  getRecoverySnapshot: vi.fn().mockResolvedValue(null),
+  _resetRecoveryCapabilityForTest: vi.fn(),
+}));
+
 vi.mock("@/services/historyService", () => ({
   historyService: {
     startLaunchHistoryBackfill: vi.fn().mockResolvedValue(undefined),
@@ -260,7 +268,7 @@ const registerOutput = vi.mocked(terminalService.registerOutput);
 const registerExit = vi.mocked(terminalService.registerExit);
 const resize = vi.mocked(terminalService.resize);
 const writeToSession = vi.mocked(terminalService.write);
-const getReplaySnapshot = vi.mocked(terminalService.getReplaySnapshot);
+const getRecoverySnapshot = vi.mocked(getRecoverySnapshotFn);
 const startLaunchHistoryBackfill = vi.mocked(historyService.startLaunchHistoryBackfill);
 const loadOutput = vi.mocked(sessionRestoreService.loadOutput);
 const killSession = vi.mocked(terminalService.killSession);
@@ -344,7 +352,7 @@ describe("TerminalView", () => {
     expect(registerOutput).toHaveBeenCalledWith("new-session-1", expect.any(Function));
     expect(registerExit).toHaveBeenCalledWith("new-session-1", expect.any(Function));
     // 新建会话不回放快照
-    expect(getReplaySnapshot).not.toHaveBeenCalled();
+    expect(getRecoverySnapshot).not.toHaveBeenCalled();
   });
 
   it("registers one local path provider and disposes it on unmount", async () => {
@@ -433,16 +441,18 @@ describe("TerminalView", () => {
 
   it("attaches to an existing session instead of creating one", async () => {
     const onSessionCreated = vi.fn();
-    getReplaySnapshot.mockResolvedValue({
-      lines: ["replayed"],
-      cursorRow: 0,
-      alternateActive: false,
-    } as never);
+    getRecoverySnapshot.mockResolvedValue({
+      checkpoint: null,
+      delta: "replayed",
+      bufferMode: "normal",
+      endSeq: 0,
+      checkpointEpoch: 0,
+    });
     renderTerminalView({ sessionId: "existing-1", onSessionCreated });
 
     await waitFor(() => expect(registerOutput).toHaveBeenCalledWith("existing-1", expect.any(Function)));
     expect(createSession).not.toHaveBeenCalled();
-    expect(getReplaySnapshot).toHaveBeenCalledWith("existing-1");
+    expect(getRecoverySnapshot).toHaveBeenCalledWith("existing-1");
     // attach 路径要对齐后端 PTY 尺寸，且不再回报 onSessionCreated
     expect(resize).toHaveBeenCalledWith({ sessionId: "existing-1", cols: 80, rows: 24 });
     expect(onSessionCreated).not.toHaveBeenCalled();
@@ -784,7 +794,13 @@ describe("TerminalView", () => {
 
   it("积压溢出后切回：走快照重建而非吐半截积压（不变式：丢弃只能整段）", async () => {
     useTabViewStateStore.getState().reportView("tab-1", "primary", "hidden");
-    getReplaySnapshot.mockResolvedValue({ data: "SNAPSHOT-REBUILD", bufferMode: "normal" } as never);
+    getRecoverySnapshot.mockResolvedValue({
+      checkpoint: null,
+      delta: "SNAPSHOT-REBUILD",
+      bufferMode: "normal",
+      endSeq: 0,
+      checkpointEpoch: 0,
+    });
     renderTerminalView();
     await waitFor(() => expect(registerOutput).toHaveBeenCalled());
     const term = await lastTerm();
@@ -801,7 +817,7 @@ describe("TerminalView", () => {
     });
 
     // 溢出恢复必须走统一快照重建：reset + 快照全量写入
-    await waitFor(() => expect(getReplaySnapshot).toHaveBeenCalled());
+    await waitFor(() => expect(getRecoverySnapshot).toHaveBeenCalled());
     await waitFor(() =>
       expect(term.writtenData.some((d) => d.includes("SNAPSHOT-REBUILD"))).toBe(true),
     );

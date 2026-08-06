@@ -7,7 +7,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { info as logInfo } from "@tauri-apps/plugin-log";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { terminalService, historyService, sessionRestoreService } from "@/services";
+import { terminalService, historyService, sessionRestoreService, getRecoverySnapshot } from "@/services";
 import { ensureListeners, isSessionClaimedError } from "@/services/terminalService";
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage, toTerminalLaunchError } from "@/utils";
@@ -1562,7 +1562,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   term,
                   sessionId,
                   wake,
-                  getReplaySnapshot: (id) => terminalService.getReplaySnapshot(id),
+                  getRecoverySnapshot: (id) => getRecoverySnapshot(id),
                   renderTerminalData,
                   writeTerminalData,
                   syncTrackedBufferType,
@@ -1989,11 +1989,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 await replayAttachedSession({
                   term,
                   sessionId: liveSavedSessionId,
-                  getReplaySnapshot: (attachSessionId) => terminalService.getReplaySnapshot(attachSessionId),
+                  getRecoverySnapshot: (attachSessionId) => getRecoverySnapshot(attachSessionId),
                   writeData: (data) => {
                     const renderedData = renderTerminalData(data);
                     return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
                   },
+                  writeCheckpointData: (data) => writeTerminalData(data),
                   syncTrackedBufferType,
                   debugLog,
                 });

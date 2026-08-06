@@ -45,6 +45,8 @@ export type {
   CreateSessionRequest,
   TerminalOutput,
   TerminalCheckpointUpload,
+  TerminalCheckpointData,
+  TerminalRecoverySnapshot,
   StoreCheckpointOutcome,
   TerminalSessionOutput,
   ResizeRequest,

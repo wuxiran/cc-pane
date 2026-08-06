@@ -8,7 +8,7 @@ import type { SerializeAddon } from "@xterm/addon-serialize";
 
 import { getErrorMessage } from "@/utils";
 import { terminalService } from "@/services/terminalService";
-import type { TerminalReplaySnapshot } from "@/services/terminalService";
+import type { TerminalRecoverySnapshot } from "@/types";
 import { replayAttachedSession } from "./terminalReplay";
 import {
   createTerminalBackgroundLifecycle,
@@ -309,7 +309,7 @@ interface ReplayAttachOrWakeOptions {
   sessionId: string;
   /** 休眠唤醒交接；普通 attach 传 null。 */
   wake: HibernatedTerminalState | null;
-  getReplaySnapshot: (sessionId: string) => Promise<TerminalReplaySnapshot | null>;
+  getRecoverySnapshot: (sessionId: string) => Promise<TerminalRecoverySnapshot | null>;
   renderTerminalData: (data: string) => string;
   writeTerminalData: (data: string) => Promise<void>;
   syncTrackedBufferType: (reason: string) => void;
@@ -322,7 +322,7 @@ export async function replayAttachOrWake({
   term,
   sessionId,
   wake,
-  getReplaySnapshot,
+  getRecoverySnapshot,
   renderTerminalData,
   writeTerminalData,
   syncTrackedBufferType,
@@ -333,11 +333,13 @@ export async function replayAttachOrWake({
     await replayAttachedSession({
       term,
       sessionId,
-      getReplaySnapshot,
+      getRecoverySnapshot,
+      // 双管道（裁决 B）：delta 过 renderTerminalData；photo 是成品 VT 直写。
       writeData: (data) => {
         const renderedData = renderTerminalData(data);
         return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
       },
+      writeCheckpointData: (data) => writeTerminalData(data),
       syncTrackedBufferType,
       debugLog,
     });

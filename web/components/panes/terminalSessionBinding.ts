@@ -1,6 +1,7 @@
 import type { Terminal } from "@xterm/xterm";
 
 import { registerCheckpointRequest } from "@/services/terminalCheckpoint";
+import { getRecoverySnapshot } from "@/services/terminalRecovery";
 import { terminalService } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
 import { captureAndUploadCheckpoint, type CheckpointSerializer } from "./terminalCheckpointUpload";
@@ -211,8 +212,10 @@ export async function bindTerminalSessionCallbacks(
       sessionId,
       terminalRef: terminalInstanceRef,
       hiddenWriteBufferRef,
-      getReplaySnapshot: (id) => terminalService.getReplaySnapshot(id),
+      getRecoverySnapshot: (id) => getRecoverySnapshot(id),
+      // 双管道（裁决 B）：delta 过 renderTerminalData；photo 是成品 VT 直写。
       writeData: (data) => writeTerminalData(renderTerminalData(data)),
+      writeCheckpointData: (data) => writeTerminalData(data),
       syncTrackedBufferType,
       setResyncActive: (active) => {
         resyncActiveRef.current = active;

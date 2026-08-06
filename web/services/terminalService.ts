@@ -571,15 +571,14 @@ export const terminalService = {
     );
   },
 
-  async getReplaySnapshot(sessionId: string): Promise<TerminalReplaySnapshot | null> {
+  /** @internal 旧拼接快照（M3b-3 后仅剩 terminalRecovery 回落在用；恢复一律走 getRecoverySnapshot。不删：旧前端兼容面）。 */
+  getReplaySnapshot(sessionId: string): Promise<TerminalReplaySnapshot | null> {
     return invokeOrApi<TerminalReplaySnapshot | null>(
       "get_terminal_replay_snapshot",
       { sessionId },
       async () => {
         try {
-          return await apiGet<TerminalReplaySnapshot | null>(
-            `/api/sessions/${encodeURIComponent(sessionId)}/snapshot`,
-          );
+          return await apiGet<TerminalReplaySnapshot | null>(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`);
         } catch {
           return null;
         }

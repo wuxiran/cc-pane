@@ -1,5 +1,6 @@
 export { projectService } from "./projectService";
 export { terminalService } from "./terminalService";
+export { getRecoverySnapshot } from "./terminalRecovery";
 export { terminalPathLinkService } from "./terminalPathLinkService";
 export type {
   ResolvedTerminalPathLink,

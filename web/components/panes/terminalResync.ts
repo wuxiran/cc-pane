@@ -1,15 +1,17 @@
-import type { TerminalReplaySnapshot } from "@/services/terminalService";
+import type { TerminalRecoverySnapshot } from "@/types";
+import { reanchorAfterRecovery } from "./terminalReplay";
 
 /**
- * 从后端 ReplayBuffer 快照整体重同步终端画面。
+ * 从后端恢复快照（checkpoint+delta）整体重同步终端画面。
  *
  * 两个触发场景（共享本实现）：
  * 1. daemon desync 契约——输出镜像流溢出跳段，中段 VT 流永久缺失，继续
  *    增量写必然花屏；
  * 2. 后台休眠期间积压超上限——休眠字符串已不完整，唤醒时无法无损回放。
  *
- * 语义：`reset()` 丢弃现有画面（含 scrollback）→ 全量写入快照。快照是会话
- * 起点开始的 8MB 窗口（终端存活期），超窗历史丢失——严格优于花屏。
+ * 语义：`reset()` 丢弃现有画面（含 scrollback）→ photo 直写 → delta 渲染写
+ * （裁决 B 双管道）。无照片时 delta 是会话起点开始的 8MB 窗口，超窗历史丢失
+ * ——严格优于花屏。
  *
  * 竞态说明：快照请求在途期间新到的 chunk 可能既包含在快照里、又经实时链路
  * 写入（一次性视觉重复；TUI 全屏重绘自愈）。调用方若能暂停实时写入
@@ -34,9 +36,11 @@ interface ResyncFromReplaySnapshotOptions {
   term: ResyncTerminal;
   sessionId: string;
   reason: string;
-  getReplaySnapshot: (sessionId: string) => Promise<TerminalReplaySnapshot | null>;
-  /** 必须走 renderTerminalData 管道（alt-screen 剥离等），不可直写 xterm。 */
+  getRecoverySnapshot: (sessionId: string) => Promise<TerminalRecoverySnapshot | null>;
+  /** delta 管道：必须走 renderTerminalData（alt-screen 剥离等），不可直写 xterm。 */
   writeData: (data: string) => Promise<void>;
+  /** photo 管道：SerializeAddon 成品 VT，直写——二次渲染会坏（裁决 B）。 */
+  writeCheckpointData: (data: string) => Promise<void>;
   syncTrackedBufferType: (reason: string) => void;
   debugLog: ResyncLogger;
 }
@@ -45,14 +49,15 @@ export async function resyncFromReplaySnapshot({
   term,
   sessionId,
   reason,
-  getReplaySnapshot,
+  getRecoverySnapshot,
   writeData,
+  writeCheckpointData,
   syncTrackedBufferType,
   debugLog,
 }: ResyncFromReplaySnapshotOptions): Promise<boolean> {
-  let snapshot: TerminalReplaySnapshot | null = null;
+  let snapshot: TerminalRecoverySnapshot | null = null;
   try {
-    snapshot = await getReplaySnapshot(sessionId);
+    snapshot = await getRecoverySnapshot(sessionId);
   } catch (error) {
     debugLog("terminal.resync.snapshot-failed", {
       sessionId,
@@ -73,14 +78,20 @@ export async function resyncFromReplaySnapshot({
     sessionId,
     reason,
     bufferMode: snapshot.bufferMode,
-    dataLength: snapshot.data?.length ?? 0,
+    checkpointChars: snapshot.checkpoint?.snapshotAnsi.length ?? 0,
+    deltaLength: snapshot.delta.length,
   });
 
+  // 序 = reset → photo 直写 → delta 渲染写 → syncTrackedBufferType → reanchor。
   term.reset();
-  if (snapshot.data) {
-    await writeData(snapshot.data);
+  if (snapshot.checkpoint) {
+    await writeCheckpointData(snapshot.checkpoint.snapshotAnsi);
+  }
+  if (snapshot.delta) {
+    await writeData(snapshot.delta);
   }
   syncTrackedBufferType(`terminal.resync.${reason}`);
+  reanchorAfterRecovery(sessionId, snapshot);
 
   debugLog("terminal.resync.end", {
     sessionId,
@@ -94,8 +105,9 @@ interface CreateTerminalDesyncHandlerOptions {
   sessionId: string;
   terminalRef: RefValue<ResyncTerminal | null>;
   hiddenWriteBufferRef: RefValue<{ reset(): void } | null>;
-  getReplaySnapshot: ResyncFromReplaySnapshotOptions["getReplaySnapshot"];
+  getRecoverySnapshot: ResyncFromReplaySnapshotOptions["getRecoverySnapshot"];
   writeData: ResyncFromReplaySnapshotOptions["writeData"];
+  writeCheckpointData: ResyncFromReplaySnapshotOptions["writeCheckpointData"];
   syncTrackedBufferType: (reason: string) => void;
   /**
    * 重同步闸门：置真期间实时输出必须改走积压（不得直写 xterm）。
@@ -121,8 +133,9 @@ export function createTerminalDesyncHandler({
   sessionId,
   terminalRef,
   hiddenWriteBufferRef,
-  getReplaySnapshot,
+  getRecoverySnapshot,
   writeData,
+  writeCheckpointData,
   syncTrackedBufferType,
   setResyncActive,
   onResyncSettled,
@@ -138,8 +151,9 @@ export function createTerminalDesyncHandler({
       term,
       sessionId,
       reason: "daemon-desync",
-      getReplaySnapshot,
+      getRecoverySnapshot,
       writeData,
+      writeCheckpointData,
       syncTrackedBufferType,
       debugLog,
     })

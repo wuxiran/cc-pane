@@ -276,6 +276,36 @@ export interface TerminalCheckpointUpload {
 }
 
 /**
+ * 后端存储的终端画面照片（读侧，M3b-3）。
+ * 与 Rust `TerminalCheckpoint`（serde camelCase）逐字段对齐——上传侧的
+ * `TerminalCheckpointUpload` 是同一结构的写方向别名，两者形状必须一致。
+ */
+export interface TerminalCheckpointData {
+  checkpointEpoch: number;
+  anchorSeq: number;
+  snapshotAnsi: string;
+  bufferMode: "normal" | "alternate";
+  cols: number;
+  rows: number;
+  checkpointedAtMs: number;
+}
+
+/**
+ * checkpoint+delta 结构化恢复快照（M3b-3，裁决 B）。
+ * photo（snapshotAnsi）是 SerializeAddon 成品 VT——**直写**，不过
+ * renderTerminalData；delta 是 PTY 原始字节——**必须过** renderTerminalData。
+ * 旧 daemon 回落形状：`{ checkpoint: null, delta, bufferMode, endSeq: 0,
+ * checkpointEpoch: 0 }`（epoch=0 = 无 seq 记账能力，读侧不得 reanchor）。
+ */
+export interface TerminalRecoverySnapshot {
+  checkpoint: TerminalCheckpointData | null;
+  delta: string;
+  bufferMode: "normal" | "alternate";
+  endSeq: number;
+  checkpointEpoch: number;
+}
+
+/**
  * store_checkpoint 的结构化结果。与 Rust `StoreCheckpointOutcome`
  * （`#[serde(tag = "kind", rename_all = "camelCase")]`）对齐：变体名 camelCase。
  * 拒收是**结果**不是错误（幂等重传拿到 stale）。
