@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { registerSessionScopedResource } from "@/lib/tabLifecycle/sessionScopedResources";
 import type { TerminalStatusType, TerminalStatusInfo } from "@/types";
 import { killedSessions, terminalService } from "@/services/terminalService";
 import { isTauriRuntime, listenWebviewIfTauri } from "@/services/runtime";
@@ -145,3 +146,8 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
     });
   },
 }));
+
+registerSessionScopedResource({
+  name: "terminalStatus",
+  dispose: (sessionId) => useTerminalStatusStore.getState().removeSession(sessionId),
+});

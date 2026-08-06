@@ -26,7 +26,7 @@ import { waitForTerminalRestoreBarrier } from "./terminalRestoreBarrier";
 import { cancelTerminalLaunch, isTerminalReclaimKillReason, withTerminalLaunchDeadline } from "./terminalLaunchDeadline";
 import {
   addSubscriber, assertCreateSessionRequest, compactCreateSessionRequest,
-  countTerminalInputChars, debugTerminalService, dropContextUsage,
+  countTerminalInputChars, debugTerminalService, disposeTerminalSessionResources,
   isSessionClaimedError, isWebSocketDesyncMessage, parseWebSocketOutput,
   removeSubscriber, summarizeTerminalInput,
 } from "./terminalServiceShared";
@@ -52,7 +52,7 @@ function dispatchOutput(sessionId: string, data: string): boolean {
 }
 
 function dispatchExit(sessionId: string, exitCode: number): void {
-  dropContextUsage(sessionId);
+  disposeTerminalSessionResources(sessionId);
   const set = exitCallbacks.get(sessionId);
   if (!set) return;
   for (const callback of set) callback(exitCode);
@@ -301,7 +301,7 @@ export async function ensureListeners(): Promise<void> {
       // 延迟 import 避免循环依赖
       const { usePanesStore } = await import("@/stores/usePanesStore");
       usePanesStore.getState().closeTabBySessionId(sessionId);
-      dropContextUsage(sessionId); // 会话已死，回收上下文用量缓存
+      disposeTerminalSessionResources(sessionId);
     }
   );
 
@@ -621,6 +621,7 @@ export const terminalService = {
     exitCallbacks.delete(sessionId);
     pendingBuffers.delete(sessionId);
     clearTerminalInputQueue(sessionId);
+    disposeTerminalSessionResources(sessionId);
     // 幂等关闭：reload cleanup 常杀已退/不存在的 session，用 idempotent 命令把
     // NOT_FOUND / already-exited 视为成功，避免 [UNHANDLED REJECTION] Session not found。
     closeWebSocket(sessionId);

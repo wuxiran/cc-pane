@@ -1,4 +1,5 @@
 import type { CreateSessionRequest } from "@/types";
+import { disposeSessionScopedResources } from "@/lib/tabLifecycle/sessionScopedResources";
 import { devDebugLog } from "@/utils/devLogger";
 
 export interface TerminalReplaySnapshot {
@@ -148,11 +149,7 @@ export function removeSubscriber<T>(
   if (set.size === 0) map.delete(sessionId);
 }
 
-/**
- * 会话已死：回收 per-session 上下文用量缓存条目。
- * 延迟 import 避免 store ↔ service 循环依赖。
- */
-export function dropContextUsage(sessionId: string): void {
-  void import("@/stores/useContextUsageStore")
-    .then(({ useContextUsageStore }) => useContextUsageStore.getState().dropSession(sessionId));
+/** 会话已死：回收所有已登记的 per-session 前端资源。 */
+export function disposeTerminalSessionResources(sessionId: string): void {
+  disposeSessionScopedResources(sessionId);
 }

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { registerSessionScopedResource } from "@/lib/tabLifecycle/sessionScopedResources";
 import { usageStatsService } from "@/services/usageStatsService";
 import type { ContextUsageSnapshot } from "@/types/contextUsage";
 
@@ -167,3 +168,13 @@ export const useContextUsageStore = create<ContextUsageState>((set, get) => ({
     }
   },
 }));
+
+registerSessionScopedResource({
+  name: "contextUsage",
+  dispose: (sessionId) => {
+    useContextUsageStore.getState().dropSession(sessionId);
+    if (useContextUsageStore.getState().sessionId === sessionId) {
+      useContextUsageStore.getState().setSession(null);
+    }
+  },
+});
