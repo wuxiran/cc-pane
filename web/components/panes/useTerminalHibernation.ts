@@ -1,3 +1,7 @@
+import {
+  inputBlocksHibernation,
+  useTerminalInputActivityStore,
+} from "@/stores/useTerminalInputActivityStore";
 import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { SerializeAddon } from "@xterm/addon-serialize";
@@ -74,6 +78,15 @@ export function useTerminalHibernation({
     if (!term || !sessionId || !serialize || hibernatedStateRef.current) return;
     // 重连中 / 已断开的 SSH 视图不休眠：doReconnect 持有 term 引用，销毁会竞态。
     if (isReconnectingRef.current || isDisconnectedRef.current) return;
+    // 轴1 输入豁免（docs/78 归段设计）：落在忙碌段的近期输入是**草稿**——
+    // 用户正在给一个干活中的 agent 写东西，休眠会把没提交的输入连带 xterm
+    // 一起序列化掉。waitingInput 段的输入是「已答完那个问题」，不豁免——
+    // 否则确认过一次权限的会话永远不休眠。跳过本次即可：定时器下轮再判。
+    const inputEntry = useTerminalInputActivityStore.getState().getEntry(sessionId);
+    if (inputBlocksHibernation(inputEntry)) {
+      debugLog("hibernate.skipped.input-active", { sessionId });
+      return;
+    }
 
     let base: string;
     try {

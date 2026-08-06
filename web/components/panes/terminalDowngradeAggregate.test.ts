@@ -189,3 +189,14 @@ describe("弹窗与 SelfChat 的可见性语义（B2-05）", () => {
     expect(aggregateOf("s1").anyVisible).toBe(false);
   });
 });
+
+describe("轴1 输入豁免（归段判定接进休眠）", () => {
+  it("忙碌段的近期输入挡住休眠判定；waitingInput 段不挡", async () => {
+    const { inputBlocksHibernation } = await import("@/stores/useTerminalInputActivityStore");
+    const now = 5_000_000;
+    // 草稿：working 段输入 → 挡
+    expect(inputBlocksHibernation({ lastInputAt: now, segment: "thinking" }, now + 1000)).toBe(true);
+    // 已答完：waitingInput 段输入 → 不挡（否则确认过一次就永不休眠）
+    expect(inputBlocksHibernation({ lastInputAt: now, segment: "waitingInput" }, now + 1000)).toBe(false);
+  });
+});
