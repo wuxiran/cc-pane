@@ -197,6 +197,7 @@ export default function SelfChatManager() {
             projectPath={activeSession.appCwd}
             isActive={true}
             visibilityOwnerId={selfChatOwnerId(activeSession.id)}
+            viewRole="selfchat"
             launchClaude={true}
             cliTool={defaultCliTool}
             providerId={activeProvider.id}
