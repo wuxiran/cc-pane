@@ -6,7 +6,6 @@ import type { PaneNode, Panel, Tab } from "@/types";
 import type { PanesDraft, PanesState, TabAcrossLayoutsLocation } from "./panesStoreTypes";
 import {
   eachLayoutTree,
-  isStarredLayout,
   resolveLayoutWriteTarget,
 } from "./paneLayoutHelpers";
 import { collectPanels, findPane, generateId } from "./paneTreeHelpers";
@@ -156,10 +155,7 @@ export function createEditorTabActions(
       // 拦住自动化流程）、无 PTY 可回收、不记撤销栈。星标布局维持跳过。
       const state = get();
       const tabIds: string[] = [];
-      for (const layout of state.layouts) {
-        if (isStarredLayout(layout)) continue;
-        const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
-        if (!tree) continue;
+      eachLayoutTree(state, (_layout, tree: PaneNode) => {
         for (const panel of collectPanels(tree)) {
           for (const tab of panel.tabs) {
             if (tab.contentType === "editor" && tab.filePath === filePath) {
@@ -167,7 +163,7 @@ export function createEditorTabActions(
             }
           }
         }
-      }
+      });
       if (tabIds.length > 0) get().removeTabsInternal(tabIds, "editor-path-close");
     },
 
