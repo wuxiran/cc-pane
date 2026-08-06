@@ -377,6 +377,88 @@ impl EventEmitter for WsEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cc_panes_core::services::boundary_events::{BoundaryChannel, EventOrigin, BOUNDARY_EVENTS};
+
+    /// **契约守卫**：表里每个事件都必须真的被投递出去。
+    ///
+    /// 这条测试存在的理由是 docs/45 那类事故：resume id 事件掉进 `emit` 的
+    /// `_ => {}`，跨进程静默丢失，表现为「功能还在、就是没数据」，且不可自愈。
+    /// 逐事件正例测试挡不住这个——新加的事件没人给它写正例。
+    ///
+    /// 做法：对表中每个事件真跑一次 emit，断言至少有一条消息落到某个通道。
+    /// 落进 `_ => {}` 的事件不会产生任何投递，这里就会挂。
+    #[test]
+    fn every_boundary_event_has_a_non_default_branch() {
+        for event in BOUNDARY_EVENTS {
+            // 只有经 emit 进来的事件才可能落进 `_ => {}`。emitter 自生成的
+            // desync 与独立入口的 notifier 各有自己的测试。
+            if event.origin != EventOrigin::Emit {
+                continue;
+            }
+
+            let emitter = WsEmitter::new();
+            let mut session_rx = emitter.subscribe("guard-session");
+            let mut control_rx = emitter.subscribe_control();
+
+            emitter.emit(
+                event.name,
+                serde_json::json!({
+                    "sessionId": "guard-session",
+                    "data": "x",
+                    "exitCode": 0,
+                    "resumeId": "r-1",
+                    "message": "m",
+                }),
+            );
+
+            let delivered_session = session_rx.try_recv().is_ok();
+            let delivered_control = control_rx.try_recv().is_ok();
+
+            assert!(
+                delivered_session || delivered_control,
+                "事件 `{}` 没有任何投递——它多半落进了 emit 的 `_ => {{}}`。
+                 契约表登记了它必须跨界（通道 {:?}），请在 emit 里补分支；
+                 若它确实不该跨界，请从 boundary_events.rs 的表里删掉。",
+                event.name,
+                event.channel,
+            );
+
+            // 通道也要对得上：control 类事件跑到 session WS 上，多客户端场景
+            // 下会因订阅者不存在而丢失。
+            match event.channel {
+                BoundaryChannel::Control => assert!(
+                    delivered_control,
+                    "事件 `{}` 契约上走 control，实际没投到 control",
+                    event.name
+                ),
+                BoundaryChannel::SessionWs => assert!(
+                    delivered_session,
+                    "事件 `{}` 契约上走 per-session WS，实际没投到",
+                    event.name
+                ),
+                // 兜底类：优先 session，投不进才 control。有订阅者时应落 session。
+                BoundaryChannel::SessionWsWithControlFallback => assert!(
+                    delivered_session,
+                    "事件 `{}` 有订阅者时应落 per-session WS",
+                    event.name
+                ),
+            }
+        }
+    }
+
+    /// notifier 走独立入口，同样不能静默丢。
+    #[test]
+    fn notifier_events_reach_control_channel() {
+        let emitter = WsEmitter::new();
+        let mut control_rx = emitter.subscribe_control();
+
+        emitter.publish_notifier_event("waitingInput", "session-1", None);
+
+        assert!(
+            control_rx.try_recv().is_ok(),
+            "notifier 事件没到 control 通道"
+        );
+    }
 
     #[test]
     fn publishes_terminal_output_and_exit_to_session_subscribers() {

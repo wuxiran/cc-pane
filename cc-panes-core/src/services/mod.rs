@@ -1,3 +1,4 @@
+pub mod boundary_events;
 pub mod claude_session_service;
 pub mod codex_session_service;
 mod ctl_sidecar;
