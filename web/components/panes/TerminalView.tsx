@@ -37,6 +37,8 @@ import {
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
 import { aggregateOf, useTabViewStateStore } from "@/stores/useTabViewStateStore";
+import type { ViewRole } from "@/stores/useTabViewStateStore";
+import { reportVisibilityDrift } from "./visibilityDriftAssert";
 import { replayAttachedSession } from "./terminalReplay";
 import { reconnectTerminalSession } from "./terminalReconnect";
 import { useTerminalAppearanceSync } from "./useTerminalAppearanceSync";
@@ -176,6 +178,8 @@ interface TerminalViewProps {
    * 不传（如星标镜像）= 本视图不注册降档。
    */
   visibilityOwnerId?: string;
+  /** 本视图在可见性单源里的角色（默认 primary）。双写断言按 role 取本视图条目。 */
+  viewRole?: ViewRole;
   onRestoreLaunchState?: (state: RestoreLaunchState) => void;
   onLaunchError?: (error: TerminalLaunchError) => void;
   onSessionCreated: (sessionId: string) => void;
@@ -580,6 +584,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       }
       if (props.layoutActive === false) {
         everHiddenRef.current = true;
+      }
+
+      // B2-06 双写断言：dev 下比对旧 ref 与 store，漂移只打日志不抛错——
+      // 可见性判错顶多多降一次档，抛错会让终端白屏，代价远大于问题本身。
+      if (import.meta.env.DEV && props.visibilityOwnerId) {
+        const owner = props.visibilityOwnerId;
+        const role = props.viewRole ?? "primary";
+        const state = useTabViewStateStore.getState();
+        reportVisibilityDrift(owner, role, {
+          legacyRenderVisible: isRenderVisible(),
+          legacyActive: isActiveRef.current,
+          storeVisibility: state.getViewVisibility(owner, role),
+          storeAnyVisible: state.aggregate[owner]?.anyVisible ?? false,
+          storeViewCount: Object.values(state.views).filter((v) => v.owner === owner).length,
+        });
       }
     });
 

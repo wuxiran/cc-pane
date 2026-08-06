@@ -92,6 +92,7 @@ export default function PopupTerminalWindow() {
         sessionId={tabData.sessionId}
         projectPath={tabData.projectPath}
         visibilityOwnerId={tabData.tabId}
+        viewRole="popup"
         isActive={true}
         workspaceName={tabData.workspaceName}
         providerId={tabData.providerId}
