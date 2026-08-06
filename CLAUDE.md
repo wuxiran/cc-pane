@@ -346,6 +346,11 @@ flutter pub get && flutter analyze && flutter test
 - **收集要杀的会话必须用 `collectTerminalSessionIdsWithSaved`（含 `savedSessionId`），不是 `collectTerminalSessionIds`**：`savedSessionId` 是「恢复中但尚未 attach」的会话，背后是**真实存在的 PTY**，漏掉就是孤儿。旧口径函数保持原样另有消费者，两者并存且有守护测试防「顺手合并」。
 - **从 Immer draft 里带出数据做异步处理必须深拷贝**：`{ ...tab }` 浅拷贝的 `terminalRootPane` 仍指向 draft，`set()` 结束后 proxy 被 revoke，异步回收再读就抛 `Cannot perform 'get' on a proxy that has been revoked`。用 `structuredClone(current(tab))`。**这条只在异步路径触发，测试断言照常通过、仅报未处理拒绝**，极易漏过去。
 - **改了销毁链路后测试挂了，先分清是「功能坏了」还是「测试观察点过时」**：0.12.0 批1 实测三轮失败里两轮是后者——`vi.mock("@/services")` 只 mock 了桶文件，而 `destroyPipeline` 从 `@/services/terminalService` **直接** import，绕过 mock，表现为「回收没发生」；另一类是测试注入假 `closeTab` 断言旧协作方式，而改道后 UI 只把 tabId 交给出口。直接改测试让它变绿的话，混在里面的**真**退化（当时是 dirty 守卫按 contentType 分派后终端标签的未保存确认静默消失）就被盖过去了。
+- **可见性的唯一事实源是 `useTabViewStateStore`，键是 `owner:role` 而不是 tabId**（0.12.0 批2）：**可见性属于「视图」，不属于「标签」**——同一个 PTY 可能被主标签、星标镜像、弹出窗口三个视图同时观看，而 SelfChat 跑着真实 Claude 会话却根本没有 tabId（它是全屏主视图，不在 pane 树里）。不要给无 tab 的视图伪造 tabId：`TerminalView` 的 `tabId` prop 被 `findTabAcrossLayouts`/`updateTerminalLaunchId` 当作真标签 id 用，塞假值会静默查不到（docs/69 同类坑）。降档/休眠判据是聚合的 `anyVisible`（**任一视图可见就不休眠**），渲染/WebGL 与 scheduler 焦点判据看单视图——两者不能混用。
+- **降档判据改了信号源就必须同时加 store 订阅**：其他视图（星标镜像、弹出窗口）的可见性翻转不会让本组件 render，每帧 effect 够不着。没有订阅的话「打开星标页」不会取消原 tab 已经启动的休眠计时——修完 bug 只修了一半。
+- **积压 flush 有两条防线，删任何一条都会丢字**（0.12.0 批2 复核结论，与初版设计相反）：`terminalHiddenWriteBuffer` 的 drain-on-push 解决「可见性翻转与数据到达的**竞态**」（顺序不由 buffer 决定，漏拼会让积压排到新数据之后）；`TerminalView` 每帧 effect 的边沿 flush 解决「**静默会话**切回可见时的补投」——drain-on-push 只在有新数据时排空，而切回一个已经跑完、不再产出的后台标签时 push 永远不会被调用，积压将永远显示不出来。两者覆盖的不是同一件事。
+- **组件里加 hook 必须在所有提前 return 之前**：0.12.0 批2 实测把可见性上报 hook 插在了 `if (!tabData) return` 之后，React 直接报「Hooks 调用顺序变化」并使组件崩溃——测试表现为「找不到 testid」，看着像渲染逻辑坏了，实际是 Hooks 规则违规。
+- **`useTerminalStatusStore.statusMap` 由后端事件整条覆盖，别往里塞前端侧字段**：塞进去的会被下一个 `terminal-status` 事件抹掉。轴1 输入活跃因此独立成 `useTerminalInputActivityStore`。
 
 ## 文档引用
 
