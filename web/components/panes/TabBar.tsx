@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useTerminalStatusStore } from "@/stores";
+import { useTabAttentionStore } from "@/stores/useTabAttentionStore";
 import InlineRename from "@/components/ui/InlineRename";
 import SessionBindDialog from "@/components/panes/SessionBindDialog";
 import { computeTabNumbers } from "@/lib/tabNumbering";
@@ -155,6 +156,8 @@ function SortableTab({
   onOpenSessionBind: (tab: Tab) => void;
   t: TFunction<"panes">;
 }) {
+  // 每 tab 只订阅自己的条目存在性，避免任何标记变化全列表重渲
+  const hasAttentionMark = useTabAttentionStore((st) => Boolean(st.entries[tab.id]));
   const {
     attributes,
     listeners,
@@ -304,6 +307,14 @@ function SortableTab({
           >
             {tab.title}
           </span>
+        )}
+        {/* 后台注意红点：会话完成/出错/等输入且标签不可见时亮，切过去自动灭 */}
+        {hasAttentionMark && (
+          <span
+            aria-label={t("tabAttentionDot")}
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: "var(--app-danger, #e5484d)" }}
+          />
         )}
         {!tab.pinned && (
           <div

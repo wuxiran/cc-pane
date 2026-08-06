@@ -319,5 +319,6 @@
   "closeTabBusyAgents_other": "{{count}} agent sessions still running:",
   "closeTabDirtyEditors_one": "{{count}} editor with unsaved changes:",
   "closeTabDirtyEditors_other": "{{count}} editors with unsaved changes:",
-  "closeTabConfirmAction": "Close anyway"
+  "closeTabConfirmAction": "Close anyway",
+  "tabAttentionDot": "Needs attention"
 }

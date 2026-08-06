@@ -6,7 +6,7 @@
   "components/mobile/MobilePrototype.tsx": 1041,
   "components/orchestration/OrchestrationFullView.tsx": 511,
   "components/panes/Panel.tsx": 561,
-  "components/panes/TabBar.tsx": 623,
+  "components/panes/TabBar.tsx": 634,
   "components/panes/TerminalView.tsx": 2229,
   "components/providers/LaunchProfilesPanel.tsx": 577,
   "components/providers/ProviderFormPanel.tsx": 575,
