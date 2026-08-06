@@ -1313,8 +1313,30 @@ async fn ws_control(
     Ok(ws.on_upgrade(move |socket| handle_control_ws(socket, config, is_desktop)))
 }
 
+/// control 通道的入站消息（客户端 → daemon）。
+///
+/// 此前 control 是单向的（入站 Text 直接丢弃），批3 的 hidden 上报需要这条
+/// 上行路。旧 daemon 收到 hidden 上报会静默忽略——所以 app 侧**不能假设上报
+/// 生效**，前端 512KB 积压必须继续兜底。
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum ControlInboundMessage {
+    /// 声明该连接当前看不见哪些会话（全量覆盖，不是增量）。
+    HiddenSessions { sessions: Vec<String> },
+    #[serde(other)]
+    Unknown,
+}
+
 async fn handle_control_ws(socket: WebSocket, config: DaemonConfig, is_desktop: bool) {
     let _guard = is_desktop.then(|| config.register_desktop_client());
+    // 每条 control 连接一个身份：hidden 按连接记账，多客户端互不影响。
+    // 用进程内单调计数即可——身份只需在本 daemon 生命周期内唯一。
+    static CONTROL_CONNECTION_SEQ: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+    let connection_id = format!(
+        "ctl-{}",
+        CONTROL_CONNECTION_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
     if is_desktop {
         info!(
             desktop_client_count = config.desktop_client_count(),
@@ -1341,11 +1363,26 @@ async fn handle_control_ws(socket: WebSocket, config: DaemonConfig, is_desktop: 
                         }
                     }
                     Message::Close(_) => break,
+                    Message::Text(text) => {
+                        match serde_json::from_str::<ControlInboundMessage>(&text) {
+                            Ok(ControlInboundMessage::HiddenSessions { sessions }) => {
+                                config
+                                    .ws_emitter()
+                                    .set_hidden_sessions(&connection_id, &sessions);
+                            }
+                            // 未知消息静默忽略：新版 app 对旧 daemon 发新消息时
+                            // 不应把连接搞崩。
+                            Ok(ControlInboundMessage::Unknown) | Err(_) => {}
+                        }
+                    }
                     _ => {}
                 }
             }
         }
     }
+    // 连接结束：清掉它的 hidden 标记，否则重连后的新订阅会被旧标记压住，
+    // 表现为「重连后永久收不到输出」且零报错。
+    config.ws_emitter().clear_connection_hidden(&connection_id);
 
     if is_desktop {
         // guard 在函数返回时 drop，这里先打日志（-1 生效前的计数减一即最终值）
