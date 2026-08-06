@@ -11,6 +11,7 @@ import {
   useTerminalPathLinkStore,
   useWallpaperStore,
 } from "@/stores";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { historyService, sessionRestoreService, terminalService } from "@/services";
 import { createTerminalRendererController } from "./terminalRendererController";
 import { createTerminalLayoutScheduler } from "./terminalLayoutScheduler";
@@ -271,7 +272,7 @@ function renderTerminalView(props?: Partial<React.ComponentProps<typeof Terminal
       sessionId={null}
       launchId="reserved-launch"
       projectPath="/tmp/proj"
-      isActive
+      visibilityOwnerId="tab-1"
       paneId="pane-1"
       tabId="tab-1"
       onSessionCreated={vi.fn()}
@@ -300,6 +301,9 @@ describe("TerminalView", () => {
     useSettingsStore.setState({ settings: undefined } as never);
     useTerminalStatusStore.setState({ statusMap: new Map() } as never);
     useWallpaperStore.setState({ resolved: null, assetUrl: null });
+    // 可见性单源：默认把 scaffold 的 owner 置为前台焦点视图
+    useTabViewStateStore.setState({ views: {}, aggregate: {} });
+    useTabViewStateStore.getState().reportView("tab-1", "primary", "active");
   });
 
   afterEach(() => {
@@ -475,10 +479,9 @@ describe("TerminalView", () => {
   });
 
   it("layout resize lets a visible terminal in an unfocused pane fit", async () => {
+    useTabViewStateStore.getState().reportView("tab-1", "primary", "visible");
     renderTerminalView({
       sessionId: "inactive-pane-session",
-      isActive: false,
-      isVisible: true,
       layoutActive: true,
     });
     await waitFor(() => expect(registerOutput).toHaveBeenCalled());
@@ -502,6 +505,7 @@ describe("TerminalView", () => {
 
   it("defers PTY creation for a hidden layout and reports the restore state", async () => {
     const onRestoreLaunchState = vi.fn();
+    useTabViewStateStore.getState().reportView("tab-1", "primary", "hidden");
     renderTerminalView({ layoutActive: false, restoring: true, onRestoreLaunchState });
 
     await waitFor(() => expect(onRestoreLaunchState).toHaveBeenCalledWith("queued"));
@@ -514,8 +518,6 @@ describe("TerminalView", () => {
       sessionId: null,
       launchId: "previous-launch",
       projectPath: "/tmp/proj",
-      isActive: false,
-      isVisible: false,
       layoutActive: false,
       restoring: true,
       savedSessionId: "expired-session",
@@ -553,8 +555,6 @@ describe("TerminalView", () => {
       sessionId: null,
       launchId: "previous-launch",
       projectPath: "/tmp/proj",
-      isActive: false,
-      isVisible: false,
       layoutActive: false,
       restoring: true,
       savedSessionId: "expired-session",
@@ -586,8 +586,6 @@ describe("TerminalView", () => {
         sessionId: null,
         launchId: "previous-launch",
         projectPath: "/tmp/proj",
-        isActive: false,
-        isVisible: false,
         layoutActive: false,
         restoring: true,
         savedSessionId: "expired-session",
@@ -668,7 +666,6 @@ describe("TerminalView", () => {
         sessionId={null}
         launchId="previous-launch"
         projectPath="/tmp/proj"
-        isActive
         layoutActive
         paneId="pane-1"
         tabId="tab-1"
@@ -755,19 +752,10 @@ describe("TerminalView", () => {
   });
 
   it("后台标签页的输出先积压，切回可见时一次性补齐且保序", async () => {
-    const element = (visible: boolean) => (
-      <TerminalView
-        sessionId={null}
-        launchId="reserved-launch"
-        projectPath="/tmp/proj"
-        isActive={visible}
-        isVisible={visible}
-        paneId="pane-1"
-        tabId="tab-1"
-        onSessionCreated={vi.fn()}
-      />
-    );
-    const view = render(element(false));
+    // 行为红线（store 驱动版）：可见性翻转不再走 props，翻 store 单视图即触发
+    // 边沿 flush——与生产完全同路。
+    useTabViewStateStore.getState().reportView("tab-1", "primary", "hidden");
+    renderTerminalView();
     await waitFor(() => expect(registerOutput).toHaveBeenCalled());
     const term = await lastTerm();
     const outputHandler = registerOutput.mock.calls[0][1] as (data: string) => void;
@@ -779,7 +767,9 @@ describe("TerminalView", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(term.writtenData).not.toContain("part-1");
 
-    view.rerender(element(true));
+    act(() => {
+      useTabViewStateStore.getState().reportView("tab-1", "primary", "active");
+    });
 
     // 切回后补齐，且顺序不变、零丢失。
     await waitFor(() => expect(term.writtenData).toContain("part-1 part-2"));
@@ -800,11 +790,8 @@ describe("TerminalView", () => {
 
   it("后台会话退出时先补齐尾部输出，再显示退出提示", async () => {
     const onSessionExited = vi.fn();
-    renderTerminalView({
-      isActive: false,
-      isVisible: false,
-      onSessionExited,
-    });
+    useTabViewStateStore.getState().reportView("tab-1", "primary", "hidden");
+    renderTerminalView({ onSessionExited });
     await waitFor(() => {
       expect(registerOutput).toHaveBeenCalled();
       expect(registerExit).toHaveBeenCalled();

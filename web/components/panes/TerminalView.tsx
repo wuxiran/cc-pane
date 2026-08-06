@@ -36,14 +36,12 @@ import {
   useWallpaperStore,
 } from "@/stores";
 import { isDragging } from "@/stores/splitDragState";
-import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { ViewRole } from "@/stores/useTabViewStateStore";
-import { checkVisibilityDrift } from "./visibilityDriftAssert";
 import {
-  resolveViewFocus,
   useAggregateVisibilitySubscription,
   useDowngradeVisibility,
   useViewVisibilityEdgeSubscription,
+  useViewVisibilityReaders,
 } from "./useDowngradeVisibility";
 import { replayAttachedSession } from "./terminalReplay";
 import { reconnectTerminalSession } from "./terminalReconnect";
@@ -138,11 +136,11 @@ interface TerminalViewProps {
   /** A remount after a failed launch must not reuse the failed attempt's identity. */
   launchAttempt?: number;
   projectPath: string;
-  /** Whether this tab is the selected tab in its panel and is visible on screen. */
-  isVisible?: boolean;
-  /** Whether this terminal belongs to the currently focused pane. */
-  isActive: boolean;
-  /** Whether this terminal belongs to the current top-level layout. */
+  /**
+   * Whether this terminal belongs to the current top-level layout.
+   * 独立于可见性单源的 layout 级判据（后台布局的延迟恢复语义靠它，store
+   * 三档不表达「为什么不可见」）。
+   */
   layoutActive?: boolean;
   /** False for read-only/shared PTY mirrors that must only fit their local xterm view. */
   drivesBackendPty?: boolean;
@@ -329,8 +327,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const focusReportModeRef = useRef(false);
     const lastWheelDecisionRef = useRef<string | null>(null);
     const lastDragFitAtRef = useRef(0);
-    const isActiveRef = useRef(props.isActive);
-    const isVisibleRef = useRef(props.isVisible ?? props.isActive);
     const layoutActiveRef = useRef(props.layoutActive ?? true);
     const hiddenWriteBufferRef = useRef<TerminalHiddenWriteBuffer | null>(null);
     const terminalRendererMode = useSettingsStore((s) => s.settings?.terminal.rendererMode ?? "auto");
@@ -358,8 +354,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         propSessionId: props.sessionId ?? null,
         sessionId: currentSessionIdRef.current ?? props.sessionId ?? null,
         cliTool: effectiveCliTool,
-        isActive: props.isActive,
-        isVisible: props.isVisible ?? props.isActive,
         layoutActive: props.layoutActive ?? true,
         renderer: rendererControllerRef.current?.getActiveRenderer() ?? null,
         xtermBuffer: terminalInstanceRef.current?.buffer.active.type ?? null,
@@ -367,8 +361,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       });
     }, [
       effectiveCliTool,
-      props.isActive,
-      props.isVisible,
       props.layoutActive,
       props.paneId,
       props.projectPath,
@@ -451,32 +443,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       await flowControl.write(data, onWritten);
     }, [props.sessionId]);
 
-    /**
-     * 本终端当前是否值得渲染。后台标签页只是 `display: none` 仍保持挂载，
-     * 照单全收会让 N 个后台会话各压一份 parser + renderer 上主线程（docs/71 §3）。
-     *
-     * 单源读 store 单视图：primary 写侧把「非当前 tab」与「非当前布局」都编码为
-     * hidden，故等价覆盖旧 `isVisible && layoutActive` 组合。store 条目未登记
-     * （首帧上报未跑 / MobilePrototype 迁移期无写侧）退回旧 ref。
-     */
-    const isRenderVisible = useCallback(() => {
-      const owner = props.visibilityOwnerId;
-      if (!owner) return isVisibleRef.current && layoutActiveRef.current;
-      const v = useTabViewStateStore
-        .getState()
-        .getViewVisibility(owner, props.viewRole ?? "primary");
-      if (v === undefined) return isVisibleRef.current && layoutActiveRef.current;
-      return v !== "hidden";
-    }, [props.visibilityOwnerId, props.viewRole]);
-
-    /**
-     * 焦点类判定的 store 侧（tab 级单视图 active）。leaf 级焦点由
-     * `props.leafFocused` 参与组合——消费点写成
-     * `isViewActive() && (props.leafFocused ?? true)`。
-     */
-    const isViewActive = useCallback(() => {
-      return resolveViewFocus(props.visibilityOwnerId, props.viewRole, () => isActiveRef.current);
-    }, [props.visibilityOwnerId, props.viewRole]);
+    // 本终端是否值得渲染 / tab 级焦点——单视图读侧（useViewVisibilityReaders）。
+    // 后台标签只是 display:none 仍挂载，照单全收会让 N 个后台会话各压一份
+    // parser + renderer 上主线程（docs/71 §3）。leaf 级焦点由 props.leafFocused
+    // 组合：`isViewActive() && (props.leafFocused ?? true)`。
+    const layoutOnlyFallback = useCallback(() => layoutActiveRef.current, []);
+    const { isRenderVisible, isViewActive } = useViewVisibilityReaders(
+      props.visibilityOwnerId,
+      props.viewRole,
+      layoutOnlyFallback,
+    );
 
     const resolveDowngradeVisibility = useDowngradeVisibility(
       props.visibilityOwnerId,
@@ -587,20 +563,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       onSessionExitedRef.current = props.onSessionExited;
       onLaunchErrorRef.current = props.onLaunchError;
       onReconnectRef.current = props.onReconnect;
-      isActiveRef.current = props.isActive;
-      const wasRenderVisible = isRenderVisible();
-      isVisibleRef.current = props.isVisible ?? props.isActive;
       layoutActiveRef.current = props.layoutActive ?? true;
-      // 由隐藏转可见：把积压一次性补上。积压补投共三道防线，覆盖各不相同：
-      //   - drain-on-push：可见性翻转与数据到达的**竞态**（顺序不由本模块定）
-      //   - store 单视图边沿订阅（下方 useViewVisibilityEdgeSubscription）：
-      //     **静默会话**本视图翻可见时的补投——聚合 anyVisible 在镜像常开时
-      //     没有边沿，必须听单视图
-      //   - 本处 props 边沿：MobilePrototype 迁移期兜底（无 store 写侧，
-      //     isRenderVisible 退回旧 ref 才有边沿），写侧补齐后随三 ref 一起删
-      if (!wasRenderVisible && isRenderVisible()) {
-        flushHiddenWrites("visibility.gained");
-      }
+      // 积压补投两道防线（docs/78）：drain-on-push 管「可见性翻转与数据到达的
+      // 竞态」；store 单视图边沿订阅（useViewVisibilityEdgeSubscription）管
+      // 「静默会话本视图翻可见时的补投」。两者覆盖不同，删任一都丢字。
       // 后台分层降档（docs/71 §3.1）：5min 挂 WebGL，30min 休眠。幂等，可每次 render 调。
       // 判据是「任一视图可见」而非「本视图可见」，见 resolveDowngradeVisibility。
       // 注意本处只覆盖「自身 render 触发」的路径；别的视图变化（如切到星标页）
@@ -614,8 +580,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         everHiddenRef.current = true;
       }
 
-      // 可见性双写断言（dev only，只打日志不抛错）
-      checkVisibilityDrift(props.visibilityOwnerId, props.viewRole, isRenderVisible(), isActiveRef.current);
     });
 
     useAggregateVisibilitySubscription(props.visibilityOwnerId, notifyVisibility);
@@ -978,10 +942,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           getFitAddon: () => fitAddonRef.current,
           getHost: () => terminalRef.current,
           getSessionId: () => currentSessionIdRef.current,
-          // 焦点判据改读单源（**不是**降档的 anyVisible——这里问的是
-          // 「本视图是不是焦点」，决定要不要 refit）。无 owner 时退回旧 ref。
-          isActive: () =>
-            resolveViewFocus(props.visibilityOwnerId, props.viewRole, () => isActiveRef.current),
+          // 焦点判据读单源（不是降档的 anyVisible）：refit 只看本视图焦点
+          isActive: isViewActive,
           canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
           repaint: repaintTerminal,
           resizeBackend: (cols, rows) => {
@@ -2199,8 +2161,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         scheduleRefit();
         return () => layoutSchedulerRef.current?.cancel();
       }
+      // 依赖是「本 tab 的 props 侧信号」；store 侧的可见性翻转由单视图边沿
+      // 订阅补 refit，不需要（也无法）进依赖数组。
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.isActive, props.isVisible, props.layoutActive, terminalReady]);
+    }, [props.layoutActive, props.leafFocused, terminalReady]);
 
     const {
       getTerminalSelection,

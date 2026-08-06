@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
+import { useTabViewStateStore, viewKey } from "@/stores/useTabViewStateStore";
 import { browserService, type BrowserBounds } from "@/services/browserService";
 import { browserSecurityKind, normalizeBrowserUrl } from "@/lib/browserUrl";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
@@ -21,8 +22,6 @@ import { isTauriRuntime } from "@/services/runtime";
 
 interface BrowserTabContentProps {
   tab: Tab;
-  isVisible: boolean;
-  isActive: boolean;
 }
 
 type BrowserError =
@@ -42,12 +41,16 @@ function isUnsupportedBrowserProtocolError(message: string): boolean {
     || normalized.includes("browser tabs only support http and https urls");
 }
 
-export default memo(function BrowserTabContent({
-  tab,
-  isVisible,
-  isActive,
-}: BrowserTabContentProps) {
+export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) {
   const { t } = useTranslation("panes");
+  // 可见性读单视图（Panel 的 useReportPaneVisibility 对全部 contentType 上报
+  // primary），渲染与 webview 焦点都看本视图，不看聚合。条目未登记视为不可见
+  // ——webview 创建有 isVisible 门槛，宁可晚一帧创建也不在后台建。
+  const primaryVisibility = useTabViewStateStore(
+    (s) => s.views[viewKey(tab.id, "primary")]?.visibility,
+  );
+  const isVisible = primaryVisibility !== undefined && primaryVisibility !== "hidden";
+  const isActive = primaryVisibility === "active";
   const viewportRef = useRef<HTMLDivElement>(null);
   const createdRef = useRef(false);
   const webviewBlocked = useBrowserWebviewOverlayStore((state) => state.blockers.size > 0);

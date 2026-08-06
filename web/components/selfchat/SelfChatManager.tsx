@@ -195,7 +195,6 @@ export default function SelfChatManager() {
             ref={terminalRef}
             sessionId={activeSession.ptySessionId}
             projectPath={activeSession.appCwd}
-            isActive={true}
             visibilityOwnerId={selfChatOwnerId(activeSession.id)}
             viewRole="selfchat"
             launchClaude={true}

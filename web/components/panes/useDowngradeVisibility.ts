@@ -91,6 +91,30 @@ export function useViewVisibilityEdgeSubscription(
 }
 
 /**
+ * TerminalView 的两个 store 读侧（单视图口径）。
+ *
+ * - isRenderVisible：本终端是否值得渲染。primary 写侧把「非当前 tab」与
+ *   「非当前布局」都编码为 hidden，故等价覆盖旧 `isVisible && layoutActive`
+ *   组合。条目未登记（首帧上报未跑）走 layoutFallback——后台布局启动期不多渲。
+ * - isViewActive：tab 级焦点（leaf 级焦点由调用方以 leafFocused prop 组合）。
+ *   条目未登记放行：refit 被误跳过的代价高于多 refit 一次。
+ */
+export function useViewVisibilityReaders(
+  owner: string | undefined,
+  role: ViewRole | undefined,
+  layoutFallback: () => boolean,
+): { isRenderVisible: () => boolean; isViewActive: () => boolean } {
+  const isRenderVisible = useCallback(() => {
+    if (!owner) return layoutFallback();
+    const v = useTabViewStateStore.getState().getViewVisibility(owner, role ?? "primary");
+    if (v === undefined) return layoutFallback();
+    return v !== "hidden";
+  }, [owner, role, layoutFallback]);
+  const isViewActive = useCallback(() => resolveViewFocus(owner, role, () => true), [owner, role]);
+  return { isRenderVisible, isViewActive };
+}
+
+/**
  * 焦点判据（scheduler 用）：本视图是不是焦点，决定要不要 refit。
  *
  * 与降档判据不同——那个问「有没有人在看」（聚合），这个问「焦点在不在我这」

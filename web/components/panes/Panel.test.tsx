@@ -13,6 +13,7 @@ import {
 import { terminalService } from "@/services";
 import Panel from "./Panel";
 import { CLOSE_ACTIVE_TAB_EVENT } from "./useTabClosing";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 
 interface TabBarProps {
   tabs: Tab[];
@@ -159,8 +160,12 @@ describe("Panel", () => {
     const t2 = screen.getByTestId("tab-content-t2").parentElement!;
     expect(t1.style.display).toBe("flex");
     expect(t2.style.display).toBe("none");
-    expect(tabContentPropsByTab.get("t1")?.isVisible).toBe(true);
-    expect(tabContentPropsByTab.get("t2")?.isVisible).toBe(false);
+    // 可见性不再走 props：断言单源里的 primary 视图条目（真实写侧
+    // useReportPaneVisibility 在 Panel 内挂载）
+    const viewOf = (owner: string) =>
+      useTabViewStateStore.getState().getViewVisibility(owner, "primary");
+    expect(viewOf("t1")).not.toBe("hidden");
+    expect(viewOf("t2")).toBe("hidden");
   });
 
   it("enables terminal status bars only when the layout has multiple panes", () => {

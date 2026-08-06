@@ -9,6 +9,7 @@ import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlay
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { browserService } from "@/services/browserService";
 import BrowserTabContent from "./BrowserTabContent";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 
 let pageLoadHandler: ((event: { tabId: string; url: string; loading: boolean }) => void) | null = null;
 let titleHandler: ((event: { tabId: string; title: string }) => void) | null = null;
@@ -47,14 +48,14 @@ function makeBrowserTab(): Tab {
   };
 }
 
-function renderBrowser(options: { isVisible?: boolean; isActive?: boolean } = {}) {
+function renderBrowser(options: { visibility?: "active" | "visible" | "hidden" } = {}) {
+  // 可见性走单源：browser 组件自己按 tab.id 订阅 primary 视图
+  useTabViewStateStore
+    .getState()
+    .reportView("browser-tab-1", "primary", options.visibility ?? "active");
   return render(
     <TooltipProvider>
-      <BrowserTabContent
-        tab={makeBrowserTab()}
-        isVisible={options.isVisible ?? true}
-        isActive={options.isActive ?? true}
-      />
+      <BrowserTabContent tab={makeBrowserTab()} />
     </TooltipProvider>,
   );
 }

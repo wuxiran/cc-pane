@@ -16,6 +16,7 @@ import TerminalTabContent from "@/components/panes/TerminalTabContent";
 import type { TerminalViewHandle } from "@/components/panes/TerminalView";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { collectPanels } from "@/stores/paneTreeHelpers";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { LayoutEntry, PaneNode, Panel, Tab, Workspace, WorkspaceProject } from "@/types";
 import { getProjectName } from "@/utils/path";
 
@@ -820,6 +821,18 @@ function TerminalBoard({
   const activeSessionId = getActiveTerminalSessionId(terminal?.tab);
   const canSend = Boolean(terminal && activeSessionId);
 
+  // 可见性写侧：移动原型是单终端全屏视图，展示中的 tab 恒 primary/active。
+  // 没有这条写侧的话，可见性单源里查不到条目，终端会被当成后台标签降档。
+  const mobileTerminalTabId =
+    terminal?.tab.contentType === "terminal" && terminal.tab.projectPath ? terminal.tab.id : null;
+  useEffect(() => {
+    if (!mobileTerminalTabId) return;
+    useTabViewStateStore.getState().reportView(mobileTerminalTabId, "primary", "active");
+    return () => {
+      useTabViewStateStore.getState().removeView(mobileTerminalTabId, "primary");
+    };
+  }, [mobileTerminalTabId]);
+
   const writeShortcut = async (text: string) => {
     if (!terminal || !activeSessionId) return;
     setSendError(null);
@@ -905,8 +918,6 @@ function TerminalBoard({
         {terminal?.tab.contentType === "terminal" && terminal.tab.projectPath ? (
           <TerminalTabContent
             tab={terminal.tab}
-            isVisible
-            isActive
             layoutActive
             onSessionCreated={terminal.onSessionCreated}
             onSessionExited={terminal.onSessionExited}

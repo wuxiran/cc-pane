@@ -1,7 +1,4 @@
-// Panel 的可见性上报（docs/78）。
-//
-// 双写期：三个 props 照旧传给 TabContentRenderer，同时把同一份判定写进
-// useTabViewStateStore。待双写断言跑通零漂移后，props 那条路才拆。
+// Panel 的可见性上报（docs/78）——primary 视图的唯一写侧。
 //
 // 为什么上报点在 Panel 而不是各内容组件：**后台标签也必须有记录**。
 // 五种 contentType（editor/file-explorer/mcp-config/skill-manager/memory-manager）
@@ -12,12 +9,12 @@ import { useTabViewStateStore, type ViewVisibility } from "@/stores/useTabViewSt
 import type { Panel } from "@/types";
 
 /**
- * 单个 tab 在 primary 视图下的可见性档位。
- *
- * 与现有三 props 的对应关系（保持逐字等价，双写断言才有意义）：
- * - active  = layoutVisible && 是当前标签 && 是焦点 pane   （对应 props.isActive）
- * - visible = layoutVisible && 是当前标签                  （对应 props.isVisible）
- * - hidden  = 其余                                          （props 三者皆 false）
+ * 单个 tab 在 primary 视图下的可见性档位：
+ * - active  = layoutVisible && 是当前标签 && 是焦点 pane
+ * - visible = layoutVisible && 是当前标签
+ * - hidden  = 其余（含「布局不可见」——layout 语义在这里编码进 hidden，
+ *   所以读侧的渲染判定只看单视图即可；「为什么不可见」由独立的
+ *   layoutActive prop 另行承载，供延迟恢复语义用）
  */
 export function paneTabVisibility(
   tabId: string,

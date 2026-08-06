@@ -19,8 +19,6 @@ const BrowserTabContent = lazyWithRetry(() => import("./BrowserTabContent"), "Br
 
 interface TabContentRendererProps {
   tab: Tab;
-  isVisible: boolean;
-  isActive: boolean;
   layoutActive: boolean;
   showTerminalStatusBar?: boolean;
   paneId: string;
@@ -55,8 +53,6 @@ function LazyContent({ children }: { children: ReactNode }) {
 
 export default memo(function TabContentRenderer({
   tab,
-  isVisible,
-  isActive,
   layoutActive,
   showTerminalStatusBar,
   paneId,
@@ -111,8 +107,6 @@ export default memo(function TabContentRenderer({
         <TerminalTabContent
           key={tab.reclaimKey ?? 0}
           tab={tab}
-          isVisible={isVisible}
-          isActive={isActive}
           layoutActive={layoutActive}
           showStatusBar={showTerminalStatusBar}
           onSessionCreated={onSessionCreated}
@@ -134,7 +128,7 @@ export default memo(function TabContentRenderer({
       if (!tab.browserUrl) return null;
       return (
         <LazyContent>
-          <BrowserTabContent tab={tab} isVisible={isVisible} isActive={isActive} />
+          <BrowserTabContent tab={tab} />
         </LazyContent>
       );
 

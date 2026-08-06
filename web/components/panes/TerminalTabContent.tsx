@@ -8,6 +8,7 @@ import {
   usePanesStore,
   useTerminalRestoreLogStore,
 } from "@/stores";
+import { useTabViewStateStore, viewKey } from "@/stores/useTabViewStateStore";
 import type { TerminalRestoreLogEntry } from "@/stores/useTerminalRestoreLogStore";
 import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
 import { coldRestoreBlockedTerminal } from "@/hooks/coldTerminalRestore";
@@ -22,8 +23,6 @@ import VoiceInputButton from "./VoiceInputButton";
 
 interface TerminalTabContentProps {
   tab: Tab;
-  isVisible: boolean;
-  isActive: boolean;
   layoutActive: boolean;
   showStatusBar?: boolean;
   onSessionCreated: (sessionId: string, terminalPaneId?: string) => void;
@@ -217,8 +216,6 @@ function LaunchErrorPanel({
 
 export default memo(function TerminalTabContent({
   tab,
-  isVisible,
-  isActive,
   layoutActive,
   showStatusBar = false,
   onSessionCreated,
@@ -233,6 +230,11 @@ export default memo(function TerminalTabContent({
   const retryTerminalLaunch = usePanesStore((s) => s.retryTerminalLaunch);
   const removeTerminalLaunch = usePanesStore((s) => s.removeTerminalLaunch);
   const restoreLogs = useTerminalRestoreLogStore((s) => s.logs);
+  // 状态栏门控读单视图（primary 写侧已把 tab/layout 两层可见性都编码进去）
+  const primaryViewVisible = useTabViewStateStore((s) => {
+    const v = s.views[viewKey(tab.id, "primary")]?.visibility;
+    return v !== undefined && v !== "hidden";
+  });
   const hasProjectPath = Boolean(tab.projectPath);
 
   const renderNode = useCallback((node: TerminalPaneNode): ReactNode => {
@@ -281,8 +283,6 @@ export default memo(function TerminalTabContent({
               launchId={leaf.launchId}
               launchAttempt={leaf.launchAttempt}
               projectPath={tab.projectPath}
-              isVisible={isVisible}
-              isActive={isActive && tab.activeTerminalPaneId === leaf.id}
               layoutActive={layoutActive}
               leafFocused={tab.activeTerminalPaneId === leaf.id}
               workspaceName={leaf.workspaceName}
@@ -394,7 +394,7 @@ export default memo(function TerminalTabContent({
               terminalContext={terminalContextForLeaf(tab, leaf)}
               projectPath={tab.projectPath}
               effort={leaf.launchExtras?.adapterOptions?.effort ?? tab.launchExtras?.adapterOptions?.effort}
-              enabled={isVisible && layoutActive}
+              enabled={primaryViewVisible}
             />
           ) : null}
         </div>
@@ -416,8 +416,6 @@ export default memo(function TerminalTabContent({
       </div>
     );
   }, [
-    isActive,
-    isVisible,
     layoutActive,
     hasProjectPath,
     onReconnect,

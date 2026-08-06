@@ -1,7 +1,6 @@
-// B2-02 上报层测试。
-//
-// 核心是**与现有三 props 逐字等价**：双写期两条路并存，若映射就不一致，
-// B2-06 的漂移断言会一直误报，等于白做。
+// 上报层测试：paneTabVisibility 的三档真值表是**规格本身**——
+// 它是 primary 视图的唯一写侧，读侧（TerminalView/Browser/状态栏）全按
+// 「hidden 即不可见、active 即焦点」消费，这张表变了整条可见性链一起变。
 import { describe, it, expect, beforeEach } from "vitest";
 import { paneTabVisibility } from "./useReportPaneVisibility";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
@@ -10,21 +9,7 @@ beforeEach(() => {
   useTabViewStateStore.setState({ views: {}, aggregate: {} });
 });
 
-/** 现状三 props 的算法（Panel.tsx:452-455 原样照抄，作为等价性基准）。 */
-function legacyProps(
-  tabId: string,
-  activeTabId: string | undefined,
-  layoutVisible: boolean,
-  isActivePane: boolean,
-) {
-  return {
-    isVisible: layoutVisible && tabId === activeTabId,
-    isActive: layoutVisible && tabId === activeTabId && isActivePane,
-    layoutActive: layoutVisible,
-  };
-}
-
-describe("paneTabVisibility 与三 props 等价", () => {
+describe("paneTabVisibility 三档真值表", () => {
   const cases = [
     { layoutVisible: true, isActive: true, isCurrent: true, expected: "active" },
     { layoutVisible: true, isActive: false, isCurrent: true, expected: "visible" },
@@ -39,11 +24,6 @@ describe("paneTabVisibility 与三 props 等价", () => {
       const activeTabId = isCurrent ? "t1" : "other";
       const got = paneTabVisibility("t1", activeTabId, layoutVisible, isActive);
       expect(got).toBe(expected);
-
-      // 与旧 props 交叉验证：active ⟺ isActive；visible/active ⟺ isVisible
-      const legacy = legacyProps("t1", activeTabId, layoutVisible, isActive);
-      expect(got === "active").toBe(legacy.isActive);
-      expect(got !== "hidden").toBe(legacy.isVisible);
     },
   );
 

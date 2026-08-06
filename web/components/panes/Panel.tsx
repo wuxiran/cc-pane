@@ -455,8 +455,6 @@ export default memo(function Panel({ pane }: PanelProps) {
           >
             <TabContentRenderer
               tab={tab}
-              isVisible={layoutVisible && tab.id === pane.activeTabId}
-              isActive={layoutVisible && tab.id === pane.activeTabId && isActivePane}
               layoutActive={layoutVisible}
               showTerminalStatusBar={showTerminalStatusBar}
               paneId={pane.id}

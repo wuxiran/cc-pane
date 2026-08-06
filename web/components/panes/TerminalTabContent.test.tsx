@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Tab } from "@/types";
 import { usePanesStore, useTerminalRestoreLogStore } from "@/stores";
 import TerminalTabContent from "./TerminalTabContent";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 
 const terminalViewMock = vi.hoisted(() => vi.fn());
 const coldRestoreMock = vi.hoisted(() => vi.fn());
@@ -50,14 +51,16 @@ function createTerminalTab(overrides?: Partial<Tab>): Tab {
 
 function renderTerminalTabContent(
   tab: Tab,
-  options?: { isVisible?: boolean; isActive?: boolean; showStatusBar?: boolean },
+  options?: { visible?: boolean; showStatusBar?: boolean },
 ) {
+  // 可见性走单源：按 tab.id 写 primary 视图条目（默认前台）
+  useTabViewStateStore
+    .getState()
+    .reportView(tab.id, "primary", (options?.visible ?? true) ? "active" : "hidden");
   render(
     <TooltipProvider>
       <TerminalTabContent
         tab={tab}
-        isVisible={options?.isVisible ?? true}
-        isActive={options?.isActive ?? true}
         layoutActive
         showStatusBar={options?.showStatusBar}
         onSessionCreated={vi.fn()}
@@ -180,7 +183,7 @@ describe("TerminalTabContent", () => {
           restoring: true,
         },
       }),
-      { isVisible: false, isActive: false },
+      { visible: false },
     );
 
     expect(screen.getByText("恢复日志")).toBeVisible();

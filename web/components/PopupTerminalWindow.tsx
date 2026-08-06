@@ -95,7 +95,6 @@ export default function PopupTerminalWindow() {
         projectPath={tabData.projectPath}
         visibilityOwnerId={tabData.tabId}
         viewRole="popup"
-        isActive={true}
         workspaceName={tabData.workspaceName}
         providerId={tabData.providerId}
         modelId={tabData.modelId}

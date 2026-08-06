@@ -9,30 +9,21 @@ import { markTabReclaimed } from "@/services";
 import TabContentRenderer from "./TabContentRenderer";
 
 vi.mock("./TerminalTabContent", () => ({
-  default: ({ tab, isVisible, isActive, showStatusBar }: {
+  default: ({ tab, showStatusBar }: {
     tab: Tab;
-    isVisible: boolean;
-    isActive: boolean;
     showStatusBar?: boolean;
   }) => (
     <div
       data-testid="terminal-tab-content"
       data-tab-id={tab.id}
-      data-visible={String(isVisible)}
-      data-active={String(isActive)}
       data-status-bar={String(Boolean(showStatusBar))}
     />
   ),
 }));
 
 vi.mock("./BrowserTabContent", () => ({
-  default: ({ tab, isVisible, isActive }: { tab: Tab; isVisible: boolean; isActive: boolean }) => (
-    <div
-      data-testid="browser-tab-content"
-      data-tab-id={tab.id}
-      data-visible={String(isVisible)}
-      data-active={String(isActive)}
-    />
+  default: ({ tab }: { tab: Tab }) => (
+    <div data-testid="browser-tab-content" data-tab-id={tab.id} />
   ),
 }));
 
@@ -81,8 +72,6 @@ function renderContent(tab: Tab, options?: { isPoppedOut?: boolean; showTerminal
   return render(
     <TabContentRenderer
       tab={tab}
-      isVisible
-      isActive
       layoutActive
       showTerminalStatusBar={options?.showTerminalStatusBar}
       paneId="pane-1"
@@ -104,8 +93,6 @@ describe("TabContentRenderer", () => {
 
     const terminal = screen.getByTestId("terminal-tab-content");
     expect(terminal).toHaveAttribute("data-tab-id", "tab-1");
-    expect(terminal).toHaveAttribute("data-visible", "true");
-    expect(terminal).toHaveAttribute("data-active", "true");
   });
 
   it("renders nothing for a terminal tab without a project path", () => {
@@ -191,7 +178,5 @@ describe("TabContentRenderer", () => {
 
     const browser = await screen.findByTestId("browser-tab-content");
     expect(browser).toHaveAttribute("data-tab-id", "tab-1");
-    expect(browser).toHaveAttribute("data-visible", "true");
-    expect(browser).toHaveAttribute("data-active", "true");
   });
 });
