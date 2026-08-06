@@ -149,6 +149,69 @@ describe("createTabOfType", () => {
     }
   });
 
+  // 6 处内联字面量改道的对照（docs/78 批4「逐处 diff，不顺手统一」）：
+  // 每处的原字面量按当时源码逐字抄在这里，工厂输出必须与之逐字段相等。
+  describe("改道的 6 处内联字面量", () => {
+    it("openMcpConfig / openSkillManager / openMemoryManager / openFileExplorer", () => {
+      const sites: Array<[TabContentType, string]> = [
+        ["mcp-config", "MCP"],
+        ["skill-manager", "Skill"],
+        ["memory-manager", "Memory"],
+        ["file-explorer", "Explorer"],
+      ];
+      for (const [contentType, prefix] of sites) {
+        const title = `${prefix} - demo`;
+        const tab = createTabOfType(contentType, { title, projectPath: "/a/b/demo" });
+        expect(tab).toEqual({
+          id: tab.id,
+          title,
+          contentType,
+          projectId: "",
+          projectPath: "/a/b/demo",
+          sessionId: null,
+        });
+      }
+    });
+
+    it("openBrowser：调用方 id 与标题兜底都保留", () => {
+      const withId = createTabOfType("browser", {
+        id: "tab-caller",
+        title: "  站点  ",
+        browserUrl: "https://x.dev",
+      });
+      expect(withId).toEqual({
+        id: "tab-caller",
+        title: "站点",
+        contentType: "browser",
+        projectId: "",
+        projectPath: "",
+        sessionId: null,
+        browserUrl: "https://x.dev",
+      });
+
+      const noTitle = createTabOfType("browser", { browserUrl: "https://x.dev" });
+      expect(noTitle.title).toBe("Browser");
+      expect(noTitle.id).toMatch(/^tab-/);
+    });
+
+    it("openEditor：filePath 与 projectPath 落在 tab 上", () => {
+      const tab = createTabOfType("editor", {
+        title: "main.rs",
+        projectPath: "/a/b/demo",
+        filePath: "/a/b/demo/src/main.rs",
+      });
+      expect(tab).toEqual({
+        id: tab.id,
+        title: "main.rs",
+        contentType: "editor",
+        projectId: "",
+        projectPath: "/a/b/demo",
+        sessionId: null,
+        filePath: "/a/b/demo/src/main.rs",
+      });
+    });
+  });
+
   it("显式传入 launchId 时沿用（PTY 先建、标签后开的入口）", () => {
     const tab = createTabOfType("terminal", {
       terminal: { projectId: "p1", projectPath: "/a", launchId: "launch-fixed", sessionId: "sess-9" },

@@ -1714,14 +1714,10 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const pane = findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
+        const newTab = createTabOfType("mcp-config", {
           title: `MCP - ${title}`,
-          contentType: "mcp-config",
-          projectId: "",
           projectPath,
-          sessionId: null,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -1742,14 +1738,10 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const pane = findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
+        const newTab = createTabOfType("skill-manager", {
           title: `Skill - ${title}`,
-          contentType: "skill-manager",
-          projectId: "",
           projectPath,
-          sessionId: null,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -1770,14 +1762,10 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const pane = findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
+        const newTab = createTabOfType("memory-manager", {
           title: `Memory - ${title}`,
-          contentType: "memory-manager",
-          projectId: "",
           projectPath,
-          sessionId: null,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -1798,14 +1786,10 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const pane = findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
+        const newTab = createTabOfType("file-explorer", {
           title: `Explorer - ${title}`,
-          contentType: "file-explorer",
-          projectId: "",
           projectPath,
-          sessionId: null,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });

@@ -3,7 +3,8 @@ import type { Draft } from "immer";
 import type { PaneNode, Tab } from "@/types";
 import type { PanesDraft } from "./panesStoreTypes";
 import { resolveLayoutWriteTarget } from "./paneLayoutHelpers";
-import { collectPanels, findPane, generateId } from "@/lib/paneTree";
+import { collectPanels, findPane } from "@/lib/paneTree";
+import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
 
 export interface OpenBrowserOptions {
   /** 落位到指定窗格；缺省或找不到时回落当前活动窗格 */
@@ -114,15 +115,13 @@ export function createBrowserTabActions(
         const pane = found?.type === "panel" ? found : collectPanels(tree)[0];
         if (pane?.type !== "panel") return;
 
-        const newTab: Tab = {
-          id: tabId || generateId("tab"),
-          title: title?.trim() || "Browser",
-          contentType: "browser",
-          projectId: "",
-          projectPath: "",
-          sessionId: null,
+        // 差异保留（docs/78 批4）：id 由调用方指定——弹出/重开等入口要求
+        // webview 键与 tabId 同源，不能让工厂另生成一个。
+        const newTab = createTabOfType("browser", {
+          id: tabId,
+          title,
           browserUrl: url,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
         target.setActivePaneId(pane.id);
