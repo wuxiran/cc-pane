@@ -170,6 +170,66 @@ jobs:
           includeUpdaterJson: true
           args: ${{ matrix.args }}
 
+  windows-portable:
+    name: Package Windows Portable
+    runs-on: windows-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - name: Extract tag version
+        id: tag
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      # 绿色免安装版 = 已发布 x64 NSIS 安装包的原样解包重压缩（字节级同源，不重新构建）。
+      # needs: build 保证 release 与 setup.exe 已就绪。
+      - name: Download x64 setup from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release download "v${{ steps.tag.outputs.version }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "cc-panes_${{ steps.tag.outputs.version }}_x64-setup.exe"
+
+      - name: Repackage as portable zip
+        shell: bash
+        run: |
+          VERSION="${{ steps.tag.outputs.version }}"
+          7z x "cc-panes_${VERSION}_x64-setup.exe" -oextracted -y > /dev/null
+          mkdir CC-Panes-Portable
+          cp -r extracted/binaries extracted/resources extracted/cc-panes.exe CC-Panes-Portable/
+          # NSIS 运行时插件目录不属于应用本体
+          cat > CC-Panes-Portable/README-portable.txt <<'EOF'
+          CC-Panes 绿色免安装版 / Portable Edition
+          ====================================================
+
+          使用方法：解压到任意目录，双击 cc-panes.exe 运行。
+
+          - 数据目录与安装版相同（%USERPROFILE%\.cc-panes\），
+            删除程序目录不会丢失数据。
+          - 与安装版共享数据目录与单实例锁，请勿同时运行已安装的 CC-Panes。
+          - 应用内自动更新对免安装版无效；升级方式：下载新版 zip 覆盖解压。
+          - Windows 10 若提示缺少 WebView2，请安装 Microsoft Edge WebView2 Runtime：
+            https://developer.microsoft.com/microsoft-edge/webview2/
+
+          Data directory: %USERPROFILE%\.cc-panes\ (same as the installer build).
+          Do not run alongside an installed copy. In-app auto-update does not
+          apply to the portable build - upgrade by extracting a newer zip.
+          EOF
+          7z a -tzip "cc-panes_${VERSION}_x64-portable.zip" CC-Panes-Portable -mx=7 > /dev/null
+          7z l "cc-panes_${VERSION}_x64-portable.zip" | tail -2
+
+      - name: Upload portable zip to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "v${{ steps.tag.outputs.version }}" \
+            "cc-panes_${{ steps.tag.outputs.version }}_x64-portable.zip" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
   mobile-apk:
     name: Build Mobile APK
     runs-on: ubuntu-24.04
