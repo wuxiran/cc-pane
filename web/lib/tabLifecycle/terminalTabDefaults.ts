@@ -83,7 +83,7 @@ export function terminalTabDefaults(opts: CreateTabOptions): Partial<Tab> {
     activeTerminalPaneId: terminalLeaf.id,
     parentTabId: opts.parentTabId,
     launchExtras: terminalLeaf.launchExtras,
-    launchError: terminalLeaf.launchError,
+    // launchError 不物化到 tab（批5 绞杀第一段：leaf 单源，tab 同名字段仅 legacy 兜底）
     launchAttempt: terminalLeaf.launchAttempt,
   };
 }
