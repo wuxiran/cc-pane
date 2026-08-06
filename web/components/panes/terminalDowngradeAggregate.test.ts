@@ -5,7 +5,7 @@
 // 没有任何测试会挂。这个文件补的就是那一层：store 聚合 → 降档状态机的联动。
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { createTerminalBackgroundLifecycle } from "./terminalBackgroundLifecycle";
-import { aggregateOf, useTabViewStateStore } from "@/stores/useTabViewStateStore";
+import { aggregateOf, selfChatOwnerId, useTabViewStateStore } from "@/stores/useTabViewStateStore";
 
 const TIER1_MS = 5 * 60_000;
 const TIER2_MS = 30 * 60_000;
@@ -136,5 +136,53 @@ describe("React19 dev 双挂载不产生假边沿", () => {
 
     unsub();
     lifecycle.dispose();
+  });
+});
+
+describe("弹窗与 SelfChat 的可见性语义（B2-05）", () => {
+  it("弹窗最小化但主标签可见 → 该会话不降档（同一 PTY 两路视图）", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "primary", "active");
+    store.reportView("t1", "popup", "active");
+
+    const { lifecycle, events } = makeLifecycle();
+    const unsub = wire("t1", lifecycle);
+
+    // 弹窗最小化
+    store.reportView("t1", "popup", "hidden");
+    vi.advanceTimersByTime(TIER2_MS + 1000);
+
+    expect(events).toEqual([]);
+    unsub();
+    lifecycle.dispose();
+  });
+
+  it("主标签切走 + 弹窗最小化 → 两路都隐藏才降档", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView("t1", "primary", "active");
+    store.reportView("t1", "popup", "visible");
+
+    const { lifecycle, events } = makeLifecycle();
+    const unsub = wire("t1", lifecycle);
+
+    store.reportView("t1", "primary", "hidden");
+    vi.advanceTimersByTime(TIER1_MS);
+    expect(events).toEqual([]); // 弹窗还开着
+
+    store.reportView("t1", "popup", "hidden");
+    vi.advanceTimersByTime(TIER1_MS);
+    expect(events).toEqual(["tier1"]);
+
+    unsub();
+    lifecycle.dispose();
+  });
+
+  it("SelfChat 的 owner 与标签命名空间隔离", () => {
+    const store = useTabViewStateStore.getState();
+    store.reportView(selfChatOwnerId("s1"), "selfchat", "active");
+    store.reportView("s1", "primary", "hidden");
+
+    expect(aggregateOf(selfChatOwnerId("s1")).anyVisible).toBe(true);
+    expect(aggregateOf("s1").anyVisible).toBe(false);
   });
 });
