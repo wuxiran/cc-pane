@@ -4,12 +4,10 @@
 // 与 editorTabActions.ts 同一套路：createPaneRemovalActions(set, get) 工厂，
 // 在 usePanesStore 里 spread 挂载。
 //
-// 两组成员：
-// 1. 六个既有出口（closeTab / closeTabsToLeft / closeTabsToRight / closeOtherTabs /
-//    closePane / closeTerminalPane）——历史出口，UI 已全部改道统一出口；
-// 2. 三个统一出口（removeTabsInternal / removeTerminalLeafInternal /
-//    removeEmptyPane）——全部 UI 与后端销毁路径的唯一入口，资源回收统一走
-//    destroyPipeline。
+// 三个统一出口（removeTabsInternal / removeTerminalLeafInternal /
+// removeEmptyPane）——全部 UI 与后端销毁路径的唯一入口，资源回收统一走
+// destroyPipeline。历史上的六个散装出口（closeTab/closePane/批量三件/
+// closeTerminalPane）已随双写拆除删净。
 import {
   commitResourceDestroy,
   DESTROY_KILL_REASON,
@@ -39,25 +37,10 @@ import {
   normalizePaneTree,
   notifyTerminalLayoutChanged,
 } from "./paneTreeHelpers";
-import {
-  closeTerminalLeafInTab,
-  findTerminalPaneParent,
-  syncTabTerminalState,
-} from "./paneTreeRemovalHelpers";
+import { closeTerminalLeafInTab } from "./paneTreeRemovalHelpers";
 import { useFullscreenStore } from "./useFullscreenStore";
 
 export interface PaneRemovalActions {
-  /** @deprecated 仅被三个已废弃批量出口调用。UI 走 removeTabsInternal + removeEmptyPane，双写拆除专题一并删。 */
-  closePane: (paneId: string) => void;
-  /** @deprecated 零调用方（UI 经 useTabClosing 直调 removeTabsInternal）。双写拆除专题一并删。 */
-  closeTab: (paneId: string, tabId: string) => void;
-  /** @deprecated 已改道 removeTabsInternal(ids, "batch-close")。零调用方，双写拆除专题一并删。 */
-  closeTabsToLeft: (paneId: string, tabId: string) => void;
-  /** @deprecated 同 closeTabsToLeft。 */
-  closeTabsToRight: (paneId: string, tabId: string) => void;
-  /** @deprecated 同 closeTabsToLeft。 */
-  closeOtherTabs: (paneId: string, tabId: string) => void;
-  closeTerminalPane: (tabId: string, terminalPaneId: string) => void;
   removeTabsInternal: (
     tabIds: string[],
     reason: DestroyReason,
@@ -77,189 +60,6 @@ export function createPaneRemovalActions(
   get: () => PanesState,
 ): PaneRemovalActions {
   return {
-    closePane: (paneId) => {
-      // 语义拆分：**关 pane = 销毁里面的 tab + 收掉空壳**，两件事分开做。
-      // 有 tab 时先走销毁出口（回收 + closedTabs 按矩阵），再收空壳；
-      // 已空则只收空壳。搬空 pane 的调用方（moveTab 系）改用 removeEmptyPane，
-      // 不再借道这里——那条路径绝不能沾上杀会话副作用。
-      const closingPane = findPane(get().rootPane, paneId);
-      if (closingPane?.type === "panel" && closingPane.tabs.length > 0) {
-        get().removeTabsInternal(
-          closingPane.tabs.map((t) => t.id),
-          "close-pane",
-        );
-      }
-
-      set((state) => {
-        const parentResult = findParent(state.rootPane, paneId);
-        if (!parentResult) return;
-
-        if (parentResult.parent === null) {
-          const newPane = createPanel();
-          state.rootPane = newPane;
-          state.activePaneId = newPane.id;
-          return;
-        }
-
-        const parent = parentResult.parent;
-        const index = parentResult.index;
-
-        parent.children.splice(index, 1);
-        parent.sizes.splice(index, 1);
-
-        const total = parent.sizes.reduce((a, b) => a + b, 0);
-        parent.sizes = total > 0
-          ? parent.sizes.map((s) => (s / total) * 100)
-          : parent.sizes.map(() => 100 / parent.sizes.length);
-
-        if (parent.children.length > 0) {
-          const newIndex = Math.min(index, parent.children.length - 1);
-          const nextPane = parent.children[newIndex];
-          const panels = collectPanels(nextPane);
-          if (panels.length > 0) {
-            state.activePaneId = panels[0].id;
-          }
-        }
-
-        state.rootPane = normalizePaneTree(state.rootPane);
-        const activePane = findPane(state.rootPane, state.activePaneId);
-        if (activePane?.type !== "panel") {
-          const panels = collectPanels(state.rootPane);
-          if (panels.length > 0) {
-            state.activePaneId = panels[0].id;
-          }
-        }
-      });
-      notifyTerminalLayoutChanged("pane.close");
-    },
-
-    closeTab: (paneId, tabId) => {
-      // 回收 + closedTabs + 树操作统一走 removeTabsInternal。
-      //
-      // 顺带修掉双 push——改道前 closeTab 先 push 快照，pane 只剩这一个 tab 时
-      // 又转调 closePane，后者再 push 一次，同一个 tab 在撤销栈里占两格。
-      // 现在 push 只发生在 removeTabsInternal 一处。
-      const pane = findPane(get().rootPane, paneId);
-      if (pane?.type !== "panel") return;
-      const tab = pane.tabs.find((t) => t.id === tabId);
-      if (!tab) return;
-
-      get().removeTabsInternal([tabId], "user-close");
-      // 无需收空壳：closeTabInTree 删最后一个 tab 时连 panel 一起从父分屏
-      // 摘除并 normalize（见 paneTreeHelpers），此处不存在空壳残留路径。
-    },
-
-    closeTabsToLeft: (paneId, tabId) => {
-      const snapshot = get();
-      const snapPane = findPane(snapshot.rootPane, paneId);
-      if (snapPane?.type !== "panel") return;
-      const targetIdx = snapPane.tabs.findIndex((t) => t.id === tabId);
-      if (targetIdx <= 0) return;
-
-      const toClose = snapPane.tabs.slice(0, targetIdx).filter((t) => !t.pinned);
-      if (toClose.length === 0) return;
-
-      set((state) => {
-        const p = findPane(state.rootPane, paneId);
-        if (p?.type !== "panel") return;
-        const closeIds = new Set(toClose.map((t) => t.id));
-        p.tabs = p.tabs.filter((t) => !closeIds.has(t.id));
-        if (p.activeTabId && closeIds.has(p.activeTabId)) {
-          p.activeTabId = tabId;
-        }
-      });
-
-      // Close the pane if every tab was removed.
-      const afterPane = findPane(get().rootPane, paneId);
-      if (afterPane?.type === "panel" && afterPane.tabs.length === 0) {
-        get().closePane(paneId);
-      }
-    },
-
-    closeTabsToRight: (paneId, tabId) => {
-      const snapshot = get();
-      const snapPane = findPane(snapshot.rootPane, paneId);
-      if (snapPane?.type !== "panel") return;
-      const targetIdx = snapPane.tabs.findIndex((t) => t.id === tabId);
-      if (targetIdx === -1 || targetIdx >= snapPane.tabs.length - 1) return;
-
-      const toClose = snapPane.tabs.slice(targetIdx + 1).filter((t) => !t.pinned);
-      if (toClose.length === 0) return;
-
-      set((state) => {
-        const p = findPane(state.rootPane, paneId);
-        if (p?.type !== "panel") return;
-        const closeIds = new Set(toClose.map((t) => t.id));
-        p.tabs = p.tabs.filter((t) => !closeIds.has(t.id));
-        if (p.activeTabId && closeIds.has(p.activeTabId)) {
-          p.activeTabId = tabId;
-        }
-      });
-
-      const afterPane = findPane(get().rootPane, paneId);
-      if (afterPane?.type === "panel" && afterPane.tabs.length === 0) {
-        get().closePane(paneId);
-      }
-    },
-
-    closeOtherTabs: (paneId, tabId) => {
-      const snapshot = get();
-      const snapPane = findPane(snapshot.rootPane, paneId);
-      if (snapPane?.type !== "panel") return;
-
-      const toClose = snapPane.tabs.filter((t) => t.id !== tabId && !t.pinned);
-      if (toClose.length === 0) return;
-
-      set((state) => {
-        const p = findPane(state.rootPane, paneId);
-        if (p?.type !== "panel") return;
-        const closeIds = new Set(toClose.map((t) => t.id));
-        p.tabs = p.tabs.filter((t) => !closeIds.has(t.id));
-        if (p.activeTabId && closeIds.has(p.activeTabId)) {
-          p.activeTabId = tabId;
-        }
-      });
-
-      const afterPane = findPane(get().rootPane, paneId);
-      if (afterPane?.type === "panel" && afterPane.tabs.length === 0) {
-        get().closePane(paneId);
-      }
-    },
-
-    closeTerminalPane: (tabId, terminalPaneId) => {
-      set((state) => {
-        const location = findTabLocation(state.rootPane, tabId);
-        if (!location) return;
-        const { tab } = location;
-        if (tab.contentType !== "terminal" || !tab.terminalRootPane) return;
-
-        const leaves = collectTerminalLeaves(tab.terminalRootPane);
-        if (leaves.length <= 1) return;
-
-        const parentResult = findTerminalPaneParent(tab.terminalRootPane, terminalPaneId);
-        if (!parentResult) return;
-
-        if (parentResult.parent === null) {
-          return;
-        }
-
-        const parent = parentResult.parent;
-        parent.children.splice(parentResult.index, 1);
-        parent.sizes.splice(parentResult.index, 1);
-
-        // 单 child 时保留 split 壳（不上提），避免幸存终端 remount；见 normalizePaneTree。
-        const total = parent.sizes.reduce((sum, size) => sum + size, 0);
-        parent.sizes = total > 0
-          ? parent.sizes.map((size) => (size / total) * 100)
-          : parent.children.map(() => 100 / parent.children.length);
-
-        const nextLeaves = collectTerminalLeaves(tab.terminalRootPane);
-        tab.activeTerminalPaneId = nextLeaves[Math.min(parentResult.index, nextLeaves.length - 1)]?.id;
-        syncTabTerminalState(tab);
-      });
-      notifyTerminalLayoutChanged("terminal.close");
-    },
-
     // ============ 统一销毁出口（全部关闭路径的唯一入口） ============
 
     removeTabsInternal: (tabIds, reason, opts) => {
@@ -380,7 +180,7 @@ export function createPaneRemovalActions(
     },
 
     removeTerminalLeafInternal: (tabId, terminalPaneId, reason) => {
-      // 「关一格」：分屏 tab 里关掉一个终端 leaf（树操作与 closeTerminalPane 同实现）。
+      // 「关一格」：分屏 tab 里关掉一个终端 leaf（树操作走 closeTerminalLeafInTab）。
       //
       // 杀集是**这一格自己的**会话，不是整个 tab 的——关一格只该杀一格，
       // 用 collectResources 全量会连坐同 tab 的其他分屏。按
@@ -433,7 +233,7 @@ export function createPaneRemovalActions(
     removeEmptyPane: (paneId) => {
       // 纯树操作，**零销毁语义**：专供 moveTab / moveTabToLayoutPane 在 tab 搬走后
       // 收掉留下的空壳。它们的 pane 里已经没有任何 tab，绝不能借道
-      // closePane 沾上未来的杀会话副作用——非空即拒是硬守卫，不是防御式冗余。
+      // 搬空 pane 的路径沾上杀会话副作用——非空即拒是硬守卫，不是防御式冗余。
       const pane = findPane(get().rootPane, paneId);
       if (pane?.type !== "panel") return;
       if (pane.tabs.length > 0) {

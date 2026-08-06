@@ -102,93 +102,7 @@ afterEach(() => {
 
 // ========== 搬家等价：六个既有出口 ==========
 
-describe("closeTab（搬家后行为等价）", () => {
-  it("多 tab 面板移除 tab 并收敛 activeTabId", () => {
-    const tabs = [makeTerminalTab("t1"), makeTerminalTab("t2"), makeTerminalTab("t3")];
-    const panel = makePanel("p1", tabs);
-    setPanesState(panel, "p1");
-
-    usePanesStore.getState().closeTab("p1", "t2");
-
-    const after = currentPanel("p1");
-    expect(after.tabs.map((t) => t.id)).toEqual(["t1", "t3"]);
-  });
-
-  it("关闭激活 tab 后 activeTabId 落到同位次（或末尾）", () => {
-    const tabs = [makeTerminalTab("t1"), makeTerminalTab("t2"), makeTerminalTab("t3")];
-    const panel = makePanel("p1", tabs);
-    panel.activeTabId = "t3";
-    setPanesState(panel, "p1");
-
-    usePanesStore.getState().closeTab("p1", "t3");
-
-    expect(currentPanel("p1").activeTabId).toBe("t2");
-  });
-
-  it("pinned tab 不可关闭", () => {
-    const tabs = [makeTerminalTab("t1", { pinned: true }), makeTerminalTab("t2")];
-    setPanesState(makePanel("p1", tabs), "p1");
-
-    usePanesStore.getState().closeTab("p1", "t1");
-
-    expect(currentPanel("p1").tabs).toHaveLength(2);
-    expect(usePanesStore.getState().closedTabs).toHaveLength(0);
-  });
-
-  it("单 tab 面板触发 closePane（根面板换新）", () => {
-    const panel = makePanel("p1", [makeTerminalTab("t1")]);
-    setPanesState(panel, "p1");
-
-    usePanesStore.getState().closeTab("p1", "t1");
-
-    const state = usePanesStore.getState();
-    expect(state.rootPane.type).toBe("panel");
-    expect(state.rootPane.id).not.toBe("p1");
-  });
-
-  it("终端标签关闭时快照进 closedTabs（字段齐全）", () => {
-    const tab = makeTerminalTab("t1", {
-      title: "自定义标题",
-      cliTool: "claude",
-      workspaceName: "ws-1",
-    });
-    setPanesState(makePanel("p1", [tab, makeTerminalTab("t2")]), "p1");
-
-    usePanesStore.getState().closeTab("p1", "t1");
-
-    const closed = usePanesStore.getState().closedTabs;
-    expect(closed).toHaveLength(1);
-    expect(closed[0]).toMatchObject({
-      projectId: "proj-t1",
-      projectPath: "/tmp/t1",
-      title: "自定义标题",
-      cliTool: "claude",
-      workspaceName: "ws-1",
-    });
-  });
-
-  it("editor 标签也进 closedTabs（批4 起可撤销，记 filePath 不记 launch 身份）", () => {
-    const editorTab: Tab = {
-      id: "e1",
-      title: "file.ts",
-      contentType: "editor",
-      projectId: "",
-      projectPath: "/tmp/proj",
-      sessionId: null,
-      filePath: "/tmp/proj/file.ts",
-    };
-    setPanesState(makePanel("p1", [editorTab, makeTerminalTab("t2")]), "p1");
-
-    usePanesStore.getState().closeTab("p1", "e1");
-
-    const snaps = usePanesStore.getState().closedTabs;
-    expect(snaps).toHaveLength(1);
-    expect(snaps[0]).toMatchObject({ contentType: "editor", filePath: "/tmp/proj/file.ts" });
-    expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t2"]);
-  });
-});
-
-describe("closeTabsToLeft / closeTabsToRight / closeOtherTabs（搬家后行为等价）", () => {
+describe("批量关闭（removeTabsInternal batch-close）", () => {
   function threeTabs(): Panel {
     return makePanel("p1", [
       makeTerminalTab("t1"),
@@ -196,52 +110,6 @@ describe("closeTabsToLeft / closeTabsToRight / closeOtherTabs（搬家后行为�
       makeTerminalTab("t3"),
     ]);
   }
-
-  it("closeTabsToLeft 只关目标左侧未 pinned 的 tab", () => {
-    const panel = threeTabs();
-    panel.tabs[0].pinned = true;
-    setPanesState(panel, "p1");
-
-    usePanesStore.getState().closeTabsToLeft("p1", "t3");
-
-    expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t1", "t3"]);
-  });
-
-  it("closeTabsToLeft 目标是第一个 tab 时 no-op", () => {
-    setPanesState(threeTabs(), "p1");
-    usePanesStore.getState().closeTabsToLeft("p1", "t1");
-    expect(currentPanel("p1").tabs).toHaveLength(3);
-  });
-
-  it("closeTabsToRight 只关目标右侧的 tab，激活 tab 被关时聚焦目标", () => {
-    const panel = threeTabs();
-    panel.activeTabId = "t3";
-    setPanesState(panel, "p1");
-
-    usePanesStore.getState().closeTabsToRight("p1", "t1");
-
-    const after = currentPanel("p1");
-    expect(after.tabs.map((t) => t.id)).toEqual(["t1"]);
-    expect(after.activeTabId).toBe("t1");
-  });
-
-  it("closeOtherTabs 保留目标与 pinned", () => {
-    const panel = threeTabs();
-    panel.tabs[2].pinned = true;
-    setPanesState(panel, "p1");
-
-    usePanesStore.getState().closeOtherTabs("p1", "t2");
-
-    expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t2", "t3"]);
-  });
-
-  // 三个 store 出口自 B1-04 起已无调用方（@deprecated），保留用例只为锁住
-  // 「搬家没改变它们」；UI 侧批量关闭的真实语义见下条。
-  it("废弃出口维持迁移前语义：不记 closedTabs", () => {
-    setPanesState(threeTabs(), "p1");
-    usePanesStore.getState().closeOtherTabs("p1", "t1");
-    expect(usePanesStore.getState().closedTabs).toHaveLength(0);
-  });
 
   it("改道后的批量关闭记 closedTabs（batch-close 矩阵，修复撤销失效）", () => {
     setPanesState(threeTabs(), "p1");
@@ -253,88 +121,6 @@ describe("closeTabsToLeft / closeTabsToRight / closeOtherTabs（搬家后行为�
       .toEqual(["proj-t2", "proj-t3"]);
   });
 });
-
-describe("closePane（搬家后行为等价）", () => {
-  it("关闭分屏面板后保留单 child split 壳（幸存面板不 remount）", () => {
-    const p1 = makePanel("p1", [makeTerminalTab("t1")]);
-    const p2 = makePanel("p2", [makeTerminalTab("t2")]);
-    const root = makeSplit("s1", [p1, p2]);
-    setPanesState(root, "p2");
-
-    usePanesStore.getState().closePane("p2");
-
-    const state = usePanesStore.getState();
-    expect(state.rootPane.type).toBe("split");
-    const shell = state.rootPane as SplitPane;
-    expect(shell.id).toBe("s1");
-    expect(shell.children.map((c) => c.id)).toEqual(["p1"]);
-    expect(shell.sizes).toEqual([100]);
-    expect(state.activePaneId).toBe("p1");
-  });
-
-  it("关闭根面板时创建全新面板", () => {
-    const p1 = makePanel("p1", [makeTerminalTab("t1")]);
-    setPanesState(p1, "p1");
-
-    usePanesStore.getState().closePane("p1");
-
-    const state = usePanesStore.getState();
-    expect(state.rootPane.type).toBe("panel");
-    expect(state.rootPane.id).not.toBe("p1");
-  });
-
-  it("面板里全部可恢复终端标签进 closedTabs（含 pinned——迁移前语义）", () => {
-    const p1 = makePanel("p1", [
-      makeTerminalTab("t1"),
-      makeTerminalTab("t2", { pinned: true }),
-    ]);
-    const p2 = makePanel("p2", [makeTerminalTab("t3")]);
-    setPanesState(makeSplit("s1", [p1, p2]), "p1");
-
-    usePanesStore.getState().closePane("p1");
-
-    const closed = usePanesStore.getState().closedTabs;
-    expect(closed.map((t) => t.projectId)).toEqual(["proj-t1", "proj-t2"]);
-  });
-});
-
-describe("closeTerminalPane（搬家后行为等价）", () => {
-  it("多 leaf 时移除指定 leaf 并保留 split 壳", () => {
-    const leafA: TerminalPaneLeaf = { type: "leaf", id: "leaf-a", sessionId: "sess-a" };
-    const leafB: TerminalPaneLeaf = { type: "leaf", id: "leaf-b", sessionId: "sess-b" };
-    const tab = makeTerminalTab("t1");
-    tab.terminalRootPane = {
-      type: "split",
-      id: "tsplit",
-      direction: "horizontal",
-      children: [leafA, leafB],
-      sizes: [50, 50],
-    };
-    tab.activeTerminalPaneId = "leaf-b";
-    setPanesState(makePanel("p1", [tab]), "p1");
-
-    usePanesStore.getState().closeTerminalPane("t1", "leaf-b");
-
-    const after = currentPanel("p1").tabs[0];
-    expect(after.terminalRootPane?.type).toBe("split");
-    const shell = after.terminalRootPane as { children: Array<{ id: string }>; sizes: number[] };
-    expect(shell.children.map((c) => c.id)).toEqual(["leaf-a"]);
-    expect(shell.sizes).toEqual([100]);
-    expect(after.activeTerminalPaneId).toBe("leaf-a");
-  });
-
-  it("最后一个 leaf 不可关（no-op）", () => {
-    const tab = makeTerminalTab("t1");
-    setPanesState(makePanel("p1", [tab]), "p1");
-
-    usePanesStore.getState().closeTerminalPane("t1", `t1-leaf`);
-
-    const after = currentPanel("p1").tabs[0];
-    expect(after.terminalRootPane?.type).toBe("leaf");
-  });
-});
-
-// ========== 新出口骨架 ==========
 
 describe("removeEmptyPane（纯树操作，零销毁语义）", () => {
   it("非空 pane 一律拒绝：树不动 + dev 告警", () => {
@@ -397,6 +183,47 @@ describe("removeEmptyPane（纯树操作，零销毁语义）", () => {
 });
 
 describe("removeTabsInternal（骨架：树 splice + closedTabs + 附属清理）", () => {
+  it("终端标签关闭时快照进 closedTabs（字段齐全）", () => {
+    const tab = makeTerminalTab("t1", {
+      title: "自定义标题",
+      cliTool: "claude",
+      workspaceName: "ws-1",
+    });
+    setPanesState(makePanel("p1", [tab, makeTerminalTab("t2")]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
+
+    const closed = usePanesStore.getState().closedTabs;
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).toMatchObject({
+      projectId: "proj-t1",
+      projectPath: "/tmp/t1",
+      title: "自定义标题",
+      cliTool: "claude",
+      workspaceName: "ws-1",
+    });
+  });
+
+  it("editor 标签也进 closedTabs（可撤销，记 filePath 不记 launch 身份）", () => {
+    const editorTab: Tab = {
+      id: "e1",
+      title: "file.ts",
+      contentType: "editor",
+      projectId: "",
+      projectPath: "/tmp/proj",
+      sessionId: null,
+      filePath: "/tmp/proj/file.ts",
+    };
+    setPanesState(makePanel("p1", [editorTab, makeTerminalTab("t2")]), "p1");
+
+    usePanesStore.getState().removeTabsInternal(["e1"], "user-close");
+
+    const snaps = usePanesStore.getState().closedTabs;
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]).toMatchObject({ contentType: "editor", filePath: "/tmp/proj/file.ts" });
+    expect(currentPanel("p1").tabs.map((t) => t.id)).toEqual(["t2"]);
+  });
+
   it("user-close：移除 tab、记 closedTabs、尊重 pinned", () => {
     const tabs = [
       makeTerminalTab("t1"),
@@ -641,7 +468,7 @@ describe("removeTabsInternal（改道后：回收管线接入）", () => {
 // 借道 closePane 收空壳，而 closePane 自 B1-05 起会销毁 pane 内的 tab。
 // 这组断言把「搬走 ≠ 销毁」永久钉死。
 // ============================================================================
-describe("moveTab / closeTab 改道后（搬走不杀、双 push 已修）", () => {
+describe("moveTab 搬走不杀 / 统一出口销毁语义", () => {
   function tabWithSession(id: string, sessionId: string): Tab {
     const tab = makeTerminalTab(id);
     (tab.terminalRootPane as TerminalPaneLeaf).sessionId = sessionId;
@@ -662,13 +489,13 @@ describe("moveTab / closeTab 改道后（搬走不杀、双 push 已修）", () 
     expect(collectTabIds(usePanesStore.getState().rootPane)).toContain("t1");
   });
 
-  it("closeTab 关最后一个 tab：杀会话且撤销栈只记一条（双 push 已修）", async () => {
+  it("关最后一个 tab：杀会话且撤销栈只记一条", async () => {
     const tab = tabWithSession("t1", "sess-last");
     const src = makePanel("p1", [tab]);
     const dst = makePanel("p2", [makeTerminalTab("t2")]);
     setPanesState(makeSplit("root", [src, dst]), "p1");
 
-    usePanesStore.getState().closeTab("p1", "t1");
+    usePanesStore.getState().removeTabsInternal(["t1"], "user-close");
     await vi.waitFor(() => expect(killSpy).toHaveBeenCalled());
 
     expect(killedIds()).toEqual(["sess-last"]);
@@ -676,7 +503,7 @@ describe("moveTab / closeTab 改道后（搬走不杀、双 push 已修）", () 
       .toHaveLength(1);
   });
 
-  it("closePane 有 tab 时销毁全部内容（close-pane 矩阵：不豁免 pinned）", async () => {
+  it("close-pane 矩阵销毁 pane 全部内容（不豁免 pinned）", async () => {
     const normal = tabWithSession("t1", "sess-a");
     const pinned = tabWithSession("t2", "sess-b");
     pinned.pinned = true;
@@ -684,7 +511,7 @@ describe("moveTab / closeTab 改道后（搬走不杀、双 push 已修）", () 
     const dst = makePanel("p2", [makeTerminalTab("t3")]);
     setPanesState(makeSplit("root", [src, dst]), "p1");
 
-    usePanesStore.getState().closePane("p1");
+    usePanesStore.getState().removeTabsInternal(["t1", "t2"], "close-pane");
     await vi.waitFor(() => expect(killSpy).toHaveBeenCalledTimes(2));
 
     expect(killedIds()).toEqual(["sess-a", "sess-b"]);

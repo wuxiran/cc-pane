@@ -1166,7 +1166,7 @@ export const usePanesStore = create<PanesState>()(
         toPane: summarizePanel(afterToPane),
       });
 
-      // 收空壳只能用 removeEmptyPane：closePane 现在会销毁 pane 内的 tab，
+      // 收空壳只能用 removeEmptyPane：带销毁语义的出口会回收 pane 内的 tab，
       // 而这里 tab 已搬到别处——借道它等于拖一下标签就杀掉自己的会话。
       const fromPane = findPane(get().rootPane, fromPaneId);
       if (fromPane?.type === "panel" && fromPane.tabs.length === 0) {

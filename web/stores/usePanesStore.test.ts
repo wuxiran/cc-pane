@@ -96,104 +96,6 @@ describe("usePanesStore", () => {
     });
   });
 
-  describe("closePane", () => {
-    it("关闭分屏中的一个面板后应保留单 child split 壳（幸存面板不 remount）", () => {
-      const { rootPane, splitRight } = usePanesStore.getState();
-      const originalPanelId = rootPane.id;
-      splitRight(rootPane.id);
-      const splitId = usePanesStore.getState().rootPane.id;
-
-      const panels = usePanesStore.getState().allPanels();
-      expect(panels).toHaveLength(2);
-
-      // 关闭第二个面板（新建的那个，即活动面板）
-      const activePaneId = usePanesStore.getState().activePaneId;
-      usePanesStore.getState().closePane(activePaneId);
-
-      const stateAfter = usePanesStore.getState();
-      // 不上提：split 壳保留（组件类型/key 不变），幸存 panel id 不变
-      expect(stateAfter.rootPane.type).toBe("split");
-      const shell = stateAfter.rootPane as SplitPane;
-      expect(shell.id).toBe(splitId);
-      expect(shell.children).toHaveLength(1);
-      expect(shell.children[0].id).toBe(originalPanelId);
-      expect(shell.sizes).toEqual([100]);
-      // activePaneId 应指向存活面板
-      expect(stateAfter.activePaneId).toBe(originalPanelId);
-    });
-
-    it("关闭嵌套分屏中的一个面板后应保留退化 split 壳并归一化 sizes", () => {
-      const store = usePanesStore.getState();
-      const firstPaneId = store.rootPane.id;
-      store.splitRight(firstPaneId);
-
-      const secondPaneId = usePanesStore.getState().activePaneId;
-      store.splitDown(secondPaneId);
-
-      const root = usePanesStore.getState().rootPane as SplitPane;
-      expect(root.type).toBe("split");
-
-      const nestedSplit = root.children.find((child) => child.id !== firstPaneId) as SplitPane;
-      const nestedActivePaneId = nestedSplit.children[1].id;
-
-      usePanesStore.getState().closePane(nestedActivePaneId);
-
-      const stateAfter = usePanesStore.getState();
-      expect(stateAfter.rootPane.type).toBe("split");
-      const normalizedRoot = stateAfter.rootPane as SplitPane;
-      expect(normalizedRoot.children).toHaveLength(2);
-      // 嵌套 split 退化为单 child 壳，幸存 panel 留在壳内
-      const survivedShell = normalizedRoot.children.find((child) => child.id === nestedSplit.id) as SplitPane;
-      expect(survivedShell.type).toBe("split");
-      expect(survivedShell.children).toHaveLength(1);
-      expect(survivedShell.children[0].id).toBe(secondPaneId);
-      expect(survivedShell.sizes).toEqual([100]);
-    });
-
-    it("单 child 壳上再次分屏应复用壳节点（含异方向）", () => {
-      const { rootPane, splitRight } = usePanesStore.getState();
-      const originalPanelId = rootPane.id;
-      splitRight(rootPane.id);
-      const splitId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().closePane(usePanesStore.getState().activePaneId);
-
-      // 壳上异方向再分屏：改造壳而非再包一层
-      usePanesStore.getState().splitDown(originalPanelId);
-
-      const root = usePanesStore.getState().rootPane as SplitPane;
-      expect(root.id).toBe(splitId);
-      expect(root.direction).toBe("vertical");
-      expect(root.children).toHaveLength(2);
-      expect(root.children[0].id).toBe(originalPanelId);
-      expect(root.sizes).toEqual([50, 50]);
-    });
-
-    it("关闭根面板应重置为新空面板", () => {
-      const { rootPane, closePane } = usePanesStore.getState();
-      const originalId = rootPane.id;
-      closePane(rootPane.id);
-
-      const state = usePanesStore.getState();
-      expect(state.rootPane.type).toBe("panel");
-      expect(state.rootPane.id).not.toBe(originalId);
-    });
-
-    it("关闭面板时应保存可恢复标签到 closedTabs", () => {
-      // 先给当前面板添加一个有 projectPath 的终端标签
-      const state = usePanesStore.getState();
-      const paneId = state.rootPane.id;
-      state.addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/project1" });
-
-      // 关闭面板
-      usePanesStore.getState().closePane(paneId);
-
-      const closedTabs = usePanesStore.getState().closedTabs;
-      // 默认标签没有 projectPath（空字符串），但新添加的有
-      expect(closedTabs.length).toBeGreaterThanOrEqual(1);
-      expect(closedTabs.some((t) => t.projectPath === "/tmp/project1")).toBe(true);
-    });
-  });
-
   describe("resizePanes", () => {
     it("应更新 split 的 sizes 数组", () => {
       const { rootPane, splitRight } = usePanesStore.getState();
@@ -359,67 +261,6 @@ describe("usePanesStore", () => {
     });
   });
 
-  describe("closeTab", () => {
-    it("多 tab 面板应移除 tab 并更新 activeTabId", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
-
-      const pane = usePanesStore.getState().rootPane as Panel;
-      expect(pane.tabs).toHaveLength(3);
-
-      const tabToClose = pane.tabs[1];
-      usePanesStore.getState().closeTab(paneId, tabToClose.id);
-
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      expect(paneAfter.tabs).toHaveLength(2);
-      expect(paneAfter.tabs.find((t) => t.id === tabToClose.id)).toBeUndefined();
-    });
-
-    it("单 tab 面板应触发 closePane", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      const tab = (usePanesStore.getState().rootPane as Panel).tabs[0];
-
-      usePanesStore.getState().closeTab(paneId, tab.id);
-
-      // closePane 对根面板会创建新面板
-      const state = usePanesStore.getState();
-      expect(state.rootPane.type).toBe("panel");
-      expect(state.rootPane.id).not.toBe(paneId);
-    });
-
-    it("pinned tab 不可关闭", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-
-      const pane = usePanesStore.getState().rootPane as Panel;
-      const tabId = pane.tabs[0].id;
-
-      // 先 pin 该 tab
-      usePanesStore.getState().togglePinTab(paneId, tabId);
-      // 尝试关闭
-      usePanesStore.getState().closeTab(paneId, tabId);
-
-      const paneAfter = usePanesStore.getState().rootPane as Panel;
-      expect(paneAfter.tabs.find((t) => t.id === tabId)).toBeDefined();
-    });
-
-    it("关闭终端标签时应保存到 closedTabs", () => {
-      const paneId = usePanesStore.getState().rootPane.id;
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
-      usePanesStore.getState().addTab(paneId, { projectId: "proj-2", projectPath: "/tmp/proj2" });
-
-      const pane = usePanesStore.getState().rootPane as Panel;
-      // 关闭第二个 tab（有 projectPath 的终端标签）
-      const tabToClose = pane.tabs[1];
-      usePanesStore.getState().closeTab(paneId, tabToClose.id);
-
-      const closedTabs = usePanesStore.getState().closedTabs;
-      expect(closedTabs).toHaveLength(1);
-      expect(closedTabs[0].projectPath).toBe(tabToClose.projectPath);
-    });
-  });
-
   describe("togglePinTab", () => {
     it("应切换 pinned 状态", () => {
       const paneId = usePanesStore.getState().rootPane.id;
@@ -495,7 +336,7 @@ describe("usePanesStore", () => {
       tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
       const closingTerminalPaneId = tab.activeTerminalPaneId!;
 
-      usePanesStore.getState().closeTerminalPane(tab.id, closingTerminalPaneId);
+      usePanesStore.getState().removeTerminalLeafInternal(tab.id, closingTerminalPaneId, "user-close");
 
       const updatedTab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
       // 不上提：保留单 child split 壳，幸存 leaf 不 remount
@@ -515,7 +356,7 @@ describe("usePanesStore", () => {
       let tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
       usePanesStore.getState().splitTerminalPane(tab.id, tab.activeTerminalPaneId!, "right");
       tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
-      usePanesStore.getState().closeTerminalPane(tab.id, tab.activeTerminalPaneId!);
+      usePanesStore.getState().removeTerminalLeafInternal(tab.id, tab.activeTerminalPaneId!, "user-close");
 
       tab = ((usePanesStore.getState().rootPane as Panel).tabs[1]) as Tab;
       const shellId = tab.terminalRootPane!.id;
@@ -1035,7 +876,7 @@ describe("usePanesStore", () => {
       // 关闭一个 tab
       const pane = usePanesStore.getState().rootPane as Panel;
       const tabToClose = pane.tabs[1];
-      usePanesStore.getState().closeTab(paneId, tabToClose.id);
+      usePanesStore.getState().removeTabsInternal([tabToClose.id], "user-close");
 
       expect(usePanesStore.getState().closedTabs).toHaveLength(1);
 
@@ -1070,7 +911,7 @@ describe("usePanesStore", () => {
       const pane = usePanesStore.getState().rootPane as Panel;
       const tabToClose = pane.tabs[pane.tabs.length - 1];
       expect(tabToClose.title).toBe("我的自定义标题");
-      usePanesStore.getState().closeTab(paneId, tabToClose.id);
+      usePanesStore.getState().removeTabsInternal([tabToClose.id], "user-close");
 
       usePanesStore.getState().reopenClosedTab(usePanesStore.getState().activePaneId);
 

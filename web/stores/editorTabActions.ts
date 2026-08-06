@@ -58,7 +58,6 @@ export function findEditorTabByPathAcrossLayouts(
 interface EditorHostStore extends PanesState {
   selectTab: (paneId: string, tabId: string) => void;
   switchLayout: (layoutId: string) => void;
-  closeTab: (paneId: string, tabId: string) => void;
 }
 
 export function createEditorTabActions(

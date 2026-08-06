@@ -178,12 +178,10 @@ export interface PanesState extends BrowserTabActions {
   split: (paneId: string, direction: SplitDirection) => void;
   splitRight: (paneId: string) => void;
   splitDown: (paneId: string) => void;
-  closePane: (paneId: string) => void;
   resizePanes: (paneId: string, sizes: number[]) => void;
   applyLayoutPreset: (preset: LayoutPresetId) => void;
   /** layoutId 省略 = 当前布局。传入时往该布局的树里写，不切换当前布局。 */
   addTab: (paneId: string, opts: CreateTabOptions, layoutId?: string) => void;
-  closeTab: (paneId: string, tabId: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;
   toggleStarTab: (tabId: string) => void;
   starredTabs: () => StarredTabShortcut[];
@@ -206,9 +204,6 @@ export interface PanesState extends BrowserTabActions {
     opts: CreateTabOptions,
     layoutId?: string,
   ) => void;
-  closeTabsToLeft: (paneId: string, tabId: string) => void;
-  closeTabsToRight: (paneId: string, tabId: string) => void;
-  closeOtherTabs: (paneId: string, tabId: string) => void;
   /**
    * 唯一逐-tab 销毁出口（docs/78）：资源回收（destroyPipeline.commitResourceDestroy）+ 树 splice + closedTabs +
    * poppedOut/fullscreen 附属清理；资源回收由 destroyPipeline.commitResourceDestroy 执行。
@@ -227,8 +222,8 @@ export interface PanesState extends BrowserTabActions {
   ) => void;
   /**
    * 纯树操作、**零销毁语义**：只收「tab 已全部搬走」的空 pane（moveTab 系专用）。
-   * 非空 pane 一律 no-op + dev 告警——这是硬守卫，防止未来 closePane 挂上
-   * 杀会话副作用后拖动标签误杀会话。
+   * 非空 pane 一律 no-op + dev 告警——这是硬守卫，防止搬空 pane 的路径
+   * 沾上杀会话副作用后拖动标签误杀会话。
    */
   removeEmptyPane: (paneId: string) => void;
   selectTab: (paneId: string, tabId: string) => void;
@@ -250,7 +245,6 @@ export interface PanesState extends BrowserTabActions {
   removeTerminalLaunch: (tabId: string, terminalPaneId: string) => void;
   setActiveTerminalPane: (tabId: string, terminalPaneId: string) => void;
   splitTerminalPane: (tabId: string, terminalPaneId: string, direction: SplitDirection) => void;
-  closeTerminalPane: (tabId: string, terminalPaneId: string) => void;
   resizeTerminalPanes: (tabId: string, terminalPaneId: string, sizes: number[]) => void;
   openProject: (opts: CreateTabOptions) => void;
   openProjectInPane: (paneId: string, opts: CreateTabOptions) => void;
