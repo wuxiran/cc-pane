@@ -313,7 +313,7 @@ function SortableTab({
           <span
             aria-label={t("tabAttentionDot")}
             className="h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ background: "var(--app-danger, #e5484d)" }}
+            style={{ background: "var(--app-status-danger)" }}
           />
         )}
         {!tab.pinned && (
