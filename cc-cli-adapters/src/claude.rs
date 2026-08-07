@@ -1135,7 +1135,12 @@ impl CliToolAdapter for ClaudeAdapter {
         Ok(CliCommandResult {
             command,
             args,
-            env_remove: vec!["CLAUDECODE".to_string()],
+            env_remove: vec![
+                "CLAUDECODE".to_string(),
+                // app 若被从 Claude 会话内启动，此标记会穿透到每个 PTY，
+                // 新会话被误判为子会话并关闭 transcript 保存
+                "CLAUDE_CODE_CHILD_SESSION".to_string(),
+            ],
             env_inject,
         })
     }
