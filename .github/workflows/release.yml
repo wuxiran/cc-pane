@@ -123,22 +123,45 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # macOS 代码签名 + 公证：secrets 配置后自动生效（codesign→notarize→staple）。
+      # 必须"非空才导出"——GHA 里未配置的 secret 展开成**空字符串**而非未设置，
+      # tauri bundler 只查环境变量存在与否，拿空证书 security import 直接炸掉
+      # 构建（v0.12.1 首跑实测）。需要 Apple Developer 账号：APPLE_CERTIFICATE 为
+      # Developer ID Application 证书 .p12 的 base64；公证走 App Store Connect
+      # API Key 三件套。
+      - name: Enable macOS signing (only when secrets are configured)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          _APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          _APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          _APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          _APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          _APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          _APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
+        run: |
+          if [ -z "$_APPLE_CERTIFICATE" ]; then
+            echo "Apple signing secrets not configured; building unsigned."
+            exit 0
+          fi
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH; do
+            source_var="_${name}"
+            value="${!source_var}"
+            [ -n "$value" ] || continue
+            {
+              echo "${name}<<CCPANES_EOF"
+              printf '%s\n' "$value"
+              echo "CCPANES_EOF"
+            } >> "$GITHUB_ENV"
+          done
+          echo "Apple signing enabled."
+
       - name: Build and Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS 代码签名 + 公证（tauri-action 检测到即自动 codesign→notarize→staple；
-          # secrets 未配置时以下均为空，行为与未签名时完全一致——渐进启用）。
-          # 需要 Apple Developer 账号：APPLE_CERTIFICATE 为 Developer ID Application
-          # 证书 .p12 的 base64；公证走 App Store Connect API Key 三件套。
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
         with:
           tagName: v__VERSION__
           releaseName: "CC-Panes v__VERSION__"
