@@ -2377,11 +2377,9 @@ pub fn run() {
                     }
                 }
                 #[cfg(target_os = "macos")]
-                WindowEvent::Focused(true) => {
-                    if window.label() == "main" {
-                        if let Some(ww) = window.app_handle().get_webview_window("main") {
-                            force_webview_focus(&ww);
-                        }
+                WindowEvent::Focused(true) if window.label() == "main" => {
+                    if let Some(ww) = window.app_handle().get_webview_window("main") {
+                        force_webview_focus(&ww);
                     }
                 }
                 _ => {}
