@@ -2,9 +2,31 @@
 
 ## Unreleased
 
+## 0.12.1 - 2026-08-08
+
+Stabilization release on top of 0.12.0-beta.1: interface shapes land as stable, settings move into a modal, and a three-front macOS fix (CLI path resolution, startup crash on macOS ≤13, user CLI config hygiene) closes out the platform's worst gaps. macOS code is now compiled, linted, and tested in CI for the first time.
+
 ### Added
 
 - **Color and shape can now be combined freely.** Alongside the six color themes, CC-Panes now includes Soft, Slab, Sharp, Glass, Panel, and Carbon interface shapes.
+- **Settings consolidated into a modal** with grouped sections; task orchestration lives in the persistent right dock, and CLI/provider selection is unified as dropdown controls.
+- **Terminal path links can open explicit external directories** on desktop after a confirmation dialog (project-internal symlink/junction escapes are still hard-rejected; web/API remain project-only).
+- macOS code signing + notarization wiring in the release pipeline (activates automatically once Apple Developer secrets are configured; no behavior change until then).
+
+### Fixed
+
+- **macOS: CLI not found (claude/codex)** — nvm version directories were picked by lexicographic order (`v9 > v20`); now semver-aware. Scan list gains bun/pnpm/volta/asdf/fnm. Missing `$SHELL` falls back to `/bin/zsh`. When every whitelist misses, a one-shot synchronous login-shell PATH grab covers the first-launch window; the daemon now inherits the cached PATH explicitly. See `docs/85-cli-launcher-overrides.md` for the troubleshooting ladder.
+- **macOS 10.15–13: crash on launch** — `NSApplication.activate()` is a macOS 14+ API dispatched at runtime with no availability guard; now probed via `respondsToSelector:` with a fallback to `activateIgnoringOtherApps:`.
+- **Claude sessions launched from CC-Panes lost transcript saving** — a `CLAUDE_CODE_CHILD_SESSION` marker inherited from the environment leaked into every PTY; the claude adapter now strips it alongside `CLAUDECODE`.
+- **Codex YOLO trust entries are now recoverable** — entries written to `~/.codex/config.toml` carry an ownership marker, are backed up before first write, and `cleanup_user_injections` removes only marked entries (user-written trust decisions are never touched).
+- Grok shared MCP sync no longer silently overwrites a user-defined entry of the same name (ownership signature check, matching the existing ccpanes-entry behavior).
+- Corrupted `.claude/settings.local.json` now aborts hook sync instead of silently resetting the user's file; project-level settings/hooks writes are atomic and serialized.
+- Uninstall cleanup also removes `~/.codex/config.toml.bak` and `~/.grok/config.toml.bak`.
+- Gatekeeper guidance updated: the "right-click → Open" bypass no longer exists on macOS 15 Sequoia; docs and release notes now lead with System Settings / `xattr -cr`.
+
+### CI
+
+- Backend checks now run on macOS (previously the macOS code paths were only ever compiled during tag releases); `release/*` branches trigger CI; `cargo test` uses `--no-fail-fast`; the flaky `start_runner_integration` test waits for command echo before submitting.
 
 ## 0.12.0-beta.1 - 2026-08-07
 
