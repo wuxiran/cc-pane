@@ -1113,6 +1113,148 @@ mod tests {
         Database::run_migrations(&conn).expect("second migration run should succeed");
     }
 
+    /// 整库 schema 快照：表/列/索引全量，用于比对两遍迁移的结果是否逐字节一致。
+    fn schema_snapshot(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT type, name, COALESCE(sql, '') FROM sqlite_master
+                  WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
+            )
+            .expect("prepare schema query");
+        let mut rows: Vec<String> = stmt
+            .query_map([], |row| {
+                Ok(format!(
+                    "{}|{}|{}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?
+                ))
+            })
+            .expect("query schema")
+            .map(|row| row.expect("schema row"))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    /// 幂等加强：跑两遍后 schema 必须逐条相同，且第二遍走 up-to-date 短路
+    /// （版本数不增、不重复记录）。原用例只断言「第二遍不报错」——一条把
+    /// 所有表重建成空表的迁移也能满足它。
+    #[test]
+    fn migrations_run_twice_produce_an_identical_schema_and_take_the_up_to_date_path() {
+        let db = Database::new_in_memory().expect("first init");
+        let conn = db.connection().expect("connection");
+
+        let first = schema_snapshot(&conn);
+        let version_after_first = Database::get_current_version(&conn).expect("version");
+        let recorded_after_first: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .expect("count");
+
+        Database::run_migrations(&conn).expect("second run");
+
+        assert_eq!(schema_snapshot(&conn), first, "第二遍迁移改动了 schema");
+        assert_eq!(
+            Database::get_current_version(&conn).expect("version"),
+            version_after_first
+        );
+        let recorded_after_second: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .expect("count");
+        assert_eq!(
+            recorded_after_second, recorded_after_first,
+            "up-to-date 分支不该再写 schema_migrations"
+        );
+        assert_eq!(recorded_after_second, MIGRATIONS.len() as i64);
+    }
+
+    /// 半途失败必须整条回滚：已执行的语句不留痕、版本号不记、重跑仍 pending。
+    ///
+    /// 反面是最坏的一种库损坏——「版本号记了、DDL 只跑了一半」，迁移从此
+    /// 永久跳过，库静默缺表缺列（v26/v27 就是这么坏的，见 v28 修复迁移）。
+    /// 这里复刻 `run_migrations` 的单条迁移事务体，注入一条中途必失败的迁移。
+    #[test]
+    fn failed_migration_rolls_back_and_stays_pending() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );",
+        )
+        .expect("seed schema_migrations");
+
+        // 第 1 条成功建表，第 2 条引用不存在的表必然失败。
+        let failing_sql = "
+            CREATE TABLE half_applied (id INTEGER PRIMARY KEY);
+            ALTER TABLE table_that_does_not_exist ADD COLUMN x TEXT;
+        ";
+        let version = 9_999_i64;
+
+        let apply = |conn: &Connection| -> Result<(), AppError> {
+            let tx = conn.unchecked_transaction().expect("begin tx");
+            for statement in split_sql_statements(failing_sql) {
+                if let Err(e) = tx.execute_batch(&statement) {
+                    if e.to_string().contains("duplicate column name") {
+                        continue;
+                    }
+                    return Err(AppError::from(format!(
+                        "Migration v{version} failed on statement `{}`: {e}",
+                        statement_head(&statement)
+                    )));
+                }
+            }
+            tx.execute(
+                "INSERT OR REPLACE INTO schema_migrations (version, description) VALUES (?1, ?2)",
+                rusqlite::params![version, "injected failure"],
+            )
+            .expect("record version");
+            tx.commit().expect("commit");
+            Ok(())
+        };
+
+        let error = apply(&conn).expect_err("injected migration must fail");
+        assert!(error.to_string().contains("table_that_does_not_exist"));
+
+        // ① 版本号没记
+        let recorded: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = ?1",
+                rusqlite::params![version],
+                |row| row.get(0),
+            )
+            .expect("count version");
+        assert_eq!(recorded, 0, "失败的迁移不得写进 schema_migrations");
+        assert_eq!(
+            Database::get_current_version(&conn).expect("version"),
+            0,
+            "失败迁移不得推高当前版本"
+        );
+
+        // ② 已执行的语句被回滚
+        let created: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='half_applied'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count table");
+        assert_eq!(
+            created, 0,
+            "失败前建的表必须随事务回滚，否则库停在半应用形态"
+        );
+
+        // ③ 重跑仍是 pending（同样失败，且现场依旧干净）——不会被当成「已应用」跳过
+        let again = apply(&conn).expect_err("still pending, so it fails again");
+        assert!(again.to_string().contains("table_that_does_not_exist"));
+        assert_eq!(Database::get_current_version(&conn).expect("version"), 0);
+    }
+
     #[test]
     fn migration_29_deduplicates_launch_ids_before_enforcing_uniqueness() {
         let conn = Connection::open_in_memory().expect("in-memory db");
