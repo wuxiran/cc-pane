@@ -220,10 +220,10 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         showCloseButton={false}
-        className="!fixed !inset-0 !left-0 !top-0 flex !h-screen !max-h-none !w-screen !max-w-none !translate-x-0 !translate-y-0 flex-col !gap-0 overflow-hidden !rounded-none !border-0 !p-0 !shadow-none data-[state=closed]:!zoom-out-100 data-[state=open]:!zoom-in-100"
+        className="shape-panel !fixed !inset-0 !left-0 !top-0 flex !h-screen !max-h-none !w-screen !max-w-none !translate-x-0 !translate-y-0 flex-col !gap-0 overflow-hidden !rounded-none !border-0 !p-0 !shadow-none data-[state=closed]:!zoom-out-100 data-[state=open]:!zoom-in-100"
         style={{ background: "var(--app-content)" }}
       >
-        <DialogHeader className="flex h-[52px] shrink-0 flex-row items-center gap-3 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-6 space-y-0">
+        <DialogHeader className="shape-chrome flex h-[52px] shrink-0 flex-row items-center gap-3 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-6 space-y-0">
           <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--app-active-bg)] text-[var(--app-accent)]">
             <Settings size={16} />
           </span>
@@ -239,7 +239,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             type="button"
             aria-label={t("close", { ns: "common" })}
             onClick={() => handleClose(false)}
-            className="ml-auto flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            className="shape-control ml-auto flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
           >
             <X aria-hidden="true" size={16} />
           </button>
@@ -273,7 +273,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
           </main>
         </div>
 
-        <footer className="flex h-14 shrink-0 items-center justify-between border-t border-[var(--app-border)] bg-[var(--app-panel-bg)] px-6">
+        <footer className="shape-chrome flex h-14 shrink-0 items-center justify-between border-t border-[var(--app-border)] bg-[var(--app-panel-bg)] px-6">
           {resettableKeys ? (
             <Button
               variant="ghost"

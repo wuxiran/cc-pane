@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Color and shape can now be combined freely.** Alongside the six color themes, CC-Panes now includes Soft, Slab, Sharp, Glass, Panel, and Carbon interface shapes.
+
 ## 0.12.0-beta.1 - 2026-08-07
 
 > Beta 预发布：不进稳定版自动更新通道，手动下载试用。checkpoint 恢复链与 hidden 闸门需要 daemon 随包更新后才完整生效。

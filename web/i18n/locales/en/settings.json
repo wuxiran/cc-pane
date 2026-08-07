@@ -16,6 +16,7 @@
   "searchKeywords": {
     "general": "startup tray language history data directory search scope version update notification feature tips",
     "theme": "theme style skin dark light system colors appearance",
+    "themeShape": "shape corners square dividers glass blur wallpaper Soft Slab Sharp Glass Panel Carbon",
     "wallpaper": "image video background music opacity blur",
     "font": "font size family typography CJK",
     "shortcuts": "shortcut hotkey keyboard binding",
@@ -70,9 +71,20 @@
   },
   "general": "General",
   "theme": {
-    "styleTitle": "Theme style",
-    "styleDescription": "Choose a workspace look. Changes apply immediately and are saved automatically.",
-    "openMenu": "Choose theme",
+    "styleTitle": "Color & Shape",
+    "styleDescription": "Choose the color theme and interface shape separately. Any combination can be used, and changes apply immediately and save automatically.",
+    "openMenu": "Choose color theme",
+    "colorTitle": "Color theme",
+    "colorDescription": "Controls application backgrounds, text, accents, and status colors.",
+    "shapeTitle": "Interface shape",
+    "shapeDescription": "Adjusts corners, dividers, and surface treatment without changing the current color theme.",
+    "shapeScopeNote": "Interface shape does not change the color theme, terminal theme, fonts, text size, or pane layout.",
+    "wallpaperHint": "The effect is more visible with a wallpaper. Without one, surfaces continue to use the current theme background.",
+    "restoreDefault": "Restore default shape",
+    "restoredDefault": "Restored to Soft",
+    "blurFallback": "Background blur is unavailable in this environment. Translucent surfaces remain enabled.",
+    "defaultBadge": "Default",
+    "wallpaperBadge": "Pairs with wallpaper",
     "groups": {
       "dark": "Dark",
       "light": "Light",
@@ -86,6 +98,32 @@
       "classicWhite": "Snow white",
       "warmGray": "Warm mist",
       "skyBlue": "Clear sky"
+    },
+    "shapes": {
+      "soft": {
+        "name": "Soft",
+        "description": "Keeps the current CC-Panes corner treatment and light borders, so the upgrade does not change the existing appearance."
+      },
+      "slab": {
+        "name": "Slab",
+        "description": "Uses tighter corners and subtle top-and-bottom edge contrast to distinguish adjacent panels."
+      },
+      "sharp": {
+        "name": "Sharp",
+        "description": "Removes container rounding so tabs, sidebars, and panels align to the grid."
+      },
+      "glass": {
+        "name": "Glass",
+        "description": "Uses translucent, blurred chrome for the title bar, sidebar, and overlays while keeping terminals and inputs solid."
+      },
+      "panel": {
+        "name": "Panel",
+        "description": "Uses square corners and clearer dividers to define panes and tool regions."
+      },
+      "carbon": {
+        "name": "Carbon",
+        "description": "Adds a low-contrast geometric texture to translucent surfaces while keeping terminal content clear."
+      }
     }
   },
   "notification": "Notification",
@@ -253,6 +291,8 @@
   "rendererWebgl": "Try WebGL",
   "rendererDom": "DOM fallback",
   "rendererHint": "Auto uses the DOM renderer on Windows (WebGL has known CJK glyph-atlas corruption) and prefers WebGL on other Chromium hosts; choosing WebGL explicitly still enables it.",
+  "pathLinksEnabled": "Terminal file path links",
+  "pathLinksEnabledHint": "Show file and directory paths in terminal output as clickable links with open actions.",
   "showContextUsage": "Show context usage",
   "showContextUsageHint": "Show the context usage indicator in the global and per-terminal status bars.",
   "showStatusBar": "Show terminal status bar",
@@ -427,6 +467,11 @@
       "title": "Create tabs from one launcher",
       "body": "Choose the project, CLI, runtime, and launch options from one place.",
       "bodyUnbound": "Bind New Tab in Settings to open the unified project, CLI, and runtime launcher."
+    },
+    "interfaceShapes": {
+      "title": "Try interface shapes",
+      "body": "Keep your current colors and change only the corners, dividers, and surface treatment.",
+      "action": "Open theme settings"
     },
     "dispatchOrchestration": {
       "title": "Let one AI command a fleet of AIs",

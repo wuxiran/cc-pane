@@ -141,6 +141,16 @@ function hexToRgba(color: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function withZeroAlpha(color: string): string {
+  const fromHex = hexToRgba(color, 0);
+  if (fromHex !== color) return fromHex;
+
+  const match = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/.exec(color);
+  return match
+    ? `rgba(${match[1]}, ${match[2]}, ${match[3]}, 0)`
+    : "rgba(0, 0, 0, 0)";
+}
+
 /**
  * 返回 background 转 rgba 的新调色板；仅动 background——cursorAccent 保持不透明
  * （块状光标下字符会糊），其余色不涉及。
@@ -174,7 +184,8 @@ export function withTransparentTerminalBackground(
   alpha: number,
 ): TerminalThemePalette {
   if (!Number.isFinite(alpha) || alpha >= 1) return palette;
-  return { ...palette, background: "rgba(0, 0, 0, 0)" };
+  // xterm ignores alpha for contrast checks, so keep the logical background RGB.
+  return { ...palette, background: withZeroAlpha(palette.background) };
 }
 
 export function getTerminalTheme(

@@ -18,16 +18,22 @@ vi.hoisted(() => {
   });
 });
 
-// 现在安全导入
-import { resolveThemeMode, useThemeStore } from "./useThemeStore";
+import { THEME_SHAPE_CODES } from "@/theme/themeShapes";
+import {
+  isolateSpecialWindowShape,
+  resolveThemeMode,
+  restoreThemeShapeFromStorage,
+  THEME_SHAPE_STORAGE_KEY,
+  useThemeStore,
+} from "./useThemeStore";
 
 describe("useThemeStore", () => {
   beforeEach(() => {
-    // 重置 store 到已知状态
-    useThemeStore.setState({ isDark: false });
+    useThemeStore.setState({ isDark: false, shape: "soft" });
     vi.restoreAllMocks();
     localStorage.clear();
     document.documentElement.classList.remove("dark");
+    delete document.documentElement.dataset.shape;
   });
 
   describe("toggleTheme", () => {
@@ -36,8 +42,7 @@ describe("useThemeStore", () => {
 
       useThemeStore.getState().toggleTheme();
 
-      const state = useThemeStore.getState();
-      expect(state.isDark).toBe(true);
+      expect(useThemeStore.getState().isDark).toBe(true);
     });
 
     it("从 dark 切换到 light", () => {
@@ -45,8 +50,7 @@ describe("useThemeStore", () => {
 
       useThemeStore.getState().toggleTheme();
 
-      const state = useThemeStore.getState();
-      expect(state.isDark).toBe(false);
+      expect(useThemeStore.getState().isDark).toBe(false);
     });
 
     it("应更新 localStorage", () => {
@@ -100,6 +104,59 @@ describe("useThemeStore", () => {
       expect(resolveThemeMode(null)).toBe("dark");
       expect(resolveThemeMode(undefined)).toBe("dark");
       expect(resolveThemeMode("system")).toBe("light");
+    });
+  });
+
+  describe("setThemeShape", () => {
+    it.each(THEME_SHAPE_CODES)("应用并缓存 %s", (shape) => {
+      useThemeStore.getState().setThemeShape(shape);
+
+      expect(useThemeStore.getState().shape).toBe(shape);
+      expect(document.documentElement.dataset.shape).toBe(shape);
+      expect(localStorage.getItem(THEME_SHAPE_STORAGE_KEY)).toBe(shape);
+    });
+
+    it("把非法值回落为 soft", () => {
+      useThemeStore.getState().setThemeShape("glass; color: red");
+
+      expect(useThemeStore.getState().shape).toBe("soft");
+      expect(document.documentElement.dataset.shape).toBe("soft");
+      expect(localStorage.getItem(THEME_SHAPE_STORAGE_KEY)).toBe("soft");
+    });
+
+    it("与配色主题保持独立", () => {
+      useThemeStore.getState().setThemeMode("cyber-purple");
+      useThemeStore.getState().setThemeShape("sharp");
+      expect(useThemeStore.getState().themeId).toBe("cyber-purple");
+
+      useThemeStore.getState().setThemeMode("classic-white");
+      expect(useThemeStore.getState().shape).toBe("sharp");
+    });
+  });
+
+  describe("shape startup", () => {
+    it("在 React 挂载前从受控缓存恢复形态", () => {
+      localStorage.setItem(THEME_SHAPE_STORAGE_KEY, "glass");
+
+      expect(restoreThemeShapeFromStorage()).toBe("glass");
+      expect(document.documentElement.dataset.shape).toBe("glass");
+    });
+
+    it("缓存非法时恢复为 soft", () => {
+      localStorage.setItem(THEME_SHAPE_STORAGE_KEY, "unknown");
+
+      expect(restoreThemeShapeFromStorage()).toBe("soft");
+      expect(document.documentElement.dataset.shape).toBe("soft");
+    });
+
+    it("专用窗口使用 soft 且不覆盖主窗口缓存", () => {
+      localStorage.setItem(THEME_SHAPE_STORAGE_KEY, "carbon");
+      document.documentElement.dataset.shape = "carbon";
+
+      isolateSpecialWindowShape();
+
+      expect(document.documentElement.dataset.shape).toBe("soft");
+      expect(localStorage.getItem(THEME_SHAPE_STORAGE_KEY)).toBe("carbon");
     });
   });
 });
