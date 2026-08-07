@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { SegmentedTabs } from "@/components/ui/segmented";
-import ProviderToolTabs from "./ProviderToolTabs";
+import ProviderToolSelect from "./ProviderToolTabs";
 import type { KnownCliTool } from "@/types/terminal";
 
 export type ProviderTopView = "profiles" | "providers";
@@ -19,9 +19,7 @@ interface Props {
 }
 
 /**
- * Provider 设置页统一单行 header：
- * [segmented 子页切换]  ……  [CLI chips]  [动作]
- * 替代原先「子 tab 行 + 页标题行 + chips 行」的三层堆叠（docs/46 §6 一套页面标题）。
+ * Provider 设置页统一 header：子页切换留在左侧，CLI 和页面动作收在右侧。
  */
 export default function ProviderPagesHeader({
   topView,
@@ -49,7 +47,7 @@ export default function ProviderPagesHeader({
         ]}
       />
       <div className="min-w-0 flex-1" />
-      <ProviderToolTabs activeTab={activeTab} onTabChange={onTabChange} providerCounts={counts} />
+      <ProviderToolSelect activeTab={activeTab} onTabChange={onTabChange} providerCounts={counts} />
       {actions}
     </div>
   );

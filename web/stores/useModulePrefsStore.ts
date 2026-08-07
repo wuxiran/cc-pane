@@ -28,6 +28,7 @@ interface ModulePrefsState {
 }
 
 export const MODULE_PREFS_STORAGE_KEY = "cc-panes-module-prefs";
+export const MODULE_PREFS_VERSION = 1;
 
 export function createDefaultModulePreferences(): ModulePreferences {
   return Object.fromEntries(MODULE_REGISTRY.map((module) => [
@@ -44,7 +45,7 @@ export function createModulePreferencesForPreset(preset: ModulePreset): ModulePr
   return Object.fromEntries(MODULE_REGISTRY.map((module) => [
     module.id,
     {
-      enabled: preset === "full" || module.minimal,
+      enabled: module.id === "orchestration" || preset === "full" || module.minimal,
       position: module.defaultPosition,
       ...(module.id === "aiPanel" ? { autoOpen: false, allowAiDialog: true } : {}),
     },
@@ -77,6 +78,7 @@ function normalizePreferences(value: unknown): ModulePreferences {
       } : {}),
     };
   }
+  defaults.orchestration = { enabled: true, position: "rightDock" };
   return defaults;
 }
 
@@ -84,18 +86,24 @@ export const useModulePrefsStore = create<ModulePrefsState>()(
   persist(
     (set) => ({
       preferences: createDefaultModulePreferences(),
-      setEnabled: (id, enabled) => set((state) => ({
+      setEnabled: (id, enabled) => set((state) => {
+        if (id === "orchestration") return state;
+        return {
         preferences: {
           ...state.preferences,
           [id]: { ...state.preferences[id], enabled },
         },
-      })),
-      setPosition: (id, position) => set((state) => ({
+        };
+      }),
+      setPosition: (id, position) => set((state) => {
+        if (id === "orchestration") return state;
+        return {
         preferences: {
           ...state.preferences,
           [id]: { ...state.preferences[id], position },
         },
-      })),
+        };
+      }),
       setAutoOpen: (id, autoOpen) => set((state) => ({
         preferences: {
           ...state.preferences,
@@ -114,7 +122,24 @@ export const useModulePrefsStore = create<ModulePrefsState>()(
     }),
     {
       name: MODULE_PREFS_STORAGE_KEY,
+      version: MODULE_PREFS_VERSION,
       partialize: (state) => ({ preferences: state.preferences }),
+      migrate: (persistedState, version) => {
+        const persisted = persistedState as Partial<Pick<ModulePrefsState, "preferences">>;
+        const preferences = normalizePreferences(persisted.preferences);
+        if (version < MODULE_PREFS_VERSION && persisted.preferences?.orchestration) {
+          return {
+            preferences: {
+              ...preferences,
+              orchestration: {
+                ...preferences.orchestration,
+                position: "rightDock" as const,
+              },
+            },
+          };
+        }
+        return { preferences };
+      },
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<ModulePrefsState>;
         return {

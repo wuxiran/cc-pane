@@ -32,8 +32,12 @@ async function readGitBranch(projectPath: string): Promise<string | undefined> {
   }
 }
 
-export default function OrchestratorInput() {
-  const { t } = useTranslation("sidebar");
+interface OrchestratorInputProps {
+  compact?: boolean;
+}
+
+export default function OrchestratorInput({ compact = false }: OrchestratorInputProps) {
+  const { t } = useTranslation(["sidebar", "orchestration"]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
@@ -121,7 +125,7 @@ export default function OrchestratorInput() {
 
   const targetLabel = targetProject
     ? `${getProjectLabel(targetProject.project)} · ${cliTool}`
-    : t("orchestrationNoProject", { defaultValue: "No project" });
+    : t("orchestration:composer.noProject");
 
   return (
     <div
@@ -132,7 +136,7 @@ export default function OrchestratorInput() {
         <Popover open={targetOpen} onOpenChange={setTargetOpen}>
           <PopoverTrigger asChild>
             <button
-              className="flex min-w-0 max-w-full items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors hover:bg-[var(--app-hover)]"
+              className={`flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors hover:bg-[var(--app-hover)] ${compact ? "w-full" : "max-w-full"}`}
               style={{
                 color: "var(--app-text-secondary)",
                 border: "1px solid var(--app-border)",
@@ -140,7 +144,7 @@ export default function OrchestratorInput() {
               disabled={workspaces.length === 0}
               title={targetProject?.project.path}
             >
-              <span className="truncate">📁 {targetLabel.replace(` · ${cliTool}`, "")}</span>
+              <span className="min-w-0 flex-1 truncate">📁 {targetLabel.replace(` · ${cliTool}`, "")}</span>
               <span className="shrink-0">· 🤖 {cliTool}</span>
               <ChevronDown className="h-3 w-3 shrink-0" />
             </button>
@@ -149,7 +153,7 @@ export default function OrchestratorInput() {
             <div className="space-y-2">
               <div>
                 <div className="mb-1 px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Project
+                  {t("orchestration:composer.project")}
                 </div>
                 <div className="max-h-56 overflow-y-auto pr-1">
                   {workspaces.map((workspace) => (
@@ -182,7 +186,7 @@ export default function OrchestratorInput() {
 
               <div>
                 <div className="mb-1 px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                  CLI
+                  {t("orchestration:composer.cli")}
                 </div>
                 <div className="grid grid-cols-2 gap-1">
                   {CLI_CHOICES.map((tool) => (
@@ -218,7 +222,7 @@ export default function OrchestratorInput() {
           ref={inputRef}
           className="flex-1 resize-none border-none bg-transparent text-xs leading-relaxed outline-none"
           style={{ color: "var(--app-text-primary)", minHeight: 20, maxHeight: 80 }}
-          placeholder={t("orchestrationPlaceholder", { defaultValue: "Enter task..." })}
+          placeholder={t("orchestration:composer.placeholder")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -230,7 +234,7 @@ export default function OrchestratorInput() {
           style={{ color: "var(--app-accent)" }}
           onClick={handleSubmit}
           disabled={!input.trim() || sending || !targetProject}
-          title={t("send", { ns: "common", defaultValue: "Send" })}
+          title={t("orchestration:composer.send")}
         >
           <SendHorizontal className="h-4 w-4" />
         </button>

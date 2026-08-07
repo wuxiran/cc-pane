@@ -109,6 +109,8 @@ describe("ExplorerView", () => {
   it("renders the EXPLORER header and two segmented tabs, workspaces active by default", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("EXPLORER")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "openLauncher" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /launchTerminal/ })).toHaveLength(1);
     expect(screen.getByRole("tab", { name: "explorer.tabWorkspaces" })).toHaveAttribute(
       "aria-selected",
       "true",

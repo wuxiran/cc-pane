@@ -23,12 +23,15 @@ import {
 } from "lucide-react";
 
 export type SettingsGroupId =
-  | "guide"
-  | "appearance"
-  | "ai"
+  | "application"
+  | "services";
+
+export type SettingsPageId =
+  | "general"
+  | "terminal"
+  | "ai-tools"
   | "system"
-  | "companion"
-  | "experimental"
+  | "advanced"
   | "about";
 
 export type SettingsPaneId =
@@ -67,10 +70,18 @@ export interface SettingsPaneDefinition {
   icon: LucideIcon;
   titleKey: SettingsTranslationKey;
   descriptionKey?: SettingsTranslationKey;
-  group: SettingsGroupId;
+  page: SettingsPageId;
   searchEntries: readonly SettingsSearchEntry[];
   availability?: "tauri" | "non-mac";
   layout?: "default" | "wide";
+}
+
+export interface SettingsPageDefinition {
+  id: SettingsPageId;
+  icon: LucideIcon;
+  titleKey: SettingsTranslationKey;
+  group: SettingsGroupId;
+  paneIds: readonly SettingsPaneId[];
 }
 
 export interface SettingsEnvironment {
@@ -82,13 +93,53 @@ export const SETTINGS_GROUPS: ReadonlyArray<{
   id: SettingsGroupId;
   titleKey: SettingsTranslationKey;
 }> = [
-  { id: "guide", titleKey: "groups.guide" },
-  { id: "appearance", titleKey: "groups.appearance" },
-  { id: "ai", titleKey: "groups.ai" },
-  { id: "system", titleKey: "groups.system" },
-  { id: "companion", titleKey: "groups.companion" },
-  { id: "experimental", titleKey: "groups.experimental" },
-  { id: "about", titleKey: "groups.about" },
+  { id: "application", titleKey: "groups.application" },
+  { id: "services", titleKey: "groups.services" },
+];
+
+export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
+  {
+    id: "general",
+    icon: Settings,
+    titleKey: "pages.general.title",
+    group: "application",
+    paneIds: ["general", "theme", "wallpaper", "modules"],
+  },
+  {
+    id: "terminal",
+    icon: Terminal,
+    titleKey: "pages.terminal.title",
+    group: "application",
+    paneIds: ["terminal", "shortcuts"],
+  },
+  {
+    id: "ai-tools",
+    icon: Bot,
+    titleKey: "pages.aiTools.title",
+    group: "services",
+    paneIds: ["provider", "cli-launchers", "shared-mcp", "quick-commands", "ccchan"],
+  },
+  {
+    id: "system",
+    icon: Globe,
+    titleKey: "pages.system.title",
+    group: "services",
+    paneIds: ["proxy", "web-access", "notification", "screenshot", "voice"],
+  },
+  {
+    id: "advanced",
+    icon: FlaskConical,
+    titleKey: "pages.advanced.title",
+    group: "services",
+    paneIds: ["setup-guide", "experimental"],
+  },
+  {
+    id: "about",
+    icon: Info,
+    titleKey: "pages.about.title",
+    group: "services",
+    paneIds: ["about"],
+  },
 ];
 
 export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
@@ -97,7 +148,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: ListChecks,
     titleKey: "setupGuide.title",
     descriptionKey: "setupGuide.description",
-    group: "guide",
+    page: "advanced",
     searchEntries: [{
       id: "workflow-checklist",
       titleKey: "setupGuide.title",
@@ -111,7 +162,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: Palette,
     titleKey: "theme.styleTitle",
     descriptionKey: "theme.styleDescription",
-    group: "appearance",
+    page: "general",
     searchEntries: [
       { id: "theme-style", titleKey: "theme.styleTitle", descriptionKey: "theme.styleDescription", keywordsKey: "searchKeywords.theme", targetSectionId: "theme-style" },
     ],
@@ -120,7 +171,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     id: "general",
     icon: Settings,
     titleKey: "general",
-    group: "appearance",
+    page: "general",
     searchEntries: [
       { id: "startup", titleKey: "autoStart", keywordsKey: "searchKeywords.general", targetSectionId: "general-root" },
       { id: "history", titleKey: "localHistoryEnabled", descriptionKey: "localHistoryEnabledDesc", targetSectionId: "general-root" },
@@ -137,7 +188,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: Image,
     titleKey: "wallpaper",
     descriptionKey: "wallpaperDesc",
-    group: "appearance",
+    page: "general",
     searchEntries: [
       { id: "media", titleKey: "wallpaperImage", descriptionKey: "wallpaperImageHint", keywordsKey: "searchKeywords.wallpaper", targetSectionId: "wallpaper-root" },
     ],
@@ -147,7 +198,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     id: "terminal",
     icon: Terminal,
     titleKey: "terminal",
-    group: "appearance",
+    page: "terminal",
     searchEntries: [
       { id: "font", titleKey: "fontSize", descriptionKey: "fontFamilyCjkHint", keywordsKey: "searchKeywords.font", targetSectionId: "terminal-font" },
       { id: "theme", titleKey: "terminalTheme", targetSectionId: "terminal-root" },
@@ -163,7 +214,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: Keyboard,
     titleKey: "shortcuts",
     descriptionKey: "shortcutsHint",
-    group: "appearance",
+    page: "terminal",
     searchEntries: [
       { id: "bindings", titleKey: "shortcutsTitle", descriptionKey: "shortcutsHint", keywordsKey: "searchKeywords.shortcuts", targetSectionId: "shortcuts-list" },
     ],
@@ -173,7 +224,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: PanelsTopLeft,
     titleKey: "modules.title",
     descriptionKey: "modules.description",
-    group: "appearance",
+    page: "general",
     searchEntries: [
       {
         id: "placement",
@@ -189,22 +240,22 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: Cloud,
     titleKey: "provider",
     descriptionKey: "providerDesc",
-    group: "ai",
+    page: "ai-tools",
     searchEntries: [
       { id: "providers", titleKey: "providerTitle", descriptionKey: "providerDesc", keywordsKey: "searchKeywords.provider", targetSectionId: "provider-root" },
     ],
     layout: "wide",
   },
-  { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", descriptionKey: "cliLaunchersDesc", group: "ai", searchEntries: [
+  { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", descriptionKey: "cliLaunchersDesc", page: "ai-tools", searchEntries: [
     { id: "commands", titleKey: "cliLaunchersTitle", descriptionKey: "cliLaunchersDesc", targetSectionId: "cli-launchers-root" },
   ] },
-  { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", descriptionKey: "sharedMcp.importHint", group: "ai", searchEntries: [
+  { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", descriptionKey: "sharedMcp.importHint", page: "ai-tools", searchEntries: [
     { id: "servers", titleKey: "sharedMcp.title", keywordsKey: "searchKeywords.mcp", targetSectionId: "shared-mcp-root" },
   ] },
-  { id: "proxy", icon: Globe, titleKey: "proxy", group: "system", searchEntries: [
+  { id: "proxy", icon: Globe, titleKey: "proxy", page: "system", searchEntries: [
     { id: "connection", titleKey: "proxyTitle", keywordsKey: "searchKeywords.proxy", targetSectionId: "proxy-root" },
   ] },
-  { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", descriptionKey: "webAccessDescription", group: "system", searchEntries: [
+  { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", descriptionKey: "webAccessDescription", page: "system", searchEntries: [
     { id: "remote", titleKey: "webAccessTitle", keywordsKey: "searchKeywords.webAccess", targetSectionId: "web-access-root" },
   ] },
   {
@@ -212,7 +263,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: LibraryBig,
     titleKey: "quickCommands.title",
     descriptionKey: "quickCommands.description",
-    group: "system",
+    page: "ai-tools",
     layout: "wide",
     searchEntries: [{
       id: "library",
@@ -222,7 +273,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       targetSectionId: "quick-commands-root",
     }],
   },
-  { id: "notification", icon: Bell, titleKey: "notification", descriptionKey: "notificationDescription", group: "system", searchEntries: [
+  { id: "notification", icon: Bell, titleKey: "notification", descriptionKey: "notificationDescription", page: "system", searchEntries: [
     { id: "events", titleKey: "notificationTitle", keywordsKey: "searchKeywords.notification", targetSectionId: "notification-controls" },
   ] },
   {
@@ -230,16 +281,16 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: Camera,
     titleKey: "screenshot",
     descriptionKey: "screenshotDesc",
-    group: "system",
+    page: "system",
     searchEntries: [
       { id: "capture", titleKey: "screenshotTitle", descriptionKey: "screenshotDesc", keywordsKey: "searchKeywords.screenshot", targetSectionId: "screenshot-root" },
     ],
     availability: "non-mac",
   },
-  { id: "voice", icon: Mic, titleKey: "voice", descriptionKey: "voiceDesc", group: "system", searchEntries: [
+  { id: "voice", icon: Mic, titleKey: "voice", descriptionKey: "voiceDesc", page: "system", searchEntries: [
     { id: "input", titleKey: "voiceTitle", descriptionKey: "voiceDesc", keywordsKey: "searchKeywords.voice", targetSectionId: "voice-root" },
   ] },
-  { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", group: "companion", searchEntries: [
+  { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", page: "ai-tools", searchEntries: [
     { id: "companion", titleKey: "ccchanTitle", keywordsKey: "searchKeywords.ccchan", targetSectionId: "ccchan-root" },
   ] },
   {
@@ -247,7 +298,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: FlaskConical,
     titleKey: "experimental.title",
     descriptionKey: "experimental.description",
-    group: "experimental",
+    page: "advanced",
     searchEntries: [{
       id: "features",
       titleKey: "experimental.title",
@@ -256,7 +307,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       targetSectionId: "experimental-root",
     }],
   },
-  { id: "about", icon: Info, titleKey: "about", group: "about", searchEntries: [
+  { id: "about", icon: Info, titleKey: "about", page: "about", searchEntries: [
     { id: "application", titleKey: "aboutTitle", keywordsKey: "searchKeywords.about", targetSectionId: "about-root" },
   ] },
 ];
@@ -274,6 +325,37 @@ export function getVisibleSettingsPanes(
   environment: SettingsEnvironment,
 ): SettingsPaneDefinition[] {
   return SETTINGS_PANES.filter((pane) => isSettingsPaneAvailable(pane, environment));
+}
+
+export function getVisibleSettingsPages(
+  panes: readonly SettingsPaneDefinition[],
+): SettingsPageDefinition[] {
+  const visiblePaneIds = new Set(panes.map((pane) => pane.id));
+  return SETTINGS_PAGES.filter((page) =>
+    page.paneIds.some((paneId) => visiblePaneIds.has(paneId))
+  );
+}
+
+export function getSettingsPage(id: SettingsPageId): SettingsPageDefinition {
+  const page = SETTINGS_PAGES.find((candidate) => candidate.id === id);
+  if (!page) throw new Error(`Unknown settings page: ${id}`);
+  return page;
+}
+
+export function getSettingsPageForPane(paneId: SettingsPaneId): SettingsPageDefinition {
+  const page = SETTINGS_PAGES.find((candidate) => candidate.paneIds.includes(paneId));
+  if (!page) throw new Error(`No settings page contains pane: ${paneId}`);
+  return page;
+}
+
+export function getSettingsPanesForPage(
+  pageId: SettingsPageId,
+  panes: readonly SettingsPaneDefinition[] = SETTINGS_PANES,
+): SettingsPaneDefinition[] {
+  const page = getSettingsPage(pageId);
+  return page.paneIds
+    .map((paneId) => panes.find((pane) => pane.id === paneId))
+    .filter((pane): pane is SettingsPaneDefinition => pane !== undefined);
 }
 
 export function getSettingsPane(id: SettingsPaneId): SettingsPaneDefinition {

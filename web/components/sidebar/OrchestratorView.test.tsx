@@ -6,7 +6,6 @@ import { useActivityBarStore, useOrchestratorStore } from "@/stores";
 import type { TaskBinding } from "@/types";
 
 vi.mock("./OrchestratorFilterBar", () => ({ default: () => <div>filter-bar-stub</div> }));
-vi.mock("./OrchestratorInput", () => ({ default: () => <div>input-stub</div> }));
 vi.mock("./OrchestratorTaskTree", () => ({ default: () => <div>task-tree-stub</div> }));
 vi.mock("./OrchestratorTaskCard", () => ({
   default: ({ binding }: { binding: TaskBinding }) => <div data-testid="card">{binding.title}</div>,
@@ -116,9 +115,9 @@ describe("OrchestratorView", () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it("renders the filter bar and input children", () => {
+  it("renders the filter bar without a dispatch composer", () => {
     render(<OrchestratorView onOpenTerminal={vi.fn()} />);
     expect(screen.getByText("filter-bar-stub")).toBeVisible();
-    expect(screen.getByText("input-stub")).toBeVisible();
+    expect(screen.queryByPlaceholderText(/Enter task|输入任务/i)).not.toBeInTheDocument();
   });
 });

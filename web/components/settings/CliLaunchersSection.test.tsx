@@ -1,7 +1,7 @@
-import "@/i18n";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { toast } from "sonner";
 import { settingsService } from "@/services";
 import { useCliTools } from "@/hooks/useCliTools";
@@ -48,6 +48,16 @@ function mockTools(tools: CliToolInfo[], loading = false) {
   });
 }
 
+async function selectTool(user: ReturnType<typeof userEvent.setup>, label: string) {
+  await user.click(screen.getByRole("combobox", {
+    name: i18n.t("settings:cliToolSelect"),
+  }));
+  const listbox = await screen.findByRole("listbox");
+  await user.click(within(listbox).getByRole("option", {
+    name: new RegExp(label),
+  }));
+}
+
 describe("CliLaunchersSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,16 +71,25 @@ describe("CliLaunchersSection", () => {
     expect(screen.getByText(/加载中|Loading/i)).toBeInTheDocument();
   });
 
-  it("renders each tool with its installed badge and default command hint", () => {
+  it("shows one selected tool and switches it from the CLI dropdown", async () => {
+    const user = userEvent.setup();
     mockTools([
       createTool(),
       createTool({ id: "codex", displayName: "Codex CLI", executable: "codex", installed: false, path: null as unknown as string }),
     ]);
     render(<CliLaunchersSection value={{ overrides: {} }} onChange={vi.fn()} />);
 
-    expect(screen.getByText("Claude Code")).toBeInTheDocument();
-    expect(screen.getByText("Codex CLI")).toBeInTheDocument();
-    expect(screen.getByText("C:/bin/claude.cmd")).toBeInTheDocument();
+    const editor = screen.getByTestId("cli-launcher-editor");
+    expect(editor).toHaveAttribute("data-cli-tool", "claude");
+    expect(editor).toHaveTextContent("Claude Code");
+    expect(editor).toHaveTextContent("C:/bin/claude.cmd");
+    expect(editor).not.toHaveTextContent("Codex CLI");
+
+    await selectTool(user, "Codex CLI");
+    expect(editor).toHaveAttribute("data-cli-tool", "codex");
+    expect(editor).toHaveTextContent("Codex CLI");
+    expect(editor).toHaveTextContent(i18n.t("settings:cliNotInstalled"));
+    expect(editor).not.toHaveTextContent("Claude Code");
   });
 
   it("adds an override when a custom command is typed", () => {
@@ -95,7 +114,9 @@ describe("CliLaunchersSection", () => {
     fireEvent.change(screen.getByDisplayValue("custom"), { target: { value: "   " } });
     expect(onChange).toHaveBeenLastCalledWith({ overrides: {} });
 
-    const resetButton = screen.getAllByRole("button")[0];
+    const resetButton = screen.getByRole("button", {
+      name: i18n.t("settings:cliLauncherReset"),
+    });
     await user.click(resetButton);
     expect(onChange).toHaveBeenLastCalledWith({ overrides: {} });
   });
@@ -103,7 +124,9 @@ describe("CliLaunchersSection", () => {
   it("disables reset when there is no override", () => {
     render(<CliLaunchersSection value={{ overrides: {} }} onChange={vi.fn()} />);
 
-    expect(screen.getAllByRole("button")[0]).toBeDisabled();
+    expect(screen.getByRole("button", {
+      name: i18n.t("settings:cliLauncherReset"),
+    })).toBeDisabled();
   });
 
   it("tests the override command and reports success", async () => {
@@ -116,8 +139,9 @@ describe("CliLaunchersSection", () => {
       />,
     );
 
-    const buttons = screen.getAllByRole("button");
-    await user.click(buttons[buttons.length - 1]);
+    await user.click(screen.getByRole("button", {
+      name: i18n.t("settings:cliLauncherTest"),
+    }));
 
     await waitFor(() =>
       expect(settingsService.testCliLauncher).toHaveBeenCalledWith("my-claude", ["--version"]),
@@ -131,8 +155,9 @@ describe("CliLaunchersSection", () => {
     vi.mocked(settingsService.testCliLauncher).mockRejectedValue(new Error("not found"));
     render(<CliLaunchersSection value={{ overrides: {} }} onChange={vi.fn()} />);
 
-    const buttons = screen.getAllByRole("button");
-    await user.click(buttons[buttons.length - 1]);
+    await user.click(screen.getByRole("button", {
+      name: i18n.t("settings:cliLauncherTest"),
+    }));
 
     await waitFor(() =>
       expect(settingsService.testCliLauncher).toHaveBeenCalledWith("claude", ["--version"]),

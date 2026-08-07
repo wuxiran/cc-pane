@@ -18,7 +18,7 @@ describe("useModulePrefsStore", () => {
   it("defaults modules to their registered enabled positions", () => {
     expect(useModulePrefsStore.getState().preferences).toEqual({
       ssh: { enabled: true, position: "activityBar" },
-      orchestration: { enabled: true, position: "activityBar" },
+      orchestration: { enabled: true, position: "rightDock" },
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
       aiPanel: { enabled: true, position: "rightDock", autoOpen: false, allowAiDialog: true },
@@ -32,7 +32,7 @@ describe("useModulePrefsStore", () => {
     );
     expect(createModulePreferencesForPreset("minimal")).toEqual({
       ssh: { enabled: false, position: "activityBar" },
-      orchestration: { enabled: false, position: "activityBar" },
+      orchestration: { enabled: true, position: "rightDock" },
       resources: { enabled: false, position: "activityBar" },
       todo: { enabled: false, position: "activityBar" },
       aiPanel: { enabled: false, position: "rightDock", autoOpen: false, allowAiDialog: true },
@@ -81,6 +81,18 @@ describe("useModulePrefsStore", () => {
     });
   });
 
+  it("keeps orchestration enabled in the right dock", () => {
+    const store = useModulePrefsStore.getState();
+
+    store.setEnabled("orchestration", false);
+    store.setPosition("orchestration", "hidden");
+
+    expect(useModulePrefsStore.getState().preferences.orchestration).toEqual({
+      enabled: true,
+      position: "rightDock",
+    });
+  });
+
   it("fills missing modules and rejects invalid persisted values during upgrades", async () => {
     localStorage.setItem(MODULE_PREFS_STORAGE_KEY, JSON.stringify({
       state: {
@@ -96,11 +108,29 @@ describe("useModulePrefsStore", () => {
 
     expect(useModulePrefsStore.getState().preferences).toEqual({
       ssh: { enabled: false, position: "rightDock" },
-      orchestration: { enabled: true, position: "activityBar" },
+      orchestration: { enabled: true, position: "rightDock" },
       resources: { enabled: true, position: "activityBar" },
       todo: { enabled: true, position: "activityBar" },
       aiPanel: { enabled: true, position: "rightDock", autoOpen: false, allowAiDialog: true },
       sessionHistory: { enabled: true, position: "rightDock" },
+    });
+  });
+
+  it("moves existing orchestration preferences from the activity bar to the right dock", async () => {
+    localStorage.setItem(MODULE_PREFS_STORAGE_KEY, JSON.stringify({
+      state: {
+        preferences: {
+          orchestration: { enabled: true, position: "activityBar" },
+        },
+      },
+      version: 0,
+    }));
+
+    await useModulePrefsStore.persist.rehydrate();
+
+    expect(useModulePrefsStore.getState().preferences.orchestration).toEqual({
+      enabled: true,
+      position: "rightDock",
     });
   });
 

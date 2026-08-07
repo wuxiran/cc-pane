@@ -1,4 +1,4 @@
-import { render as rtlRender, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -126,6 +126,19 @@ async function switchToProvidersList(user: ReturnType<typeof userEvent.setup>) {
   );
 }
 
+async function selectCli(
+  user: ReturnType<typeof userEvent.setup>,
+  label: string,
+) {
+  await user.click(screen.getByRole("combobox", {
+    name: i18n.t("settings:cliToolSelect"),
+  }));
+  const listbox = await screen.findByRole("listbox");
+  await user.click(within(listbox).getByRole("option", {
+    name: new RegExp(label),
+  }));
+}
+
 describe("ProvidersPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -163,9 +176,7 @@ describe("ProvidersPanel", () => {
     expect(screen.queryByText("Codex API")).not.toBeInTheDocument();
 
     // 切到 codex tab
-    await user.click(
-      screen.getByRole("button", { name: new RegExp(i18n.t("settings:tabCodex")) })
-    );
+    await selectCli(user, i18n.t("settings:tabCodex"));
     expect(screen.getByText("Codex API")).toBeInTheDocument();
     expect(screen.queryByText("Claude API")).not.toBeInTheDocument();
   });
@@ -193,9 +204,7 @@ describe("ProvidersPanel", () => {
       i18n.t("settings:defaultBadge"),
     );
 
-    await user.click(
-      screen.getByRole("button", { name: new RegExp(i18n.t("settings:tabCodex")) }),
-    );
+    await selectCli(user, i18n.t("settings:tabCodex"));
     expect(screen.getByText("Codex Default").closest(".group")).toHaveTextContent(
       i18n.t("settings:defaultBadge"),
     );

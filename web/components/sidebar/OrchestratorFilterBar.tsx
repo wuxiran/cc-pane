@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Search, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { CSSProperties } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -24,7 +24,11 @@ function chipStyle(active: boolean): CSSProperties {
   };
 }
 
-export default function OrchestratorFilterBar() {
+interface OrchestratorFilterBarProps {
+  compact?: boolean;
+}
+
+export default function OrchestratorFilterBar({ compact = false }: OrchestratorFilterBarProps) {
   const { t } = useTranslation("orchestration");
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const filterWorkspace = useOrchestratorStore((s) => s.filterWorkspace);
@@ -43,16 +47,14 @@ export default function OrchestratorFilterBar() {
     ? selectedWorkspace.projects
     : workspaces.flatMap((workspace) => workspace.projects);
   const selectedProject = availableProjects.find((project) => project.path === filterProjectPath);
+  const hasActiveFilters = Boolean(filterWorkspace || filterProjectPath || filterRole);
 
-  return (
-    <div
-      className="flex shrink-0 items-center gap-1.5 px-2 py-1.5"
-      style={{ borderBottom: "1px solid var(--app-border)" }}
-    >
+  const filterControls = (
+    <>
       <Popover>
         <PopoverTrigger asChild>
           <button
-            className="min-w-0 max-w-[88px] truncate rounded px-2 py-1 text-[11px]"
+            className={`min-w-0 truncate rounded px-2 py-1 text-[11px] ${compact ? "w-full" : "max-w-[88px]"}`}
             style={chipStyle(Boolean(filterWorkspace))}
             title={filterWorkspace ?? t("sidebar.allWorkspaces")}
           >
@@ -81,7 +83,7 @@ export default function OrchestratorFilterBar() {
       <Popover>
         <PopoverTrigger asChild>
           <button
-            className="min-w-0 max-w-[86px] truncate rounded px-2 py-1 text-[11px]"
+            className={`min-w-0 truncate rounded px-2 py-1 text-[11px] ${compact ? "w-full" : "max-w-[86px]"}`}
             style={chipStyle(Boolean(filterProjectPath))}
             title={selectedProject?.path ?? t("sidebar.allProjects")}
           >
@@ -113,11 +115,11 @@ export default function OrchestratorFilterBar() {
         </PopoverContent>
       </Popover>
 
-      <div className="flex shrink-0 overflow-hidden rounded" style={{ border: "1px solid var(--app-border)" }}>
+      <div className={`flex shrink-0 overflow-hidden rounded ${compact ? "col-span-2 w-full" : ""}`} style={{ border: "1px solid var(--app-border)" }}>
         {ROLE_OPTIONS.map((option) => (
           <button
             key={option.value ?? "all"}
-            className="h-6 min-w-6 px-1.5 text-[11px]"
+            className={`h-6 min-w-6 px-1.5 text-[11px] ${compact ? "flex-1" : ""}`}
             style={{
               background:
                 filterRole === option.value
@@ -132,16 +134,60 @@ export default function OrchestratorFilterBar() {
           </button>
         ))}
       </div>
+    </>
+  );
 
-      <div className="relative min-w-0 flex-1">
-        <Search className="pointer-events-none absolute left-2 top-1.5 h-3 w-3 text-muted-foreground" />
-        <Input
-          className="h-6 rounded px-6 text-xs"
-          value={searchKeyword}
-          onChange={(event) => setSearchKeyword(event.target.value)}
-          placeholder={t("searchPlaceholder")}
-        />
+  const searchControl = (
+    <div className="relative min-w-0 flex-1">
+      <Search className="pointer-events-none absolute left-2 top-1.5 h-3 w-3 text-muted-foreground" />
+      <Input
+        className="h-7 rounded px-6 text-xs"
+        value={searchKeyword}
+        onChange={(event) => setSearchKeyword(event.target.value)}
+        placeholder={t("searchPlaceholder")}
+      />
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <div className="flex shrink-0 items-center gap-1.5 px-2 py-1.5" style={{ borderBottom: "1px solid var(--app-border)" }}>
+        {searchControl}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("sidebar.filters")}
+              title={t("sidebar.filters")}
+              className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]"
+              style={{
+                color: hasActiveFilters ? "var(--app-accent)" : "var(--app-text-secondary)",
+                border: "1px solid var(--app-border)",
+              }}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              {hasActiveFilters && (
+                <span className="absolute right-0.5 top-0.5 size-1 rounded-full bg-[var(--app-accent)]" />
+              )}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-72 p-2">
+            <div className="grid grid-cols-2 gap-1.5">
+              {filterControls}
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-1.5 px-2 py-1.5"
+      style={{ borderBottom: "1px solid var(--app-border)" }}
+    >
+      {filterControls}
+      {searchControl}
     </div>
   );
 }

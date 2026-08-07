@@ -2,6 +2,7 @@
   "title": "Settings",
   "panelDescription": "Manage CC-Panes application preferences",
   "navigation": "Settings navigation",
+  "paneNavigation": "Current page sections",
   "searchLabel": "Search settings",
   "searchPlaceholder": "Search fonts, notifications, shortcuts…",
   "clearSearch": "Clear search",
@@ -34,13 +35,28 @@
     "about": "version update logs uninstall cleanup"
   },
   "groups": {
-    "guide": "Start",
-    "appearance": "Appearance & Interaction",
-    "ai": "AI & Launch",
-    "system": "System",
-    "companion": "Companion",
-    "experimental": "Experimental",
-    "about": "About"
+    "application": "Application",
+    "services": "Tools & Services"
+  },
+  "pages": {
+    "general": {
+      "title": "General & Appearance"
+    },
+    "terminal": {
+      "title": "Terminal & Shortcuts"
+    },
+    "aiTools": {
+      "title": "AI & Tools"
+    },
+    "system": {
+      "title": "System & Connectivity"
+    },
+    "advanced": {
+      "title": "Advanced"
+    },
+    "about": {
+      "title": "About"
+    }
   },
   "setupGuide": {
     "title": "Setup Guide",
@@ -605,6 +621,7 @@
   "tabGrok": "Grok",
   "cliInstalled": "Installed",
   "cliNotInstalled": "Not installed",
+  "cliToolSelect": "Select CLI",
   "cliLaunchersTitle": "CLI Launch Commands",
   "cliLaunchersDesc": "Set the local command used to start each CLI tool. Leave blank to use the default command and PATH detection. This only affects newly launched local sessions.",
   "cliLauncherCommand": "Launch command",
@@ -614,6 +631,7 @@
   "cliLauncherTestFailed": "Command test failed: {{error}}",
   "cliLauncherOverrideActive": "Currently starts with {{command}}",
   "cliLauncherDefaultActive": "Currently uses default command {{command}}",
+  "cliLauncherEmpty": "No configurable CLI tools detected",
   "testing": "Testing...",
   "presetAnthropicName": "Anthropic",
   "presetAnthropicDesc": "Official Anthropic API",

@@ -17,7 +17,7 @@ const panes: SettingsPaneDefinition[] = [
     id: "terminal",
     icon: Terminal,
     titleKey: "terminal",
-    group: "appearance",
+    page: "terminal",
     searchEntries: [{
       id: "font",
       titleKey: "fontSize",
@@ -30,7 +30,7 @@ const panes: SettingsPaneDefinition[] = [
     id: "notification",
     icon: Terminal,
     titleKey: "notification",
-    group: "system",
+    page: "system",
     searchEntries: [{
       id: "exit",
       titleKey: "notifyExit",

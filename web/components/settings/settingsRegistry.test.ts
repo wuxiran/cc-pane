@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
+  getSettingsPanesForPage,
+  getVisibleSettingsPages,
   getVisibleSettingsPanes,
   SETTINGS_GROUPS,
+  SETTINGS_PAGES,
   SETTINGS_PANES,
 } from "./settingsRegistry";
 import { getSettingsCommandTargets } from "./settingsSearch";
 
 describe("settings registry", () => {
-  it("declares unique panes in known groups", () => {
+  it("declares six consolidated pages across two groups", () => {
     const paneIds = SETTINGS_PANES.map((pane) => pane.id);
+    const pageIds = SETTINGS_PAGES.map((page) => page.id);
     const groupIds = new Set(SETTINGS_GROUPS.map((group) => group.id));
+    const assignedPaneIds = SETTINGS_PAGES.flatMap((page) => page.paneIds);
 
     expect(new Set(paneIds).size).toBe(paneIds.length);
-    expect(SETTINGS_PANES.every((pane) => groupIds.has(pane.group))).toBe(true);
+    expect(new Set(pageIds).size).toBe(pageIds.length);
+    expect(SETTINGS_PAGES.every((page) => groupIds.has(page.group))).toBe(true);
+    expect(new Set(assignedPaneIds)).toEqual(new Set(paneIds));
+    expect(assignedPaneIds).toHaveLength(paneIds.length);
     expect(SETTINGS_PANES.every((pane) => Array.isArray(pane.searchEntries))).toBe(true);
+    expect(SETTINGS_GROUPS.map((group) => group.id)).toEqual(["application", "services"]);
+    expect(pageIds).toEqual(["general", "terminal", "ai-tools", "system", "advanced", "about"]);
   });
 
   it("applies desktop and platform availability from the registry", () => {
@@ -27,14 +37,35 @@ describe("settings registry", () => {
     expect(macDesktop.map((pane) => pane.id)).not.toContain("screenshot");
   });
 
-  it("drives sidebar panes and command targets from the same visible registry", () => {
+  it("keeps visible pages and command targets backed by the same pane registry", () => {
     const visiblePanes = getVisibleSettingsPanes({ isMac: false, isTauri: true });
-    const sidebarPaneIds = visiblePanes.map((pane) => pane.id);
+    const visiblePages = getVisibleSettingsPages(visiblePanes);
+    const visiblePaneIds = visiblePanes.map((pane) => pane.id);
     const commandPaneIds = [...new Set(
       getSettingsCommandTargets(visiblePanes).map(({ pane }) => pane.id),
     )];
 
-    expect(commandPaneIds).toEqual(sidebarPaneIds);
+    expect(commandPaneIds).toEqual(visiblePaneIds);
+    expect(visiblePages).toHaveLength(6);
+    expect(visiblePages.every((page) =>
+      page.paneIds.some((paneId) => visiblePaneIds.includes(paneId))
+    )).toBe(true);
+  });
+
+  it("preserves the intended order inside consolidated pages", () => {
+    expect(getSettingsPanesForPage("general").map((pane) => pane.id)).toEqual([
+      "general",
+      "theme",
+      "wallpaper",
+      "modules",
+    ]);
+    expect(getSettingsPanesForPage("ai-tools").map((pane) => pane.id)).toEqual([
+      "provider",
+      "cli-launchers",
+      "shared-mcp",
+      "quick-commands",
+      "ccchan",
+    ]);
   });
 
   it("registers the status bar system resource setting for search", () => {
@@ -52,7 +83,7 @@ describe("settings registry", () => {
 
     expect(modules).toMatchObject({
       titleKey: "modules.title",
-      group: "appearance",
+      page: "general",
     });
     expect(modules?.searchEntries).toContainEqual(expect.objectContaining({
       id: "placement",
@@ -65,7 +96,7 @@ describe("settings registry", () => {
 
     expect(setupGuide).toMatchObject({
       titleKey: "setupGuide.title",
-      group: "guide",
+      page: "advanced",
     });
     expect(setupGuide?.searchEntries).toContainEqual(expect.objectContaining({
       id: "workflow-checklist",
@@ -74,12 +105,12 @@ describe("settings registry", () => {
     }));
   });
 
-  it("registers quick commands as a wide system pane", () => {
+  it("registers quick commands as a wide AI tools pane", () => {
     const quickCommands = SETTINGS_PANES.find((pane) => pane.id === "quick-commands");
 
     expect(quickCommands).toMatchObject({
       titleKey: "quickCommands.title",
-      group: "system",
+      page: "ai-tools",
       layout: "wide",
     });
     expect(quickCommands?.searchEntries).toContainEqual(expect.objectContaining({

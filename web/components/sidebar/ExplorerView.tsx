@@ -60,20 +60,6 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
         >
           EXPLORER
         </span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("openLauncher", { ns: "launcher" })}
-              onClick={openLauncherWithContext}
-              className="ml-2 flex h-[26px] w-[28px] items-center justify-center rounded-md transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-              style={{ color: "var(--app-text-secondary)" }}
-            >
-              <Rocket className="h-[15px] w-[15px]" strokeWidth={1.8} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{t("openLauncher", { ns: "launcher" })}</TooltipContent>
-        </Tooltip>
         <div
           className="ml-auto flex items-center gap-0.5"
           role="tablist"

@@ -117,7 +117,7 @@ function ModuleContextMenu() {
         {t("moduleMenu.title")}
       </ContextMenuLabel>
       <ContextMenuSeparator />
-      {MODULE_CONSUMERS.contextMenu.map((module) => {
+      {MODULE_CONSUMERS.contextMenu.filter((module) => module.configurable !== false).map((module) => {
         const Icon = module.icon;
         const preference = preferences[module.id];
         return (
@@ -211,7 +211,7 @@ export default function ActivityBar() {
   const isModuleActive = (id: ModuleId) => {
     if (id === "orchestration") return orchestrationOverlayOpen;
     if (id === "resources" || id === "todo") return appViewMode === id;
-    return activeView === id && sidebarVisible && appViewMode !== "files";
+    return activeView === id && sidebarVisible && appViewMode === "panes";
   };
 
   return (
@@ -247,7 +247,7 @@ export default function ActivityBar() {
             <ActivityBarIcon
               icon={<FolderTree className="h-[22px] w-[22px]" strokeWidth={1.5} />}
               label={t("workspaces")}
-              active={activeView === "explorer" && sidebarVisible && appViewMode !== "files"}
+              active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
             />
             {visibleModules.map((module) => {
