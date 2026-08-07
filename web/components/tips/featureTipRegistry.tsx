@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { MODULE_REGISTRY, type ModuleId } from "@/modules/registry";
 import {
   useActivityBarStore,
@@ -14,6 +15,7 @@ import {
   BrowserTabVisual,
   CommandPaletteVisual,
   DispatchOrchestrationVisual,
+  InterfaceShapesVisual,
   LauncherVisual,
   LayoutSwitcherVisual,
   MiniModeVisual,
@@ -28,6 +30,7 @@ export interface FeatureTipDefinition {
   titleKey: string;
   bodyKey: string;
   bodyUnboundKey?: string;
+  actionLabelKey?: string;
   /**
    * 落点教程，仓库相对路径（如 `docs/guide/12-leader-worker.md`）。
    * 渲染成左栏的「查看教程」链接，打开方式见 openGuideDoc.ts。
@@ -125,6 +128,18 @@ export const FEATURE_TIPS: readonly FeatureTipDefinition[] = [
     visual: LayoutSwitcherVisual,
     weight: 2,
   }),
+  {
+    id: "interface-shapes",
+    titleKey: "featureTips.interfaceShapes.title",
+    bodyKey: "featureTips.interfaceShapes.body",
+    actionLabelKey: "featureTips.interfaceShapes.action",
+    visual: InterfaceShapesVisual,
+    tryAction: () => navigateToSettings({
+      paneId: "theme",
+      targetSectionId: "theme-shape",
+    }),
+    weight: 2,
+  },
   shortcutTip({
     id: "mini-mode",
     actionId: "toggle-mini-mode",

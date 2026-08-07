@@ -88,7 +88,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
   return (
     <div
-      className="relative flex items-center h-[44px] shrink-0 select-none z-10"
+      className="shape-chrome relative flex items-center h-[44px] shrink-0 select-none z-10"
       data-right-dock-divider={rightDockVisible ? "visible" : undefined}
       data-tauri-drag-region=""
       style={{

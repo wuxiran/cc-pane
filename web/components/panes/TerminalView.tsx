@@ -908,7 +908,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // Seed the appearance baseline so the first real font change (after this
         // async terminal is created) is detected and clears the WebGL atlas.
         lastAppearanceFontRef.current = `${fontSize}|${fontFamily}`;
-        const pathLinkIntegration = createTerminalPathLinkIntegration(!isTauriRuntime() || !IS_WINDOWS, () => currentSessionIdRef.current, () => isSshRef.current, t);
+        const pathLinkIntegration = createTerminalPathLinkIntegration(
+          !isTauriRuntime() || !IS_WINDOWS,
+          () => currentSessionIdRef.current, () => isSshRef.current,
+          () => useSettingsStore.getState().settings?.terminal.pathLinksEnabled ?? true,
+          t,
+        );
         const term = new Terminal({
           allowProposedApi: true,
           // 无条件常量化：若随壁纸设置开关，切壁纸就得重建终端（渲染生命周期红线）。
@@ -918,6 +923,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           cursorStyle,
           fastScrollSensitivity: 5,
           fontSize,
+          minimumContrastRatio: 4.5,
           rescaleOverlappingGlyphs: true,
           smoothScrollDuration: 0,
           scrollback,

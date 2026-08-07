@@ -130,7 +130,7 @@ describe("StatusBar", () => {
     const user = userEvent.setup();
     renderSB();
 
-    await user.click(screen.getByRole("button", { name: "选择主题" }));
+    await user.click(screen.getByRole("button", { name: "选择配色主题" }));
     await user.click(screen.getByRole("menuitem", { name: /霓虹紫/ }));
 
     await waitFor(() => expect(useThemeStore.getState().isDark).toBe(true));

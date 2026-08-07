@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSettingsStore } from "@/stores";
 import FeatureTip from "./FeatureTip";
-import type { FeatureTipDefinition } from "./featureTipRegistry";
+import { FEATURE_TIPS, type FeatureTipDefinition } from "./featureTipRegistry";
 
 const openUrl = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
@@ -156,5 +156,16 @@ describe("FeatureTip", () => {
 
     await user.click(screen.getByRole("button", { name: /随时重新绑定|Rebind this shortcut/i }));
     expect(props.onOpenShortcuts).toHaveBeenCalledOnce();
+  });
+
+  it("显示界面形态文案和六种预览", () => {
+    const shapeTip = FEATURE_TIPS.find((entry) => entry.id === "interface-shapes");
+    expect(shapeTip).toBeDefined();
+
+    renderTip({ definition: shapeTip! });
+
+    expect(screen.getByText(/试试界面形态|Try interface shapes/i)).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-shape-preview]")).toHaveLength(6);
+    expect(screen.queryByRole("button", { name: /随时重新绑定|Rebind this shortcut/i })).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { THEME_SHAPES } from "@/theme/themeShapes";
 import {
   AppWindow,
   ArrowRight,
@@ -130,6 +131,29 @@ export function LauncherVisual() {
             </div>
           ))}
         </div>
+      </div>
+    </VisualStage>
+  );
+}
+
+export function InterfaceShapesVisual() {
+  return (
+    <VisualStage>
+      <div className="grid w-full max-w-[320px] grid-cols-3 gap-2">
+        {THEME_SHAPES.map((shape) => (
+          <div
+            key={shape.code}
+            className="theme-shape-preview relative h-20 overflow-hidden border border-[var(--app-border)]"
+            data-shape-preview={shape.code}
+          >
+            <span className="theme-shape-preview-chrome absolute inset-x-0 top-0 h-4 border-b border-[var(--app-border)]" />
+            <span className="theme-shape-preview-sidebar absolute bottom-2 left-2 top-6 w-4 border border-[var(--app-border)]" />
+            <span className="theme-shape-preview-panel absolute bottom-2 left-8 right-2 top-6 border border-[var(--app-border)]">
+              <span className="absolute left-1 right-3 top-2 h-px bg-[var(--app-text-tertiary)] opacity-60" />
+              <span className="absolute left-1 right-5 top-4 h-px bg-[var(--app-text-tertiary)] opacity-40" />
+            </span>
+          </div>
+        ))}
       </div>
     </VisualStage>
   );
