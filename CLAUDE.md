@@ -402,6 +402,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/84-appearance-theme-shape-copy.md` | 界面形态系统（Soft/Slab/Sharp/Glass/Panel/Carbon）产品文案评审稿；PRD 与任务清单见 `docs/PRDs/appearance-theme-shape*.md`，验收记录见 `docs/shape-verification-record.md` |
 | `docs/STRATEGY.md` | 产品战略：外观层边界 / 设置本地保存与跨版本兼容 / 桌面 Web 同模型（0.12.1 自仓库根迁入） |
 | `docs/85-cli-launcher-overrides.md` | **CLI 路径解析链与 launcher override**：四层解析优先级 / override 三通道 / macOS "not found" 排查顺序（0.12.1 semver 修复与兜底记录） |
+| `docs/87-git-collaboration.md` | **Git 协作规范**：分支模型（main / dev/v* / release/*）/ PR base 规则 / 发版七步 / 多 AI 实例并行纪律——所有 PR 与发版操作前对照 |
 | `docs/86-resume-chain-staleness.md` | **Resume 链路陈旧化**：三症状归因（对话旧/画面旧/空会话）+ 六条断链 + ResumeBindingStore 单源 / outbox ack / 失败可见化三批修复——排障判据速查在文末 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
