@@ -203,6 +203,21 @@ impl GrokAdapter {
         }
 
         for (name, url) in shared_mcp_urls {
+            // 与 ccpanes entry 同款归属校验：同名 entry 存在且签名不符 = 用户
+            // 自己的配置，保留不动。少了这层，用户手写的同名 MCP 会被静默覆盖。
+            let foreign = document
+                .get("mcp_servers")
+                .and_then(|servers| servers.get(name.as_str()))
+                .map(|entry| !Self::is_ccpanes_managed_entry(entry))
+                .unwrap_or(false);
+            if foreign {
+                warn!(
+                    config = %path.display(),
+                    name,
+                    "grok: user-defined shared MCP entry found (signature mismatch), leaving it untouched"
+                );
+                continue;
+            }
             Self::upsert_mcp_entry(&mut document, name, url)?;
         }
 
@@ -680,6 +695,36 @@ url = "https://example.com/mcp"
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("https://example.com/mcp"));
         assert!(!content.contains("token=secret"));
+    }
+
+    #[test]
+    fn sync_mcp_at_leaves_foreign_shared_entry_untouched() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        // 用户自己配了一个叫 github 的 MCP（非 CC-Panes 签名）
+        fs::write(
+            &path,
+            r#"[mcp_servers.github]
+url = "https://github.example.com/mcp"
+enabled = false
+"#,
+        )
+        .unwrap();
+        let shared = HashMap::from([(
+            "github".to_string(),
+            "http://127.0.0.1:37123/mcp?token=secret&shared=github".to_string(),
+        )]);
+
+        let changed =
+            GrokAdapter::sync_mcp_at(&path, "http://127.0.0.1:37123/mcp?token=secret", &shared)
+                .unwrap();
+
+        // ccpanes entry 会被写入（changed=true），但用户的 github entry 必须原样保留
+        assert!(changed);
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("https://github.example.com/mcp"));
+        assert!(content.contains("enabled = false"));
+        assert!(!content.contains("shared=github"));
     }
 
     #[test]

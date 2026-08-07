@@ -62,15 +62,22 @@ impl UninstallCleanupService {
                 .push("~/.claude.json.ccpanes.bak: home directory unavailable".to_string());
             return;
         };
-        let path = home.join(".claude.json.ccpanes.bak");
-        if !path.exists() {
-            return;
-        }
-        match std::fs::remove_file(&path) {
-            Ok(()) => Self::push_cleaned(report, &path),
-            Err(error) => report
-                .failed
-                .push(format!("{}: {error}", path.to_string_lossy())),
+        // CC-Panes 在各 CLI 用户配置旁留的 .bak（首次改动前的留底），卸载时一并回收
+        let backups = [
+            home.join(".claude.json.ccpanes.bak"),
+            home.join(".codex").join("config.toml.bak"),
+            home.join(".grok").join("config.toml.bak"),
+        ];
+        for path in backups {
+            if !path.exists() {
+                continue;
+            }
+            match std::fs::remove_file(&path) {
+                Ok(()) => Self::push_cleaned(report, &path),
+                Err(error) => report
+                    .failed
+                    .push(format!("{}: {error}", path.to_string_lossy())),
+            }
         }
     }
 

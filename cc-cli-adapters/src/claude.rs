@@ -461,7 +461,15 @@ impl ClaudeAdapter {
     fn read_settings(settings_path: &Path) -> Result<serde_json::Value> {
         if settings_path.exists() {
             let content = fs::read_to_string(settings_path)?;
-            Ok(serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({})))
+            // 解析失败必须中止 sync，绝不能回退空对象——那会在随后的 write 里
+            // 把用户整份 settings.local.json（含 permissions）静默清空。
+            // 宁可这次 hook 缺席，也不能吞掉用户配置。
+            serde_json::from_str(&content).with_context(|| {
+                format!(
+                    "failed to parse {} (refusing to overwrite user settings)",
+                    settings_path.display()
+                )
+            })
         } else {
             Ok(serde_json::json!({}))
         }
@@ -471,7 +479,9 @@ impl ClaudeAdapter {
         if let Some(parent) = settings_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(settings_path, serde_json::to_string_pretty(settings)?)?;
+        // 原子写：settings.local.json 是 read-modify-write 的用户文件，
+        // 裸 fs::write 在并发/中断下会留半截 JSON（对齐用户全局路径的纪律）
+        crate::fs_atomic::write_atomic(settings_path, serde_json::to_string_pretty(settings)?)?;
         Ok(())
     }
 
@@ -908,6 +918,15 @@ impl CliToolAdapter for ClaudeAdapter {
         hook_binary_path: Option<&Path>,
         desired: &HashMap<String, bool>,
     ) -> Result<()> {
+        // settings.local.json 是 read-modify-write：多 pane 同项目并发启动会
+        // 互相覆盖（丢 hook 条目）。进程内锁对齐 codex TRUST_CONFIG_WRITE_LOCK。
+        use std::sync::{Mutex, OnceLock};
+        static SETTINGS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = SETTINGS_WRITE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .map_err(|_| anyhow!("Claude settings write lock is poisoned"))?;
+
         let settings_path = Self::get_settings_path(project_path);
         let mut settings = Self::read_settings(&settings_path)?;
 
@@ -1234,6 +1253,29 @@ mod tests {
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
         }
+    }
+
+    #[test]
+    fn sync_project_hooks_aborts_on_corrupted_settings_without_overwriting() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path();
+        let hook_binary = project_path.join("cc-panes-cli-hook");
+        fs::write(&hook_binary, b"hook").unwrap();
+        let settings_path = project_path.join(".claude").join("settings.local.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        // 半截 JSON（模拟并发写坏/手改坏）——绝不能被静默重置成 {}
+        let corrupted = "{ \"permissions\": { \"allow\": [\"Bash\"";
+        fs::write(&settings_path, corrupted).unwrap();
+
+        let adapter = ClaudeAdapter::new();
+        let result = adapter.sync_project_hooks(project_path, Some(&hook_binary), &HashMap::new());
+
+        assert!(result.is_err(), "corrupted settings must abort the sync");
+        assert_eq!(
+            fs::read_to_string(&settings_path).unwrap(),
+            corrupted,
+            "user settings file must be left untouched"
+        );
     }
 
     #[test]

@@ -24,6 +24,9 @@ const PLAN_ARCHIVE_UNSUPPORTED: &str =
 const CC_PANE_EVENT_UNSUPPORTED: &str =
     "Codex CLI does not expose this hook event yet. Only SessionStart and PostToolUse are usable.";
 const CCPANES_CODEX_API_KEY_ENV: &str = "CCPANES_CODEX_API_KEY";
+/// YOLO trust 条目的归属标记（行内注释）。改动它会让既有标记失联——
+/// cleanup 按 contains 匹配，只能追加变体、不能改写。
+const CCPANES_TRUST_MARKER: &str = "managed by cc-panes";
 
 struct HookDef {
     name: &'static str,
@@ -360,6 +363,19 @@ impl CodexAdapter {
         if !Self::merge_trusted_projects(&mut document, path, &trust_keys)? {
             return Ok(false);
         }
+        // 首次改动前留底：trust 是持久改变用户安全边界的写入，对齐
+        // stale MCP 迁移路径的备份纪律（.bak 已存在则不覆盖——保留最早状态）
+        if !content.trim().is_empty() {
+            let backup_path = Self::sibling_path_with_suffix(path, ".bak");
+            if !backup_path.exists() {
+                fs::copy(path, &backup_path).with_context(|| {
+                    format!(
+                        "failed to write Codex config backup {}",
+                        backup_path.display()
+                    )
+                })?;
+            }
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!(
@@ -393,6 +409,7 @@ impl CodexAdapter {
         let mut changed = false;
         for trust_key in trust_keys {
             if let Some(project) = projects.get_mut(trust_key) {
+                let project_is_inline = project.is_inline_table();
                 let project = project.as_table_like_mut().ok_or_else(|| {
                     anyhow!(
                         "Codex config {} has a non-table project entry for {trust_key}",
@@ -401,7 +418,7 @@ impl CodexAdapter {
                 })?;
                 // An existing value, including explicit `untrusted`, is a user decision.
                 if !project.contains_key("trust_level") {
-                    project.insert("trust_level", toml_edit::value("trusted"));
+                    project.insert("trust_level", Self::trusted_value(project_is_inline));
                     changed = true;
                 }
                 continue;
@@ -414,6 +431,20 @@ impl CodexAdapter {
         Ok(changed)
     }
 
+    /// CC-Panes 写入的 trust 值带行内注释标记，供 `cleanup_user_injections`
+    /// 识别归属——这是唯一持久改变用户 codex 安全边界的写入，必须可回收。
+    /// inline table 内不允许注释（TOML 语法），inline 形态下不打标记，
+    /// 清理时保守跳过。
+    fn trusted_value(inline: bool) -> Item {
+        let mut value = toml_edit::Value::from("trusted");
+        if !inline {
+            value
+                .decor_mut()
+                .set_suffix(format!(" # {CCPANES_TRUST_MARKER}"));
+        }
+        Item::Value(value)
+    }
+
     fn new_trusted_project_item(inline: bool) -> Item {
         if inline {
             let mut table = toml_edit::InlineTable::new();
@@ -421,9 +452,80 @@ impl CodexAdapter {
             Item::Value(toml_edit::Value::InlineTable(table))
         } else {
             let mut table = toml_edit::Table::new();
-            table.insert("trust_level", toml_edit::value("trusted"));
+            table.insert("trust_level", Self::trusted_value(false));
             Item::Table(table)
         }
+    }
+
+    /// trust_level 值是否带 CC-Panes 归属标记（行内注释）。
+    fn is_ccpanes_marked_item(item: &Item) -> bool {
+        item.as_value()
+            .map(|value| value.decor().suffix())
+            .and_then(|suffix| suffix.and_then(|raw| raw.as_str()))
+            .map(|suffix| suffix.contains(CCPANES_TRUST_MARKER))
+            .unwrap_or(false)
+    }
+
+    /// 卸载清理：移除带标记的 trust 条目 + 签名匹配的 ccpanes MCP 段。
+    /// 只认自己的标记/签名，用户手写的 trust 与同名段一律不碰。
+    fn remove_ccpanes_injections_at(path: &Path) -> Result<bool> {
+        if !path.is_file() {
+            return Ok(false);
+        }
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("failed to read Codex config {}", path.display()))?;
+        let mut document = content
+            .parse::<DocumentMut>()
+            .with_context(|| format!("failed to parse Codex config {}", path.display()))?;
+
+        let mut changed = false;
+        if let Some(projects) = document
+            .get_mut("projects")
+            .and_then(Item::as_table_like_mut)
+        {
+            let keys = projects
+                .iter()
+                .map(|(key, _)| key.to_string())
+                .collect::<Vec<_>>();
+            for key in keys {
+                let Some(project) = projects.get_mut(&key).and_then(Item::as_table_like_mut) else {
+                    continue;
+                };
+                let marked = project
+                    .get("trust_level")
+                    .map(Self::is_ccpanes_marked_item)
+                    .unwrap_or(false);
+                if !marked {
+                    continue;
+                }
+                project.remove("trust_level");
+                changed = true;
+                if project.is_empty() {
+                    projects.remove(&key);
+                }
+            }
+        }
+
+        let stale_mcp = document
+            .get("mcp_servers")
+            .and_then(|servers| servers.get("ccpanes"))
+            .map(Self::is_stale_global_ccpanes_mcp_config)
+            .unwrap_or(false);
+        if stale_mcp {
+            if let Some(servers) = document
+                .get_mut("mcp_servers")
+                .and_then(Item::as_table_like_mut)
+            {
+                servers.remove("ccpanes");
+                changed = true;
+            }
+        }
+
+        if !changed {
+            return Ok(false);
+        }
+        Self::write_file_via_temp_rename(path, &document.to_string())?;
+        Ok(true)
     }
 
     fn host_project_trust_key(project_path: &str) -> String {
@@ -974,8 +1076,9 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
     fn write_hooks_json(project_path: &Path, value: &serde_json::Value) -> Result<()> {
         let codex_dir = Self::project_codex_dir(project_path);
         fs::create_dir_all(&codex_dir)?;
-        fs::write(
-            Self::hooks_path(project_path),
+        // 原子写：并发/中断下不留半截 JSON（对齐用户全局路径的纪律）
+        crate::fs_atomic::write_atomic(
+            &Self::hooks_path(project_path),
             serde_json::to_string_pretty(value)?,
         )?;
         Ok(())
@@ -1065,8 +1168,9 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
     fn write_config_toml(project_path: &Path, value: &toml::Value) -> Result<()> {
         let codex_dir = Self::project_codex_dir(project_path);
         fs::create_dir_all(&codex_dir)?;
-        fs::write(
-            Self::config_path(project_path),
+        // 原子写：并发/中断下不留半截 TOML（对齐用户全局路径的纪律）
+        crate::fs_atomic::write_atomic(
+            &Self::config_path(project_path),
             toml::to_string_pretty(value)?,
         )?;
         Ok(())
@@ -1241,6 +1345,18 @@ impl Default for CodexAdapter {
 }
 
 impl CliToolAdapter for CodexAdapter {
+    fn cleanup_user_injections(&self) -> Result<Vec<PathBuf>> {
+        let Some(home) = Self::real_codex_home() else {
+            return Ok(Vec::new());
+        };
+        let path = home.join("config.toml");
+        if Self::remove_ccpanes_injections_at(&path)? {
+            Ok(vec![path])
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     fn info(&self) -> &CliToolInfo {
         &self.info
     }
@@ -1999,6 +2115,85 @@ url = "https://example.com/mcp"
             parsed["projects"]["/workspace/project"]["trust_level"].as_str(),
             Some("untrusted")
         );
+    }
+
+    #[test]
+    fn trust_prewrite_marks_entries_and_backs_up_existing_config() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let original = "model = \"gpt-5\"\n";
+        fs::write(&config_path, original).unwrap();
+
+        assert!(CodexAdapter::prewrite_trusted_projects_at(
+            &config_path,
+            &["/workspace/project".to_string()],
+            true,
+        )
+        .unwrap());
+
+        let written = fs::read_to_string(&config_path).unwrap();
+        assert!(
+            written.contains("managed by cc-panes"),
+            "trust entry must carry ownership marker: {written}"
+        );
+        // 首次改动前留底，且留的是改动前的原文
+        let backup = fs::read_to_string(dir.path().join("config.toml.bak")).unwrap();
+        assert_eq!(backup, original);
+
+        // 再跑一次不重复备份（.bak 保留最早状态）
+        assert!(!CodexAdapter::prewrite_trusted_projects_at(
+            &config_path,
+            &["/workspace/project".to_string()],
+            true,
+        )
+        .unwrap());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("config.toml.bak")).unwrap(),
+            original
+        );
+    }
+
+    #[test]
+    fn cleanup_removes_only_marked_trust_entries() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        // 用户手写的 trust（无标记）+ CC-Panes 写入的 trust（经 prewrite 带标记）
+        fs::write(
+            &config_path,
+            "[projects.\"/workspace/user-own\"]\ntrust_level = \"trusted\"\n",
+        )
+        .unwrap();
+        assert!(CodexAdapter::prewrite_trusted_projects_at(
+            &config_path,
+            &["/workspace/ccpanes-added".to_string()],
+            true,
+        )
+        .unwrap());
+
+        assert!(CodexAdapter::remove_ccpanes_injections_at(&config_path).unwrap());
+
+        let parsed = fs::read_to_string(&config_path)
+            .unwrap()
+            .parse::<toml::Value>()
+            .unwrap();
+        let projects = parsed
+            .get("projects")
+            .and_then(toml::Value::as_table)
+            .unwrap();
+        assert_eq!(
+            projects["/workspace/user-own"]["trust_level"].as_str(),
+            Some("trusted"),
+            "user-owned trust must survive cleanup"
+        );
+        assert!(
+            !projects.contains_key("/workspace/ccpanes-added"),
+            "cc-panes trust entry must be removed entirely"
+        );
+
+        // 幂等：无残留可清时返回 false 且文件不动
+        let before = fs::read_to_string(&config_path).unwrap();
+        assert!(!CodexAdapter::remove_ccpanes_injections_at(&config_path).unwrap());
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), before);
     }
 
     #[test]
