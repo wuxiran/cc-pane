@@ -12,7 +12,11 @@ import { ensureListeners, isSessionClaimedError } from "@/services/terminalServi
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage, toTerminalLaunchError } from "@/utils";
 import type { TerminalLaunchError } from "@/types";
-import { pickCreateSessionResumeId } from "./terminalResume";
+import {
+  clearColdReplayOutputOnFailure,
+  pickCreateSessionResumeId,
+  replayColdRestoreOutput,
+} from "./terminalResume";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
 import {
   bindTerminalSessionCallbacks,
@@ -1524,31 +1528,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
 
             // Replay persisted output before deciding whether to create a live PTY.
+            // (Restored tabs still start their live PTY on first app restore even when
+            // hidden, otherwise background tabs can remain stuck on the restore overlay.)
             if (props.restoring && props.savedSessionId && !liveSavedSessionId) {
-              try {
-                logRestoreEvent("init.output-replay.begin", {
-                  savedSessionId: props.savedSessionId,
-                });
-                const lines = await sessionRestoreService.loadOutput(props.savedSessionId);
-                logRestoreEvent("init.output-replay.end", { lineCount: lines?.length ?? 0 });
-                if (lines && lines.length > 0) {
-                  debugLog("session.restore.replay", {
-                    savedSessionId: props.savedSessionId,
-                    lineCount: lines.length,
-                  });
-                  term.writeln("\x1b[90m--- Session restored ---\x1b[0m");
-                  for (const line of lines) {
-                    term.writeln(line);
-                  }
-                  term.writeln("");
-                }
-              } catch (err) {
-                logRestoreEvent("init.output-replay.failed", { error: getErrorMessage(err) });
-                console.warn("[TerminalView] Failed to load restored output:", err);
-              }
-
-              // Restored tabs should start their live PTY on first app restore even when the
-              // tab is hidden, otherwise background tabs can remain stuck on the restore overlay.
+              await replayColdRestoreOutput(term, props.savedSessionId, logRestoreEvent, debugLog);
             }
 
             let sessionId: string;
@@ -1649,6 +1632,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 createdLaunchId = resolveLaunchId({
                   launchId: props.launchId,
                   restoring: props.restoring,
+                  // restoring 标志与 savedSessionId 不总同步（快照落盘时 leaf 已
+                  // 退出的场景 restoring 为 falsy）；漏传会复用旧 launchId，
+                  // bind_pty_session 必然落空（docs/69）。
+                  savedSessionId: props.savedSessionId,
                   launchAttempt: props.launchAttempt,
                 });
                 if (props.tabId && props.paneId) {
@@ -1797,6 +1784,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             if (props.restoring) {
               reportRestoreLaunchState("failed");
               logRestoreEvent("init.failed", { error: getErrorMessage(error) });
+              clearColdReplayOutputOnFailure(
+                props.savedSessionId, logRestoreEvent, "init.output-cleared-on-failure",
+              );
             }
             const failedAttachSessionId = props.sessionId ?? (
               props.restoring ? props.savedSessionId : undefined
@@ -2140,6 +2130,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }
               restoreLaunchStartedRef.current = false;
               reportRestoreLaunchState("failed");
+              clearColdReplayOutputOnFailure(
+                props.savedSessionId, logRestoreEvent, "activation.output-cleared-on-failure",
+              );
               onLaunchErrorRef.current?.(toTerminalLaunchError(err));
               logRestoreEvent("activation.create.failed", { error: getErrorMessage(err) });
               console.error("[TerminalView] Deferred restore failed:", err);

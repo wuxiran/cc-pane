@@ -923,6 +923,34 @@ describe("usePanesStore layouts", () => {
     expect(reasons).toContain("tab.select");
   });
 
+  // resumeId 是恢复身份：变更必须触发快照防抖保存（否则只靠 60s 定时器，
+  // 异常退出会恢复到旧会话）；同值重放（daemon identity 事件补拉）零触发。
+  it("updateTabAgentResumeId 变更触发 resume-id.update，同值重放不触发", async () => {
+    const tab = makeTerminalTab("resume-tab", "session-resume");
+    usePanesStore.setState((state) => {
+      state.layouts.push(makeLayout("layout-resume", "恢复", tab));
+    });
+
+    const reasons: string[] = [];
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ reason?: string }>).detail;
+      if (detail?.reason) reasons.push(detail.reason);
+    };
+    window.addEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, listener);
+
+    usePanesStore.getState().updateTabAgentResumeId("session-resume", "resume-a", "issued");
+    await waitForMicrotasks();
+    const afterFirst = reasons.filter((r) => r === "resume-id.update").length;
+
+    usePanesStore.getState().updateTabAgentResumeId("session-resume", "resume-a", "issued");
+    await waitForMicrotasks();
+    const afterReplay = reasons.filter((r) => r === "resume-id.update").length;
+
+    window.removeEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, listener);
+    expect(afterFirst).toBe(1);
+    expect(afterReplay).toBe(1);
+  });
+
   it("merge 对空 layouts、无效 currentLayoutId 和 rehydrated terminal 做兜底", () => {
     const currentState = usePanesStore.getState();
     const merged = usePanesStore.persist.getOptions().merge?.(

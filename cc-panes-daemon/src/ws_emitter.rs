@@ -159,6 +159,28 @@ impl WsEmitter {
         }
     }
 
+    /// outbox ack（docs/86 3.1）：桌面端确认已消费的身份事件，从留存中移除。
+    ///
+    /// 只删「留存的 resumeSessionId 与 ack 一致」的条目——ack 在途时该会话若
+    /// 产生了更新的绑定（换 id），新事件必须存活等待下一轮 ack。app 重启后的
+    /// 全量重放风暴（缺口 G）由此消解；ack 丢失不致留存膨胀：重连补拉的
+    /// 「已应用」路径会补 ack。
+    pub fn ack_identity_events(&self, keys: &[(String, String)]) {
+        let mut store = self.identity_events.write();
+        for (session_id, resume_id) in keys {
+            let matches = store
+                .by_session
+                .get(session_id)
+                .and_then(|payload| payload.get("resumeSessionId"))
+                .and_then(Value::as_str)
+                == Some(resume_id.as_str());
+            if matches {
+                store.by_session.remove(session_id);
+                store.order.retain(|entry| entry != session_id);
+            }
+        }
+    }
+
     /// 已留存的身份事件全集，供 `GET /api/sessions/identity` 返回。
     pub fn identity_snapshot(&self) -> Vec<Value> {
         let store = self.identity_events.read();
@@ -864,6 +886,50 @@ mod tests {
         let snapshot = emitter.identity_snapshot();
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0]["resumeSessionId"], "resume-2");
+    }
+
+    /// outbox ack：ack 一致的条目移除；ack 在途时换了 id 的会话必须存活。
+    #[test]
+    fn identity_ack_removes_matching_and_keeps_newer_binding() {
+        let emitter = WsEmitter::new();
+        for (session, resume) in [("session-1", "resume-1"), ("session-2", "resume-2")] {
+            emitter
+                .emit(
+                    EV::TERMINAL_RESUME_ID_DETECTED,
+                    serde_json::json!({
+                        "sessionId": session,
+                        "resumeSessionId": resume,
+                        "source": "issued",
+                    }),
+                )
+                .expect("resume emit");
+        }
+
+        // session-2 在 ack 发出后又换了 id（更新的绑定），旧 ack 不得删掉它。
+        emitter
+            .emit(
+                EV::TERMINAL_RESUME_ID_DETECTED,
+                serde_json::json!({
+                    "sessionId": "session-2",
+                    "resumeSessionId": "resume-2-newer",
+                    "source": "issued",
+                }),
+            )
+            .expect("resume emit");
+
+        emitter.ack_identity_events(&[
+            ("session-1".to_string(), "resume-1".to_string()),
+            ("session-2".to_string(), "resume-2".to_string()),
+        ]);
+
+        let snapshot = emitter.identity_snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0]["sessionId"], "session-2");
+        assert_eq!(snapshot[0]["resumeSessionId"], "resume-2-newer");
+
+        // 未知键的 ack 是 no-op（自愈路径可能重复 ack）。
+        emitter.ack_identity_events(&[("session-9".to_string(), "resume-9".to_string())]);
+        assert_eq!(emitter.identity_snapshot().len(), 1);
     }
 
     #[test]

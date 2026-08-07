@@ -27,6 +27,7 @@ export {
   useTerminalRestoreLogStore,
 } from "./useTerminalRestoreLogStore";
 export { TERMINAL_LAYOUT_CHANGED_EVENT, usePanesStore } from "./usePanesStore";
+export { useResumeBindingStore } from "./useResumeBindingStore";
 export {
   useTerminalPathLinkStore,
   type TerminalPathLinkAction,

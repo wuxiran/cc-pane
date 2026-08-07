@@ -189,6 +189,17 @@ pub const INBOUND_CONTROL_MESSAGES: &[InboundControlMessage] = &[
                     无投递——app 侧不得据此放松前端 512KB 积压兜底。",
     },
     InboundControlMessage {
+        name: "identityAck",
+        channel: "control-ws",
+        daemon_handler:
+            "server.rs ControlInboundMessage::IdentityAck → ws_emitter.ack_identity_events",
+        app_sender: "terminal_daemon_control_link（replay/live 绑定完成后经 ack 队列逐批发送）",
+        rationale: "身份事件留存的 outbox ack（docs/86 3.1）：消费方确认后移除，消解 app \
+                    每次重启全量重放历史事件的写风暴。只删 resumeId 一致的条目（换 id 的\
+                    新事件存活）；ack 丢失由重连补拉的「已应用」路径补发（自愈）。旧 daemon \
+                    静默忽略——留存照旧累积，行为不劣化。",
+    },
+    InboundControlMessage {
         name: "checkpointUpload",
         channel: "rest",
         daemon_handler: "server.rs upload_session_checkpoint（POST /api/sessions/{id}/checkpoint）",

@@ -355,6 +355,67 @@ impl SessionRestoreService {
         }
         Ok(())
     }
+
+    /// 回收陈旧的会话输出文件（docs/86 B2：`sessions/` 此前只增不减，恢复路径
+    /// 换 savedSessionId 后旧文件成永久孤儿）。
+    ///
+    /// 只删「既老（mtime 超过 `retention` ）又不在保护集里」的 `.output` /
+    /// `.checkpoint.json`。保护集必须用含 savedSessionId 的口径收集
+    /// （CLAUDE.md：`collectTerminalSessionIdsWithSaved` 同理）——恢复中的会话
+    /// 文件还没被消费，删了等于丢冷恢复画面。
+    pub fn prune_stale_outputs(
+        &self,
+        retention: std::time::Duration,
+        protected_session_ids: &[String],
+    ) -> Result<usize, String> {
+        let dir = self.app_paths.sessions_dir();
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let protected: std::collections::HashSet<&str> =
+            protected_session_ids.iter().map(String::as_str).collect();
+        let now = std::time::SystemTime::now();
+        let mut removed = 0usize;
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| format!("Failed to read sessions dir: {}", e))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            // 文件名形如 <sessionId>.output / <sessionId>.checkpoint.json；
+            // 取第一个 '.' 之前的部分做会话归属。
+            let Some(session_id) = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.split('.').next())
+            else {
+                continue;
+            };
+            if protected.contains(session_id) {
+                continue;
+            }
+            let stale = entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age > retention);
+            if !stale {
+                continue;
+            }
+            match std::fs::remove_file(&path) {
+                Ok(()) => removed += 1,
+                Err(e) => {
+                    warn!(path = %path.display(), err = %e, "Failed to prune stale session output");
+                }
+            }
+        }
+        if removed > 0 {
+            info!(removed, "Pruned stale session output files");
+        }
+        Ok(removed)
+    }
 }
 
 fn workspace_identity(session: &SavedSession) -> String {
@@ -672,5 +733,62 @@ mod tests {
         assert!(validate_snapshot_component("id", "  ").is_err());
         assert!(validate_snapshot_component("id", "a/b").is_err());
         assert!(validate_snapshot_component("id", "中文").is_err());
+    }
+
+    // ===== 陈旧输出 GC（docs/86 B2）=====
+
+    #[test]
+    fn prune_removes_stale_unprotected_and_keeps_protected() {
+        let (service, _tmp) = make_service();
+        service
+            .save_session_output("orphan", &["old".into()])
+            .expect("write orphan");
+        service
+            .save_session_output("protected", &["keep".into()])
+            .expect("write protected");
+
+        // retention = 0：所有文件都算「老」，只剩保护集这一道防线。
+        let removed = service
+            .prune_stale_outputs(std::time::Duration::ZERO, &["protected".to_string()])
+            .expect("prune");
+
+        assert_eq!(removed, 1);
+        assert!(service
+            .load_session_output("orphan")
+            .expect("load")
+            .is_none());
+        assert!(service
+            .load_session_output("protected")
+            .expect("load")
+            .is_some());
+    }
+
+    #[test]
+    fn prune_keeps_fresh_files_within_retention() {
+        let (service, _tmp) = make_service();
+        service
+            .save_session_output("fresh", &["data".into()])
+            .expect("write");
+
+        let removed = service
+            .prune_stale_outputs(std::time::Duration::from_secs(3600), &[])
+            .expect("prune");
+
+        assert_eq!(removed, 0);
+        assert!(service
+            .load_session_output("fresh")
+            .expect("load")
+            .is_some());
+    }
+
+    #[test]
+    fn prune_on_missing_dir_is_noop() {
+        let (service, _tmp) = make_service();
+        assert_eq!(
+            service
+                .prune_stale_outputs(std::time::Duration::ZERO, &[])
+                .expect("prune"),
+            0
+        );
     }
 }

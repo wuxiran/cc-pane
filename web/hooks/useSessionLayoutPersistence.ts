@@ -183,6 +183,27 @@ export function useStartupTerminalRestoreBarrier(): boolean {
         if (!cancelled) {
           setReady(true);
           setTimeout(() => void runBackgroundLayoutRestore(), 0);
+          // 陈旧输出 GC（docs/86 B2）：延迟到恢复 settle 后跑，保护集 =
+          // 快照/树引用（含 savedSessionId）∪ 共享引用集。任一来源不可达就
+          // 放弃本轮——保护集残缺只会放大删除面。
+          setTimeout(() => {
+            void (async () => {
+              try {
+                const protect = new Set(
+                  collectSnapshotSessionIds(usePanesStore.getState()),
+                );
+                for (const id of await collectReferencedSessionIdsAcrossSources()) {
+                  protect.add(id);
+                }
+                const removed = await sessionRestoreService.pruneStaleOutputs([...protect]);
+                if (removed > 0) {
+                  console.info(`[SessionRestore] Pruned ${removed} stale output files`);
+                }
+              } catch (error) {
+                console.warn("[SessionRestore] Stale output prune skipped:", error);
+              }
+            })();
+          }, 30_000);
         }
       }
     })();

@@ -135,6 +135,14 @@ export const INBOUND_CONTROL_MESSAGES: readonly InboundControlContract[] = [
       "后台会话断流门。best-effort：旧 daemon 静默忽略、断线期间无投递，前端 512KB 积压是永久兜底。",
   },
   {
+    name: "identityAck",
+    channel: "control-ws",
+    daemonHandler: "server.rs ControlInboundMessage::IdentityAck → ws_emitter.ack_identity_events",
+    appSender: "terminal_daemon_control_link（replay/live 绑定完成后经 ack 队列逐批发送）",
+    rationale:
+      "身份事件留存的 outbox ack（docs/86 3.1）：消费方确认后移除，消解 app 重启全量重放风暴。只删 resumeId 一致的条目；ack 丢失由重连补拉的「已应用」路径补发。旧 daemon 静默忽略，不劣化。",
+  },
+  {
     name: "checkpointUpload",
     channel: "rest",
     daemonHandler: "server.rs upload_session_checkpoint（POST /api/sessions/{id}/checkpoint）",

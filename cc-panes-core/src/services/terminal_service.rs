@@ -3130,6 +3130,24 @@ impl TerminalService {
                         tail = ?include_tail.then_some(tail),
                         "resume session exited shortly after launch (heuristic; manual quit also triggers this)"
                     );
+                    // resume 失败可见化（docs/86 A4）：此前只有上面这条后端 WARN，
+                    // 前端零提示，表现为「标签一闪即空」。判据比 WARN 更窄——
+                    // 必须命中错误特征，手动退出（exit 0 无错误输出）不误报。
+                    if matched_pattern.is_some() {
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let _ = wait_emitter.emit(
+                                EV::TERMINAL_LAUNCH_WARNING,
+                                serde_json::json!({
+                                    "kind": "resumeLaunchFailed",
+                                    "sessionId": sid.clone(),
+                                    "resumeId": resume_id,
+                                    "cliTool": cli_tool_id,
+                                    "exitCode": process_exit_code,
+                                    "matchedPattern": matched_pattern,
+                                }),
+                            );
+                        }));
+                    }
                 }
             }
 

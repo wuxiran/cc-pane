@@ -3,7 +3,6 @@
 //   非当前布局的终端会话，出队时重检避免重复建会话
 // - useTerminalResumeIdBridge：桥接后端 history-updated 事件并带退避重试地回写
 //   tab 的 agent resumeId
-import { useEffect } from "react";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import { sessionRestoreService, terminalService } from "@/services";
 import type {
@@ -13,7 +12,6 @@ import type {
   TerminalRestoreBlockedReason,
   TerminalSessionProvenance,
 } from "@/types";
-import { listenIfTauri } from "@/services/runtime";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
 import { projectPathsEquivalent } from "@/utils/projectIdentity";
@@ -441,42 +439,5 @@ export async function adoptUnownedDaemonSessions(): Promise<AdoptionReport> {
   return reconcileTerminalSessions({ autoAdopt: true });
 }
 
-// 统一桥接后端发来的 history-updated 事件，保持现有页面订阅方式不变。
-export function useTerminalResumeIdBridge(): void {
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    listenIfTauri<{ ptySessionId?: string; resumeSessionId?: string; resumeSource?: string }>("history-updated", (event) => {
-      if (cancelled) return;
-      const payload = event.payload ?? {};
-      if (payload.ptySessionId && payload.resumeSessionId) {
-        // 绑定事件可能早于 create_terminal 返回（tab.sessionId 尚未写入）到达，
-        // 未命中 tab 时带退避重试，避免 issued/osc-title 绑定丢失
-        const { ptySessionId, resumeSessionId, resumeSource } = payload;
-        const applyBinding = (attempt: number) => {
-          if (cancelled) return;
-          const found = usePanesStore.getState().updateTabAgentResumeId(
-            ptySessionId,
-            resumeSessionId,
-            resumeSource,
-          );
-          if (!found && attempt < 6) {
-            setTimeout(() => applyBinding(attempt + 1), 500 * (attempt + 1));
-          }
-        };
-        applyBinding(0);
-      }
-      window.dispatchEvent(new CustomEvent("cc-panes:history-updated"));
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
-}
+// 桥接实现已抽到独立文件（行数棘轮 + 职责独立），入口在此 re-export 保持消费方无感。
+export { useTerminalResumeIdBridge } from "./useTerminalResumeIdBridge";

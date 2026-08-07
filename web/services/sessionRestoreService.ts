@@ -55,6 +55,18 @@ class SessionRestoreService {
       apiDelete(`/api/terminal-sessions/${encodeURIComponent(sessionId)}/output`),
     );
   }
+
+  /**
+   * 回收陈旧的会话输出文件（保留期由后端定，14 天）。保护集必须含
+   * savedSessionId 口径——恢复中的会话文件还没被消费。Web 模式无此命令，no-op。
+   */
+  async pruneStaleOutputs(protectedSessionIds: string[]): Promise<number> {
+    return invokeOrApi<number>(
+      "prune_stale_session_outputs",
+      { protectedSessionIds },
+      async () => 0,
+    );
+  }
 }
 
 export const sessionRestoreService = new SessionRestoreService();

@@ -49,8 +49,17 @@ pub struct ResumeIdDetectedPayload {
     pub wsl_distro: Option<String>,
 }
 
-const BIND_MAX_ATTEMPTS: u32 = 10;
+// 主窗 24×500ms = 12s：issued 事件在 PTY spawn 后立刻 emit，而
+// bind_pty_session / bind_or_add_created_session 要等 create_session **返回后**
+// 才跑——WSL 冷启动实测可超过 5s，旧的 10×500ms 窗口会在 create 返回前耗尽，
+// 转入 upsert 后与旧 launchId 叠加即永久丢号（docs/86 缺口 D）。
+const BIND_MAX_ATTEMPTS: u32 = 24;
 const BIND_RETRY_DELAY_MS: u64 = 500;
+// 二次窗：upsert 因「行被占」失败时（launch id 复用的结构错误信号），等 create
+// 侧的 bind_or_add_created_session 为本 PTY 插出新行后按 PTY 精确命中。
+// 按 PTY 匹配不可能误绑别人的行。
+const REBIND_MAX_ATTEMPTS: u32 = 6;
+const REBIND_RETRY_DELAY_MS: u64 = 1_000;
 
 fn expected_cli_for_uuid(resume_session_id: &str) -> Option<&'static str> {
     let version = uuid::Uuid::parse_str(resume_session_id)
@@ -88,76 +97,59 @@ pub async fn bind_resume_id(
     let mut record_id: Option<i64> = None;
     let mut selected_resume_id = payload.resume_session_id.clone();
     let mut selected_source = payload.source.clone();
-    let mut rejected = false;
-    for attempt in 0..BIND_MAX_ATTEMPTS {
-        let record = match service.find_by_pty_session_id(&payload.session_id) {
-            Ok(record) => record,
-            Err(error) => {
-                warn!(session_id = %payload.session_id, error = %error, "bind_resume_id: lookup by pty failed");
-                None
-            }
-        };
-        let Some(record) = record else {
-            debug!(
-                session_id = %payload.session_id,
-                attempt,
-                "bind_resume_id: exact PTY launch_history row not found yet; retrying"
-            );
-            tokio::time::sleep(Duration::from_millis(BIND_RETRY_DELAY_MS)).await;
-            continue;
-        };
-
-        if let Some(event_cli_tool) = payload.cli_tool.as_deref() {
-            if record.cli_tool != "none" && record.cli_tool != event_cli_tool {
-                warn!(
-                    record_id = record.id,
-                    pty_session_id = %payload.session_id,
-                    record_cli_tool = %record.cli_tool,
-                    event_cli_tool,
-                    "bind_resume_id: rejected event because exact PTY belongs to another CLI tool"
-                );
-                rejected = true;
-                break;
+    match bind_by_pty_window(&service, &payload, BIND_MAX_ATTEMPTS, BIND_RETRY_DELAY_MS).await {
+        BindByPtyOutcome::Bound(selected) => {
+            record_id = Some(selected.record_id);
+            selected_resume_id = selected.resume_session_id;
+            if let Some(source) = selected.resume_source {
+                selected_source = source;
             }
         }
-
-        // Source arbitration and the write happen in one transaction. Use the selected value from
-        // that transaction so a concurrent higher-priority writer cannot be overwritten in the
-        // frontend by a stale event payload.
-        match service.update_resume_session_with_source_by_pty_with_result(
-            &payload.session_id,
-            &payload.resume_session_id,
-            &payload.source,
-        ) {
-            Ok(Some(selected)) => {
-                record_id = Some(selected.record_id);
-                selected_resume_id = selected.resume_session_id;
-                if let Some(source) = selected.resume_source {
-                    selected_source = source;
-                }
-                break;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                warn!(session_id = %payload.session_id, error = %error, "bind_resume_id: update by pty failed");
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(BIND_RETRY_DELAY_MS)).await;
-    }
-
-    if rejected {
-        return;
+        BindByPtyOutcome::Rejected => return,
+        BindByPtyOutcome::NotFound => {}
     }
 
     // 重试耗尽仍无行 = 恢复路径（没人替它建行），upsert 兜底。
     // 放在 rejected 之后：CLI 冲突的事件不该建行。
     if record_id.is_none() {
-        if let Some(upserted) = upsert_missing_row(&service, &payload) {
-            record_id = Some(upserted.record_id);
-            selected_resume_id = upserted.resume_session_id;
-            if let Some(source) = upserted.resume_source {
-                selected_source = source;
+        match upsert_missing_row(&service, &payload) {
+            UpsertOutcome::Created(upserted) => {
+                record_id = Some(upserted.record_id);
+                selected_resume_id = upserted.resume_session_id;
+                if let Some(source) = upserted.resume_source {
+                    selected_source = source;
+                }
             }
+            UpsertOutcome::RowOccupied => {
+                // launch id 的最新行已被别的 PTY 占用 = 前端复用了旧 launchId
+                // （docs/86 缺口 A 的结构错误信号，V29 唯一索引下不可能建第二行）。
+                // 不终局：create 返回后 bind_or_add_created_session 会为本 PTY
+                // 插出新行，二次窗按 PTY 精确命中即可落库。
+                warn!(
+                    pty_session_id = %payload.session_id,
+                    launch_id = ?payload.launch_id,
+                    "bind_resume_id: launch id row occupied by another PTY (stale launch id reuse); entering rebind window"
+                );
+                match bind_by_pty_window(
+                    &service,
+                    &payload,
+                    REBIND_MAX_ATTEMPTS,
+                    REBIND_RETRY_DELAY_MS,
+                )
+                .await
+                {
+                    BindByPtyOutcome::Bound(selected) => {
+                        record_id = Some(selected.record_id);
+                        selected_resume_id = selected.resume_session_id;
+                        if let Some(source) = selected.resume_source {
+                            selected_source = source;
+                        }
+                    }
+                    BindByPtyOutcome::Rejected => return,
+                    BindByPtyOutcome::NotFound => {}
+                }
+            }
+            UpsertOutcome::Skipped => {}
         }
     }
 
@@ -209,8 +201,79 @@ pub async fn bind_resume_id(
     );
 }
 
-/// 行不存在时建行兜底。返回 None 表示没建成（缺关键字段或写库失败），
-/// 调用方据此保留原告警。
+/// 主窗/二次窗共用的「按 PTY 精确绑定」循环。来源仲裁与写入在同一事务内完成，
+/// 用事务选出的值转发前端，避免并发高优先级写入被陈旧事件载荷覆盖。
+enum BindByPtyOutcome {
+    Bound(cc_panes_core::repository::SessionStartedUpsertResult),
+    /// 该 PTY 的行属于另一个 CLI，事件被拒（不建行、不转发）。
+    Rejected,
+    NotFound,
+}
+
+async fn bind_by_pty_window(
+    service: &Arc<LaunchHistoryService>,
+    payload: &ResumeIdDetectedPayload,
+    max_attempts: u32,
+    retry_delay_ms: u64,
+) -> BindByPtyOutcome {
+    for attempt in 0..max_attempts {
+        let record = match service.find_by_pty_session_id(&payload.session_id) {
+            Ok(record) => record,
+            Err(error) => {
+                warn!(session_id = %payload.session_id, error = %error, "bind_resume_id: lookup by pty failed");
+                None
+            }
+        };
+        let Some(record) = record else {
+            debug!(
+                session_id = %payload.session_id,
+                attempt,
+                "bind_resume_id: exact PTY launch_history row not found yet; retrying"
+            );
+            tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
+            continue;
+        };
+
+        if let Some(event_cli_tool) = payload.cli_tool.as_deref() {
+            if record.cli_tool != "none" && record.cli_tool != event_cli_tool {
+                warn!(
+                    record_id = record.id,
+                    pty_session_id = %payload.session_id,
+                    record_cli_tool = %record.cli_tool,
+                    event_cli_tool,
+                    "bind_resume_id: rejected event because exact PTY belongs to another CLI tool"
+                );
+                return BindByPtyOutcome::Rejected;
+            }
+        }
+
+        match service.update_resume_session_with_source_by_pty_with_result(
+            &payload.session_id,
+            &payload.resume_session_id,
+            &payload.source,
+        ) {
+            Ok(Some(selected)) => return BindByPtyOutcome::Bound(selected),
+            Ok(None) => {}
+            Err(error) => {
+                warn!(session_id = %payload.session_id, error = %error, "bind_resume_id: update by pty failed");
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
+    }
+    BindByPtyOutcome::NotFound
+}
+
+/// `upsert_missing_row` 的分型结果：`RowOccupied` 单列出来是因为它不是终局——
+/// create 侧稍后会为本 PTY 建行，调用方要进二次窗而不是放弃。
+enum UpsertOutcome {
+    Created(cc_panes_core::repository::SessionStartedUpsertResult),
+    /// launch id 的最新行已绑定另一个 PTY（前端复用旧 launchId 的结构错误信号）。
+    RowOccupied,
+    /// 缺关键字段 / CLI 冲突 / 其他写库失败，保留原告警。
+    Skipped,
+}
+
+/// 行不存在时建行兜底。
 ///
 /// `launch_id` / `project_path` 缺一不可：前者是 `launch_history.project_id`
 /// （每次启动唯一，不是项目 id），后者是 NOT NULL 列——没有就无法建出有意义的行，
@@ -218,7 +281,7 @@ pub async fn bind_resume_id(
 fn upsert_missing_row(
     service: &Arc<LaunchHistoryService>,
     payload: &ResumeIdDetectedPayload,
-) -> Option<cc_panes_core::repository::SessionStartedUpsertResult> {
+) -> UpsertOutcome {
     let (Some(launch_id), Some(project_path)) = (
         payload.launch_id.as_deref(),
         payload.project_path.as_deref(),
@@ -229,7 +292,7 @@ fn upsert_missing_row(
             has_project_path = payload.project_path.is_some(),
             "bind_resume_id: cannot upsert launch_history row without launch_id + project_path"
         );
-        return None;
+        return UpsertOutcome::Skipped;
     };
 
     // cli_tool 缺失时按 resume id 的 UUID 版本反推（v4=claude / v7=codex），
@@ -262,7 +325,11 @@ fn upsert_missing_row(
                 error = %error,
                 "bind_resume_id: upsert launch_history row failed"
             );
-            return None;
+            // 错误分型靠 history_repo 的错误文案；改那边的措辞要同步这里。
+            if error.contains("already bound to another PTY") {
+                return UpsertOutcome::RowOccupied;
+            }
+            return UpsertOutcome::Skipped;
         }
     };
 
@@ -274,12 +341,14 @@ fn upsert_missing_row(
         launch_id = %launch_id,
         "bind_resume_id: launch_history row was missing (restore path); created via upsert"
     );
-    Some(upserted)
+    UpsertOutcome::Created(upserted)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{expected_cli_for_uuid, upsert_missing_row, ResumeIdDetectedPayload};
+    use super::{
+        expected_cli_for_uuid, upsert_missing_row, ResumeIdDetectedPayload, UpsertOutcome,
+    };
     use cc_panes_core::repository::{Database, HistoryRepository};
     use cc_panes_core::services::{should_replace_source, LaunchHistoryService};
     use std::sync::Arc;
@@ -322,9 +391,11 @@ mod tests {
             "前置：库里本来没有这条 PTY 的行"
         );
 
-        let upserted =
+        let UpsertOutcome::Created(upserted) =
             upsert_missing_row(&svc, &payload(Some("proj-restore"), Some("D:/repo/app")))
-                .expect("应建出行");
+        else {
+            panic!("应建出行");
+        };
 
         let record = svc
             .find_by_pty_session_id("pty-restore")
@@ -345,7 +416,10 @@ mod tests {
     #[test]
     fn upsert_skips_when_launch_id_missing() {
         let svc = service();
-        assert!(upsert_missing_row(&svc, &payload(None, Some("D:/repo/app"))).is_none());
+        assert!(matches!(
+            upsert_missing_row(&svc, &payload(None, Some("D:/repo/app"))),
+            UpsertOutcome::Skipped
+        ));
         assert!(svc
             .find_by_pty_session_id("pty-restore")
             .expect("find")
@@ -356,11 +430,46 @@ mod tests {
     #[test]
     fn upsert_skips_when_project_path_missing() {
         let svc = service();
-        assert!(upsert_missing_row(&svc, &payload(Some("proj-restore"), None)).is_none());
+        assert!(matches!(
+            upsert_missing_row(&svc, &payload(Some("proj-restore"), None)),
+            UpsertOutcome::Skipped
+        ));
         assert!(svc
             .find_by_pty_session_id("pty-restore")
             .expect("find")
             .is_none());
+    }
+
+    /// launch id 的最新行被别的 PTY 占着 = 前端复用了旧 launchId（docs/86 缺口 A
+    /// 的结构错误信号）。必须分型为 RowOccupied（调用方进二次窗），不能与普通
+    /// 失败混为 Skipped，也绝不能改动被占的那行。
+    #[test]
+    fn upsert_reports_row_occupied_when_launch_id_bound_to_other_pty() {
+        let svc = service();
+        let mut first = payload(Some("launch-occupied"), Some("D:/repo/app"));
+        first.session_id = "pty-old".into();
+        assert!(matches!(
+            upsert_missing_row(&svc, &first),
+            UpsertOutcome::Created(_)
+        ));
+
+        let mut second = payload(Some("launch-occupied"), Some("D:/repo/app"));
+        second.session_id = "pty-new".into();
+        second.resume_session_id = "0199bb22-3344-7555-8666-777788889999".into();
+        assert!(matches!(
+            upsert_missing_row(&svc, &second),
+            UpsertOutcome::RowOccupied
+        ));
+
+        let record = svc
+            .find_by_launch_id("launch-occupied")
+            .expect("find")
+            .expect("row");
+        assert_eq!(record.pty_session_id.as_deref(), Some("pty-old"));
+        assert_eq!(
+            record.resume_session_id.as_deref(),
+            Some("0199aa11-2233-7444-8555-666677778888")
+        );
     }
 
     #[test]
@@ -445,12 +554,17 @@ mod tests {
         issued.source = "issued".into();
         issued.resume_session_id = "7a1e2f64-6168-4cb2-9308-9adf0e2d91df".into();
         issued.cli_tool = Some("claude".into());
-        upsert_missing_row(&svc, &issued).expect("seed issued row");
+        assert!(matches!(
+            upsert_missing_row(&svc, &issued),
+            UpsertOutcome::Created(_)
+        ));
 
         let mut rollout = issued.clone();
         rollout.source = "rollout-scan".into();
         rollout.resume_session_id = "other-resume-id".into();
-        let retained = upsert_missing_row(&svc, &rollout).expect("same row remains selected");
+        let UpsertOutcome::Created(retained) = upsert_missing_row(&svc, &rollout) else {
+            panic!("same row remains selected");
+        };
         assert_eq!(retained.resume_session_id, issued.resume_session_id);
         assert_eq!(retained.resume_source.as_deref(), Some("issued"));
 
@@ -472,12 +586,18 @@ mod tests {
         claude.source = "issued".into();
         claude.resume_session_id = "7a1e2f64-6168-4cb2-9308-9adf0e2d91df".into();
         claude.cli_tool = Some("claude".into());
-        upsert_missing_row(&svc, &claude).expect("seed claude row");
+        assert!(matches!(
+            upsert_missing_row(&svc, &claude),
+            UpsertOutcome::Created(_)
+        ));
 
         let mut codex = claude.clone();
         codex.cli_tool = Some("codex".into());
         codex.resume_session_id = "019f9057-c7cf-7f73-9fa9-44ae21234567".into();
-        assert!(upsert_missing_row(&svc, &codex).is_none());
+        assert!(matches!(
+            upsert_missing_row(&svc, &codex),
+            UpsertOutcome::Skipped
+        ));
 
         let record = svc
             .find_by_launch_id("launch-cli-conflict")

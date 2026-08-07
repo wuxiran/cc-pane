@@ -33,6 +33,15 @@ describe("resolveLaunchId", () => {
     expect(resolved).toMatch(/^launch-/);
   });
 
+  // restoring 标志与 savedSessionId 不总同步：快照落盘时 leaf 已退出的场景
+  // restoring 为 falsy 但 savedSessionId 仍在——此时复用旧 launchId 同样命中
+  // docs/69 暗雷。恢复态判定与 phaseOf 同口径。
+  it("只有 savedSessionId（restoring 为 falsy）也必须换新 id", () => {
+    const resolved = resolveLaunchId({ launchId: "launch-prev", savedSessionId: "s-1" });
+    expect(resolved).not.toBe("launch-prev");
+    expect(resolved).toMatch(/^launch-/);
+  });
+
   it("失败重挂载后不复用失败那次的身份", () => {
     expect(resolveLaunchId({ launchId: "launch-failed", launchAttempt: 1 })).not.toBe(
       "launch-failed",

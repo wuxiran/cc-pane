@@ -149,6 +149,20 @@ impl OscResumeCapture {
                     attempts = self.attempts,
                     "osc-capture: giving up resolving full session id (rollout never appeared)"
                 );
+                // resume 启动的会话没有 rollout 兜底（docs/86 缺口 C）：OSC 是
+                // 唯一捕获通道，放弃 = 本次运行零 resume id 事件 → 下次重启只能
+                // 沿用旧 id。此前只有上面这条 warn，静默退化必须对用户可见。
+                if !self.ctx.rollout_fallback {
+                    let _ = self.emitter.emit(
+                        EV::TERMINAL_LAUNCH_WARNING,
+                        serde_json::json!({
+                            "kind": "codexResumeCaptureExhausted",
+                            "sessionId": self.ctx.session_id,
+                            "cliTool": "codex",
+                            "runtimeKind": self.ctx.runtime_kind,
+                        }),
+                    );
+                }
                 self.attempts += 1; // 只告警一次
             }
             return;

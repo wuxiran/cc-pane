@@ -1396,11 +1396,23 @@ async fn ws_control(
 /// 此前 control 是单向的（入站 Text 直接丢弃），hidden 上报需要这条
 /// 上行路。旧 daemon 收到 hidden 上报会静默忽略——所以 app 侧**不能假设上报
 /// 生效**，前端 512KB 积压必须继续兜底。
+/// 一条已消费身份事件的 ack 键（sessionId + 消费到的 resumeId）。
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IdentityAckEntry {
+    session_id: String,
+    resume_id: String,
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ControlInboundMessage {
     /// 声明该连接当前看不见哪些会话（全量覆盖，不是增量）。
     HiddenSessions { sessions: Vec<String> },
+    /// 桌面端确认已消费这些身份事件（outbox ack，docs/86 3.1）。留存条目
+    /// 据此移除，app 重启后不再全量重放历史事件。旧 app 不发本消息——
+    /// 留存照旧累积，行为等同 ack 机制之前。
+    IdentityAck { events: Vec<IdentityAckEntry> },
     #[serde(other)]
     Unknown,
 }
@@ -1456,6 +1468,13 @@ async fn handle_control_ws(
                                 config
                                     .ws_emitter()
                                     .set_hidden_sessions(&connection_id, &sessions);
+                            }
+                            Ok(ControlInboundMessage::IdentityAck { events }) => {
+                                let keys: Vec<(String, String)> = events
+                                    .into_iter()
+                                    .map(|entry| (entry.session_id, entry.resume_id))
+                                    .collect();
+                                config.ws_emitter().ack_identity_events(&keys);
                             }
                             // 未知消息静默忽略：新版 app 对旧 daemon 发新消息时
                             // 不应把连接搞崩。

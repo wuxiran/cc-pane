@@ -56,3 +56,14 @@ pub async fn clear_session_output(
 ) -> Result<(), String> {
     service.clear_session_output(&session_id)
 }
+
+/// 回收陈旧的会话输出文件（保留期 14 天；保护集必须含 savedSessionId 口径）。
+/// 启动对账完成后由前端触发一次。
+#[tauri::command]
+pub async fn prune_stale_session_outputs(
+    protected_session_ids: Vec<String>,
+    service: State<'_, Arc<SessionRestoreService>>,
+) -> Result<usize, String> {
+    const RETENTION: std::time::Duration = std::time::Duration::from_secs(14 * 24 * 60 * 60);
+    service.prune_stale_outputs(RETENTION, &protected_session_ids)
+}

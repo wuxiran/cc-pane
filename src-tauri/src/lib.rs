@@ -266,6 +266,7 @@ use commands::{
     preview_launch_profile_resolution,
     preview_project_migration,
     preview_workspace_migration,
+    prune_stale_session_outputs,
     prune_terminal_sessions,
     // Local History - 标签
     put_label,
@@ -2777,6 +2778,7 @@ pub fn run() {
             clear_layout_snapshot,
             load_session_output,
             clear_session_output,
+            prune_stale_session_outputs,
             list_workspace_snapshots,
             get_workspace_snapshot,
             delete_workspace_snapshot,

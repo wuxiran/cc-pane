@@ -1,4 +1,5 @@
 import type { CliTool, SshConnectionInfo, WslLaunchInfo } from "@/types";
+import { isPendingPhase, phaseOf } from "@/lib/terminalRuntimePhase";
 
 /**
  * 一次 PTY 启动的身份与形态解析（纯函数，无副作用）。
@@ -22,6 +23,12 @@ export interface ResolveLaunchIdOptions {
   launchId?: string;
   /** 恢复路径：原 launch id 已被上次的 PTY 占用，必须换新的。 */
   restoring?: boolean;
+  /**
+   * 恢复目标会话 id。restoring 标志与它不总是同步（快照落盘时 leaf 已退出的场景
+   * restoring 为 falsy），phaseOf 把「有 savedSessionId 未 attach」也判为恢复态，
+   * 此处必须同口径——否则会复用上一次的 launch id。
+   */
+  savedSessionId?: string;
   /** 启动失败后的重挂载次数：失败那次的身份不能复用。 */
   launchAttempt?: number;
   /** 无条件换新（relaunch 路径）。 */
@@ -34,10 +41,14 @@ export interface ResolveLaunchIdOptions {
  * 只有「首次启动且 leaf 上已预留了 id」才复用，其余一律换新——复用一个已被占用的
  * launch id 会让 `bind_pty_session` 落空（那行的 `pty_session_id` 不满足
  * `IS NULL OR = 本次`），resume id 就此永久丢失且不可自愈。
+ *
+ * 恢复态判定统一走 `phaseOf`（恢复态的唯一派生点），不在此处自行组合
+ * restoring/savedSessionId——两处口径不一致正是 launchId 复用暗雷的成因。
  */
 export function resolveLaunchId(options: ResolveLaunchIdOptions): string {
-  const { launchId, restoring, launchAttempt, forceNew } = options;
-  if (forceNew || restoring || (launchAttempt ?? 0) > 0) {
+  const { launchId, restoring, savedSessionId, launchAttempt, forceNew } = options;
+  const phase = phaseOf({ restoring, savedSessionId, launchAttempt });
+  if (forceNew || isPendingPhase(phase)) {
     return nextLaunchId(launchId);
   }
   return launchId ?? nextLaunchId();

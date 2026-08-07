@@ -271,6 +271,7 @@ const writeToSession = vi.mocked(terminalService.write);
 const getRecoverySnapshot = vi.mocked(getRecoverySnapshotFn);
 const startLaunchHistoryBackfill = vi.mocked(historyService.startLaunchHistoryBackfill);
 const loadOutput = vi.mocked(sessionRestoreService.loadOutput);
+const clearOutput = vi.mocked(sessionRestoreService.clearOutput);
 const killSession = vi.mocked(terminalService.killSession);
 
 function deferred<T>() {
@@ -659,6 +660,28 @@ describe("TerminalView", () => {
     expect(loadOutput).toHaveBeenCalledWith("saved-1");
     expect(term.writtenLines).toContain("old line 1");
     expect(term.writtenLines).toContain("old line 2");
+  });
+
+  // 终态失败必须清冷重放缓存：不清的话 savedSessionId 与 .output 都留着，
+  // 下次重启原样重放同一份旧画面，可无限循环（docs/86 B2）。
+  it("clears persisted output when a restore launch terminally fails", async () => {
+    createSession.mockRejectedValue(new Error("spawn failed") as never);
+
+    renderTerminalView({ restoring: true, savedSessionId: "saved-fail" });
+
+    await waitFor(() => expect(createSession).toHaveBeenCalled());
+    await waitFor(() => expect(clearOutput).toHaveBeenCalledWith("saved-fail"));
+  });
+
+  it("keeps persisted output when the restore launch is merely cancelled", async () => {
+    const canCreateTerminalSession = vi.fn().mockReturnValue(false);
+    usePanesStore.setState({ canCreateTerminalSession } as never);
+
+    renderTerminalView({ restoring: true, savedSessionId: "saved-cancel" });
+
+    await waitFor(() => expect(canCreateTerminalSession).toHaveBeenCalled());
+    expect(createSession).not.toHaveBeenCalled();
+    expect(clearOutput).not.toHaveBeenCalled();
   });
 
   it("kills an in-flight duplicate restore PTY when the leaf is adopted before create returns", async () => {

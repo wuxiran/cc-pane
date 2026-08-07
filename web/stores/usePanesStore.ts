@@ -1449,6 +1449,7 @@ export const usePanesStore = create<PanesState>()(
 
     updateTabAgentResumeId: (ptySessionId, agentResumeId, resumeIdSource) => {
       let found = false;
+      let changed = false;
       set((state) => {
         const update = (node: PaneNode): boolean => {
           if (node.type === "panel") {
@@ -1456,6 +1457,12 @@ export const usePanesStore = create<PanesState>()(
               if (tab.contentType === "terminal" && tab.terminalRootPane) {
                 for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
                   if (leaf.sessionId === ptySessionId) {
+                    if (
+                      leaf.resumeId !== agentResumeId
+                      || (resumeIdSource && leaf.resumeIdSource !== resumeIdSource)
+                    ) {
+                      changed = true;
+                    }
                     leaf.resumeId = agentResumeId;
                     if (resumeIdSource) leaf.resumeIdSource = resumeIdSource;
                     syncTabTerminalState(tab);
@@ -1463,6 +1470,12 @@ export const usePanesStore = create<PanesState>()(
                   }
                 }
               } else if (tab.sessionId === ptySessionId) {
+                if (
+                  tab.resumeId !== agentResumeId
+                  || (resumeIdSource && tab.resumeIdSource !== resumeIdSource)
+                ) {
+                  changed = true;
+                }
                 tab.resumeId = agentResumeId;
                 if (resumeIdSource) tab.resumeIdSource = resumeIdSource;
                 return true;
@@ -1481,6 +1494,10 @@ export const usePanesStore = create<PanesState>()(
           }
         });
       });
+      // resumeId 是恢复身份，必须尽快进共享快照——只靠 60s 定时器落盘的话，
+      // 异常退出会恢复到旧会话。同值 no-op：daemon 重连会全量重放 identity
+      // 事件，不做去重会把重放风暴变成一轮轮无意义的快照写盘。
+      if (changed) notifyTerminalLayoutChanged("resume-id.update");
       return found;
     },
 
@@ -1489,6 +1506,7 @@ export const usePanesStore = create<PanesState>()(
     },
 
     setTabResumeBinding: (tabId, resumeId, resumeIdSource) => {
+      let changed = false;
       set((state) => {
         const location = findTabAcrossLayouts(state, tabId);
         if (!location || location.tab.contentType !== "terminal") return;
@@ -1500,15 +1518,19 @@ export const usePanesStore = create<PanesState>()(
               ? leaves.find((leaf) => leaf.id === tab.activeTerminalPaneId)
               : null) ?? leaves[0];
           if (activeLeaf) {
+            changed = activeLeaf.resumeId !== resumeId;
             activeLeaf.resumeId = resumeId;
             activeLeaf.resumeIdSource = resumeId ? resumeIdSource : undefined;
           }
           syncTabTerminalState(tab);
         } else {
+          changed = tab.resumeId !== resumeId;
           tab.resumeId = resumeId;
           tab.resumeIdSource = resumeId ? resumeIdSource : undefined;
         }
       });
+      // 与 updateTabAgentResumeId 同理：手动绑定/解绑也要立刻进共享快照。
+      if (changed) notifyTerminalLayoutChanged("resume-id.update");
     },
 
     openProjectInPane: (paneId, opts) => {

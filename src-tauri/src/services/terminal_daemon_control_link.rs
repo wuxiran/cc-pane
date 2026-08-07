@@ -96,6 +96,23 @@ fn hidden_sessions_message(sessions: &[String]) -> String {
     serde_json::json!({ "type": "hiddenSessions", "sessions": sessions }).to_string()
 }
 
+/// outbox ack（docs/86 3.1）：告知 daemon 这些身份事件已被本桌面端消费，
+/// 可从留存中移除。旧 daemon 收到未知消息静默忽略（设计内降级：留存照旧、
+/// 重放靠 `applied` 去重，行为等同 ack 之前）。
+fn identity_ack_message(keys: &[(String, String)]) -> String {
+    serde_json::json!({
+        "type": "identityAck",
+        "events": keys
+            .iter()
+            .map(|(session_id, resume_id)| serde_json::json!({
+                "sessionId": session_id,
+                "resumeId": resume_id,
+            }))
+            .collect::<Vec<_>>(),
+    })
+    .to_string()
+}
+
 async fn run_control_link(
     mut client_rx: watch::Receiver<Option<TerminalDaemonClient>>,
     app_handle: tauri::AppHandle,
@@ -105,6 +122,9 @@ async fn run_control_link(
     // 也不能随断线清零。
     let mut applied_identity: HashSet<(String, String)> = HashSet::new();
     let mut notifier_state = NotifierState::default();
+    // 身份事件 ack 队列：绑定任务完成后投键进来，由本 select 循环发给 daemon。
+    // 发送失败不丢语义——daemon 仍留存，下次重连补拉时按「已应用」路径重新 ack。
+    let (ack_tx, mut ack_rx) = tokio::sync::mpsc::unbounded_channel::<(String, String)>();
     'client: loop {
         let Some(client) = client_rx.borrow().clone() else {
             if client_rx.changed().await.is_err() {
@@ -131,7 +151,7 @@ async fn run_control_link(
                     let _connection_guard = ControlConnectionGuard::new(connected.clone());
                     debug!(daemon_addr = %client.addr(), "terminal daemon control link connected");
                     backoff = RECONNECT_MIN;
-                    replay_identity_events(&app_handle, &client, &mut applied_identity);
+                    replay_identity_events(&app_handle, &client, &mut applied_identity, &ack_tx);
                     // 重连补发：daemon 侧 hidden 标记随旧连接清零（防旧标记压住
                     // 新订阅），所以新连接必须把当前全集重新声明一次。
                     let mut hidden_rx = hidden_sessions_channel().1.clone();
@@ -186,6 +206,29 @@ async fn run_control_link(
                                 }
                                 continue;
                             }
+                            ack = ack_rx.recv() => {
+                                if let Some(first) = ack {
+                                    let mut keys = vec![first];
+                                    while let Ok(more) = ack_rx.try_recv() {
+                                        keys.push(more);
+                                    }
+                                    use futures_util::SinkExt;
+                                    if ws
+                                        .send(tokio_tungstenite::tungstenite::Message::Text(
+                                            identity_ack_message(&keys).into(),
+                                        ))
+                                        .await
+                                        .is_err()
+                                    {
+                                        // 丢了不补发：daemon 留存未删，重连补拉走
+                                        // 「已应用」路径会重新 ack（自愈）。
+                                        debug!("identity ack send failed; reconnecting");
+                                        break;
+                                    }
+                                    debug!(count = keys.len(), "identity events acked");
+                                }
+                                continue;
+                            }
                             message = ws.next() => message,
                         };
                         let message = match message {
@@ -204,7 +247,11 @@ async fn run_control_link(
                                 }
                             }
                             Ok(Some(ControlAction::BindResume(payload))) => {
-                                apply_resume_binding(&app_handle, payload);
+                                // 记入 applied：重连补拉时不再重复绑定同一条。
+                                if let Some(key) = identity_key(&payload) {
+                                    applied_identity.insert(key);
+                                }
+                                apply_resume_binding(&app_handle, payload, &ack_tx);
                             }
                             Ok(Some(ControlAction::Notify {
                                 event,
@@ -342,7 +389,12 @@ fn parse_control_event(text: &str) -> serde_json::Result<Option<ControlAction>> 
 }
 
 /// 把 resume id 直接落库，不经 WebView 门禁。
-fn apply_resume_binding(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
+fn apply_resume_binding(
+    app_handle: &tauri::AppHandle,
+    payload: serde_json::Value,
+    ack_tx: &tokio::sync::mpsc::UnboundedSender<(String, String)>,
+) {
+    let key = identity_key(&payload);
     let Some(payload) = parse_resume_payload(payload) else {
         return;
     };
@@ -351,7 +403,15 @@ fn apply_resume_binding(app_handle: &tauri::AppHandle, payload: serde_json::Valu
         .inner()
         .clone();
     let handle = app_handle.clone();
-    tauri::async_runtime::spawn(crate::services::bind_resume_id(handle, service, payload));
+    let ack_tx = ack_tx.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::services::bind_resume_id(handle, service, payload).await;
+        // 绑定流程走完（含 upsert/二次窗兜底）即 ack——留存的目的只是投递保证，
+        // 落库失败的事件重放也不会有不同结果（applied 去重会拦住重复绑定）。
+        if let Some(key) = key {
+            let _ = ack_tx.send(key);
+        }
+    });
 }
 
 /// 会话副作用交给桌面自己的 notifier（与本地 PTY 模式同一实现）。
@@ -452,6 +512,7 @@ fn replay_identity_events(
     app_handle: &tauri::AppHandle,
     client: &TerminalDaemonClient,
     applied: &mut HashSet<(String, String)>,
+    ack_tx: &tokio::sync::mpsc::UnboundedSender<(String, String)>,
 ) {
     let events = match client.list_identity_events() {
         Ok(events) => events,
@@ -463,13 +524,26 @@ fn replay_identity_events(
 
     // 只重放本进程还没应用过的：daemon 的留存是累积的（会话退出后条目仍在），
     // 每次重连全量重放会变成一轮 DB 写 + 事件风暴。
+    let mut previously_applied: Vec<(String, String)> = Vec::new();
     let fresh: Vec<serde_json::Value> = events
         .into_iter()
         .filter(|payload| {
-            let key = identity_key(payload);
-            key.is_none_or(|key| applied.insert(key))
+            let Some(key) = identity_key(payload) else {
+                return true;
+            };
+            if applied.insert(key.clone()) {
+                true
+            } else {
+                previously_applied.push(key);
+                false
+            }
         })
         .collect();
+    // 已应用过但 daemon 仍留存的条目：上一轮 ack 丢了（断线/旧 daemon），
+    // 直接补 ack——这条自愈路径保证 ack 丢失不会让留存永久膨胀。
+    for key in previously_applied {
+        let _ = ack_tx.send(key);
+    }
     if fresh.is_empty() {
         return;
     }
@@ -477,8 +551,10 @@ fn replay_identity_events(
     debug!(count = fresh.len(), "replaying daemon identity events");
     // 顺序处理而非逐条 spawn：补拉是补漏，不该和正常启动抢 DB。
     let handle = app_handle.clone();
+    let ack_tx = ack_tx.clone();
     tauri::async_runtime::spawn(async move {
         for payload in fresh {
+            let key = identity_key(&payload);
             let Some(typed) = parse_resume_payload(payload) else {
                 continue;
             };
@@ -487,6 +563,9 @@ fn replay_identity_events(
                 .inner()
                 .clone();
             crate::services::bind_resume_id(handle.clone(), service, typed).await;
+            if let Some(key) = key {
+                let _ = ack_tx.send(key);
+            }
         }
     });
 }

@@ -11,6 +11,11 @@ import { listenWebviewIfTauri } from "@/services/runtime";
  * - `orchestratorLoopbackWsl`：orchestrator 仅监听回环时启动了 WSL 会话，
  *   WSL 内 CLI 无法回连 ccpanes MCP。
  * - `codexResumeTargetMissing`：Codex 恢复目标在会话目录中不存在，已降级为新会话。
+ * - `codexResumeCaptureExhausted`：resume 会话的 OSC 捕获耗尽（无 rollout 兜底），
+ *   本次运行的新 resume id 不会被记录（docs/86 缺口 C）。
+ * - `resumeLaunchFailed`：resume 启动后短时间内退出且输出命中错误特征
+ *   （resume id 失效等）。此前只有后端 WARN 取证，前端表现为「标签一闪即空」
+ *   零提示（docs/86 A4）。
  */
 export interface LaunchWarningPayload {
   kind: string;
@@ -21,6 +26,10 @@ export interface LaunchWarningPayload {
   runtimeMismatch?: boolean;
   usedProfileName?: string | null;
   bindMode?: string;
+  sessionId?: string;
+  resumeId?: string;
+  exitCode?: number;
+  matchedPattern?: string;
 }
 
 /**
@@ -62,6 +71,23 @@ export function useLaunchWarnings(): void {
                 t("codexResumeTargetMissing", {
                   ns: "panes",
                   defaultValue: "未找到 Codex 恢复目标，已改为启动新会话。",
+                }),
+              );
+            } else if (payload.kind === "codexResumeCaptureExhausted") {
+              toast.warning(
+                t("codexResumeCaptureExhausted", {
+                  ns: "panes",
+                  defaultValue:
+                    "Codex 会话 id 捕获失败：本次会话的新 resume id 未能记录，下次恢复可能回到更早的对话。",
+                }),
+              );
+            } else if (payload.kind === "resumeLaunchFailed") {
+              toast.error(
+                t("resumeLaunchFailed", {
+                  ns: "panes",
+                  defaultValue:
+                    "会话恢复失败：resume 目标可能已失效（{{cli}}）。原对话未能接上，可在该标签重新启动或新建会话。",
+                  cli: payload.cliTool ?? "",
                 }),
               );
             }
