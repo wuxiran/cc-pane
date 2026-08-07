@@ -11689,6 +11689,236 @@ mod tests {
         assert!(restore.load_sessions().expect("load").is_empty());
     }
 
+    /// launch 超时回收的观察点：三种回收动作各记一条，测试按到达顺序核对。
+    #[derive(Debug, PartialEq, Eq)]
+    enum ReclaimEvent {
+        CancelLaunch(String),
+        KillWithReason(String, KillReason),
+        Release(String),
+    }
+
+    /// 慢后端：create 阻塞在闸门上直到测试放行，之后才交出 session id。
+    /// 超时分支的回收动作（cancel_launch + 后台按 reused_existing 分流）
+    /// 全部记进 channel，供测试断言。
+    struct SlowLaunchTestBackend {
+        /// 测试放行前 create 一直阻塞——保证 deadline 必然先于创建完成触发。
+        gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+        reused_existing: bool,
+        events: tokio::sync::mpsc::UnboundedSender<ReclaimEvent>,
+    }
+
+    impl TerminalBackend for SlowLaunchTestBackend {
+        fn create_session(
+            &self,
+            _request: CoreCreateSessionRequest,
+        ) -> cc_panes_core::utils::AppResult<String> {
+            if let Some(gate) = self
+                .gate
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take()
+            {
+                let _ = gate.recv();
+            }
+            Ok("slow-session-1".to_string())
+        }
+
+        fn create_session_with_outcome(
+            &self,
+            request: CoreCreateSessionRequest,
+        ) -> cc_panes_core::utils::AppResult<cc_panes_core::services::CreateSessionOutcome>
+        {
+            let session_id = self.create_session(request)?;
+            Ok(cc_panes_core::services::CreateSessionOutcome {
+                session_id,
+                reused_existing: self.reused_existing,
+                resolved_model_id: None,
+            })
+        }
+
+        fn write(&self, _session_id: &str, _data: &str) -> cc_panes_core::utils::AppResult<()> {
+            Ok(())
+        }
+
+        fn submit_text_to_session(
+            &self,
+            _session_id: &str,
+            _text: &str,
+        ) -> cc_panes_core::utils::AppResult<()> {
+            Ok(())
+        }
+
+        fn resize(
+            &self,
+            _session_id: &str,
+            _cols: u16,
+            _rows: u16,
+        ) -> cc_panes_core::utils::AppResult<()> {
+            Ok(())
+        }
+
+        fn kill(&self, session_id: &str) -> cc_panes_core::utils::AppResult<()> {
+            let _ = self.events.send(ReclaimEvent::KillWithReason(
+                session_id.to_string(),
+                KillReason::Unknown,
+            ));
+            Ok(())
+        }
+
+        fn kill_with_reason(
+            &self,
+            session_id: &str,
+            reason: KillReason,
+        ) -> cc_panes_core::utils::AppResult<()> {
+            let _ = self
+                .events
+                .send(ReclaimEvent::KillWithReason(session_id.to_string(), reason));
+            Ok(())
+        }
+
+        fn cancel_launch(&self, launch_id: &str) -> cc_panes_core::utils::AppResult<()> {
+            let _ = self
+                .events
+                .send(ReclaimEvent::CancelLaunch(launch_id.to_string()));
+            Ok(())
+        }
+
+        fn release_session(&self, session_id: &str) -> cc_panes_core::utils::AppResult<()> {
+            let _ = self
+                .events
+                .send(ReclaimEvent::Release(session_id.to_string()));
+            Ok(())
+        }
+
+        fn get_all_status(&self) -> cc_panes_core::utils::AppResult<Vec<SessionStatusInfo>> {
+            Ok(Vec::new())
+        }
+
+        fn get_session_status(
+            &self,
+            _session_id: &str,
+        ) -> cc_panes_core::utils::AppResult<Option<SessionStatusInfo>> {
+            Ok(None)
+        }
+
+        fn get_session_output(
+            &self,
+            session_id: &str,
+            _lines: usize,
+        ) -> cc_panes_core::utils::AppResult<cc_panes_core::services::terminal_service::SessionOutput>
+        {
+            Ok(cc_panes_core::services::terminal_service::SessionOutput {
+                session_id: session_id.to_string(),
+                lines: Vec::new(),
+            })
+        }
+
+        fn get_session_replay_snapshot(
+            &self,
+            _session_id: &str,
+        ) -> cc_panes_core::utils::AppResult<Option<cc_panes_core::models::TerminalReplaySnapshot>>
+        {
+            Ok(None)
+        }
+    }
+
+    /// 跑一次必然超时的创建，回收动作按到达顺序收集。
+    ///
+    /// `CREATE_LAUNCH_DEADLINE` 是 50s 常量（不可注入），所以走虚拟时钟：
+    /// `start_paused` 下由 `advance` 显式跨过 deadline。后端阻塞在闸门上，
+    /// 直到超时分支已返回后才放行——「超时先于创建完成」的现场因此确定复现，
+    /// 不依赖任何 sleep 竞速。
+    async fn run_launch_timeout(reused_existing: bool) -> (String, Vec<ReclaimEvent>) {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (gate_tx, gate_rx) = std::sync::mpsc::channel();
+        let backend = Arc::new(SlowLaunchTestBackend {
+            gate: Mutex::new(Some(gate_rx)),
+            reused_existing,
+            events: tx,
+        });
+        let state = Arc::new(TerminalBackendState::new(backend));
+
+        let mut launch = tokio::spawn(create_backend_session_with_deadline(
+            state,
+            None,
+            None,
+            launch_prompt_test_request(),
+        ));
+
+        // 让 spawn_blocking 真的开始跑（并卡在闸门上），再跨过 deadline。
+        tokio::task::yield_now().await;
+        tokio::time::advance(CREATE_LAUNCH_DEADLINE + std::time::Duration::from_secs(1)).await;
+
+        // Ok 分支带 `Arc<dyn TerminalBackend>`（无 Debug），不能用 expect_err。
+        let error = match (&mut launch).await.expect("launch task joins") {
+            Err(error) => error,
+            Ok((session_id, ..)) => {
+                panic!("slow backend must trip the launch deadline, got {session_id}")
+            }
+        };
+
+        // 超时已返回给调用方，现在才让创建落地——回收必须由后台任务补做。
+        drop(gate_tx);
+
+        let mut events = Vec::new();
+        while events.len() < 2 {
+            match rx.recv().await {
+                Some(event) => events.push(event),
+                None => break,
+            }
+        }
+        (error, events)
+    }
+
+    /// 新建会话超时：cancel_launch 先发，后台创建落地后按 LaunchTimeout 杀掉——
+    /// 漏掉任一步就是一条无人引用、却真实在跑的孤儿 PTY。
+    #[tokio::test(start_paused = true)]
+    async fn launch_timeout_cancels_launch_and_kills_fresh_session() {
+        let (error, events) = run_launch_timeout(false).await;
+
+        assert!(
+            error.starts_with("[LAUNCH_TIMEOUT]"),
+            "错误必须带可识别前缀，前端据此分流：{error}"
+        );
+        assert!(
+            error.contains(&CREATE_LAUNCH_DEADLINE.as_millis().to_string()),
+            "错误应报出实际超时预算：{error}"
+        );
+        assert_eq!(
+            events[0],
+            ReclaimEvent::CancelLaunch("launch-id".to_string()),
+            "cancel_launch 必须用请求里的 launch_id"
+        );
+        assert_eq!(
+            events[1],
+            ReclaimEvent::KillWithReason("slow-session-1".to_string(), KillReason::LaunchTimeout),
+            "新建会话必须真杀，且 reason 是 LaunchTimeout（前端据此保留标签）"
+        );
+    }
+
+    /// 复用既有会话超时：只放写权限，**绝不能杀**——那是用户还在用的活会话，
+    /// 杀掉等于「启动慢了一下，正在跑的 agent 没了」。
+    #[tokio::test(start_paused = true)]
+    async fn launch_timeout_releases_reused_session_without_killing_it() {
+        let (error, events) = run_launch_timeout(true).await;
+
+        assert!(error.starts_with("[LAUNCH_TIMEOUT]"), "unexpected: {error}");
+        assert_eq!(
+            events[0],
+            ReclaimEvent::CancelLaunch("launch-id".to_string())
+        );
+        assert_eq!(
+            events[1],
+            ReclaimEvent::Release("slow-session-1".to_string())
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, ReclaimEvent::KillWithReason(..))),
+            "复用路径出现 kill = 杀掉用户的活会话：{events:?}"
+        );
+    }
+
     fn launch_prompt_test_request() -> CoreCreateSessionRequest {
         CoreCreateSessionRequest {
             launch_id: Some("launch-id".to_string()),
