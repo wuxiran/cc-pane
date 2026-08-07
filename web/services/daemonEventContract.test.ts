@@ -204,16 +204,91 @@ describe("入站方向（app → daemon）契约", () => {
 });
 
 describe("销毁口径守卫（坏味道审计 D）", () => {
-  it("调用销毁管线的文件禁用窄口径 FromTree（漏 savedSessionId = 孤儿）", async () => {
-    // 与本文件其他守卫同款：扫源码而非信约定。当前唯一销毁调用方是
-    // LayoutDeleteDialog，白名单为空——新增销毁调用方若用窄口径，这里挂。
-    const dialogSrc = (await import("../components/layoutbar/LayoutDeleteDialog.tsx?raw")).default;
-    const usesPipeline = dialogSrc.includes("destroySessionsDirectly")
-      || dialogSrc.includes("commitResourceDestroy");
-    expect(usesPipeline).toBe(true);
+  // 全量扫描版。此前这条守卫**硬编码只读 LayoutDeleteDialog.tsx**：新增的销毁
+  // 调用方（backendCloseActions / paneRemovalActions 都是后来接上的）根本不在
+  // 扫描面内，用窄口径也不会挂——守卫名存实亡。改成扫全部源码后，任何文件只要
+  // 同时出现「销毁提交函数」与窄口径 FromTree 就挂，白名单必须写理由。
+  const RAW_SOURCES = import.meta.glob("../**/*.{ts,tsx}", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+
+  /** 销毁提交出口：调到它们就意味着这个文件在真杀 PTY。 */
+  const DESTROY_COMMIT_PATTERNS = ["destroySessionsDirectly", "commitResourceDestroy"] as const;
+  /** 窄口径：不含 savedSessionId，用作杀集会漏杀成孤儿。 */
+  const NARROW_COLLECTOR = "collectTerminalSessionIdsFromTree(";
+
+  /** 允许「销毁提交 + 窄口径」共存的文件，必须写清为什么不是杀集。 */
+  const ALLOWED_NARROW_IN_DESTROY_FILES: Record<string, string> = {};
+
+  function relativePath(key: string): string {
+    return key.replace(/^\.\.\//, "");
+  }
+
+  function isScannedFile(path: string): boolean {
+    return !/\.test\./.test(path) && !path.startsWith("test/");
+  }
+
+  /**
+   * 注释必须剥掉再匹配：paneSessions.ts 的文档注释里就写着这条守卫的规则本身
+   * （「调用 destroySessionsDirectly/commitResourceDestroy 的文件不得使用本函数」），
+   * 不剥的话它会把**规则的说明文字**判成违规，逼人去给一个纯定义文件开白名单。
+   */
+  function stripComments(content: string): string {
+    return content
+      .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, ""))
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  }
+
+  const entries = Object.entries(RAW_SOURCES)
+    .map(([key, content]) => [relativePath(key), stripComments(content)] as const)
+    .filter(([path]) => isScannedFile(path));
+
+  const destroyCallers = entries.filter(([path, content]) =>
+    // 管线自身的定义文件不算调用方
+    path !== "lib/tabLifecycle/destroyPipeline.ts"
+    && DESTROY_COMMIT_PATTERNS.some((pattern) => content.includes(pattern)));
+
+  it("扫描面非空且真的覆盖到已知销毁调用方（防扫描器写坏后空转全绿）", () => {
+    expect(entries.length).toBeGreaterThan(0);
+    const callerPaths = destroyCallers.map(([path]) => path);
+    expect(callerPaths).toContain("components/layoutbar/LayoutDeleteDialog.tsx");
+    expect(callerPaths).toContain("stores/paneRemovalActions.ts");
+    expect(callerPaths).toContain("stores/backendCloseActions.ts");
+  });
+
+  it("任何调用销毁管线的文件禁用窄口径 FromTree（漏 savedSessionId = 孤儿）", () => {
+    const violations = destroyCallers
+      .filter(([path, content]) =>
+        content.includes(NARROW_COLLECTOR) && !(path in ALLOWED_NARROW_IN_DESTROY_FILES))
+      .map(([path]) => path);
+
     expect(
-      dialogSrc.includes("collectTerminalSessionIdsFromTree("),
-      "销毁路径出现窄口径调用",
-    ).toBe(false);
+      violations,
+      `销毁路径出现窄口径调用（改用 collectTerminalSessionIdsWithSaved*，或加白名单并写明理由）:\n${violations.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("判据自检：合成一个违规文件必须被判违规（防 stripComments 剥过头后守卫空转）", () => {
+    const synthetic = stripComments([
+      "// collectTerminalSessionIdsFromTree( 出现在注释里不算",
+      "import { collectTerminalSessionIdsFromTree } from '@/lib/paneSessions';",
+      "const ids = collectTerminalSessionIdsFromTree(root);",
+      "await destroySessionsDirectly(ids, [], 'user-close');",
+    ].join("\n"));
+    expect(DESTROY_COMMIT_PATTERNS.some((p) => synthetic.includes(p))).toBe(true);
+    expect(synthetic.includes(NARROW_COLLECTOR)).toBe(true);
+    // 注释行确实被剥掉了（否则「注释提规则」的文件会被误判）
+    expect(synthetic).not.toContain("出现在注释里不算");
+  });
+
+  it("白名单不得陈旧（条目已不再命中就必须删掉）", () => {
+    const destroyCallerMap = new Map(destroyCallers);
+    const stale = Object.entries(ALLOWED_NARROW_IN_DESTROY_FILES)
+      .filter(([path]) => !destroyCallerMap.get(path)?.includes(NARROW_COLLECTOR))
+      .map(([path, reason]) => `${path}: ${reason}`);
+
+    expect(stale, `移除陈旧的窄口径豁免:\n${stale.join("\n")}`).toEqual([]);
   });
 });
