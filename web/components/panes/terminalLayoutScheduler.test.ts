@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
 import {
@@ -27,6 +27,8 @@ function createRenderableHost(width = 640, height = 360): HTMLElement {
 }
 
 describe("terminal layout scheduler", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("detects hidden or zero-sized terminal hosts", () => {
     expect(isTerminalHostRenderable(null)).toBe(false);
 
@@ -130,6 +132,76 @@ describe("terminal layout scheduler", () => {
     scheduler.flush("visible", { allowInactive: true });
     expect(fitAddon.fit).toHaveBeenCalledOnce();
     expect(scheduler.hasPendingLayout()).toBe(false);
+  });
+
+  it("rejects the tiny host geometry reported while the window is minimized", () => {
+    const host = createRenderableHost(1, 1);
+    const fitAddon = { fit: vi.fn() } as unknown as FitAddon;
+    const scheduler = createTerminalLayoutScheduler({
+      getTerminal: () => ({ cols: 80, rows: 24 } as Terminal),
+      getFitAddon: () => fitAddon,
+      getHost: () => host,
+      getSessionId: () => "session-1",
+      isActive: () => true,
+      repaint: vi.fn(),
+      resizeBackend: vi.fn(),
+      logger: vi.fn(),
+    });
+
+    expect(scheduler.flush("minimized")).toBeNull();
+    expect(fitAddon.fit).not.toHaveBeenCalled();
+    expect(scheduler.hasPendingLayout()).toBe(true);
+  });
+
+  it("recovers after IME blur without compositionend and cannot be preempted by an ordinary flush", () => {
+    vi.useFakeTimers();
+    const host = createRenderableHost();
+    const fitAddon = { fit: vi.fn() } as unknown as FitAddon;
+    const textarea = document.createElement("textarea");
+    const term = { cols: 80, rows: 24, textarea } as unknown as Terminal;
+    let nextFrameHandle = 1;
+    const frameCallbacks = new Map<number, FrameRequestCallback>();
+    const compositionFrameScheduler = {
+      request: vi.fn((callback: FrameRequestCallback) => {
+        const handle = nextFrameHandle++;
+        frameCallbacks.set(handle, callback);
+        return handle;
+      }),
+      cancel: vi.fn((handle: number) => frameCallbacks.delete(handle)),
+    };
+    const flushFrame = () => {
+      const callbacks = [...frameCallbacks.values()];
+      frameCallbacks.clear();
+      callbacks.forEach((callback) => callback(0));
+    };
+    const scheduler = createTerminalLayoutScheduler({
+      getTerminal: () => term,
+      getFitAddon: () => fitAddon,
+      getHost: () => host,
+      getSessionId: () => "session-1",
+      isActive: () => true,
+      compositionFrameScheduler,
+      repaint: vi.fn(),
+      resizeBackend: vi.fn(),
+      logger: vi.fn(),
+    });
+
+    textarea.dispatchEvent(new CompositionEvent("compositionstart"));
+    expect(scheduler.flush("composition.resize", { force: true })).toBeNull();
+    expect(fitAddon.fit).not.toHaveBeenCalled();
+    expect(scheduler.hasPendingLayout()).toBe(true);
+
+    textarea.dispatchEvent(new FocusEvent("blur"));
+    flushFrame();
+    flushFrame();
+    expect(scheduler.flush("ordinary.flush", { force: true })).toBeNull();
+    vi.advanceTimersByTime(149);
+    expect(fitAddon.fit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+
+    expect(fitAddon.fit).toHaveBeenCalledOnce();
+    expect(scheduler.hasPendingLayout()).toBe(false);
+    scheduler.dispose();
   });
 
   it("can layout a visible inactive pane when explicitly allowed", () => {

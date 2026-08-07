@@ -153,7 +153,7 @@ export default function StatusBar() {
 
   return (
     <div
-      className="flex items-center h-[28px] px-2.5 shrink-0 select-none z-10 text-[11px]"
+      className="shape-chrome flex items-center h-[28px] px-2.5 shrink-0 select-none z-10 text-[11px]"
       style={{
         background: "var(--app-menubar)",
         borderTop: "1px solid var(--app-border)",

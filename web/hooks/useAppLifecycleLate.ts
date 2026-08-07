@@ -32,6 +32,7 @@ export function useAppLifecycleLate(): {
   closeRecentFiles: () => void;
 } {
   const themeMode = useSettingsStore((s) => s.settings?.theme.mode);
+  const themeShape = useSettingsStore((s) => s.settings?.theme.shape);
 
   // RecentFilesPicker 状态
   const [recentFilesOpen, setRecentFilesOpen] = useState(false);
@@ -84,6 +85,12 @@ export function useAppLifecycleLate(): {
   useEffect(() => {
     useThemeStore.getState().setThemeMode(themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    if (themeShape) {
+      useThemeStore.getState().setThemeShape(themeShape);
+    }
+  }, [themeShape]);
 
   // 重启时为 rehydrated Claude tabs touch 历史记录时间戳
   useEffect(() => {

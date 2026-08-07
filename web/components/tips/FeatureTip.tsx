@@ -63,7 +63,7 @@ export default function FeatureTip({
           {definition.tryAction && (
             <Button onClick={onTry}>
               <Play aria-hidden="true" size={15} />
-              {t("featureTips.try")}
+              {t((definition.actionLabelKey ?? "featureTips.try") as never)}
             </Button>
           )}
         </div>
@@ -92,16 +92,18 @@ export default function FeatureTip({
             <span className="text-[var(--app-accent)]">{t("featureTips.learnMore")}</span>
           </button>
         )}
-        <button
-          type="button"
-          className="flex items-center gap-2 text-left text-[12px] text-[var(--app-text-secondary)] hover:text-[var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-          onClick={onOpenShortcuts}
-        >
-          <Keyboard aria-hidden="true" size={15} />
-          <span>
-            {t("featureTips.rebind")} <span className="text-[var(--app-accent)]">{t("featureTips.shortcutSettings")}</span>
-          </span>
-        </button>
+        {definition.actionId && (
+          <button
+            type="button"
+            className="flex items-center gap-2 text-left text-[12px] text-[var(--app-text-secondary)] hover:text-[var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            onClick={onOpenShortcuts}
+          >
+            <Keyboard aria-hidden="true" size={15} />
+            <span>
+              {t("featureTips.rebind")} <span className="text-[var(--app-accent)]">{t("featureTips.shortcutSettings")}</span>
+            </span>
+          </button>
+        )}
         <button
           type="button"
           className="text-left text-[11px] text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"

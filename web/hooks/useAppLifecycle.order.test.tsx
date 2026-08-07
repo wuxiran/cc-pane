@@ -18,6 +18,7 @@ vi.mock("@/stores", () => {
       init: vi.fn(),
       // 多主题预设后 useAppLifecycleLate 会同步 setThemeMode
       setThemeMode: vi.fn(),
+      setThemeShape: vi.fn(),
     })),
   };
   const useSettingsStore = Object.assign(

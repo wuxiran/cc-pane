@@ -8,6 +8,7 @@ import {
 import { useRightDockStore } from "@/stores/useRightDockStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import type { Workspace } from "@/types";
+import { SETTINGS_NAVIGATE_EVENT } from "@/components/settings/settingsNavigation";
 import { FEATURE_TIPS, resolveTipProjectPath } from "./featureTipRegistry";
 
 const workspace: Workspace = {
@@ -208,5 +209,26 @@ describe("试试看不会在缺前置条件时静默无反应", () => {
     expect(spy).not.toHaveBeenCalled();
     expect(tip("worktree-isolation").eligible?.()).toBe(false);
     spy.mockRestore();
+  });
+});
+
+describe("界面形态 tip", () => {
+  beforeEach(() => {
+    useDialogStore.setState({ settingsOpen: false });
+  });
+
+  it("打开主题设置的形态区域", () => {
+    const navigate = vi.fn();
+    window.addEventListener(SETTINGS_NAVIGATE_EVENT, navigate);
+
+    tip("interface-shapes").tryAction?.();
+
+    expect(useDialogStore.getState().settingsOpen).toBe(true);
+    expect(navigate).toHaveBeenCalledOnce();
+    expect((navigate.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      paneId: "theme",
+      targetSectionId: "theme-shape",
+    });
+    window.removeEventListener(SETTINGS_NAVIGATE_EVENT, navigate);
   });
 });

@@ -529,7 +529,7 @@ export default memo(function TabBar({
   }, [tabs.length, updateScrollAffordance]);
 
   return (
-    <div className="flex min-w-0 items-stretch">
+    <div className="shape-chrome flex min-w-0 items-stretch">
       {canScrollLeft && (
         <button
           type="button"

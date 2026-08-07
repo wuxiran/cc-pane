@@ -1,5 +1,9 @@
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
+import {
+  bindTerminalCompositionRecovery,
+  type AnimationFrameScheduler,
+} from "./terminalCompositionRecovery";
 
 type LayoutLogger = (event: string, payload?: Record<string, unknown>) => void;
 
@@ -32,6 +36,7 @@ interface CreateTerminalLayoutSchedulerOptions {
   getHost: () => HTMLElement | null;
   getSessionId: () => string | null;
   isActive: () => boolean;
+  compositionFrameScheduler?: AnimationFrameScheduler;
   /** 共享 PTY 只允许主视图驱动后端尺寸；镜像视图仍可本地 fit。 */
   canResizeBackend?: () => boolean;
   repaint: (reason: string) => void;
@@ -46,7 +51,7 @@ export function isTerminalHostRenderable(host: HTMLElement | null): boolean {
   if (style.display === "none" || style.visibility === "hidden") return false;
 
   const rect = host.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0;
+  return rect.width > 1 && rect.height > 1;
 }
 
 function requestFrame(callback: FrameRequestCallback): number {
@@ -77,6 +82,7 @@ const VERIFY_REFIT_REASON = "verify.refit";
 const VERIFY_REFIT_MAX_ATTEMPTS = 3;
 /** 后端 PTY resize 去抖窗口：拖拽期间 conpty 每次 resize 都整屏重绘，高频下发会留残行。 */
 const BACKEND_RESIZE_DEBOUNCE_MS = 250;
+const IME_COMPOSITION_RECOVERY_DELAY_MS = 150;
 
 export function createTerminalLayoutScheduler({
   getTerminal,
@@ -84,6 +90,7 @@ export function createTerminalLayoutScheduler({
   getHost,
   getSessionId,
   isActive,
+  compositionFrameScheduler,
   canResizeBackend = () => true,
   repaint,
   resizeBackend,
@@ -101,6 +108,8 @@ export function createTerminalLayoutScheduler({
   let lastSize: { cols: number; rows: number } | null = null;
   let lastContainerSize: TerminalContainerSize | null = null;
   let verifyAttempts = 0;
+  let imeLayoutBlocked = false;
+  let imeRecoveryTimerId: ReturnType<typeof setTimeout> | null = null;
 
   const cancel = () => {
     if (timerId !== null) {
@@ -175,6 +184,11 @@ export function createTerminalLayoutScheduler({
     options: TerminalLayoutRequestOptions = {},
   ): Terminal | null => {
     if (disposed) return null;
+    if (imeLayoutBlocked) {
+      pendingReason = reason;
+      logger("layout.skip.blocked", { reason });
+      return null;
+    }
     if (shouldSkipContainerDelta(options)) return null;
 
     const term = getTerminal();
@@ -313,16 +327,49 @@ export function createTerminalLayoutScheduler({
     run();
   };
 
+  const flush = (
+    reason: string,
+    options: TerminalLayoutRequestOptions = {},
+  ): Terminal | null => {
+    cancel();
+    return applyLayout(reason, options);
+  };
+
+  const disposeCompositionRecovery = bindTerminalCompositionRecovery(
+    getTerminal()?.textarea,
+    (composing) => {
+      if (!composing) return;
+      imeLayoutBlocked = true;
+      if (imeRecoveryTimerId !== null) {
+        clearTimeout(imeRecoveryTimerId);
+        imeRecoveryTimerId = null;
+      }
+      cancel();
+    },
+    () => {
+      if (imeRecoveryTimerId !== null) clearTimeout(imeRecoveryTimerId);
+      imeRecoveryTimerId = setTimeout(() => {
+        imeRecoveryTimerId = null;
+        if (disposed) return;
+        imeLayoutBlocked = false;
+        flush("ime.compositionend", { force: true, allowInactive: true });
+      }, IME_COMPOSITION_RECOVERY_DELAY_MS);
+    },
+    compositionFrameScheduler,
+  );
+
   return {
     schedule,
-    flush: (reason, options) => {
-      cancel();
-      return applyLayout(reason, options);
-    },
+    flush,
     cancel,
     dispose: () => {
       disposed = true;
       cancel();
+      disposeCompositionRecovery();
+      if (imeRecoveryTimerId !== null) {
+        clearTimeout(imeRecoveryTimerId);
+        imeRecoveryTimerId = null;
+      }
       if (verifyTimerId !== null) {
         clearTimeout(verifyTimerId);
         verifyTimerId = null;

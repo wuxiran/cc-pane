@@ -36,7 +36,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="app h-full flex flex-col relative z-[1]">
+      <div className="app h-full flex flex-col relative z-[1]" data-shape-surface="app-shell">
         <DarkOrbsBackground />
 
         {/* Sonner Toast */}

@@ -388,6 +388,29 @@ describe("TerminalView", () => {
     );
   });
 
+  it("applies the terminal path link setting without recreating xterm", async () => {
+    useSettingsStore.setState({
+      settings: { terminal: { pathLinksEnabled: false } },
+    } as never);
+    const open = vi.spyOn(useTerminalPathLinkStore.getState(), "open").mockResolvedValue();
+    renderTerminalView({ sessionId: "existing-1" });
+    const term = await lastTerm();
+    const linkHandler = term.options.linkHandler as {
+      activate: (event: MouseEvent, uri: string) => void;
+    };
+
+    linkHandler.activate({} as MouseEvent, "file:///tmp/proj/src/App.tsx");
+    expect(open).not.toHaveBeenCalled();
+
+    useSettingsStore.setState({
+      settings: { terminal: { pathLinksEnabled: true } },
+    } as never);
+    linkHandler.activate({} as MouseEvent, "file:///tmp/proj/src/App.tsx");
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(MockXterm.instances).toHaveLength(1);
+  });
+
   it("backfills launch history for CLI sessions without a resume id", async () => {
     renderTerminalView({ cliTool: "claude" });
 
@@ -924,6 +947,13 @@ describe("TerminalView", () => {
     expect(term.options.cursorStyle).toBe("bar");
     expect(term.options.cursorBlink).toBe(true);
     expect(term.options.scrollback).toBe(5000);
+  });
+
+  it("keeps terminal text readable on contrasting TUI backgrounds", async () => {
+    renderTerminalView();
+
+    const term = await lastTerm();
+    expect(term.options.minimumContrastRatio).toBe(4.5);
   });
 
   it("applies scrollback changes to a live terminal at runtime (clamped)", async () => {
