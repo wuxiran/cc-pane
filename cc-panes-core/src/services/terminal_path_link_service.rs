@@ -26,6 +26,12 @@ pub struct ResolvedTerminalPathLink {
     pub runtime_kind: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalPathScope {
+    ProjectOnly,
+    ExplicitAbsoluteDirectory,
+}
+
 fn coded(code: &str, message: &str) -> AppError {
     AppError::coded(code, message)
 }
@@ -69,18 +75,23 @@ fn has_uri_scheme(raw_path: &str) -> bool {
 #[cfg(windows)]
 fn has_invalid_windows_syntax(raw_path: &str) -> bool {
     let normalized = raw_path.replace('/', "\\");
-    if normalized.starts_with("\\\\?\\")
-        || normalized.starts_with("\\\\.\\")
-        || normalized.starts_with("\\\\")
-    {
-        return true;
-    }
-    let bytes = normalized.as_bytes();
+    let drive_path = if let Some(verbatim_drive_path) = normalized.strip_prefix("\\\\?\\") {
+        verbatim_drive_path
+    } else {
+        if normalized.starts_with("\\\\.\\") || normalized.starts_with("\\\\") {
+            return true;
+        }
+        normalized.as_str()
+    };
+    let bytes = drive_path.as_bytes();
     if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
         if bytes.get(2).is_none_or(|separator| *separator != b'\\') {
             return true;
         }
-        return normalized[2..].contains(':');
+        return drive_path[2..].contains(':');
+    }
+    if normalized.starts_with("\\\\?\\") {
+        return true;
     }
     normalized.contains(':')
 }
@@ -127,6 +138,8 @@ fn path_is_within(path: &Path, root: &Path) -> bool {
 }
 
 fn requested_path(root: &Path, raw_path: &str) -> AppResult<PathBuf> {
+    #[cfg(windows)]
+    let raw_path = raw_path.strip_prefix("\\\\?\\").unwrap_or(raw_path);
     let requested = Path::new(raw_path);
     if requested.is_absolute() {
         // 不在这里做包含性预检查：原始输入可能是 8.3 短名/大小写变体
@@ -143,9 +156,10 @@ fn requested_path(root: &Path, raw_path: &str) -> AppResult<PathBuf> {
     Ok(root.join(requested))
 }
 
-pub fn resolve_terminal_path_link(
+fn resolve_terminal_path_link_with_scope(
     context: &TerminalLinkContext,
     raw_path: &str,
+    scope: TerminalPathScope,
 ) -> AppResult<ResolvedTerminalPathLink> {
     if context.runtime_kind == "ssh" {
         return Err(coded(
@@ -179,12 +193,6 @@ pub fn resolve_terminal_path_link(
             "The terminal path is unavailable",
         )
     })?;
-    if !path_is_within(&target, &root) {
-        return Err(coded(
-            "TERMINAL_PATH_OUTSIDE_ROOT",
-            "The terminal path is outside the session project",
-        ));
-    }
 
     let metadata = std::fs::metadata(&target).map_err(|_| {
         coded(
@@ -202,6 +210,19 @@ pub fn resolve_terminal_path_link(
             "The terminal path type is unsupported",
         ));
     };
+    let explicitly_external_directory = scope == TerminalPathScope::ExplicitAbsoluteDirectory
+        && Path::new(raw_path.strip_prefix("\\\\?\\").unwrap_or(raw_path)).is_absolute()
+        && !path_is_within(
+            Path::new(raw_path.strip_prefix("\\\\?\\").unwrap_or(raw_path)),
+            &root,
+        )
+        && kind == TerminalPathKind::Directory;
+    if !path_is_within(&target, &root) && !explicitly_external_directory {
+        return Err(coded(
+            "TERMINAL_PATH_OUTSIDE_ROOT",
+            "The terminal path is outside the session project",
+        ));
+    }
 
     Ok(ResolvedTerminalPathLink {
         canonical_path: simplify_path(target).to_string_lossy().to_string(),
@@ -210,9 +231,29 @@ pub fn resolve_terminal_path_link(
     })
 }
 
+pub fn resolve_terminal_path_link(
+    context: &TerminalLinkContext,
+    raw_path: &str,
+) -> AppResult<ResolvedTerminalPathLink> {
+    resolve_terminal_path_link_with_scope(context, raw_path, TerminalPathScope::ProjectOnly)
+}
+
+pub fn resolve_terminal_path_link_for_desktop(
+    context: &TerminalLinkContext,
+    raw_path: &str,
+) -> AppResult<ResolvedTerminalPathLink> {
+    resolve_terminal_path_link_with_scope(
+        context,
+        raw_path,
+        TerminalPathScope::ExplicitAbsoluteDirectory,
+    )
+}
+
 #[cfg(all(test, windows))]
 mod windows_tests {
-    use super::path_is_within;
+    use super::{
+        has_invalid_windows_syntax, path_is_within, resolve_terminal_path_link, TerminalLinkContext,
+    };
     use std::path::Path;
 
     #[test]
@@ -234,5 +275,29 @@ mod windows_tests {
             Path::new("\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo-other\\main.rs"),
             root,
         ));
+    }
+
+    #[test]
+    fn windows_syntax_allows_only_verbatim_drive_paths() {
+        assert!(!has_invalid_windows_syntax(r"\\?\F:\repo\src\main.rs"));
+        assert!(has_invalid_windows_syntax(r"\\?\UNC\server\share\main.rs"));
+        assert!(has_invalid_windows_syntax(r"\\?\Volume{abc}\main.rs"));
+        assert!(has_invalid_windows_syntax(r"\\.\C:\repo\main.rs"));
+    }
+
+    #[test]
+    fn resolves_verbatim_drive_path_inside_project() {
+        let root = tempfile::tempdir().expect("project root");
+        let target = root.path().join("target.txt");
+        std::fs::write(&target, "ok").expect("target file");
+        let context = TerminalLinkContext {
+            project_path: root.path().to_string_lossy().to_string(),
+            runtime_kind: "local".to_string(),
+        };
+        let raw_path = format!(r"\\?\{}", target.display());
+
+        let resolved = resolve_terminal_path_link(&context, &raw_path).expect("resolve path");
+
+        assert_eq!(resolved.kind, super::TerminalPathKind::File);
     }
 }

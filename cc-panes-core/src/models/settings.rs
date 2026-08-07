@@ -80,6 +80,7 @@ impl AppSettings {
             self.terminal.auto_adopt_daemon_sessions = true;
             self.settings_version = SETTINGS_VERSION_AUTO_ADOPT_DEFAULT_ON;
         }
+        self.theme.merge_missing_defaults();
         self.terminal.merge_missing_defaults();
         self.shortcuts.merge_missing_defaults();
         self.voice.merge_missing_defaults();
@@ -369,6 +370,23 @@ pub struct ProxySettings {
 #[serde(rename_all = "camelCase")]
 pub struct ThemeSettings {
     pub mode: String, // theme preset id | "light" | "dark" | "system"
+    #[serde(default = "default_theme_shape")]
+    pub shape: String,
+}
+
+fn default_theme_shape() -> String {
+    "soft".to_string()
+}
+
+impl ThemeSettings {
+    pub fn merge_missing_defaults(&mut self) {
+        if !matches!(
+            self.shape.as_str(),
+            "soft" | "slab" | "sharp" | "glass" | "panel" | "carbon"
+        ) {
+            self.shape = default_theme_shape();
+        }
+    }
 }
 
 /// 终端设置
@@ -394,6 +412,9 @@ pub struct TerminalSettings {
     /// collapses and the tab gains the vertical space.
     #[serde(default = "default_true")]
     pub show_status_bar: bool,
+    /// Show local file and directory paths in terminal output as clickable links.
+    #[serde(default = "default_true")]
+    pub path_links_enabled: bool,
     /// 用户选择的 Shell ID（如 "pwsh", "cmd", "git-bash"），None 表示自动探测
     #[serde(default)]
     pub shell: Option<String>,
@@ -1078,6 +1099,7 @@ impl Default for ThemeSettings {
     fn default() -> Self {
         Self {
             mode: "dark".to_string(),
+            shape: default_theme_shape(),
         }
     }
 }
@@ -1094,6 +1116,7 @@ impl Default for TerminalSettings {
             renderer_mode: default_terminal_renderer_mode(),
             show_context_usage: true,
             show_status_bar: true,
+            path_links_enabled: true,
             shell: None,
             disable_conpty_sanitize: None,
             resume_id_backfill_enabled: None,
@@ -1307,6 +1330,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn theme_shape_defaults_for_legacy_config() {
+        let settings: ThemeSettings =
+            toml::from_str("mode = \"deep-ink\"").expect("parse legacy theme settings");
+
+        assert_eq!(settings.shape, "soft");
+    }
+
+    #[test]
+    fn theme_shape_preserves_all_supported_values() {
+        for shape in ["soft", "slab", "sharp", "glass", "panel", "carbon"] {
+            let mut settings: ThemeSettings =
+                toml::from_str(&format!("mode = \"deep-ink\"\nshape = \"{shape}\""))
+                    .expect("parse supported theme shape");
+
+            settings.merge_missing_defaults();
+            assert_eq!(settings.shape, shape);
+        }
+    }
+
+    #[test]
+    fn theme_shape_normalizes_invalid_persisted_values() {
+        let mut settings: ThemeSettings =
+            toml::from_str("mode = \"deep-ink\"\nshape = \"glass; color: red\"")
+                .expect("parse untrusted theme shape");
+
+        settings.merge_missing_defaults();
+        assert_eq!(settings.shape, "soft");
+    }
+
+    #[test]
     fn terminal_settings_without_orphan_ttl_defaults_to_24h() {
         // 老 config.toml 无该键时不报错，回落到默认 24h；禁用开关默认关闭。
         let toml_str = r#"
@@ -1330,6 +1383,7 @@ mod tests {
         assert!(TerminalSettings::default().auto_adopt_daemon_sessions);
         assert!(TerminalSettings::default().show_context_usage);
         assert!(TerminalSettings::default().show_status_bar);
+        assert!(TerminalSettings::default().path_links_enabled);
     }
 
     #[test]
@@ -1344,6 +1398,19 @@ mod tests {
         "#;
         let settings: TerminalSettings = toml::from_str(toml_str).expect("parse legacy config");
         assert!(settings.show_status_bar);
+    }
+
+    #[test]
+    fn terminal_settings_without_path_links_enabled_defaults_to_true() {
+        let toml_str = r#"
+            fontSize = 15
+            fontFamily = "monospace"
+            cursorStyle = "block"
+            cursorBlink = false
+            scrollback = 20000
+        "#;
+        let settings: TerminalSettings = toml::from_str(toml_str).expect("parse legacy config");
+        assert!(settings.path_links_enabled);
     }
 
     #[test]
