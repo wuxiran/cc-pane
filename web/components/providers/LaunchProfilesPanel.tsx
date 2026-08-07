@@ -14,6 +14,7 @@ import LaunchProfileMcpCard from "./LaunchProfileMcpCard";
 import LaunchProfileSkillCard from "./LaunchProfileSkillCard";
 import LaunchProfileSummaryCard from "./LaunchProfileSummaryCard";
 import { useSkillMarketData } from "./useSkillMarketData";
+import { useLaunchProfileSkillEditor } from "./useLaunchProfileSkillEditor";
 import {
   SYSTEM_DEFAULT_PROFILE_ID,
   WORKSPACE_FILTER_ALL,
@@ -27,7 +28,6 @@ import {
 } from "./launchProfileHelpers";
 import {
   nextClearBuiltinSkills,
-  nextDeleteProfileSkill,
   nextEnableUserSkill,
   nextMcpMode,
   nextSelectAllBuiltinSkills,
@@ -38,9 +38,7 @@ import {
   nextToggleProfileSkill,
   nextToggleServer,
   nextToggleUserSkill,
-  nextUpsertProfileSkill,
 } from "./launchProfileSkillPolicy";
-
 
 interface LaunchProfilesPanelProps {
   compact?: boolean;
@@ -87,9 +85,6 @@ export default function LaunchProfilesPanel({
   const [bindingWorkspaceName, setBindingWorkspaceName] = useState<string | null>(null);
   const [workspaceFilterName, setWorkspaceFilterName] = useState(WORKSPACE_FILTER_ALL);
   const [listMode, setListMode] = useState<LaunchProfileListMode>("profiles");
-  const [profileSkillEditorOpen, setProfileSkillEditorOpen] = useState(false);
-  const [editingProfileSkillId, setEditingProfileSkillId] = useState<string | null>(null);
-  const [profileSkillForm, setProfileSkillForm] = useState({ name: "", description: "", content: "" });
   const {
     marketEntries,
     userSkills,
@@ -99,6 +94,17 @@ export default function LaunchProfilesPanel({
     refreshSkillMarket,
     installSkill,
   } = useSkillMarketData();
+  const {
+    profileSkillEditorOpen,
+    editingProfileSkillId,
+    profileSkillForm,
+    setProfileSkillForm,
+    beginNewProfileSkill,
+    beginEditProfileSkill,
+    cancelProfileSkillEdit,
+    saveProfileSkill,
+    deleteProfileSkill,
+  } = useLaunchProfileSkillEditor(draft, setDraft);
   // YOLO（权限绕过）是危险操作：开启需二次确认，避免误触。
   const [yoloConfirmOpen, setYoloConfirmOpen] = useState(false);
   const workspaceContext = useMemo(
@@ -253,10 +259,8 @@ export default function LaunchProfilesPanel({
     setMcpManagerOpen(false);
     setWorkspaceBindingOpen(false);
     setBindingWorkspaceName(null);
-    setProfileSkillEditorOpen(false);
-    setEditingProfileSkillId(null);
-    setProfileSkillForm({ name: "", description: "", content: "" });
-  }, []);
+    cancelProfileSkillEdit();
+  }, [cancelProfileSkillEdit]);
 
   const handleToolChange = useCallback((nextTool: KnownCliTool) => {
     if (nextTool === activeTool) return;
@@ -442,51 +446,6 @@ export default function LaunchProfilesPanel({
   const clearBuiltinSkills = () => {
     setDraft(nextClearBuiltinSkills);
   };
-  const beginNewProfileSkill = () => {
-    setProfileSkillEditorOpen(true);
-    setEditingProfileSkillId(null);
-    setProfileSkillForm({ name: "", description: "", content: "" });
-  };
-  const beginEditProfileSkill = (id: string) => {
-    const skill = draft.skillPolicy.profileSkills.find((item) => item.id === id);
-    if (!skill) return;
-    setProfileSkillEditorOpen(true);
-    setEditingProfileSkillId(id);
-    setProfileSkillForm({
-      name: skill.name,
-      description: skill.description ?? "",
-      content: skill.content,
-    });
-  };
-  const cancelProfileSkillEdit = () => {
-    setProfileSkillEditorOpen(false);
-    setEditingProfileSkillId(null);
-    setProfileSkillForm({ name: "", description: "", content: "" });
-  };
-  const saveProfileSkill = () => {
-    const name = profileSkillForm.name.trim();
-    const content = profileSkillForm.content.trim();
-    if (!name || !content) {
-      toast.error(t("toast.profileSkillRequired"));
-      return;
-    }
-
-    const id = editingProfileSkillId ?? crypto.randomUUID();
-    setDraft((current) => nextUpsertProfileSkill(current, {
-      id,
-      name,
-      description: profileSkillForm.description.trim() || null,
-      content,
-    }));
-    cancelProfileSkillEdit();
-  };
-  const deleteProfileSkill = (id: string) => {
-    setDraft((current) => nextDeleteProfileSkill(current, id));
-    if (editingProfileSkillId === id) cancelProfileSkillEdit();
-  };
-  const openProjectSkillManager = (projectPath: string, title: string) => {
-    openSkillManager(projectPath, title);
-  };
 
   const previewProviderLabel = isSystemDefaultSelected
     ? t("previewSystemProvider")
@@ -594,7 +553,7 @@ export default function LaunchProfilesPanel({
               toggleUserSkill={toggleUserSkill}
               installAndEnableSkill={installAndEnableSkill}
               workspaceContext={workspaceContext}
-              openProjectSkillManager={openProjectSkillManager}
+              openProjectSkillManager={openSkillManager}
               profileSkillEditorOpen={profileSkillEditorOpen}
               editingProfileSkillId={editingProfileSkillId}
               profileSkillForm={profileSkillForm}

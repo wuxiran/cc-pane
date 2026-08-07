@@ -49,7 +49,7 @@ function applyTheme(preference: string | null | undefined): ThemeId {
     const storedPreference = preference === "dark" || preference === "light"
       ? preference
       : canonical;
-    localStorage.setItem(STORAGE_KEY, storedPreference);
+    window.localStorage.setItem(STORAGE_KEY, storedPreference);
   } catch {
     // Ignore storage failures in restricted environments.
   }
@@ -57,9 +57,9 @@ function applyTheme(preference: string | null | undefined): ThemeId {
 }
 
 // 初始化主题
-const stored = typeof localStorage === "undefined"
+const stored = typeof window === "undefined"
   ? null
-  : localStorage.getItem(STORAGE_KEY);
+  : window.localStorage.getItem(STORAGE_KEY);
 const initialPreference = canonicalThemePreference(stored);
 const initialThemeId = applyTheme(initialPreference);
 

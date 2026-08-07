@@ -51,7 +51,7 @@ describe("useThemeStore", () => {
 
     it("应更新 localStorage", () => {
       useThemeStore.setState({ isDark: false });
-      const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+      const setItemSpy = vi.spyOn(window.localStorage, "setItem");
 
       useThemeStore.getState().toggleTheme();
 
