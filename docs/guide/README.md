@@ -16,8 +16,8 @@ CC-Panes 是一个面向 AI Coding 重度用户的多实例分屏工作台，以
 从安装到跑起第一个 Claude，按顺序读这几篇即可上手。
 
 1. ✅ [CC-Panes 是什么、能帮你解决什么](01-what-is-cc-panes.md)
-2. ✅ [安装与第一次启动](02-install-and-first-launch.md)
-3. ✅ [核心概念：工作空间 / 项目 / 任务 + Provider](03-core-concepts.md)
+2. ✅ [安装与第一次启动](02-install-and-first-launch.md)——装好后的第一件事：右键 `default` 工作空间打开 Claude，体验「AI 指挥外骨骼」
+3. ✅ [核心概念：工作空间 / 项目 / 任务 + Provider](03-core-concepts.md)——含「干净的工作空间」：工作空间目录与 Git 仓库分开
 4. ✅ [上手五步：从空界面到跑起第一个 Claude](04-getting-started-5-steps.md)
 5. ✅ [终端与分屏](05-terminal-and-panes.md)
 

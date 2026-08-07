@@ -4,7 +4,9 @@
 
 它以 Claude Code 为核心，同时支持 Codex、Gemini、Kimi、GLM、OpenCode、Cursor 等 CLI。它不是单纯的"终端壳子"，而是给这些 CLI 工作流补上**项目组织、并行编排、上下文恢复和桌面工具链**。
 
-更关键的是：CC-Panes 把这些能力都做成了 **MCP 工具**，让跑在里面的 AI 能*自己*操控整个工作台——开实例、调度任务、读写工作空间。这是它的灵魂，详见 [用 MCP 让 AI 自己操控 CC-Panes](mcp-orchestration.md)。
+更关键的是：CC-Panes 把这些能力都做成了 **MCP 工具**——你可以把它理解成 **AI 的外骨骼**：终端、分屏、工作空间、浏览器、文件、通知这些"肢体"，AI 都能自己指挥。跑在里面的 Claude / Codex 可以自己开实例、调度任务、读别的会话的输出、读写工作空间。你说"再开三个实例并行跑"，它自己开、自己盯、自己汇总。这是它的灵魂，详见 [用 MCP 让 AI 自己操控 CC-Panes](mcp-orchestration.md)。
+
+> 装好后的**第一件事**就建议你体验这个：右键侧边栏的 `default` 工作空间 → 打开 Claude Code，对它说一句「列出 CC-Panes 里的工作空间」。见 [2. 安装与第一次启动](02-install-and-first-launch.md)。
 
 <p align="center">
   <img src="../assets/images/guide-terminal.png" alt="CC-Panes 工作区：左侧功能栏 + 工作空间树 + 中央 Claude 终端" width="860" />
