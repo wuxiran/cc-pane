@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Eye, EyeOff, LockKeyhole, Minimize2, MonitorCog, Palette, Pin, Terminal, ArrowUpCircle, Music, Music2 } from "lucide-react";
+import {
+  Check,
+  Eye,
+  EyeOff,
+  LockKeyhole,
+  Minimize2,
+  MonitorCog,
+  Palette,
+  Pin,
+  Terminal,
+  ArrowUpCircle,
+  Music,
+  Music2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Tooltip,
@@ -24,6 +37,7 @@ import { useWindowControl } from "@/hooks/useWindowControl";
 import { isBusyStatus } from "@/types";
 import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
 import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment";
+import UsageStatsStatusButton from "@/components/statusbar/UsageStatsStatusButton";
 import ContextUsageIndicator from "@/components/ContextUsageIndicator";
 import { PresetSwatches } from "@/components/theme/ThemeSwatches";
 import { THEME_PRESETS, type ThemePreference } from "@/theme/themePresets";
@@ -53,7 +67,9 @@ export default function StatusBar() {
   const musicAvailable = useWallpaperStore((s) => s.musicUrl !== null);
   const musicPlaying = useWallpaperStore((s) => s.musicPlaying);
   const musicGestureNeeded = useWallpaperStore((s) => s.musicGestureNeeded);
-  const [webAuthStatus, setWebAuthStatus] = useState<WebAuthStatus | null>(null);
+  const [webAuthStatus, setWebAuthStatus] = useState<WebAuthStatus | null>(
+    null,
+  );
   const showSystemResources = useSettingsStore(
     (s) => s.settings?.general.showSystemResources ?? true,
   );
@@ -64,7 +80,9 @@ export default function StatusBar() {
 
   const activeWorkspace = selectedWorkspace();
   let activeCount = 0;
-  statusMap.forEach((info) => { if (isBusyStatus(info.status)) activeCount++; });
+  statusMap.forEach((info) => {
+    if (isBusyStatus(info.status)) activeCount++;
+  });
 
   useEffect(() => {
     void loadCCChan();
@@ -83,7 +101,8 @@ export default function StatusBar() {
   useEffect(() => {
     if (isTauriRuntime()) return;
     let cancelled = false;
-    webAuthService.status()
+    webAuthService
+      .status()
       .then((status) => {
         if (!cancelled) setWebAuthStatus(status);
       })
@@ -109,8 +128,13 @@ export default function StatusBar() {
     i18n.changeLanguage(nextLang);
     const store = useSettingsStore.getState();
     if (store.settings) {
-      const updated = { ...store.settings, general: { ...store.settings.general, language: nextLang } };
-      store.saveSettings(updated).catch((e) => handleErrorSilent(e, "save settings"));
+      const updated = {
+        ...store.settings,
+        general: { ...store.settings.general, language: nextLang },
+      };
+      store
+        .saveSettings(updated)
+        .catch((e) => handleErrorSilent(e, "save settings"));
     }
   }
 
@@ -129,7 +153,10 @@ export default function StatusBar() {
     useThemeStore.getState().setThemeMode(nextTheme);
     const store = useSettingsStore.getState();
     if (store.settings) {
-      const updated = { ...store.settings, theme: { ...store.settings.theme, mode: nextTheme } };
+      const updated = {
+        ...store.settings,
+        theme: { ...store.settings.theme, mode: nextTheme },
+      };
       try {
         await store.saveSettings(updated);
       } catch (e) {
@@ -141,7 +168,9 @@ export default function StatusBar() {
   async function handleLockWeb() {
     try {
       await webAuthService.lock();
-      setWebAuthStatus((current) => current ? { ...current, authenticated: false } : current);
+      setWebAuthStatus((current) =>
+        current ? { ...current, authenticated: false } : current,
+      );
       window.dispatchEvent(new CustomEvent("cc-panes:web-locked"));
     } catch (e) {
       handleErrorSilent(e, "lock web");
@@ -149,7 +178,8 @@ export default function StatusBar() {
   }
 
   const showWebLock = !isTauriRuntime() && webAuthStatus !== null;
-  const canLockWeb = showWebLock && webAuthStatus.authRequired && webAuthStatus.authenticated;
+  const canLockWeb =
+    showWebLock && webAuthStatus.authRequired && webAuthStatus.authenticated;
 
   return (
     <div
@@ -167,7 +197,9 @@ export default function StatusBar() {
         {/* 工作空间名 */}
         {activeWorkspace && (
           <span className="flex items-center gap-1 truncate max-w-[140px]">
-            <span className="truncate">{activeWorkspace.alias || activeWorkspace.name}</span>
+            <span className="truncate">
+              {activeWorkspace.alias || activeWorkspace.name}
+            </span>
           </span>
         )}
 
@@ -191,12 +223,21 @@ export default function StatusBar() {
                 disabled={updating}
                 onClick={handleUpdate}
               >
-                <ArrowUpCircle className={`w-3 h-3 ${updating ? "animate-spin" : ""}`} />
-                <span className="text-[10px] font-medium">v{updateVersion}</span>
+                <ArrowUpCircle
+                  className={`w-3 h-3 ${updating ? "animate-spin" : ""}`}
+                />
+                <span className="text-[10px] font-medium">
+                  v{updateVersion}
+                </span>
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">
-              <p>{t("updateAvailable", { ns: "settings", defaultValue: "New version available, click to update" })}</p>
+              <p>
+                {t("updateAvailable", {
+                  ns: "settings",
+                  defaultValue: "New version available, click to update",
+                })}
+              </p>
             </TooltipContent>
           </Tooltip>
         )}
@@ -208,25 +249,43 @@ export default function StatusBar() {
       {/* 右侧工具 */}
       <div className="flex items-center gap-0.5">
         {isTauriRuntime() && showSystemResources && <SystemResourceSegment />}
+        {isTauriRuntime() && <UsageStatsStatusButton />}
         {/* 壁纸音乐：autoplay 被拒时这里是显式起播入口，平时是播放/暂停开关 */}
         {isTauriRuntime() && musicAvailable && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 className="flex items-center px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
-                style={musicGestureNeeded ? { color: "var(--app-accent)" } : undefined}
+                style={
+                  musicGestureNeeded
+                    ? { color: "var(--app-accent)" }
+                    : undefined
+                }
                 onClick={() => toggleWallpaperMusic()}
               >
-                {musicPlaying ? <Music2 className="w-3 h-3" /> : <Music className="w-3 h-3" />}
+                {musicPlaying ? (
+                  <Music2 className="w-3 h-3" />
+                ) : (
+                  <Music className="w-3 h-3" />
+                )}
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">
               <p>
                 {musicGestureNeeded
-                  ? t("wallpaperMusicGesture", { ns: "settings", defaultValue: "点击开始播放背景音乐" })
+                  ? t("wallpaperMusicGesture", {
+                      ns: "settings",
+                      defaultValue: "点击开始播放背景音乐",
+                    })
                   : musicPlaying
-                    ? t("wallpaperMusicPause", { ns: "settings", defaultValue: "暂停背景音乐" })
-                    : t("wallpaperMusicPlay", { ns: "settings", defaultValue: "播放背景音乐" })}
+                    ? t("wallpaperMusicPause", {
+                        ns: "settings",
+                        defaultValue: "暂停背景音乐",
+                      })
+                    : t("wallpaperMusicPlay", {
+                        ns: "settings",
+                        defaultValue: "播放背景音乐",
+                      })}
               </p>
             </TooltipContent>
           </Tooltip>
@@ -236,14 +295,19 @@ export default function StatusBar() {
             <TooltipTrigger asChild>
               <span
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
-                style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}
+                style={{
+                  color: "var(--app-accent)",
+                  background: "var(--app-active-bg)",
+                }}
               >
                 <LockKeyhole className="w-3 h-3" />
                 只读模式
               </span>
             </TooltipTrigger>
             <TooltipContent side="top">
-              <p>远程只读模式已启用：当前来源只能查看，终端输入与文件改动被禁止</p>
+              <p>
+                远程只读模式已启用：当前来源只能查看，终端输入与文件改动被禁止
+              </p>
             </TooltipContent>
           </Tooltip>
         )}
@@ -261,70 +325,81 @@ export default function StatusBar() {
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">
-              <p>{canLockWeb ? "锁定 Web 端" : "需要先启用账号密码并设置密码"}</p>
+              <p>
+                {canLockWeb ? "锁定 Web 端" : "需要先启用账号密码并设置密码"}
+              </p>
             </TooltipContent>
           </Tooltip>
         )}
 
         {/* 置顶 */}
         {isTauriRuntime() && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className={`p-0.5 rounded transition-colors ${
-                isPinned ? "text-[var(--app-accent)]" : ""
-              } hover:bg-[var(--app-hover)]`}
-              onClick={togglePin}
-            >
-              <Pin className={`w-3 h-3 ${isPinned ? "rotate-45" : ""} transition-transform`} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{t("alwaysOnTop", { ns: "sidebar" })}</p>
-          </TooltipContent>
-        </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className={`p-0.5 rounded transition-colors ${
+                  isPinned ? "text-[var(--app-accent)]" : ""
+                } hover:bg-[var(--app-hover)]`}
+                onClick={togglePin}
+              >
+                <Pin
+                  className={`w-3 h-3 ${isPinned ? "rotate-45" : ""} transition-transform`}
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{t("alwaysOnTop", { ns: "sidebar" })}</p>
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {/* 迷你模式 */}
         {isTauriRuntime() && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="p-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
-              disabled={miniModeTransitioning}
-              onClick={() => enterMiniMode()}
-            >
-              <Minimize2 className="w-3 h-3" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{t("miniMode", { ns: "sidebar" })}</p>
-          </TooltipContent>
-        </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="p-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
+                disabled={miniModeTransitioning}
+                onClick={() => enterMiniMode()}
+              >
+                <Minimize2 className="w-3 h-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{t("miniMode", { ns: "sidebar" })}</p>
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {/* 分隔线 */}
         {isTauriRuntime() && (
-          <div className="w-px h-3 mx-1" style={{ background: "var(--app-border)" }} />
+          <div
+            className="w-px h-3 mx-1"
+            style={{ background: "var(--app-border)" }}
+          />
         )}
 
         {/* cc酱 浮窗 */}
         {isTauriRuntime() && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className={`p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] ${
-                ccChanVisible ? "text-[var(--app-accent)]" : ""
-              }`}
-              onClick={() => void handleToggleCCChan()}
-            >
-              {ccChanVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{ccChanVisible ? "隐藏 cc酱" : "显示 cc酱"}</p>
-          </TooltipContent>
-        </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className={`p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] ${
+                  ccChanVisible ? "text-[var(--app-accent)]" : ""
+                }`}
+                onClick={() => void handleToggleCCChan()}
+              >
+                {ccChanVisible ? (
+                  <Eye className="w-3 h-3" />
+                ) : (
+                  <EyeOff className="w-3 h-3" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{ccChanVisible ? "隐藏 cc酱" : "显示 cc酱"}</p>
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {/* 语言切换 */}
@@ -338,7 +413,10 @@ export default function StatusBar() {
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">
-            <p>{t("switchLanguage")} ({i18n.language === "zh-CN" ? "EN" : "中文"})</p>
+            <p>
+              {t("switchLanguage")} ({i18n.language === "zh-CN" ? "EN" : "中文"}
+              )
+            </p>
           </TooltipContent>
         </Tooltip>
 
@@ -362,40 +440,68 @@ export default function StatusBar() {
             <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
               {settingsT("theme.groups.dark")}
             </DropdownMenuLabel>
-            {THEME_PRESETS.filter((preset) => preset.group === "dark").map((preset) => (
-              <DropdownMenuItem
-                key={preset.id}
-                onSelect={() => void handleSelectTheme(preset.id)}
-                className={themePreference === preset.id ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : ""}
-              >
-                <PresetSwatches preset={preset} />
-                <span className="min-w-0 flex-1 truncate text-[12px]">{settingsT(preset.labelKey as never)}</span>
-                {themePreference === preset.id && <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />}
-              </DropdownMenuItem>
-            ))}
+            {THEME_PRESETS.filter((preset) => preset.group === "dark").map(
+              (preset) => (
+                <DropdownMenuItem
+                  key={preset.id}
+                  onSelect={() => void handleSelectTheme(preset.id)}
+                  className={
+                    themePreference === preset.id
+                      ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
+                      : ""
+                  }
+                >
+                  <PresetSwatches preset={preset} />
+                  <span className="min-w-0 flex-1 truncate text-[12px]">
+                    {settingsT(preset.labelKey as never)}
+                  </span>
+                  {themePreference === preset.id && (
+                    <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />
+                  )}
+                </DropdownMenuItem>
+              ),
+            )}
             <DropdownMenuSeparator className="my-1" />
             <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
               {settingsT("theme.groups.light")}
             </DropdownMenuLabel>
-            {THEME_PRESETS.filter((preset) => preset.group === "light").map((preset) => (
-              <DropdownMenuItem
-                key={preset.id}
-                onSelect={() => void handleSelectTheme(preset.id)}
-                className={themePreference === preset.id ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : ""}
-              >
-                <PresetSwatches preset={preset} />
-                <span className="min-w-0 flex-1 truncate text-[12px]">{settingsT(preset.labelKey as never)}</span>
-                {themePreference === preset.id && <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />}
-              </DropdownMenuItem>
-            ))}
+            {THEME_PRESETS.filter((preset) => preset.group === "light").map(
+              (preset) => (
+                <DropdownMenuItem
+                  key={preset.id}
+                  onSelect={() => void handleSelectTheme(preset.id)}
+                  className={
+                    themePreference === preset.id
+                      ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
+                      : ""
+                  }
+                >
+                  <PresetSwatches preset={preset} />
+                  <span className="min-w-0 flex-1 truncate text-[12px]">
+                    {settingsT(preset.labelKey as never)}
+                  </span>
+                  {themePreference === preset.id && (
+                    <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />
+                  )}
+                </DropdownMenuItem>
+              ),
+            )}
             <DropdownMenuSeparator className="my-1" />
             <DropdownMenuItem
               onSelect={() => void handleSelectTheme("system")}
-              className={themePreference === "system" ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : ""}
+              className={
+                themePreference === "system"
+                  ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
+                  : ""
+              }
             >
               <MonitorCog className="size-4 text-[var(--app-text-secondary)]" />
-              <span className="min-w-0 flex-1 truncate text-[12px]">{settingsT("theme.followSystem")}</span>
-              {themePreference === "system" && <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />}
+              <span className="min-w-0 flex-1 truncate text-[12px]">
+                {settingsT("theme.followSystem")}
+              </span>
+              {themePreference === "system" && (
+                <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />
+              )}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

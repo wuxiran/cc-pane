@@ -5,6 +5,7 @@ mod ctl_sidecar;
 mod daemon_client;
 pub mod default_skill_service;
 mod external_skill_registry;
+pub mod external_usage_session_service;
 mod filesystem_service;
 mod git_service;
 mod history_service;

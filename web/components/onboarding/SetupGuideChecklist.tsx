@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, CheckCircle2, Circle, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { skillService } from "@/services/skillService";
 import {
   useActivityBarStore,
   useDialogStore,
@@ -18,7 +17,7 @@ import {
 
 export { ONBOARDING_MULTI_LAUNCH_KEY } from "./setupGuideProgress";
 
-type ChecklistItemId = "workspace" | "project" | "multiLaunch" | "dispatch" | "skill";
+type ChecklistItemId = "workspace" | "project" | "multiLaunch" | "dispatch";
 
 interface SetupGuideChecklistProps {
   variant?: "settings" | "home";
@@ -60,11 +59,6 @@ function openOrchestration(): void {
   MODULE_REGISTRY.find((module) => module.id === "orchestration")?.open("rightDock");
 }
 
-function openSkills(): void {
-  useDialogStore.getState().closeSettings();
-  useActivityBarStore.getState().setAppViewMode("resources");
-}
-
 export default function SetupGuideChecklist({
   variant = "settings",
 }: SetupGuideChecklistProps) {
@@ -72,30 +66,12 @@ export default function SetupGuideChecklist({
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   const bindings = useOrchestratorStore((state) => state.bindings);
   const [multiLaunch, setMultiLaunch] = useState(readMultiLaunch);
-  const [installedSkillCount, setInstalledSkillCount] = useState<number | null>(null);
-  const [skillCheckFailed, setSkillCheckFailed] = useState(false);
-
   useEffect(() => {
-    let cancelled = false;
-    const refresh = () => {
-      setMultiLaunch(readMultiLaunch());
-      skillService.listUserSkills()
-        .then((skills) => {
-          if (cancelled) return;
-          setInstalledSkillCount(skills.length);
-          setSkillCheckFailed(false);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setInstalledSkillCount(0);
-          setSkillCheckFailed(true);
-        });
-    };
+    const refresh = () => setMultiLaunch(readMultiLaunch());
     refresh();
     window.addEventListener(ONBOARDING_PROGRESS_EVENT, refresh);
     window.addEventListener("storage", refresh);
     return () => {
-      cancelled = true;
       window.removeEventListener(ONBOARDING_PROGRESS_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
@@ -113,9 +89,8 @@ export default function SetupGuideChecklist({
       { id: "project", complete: hasProject, action: openExplorer },
       { id: "multiLaunch", complete: multiLaunch, action: openOnboarding },
       { id: "dispatch", complete: hasDispatch, action: openOrchestration },
-      { id: "skill", complete: (installedSkillCount ?? 0) > 0, action: openSkills },
     ];
-  }, [bindings, installedSkillCount, multiLaunch, workspaces]);
+  }, [bindings, multiLaunch, workspaces]);
 
   const completed = items.filter((item) => item.complete).length;
   const progress = Math.round((completed / items.length) * 100);
@@ -160,9 +135,6 @@ export default function SetupGuideChecklist({
 
       <ol className="mt-4 divide-y divide-[var(--app-border)] border-y border-[var(--app-border)]">
         {items.map((item) => {
-          const descriptionKey = item.id === "skill" && skillCheckFailed
-            ? "setupGuide.items.skill.checkFailed"
-            : `setupGuide.items.${item.id}.description`;
           return (
             <li key={item.id} className="flex flex-wrap items-center gap-3 py-3">
               {item.complete ? (
@@ -185,7 +157,7 @@ export default function SetupGuideChecklist({
                   </span>
                 </div>
                 <p className="mt-0.5 text-xs leading-relaxed text-[var(--app-text-secondary)]">
-                  {t(descriptionKey as never)}
+                  {t(`setupGuide.items.${item.id}.description`)}
                 </p>
               </div>
               <Button type="button" variant="ghost" size="sm" className="gap-1.5" onClick={item.action}>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Plus, Zap, Wrench, ArrowLeft, Keyboard } from "lucide-react";
+import { Zap, Wrench, ArrowLeft, ArrowRight, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
@@ -30,9 +30,12 @@ import {
 
 type PanelView = "list" | "preset_pick" | "form";
 type TopView = ProviderTopView;
+type FormReturnView = Exclude<PanelView, "form">;
 
 interface Props {
   compact?: boolean;
+  /** Settings pages can pin one view and omit the in-panel view switcher. */
+  view?: ProviderTopView;
 }
 
 function inferLaunchRuntime(tab: Tab | null, workspace?: Workspace | null): LaunchProfileRuntime {
@@ -44,7 +47,7 @@ function inferLaunchRuntime(tab: Tab | null, workspace?: Workspace | null): Laun
   return workspace ? getWorkspaceDefaultEnvironment(workspace) : null;
 }
 
-export default function ProvidersPanel({ compact }: Props = {}) {
+export default function ProvidersPanel({ compact, view: fixedTopView }: Props = {}) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
   const { tools: cliTools } = useCliTools();
@@ -70,7 +73,9 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   }), [activeTerminalTab, defaultCliTool, selectedWorkspace]);
 
   const [view, setView] = useState<PanelView>("list");
-  const [topView, setTopView] = useState<TopView>("profiles");
+  const [formReturnView, setFormReturnView] = useState<FormReturnView>("list");
+  const [topView, setTopView] = useState<TopView>(fixedTopView ?? "profiles");
+  const activeTopView = fixedTopView ?? topView;
   const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
   const profileCounts = useMemo(() => countProfilesPerTool(launchProfiles), [launchProfiles]);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
@@ -153,7 +158,9 @@ export default function ProvidersPanel({ compact }: Props = {}) {
 
   const handleEdit = useCallback((p: Provider) => {
     setEditingProvider(p);
+    setDuplicateSeed(null);
     setSelectedPreset(null);
+    setFormReturnView("list");
     setView("form");
   }, []);
 
@@ -185,6 +192,7 @@ export default function ProvidersPanel({ compact }: Props = {}) {
     setDuplicateSeed(duplicated);
     setEditingProvider(null);
     setSelectedPreset(null);
+    setFormReturnView("list");
     setView("form");
     toast.success(t("duplicated"));
   }, [t]);
@@ -193,6 +201,7 @@ export default function ProvidersPanel({ compact }: Props = {}) {
     setSelectedPreset(preset);
     setEditingProvider(null);
     setDuplicateSeed(null);
+    setFormReturnView("preset_pick");
     setView("form");
   }, []);
 
@@ -200,15 +209,23 @@ export default function ProvidersPanel({ compact }: Props = {}) {
     setSelectedPreset(null);
     setEditingProvider(null);
     setDuplicateSeed(null);
+    setFormReturnView("preset_pick");
     setView("form");
   }, []);
 
-  const handleBack = useCallback(() => {
+  const handleReturnToList = useCallback(() => {
     setView("list");
     setEditingProvider(null);
     setDuplicateSeed(null);
     setSelectedPreset(null);
   }, []);
+
+  const handleReturnFromForm = useCallback(() => {
+    setView(formReturnView);
+    setEditingProvider(null);
+    setDuplicateSeed(null);
+    setSelectedPreset(null);
+  }, [formReturnView]);
 
   // ── Form view ──
   if (view === "form") {
@@ -218,7 +235,9 @@ export default function ProvidersPanel({ compact }: Props = {}) {
         duplicateSeed={duplicateSeed}
         preset={selectedPreset}
         activeTab={activeTab}
-        onBack={handleBack}
+        compact={compact}
+        onBack={handleReturnFromForm}
+        onSaved={handleReturnToList}
       />
     );
   }
@@ -231,80 +250,77 @@ export default function ProvidersPanel({ compact }: Props = {}) {
     })).filter((g) => g.presets.length > 0);
 
     return (
-      <div className="flex flex-col h-full overflow-hidden">
-        {/* Header */}
-        <div
-          className="flex items-center gap-3 px-6 py-4 shrink-0"
-          style={{ borderBottom: "1px solid var(--app-border)" }}
-        >
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className={`flex shrink-0 items-center gap-2 ${compact ? "py-2.5" : "px-6 py-3"}`}>
           <button
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--app-hover)] transition-colors"
-            style={{ color: "var(--app-text-secondary)" }}
-            onClick={handleBack}
+            type="button"
+            aria-label={t("back", { ns: "common" })}
+            className="flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+            onClick={handleReturnToList}
           >
             <ArrowLeft size={18} />
           </button>
-          <span className="text-base font-semibold" style={{ color: "var(--app-text-primary)" }}>
-            {t("addProvider")}
-          </span>
+          <h2 className="text-[14px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+            {t("fromPreset")}
+          </h2>
         </div>
 
-        {/* Preset groups */}
         <div className="flex-1 overflow-y-auto">
-          <div className={`mx-auto ${compact ? "px-4 py-4" : "max-w-3xl px-6 py-8"}`}>
-            <p className="text-sm mb-6" style={{ color: "var(--app-text-secondary)" }}>
-              {t("selectPresetOrCustom")}
-            </p>
-
-            {grouped.map((group) => (
-              <div key={group.key} className="mb-6">
-                <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--app-text-tertiary)" }}>
-                  {t(group.labelKey as never)}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {group.presets.map((preset) => (
-                    <button
-                      key={preset.id}
-                      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-all duration-[var(--dur-fast)] hover:shadow-sm"
-                      style={{
-                        border: "1px solid var(--app-border)",
-                        background: "var(--app-panel-bg)",
-                        color: "var(--app-text-primary)",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (preset.accentColor) {
-                          (e.currentTarget as HTMLElement).style.borderColor = preset.accentColor;
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLElement).style.borderColor = "var(--app-border)";
-                      }}
-                      onClick={() => handleSelectPreset(preset)}
-                    >
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ background: preset.accentColor || "var(--app-text-tertiary)" }}
-                      />
-                      {t(preset.nameKey as never)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            {/* Custom separator */}
-            <div className="flex items-center gap-3 my-6">
-              <div className="flex-1 h-px" style={{ background: "var(--app-border)" }} />
-              <span className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                {t("orCustom")}
+          <div className={`mx-auto w-full ${compact ? "py-3" : "max-w-3xl px-6 py-5"}`}>
+            <div className="mb-4 flex items-baseline justify-between gap-3">
+              <p className="text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
+                {t("selectPresetOrCustom")}
+              </p>
+              <span className="shrink-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                {t(CLI_TOOL_TABS.find((tab) => tab.id === activeTab)?.labelKey ?? "tabClaude")}
               </span>
-              <div className="flex-1 h-px" style={{ background: "var(--app-border)" }} />
             </div>
 
-            <Button variant="outline" size="default" onClick={handleCustomNew}>
-              <Wrench size={16} className="mr-2" />
-              {t("manualConfig")}
-            </Button>
+            <div className="flex flex-col gap-4">
+              {grouped.map((group) => (
+                <section key={group.key}>
+                  <div className="mb-2 text-[11px] font-medium" style={{ color: "var(--app-text-tertiary)" }}>
+                    {t(group.labelKey as never)}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {group.presets.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className="group flex min-h-16 items-center gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-2 text-left transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                        onClick={() => handleSelectPreset(preset)}
+                      >
+                        <span
+                          className="flex size-8 shrink-0 items-center justify-center rounded-md"
+                          style={{ background: preset.accentColor ? `${preset.accentColor}20` : "var(--app-active-bg)" }}
+                        >
+                          <span
+                            className="size-2.5 rounded-full"
+                            style={{ background: preset.accentColor || "var(--app-text-tertiary)" }}
+                          />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
+                            {t(preset.nameKey as never)}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                            {t(preset.descKey as never)}
+                          </span>
+                        </span>
+                        <ArrowRight size={15} className="shrink-0 text-[var(--app-text-tertiary)] transition-transform duration-[var(--dur-fast)] group-hover:translate-x-0.5" />
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            <div className="mt-5">
+              <Button variant="outline" size="sm" onClick={handleCustomNew}>
+                <Wrench size={14} />
+                {t("manualConfig")}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -315,24 +331,17 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   // 统一单行 header：segmented 子页切换 + CLI chips + 页面级动作，两个子页共用（data-settings-section 供设置搜索定位）
   const header = (
     <ProviderPagesHeader
-      topView={topView}
+      topView={activeTopView}
       onTopViewChange={setTopView}
       activeTab={activeTab}
       onTabChange={setActiveTab}
-      counts={topView === "providers" ? providerCounts : profileCounts}
+      counts={activeTopView === "providers" ? providerCounts : profileCounts}
       compact={compact}
-      actions={
-        topView === "providers" ? (
-          <Button size="sm" onClick={() => setView("preset_pick")}>
-            <Plus size={16} className="mr-1.5" />
-            {t("fromPreset")}
-          </Button>
-        ) : undefined
-      }
+      showTopViewTabs={!fixedTopView}
     />
   );
 
-  if (topView === "profiles") {
+  if (activeTopView === "profiles") {
     return (
       <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-root">
         {header}
@@ -349,19 +358,21 @@ export default function ProvidersPanel({ compact }: Props = {}) {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-root">
+    <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-credentials-root">
       {header}
 
       {/* Provider list（「系统环境变量」恒置顶，故列表永不为空；无真实 provider 时在下方给引导） */}
       <div className="flex-1 overflow-y-auto">
-        <div className={`mx-auto w-full ${compact ? "px-4 py-3" : "max-w-3xl px-6 py-4"}`}>
+        <div className={`mx-auto w-full ${compact ? "py-3" : "max-w-3xl px-6 py-4"}`}>
           {/* 本面板只管理凭证；启动会话走全局启动器（删除卡上启动按钮后需明示，避免误以为功能丢失） */}
-          <div className="mb-3 flex items-start gap-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-            <Keyboard size={13} className="mt-0.5 shrink-0" />
-            <span>{t("providerLaunchHint", { shortcut: launcherShortcut })}</span>
-          </div>
+          {!compact && (
+            <div className="mb-3 flex items-start gap-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+              <Keyboard size={13} className="mt-0.5 shrink-0" />
+              <span>{t("providerLaunchHint", { shortcut: launcherShortcut })}</span>
+            </div>
+          )}
 
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2.5">
             {displayProviders.map((p) => (
               <ProviderCard
                 key={p.id}

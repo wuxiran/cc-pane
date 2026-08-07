@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 interface QuickCommandDialogProps {
@@ -28,8 +29,6 @@ interface QuickCommandDialogProps {
   onOpenChange: (open: boolean) => void;
   onSave: (draft: QuickCommandDraft, scope: QuickCommandScope) => Promise<void>;
 }
-
-const fieldClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 function defaultDraft(): QuickCommandDraft {
   return {
@@ -114,12 +113,10 @@ export default function QuickCommandDialog({
 
             <div className="grid gap-2">
               <Label htmlFor="quick-command-kind">{t("quickCommands.fieldKind")}</Label>
-              <select
-                id="quick-command-kind"
-                className={fieldClass}
+              <Select
                 value={draft.kind}
-                onChange={(event) => {
-                  const kind = event.target.value as QuickCommandKind;
+                onValueChange={(next) => {
+                  const kind = next as QuickCommandKind;
                   setDraft((current) => ({
                     ...current,
                     kind,
@@ -127,28 +124,36 @@ export default function QuickCommandDialog({
                   }));
                 }}
               >
-                <option value="terminal">{t("quickCommands.kind.terminal")}</option>
-                <option value="agentPrompt">{t("quickCommands.kind.agentPrompt")}</option>
-              </select>
+                <SelectTrigger id="quick-command-kind" className="w-full bg-[var(--app-content)] text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="terminal">{t("quickCommands.kind.terminal")}</SelectItem>
+                  <SelectItem value="agentPrompt">{t("quickCommands.kind.agentPrompt")}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid gap-2">
               <Label htmlFor="quick-command-scope">{t("quickCommands.fieldScope")}</Label>
-              <select
-                id="quick-command-scope"
-                className={fieldClass}
+              <Select
                 value={scope}
-                onChange={(event) => setScope(event.target.value as QuickCommandScope)}
+                onValueChange={(next) => setScope(next as QuickCommandScope)}
               >
-                <option value="global">{t("quickCommands.scope.global")}</option>
-                <option
+                <SelectTrigger id="quick-command-scope" className="w-full bg-[var(--app-content)] text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="global">{t("quickCommands.scope.global")}</SelectItem>
+                  <SelectItem
                   value="project"
                   disabled={!activeProjectPath}
                   aria-disabled={!activeProjectPath}
                 >
                   {t("quickCommands.scope.project")}
-                </option>
-              </select>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
               {!activeProjectPath && (
                 <span className="text-xs text-muted-foreground">
                   {t("quickCommands.projectScopeUnavailable")}
@@ -159,18 +164,21 @@ export default function QuickCommandDialog({
             {draft.kind === "agentPrompt" && (
               <div className="grid gap-2 sm:col-span-2">
                 <Label htmlFor="quick-command-cli">{t("quickCommands.fieldCliTool")}</Label>
-                <select
-                  id="quick-command-cli"
-                  className={fieldClass}
+                <Select
                   value={draft.cliTool ?? ""}
-                  onChange={(event) => setDraft((current) => ({ ...current, cliTool: event.target.value }))}
+                  onValueChange={(next) => setDraft((current) => ({ ...current, cliTool: next }))}
                 >
-                  {CLI_TOOL_TABS.map((tool) => (
-                    <option key={tool.id} value={tool.id}>
+                  <SelectTrigger id="quick-command-cli" className="w-full bg-[var(--app-content)] text-[13px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CLI_TOOL_TABS.map((tool) => (
+                      <SelectItem key={tool.id} value={tool.id}>
                       {t(tool.labelKey as never)}
-                    </option>
-                  ))}
-                </select>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
@@ -186,18 +194,21 @@ export default function QuickCommandDialog({
 
             <div className="grid gap-2">
               <Label htmlFor="quick-command-target">{t("quickCommands.fieldTarget")}</Label>
-              <select
-                id="quick-command-target"
-                className={fieldClass}
+              <Select
                 value={draft.target}
-                onChange={(event) => setDraft((current) => ({
+                onValueChange={(next) => setDraft((current) => ({
                   ...current,
-                  target: event.target.value as QuickCommandTarget,
+                  target: next as QuickCommandTarget,
                 }))}
               >
-                <option value="currentPane">{t("quickCommands.target.currentPane")}</option>
-                <option value="newTab">{t("quickCommands.target.newTab")}</option>
-              </select>
+                <SelectTrigger id="quick-command-target" className="w-full bg-[var(--app-content)] text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="currentPane">{t("quickCommands.target.currentPane")}</SelectItem>
+                  <SelectItem value="newTab">{t("quickCommands.target.newTab")}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">

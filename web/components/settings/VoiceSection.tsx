@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { VoiceSettings } from "@/types";
 
@@ -23,6 +24,8 @@ const PROVIDER_OPTIONS = [
   { value: "mimo", labelKey: "voiceProviderMimo" },
 ] as const;
 
+const AUTO_LANGUAGE_VALUE = "__auto__";
+
 export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
   const { t } = useTranslation("settings");
   const selectedProvider = value.provider ?? "dashscope";
@@ -30,13 +33,6 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
   function update<K extends keyof VoiceSettings>(key: K, next: VoiceSettings[K]) {
     onChange({ ...value, [key]: next });
   }
-
-  const selectClassName = "h-9 rounded-md px-2 text-[13px] outline-none";
-  const selectStyle = {
-    border: "1px solid var(--app-border)",
-    background: "var(--app-content)",
-    color: "var(--app-text-primary)",
-  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -108,31 +104,34 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
           <Label>{t("voiceRegion")}</Label>
-          <select
-            value={value.region}
-            onChange={(event) => update("region", event.target.value as VoiceSettings["region"])}
-            className={selectClassName}
-            style={selectStyle}
-          >
-            <option value="cn">{t("voiceRegionCn")}</option>
-            <option value="intl">{t("voiceRegionIntl")}</option>
-          </select>
+          <Select value={value.region} onValueChange={(next) => update("region", next as VoiceSettings["region"])}>
+            <SelectTrigger aria-label={t("voiceRegion")} className="w-full bg-[var(--app-content)] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cn">{t("voiceRegionCn")}</SelectItem>
+              <SelectItem value="intl">{t("voiceRegionIntl")}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="flex flex-col gap-1">
           <Label>{t("voiceLanguage")}</Label>
-          <select
-            value={value.language ?? ""}
-            onChange={(event) => update("language", event.target.value || null)}
-            className={selectClassName}
-            style={selectStyle}
+          <Select
+            value={value.language || AUTO_LANGUAGE_VALUE}
+            onValueChange={(next) => update("language", next === AUTO_LANGUAGE_VALUE ? null : next)}
           >
-            {LANGUAGE_OPTIONS.map((option) => (
-              <option key={option.value || "auto"} value={option.value}>
-                {t(option.labelKey)}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-label={t("voiceLanguage")} className="w-full bg-[var(--app-content)] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LANGUAGE_OPTIONS.map((option) => (
+                <SelectItem key={option.value || "auto"} value={option.value || AUTO_LANGUAGE_VALUE}>
+                  {t(option.labelKey)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -208,18 +207,21 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
           <div className="grid grid-cols-[1fr_120px] gap-3">
             <div className="flex flex-col gap-1">
               <Label>{t("voiceLanguage")}</Label>
-              <select
-                value={value.language ?? ""}
-                onChange={(event) => update("language", event.target.value || null)}
-                className={selectClassName}
-                style={selectStyle}
+              <Select
+                value={value.language || AUTO_LANGUAGE_VALUE}
+                onValueChange={(next) => update("language", next === AUTO_LANGUAGE_VALUE ? null : next)}
               >
-                {LANGUAGE_OPTIONS.map((option) => (
-                  <option key={option.value || "auto"} value={option.value}>
-                    {t(option.labelKey)}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger aria-label={t("voiceLanguage")} className="w-full bg-[var(--app-content)] text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LANGUAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value || "auto"} value={option.value || AUTO_LANGUAGE_VALUE}>
+                      {t(option.labelKey)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex flex-col gap-1">

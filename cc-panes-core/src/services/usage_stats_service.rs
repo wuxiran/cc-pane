@@ -4,7 +4,8 @@ use crate::models::{
 };
 use crate::repository::UsageStatsRepository;
 use crate::services::{
-    claude_session_service, codex_session_service, LaunchHistoryService, ProviderService,
+    claude_session_service, codex_session_service, external_usage_session_service,
+    LaunchHistoryService, ProviderService,
 };
 use crate::utils::{error::AppError, AppResult};
 use anyhow::{anyhow, Context, Result};
@@ -23,7 +24,7 @@ const USAGE_SCAN_INTERVAL_SECS: u64 = 300;
 const WSL_DISCOVERY_REFRESH_TICKS: u32 = 10;
 /// 统计算法版本。变更（如 Claude message.id 去重）时 +1：
 /// 启动检测到版本不一致会清空 scan_state 强制全量重扫，历史聚合行被 REPLACE 重算。
-const USAGE_SCAN_ALGO_VERSION: u64 = 2;
+const USAGE_SCAN_ALGO_VERSION: u64 = 3;
 /// 版本号伪装成一条 scan_state 记录存储（jsonl_path 用 sentinel，不会与真实路径冲突）
 const USAGE_SCAN_ALGO_VERSION_KEY: &str = "_algo_version";
 const CONTEXT_USAGE_PARSER_VERSION: &str = "context-v1";
@@ -42,6 +43,15 @@ struct ScanRoot {
     cli: &'static str,
     path: PathBuf,
     origin: ScanOrigin,
+    source: UsageScanSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UsageScanSource {
+    Jsonl,
+    Gemini,
+    OpenCode,
+    GrokBuild,
 }
 
 struct ContextRequest {
@@ -642,7 +652,16 @@ impl UsageStatsService {
     }
 
     fn scan_root(&self, root: &ScanRoot) {
-        let paths = collect_jsonl_files(&root.path);
+        let paths = match root.source {
+            UsageScanSource::Jsonl => collect_jsonl_files(&root.path),
+            UsageScanSource::Gemini => {
+                external_usage_session_service::collect_gemini_session_files(&root.path)
+            }
+            UsageScanSource::OpenCode => vec![root.path.clone()],
+            UsageScanSource::GrokBuild => {
+                external_usage_session_service::collect_grok_usage_files(&root.path)
+            }
+        };
         info!(
             cli = root.cli,
             origin = ?root.origin,
@@ -651,7 +670,10 @@ impl UsageStatsService {
             "Scanning usage stats root"
         );
         for path in paths {
-            if let Err(error) = self.scan_file(root.cli, &path) {
+            if !path.is_file() {
+                continue;
+            }
+            if let Err(error) = self.scan_file(root.cli, root.source, &path) {
                 warn!(
                     cli = root.cli,
                     origin = ?root.origin,
@@ -663,7 +685,7 @@ impl UsageStatsService {
         }
     }
 
-    fn scan_file(&self, cli_tool: &str, path: &Path) -> Result<()> {
+    fn scan_file(&self, cli_tool: &str, source: UsageScanSource, path: &Path) -> Result<()> {
         let path_string = path.to_string_lossy().to_string();
         let metadata = fs::metadata(path)
             .with_context(|| format!("Failed to read usage jsonl metadata: {}", path.display()))?;
@@ -684,13 +706,27 @@ impl UsageStatsService {
 
         // 全文件重读 + REPLACE 该文件该 date 的累计行（幂等）。
         // 不再用增量 byte_offset，因为 REPLACE 语义要求 deltas 是"文件当前完整状态的聚合"。
-        let (entries, _) = match cli_tool {
-            "claude" => claude_session_service::read_session_usage(path, 0),
-            "codex" => codex_session_service::read_session_usage(path, 0),
-            _ => Ok((Vec::new(), 0)),
-        }
-        .map_err(|e| anyhow!(e))
-        .with_context(|| format!("Failed to parse usage jsonl: {}", path.display()))?;
+        let entries =
+            match source {
+                UsageScanSource::Jsonl => match cli_tool {
+                    "claude" => claude_session_service::read_session_usage(path, 0)
+                        .map(|(entries, _)| entries),
+                    "codex" => codex_session_service::read_session_usage(path, 0)
+                        .map(|(entries, _)| entries),
+                    _ => Ok(Vec::new()),
+                },
+                UsageScanSource::Gemini => {
+                    external_usage_session_service::read_gemini_session_usage(path)
+                }
+                UsageScanSource::OpenCode => {
+                    external_usage_session_service::read_opencode_session_usage(path)
+                }
+                UsageScanSource::GrokBuild => {
+                    external_usage_session_service::read_grok_session_usage(path)
+                }
+            }
+            .map_err(|e| anyhow!(e))
+            .with_context(|| format!("Failed to parse usage jsonl: {}", path.display()))?;
 
         // 先删该文件所有 date 行，再插新的 → 防止文件被截断/某 date 被删后 stale 数据残留
         self.repo
@@ -1175,6 +1211,13 @@ fn collect_jsonl_files_limited_inner(
 }
 
 fn apply_row_to_day(day: &mut UsageDayPoint, cli_tool: &str, totals: &UsageTotals) {
+    let by_cli = day.by_cli.entry(cli_tool.to_string()).or_default();
+    by_cli.char_count += totals.char_count;
+    by_cli.token_input += totals.token_input;
+    by_cli.token_output += totals.token_output;
+    by_cli.token_cache_read += totals.token_cache_read;
+    by_cli.token_cache_creation += totals.token_cache_creation;
+
     match cli_tool {
         "claude" => {
             day.claude_chars += totals.char_count;
@@ -1266,11 +1309,40 @@ fn collect_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<Scan
         cli: "claude",
         path: home.join(".claude").join("projects"),
         origin: origin.clone(),
+        source: UsageScanSource::Jsonl,
     });
     roots.push(ScanRoot {
         cli: "codex",
         path: home.join(".codex").join("sessions"),
         origin: origin.clone(),
+        source: UsageScanSource::Jsonl,
+    });
+    roots.push(ScanRoot {
+        cli: "gemini",
+        path: home.join(".gemini"),
+        origin: origin.clone(),
+        source: UsageScanSource::Gemini,
+    });
+    roots.push(ScanRoot {
+        cli: "opencode",
+        path: external_usage_session_service::opencode_db_path(
+            home,
+            matches!(origin, ScanOrigin::Native),
+        ),
+        origin: origin.clone(),
+        source: UsageScanSource::OpenCode,
+    });
+    roots.push(ScanRoot {
+        cli: "grokbuild",
+        path: home.join(".grok").join("sessions"),
+        origin: origin.clone(),
+        source: UsageScanSource::GrokBuild,
+    });
+    roots.push(ScanRoot {
+        cli: "grokbuild",
+        path: home.join(".grok").join("archived_sessions"),
+        origin: origin.clone(),
+        source: UsageScanSource::GrokBuild,
     });
     collect_codex_home_scan_roots(home, origin, roots);
 }
@@ -1294,6 +1366,7 @@ fn collect_codex_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Ve
                 cli: "codex",
                 path,
                 origin: origin.clone(),
+                source: UsageScanSource::Jsonl,
             });
         }
     }
@@ -1771,7 +1844,7 @@ mod tests {
             .iter()
             .filter(|root| matches!(root.origin, ScanOrigin::Wsl { .. }))
             .collect::<Vec<_>>();
-        assert_eq!(wsl_roots.len(), 2);
+        assert_eq!(wsl_roots.len(), 6);
         assert!(wsl_roots.iter().any(|root| {
             let path = root.path.to_string_lossy().replace('\\', "/");
             root.cli == "claude"

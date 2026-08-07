@@ -19,9 +19,11 @@ const ProxySection = lazyWithRetry(() => import("./ProxySection"), "ProxySection
 const QuickCommandsSection = lazyWithRetry(() => import("./QuickCommandsSection"), "QuickCommandsSection");
 const ScreenshotSection = lazyWithRetry(() => import("./ScreenshotSection"), "ScreenshotSection");
 const SharedMcpSection = lazyWithRetry(() => import("./SharedMcpSection"), "SharedMcpSection");
+const GlobalSkillsPanel = lazyWithRetry(() => import("@/components/resources/GlobalSkillsPanel"), "GlobalSkillsPanel");
 const ShortcutsSection = lazyWithRetry(() => import("./ShortcutsSection"), "ShortcutsSection");
 const TerminalSection = lazyWithRetry(() => import("./TerminalSection"), "TerminalSection");
 const ThemeSection = lazyWithRetry(() => import("./ThemeSection"), "ThemeSection");
+const UsageStatsSection = lazyWithRetry(() => import("@/components/home/HomeUsageStats"), "UsageStatsSection");
 const VoiceSection = lazyWithRetry(() => import("./VoiceSection"), "VoiceSection");
 const WallpaperSection = lazyWithRetry(() => import("./WallpaperSection"), "WallpaperSection");
 const WebAccessSection = lazyWithRetry(() => import("./WebAccessSection"), "WebAccessSection");
@@ -55,8 +57,12 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
           }
         />
       );
+    case "usage-stats":
+      return <UsageStatsSection />;
     case "theme":
-      return <ThemeSection value={draft.theme} onChange={(theme) => updateDraft({ ...draft, theme })} />;
+      return <ThemeSection view="theme" value={draft.theme} onChange={(theme) => updateDraft({ ...draft, theme })} />;
+    case "theme-shape":
+      return <ThemeSection view="shape" value={draft.theme} onChange={(theme) => updateDraft({ ...draft, theme })} />;
     case "notification":
       return <NotificationSection value={draft.notification} onChange={(notification) => updateDraft({ ...draft, notification })} />;
     case "modules":
@@ -71,7 +77,9 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
         />
       );
     case "provider":
-      return <ProviderSection />;
+      return <ProviderSection view="profiles" />;
+    case "provider-credentials":
+      return <ProviderSection view="providers" />;
     case "cli-launchers":
       return <CliLaunchersSection value={draft.cliLaunchers} onChange={(cliLaunchers) => updateDraft({ ...draft, cliLaunchers })} />;
     case "proxy":
@@ -88,6 +96,8 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
       return <ShortcutsSection value={draft.shortcuts} onChange={(shortcuts) => updateDraft({ ...draft, shortcuts })} />;
     case "shared-mcp":
       return <SharedMcpSection />;
+    case "skills":
+      return <GlobalSkillsPanel />;
     case "screenshot":
       return <ScreenshotSection value={draft.screenshot} onChange={(screenshot) => updateDraft({ ...draft, screenshot })} />;
     case "wallpaper":
@@ -102,8 +112,8 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
 }
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
-  const hasOwnCardLayout = ["setup-guide", "theme", "provider", "cli-launchers", "shared-mcp", "quick-commands", "experimental"].includes(props.paneId);
-  const fillsAvailableHeight = props.paneId === "provider" || props.paneId === "quick-commands";
+  const hasOwnCardLayout = ["setup-guide", "theme", "theme-shape", "provider", "provider-credentials", "cli-launchers", "shared-mcp", "skills", "quick-commands", "experimental"].includes(props.paneId);
+  const fillsAvailableHeight = ["provider", "provider-credentials", "skills", "quick-commands"].includes(props.paneId);
   return (
     <div
       data-settings-section={`${props.paneId}-root`}

@@ -58,10 +58,12 @@ interface ProviderFormPanelProps {
   duplicateSeed?: Provider | null;
   preset?: ProviderPreset | null;
   activeTab?: KnownCliTool;
+  compact?: boolean;
   onBack: () => void;
+  onSaved?: () => void;
 }
 
-export default function ProviderFormPanel({ editProvider, duplicateSeed, preset, activeTab, onBack }: ProviderFormPanelProps) {
+export default function ProviderFormPanel({ editProvider, duplicateSeed, preset, activeTab, compact, onBack, onSaved }: ProviderFormPanelProps) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
   const addProvider = useProvidersStore((s) => s.addProvider);
@@ -222,7 +224,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
         await addProvider(provider);
         toast.success(t("providerAdded"));
       }
-      onBack();
+      (onSaved ?? onBack)();
     } catch (e) {
       toast.error(t("operationFailed", { error: String(e) }));
     }
@@ -273,36 +275,32 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div
-        className="flex items-center gap-3 px-6 py-4 shrink-0"
-        style={{ borderBottom: "1px solid var(--app-border)" }}
-      >
+      <div className={`flex shrink-0 items-center gap-2 ${compact ? "py-2.5" : "px-6 py-2.5"}`}>
         <button
-          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--app-hover)] transition-colors"
-          style={{ color: "var(--app-text-secondary)" }}
+          type="button"
+          aria-label={t("back", { ns: "common" })}
+          className="flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
           onClick={onBack}
         >
           <ArrowLeft size={18} />
         </button>
-        <span className="text-base font-semibold" style={{ color: "var(--app-text-primary)" }}>
+        <h2 className="text-[14px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
           {isEditMode ? t("editProvider") : t("addProvider")}
-        </span>
+        </h2>
       </div>
 
-      {/* Form */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-8">
-          {/* Avatar preview + preset hint */}
-          <div className="flex items-center gap-4 mb-8">
+        <div className={`mx-auto w-full ${compact ? "py-3" : "max-w-2xl px-6 py-5"}`}>
+          {isPresetMode && (
+            <div className="mb-5 flex items-center gap-3">
             <ProviderAvatar
               name={form.name || "?"}
               providerType={form.providerType}
               accentColor={accentColor}
-              size={64}
+              size={40}
             />
             <div>
-              <div className="text-lg font-semibold" style={{ color: "var(--app-text-primary)" }}>
+              <div className="text-[14px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
                 {form.name || t("providerNamePlaceholder")}
               </div>
               {preset?.website && (
@@ -316,9 +314,10 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
                 </a>
               )}
             </div>
-          </div>
+            </div>
+          )}
 
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
             {/* Name */}
             <div className="flex flex-col gap-1.5">
               <Label className="text-xs font-medium">{t("providerName")}</Label>
@@ -560,7 +559,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 mt-8 pt-6" style={{ borderTop: "1px solid var(--app-border)" }}>
+          <div className="mt-6 flex justify-end gap-3 pt-4" style={{ borderTop: "1px solid var(--app-border)" }}>
             <Button variant="secondary" size="default" onClick={onBack}>
               {t("common:cancel")}
             </Button>

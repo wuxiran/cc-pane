@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { FolderOpen, Footprints, MapPin, Music, Power, RefreshCw, Ruler, Sparkles } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   CCCHAN_PET_SIZE_DEFAULT,
@@ -52,12 +53,6 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
     onChange({ ...value, [key]: next });
   }
 
-  const selectStyle = {
-    border: "1px solid var(--app-border)",
-    background: "var(--app-content)",
-    color: "var(--app-text-primary)",
-  };
-
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
@@ -87,25 +82,25 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <Label>{t("ccchanDefaultPet")}</Label>
-        <select
-          value={value.defaultPetId}
-          className="h-9 w-52 rounded-md px-2 text-[13px] outline-none"
-          style={selectStyle}
-          onChange={(event) => update("defaultPetId", event.target.value)}
-        >
-          {petOptions.map((pet) => (
-            <option key={pet.id} value={pet.id}>
-              {pet.displayName}
-            </option>
-          ))}
-        </select>
-        <p className="m-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {selectedPetDescriptionKey
-            ? t(selectedPetDescriptionKey)
-            : selectedPet?.description ?? t("ccchanCurrentPet")}
-        </p>
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0">
+          <Label>{t("ccchanDefaultPet")}</Label>
+          <p className="m-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            {selectedPetDescriptionKey
+              ? t(selectedPetDescriptionKey)
+              : selectedPet?.description ?? t("ccchanCurrentPet")}
+          </p>
+        </div>
+        <Select value={value.defaultPetId} onValueChange={(next) => update("defaultPetId", next)}>
+          <SelectTrigger aria-label={t("ccchanDefaultPet")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {petOptions.map((pet) => (
+              <SelectItem key={pet.id} value={pet.id}>{pet.displayName}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>

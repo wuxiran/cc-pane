@@ -1,7 +1,6 @@
 import "@/i18n";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { skillService } from "@/services/skillService";
 import {
   useActivityBarStore,
   useDialogStore,
@@ -9,11 +8,10 @@ import {
   useRightDockStore,
   useWorkspacesStore,
 } from "@/stores";
-import type { InstalledUserSkill, TaskBinding, Workspace } from "@/types";
+import type { TaskBinding, Workspace } from "@/types";
 import SetupGuideChecklist, {
   ONBOARDING_MULTI_LAUNCH_KEY,
 } from "./SetupGuideChecklist";
-import { notifySetupGuideProgress } from "./setupGuideProgress";
 
 const workspace = {
   id: "workspace-1",
@@ -35,15 +33,6 @@ const dispatchedTask = {
   updatedAt: "2026-07-25T00:00:00Z",
 } as TaskBinding;
 
-const installedSkill = {
-  id: "skill-1",
-  name: "Dispatch",
-  tags: [],
-  version: "1.0.0",
-  contentSha256: "sha256",
-  installedAt: "2026-07-25T00:00:00Z",
-} as InstalledUserSkill;
-
 describe("SetupGuideChecklist", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -52,7 +41,6 @@ describe("SetupGuideChecklist", () => {
     useOrchestratorStore.setState({ bindings: [] });
     useActivityBarStore.setState({ orchestrationOverlayOpen: false });
     useRightDockStore.setState({ visible: false, activeView: "git" });
-    vi.spyOn(skillService, "listUserSkills").mockResolvedValue([]);
   });
 
   it("opens orchestration in the right dock from the checklist", async () => {
@@ -73,20 +61,19 @@ describe("SetupGuideChecklist", () => {
   it("shows every core workflow item as pending for a new user", async () => {
     render(<SetupGuideChecklist />);
 
-    expect(await screen.findByText("0 / 5 已完成")).toBeVisible();
-    expect(screen.getAllByText("待完成")).toHaveLength(5);
+    expect(await screen.findByText("0 / 4 已完成")).toBeVisible();
+    expect(screen.getAllByText("待完成")).toHaveLength(4);
   });
 
-  it("derives all five completion states from real workspace, launch, task, and skill data", async () => {
+  it("derives all completion states from real workspace, launch, and task data", async () => {
     useWorkspacesStore.setState({ workspaces: [workspace] });
     useOrchestratorStore.setState({ bindings: [dispatchedTask] });
     localStorage.setItem(ONBOARDING_MULTI_LAUNCH_KEY, "true");
-    vi.mocked(skillService.listUserSkills).mockResolvedValue([installedSkill]);
 
     render(<SetupGuideChecklist />);
 
-    await waitFor(() => expect(screen.getByText("5 / 5 已完成")).toBeVisible());
-    expect(screen.getAllByText("已完成")).toHaveLength(5);
+    expect(await screen.findByText("4 / 4 已完成")).toBeVisible();
+    expect(screen.getAllByText("已完成")).toHaveLength(4);
   });
 
   it("does not count an unlaunched task binding as the first dispatch", async () => {
@@ -97,21 +84,6 @@ describe("SetupGuideChecklist", () => {
 
     render(<SetupGuideChecklist />);
 
-    expect(await screen.findByText("2 / 5 已完成")).toBeVisible();
-  });
-
-  it("refreshes completion immediately after a Skill installation event", async () => {
-    let installedSkills: InstalledUserSkill[] = [];
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-    useOrchestratorStore.setState({ bindings: [dispatchedTask] });
-    localStorage.setItem(ONBOARDING_MULTI_LAUNCH_KEY, "true");
-    vi.mocked(skillService.listUserSkills).mockImplementation(async () => installedSkills);
-    render(<SetupGuideChecklist />);
-    await waitFor(() => expect(screen.getByText("4 / 5 已完成")).toBeVisible());
-
-    installedSkills = [installedSkill];
-    act(() => notifySetupGuideProgress());
-
-    await waitFor(() => expect(screen.getByText("5 / 5 已完成")).toBeVisible());
+    expect(await screen.findByText("2 / 4 已完成")).toBeVisible();
   });
 });

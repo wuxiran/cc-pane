@@ -48,7 +48,7 @@
     "groupLabel": "Workbench mode",
     "full": {
       "title": "Full mode",
-      "description": "Enable SSH, orchestration, resources, and Todo for the complete collaboration surface."
+      "description": "Enable SSH, orchestration, and Todo for the complete collaboration surface."
     },
     "minimal": {
       "title": "Minimal mode",
@@ -121,8 +121,8 @@
       },
       "skill": {
         "title": "Install your first Skill",
-        "description": "Install a reusable advanced workflow from Resources.",
-        "checkFailed": "Installed Skills could not be read. You can still inspect them in Resources.",
+        "description": "Install a reusable advanced workflow from Settings → Tools → Skills.",
+        "checkFailed": "Installed Skills could not be read. You can still inspect them in Settings → Tools → Skills.",
         "action": "Browse Skills"
       }
     }

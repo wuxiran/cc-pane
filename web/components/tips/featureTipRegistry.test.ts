@@ -44,7 +44,6 @@ describe("扩容的六条 tip", () => {
       activeView: "explorer",
       sidebarVisible: true,
       orchestrationOverlayOpen: false,
-      resourcesTab: "providers",
     });
     useDialogStore.setState({ worktreeManagerRequestPath: null, aiPanelOpen: false });
     useRightDockStore.setState({ visible: false, activeView: "git" });
@@ -55,7 +54,6 @@ describe("扩容的六条 tip", () => {
       "dispatch-orchestration",
       "worktree-isolation",
       "ai-panel",
-      "skills",
       "right-dock",
       "browser-tab",
     ];
@@ -128,20 +126,6 @@ describe("扩容的六条 tip", () => {
 
     expect(useDialogStore.getState().aiPanelOpen).toBe(true);
     expect(useRightDockStore.getState().visible).toBe(false);
-  });
-
-  it("skill：试试看直达资源中心的 Skills 页（完整清单所在），不是只有四项的运行配置勾选清单", () => {
-    expect(tip("skills").eligible?.()).toBe(true);
-
-    tip("skills").tryAction?.();
-    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
-    expect(useActivityBarStore.getState().resourcesTab).toBe("skills");
-
-    const preferences = useModulePrefsStore.getState().preferences;
-    useModulePrefsStore.setState({
-      preferences: { ...preferences, resources: { ...preferences.resources, enabled: false } },
-    });
-    expect(tip("skills").eligible?.()).toBe(false);
   });
 
   it("右坞：试试看直接改 store 打开，不依赖快捷键分发", () => {

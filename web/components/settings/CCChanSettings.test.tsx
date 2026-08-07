@@ -63,20 +63,21 @@ describe("CCChanSettings", () => {
     render(<CCChanSettings value={createValue()} onChange={onChange} />);
 
     const select = screen.getByRole("combobox");
-    expect(select.querySelectorAll("option")).toHaveLength(2);
-
-    await user.selectOptions(select, "neko");
+    await user.click(select);
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    await user.click(screen.getByRole("option", { name: "Neko" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultPetId: "neko" }));
   });
 
-  it("falls back to FALLBACK_PET when the store has no pets", () => {
+  it("falls back to FALLBACK_PET when the store has no pets", async () => {
+    const user = userEvent.setup();
     useCCChanStore.setState({ pets: [], load: loadMock });
     render(<CCChanSettings value={createValue()} onChange={vi.fn()} />);
 
     const select = screen.getByRole("combobox");
-    const options = Array.from(select.querySelectorAll("option"));
-    expect(options).toHaveLength(1);
-    expect(options[0]).toHaveValue(FALLBACK_PET.id);
+    expect(select).toHaveTextContent(FALLBACK_PET.displayName);
+    await user.click(select);
+    expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 
   it("toggles autoStart / soundEnabled / windowVisible checkboxes", async () => {

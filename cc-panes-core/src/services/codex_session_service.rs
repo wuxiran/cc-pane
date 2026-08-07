@@ -507,7 +507,7 @@ fn extract_codex_usage(json: &Value) -> Option<UsageEntry> {
         let usage = json.get("payload")?.get("info")?.get("last_token_usage")?;
         return Some(UsageEntry {
             date: usage_date(json),
-            token_input: number_field(usage, &["input_tokens", "prompt_tokens"]),
+            token_input: fresh_input_tokens(usage),
             token_output: number_field(usage, &["output_tokens", "completion_tokens"]),
             // OpenAI Responses API: cached tokens 在 input_tokens_details.cached_tokens 嵌套
             // 顶层字段是历史/其他变体的兼容
@@ -532,7 +532,7 @@ fn extract_codex_usage(json: &Value) -> Option<UsageEntry> {
 
     Some(UsageEntry {
         date: usage_date(json),
-        token_input: number_field(usage, &["input_tokens", "prompt_tokens"]),
+        token_input: fresh_input_tokens(usage),
         token_output: number_field(usage, &["output_tokens", "completion_tokens"]),
         token_cache_read: cache_read_tokens(usage),
         token_cache_creation: number_field(usage, &["cache_creation_input_tokens"]),
@@ -593,6 +593,12 @@ fn cache_read_tokens(usage: &Value) -> u64 {
                 .and_then(|value| value.as_u64())
                 .unwrap_or(0),
         )
+}
+
+/// OpenAI reports cached input as a subset of input tokens. Store the fresh
+/// input portion so every CLI shares the same aggregate token semantics.
+fn fresh_input_tokens(usage: &Value) -> u64 {
+    number_field(usage, &["input_tokens", "prompt_tokens"]).saturating_sub(cache_read_tokens(usage))
 }
 
 #[cfg(windows)]

@@ -39,7 +39,9 @@ const GIB = 1024 ** 3;
  */
 export function resolveAdoptRuntime(
   saved: SavedSession | undefined,
-): { ok: true; ssh?: SshConnectionInfo; wsl?: WslLaunchInfo } | { ok: false; kind: string } {
+):
+  | { ok: true; ssh?: SshConnectionInfo; wsl?: WslLaunchInfo }
+  | { ok: false; kind: string } {
   const kind = saved?.runtimeKind ?? "local";
   if (kind === "local") return { ok: true };
   if (kind === "wsl") {
@@ -69,7 +71,10 @@ function formatGib(bytes: number): string {
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
 }
 
-function findSessionLeaf(node: TerminalPaneNode | undefined, sessionId: string): TerminalPaneLeaf | null {
+function findSessionLeaf(
+  node: TerminalPaneNode | undefined,
+  sessionId: string,
+): TerminalPaneLeaf | null {
   if (!node) return null;
   if (node.type === "leaf") return node.sessionId === sessionId ? node : null;
   for (const child of node.children) {
@@ -140,18 +145,28 @@ export default function SystemResourceSegment() {
   const [open, setOpen] = useState(false);
   const [tree, setTree] = useState<ResourceTree | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set(),
+  );
   const [orphansExpanded, setOrphansExpanded] = useState(false);
-  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set());
+  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [armedSessionId, setArmedSessionId] = useState<string | null>(null);
   const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
   const [orphanKillArmed, setOrphanKillArmed] = useState(false);
   const [killingOrphans, setKillingOrphans] = useState(false);
   // 无主会话（本实例没有 tab 引用）的归属元数据，来自跨实例共享的 session_restore 表。
   // 没有它，这些会话只能显示成「终端 <pid>」/「其他工作区」，也无法被接管到正确的项目下。
-  const [savedSessions, setSavedSessions] = useState<Map<string, SavedSession>>(new Map());
-  const [sessionClaims, setSessionClaims] = useState<Record<string, string>>({});
-  const [claimOwnerInstanceId, setClaimOwnerInstanceId] = useState<string | undefined>();
+  const [savedSessions, setSavedSessions] = useState<Map<string, SavedSession>>(
+    new Map(),
+  );
+  const [sessionClaims, setSessionClaims] = useState<Record<string, string>>(
+    {},
+  );
+  const [claimOwnerInstanceId, setClaimOwnerInstanceId] = useState<
+    string | undefined
+  >();
   const [claimsSupported, setClaimsSupported] = useState(false);
   const refreshingRef = useRef(false);
 
@@ -174,11 +189,16 @@ export default function SystemResourceSegment() {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    Promise.all([sessionRestoreService.load(), terminalService.getAdoptionSnapshot()])
+    Promise.all([
+      sessionRestoreService.load(),
+      terminalService.getAdoptionSnapshot(),
+    ])
       .then(([sessions, snapshot]) => {
         if (cancelled) return;
         if (Array.isArray(sessions)) {
-          setSavedSessions(new Map(sessions.map((session) => [session.sessionId, session])));
+          setSavedSessions(
+            new Map(sessions.map((session) => [session.sessionId, session])),
+          );
         }
         setSessionClaims(snapshot.claims);
         setClaimOwnerInstanceId(snapshot.ownerInstanceId);
@@ -232,23 +252,28 @@ export default function SystemResourceSegment() {
     const byWorkspace = new Map<string, SessionView[]>();
     for (const session of tree.sessions) {
       const location = panes.findTabBySessionAcrossLayouts(session.sessionId);
-      const metadata = location ? sessionMetadata(location.tab, session.sessionId) : null;
+      const metadata = location
+        ? sessionMetadata(location.tab, session.sessionId)
+        : null;
       // 本实例没引用时回退到 session_restore 的归属记录，而不是直接判成「其他工作区」
       const saved = location ? undefined : savedSessions.get(session.sessionId);
       const workspaceName =
-        metadata?.workspaceName ?? saved?.workspaceName ?? t("resourceManagerOtherWorkspace");
+        metadata?.workspaceName ??
+        saved?.workspaceName ??
+        t("resourceManagerOtherWorkspace");
       const status = statusMap.get(session.sessionId);
       const claimOwner = sessionClaims[session.sessionId];
       const claimBlocked = Boolean(
-        !location
-        && (!claimsSupported || (claimOwner && claimOwner !== claimOwnerInstanceId)),
+        !location &&
+        (!claimsSupported ||
+          (claimOwner && claimOwner !== claimOwnerInstanceId)),
       );
       const item: SessionView = {
         ...session,
         title:
-          location?.tab.title
-          || saved?.customTitle
-          || `${t("resourceManagerTerminal")} ${session.rootPid}`,
+          location?.tab.title ||
+          saved?.customTitle ||
+          `${t("resourceManagerTerminal")} ${session.rootPid}`,
         workspaceName,
         adoptable: !location && !claimBlocked,
         claimBlocked,
@@ -265,11 +290,25 @@ export default function SystemResourceSegment() {
       .map(([name, sessions]) => ({
         name,
         sessions,
-        cpuPercent: sessions.reduce((sum, session) => sum + session.cpuPercent, 0),
-        memoryBytes: sessions.reduce((sum, session) => sum + session.memoryBytes, 0),
+        cpuPercent: sessions.reduce(
+          (sum, session) => sum + session.cpuPercent,
+          0,
+        ),
+        memoryBytes: sessions.reduce(
+          (sum, session) => sum + session.memoryBytes,
+          0,
+        ),
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
-  }, [claimOwnerInstanceId, claimsSupported, savedSessions, sessionClaims, statusMap, t, tree]);
+  }, [
+    claimOwnerInstanceId,
+    claimsSupported,
+    savedSessions,
+    sessionClaims,
+    statusMap,
+    t,
+    tree,
+  ]);
 
   const toggleGroup = (name: string) => {
     setCollapsedGroups((current) => {
@@ -294,7 +333,10 @@ export default function SystemResourceSegment() {
     const location = panes.findTabBySessionAcrossLayouts(sessionId);
     if (!location) {
       const claimOwner = sessionClaims[sessionId];
-      if (!claimsSupported || (claimOwner && claimOwner !== claimOwnerInstanceId)) {
+      if (
+        !claimsSupported ||
+        (claimOwner && claimOwner !== claimOwnerInstanceId)
+      ) {
         toast.error(t("resourceManagerAdoptClaimed"));
         return;
       }
@@ -304,7 +346,9 @@ export default function SystemResourceSegment() {
       if (!runtime.ok) {
         // 指纹不完整就拒绝：接管本身安全（只是 reattach），但这个 tab 之后被重建时
         // 会在本地错误目录重启。宁可不接管，也不要让 agent 在错误的仓库里干活。
-        toast.error(t("resourceManagerAdoptIncompleteRuntime", { runtime: runtime.kind }));
+        toast.error(
+          t("resourceManagerAdoptIncompleteRuntime", { runtime: runtime.kind }),
+        );
         return;
       }
       let granted = false;
@@ -368,10 +412,16 @@ export default function SystemResourceSegment() {
     if (!tree || tree.orphans.length === 0) return;
     setKillingOrphans(true);
     try {
-      const results = await systemStatsService.killOrphans(tree.orphans.map((orphan) => orphan.pid));
+      const results = await systemStatsService.killOrphans(
+        tree.orphans.map((orphan) => orphan.pid),
+      );
       const failed = results.filter((result) => !result.success).length;
-      if (failed > 0) toast.error(t("resourceManagerKillOrphansPartial", { count: failed }));
-      else toast.success(t("resourceManagerKillOrphansSuccess", { count: results.length }));
+      if (failed > 0)
+        toast.error(t("resourceManagerKillOrphansPartial", { count: failed }));
+      else
+        toast.success(
+          t("resourceManagerKillOrphansSuccess", { count: results.length }),
+        );
       setOrphanKillArmed(false);
       await refreshResourceTree();
     } catch (error) {
@@ -384,7 +434,8 @@ export default function SystemResourceSegment() {
 
   if (!stats) return null;
   const cpuPercent = Math.round(stats.cpuPercent);
-  const memoryPercent = stats.memTotal > 0 ? (stats.memUsed / stats.memTotal) * 100 : 0;
+  const memoryPercent =
+    stats.memTotal > 0 ? (stats.memUsed / stats.memTotal) * 100 : 0;
   const cpuWarning = stats.cpuPercent > 85;
   const memoryWarning = memoryPercent > 90;
   const headerStats = tree?.system ?? stats;
@@ -399,11 +450,19 @@ export default function SystemResourceSegment() {
           className="flex h-full w-[150px] shrink-0 items-center justify-end whitespace-nowrap px-1.5 tabular-nums transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
         >
           <span>{t("cpuShort")} </span>
-          <span style={cpuWarning ? { color: "var(--app-status-warning)" } : undefined}>
+          <span
+            style={
+              cpuWarning ? { color: "var(--app-status-warning)" } : undefined
+            }
+          >
             {cpuPercent}%
           </span>
           <span> · {t("memoryShort")} </span>
-          <span style={memoryWarning ? { color: "var(--app-status-warning)" } : undefined}>
+          <span
+            style={
+              memoryWarning ? { color: "var(--app-status-warning)" } : undefined
+            }
+          >
             {formatGib(stats.memUsed)}/{formatGib(stats.memTotal)}G
           </span>
         </button>

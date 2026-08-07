@@ -54,7 +54,7 @@ export default function LaunchProfileBasicsCard({
   return (
     <Section
       title={t("sectionBasicTitle")}
-      description={t("sectionBasicDesc")}
+      description=""
       icon={<KeyRound size={16} />}
     >
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -65,31 +65,54 @@ export default function LaunchProfileBasicsCard({
             onChange={(event) => setDraft((current) => ({ ...current, alias: event.target.value, name: event.target.value }))}
           />
         </Field>
-        <Field label="Provider">
-          <Select
-            disabled={providerDisabled}
-            value={draft.providerId ?? SELECT_NONE}
-            onValueChange={(value) => setDraft((current) => {
-              const adapterOptions = { ...(current.adapterOptions ?? {}) };
-              if (activeTool === "kimi") delete adapterOptions.kimiConfigMode;
-              return {
+        {providerDisabled ? (
+          <Field label={t("fieldRuntime")}>
+            <Select
+              value={draft.targetRuntime ?? SELECT_NONE}
+              onValueChange={(value) => setDraft((current) => ({
                 ...current,
-                providerId: value === SELECT_NONE ? null : value,
-                modelId: null,
-                adapterOptions,
-              };
-            })}
-          >
-            <SelectTrigger aria-label="Provider">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={SELECT_NONE}>{t("noProviderSpecified")}</SelectItem>
-              {providerOptions.map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Field>
+                targetRuntime: value === SELECT_NONE ? null : value as Exclude<LaunchProfileRuntime, null>,
+              }))}
+            >
+              <SelectTrigger aria-label={t("fieldRuntime")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_NONE}>{t("runtimeAll")}</SelectItem>
+                <SelectItem value="local">{t("runtime.local")}</SelectItem>
+                <SelectItem value="wsl">{t("runtime.wsl")}</SelectItem>
+                <SelectItem value="ssh">{t("runtime.ssh")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        ) : (
+          <Field label={t("fieldProvider")}>
+            <Select
+              value={draft.providerId ?? SELECT_NONE}
+              onValueChange={(value) => setDraft((current) => {
+                const adapterOptions = { ...(current.adapterOptions ?? {}) };
+                if (activeTool === "kimi") delete adapterOptions.kimiConfigMode;
+                return {
+                  ...current,
+                  providerId: value === SELECT_NONE ? null : value,
+                  modelId: null,
+                  adapterOptions,
+                };
+              })}
+            >
+              <SelectTrigger aria-label={t("fieldProvider")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_NONE}>{t("noProviderSpecified")}</SelectItem>
+                {providerOptions.map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
       </div>
+      {!providerDisabled && (
+        <>
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label={t("fieldModel")}>
           <Select
@@ -179,6 +202,8 @@ export default function LaunchProfileBasicsCard({
           </Select>
         </Field>
       </div>
+        </>
+      )}
       <div className="mt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("runtimeHint")}
       </div>

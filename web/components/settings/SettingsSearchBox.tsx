@@ -21,7 +21,7 @@ export default function SettingsSearchBox({
   const showResults = focused && query.trim().length > 0;
 
   return (
-    <div className="relative mx-auto w-full max-w-[460px]">
+    <div className="relative w-full">
       <Search aria-hidden="true" size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--app-text-tertiary)]" />
       <input
         type="search"

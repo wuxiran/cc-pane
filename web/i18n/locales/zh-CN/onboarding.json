@@ -48,7 +48,7 @@
     "groupLabel": "工作台模式",
     "full": {
       "title": "全功能模式",
-      "description": "启用 SSH、编排、资源中心与 Todo，适合需要完整协作面的用户。"
+      "description": "启用 SSH、编排与 Todo，适合需要完整协作面的用户。"
     },
     "minimal": {
       "title": "极简模式",
@@ -121,8 +121,8 @@
       },
       "skill": {
         "title": "安装第一个 Skill",
-        "description": "从资源中心安装一个可复用的进阶工作流。",
-        "checkFailed": "暂时无法读取已安装 Skill，仍可前往资源中心查看。",
+        "description": "在设置 → 工具 → Skills 中安装一个可复用的进阶工作流。",
+        "checkFailed": "暂时无法读取已安装 Skill，仍可前往设置 → 工具 → Skills 查看。",
         "action": "浏览 Skills"
       }
     }

@@ -195,14 +195,12 @@ describe("RightDock", () => {
 
   it("只为启用且位于右坞的模块注册扩展 tab", () => {
     useModulePrefsStore.getState().setPosition("ssh", "rightDock");
-    useModulePrefsStore.getState().setPosition("resources", "rightDock");
     useModulePrefsStore.getState().setPosition("todo", "hidden");
     useModulePrefsStore.getState().setEnabled("orchestration", false);
 
     renderDock();
 
     expect(screen.getByRole("tab", { name: "SSH 机器" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "资源中心" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "TodoList" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "任务编排" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "AI 面板" })).toBeInTheDocument();
@@ -258,19 +256,6 @@ describe("RightDock", () => {
     expect(onOpenTerminal).toHaveBeenCalledWith(expect.objectContaining({
       path: "ssh://host/project",
     }));
-  });
-
-  it("非驻留模块 tab 按下即打开原全屏形态且不抢占当前 tab", async () => {
-    const user = userEvent.setup();
-    useModulePrefsStore.getState().setPosition("resources", "rightDock");
-    renderDock();
-
-    const resourcesTab = screen.getByRole("tab", { name: "资源中心" });
-    await user.click(resourcesTab);
-
-    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
-    expect(useRightDockStore.getState().activeView).toBe("git");
-    expect(resourcesTab).toHaveAttribute("aria-selected", "false");
   });
 
   it("双击拖柄可折叠", () => {

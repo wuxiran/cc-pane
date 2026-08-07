@@ -26,10 +26,14 @@ vi.mock("./ProviderFormPanel", () => ({
     editProvider,
     duplicateSeed,
     preset,
+    onBack,
+    onSaved,
   }: {
     editProvider?: Provider | null;
     duplicateSeed?: Provider | null;
     preset?: { id: string } | null;
+    onBack?: () => void;
+    onSaved?: () => void;
   }) => (
     <div data-testid="provider-form">
       {editProvider
@@ -39,6 +43,8 @@ vi.mock("./ProviderFormPanel", () => ({
           : preset
             ? `preset:${preset.id}`
             : "new"}
+      <button type="button" onClick={onBack}>form-back</button>
+      <button type="button" onClick={onSaved}>form-saved</button>
     </div>
   ),
 }));
@@ -149,6 +155,22 @@ describe("ProvidersPanel", () => {
     render(<ProvidersPanel />);
     expect(screen.getByTestId("launch-profiles")).toHaveTextContent("claude");
     expect(actions.loadProviders).toHaveBeenCalled();
+  });
+
+  it("pins the credential view without rendering the internal view switcher", () => {
+    setupStores();
+    render(<ProvidersPanel view="providers" />);
+
+    expect(screen.getByText(i18n.t("settings:systemProviderName"))).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: i18n.t("settings:launchProfilesTab") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: i18n.t("settings:providerCredentialsTab") })).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate the preset creation action in the provider header", () => {
+    setupStores([makeProvider()]);
+    render(<ProvidersPanel compact view="providers" />);
+
+    expect(screen.queryByRole("button", { name: i18n.t("settings:fromPreset") })).not.toBeInTheDocument();
   });
 
   it("switches to the provider credential list and shows the empty state", async () => {
@@ -299,12 +321,26 @@ describe("ProvidersPanel", () => {
     await user.click(
       screen.getAllByRole("button", { name: new RegExp(i18n.t("settings:fromPreset")) })[0]
     );
+    expect(screen.getByRole("heading", { name: i18n.t("settings:fromPreset") })).toBeInTheDocument();
     expect(screen.getByText(i18n.t("settings:selectPresetOrCustom"))).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: new RegExp(i18n.t("settings:manualConfig")) })
     );
     expect(screen.getByTestId("provider-form")).toHaveTextContent("new");
+  });
+
+  it("returns to the preset picker when backing out of a preset form", async () => {
+    const user = userEvent.setup();
+    setupStores();
+    render(<ProvidersPanel view="providers" />);
+
+    await user.click(screen.getByRole("button", { name: i18n.t("settings:fromPreset") }));
+    await user.click(screen.getByRole("button", { name: /Anthropic/ }));
+    expect(screen.getByTestId("provider-form")).toHaveTextContent("preset:anthropic_official");
+
+    await user.click(screen.getByRole("button", { name: "form-back" }));
+    expect(screen.getByRole("heading", { name: i18n.t("settings:fromPreset") })).toBeInTheDocument();
   });
 
   it("offers no launch action and points at the global launcher instead", async () => {

@@ -21,10 +21,12 @@
     "wallpaper": "图片 视频 背景 音乐 透明度 模糊",
     "font": "字体 字号 font family 中文 CJK",
     "shortcuts": "快捷键 热键 键盘 绑定",
+    "usageStats": "用量 趋势 token 字符 缓存 Claude Codex 统计",
     "setupGuide": "新手 入门 引导 工作空间 项目 多开 派工 skill 完成度",
     "modules": "模块 入口 左栏 右坞 隐藏 命令面板",
     "quickCommands": "快捷命令 命令库 prompt 终端 项目 全局 执行",
-    "provider": "Provider 供应商 API Key 模型",
+    "skills": "Skills 技能 市场 安装 工作流",
+    "provider": "供应商 API Key 模型",
     "mcp": "MCP server 工具 共享",
     "proxy": "代理 HTTP SOCKS 网络",
     "webAccess": "Web 远程 局域网 Tailscale 端口",
@@ -37,7 +39,7 @@
   },
   "groups": {
     "application": "应用",
-    "services": "工具与服务"
+    "services": "服务"
   },
   "pages": {
     "general": {
@@ -47,13 +49,16 @@
       "title": "终端与快捷键"
     },
     "aiTools": {
-      "title": "AI 与工具"
+      "title": "工具"
     },
     "system": {
       "title": "系统与连接"
     },
     "advanced": {
       "title": "高级"
+    },
+    "usageStats": {
+      "title": "使用统计"
     },
     "about": {
       "title": "关于"
@@ -86,7 +91,13 @@
     }
   },
   "general": "通用",
+  "usageStats": {
+    "title": "使用统计",
+    "description": "查看各工作空间的 Token 和字符输入用量。"
+  },
   "theme": {
+    "title": "主题",
+    "shapeTabTitle": "形态",
     "styleTitle": "配色与形态",
     "styleDescription": "分别选择界面配色和结构形态。两项可以自由组合，修改后立即生效并自动保存。",
     "openMenu": "选择配色主题",
@@ -147,7 +158,7 @@
   "terminal": "终端",
   "voice": "语音输入",
   "shortcuts": "快捷键",
-  "provider": "Provider",
+  "provider": "供应商",
   "cliLaunchers": "CLI",
   "about": "关于",
   "ccchanTitle": "cc酱",
@@ -182,6 +193,7 @@
     "orchestrator": {
       "title": "MCP 编排服务监听",
       "description": "CC-Panes 内置 orchestrator（供 CLI 的 ccpanes MCP 工具回连）。修改后重启应用生效。",
+      "bindMode": "监听范围",
       "bindModes": {
         "auto": {
           "label": "自动（推荐）",
@@ -256,7 +268,7 @@
   "zhCN": "简体中文",
   "en": "English",
   "dataDir": "数据目录",
-  "dataDirDesc": "数据库、Provider 配置和工作空间的存储位置",
+  "dataDirDesc": "数据库、供应商配置和工作空间的存储位置",
   "migrating": "迁移中...",
   "dataSize": "数据大小: {{size}}",
   "resetDataDir": "恢复默认位置",
@@ -362,13 +374,13 @@
   "notifyOnExit": "任务退出时通知",
   "notifyOnWaitingInput": "等待输入时通知",
   "notifyOnlyUnfocused": "仅窗口失焦时通知",
-  "providerTitle": "Provider 管理",
-  "providerDesc": "管理 AI Provider 配置。为工作空间绑定 Provider 后，打开终端时会注入对应环境变量。",
-  "noProviders": "暂无 Provider，点击下方按钮添加",
+  "providerTitle": "供应商管理",
+  "providerDesc": "管理 AI 供应商配置。为工作空间绑定供应商后，打开终端时会注入对应环境变量。",
+  "noProviders": "暂无供应商，点击下方按钮添加",
   "systemProviderName": "系统环境变量",
-  "systemProviderDesc": "不注入 provider 环境变量，跟随系统当前配置（如 cc-switch）",
-  "addProvider": "新增 Provider",
-  "editProvider": "编辑 Provider",
+  "systemProviderDesc": "不注入供应商环境变量，跟随系统当前配置（如 cc-switch）",
+  "addProvider": "新增供应商",
+  "editProvider": "编辑供应商",
   "providerName": "名称",
   "providerNamePlaceholder": "例如：我的 Anthropic",
   "providerType": "类型",
@@ -377,10 +389,10 @@
   "region": "Region",
   "awsProfile": "AWS Profile（可选）",
   "vertexProjectId": "Vertex Project ID",
-  "providerUpdated": "Provider 已更新",
-  "providerAdded": "Provider 已添加",
+  "providerUpdated": "供应商已更新",
+  "providerAdded": "供应商已添加",
   "providerModels": "模型",
-  "providerModelsHint": "配置此 Provider 可用的模型，并指定启动时默认使用的一个模型。",
+  "providerModelsHint": "配置此供应商可用的模型，并指定启动时默认使用的一个模型。",
   "addProviderModel": "新增模型",
   "noProviderModels": "尚未配置模型，将继续使用 CLI 自身默认模型",
   "providerModelId": "模型 ID",
@@ -424,8 +436,8 @@
   "setDefaultProviderModel": "设为默认模型",
   "removeProviderModel": "移除模型",
   "providerModelIdRequired": "模型 ID 不能为空",
-  "providerModelIdsUnique": "同一个 Provider 中的模型 ID 不能重复",
-  "providerDeleted": "Provider 已删除",
+  "providerModelIdsUnique": "同一个供应商中的模型 ID 不能重复",
+  "providerDeleted": "供应商已删除",
   "setAsDefault": "已设为默认",
   "aboutTitle": "关于",
   "appName": "应用名称",
@@ -503,7 +515,7 @@
     },
     "skills": {
       "title": "常用玩法已经预置进 AI 的脑子",
-      "body": "并行派工、Plan 交接、同行评审、收尾检查——这些流程已写成 skill，随 CC-Panes 装进各 CLI。直接用大白话说就会触发；想看完整清单，在会话里敲 `/`（Codex 用 `ccpanes-` 前缀），或去资源中心 → Skills 翻「内置 CC-Panes Skills」那一段。"
+      "body": "并行派工、Plan 交接、同行评审、收尾检查——这些流程已写成 skill，随 CC-Panes 装进各 CLI。直接用大白话说就会触发；想看完整清单，在会话里敲 `/`（Codex 用 `ccpanes-` 前缀），或到设置 → 工具 → Skills 查看「内置 CC-Panes Skills」。"
     },
     "rightDock": {
       "title": "右侧坞：一边跑一边盯",
@@ -721,12 +733,12 @@
   "getApiKey": "获取 API Key",
   "selectPresetOrCustom": "选择预设或自定义配置",
   "orCustom": "或者",
-  "emptyTitle": "没有 API Provider",
-  "emptyDesc": "添加 Provider 来连接 Claude Code、Codex 等 AI 工具",
+  "emptyTitle": "没有 API 供应商",
+  "emptyDesc": "添加供应商来连接 Claude Code、Codex 等 AI 工具",
   "resourceHub": "资源中心",
   "skills": "Skills",
   "launchProfilesTab": "运行配置",
-  "providerCredentialsTab": "Provider 凭证",
+  "providerCredentialsTab": "供应商凭证",
   "providerLaunchHint": "这里只管理凭证。要用某个凭证启动会话，请按 {{shortcut}} 打开启动器。",
   "systemEnvDetected": "已检测到：{{keys}}",
   "systemEnvNone": "未检测到任何 Anthropic 环境变量或 cc-switch 配置",

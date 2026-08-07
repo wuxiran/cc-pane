@@ -90,9 +90,8 @@ describe("VoiceSection", () => {
     const onChange = vi.fn();
     render(<VoiceSection value={createValue({ language: "zh" })} onChange={onChange} />);
 
-    const selects = screen.getAllByRole("combobox");
-    // dashscope 布局：region → language
-    await user.selectOptions(selects[1], "");
+    await user.click(screen.getByRole("combobox", { name: /语种|Language/i }));
+    await user.click(screen.getByRole("option", { name: /自动|Auto/i }));
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ language: null }));
   });
@@ -102,7 +101,8 @@ describe("VoiceSection", () => {
     const onChange = vi.fn();
     render(<VoiceSection value={createValue()} onChange={onChange} />);
 
-    await user.selectOptions(screen.getAllByRole("combobox")[0], "intl");
+    await user.click(screen.getByRole("combobox", { name: /服务地域|Service region/i }));
+    await user.click(screen.getByRole("option", { name: /国际|International/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ region: "intl" }));
 
     fireEvent.change(screen.getByDisplayValue("60"), { target: { value: "120" } });

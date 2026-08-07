@@ -37,13 +37,12 @@ describe("module registry", () => {
     expect(MODULE_IDS).toEqual([
       "ssh",
       "orchestration",
-      "resources",
       "todo",
       "aiPanel",
       "sessionHistory",
     ]);
     expect(MODULE_REGISTRY.map((module) => module.id)).toEqual(MODULE_IDS);
-    expect(MODULE_REGISTRY).toHaveLength(6);
+    expect(MODULE_REGISTRY).toHaveLength(5);
     expect(MODULE_REGISTRY.every((module) => module.minimal === false)).toBe(true);
     expect(MODULE_REGISTRY.find((module) => module.id === "aiPanel")?.defaultPosition)
       .toBe("rightDock");
@@ -55,7 +54,6 @@ describe("module registry", () => {
     expect(MODULE_REGISTRY.map(({ id, surfaces }) => [id, surfaces])).toEqual([
       ["ssh", ["activityBar", "rightDock"]],
       ["orchestration", ["rightDock", "overlay"]],
-      ["resources", ["activityBar", "rightDock", "fullscreen"]],
       ["todo", ["activityBar", "rightDock", "fullscreen"]],
       ["aiPanel", ["rightDock", "dialog"]],
       ["sessionHistory", ["rightDock", "commandPalette", "settings"]],
@@ -103,9 +101,6 @@ describe("module registry", () => {
       visible: true,
       activeView: "orchestration",
     });
-
-    MODULE_REGISTRY.find((module) => module.id === "resources")?.open("hidden");
-    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
 
     MODULE_REGISTRY.find((module) => module.id === "todo")?.open("hidden");
     expect(useActivityBarStore.getState().appViewMode).toBe("todo");

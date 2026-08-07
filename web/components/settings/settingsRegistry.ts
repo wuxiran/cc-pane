@@ -1,6 +1,7 @@
 import type { ParseKeys } from "i18next";
 import type { LucideIcon } from "lucide-react";
 import {
+  BarChart3,
   Bell,
   Bot,
   Cable,
@@ -14,6 +15,7 @@ import {
   LibraryBig,
   ListChecks,
   Mic,
+  Package,
   Palette,
   PanelsTopLeft,
   Settings,
@@ -31,21 +33,28 @@ export type SettingsPageId =
   | "terminal"
   | "ai-tools"
   | "system"
-  | "advanced"
+  | "ccchan"
+  | "setup-guide"
+  | "experimental"
+  | "usage-stats"
   | "about";
 
 export type SettingsPaneId =
   | "setup-guide"
   | "theme"
+  | "theme-shape"
   | "general"
+  | "usage-stats"
   | "wallpaper"
   | "terminal"
   | "shortcuts"
   | "quick-commands"
   | "modules"
   | "provider"
+  | "provider-credentials"
   | "cli-launchers"
   | "shared-mcp"
+  | "skills"
   | "proxy"
   | "web-access"
   | "notification"
@@ -103,7 +112,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Settings,
     titleKey: "pages.general.title",
     group: "application",
-    paneIds: ["general", "theme", "wallpaper", "modules"],
+    paneIds: ["general", "theme", "theme-shape", "wallpaper", "modules"],
   },
   {
     id: "terminal",
@@ -116,8 +125,8 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     id: "ai-tools",
     icon: Bot,
     titleKey: "pages.aiTools.title",
-    group: "services",
-    paneIds: ["provider", "cli-launchers", "shared-mcp", "quick-commands", "ccchan"],
+    group: "application",
+    paneIds: ["provider", "provider-credentials", "cli-launchers", "shared-mcp", "skills", "quick-commands"],
   },
   {
     id: "system",
@@ -127,11 +136,32 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     paneIds: ["proxy", "web-access", "notification", "screenshot", "voice"],
   },
   {
-    id: "advanced",
-    icon: FlaskConical,
-    titleKey: "pages.advanced.title",
+    id: "ccchan",
+    icon: Bot,
+    titleKey: "ccchanTitle",
     group: "services",
-    paneIds: ["setup-guide", "experimental"],
+    paneIds: ["ccchan"],
+  },
+  {
+    id: "experimental",
+    icon: FlaskConical,
+    titleKey: "experimental.title",
+    group: "services",
+    paneIds: ["experimental"],
+  },
+  {
+    id: "usage-stats",
+    icon: BarChart3,
+    titleKey: "pages.usageStats.title",
+    group: "services",
+    paneIds: ["usage-stats"],
+  },
+  {
+    id: "setup-guide",
+    icon: ListChecks,
+    titleKey: "setupGuide.title",
+    group: "services",
+    paneIds: ["setup-guide"],
   },
   {
     id: "about",
@@ -148,7 +178,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: ListChecks,
     titleKey: "setupGuide.title",
     descriptionKey: "setupGuide.description",
-    page: "advanced",
+    page: "setup-guide",
     searchEntries: [{
       id: "workflow-checklist",
       titleKey: "setupGuide.title",
@@ -160,11 +190,18 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   {
     id: "theme",
     icon: Palette,
-    titleKey: "theme.styleTitle",
-    descriptionKey: "theme.styleDescription",
+    titleKey: "theme.title",
     page: "general",
     searchEntries: [
       { id: "color", titleKey: "theme.colorTitle", descriptionKey: "theme.colorDescription", keywordsKey: "searchKeywords.theme", targetSectionId: "theme-color" },
+    ],
+  },
+  {
+    id: "theme-shape",
+    icon: Palette,
+    titleKey: "theme.shapeTabTitle",
+    page: "general",
+    searchEntries: [
       { id: "shape", titleKey: "theme.shapeTitle", descriptionKey: "theme.shapeDescription", keywordsKey: "searchKeywords.themeShape", targetSectionId: "theme-shape" },
     ],
   },
@@ -183,6 +220,20 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       { id: "cli", titleKey: "defaultCliTool", descriptionKey: "defaultCliToolDesc", targetSectionId: "general-root" },
       { id: "data", titleKey: "dataDir", descriptionKey: "dataDirDesc", targetSectionId: "general-root" },
     ],
+  },
+  {
+    id: "usage-stats",
+    icon: BarChart3,
+    titleKey: "usageStats.title",
+    descriptionKey: "usageStats.description",
+    page: "usage-stats",
+    searchEntries: [{
+      id: "usage-trends",
+      titleKey: "usageStats.title",
+      descriptionKey: "usageStats.description",
+      keywordsKey: "searchKeywords.usageStats",
+      targetSectionId: "usage-stats-root",
+    }],
   },
   {
     id: "wallpaper",
@@ -240,11 +291,20 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   {
     id: "provider",
     icon: Cloud,
-    titleKey: "provider",
-    descriptionKey: "providerDesc",
+    titleKey: "launchProfilesTab",
     page: "ai-tools",
     searchEntries: [
-      { id: "providers", titleKey: "providerTitle", descriptionKey: "providerDesc", keywordsKey: "searchKeywords.provider", targetSectionId: "provider-root" },
+      { id: "launch-profiles", titleKey: "launchProfilesTab", keywordsKey: "searchKeywords.provider", targetSectionId: "provider-root" },
+    ],
+    layout: "wide",
+  },
+  {
+    id: "provider-credentials",
+    icon: Cloud,
+    titleKey: "providerCredentialsTab",
+    page: "ai-tools",
+    searchEntries: [
+      { id: "provider-credentials", titleKey: "providerCredentialsTab", keywordsKey: "searchKeywords.provider", targetSectionId: "provider-credentials-root" },
     ],
     layout: "wide",
   },
@@ -254,6 +314,9 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", descriptionKey: "sharedMcp.importHint", page: "ai-tools", searchEntries: [
     { id: "servers", titleKey: "sharedMcp.title", keywordsKey: "searchKeywords.mcp", targetSectionId: "shared-mcp-root" },
   ] },
+  { id: "skills", icon: Package, titleKey: "skills", page: "ai-tools", searchEntries: [
+    { id: "library", titleKey: "skills", keywordsKey: "searchKeywords.skills", targetSectionId: "skills-root" },
+  ], layout: "wide" },
   { id: "proxy", icon: Globe, titleKey: "proxy", page: "system", searchEntries: [
     { id: "connection", titleKey: "proxyTitle", keywordsKey: "searchKeywords.proxy", targetSectionId: "proxy-root" },
   ] },
@@ -292,7 +355,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "voice", icon: Mic, titleKey: "voice", descriptionKey: "voiceDesc", page: "system", searchEntries: [
     { id: "input", titleKey: "voiceTitle", descriptionKey: "voiceDesc", keywordsKey: "searchKeywords.voice", targetSectionId: "voice-root" },
   ] },
-  { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", page: "ai-tools", searchEntries: [
+  { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", page: "ccchan", searchEntries: [
     { id: "companion", titleKey: "ccchanTitle", keywordsKey: "searchKeywords.ccchan", targetSectionId: "ccchan-root" },
   ] },
   {
@@ -300,7 +363,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: FlaskConical,
     titleKey: "experimental.title",
     descriptionKey: "experimental.description",
-    page: "advanced",
+    page: "experimental",
     searchEntries: [{
       id: "features",
       titleKey: "experimental.title",

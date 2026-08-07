@@ -253,33 +253,17 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
           background: "var(--app-content)",
         }}
       >
-        <DialogHeader className="shape-chrome flex h-12 shrink-0 flex-row items-center gap-2.5 space-y-0 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 sm:px-4">
-          <span aria-hidden="true" className="hidden size-7 shrink-0 items-center justify-center rounded bg-[var(--app-active-bg)] text-[var(--app-accent)] sm:flex">
-            <Settings size={16} />
-          </span>
-          <DialogTitle className="hidden shrink-0 text-[14px] font-semibold sm:block">{t("title")}</DialogTitle>
-          <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
-          <SettingsSearchBox
-            query={searchQuery}
-            results={searchResults}
-            onQueryChange={setSearchQuery}
-            onSelect={handleSelectSearchResult}
-          />
-          <button
-            type="button"
-            aria-label={t("close", { ns: "common" })}
-            onClick={() => handleClose(false)}
-            className="shape-control ml-auto flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-          >
-            <X aria-hidden="true" size={16} />
-          </button>
-        </DialogHeader>
-
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-          <SettingsSidebar pages={pages} activePageId={activePage.id} onSelect={handleSelectPage} />
-          <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <DialogHeader className="shape-chrome grid h-12 shrink-0 grid-cols-[144px_minmax(0,1fr)_auto] items-center gap-2 space-y-0 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 sm:grid-cols-[220px_minmax(0,1fr)_auto] sm:px-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span aria-hidden="true" className="hidden size-7 shrink-0 items-center justify-center rounded bg-[var(--app-active-bg)] text-[var(--app-accent)] sm:flex">
+              <Settings size={16} />
+            </span>
+            <DialogTitle className="hidden truncate text-[14px] font-semibold sm:block">{t("title")}</DialogTitle>
+            <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
+          </div>
+          <div className="min-w-0 overflow-x-auto pl-4 sm:pl-[23px]">
             {activePagePanes.length > 1 && (
-              <div className="shrink-0 overflow-x-auto border-b border-[var(--app-border)] px-4 py-2.5 sm:px-6">
+              <div className="flex min-w-max justify-start">
                 <SegmentedTabs<SettingsPaneId>
                   value={activePaneId}
                   onValueChange={handleSelectPane}
@@ -287,14 +271,40 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
                     value: pane.id,
                     label: t(pane.titleKey),
                   }))}
-                  size="sm"
+                  size="md"
                   className="min-w-max rounded-md"
                   aria-label={t("paneNavigation")}
                 />
               </div>
             )}
+          </div>
+          <button
+            type="button"
+            aria-label={t("close", { ns: "common" })}
+            onClick={() => handleClose(false)}
+            className="shape-control flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+          >
+            <X aria-hidden="true" size={16} />
+          </button>
+        </DialogHeader>
+
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <SettingsSidebar
+            pages={pages}
+            activePageId={activePage.id}
+            onSelect={handleSelectPage}
+            searchSlot={(
+              <SettingsSearchBox
+                query={searchQuery}
+                results={searchResults}
+                onQueryChange={setSearchQuery}
+                onSelect={handleSelectSearchResult}
+              />
+            )}
+          />
+          <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className={activePane.layout === "wide" ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"}>
-              <div className={activePane.layout === "wide" ? "h-full min-h-0" : "mx-auto w-full max-w-[720px] px-4 py-5 sm:px-8 sm:py-6"}>
+              <div className={activePane.layout === "wide" ? "mx-auto h-full min-h-0 w-full max-w-[720px] px-4 sm:px-8" : "mx-auto w-full max-w-[720px] px-4 py-5 sm:px-8 sm:py-6"}>
                 <SettingsSearchProvider value={{
                   query: appliedQuery,
                   matchedSectionIds,

@@ -94,15 +94,16 @@ describe("TerminalSection", () => {
     const onChange = vi.fn();
     render(<TerminalSection value={createValue()} onChange={onChange} />);
 
-    const selects = screen.getAllByRole("combobox");
-    // 顺序：themeMode → cursorStyle → rendererMode
-    await user.selectOptions(selects[0], "dark");
+    await user.click(screen.getByRole("combobox", { name: /终端主题|Terminal theme/i }));
+    await user.click(screen.getByRole("option", { name: /深色|Dark/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ themeMode: "dark" }));
 
-    await user.selectOptions(selects[1], "bar");
+    await user.click(screen.getByRole("combobox", { name: /光标样式|Cursor style/i }));
+    await user.click(screen.getByRole("option", { name: /竖线|Bar/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ cursorStyle: "bar" }));
 
-    await user.selectOptions(selects[2], "webgl");
+    await user.click(screen.getByRole("combobox", { name: /渲染器|Renderer/i }));
+    await user.click(screen.getByRole("option", { name: /WebGL/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ rendererMode: "webgl" }));
   });
 
@@ -161,19 +162,19 @@ describe("TerminalSection", () => {
     ]);
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<TerminalSection value={createValue()} onChange={onChange} />);
+    const { rerender } = render(<TerminalSection value={createValue()} onChange={onChange} />);
 
     // 等下拉框出现（shell 列表异步加载）
-    const option = await screen.findByRole("option", { name: "PowerShell 7" });
-    expect(option).toBeInTheDocument();
-
-    const shellSelect = (await screen.findByRole("option", { name: "Command Prompt" }))
-      .closest("select")!;
-    await user.selectOptions(shellSelect, "cmd");
+    const shellSelect = await screen.findByRole("combobox", { name: "Shell" });
+    await user.click(shellSelect);
+    expect(screen.getByRole("option", { name: "PowerShell 7" })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Command Prompt" }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ shell: "cmd" }));
 
+    rerender(<TerminalSection value={createValue({ shell: "cmd" })} onChange={onChange} />);
     // 选回自动探测 → null
-    await user.selectOptions(shellSelect, "");
+    await user.click(shellSelect);
+    await user.click(screen.getByRole("option", { name: /自动检测|Auto-detect/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ shell: null }));
   });
 
@@ -184,8 +185,8 @@ describe("TerminalSection", () => {
       <TerminalSection value={createValue({ shell: "D:\\tools\\nu.exe" })} onChange={onChange} />,
     );
 
-    const custom = await screen.findByRole("option", { name: "D:\\tools\\nu.exe" });
-    expect((custom as HTMLOptionElement).selected).toBe(true);
+    const shellSelect = await screen.findByRole("combobox", { name: "Shell" });
+    expect(shellSelect).toHaveTextContent("D:\\tools\\nu.exe");
   });
 
   it("treats a null resumeIdBackfillEnabled as unchecked and toggles it on", async () => {

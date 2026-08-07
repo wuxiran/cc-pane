@@ -32,7 +32,7 @@ vi.mock("./settings/NotificationSection", () => ({
   default: () => <div data-testid="notification-section" />,
 }));
 vi.mock("./settings/ProviderSection", () => ({
-  default: () => <div data-testid="provider-section" />,
+  default: ({ view }: { view: string }) => <div data-testid="provider-section" data-view={view} />,
 }));
 vi.mock("./settings/ProxySection", () => ({
   default: () => <div data-testid="proxy-section" />,
@@ -54,6 +54,9 @@ vi.mock("./settings/ScreenshotSection", () => ({
 }));
 vi.mock("./settings/SharedMcpSection", () => ({
   default: () => <div data-testid="shared-mcp-section" />,
+}));
+vi.mock("@/components/resources/GlobalSkillsPanel", () => ({
+  default: () => <div data-testid="skills-section" />,
 }));
 vi.mock("./settings/VoiceSection", () => ({
   default: () => <div data-testid="voice-section" />,
@@ -130,7 +133,7 @@ describe("SettingsPanel", () => {
     expect(screen.queryByTestId("terminal-section")).not.toBeInTheDocument();
   });
 
-  it("uses the OpenCode-sized modal and six consolidated navigation pages", () => {
+  it("uses the OpenCode-sized modal and independent navigation pages", () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
     const dialog = screen.getByTestId("settings-dialog");
@@ -145,9 +148,11 @@ describe("SettingsPanel", () => {
     for (const group of ["application", "services"] as const) {
       expect(screen.getByText(tSettings(`groups.${group}`))).toBeInTheDocument();
     }
-    for (const page of ["general", "terminal", "aiTools", "system", "advanced", "about"] as const) {
+    for (const page of ["general", "terminal", "aiTools", "system", "usageStats", "about"] as const) {
       expect(screen.getByRole("button", { name: tSettings(`pages.${page}.title`) })).toBeInTheDocument();
     }
+    expect(screen.getByRole("button", { name: tSettings("setupGuide.title") })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tSettings("experimental.title") })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: tSettings("pages.general.title") })).not.toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: tSettings("paneNavigation") })).toBeInTheDocument();
     expect(screen.getByText("CC-Panes")).toBeInTheDocument();
@@ -184,6 +189,11 @@ describe("SettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
     await user.click(screen.getByRole("tab", { name: tSettings("sharedMcp.title") }));
     expect(await screen.findByTestId("shared-mcp-section")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: tSettings("skills") }));
+    const skillsSection = await screen.findByTestId("skills-section");
+    expect(skillsSection).toBeInTheDocument();
+    expect(skillsSection.closest('[data-settings-section="skills-root"]')).toHaveClass("h-full", "min-h-0");
   });
 
   it("lets full-height settings panes constrain their internal scroll areas", async () => {
@@ -195,6 +205,17 @@ describe("SettingsPanel", () => {
     const providerSection = await screen.findByTestId("provider-section");
     const paneRoot = providerSection.closest('[data-settings-section="provider-root"]');
     expect(paneRoot).toHaveClass("h-full", "min-h-0");
+  });
+
+  it("keeps launch profiles and provider credentials as separate AI tools panes", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
+    expect(await screen.findByTestId("provider-section")).toHaveAttribute("data-view", "profiles");
+
+    await user.click(screen.getByRole("tab", { name: tSettings("providerCredentialsTab") }));
+    expect(await screen.findByTestId("provider-section")).toHaveAttribute("data-view", "providers");
   });
 
   it("opens the registry-backed module settings pane", async () => {
@@ -212,10 +233,20 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: tSettings("pages.advanced.title") }));
+    await user.click(screen.getByRole("button", { name: tSettings("setupGuide.title") }));
 
     expect(await screen.findByTestId("setup-guide-section")).toBeInTheDocument();
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
+  });
+
+  it("opens CC-chan as an independent service page", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("ccchanTitle") }));
+
+    expect(await screen.findByTestId("ccchan-section")).toBeInTheDocument();
+    expect(screen.queryByTestId("provider-section")).not.toBeInTheDocument();
   });
 
   it("shows the screenshot section on non-mac platforms", async () => {
@@ -250,8 +281,7 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: tSettings("pages.advanced.title") }));
-    await user.click(screen.getByRole("tab", { name: tSettings("experimental.title") }));
+    await user.click(screen.getByRole("button", { name: tSettings("experimental.title") }));
 
     expect(await screen.findByTestId("experimental-section")).toBeInTheDocument();
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();

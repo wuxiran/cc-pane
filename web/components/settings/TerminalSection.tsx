@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { terminalService } from "@/services/terminalService";
 import {
@@ -16,6 +17,8 @@ interface TerminalSectionProps {
   value: TerminalSettings;
   onChange: (value: TerminalSettings) => void;
 }
+
+const AUTO_SHELL_VALUE = "__auto__";
 
 export default function TerminalSection({ value, onChange }: TerminalSectionProps) {
   const { t } = useTranslation("settings");
@@ -78,45 +81,35 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         </div>
       </SearchableSetting>
 
-      <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-6">
         <Label>{t("terminalTheme")}</Label>
-        <select
-          value={value.themeMode ?? "followApp"}
-          onChange={(e) => update("themeMode", e.target.value as TerminalSettings["themeMode"])}
-          className="h-9 px-2 rounded-md text-[13px] outline-none"
-          style={{
-            border: "1px solid var(--app-border)",
-            background: "var(--app-content)",
-            color: "var(--app-text-primary)",
-          }}
-        >
-          <option value="followApp">{t("terminalThemeFollowApp")}</option>
-          <option value="dark">{t("terminalThemeDark")}</option>
-          <option value="light">{t("terminalThemeLight")}</option>
-        </select>
+        <Select value={value.themeMode ?? "followApp"} onValueChange={(next) => update("themeMode", next as TerminalSettings["themeMode"])}>
+          <SelectTrigger aria-label={t("terminalTheme")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="followApp">{t("terminalThemeFollowApp")}</SelectItem>
+            <SelectItem value="dark">{t("terminalThemeDark")}</SelectItem>
+            <SelectItem value="light">{t("terminalThemeLight")}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="flex gap-2 items-end">
-        <div className="flex flex-col gap-1 flex-1">
-          <Label>{t("cursorStyle")}</Label>
-          <select
-            value={value.cursorStyle}
-            onChange={(e) => update("cursorStyle", e.target.value)}
-            className="h-9 px-2 rounded-md text-[13px] outline-none"
-            style={{
-              border: "1px solid var(--app-border)",
-              background: "var(--app-content)",
-              color: "var(--app-text-primary)",
-            }}
-          >
-            <option value="block">{t("cursorBlock")}</option>
-            <option value="underline">{t("cursorUnderline")}</option>
-            <option value="bar">{t("cursorBar")}</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label>{t("cursorBlink")}</Label>
-          <div className="flex items-center h-9">
+      <div className="flex items-center justify-between gap-6">
+        <Label>{t("cursorStyle")}</Label>
+        <div className="flex items-center gap-4">
+          <Select value={value.cursorStyle} onValueChange={(next) => update("cursorStyle", next)}>
+            <SelectTrigger aria-label={t("cursorStyle")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="block">{t("cursorBlock")}</SelectItem>
+              <SelectItem value="underline">{t("cursorUnderline")}</SelectItem>
+              <SelectItem value="bar">{t("cursorBar")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <label className="flex items-center gap-2 text-[13px] text-[var(--app-text-secondary)]">
+            {t("cursorBlink")}
             <input
               type="checkbox"
               checked={value.cursorBlink}
@@ -124,13 +117,13 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               className="w-4 h-4 cursor-pointer"
               style={{ accentColor: "var(--app-accent)" }}
             />
-          </div>
+          </label>
         </div>
       </div>
 
-      <div className="flex gap-2 items-end">
-        <div className="flex flex-col gap-1 w-40">
-          <Label>{t("scrollback")}</Label>
+      <div className="flex items-center justify-between gap-6">
+        <Label>{t("scrollback")}</Label>
+        <div className="w-44 shrink-0">
           <Input
             type="number"
             min={TERMINAL_SCROLLBACK_MIN}
@@ -142,28 +135,24 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             }
           />
         </div>
+      </div>
 
-        <div className="flex flex-col gap-1 flex-1">
-          <Label>Shell</Label>
+      <div className="flex items-center justify-between gap-6">
+        <Label>Shell</Label>
+        <div className="w-44 shrink-0">
           {shells.length > 0 ? (
-            <select
-              value={value.shell ?? ""}
-              onChange={(e) => update("shell", e.target.value || null)}
-              className="h-9 px-2 rounded-md text-[13px] outline-none"
-              style={{
-                border: "1px solid var(--app-border)",
-                background: "var(--app-content)",
-                color: "var(--app-text-primary)",
-              }}
-            >
-              <option value="">{t("shellAutoDetect")}</option>
+            <Select value={value.shell ?? AUTO_SHELL_VALUE} onValueChange={(next) => update("shell", next === AUTO_SHELL_VALUE ? null : next)}>
+              <SelectTrigger aria-label="Shell" className="w-full bg-[var(--app-content)] text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={AUTO_SHELL_VALUE}>{t("shellAutoDetect")}</SelectItem>
               {shells.map((shell) => (
-                <option key={shell.id} value={shell.id} title={shell.path}>
-                  {shell.name}
-                </option>
+                <SelectItem key={shell.id} value={shell.id}>{shell.name}</SelectItem>
               ))}
-              {shellIsCustom && <option value={value.shell!}>{value.shell}</option>}
-            </select>
+                {shellIsCustom && <SelectItem value={value.shell!}>{value.shell}</SelectItem>}
+              </SelectContent>
+            </Select>
           ) : (
             <Input
               value={value.shell ?? ""}
@@ -175,21 +164,19 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label>{t("rendererMode")}</Label>
-        <select
-          value={value.rendererMode ?? "auto"}
-          onChange={(e) => update("rendererMode", e.target.value as TerminalSettings["rendererMode"])}
-          className="h-9 px-2 rounded-md text-[13px] outline-none"
-          style={{
-            border: "1px solid var(--app-border)",
-            background: "var(--app-content)",
-            color: "var(--app-text-primary)",
-          }}
-        >
-          <option value="auto">{t("rendererAuto")}</option>
-          <option value="webgl">{t("rendererWebgl")}</option>
-          <option value="dom">{t("rendererDom")}</option>
-        </select>
+        <div className="flex items-center justify-between gap-6">
+          <Label>{t("rendererMode")}</Label>
+          <Select value={value.rendererMode ?? "auto"} onValueChange={(next) => update("rendererMode", next as TerminalSettings["rendererMode"])}>
+            <SelectTrigger aria-label={t("rendererMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t("rendererAuto")}</SelectItem>
+              <SelectItem value="webgl">{t("rendererWebgl")}</SelectItem>
+              <SelectItem value="dom">{t("rendererDom")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("rendererHint")}
         </p>

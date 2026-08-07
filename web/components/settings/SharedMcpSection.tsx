@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSharedMcpStore } from "@/stores";
 import type { BridgeMode, SharedMcpServerConfig, SharedMcpServerInfo, SharedMcpServerStatus } from "@/types";
 import { mcpService } from "@/services";
@@ -400,14 +401,18 @@ export default function SharedMcpSection() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("sharedMcp.fieldBridge")}</Label>
-                <select
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                <Select
                   value={form.bridgeMode}
-                  onChange={(e) => setForm({ ...form, bridgeMode: e.target.value as BridgeMode })}
+                  onValueChange={(next) => setForm({ ...form, bridgeMode: next as BridgeMode })}
                 >
-                  <option value="mcp-proxy">mcp-proxy</option>
-                  <option value="native-http">native-http</option>
-                </select>
+                  <SelectTrigger className="h-8 w-full bg-[var(--app-content)] text-[13px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mcp-proxy">mcp-proxy</SelectItem>
+                    <SelectItem value="native-http">native-http</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>

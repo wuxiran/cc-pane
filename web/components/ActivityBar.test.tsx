@@ -59,9 +59,9 @@ describe("ActivityBar", () => {
   it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer/ssh + 资源中心 + todo + settings = 6 按钮
+    // Home + explorer/ssh + todo + settings = 5 按钮
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(6);
+    expect(container.querySelectorAll("button")).toHaveLength(5);
   });
 
   it("不再有 sessions 竖排入口：explorer 之后紧跟 ssh（最近启动已迁至 Explorer 顶部 tab）", async () => {
@@ -83,16 +83,6 @@ describe("ActivityBar", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
     await user.click(homeBtn);
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
-  });
-
-  it("点击资源中心图标切换到 resources 视图模式", async () => {
-    const user = userEvent.setup();
-    const { container } = renderBar();
-    // 资源中心是倒数第三个（todo、settings 之前）
-    const buttons = container.querySelectorAll("button");
-    const resourcesBtn = buttons[buttons.length - 3];
-    await user.click(resourcesBtn);
-    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
   });
 
   it("点击 Todo 图标切换到 todo 视图模式", async () => {
@@ -134,15 +124,14 @@ describe("ActivityBar", () => {
   });
 
   it("只渲染启用且位于左栏的注册模块", () => {
-    useModulePrefsStore.getState().setPosition("resources", "rightDock");
+    useModulePrefsStore.getState().setPosition("ssh", "rightDock");
     useModulePrefsStore.getState().setPosition("todo", "hidden");
     useModulePrefsStore.getState().setEnabled("orchestration", false);
 
     const { container } = renderBar();
 
-    expect(container.querySelector('[data-module-id="ssh"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-module-id="ssh"]')).not.toBeInTheDocument();
     expect(container.querySelector('[data-module-id="orchestration"]')).not.toBeInTheDocument();
-    expect(container.querySelector('[data-module-id="resources"]')).not.toBeInTheDocument();
     expect(container.querySelector('[data-module-id="todo"]')).not.toBeInTheDocument();
   });
 

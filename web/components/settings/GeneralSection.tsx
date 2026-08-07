@@ -5,6 +5,13 @@ import { handleErrorSilent, isTauriRuntime } from "@/utils";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { settingsService } from "@/services";
 import { useSettingsStore } from "@/stores";
 import { useDialogStore } from "@/stores";
@@ -213,66 +220,60 @@ export default function GeneralSection({
         />
       </div>
 
-      <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-6">
         <Label>{t("language")}</Label>
-        <select
-          value={value.language}
-          onChange={(e) => update("language", e.target.value)}
-          className="h-9 px-2 rounded-md text-[13px] outline-none w-40"
-          style={{
-            border: "1px solid var(--app-border)",
-            background: "var(--app-content)",
-            color: "var(--app-text-primary)",
-          }}
-        >
-          <option value="zh-CN">{t("zhCN")}</option>
-          <option value="en">{t("en")}</option>
-        </select>
+        <Select value={value.language} onValueChange={(next) => update("language", next)}>
+          <SelectTrigger aria-label={t("language")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="zh-CN">{t("zhCN")}</SelectItem>
+            <SelectItem value="en">{t("en")}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* 默认 CLI 工具 */}
-      <div className="flex flex-col gap-1">
-        <Label>{t("defaultCliTool")}</Label>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("defaultCliToolDesc")}
-        </p>
-        <select
-          value={value.defaultCliTool ?? "claude"}
-          onChange={(e) => update("defaultCliTool", e.target.value)}
-          className="h-9 px-2 rounded-md text-[13px] outline-none w-40"
-          style={{
-            border: "1px solid var(--app-border)",
-            background: "var(--app-content)",
-            color: "var(--app-text-primary)",
-          }}
-        >
-          {cliTools.map((tool) => (
-            <option key={tool.id} value={tool.id}>{tool.displayName}</option>
-          ))}
-        </select>
+      <div className="flex items-center justify-between gap-6">
+        <div className="min-w-0">
+          <Label>{t("defaultCliTool")}</Label>
+          <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("defaultCliToolDesc")}
+          </p>
+        </div>
+        <Select value={value.defaultCliTool ?? "claude"} onValueChange={(next) => update("defaultCliTool", next)}>
+          <SelectTrigger aria-label={t("defaultCliTool")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {cliTools.map((tool) => (
+              <SelectItem key={tool.id} value={tool.id}>{tool.displayName}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* 搜索范围 */}
-      <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-        <Label>{t("searchScope")}</Label>
-        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("searchScopeDesc")}
-        </p>
-        <select
-          value={value.searchScope}
-          onChange={(e) => update("searchScope", e.target.value as SearchScope)}
-          className="h-9 px-2 rounded-md text-[13px] outline-none w-40"
-          style={{
-            border: "1px solid var(--app-border)",
-            background: "var(--app-content)",
-            color: "var(--app-text-primary)",
-          }}
-        >
-          <option value="Workspace">{t("searchScopeWorkspace")}</option>
-          <option value="FullDisk">{t("searchScopeFullDisk")}</option>
-        </select>
+      <div className="mt-1 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
+        <div className="flex items-center justify-between gap-6">
+          <div className="min-w-0">
+            <Label>{t("searchScope")}</Label>
+            <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("searchScopeDesc")}
+            </p>
+          </div>
+          <Select value={value.searchScope} onValueChange={(next) => update("searchScope", next as SearchScope)}>
+            <SelectTrigger aria-label={t("searchScope")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Workspace">{t("searchScopeWorkspace")}</SelectItem>
+              <SelectItem value="FullDisk">{t("searchScopeFullDisk")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         {value.searchScope === "FullDisk" && (
-          <p className="text-xs m-0" style={{ color: "var(--app-accent)" }}>
+          <p className="mt-2 text-xs" style={{ color: "var(--app-accent)" }}>
             {t("searchScopeFullDiskHint")}
           </p>
         )}

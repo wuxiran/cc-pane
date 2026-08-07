@@ -21,6 +21,7 @@ import {
 import type { ThemeSettings } from "@/types/settings";
 
 interface ThemeSectionProps {
+  view?: "theme" | "shape" | "all";
   value: ThemeSettings;
   onChange: (value: ThemeSettings) => void;
 }
@@ -49,7 +50,7 @@ function ShapePreview({ shape }: { shape: ThemeShapeDefinition }) {
   );
 }
 
-export default function ThemeSection({ value, onChange }: ThemeSectionProps) {
+export default function ThemeSection({ view = "all", value, onChange }: ThemeSectionProps) {
   const { t } = useTranslation("settings");
   const preference = canonicalThemePreference(value.mode);
   const selectedShape = canonicalThemeShape(value.shape);
@@ -123,17 +124,8 @@ export default function ThemeSection({ value, onChange }: ThemeSectionProps) {
   }
 
   return (
-    <div className="flex flex-col gap-7" data-settings-section="theme-style">
-      <div>
-        <h1 className="text-[15px] font-semibold text-[var(--app-text-primary)]">
-          {t("theme.styleTitle")}
-        </h1>
-        <p className="mt-1 text-[12px] text-[var(--app-text-tertiary)]">
-          {t("theme.styleDescription")}
-        </p>
-      </div>
-
-      <section
+    <div className="flex flex-col gap-7">
+      {view !== "shape" && <section
         className="space-y-4"
         aria-labelledby="theme-color-heading"
         data-settings-section="theme-color"
@@ -142,9 +134,6 @@ export default function ThemeSection({ value, onChange }: ThemeSectionProps) {
           <h2 id="theme-color-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
             {t("theme.colorTitle")}
           </h2>
-          <p className="mt-1 text-[12px] text-[var(--app-text-tertiary)]">
-            {t("theme.colorDescription")}
-          </p>
         </div>
 
         {renderGroup("dark")}
@@ -171,10 +160,10 @@ export default function ThemeSection({ value, onChange }: ThemeSectionProps) {
             </span>
           </button>
         </section>
-      </section>
+      </section>}
 
-      <section
-        className="space-y-4 border-t border-[var(--app-border)] pt-6"
+      {view !== "theme" && <section
+        className={cn("space-y-4", view === "all" && "border-t border-[var(--app-border)] pt-6")}
         aria-labelledby="theme-shape-heading"
         data-settings-section="theme-shape"
       >
@@ -183,9 +172,6 @@ export default function ThemeSection({ value, onChange }: ThemeSectionProps) {
             <h2 id="theme-shape-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
               {t("theme.shapeTitle")}
             </h2>
-            <p className="mt-1 text-[12px] text-[var(--app-text-tertiary)]">
-              {t("theme.shapeDescription")}
-            </p>
           </div>
           <Button
             type="button"
@@ -247,12 +233,12 @@ export default function ThemeSection({ value, onChange }: ThemeSectionProps) {
           })}
         </div>
 
-        <div className="space-y-1 text-[11px] leading-4 text-[var(--app-text-tertiary)]">
-          <p>{t("theme.shapeScopeNote")}</p>
-          <p>{t("theme.wallpaperHint")}</p>
-          {showBlurFallback && <p>{t("theme.blurFallback")}</p>}
-        </div>
-      </section>
+        {showBlurFallback && (
+          <p className="text-[11px] leading-4 text-[var(--app-text-tertiary)]">
+            {t("theme.blurFallback")}
+          </p>
+        )}
+      </section>}
     </div>
   );
 }

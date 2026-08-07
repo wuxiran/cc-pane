@@ -51,13 +51,13 @@ export default function ProviderModelsEditor({
   };
 
   return (
-    <section className="border-t pt-5" style={{ borderColor: "var(--app-border)" }}>
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <section className="pt-1">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold" style={{ color: "var(--app-text-primary)" }}>
+          <h3 className="text-[13px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
             {t("providerModels")}
           </h3>
-          <p className="mt-1 text-xs leading-5" style={{ color: "var(--app-text-secondary)" }}>
+          <p className="mt-0.5 text-[11px] leading-4" style={{ color: "var(--app-text-secondary)" }}>
             {t("providerModelsHint")}
           </p>
         </div>
@@ -104,7 +104,7 @@ export default function ProviderModelsEditor({
               <div
                 key={index}
                 data-testid={`provider-model-row-${index}`}
-                className="grid grid-cols-1 items-end gap-2 rounded-md border p-2.5 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(8rem,0.75fr)_minmax(11rem,1fr)_auto]"
+                className="grid grid-cols-1 gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(10rem,0.8fr)_auto]"
                 style={{ borderColor: "var(--app-border)", background: "var(--app-panel-bg)" }}
               >
                 <div className="min-w-0 space-y-1.5">
@@ -155,7 +155,7 @@ export default function ProviderModelsEditor({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="min-w-0 space-y-1.5">
+                <div className="min-w-0 space-y-1.5 sm:col-span-2 lg:col-span-3">
                   <Label htmlFor={contextWindowInputId} className="text-[11px]">
                     {t("providerModelContextWindow")}
                   </Label>
@@ -173,9 +173,9 @@ export default function ProviderModelsEditor({
                         if (Number.isFinite(next)) updateModel(index, { contextWindowTokens: next });
                       }}
                     >
-                      <SelectTrigger
-                        id={contextWindowPresetId}
-                        className="h-9 w-[7.5rem] shrink-0 text-sm"
+                    <SelectTrigger
+                      id={contextWindowPresetId}
+                      className="h-9 w-32 shrink-0 text-sm"
                         aria-label={t("providerModelContextWindowPreset")}
                       >
                         <SelectValue />
@@ -224,7 +224,7 @@ export default function ProviderModelsEditor({
                       : t("providerModelContextWindowHint")}
                   </p>
                 </div>
-                <div className="flex h-9 items-center justify-end gap-1 sm:col-start-2 xl:col-start-auto">
+                <div className="flex h-9 items-center justify-end gap-1 sm:col-start-2 lg:col-start-auto">
                   <button
                     type="button"
                     className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
@@ -248,7 +248,7 @@ export default function ProviderModelsEditor({
                   </button>
                 </div>
                 {isDefault && (
-                  <span className="text-[10px] font-medium sm:col-span-2 xl:col-span-5" style={{ color: "var(--app-accent)" }}>
+                  <span className="text-[10px] font-medium sm:col-span-2 lg:col-span-4" style={{ color: "var(--app-accent)" }}>
                     {t("defaultProviderModel")}
                   </span>
                 )}

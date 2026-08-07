@@ -29,6 +29,7 @@ impl UsageTotals {
 #[serde(rename_all = "camelCase")]
 pub struct UsageDayPoint {
     pub date: String,
+    pub by_cli: HashMap<String, UsageTotals>,
     pub claude_chars: u64,
     pub codex_chars: u64,
     pub unknown_chars: u64,

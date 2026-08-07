@@ -460,7 +460,7 @@ export default function LaunchProfilesPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex min-h-0 flex-1 overflow-hidden max-[760px]:flex-col">
+      <div className={`flex min-h-0 flex-1 overflow-hidden ${compact ? "flex-col" : "max-[760px]:flex-col"}`}>
         <LaunchProfileListAside
           compact={compact}
           activeTool={activeTool}
@@ -481,7 +481,7 @@ export default function LaunchProfilesPanel({
         />
 
         <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-5xl space-y-3 px-4 py-4">
+          <div className={`mx-auto max-w-5xl space-y-2.5 ${compact ? "py-3" : "px-3 py-3"}`}>
             <LaunchProfileSummaryCard
               draft={draft}
               activeTool={activeTool}

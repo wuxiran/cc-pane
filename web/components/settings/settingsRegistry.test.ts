@@ -10,7 +10,7 @@ import {
 import { getSettingsCommandTargets } from "./settingsSearch";
 
 describe("settings registry", () => {
-  it("declares six consolidated pages across two groups", () => {
+  it("declares independent setup and experimental settings pages across two groups", () => {
     const paneIds = SETTINGS_PANES.map((pane) => pane.id);
     const pageIds = SETTINGS_PAGES.map((page) => page.id);
     const groupIds = new Set(SETTINGS_GROUPS.map((group) => group.id));
@@ -23,7 +23,7 @@ describe("settings registry", () => {
     expect(assignedPaneIds).toHaveLength(paneIds.length);
     expect(SETTINGS_PANES.every((pane) => Array.isArray(pane.searchEntries))).toBe(true);
     expect(SETTINGS_GROUPS.map((group) => group.id)).toEqual(["application", "services"]);
-    expect(pageIds).toEqual(["general", "terminal", "ai-tools", "system", "advanced", "about"]);
+    expect(pageIds).toEqual(["general", "terminal", "ai-tools", "system", "ccchan", "experimental", "usage-stats", "setup-guide", "about"]);
   });
 
   it("applies desktop and platform availability from the registry", () => {
@@ -46,7 +46,7 @@ describe("settings registry", () => {
     )];
 
     expect(commandPaneIds).toEqual(visiblePaneIds);
-    expect(visiblePages).toHaveLength(6);
+    expect(visiblePages).toHaveLength(9);
     expect(visiblePages.every((page) =>
       page.paneIds.some((paneId) => visiblePaneIds.includes(paneId))
     )).toBe(true);
@@ -56,16 +56,28 @@ describe("settings registry", () => {
     expect(getSettingsPanesForPage("general").map((pane) => pane.id)).toEqual([
       "general",
       "theme",
+      "theme-shape",
       "wallpaper",
       "modules",
     ]);
     expect(getSettingsPanesForPage("ai-tools").map((pane) => pane.id)).toEqual([
       "provider",
+      "provider-credentials",
       "cli-launchers",
       "shared-mcp",
+      "skills",
       "quick-commands",
-      "ccchan",
     ]);
+  });
+
+  it("keeps CC-chan as an independent service page", () => {
+    const ccchan = SETTINGS_PAGES.find((page) => page.id === "ccchan");
+
+    expect(ccchan).toMatchObject({
+      group: "services",
+      paneIds: ["ccchan"],
+    });
+    expect(SETTINGS_PANES.find((pane) => pane.id === "ccchan")?.page).toBe("ccchan");
   });
 
   it("registers the status bar system resource setting for search", () => {
@@ -89,13 +101,14 @@ describe("settings registry", () => {
 
   it("registers independent color and shape search targets", () => {
     const theme = SETTINGS_PANES.find((pane) => pane.id === "theme");
+    const shape = SETTINGS_PANES.find((pane) => pane.id === "theme-shape");
 
     expect(theme?.searchEntries).toContainEqual(expect.objectContaining({
       id: "color",
       keywordsKey: "searchKeywords.theme",
       targetSectionId: "theme-color",
     }));
-    expect(theme?.searchEntries).toContainEqual(expect.objectContaining({
+    expect(shape?.searchEntries).toContainEqual(expect.objectContaining({
       id: "shape",
       keywordsKey: "searchKeywords.themeShape",
       targetSectionId: "theme-shape",
@@ -115,12 +128,27 @@ describe("settings registry", () => {
     }));
   });
 
+  it("places the setup guide between usage statistics and about", () => {
+    const usageStats = SETTINGS_PANES.find((pane) => pane.id === "usage-stats");
+
+    expect(usageStats).toMatchObject({
+      titleKey: "usageStats.title",
+      page: "usage-stats",
+    });
+    expect(usageStats?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "usage-trends",
+      keywordsKey: "searchKeywords.usageStats",
+      targetSectionId: "usage-stats-root",
+    }));
+    expect(SETTINGS_PAGES.map((page) => page.id).slice(-3)).toEqual(["usage-stats", "setup-guide", "about"]);
+  });
+
   it("registers the setup guide and its searchable checklist target", () => {
     const setupGuide = SETTINGS_PANES.find((pane) => pane.id === "setup-guide");
 
     expect(setupGuide).toMatchObject({
       titleKey: "setupGuide.title",
-      page: "advanced",
+      page: "setup-guide",
     });
     expect(setupGuide?.searchEntries).toContainEqual(expect.objectContaining({
       id: "workflow-checklist",

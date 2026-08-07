@@ -7,6 +7,7 @@ import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "l
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
@@ -315,24 +316,28 @@ export default function WebAccessSection({
               {t("webAccessSection.orchestrator.description")}
             </p>
           </div>
-          <select
-            value={normalizeBindMode(orchestrator.bindMode)}
-            onChange={(event) =>
-              onOrchestratorChange({ ...orchestrator, bindMode: event.target.value as OrchestratorBindMode })
-            }
-            className="px-2 py-1.5 rounded-md text-[13px] outline-none cursor-pointer"
-            style={{
-              border: "1px solid var(--app-border)",
-              background: "var(--app-content)",
-              color: "var(--app-text-primary)",
-            }}
-          >
-            {ORCHESTRATOR_BIND_MODES.map((mode) => (
-              <option key={mode} value={mode}>
-                {t(`webAccessSection.orchestrator.bindModes.${mode}.label`)}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center justify-between gap-6">
+            <span className="text-[13px] text-[var(--app-text-secondary)]">
+              {t("webAccessSection.orchestrator.bindMode")}
+            </span>
+            <Select
+              value={normalizeBindMode(orchestrator.bindMode)}
+              onValueChange={(next) =>
+                onOrchestratorChange({ ...orchestrator, bindMode: next as OrchestratorBindMode })
+              }
+            >
+              <SelectTrigger aria-label={t("webAccessSection.orchestrator.bindMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ORCHESTRATOR_BIND_MODES.map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {t(`webAccessSection.orchestrator.bindModes.${mode}.label`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {t(`webAccessSection.orchestrator.bindModes.${normalizeBindMode(orchestrator.bindMode)}.hint`)}
           </p>

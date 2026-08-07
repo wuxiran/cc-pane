@@ -21,9 +21,11 @@
     "wallpaper": "image video background music opacity blur",
     "font": "font size family typography CJK",
     "shortcuts": "shortcut hotkey keyboard binding",
+    "usageStats": "usage trends token characters cache Claude Codex statistics",
     "setupGuide": "getting started onboarding workspace project parallel dispatch skill progress",
     "modules": "module entry Activity Bar right dock hidden command palette",
     "quickCommands": "quick command library prompt terminal project global run",
+    "skills": "skills marketplace install workflow",
     "provider": "provider API key model",
     "mcp": "MCP server tools shared",
     "proxy": "proxy HTTP SOCKS network",
@@ -37,7 +39,7 @@
   },
   "groups": {
     "application": "Application",
-    "services": "Tools & Services"
+    "services": "Services"
   },
   "pages": {
     "general": {
@@ -47,13 +49,16 @@
       "title": "Terminal & Shortcuts"
     },
     "aiTools": {
-      "title": "AI & Tools"
+      "title": "Tools"
     },
     "system": {
       "title": "System & Connectivity"
     },
     "advanced": {
       "title": "Advanced"
+    },
+    "usageStats": {
+      "title": "Usage Statistics"
     },
     "about": {
       "title": "About"
@@ -86,7 +91,13 @@
     }
   },
   "general": "General",
+  "usageStats": {
+    "title": "Usage Statistics",
+    "description": "Review token and character usage across workspaces."
+  },
   "theme": {
+    "title": "Theme",
+    "shapeTabTitle": "Shape",
     "styleTitle": "Color & Shape",
     "styleDescription": "Choose the color theme and interface shape separately. Any combination can be used, and changes apply immediately and save automatically.",
     "openMenu": "Choose color theme",
@@ -182,6 +193,7 @@
     "orchestrator": {
       "title": "MCP orchestrator listener",
       "description": "Built-in CC-Panes orchestrator (for CLI ccpanes MCP tools to connect back). Restart the app after changing.",
+      "bindMode": "Listen on",
       "bindModes": {
         "auto": {
           "label": "Automatic (recommended)",
@@ -503,7 +515,7 @@
     },
     "skills": {
       "title": "Common workflows are already baked into the AI",
-      "body": "Parallel dispatch, plan handoff, peer review, wrap-up checks — these are shipped as skills and installed into each CLI by CC-Panes. Plain language triggers them; for the full list type `/` in a session (Codex uses the `ccpanes-` prefix), or open Resource Hub → Skills and read the \"built-in CC-Panes skills\" section."
+      "body": "Parallel dispatch, plan handoff, peer review, wrap-up checks — these are shipped as skills and installed into each CLI by CC-Panes. Plain language triggers them; for the full list type `/` in a session (Codex uses the `ccpanes-` prefix), or open Settings → Tools → Skills and read the \"built-in CC-Panes skills\" section."
     },
     "rightDock": {
       "title": "The right dock: watch while it runs",

@@ -51,7 +51,7 @@ describe("ThemeSection", () => {
     expect(useThemeStore.getState().preference).toBe("system");
   });
 
-  it("shows separate color and shape sections with all six previews", () => {
+  it("shows separate color and shape sections without the combined heading", () => {
     render(
       <ThemeSection
         value={{ mode: "deep-ink", shape: "soft" }}
@@ -59,7 +59,7 @@ describe("ThemeSection", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "配色与形态" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "配色与形态" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "配色主题" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "界面形态" })).toBeInTheDocument();
     for (const name of [

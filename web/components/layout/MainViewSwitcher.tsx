@@ -13,7 +13,6 @@ import TodoManager from "@/components/todo/TodoManager";
 import { SelfChatManager } from "@/components/selfchat";
 import { HomeDashboard } from "@/components/home";
 import { ProvidersPanel } from "@/components/providers";
-import ResourceHub from "@/components/resources/ResourceHub";
 import OrchestrationOverlay from "@/components/orchestration/OrchestrationOverlay";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
 import LayoutTopBar from "@/components/layoutbar/LayoutTopBar";
@@ -103,12 +102,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       {isMounted("providers") && (
         <div className="flex-1 overflow-hidden" style={viewStyle("providers")}>
           <ProvidersPanel />
-        </div>
-      )}
-      {/* 资源中心：Provider / Skills / MCP 三合一大页面 */}
-      {isMounted("resources") && (
-        <div className="flex-1 overflow-hidden" style={viewStyle("resources")}>
-          <ResourceHub />
         </div>
       )}
       {/* Files 模式：文件编辑面板（侧边栏文件浏览器在上方共用 Sidebar） */}

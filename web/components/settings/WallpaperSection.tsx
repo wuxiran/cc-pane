@@ -7,6 +7,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import WallpaperPreview from "@/components/settings/WallpaperPreview";
 import WallpaperSliderRow from "@/components/settings/WallpaperSliderRow";
 import { wallpaperService } from "@/services";
@@ -19,12 +20,6 @@ interface WallpaperSectionProps {
 }
 
 const FIT_OPTIONS: WallpaperFit[] = ["cover", "contain", "tile", "center"];
-
-const selectStyle: React.CSSProperties = {
-  background: "var(--app-input-bg)",
-  border: "1px solid var(--app-border)",
-  color: "var(--app-text-primary)",
-};
 
 export default function WallpaperSection({ value, onChange }: WallpaperSectionProps) {
   const { t } = useTranslation("settings");
@@ -246,18 +241,16 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
       {/* 铺放方式 */}
       <div className="flex items-center justify-between gap-3">
         <Label>{t("wallpaperFit")}</Label>
-        <select
-          value={value.fit}
-          className="h-9 w-40 rounded-md px-2 text-[13px] outline-none"
-          style={selectStyle}
-          onChange={(event) => update("fit", event.target.value as WallpaperFit)}
-        >
-          {FIT_OPTIONS.map((fit) => (
-            <option key={fit} value={fit}>
-              {fitLabels[fit]}
-            </option>
-          ))}
-        </select>
+        <Select value={value.fit} onValueChange={(next) => update("fit", next as WallpaperFit)}>
+          <SelectTrigger aria-label={t("wallpaperFit")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {FIT_OPTIONS.map((fit) => (
+              <SelectItem key={fit} value={fit}>{fitLabels[fit]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
@@ -328,21 +321,21 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
           </label>
           <div className="flex items-center justify-between gap-3">
             <Label>{t("wallpaperVideoPowerSaver")}</Label>
-            <select
+            <Select
               value={value.video.powerSaver}
-              className="h-9 w-40 rounded-md px-2 text-[13px] outline-none"
-              style={selectStyle}
-              onChange={(event) =>
-                update("video", {
-                  ...value.video,
-                  powerSaver: event.target.value as WallpaperPowerSaver,
-                })
+              onValueChange={(next) =>
+                update("video", { ...value.video, powerSaver: next as WallpaperPowerSaver })
               }
             >
-              <option value="auto">{t("wallpaperVideoPowerSaver_auto")}</option>
-              <option value="always">{t("wallpaperVideoPowerSaver_always")}</option>
-              <option value="never">{t("wallpaperVideoPowerSaver_never")}</option>
-            </select>
+              <SelectTrigger aria-label={t("wallpaperVideoPowerSaver")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t("wallpaperVideoPowerSaver_auto")}</SelectItem>
+                <SelectItem value="always">{t("wallpaperVideoPowerSaver_always")}</SelectItem>
+                <SelectItem value="never">{t("wallpaperVideoPowerSaver_never")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           {sliderRow(
             t("wallpaperVideoRate"),

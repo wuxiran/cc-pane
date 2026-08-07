@@ -8,6 +8,7 @@ export interface UsageTotals {
 
 export interface UsageDayPoint {
   date: string;
+  byCli?: Record<string, UsageTotals>;
   claudeChars: number;
   codexChars: number;
   unknownChars: number;

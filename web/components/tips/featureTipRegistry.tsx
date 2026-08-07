@@ -20,7 +20,6 @@ import {
   LayoutSwitcherVisual,
   MiniModeVisual,
   RightDockVisual,
-  SkillsVisual,
   WorktreeIsolationVisual,
 } from "./featureTipVisuals";
 
@@ -90,12 +89,6 @@ function openAiPanelModule(): void {
   const module = MODULE_REGISTRY.find((entry) => entry.id === "aiPanel");
   // 按用户配置的位置打开：右侧坞 / 弹框，「隐藏」时也走弹框，保证点了必有反馈。
   module?.open(useModulePrefsStore.getState().preferences.aiPanel.position);
-}
-
-function openSkillsPage(): void {
-  const activity = useActivityBarStore.getState();
-  activity.setResourcesTab("skills");
-  activity.setAppViewMode("resources");
 }
 
 function openOrchestrationModule(): void {
@@ -192,18 +185,6 @@ export const FEATURE_TIPS: readonly FeatureTipDefinition[] = [
     visual: AiPanelVisual,
     tryAction: openAiPanelModule,
     eligible: () => isModuleEnabled("aiPanel"),
-    weight: 2,
-  },
-  {
-    id: "skills",
-    titleKey: "featureTips.skills.title",
-    bodyKey: "featureTips.skills.body",
-    guidePath: "docs/guide/18-skills.md",
-    visual: SkillsVisual,
-    // 资源中心 → Skills 的「内置 CC-Panes Skills」是完整清单；
-    // 运行配置里那份勾选清单只有 4 条，不能往那儿指。
-    tryAction: openSkillsPage,
-    eligible: () => isModuleEnabled("resources"),
     weight: 2,
   },
   {

@@ -1,13 +1,28 @@
 import "@/i18n";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { systemStatsService } from "@/services/systemStatsService";
 import { terminalService } from "@/services/terminalService";
 import { sessionRestoreService } from "@/services/sessionRestoreService";
-import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import {
+  usePanesStore,
+  useTerminalStatusStore,
+  useUsageStatsStore,
+} from "@/stores";
 import type { ResourceTree } from "@/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import SystemResourceSegment, { resolveAdoptRuntime } from "./SystemResourceSegment";
+import { navigateToSettings } from "@/components/settings/settingsNavigation";
+import SystemResourceSegment, {
+  resolveAdoptRuntime,
+} from "./SystemResourceSegment";
+import UsageStatsHoverPreview from "./UsageStatsHoverPreview";
+import UsageStatsStatusButton from "./UsageStatsStatusButton";
 import type { SavedSession } from "@/types";
 
 vi.mock("@/services/systemStatsService", () => ({
@@ -16,6 +31,10 @@ vi.mock("@/services/systemStatsService", () => ({
     getResourceTree: vi.fn(),
     killOrphans: vi.fn(),
   },
+}));
+
+vi.mock("@/components/settings/settingsNavigation", () => ({
+  navigateToSettings: vi.fn(),
 }));
 
 const stats = {
@@ -51,6 +70,34 @@ const tree: ResourceTree = {
   elapsedMicros: 750,
 };
 
+const usageData = {
+  series: [],
+  totals: {
+    charCount: 1200,
+    tokenInput: 0,
+    tokenOutput: 0,
+    tokenCacheRead: 0,
+    tokenCacheCreation: 0,
+  },
+  byCli: {
+    claude: {
+      charCount: 0,
+      tokenInput: 100,
+      tokenOutput: 200,
+      tokenCacheRead: 300,
+      tokenCacheCreation: 50,
+    },
+    codex: {
+      charCount: 0,
+      tokenInput: 400,
+      tokenOutput: 250,
+      tokenCacheRead: 100,
+      tokenCacheCreation: 0,
+    },
+  },
+  workspaces: [],
+};
+
 function setDocumentHidden(hidden: boolean) {
   Object.defineProperty(document, "hidden", {
     configurable: true,
@@ -65,7 +112,9 @@ async function flushPromises() {
 }
 
 async function openPopover() {
-  fireEvent.click(screen.getByRole("button", { name: /资源管理器|resource manager/i }));
+  fireEvent.click(
+    screen.getByRole("button", { name: /资源管理器|resource manager/i }),
+  );
   await flushPromises();
   expect(screen.getByText(/受管会话|managed sessions/i)).toBeVisible();
 }
@@ -115,6 +164,13 @@ describe("SystemResourceSegment", () => {
         ],
       ]),
     });
+    act(() => {
+      useUsageStatsStore.setState({
+        data: usageData,
+        loading: false,
+        error: null,
+      });
+    });
 
     const panes = usePanesStore.getState();
     // focusTab 正门按 tabId 再定位一次，与按 session 的定位喂同一份
@@ -156,9 +212,13 @@ describe("SystemResourceSegment", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
     vi.useRealTimers();
     setDocumentHidden(false);
+    act(() => {
+      useUsageStatsStore.setState({ data: null, loading: false, error: null });
+    });
   });
 
   it("渲染 CPU 与内存用量，并每 3 秒拉取轻量系统统计", async () => {
@@ -176,6 +236,34 @@ describe("SystemResourceSegment", () => {
     expect(systemStatsService.getResourceTree).not.toHaveBeenCalled();
   });
 
+  it("悬停资源状态时显示使用统计预览，移开后隐藏", async () => {
+    render(<UsageStatsStatusButton />);
+
+    const segment = screen.getByTestId("usage-stats-status-button");
+    fireEvent.mouseEnter(segment);
+
+    expect(screen.getByTestId("usage-stats-hover-preview")).toBeVisible();
+    expect(screen.getByText(/输入|input/i)).toBeVisible();
+    expect(screen.getByText(/输出|output/i)).toBeVisible();
+    expect(screen.getByText(/命中率|cache hit/i)).toBeVisible();
+
+    fireEvent.mouseLeave(segment);
+    expect(screen.getByTestId("usage-stats-hover-preview")).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(320);
+    });
+    expect(screen.queryByTestId("usage-stats-hover-preview")).toBeNull();
+  });
+
+  it("使用统计预览的更多按钮跳转到设置页", async () => {
+    render(<UsageStatsHoverPreview open />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /更多|more/i }));
+    });
+
+    expect(navigateToSettings).toHaveBeenCalledWith({ paneId: "usage-stats" });
+  });
+
   it("弹层打开时立即枚举且每 3 秒刷新，关闭后停止枚举", async () => {
     renderSegment();
     await flushPromises();
@@ -188,7 +276,9 @@ describe("SystemResourceSegment", () => {
     });
     expect(systemStatsService.getResourceTree).toHaveBeenCalledTimes(2);
 
-    fireEvent.click(screen.getByRole("button", { name: /资源管理器|resource manager/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /资源管理器|resource manager/i }),
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6_000);
     });
@@ -200,7 +290,9 @@ describe("SystemResourceSegment", () => {
     await flushPromises();
     await openPopover();
 
-    fireEvent.click(screen.getByRole("button", { name: /刷新资源|refresh resources/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /刷新资源|refresh resources/i }),
+    );
     await flushPromises();
     expect(systemStatsService.getResourceTree).toHaveBeenCalledTimes(2);
   });
@@ -210,7 +302,11 @@ describe("SystemResourceSegment", () => {
     await flushPromises();
     await openPopover();
 
-    fireEvent.click(screen.getByRole("button", { name: /聚焦会话: Codex tab|focus session: Codex tab/i }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /聚焦会话: Codex tab|focus session: Codex tab/i,
+      }),
+    );
     const panes = usePanesStore.getState();
     expect(panes.switchLayout).toHaveBeenCalledWith("layout-other");
     expect(panes.setActivePane).toHaveBeenCalledWith("pane-1");
@@ -220,58 +316,78 @@ describe("SystemResourceSegment", () => {
   it("无主会话先取得 daemon claim，再创建接管 tab", async () => {
     const panes = usePanesStore.getState();
     vi.mocked(panes.findTabBySessionAcrossLayouts).mockReturnValue(null);
-    vi.mocked(sessionRestoreService.load).mockResolvedValue([{
-      sessionId: "session-1",
-      tabId: "tab-old",
-      paneId: "pane-old",
-      projectPath: "D:/work/project-1",
-      workspaceName: "Workspace A",
-      cliTool: "codex",
-      runtimeKind: "local",
-      createdAt: "",
-      savedAt: "",
-      hasOutput: false,
-    }]);
-    const adoptTab = vi.spyOn(panes, "adoptSession").mockReturnValue("tab-adopted");
-    const setReadOnly = vi.spyOn(panes, "setSessionLeaseReadOnly").mockImplementation(() => {});
+    vi.mocked(sessionRestoreService.load).mockResolvedValue([
+      {
+        sessionId: "session-1",
+        tabId: "tab-old",
+        paneId: "pane-old",
+        projectPath: "D:/work/project-1",
+        workspaceName: "Workspace A",
+        cliTool: "codex",
+        runtimeKind: "local",
+        createdAt: "",
+        savedAt: "",
+        hasOutput: false,
+      },
+    ]);
+    const adoptTab = vi
+      .spyOn(panes, "adoptSession")
+      .mockReturnValue("tab-adopted");
+    const setReadOnly = vi
+      .spyOn(panes, "setSessionLeaseReadOnly")
+      .mockImplementation(() => {});
 
     renderSegment();
     await flushPromises();
     await openPopover();
     await flushPromises();
-    fireEvent.click(screen.getByRole("button", { name: /接管到当前布局:|adopt into current layout:/i }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /接管到当前布局:|adopt into current layout:/i,
+      }),
+    );
     await flushPromises();
 
     expect(terminalService.adoptSession).toHaveBeenCalledWith("session-1");
-    expect(adoptTab).toHaveBeenCalledWith("session-1", expect.objectContaining({
-      projectPath: "D:/work/project-1",
-    }));
-    expect(vi.mocked(terminalService.adoptSession).mock.invocationCallOrder[0])
-      .toBeLessThan(adoptTab.mock.invocationCallOrder[0]);
+    expect(adoptTab).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        projectPath: "D:/work/project-1",
+      }),
+    );
+    expect(
+      vi.mocked(terminalService.adoptSession).mock.invocationCallOrder[0],
+    ).toBeLessThan(adoptTab.mock.invocationCallOrder[0]);
     expect(setReadOnly).toHaveBeenCalledWith("session-1", false);
   });
 
   it("claim 后接管 tab 创建失败时释放租约", async () => {
     const panes = usePanesStore.getState();
     vi.mocked(panes.findTabBySessionAcrossLayouts).mockReturnValue(null);
-    vi.mocked(sessionRestoreService.load).mockResolvedValue([{
-      sessionId: "session-1",
-      tabId: "tab-old",
-      paneId: "pane-old",
-      projectPath: "D:/work/project-1",
-      cliTool: "codex",
-      runtimeKind: "local",
-      createdAt: "",
-      savedAt: "",
-      hasOutput: false,
-    }]);
+    vi.mocked(sessionRestoreService.load).mockResolvedValue([
+      {
+        sessionId: "session-1",
+        tabId: "tab-old",
+        paneId: "pane-old",
+        projectPath: "D:/work/project-1",
+        cliTool: "codex",
+        runtimeKind: "local",
+        createdAt: "",
+        savedAt: "",
+        hasOutput: false,
+      },
+    ]);
     vi.spyOn(panes, "adoptSession").mockReturnValue(null);
 
     renderSegment();
     await flushPromises();
     await openPopover();
     await flushPromises();
-    fireEvent.click(screen.getByRole("button", { name: /接管到当前布局:|adopt into current layout:/i }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /接管到当前布局:|adopt into current layout:/i,
+      }),
+    );
     await flushPromises();
 
     expect(terminalService.releaseSession).toHaveBeenCalledWith("session-1");
@@ -320,7 +436,9 @@ describe("SystemResourceSegment", () => {
     expect(screen.queryByText("cargo.exe")).toBeNull();
 
     fireEvent.click(
-      screen.getByRole("button", { name: /展开.*进程构成|show what .* is running/i }),
+      screen.getByRole("button", {
+        name: /展开.*进程构成|show what .* is running/i,
+      }),
     );
 
     expect(screen.getByText("cargo.exe")).toBeVisible();
@@ -336,7 +454,9 @@ describe("SystemResourceSegment", () => {
     await openPopover();
 
     expect(
-      screen.queryByRole("button", { name: /展开.*进程构成|show what .* is running/i }),
+      screen.queryByRole("button", {
+        name: /展开.*进程构成|show what .* is running/i,
+      }),
     ).toBeNull();
   });
 
@@ -345,11 +465,20 @@ describe("SystemResourceSegment", () => {
     await flushPromises();
     await openPopover();
 
-    fireEvent.click(screen.getByRole("button", { name: /结束会话.*Codex tab|end session.*Codex tab/i }));
-    fireEvent.click(screen.getByRole("button", { name: /确认结束|confirm end/i }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /结束会话.*Codex tab|end session.*Codex tab/i,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /确认结束|confirm end/i }),
+    );
     await flushPromises();
 
-    expect(terminalService.killSession).toHaveBeenCalledWith("session-1", "user-close");
+    expect(terminalService.killSession).toHaveBeenCalledWith(
+      "session-1",
+      "user-close",
+    );
   });
 
   it("用琥珀语义显示孤立计数并在列出明细后二次确认批量终止", async () => {
@@ -359,11 +488,23 @@ describe("SystemResourceSegment", () => {
 
     const count = screen.getByText(/1 个孤立项|1 orphaned item/i);
     expect(count).toHaveStyle({ color: "var(--app-status-warning)" });
-    fireEvent.click(screen.getByRole("button", { name: /展开孤立进程|expand orphaned processes/i }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /展开孤立进程|expand orphaned processes/i,
+      }),
+    );
     expect(screen.getByText("conhost.exe")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: /终止 1 个孤立进程|terminate 1 orphaned process/i }));
-    fireEvent.click(screen.getByRole("button", { name: /确认终止 1 个孤立进程|confirm termination of 1 orphaned process/i }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /终止 1 个孤立进程|terminate 1 orphaned process/i,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /确认终止 1 个孤立进程|confirm termination of 1 orphaned process/i,
+      }),
+    );
     await flushPromises();
 
     expect(systemStatsService.killOrphans).toHaveBeenCalledWith([42]);
@@ -371,10 +512,21 @@ describe("SystemResourceSegment", () => {
 });
 
 describe("resolveAdoptRuntime", () => {
-  const base = { sessionId: "s", tabId: "t", paneId: "p", projectPath: "/p", cliTool: "claude", createdAt: "", savedAt: "", hasOutput: false } satisfies SavedSession;
+  const base = {
+    sessionId: "s",
+    tabId: "t",
+    paneId: "p",
+    projectPath: "/p",
+    cliTool: "claude",
+    createdAt: "",
+    savedAt: "",
+    hasOutput: false,
+  } satisfies SavedSession;
 
   it("本地会话可接管", () => {
-    expect(resolveAdoptRuntime({ ...base, runtimeKind: "local" }).ok).toBe(true);
+    expect(resolveAdoptRuntime({ ...base, runtimeKind: "local" }).ok).toBe(
+      true,
+    );
     // 缺 runtimeKind 视作 local（历史记录没有这个字段）
     expect(resolveAdoptRuntime(base).ok).toBe(true);
   });
@@ -383,7 +535,10 @@ describe("resolveAdoptRuntime", () => {
     const good = resolveAdoptRuntime({
       ...base,
       runtimeKind: "wsl",
-      wslConfig: JSON.stringify({ distro: "Ubuntu", remotePath: "/mnt/d/proj" }),
+      wslConfig: JSON.stringify({
+        distro: "Ubuntu",
+        remotePath: "/mnt/d/proj",
+      }),
     });
     expect(good.ok).toBe(true);
     expect(good.ok === true ? good.wsl?.remotePath : null).toBe("/mnt/d/proj");
@@ -393,7 +548,13 @@ describe("resolveAdoptRuntime", () => {
     expect(legacy.ok).toBe(false);
     expect(legacy.ok === false ? legacy.kind : null).toBe("wsl");
     // remotePath 缺失等于没有指纹
-    expect(resolveAdoptRuntime({ ...base, runtimeKind: "wsl", wslConfig: JSON.stringify({ distro: "Ubuntu" }) }).ok).toBe(false);
+    expect(
+      resolveAdoptRuntime({
+        ...base,
+        runtimeKind: "wsl",
+        wslConfig: JSON.stringify({ distro: "Ubuntu" }),
+      }).ok,
+    ).toBe(false);
   });
 
   it("SSH 会话仅在 sshConfig 可解析时接管", () => {
@@ -406,6 +567,12 @@ describe("resolveAdoptRuntime", () => {
     expect(good.ok === true ? good.ssh?.host : null).toBe("h");
 
     expect(resolveAdoptRuntime({ ...base, runtimeKind: "ssh" }).ok).toBe(false);
-    expect(resolveAdoptRuntime({ ...base, runtimeKind: "ssh", sshConfig: "{ 坏 json" }).ok).toBe(false);
+    expect(
+      resolveAdoptRuntime({
+        ...base,
+        runtimeKind: "ssh",
+        sshConfig: "{ 坏 json",
+      }).ok,
+    ).toBe(false);
   });
 });

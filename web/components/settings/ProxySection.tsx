@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { settingsService } from "@/services";
 import type { ProxySettings } from "@/types";
 
@@ -47,20 +48,18 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
       {value.enabled && (
         <>
           <div className="flex flex-col gap-1">
-            <Label>{t("proxyType")}</Label>
-            <select
-              value={value.proxyType}
-              onChange={(e) => update("proxyType", e.target.value)}
-              className="h-9 px-2 rounded-md text-[13px] outline-none"
-              style={{
-                border: "1px solid var(--app-border)",
-                background: "var(--app-content)",
-                color: "var(--app-text-primary)",
-              }}
-            >
-              <option value="http">HTTP</option>
-              <option value="socks5">SOCKS5</option>
-            </select>
+            <div className="flex items-center justify-between gap-6">
+              <Label>{t("proxyType")}</Label>
+              <Select value={value.proxyType} onValueChange={(next) => update("proxyType", next)}>
+                <SelectTrigger aria-label={t("proxyType")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="http">HTTP</SelectItem>
+                  <SelectItem value="socks5">SOCKS5</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {value.proxyType === "socks5" && (
               <div
                 className="mt-1 px-2.5 py-2 text-xs leading-relaxed rounded-md"

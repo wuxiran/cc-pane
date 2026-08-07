@@ -49,6 +49,8 @@
   "coreSkillTag": "Core Skills",
   "workspaceBadge": "Workspace",
   "noProviderSpecified": "No Provider specified",
+  "fieldProvider": "Provider",
+  "fieldProviderModel": "Provider / Model",
   "fieldModel": "Model",
   "useProviderDefaultModel": "Use Provider default ({{model}})",
   "nativeCliDefaultModel": "CLI native default model",

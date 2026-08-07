@@ -3,6 +3,7 @@ import { FolderKanban, Layers3, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { LaunchProfile } from "@/types";
 import type { Provider } from "@/types/provider";
@@ -13,6 +14,7 @@ import {
   profileDisplayName,
   profileMatchesTool,
   runtimeLabel,
+  SYSTEM_DEFAULT_PROFILE_ID,
   toolLabel,
 } from "./launchProfileHelpers";
 
@@ -57,14 +59,88 @@ export default function LaunchProfileListAside({
 }: LaunchProfileListAsideProps) {
   const { t } = useTranslation(["providers", "common"]);
 
+  if (compact) {
+    const profileSelectValue = selectedId ?? SYSTEM_DEFAULT_PROFILE_ID;
+
+    return (
+      <aside className="shrink-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-3 shadow-sm">
+          <label className="min-w-0 space-y-1.5 text-xs">
+            <span className="font-medium text-[var(--app-text-secondary)]">{t("savedProfilesTab")}</span>
+            <Select
+              value={profileSelectValue}
+              onValueChange={(value) => {
+                onListModeChange("profiles");
+                if (value === SYSTEM_DEFAULT_PROFILE_ID) {
+                  onSelectSystemDefault();
+                  return;
+                }
+                const profile = filteredProfiles.find((item) => item.id === value);
+                if (profile) onSelect(profile);
+              }}
+            >
+              <SelectTrigger size="sm" aria-label={t("savedProfilesTab")}>
+                <SelectValue placeholder={t("savedProfilesTab")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SYSTEM_DEFAULT_PROFILE_ID}>
+                  {t("systemDefaultName", { tool: toolLabel(activeTool, t) })}
+                </SelectItem>
+                {filteredProfiles.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profileDisplayName(profile)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+
+          <label className="min-w-0 space-y-1.5 text-xs">
+            <span className="font-medium text-[var(--app-text-secondary)]">{t("workspaceListTab")}</span>
+            <Select
+              value={workspaceContext?.id}
+              onValueChange={(value) => {
+                const workspace = workspaces.find((item) => item.id === value);
+                if (!workspace) return;
+                onListModeChange("workspaces");
+                onSelectWorkspace(workspace);
+              }}
+            >
+              <SelectTrigger size="sm" aria-label={t("workspaceListTab")}>
+                <SelectValue placeholder={t("workspaceListTab")} />
+              </SelectTrigger>
+              <SelectContent>
+                {workspaces.map((workspace) => (
+                  <SelectItem key={workspace.id} value={workspace.id}>
+                    {workspace.alias || workspace.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+
+          <Button
+            size="icon-sm"
+            variant="outline"
+            aria-label={t("add")}
+            title={t("add")}
+            onClick={onCopySystemDefault}
+          >
+            <Plus size={14} />
+          </Button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside
       className={cn(
         "flex shrink-0 flex-col overflow-hidden border-r border-border bg-[var(--app-panel-bg)]/50 max-[760px]:h-[220px] max-[760px]:w-full max-[760px]:border-b max-[760px]:border-r-0",
-        compact ? "w-[272px]" : "w-80",
+        "w-72",
       )}
     >
-      <div className="shrink-0 border-b border-border px-3 py-3">
+      <div className="shrink-0 border-b border-border px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-sm font-semibold">{t("profileLibraryTitle")}</span>
           <Button size="xs" variant="outline" onClick={onCopySystemDefault}>
@@ -75,7 +151,7 @@ export default function LaunchProfileListAside({
         <div
           role="tablist"
           aria-label={t("profileListMode")}
-          className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-[var(--app-hover)] p-1"
+          className="mt-2 grid grid-cols-2 gap-1 rounded-md bg-[var(--app-hover)] p-1"
         >
           <button
             type="button"
@@ -107,11 +183,6 @@ export default function LaunchProfileListAside({
           </button>
         </div>
 
-        <p className="mt-2 text-[11px] leading-4 text-[var(--app-text-tertiary)]">
-          {listMode === "profiles"
-            ? t("savedProfilesHint", { tool: toolLabel(activeTool, t) })
-            : t("workspaceListHint", { tool: toolLabel(activeTool, t) })}
-        </p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -119,7 +190,7 @@ export default function LaunchProfileListAside({
           <>
             <button
               type="button"
-              className="w-full rounded-md border px-3 py-2.5 text-left transition-colors hover:bg-[var(--app-hover)]"
+              className="w-full rounded-md border px-3 py-2 text-left transition-colors hover:bg-[var(--app-hover)]"
               style={{
                 borderColor: isSystemDefaultSelected ? "var(--app-accent)" : "var(--app-border)",
                 background: isSystemDefaultSelected ? "color-mix(in srgb, var(--app-accent) 10%, transparent)" : "transparent",
@@ -132,7 +203,7 @@ export default function LaunchProfileListAside({
                 </span>
                 <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>
               </div>
-              <div className="mt-1 truncate text-[11px] text-[var(--app-text-secondary)]">
+              <div className="mt-0.5 truncate text-[11px] text-[var(--app-text-secondary)]">
                 {t("systemDefaultCardHint")}
               </div>
             </button>
@@ -143,7 +214,7 @@ export default function LaunchProfileListAside({
                   key={profile.id}
                   type="button"
                   data-current={selectedId === profile.id ? "true" : undefined}
-                  className="w-full rounded-md border px-3 py-2.5 text-left transition-colors hover:bg-[var(--app-hover)]"
+                  className="w-full rounded-md border px-3 py-2 text-left transition-colors hover:bg-[var(--app-hover)]"
                   style={{
                     borderColor: selectedId === profile.id ? "var(--app-accent)" : "var(--app-border)",
                     background: selectedId === profile.id ? "color-mix(in srgb, var(--app-accent) 8%, transparent)" : "transparent",
@@ -158,10 +229,10 @@ export default function LaunchProfileListAside({
                       <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>
                     )}
                   </div>
-                  <div className="mt-1 truncate text-[11px] text-[var(--app-text-secondary)]">
+                  <div className="mt-0.5 truncate text-[11px] text-[var(--app-text-secondary)]">
                     {providers.find((provider) => provider.id === profile.providerId)?.name ?? t("noProviderSpecified")}
                   </div>
-                  <div className="mt-1.5 flex items-center gap-2 text-[10px] text-[var(--app-text-tertiary)]">
+                  <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--app-text-tertiary)]">
                     <span>{launchEnvironmentLabel(profile.targetTools, activeTool, t)}</span>
                     <span className="rounded border border-border px-1.5 py-0.5">
                       {runtimeLabel(profile.targetRuntime ?? null, t)}
@@ -171,13 +242,15 @@ export default function LaunchProfileListAside({
               ))}
             </div>
 
-            {filteredProfiles.length === 0 && (
-              <EmptyState
-                icon={Layers3}
-                title={t("listEmptyAll")}
-                className="py-6"
-                action={{ label: t("listEmptyAction"), onClick: onCopySystemDefault }}
-              />
+            {!compact && filteredProfiles.length === 0 && (
+              <div className="mt-2 rounded-md border border-dashed border-[var(--app-border)] px-3 py-3">
+                <p className="text-[11px] leading-4 text-[var(--app-text-secondary)]">
+                  {t("listEmptyAll")}
+                </p>
+                <Button size="xs" variant="outline" className="mt-2" onClick={onCopySystemDefault}>
+                  <Plus size={12} /> {t("listEmptyAction")}
+                </Button>
+              </div>
             )}
           </>
         ) : (

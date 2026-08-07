@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import packageJson from "../../../package.json";
 import {
@@ -10,9 +11,10 @@ interface SettingsSidebarProps {
   pages: readonly SettingsPageDefinition[];
   activePageId: SettingsPageId;
   onSelect: (pageId: SettingsPageId) => void;
+  searchSlot?: ReactNode;
 }
 
-export default function SettingsSidebar({ pages, activePageId, onSelect }: SettingsSidebarProps) {
+export default function SettingsSidebar({ pages, activePageId, onSelect, searchSlot }: SettingsSidebarProps) {
   const { t } = useTranslation("settings");
 
   return (
@@ -20,7 +22,12 @@ export default function SettingsSidebar({ pages, activePageId, onSelect }: Setti
       aria-label={t("navigation")}
       className="flex w-[144px] shrink-0 flex-col overflow-hidden border-r border-[var(--app-border)] bg-[var(--app-panel-bg)] sm:w-[220px]"
     >
-      <div className="flex-1 space-y-3 overflow-y-auto px-2 py-3">
+      {searchSlot && (
+        <div className="relative z-20 shrink-0 px-2 pb-1.5 pt-2">
+          {searchSlot}
+        </div>
+      )}
+      <div className="flex-1 space-y-3 overflow-y-auto px-2 pb-3 pt-2">
         {SETTINGS_GROUPS.map((group) => {
           const groupPages = pages.filter((page) => page.group === group.id);
           if (groupPages.length === 0) return null;

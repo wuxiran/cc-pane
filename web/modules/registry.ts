@@ -1,5 +1,4 @@
 import {
-  Boxes,
   History,
   ListTodo,
   PanelTopOpen,
@@ -16,7 +15,6 @@ import type { TaskBinding } from "@/types";
 export const MODULE_IDS = [
   "ssh",
   "orchestration",
-  "resources",
   "todo",
   "aiPanel",
   "sessionHistory",
@@ -74,15 +72,6 @@ function openOrchestration(_position: ModulePosition) {
   const activity = useActivityBarStore.getState();
   activity.closeOrchestrationOverlay();
   useRightDockStore.setState({ visible: true, activeView: "orchestration" });
-}
-
-function openResources(position: ModulePosition) {
-  const activity = useActivityBarStore.getState();
-  if (position === "activityBar") {
-    activity.toggleResourcesMode();
-    return;
-  }
-  activity.setAppViewMode("resources");
 }
 
 function openTodo(position: ModulePosition) {
@@ -143,15 +132,6 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
     badge: orchestrationBadge,
     minimal: false,
     configurable: false,
-  },
-  {
-    id: "resources",
-    icon: Boxes,
-    titleKey: "moduleNames.resources",
-    surfaces: ["activityBar", "rightDock", "fullscreen"],
-    defaultPosition: "activityBar",
-    open: openResources,
-    minimal: false,
   },
   {
     id: "todo",

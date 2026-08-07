@@ -281,7 +281,7 @@ describe("LaunchProfilesPanel external skills", () => {
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
 
-    const providerSelect = screen.getByRole("combobox", { name: "Provider" });
+    const providerSelect = screen.getByRole("combobox", { name: tp("fieldProvider") });
     expect(providerSelect).not.toBeDisabled();
 
     await selectOption(user, providerSelect, "Kimi API");
@@ -304,7 +304,7 @@ describe("LaunchProfilesPanel external skills", () => {
     renderKimiPanel(() => {});
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await selectOption(user, screen.getByRole("combobox", { name: "Provider" }), "Kimi API");
+    await selectOption(user, screen.getByRole("combobox", { name: tp("fieldProvider") }), "Kimi API");
 
     // 模型下拉逐项标注上下文窗口；未配置窗口的模型显式写「未配置」而不是留白
     await user.click(screen.getByRole("combobox", { name: tp("fieldModel") }));
@@ -325,7 +325,7 @@ describe("LaunchProfilesPanel external skills", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: new RegExp(tp("copyAsProfile")) }));
-    await selectOption(user, screen.getByRole("combobox", { name: "Provider" }), "Codex API");
+    await selectOption(user, screen.getByRole("combobox", { name: tp("fieldProvider") }), "Codex API");
 
     // 未覆盖时 trigger 显示「沿用模型默认强度（高）」，而非某个具体档位
     const effortSelect = screen.getByRole("combobox", { name: tp("fieldReasoningEffort") });

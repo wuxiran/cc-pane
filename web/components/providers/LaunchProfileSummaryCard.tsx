@@ -69,8 +69,8 @@ export default function LaunchProfileSummaryCard({
   const { t } = useTranslation(["providers", "common"]);
 
   return (
-    <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4">
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-[15px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
@@ -82,41 +82,36 @@ export default function LaunchProfileSummaryCard({
             )}
             <Badge variant="outline" className="text-[10px]">{runtimeLabel(draft.targetRuntime ?? null, t)}</Badge>
           </div>
-          <p className="mt-1 max-w-2xl text-xs leading-5" style={{ color: "var(--app-text-secondary)" }}>
-            {isSystemDefaultSelected
-              ? t("systemDefaultDetail", { tool: toolLabel(activeTool, t) })
-              : t("profileDetail")}
-          </p>
         </div>
 
         {/* 按钮优先级（docs/46 §6）：仅「保存」为主按钮，绑定/复制恒 outline，删除走 ghost+危险前景 */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {isSystemDefaultSelected ? (
             <>
               <Button
-                size="sm"
+                size="xs"
                 variant="outline"
                 disabled={!selectedProfileId}
                 onClick={onToggleWorkspaceBindingOpen}
               >
                 <Link2 size={14} /> {selectedProfileId ? t("workspaceBindingCount", { count: boundWorkspaces.length }) : t("bindAfterSave")}
               </Button>
-              <Button size="sm" variant="outline" onClick={onCopySystemDefault}>
+              <Button size="xs" variant="outline" onClick={onCopySystemDefault}>
                 <Plus size={14} /> {t("copyAsProfile")}
               </Button>
-              <Button size="sm" onClick={onSave}>
+              <Button size="xs" onClick={onSave}>
                 <Save size={14} /> {t("saveDefault")}
               </Button>
             </>
           ) : (
             <>
               {selectedProfile && !selectedProfile.isDefault && (
-                <Button size="sm" variant="outline" onClick={onSetDefault}>
+                <Button size="xs" variant="outline" onClick={onSetDefault}>
                   <Star size={14} /> {t("setAsDefault")}
                 </Button>
               )}
               <Button
-                size="sm"
+                size="xs"
                 variant="outline"
                 disabled={!selectedProfile}
                 onClick={onToggleWorkspaceBindingOpen}
@@ -124,11 +119,11 @@ export default function LaunchProfileSummaryCard({
                 <Link2 size={14} /> {selectedProfile ? t("workspaceBindingCount", { count: boundWorkspaces.length }) : t("bindAfterSave")}
               </Button>
               {selectedProfile && (
-                <Button size="sm" variant="ghost" className="text-[var(--app-status-danger)]" onClick={onDelete}>
+                <Button size="xs" variant="ghost" className="text-[var(--app-status-danger)]" onClick={onDelete}>
                   <Trash2 size={14} /> {t("common:delete")}
                 </Button>
               )}
-              <Button size="sm" onClick={onSave}>
+              <Button size="xs" onClick={onSave}>
                 <Save size={14} /> {isNewProfile ? t("saveAsProfile") : t("common:save")}
               </Button>
             </>
@@ -137,8 +132,8 @@ export default function LaunchProfileSummaryCard({
       </div>
 
       {/* summary strip：无边框 stat 组 + 竖分隔线，替代四个「假输入框」 */}
-      <div className="mx-4 mt-3 grid grid-cols-2 divide-x divide-[var(--app-border)]/60 border-t border-[var(--app-border)]/60 md:grid-cols-4">
-        <SummaryStat label="Provider / Model" value={`${previewProviderLabel} / ${previewModelLabel}`} />
+      <div className="mx-4 grid grid-cols-2 divide-x divide-[var(--app-border)]/60 border-t border-[var(--app-border)]/60 md:grid-cols-4">
+        <SummaryStat label={t("fieldProviderModel")} value={`${previewProviderLabel} / ${previewModelLabel}`} />
         <SummaryStat label="MCP" value={t("enabledCount", { count: previewMcpCount })} />
         <SummaryStat label="Skill" value={t("enabledCount", { count: previewSkillCount })} />
         <SummaryStat
@@ -150,7 +145,7 @@ export default function LaunchProfileSummaryCard({
 
       {/* 原「生效预览」卡并入：上下文提示 + 解析 warnings（色+形冗余） */}
       {!isNewProfile && (
-        <div className="px-4 pb-1 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+        <div className="px-4 pb-2 pt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
           {workspaceContext && (
             <span>
               {t("previewBoundProfile")}
@@ -215,7 +210,6 @@ export default function LaunchProfileSummaryCard({
           )}
         </div>
       )}
-      <div className="pb-3" />
     </Card>
   );
 }

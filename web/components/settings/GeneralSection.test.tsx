@@ -183,11 +183,13 @@ describe("GeneralSection", () => {
 
     const selects = screen.getAllByRole("combobox");
     // 顺序：language → defaultCliTool → searchScope
-    await user.selectOptions(selects[0], "en");
+    await user.click(selects[0]);
+    await user.click(screen.getByRole("option", { name: "English" }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ language: "en" }));
 
+    await user.click(selects[1]);
     expect(screen.getByRole("option", { name: "Codex CLI" })).toBeInTheDocument();
-    await user.selectOptions(selects[1], "codex");
+    await user.click(screen.getByRole("option", { name: "Codex CLI" }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ defaultCliTool: "codex" }));
   });
 
@@ -197,7 +199,8 @@ describe("GeneralSection", () => {
     const { rerender } = render(<GeneralSection value={createValue()} onChange={onChange} />);
 
     const selects = screen.getAllByRole("combobox");
-    await user.selectOptions(selects[2], "FullDisk");
+    await user.click(selects[2]);
+    await user.click(screen.getByRole("option", { name: /全盘|Full disk/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ searchScope: "FullDisk" }));
 
     rerender(<GeneralSection value={createValue({ searchScope: "FullDisk" })} onChange={onChange} />);

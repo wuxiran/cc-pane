@@ -2,9 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process" | "orchestration";
-export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files" | "providers" | "resources" | "orchestration";
-/** 资源中心内部的三个 tab；提到 store 只为支持深链（如功能提示的「试试看」直达 Skills）。 */
-export type ResourcesTab = "providers" | "skills" | "mcp";
+export type AppViewMode = "home" | "panes" | "todo" | "selfchat" | "files" | "providers" | "orchestration";
 
 interface ActivityBarState {
   activeView: ActivityView;
@@ -13,9 +11,6 @@ interface ActivityBarState {
   activityBarVisible: boolean;
   appViewMode: AppViewMode;
   orchestrationOverlayOpen: boolean;
-  resourcesTab: ResourcesTab;
-
-  setResourcesTab: (tab: ResourcesTab) => void;
   toggleView: (view: ActivityView) => void;
   setSidebarVisible: (visible: boolean) => void;
   toggleSidebar: () => void;
@@ -28,7 +23,6 @@ interface ActivityBarState {
   toggleFilesMode: () => void;
   toggleHomeMode: () => void;
   toggleProvidersMode: () => void;
-  toggleResourcesMode: () => void;
 }
 
 export const useActivityBarStore = create<ActivityBarState>()(
@@ -39,9 +33,6 @@ export const useActivityBarStore = create<ActivityBarState>()(
       activityBarVisible: true,
       appViewMode: "home",
       orchestrationOverlayOpen: false,
-      resourcesTab: "providers",
-
-      setResourcesTab: (resourcesTab: ResourcesTab) => set({ resourcesTab }),
 
       toggleView: (view: ActivityView) => {
         const state = get();
@@ -146,12 +137,6 @@ export const useActivityBarStore = create<ActivityBarState>()(
       toggleProvidersMode: () =>
         set((s) => ({
           appViewMode: s.appViewMode === "providers" ? "panes" : "providers",
-          orchestrationOverlayOpen: false,
-        })),
-
-      toggleResourcesMode: () =>
-        set((s) => ({
-          appViewMode: s.appViewMode === "resources" ? "panes" : "resources",
           orchestrationOverlayOpen: false,
         })),
 

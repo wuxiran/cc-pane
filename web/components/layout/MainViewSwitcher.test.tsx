@@ -30,9 +30,6 @@ vi.mock("@/components/home", () => ({
 vi.mock("@/components/providers", () => ({
   ProvidersPanel: () => <div data-testid="providers-panel" />,
 }));
-vi.mock("@/components/resources/ResourceHub", () => ({
-  default: () => <div data-testid="resource-hub" />,
-}));
 vi.mock("@/components/orchestration/OrchestrationOverlay", () => ({
   default: () => <div data-testid="orchestration-overlay" />,
 }));
@@ -133,12 +130,6 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     setMode("providers");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("providers-panel")).toBeVisible();
-  });
-
-  it("resources → ResourceHub 全屏", () => {
-    setMode("resources");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("resource-hub")).toBeVisible();
   });
 
   it("files → Sidebar + FileEditorPanel 组合", () => {

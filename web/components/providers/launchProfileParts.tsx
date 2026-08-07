@@ -53,7 +53,7 @@ export function Section({
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   icon: ReactNode;
   headerActions?: ReactNode;
   children: ReactNode;
@@ -64,7 +64,7 @@ export function Section({
         <CardIcon>{icon}</CardIcon>
         <div className="min-w-0 flex-1">
           <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
+          {description ? <CardDescription>{description}</CardDescription> : null}
         </div>
         {headerActions}
       </CardHeader>
