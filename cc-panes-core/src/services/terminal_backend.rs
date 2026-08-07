@@ -1015,6 +1015,57 @@ mod tests {
             .is_none());
     }
 
+    /// 覆写守卫：trait 默认实现是 `Err("checkpoint not supported")`，
+    /// 忘了覆写不会编译报错——只会让 daemon 模式下的 checkpoint 恢复静默退化成
+    /// 「这个后端不支持」，全量重放，无任何报错。两个覆写各钉一条转发证据。
+    #[test]
+    fn daemon_backend_forwards_recovery_snapshot_instead_of_defaulting_to_unsupported() {
+        let body = r#"{"checkpoint":null,"delta":"TAIL","bufferMode":"normal","endSeq":9,"checkpointEpoch":7}"#;
+        let (addr, rx) = spawn_response_server(http_json_response("200 OK", body));
+        let backend = backend_for(addr);
+
+        let snapshot = backend
+            .get_session_recovery_snapshot("s1")
+            .expect("must not fall through to the unsupported default")
+            .expect("present snapshot");
+
+        assert_eq!(snapshot.delta, "TAIL");
+        assert_eq!(snapshot.end_seq, 9);
+        assert!(rx
+            .recv()
+            .expect("captured request")
+            .starts_with("GET /api/sessions/s1/recovery-snapshot HTTP/1.1"));
+    }
+
+    #[test]
+    fn daemon_backend_forwards_checkpoint_upload_instead_of_defaulting_to_unsupported() {
+        let (addr, rx) = spawn_response_server(http_json_response(
+            "200 OK",
+            r#"{"accepted":true,"anchorSeq":5}"#,
+        ));
+        let backend = backend_for(addr);
+
+        let outcome = backend
+            .store_session_checkpoint(
+                "s1",
+                TerminalCheckpoint {
+                    checkpoint_epoch: 7,
+                    anchor_seq: 5,
+                    snapshot_ansi: "PHOTO".to_string(),
+                    buffer_mode: TerminalBufferMode::Normal,
+                    cols: 80,
+                    rows: 24,
+                    checkpointed_at_ms: 1,
+                },
+            )
+            .expect("must not fall through to the unsupported default");
+
+        assert_eq!(outcome, StoreCheckpointOutcome::Accepted { anchor_seq: 5 });
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/sessions/s1/checkpoint HTTP/1.1"));
+        assert!(request.contains("\"snapshotAnsi\":\"PHOTO\""));
+    }
+
     #[test]
     fn daemon_backend_fails_closed_for_exited_sessions() {
         let status = r#"{"sessionId":"s1","status":"exited","lastOutputAt":10,"pid":42,"exitCode":0,"updatedAt":20}"#;

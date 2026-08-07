@@ -1088,6 +1088,102 @@ mod tests {
         assert!(matches!(error, AppError::NotFound(_)));
     }
 
+    // ===== recovery-snapshot 读链（M3b-3）=====
+    //
+    // 分级与 upload 侧同款：结构化 NOT_FOUND = 会话真没了（Ok(None)，正常事件）；
+    // 无 code 的 404/405 = 旧 daemon 缺路由（CHECKPOINT_UNSUPPORTED，能力关断）。
+    // 两者搞混的后果不对称——把「会话没了」错判成「能力不支持」会让 app 对
+    // **所有**会话永久关掉 checkpoint 恢复，退回全量重放。
+
+    #[test]
+    fn recovery_snapshot_parses_checkpoint_and_delta() {
+        let response = http_json_response(
+            "200 OK",
+            r#"{"checkpoint":{"checkpointEpoch":7,"anchorSeq":5,"snapshotAnsi":"PHOTO","bufferMode":"normal","cols":80,"rows":24,"checkpointedAtMs":1},"delta":"TAIL","bufferMode":"normal","endSeq":9,"checkpointEpoch":7}"#,
+        );
+        let (addr, rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let snapshot = client
+            .get_session_recovery_snapshot("s1")
+            .expect("recovery snapshot")
+            .expect("present snapshot");
+
+        let checkpoint = snapshot.checkpoint.expect("checkpoint present");
+        assert_eq!(checkpoint.snapshot_ansi, "PHOTO");
+        assert_eq!(checkpoint.anchor_seq, 5);
+        assert_eq!(snapshot.delta, "TAIL");
+        assert_eq!(snapshot.end_seq, 9);
+        assert_eq!(snapshot.checkpoint_epoch, 7);
+
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("GET /api/sessions/s1/recovery-snapshot "));
+    }
+
+    /// 无照片的会话：checkpoint 缺省为 null，delta 是全窗口——消费方只有一个形状。
+    #[test]
+    fn recovery_snapshot_tolerates_absent_checkpoint() {
+        let response = http_json_response(
+            "200 OK",
+            r#"{"delta":"FULL","bufferMode":"normal","endSeq":3,"checkpointEpoch":0}"#,
+        );
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let snapshot = client
+            .get_session_recovery_snapshot("s1")
+            .expect("recovery snapshot")
+            .expect("present snapshot");
+
+        assert!(snapshot.checkpoint.is_none());
+        assert_eq!(snapshot.delta, "FULL");
+    }
+
+    #[test]
+    fn recovery_snapshot_structured_not_found_is_ok_none() {
+        let response = http_json_response(
+            "404 Not Found",
+            r#"{"code":"NOT_FOUND","message":"Session not found"}"#,
+        );
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        assert!(client
+            .get_session_recovery_snapshot("gone")
+            .expect("missing session is not an error")
+            .is_none());
+    }
+
+    #[test]
+    fn recovery_snapshot_bare_404_flags_missing_route_as_unsupported() {
+        let response = http_json_response("404 Not Found", r#"{"message":"no route"}"#);
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let error = client
+            .get_session_recovery_snapshot("s1")
+            .expect_err("missing route must error");
+        assert_eq!(error.code(), Some("CHECKPOINT_UNSUPPORTED"));
+    }
+
+    /// 旧 daemon 也可能把未知路由回成 405（路由表里有路径、没这个方法）。
+    #[test]
+    fn recovery_snapshot_405_flags_missing_route_as_unsupported() {
+        let response = http_json_response("405 Method Not Allowed", r#"{"message":"nope"}"#);
+        let (addr, _rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        let error = client
+            .get_session_recovery_snapshot("s1")
+            .expect_err("missing route must error");
+        assert_eq!(error.code(), Some("CHECKPOINT_UNSUPPORTED"));
+    }
+
     // ===== 写权限租约（docs/61 阶段 2）=====
 
     #[test]
