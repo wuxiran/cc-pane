@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { terminalService } from "@/services/terminalService";
 import {
   TERMINAL_SCROLLBACK_MAX,
@@ -193,6 +194,23 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
           {t("rendererHint")}
         </p>
       </div>
+
+      <SearchableSetting sectionId="terminal-path-links">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            <Label htmlFor="terminal-path-links-enabled">{t("pathLinksEnabled")}</Label>
+            <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("pathLinksEnabledHint")}
+            </p>
+          </div>
+          <Switch
+            id="terminal-path-links-enabled"
+            aria-label={t("pathLinksEnabled")}
+            checked={value.pathLinksEnabled ?? true}
+            onCheckedChange={(checked) => update("pathLinksEnabled", checked)}
+          />
+        </div>
+      </SearchableSetting>
 
       <SearchableSetting sectionId="terminal-context-usage">
         <div className="flex flex-col gap-1">

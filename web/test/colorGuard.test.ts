@@ -65,6 +65,7 @@ const ALLOWLIST: Record<string, string[]> = {
     "#28f0f0",
     "#ebebeb",
     "rgba(${r}, ${g}, ${b}, ${alpha})",
+    "rgba(${match[1]}, ${match[2]}, ${match[3]}, 0)",
     "rgba(0, 0, 0, 0)",
   ],
   // 品牌身份色已迁到 --app-identity-provider-*；只剩头像字色（底色恒为深色品牌色）。

@@ -31,7 +31,7 @@ describe("settingsService", () => {
 
   describe("updateSettings", () => {
     it("应该调用 update_settings 命令", async () => {
-      const settings = createTestSettings({ theme: { mode: "light" } });
+      const settings = createTestSettings({ theme: { mode: "light", shape: "soft" } });
       mockTauriInvoke({ update_settings: undefined });
 
       await settingsService.updateSettings(settings);

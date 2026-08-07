@@ -6,6 +6,7 @@ import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/l
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
 import type { CCChanSettings } from "@/ccchan/types";
 import type { CliLauncherSettings, LayoutSwitcherSettings, OrchestratorSettings, WallpaperSettings, WebAccessSettings } from "@/types";
+import { canonicalThemeShape, DEFAULT_THEME_SHAPE } from "@/theme/themeShapes";
 
 const defaultCloseToTray = () => {
   if (typeof navigator === "undefined") {
@@ -135,6 +136,10 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
   const maybeSettings = settings as Partial<AppSettings>;
   return {
     ...settings,
+    theme: {
+      ...settings.theme,
+      shape: canonicalThemeShape(maybeSettings.theme?.shape),
+    },
     cliLaunchers: {
       ...DEFAULT_CLI_LAUNCHER_SETTINGS,
       ...maybeSettings.cliLaunchers,
@@ -252,6 +257,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     },
     theme: {
       mode: "dark",
+      shape: DEFAULT_THEME_SHAPE,
     },
     terminal: {
       fontSize: 15,
@@ -263,6 +269,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       rendererMode: "auto",
       showContextUsage: true,
       showStatusBar: true,
+      pathLinksEnabled: true,
       shell: null,
       disableConptySanitize: null,
       resumeIdBackfillEnabled: null,

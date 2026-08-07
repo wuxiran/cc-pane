@@ -56,6 +56,7 @@ describe("parseTerminalPathReference", () => {
   it.each([
     ["F:/repo/docs/report.md:17", { path: "F:/repo/docs/report.md", line: 17, column: undefined }],
     ["C:\\repo\\src\\main.rs:9:4", { path: "C:\\repo\\src\\main.rs", line: 9, column: 4 }],
+    ["\\\\?\\F:\\repo\\src\\main.rs:9:4", { path: "\\\\?\\F:\\repo\\src\\main.rs", line: 9, column: 4 }],
     ["/Users/dev/repo/main.ts:5", { path: "/Users/dev/repo/main.ts", line: 5, column: undefined }],
     ["./docs/report.md", { path: "./docs/report.md", line: undefined, column: undefined }],
     ["../shared/report.md:2", { path: "../shared/report.md", line: 2, column: undefined }],
@@ -90,7 +91,11 @@ describe("parseTerminalPathReference", () => {
     "src/\u200esecret.ts",
     "src/\u200fsecret.ts",
     "\\\\server\\share\\a.ts",
-    "\\\\?\\C:\\repo\\a.ts",
+    "\\\\?\\UNC\\server\\share\\a.ts",
+    "\\\\?\\Volume{abc}\\a.ts",
+    "\\\\?\\C:relative\\a.ts",
+    "\\\\?\\C:\\repo\\a.ts:stream",
+    "\\\\.\\C:\\repo\\a.ts",
     "C:\\repo\\a.ts:stream",
   ])("rejects unsupported path %s", (input) => {
     expect(parseTerminalPathReference(input, HOST_OPTIONS)).toBeNull();
@@ -118,6 +123,13 @@ describe("findTerminalPathLinks", () => {
     expect(findTerminalPathLinks(text, HOST_OPTIONS).map((link) => link.text)).toEqual([
       "F:/repo/报告.md:4",
       "src/App.tsx:12:8",
+    ]);
+  });
+
+  it("finds Windows extended-length drive paths", () => {
+    const text = "Open \\\\?\\F:\\repo\\docs\\report.md:17";
+    expect(findTerminalPathLinks(text, HOST_OPTIONS).map((link) => link.text)).toEqual([
+      "\\\\?\\F:\\repo\\docs\\report.md:17",
     ]);
   });
 
@@ -211,6 +223,16 @@ describe("classifyOsc8TerminalLink", () => {
 });
 
 describe("TerminalPathLinkProvider", () => {
+  it("returns no links while terminal path links are disabled", () => {
+    const terminal = createTerminal([{ text: "Open src/App.tsx", isWrapped: false }]);
+    const provider = new TerminalPathLinkProvider(terminal, vi.fn(), HOST_OPTIONS, () => false);
+    let links: Parameters<Parameters<typeof provider.provideLinks>[1]>[0];
+
+    provider.provideLinks(1, (provided) => { links = provided; });
+
+    expect(links).toBeUndefined();
+  });
+
   it("maps a soft-wrapped path across xterm rows", () => {
     const first = "Saved F:/repo/docs/";
     const terminal = createTerminal([
