@@ -4564,6 +4564,66 @@ mod tests {
         assert_eq!(KillReason::OrphanReclaim.as_str(), "orphan-reclaim");
     }
 
+    /// KillReason 穷举守卫（同 boundary_events 的 origin 表手法）。
+    ///
+    /// `parse` 的 `_ => Unknown` 兜底会把**漏接的新变体**静默吞成 Unknown：
+    /// 加了变体、`as_str` 也写了，但忘了在 `parse` 加分支——kill 事件带着
+    /// 正确的字符串跨进程发出去，收端解析成 Unknown，前端于是按「来源不明」
+    /// 处理（该关的标签不关 / 该留的留不住），全程零报错。
+    /// 这张表逼着新增变体时同步两侧：往枚举加一项而不更表，穷举检查即失败。
+    #[test]
+    fn kill_reason_parse_and_as_str_round_trip_for_every_variant() {
+        let all = [
+            (KillReason::UserClose, "user-close"),
+            (KillReason::Mcp, "mcp"),
+            (KillReason::OrphanReclaim, "orphan-reclaim"),
+            (KillReason::DaemonReaper, "daemon-reaper"),
+            (KillReason::LaunchTimeout, "launch-timeout"),
+            (KillReason::Unknown, "unknown"),
+        ];
+
+        for (reason, text) in all {
+            assert_eq!(reason.as_str(), text, "{reason:?} 的 as_str 不匹配");
+            // Unknown 的 as_str 是 "unknown"，但它不是可解析的输入词——
+            // 它就是兜底本身，parse 回来仍是 Unknown，往返闭合。
+            assert_eq!(
+                KillReason::parse(Some(text)),
+                reason,
+                "{reason:?} 的 parse↔as_str 往返断裂：新变体八成漏加 parse 分支"
+            );
+            // serde 侧同款往返（kebab-case 与 as_str 必须一致，跨进程靠它）
+            assert_eq!(
+                serde_json::to_string(&reason).unwrap(),
+                format!("\"{text}\""),
+                "{reason:?} 的 serde 表示与 as_str 不一致"
+            );
+            assert_eq!(
+                serde_json::from_str::<KillReason>(&format!("\"{text}\"")).unwrap(),
+                reason
+            );
+        }
+
+        // 穷举性检查：`match` 覆盖全部变体，新增变体不更新上表就编译不过。
+        fn assert_exhaustive(reason: KillReason) -> &'static str {
+            match reason {
+                KillReason::UserClose => "user-close",
+                KillReason::Mcp => "mcp",
+                KillReason::OrphanReclaim => "orphan-reclaim",
+                KillReason::DaemonReaper => "daemon-reaper",
+                KillReason::LaunchTimeout => "launch-timeout",
+                KillReason::Unknown => "unknown",
+            }
+        }
+        for (reason, text) in all {
+            assert_eq!(assert_exhaustive(reason), text);
+        }
+        assert_eq!(
+            all.len(),
+            6,
+            "新增了 KillReason 变体：请同步补进本表与 parse/as_str 两侧"
+        );
+    }
+
     #[test]
     fn kill_with_reason_keeps_not_found_semantics_for_missing_session() {
         let (service, _temp_dir) = terminal_service_for_test();
