@@ -123,7 +123,7 @@ mod inner {
         Ok(parse_wsl_list(&text))
     }
 
-    fn decode_utf16le(bytes: &[u8]) -> String {
+    pub(crate) fn decode_utf16le(bytes: &[u8]) -> String {
         let start = if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
             2
         } else {
@@ -318,6 +318,9 @@ mod inner {
 
 #[cfg(target_os = "windows")]
 pub use inner::{discover, ensure_directory_exists, is_wsl_vm_running, resolve_default_distro};
+
+#[cfg(target_os = "windows")]
+pub(crate) use inner::decode_utf16le;
 
 /// 非 Windows 平台无 WSL，恒 false。
 #[cfg(not(target_os = "windows"))]

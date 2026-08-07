@@ -178,7 +178,9 @@ impl DefaultSkillService {
         report
     }
 
-    fn cleanup_injected_skill_dirs(target_root: &Path) -> std::io::Result<Vec<PathBuf>> {
+    // pub(crate)：WSL 卸载清理（uninstall_cleanup_service）对发行版内的
+    // ~/.codex/skills 走同一套命名空间回收口径
+    pub(crate) fn cleanup_injected_skill_dirs(target_root: &Path) -> std::io::Result<Vec<PathBuf>> {
         let mut removed = Vec::new();
         if !target_root.exists() {
             return Ok(removed);

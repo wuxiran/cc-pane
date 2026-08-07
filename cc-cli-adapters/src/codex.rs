@@ -466,6 +466,14 @@ impl CodexAdapter {
             .unwrap_or(false)
     }
 
+    /// 供 WSL 卸载清理复用：对任意 config.toml（含 `\\wsl.localhost\...` UNC）
+    /// 执行与宿主 `cleanup_user_injections` 同口径的回收。
+    /// WSL 侧 trust 注入（`ensure_yolo_wsl_project_trust`）写的就是这份标记，
+    /// 注入面与清理面必须对称。
+    pub fn cleanup_user_injections_at(path: &Path) -> Result<bool> {
+        Self::remove_ccpanes_injections_at(path)
+    }
+
     /// 卸载清理：移除带标记的 trust 条目 + 签名匹配的 ccpanes MCP 段。
     /// 只认自己的标记/签名，用户手写的 trust 与同名段一律不碰。
     fn remove_ccpanes_injections_at(path: &Path) -> Result<bool> {
