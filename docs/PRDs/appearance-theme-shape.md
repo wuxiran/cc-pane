@@ -4,7 +4,7 @@ Version: 1.0
 Status: APPROVED  
 Date: 2026-08-06  
 Human confirmation: 2026-08-06, user approved the copy and requested PRD generation plus implementation.  
-Source copy: `docs/82-appearance-theme-shape-copy.md`
+Source copy: `docs/84-appearance-theme-shape-copy.md`
 
 ## 1. Executive Summary
 
@@ -12,7 +12,7 @@ CC-Panes 已有六套配色和壁纸能力，但所有主题共用一套圆角�
 
 ## 2. Mission & Core Principles
 
-本功能服从根目录 `STRATEGY.md`：终端与编辑器是主内容，应用 chrome 必须退后；设置本地保存、可恢复、跨版本兼容；桌面与 Web 共用同一设置模型；中英文同步交付。功能特定原则如下：
+本功能服从 `docs/STRATEGY.md`：终端与编辑器是主内容，应用 chrome 必须退后；设置本地保存、可恢复、跨版本兼容；桌面与 Web 共用同一设置模型；中英文同步交付。功能特定原则如下：
 
 1. 配色只管颜色，形态只管边角、边界、阴影和材质，两者不互相改写。
 2. Soft 等于当前视觉，升级后不改变老用户界面。

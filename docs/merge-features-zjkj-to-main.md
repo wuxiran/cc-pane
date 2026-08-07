@@ -78,11 +78,11 @@
 | `web/theme/themeShapes.test.ts` | — | 单元测试：6 值目录、非法值归一化 |
 | `web/theme/themeShapeCoverage.test.ts` | — | 覆盖度测试：所有形态 + 描述键存在 |
 | `web/theme/themeShapeCss.test.ts` | — | CSS 注入测试：形态 StyleSheet 跨端一致 |
-| `docs/82-appearance-theme-shape-copy.md` | 9.1k | **产品文案评审稿**（中英文案、设置页层级、SOFT/SLAB/SHARP/GLASS/PANEL/CARBON 命名） |
+| `docs/84-appearance-theme-shape-copy.md` | 9.1k | **产品文案评审稿**（中英文案、设置页层级、SOFT/SLAB/SHARP/GLASS/PANEL/CARBON 命名） |
 | `docs/PRDs/appearance-theme-shape.md` | 14k | 完整 PRD（含 i18n 字符串、设置面板 UI 规格、特性矩阵） |
 | `docs/shape-verification-record.md` | 4.8k | 验收记录（自动验证 / Designer Review / QA Review / 缺失边界） |
 | `docs/shape-visual-checklist.md` | 4.0k | 36 组 Windows WebView2 × 壁纸矩阵的人工验收清单 |
-| `changes/appearance-theme-shape/tasks.md` | 6.5k | OpenSpec 任务清单（同 STRATEGY 中 OpenSpec 流程） |
+| `docs/PRDs/appearance-theme-shape-tasks.md` | 6.5k | OpenSpec 任务清单（同 STRATEGY 中 OpenSpec 流程） |
 
 ### 2.3 验收状态（已自测通过）
 
@@ -100,7 +100,7 @@
 
 ### 2.4 边界 / 不变量
 
-来自 `docs/82-appearance-theme-shape-copy.md` 和 `docs/shape-verification-record.md`：
+来自 `docs/84-appearance-theme-shape-copy.md` 和 `docs/shape-verification-record.md`：
 
 - 形态不改变布局、字号、终端主题、字体
 - 缺字段 / 非法值默认回落 `soft`
@@ -218,11 +218,11 @@ git add web/theme/themeShapes.ts \
         web/theme/themeShapes.test.ts \
         web/theme/themeShapeCoverage.test.ts \
         web/theme/themeShapeCss.test.ts \
-        docs/82-appearance-theme-shape-copy.md \
+        docs/84-appearance-theme-shape-copy.md \
         docs/PRDs/appearance-theme-shape.md \
         docs/shape-verification-record.md \
         docs/shape-visual-checklist.md \
-        changes/appearance-theme-shape/tasks.md
+        docs/PRDs/appearance-theme-shape-tasks.md
 git commit -m "feat(theme): 配色与形态 - 6 种界面形态（soft/slab/sharp/glass/panel/carbon）"
 
 # 2. 推送到 zjkj 远程分支

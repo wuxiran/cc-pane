@@ -49,7 +49,7 @@ Change: `appearance-theme-shape`
 认知负荷：中。6 个配色加 6 个形态需要理解两个概念，但分区标题、职责说明和结构预览已将它们分开。
 错误/恢复：非法值和旧配置回落 Soft；“恢复默认形态”有完成 toast；背景模糊不可用时给出中性降级说明。
 反馈/愉悦：点击同帧更新形态，选中态同时使用边框、勾选和 `aria-pressed`。
-一致性：沿用当前 Settings、Button、toast、功能提示和设置导航模式，符合 `STRATEGY.md` 的外观层边界。
+一致性：沿用当前 Settings、Button、toast、功能提示和设置导航模式，符合 `docs/STRATEGY.md` 的外观层边界。
 
 Top 3 改动：
 

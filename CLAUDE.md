@@ -397,5 +397,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/81-abnormal-exit-session-recovery.md` | **异常退出会话的冷恢复**：旧 daemon 不支持安全认领时的「杀旧建新」人工入口——决策表 / 文案 / 验收标准（fail-closed 未破，只对 `claims-unsupported` 开放） |
 | `docs/82-provider-context-window.md` | **Provider 上下文窗口与用量修复**：模型行 `contextWindowTokens` + migration v30 + 窗口解析优先级（jsonl > provider 配置 > `WINDOW_UNKNOWN` 降级）；含 `--settings` 注入的两条待真机验证项 |
 | `docs/83-orca-gap-rescan-3.md` | **Orca 差距重扫第三轮**（0.11.13 基线）：六域约 70 项四态重判 + 55 号文档七大翻案（耐久层高估/休眠反转/gate 降压/Provider 反超）+ Top 5 抓手 + 早期时间线附录 |
+| `docs/84-appearance-theme-shape-copy.md` | 界面形态系统（Soft/Slab/Sharp/Glass/Panel/Carbon）产品文案评审稿；PRD 与任务清单见 `docs/PRDs/appearance-theme-shape*.md`，验收记录见 `docs/shape-verification-record.md` |
+| `docs/STRATEGY.md` | 产品战略：外观层边界 / 设置本地保存与跨版本兼容 / 桌面 Web 同模型（0.12.1 自仓库根迁入） |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
