@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.12.0 - 2026-08-07
+## 0.12.0-beta.1 - 2026-08-07
+
+> Beta 预发布：不进稳定版自动更新通道，手动下载试用。checkpoint 恢复链与 hidden 闸门需要 daemon 随包更新后才完整生效。
 
 Lifecycle release: the docs/78 five-batch tab-lifecycle rework lands in full, plus the M3b checkpoint+delta recovery unification. 100+ commits, three external review rounds, all gates green.
 

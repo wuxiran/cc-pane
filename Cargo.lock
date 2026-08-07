@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "cc-panes"
-version = "0.12.0"
+version = "0.12.0-beta.1"
 dependencies = [
  "anyhow",
  "arboard",
