@@ -1,6 +1,6 @@
 # 46 — Mac 打开含 Windows 路径的工作空间,启动 CLI 黑屏无报错
 
-> 状态:已定位待修(Worker G 执行依据,可与 docs/45 同 worker 顺做)。
+> 状态:**已修复并发布**(spawn 前 cwd 三态校验 `host_path.rs::validate_launch_cwd` + `PATH_PLATFORM_MISMATCH` 错误码 + 前端 launchError 面板,见 CHANGELOG)。本文保留为根因记录。
 
 ## 现象
 

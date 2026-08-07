@@ -87,11 +87,24 @@ pub fn run_with_timeout(
     args: &[String],
     timeout: Duration,
 ) -> Option<String> {
+    run_with_timeout_env(cmd, args, timeout, &[])
+}
+
+/// 同 `run_with_timeout`，附加环境变量注入（守卫/去干扰类 env）。
+pub fn run_with_timeout_env(
+    cmd: &std::path::Path,
+    args: &[String],
+    timeout: Duration,
+    envs: &[(&str, &str)],
+) -> Option<String> {
     let mut cmd = no_window_command(&cmd.to_string_lossy());
     cmd.args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .stdin(std::process::Stdio::null());
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
 
     let mut child = cmd.spawn().ok()?;
 
@@ -136,17 +149,85 @@ pub fn resolve_executable(executable: &str) -> Result<PathBuf> {
         }
     }
 
-    find_executable_in_dirs(
+    if let Some(found) = find_executable_in_dirs(
         executable,
         &candidate_executable_dirs(),
         &executable_extensions(),
-    )
-    .ok_or_else(|| {
-        anyhow!(
-            "{} CLI not found in PATH or common install locations",
-            executable
-        )
+    ) {
+        return Ok(found);
+    }
+
+    // 最后兜底：同步抓一次 login-shell PATH（进程级缓存，最多阻塞一次）。
+    // 覆盖首启无 cached_path 的窗口期与非白名单包管理器（macOS GUI 环境）。
+    #[cfg(not(windows))]
+    {
+        let extra_dirs = login_shell_path_dirs();
+        if !extra_dirs.is_empty() {
+            if let Some(found) =
+                find_executable_in_dirs(executable, extra_dirs, &executable_extensions())
+            {
+                return Ok(found);
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "{} CLI not found in PATH or common install locations",
+        executable
+    ))
+}
+
+/// login-shell PATH 的进程级缓存（失败也缓存空，整个进程最多阻塞一次）。
+///
+/// 只在 `resolve_executable` 白名单全部落空时才触发——即"本来就要报
+/// not found"的路径上，最坏多等一次 shell 启动（8s 超时兜底）。
+#[cfg(not(windows))]
+fn login_shell_path_dirs() -> &'static [PathBuf] {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<Vec<PathBuf>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        // 递归守卫：shell rc 里若有触发环境解析的钩子，此变量已置位
+        if std::env::var_os("CCPANES_RESOLVING_ENVIRONMENT").is_some() {
+            return Vec::new();
+        }
+        let shell = resolve_login_shell();
+        let output = run_with_timeout_env(
+            Path::new(&shell),
+            &["-ilc".to_string(), "echo $PATH".to_string()],
+            Duration::from_secs(8),
+            // 对齐 src-tauri 的 resolve_path_from_shell：防 rc 递归 + 防 tmux 劫持
+            &[
+                ("CCPANES_RESOLVING_ENVIRONMENT", "1"),
+                ("ZSH_TMUX_AUTOSTART", "false"),
+            ],
+        );
+        output.as_deref().map(split_path_dirs).unwrap_or_default()
     })
+}
+
+/// 从 shell 输出中提取 PATH 目录列表。
+///
+/// login shell 可能往 stdout 打招呼语/会话恢复提示（实战教训见 src-tauri
+/// 的 `sanitize_path_output`），取**最后一个**含路径分隔的非空行再拆分。
+#[cfg_attr(windows, allow(dead_code))] // 生产调用方在 cfg(not(windows)) 的兜底链路里
+fn split_path_dirs(raw: &str) -> Vec<PathBuf> {
+    let line = raw
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && line.contains('/'))
+        .unwrap_or("");
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for entry in line.split(':') {
+        if entry.is_empty() {
+            continue;
+        }
+        let dir = PathBuf::from(entry);
+        if !dirs.iter().any(|existing| existing == &dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs
 }
 
 /// 该路径能否被 `CreateProcessW` / `exec` 直接执行。
@@ -205,17 +286,12 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
             let nvm_dir = std::env::var_os("NVM_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join(".nvm"));
-            let nvm_versions = nvm_dir.join("versions").join("node");
-            if let Ok(entries) = std::fs::read_dir(nvm_versions) {
-                let mut node_bins = entries
-                    .flatten()
-                    .map(|entry| entry.path().join("bin"))
-                    .filter(|path| path.is_dir())
-                    .collect::<Vec<_>>();
-                node_bins.sort();
-                node_bins.reverse();
-                extend_unique_dirs(&mut dirs, node_bins);
-            }
+            extend_unique_dirs(
+                &mut dirs,
+                nvm_node_bin_dirs(&nvm_dir.join("versions").join("node")),
+            );
+
+            extend_unique_dirs(&mut dirs, extra_unix_tool_dirs(&home));
         }
 
         #[cfg(windows)]
@@ -265,6 +341,116 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
     );
 
     dedupe_existing_dirs(dirs)
+}
+
+/// 版本目录名比较（`v20.11.1` 风格），数字段按数值比。
+///
+/// 不能用字符串/PathBuf 字典序：`v9.x > v20.x`（'9' > '2'）会把"最新版"
+/// 挑成 v9，claude 装在 v20 时就找不到。非数字段退回字符串比较，缺段按 0。
+pub fn compare_version_dir_names(a: &str, b: &str) -> std::cmp::Ordering {
+    let normalize = |name: &str| -> Vec<String> {
+        name.trim_start_matches(['v', 'V'])
+            .split('.')
+            .map(str::to_string)
+            .collect()
+    };
+    let left = normalize(a);
+    let right = normalize(b);
+    let len = left.len().max(right.len());
+    for index in 0..len {
+        let l = left.get(index).map(String::as_str).unwrap_or("0");
+        let r = right.get(index).map(String::as_str).unwrap_or("0");
+        let ordering = match (l.parse::<u64>(), r.parse::<u64>()) {
+            (Ok(ln), Ok(rn)) => ln.cmp(&rn),
+            _ => l.cmp(r),
+        };
+        if ordering != std::cmp::Ordering::Equal {
+            return ordering;
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+/// nvm 版本目录下所有 `<version>/bin`，按版本**降序**（最新在前）。
+///
+/// 参数化 versions 目录路径以便 tempdir 测试；只返回真实存在的 bin 目录。
+pub fn nvm_node_bin_dirs(nvm_versions_dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(nvm_versions_dir) else {
+        return Vec::new();
+    };
+    let mut versions = entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    versions.sort_by(|a, b| {
+        let name_of = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned());
+        match (name_of(a), name_of(b)) {
+            (Some(an), Some(bn)) => compare_version_dir_names(&bn, &an),
+            _ => b.cmp(a),
+        }
+    });
+    versions
+        .into_iter()
+        .map(|version| version.join("bin"))
+        .filter(|bin| bin.is_dir())
+        .collect()
+}
+
+/// Unix 侧常见包管理器的安装目录（bun / pnpm / volta / asdf / fnm）。
+///
+/// 这些目录都靠 shell 配置才进 PATH，macOS GUI 环境拿不到；不做存在性
+/// 过滤（调用方各有过滤器：`dedupe_existing_dirs` / `append_sanitized_path_entry`）。
+pub fn extra_unix_tool_dirs(home: &Path) -> Vec<PathBuf> {
+    extra_unix_tool_dirs_with(
+        home,
+        std::env::var_os("PNPM_HOME").map(PathBuf::from),
+        std::env::var_os("FNM_DIR").map(PathBuf::from),
+    )
+}
+
+fn extra_unix_tool_dirs_with(
+    home: &Path,
+    pnpm_home: Option<PathBuf>,
+    fnm_dir: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        home.join(".bun").join("bin"),
+        home.join("Library").join("pnpm"),
+        home.join(".volta").join("bin"),
+        home.join(".asdf").join("shims"),
+    ];
+    if let Some(pnpm) = pnpm_home {
+        dirs.push(pnpm);
+    }
+    let fnm = fnm_dir.unwrap_or_else(|| home.join(".local").join("share").join("fnm"));
+    // fnm 的 node 实体在 node-versions/*/installation/bin，aliases/default 是稳定入口
+    dirs.push(fnm.join("aliases").join("default").join("bin"));
+    dirs.push(fnm);
+    dirs
+}
+
+/// login shell 解析：`$SHELL` 非空用之，缺失时按平台回落。
+///
+/// macOS 10.15+ 默认 shell 是 zsh——回落 `/bin/sh` 的话 `-ilc` 不读
+/// `~/.zprofile`/`~/.zshrc`，PATH 抓取等于白跑。
+pub fn resolve_login_shell() -> String {
+    login_shell_from(std::env::var("SHELL").ok().as_deref())
+}
+
+fn login_shell_from(env_shell: Option<&str>) -> String {
+    if let Some(shell) = env_shell {
+        if !shell.trim().is_empty() {
+            return shell.to_string();
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if Path::new("/bin/zsh").exists() {
+            return "/bin/zsh".to_string();
+        }
+    }
+    "/bin/sh".to_string()
 }
 
 fn extend_unique_dirs<I>(dirs: &mut Vec<PathBuf>, incoming: I)
@@ -1124,6 +1310,149 @@ mod redact_tests {
     fn keeps_short_plain_args() {
         assert_eq!(redact_cli_text_for_log("--resume"), "--resume");
         assert_eq!(redact_cli_text_for_log("read-only"), "read-only");
+    }
+}
+
+#[cfg(test)]
+mod path_resolution_tests {
+    use super::*;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn version_compare_is_numeric_not_lexicographic() {
+        assert_eq!(
+            compare_version_dir_names("v9.0.0", "v20.11.1"),
+            Ordering::Less
+        );
+        assert_eq!(
+            compare_version_dir_names("v20.9.0", "v20.11.1"),
+            Ordering::Less
+        );
+        assert_eq!(
+            compare_version_dir_names("v20.11.1", "v20.11.1"),
+            Ordering::Equal
+        );
+        assert_eq!(
+            compare_version_dir_names("18.0.0", "v9.9.9"),
+            Ordering::Greater
+        );
+        // 缺段按 0
+        assert_eq!(compare_version_dir_names("v20", "v20.0.0"), Ordering::Equal);
+    }
+
+    #[test]
+    fn version_compare_tolerates_non_numeric_names() {
+        // 畸形目录名不 panic，且有稳定序（非数字段退回字符串比较）
+        assert_eq!(
+            compare_version_dir_names("system", "system"),
+            Ordering::Equal
+        );
+        let _ = compare_version_dir_names("system", "v20.11.1");
+        let _ = compare_version_dir_names("v20.beta.1", "v20.0.1");
+    }
+
+    #[test]
+    fn nvm_bin_dirs_sorted_semver_descending_and_filtered() {
+        let versions = tempfile::tempdir().expect("versions dir");
+        for name in ["v9.0.0", "v20.11.1", "v20.9.0"] {
+            std::fs::create_dir_all(versions.path().join(name).join("bin")).expect("bin dir");
+        }
+        // 无 bin 子目录的版本要被过滤
+        std::fs::create_dir_all(versions.path().join("v1.0.0")).expect("binless version");
+
+        let bins = nvm_node_bin_dirs(versions.path());
+
+        let names: Vec<_> = bins
+            .iter()
+            .map(|bin| {
+                bin.parent()
+                    .and_then(|p| p.file_name())
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, ["v20.11.1", "v20.9.0", "v9.0.0"]);
+    }
+
+    #[test]
+    fn nvm_bin_dirs_missing_root_returns_empty() {
+        assert!(nvm_node_bin_dirs(Path::new("/definitely/not/here")).is_empty());
+    }
+
+    #[test]
+    fn extra_unix_tool_dirs_cover_common_package_managers() {
+        let home = Path::new("/home/tester");
+        let dirs = extra_unix_tool_dirs_with(home, None, None);
+        for expected in [
+            "/home/tester/.bun/bin",
+            "/home/tester/Library/pnpm",
+            "/home/tester/.volta/bin",
+            "/home/tester/.asdf/shims",
+        ] {
+            assert!(
+                dirs.iter().any(|d| d == Path::new(expected)),
+                "missing {expected} in {dirs:?}"
+            );
+        }
+        // fnm 默认位置 + aliases/default/bin 稳定入口
+        assert!(dirs
+            .iter()
+            .any(|d| d.ends_with(Path::new("fnm/aliases/default/bin"))
+                || d.ends_with(Path::new("fnm\\aliases\\default\\bin"))));
+    }
+
+    #[test]
+    fn extra_unix_tool_dirs_honor_env_overrides() {
+        let home = Path::new("/home/tester");
+        let dirs = extra_unix_tool_dirs_with(
+            home,
+            Some(PathBuf::from("/custom/pnpm")),
+            Some(PathBuf::from("/custom/fnm")),
+        );
+        assert!(dirs.iter().any(|d| d == Path::new("/custom/pnpm")));
+        assert!(dirs.iter().any(|d| d == Path::new("/custom/fnm")));
+        assert!(dirs
+            .iter()
+            .any(|d| d.starts_with("/custom/fnm") && d.ends_with("bin")));
+    }
+
+    #[test]
+    fn split_path_dirs_takes_last_pathlike_line_and_dedupes() {
+        // login shell 的招呼语/会话恢复提示要被跳过，取最后的 PATH 行
+        let raw = "Restored session: Wed Aug 6\nWelcome!\n/opt/homebrew/bin:/usr/bin:/opt/homebrew/bin:/usr/local/bin\n";
+        let dirs = split_path_dirs(raw);
+        assert_eq!(
+            dirs,
+            vec![
+                PathBuf::from("/opt/homebrew/bin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/usr/local/bin"),
+            ]
+        );
+        assert!(split_path_dirs("").is_empty());
+        assert!(split_path_dirs("banner only\n").is_empty());
+    }
+
+    #[test]
+    fn login_shell_prefers_env_then_platform_default() {
+        assert_eq!(
+            login_shell_from(Some("/usr/local/bin/fish")),
+            "/usr/local/bin/fish"
+        );
+        let fallback = login_shell_from(None);
+        let fallback_empty = login_shell_from(Some(""));
+        let fallback_blank = login_shell_from(Some("   "));
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(fallback, "/bin/zsh");
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(fallback, "/bin/sh");
+        }
+        assert_eq!(fallback_empty, fallback);
+        assert_eq!(fallback_blank, fallback);
     }
 }
 

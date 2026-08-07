@@ -613,6 +613,7 @@ fn force_webview_focus(window: &tauri::WebviewWindow) {
 
     // 层 2: 原生 ObjC（异步，通过事件循环）
     let _ = window.with_webview(|webview| unsafe {
+        use objc2::runtime::NSObjectProtocol;
         use objc2::MainThreadMarker;
         use objc2_app_kit::{NSApplication, NSWindow};
         use objc2_web_kit::WKWebView;
@@ -620,12 +621,24 @@ fn force_webview_focus(window: &tauri::WebviewWindow) {
         let wk_webview: &WKWebView = &*webview.inner().cast();
         let ns_window: &NSWindow = &*webview.ns_window().cast();
 
-        // with_webview 回调在主线程执行，可安全获取 MainThreadMarker
-        let mtm = MainThreadMarker::new().expect("with_webview callback must run on main thread");
+        // with_webview 回调应在主线程执行；万一不是，跳过原生焦点修复
+        // 而不是 panic（层 1 的 JS eval 仍然生效）
+        let Some(mtm) = MainThreadMarker::new() else {
+            eprintln!("[macos-focus] with_webview callback not on main thread; skip native focus");
+            return;
+        };
 
-        // 确保 app 激活 + 窗口为 key window
+        // 确保 app 激活 + 窗口为 key window。
+        // `-[NSApplication activate]`（无参）是 macOS 14+ 才有的 API，而
+        // minimumSystemVersion 声明 10.15；objc2 是运行时消息派发、没有编译期
+        // 可用性门禁，老系统直接 unrecognized selector 崩进程——必须运行时探测。
         let app = NSApplication::sharedApplication(mtm);
-        app.activate();
+        if app.respondsToSelector(objc2::sel!(activate)) {
+            app.activate();
+        } else {
+            #[allow(deprecated)]
+            app.activateIgnoringOtherApps(true);
+        }
         ns_window.makeKeyAndOrderFront(None);
 
         // 设置 firstResponder
@@ -926,7 +939,7 @@ fn recover_path_entry_from_noisy_segment(segment: &str) -> Option<&str> {
 /// Login shells can print status text to stdout (for example "Restored session: ...")
 /// before `echo $PATH`; keep only existing absolute directories and de-duplicate them.
 #[cfg(not(target_os = "windows"))]
-fn sanitize_path_output(raw: &str) -> Option<String> {
+pub(crate) fn sanitize_path_output(raw: &str) -> Option<String> {
     let stripped = strip_ansi_escapes(raw);
     let mut dirs: Vec<String> = Vec::new();
 
@@ -947,7 +960,7 @@ fn sanitize_path_output(raw: &str) -> Option<String> {
 
 /// 获取 PATH 缓存文件路径
 #[cfg(not(target_os = "windows"))]
-fn get_path_cache_file() -> String {
+pub(crate) fn get_path_cache_file() -> String {
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     home.join(crate::utils::APP_DIR_NAME)
         .join("cached_path")
@@ -1023,26 +1036,16 @@ fn build_fallback_path() -> String {
         append_sanitized_path_entry(&mut dirs, d);
     }
 
-    // nvm：找最新的 node 版本目录
+    // nvm：找最新的 node 版本目录（semver 感知，字典序会把 v9 挑赢 v20）
     let nvm_dir = std::env::var("NVM_DIR").unwrap_or_else(|_| format!("{home_str}/.nvm"));
     let nvm_versions = std::path::Path::new(&nvm_dir).join("versions/node");
-    if nvm_versions.is_dir() {
-        if let Ok(mut entries) = std::fs::read_dir(&nvm_versions) {
-            let mut latest: Option<std::path::PathBuf> = None;
-            while let Some(Ok(e)) = entries.next() {
-                let p = e.path();
-                if p.is_dir() {
-                    // 取字典序最大的版本（v20 > v18 等）
-                    if latest.as_ref().is_none_or(|l| p > *l) {
-                        latest = Some(p);
-                    }
-                }
-            }
-            if let Some(node_dir) = latest {
-                let bin = node_dir.join("bin");
-                append_sanitized_path_entry(&mut dirs, &bin.to_string_lossy());
-            }
-        }
+    if let Some(bin) = cc_cli_adapters::nvm_node_bin_dirs(&nvm_versions).first() {
+        append_sanitized_path_entry(&mut dirs, &bin.to_string_lossy());
+    }
+
+    // shell 配置才进 PATH 的包管理器目录（bun/pnpm/volta/asdf/fnm）
+    for d in cc_cli_adapters::extra_unix_tool_dirs(&home) {
+        append_sanitized_path_entry(&mut dirs, &d.to_string_lossy());
     }
 
     // 系统级目录
@@ -1074,7 +1077,9 @@ fn build_fallback_path() -> String {
 /// 后台刷新 PATH 缓存 + 更新当前进程 PATH
 #[cfg(not(target_os = "windows"))]
 fn refresh_path_cache(cache_file: &str) {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    // $SHELL 缺失时按平台回落（macOS → /bin/zsh，回落 /bin/sh 的话
+    // `-ilc` 不读 zsh 配置，抓出来的 PATH 还是残缺的）
+    let shell = cc_cli_adapters::resolve_login_shell();
     if let Some(path) = resolve_path_from_shell(&shell) {
         let _ = write_path_cache(cache_file, &path);
         unsafe {

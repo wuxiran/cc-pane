@@ -258,6 +258,21 @@ fn try_connect_manifest(manifest_path: &Path) -> Option<TerminalDaemonClient> {
     Some(client)
 }
 
+/// 合并两份 PATH（primary 优先、保序去重）。纯函数，供测试。
+#[cfg_attr(target_os = "windows", allow(dead_code))] // 生产调用方在 not(windows) 注入块里
+fn merge_path_entries(primary: &str, secondary: &str) -> String {
+    let mut entries: Vec<&str> = Vec::new();
+    for entry in primary.split(':').chain(secondary.split(':')) {
+        if entry.is_empty() {
+            continue;
+        }
+        if !entries.contains(&entry) {
+            entries.push(entry);
+        }
+    }
+    entries.join(":")
+}
+
 fn start_daemon_process(
     daemon_binary: &Path,
     app_paths: &AppPaths,
@@ -280,6 +295,20 @@ fn start_daemon_process(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+
+    // daemon 自身没有 PATH 修正逻辑，只能继承 spawn 时刻的环境。若 daemon 在
+    // 首启后台 shell 刷新完成之前被拉起，会永久带着残缺 fallback PATH——这里
+    // 把缓存 PATH（login shell 抓取的完整版）与当前进程 PATH 合并后显式注入。
+    #[cfg(not(target_os = "windows"))]
+    {
+        let cached = std::fs::read_to_string(crate::get_path_cache_file())
+            .ok()
+            .and_then(|raw| crate::sanitize_path_output(&raw));
+        if let Some(cached) = cached {
+            let current = std::env::var("PATH").unwrap_or_default();
+            command.env("PATH", merge_path_entries(&cached, &current));
+        }
+    }
 
     command.spawn().map_err(|error| {
         AppError::from(format!(
@@ -497,5 +526,17 @@ mod tests {
         let resolved = resolve_daemon_binary(Some(dir.path())).expect("resolved daemon");
 
         assert_eq!(resolved, daemon);
+    }
+
+    #[test]
+    fn merge_path_entries_prefers_primary_and_dedupes() {
+        assert_eq!(
+            merge_path_entries("/a:/b", "/b:/c"),
+            "/a:/b:/c",
+            "primary 顺序在前，重复项去掉"
+        );
+        assert_eq!(merge_path_entries("", "/x:/y"), "/x:/y");
+        assert_eq!(merge_path_entries("/x", ""), "/x");
+        assert_eq!(merge_path_entries("", ""), "");
     }
 }

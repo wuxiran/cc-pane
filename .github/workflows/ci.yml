@@ -44,7 +44,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        # macos 在列是刚性要求：src-tauri/src/lib.rs 有数百行
+        # #[cfg(target_os = "macos")]，没有它这些分支只在打 tag 发版时才第一次被编译
+        os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 

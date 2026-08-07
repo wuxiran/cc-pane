@@ -129,6 +129,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS 代码签名 + 公证（tauri-action 检测到即自动 codesign→notarize→staple；
+          # secrets 未配置时以下均为空，行为与未签名时完全一致——渐进启用）。
+          # 需要 Apple Developer 账号：APPLE_CERTIFICATE 为 Developer ID Application
+          # 证书 .p12 的 base64；公证走 App Store Connect API Key 三件套。
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
         with:
           tagName: v__VERSION__
           releaseName: "CC-Panes v__VERSION__"
@@ -141,16 +151,15 @@ jobs:
 
             由于应用未经 Apple 签名，macOS 可能提示"文件已损坏"或"无法验证开发者"。请使用以下任一方式解决：
 
-            **方式一：终端命令（推荐）**
+            **方式一：系统设置（全版本可用）**
+            先双击打开一次（会被拦截），然后打开"系统设置 → 隐私与安全性"，在底部找到被阻止的应用，点击"仍要打开"。
+
+            **方式二：终端命令**
             ```bash
             xattr -cr /Applications/CC-Panes.app
             ```
 
-            **方式二：右键打开**
-            在 Finder 中按住 Control 键点击（或右键点击）应用图标，选择"打开"，在弹出的对话框中点击"打开"。
-
-            **方式三：系统设置**
-            打开"系统设置 → 隐私与安全性"，在底部找到被阻止的应用，点击"仍要打开"。
+            > 注意：旧教程里的"右键 → 打开"绕过方式在 macOS 15 Sequoia 已被系统移除，请使用上面两种方式。
 
             ## Linux 安装说明
 
