@@ -166,7 +166,10 @@ jobs:
             ./cc-panes_*.AppImage
             ```
           releaseDraft: false
-          prerelease: false
+          # tag 含 `-`（如 v0.12.0-beta.1）自动标 prerelease：GitHub 的 releases/latest
+          # 排除 prerelease，稳定版用户的 updater（指向 latest/download/latest.json）
+          # 不会被推 beta——beta 只面向手动下载者。
+          prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
           args: ${{ matrix.args }}
 
